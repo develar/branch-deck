@@ -21,11 +21,11 @@
 
 // jscpd:ignore-start: every language module implements one `Spec` with the same vocabulary
 use crate::extract::{
-  Binder, Child, DeclRule, Holder, Inheritance, Inherited, LINE_COMMENT, Modality, Opens, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, Walk, binder, decl, function_decl, line_of,
-  type_decl,
+  Binder, CallArguments, Child, DeclRule, Holder, JvmFields, JvmHooks, LINE_COMMENT, Modality, Opens, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, Walk, binder, decl,
+  function_decl, line_of, type_decl,
 };
 use crate::language::Language;
-use crate::summary::{Argument, Constructor, DeclKind, MemberKind, Parameter, Reach, Role, Shape, Signature};
+use crate::summary::{Argument, Constructor, DeclKind, MemberKind, Parameter, Reach, Role, Signature};
 use tree_sitter::Node;
 // jscpd:ignore-end
 
@@ -183,7 +183,7 @@ pub(crate) static SPEC: Spec = Spec {
   traits,
   binds: |_| true,
   hoist: None,
-  inheritance: Some(Inheritance {
+  jvm: Some(JvmHooks {
     signature,
     overrides,
     supertypes,
@@ -281,10 +281,10 @@ fn class_parameter<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   let Some(name) = w.child(node, Child::Kind(&["simple_identifier"])) else { return true };
   let property = w.child(node, Child::Kind(&["binding_pattern_kind"])).is_some();
   // an `override val` of a local class overrides too
-  let inherited = if property {
-    w.inherit_member(node, name, DeclKind::Value)
+  let fields = if property {
+    w.member_jvm_fields(node, name, DeclKind::Value)
   } else {
-    Inherited::default()
+    JvmFields::default()
   };
   if !property || w.is_local() {
     w.bind_node(name);
@@ -298,7 +298,7 @@ fn class_parameter<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
     receiver: None,
     holder: Holder::Leaf,
   };
-  w.add_member(node, name, &traits, inherited);
+  w.add_declaration(node, name, &traits, fields);
   true
 }
 
@@ -688,8 +688,8 @@ fn delegated_body<'t>(w: &Walk<'t>, specifier: Node<'t>) -> Option<Node<'t>> {
 
 /// The arguments of a call or of a constructor invocation: those of `value_arguments` in order, a named one
 /// (`name = value`) with its name, a spread (`*items`, `name = *items`), and the trailing lambda of a call last;
-/// `foo {} {}` is a call of the call `foo {}`. The walk sets `enclosed`
-fn call_shape<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<Shape> {
+/// `foo {} {}` is a call of the call `foo {}`
+fn call_shape<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<CallArguments> {
   // a constructor invocation has its arguments in itself, a call in its suffix
   let suffix = if w.is(node, "constructor_invocation") {
     node
@@ -721,11 +721,7 @@ fn call_shape<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<Shape> {
   if w.child(suffix, Child::Kind(&["annotated_lambda"])).is_some() {
     arguments.push((None, Argument::Lambda));
   }
-  Some(Shape::Call {
-    arguments,
-    spread,
-    enclosed: false,
-  })
+  Some((arguments, spread))
 }
 
 /// What a value argument is: a string literal or template, an integer without a suffix (`-1` too), `true` or `false`,

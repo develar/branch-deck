@@ -384,8 +384,8 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   them in memory only (`PatchCache`), the files and the patch of a range from one `diff-tree`.
 - **Symbols** (`symbol_scan.rs`): source blobs by id from the `--raw --no-abbrev` of the commit diffs; one
   `cat-file --batch` of the directories above them at HEAD, one for the blobs the `blob_summary` cache misses and the
-  manifests; the declarations the range adds are the index, never the whole tree. The summaries of trial blobs (the
-  dangling-reference check) stay in memory, never in the object cache.
+  manifests; the declarations the range adds or changes are the index, never the whole tree. The summaries of trial
+  blobs (the dangling-reference check) stay in memory, never in the object cache.
 
 ### Adding a git operation
 An operation keeps one name across the layers (`git_ops::move_hunk`, `sync_core::move_hunk`, `bd move-hunk`). The `//!`

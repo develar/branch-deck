@@ -12,15 +12,15 @@
 //!   reference anywhere in that scope, and a declaration inside a function body is a local, not a declaration. A
 //!   binding is visible from its declaration to the end of its scope, except in TypeScript, where `let`, `const`,
 //!   `class` and `function` are visible in their whole block and `var` in its whole function (`Spec::hoist`).
-//! - **Overrides** (`Spec::inheritance`, Kotlin and Java): a class-like node, local or not, pushes its supertypes onto a
-//!   stack that its frame pops, and a function or a lambda pushes an empty list, so a member sees the supertypes of the
-//!   class it is directly in. A Kotlin `override` or Java `@Override` member is a `Role::Override` reference per
+//! - **Overrides** (`Spec::jvm`, Kotlin and Java): a class-like node, local or not, pushes its supertypes onto a
+//!   stack that its frame pops, and a function or a Kotlin lambda pushes an empty list, so a member sees the supertypes
+//!   of the class it is directly in. A Kotlin `override` or Java `@Override` member is a `Role::Override` reference per
 //!   supertype on top of the stack, with its parameter types as a `Shape::Override`.
 //! - **Calls** (`Spec::call_shape`, Kotlin and Java): a call gives the reference of its callee, through the mark of the
 //!   callee, a `Shape::Call` of its arguments. It is `enclosed` when the stack of supertypes is deeper than at the
-//!   declaration around it: a lambda, an anonymous function, an object expression, an anonymous class or a local
+//!   declaration around it: a Kotlin lambda or anonymous function, an object expression, an anonymous class or a local
 //!   declaration lies between them, each of which pushes onto it.
-//! - **Constructors** (`Inheritance::constructors`, Kotlin and Java): a class (not an interface, an object, an enum or
+//! - **Constructors** (`JvmHooks::constructors`, Kotlin and Java): a class (not an interface, an object, an enum or
 //!   an annotation) has the constructors its header declares, those its body adds (`Walk::add_constructor`: a Kotlin
 //!   secondary constructor, a Java constructor), and without any the implicit `()`, added when the walk is done. Those
 //!   of a class with a parse error in it, which may have swallowed one, are unknown. A
@@ -32,7 +32,7 @@
 //!   summary, unlike a wall-clock timeout. Either gives a `truncated` summary.
 
 use crate::language::Language;
-use crate::summary::{Constructor, DeclKind, Declaration, FileSummary, Import, ImportTarget, MemberKind, Reach, Reference, Role, Shape, Signature, TypeRef};
+use crate::summary::{Argument, Constructor, DeclKind, Declaration, FileSummary, Import, ImportTarget, MemberKind, Reach, Reference, Role, Shape, Signature, TypeRef};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::ControlFlow;
@@ -193,16 +193,19 @@ pub(crate) struct Spec {
   pub(crate) binds: fn(&str) -> bool,
   /// Binds the names visible in a whole scope before the walk enters it
   pub(crate) hoist: Option<for<'t> fn(&mut Walk<'t>, Node<'t>)>,
-  /// The hooks of a language whose members override those of their supertypes (Kotlin, Java)
-  pub(crate) inheritance: Option<Inheritance>,
+  /// The hooks of a JVM language (Kotlin, Java): signatures, overriding, supertypes and constructors
+  pub(crate) jvm: Option<JvmHooks>,
   /// The arguments of a call node (a `Rule::Call`, a `Rule::Member` of the role `Call`, a call of `Walk::give_call`),
-  /// for the reference of its callee; `None` when it says nothing of them
-  pub(crate) call_shape: Option<for<'t> fn(&mut Walk<'t>, Node<'t>) -> Option<Shape>>,
+  /// for the `Shape::Call` of the reference of its callee; `None` when it says nothing of them
+  pub(crate) call_shape: Option<for<'t> fn(&mut Walk<'t>, Node<'t>) -> Option<CallArguments>>,
 }
+
+/// The arguments of a call in source order, each with its name if it has one, and whether one spreads an array
+pub(crate) type CallArguments = (Vec<(Option<u32>, Argument)>, bool);
 
 /// What a declaration says about overriding, asked at the start of `Walk::declaration`, local or not, and by the
 /// language code that declares around it (a Kotlin constructor property), and the constructors of a class
-pub(crate) struct Inheritance {
+pub(crate) struct JvmHooks {
   /// The parameters of a function declaration
   pub(crate) signature: for<'t> fn(&mut Walk<'t>, Node<'t>) -> Option<Signature>,
   /// The modifiers of a function or property declaration
@@ -228,9 +231,9 @@ pub(crate) struct Modality {
   pub(crate) receiver: Option<u32>,
 }
 
-/// The fields of a `Declaration` that `Inheritance` fills
+/// The fields of a `Declaration` that `JvmHooks` fills
 #[derive(Debug, Default)]
-pub(crate) struct Inherited {
+pub(crate) struct JvmFields {
   signature: Option<Signature>,
   overrides: bool,
   overridable: bool,
@@ -822,7 +825,7 @@ impl<'t> Walk<'t> {
     };
     let qualifier = self.token_qualifier(text);
     let before = self.references.len();
-    self.push_reference(text, line_of(node), role, qualifier, shape);
+    self.reference(text, line_of(node), role, qualifier, shape);
     if let Some(tokens) = self.frames.len().checked_sub(2).and_then(|it| self.frames[it].tokens.as_mut()) {
       tokens.last = (self.references.len() > before).then_some(before);
     }
@@ -862,17 +865,15 @@ impl<'t> Walk<'t> {
       (_, role) => (role.unwrap_or_else(|| self.default_role(name_node)), None),
     };
     let qualifier = object.map(|object| self.qualifier_of(object));
-    self.push_reference(text, line_of(name_node), role, qualifier, shape);
+    self.reference(text, line_of(name_node), role, qualifier, shape);
   }
 
   /// The interned `Shape::Call` of the arguments of a call node, by the language's `Spec::call_shape`, `enclosed` by
   /// the walk
   fn call_shape(&mut self, node: Node<'t>) -> Option<u32> {
-    let mut shape = (self.spec.call_shape?)(self, node)?;
-    if let Shape::Call { enclosed, .. } = &mut shape {
-      *enclosed = self.enclosed();
-    }
-    Some(self.intern_shape(shape))
+    let (arguments, spread) = (self.spec.call_shape?)(self, node)?;
+    let enclosed = self.enclosed();
+    Some(self.intern_shape(Shape::Call { arguments, spread, enclosed }))
   }
 
   /// A type path, each name qualified by the names before it, which are types: the role and the shape of a mark go to
@@ -892,7 +893,7 @@ impl<'t> Walk<'t> {
       let qualifier = if segments.is_empty() { None } else { Some(self.qualifier_ids(&segments)) };
       if !matches!(mark, Some(Mark::Claimed)) {
         let (role, shape) = if index + 1 == names.len() { (role, shape) } else { (Role::Type, None) };
-        self.push_reference(text, line_of(child), role, qualifier, shape);
+        self.reference(text, line_of(child), role, qualifier, shape);
       }
       segments.push(text);
     }
@@ -924,7 +925,7 @@ impl<'t> Walk<'t> {
   fn declaration(&mut self, node: Node<'t>, rule: &DeclRule) {
     let index = self.frames.len() - 1;
     let leading = self.leading_now;
-    let mut inherited = self.inherit(node, rule);
+    let mut fields = self.jvm_fields(node, rule);
     if self.body_scopes > 0 {
       // a local declaration binds its name in the scope around it
       match rule.pattern.and_then(|it| self.child(node, it)) {
@@ -956,17 +957,17 @@ impl<'t> Walk<'t> {
     if let Some(traits) = traits {
       let spec = self.spec;
       // a parse error in a class may swallow a constructor: its constructors are unknown then
-      if let (Some(hooks), DeclKind::Type, Holder::Class, false) = (&spec.inheritance, traits.kind, traits.holder, node.has_error()) {
-        inherited.constructors = Some((hooks.constructors)(self, node, traits.reach));
+      if let (Some(hooks), DeclKind::Type, Holder::Class, false) = (&spec.jvm, traits.kind, traits.holder, node.has_error()) {
+        fields.constructors = Some((hooks.constructors)(self, node, traits.reach));
       }
       let mut first = rule
         .default_name
         .filter(|_| names.is_empty())
-        .map(|name| self.declare(node, node, name, &traits, leading, std::mem::take(&mut inherited)));
+        .map(|name| self.declare(node, node, name, &traits, leading, std::mem::take(&mut fields)));
       for name in names {
         if let Some(text) = self.text(name) {
           // a pattern of several names declares values: only the first name could take a signature or a supertype
-          let id = self.declare(node, name, text, &traits, leading, std::mem::take(&mut inherited));
+          let id = self.declare(node, name, text, &traits, leading, std::mem::take(&mut fields));
           first.get_or_insert(id);
         }
       }
@@ -1023,28 +1024,28 @@ impl<'t> Walk<'t> {
   /// What a declaration says about overriding, before the walk enters it, local or not: an override is an `Override`
   /// reference per supertype of the class-like node around it. Then it pushes the supertypes of the declarations
   /// directly in it: a class-like node its own, a function an empty list for its body.
-  fn inherit(&mut self, node: Node<'t>, rule: &DeclRule) -> Inherited {
+  fn jvm_fields(&mut self, node: Node<'t>, rule: &DeclRule) -> JvmFields {
     let spec = self.spec;
-    let Some(hooks) = &spec.inheritance else { return Inherited::default() };
+    let Some(hooks) = &spec.jvm else { return JvmFields::default() };
     let name = self.child(node, rule.name).and_then(|it| self.name_node(it));
-    let mut inherited = self.overriding(hooks, node, name, rule.kind);
+    let mut fields = self.overriding(hooks, node, name, rule.kind);
     match (hooks.supertypes)(self, node) {
       Some(supertypes) => {
         if rule.kind == DeclKind::Type {
-          inherited.supertypes.clone_from(&supertypes);
+          fields.supertypes.clone_from(&supertypes);
         }
         self.push_supertypes(supertypes);
       }
       None if rule.opens == Opens::Body => self.push_supertypes(Vec::new()),
       None => {}
     }
-    inherited
+    fields
   }
 
   /// The signature and the modifiers of a function or a property, and its `Override` references
-  fn overriding(&mut self, hooks: &Inheritance, node: Node<'t>, name: Option<Node<'t>>, kind: DeclKind) -> Inherited {
+  fn overriding(&mut self, hooks: &JvmHooks, node: Node<'t>, name: Option<Node<'t>>, kind: DeclKind) -> JvmFields {
     if !matches!(kind, DeclKind::Function | DeclKind::Value) {
-      return Inherited::default();
+      return JvmFields::default();
     }
     let modality = (hooks.overrides)(self, node);
     // a local function is no declaration: only the shape of an override needs its parameters
@@ -1056,11 +1057,11 @@ impl<'t> Walk<'t> {
     if let (true, Some(name)) = (modality.overrides, name) {
       self.override_references(name, kind == DeclKind::Function, modality.receiver, signature.as_ref());
     }
-    Inherited {
+    JvmFields {
       signature,
       overrides: modality.overrides,
       overridable: modality.overridable,
-      ..Inherited::default()
+      ..JvmFields::default()
     }
   }
 
@@ -1073,7 +1074,7 @@ impl<'t> Walk<'t> {
     let parameters = signature.map_or_else(Vec::new, |it| it.parameters.iter().map(|parameter| parameter.type_ref.clone()).collect());
     let shape = self.intern_shape(Shape::Override { function, receiver, parameters });
     for supertype in supertypes {
-      self.push_reference(text, line_of(name), Role::Override, Some(supertype), Some(shape));
+      self.reference(text, line_of(name), Role::Override, Some(supertype), Some(shape));
     }
   }
 
@@ -1087,7 +1088,7 @@ impl<'t> Walk<'t> {
     id
   }
 
-  fn declare(&mut self, node: Node<'t>, name_node: Node<'t>, name: &'t str, traits: &Traits, leading: Option<u32>, inherited: Inherited) -> u32 {
+  fn declare(&mut self, node: Node<'t>, name_node: Node<'t>, name: &'t str, traits: &Traits, leading: Option<u32>, fields: JvmFields) -> u32 {
     let name = self.intern(name);
     let start = row_line(node.start_position().row);
     let end_line = end_line_of(node);
@@ -1098,11 +1099,11 @@ impl<'t> Walk<'t> {
       receiver: traits.receiver,
       reach: traits.reach,
       member: traits.member,
-      signature: inherited.signature,
-      overrides: inherited.overrides,
-      overridable: inherited.overridable,
-      supertypes: inherited.supertypes,
-      constructors: inherited.constructors,
+      signature: fields.signature,
+      overrides: fields.overrides,
+      overridable: fields.overridable,
+      supertypes: fields.supertypes,
+      constructors: fields.constructors,
       start_line: leading.map_or(start, |it| it.min(start)),
       end_line,
       name_line: line_of(name_node),
@@ -1116,11 +1117,7 @@ impl<'t> Walk<'t> {
     id
   }
 
-  fn reference(&mut self, name: &'t str, line: u32, role: Role, qualifier: Option<Vec<u32>>) {
-    self.push_reference(name, line, role, qualifier, None);
-  }
-
-  fn push_reference(&mut self, name: &'t str, line: u32, role: Role, qualifier: Option<Vec<u32>>, shape: Option<u32>) {
+  fn reference(&mut self, name: &'t str, line: u32, role: Role, qualifier: Option<Vec<u32>>, shape: Option<u32>) {
     if name.is_empty() || self.spec.reserved.contains(&name) {
       return;
     }
@@ -1385,7 +1382,7 @@ impl<'t> Walk<'t> {
 
   /// A class that declares no constructor has the implicit `()`
   fn add_implicit_constructors(&mut self) {
-    let Some(hooks) = &self.spec.inheritance else { return };
+    let Some(hooks) = &self.spec.jvm else { return };
     for declaration in &mut self.declarations {
       if let Some(constructors) = declaration.constructors.as_mut().filter(|it| it.is_empty()) {
         constructors.push(Constructor {
@@ -1538,12 +1535,12 @@ impl<'t> Walk<'t> {
   pub(crate) fn emit(&mut self, node: Node<'t>, role: Role, qualifier: Option<Vec<u32>>) {
     self.claim(node);
     if let Some(text) = self.text(node) {
-      self.reference(text, line_of(node), role, qualifier);
+      self.reference(text, line_of(node), role, qualifier, None);
     }
   }
 
   pub(crate) fn emit_text(&mut self, text: &'t str, line: u32, role: Role, qualifier: Option<Vec<u32>>) {
-    self.reference(text, line, role, qualifier);
+    self.reference(text, line, role, qualifier, None);
   }
 
   pub(crate) fn ids(&mut self, path: &[&'t str]) -> Vec<u32> {
@@ -1571,7 +1568,7 @@ impl<'t> Walk<'t> {
       specifier: None,
       line,
     });
-    self.reference(name, name_line, Role::Import, (!path.is_empty()).then_some(path_ids));
+    self.reference(name, name_line, Role::Import, (!path.is_empty()).then_some(path_ids), None);
   }
 
   /// `import a.b.*`, `use a::b::*`
@@ -1600,23 +1597,19 @@ impl<'t> Walk<'t> {
       receiver: None,
       holder: Holder::Leaf,
     };
-    self.declare(node, name_node, name, &traits, None, Inherited::default());
+    self.declare(node, name_node, name, &traits, None, JvmFields::default());
   }
 
   fn member_kind_at_top(&self) -> MemberKind {
     if self.container().is_some() { MemberKind::Static } else { MemberKind::TopLevel }
   }
 
-  /// Declares a member from language code (a Java record component, a TypeScript parameter property)
-  pub(crate) fn add_declaration(&mut self, node: Node<'t>, name_node: Node<'t>, traits: &Traits) -> Option<u32> {
-    self.add_member(node, name_node, traits, Inherited::default())
-  }
-
-  /// Declares a member from language code with what `inherit_member` found (a Kotlin `val` constructor parameter)
-  pub(crate) fn add_member(&mut self, node: Node<'t>, name_node: Node<'t>, traits: &Traits, inherited: Inherited) -> Option<u32> {
+  /// Declares a member from language code with what `member_jvm_fields` found (a Kotlin `val` constructor parameter),
+  /// or with `JvmFields::default()` (a Java record component, a TypeScript parameter property)
+  pub(crate) fn add_declaration(&mut self, node: Node<'t>, name_node: Node<'t>, traits: &Traits, fields: JvmFields) -> Option<u32> {
     let name = self.text(name_node)?;
     self.claim(name_node);
-    Some(self.declare(node, name_node, name, traits, None, inherited))
+    Some(self.declare(node, name_node, name, traits, None, fields))
   }
 
   /// Adds a constructor that the body of the class around the current node declares (a Kotlin secondary constructor, a
@@ -1646,11 +1639,11 @@ impl<'t> Walk<'t> {
 
   /// What a member that language code declares says about overriding (a Kotlin `override val` constructor parameter,
   /// local or not), and its `Override` references
-  pub(crate) fn inherit_member(&mut self, node: Node<'t>, name_node: Node<'t>, kind: DeclKind) -> Inherited {
+  pub(crate) fn member_jvm_fields(&mut self, node: Node<'t>, name_node: Node<'t>, kind: DeclKind) -> JvmFields {
     let spec = self.spec;
-    match &spec.inheritance {
+    match &spec.jvm {
       Some(hooks) => self.overriding(hooks, node, Some(name_node), kind),
-      None => Inherited::default(),
+      None => JvmFields::default(),
     }
   }
 
@@ -1658,10 +1651,10 @@ impl<'t> Walk<'t> {
   /// supertypes are unknown, so its members override nothing
   pub(crate) fn declare_misread(&mut self, node: Node<'t>, name_node: Node<'t>, name: &'t str, traits: &Traits) -> u32 {
     let leading = self.leading_now;
-    if self.spec.inheritance.is_some() {
+    if self.spec.jvm.is_some() {
       self.push_supertypes(Vec::new());
     }
-    self.declare(node, name_node, name, traits, leading, Inherited::default())
+    self.declare(node, name_node, name, traits, leading, JvmFields::default())
   }
 
   /// Makes `supertypes` those whose members the declarations directly below the current node override, until the walk
@@ -1699,7 +1692,7 @@ impl<'t> Walk<'t> {
   /// parameter the language counted. `None` when a type parameter is in it, one of the function's (`type_parameters`) or
   /// one bound around it (of the class), or when it has no names: such a type matches any.
   pub(crate) fn type_ref(&mut self, node: Node<'t>, nullable: bool, arrays: u8, type_parameters: &[&'t str]) -> Option<TypeRef> {
-    let primitives = self.spec.inheritance.as_ref().map_or(&[][..], |it| it.primitives);
+    let primitives = self.spec.jvm.as_ref().map_or(&[][..], |it| it.primitives);
     let mut names = Vec::new();
     let mut stack = vec![node];
     while let Some(node) = stack.pop() {

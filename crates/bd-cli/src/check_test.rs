@@ -477,8 +477,8 @@ fn an_override_of_another_branchs_overload_is_a_missing_declaration() {
       "identifier": "buttons",
       "file": MANAGER_TEST,
       "line": 7,
-      "used_by": short(&overrides),
-      "declared_by": short(&declares),
+      "used_by": short_id(&overrides),
+      "declared_by": short_id(&declares),
       "declared_in": "abc",
       "evidence": "override",
     }])

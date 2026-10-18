@@ -28,8 +28,11 @@ Date: 2026-10-18
 A commit that calls a function another commit added in another file merges cleanly into a branch without that commit,
 and the branch fails only when it is compiled. The line dependencies don't see it. Branch Deck reads the source files
 the commits change with tree-sitter (Kotlin, Java, Rust, TypeScript and JavaScript), and a commit that uses a name
-another commit of the range adds, with evidence that the use means that declaration, depends on it by symbols. Such an
-edge orders branches; it never joins them. See [Symbol Dependencies](../../docs/design/symbol-dependencies.md).
+another commit of the range adds, with evidence that the use means that declaration, depends on it by symbols. An
+override of a member another commit adds, a call of the overload its arguments select, and a use that only a new form of
+a member or a constructor accepts (a wider reach, `open`, a default, a new or renamed parameter) count as uses of that
+commit's declaration. Such an edge orders branches; it never joins them. See [Symbol
+Dependencies](../../docs/design/symbol-dependencies.md).
 
 ## Goals
 
@@ -88,7 +91,7 @@ edge orders branches; it never joins them. See [Symbol Dependencies](../../docs/
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_class_knows_its_constructors`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`a_class_knows_its_constructors`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
-- The dangling-reference check must take the line of an `override` member for no use of its name: it declares one.
+- The dangling-reference check must take the name of an `override` member for no use: it declares one.
   [@test] ../../crates/sync-core/src/dangling_references_test.rs (`an_override_line_is_no_use`)
 - A rule must name only node kinds its grammar has.
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_spec_kind_exists_in_its_grammar`)
@@ -110,9 +113,9 @@ edge orders branches; it never joins them. See [Symbol Dependencies](../../docs/
 ### Edges
 
 - A commit must depend on an older one by symbols when a reference on its added lines means a declaration that commit
-  adds, with evidence: an import or alias of it, its qualified name or `Type.member` with a resolved type, the same
-  file, the same Rust module, a wildcard import of its package or module for a type, or a type of the same JVM package
-  in the same module.
+  adds, or a form of it that commit gives (see the entries below), with evidence: an import or alias of it, its
+  qualified name or `Type.member` with a resolved type, the same file, the same Rust module, a wildcard import of its
+  package or module for a type, or a type of the same JVM package in the same module.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_kotlin_import_of_a_function_another_commit_adds_is_an_edge`, `a_java_member_by_its_class_and_a_static_import_are_edges`, `a_rust_use_of_a_crate_path_and_a_path_of_another_crate_are_edges`, `a_typescript_import_by_a_relative_path_or_an_alias_is_an_edge`)
 - A call of a function of the same package without an import must be no edge, nor a type of the same package in
   another module.
@@ -124,6 +127,13 @@ edge orders branches; it never joins them. See [Symbol Dependencies](../../docs/
   imports (`UI`) or that another file of its package declares (`JBUI`); a name in small letters, an imported one too,
   is a value.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_name_qualified_by_another_type_is_no_use_of_a_member_of_its_own_file`, `a_value_in_capitals_is_no_other_type`)
+- In the same file, a Kotlin extension (a declaration with an extension receiver) must be a use only by a bare name,
+  `this.name` or `super.name`, of every key, one the range adds too: a call or reference on a local, an expression or
+  a name (`prompt.openGlobalPrompt(frame)` on a `val prompt = AirComposerInIdeDriver(…)` beside a
+  `fun AirAuthoredScope.openGlobalPrompt()`) must be no use of it, since a member of the receiver's type wins over an
+  extension and only a compiler knows that type. A bare call in a lambda or a function with the extension's receiver
+  as `this` (`with(scope) { openGlobalPrompt() }`) stays a use.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`an_extension_called_on_a_local_in_its_file_is_no_edge`)
 - In the same file, a private member must be a use only where the compiler lets the file see it, in every form: in
   Java the whole top-level class, nested classes included, for a qualified use (`Inner.helper()`), but only its own
   type for a bare name, `this.name` or `super.name`, which outside it mean a member of the class around it (its own
@@ -156,7 +166,7 @@ edge orders branches; it never joins them. See [Symbol Dependencies](../../docs/
   created it or changed its form, one entry removed and one added by a commit being the same entry in a new form. An
   override must depend on what each entry it may mean needs: the commit of the latest form of the entry that the form
   before didn't accept, with the commits back along the forms of the entry to its creation. It must depend on the
-  newest commit that all of them need, and on none when that is the baseline or its own commit, or when they need no
+  newest commit before its own that all of them need, and on none when that is the baseline or when they need no
   commit in common: a new overload of a name the type had is an addition, an override of an overload of the baseline
   is no edge, and two overloads of a new file are both entries. A use of a function that tells no overloads apart (a
   call of a member of a type with a supertype other than `Any` or `Object`) must depend on the commit that added the
@@ -197,7 +207,8 @@ edge orders branches; it never joins them. See [Symbol Dependencies](../../docs/
   renamed parameter by position, a call of a member made `open`, the inner class from its package or module, an
   override of a member that stopped overriding, also in a Java class that dropped its supertype). A step must need
   the commits back along the forms of its entry too: a call that two overloads of one commit accept, one of them in a
-  form a later commit gave it, must depend on the first. An older form must be no stricter than the compiler: a
+  form a later commit gave it, must depend on the first, and a call that only the form its own commit gives accepts
+  on the older commit of that entry whose parameter it passes. An older form must be no stricter than the compiler: a
   private member must reach the whole top-level class in Java, nested classes included, for a bare name too, and in
   Kotlin the class around a nested object or a companion (one with a name of its own included, which the summary
   doesn't tell from a nested object); an `internal` one must reach a file whose module no build file tells. An import
@@ -208,7 +219,7 @@ edge orders branches; it never joins them. See [Symbol Dependencies](../../docs/
   the step whose reach let it in. A top-level function or property must have no forms, only presence. An extension of
   another file (`fun Panes.helper()`, `val Panes.size`) may take a use while the member of its name is private; that
   is a known limit, no check rules it out.
-  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_parameter_added_later_keeps_the_edge_of_a_call_both_forms_accept`, `a_call_that_needs_the_new_parameter_is_an_edge_to_the_commit_that_adds_it`, `a_new_default_or_vararg_is_an_edge_for_a_call_that_needs_it`, `a_renamed_parameter_is_an_edge_for_a_call_by_its_new_name`, `a_changed_body_is_no_new_form`, `a_widened_member_is_an_edge_for_a_use_the_old_reach_forbids`, `a_widened_member_of_a_type_with_supertypes_is_no_edge_for_a_call`, `an_older_form_is_judged_as_static_as_the_entry_is_now`, `an_older_form_is_judged_as_overriding_as_the_entry_is_now`, `a_new_form_needs_the_commit_that_created_its_entry`, `an_older_private_form_reaches_the_top_level_java_class_and_the_class_around_a_nested_kotlin_object`, `an_internal_older_form_reaches_a_file_of_an_unknown_module`, `an_import_of_a_member_of_a_type_without_supertypes_is_judged_by_its_reach`, `a_member_made_open_is_an_edge_for_an_override_only`, `a_changed_form_of_a_top_level_function_or_property_is_no_edge`)
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_parameter_added_later_keeps_the_edge_of_a_call_both_forms_accept`, `a_call_that_needs_the_new_parameter_is_an_edge_to_the_commit_that_adds_it`, `a_new_default_or_vararg_is_an_edge_for_a_call_that_needs_it`, `a_renamed_parameter_is_an_edge_for_a_call_by_its_new_name`, `a_changed_body_is_no_new_form`, `a_widened_member_is_an_edge_for_a_use_the_old_reach_forbids`, `a_widened_member_of_a_type_with_supertypes_is_no_edge_for_a_call`, `an_older_form_is_judged_as_static_as_the_entry_is_now`, `an_older_form_is_judged_as_overriding_as_the_entry_is_now`, `a_new_form_needs_the_commit_that_created_its_entry`, `a_use_of_a_form_its_own_commit_gives_needs_the_older_steps_of_the_entry`, `an_older_private_form_reaches_the_top_level_java_class_and_the_class_around_a_nested_kotlin_object`, `an_internal_older_form_reaches_a_file_of_an_unknown_module`, `an_import_of_a_member_of_a_type_without_supertypes_is_judged_by_its_reach`, `a_member_made_open_is_an_edge_for_an_override_only`, `a_changed_form_of_a_top_level_function_or_property_is_no_edge`)
 - In the file of a key that was there before the range, a use must mean it only where it can mean only a member of its
   type: a bare name, `this` or `super` whose innermost type (an enum entry's body counts as one) is that type, in no
   enclosed call (`buildList { add(0, item) }`, `apply { this.add(0, item) }`, an object expression, a Java anonymous
@@ -253,30 +264,37 @@ edge orders branches; it never joins them. See [Symbol Dependencies](../../docs/
   name (`Outer.Inner(…)`, `new Outer.Inner(…)`) must tell its constructors apart as one of a top-level type. A type the
   range adds must keep the edge of every use that it or one of its constructors accepts, and of a call where the range
   adds a function of its name that accepts it, which no evidence links from another file of the package. A commit of
-  whose sides one knows the constructors of a type and the other doesn't (a parse error in the class) must change none
-  of its entries.
+  whose sides one knows the constructors of a type and the other doesn't (a parse error in the class) must make no
+  step of its constructors (see the clean sides below).
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_constructor_call_that_needs_a_new_parameter_is_an_edge`, `a_supertype_constructor_call_with_a_new_named_argument_is_an_edge`, `a_type_reference_is_no_edge_for_a_new_constructor_parameter`, `a_call_both_constructors_accept_is_no_edge`, `a_java_new_that_only_a_new_constructor_accepts_is_an_edge`, `an_implicit_constructor_takes_no_arguments`, `a_widened_type_is_an_edge_for_a_use_the_old_reach_forbids`, `a_widened_constructor_is_an_edge_for_a_call_the_old_reach_forbids`, `an_internal_constructor_of_no_known_module_takes_a_call`, `a_kotlin_call_that_a_function_of_its_name_may_take_is_no_edge`, `a_call_through_a_wildcard_import_needs_only_the_type`, `a_call_of_a_nested_class_that_needs_a_new_parameter_is_an_edge`, `a_new_type_keeps_its_edges_for_calls_and_type_positions`, `a_call_that_a_function_of_the_name_of_a_new_type_may_take_needs_the_type`, `a_class_with_a_parse_error_in_it_is_no_step_of_its_constructors`)
 - A top-level function or property of the name of a type (a factory `fun Foo(): Foo`) must share its key and stay
-  only present or absent beside the entries of the type: a commit that adds or removes it must keep the type's
-  entries, one that changes the type must keep its entries, and one that removes the type from its file must remove
-  the type's entries though the function keeps the key. It may take a call of the name that its parameters accept,
-  judged as an `invoke` of the companion by the arguments that tell the constructors apart: a call that a constructor
-  and such a function accept must depend on what both need, one that only the function accepts on the function's
-  commit, also from another file of the package, which only the type links, and one that it rejects (a parameter a
-  commit adds to the constructor, passed by name) on what the constructors need. No type position means it. A type of
-  the baseline that the range doesn't change is no entry, so such a call from another file of the package has no
-  evidence; that is a known limit.
-  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_factory_function_and_its_type_share_a_key_without_losing_either`, `a_type_removed_beside_a_function_of_its_name_leaves_no_entries`, `a_function_of_the_name_of_a_type_takes_only_a_call_its_parameters_accept`)
+  only present or absent beside the entries of the type, in the type's file too: a commit that adds or removes it must
+  keep the type's entries, one that changes the type must keep its entries, and one that removes the type from its
+  file must remove the type's entries though the function keeps the key. It may take a call of the name that its
+  parameters as its file has them now accept, judged as an `invoke` of the companion by the arguments that tell the
+  constructors apart: a call that a constructor and such a function accept must depend on what both need, one that
+  only the function accepts on the function's commit, also from another file of the package, which only the type
+  links, and one that it rejects (a parameter a commit adds to the constructor, passed by name) on what the
+  constructors need. Only a function that the use sees may take the call: by an import, its qualified name or its
+  file, or of the package in the use's module where its reach lets it in, never a private one of another file, one of
+  another module or language, nor any for a Java `new`. No type position means it. A type of the baseline that the
+  range doesn't change is no entry, so such a call from another file of the package has no evidence; that is a known
+  limit.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_factory_function_and_its_type_share_a_key_without_losing_either`, `a_type_removed_beside_a_function_of_its_name_leaves_no_entries`, `a_function_of_the_name_of_a_type_takes_only_a_call_its_parameters_accept`, `a_function_of_the_name_of_a_type_comes_and_goes_beside_it`, `a_function_of_the_name_of_a_type_takes_a_call_by_its_parameters_now`, `a_function_of_the_name_of_a_type_that_the_use_does_not_see_takes_no_call`)
 - The key of a top-level function must hold the entries of each file of the range that adds it, so that a call of an
-  overload two files add is no edge; a removal must drop the entries of its file only.
-  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`top_level_overloads_in_two_files_are_both_entries`)
+  overload two files add is no edge; the entries must follow their declarations to the file a commit renames or moves
+  them to, each with its origin to a declaration of its identity, so that such a call stays no edge when a commit
+  moves both overloads into one file; where the parser can't read the declarations there (a degraded file, a parse
+  error), the entries must keep their forms and origins in that file until a commit reads it again; and a removal must
+  drop the entries of its file only, also the removal of an overload of the baseline.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`top_level_overloads_in_two_files_are_both_entries`, `a_removal_of_a_top_level_function_drops_the_entries_of_its_file_only`, `overloads_a_move_brings_into_one_file_keep_their_origins`, `entries_go_with_their_file_into_a_version_the_parser_cannot_read`)
 - The entries of a key must change only by clean sides: when a side of a file that declares the key is degraded, a
   declaration of the key on either side is inside a parse error, or two declarations of one side are the same entry
   (two constructors of a type included), the key must only be present or absent, as a top-level function, a Rust or a
-  TypeScript key always is. So must a type whose constructors one side of a commit knows and the other doesn't, and a
-  type the range adds must then lose the constructors it has, which might miss what the commit gave them, and take any
-  call, also from its first commit; a constructor that a later commit on clean sides finds must be as old as the type,
-  which it needs.
+  TypeScript key always is, and so must a type whose constructors one side of a commit knows and the other doesn't; a
+  type then loses the constructors the range gave it, which might miss what the commit gave them, and takes any call,
+  also from its first commit; a constructor that a later commit on clean sides finds must be as old as the type, which
+  it needs.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_before_side_in_error_changes_no_state`, `an_entry_is_its_parameter_types_with_their_arrays`, `constructors_the_summary_cannot_tell_apart_are_no_form`, `a_type_whose_sides_a_commit_cannot_match_takes_any_call`, `a_constructor_that_comes_while_its_type_takes_any_call_is_as_old_as_the_type`)
 - A commit that removes a declaration must depend on the older commits that removed its uses, an override of it
   included.

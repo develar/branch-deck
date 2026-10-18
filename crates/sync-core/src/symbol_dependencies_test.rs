@@ -113,6 +113,26 @@ impl Range {
     self
   }
 
+  /// A commit that renames `from` to `to` and gives it `content` (git's `R` status)
+  fn rename(&mut self, from: &str, to: &str, content: &str) -> &mut Self {
+    let before = self.files.remove(from).unwrap();
+    let change = FileChange {
+      status: 'R',
+      path: to.to_string(),
+      old_path: Some(from.to_string()),
+      additions: 0,
+      deletions: 0,
+      binary: false,
+      old_blob: Some(self.blob(from, &before)),
+      new_blob: Some(self.blob(to, content)),
+      hunks: hunks(&before, content),
+    };
+    self.files.insert(to.to_string(), content.to_string());
+    let id = format!("c{}", self.commits.len());
+    self.commits.push(CommitDiff { id, files: vec![change] });
+    self
+  }
+
   /// The files as they are before the range
   fn baseline(&mut self, files: &[(&str, &str)]) -> &mut Self {
     self.files.extend(files.iter().map(|(path, content)| ((*path).to_string(), (*content).to_string())));
@@ -911,6 +931,36 @@ fn a_call_on_another_receiver_in_the_same_file_is_no_edge() {
   );
 }
 
+/// In the file of a Kotlin extension a call on a local, an expression or a name is no use of it, also of a key the
+/// range adds: `prompt.openGlobalPrompt(frame)` on a `val prompt = AirComposerInIdeDriver(…)` means the member of that
+/// type, which wins over the extension `AirAuthoredScope.openGlobalPrompt` beside it. A bare call or `this` with the
+/// extension's receiver as `this`, in a lambda of `with(scope)` or in an extension of the receiver, is a use of it
+#[test]
+fn an_extension_called_on_a_local_in_its_file_is_no_edge() {
+  let settings = |body: &str, more: &str| {
+    format!(
+      "package p\n\nimport bridge.AirComposerInIdeDriver\n\ninternal fun AirAuthoredScope.launchModelChip(): Int = 1\n\ninternal suspend fun AirAuthoredScope.openGlobalPrompt(frame: AirUiTestFrameScope? = null): AirComposerInIdeDriver {{\n  val prompt = AirComposerInIdeDriver(bridges)\n{body}  return prompt\n}}\n{more}"
+    )
+  };
+  let body = "  prompt.openGlobalPrompt(frame)\n";
+  let reopen = "\ninternal suspend fun AirAuthoredScope.reopenGlobalPrompt() {\n  val driver = AirComposerInIdeDriver(bridges)\n  driver.openGlobalPrompt()\n}\n";
+  let lambda = "\ninternal suspend fun relaunch(scope: AirAuthoredScope) = with(scope) { openGlobalPrompt() }\n";
+  let this_call = "\ninternal suspend fun AirAuthoredScope.reload() = this.openGlobalPrompt()\n";
+  let path = "air/src/p/AirAuthoredLaunchSettings.kt";
+  let mut range = Range::default();
+  range
+    .baseline(&[(
+      "air/src/bridge/AirComposerInIdeDriver.kt",
+      "package bridge\n\nclass AirComposerInIdeDriver(bridges: Any) {\n  suspend fun openGlobalPrompt(frame: Any? = null) {}\n}\n",
+    )])
+    .commit(&[(path, Some(&settings("", "")))])
+    .commit(&[(path, Some(&settings(body, reopen)))])
+    .commit(&[(path, Some(&settings(body, &format!("{reopen}{lambda}"))))])
+    .commit(&[(path, Some(&settings(body, &format!("{reopen}{lambda}{this_call}"))))]);
+  let same_file = || vec![link("openGlobalPrompt", Evidence::SameFile)];
+  assert_eq!(edges(&range.in_modules(&["air"])), [(2, 0, same_file()), (3, 0, same_file())]);
+}
+
 /// In the file of a key of the baseline a bare name or `this` means a member of its type only where nothing the file
 /// doesn't show may take the call first: the receiver of a lambda (`buildList`'s, `apply`'s) or of an object
 /// expression, the extension receiver of a member extension function or of the getter of a member extension property
@@ -1151,6 +1201,140 @@ fn top_level_overloads_in_two_files_are_both_entries() {
     .commit(&[("impl/src/p/B.kt", None)])
     .commit(&[("impl/src/q/Later.kt", Some(&use_of("later")))]);
   assert_eq!(edges(&range.in_modules(&["impl"])), [(4, 0, vec![link("paneOf", Evidence::Import)])]);
+}
+
+/// A removal of a top-level function drops the entries of its file only, also when it removes an overload of the
+/// baseline: a call of the overload that another file of the range adds keeps its edge. The entries follow their
+/// declarations to the file that a commit renames or moves them to, so a removal there drops them, and a later call of
+/// the name is no edge, while without the removal it needs the commit that added the function
+#[test]
+fn a_removal_of_a_top_level_function_drops_the_entries_of_its_file_only() {
+  let call = ("impl/src/q/Use.kt", Some("package q\n\nimport p.helper\n\nfun use() = helper(1)\n"));
+  let helpers = |more: &str| format!("package p\n\nfun keep() = 0\n{more}\nfun last() = 9\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[("impl/src/p/B.kt", &helpers("\nfun helper(s: String) = s\n"))])
+    .commit(&[("impl/src/p/A.kt", Some("package p\n\nfun helper(x: Int) = x\n"))])
+    .commit(&[("impl/src/p/B.kt", Some(&helpers("")))])
+    .commit(&[call]);
+  let import = || vec![link("helper", Evidence::Import)];
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(2, 0, import())]);
+
+  let (from, to, with_helper) = ("impl/src/p/A.kt", "impl/src/p/M.kt", helpers("\nfun helper(x: Int) = x\n"));
+  let graph = |moved: bool, removed: bool| {
+    let mut range = Range::default();
+    range.commit(&[(from, Some(&with_helper))]);
+    if moved {
+      range.commit(&[(from, Some(&helpers(""))), (to, Some(&with_helper))]);
+    } else {
+      range.rename(from, to, &with_helper);
+    }
+    if removed {
+      range.commit(&[(to, Some(&helpers("")))]);
+    } else {
+      range.commit(&[("impl/src/p/Other.kt", Some("package p\n\nfun other() = 1\n"))]);
+    }
+    range.commit(&[call]);
+    range.in_modules(&["impl"])
+  };
+  for moved in [false, true] {
+    let kept = graph(moved, false);
+    assert_eq!(edges(&kept), [(3, 0, import())]);
+    assert_eq!(kept.edges[0].links[0].declared_in, to);
+    assert_eq!(edges(&graph(moved, true)), []);
+  }
+}
+
+/// The entries of a top-level function follow their declarations one by one, each to one of its identity with its
+/// origin: a commit that moves the overloads of two files into one leaves a call that may mean either ambiguous, as
+/// it is without the move, also after a later edit of that file, and one that only the public overload takes needs the
+/// commit of that overload, wherever the move puts it and whatever signature a later commit gives it, while the
+/// overloads of one commit keep its edge
+#[test]
+fn overloads_a_move_brings_into_one_file_keep_their_origins() {
+  let pad = |body: &str| format!("package p\n\nfun first() = 0\n\n{body}\n\nfun last() = 9\n");
+  let (a, b, c) = ("impl/src/p/A.kt", "impl/src/p/B.kt", "impl/src/p/C.kt");
+  let (int, text, empty) = (pad("fun helper(x: Int) = x"), pad("fun helper(s: String) = s"), pad(""));
+  let both = pad("fun helper(x: Int) = x\n\nfun helper(s: String) = s");
+  let edited = format!("{both}\nfun more() = 1\n");
+  let call = ("impl/src/q/Use.kt", Some("package q\n\nimport p.helper\n\nfun use() = helper(\"x\")\n"));
+  let other = ("impl/src/p/Other.kt", Some("package p\n\nfun other() = 1\n"));
+  let merge = [(a, Some(empty.as_str())), (b, Some(&empty)), (c, Some(&both))];
+  let graph = |commits: &[&[(&str, Option<&str>)]]| {
+    let mut range = Range::default();
+    for files in commits {
+      range.commit(files);
+    }
+    range.in_modules(&["impl"])
+  };
+  let (add_int, add_text) = ([(a, Some(int.as_str()))], [(b, Some(text.as_str()))]);
+  assert_eq!(edges(&graph(&[&add_int, &add_text, &[other], &[call]])), []);
+  assert_eq!(edges(&graph(&[&add_int, &add_text, &merge, &[call]])), []);
+  assert_eq!(edges(&graph(&[&add_int, &add_text, &merge, &[(c, Some(&edited))], &[call]])), []);
+  let private = pad("fun helper(s: String) = s\n\nprivate fun helper(x: Int) = x");
+  let public_one = [merge[0], merge[1], (c, Some(private.as_str()))];
+  let import = || vec![link("helper", Evidence::Import)];
+  assert_eq!(edges(&graph(&[&add_int, &add_text, &public_one, &[call]])), [(3, 1, import())]);
+  let changed = pad("fun helper(s: CharSequence) = s\n\nprivate fun helper(x: Int) = x");
+  assert_eq!(edges(&graph(&[&add_int, &add_text, &public_one, &[(c, Some(&changed))], &[call]])), [(4, 1, import())]);
+
+  let one_commit = graph(&[&[add_int[0], add_text[0]], &merge, &[(c, Some(&edited))], &[call]]);
+  assert_eq!(edges(&one_commit), [(3, 0, import())]);
+  assert_eq!(one_commit.edges[0].links[0].declared_in, c);
+}
+
+/// The entries of a top-level function go with their file where a commit renames it, or with their declaration where
+/// it moves it, also when the parser can't read the file there (degraded, a parse error in the declaration, one that
+/// swallows the declaration): they keep their form and origin there until a commit reads the file again, so a later
+/// removal from it drops them and a call of the name is no edge, while without the removal it needs the commit that
+/// added the function
+#[test]
+fn entries_go_with_their_file_into_a_version_the_parser_cannot_read() {
+  let call = ("impl/src/q/Use.kt", Some("package q\n\nimport p.helper\n\nfun use() = helper(1)\n"));
+  let other = ("impl/src/p/Other.kt", Some("package p\n\nfun other() = 1\n"));
+  let (from, to) = ("impl/src/p/A.kt", "impl/src/p/B.kt");
+  let small = |body: &str| format!("package p\n\nfun first() = 0\n\n{body}\n\nfun last() = 9\n");
+  // a parse error of a few bytes leaves a large file readable
+  let large = |body: &str| format!("package p\n\n// {}\n\nfun first() = 0\n\n{body}\n", "padding ".repeat(80));
+  // the file without the function, with it, a version the parser can't read, and how: degraded, and the declaration
+  // in error or swallowed
+  let versions = [
+    (
+      small(""),
+      small("fun helper(x: Int) = x"),
+      small("fun helper(x: Int) = x\n\nfun broken( = "),
+      (true, Some(false)),
+    ),
+    (large(""), large("fun helper(x: Int) = x"), large("fun helper(x: Int) = x }"), (false, Some(true))),
+    (small(""), small("fun helper(x: Int) = x"), small("fun broken(\n\nfun helper(x: Int) = x"), (true, None)),
+  ];
+  for (without, with, unreadable, unread) in &versions {
+    let summary = summarize(Language::Kotlin, unreadable.as_bytes());
+    let helper = summary.declarations.iter().find(|declaration| summary.name(declaration.name) == "helper");
+    assert_eq!((summary.is_degraded(), helper.map(|declaration| declaration.in_error)), *unread, "{summary:?}");
+    // a move to a file whose summary lacks the declaration is a removal
+    let moves: &[bool] = if helper.is_some() { &[false, true] } else { &[false] };
+    for (&moved, removed) in moves.iter().flat_map(|moved| [(moved, false), (moved, true)]) {
+      let mut range = Range::default();
+      range.commit(&[(from, Some(with))]);
+      if moved {
+        range.commit(&[(from, Some(without)), (to, Some(unreadable))]);
+      } else {
+        range.rename(from, to, unreadable);
+      }
+      range
+        .commit(&[(to, Some(with))])
+        .commit(&[if removed { (to, Some(without.as_str())) } else { other }])
+        .commit(&[call]);
+      let graph = range.in_modules(&["impl"]);
+      if removed {
+        assert_eq!(edges(&graph), [], "{unread:?} moved {moved}");
+      } else {
+        assert_eq!(edges(&graph), [(4, 0, vec![link("helper", Evidence::Import)])], "{unread:?} moved {moved}");
+        assert_eq!(graph.edges[0].links[0].declared_in, to, "{unread:?} moved {moved}");
+      }
+    }
+  }
 }
 
 /// The identity of an entry keeps a vararg and the dimensions of an array, so a new `foo(vararg x: Int)` written above
@@ -1686,6 +1870,21 @@ fn a_new_form_needs_the_commit_that_created_its_entry() {
   );
   range.commit(&[("impl/src/q/Use.kt", Some("package q\n\nimport p.Panes\n\nfun use(id: Int) {\n  Panes.helper(id)\n}\n"))]);
   assert_eq!(edges(&range.in_modules(&["impl"])), [(2, 0, vec![link("helper", Evidence::Qualified)])]);
+}
+
+/// A use that needs the form its own commit gives an entry needs the older commits back along the forms of that entry:
+/// a call that leaves out `id`, which only the default of its own commit makes optional, needs the commit that added
+/// `flag`, which it passes
+#[test]
+fn a_use_of_a_form_its_own_commit_gives_needs_the_older_steps_of_the_entry() {
+  let path = "impl/src/p/Registry.kt";
+  let registry = |parameters: &str| format!("package p\n\nobject Registry {{\n  fun first() = 1\n\n  fun place(\n{parameters}  ) = 1\n\n  fun last() = 2\n}}\n");
+  let mut range = file_history(path, &registry("    id: Int,\n"), &[registry("    id: Int,\n    flag: Boolean,\n")]);
+  range.commit(&[("impl/src/p/Other.kt", Some("package p\n\nfun other() = 1\n"))]).commit(&[
+    (path, Some(&registry("    id: Int = 0,\n    flag: Boolean,\n"))),
+    ("impl/src/q/Use.kt", Some("package q\n\nimport p.Registry\n\nfun use() = Registry.place(flag = true)\n")),
+  ]);
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(2, 0, vec![link("place", Evidence::Qualified)])]);
 }
 
 /// An `internal` older form reaches a file whose module the build files don't tell (no build file at all, or none
@@ -2366,6 +2565,67 @@ fn a_function_of_the_name_of_a_type_takes_only_a_call_its_parameters_accept() {
   );
   let factory = graph.edges.iter().find(|edge| (edge.from, edge.to) == (4, 0)).unwrap();
   assert_eq!(factory.links[0].declared_in, "impl/src/p/Lanes.kt");
+}
+
+/// A function of the name of a type that a commit adds to the type's file, or removes from it, is of its own kind
+/// there, as in another file: a call that only it accepts needs the commit that adds it (whose call of the constructor
+/// needs the type's), and once a commit removes it a call that only a constructor a later commit adds accepts needs
+/// the constructor's commit
+#[test]
+fn a_function_of_the_name_of_a_type_comes_and_goes_beside_it() {
+  let (header, factory) = ("class Lane(val id: Int)", "\nfun Lane(name: String): Lane = Lane(name.length)\n");
+  let call = ("impl/src/p/Use.kt", Some("package p\n\nfun use() = Lane(\"x\")\n"));
+  let with_factory = format!("{}{factory}", lane(header, ""));
+  let package = || vec![link("Lane", Evidence::SamePackageType)];
+  let mut range = Range::default();
+  range.commit(&[(LANE, Some(&lane(header, "")))]).commit(&[(LANE, Some(&with_factory))]).commit(&[call]);
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(1, 0, vec![link("Lane", Evidence::SameFile)]), (2, 1, package())]);
+
+  let mut range = Range::default();
+  range
+    .commit(&[(LANE, Some(&with_factory))])
+    .commit(&[(LANE, Some(&lane(header, "")))])
+    .commit(&[(LANE, Some(&lane(header, "\n  constructor(name: String) : this(name.length)\n")))])
+    .commit(&[call]);
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(3, 2, package())]);
+}
+
+/// A function of the name of a type takes a call by its parameters as they are now: a commit that changes them keeps
+/// its origin, so a call that only its new form accepts needs the commit that added it
+#[test]
+fn a_function_of_the_name_of_a_type_takes_a_call_by_its_parameters_now() {
+  let factory = |parameters: &str| format!("package p\n\nfun first() = 0\n\nfun Lane({parameters}): Lane = TODO(name)\n\nfun last() = 9\n");
+  let path = "impl/src/p/Factory.kt";
+  let mut range = Range::default();
+  range
+    .commit(&[(LANE, Some(&lane("class Lane(val id: Int)", "")))])
+    .commit(&[(path, Some(&factory("name: String")))])
+    .commit(&[(path, Some(&factory("name: String, flag: Boolean")))])
+    .commit(&[("impl/src/p/Use.kt", Some("package p\n\nfun use() = Lane(\"x\", true)\n"))]);
+  assert_eq!(edges(&range.in_modules(&["impl"])), [(3, 1, vec![link("Lane", Evidence::SamePackageType)])]);
+}
+
+/// A function of the name of a type stands in for the type only where the use sees it, so a call that a constructor
+/// accepts keeps the constructor's commit beside a private one of another file, one of another module of the package
+/// and a Rust item of the same path; one the use sees accepts the call too, and with it the call is ambiguous
+#[test]
+fn a_function_of_the_name_of_a_type_that_the_use_does_not_see_takes_no_call() {
+  let graph = |function: (&str, &str)| {
+    let mut range = Range::default();
+    range
+      .commit(&[(function.0, Some(function.1))])
+      .commit(&[(LANE, Some(&lane("class Lane(val id: Int)", "")))])
+      .commit(&[("impl/src/p/Use.kt", Some("package p\n\nfun use() = Lane(\"x\".length)\n"))]);
+    let (build, cargo) = ([file("BUILD.bazel")], [file("Cargo.toml")]);
+    edges(&range.graph(&[("impl", &build), ("fixtures", &build), ("rust", &cargo)], &[], &[]))
+  };
+  let package = || vec![link("Lane", Evidence::SamePackageType)];
+  let private = "package p\n\nprivate fun Lane(name: String): Any = name\n\nfun helper() = Lane(\"h\")\n";
+  assert_eq!(graph(("impl/src/p/Helpers.kt", private)), [(2, 1, package())]);
+  let public = "package p\n\nfun Lane(name: String): Any = name\n";
+  assert_eq!(graph(("fixtures/src/p/Lanes.kt", public)), [(2, 1, package())]);
+  assert_eq!(graph(("rust/src/p.rs", "pub fn Lane(name: &str) {}\n")), [(2, 1, package())]);
+  assert_eq!(graph(("impl/src/p/Lanes.kt", public)), []);
 }
 
 /// A constructor parameter that a commit adds to a nested class, Kotlin's and Java's, is what a call of it by its

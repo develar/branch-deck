@@ -5,49 +5,20 @@
 //!
 //! - **The index is the range.** Only the declarations the commits ahead of the baseline add or change are looked up,
 //!   so a repository of a million files costs only the blobs the commits change. A use of a name the range doesn't
-//!   add is no edge.
+//!   add or change is no edge.
 //! - **Evidence, not names.** A use links to a declaration only with evidence that it means that one: an import of
-//!   it, a qualified name, the same file (unless another type qualifies the name), the same Rust module, a type of the
-//!   same package in the same module, or an override in a subtype whose supertype resolves. A call of a function of
-//!   the same package without an import, or a member of an unknown receiver, is no evidence: Kotlin's implicit
-//!   receivers and extensions decide those, which only a compiler sees.
-//! - **A key has entries.** A key (namespace, containers and name) holds the declarations of its name: for a member of
-//!   a JVM type all of them, its overloads, told apart by receiver and parameter types (arrays and a vararg included),
-//!   each with the commit it comes from (`Origin`); a commit that removes one entry and adds one changes its form, and
-//!   so does one that keeps its identity and changes the names, defaults or varargs of its parameters, its reach or
-//!   whether a subtype may override it (`same_form`); a change of the body alone keeps it. A use needs the step at
-//!   which a form that accepts it followed one that didn't, each older form judged by the attributes of its form and
-//!   never more strictly than the compiler (`older_form`), and the commits back along the forms of its entry to its
-//!   creation (`lineage`). An override, a call by its arguments and an import of a member of a type without supertypes
-//!   link only to the newest commit that every entry they may mean needs: the baseline, its own commit or two entries
-//!   of no commit in common are no edge. Whether a call's arguments fit an entry errs toward yes (`accepts_call`), and
-//!   they tell the overloads apart only of a type whose supertypes are at most `Any` or `Object`: another supertype may
-//!   declare more, which the range doesn't show. A call of such a type, a bare name that something of its file may take
-//!   before the import that brings it in, and any other use of a function need only the key, the commit that added it;
-//!   a use of a value or a type needs the step whose reach first let it in. An extension of another file
-//!   (`fun Panes.helper()`, `val Panes.size`) may take a use while the member of its name is private, which the range
-//!   doesn't show: a limit. In the file of a key of the baseline only a use that can mean only a member of its type
-//!   means it: a bare name, `this` or `super` in the type, not in a lambda, an object expression, an anonymous class or
-//!   a member extension, and in Kotlin not where a receiver further out, the top level or an import may take it; of a
-//!   top-level type, a bare name that nothing else of its file may take (`names_only_its_type`). A top-level function
-//!   may have overloads in files the range doesn't change, so its key is only present or absent, with the entries of
-//!   each file of the range that adds it, and has no forms.
-//! - **A type has its constructors.** The key of a JVM type holds the type itself, which a type position, an import and
-//!   any use but a call mean, and one entry per constructor (`with_constructors`, the implicit `()` included), which a
-//!   call of the type means, a Kotlin constructor invocation of a supertype and Java's `new` included, or an `invoke`
-//!   of its companion or a function of its name that the range adds, either only where it accepts the call, for which
-//!   the type stands, as no evidence links such a function from another file of the package (`takes`); its file has
-//!   them all, as a package has one type of a name. A constructor's form is its parameters, its reach and the reach of
-//!   its type, so a type made public is a step of its constructors too; its arguments tell the constructors apart also
-//!   of a type with supertypes, which declare none of them, unless a bare name may mean something else of its name in
-//!   its file, in Kotlin also a function that an import brings (`constructors_tell_apart`), and judge the functions of
-//!   its name alike. A use through a wildcard import needs the type as it came, its oldest step: a type of the name in
-//!   another file of the use's package takes the name first. Constructors the summary can't tell apart are twins, and a
-//!   type whose constructors one side of a commit knows and the other doesn't (a parse error in the class) can't be
-//!   matched across them either: such a key is only present or absent then, without its constructors, which might miss
-//!   what the commit gave them, so the type takes any call; a constructor that a later commit on clean sides finds is
-//!   as old as the type. A top-level function of the name of a type (`fun Foo(): Foo`) shares its key and stays only
-//!   present or absent beside it (`KeyState`), and a call that only it accepts needs its commit.
+//!   it, a qualified name, the same file (unless another type qualifies the name, or a value or an expression is the
+//!   receiver of an extension's call), the same Rust module, a type of the same package in the same module, or an
+//!   override in a subtype whose supertype resolves. A call of a function of the same package without an import, or a
+//!   member of an unknown receiver, is no evidence: Kotlin's implicit receivers and extensions decide those, which only
+//!   a compiler sees.
+//! - **A key has entries.** The key of a JVM type or a member of one holds each overload and constructor with the
+//!   step that made its form (`Entry`, `Origin`); a use needs the newest commit before its own that every entry it may
+//!   mean needs (`steps_of`, `lineage`), told apart by its arguments where they can (`accepts_call`). A commit whose
+//!   sides of a key aren't clean (a degraded side, a parse error in a declaration, twins, constructors that one side
+//!   knows and the other doesn't) leaves it only present or absent, without its constructors. A top-level function,
+//!   also one of the name of a type beside it (`KeyState`), and every key of Rust and TypeScript are only present or
+//!   absent, per file. The rules and their reasons are decisions 7 to 11 of docs/design/symbol-dependencies.md.
 //! - **Degraded files decide nothing**: a file with a twentieth of its bytes in parse errors makes no edge.
 
 use crate::diff_scan::CommitDiff;
@@ -174,9 +145,25 @@ impl Site<'_> {
 /// step that made it what it is
 #[derive(Clone)]
 struct Entry<'a> {
-  /// Its form now, in the file of the last commit that changed the key
+  /// Its form now, in its file as the last commit that changed the key left it; of a key only present or absent, as
+  /// the last commit that changed the file did (`follow_entries`), or the one before, which the parser could read
   site: Site<'a>,
+  /// The file that declares it now: that of `site`, or one a commit renamed or moved it to without reading its
+  /// declaration there, which the parser can't read or the commit doesn't change (`follow_entries`, the renames of
+  /// `compute_symbol_dependencies`)
+  file: &'a str,
   origin: Rc<Origin<'a>>,
+}
+
+impl<'a> Entry<'a> {
+  /// An entry of `site`, in its file
+  const fn new(site: Site<'a>, origin: Rc<Origin<'a>>) -> Self {
+    Self {
+      file: site.ctx.path,
+      site,
+      origin,
+    }
+  }
 }
 
 /// The step of the range that created an entry or changed its form
@@ -195,8 +182,9 @@ struct KeyState<'a> {
   /// Those of a JVM type, its constructors included, or of a member of one, all in the file of the type, with their
   /// forms (`has_entries`)
   entries: Vec<Entry<'a>>,
-  /// Those of a key that is only present or absent, per file of the range that declares it: a top-level function or
-  /// property of the JVM, also beside a type of its name, and every key of Rust and TypeScript
+  /// Those of a key that is only present or absent, per file of the range that declares it, each with the commit that
+  /// added the key there: a top-level function or property of the JVM, also beside a type of its name, and every key
+  /// of Rust and TypeScript
   present: Vec<Entry<'a>>,
 }
 
@@ -216,15 +204,17 @@ struct Member<'a> {
   degraded: bool,
 }
 
+/// The declarations from the one of index `start` outward, the innermost first, with their indices
+fn outward(summary: &FileSummary, start: Option<u32>) -> impl Iterator<Item = (u32, &Declaration)> {
+  let at = |index: u32| summary.declarations.get(index as usize).map(|declaration| (index, declaration));
+  std::iter::successors(start.and_then(at), move |(_, declaration)| declaration.container.and_then(at))
+}
+
 /// The names of the declarations that `declaration` is a member of, the outermost first
 fn containers_of(summary: &FileSummary, declaration: &Declaration) -> Vec<String> {
-  let mut names = Vec::new();
-  let mut current = declaration.container;
-  while let Some(index) = current {
-    let Some(container) = summary.declarations.get(index as usize) else { break };
-    names.push(summary.name(container.name).to_string());
-    current = container.container;
-  }
+  let mut names: Vec<String> = outward(summary, declaration.container)
+    .map(|(_, container)| summary.name(container.name).to_string())
+    .collect();
   if names.is_empty()
     && let Some(receiver) = declaration.receiver.filter(|_| summary.language == Language::Rust)
   {
@@ -350,11 +340,13 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
     let mut removed: Vec<Site<'_>> = Vec::new();
     // the keys of the types and members it changes, with all their declarations on both sides
     let mut members: BTreeMap<String, Member<'_>> = BTreeMap::new();
+    // the entries of keys only present or absent that move to a file of the commit (`follow_entries`)
+    let mut follows: Vec<Follow<'_>> = Vec::new();
     for (change, before, after) in changed {
       let (added_lines, removed_lines) = changed_lines(change);
       match (before, after) {
         // the same namespace on both sides: a declaration added or removed lies on the changed lines of its side, so
-        // only those are compared, by the declarations of the same name on the other side
+        // only those are compared, by the declarations of the same key and kind on the other side
         (Some(before), Some(after)) if before.namespace == after.namespace => {
           let after_changed = changed_sites(after, &added_lines);
           let before_changed = changed_sites(before, &removed_lines);
@@ -368,10 +360,11 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
             .collect();
           for site in keys.into_values() {
             let member = members.entry(site.key.clone()).or_default();
-            member.before.extend(sites_of_key(before, site).into_iter().filter(has_entries).flat_map(with_constructors));
-            member.after.extend(sites_of_key(after, site).into_iter().filter(has_entries).flat_map(with_constructors));
+            member.before.extend(sites_of_key(before, site).into_iter().flat_map(with_constructors));
+            member.after.extend(sites_of_key(after, site).into_iter().flat_map(with_constructors));
             member.degraded |= before.summary.is_degraded() || after.summary.is_degraded();
           }
+          follows.extend(kept_entries(&index, before.path, after));
         }
         // a new file, a deleted one, or a moved namespace (a rename, a new package): every key may differ
         _ => {
@@ -407,11 +400,23 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
         }
       }
     }
-    // a declaration that moved to another file of the same commit is neither added nor removed
-    let added_keys: BTreeSet<String> = added.iter().map(|site| site.key.clone()).collect();
-    let removed_keys: BTreeSet<String> = removed.iter().map(|site| site.key.clone()).collect();
-    added.retain(|site| !removed_keys.contains(&site.key));
-    removed.retain(|site| !added_keys.contains(&site.key));
+    // a declaration that moved to another file of the same commit is neither added nor removed, and the entries of a
+    // key only present or absent move with it
+    let kind_of = |site: &Site<'_>| (site.key.clone(), has_entries(site));
+    let added_keys: BTreeSet<(String, bool)> = added.iter().map(kind_of).collect();
+    let removed_keys: BTreeSet<(String, bool)> = removed.iter().map(kind_of).collect();
+    for (key, _) in added_keys.intersection(&removed_keys).filter(|(_, has_entries)| !has_entries) {
+      let of_key = |site: &&Site<'_>| site.key == *key && !has_entries(site);
+      follows.push(Follow {
+        from: removed.iter().filter(of_key).map(|site| site.ctx.path).collect(),
+        sites: added.iter().filter(of_key).cloned().collect(),
+      });
+    }
+    added.retain(|site| !removed_keys.contains(&kind_of(site)));
+    removed.retain(|site| !added_keys.contains(&kind_of(site)));
+    for follow in follows {
+      follow_entries(&mut index, follow);
+    }
     // a key of a type or a member goes by its entries, but only on clean sides: a declaration the parser recovered
     // around may be misread, and two declarations of one side that are the same entry, or the constructors of a type
     // that one side knows and the other doesn't, can't be matched across the sides, so such a key, as every other, is
@@ -448,14 +453,8 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
     // a key of a type or a member comes here only when `members` dropped it, so a type is only present or absent,
     // without its constructors
     let mut fresh: BTreeMap<String, Vec<Entry<'_>>> = BTreeMap::new();
-    for site in added
-      .iter()
-      .filter(|site| !site.ctx.summary.is_degraded() && !site.declaration.in_error && is_exported(site.declaration, site.ctx.summary))
-    {
-      fresh.entry(site.key.clone()).or_default().push(Entry {
-        site: site.clone(),
-        origin: Rc::clone(&origin),
-      });
+    for site in added.iter().filter(|site| is_clean_addition(site)) {
+      fresh.entry(site.key.clone()).or_default().push(Entry::new(site.clone(), Rc::clone(&origin)));
     }
     for (key, entries) in fresh {
       let Some(name) = entries.first().map(|entry| entry.site.name().to_string()) else {
@@ -484,8 +483,8 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
       } else if let Some(keys) = index.get_mut(&name)
         && let Some(state) = keys.get_mut(&key)
       {
-        // gone from its file, now: no removal drops a type whose file keeps a function of its name (`fun Foo(): Foo`),
-        // which keeps the key with its own entries
+        // gone from its file, before the uses of the commit; the key stays while a function of its name
+        // (`fun Foo(): Foo`) has entries
         state.entries.clear();
         if state.present.is_empty() {
           keys.remove(&key);
@@ -501,133 +500,12 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
       let (added_lines, _) = changed_lines(change);
       for reference in use_site.summary.references.iter().filter(|reference| in_ranges(&added_lines, reference.line)) {
         let Some(candidates) = index.get(use_site.summary.name(reference.name)) else { continue };
-        // the names of the qualifier once, not once per candidate
-        let qualifier = reference.qualifier.as_deref().map(|qualifier| names(use_site.summary, qualifier));
-        let shape = reference.shape.and_then(|shape| use_site.summary.shapes.get(shape as usize));
-        let unqualified = bare(qualifier.as_deref());
-        // a call in a lambda, an object expression, an anonymous class or a local declaration, whose receiver may be
-        // what a bare name or `this` means
-        let enclosed = matches!(shape, Some(Shape::Call { enclosed: true, .. }));
-        let arguments: CallArguments<'_> = match shape {
-          Some(Shape::Call { arguments, spread, .. }) => Some((arguments.as_slice(), *spread)),
-          _ => None,
-        };
-        // per entry it may mean, the commits it needs of it (`lineage`)
-        let mut alternatives: Vec<BTreeSet<Option<usize>>> = Vec::new();
-        let mut first: Option<(&Site<'_>, Evidence)> = None;
-        for state in candidates.values() {
-          // the arguments that tell the constructors of a type apart, which no supertype declares, and with them the
-          // functions of its name, which a Kotlin call of the type falls back to
-          let constructor_call = arguments.filter(|_| {
-            state.entries.iter().any(|entry| entry.site.constructor.is_some())
-              && state.entries.first().is_some_and(|entry| constructors_tell_apart(use_site, reference, &entry.site))
-          });
-          // the entries of a type or a member, and those of the functions of its name, each kind as a key of its own
-          for (entries, functions) in [(state.entries.as_slice(), state.present.as_slice()), (state.present.as_slice(), &[][..])] {
-            let Some(head) = entries.first().map(|entry| &entry.site) else { continue };
-            // a wildcard import brings a type only where no type of its name in the package of the use takes the name
-            // first, which another file may declare: such a use needs the type as it came, its oldest step, as any use
-            // of a type did before its constructors and forms
-            let star = head.declaration.kind == DeclKind::Type && resolve(input, use_site, reference, qualifier.as_deref(), head) == Some(Evidence::StarImport);
-            // a call of a type means one of its constructors, where its key has them (`with_constructors`)
-            let constructs = arguments.is_some() && !star && entries.iter().any(|entry| entry.site.constructor.is_some());
-            // the arguments that tell the overloads of a member apart
-            let member_call = arguments.filter(|_| calls_tell_apart(use_site, reference, head, enclosed));
-            // the functions of the name of a type that the range adds, which no evidence links from another file of the
-            // package, so the type stands for them: those that accept the call, by the arguments that tell its
-            // constructors apart
-            let stand_ins: Vec<&Entry<'_>> = functions
-              .iter()
-              .filter(|function| constructor_call.is_none_or(|(arguments, spread)| accepts_call(use_site.summary, arguments, spread, &function.site)))
-              .collect();
-            // a key of the baseline that a commit gives a new overload or form: in its file only a use that can mean only
-            // a member of its type means it (`means_its_type`), else `list.add(0, item)` of a `MutableList`, or
-            // `buildList { add(0, item) }`, that the old `add(item)` rejects would link to a new `Lanes.add(index, item)`
-            // beside it. A key the range adds keeps the rule before
-            let same_file = use_site.path != head.ctx.path || !of_baseline(entries) || (unqualified && means_its_type(use_site.summary, reference, enclosed, head));
-            let accepts = |site: &Site<'_>, call: CallArguments<'_>| {
-              if !takes(reference, constructs, !stand_ins.is_empty(), use_site.summary, constructor_call, site) {
-                return None;
-              }
-              let evidence = resolve(input, use_site, reference, qualifier.as_deref(), site)?;
-              let fits = constructor_reaches(use_site, reference, site) && call.is_none_or(|(arguments, spread)| accepts_call(use_site.summary, arguments, spread, site));
-              (fits && (same_file || evidence != Evidence::SameFile)).then_some(evidence)
-            };
-            // an older form rejects the use by the attributes of its form (`older_form`: its reach, its parameters,
-            // whether a subtype could override it) only where nothing the range doesn't show may take the use instead: a
-            // call its arguments judge, an override, an import of a member of a type without supertypes, a use of a
-            // value or a type, whose declaration hides those of its name in the supertypes, but not through a wildcard
-            // import (`star`). Any other use of a function or a constructor needs the key: `Registry.helper("x")` of a
-            // `Registry : Base()` means an overload of `Base` while `helper` is private
-            let before = |current: &Site<'_>, call: CallArguments<'_>, judged: bool, older: &Site<'_>| {
-              star
-                || (!judged && (older.constructor.is_some() || older.declaration.kind == DeclKind::Function))
-                || older_form(older, current).is_none_or(|declaration| {
-                  let site = Site {
-                    declaration: &declaration,
-                    older: true,
-                    ..older.clone()
-                  };
-                  accepts(&site, call).is_some()
-                })
-            };
-            let mut needs: Vec<BTreeSet<Option<usize>>> = Vec::new();
-            let mut keyed: Vec<BTreeSet<Option<usize>>> = Vec::new();
-            for entry in entries {
-              // a constructor, and a function of the name of a type, by the arguments that tell its constructors apart
-              let call = if entry.site.constructor.is_some() || !has_entries(&entry.site) {
-                constructor_call
-              } else {
-                member_call
-              };
-              // an import of a member of a type whose overloads are all its entries names all of them, and compiles
-              // only when one of them is visible
-              let judged = call.is_some() || matches!(shape, Some(Shape::Override { .. })) || (reference.role == Role::Import && all_entries(use_site, &entry.site));
-              let Some(evidence) = accepts(&entry.site, call) else { continue };
-              // a type that takes a call of its constructors only for the functions of its name: the call needs what one
-              // of those needs
-              if constructs && entry.site.constructor.is_none() && !invokes(use_site.summary, constructor_call, &entry.site) {
-                if let Some(function) = stand_ins.first() {
-                  first.get_or_insert((&function.site, evidence));
-                }
-                needs.extend(stand_ins.iter().map(|function| lineage(function)));
-                continue;
-              }
-              let mut steps = steps_of(entry, &|older| before(&entry.site, call, judged, older));
-              // a bare name outside the type of a member its own commit adds may mean that member only by an implicit
-              // receiver, which the file doesn't show: no origin, as the rule before the entries dropped its own commit
-              if evidence == Evidence::SameFile && reference.qualifier.is_none() && !contains(use_site.summary, reference, &entry.site.containers) {
-                steps.retain(|step| step.origin.commit != Some(position));
-              }
-              if steps.is_empty() {
-                continue;
-              }
-              first.get_or_insert((&entry.site, evidence));
-              let lineages = steps.into_iter().map(lineage);
-              if judged || !has_entries(&entry.site) {
-                needs.extend(lineages);
-              } else {
-                keyed.extend(lineages);
-              }
-            }
-            // a use that tells no overloads of a type apart (a type, a value, a call of a type with supertypes) needs the
-            // key, as before the entries: the oldest step of the entries that accept it, for a function the commit that
-            // added the key, or none when it was there before the range, and for a value or a type the step whose reach
-            // let it in (`before`). The overloads of a top-level function in several files stay ambiguous
-            needs.extend(keyed.into_iter().min_by_key(|lineage| lineage.last().copied()));
-            alternatives.extend(needs);
-          }
-        }
-        // the newest commit that every entry it may mean needs: the baseline, its own commit, or two entries that need
-        // no commit in common, are ambiguous
-        let Some(common) = alternatives.into_iter().reduce(|common, lineage| &common & &lineage) else {
+        let Some((owner, entry, evidence)) = resolve_use(input, use_site, reference, candidates, position) else {
           continue;
         };
-        let Some(&Some(owner)) = common.last() else { continue };
-        let Some((site, evidence)) = first.filter(|_| owner != position) else { continue };
         edges.entry((position, owner)).or_default().push(SymbolLink {
-          name: site.name().to_string(),
-          declared_in: site.ctx.path.to_string(),
+          name: entry.site.name().to_string(),
+          declared_in: entry.file.to_string(),
           used_in: change.path.clone(),
           line: reference.line,
           evidence,
@@ -641,22 +519,36 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
         let Some(link) = removed_uses(input, earlier_files, site) else { continue };
         edges.entry((position, earlier)).or_default().push(link);
       }
-      // the whole key of a type or a member, the functions of its name aside; of a top-level function the entries of
-      // this file, its overloads elsewhere stay, but all of them when none is of this file (it was renamed since)
+      // the whole key of a type or a member, the functions of its name aside; of a key only present or absent the
+      // entries of this file, which follow their declarations (`follow_entries`), so its overloads elsewhere stay
       if let Some(keys) = index.get_mut(site.name())
         && let Some(state) = keys.get_mut(&site.key)
       {
-        let elsewhere = |entry: &Entry<'_>| entry.site.ctx.path != site.ctx.path;
         if has_entries(site) {
           state.entries.clear();
         } else {
-          if state.present.iter().all(elsewhere) {
-            state.present.clear();
-          }
-          state.present.retain(elsewhere);
+          state.present.retain(|entry| entry.file != site.ctx.path);
         }
         if state.entries.is_empty() && state.present.is_empty() {
           keys.remove(&site.key);
+        }
+      }
+    }
+
+    // the entries still of a file the commit renames go with it in the form they had (a declaration the parser can't
+    // read there, a member the commit doesn't change), so that a later commit on the file finds them (`kept_entries`)
+    let renamed: HashMap<&str, &str> = changed
+      .iter()
+      .filter_map(|(change, _, _)| change.old_path.as_deref().filter(|old| *old != change.path).map(|old| (old, change.path.as_str())))
+      .collect();
+    if !renamed.is_empty() {
+      for entry in index
+        .values_mut()
+        .flat_map(BTreeMap::values_mut)
+        .flat_map(|state| state.entries.iter_mut().chain(&mut state.present))
+      {
+        if let Some(&file) = renamed.get(entry.file) {
+          entry.file = file;
         }
       }
     }
@@ -674,6 +566,126 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
       .collect(),
     entities,
   }
+}
+
+/// What `reference`, on an added line of `use_site` of the commit `position`, needs of the `candidates` of its name:
+/// the commit, with the entry of the declaration it names and the evidence; `None` when it needs no older commit or is
+/// ambiguous
+fn resolve_use<'s>(
+  input: &SymbolInput,
+  use_site: &UseSite<'_>,
+  reference: &Reference,
+  candidates: &'s BTreeMap<String, KeyState<'s>>,
+  position: usize,
+) -> Option<(usize, &'s Entry<'s>, Evidence)> {
+  // the names of the qualifier once, not once per candidate
+  let qualifier = reference.qualifier.as_deref().map(|qualifier| names(use_site.summary, qualifier));
+  let shape = reference.shape.and_then(|shape| use_site.summary.shapes.get(shape as usize));
+  let unqualified = bare(qualifier.as_deref());
+  // a call in a Kotlin lambda, an object expression, an anonymous class or a local declaration, whose receiver may be
+  // what a bare name or `this` means
+  let enclosed = matches!(shape, Some(Shape::Call { enclosed: true, .. }));
+  let arguments: CallArguments<'_> = match shape {
+    Some(Shape::Call { arguments, spread, .. }) => Some((arguments.as_slice(), *spread)),
+    _ => None,
+  };
+  // per entry it may mean, the commits it needs of it (`lineage`)
+  let mut alternatives: Vec<BTreeSet<Option<usize>>> = Vec::new();
+  let mut first: Option<(&Entry<'_>, Evidence)> = None;
+  for state in candidates.values() {
+    // the arguments that tell the constructors of a type apart, and with them the functions of its name
+    let constructor_call = arguments.filter(|_| {
+      state.entries.iter().any(|entry| entry.site.constructor.is_some()) && state.entries.first().is_some_and(|entry| constructors_tell_apart(use_site, reference, &entry.site))
+    });
+    // the entries of a type or a member, and those of the functions of its name, each kind as a key of its own
+    for (entries, functions) in [(state.entries.as_slice(), state.present.as_slice()), (state.present.as_slice(), &[][..])] {
+      let Some(head) = entries.first().map(|entry| &entry.site) else { continue };
+      // through a wildcard import, which a type of the name in the use's package may shadow: the type as it came
+      let star = head.declaration.kind == DeclKind::Type && resolve(input, use_site, reference, qualifier.as_deref(), head) == Some(Evidence::StarImport);
+      // a call of a type means one of its constructors, where its key has them (`with_constructors`)
+      let constructs = arguments.is_some() && !star && entries.iter().any(|entry| entry.site.constructor.is_some());
+      // the arguments that tell the overloads of a member apart
+      let member_call = arguments.filter(|_| calls_tell_apart(use_site, reference, head, enclosed));
+      // the functions of the type's name that the use sees and that accept the call, which the type stands for
+      let stand_ins: Vec<&Entry<'_>> = functions
+        .iter()
+        .filter(|function| sees_function(input, use_site, reference, qualifier.as_deref(), &function.site))
+        .filter(|function| constructor_call.is_none_or(|(arguments, spread)| accepts_call(use_site.summary, arguments, spread, &function.site)))
+        .collect();
+      // in the file of a key of the baseline only a use that can mean only a member of its type (`means_its_type`)
+      let same_file = use_site.path != head.ctx.path || !of_baseline(entries) || (unqualified && means_its_type(use_site.summary, reference, enclosed, head));
+      let accepts = |site: &Site<'_>, call: CallArguments<'_>| {
+        if !takes(reference, constructs, !stand_ins.is_empty(), use_site.summary, constructor_call, site) {
+          return None;
+        }
+        let evidence = resolve(input, use_site, reference, qualifier.as_deref(), site)?;
+        let fits = constructor_reaches(use_site, reference, site) && call.is_none_or(|(arguments, spread)| accepts_call(use_site.summary, arguments, spread, site));
+        (fits && (same_file || evidence != Evidence::SameFile)).then_some(evidence)
+      };
+      // an older form (`older_form`) rejects only a use that nothing the range doesn't show may take instead; any other
+      // use of a function or a constructor needs the key
+      let before = |current: &Site<'_>, call: CallArguments<'_>, judged: bool, older: &Site<'_>| {
+        star
+          || (!judged && (older.constructor.is_some() || older.declaration.kind == DeclKind::Function))
+          || older_form(older, current).is_none_or(|declaration| {
+            let site = Site {
+              declaration: &declaration,
+              older: true,
+              ..older.clone()
+            };
+            accepts(&site, call).is_some()
+          })
+      };
+      let mut needs: Vec<BTreeSet<Option<usize>>> = Vec::new();
+      let mut keyed: Vec<BTreeSet<Option<usize>>> = Vec::new();
+      for entry in entries {
+        // a constructor, and a function of the name of a type, by the arguments that tell its constructors apart
+        let call = if entry.site.constructor.is_some() || !has_entries(&entry.site) {
+          constructor_call
+        } else {
+          member_call
+        };
+        // an import of a member of a type whose overloads are all its entries compiles only when one is visible
+        let judged = call.is_some() || matches!(shape, Some(Shape::Override { .. })) || (reference.role == Role::Import && all_entries(use_site, &entry.site));
+        let Some(evidence) = accepts(&entry.site, call) else { continue };
+        // a type that takes a call only for the functions of its name needs what one of those needs
+        if constructs && entry.site.constructor.is_none() && !invokes(use_site.summary, constructor_call, &entry.site) {
+          if let Some(function) = stand_ins.first() {
+            first.get_or_insert((function, evidence));
+          }
+          needs.extend(stand_ins.iter().map(|function| lineage(function)));
+          continue;
+        }
+        let mut steps = steps_of(entry, &|older| before(&entry.site, call, judged, older));
+        // no origin: a bare name outside the type of a member its own commit adds means it only by an implicit
+        // receiver, which the file doesn't show
+        if evidence == Evidence::SameFile && reference.qualifier.is_none() && !contains(use_site.summary, reference, &entry.site.containers) {
+          steps.retain(|step| step.origin.commit != Some(position));
+        }
+        if steps.is_empty() {
+          continue;
+        }
+        first.get_or_insert((entry, evidence));
+        let lineages = steps.into_iter().map(lineage);
+        if judged || !has_entries(&entry.site) {
+          needs.extend(lineages);
+        } else {
+          keyed.extend(lineages);
+        }
+      }
+      // a use that tells no overloads apart needs the key: the oldest step of the entries that accept it
+      needs.extend(keyed.into_iter().min_by_key(|lineage| lineage.last().copied()));
+      alternatives.extend(needs);
+    }
+  }
+  // the newest commit before its own that every entry it may mean needs: none (the baseline), or two entries that need
+  // no commit in common, is no edge
+  let common = alternatives.into_iter().reduce(|common, lineage| &common & &lineage)?;
+  let &Some(owner) = common.range(..Some(position)).next_back()? else {
+    return None;
+  };
+  let (entry, evidence) = first?;
+  Some((owner, entry, evidence))
 }
 
 /// The site of `declaration`, of the file of `ctx`
@@ -720,11 +732,12 @@ fn with_constructors(site: Site<'_>) -> Vec<Site<'_>> {
 
 /// Replaces the entries of `known` of each file of `entries` by those
 fn replace_by_file<'a>(known: &mut Vec<Entry<'a>>, entries: Vec<Entry<'a>>) {
-  known.retain(|entry| entries.iter().all(|new| new.site.ctx.path != entry.site.ctx.path));
+  known.retain(|entry| entries.iter().all(|new| new.file != entry.file));
   known.extend(entries);
 }
 
-/// The declarations of `ctx` with the key of `site`
+/// The declarations of `ctx` with the key of `site` and of its kind (`has_entries`): a function of the name of a type
+/// beside it (`fun Foo(): Foo`) is a key of its own (`KeyState`)
 fn sites_of_key<'a>(ctx: &'a FileCtx<'a>, site: &Site<'_>) -> Vec<Site<'a>> {
   let Some(name) = ctx.summary.name_id(site.name()) else { return Vec::new() };
   ctx
@@ -733,15 +746,86 @@ fn sites_of_key<'a>(ctx: &'a FileCtx<'a>, site: &Site<'_>) -> Vec<Site<'a>> {
     .iter()
     .filter(|declaration| declaration.name == name)
     .map(|declaration| site_of(ctx, declaration))
-    .filter(|other| other.key == site.key)
+    .filter(|other| other.key == site.key && has_entries(other) == has_entries(site))
     .collect()
+}
+
+/// Whether a declaration a commit adds may be an entry: not misread (a degraded file, a parse error around it) and
+/// visible to other files (`is_exported`)
+fn is_clean_addition(site: &Site<'_>) -> bool {
+  !site.ctx.summary.is_degraded() && !site.declaration.in_error && is_exported(site.declaration, site.ctx.summary)
+}
+
+/// The entries of a key only present or absent that move to the declarations of their key in another version of their
+/// file, or in another file (`follow_entries`)
+struct Follow<'a> {
+  /// The files the entries are of
+  from: BTreeSet<&'a str>,
+  /// The declarations of the key where they move to, also those the parser can't read (`is_clean_addition`)
+  sites: Vec<Site<'a>>,
+}
+
+/// The entries of the keys only present or absent of the file `from` that its new version `after` keeps, a renamed
+/// one included: they move to the declarations of their keys there, readable or not, whose signatures a call is
+/// judged by
+fn kept_entries<'a>(index: &Index<'a>, from: &'a str, after: &'a FileCtx<'a>) -> Vec<Follow<'a>> {
+  let mut sites: BTreeMap<String, Vec<Site<'a>>> = BTreeMap::new();
+  for declaration in &after.summary.declarations {
+    let Some(keys) = index.get(after.summary.name(declaration.name)) else { continue };
+    let site = site_of(after, declaration);
+    let held = keys.get(&site.key).is_some_and(|state| state.present.iter().any(|entry| entry.file == from));
+    if held && !has_entries(&site) {
+      sites.entry(site.key.clone()).or_default().push(site);
+    }
+  }
+  sites
+    .into_values()
+    .map(|sites| Follow {
+      from: BTreeSet::from([from]),
+      sites,
+    })
+    .collect()
+}
+
+/// Moves the entries of the files of `follow` to its declarations, each with its origin, as a key only present or
+/// absent has no forms: to a declaration of its identity (`same_entry`), else to one of an identity none of them has,
+/// in order (a changed signature). A declaration left over is as old as the oldest of them, as the key there is; an
+/// entry left over keeps its form in each file of the declarations, as all do where the parser can't read those
+/// (`is_clean_addition`): one may be its own, and two origins stay two, also when a commit moves the overloads of two
+/// files into one
+fn follow_entries<'a>(index: &mut Index<'a>, follow: Follow<'a>) {
+  let Some(first) = follow.sites.first() else { return };
+  let Some(state) = index.get_mut(first.name()).and_then(|keys| keys.get_mut(&first.key)) else {
+    return;
+  };
+  let (mut moving, kept): (Vec<Entry<'a>>, Vec<Entry<'a>>) = std::mem::take(&mut state.present).into_iter().partition(|entry| follow.from.contains(entry.file));
+  state.present = kept;
+  let Some(oldest) = moving.iter().map(|entry| &entry.origin).min_by_key(|origin| origin.commit).map(Rc::clone) else {
+    return;
+  };
+  let files: BTreeSet<&'a str> = follow.sites.iter().map(|site| site.ctx.path).collect();
+  let mut unmatched: Vec<Site<'a>> = Vec::new();
+  for site in follow.sites.into_iter().filter(is_clean_addition) {
+    match moving.iter().position(|entry| same_entry(&entry.site, &site)) {
+      Some(found) => state.present.push(Entry::new(site, moving.remove(found).origin)),
+      None => unmatched.push(site),
+    }
+  }
+  let mut left = moving.into_iter();
+  for site in unmatched {
+    let origin = left.next().map_or_else(|| Rc::clone(&oldest), |entry| entry.origin);
+    state.present.push(Entry::new(site, origin));
+  }
+  for entry in left {
+    state.present.extend(files.iter().map(|&file| Entry { file, ..entry.clone() }));
+  }
 }
 
 /// The entries of a key of a type or a member after a commit that changes it, from its declarations before and after
 /// the commit; an entry of the same identity (`same_entry`) and form (`same_form`) on both sides keeps its origin,
 /// whatever its body became, and one of the same identity in a new form has the commit for its origin and its old form
 /// for its predecessor; an entry `known` lacks was there before the range, but a constructor of a type the index
-/// knows, which a commit gave it while the key was only present or absent (`members` dropped it), is as old as its
+/// knows, which a commit gave it while the key was only present or absent (an unclean commit), is as old as its
 /// type (`oldest_step`), which it needs. A new entry has the commit for its origin and every entry the commit removed
 /// for its predecessors. Empty when the key keeps no entry, `None` when nothing changed in a key the index doesn't know
 fn member_entries<'a>(known: Option<&[Entry<'a>]>, member: Member<'a>, commit: usize) -> Option<Vec<Entry<'a>>> {
@@ -760,7 +844,7 @@ fn member_entries<'a>(known: Option<&[Entry<'a>]>, member: Member<'a>, commit: u
         None if site.constructor.is_some() => Rc::clone(&created),
         None => Rc::clone(&baseline),
       };
-      Entry { site, origin }
+      Entry::new(site, origin)
     })
     .collect();
   let mut entries = Vec::new();
@@ -768,19 +852,14 @@ fn member_entries<'a>(known: Option<&[Entry<'a>]>, member: Member<'a>, commit: u
   let mut reformed = false;
   for site in member.after {
     match gone.iter().position(|entry| same_entry(&entry.site, &site)) {
-      Some(found) if same_form(&gone[found].site, &site) => entries.push(Entry {
-        site,
-        origin: gone.swap_remove(found).origin,
-      }),
+      Some(found) if same_form(&gone[found].site, &site) => entries.push(Entry::new(site, gone.swap_remove(found).origin)),
       Some(found) => {
         reformed = true;
-        entries.push(Entry {
-          site,
-          origin: Rc::new(Origin {
-            commit: Some(commit),
-            predecessors: vec![gone.swap_remove(found)],
-          }),
+        let origin = Rc::new(Origin {
+          commit: Some(commit),
+          predecessors: vec![gone.swap_remove(found)],
         });
+        entries.push(Entry::new(site, origin));
       }
       None => new.push(site),
     }
@@ -792,7 +871,7 @@ fn member_entries<'a>(known: Option<&[Entry<'a>]>, member: Member<'a>, commit: u
     commit: Some(commit),
     predecessors: gone,
   });
-  entries.extend(new.into_iter().map(|site| Entry { site, origin: Rc::clone(&origin) }));
+  entries.extend(new.into_iter().map(|site| Entry::new(site, Rc::clone(&origin))));
   Some(entries)
 }
 
@@ -820,10 +899,15 @@ fn same_entry(a: &Site<'_>, b: &Site<'_>) -> bool {
   a.declaration.kind == b.declaration.kind
     && a.constructor.is_some() == b.constructor.is_some()
     && receiver_of(a) == receiver_of(b)
-    && match (a.signature(), b.signature()) {
-      (Some(x), Some(y)) => x.parameters.len() == y.parameters.len() && x.parameters.iter().zip(&y.parameters).all(|(x, y)| same_type(x.type_ref.as_ref(), y.type_ref.as_ref())),
-      (x, y) => x.is_none() && y.is_none(),
-    }
+    && same_parameters(a, b, |x, y| same_type(x.type_ref.as_ref(), y.type_ref.as_ref()))
+}
+
+/// Whether both have no signature, or signatures of as many parameters, each pair `same`
+fn same_parameters(a: &Site<'_>, b: &Site<'_>, same: impl Fn(&Parameter, &Parameter) -> bool) -> bool {
+  match (a.signature(), b.signature()) {
+    (Some(x), Some(y)) => x.parameters.len() == y.parameters.len() && x.parameters.iter().zip(&y.parameters).all(|(x, y)| same(x, y)),
+    (x, y) => x.is_none() && y.is_none(),
+  }
 }
 
 /// Whether two declarations of one entry (`same_entry`) have the same form: the names of their parameters, which a
@@ -832,17 +916,9 @@ fn same_entry(a: &Site<'_>, b: &Site<'_>) -> bool {
 /// both of. Whether a member is static, and whether it overrides, are no form: what they reject (`Owner.member` of an
 /// instance member, an override of an override) may compile all the same
 fn same_form(a: &Site<'_>, b: &Site<'_>) -> bool {
-  let parameters = match (a.signature(), b.signature()) {
-    (Some(x), Some(y)) => {
-      x.parameters.len() == y.parameters.len()
-        && x
-          .parameters
-          .iter()
-          .zip(&y.parameters)
-          .all(|(x, y)| (a.ctx.summary.name(x.name), x.optional, x.vararg) == (b.ctx.summary.name(y.name), y.optional, y.vararg))
-    }
-    (x, y) => x.is_none() && y.is_none(),
-  };
+  let parameters = same_parameters(a, b, |x, y| {
+    (a.ctx.summary.name(x.name), x.optional, x.vararg) == (b.ctx.summary.name(y.name), y.optional, y.vararg)
+  });
   let reach = |site: &Site<'_>| (site.declaration.reach, site.constructor.map(|constructor| constructor.reach));
   parameters && reach(a) == reach(b) && a.declaration.overridable == b.declaration.overridable
 }
@@ -854,8 +930,7 @@ fn same_form(a: &Site<'_>, b: &Site<'_>) -> bool {
 /// around it had supertypes then and has none now or the other way round, which an override is judged by
 /// (`resolve_override`)
 fn older_form(older: &Site<'_>, current: &Site<'_>) -> Option<Declaration> {
-  let inherits = |site: &Site<'_>| container_of(site).is_some_and(|container| !container.supertypes.is_empty());
-  (inherits(older) == inherits(current)).then(|| Declaration {
+  (has_supertypes(older) == has_supertypes(current)).then(|| Declaration {
     member: current.declaration.member,
     overrides: current.declaration.overrides,
     ..older.declaration.clone()
@@ -865,6 +940,11 @@ fn older_form(older: &Site<'_>, current: &Site<'_>) -> Option<Declaration> {
 /// The declaration of the type that declares the member `site`, in the file of `site`
 fn container_of<'a>(site: &Site<'a>) -> Option<&'a Declaration> {
   site.declaration.container.and_then(|index| site.ctx.summary.declarations.get(index as usize))
+}
+
+/// Whether the type that declares the member `site` names any supertype, `Any` or `Object` included
+fn has_supertypes(site: &Site<'_>) -> bool {
+  container_of(site).is_some_and(|container| !container.supertypes.is_empty())
 }
 
 /// The extension receiver of a declaration, its last name
@@ -941,7 +1021,7 @@ fn extends(summary: &FileSummary, declaration: &Declaration) -> bool {
 /// supertype other than `Any` or `Object`, which may inherit more that the range doesn't show (`Base.buttons(Long)`
 /// takes `buttons(1)`), nor of a name every class has (`ROOT_MEMBERS`)
 fn all_entries(use_site: &UseSite<'_>, site: &Site<'_>) -> bool {
-  has_entries(site) && !ROOT_MEMBERS.contains(&site.name()) && !inherits(use_site, site)
+  has_entries(site) && !ROOT_MEMBERS.contains(&site.name()) && !inherits_unseen(use_site, site)
 }
 
 /// Whether the arguments of a call may tell the overloads of the member `site` apart: only where all of them are its
@@ -966,12 +1046,8 @@ fn import_decides(summary: &FileSummary, reference: &Reference, enclosed: bool) 
   if enclosed || summary.declares(name) || imports_of_function(summary, name) > 1 {
     return false;
   }
-  let mut current = reference.container;
-  while let Some(declaration) = current.and_then(|index| summary.declarations.get(index as usize)) {
-    if declaration.receiver.is_some() {
-      return false;
-    }
-    current = declaration.container;
+  if outward(summary, reference.container).any(|(_, declaration)| declaration.receiver.is_some()) {
+    return false;
   }
   !receivers(summary, reference).iter().any(|(_, declaration)| extends(summary, declaration))
 }
@@ -1026,6 +1102,21 @@ fn takes(reference: &Reference, constructs: bool, stands_in: bool, use_summary: 
     Some(_) => constructs,
     None => !constructs || stands_in || invokes(use_summary, call, site),
   }
+}
+
+/// Whether a Kotlin call of a type may mean the function `site` of its name, which the type then stands for: one that
+/// the use sees by the evidence of a function (an import, its qualified name, its file), or, as no evidence links a
+/// function from another file of the package, one of the package in the module of the use that its reach lets in. A
+/// private one of another file, one of another module or language, and any for a Java `new` are none
+fn sees_function(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<&[String]>, site: &Site<'_>) -> bool {
+  use_site.language == Language::Kotlin
+    && site.ctx.language == Language::Kotlin
+    && (resolve(input, use_site, reference, qualifier, site).is_some()
+      || (!matches!(site.declaration.reach, Reach::File | Reach::Container)
+        && reaches_module(use_site, site, site.declaration.reach)
+        && use_site.namespace == site.ctx.namespace
+        && use_site.module_root.is_some()
+        && use_site.module_root == site.ctx.module_root))
 }
 
 /// Whether a Kotlin call of the type `site` may mean an `invoke` of its companion instead of a constructor: its file
@@ -1084,18 +1175,12 @@ fn means_its_type(summary: &FileSummary, reference: &Reference, enclosed: bool, 
     // a top-level type, by a bare name that nothing else of the file may take
     return site.declaration.kind == DeclKind::Type && reference.qualifier.is_none() && names_only_its_type(summary, site.name(), true, 0);
   };
-  let mut current = reference.container;
-  let innermost = loop {
-    let Some(declaration) = current.and_then(|index| summary.declarations.get(index as usize)) else {
-      return false;
-    };
-    if matches!(declaration.kind, DeclKind::Type | DeclKind::EnumEntry) {
-      break declaration;
-    }
-    if declaration.receiver.is_some() {
-      return false;
-    }
-    current = declaration.container;
+  // the innermost type around it, unless an extension receiver comes first
+  let Some((_, innermost)) = outward(summary, reference.container)
+    .find(|(_, declaration)| matches!(declaration.kind, DeclKind::Type | DeclKind::EnumEntry) || declaration.receiver.is_some())
+    .filter(|(_, declaration)| matches!(declaration.kind, DeclKind::Type | DeclKind::EnumEntry))
+  else {
+    return false;
   };
   if innermost.kind != DeclKind::Type || summary.name(innermost.name) != own || containers_of(summary, innermost) != outer {
     return false;
@@ -1134,15 +1219,9 @@ fn imports_of_function(summary: &FileSummary, name: &str) -> usize {
 /// first, and in Kotlin the companion of each (a `Companion`: the summary doesn't tell a companion with a name of its
 /// own from a nested object, which is no receiver)
 fn receivers<'a>(summary: &'a FileSummary, reference: &Reference) -> Vec<(u32, &'a Declaration)> {
-  let mut receivers: Vec<(u32, &Declaration)> = Vec::new();
-  let mut current = reference.container;
-  while let Some(index) = current {
-    let Some(declaration) = summary.declarations.get(index as usize) else { break };
-    if declaration.kind == DeclKind::Type {
-      receivers.push((index, declaration));
-    }
-    current = declaration.container;
-  }
+  let mut receivers: Vec<(u32, &Declaration)> = outward(summary, reference.container)
+    .filter(|(_, declaration)| declaration.kind == DeclKind::Type)
+    .collect();
   if summary.language == Language::Kotlin {
     let around: Vec<u32> = receivers.iter().map(|(index, _)| *index).collect();
     receivers.extend(
@@ -1159,9 +1238,10 @@ fn receivers<'a>(summary: &'a FileSummary, reference: &Reference) -> Vec<(u32, &
   receivers
 }
 
-/// Whether the type that declares the member `site` has a supertype other than `Any` or `Object`: in the file of the
-/// member, or in that file at the commit of `use_site`, which may have changed the supertypes since
-fn inherits(use_site: &UseSite<'_>, site: &Site<'_>) -> bool {
+/// Whether the type that declares the member `site` has a supertype other than `Any` or `Object`, whose members the
+/// range doesn't show: in the file of the member, or in that file at the commit of `use_site`, which may have changed
+/// the supertypes since
+fn inherits_unseen(use_site: &UseSite<'_>, site: &Site<'_>) -> bool {
   if container_of(site).is_some_and(|declaration| extends(site.ctx.summary, declaration)) {
     return true;
   }
@@ -1273,16 +1353,7 @@ fn changed_sites<'a>(side: &'a FileCtx<'a>, ranges: &[(u32, u32)]) -> Vec<Site<'
   let declarations = &side.summary.declarations;
   let on_changed_lines = |start_line: u32, end_line: u32| ranges.iter().any(|&(start, end)| start_line < end && start <= end_line);
   // a container whose name changed gives its members new keys, though their lines stay
-  let renamed_container = |declaration: &Declaration| {
-    let mut current = declaration.container;
-    while let Some(container) = current.and_then(|index| declarations.get(index as usize)) {
-      if on_changed_lines(container.name_line, container.name_line) {
-        return true;
-      }
-      current = container.container;
-    }
-    false
-  };
+  let renamed_container = |declaration: &Declaration| outward(side.summary, declaration.container).any(|(_, container)| on_changed_lines(container.name_line, container.name_line));
   declarations
     .iter()
     .filter(|declaration| side.summary.name(declaration.name).len() >= MIN_NAME_LENGTH)
@@ -1359,8 +1430,8 @@ fn resolve_any(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referenc
   }
   if use_site.path == site.ctx.path {
     // the extraction drops locals; a private member is used only in the containers that see it (`private_scope`), and
-    // a name qualified by another type is no use of it
-    if names_another_type(use_site.summary, qualifier, site) {
+    // neither a name qualified by another type nor an extension called on anything but `this` is a use of it
+    if names_another_type(use_site.summary, qualifier, site) || on_unknown_receiver(qualifier, site) {
       return None;
     }
     return match site.declaration.reach {
@@ -1397,6 +1468,14 @@ fn names_another_type(summary: &FileSummary, qualifier: Option<&[String]>, site:
   last.starts_with(char::is_uppercase) && !value && last != "Self" && !qualifier.iter().any(own)
 }
 
+/// Whether a use with `qualifier` calls the JVM extension `site` (a declaration with an extension receiver) on anything
+/// but a bare name, `this` or `super` (`bare`): an expression, a local or a name, as `prompt.openGlobalPrompt()` on a
+/// `val prompt = Driver(…)` beside a `fun Scope.openGlobalPrompt()`. A member of the receiver's type wins over an
+/// extension in Kotlin, and only a compiler knows that type
+fn on_unknown_receiver(qualifier: Option<&[String]>, site: &Site<'_>) -> bool {
+  site.ctx.language.family() == Family::Jvm && site.declaration.receiver.is_some() && !bare(qualifier)
+}
+
 /// Whether a use with `qualifier` is one by a bare name, `this.name` or `super.name`: of a member of the type around it
 fn bare(qualifier: Option<&[String]>) -> bool {
   qualifier.is_none_or(|qualifier| matches!(qualifier, [only] if only == "this" || only == "super"))
@@ -1430,15 +1509,7 @@ fn private_scope<'s>(site: &'s Site<'_>, qualifier: Option<&[String]>) -> &'s [S
 /// Whether `reference` is inside a declaration of `containers` (the innermost container chain of its file)
 fn contains(summary: &FileSummary, reference: &Reference, containers: &[String]) -> bool {
   let Some(last) = containers.last() else { return true };
-  let mut current = reference.container;
-  while let Some(index) = current {
-    let Some(declaration) = summary.declarations.get(index as usize) else { return false };
-    if summary.name(declaration.name) == last {
-      return true;
-    }
-    current = declaration.container;
-  }
-  false
+  outward(summary, reference.container).any(|(_, declaration)| summary.name(declaration.name) == last)
 }
 
 /// The names of `segments` in `summary`
@@ -1450,13 +1521,13 @@ fn names(summary: &FileSummary, segments: &[u32]) -> Vec<String> {
 const ROOT_MEMBERS: [&str; 5] = ["equals", "hashCode", "toString", "clone", "finalize"];
 
 /// The evidence that an `Override` reference overrides the member `site`. The member must be one a subtype overrides
-/// (an instance function or property, `overridable`, of the same receiver and parameter types, `fits`), not one every
-/// class has (`ROOT_MEMBERS`), and must override nothing itself, else the supertype's supertype has it already; its type
-/// must be the one the reference's supertype path names: the same file, the full path, an import (an alias, a nested
-/// type), or the same package in the same module without a type of that name in the file, never a wildcard import, and
-/// no type of the name that a scope around the override may mean instead (`scope_may_shadow`). No evidence in a class
-/// with several supertypes, whose member may come from any, nor for a Java method of a class with supertypes, which
-/// may override one without `@Override`
+/// (an instance function or property, `overridable`, of the same receiver and parameter types, `override_fits`), not
+/// one every class has (`ROOT_MEMBERS`), and must override nothing itself, else the supertype's supertype has it
+/// already; its type must be the one the reference's supertype path names: the same file, the full path, an import (an
+/// alias, a nested type), or the same package in the same module without a type of that name in the file, never a
+/// wildcard import, and no type of the name that a scope around the override may mean instead (`scope_may_shadow`). No
+/// evidence in a class with several supertypes, whose member may come from any, nor for an override of a Java method
+/// whose class has supertypes: that method may itself override one without `@Override`
 fn resolve_override(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<&[String]>, site: &Site<'_>) -> Option<Evidence> {
   let summary = use_site.summary;
   let declaration = site.declaration;
@@ -1474,7 +1545,7 @@ fn resolve_override(use_site: &UseSite<'_>, reference: &Reference, qualifier: Op
     return None;
   }
   // the members of the supertypes of the member's type are unknown, and the override may mean one of them
-  let inherits = container_of(site).is_some_and(|container| !container.supertypes.is_empty());
+  let inherits = has_supertypes(site);
   if site.ctx.language == Language::Java && inherits {
     return None;
   }
@@ -1483,7 +1554,7 @@ fn resolve_override(use_site: &UseSite<'_>, reference: &Reference, qualifier: Op
     .references_to(summary.name(reference.name))
     .filter(|other| other.role == Role::Override && other.line == reference.line && other.container == reference.container && other.shape == reference.shape)
     .count();
-  if supertypes > 1 || receiver.map(|it| summary.name(it)) != receiver_of(site) || !fits(use_site, parameters, site, inherits) {
+  if supertypes > 1 || receiver.map(|it| summary.name(it)) != receiver_of(site) || !override_fits(use_site, parameters, site, inherits) {
     return None;
   }
 
@@ -1491,11 +1562,7 @@ fn resolve_override(use_site: &UseSite<'_>, reference: &Reference, qualifier: Op
   let (head, rest) = path.split_first()?;
   let full = site.ctx.namespace.iter().chain(&site.containers).map(String::as_str);
   // the head through an import: `import p.Manager as M`, `import p.Outer.Inner`
-  let imported = summary.imports.iter().zip(&use_site.import_paths).find_map(|(import, import_path)| match import.target {
-    ImportTarget::Name(imported) if summary.name(import.alias.unwrap_or(imported)) == head => Some((import_path, summary.name(imported))),
-    _ => None,
-  });
-  if let Some((import_path, imported)) = imported {
+  if let Some((import_path, imported)) = import_binding(use_site, head) {
     let resolved = import_path.iter().map(String::as_str).chain([imported]).chain(rest.iter().map(String::as_str));
     return resolved.eq(full).then_some(Evidence::Override);
   }
@@ -1517,7 +1584,7 @@ fn resolve_override(use_site: &UseSite<'_>, reference: &Reference, qualifier: Op
 /// generous: a type parameter fits any type and two types of the same last names are the same, which only adds an
 /// origin. Where it has (`exact`), a member of a supertype outside the range may be what the override means, so only
 /// the same form counts: a signature, every type known, each name resolved by its file to the same type
-fn fits(use_site: &UseSite<'_>, parameters: &[Option<TypeRef>], site: &Site<'_>, exact: bool) -> bool {
+fn override_fits(use_site: &UseSite<'_>, parameters: &[Option<TypeRef>], site: &Site<'_>, exact: bool) -> bool {
   let Some(signature) = &site.declaration.signature else {
     // a property has none, and a function's that the parser didn't find fits any unless the form must be exact
     return !exact || site.declaration.kind != DeclKind::Function;
@@ -1529,11 +1596,11 @@ fn fits(use_site: &UseSite<'_>, parameters: &[Option<TypeRef>], site: &Site<'_>,
     let (a, b) = (use_site.summary, site.ctx.summary);
     x.names.iter().zip(&y.names).all(|(x, y)| same_type(use_site, a.name(*x), site.ctx, b.name(*y)))
   };
-  let fits = |shape: Option<&TypeRef>, parameter: Option<&TypeRef>| match (shape, parameter) {
+  let fits_parameter = |shape: Option<&TypeRef>, parameter: Option<&TypeRef>| match (shape, parameter) {
     (Some(x), Some(y)) => (!nullable || x.nullable == y.nullable) && same_names(use_site.summary, x, site.ctx.summary, y) && (!exact || resolved(x, y)),
     _ => !exact,
   };
-  signature.parameters.len() == parameters.len() && parameters.iter().zip(&signature.parameters).all(|(x, y)| fits(x.as_ref(), y.type_ref.as_ref()))
+  signature.parameters.len() == parameters.len() && parameters.iter().zip(&signature.parameters).all(|(x, y)| fits_parameter(x.as_ref(), y.type_ref.as_ref()))
 }
 
 /// Whether the type name `a` of the file of `x` and `b` of the file of `y` name the same type: by an import or a type
@@ -1594,18 +1661,23 @@ fn is_default_function(name: &str) -> bool {
 /// when the package, a wildcard or a default import decides
 fn full_type_name(ctx: &FileCtx<'_>, name: &str) -> Option<String> {
   let summary = ctx.summary;
-  let imported = summary.imports.iter().zip(&ctx.import_paths).find_map(|(import, path)| match import.target {
-    ImportTarget::Name(imported) if summary.name(import.alias.unwrap_or(imported)) == name => {
-      Some(path.iter().map(String::as_str).chain([summary.name(imported)]).collect::<Vec<_>>().join("."))
-    }
-    _ => None,
-  });
+  let imported = import_binding(ctx, name).map(|(path, imported)| path.iter().map(String::as_str).chain([imported]).collect::<Vec<_>>().join("."));
   imported.or_else(|| {
     let declared = summary
       .declarations
       .iter()
       .find(|declaration| matches!(declaration.kind, DeclKind::Type | DeclKind::TypeAlias) && summary.name(declaration.name) == name)?;
     Some(site_of(ctx, declared).key)
+  })
+}
+
+/// The import of the file of `ctx` that binds `name` (by its alias, else by its last name): its path and the name it
+/// imports
+fn import_binding<'c>(ctx: &'c FileCtx<'_>, name: &str) -> Option<(&'c [String], &'c str)> {
+  let summary = ctx.summary;
+  summary.imports.iter().zip(&ctx.import_paths).find_map(|(import, path)| match import.target {
+    ImportTarget::Name(imported) if summary.name(import.alias.unwrap_or(imported)) == name => Some((path.as_slice(), summary.name(imported))),
+    _ => None,
   })
 }
 
@@ -1616,13 +1688,7 @@ fn full_type_name(ctx: &FileCtx<'_>, name: &str) -> Option<String> {
 fn scope_may_shadow(use_site: &UseSite<'_>, reference: &Reference, head: &str, path: &[String]) -> bool {
   let summary = use_site.summary;
   // the declarations around the override, the innermost first
-  let mut around: Vec<(u32, &Declaration)> = Vec::new();
-  let mut current = reference.container;
-  while let Some(index) = current {
-    let Some(declaration) = summary.declarations.get(index as usize) else { break };
-    around.push((index, declaration));
-    current = declaration.container;
-  }
+  let around: Vec<(u32, &Declaration)> = outward(summary, reference.container).collect();
   let nested = summary.declarations.iter().any(|declaration| {
     matches!(declaration.kind, DeclKind::Type | DeclKind::TypeAlias)
       && summary.name(declaration.name) == head

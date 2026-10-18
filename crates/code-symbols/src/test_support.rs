@@ -38,9 +38,13 @@ pub(crate) fn check_golden(name: &str) {
   pretty_assertions::assert_eq!(expected, actual, "{name}: rerun with CODE_SYMBOLS_UPDATE=1 to rewrite the golden file");
 }
 
+/// The names of `ids` joined by dots
+fn path_text(summary: &FileSummary, ids: &[u32]) -> String {
+  ids.iter().map(|it| summary.name(*it)).collect::<Vec<_>>().join(".")
+}
+
 pub(crate) fn render(summary: &FileSummary) -> String {
   let mut out = String::new();
-  let path = |ids: &[u32]| ids.iter().map(|it| summary.name(*it)).collect::<Vec<_>>().join(".");
   if let Some(package) = &summary.package {
     let _ = writeln!(out, "package {package}");
   }
@@ -51,7 +55,7 @@ pub(crate) fn render(summary: &FileSummary) -> String {
       ImportTarget::Default => "default".to_string(),
       ImportTarget::Namespace => "namespace".to_string(),
     };
-    let _ = write!(out, "import {}{}{target}", path(&import.path), if import.path.is_empty() { "" } else { "." });
+    let _ = write!(out, "import {}{}{target}", path_text(summary, &import.path), if import.path.is_empty() { "" } else { "." });
     if let Some(alias) = import.alias {
       let _ = write!(out, " as {}", summary.name(alias));
     }
@@ -87,7 +91,11 @@ pub(crate) fn render(summary: &FileSummary) -> String {
     }
     if !declaration.supertypes.is_empty() {
       // `_` for a function type, which has no path
-      let supertypes: Vec<String> = declaration.supertypes.iter().map(|it| if it.is_empty() { "_".to_string() } else { path(it) }).collect();
+      let supertypes: Vec<String> = declaration
+        .supertypes
+        .iter()
+        .map(|it| if it.is_empty() { "_".to_string() } else { path_text(summary, it) })
+        .collect();
       let _ = write!(out, " : {}", supertypes.join(", "));
     }
     let _ = writeln!(out, "{}{}", modality_text(declaration), if declaration.in_error { " in_error" } else { "" });
@@ -250,8 +258,7 @@ pub(crate) fn constructors_of(summary: &FileSummary, name: &str) -> Option<Vec<S
 
 /// The supertypes of the type `name` as dotted paths
 pub(crate) fn supertypes_of(summary: &FileSummary, name: &str) -> Vec<String> {
-  let path = |ids: &Vec<u32>| ids.iter().map(|it| summary.name(*it)).collect::<Vec<_>>().join(".");
-  declaration(summary, name).supertypes.iter().map(path).collect()
+  declaration(summary, name).supertypes.iter().map(|it| path_text(summary, it)).collect()
 }
 
 /// The text of each declaration of a name, given the name of its container (`-` at the top level)

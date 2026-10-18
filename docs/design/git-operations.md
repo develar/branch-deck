@@ -1257,8 +1257,8 @@ before and after each commit, by blob id; nothing reads the working tree or an i
 - **Cached by blob id.** The `blob_summary` store keys a summary by the extractor version (the rules and the node
   types of the grammars), the language and the blob id; the first write of another version clears the store once. A
   summary the parse budget cut is not cached. The parse runs on one thread per core, each with its own parsers.
-- **The index is the range.** Only the declarations the commits ahead of the baseline add are looked up; a use of
-  anything else is no edge.
+- **The index is the range.** Only the declarations the commits ahead of the baseline add or change are looked up (a
+  changed member brings the overloads its file had before along); a use of anything else is no edge.
 
 Code: `crates/sync-core/src/symbol_scan.rs`, `crates/sync-core/src/module_roots.rs`,
 `crates/sync-core/src/symbol_dependencies.rs`, `crates/object-cache/src/blob_summary.rs`, `crates/code-symbols`.
@@ -1472,7 +1472,7 @@ a check, `find_dangling_references` looks for such uses without a compiler:
    a few hundred even in a monorepo.
 4. The syntax trees subtract (`code_symbols`, Kotlin, Java, Rust, TypeScript and JavaScript): a candidate line counts
    only where the tree of its blob has a reference to the name, so a word of a comment or a string, a local of the same
-   name, a key and the line of an `override` member (it declares one) are none; a name an import still binds in the
+   name, a key and the name of an `override` member (it declares one) are none; a name an import still binds in the
    removing file (a Rust `pub use`, a Kotlin alias) is not removed. The lines found the candidates and the trees only
    take some away, so a use the regular expression finds (a Kotlin extension call) stays. Both sides of a path go by the
    same method: a side the parser can't read well keeps the lines on both. The summaries of these blobs, new in every

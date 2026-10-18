@@ -385,8 +385,8 @@ fn an_override_of_a_new_overload_is_an_edge_by_symbols() {
   assert_eq!(
     output["dependencies"],
     json!([{
-      "from": short(&overrides),
-      "to": short(&declares),
+      "from": short_id(&overrides),
+      "to": short_id(&declares),
       "files": [MANAGER_TEST],
       "via": "symbols",
       "symbols": [{ "name": "buttons", "file": MANAGER_TEST }],

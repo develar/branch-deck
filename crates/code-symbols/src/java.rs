@@ -5,11 +5,11 @@
 
 // jscpd:ignore-start: every language module implements one `Spec` with the same vocabulary
 use crate::extract::{
-  BLOCK_COMMENT, Binder, Child, DeclRule, Holder, IDENTIFIER, Inheritance, LINE_COMMENT, Modality, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, Walk, binder, decl, function_decl,
-  line_of, type_decl,
+  BLOCK_COMMENT, Binder, CallArguments, Child, DeclRule, Holder, IDENTIFIER, JvmFields, JvmHooks, LINE_COMMENT, Modality, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, Walk, binder,
+  decl, function_decl, line_of, type_decl,
 };
 use crate::language::Language;
-use crate::summary::{Argument, Constructor, DeclKind, MemberKind, Parameter, Reach, Role, Shape, Signature};
+use crate::summary::{Argument, Constructor, DeclKind, MemberKind, Parameter, Reach, Role, Signature};
 use tree_sitter::Node;
 // jscpd:ignore-end
 
@@ -170,7 +170,7 @@ pub(crate) static SPEC: Spec = Spec {
   traits,
   binds: |_| true,
   hoist: None,
-  inheritance: Some(Inheritance {
+  jvm: Some(JvmHooks {
     signature,
     overrides,
     supertypes,
@@ -214,7 +214,7 @@ fn parameter<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
       receiver: None,
       holder: Holder::Leaf,
     };
-    w.add_declaration(node, name, &traits);
+    w.add_declaration(node, name, &traits, JvmFields::default());
   } else {
     w.bind_node(name);
   }
@@ -230,7 +230,7 @@ fn new<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   }
   if let Some(body) = w.child(node, Child::Kind(&["class_body"])) {
     w.mark_scope(body);
-    let supertypes = w.supertype_paths(&Vec::from_iter(constructed));
+    let supertypes = w.supertype_paths(constructed.as_slice());
     w.push_supertypes(supertypes);
   }
   true
@@ -361,7 +361,7 @@ fn in_final_class(w: &Walk<'_>) -> bool {
 /// has none
 #[expect(
   clippy::unnecessary_wraps,
-  reason = "the signature of `Inheritance::signature`, whose Kotlin one has none without a parameter list"
+  reason = "the signature of `JvmHooks::signature`, whose Kotlin one has none without a parameter list"
 )]
 fn signature<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<Signature> {
   let Some(list) = w.field(node, "parameters") else {
@@ -421,17 +421,12 @@ fn supertypes<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<Vec<Vec<u32>>> {
   Some(w.supertype_paths(&types))
 }
 
-/// The arguments of a method invocation, in order; Java names none and spreads none (a vararg takes the values). The
-/// walk sets `enclosed`
-fn call_shape<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<Shape> {
+/// The arguments of a method invocation, in order; Java names none and spreads none (a vararg takes the values)
+fn call_shape<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<CallArguments> {
   let list = w.field(node, "arguments")?;
   let mut cursor = list.walk();
   let arguments = list.named_children(&mut cursor).filter(|it| !w.is_comment(*it)).map(|it| (None, argument(w, it))).collect();
-  Some(Shape::Call {
-    arguments,
-    spread: false,
-    enclosed: false,
-  })
+  Some((arguments, false))
 }
 
 /// What an argument is: a string literal or text block, an integer without the `L` suffix (`-1` too), `true` or
