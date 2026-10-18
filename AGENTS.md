@@ -330,9 +330,10 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   `bd update --continue` and `--abort` hold `$GIT_COMMON_DIR/branch-deck.lock`
   (`repository_lock.rs`, bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch.
   A fetch never runs under it.
-- **Guards** (`check_rewrite`) before rewriting the checked-out branch: no rebase/merge/cherry-pick/revert in progress,
-  HEAD not detached, no merges in the range (refuse, no rebase fallback). A sync (the app's and `bd sync`) is refused
-  under the first two as `SyncDeferred` (`check_sync_guards`): a half-done history would archive the branches it lacks.
+- **Guards** (`History::check_rewrite`, `check_rewrite_range`) before rewriting the checked-out branch: no
+  rebase/merge/cherry-pick/revert in progress, HEAD not detached, no merges in the range (refuse, no rebase fallback).
+  A sync (the app's and `bd sync`) is refused under the first two as `SyncDeferred` (`check_sync_guards`): a half-done
+  history would archive the branches it lacks.
 - **Metadata**: message-only rewrites (reword, move) keep author and committer byte-for-byte (`commit_writer`:
   `cat-file --batch` + `fast-import`); content rewrites (amend, drop via `git replay`) keep the author, committer = current
   user. The one named exception: `bd move-hunk` (`move_hunk.rs`) keeps author and committer byte-for-byte for every
@@ -382,6 +383,69 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   `cat-file --batch` of the directories above them at HEAD, one for the blobs the `blob_summary` cache misses and the
   manifests; the declarations the range adds are the index, never the whole tree. The summaries of trial blobs (the
   dangling-reference check) stay in memory, never in the object cache.
+
+### Adding a git operation
+An operation keeps one name across the layers (`git_ops::move_hunk`, `sync_core::move_hunk`, `bd move-hunk`). The `//!`
+headers of `crates/git-ops/src/lib.rs` and `crates/sync-core/src/lib.rs` map the modules by area; the layers are the
+"Architecture" of [Git Operations](docs/design/git-operations.md).
+- **git-ops** (`crates/git-ops/src/<op>.rs`): the git, functions of `(git, repo_path, …)`, one process per phase (many
+  ids or paths on stdin, `cat-file --batch`, `fast-import`, one `RefTransaction`), through `git.cmd(&args, repo)` with
+  one finisher, or the shorthands `execute_command`, `execute_command_lines`, `execute_command_with_status`. Read `-z`
+  output (paths as bytes), take full ids (`is_object_id` for an id from outside), put a revision from outside after
+  `--end-of-options` and a path after `--` as a literal pathspec (`GIT_LITERAL_PATHSPECS=1`). A rewrite of the
+  checked-out branch runs the guards on the history it read (`History::check_rewrite`; `check_rewrite_range` for a
+  range it did not read) and moves the branch with CAS on the HEAD it read. Reuse a helper below before writing a
+  parser; no lock and no policy here.
+- **The core** (`crates/sync-core/src/<op>.rs`): `<op>_core(git, params, …)`, the one entry of every caller. A rewrite
+  of the checked-out branch takes `&RewriteOptions`: `options.lock(..)` before it reads anything, then the expected
+  HEAD (`ensure_head`, `expected_full_head`), then git-ops. A step of a sync, or of a `bd` command after its sync, takes
+  the facts `RepoFacts`, `ConfigSnapshot`, `Snapshot` or the `SyncReport` hold instead of reading them again; a remote
+  only through `remote_command`. The params and results the app passes derive `specta::Type` (feature `specta`).
+- **bd** (`crates/bd-cli/src/<op>_command.rs`, a variant of `Command` in `lib.rs`): clap arguments, one JSON object with
+  `schema` (`bd schema`, `schema_test.rs`), errors as `CliError` with an `ErrorCode` (its exit code in
+  `docs/guidelines/agent-cli.md`), a read-only command in `read_only!` (`agent_help.rs`); bd's own lock goes to the core
+  as `held_lock` only when bd writes more under it. No git of its own.
+- **The app** (`src-tauri/src/commands/<op>.rs`): `#[tauri::command]` `#[specta::specta]` that calls
+  `run_blocking(move || <op>_core(..))`, registered in `src-tauri/src/lib.rs`, `src/lib/bindings.ts` regenerated
+  (`bindings_test.rs`); the E2E server routes the command to the same core (`crates/test-server/src/lib.rs`,
+  `tauri_command_bridge.rs`).
+- **Same commit**: the spec, the flow's section in [Git Operations](docs/design/git-operations.md), and a test of the
+  operation in `process_budget_test.rs` (`crates/sync-core/src/` for a core, `crates/bd-cli/src/` for a `bd` command)
+  that pins its processes by subcommand; the scans of the sources (`crates/git-executor/src/worktree_safety_test.rs`)
+  stay green.
+
+| Helper | Module | For |
+|---|---|---|
+| `RefTransaction` (`update`, `create`, `delete`, `verify`, `commit`, `commit_while`) | `git_ops::ref_transaction` | every ref move: CAS, reflog message, related refs in one transaction |
+| `read_raw_commits`, `write_commits_with_notes`, `write_store_updates`, `write_notes_to_refs`, `complete_line` | `git_ops::commit_writer` | commits, store commits and notes from one `fast-import`, exact metadata, temporary refs deleted with CAS |
+| `CommitChain` | `git_ops::commit_chain` | dependent merges and commits of one branch: one `merge-tree --stdin` and one `fast-import` |
+| `parse_batch_merge`, `parse_merge_tree_output`; `MergeOutcome` | `git_ops::merge_tree_output`, `git_ops::merge_memo` | the `-z` output of `merge-tree --write-tree`, a `--stdin` run merge by merge |
+| `for_each_object`, `read_objects`, `object_types` | `git_ops::cat_file_batch` | many objects from one `cat-file --batch --buffer -Z`, streamed, over-limit contents skipped |
+| `read_blob_bytes`, `read_texts`, `read_trees` | `git_ops::object_texts` | blob bytes or texts and tree entries of many names |
+| `History::read_to`, `read_ahead_of`, `check_rewrite` | `git_ops::history` | the first-parent history a rewrite works on, never the whole one, and its guards |
+| `check_rewrite_range`, `ensure_no_operation_in_progress`, `IndexUpdate`, `HeadMoved` | `git_ops::rewrite_guard` | the guards of a range not read; the user's index after a rewrite |
+| `short_id`, `current_branch`, `checked_out_branch`, `read_head`, `resolve_commit`, `is_ancestor`, `merge_base`, `fork_point`, `ref_tips`, `tips_under`, `current_worktree`, `repository_dirs` | `git_ops::revs` | rev, branch and worktree facts; `merge-base` exit 1 is "no", any other an error |
+| `changed_paths`, `commits_touching` | `git_ops::paths` | the paths two trees differ in, as bytes; the commits that change some paths |
+| `replay_range`, `replay_range_with_env`, `merge_trees` | `git_ops::replay` | `git replay` of a range, a merge of three trees, objects only |
+| `read_notes`, `notes_ref`, `write_commit_notes` | `git_ops::notes` | the notes of many commits from one `log --no-walk --stdin`; the mapping notes |
+| `get_commits_info`, `find_commit`, `empty_tree`, `blob_id` | `git_ops::commit_utils` | commits by id from one `log --no-walk --stdin`; ids without a process |
+| `get_commit_list_with_handler` | `git_ops::commit_list` | the commits ahead of the baseline, streamed |
+| `read_commit_files_cached`, `read_patches`, `warm_patches`, `read_patch_cached`, `is_object_id` | `git_ops::commit_files` | files and line counts of many commits from one `diff-tree --stdin`, patches cut as they stream; a full id |
+| `read_attributes` | `git_ops::attributes` | the attributes of many paths, one `check-attr --stdin -z` |
+| `read_descriptions`, `write_description`, `clear_description` | `git_ops::branch_description` | the pull request text of a branch |
+| `RepoFacts`, `read_baseline_listing` | `sync_core::repo_facts` | the baseline, HEAD, upstream and the branches under the prefix, read once per sync |
+| `ConfigSnapshot` | `sync_core::config_snapshot` | the `branchdeck.*` settings and the descriptions from one `git config` |
+| `Snapshot`, `CommitsAhead`, `read_grouping_inputs` | `sync_core::snapshot` | the commits ahead of the baseline and what groups them, once per operation |
+| `LineStore`; `ISSUE_GROUPS`, `STACK_PARENTS` | `sync_core::store_lines`; `issue_groups`, `stack_parents` | a `key<TAB>value` map in a ref of its own: read, CAS write |
+| `walk_commits`, `CommitKey` | `sync_core::commit_walk`, `sync_core::commit_key` | a `rev-list` walk matched across a rebase |
+| `resolve_commit_ids` | `sync_core::commit_ids` | the ids of a request, abbreviated or full, among the commits ahead of the baseline |
+| `CacheMemo`, `ConflictMemo` | `sync_core::cache_memo` (private) | merges, commit trees and conflict views in the object cache |
+| `lock_repository`, `RewriteOptions`, `ensure_expected_head` | `sync_core::repository_lock` | the repository lock and the expected HEAD |
+| `execute_remote_command` (`_accepting`, `_with_progress`, `_with_progress_until`) | `sync_core::remote_command` | every push and fetch |
+| `push_refs` | `sync_core::push_lease` | one leased `push --porcelain` of many refs |
+| `detect_baseline_branch`; `check_sync_guards` | `sync_core::baseline`; `sync_core::sync` | the baseline outside a sync; the guards of a sync |
+| `ProcessPermits` | `git_executor::concurrency` | the slots of an operation's parallel git work |
+| `with_process_stats`, `process_stats().by_command()` | `git_executor::git_command_executor` | the processes of an operation, in a test or in the log |
 
 ### Rust Import Rules
 - **NO RE-EXPORTS**: Never use `pub use` statements except for internal module organization.

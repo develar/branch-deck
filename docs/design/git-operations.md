@@ -36,7 +36,33 @@ index changes only where HEAD's tree changed, and staged changes on other paths 
 
 ```mermaid
 flowchart TD
-    A[Tauri command] --> G[rewrite_guard: no operation in progress, branch checked out, no merges in range]
+    APP[src-tauri: a Tauri command, run_blocking of a core] --> CORE
+    BD[bd-cli: arguments, JSON output, error codes] --> CORE
+    E2E[test-server: the commands of the E2E mock] --> CORE
+    CORE[sync-core: one core per operation, the lock, the expected HEAD, the order of the steps; the sync] --> OPS
+    CORE --> BI[branch-integration: the archive step and the detection of integrated branches]
+    BI --> OPS[git-ops: one module per operation or shared reader and writer, one git process per phase]
+    OPS --> EX[git-executor: GitCommandExecutor, the one place a git process starts]
+    OPS --> OC[(object-cache: LMDB keyed by object ids)]
+    CORE --> OC
+    CORE --> NET[github, patronus: HTTP only]
+```
+
+Each layer calls only the layers below it. The adapters (the app, `bd`, the E2E server) parse a request, call a core
+(`<operation>_core(params, options)`) and present its result; the app and `bd` run no git of their own and call git-ops
+directly only for reads that need no lock or guard, such as the patches of the diff view. A core is where an operation
+is made safe against the app and the parallel `bd` processes, once for every caller: it takes the repository lock,
+checks the HEAD the request was made for and orders the git steps. git-ops knows git and no policy: which arguments,
+which process, how to read its output, each module one operation or one primitive that operations share; a rewrite there
+runs the guards on the history it read and moves the branch with CAS. The `//!` headers of `crates/git-ops/src/lib.rs`
+and `crates/sync-core/src/lib.rs` map their modules by area, and "Adding a git operation" in `AGENTS.md` says where a
+new one goes and which helpers it reuses.
+
+A rewrite of the checked out branch:
+
+```mermaid
+flowchart TD
+    A[a core: repository lock, expected HEAD] --> G[rewrite_guard: no operation in progress, branch checked out, no merges in range]
     G --> R{What changes?}
     R -->|message only| W[commit_writer: cat-file --batch + fast-import, exact metadata]
     R -->|content| P[merge-tree --write-tree + git replay: amend, drop, squash]
@@ -1898,6 +1924,41 @@ recovery hint (`git reset -q`).
 | Review pre-check of k branches | 1 `git log --name-only` and 1 request per branch, cached in memory by the commits | 1 `log` for all, 1 `diff-tree --stdin` for the commits the object cache misses, 1 request per branch whose kept answer (by paths and reviews) doesn't hold |
 | Review of a pull request | the browser | both commits local: 3 processes (`cat-file --batch-check`, `merge-base`, `log`); else 2–4 more to find the source, 1 `fetch` (2 for a mirror behind GitHub), at most 2 for the head state; then 1 `diff-tree` for the files and 1 for the patch |
 
+### Process budgets
+
+Every git process of an operation is pinned, by subcommand, in `crates/sync-core/src/process_budget_test.rs` (a core)
+and `crates/bd-cli/src/process_budget_test.rs` (a whole `bd` command, its context and its config included), one test
+per operation on a small fixture (two branches of three commits, unless the test says otherwise). A change that saves a
+process lowers a number there, so the diff of the assert names the process that went away; a change that adds one must
+raise it. The totals, when each test was first pinned (the audit of the git layer, 2026-10-17; the tests marked * later
+in it) and now:
+
+| Operation | Test | First pinned | Now |
+|---|---|---|---|
+| First sync | `a_first_sync` | 37 | 22 |
+| Unchanged sync | `an_unchanged_sync` | 25 | 12 |
+| Unchanged sync of a conflicting branch, without / with the object cache | `an_unchanged_sync_of_a_conflicting_branch` * | 20 / 13 | 19 / 12 |
+| Open a conflict view, from the object cache / without it | `opening_a_conflict` * | 0 / 6 | 0 / 6 |
+| Trial sync (the core of `bd check`), empty / filled object cache | `a_check` | 18 / 16 | 18 / 16 |
+| Trial sync after a sync | `a_check_of_synced_branches` * | 16 | 15 |
+| The checks of a session after its open: the first, each next one | `the_second_check_of_a_session` * | 4, 0 | 4, 0 |
+| Amend into an older commit | `an_amend` | 19 | 17 |
+| Unapply a branch | `a_drop` | 19 | 17 |
+| Squash two commits | `a_squash` | 18 | 14 |
+| Squash fixups | `a_squash_of_fixups` | 31 | 24 |
+| Update check, Update Project | `an_update_check`, `an_update` | 20, 38 | 20, 38 |
+| `bd check`, with `--build` of two paths | `a_check`, `a_check_with_a_build` | 20, 26 | 20, 23 |
+| `bd push --dry-run` | `a_push` | 54 | 25 |
+| `bd safe-push --check` | `a_safe_push_check` * | 57 | 32 |
+| `bd fold` | `a_fold` | 36 | 30 |
+| `bd status` | `a_status` * | 10 | 7 |
+| `bd robot`, `bd request-review --check`, `bd group --dry-run` | `a_robot`, `a_request_review_check`, `a_group_dry_run_with_a_description` * | 8, 11, 11 | 8, 11, 11 |
+
+`bd sync` runs the processes of its core and one `rev-parse` for its context (`a_sync_with_the_prefix_of_the_config`).
+On a monorepo clone, `bd -v sync` ran 254 processes for a full sync and 228 for an unchanged one before the audit, and
+173 and 41 after it: the unchanged sync reads every fact once (`RepoFacts`, `ConfigSnapshot`) and asks git nothing for
+a clean branch whose commits, remote and baseline did not move.
+
 ## Follow-ups
 
 - **Replay conflicts**: `replay` reports a conflict only by its exit code, so the error does not name the commit or
@@ -1907,6 +1968,26 @@ recovery hint (`git reset -q`).
 - **Resolve notes across rewrites**: a store keyed by the landed key, if the app shows "resolved by an agent".
 - **SSH stalls**: the low-speed limits apply to HTTP only. A dead SSH connection is bounded only by the user's
   `ServerAliveInterval`.
+
+Left out of the audit of the git layer on purpose, the gain smaller than the noise or the risk:
+
+- **Typed ids**: an `ObjectId` newtype, binary keys of the object cache and a shared `Arc<Commit>` would touch nearly
+  every signature, and new cache keys would make every user's cache cold once. Ids stay full hex `String`s, checked
+  where they come from outside (`is_object_id`).
+- **sync-core in directories**: grouping its modules into directories changes every `sync_core::` import of the
+  workspace (re-exports are not allowed), while `lib.rs` changes with almost every feature. Its `//!` index groups the
+  modules by area instead.
+- **`update_resolve.rs` and `update_branch.rs` split**: both change often; the import cycle between them is gone since
+  `current_worktree` moved to `git_ops::revs`.
+- **One walk for the remote status**: its walks differ in their ranges on purpose (`^baseline`), and the walk saved
+  would be a cheap one.
+- **The landing check reads `HEAD ^base` again** (`read_local` in `crates/sync-core/src/landed.rs`): one `log` per sync
+  of a fresh process while an update is pending, though the commit list of the sync has those commits.
+- **Chains of conflicting branches are copied again at every sync**: the commits before the conflict are on no ref and
+  get no mapping notes, so each such branch runs its `merge-tree --stdin` and its `fast-import` again.
+- **A conflict view after `git gc`**: a view whose contents the object cache misses merges the commits again
+  (`rebuild_merge_conflict`), and its target, the copy written before the conflict on no ref, may have been pruned
+  since the sync; the view then fails until a sync writes the copy again.
 
 ## References
 
@@ -1920,7 +2001,10 @@ recovery hint (`git reset -q`).
   `crates/sync-core/src/update_project.rs`, `crates/git-ops/src/update_resolve.rs`, `crates/git-ops/src/resolve_check.rs`,
   `crates/git-ops/src/merge_tree_output.rs`, `crates/sync-core/src/resolve_session.rs`,
   `crates/sync-core/src/resolve_copies.rs`, `crates/sync-core/src/regroup.rs`, `crates/sync-core/src/repository_lock.rs`,
-  `crates/object-cache/src/cache.rs`, `crates/git-ops/src/commit_files.rs`
+  `crates/object-cache/src/cache.rs`, `crates/git-ops/src/commit_files.rs`; the module maps in
+  `crates/git-ops/src/lib.rs` and `crates/sync-core/src/lib.rs`
+- Tests: `crates/git-executor/src/worktree_safety_test.rs` (the scan of the git argument lists),
+  `crates/sync-core/src/process_budget_test.rs` and `crates/bd-cli/src/process_budget_test.rs` (the process budgets)
 - Specs: [Commit Row](../../spec/commit/commit-row.spec.md), [Commit Files](../../spec/commit/commit-files.spec.md),
   [Move Commits](../../spec/branch/move-commits.spec.md),
   [Amend](../../spec/commit/amend.spec.md), [Squash](../../spec/commit/squash.spec.md),
