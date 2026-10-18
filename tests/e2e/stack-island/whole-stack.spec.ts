@@ -104,6 +104,30 @@ test.describe("Whole stack", () => {
     await expect.poll(() => getOpenedUrls(page)).toEqual([created.url, created.url])
   })
 
+  test("should ask the code owners of the whole stack in the pull request its header creates, as the step of a branch does", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("stack_island", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests() })
+    // Patronus asked about the stack branch: IJPL Code Platform has to approve the whole stack, in a pull request
+    await repo.setReviewAnswers({ answers: { "stack:air": AWAITING_CODE_OWNER } })
+    await syncAndWaitForBranches()
+    await routePushBranches(page, {})
+    const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(stackPullRequest("air", 12)))
+    const slot = island(page, "air").getByTestId("stack-island-actions").getByTestId("next-step-slot")
+    await expect(slot).toHaveAttribute("data-step", "createPullRequest")
+
+    // the step of the header opens the dialog of the stack branch, the code owner Patronus suggests asked to review
+    await slot.getByTestId("next-step").click()
+    const dialog = createPullRequestDialog(page)
+    await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("Whole air stack → master")
+    await expect(dialog.getByTestId("create-pull-request-reviewers").locator("[data-slot=combobox-chip]")).toHaveText(["ikorennoy"])
+    await dialog.getByTestId("create-pull-request-submit").click()
+    await expect.poll(() => creates.length).toBe(1)
+    expect(creates[0]).toMatchObject({ branchName: "air", head: "user-name/stack/air", reviewers: ["ikorennoy"] })
+  })
+
   test("should count the approvals of the whole stack in its pull request: the header says so apart from the branches', and a branch without its own points to it", async ({
     page,
     setupRepo,

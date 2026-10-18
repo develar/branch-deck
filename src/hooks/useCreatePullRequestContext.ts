@@ -3,6 +3,7 @@ import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { getReviewRequirementState, usePatronusReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
 import type { CreatePullRequestContext } from "@/lib/create-pull-request-context"
 import { toCreatePullRequestContext, toStackPullRequestContext } from "@/lib/create-pull-request-context"
+import { stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 import { getBranch, getStackBranch, useBranchSync, useStackBranch } from "@/stores/branch-sync"
 import { isPatronusAvailable, usePatronusAvailable } from "@/stores/patronus"
@@ -49,20 +50,28 @@ export function useStackPullRequestContext(root: string): CreatePullRequestConte
   const stack = useStackBranch(root)
   // the branches of the stack as one record, so the dialog renders again when one of them changes
   const branches = useBranchSync(state => state.branches)
+  const available = usePatronusAvailable()
+  // Patronus is asked about the stack branch the sync built, and only while the dialog is open
+  const patronusAvailable = available && stack?.state === "Built"
   return toStackPullRequestContext(root, stack, {
     repositoryPath: useSelectedProjectPath() ?? "",
     pullRequest: useStackPullRequest(root),
     availability: usePullRequestAvailability(),
     branchOf: name => branches[name],
+    patronusAvailable,
+    review: usePatronusReviewRequirement(stackReadinessKey(root), patronusAvailable).state,
   })
 }
 
 /** The same context from the stores as they are, for a request of the review window */
 export function getStackPullRequestContext(root: string): CreatePullRequestContext {
-  return toStackPullRequestContext(root, getStackBranch(root), {
+  const stack = getStackBranch(root)
+  return toStackPullRequestContext(root, stack, {
     repositoryPath: getSelectedProject()?.path ?? "",
     pullRequest: getStackPullRequest(root),
     availability: getPullRequestAvailability(),
     branchOf: getBranch,
+    patronusAvailable: isPatronusAvailable() && stack?.state === "Built",
+    review: getReviewRequirementState(stackReadinessKey(root)),
   })
 }

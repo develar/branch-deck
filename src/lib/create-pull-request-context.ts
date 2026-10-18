@@ -109,6 +109,10 @@ export interface StackPullRequestFacts {
   readonly pullRequest: PullRequest | undefined
   readonly availability: PullRequestAvailability | null
   readonly branchOf: (name: string) => Branch | undefined
+  /** Patronus is available and the sync built the stack branch: Patronus is asked about it */
+  readonly patronusAvailable: boolean
+  /** The code owners of the whole stack, its readiness (`stack:<root>`, `stackReadinessKey`) */
+  readonly review: ReviewRequirementState
 }
 
 /**
@@ -116,7 +120,7 @@ export interface StackPullRequestFacts {
  * into the baseline, whose approvals the one robot of the whole stack counts. It holds every commit of the stack
  * ("Holds the commits of every branch of the stack: air, auth and 5 more: 7 branches · 14 commits"); Create and
  * "Continue on GitHub" push the stack branch first, and only a stack branch the sync built (`getStackBranchBlocker`).
- * The code owners of the whole stack come with its Safe Push: the dialog suggests none.
+ * The code owners it suggests are those of the whole stack, which its Safe Push needs: the readiness of its stack branch.
  */
 export function toStackPullRequestContext(root: string, stack: StackBranch | undefined, facts: StackPullRequestFacts): CreatePullRequestContext {
   const members = (stack?.members ?? []).flatMap(name => {
@@ -150,8 +154,8 @@ export function toStackPullRequestContext(root: string, stack: StackBranch | und
     existing,
     availability: facts.availability,
     repository: getBranchesGitHubRepository(),
-    patronusAvailable: false,
-    review: { status: "loading" },
+    patronusAvailable: facts.patronusAvailable,
+    review: facts.review,
     withoutReview: null,
   }
 }

@@ -44,6 +44,7 @@ targets:
   - ../../src/lib/robot-prompt-copy.ts
   - ../../src/lib/git/stack-push.ts
   - ../../src/lib/create-pull-request-context.ts
+  - ../../src/hooks/useCreatePullRequestContext.ts
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../src/components/branch/InlineCloseStackPullRequest.tsx
   - ../../src/components/branch/OrphanedStackPullRequest.tsx
@@ -236,9 +237,10 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   ("Whole air stack → master", "Holds the commits of every branch of the stack: air, bazel, bridge and 4 more: 7
   branches · 14 commits"), its text from `stack_pull_request_text` (`get_new_stack_pull_request`: the descriptions in
   one `git config`, the subjects as the rows show them); Create pushes the stack branch alone (`push_branches` with
-  `wholeStack`, leased on its remote head), then creates the pull request of its head. The code owners of the whole
-  stack come with its Safe Push: the dialog suggests none.
-  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`)
+  `wholeStack`, leased on its remote head), then creates the pull request of its head. It asks the code owners of the
+  whole stack to review, as the dialog of a branch asks the branch's: those Patronus suggests for the stack branch (the
+  readiness of `stack:<root>`), preselected, while the sync built it.
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`, `should ask the code owners of the whole stack in the pull request its header creates, as the step of a branch does`)
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`the_text_of_a_new_pull_request_of_the_whole_stack`)
   [@test] ../../crates/sync-core/src/push_test.rs (`the_whole_stack_pushes_its_stack_branch`)
 - A pull request of the whole stack that no longer matches it (a Safe Push of a branch landed the root in a piece, as

@@ -137,11 +137,13 @@ branch from all the facts (the branch, its robots, its pull request and the read
   whole stack (`stack:<root>`, below), its stack branch's commits; a branch of it that syncs is its sync. Its texts name
   it "the whole air stack" (`subject`): "Safe Push of the whole air stack waits for Ilya Korennoy". A stack branch the
   sync didn't build disables its Safe Push and its Dry Run with the reason (`getStackBranchBlocker`: "The stack branch
-  conflicts at 0caf9066 in config.js: the stack lands in pieces"); row 7 offers "Create Pull Request of the Stack…".
+  conflicts at 0caf9066 in config.js: the stack lands in pieces"); row 7 offers "Create Pull Request of the Stack…",
+  the code owners of the whole stack preselected.
   Its Safe Push lands every branch of it ("Safe Push · 7", hover "Lands 7 branches · 14 commits into master in one
   Safe Push: air, bazel, … side-fix and side-test", the main line first, then the side branches). A straight chain has
   no stack branch: its whole stack is the step of its last branch.
   [@test] ../../src/hooks/useStackNextStep.test.ts (`is the Safe Push of the stack branch of a stack that forks, which needs the readiness of the whole stack`, `is the step of the last branch of a straight chain, which has no stack branch: its Safe Push lands the whole stack`, `is disabled with the reason of a stack branch the sync didn't build, for a Dry Run too: the stack lands in pieces`, `waits for the robot of a branch of the stack, which lands a part of it; a Dry Run doesn't`, `offers nothing while the robot of the whole stack runs: it holds every branch of the stack`, `asks for the pull request of the whole stack where the approvals are missing, then waits in it`, `is settled once the pull request of the whole stack merged with the stack branch as it is`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should ask the code owners of the whole stack in the pull request its header creates, as the step of a branch does`)
 - Approvals count only in the pull request whose comment started the robot, so those of the whole stack count for its
   Safe Push only. While its pull request is open, row 7 of a branch of it without a pull request of its own is a quiet
   "In #12" that opens it, the reason on hover ("Approvals in #12, the pull request of the whole air stack, count for

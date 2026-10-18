@@ -179,7 +179,8 @@ The whole stack is an object of its own in the app, beside its branches, named "
   pushes it first while its remote lacks work (`pushWholeStack`, only a built one); its failure prompt lists the commits
   of every branch, matched by identity (the stack branch has no mapping notes).
 - **Its pull request** comes from "Create Pull Request of the Stack…" (the dialog of the stack branch, its text from
-  `stack_pull_request_text`, the stack branch pushed alone on Create) and opens from "Open Pull Request #12".
+  `stack_pull_request_text`, the code owners Patronus names for the stack branch asked to review, the stack branch
+  pushed alone on Create) and opens from "Open Pull Request #12".
 - **One list of its actions** (`getWholeStackMenuItems`, `src/hooks/useWholeStackActions.ts`) renders in the "⋯" of the
   island and under "Whole Stack ›" in the root's menu, so a small stack without an island has them too, and the root's
   preview: its Safe Push and Dry Run, the pull request, Push with Children, "Review Whole Stack" (the review window of
