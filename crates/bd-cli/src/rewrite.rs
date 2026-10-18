@@ -83,8 +83,8 @@ pub struct UnstackArgs {
 #[derive(Debug, clap::Args)]
 pub struct UndoArgs {
   /// The `undo_token` a rewrite printed: `<previous head>..<new head>`, `groups:<previous>..<new>`,
-  /// `stacks:<previous>..<new>`, or several of them joined by `+` in this order; or the `update:<previous head>..<new
-  /// head>` of `bd update`, which moves the files back too
+  /// `stacks:<previous>..<new>`, or several of them joined by `+` in this order; or the `update:…` of `bd update` or
+  /// the `pick:…[+follow:…]` of `bd pick`, which move the files back too
   pub token: String,
 }
 
@@ -160,7 +160,7 @@ impl RewriteOutput {
 pub fn after_rewrite_exit_code(error: Option<&ErrorBody>, sync: Option<&SyncOutput>) -> i32 {
   match (error, sync) {
     (Some(error), _) => error.code.exit_code(),
-    (None, Some(sync)) if sync.has_conflicts() => ErrorCode::Conflict.exit_code(),
+    (None, Some(sync)) if sync.has_unbuilt() => ErrorCode::Conflict.exit_code(),
     _ => 0,
   }
 }
@@ -370,10 +370,13 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
   };
   undo_regroup_core(&context.git, &context.repository, &token, context.lock_timeout).map_err(|error| {
     let mut error = regroup_error(error);
-    // the token names no write of the issue groups or the stack parents: a wrong argument, not a wrong plan
-    if error.code == ErrorCode::InvalidPlan {
-      error.code = ErrorCode::InvalidArguments;
-    }
+    error.code = match error.code {
+      // the token names no write of the issue groups or the stack parents: a wrong argument, not a wrong plan
+      ErrorCode::InvalidPlan => ErrorCode::InvalidArguments,
+      // a ref moved on since the rewrite: the same token can never succeed, as for `update:` and `pick:`
+      ErrorCode::HeadMoved | ErrorCode::GroupsMoved | ErrorCode::StacksMoved => ErrorCode::UndoStale,
+      code => code,
+    };
     error
   })?;
   let head = head_after_undo(context, token.head.as_ref())?;

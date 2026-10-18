@@ -164,3 +164,21 @@ fn no_cache_verifies_each_note() {
   let (_, output) = run_in(&repo, &["--no-cache", "sync"]);
   assert_eq!(output["branches"][0]["status"], json!("unchanged"));
 }
+
+/// `bd sync` exits with 1 for every branch it could not build, not only a conflict
+#[test]
+fn a_branch_that_is_not_built_is_exit_1() {
+  use crate::sync_command::SyncState;
+  let built: Vec<bool> = [
+    SyncState::Created,
+    SyncState::Updated,
+    SyncState::Unchanged,
+    SyncState::Error,
+    SyncState::MergeConflict,
+    SyncState::Blocked,
+  ]
+  .into_iter()
+  .map(SyncState::is_built)
+  .collect();
+  assert_eq!(built, [true, true, true, false, false, false]);
+}

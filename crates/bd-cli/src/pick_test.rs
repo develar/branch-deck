@@ -142,6 +142,21 @@ fn local_changes_in_the_way_and_a_wrong_source_are_refused() {
 }
 
 #[test_log::test]
+fn expect_head_refuses_a_pick_onto_another_head() {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  let lane = TestWorktree::detached(&repo);
+  lane.commit("(lane) Add b", "b.txt", "b\n");
+  let read = repo.head();
+  let moved = repo.create_commit("(own) Meanwhile", "own.txt", "own\n");
+
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--expect-head", &read[..12]]);
+  assert_error(&output, exit_code, (3, "head_moved"));
+  assert_eq!(repo.head(), moved);
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--expect-head", &moved[..12]]);
+  assert_eq!((exit_code, &output["state"]), (0, &json!("picked")), "{output}");
+}
+
+#[test_log::test]
 fn a_worktree_on_a_newer_baseline_is_refused() {
   let repo = repo_with_baseline(&[("a.txt", "a\n")]);
   repo.create_commit("(own) Other", "own.txt", "own\n");

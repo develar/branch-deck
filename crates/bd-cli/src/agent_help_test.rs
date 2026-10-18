@@ -17,7 +17,6 @@ const NOT_IN_AGENT_HELP: &[&str] = &[
   "describe --clear",
   "group --map",
   "install --uninstall",
-  "push --dry-run",
   "push --remote",
   "status --branch",
   "status --include-generated",
@@ -213,6 +212,9 @@ fn read_only_commands_write_no_ref_config_index_or_working_tree() {
     &["update", "--dry-run"],
     &["update", "--status"],
     &["pick", &first, "--dry-run"],
+    &["group", "--dry-run", "--plan", plan.path().to_str().unwrap()],
+    &["rename", "a", "renamed", "--dry-run"],
+    &["describe", "a"],
     &["fold", "--dry-run"],
     &["move-hunk", &change, &first, "shared.txt", "--dry-run"],
   ];

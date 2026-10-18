@@ -199,8 +199,10 @@ fn rename_restack_unstack_and_undo() {
   assert_eq!(output["head"], json!(short_id(&renamed_head)));
   assert!(output["undone_stack_parents"].is_string(), "{output}");
   assert_eq!(repo.head(), renamed_head);
+  // the stack parents moved on: the token can never succeed again
   let (exit_code, output) = run_in(&repo, &["undo", &unstack_token]);
-  assert_error(&output, exit_code, 3, "stacks_moved");
+  assert_error(&output, exit_code, 4, "undo_stale");
+  assert_eq!(output["error"]["retryable"], json!(false));
   let (exit_code, output) = run_in(&repo, &["undo", "not-a-token"]);
   assert_error(&output, exit_code, 2, "invalid_arguments");
 
@@ -249,8 +251,8 @@ fn issue_groups_plan_and_undo() {
 
   // the first token is stale now: the issue groups moved
   let (exit_code, refused) = run_in(&repo, &["undo", &token]);
-  assert_error(&refused, exit_code, 3, "groups_moved");
-  assert_eq!(refused["error"]["retryable"], json!(true));
+  assert_error(&refused, exit_code, 4, "undo_stale");
+  assert_eq!(refused["error"]["retryable"], json!(false));
 
   let (exit_code, undone) = run_in(&repo, &["undo", &mixed_token]);
   assert_eq!(exit_code, 0, "{undone}");
@@ -460,9 +462,9 @@ fn stack_parents_plan_and_undo() {
   let mixed = output["undo_token"].as_str().unwrap().to_string();
   assert!(mixed.contains("+stacks:"), "{mixed}");
 
-  // a stale token of the stack parents is `stacks_moved`
+  // a token whose stack parents moved on is `undo_stale`
   let (exit_code, output) = run_in(&repo, &["undo", &token]);
-  assert_error(&output, exit_code, 3, "stacks_moved");
+  assert_error(&output, exit_code, 4, "undo_stale");
   for undo in [&mixed, &token] {
     let (exit_code, output) = run_in(&repo, &["undo", undo]);
     assert_eq!(exit_code, 0, "{output}");

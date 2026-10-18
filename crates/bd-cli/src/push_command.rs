@@ -65,7 +65,7 @@ pub struct PushArgs {
   /// The remote; default: the remote of the baseline (`origin` for `origin/master`)
   #[arg(long)]
   pub remote: Option<String>,
-  /// Ask the remote, change nothing (`git push --dry-run`)
+  /// Sync, then ask the remote what the push would do (`git push --dry-run`); push nothing
   #[arg(long)]
   pub dry_run: bool,
   /// Push a branch whose Safe Push runs: cancel the Safe Push, push, and restart it on the pushed commit. Without it

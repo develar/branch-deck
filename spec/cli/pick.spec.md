@@ -88,8 +88,10 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   the `paths`, the message naming the worktree; local changes on other paths must stay.
   [@test] ../../crates/git-ops/src/pick_test.rs (`local_changes_on_a_path_the_pick_writes_block_it_in_either_worktree`)
   [@test] ../../crates/bd-cli/src/pick_test.rs (`local_changes_in_the_way_and_a_wrong_source_are_refused`)
-- A branch that moved since the check must be `head_moved` (exit 3), nothing moved.
+- A branch that moved since the check must be `head_moved` (exit 3), nothing moved; so must a HEAD other than
+  `--expect-head`.
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_target_that_moved_since_the_check_is_head_moved_with_nothing_changed`)
+  [@test] ../../crates/bd-cli/src/pick_test.rs (`expect_head_refuses_a_pick_onto_another_head`)
 - The source must be another worktree of the same repository; the target worktree itself, a directory outside the
   repository, a symmetric range, no source and `--follow` without `--from` must be `invalid_arguments` (exit 2).
   [@test] ../../crates/git-ops/src/pick_test.rs (`the_source_is_another_worktree_of_this_repository`)

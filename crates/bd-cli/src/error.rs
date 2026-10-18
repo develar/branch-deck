@@ -15,7 +15,7 @@ pub enum ErrorCode {
   InvalidArguments,
   /// `-C` (or the current directory) is not inside a git working tree
   NotARepository,
-  /// No branch prefix from `--prefix`, the app setting or `branchdeck.branchPrefix`
+  /// No branch prefix from `--prefix`, the repository's `branchdeck.branchPrefix`, the app setting or the global one
   NoBranchPrefix,
   /// `--branch` names no current group
   UnknownBranch,
@@ -43,7 +43,8 @@ pub enum ErrorCode {
   GroupsMoved,
   /// The stack parents (`refs/branch-deck/stack-parents`) changed since the caller read them; read again and retry
   StacksMoved,
-  /// The remote branch is not where the lease expects it; bd fetched it, `branches` says what it has now
+  /// The remote branch is not where the lease expects it; bd fetched it, `branches` says what it has now. Not retryable:
+  /// a push again (with --force) would drop what the remote has now; show `dropped_commits` to the user first
   LeaseRejected,
   /// Another git process holds a lock; retry
   Locked,
@@ -51,10 +52,8 @@ pub enum ErrorCode {
   OperationInProgress,
   /// HEAD is detached
   DetachedHead,
-  /// Staged changes overlap the files the operation rewrites
-  StagedOverlap,
-  /// `bd undo update:` or `pick:` of a move the branch moved on from (a commit, another update, a switch): it can't be
-  /// undone
+  /// `bd undo` of a rewrite, an update or a pick the branch (or the issue groups, the stack parents) moved on from: a
+  /// commit, another rewrite, a switch. The token can never succeed again
   UndoStale,
   /// `bd pick --from`: the reflog of the branch has no fork point of the worktree, and their shared history is local:
   /// commits the branch rewrote since would come back. Name the commits: `bd pick <first>^..<last>`
@@ -147,12 +146,12 @@ impl ErrorCode {
       | Self::MissingResolution
       | Self::EmptyResolution
       | Self::RoundMoved => 2,
-      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::LeaseRejected | Self::Locked => 3,
+      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::Locked => 3,
       Self::NoBaseline
       | Self::OperationInProgress
       | Self::DetachedHead
-      | Self::StagedOverlap
       | Self::UndoStale
+      | Self::LeaseRejected
       | Self::RangeUnknown
       | Self::SourceOnNewerBaseline
       | Self::UncommittedOverlap
@@ -177,10 +176,7 @@ impl ErrorCode {
 
   /// Whether running the same command again (after re-reading the state for a stale code) may succeed
   pub const fn retryable(self) -> bool {
-    matches!(
-      self,
-      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::LeaseRejected | Self::Locked | Self::NetworkError
-    )
+    matches!(self, Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::Locked | Self::NetworkError)
   }
 }
 

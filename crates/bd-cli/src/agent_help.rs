@@ -1,10 +1,13 @@
 /// What the reading commands write, for `bd --help` and `bd help agent`; a macro, so that `concat!` takes it
 macro_rules! read_only {
   () => {
-    "Read only: status, commits, suggest, check, robot, schema, version, the dry runs of update, pick, fold and
-move-hunk, and the session status of update write no ref, config, index or working tree; at most git objects (the
-trial sync of check and suggest, the replay of update and pick, the trees of move-hunk) and the object cache (none
-with --no-cache); `bd check --build` runs its command in a temporary copy of each tree."
+    "Read only: `bd status`, `bd commits`, `bd suggest`, `bd check`, `bd robot`, `bd schema`, `bd version`,
+`bd describe <branch>` without a setter, `bd request-review --check`, `bd update --status` without --materialize, and
+`bd group --dry-run`, `bd rename --dry-run`, `bd restack --dry-run`, `bd unstack --dry-run`, `bd update --dry-run`
+(also with --continue), `bd pick --dry-run`, `bd fold --dry-run` and `bd move-hunk --dry-run` write no ref, config,
+index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the object cache (none
+with --no-cache); `bd check --build` runs its command in a temporary copy of each tree. `bd push --dry-run` and
+`bd safe-push --check` sync first."
   };
 }
 
@@ -95,7 +98,7 @@ Workflow:
    built on it that lands it: a push won't land, and it fails the Safe Push at the end; a branch taken along that a
    Safe Push lands stays as the robot took it. Wait until it merges, or, only after the user approves,
    `bd push <branch> --restart-running` cancels it, pushes and restarts it on the pushed commit (`restarted`).
-   `lease_rejected` (exit 3): the remote changed,
+   `lease_rejected` (exit 4): the remote changed,
    nothing was pushed, and bd fetched it. For a branch behind or rejected, `error.branches[].remote.dropped_commits`
    lists what a push drops: show it, and only after the user approves,
    `bd push <branch> --force --expect-remote <remote.head>`. `bd sync` prints the push each branch needs as `push`,

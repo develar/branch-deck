@@ -52,8 +52,9 @@ pub struct SyncOutput {
 }
 
 impl SyncOutput {
-  pub fn has_conflicts(&self) -> bool {
-    self.branches.iter().any(|branch| branch.status == SyncState::MergeConflict)
+  /// A branch the sync could not build (`SyncState::is_built`): the exit code 1 of `bd sync` and of a rewrite with --sync
+  pub fn has_unbuilt(&self) -> bool {
+    self.branches.iter().any(|branch| !branch.status.is_built())
   }
 
   /// Parents first: the stack order with stacked branches, else the order of `branches`
@@ -80,6 +81,14 @@ pub enum SyncState {
   MergeConflict,
   /// A stacked branch whose parent can't be built on: not rebuilt this sync
   Blocked,
+}
+
+impl SyncState {
+  /// The virtual branch is what its commits build: not a conflict, an error, or a stacked branch whose parent can't be
+  /// built on
+  pub const fn is_built(self) -> bool {
+    matches!(self, Self::Created | Self::Updated | Self::Unchanged)
+  }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

@@ -333,8 +333,8 @@ fn a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it() {
   commit_all(&repo, "(auth) Add logout", 1_700_000_500);
 
   let (exit_code, output) = run_in(&repo, &["push", "auth"]);
-  assert_error(&output, exit_code, (3, "lease_rejected"));
-  assert_eq!(output["error"]["retryable"], json!(true));
+  assert_error(&output, exit_code, (4, "lease_rejected"));
+  assert_eq!(output["error"]["retryable"], json!(false));
   assert_eq!(remote_tip(&remote, AUTH), other, "the remote is unchanged");
   // bd fetched the branch and says what the remote has now
   assert_eq!(git(&repo, &["rev-parse", &format!("refs/remotes/origin/{AUTH}")]), other);
@@ -370,7 +370,7 @@ fn a_moved_lease_refuses_the_whole_stack_and_names_the_branch_that_moved() {
   commit_all(&repo, "(auth) Add more", 1_700_000_500);
 
   let (exit_code, output) = run_in(&repo, &["push", "login"]);
-  assert_error(&output, exit_code, (3, "lease_rejected"));
+  assert_error(&output, exit_code, (4, "lease_rejected"));
   assert_eq!(remote_tip(&remote, AUTH), pushed_auth, "nothing was pushed");
   let rejected = output["error"]["branches"].as_array().unwrap();
   let names: Vec<&Value> = rejected.iter().map(|branch| &branch["name"]).collect();
@@ -416,7 +416,7 @@ fn another_remote_is_compared_with_as_origin_is() {
   // someone else pushes to the mirror: rejected, fetched and reported
   let other = push_from_elsewhere(&mirror, "Someone else");
   let (exit_code, output) = run_in(&repo, &["push", "auth", "--remote", "mirror"]);
-  assert_error(&output, exit_code, (3, "lease_rejected"));
+  assert_error(&output, exit_code, (4, "lease_rejected"));
   let rejected = &output["error"]["branches"][0]["remote"];
   assert_eq!((&rejected["head"], &rejected["behind"]), (&json!(short_id(&other)), &json!(1)));
   assert_eq!(dropped_subjects(rejected), ["Someone else"]);
@@ -442,7 +442,7 @@ fn force_drops_only_what_the_sync_saw_and_expect_remote_pins_the_lease() {
   let newer = push_from_elsewhere(&remote, "Unseen fix");
 
   let (exit_code, output) = run_in(&repo, &["push", "auth", "--force"]);
-  assert_error(&output, exit_code, (3, "lease_rejected"));
+  assert_error(&output, exit_code, (4, "lease_rejected"));
   assert_eq!(remote_tip(&remote, AUTH), newer, "the unseen commit is not dropped");
   let rejected = &output["error"]["branches"][0]["remote"];
   assert_eq!(dropped_subjects(rejected), ["Unseen fix", "Seen fix"]);

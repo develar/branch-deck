@@ -90,15 +90,16 @@ An error looks like this:
 | 0 | ok | |
 | 1 | conflict | `conflict`, `hunk_conflict`, `stack_not_built` |
 | 2 | invalid input | `invalid_arguments`, `hunk_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `round_moved` |
-| 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `lease_rejected`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `undo_stale`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused` |
+| 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `locked` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
 "The repository has no commits yet: commit to the main branch, then sync".
 
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.
-`retryable` is true for `head_moved`, `groups_moved`, `stacks_moved`, `lease_rejected`, `locked` and `network_error`.
+`retryable` is true for `head_moved`, `groups_moved`, `stacks_moved`, `locked` and `network_error`: retry when it is
+true, whatever the exit code.
 
 One output carries an `error` next to its other fields: a rewrite (`bd group` and the others) whose step after the
 rewrite failed. The rewrite stands, and its `undo_token` reverts it (see `bd group`).
@@ -253,7 +254,7 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
     the files. It leaves out what another field says: the subject drops a `(prefix)` that is exactly the `group`, and
     `issue_key` is left out when it is the `group`. A stack path, whose leaf is the `group`, and a prefix the grouper
     sanitizes (`(Foo Bar)` is in `Foo-Bar`) stay in the subject, so a plan made from the brief view keeps them.
-  - `dependencies` are `{from, to}`, without the files.
+  - `dependencies` are `{from, to, via}`, without the files.
   - `units` are the commits that must stay together: the connected components of the dependencies and of the fixups
     with their targets, over every commit. Only components of two or more commits are listed, ordered by their oldest
     commit, each oldest first. With a filter, the units that hold a listed commit are kept whole.
@@ -420,7 +421,7 @@ rebuilds the virtual branches, under the same repository lock.
   `replaced_descriptions` the texts they replaced, by branch. `bd undo` doesn't restore a description; `bd describe`
   can, with the replaced text.
 - `--sync` runs `bd sync` after the writes, without a gap in the lock, so no other rewrite comes between them, and
-  adds its output as `sync`. The exit code is 1 when a branch conflicts, as for `bd sync`. `--sync` doesn't go with
+  adds its output as `sync`. The exit code is 1 when a branch was not built, as for `bd sync`. `--sync` doesn't go with
   `--dry-run` (`invalid_arguments`): a dry run writes nothing, and `bd check` is the trial sync of a plan.
 - `error` (`{code, message, commits, retryable}`, as in an error output) is set when a step after the rewrite fails:
   a description write, which also skips the sync and leaves the later descriptions unwritten, or the sync. The
@@ -444,13 +445,14 @@ Plans that `bd` computes, validated and written like `bd group`, with the same o
 
 Moves the branch back from the token's new HEAD to its previous HEAD, and the issue groups and the stack parents back
 from the token's new commit to its previous one (or away), in one transaction with CAS on each, under the lock:
-`head_moved` once anything else changed the branch, `groups_moved` or `stacks_moved` (exit 3) once anything else
-changed that store. Give the token as it was printed: a token with abbreviated ids, or whose store commit is not a
+`undo_stale` (exit 4) once anything else changed the branch or a store, since the token can never succeed again. Give the token as it was printed: a token with abbreviated ids, or whose store commit is not a
 write on its previous one, is `invalid_arguments`. Prints
 `{"schema":1,…,"head":"<restored>","undone":"<undone>","undone_issue_groups":"<undone>","undone_stack_parents":"<undone>"}`;
 each `undone…` is left out for a token without that part.
 
-An `update:<previous>..<new>` token of `bd update` moves the branch back and the files with it (see `bd update`).
+An `update:<previous>..<new>` token of `bd update` moves the branch back and the files with it (see `bd update`); a
+`pick:<previous>..<new>[+follow:<worktree>:<previous>..<new>]` token of `bd pick` moves the branch and the worktree
+that followed back (see `bd pick`).
 
 ### `bd update [--no-fetch] [--dry-run] [--dir <path>]`
 
@@ -938,7 +940,8 @@ rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress
   from, and the copy must have the message and the author of the commit. A note that `git notes copy`, `git rebase` or
   `git commit --amend` (`notes.rewriteRef`) carried to a changed commit is stale; the sync copies the commit again and
   logs it (`-v`). With `--no-cache` every note is checked against the tree of its copy.
-- The exit code is 1 when any branch has a conflict; the summary is printed either way.
+- The exit code is 1 when any branch was not built (`merge_conflict`, `error`, `blocked`); the summary is printed
+  either way.
 
 ### `bd push <branch>… [--with-children] [--alone] | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run] [--restart-running]`
 
@@ -991,7 +994,8 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
 - With `--remote` other than `origin`, which the sync compares with, bd computes the same remote status of each
   pushed branch against that remote's remote-tracking branch, and the refusal, the lease and the errors use it. A
   `--remote` that is not a configured remote is `no_remote`.
-- A remote branch that is not where the lease expects it is `lease_rejected` (exit 3), nothing pushed: the push is
+- A remote branch that is not where the lease expects it is `lease_rejected` (exit 4, not retryable: a push again
+  with `--force` would drop what the remote has now), nothing pushed: the push is
   atomic, so the other branches of it stay as they are on the remote too. bd fetches the branches of the push and
   lists the ones that moved in `error.branches` with their remote status as fetched:
   `{"name":"auth","remote":{"exists":true,"unpushed":1,"behind":1,"head":"7c8d9e0f","dropped_commits":[…]}}`.
@@ -1245,7 +1249,8 @@ branch name, in the branch table and the branch preview.
 
 ### `bd schema`
 
-Prints `{"schema":1,"outputs":{"check":…,"commits":…,"commits_brief":…,"describe":…,"error":…,"fold":…,"install":…,"move_hunk":…,"push":…,"request_review":…,"rewrite":…,"robot":…,"safe_push":…,"status":…,"status_brief":…,"suggest":…,"sync":…,"undo":…,"update":…,"update_abort":…,"update_status":…,"version":…}}`;
+Prints `{"schema":1,"outputs":{"<name>":<JSON Schema>,…}}`, one schema per output, every output named by the test
+`schema_lists_every_output`;
 `rewrite` is the output of `group`, `rename`, `restack` and `unstack`, `commits_brief` and `status_brief` the
 outputs of `--brief`, and `update_status` and `update_abort` those of `bd update --status` and `--abort`.
 
@@ -1259,8 +1264,9 @@ error. The first line of `bd help agent` names the version too.
 
 ### `bd help agent`
 
-Prints the workflow below as plain text, about 5 KB; it only names the resolve session, which `bd help update` prints
-(`UPDATE_HELP`). `agent_help_test.rs` keeps both true. Together they must name every command and, for each command,
+Prints the agent workflow as plain text (`AGENT_HELP`); it only names the resolve session, which `bd help update`
+prints (`UPDATE_HELP`), and the work beside other sessions, which `bd help worktrees` prints (`WORKTREES_HELP`).
+`agent_help_test.rs` keeps the three true. Together they must name every command and, for each command,
 every long option, unless the test lists it in `NOT_IN_AGENT_HELP` (as `status --limit`). An option counts for the
 command named last before it, and it must exist for that command.
 
@@ -1316,7 +1322,7 @@ blocked prompt names no command: the user updates in the app.
 1. Run `bd suggest`. It is read only, and its plan is checked already. Read the clusters: `change` and `from` against
    the branches now, `why` to quote to the user, `weak` to review first, and the `issue_groups` of the plan. For a
    closer look, run `bd status --brief` and `bd commits --brief`: per commit the group, issue key, fixup target and
-   `areas`, the `units` that must stay together and the `dependencies` `{from, to}`. Run `bd commits <id>… --patch`
+   `areas`, the `units` that must stay together and the `dependencies` `{from, to, via}`. Run `bd commits <id>… --patch`
    or `bd commits --unassigned` for the commits that are unclear, and `bd status --stats` for the size of each branch.
 2. Edit the plan where the clusters are wrong. `bd suggest` exits with 1 when its own check fails, so edit it then
    too. After any change of `branches`, `unassign`, `issue_groups` or `ungroup_issues`, run

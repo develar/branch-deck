@@ -105,9 +105,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Give an agent everything it needs to cluster commits, in a few compact calls.
 - Keep the output contract stable: versioned JSON, fixed error codes and exit codes.
 - Stay fast on hundreds of commits: one git process per phase, and a cache for the per-commit data.
-- Reading changes nothing; a regroup or a fold changes commit messages only, never trees, the index or the working
-  tree. `bd move-hunk` changes the trees of the commits between two commits only, never HEAD's tree, the index or the
-  working tree. Only `bd update`, `bd pick` and their undo write the working tree, through the guarded update.
+- Reading changes nothing; a regroup changes commit messages only. A fold and `bd move-hunk` change the trees of
+  commits ahead of the baseline, never HEAD's tree, the index or the working tree. Only `bd update`, `bd pick` and their undo write the working tree, through the guarded update.
 
 ## Non-goals
 
@@ -142,16 +141,18 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   mark, or as UTF-16 with one, which Windows PowerShell 5.1 writes.
   [@test] ../../crates/bd-cli/src/text_input_test.rs (`a_bom_is_dropped_and_utf16_is_decoded`)
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_plan_with_a_byte_order_mark_is_read`)
-- `bd schema` must print the JSON Schema of the `status`, `status_brief`, `commits`, `commits_brief`, `rewrite`,
-  `undo`, `check`, `suggest`, `sync`, `push`, `safe_push`, `robot`, `describe`, `install`, `update`, `update_status`, `update_abort`, `fold`,
-  `move_hunk`, `version` and `error` outputs, and the real outputs must use only the properties it declares.
+- `bd schema` must print the JSON Schema of every output (the list is the test's), and the real outputs must use only
+  the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
   [@test] ../../crates/bd-cli/src/update_test.rs (`update_outputs_match_the_schema`)
   [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
   [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`)
-- `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `update --dry-run`, `update --status`,
-  `pick --dry-run`, `fold --dry-run` and `move-hunk --dry-run` must write no ref, config, index or working tree: at most git objects (`update --dry-run` and `pick --dry-run` replay, `move-hunk --dry-run` merges trees) and the object cache (none with
-  `--no-cache`), and HEAD must stay; `bd --help` and `bd help agent` must say so in one sentence.
+- `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `describe` without a setter,
+  `request-review --check`, `update --status` without `--materialize`, and the `--dry-run` of `group`, `rename`,
+  `restack`, `unstack`, `update` (also with `--continue`), `pick`, `fold` and `move-hunk` must write no ref, config,
+  index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the object cache (none
+  with `--no-cache`), and HEAD must stay; `bd --help` and `bd help agent` must say so, and that `push --dry-run` and
+  `safe-push --check` sync first.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
   [@test] ../../crates/bd-cli/src/update_test.rs (`dry_run_neither_fetches_nor_writes`)
   [@test] ../../crates/bd-cli/src/robot_test.rs (`a_failed_robot_says_why_and_which_local_commits_it_tested`)
@@ -161,7 +162,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   A rewrite whose step after the rewrite failed must print its output with that `error` in it, so that the undo
   token stays.
 - The exit code must follow the code: 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network
-  error.
+  error. `retryable` must be true only where the same command again can succeed: never for `lease_rejected` (a push
+  again with `--force` would drop what the remote has now) nor for a stale undo token (`undo_stale`).
 - An empty prefix must fail with `no_branch_prefix`, a path outside a repository with `not_a_repository`, bad arguments
   with `invalid_arguments`, an unknown `--branch` with `unknown_branch`; all exit with 2.
   [@test] ../../crates/bd-cli/src/status_test.rs (`empty_prefix_is_an_error`, `not_a_repository`, `invalid_arguments`, `status_filters_and_pages`)
@@ -345,11 +347,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd undo`
 
-- `bd undo <undo_token>` must move the branch back to the token's previous HEAD with compare-and-swap, and refuse
-  with `head_moved` once the branch changed again. A token of the issue groups (`groups:G1..G2`, or
-  `H1..H2+groups:G1..G2` with a rewrite) must move them back in the same transaction, and refuse with `groups_moved`
-  (exit 3, retryable) once they changed again; the stack parents likewise with `+stacks:S1..S2` (alone `stacks:S1..S2`)
-  and `stacks_moved`. The parts come in this order, each at most once.
+- `bd undo <undo_token>` must move the branch back to the token's previous HEAD with compare-and-swap. A token of the
+  issue groups (`groups:G1..G2`, or `H1..H2+groups:G1..G2` with a rewrite) must move them back in the same
+  transaction, the stack parents likewise with `+stacks:S1..S2` (alone `stacks:S1..S2`). The parts come in this order,
+  each at most once. Once the branch or a store changed again, the undo must be `undo_stale` (exit 4, not retryable):
+  the token can never succeed again, as for the tokens of `bd update` and `bd pick`.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`undo_restores_the_previous_head`)
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`, `issue_groups_plan_and_undo`, `stack_parents_plan_and_undo`)
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`an_undo_token_is_read_strictly`)
@@ -637,7 +639,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   commits amended here) and `restacked` (of commits of the branches it is built on), each left out at 0.
   [@test] ../../crates/bd-cli/src/push_test.rs (`amended_and_restacked_commits_push_without_force`)
 - A conflict must name the conflicting commit, its subject, the files and the commits the change likely needs, and the
-  exit code must be 1. A sync of an unchanged conflicting branch must take that view from the object cache, shared
+  exit code must be 1, as for every branch the sync could not build (`error`, `blocked`). A sync of an unchanged conflicting branch must take that view from the object cache, shared
   with the app, and run neither the merge nor the analysis of the conflict again; it must report the view the analysis
   made, with the branches of the missing commits named as it groups them. A branch that conflicts after commits that
   copy cleanly must not copy those again either: the copies the sync wrote before the conflict are taken while the
@@ -646,7 +648,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`an_unchanged_sync_of_a_conflicting_branch`, `an_unchanged_sync_of_a_conflict_after_a_clean_commit`)
   [@test] ../../crates/object-cache/src/cache_test.rs (`conflict_chains_are_read_by_their_version`)
   [@test] ../../crates/sync-core/src/sync_test.rs (`a_remembered_conflict_is_the_one_the_analysis_made`)
-  [@test] ../../crates/bd-cli/src/sync_test.rs (`a_conflict_exits_with_1`)
+  [@test] ../../crates/bd-cli/src/sync_test.rs (`a_conflict_exits_with_1`, `a_branch_that_is_not_built_is_exit_1`)
 - Per branch whose remote branch a push would change it must print the `bd push` to run, as bd names itself
   (`bd -C <repo>`): plain for unpushed, amended or restacked commits; with `--force --expect-remote <remote.head>`
   when the push drops commits and no branch it is built on has commits for the remote; with `--force` alone when one
@@ -700,7 +702,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   the remote status of the pushed branches against that remote, computed the same way; a `--remote` that is not a
   configured remote must be `no_remote`.
   [@test] ../../crates/bd-cli/src/push_test.rs (`another_remote_is_compared_with_as_origin_is`)
-- A remote branch that is not where the lease expects it must be `lease_rejected` (exit 3) with nothing pushed, the
+- A remote branch that is not where the lease expects it must be `lease_rejected` (exit 4, not retryable) with nothing pushed, the
   other branches of the push included (it is atomic); bd must fetch the branches of the push and list the ones whose
   remote moved in `error.branches` with their remote status as fetched (`head`, `behind`, `dropped_commits`). A
   branch refused as behind is listed the same way, and `bd sync` prints the same remote status per branch. The app's

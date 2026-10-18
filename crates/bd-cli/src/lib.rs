@@ -77,7 +77,8 @@ struct Cli {
   /// Run in this repository instead of the current directory
   #[arg(short = 'C', value_name = "REPO", global = true)]
   repo: Option<PathBuf>,
-  /// The branch prefix; default: the app setting, else `git config branchdeck.branchPrefix`
+  /// The branch prefix; default: `branchdeck.branchPrefix` of this repository's git config, else the app setting, else
+  /// the global `branchdeck.branchPrefix`
   #[arg(long, global = true)]
   prefix: Option<String>,
   /// Print full commit ids instead of abbreviated ones
@@ -108,7 +109,7 @@ enum Command {
   Restack(RestackArgs),
   /// Make a stacked branch a root again
   Unstack(UnstackArgs),
-  /// Undo a rewrite or an update with the `undo_token` it printed
+  /// Undo a rewrite, an update or a pick with the `undo_token` it printed
   Undo(UndoArgs),
   /// Bring the checked out branch onto its baseline, as the app's Update Project: fetch, then a fast-forward or a replay
   /// of the local commits, and the files follow. `uncommitted_overlap` (exit 4) when local changes sit on files it
@@ -131,7 +132,7 @@ enum Command {
   /// Would the branches build with this plan (stdin or --plan)? A trial sync; exit code 1 when a branch conflicts or is
   /// blocked
   Check(CheckArgs),
-  /// Rebuild the virtual branches, as the app's sync does; exit code 1 on a conflict
+  /// Rebuild the virtual branches, as the app's sync does; exit code 1 when a branch is not built
   Sync,
   /// Sync, then push branches with a lease per ref, parents first, and print a `gh pr create` for each
   Push(PushArgs),
@@ -233,8 +234,8 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Fold(args) => context().and_then(|context| fold(&context, args)).and_then(|output| print(out, &output)),
     Command::Pick(args) => return print_summary(out, context().and_then(|context| pick(&context, args, environment)), PickOutput::exit_code),
     Command::MoveHunk(args) => return print_summary(out, context().and_then(|context| move_hunk(&context, args)), MoveHunkOutput::exit_code),
-    // the summary is the output either way; a conflict or a block only changes the exit code
-    Command::Sync => return print_summary(out, context().and_then(|context| sync(&context)), |output| conflict_if(output.has_conflicts())),
+    // the summary is the output either way; a branch that was not built only changes the exit code
+    Command::Sync => return print_summary(out, context().and_then(|context| sync(&context)), |output| conflict_if(output.has_unbuilt())),
     Command::Suggest(args) if args.dump_input => context().and_then(|context| suggest_input_dump(&context)).and_then(|output| print(out, &output)),
     Command::Suggest(args) => return print_summary(out, context().and_then(|context| suggest(&context, args)), |output| conflict_if(!output.check.ok)),
     Command::Check(args) => return print_summary(out, context().and_then(|context| check(&context, args)), |output| conflict_if(!output.ok)),
