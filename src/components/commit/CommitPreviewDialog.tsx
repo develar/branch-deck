@@ -1,20 +1,27 @@
 import { useRef, useState } from "react"
-import type { KeyboardEvent } from "react"
+import type { KeyboardEvent, ReactElement, ReactNode } from "react"
+import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { CommitFilesSection } from "@/components/commit/CommitFilesSection"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { CommitMetadata } from "@/components/commit/CommitMetadata"
 import { CommitSubject } from "@/components/commit/CommitSubject"
 import { PrefixChangeHint } from "@/components/commit/PrefixChangeHint"
+import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { PRIMARY_KBD_CLASS_NAME } from "@/components/shared/MenuItemButton"
+import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
 import { useCommitFileStats } from "@/hooks/useCommitFiles"
 import type { CommitUnion } from "@/lib/commit"
 import { getCommitFileCount, getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
+import { formatShortHash } from "@/lib/hash"
+import type { MenuItemGroups } from "@/lib/menu"
+import { toPreviewMenu } from "@/lib/menu"
 import { isMac } from "@/lib/platform"
 import { handlePreviewItemSwitchKey, handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { useBranchSync } from "@/stores/branch-sync"
@@ -32,6 +39,10 @@ export interface CommitPreviewDialogProps {
   showNewHash: boolean
   /** Set if the messages can be edited; resolves to false if saving failed (the edit stays open) */
   onSaveMessage?: (commit: CommitUnion, message: string) => Promise<boolean>
+  /** The preview opened for "Reword…" of the row's menu: the message is in edit at once */
+  editRequested?: boolean
+  /** The menu of the row of a commit ("⋯" of the footer, `toPreviewMenu`); none for a list without one */
+  menuGroups?: (commit: CommitUnion) => MenuItemGroups
   /**
    * D, the footer button and Enter on a file of the tree: the review of `commits[index]` in its window, at `path` (the
    * first file when null); resolves to whether the window opened, and the preview closes then
@@ -58,6 +69,8 @@ export function CommitPreviewDialog({
   showFileCount,
   showNewHash,
   onSaveMessage,
+  editRequested = false,
+  menuGroups,
   onReview,
   finalFocus,
 }: CommitPreviewDialogProps) {
@@ -93,6 +106,18 @@ export function CommitPreviewDialog({
       setDraft(commit.message.trimEnd())
       setEditedHash(hash)
     }
+  }
+
+  // "Reword…" of the row opened the preview: the edit starts at once, once per request (a Cancel ends it)
+  const [handledEditRequest, setHandledEditRequest] = useState(false)
+  if (open && editRequested && !handledEditRequest && commit !== undefined) {
+    setHandledEditRequest(true)
+    if (canEdit) {
+      setDraft(commit.message.trimEnd())
+      setEditedHash(hash)
+    }
+  } else if (!editRequested && handledEditRequest) {
+    setHandledEditRequest(false)
   }
 
   const endEdit = () => {
@@ -248,19 +273,32 @@ export function CommitPreviewDialog({
             ) : (
               <>
                 <PreviewNavigationHints count={commits.length} />
-                <Button variant="ghost" size="xs" disabled={!canReview || isOpeningReview} data-testid="commit-review-toggle" onClick={() => review()}>
+                <ReasonTooltip reason={canReview ? null : "The commit changes no files"}>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    disabled={!canReview || isOpeningReview}
+                    focusableWhenDisabled
+                    className={cn(!canReview && "opacity-50")}
+                    data-testid="commit-review-toggle"
+                    onClick={() => review()}
+                  />
                   <Kbd>D</Kbd>
                   Review Changes
-                </Button>
+                </ReasonTooltip>
                 <Button variant="ghost" size="xs" aria-pressed={isFilesOpen} data-testid="commit-files-toggle" onClick={toggleCommitFilesSection}>
                   <Kbd>F</Kbd>
                   Files
                 </Button>
                 {onSaveMessage !== undefined && (
-                  <Button variant="ghost" size="xs" disabled={!canEdit} onClick={startEdit}>
+                  <ReasonTooltip reason={canEdit ? null : "Wait for the sync to finish"}>
+                    <Button variant="ghost" size="xs" disabled={!canEdit} focusableWhenDisabled className={cn(!canEdit && "opacity-50")} onClick={startEdit} />
                     <Kbd>E</Kbd>
                     Edit
-                  </Button>
+                  </ReasonTooltip>
+                )}
+                {menuGroups !== undefined && commit !== undefined && (
+                  <MoreActionsMenu name={formatShortHash(hash)} menu={<DropdownMenuItems groups={toPreviewMenu(menuGroups(commit), close, PREVIEW_KEYS)} />} />
                 )}
               </>
             )}
@@ -268,5 +306,22 @@ export function CommitPreviewDialog({
         </>
       )}
     </PreviewDialogFrame>
+  )
+}
+
+/** The keys the preview handles itself: only their hints are shown in its "⋯" */
+const PREVIEW_KEYS = new Set(["d", "e", "f"])
+
+/**
+ * A footer button (the first child, its element) with its content (the rest); disabled, the hover says why. Base UI
+ * keeps the button focusable, so the dimming is the button's
+ */
+function ReasonTooltip({ reason, children }: { reason: string | null; children: [ReactElement, ...ReactNode[]] }) {
+  const [button, ...content] = children
+  return (
+    <Tooltip disabled={reason === null}>
+      <TooltipTrigger render={button}>{content}</TooltipTrigger>
+      <TooltipContent>{reason}</TooltipContent>
+    </Tooltip>
   )
 }

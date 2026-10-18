@@ -234,6 +234,29 @@ test.describe("Commit message", () => {
       await expect(getBranchDetailsRow(page, BRANCH).locator("tr").filter({ hasText: "perf db: increase pool size to 64" })).toBeVisible()
     })
 
+    test("should reword a commit from the menu of its row, in its preview", async ({ page }) => {
+      await expandBranch(page, findBranchRow(page, BRANCH))
+      await getBranchDetailsRow(page, BRANCH).locator("tr").filter({ hasText: PERF_SUBJECT }).click({ button: "right" })
+      await page.getByRole("menuitem", { name: "Reword…" }).click()
+      // the preview opens with the message in edit, as E does there
+      const editor = getPreview(page).getByTestId("commit-message-editor")
+      await expect(editor).toBeFocused()
+      await expect(editor).toHaveValue(`(${BRANCH}) ${PERF_SUBJECT}`)
+      // Escape ends the edit, the preview stays; the request doesn't start it again
+      await page.keyboard.press("Escape")
+      await expect(editor).toHaveCount(0)
+      await expectPreviewFocused(getPreview(page))
+    })
+
+    test("should offer the menu of the commit's row in its preview", async ({ page }) => {
+      const preview = await openPerfCommit(page)
+      await preview.getByRole("button", { name: /^More actions for / }).click()
+      await page.getByRole("menuitem", { name: "Move to…" }).click()
+      // a form of the row: the preview closes for it
+      await expect(preview).toHaveCount(0)
+      await expect(page.getByTestId("inline-branch-target")).toBeVisible()
+    })
+
     test("should cancel the edit with Escape and keep the preview open", async ({ page }) => {
       const { preview, editor } = await editPerfCommit(page)
       await editor.fill("Something else")

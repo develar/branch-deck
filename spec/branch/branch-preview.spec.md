@@ -115,14 +115,15 @@ The arrows step through the branches of the table, P pushes the shown branch and
   P or a click opens that description with the dropped commits and a Force Push button, which pushes; P again pushes
   nothing.
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should ask before P force pushes over a commit the branch lacks`)
-- A branch with a conflict or a sync error must not offer the push.
+- A branch with a conflict or a sync error must not offer the push, as its row doesn't.
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should show the merge conflict above the commits`)
 
 ### Safe Push
 
 - S or "Safe Push…" in the footer must open the Safe Push form below the row of the shown branch, and the preview closes
   for it (the form is a form of the row), when that button is enabled: Patronus answers, the branch has a push,
-  `canStartRobot`, no inline action runs on the row. Otherwise S does nothing and the button's hover says why. S works
+  `canStartRobot`, no inline action runs on the row. Otherwise the button stays, disabled, its hover says why, and S
+  says it in the `info` toast of the row's S (`explainSafePushBlocker`). S works
   in any keyboard layout, as on the focused row ([Branch Row](branch-row.spec.md#keyboard)).
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the branch preview with S, where its button is enabled`)
 
@@ -139,9 +140,14 @@ The arrows step through the branches of the table, P pushes the shown branch and
   body, and the bodies use the 14/22px reading text of the commit preview.
 - The conflict notice is a `destructive` alert on `bg-destructive/10`, without a border.
 - The footer shows the position on the left and `↑ ↓ Previous/next`, `Space Close`, a ghost `xs` button `D Review
-  Changes` (not for a branch that can't be reviewed), `O Open Pull Request` (or "Create Pull Request…", which closes the preview for its dialog), `S Safe Push…`
-  where Patronus answers (the key in place of the shield, as the other buttons show theirs) and a ghost `xs` button `P
-  Push` on the right, the push in the text colour, not the push colour of the row. A table of one branch has no `↑ ↓` hint. While
+  Changes` (disabled with the reason for a branch that can't be reviewed), `O Open Pull Request` and "Create Pull
+  Request…" (which closes the preview for its dialog; both beside a closed pull request), `S Safe Push…` where
+  Patronus answers (the key in place of the shield, as the other buttons show theirs), a ghost `xs` button `P Push`,
+  the push in the text colour, not the push colour of the row, and "⋯" with the whole menu of the row
+  (`getBranchContextMenuItems`): the expanded form offers what the compact one does. Its key hints are only the keys
+  of the preview (P, O, D, S); an item that opens a form of the row (Rename…, Move to…, Amend Changes…) closes the
+  preview first and shows the row, a copy keeps the preview (`toPreviewMenu`).
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should offer the menu of the row in the branch preview, and close the preview for a form of the row`) A table of one branch has no `↑ ↓` hint. While
   pushing, the button shows a spinner instead of the key and the label of the row's push button, "Pushing 45%".
 - The preview is loaded on its first use.
 

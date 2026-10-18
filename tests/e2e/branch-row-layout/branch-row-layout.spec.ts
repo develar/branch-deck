@@ -3,6 +3,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { captureBranchTableSnapshot, captureContextMenuSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, getBranchCells, expandBranch, collapseBranch, verifyBranchState, verifyBranchStatus, getCopyButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { testCopyButton, testContextMenuCopy, readClipboard } from "../helpers/clipboard-helpers"
+import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openContextMenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
@@ -157,6 +158,19 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await expect.poll(async () => (await getOpenedSubWindows(page)).map(window => window.url)).toEqual([expect.stringMatching(/branch-review/)])
     releaseSync()
     await expect(syncButton).not.toHaveAttribute("aria-busy", "true")
+  })
+
+  test("should offer the menu of the row in the branch preview, and close the preview for a form of the row", async ({ page }) => {
+    await waitForBranchSyncComplete(page, "test-branch")
+    const preview = await openBranchPreview(page, "test-branch")
+    await preview.getByRole("button", { name: "More actions for test-branch" }).click()
+    // the items of the row's menu; M is no key of the preview: no hint
+    const move = page.getByRole("menuitem", { name: "Move to…" })
+    await expect(move).toBeVisible()
+    await expect(move.locator("kbd")).toHaveCount(0)
+    await page.getByRole("menuitem", { name: "Rename…" }).click()
+    await expect(preview).toHaveCount(0)
+    await expect(page.getByTestId("inline-rename-input")).toBeVisible()
   })
 
   test("should verify copy button visual states and icon changes", async ({ page }) => {

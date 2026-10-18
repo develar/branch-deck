@@ -1,5 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window"
-import { getBranchReviewItems, getSafePushWithoutReviewItem } from "@/hooks/useBranchContextActions"
+import { getBranchContextMenuItems, getBranchReviewItems, getSafePushWithoutReviewItem } from "@/hooks/useBranchContextActions"
 import type { BranchActionItem } from "@/hooks/useBranchContextActions"
 import type { BranchReviewSource } from "@/hooks/useBranchReview"
 import { getCreatePullRequestContext } from "@/hooks/useCreatePullRequestContext"
@@ -9,6 +9,7 @@ import { BRANCH_REVIEW_WINDOW, branchGoneReason, requestAction } from "@/lib/bra
 import type { BranchReviewFocus } from "@/lib/branch-review"
 import { continueOnGitHub, submitPullRequest } from "@/lib/create-pull-request-context"
 import { logError, notifyError, recordError } from "@/lib/errors"
+import type { MenuItem } from "@/lib/menu"
 import { stackAncestors } from "@/lib/stack"
 import { createWindowLink } from "@/lib/sub-window-link"
 import { branchSyncStore, getBranch } from "@/stores/branch-sync"
@@ -16,7 +17,15 @@ import { requestReveal } from "@/stores/commit-move"
 import { getEffectiveBranchPrefix, getSelectedProject } from "@/stores/repository"
 import { demandReviewReadiness } from "@/stores/review-readiness"
 import { otherRepositoryReason } from "@/stores/review-requests"
-import type { BranchReviewFeedback, BranchReviewGroup, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData, BranchReviewWindowState } from "@/types/sub-window"
+import type {
+  BranchReviewFeedback,
+  BranchReviewGroup,
+  BranchReviewItem,
+  BranchReviewMenuItem,
+  BranchReviewRequest,
+  BranchReviewWindowData,
+  BranchReviewWindowState,
+} from "@/types/sub-window"
 
 /** The groups of the last code-owner check of a branch by name, for a review window opened from elsewhere */
 const lastReviewGroups = new Map<string, { head: string | undefined; groups: BranchReviewGroup[] }>()
@@ -143,10 +152,11 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
 /** The tips of the chain the last sync built, and the actions of each branch; nothing for a repository not shown */
 function buildState(repositoryPath: string, chain: readonly string[]): BranchReviewWindowState {
   if (getSelectedProject()?.path !== repositoryPath) {
-    return { repositoryPath, selected: false, tips: {}, items: {}, createPullRequest: null }
+    return { repositoryPath, selected: false, tips: {}, items: {}, menus: {}, createPullRequest: null }
   }
   const tips: Record<string, string> = {}
   const items: Record<string, BranchReviewItem[]> = {}
+  const menus: Record<string, BranchReviewMenuItem[][]> = {}
   for (const name of chain) {
     const tip = syncedTips?.repositoryPath === repositoryPath ? syncedTips.tips[name] : getBranch(name)?.commits[0]?.hash
     if (tip !== undefined) {
@@ -155,10 +165,29 @@ function buildState(repositoryPath: string, chain: readonly string[]): BranchRev
     const branch = getBranch(name)
     if (branch !== undefined) {
       items[name] = getBranchReviewItems(branch).map(toReviewItem)
+      menus[name] = getBranchContextMenuItems(branch, revealRow)
+        .map(group => group.filter(item => item.id !== undefined && item.children === undefined).map(toMenuItem))
+        .filter(group => group.length > 0)
     }
   }
   const dialogBranch = dialog === null ? undefined : getBranch(dialog.branchName)
-  return { repositoryPath, selected: true, tips, items, createPullRequest: dialogBranch === undefined ? null : getCreatePullRequestContext(dialogBranch) }
+  return { repositoryPath, selected: true, tips, items, menus, createPullRequest: dialogBranch === undefined ? null : getCreatePullRequestContext(dialogBranch) }
+}
+
+function toMenuItem(item: MenuItem): BranchReviewMenuItem {
+  return {
+    id: item.id!,
+    label: item.label,
+    ...(item.disabled === true && { disabled: true }),
+    ...(item.description !== undefined && { description: item.description }),
+  }
+}
+
+/** The row of the branch expands for an item that works on its commits (Amend, Unapply), as the reveal of a move does */
+function revealRow(name: string, expanded: boolean): void {
+  if (expanded) {
+    requestReveal({ branchName: name, commitIds: [] })
+  }
 }
 
 function toReviewItem(item: BranchActionItem): BranchReviewItem {
@@ -204,10 +233,13 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
     link.broadcast()
     return true
   }
+  const menuItem = "menuItemId" in request ? findMenuItem(branchName, request.menuItemId) : undefined
   const action =
-    "itemId" in request
-      ? requestAction(request.itemId, branchName)
-      : requestAction(request.dialog === "create" ? "create-pull-request" : request.dialog === "continueOnGitHub" ? "continue-on-github" : "safe-push-without-review", branchName)
+    "menuItemId" in request
+      ? requestAction({ menuLabel: menuItem?.label ?? request.menuItemId }, branchName)
+      : "itemId" in request
+        ? requestAction(request.itemId, branchName)
+        : requestAction(request.dialog === "create" ? "create-pull-request" : request.dialog === "continueOnGitHub" ? "continue-on-github" : "safe-push-without-review", branchName)
   const title = `Cannot ${action}`
   // a reason, or what GitHub said
   const refuse = (reason: unknown) => {
@@ -240,7 +272,15 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
       (error: unknown) => refuse(error),
     )
   }
-  const item = "itemId" in request ? getBranchReviewItems(branch).find(it => it.id === request.itemId) : (getSafePushWithoutReviewItem(branch) ?? undefined)
+  if ("menuItemId" in request && menuItem === undefined) {
+    return refuse(`The menu of ${branchName} has no such action now`)
+  }
+  const item =
+    "menuItemId" in request
+      ? menuItem
+      : "itemId" in request
+        ? getBranchReviewItems(branch).find(it => it.id === request.itemId)
+        : (getSafePushWithoutReviewItem(branch) ?? undefined)
   if (item === undefined) {
     return refuse(unavailableReason("itemId" in request ? request.itemId : "safe-push-without-review", branchName))
   }
@@ -254,6 +294,16 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
   item.onSelect()
   return true
 })
+
+/** The item of the branch's menu the review window asks to run, as the row's menu has it now */
+function findMenuItem(branchName: string, id: string): MenuItem | undefined {
+  const branch = getBranch(branchName)
+  return branch === undefined
+    ? undefined
+    : getBranchContextMenuItems(branch, revealRow)
+        .flat()
+        .find(item => item.id === id && item.children === undefined)
+}
 
 /** Why the main window doesn't offer the action of a request on the branch */
 function unavailableReason(itemId: "safe-push" | "push" | "safe-push-without-review", branchName: string): string {

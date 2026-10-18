@@ -3,6 +3,8 @@ import { Card } from "@/components/ui/card"
 import { BranchReviewActions, BranchReviewBar, BranchReviewBody, BranchReviewGone } from "@/components/review/BranchReview"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
+import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
+import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { PreviewDialogFooter } from "@/components/shared/PreviewDialogFrame"
 import { WindowPage } from "@/components/shared/WindowPage"
 import { hasCommitKeys, keyedAction, useBranchReview } from "@/hooks/useBranchReview"
@@ -10,10 +12,11 @@ import { askMainWindow, useLinkedFeedback, useLinkedState } from "@/hooks/useMai
 import { useSubWindowData } from "@/hooks/useSubWindowData"
 import { BRANCH_REVIEW_WINDOW, branchGoneReason, branchReviewWindowKey, requestAction } from "@/lib/branch-review"
 import { notifyError } from "@/lib/errors"
+import type { MenuItemGroups } from "@/lib/menu"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import { showToast } from "@/lib/toast-message"
 import { otherRepositoryReason } from "@/stores/review-requests"
-import type { BranchReviewFeedback, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData } from "@/types/sub-window"
+import type { BranchReviewFeedback, BranchReviewItem, BranchReviewMenuItem, BranchReviewRequest, BranchReviewWindowData } from "@/types/sub-window"
 
 const WindowCreatePullRequestDialog = lazy(() => import("@/components/review/WindowCreatePullRequestDialog").then(it => ({ default: it.WindowCreatePullRequestDialog })))
 
@@ -97,6 +100,13 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
             <DiffViewToggle />
             <div className="flex items-center gap-1" data-testid="branch-review-actions">
               <BranchReviewActions actions={actions.items} branchName={loaded.target} onRun={actions.run} />
+              <BranchReviewMenu
+                repositoryPath={data.repositoryPath}
+                branchName={loaded.target}
+                groups={linked.menus?.[loaded.target] ?? []}
+                selected={linked.selected}
+                gone={model.gone.includes(loaded.target)}
+              />
             </div>
           </>
         )
@@ -131,6 +141,40 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
       )}
     </WindowPage>
   )
+}
+
+/**
+ * "⋯" of the title bar: the whole menu of the branch's row, as the main window sends it; the main window runs the item
+ * (it focuses itself and shows the row: a rename or an amend is a form of the row). Disabled while it shows another
+ * repository or the branch left, as the actions it runs.
+ */
+function BranchReviewMenu({
+  repositoryPath,
+  branchName,
+  groups,
+  selected,
+  gone,
+}: {
+  repositoryPath: string
+  branchName: string
+  groups: readonly (readonly BranchReviewMenuItem[])[]
+  selected: boolean
+  gone: boolean
+}) {
+  if (groups.length === 0) {
+    return null
+  }
+  const items: MenuItemGroups = groups.map(group =>
+    group.map(item => ({
+      ...item,
+      ...((gone || !selected) && {
+        disabled: true,
+        description: gone ? branchGoneReason(branchName) : otherRepositoryReason(repositoryPath, requestAction({ menuLabel: item.label }, branchName)),
+      }),
+      onSelect: () => void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, menuItemId: item.id }),
+    })),
+  )
+  return <MoreActionsMenu name={branchName} menu={<DropdownMenuItems groups={items} />} />
 }
 
 /**

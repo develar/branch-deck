@@ -45,3 +45,26 @@ const kbdSymbols: Record<string, string> = {
 export function kbdLabel(kbd: string): string {
   return kbdSymbols[kbd] ?? kbd.toUpperCase()
 }
+
+/**
+ * The menu of a row inside its preview: an item that opens a form of the row, a dialog or a window closes the preview
+ * first (`close`), a copy keeps it; a key hint stays only for the keys the preview handles itself (`keys`)
+ */
+export function toPreviewMenu(groups: MenuItemGroups, close: (() => void) | null, keys: ReadonlySet<string>): MenuItemGroups {
+  const inPreview = (item: MenuItem): MenuItem => {
+    const kbds = item.kbds?.every(kbd => keys.has(kbd)) === true ? item.kbds : undefined
+    const keepsPreview = item.label.startsWith("Copy ")
+    return {
+      ...item,
+      kbds,
+      onSelect: keepsPreview
+        ? item.onSelect
+        : () => {
+            close?.()
+            item.onSelect()
+          },
+      ...(item.children !== undefined && { children: item.children.map(inPreview) }),
+    }
+  }
+  return groups.map(group => group.map(inPreview))
+}

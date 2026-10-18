@@ -343,10 +343,18 @@ test.describe("Branch review window", () => {
       selected: true,
       tips: {},
       items: {},
+      menus: {},
       createPullRequest: null,
     } satisfies BranchReviewWindowState)
     await expect(actions.getByRole("button", { name: "Safe Push…" })).toBeEnabled()
-    await emitTauriEvent(page, "branch-review/state", { repositoryPath, selected: false, tips: {}, items: {}, createPullRequest: null } satisfies BranchReviewWindowState)
+    await emitTauriEvent(page, "branch-review/state", {
+      repositoryPath,
+      selected: false,
+      tips: {},
+      items: {},
+      menus: {},
+      createPullRequest: null,
+    } satisfies BranchReviewWindowState)
     await expect(actions.getByRole("button", { name: "Safe Push…" })).toBeDisabled()
     // the tooltip of the button the mouse was on closes first
     await page.mouse.move(0, 0)
@@ -401,6 +409,17 @@ test.describe("Branch review window", () => {
     await expect.poll(async () => (await getEmittedEvents<{ ok: boolean }>(page, "branch-review/reply")).map(it => it.ok)).toEqual([false, true, true])
     // the window asked: the main window comes to the front, once per request it ran
     expect(await page.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls?.filter(it => it === "set_focus"))).toEqual(["set_focus", "set_focus"])
+  })
+
+  test("should run an item of the branch's menu from the window's ⋯, in the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupAuthWithoutPullRequest(page, setupRepo, syncAndWaitForBranches)
+    const reviewPage = await openLinkedSubWindow(page, await openReviewWindow(page, "auth"))
+    // the whole menu of the row, not only the buttons of the title bar
+    await reviewPage.getByTestId("branch-review-actions").getByRole("button", { name: "More actions for auth" }).click()
+    await reviewPage.getByRole("menuitem", { name: "Rename…" }).click()
+    // the main window runs it: the rename form of the row
+    await expect(page.getByTestId("inline-rename-input")).toBeVisible()
+    expect(await windowRequests(reviewPage)).toEqual([expect.objectContaining({ branchName: "auth", menuItemId: "rename" })])
   })
 
   test("should create the pull request in the window it was asked in, through the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {

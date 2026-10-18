@@ -79,16 +79,15 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
 
   const isPushing = useIsBranchPushing(currentName ?? "")
   const processing = useIsRowProcessing(currentName ?? "")
-  // as the push button of the row: only a branch that synced without an error has something to push
-  const hasPush = branch !== undefined && !branch.hasError && branch.commitCount > 0
   const canPush = branch !== undefined && canPushNow(branch, { isPushing, processing })
   const pullRequest = usePullRequest(currentName ?? "")
   const summary = branch === undefined ? null : getBranchSummary(branch.summary, branch.descriptionTitle)
   const patronusAvailable = usePatronusAvailable()
-  const canReview = branch !== undefined && branchReviewBlocker(branch) === null
+  const reviewBlocker = branch === undefined ? null : branchReviewBlocker(branch)
+  const canReview = branch !== undefined && reviewBlocker === null
   const safePushBlocker = useBranchNextStep(currentName ?? "")?.safePushBlocker ?? null
-  // as the footer's "Safe Push…" is shown (`SafePushButton`); disabled, S says why
-  const offersSafePush = patronusAvailable && hasPush
+  // as the footer's "Safe Push…" is shown (`SafePushButton`, where Patronus is); disabled, S says why
+  const offersSafePush = patronusAvailable
 
   const bodyRef = useRef<HTMLDivElement>(null)
   // the meta line of each commit shows its files
@@ -128,7 +127,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
     } else if (event.code === "KeyD" && canReview) {
       event.preventDefault()
       review()
-    } else if (event.code === "KeyS" && offersSafePush) {
+    } else if (event.code === "KeyS" && offersSafePush && branch !== undefined) {
       event.preventDefault()
       if (safePushBlocker === null) {
         openRowForm("safe-push", branch.name, onClose)
@@ -184,12 +183,26 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
             start={<span data-testid="branch-preview-position" className="tabular-nums">{`${index + 1} / ${names.length}`}</span>}
           >
             <PreviewNavigationHints count={names.length} />
-            {canReview && (
-              <Button variant="ghost" size="xs" disabled={isOpeningReview} data-testid="branch-preview-review" onClick={review}>
+            {/* disabled with the reason, never hidden: the menu of the row says the same */}
+            <Tooltip disabled={canReview}>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    disabled={!canReview || isOpeningReview}
+                    focusableWhenDisabled
+                    className={cn(!canReview && "opacity-50")}
+                    data-testid="branch-preview-review"
+                    onClick={review}
+                  />
+                }
+              >
                 <Kbd>D</Kbd>
                 Review Changes
-              </Button>
-            )}
+              </TooltipTrigger>
+              <TooltipContent>{reviewBlocker}</TooltipContent>
+            </Tooltip>
             {/* the start form is a form of the row: the preview closes for it (`ClosePreviewContext`) */}
             <BranchPreviewActions branch={branch} />
           </PreviewDialogFooter>

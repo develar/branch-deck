@@ -150,6 +150,9 @@ The commit hash popover shows the same header and body.
 ### Message editing
 
 - The preview of a commit in a branch table or in the unassigned commits card must offer the edit: E or the Edit button.
+  The menu of its row offers "Reword…" (one commit), which opens the preview with the message in edit; disabled with
+  "Wait for the sync to finish" while a sync runs. Escape ends that edit as any other, the preview stays.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should reword a commit from the menu of its row, in its preview`)
 - The preview of a commit that is not on the current branch (an archived or a missing commit) must not offer it.
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should open one preview for a missing commit nested in a conflict row`)
 - The edit must show the raw message in a text field, the grouping prefix included, and focus the field.
@@ -350,7 +353,12 @@ The commit hash popover shows the same header and body.
   in `text-xs text-muted-foreground` below a `border-border` rule. A list of one commit has no `↑ ↓` hint.
 - The footer then shows the ghost `xs` buttons `D Review Changes`, which reviews the commit in its window and closes
   the preview ([Commit Review](commit-review.spec.md)), and `F Files`, which shows or hides the changed files.
-- An editable preview ends the footer with a ghost `xs` button `E Edit`.
+- An editable preview ends the footer with a ghost `xs` button `E Edit`, disabled with "Wait for the sync to finish"
+  on its hover while a sync runs; "D Review Changes" of a commit without files is disabled with "The commit changes no
+  files". A preview of a list with a row menu ends with "⋯": the menu of the row (Move to…, Squash into, Push Up to
+  Here, the copies), its key hints only for the keys of the preview; an item that opens a form of the row closes the
+  preview first, a copy keeps it (`toPreviewMenu`).
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should offer the menu of the commit's row in its preview`)
 - While editing, the body is a monospace 13/20px text field at least 12rem high that grows with the message.
   The footer shows "The first line is the subject", or the prefix warning in `text-warning`, on the left, and
   `Esc Cancel` and a primary `xs` button `Save ⌘↵` (`Save Ctrl+Enter` outside macOS) on the right. The button shows a spinner while saving.

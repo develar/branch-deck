@@ -1,6 +1,7 @@
 import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import type { ComponentProps, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from "react"
 import { cn } from "cn"
+import { PencilLineIcon } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
@@ -20,8 +21,8 @@ import { describeFixupTarget, getFixupTarget } from "@/lib/autosquash"
 import type { CommitUnion } from "@/lib/commit"
 import { getCommitFileCount, getCommitHash, getCommitSubject, getSubjectLine, hasCommitMessageBody, parseSubject, stripLeadingIssueKey, toReviewCommit } from "@/lib/commit"
 import { openCommitReviewWindow } from "@/lib/commit-review-window"
-import type { MenuItemGroups } from "@/lib/menu"
-import { useAutosquashPlan } from "@/stores/branch-sync"
+import type { MenuItem, MenuItemGroups } from "@/lib/menu"
+import { branchSyncStore, useAutosquashPlan } from "@/stores/branch-sync"
 
 // the preview pulls in the review: its frame, the file tree and the resizable panels
 const CommitPreviewDialog = lazy(() => import("@/components/commit/CommitPreviewDialog").then(it => ({ default: it.CommitPreviewDialog })))
@@ -112,7 +113,8 @@ export function CommitList<T extends CommitUnion>({
     onDragCommits: typeof onDragCommits
     onDragEnd: typeof onDragEnd
     review: (commit: CommitUnion) => void
-  }>({ selection, contextMenuItems, onDragCommits, onDragEnd, review: () => {} })
+    reword: ((commit: CommitUnion) => void) | null
+  }>({ selection, contextMenuItems, onDragCommits, onDragEnd, review: () => {}, reword: null })
 
   const getMenuGroups = useCallback((commit: CommitUnion): MenuItemGroups => {
     const { selection, contextMenuItems } = latestRef.current
@@ -120,8 +122,10 @@ export function CommitList<T extends CommitUnion>({
       return []
     }
     const actionCommits = getActionCommits(selection, commit)
-    // the review of the commit first, as in the menu of a branch
-    return [getCommitReviewMenuItems(actionCommits, latestRef.current.review), ...contextMenuItems(actionCommits)]
+    // the review of the commit first, as in the menu of a branch; then its message, as E edits it in the preview
+    const reword = latestRef.current.reword
+    const rewordItems = reword === null || actionCommits.length !== 1 ? [] : [getRewordMenuItem(actionCommits[0]!, reword)]
+    return [[...getCommitReviewMenuItems(actionCommits, latestRef.current.review), ...rewordItems], ...contextMenuItems(actionCommits)]
   }, [])
 
   const handleDragStart = useCallback((event: DragEvent, commit: CommitUnion) => {
@@ -143,7 +147,7 @@ export function CommitList<T extends CommitUnion>({
 
   // the preview follows the commit, not its index, across a sync; after an edit, it waits for the reworded commit
   // (`nextHash`)
-  const [preview, setPreview] = useState<{ hash: string; nextHash?: string } | null>(null)
+  const [preview, setPreview] = useState<{ hash: string; nextHash?: string; edit?: boolean } | null>(null)
   let previewIndex = preview === null ? -1 : commits.findIndex(commit => getCommitHash(commit) === preview.hash)
   if (preview !== null && previewIndex === -1) {
     const nextHash = preview.nextHash
@@ -153,8 +157,8 @@ export function CommitList<T extends CommitUnion>({
   }
   // loaded on the first use, then kept mounted (the dialog moves the focus only when it opens or closes)
   const [isPreviewLoaded, setIsPreviewLoaded] = useState(false)
-  const openPreview = useCallback((hash: string) => {
-    setPreview({ hash })
+  const openPreview = useCallback((hash: string, edit = false) => {
+    setPreview({ hash, edit })
     setIsPreviewLoaded(true)
   }, [])
   const saveMessage = (commit: CommitUnion, message: string) =>
@@ -188,7 +192,14 @@ export function CommitList<T extends CommitUnion>({
     review: hash => void review(hash),
   })
   useEffect(() => {
-    latestRef.current = { selection, contextMenuItems, onDragCommits, onDragEnd, review: reviewRow }
+    latestRef.current = {
+      selection,
+      contextMenuItems,
+      onDragCommits,
+      onDragEnd,
+      review: reviewRow,
+      reword: editable ? commit => openPreview(getCommitHash(commit), true) : null,
+    }
   })
 
   const selectRow = selection?.handleRowClick
@@ -267,6 +278,8 @@ export function CommitList<T extends CommitUnion>({
             onClose={closePreview}
             finalFocus={() => tableRef.current ?? true}
             onSaveMessage={editable ? saveMessage : undefined}
+            editRequested={preview?.edit === true}
+            menuGroups={contextMenuItems !== undefined && selection !== undefined ? commit => contextMenuItems([commit as T]) : undefined}
             onReview={(index, path) => review(getCommitHash(commits[index]!), path)}
             showAuthor={showAuthor}
             showFileCount={showFileCount}
@@ -464,4 +477,20 @@ function FixupMarker({ marker, commitId }: { marker: string; commitId: string })
       <TooltipContent>{description}</TooltipContent>
     </Tooltip>
   )
+}
+
+/**
+ * "Reword…" of a commit row: its preview opens with the message in edit, as E does there; disabled while a sync runs (a
+ * reword is a rewrite)
+ */
+function getRewordMenuItem(commit: CommitUnion, reword: (commit: CommitUnion) => void): MenuItem {
+  const syncing = branchSyncStore.getState().isSyncing
+  return {
+    id: "reword",
+    label: "Reword…",
+    icon: PencilLineIcon,
+    disabled: syncing,
+    description: syncing ? "Wait for the sync to finish" : "Edits the message of the commit in its preview",
+    onSelect: () => reword(commit),
+  }
 }

@@ -59,6 +59,17 @@ export interface BranchReviewItem {
   readonly url?: string
 }
 
+/**
+ * An item of the branch's menu (`getBranchContextMenuItems`) for the "⋯" of the review window: plain data, the main
+ * window runs it (`menuItemId`); a submenu stays in the row's menu
+ */
+export interface BranchReviewMenuItem {
+  readonly id: string
+  readonly label: string
+  readonly disabled?: boolean
+  readonly description?: string
+}
+
 /** What the main window tells the review window of a branch (over its link) */
 export interface BranchReviewWindowState {
   readonly repositoryPath: string
@@ -68,6 +79,8 @@ export interface BranchReviewWindowState {
   readonly tips: Readonly<Record<string, string>>
   /** The actions of each branch of the chain; none while the main window shows another repository */
   readonly items: Readonly<Record<string, readonly BranchReviewItem[]>>
+  /** The whole menu of each branch of the chain, in its groups: the window's "⋯" offers what the row offers */
+  readonly menus: Readonly<Record<string, readonly (readonly BranchReviewMenuItem[])[]>>
   /** What the "Create pull request" dialog of the window shows, while it is open; null otherwise */
   readonly createPullRequest: CreatePullRequestContext | null
 }
@@ -79,6 +92,7 @@ export interface BranchReviewWindowState {
  */
 export type BranchReviewRequest = { readonly id: string; readonly repositoryPath: string; readonly branchName: string } & (
   | { readonly itemId: "safe-push" | "push" }
+  | { readonly menuItemId: string }
   | { readonly dialog: "open" | "close" | "safePushWithoutReview" }
   | { readonly dialog: "create"; readonly input: CreatePullRequestInput }
   | { readonly dialog: "continueOnGitHub"; readonly fields: CompareFields }

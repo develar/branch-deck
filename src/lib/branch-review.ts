@@ -47,7 +47,13 @@ export function branchGoneReason(branchName: string): string {
 }
 
 /** What a request of the review window does, for "Cannot …": "push auth", "create the pull request of auth" */
-export function requestAction(itemId: Exclude<BranchReviewItem["id"], "open-pull-request"> | "safe-push-without-review" | "continue-on-github", branchName: string): string {
+export function requestAction(
+  itemId: Exclude<BranchReviewItem["id"], "open-pull-request"> | "safe-push-without-review" | "continue-on-github" | { menuLabel: string },
+  branchName: string,
+): string {
+  if (typeof itemId === "object") {
+    return `run "${itemId.menuLabel.replace(/…$/, "")}" on ${branchName}`
+  }
   switch (itemId) {
     case "continue-on-github":
       return `open the pull request of ${branchName} on GitHub`
