@@ -139,19 +139,19 @@ pub struct RewriteOutput {
   /// The texts those descriptions replaced, by branch; `bd undo` doesn't restore them, `bd describe` can
   #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   pub replaced_descriptions: BTreeMap<String, Description>,
-  /// With --sync: the `bd sync` output after the rewrite; exit code 1 when a branch conflicts
+  /// With --sync: the `bd sync` output after the rewrite; exit code 1 when a branch is not built
   #[serde(skip_serializing_if = "Option::is_none")]
   pub sync: Option<SyncOutput>,
-  /// A step after the rewrite failed: a description write (the sync is skipped then) or the sync. The rewrite stays,
-  /// `undo_token` reverts it, and the exit code is this error's
+  /// A step after the rewrite failed: a description write (the sync is skipped then) or the sync. The rewrite stands,
+  /// `undo_token` reverts it, and the exit code is this error's; retry that step (`bd sync`), never the rewrite
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub error: Option<ErrorBody>,
+  pub after_error: Option<ErrorBody>,
 }
 
 impl RewriteOutput {
   /// 0, 1 when the sync conflicts, or the exit code of `error`
   pub fn exit_code(&self) -> i32 {
-    after_rewrite_exit_code(self.error.as_ref(), self.sync.as_ref())
+    after_rewrite_exit_code(self.after_error.as_ref(), self.sync.as_ref())
   }
 }
 
@@ -176,15 +176,15 @@ pub fn sync_after_rewrite(context: &RepoContext) -> (Option<SyncOutput>, Option<
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct AppendedCommit {
-  pub id: String,
+  pub commit: String,
   pub subject: String,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SubjectChange {
-  pub id: String,
-  pub from: String,
-  pub to: String,
+  pub commit: String,
+  pub old_subject: String,
+  pub new_subject: String,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -210,9 +210,10 @@ pub struct ProblemReport {
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
+/// A commit and its copy: the id before a rewrite and after it
 pub struct IdMapping {
-  pub from: String,
-  pub to: String,
+  pub commit: String,
+  pub new_id: String,
 }
 
 /// `bd undo`
@@ -221,11 +222,11 @@ pub struct UndoOutput {
   pub schema: SchemaVersion,
   pub repository: String,
   pub prefix: String,
-  /// HEAD now: the `previous_head` of the token, or HEAD as it is for a token without a head
-  pub head: String,
-  /// The HEAD that was undone; omitted for a token without a head
+  /// HEAD before the undo: the token's new head; omitted for a token without a head
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub undone: Option<String>,
+  pub previous_head: Option<String>,
+  /// HEAD now: the token's previous head, or HEAD as it is for a token without a head
+  pub new_head: String,
   /// The commit of the issue groups that was undone; omitted for a token without them
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub undone_issue_groups: Option<String>,
@@ -301,11 +302,11 @@ fn rewrite(
   let (written, error) = write_descriptions(context, &changed);
   set_described(&mut output, &changed[..written]);
   if let Some(error) = error {
-    output.error = Some(error.to_output().error);
+    output.after_error = Some(error.to_output().error);
     return Ok(output);
   }
   if args.sync {
-    (output.sync, output.error) = sync_after_rewrite(context);
+    (output.sync, output.after_error) = sync_after_rewrite(context);
   }
   Ok(output)
 }
@@ -333,8 +334,8 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
       schema: SchemaVersion,
       repository: context.repository.clone(),
       prefix: context.prefix.clone(),
-      head: short.get(&head).to_string(),
-      undone: undone_head.map(|id| short.get(id).to_string()),
+      previous_head: undone_head.map(|id| short.get(id).to_string()),
+      new_head: short.get(&head).to_string(),
       undone_issue_groups: None,
       undone_stack_parents: None,
       landed_restored: None,
@@ -349,8 +350,8 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
       schema: SchemaVersion,
       repository: context.repository.clone(),
       prefix: context.prefix.clone(),
-      head: short.get(&undone.head).to_string(),
-      undone: Some(short.get(&undone.undone).to_string()),
+      previous_head: Some(short.get(&undone.undone).to_string()),
+      new_head: short.get(&undone.head).to_string(),
       undone_issue_groups: None,
       undone_stack_parents: None,
       landed_restored: Some(undone.landed_restored),
@@ -388,8 +389,8 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
     schema: SchemaVersion,
     repository: context.repository.clone(),
     prefix: context.prefix.clone(),
-    head: short.get(&head).to_string(),
-    undone: undone.map(|id| short.get(id).to_string()),
+    previous_head: undone.map(|id| short.get(id).to_string()),
+    new_head: short.get(&head).to_string(),
     undone_issue_groups: undone_issue_groups.map(|id| short.get(id).to_string()),
     undone_stack_parents: undone_stack_parents.map(|id| short.get(id).to_string()),
     landed_restored: None,
@@ -463,7 +464,7 @@ fn rewrite_output(context: &RepoContext, operation: &str, args: &RewriteArgs, ou
       .iter()
       .filter_map(|id| outcome.commits.iter().find(|commit| commit.id == *id))
       .map(|commit| AppendedCommit {
-        id: short.get(&commit.new_id).to_string(),
+        commit: short.get(&commit.new_id).to_string(),
         subject: commit.message.lines().next().unwrap_or_default().to_string(),
       })
       .collect(),
@@ -487,9 +488,9 @@ fn rewrite_output(context: &RepoContext, operation: &str, args: &RewriteArgs, ou
         .iter()
         .filter(|commit| commit.changed)
         .map(|commit| SubjectChange {
-          id: short.get(&commit.id).to_string(),
-          from: first_line(&commit.previous_message),
-          to: first_line(&commit.message),
+          commit: short.get(&commit.id).to_string(),
+          old_subject: first_line(&commit.previous_message),
+          new_subject: first_line(&commit.message),
         })
         .collect()
     }),
@@ -499,15 +500,15 @@ fn rewrite_output(context: &RepoContext, operation: &str, args: &RewriteArgs, ou
         .commits
         .iter()
         .map(|commit| IdMapping {
-          from: short.get(&commit.id).to_string(),
-          to: short.get(&commit.new_id).to_string(),
+          commit: short.get(&commit.id).to_string(),
+          new_id: short.get(&commit.new_id).to_string(),
         })
         .collect()
     }),
     described: Vec::new(),
     replaced_descriptions: BTreeMap::new(),
     sync: None,
-    error: None,
+    after_error: None,
   }
 }
 

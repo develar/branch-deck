@@ -529,13 +529,13 @@ fn a_dry_run_of_continue_checks_and_gives_the_ids_of_the_real_one() {
   let (exit_code, checked) = run_in(&clone, &["--full-ids", "update", "--continue", "--dry-run"]);
   assert_eq!((exit_code, &checked["dry_run"]), (0, &json!(true)), "{checked}");
   assert_eq!(git(&clone, &["rev-parse", "refs/branch-deck/resolve/main"]), session, "a dry run moves nothing");
-  let resolved = checked["resolutions"][0]["resolved"].clone();
+  let resolved = checked["resolutions"][0]["new_id"].clone();
   assert!(resolved.is_string(), "{checked}");
   let (_, again) = run_in(&clone, &["--full-ids", "update", "--continue", "--dry-run"]);
-  assert_eq!(again["resolutions"][0]["resolved"], resolved);
+  assert_eq!(again["resolutions"][0]["new_id"], resolved);
 
   let (exit_code, done) = run_in(&clone, &["--full-ids", "update", "--continue"]);
-  assert_eq!((exit_code, &done["resolutions"][0]["resolved"], &done["head"]), (0, &resolved, &resolved), "{done}");
+  assert_eq!((exit_code, &done["resolutions"][0]["new_id"], &done["new_head"]), (0, &resolved, &resolved), "{done}");
 }
 
 #[test_log::test]

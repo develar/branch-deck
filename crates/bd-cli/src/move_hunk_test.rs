@@ -61,7 +61,7 @@ fn the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch(
     (&json!(short_id(&head)), &json!(ACP_HOST), &json!(short_id(&b)), &json!(short_id(&a)))
   );
   assert_eq!(output["moved"]["hunks"].as_array().map(Vec::len), Some(1), "the import and the use: one hunk");
-  assert_eq!(output["rewritten"], json!(2), "A and B; the docs commit keeps its diff");
+  assert_eq!(output["changed"], json!(2), "A and B; the docs commit keeps its diff");
   assert_eq!(output["commits"].as_array().unwrap().len(), 3);
   // the sync rebuilt `fake-agent` with the fix and kept `docs`, whose mapping note followed it
   let agent = virtual_branch(&repo, "fake-agent");
@@ -75,7 +75,7 @@ fn the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch(
   let (_, schema) = run_json(&environment(repo.path()), &["schema"]);
   assert_covered(&schema["outputs"]["move_hunk"], &schema["outputs"]["move_hunk"], &output, "move_hunk");
 
-  assert_eq!(output["commits"][1]["from"], json!(short_id(&docs)));
+  assert_eq!(output["commits"][1]["commit"], json!(short_id(&docs)));
   assert_undo_restores(&repo, &output, &head);
 }
 
@@ -113,7 +113,7 @@ fn the_hunk_number_is_the_one_of_bd_commits_patch() {
 
   let (exit_code, output) = run_in(&repo, &["move-hunk", &b, &a, "f.txt", "--hunk", "2"]);
   assert_eq!(exit_code, 0, "{output}");
-  let new_a = output["commits"][0]["to"].as_str().unwrap();
+  let new_a = output["commits"][0]["new_id"].as_str().unwrap();
   assert_eq!(
     git(&repo, &["show", &format!("{new_a}:f.txt")]),
     numbered_lines(40).replace("line 20\n", "twenty\n").trim_end()

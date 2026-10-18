@@ -24,9 +24,9 @@ pub struct RetargetedPullRequest {
   pub number: u32,
   pub url: String,
   /// The virtual branch it went into, e.g. `jane/virtual/auth`
-  pub from: String,
+  pub old_base: String,
   /// The baseline as the remote names it, e.g. `master`
-  pub to: String,
+  pub new_base: String,
   /// Who had approved it: GitHub may dismiss the approvals of a pull request whose base changes; tell the user
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub approved_by: Vec<String>,
@@ -53,8 +53,8 @@ pub(crate) fn virtual_base_retargets<'a>(
         branch: name.to_string(),
         number: pull_request.number,
         url: pull_request.url.clone(),
-        from: pull_request.base_ref_name.clone(),
-        to: base.to_string(),
+        old_base: pull_request.base_ref_name.clone(),
+        new_base: base.to_string(),
         approved_by: pull_request
           .reviewers
           .iter()
@@ -94,7 +94,7 @@ pub(crate) fn retarget_one(
   repository: &GitHubRepository,
   retarget: &RetargetedPullRequest,
 ) -> Result<(), GitHubWriteError> {
-  runtime.block_on(retarget_pull_request(github, &context.repository, repository, retarget.number, &retarget.to))
+  runtime.block_on(retarget_pull_request(github, &context.repository, repository, retarget.number, &retarget.new_base))
 }
 
 /// "cannot retarget pull request #8 of login to master: <what GitHub said>; `gh pr edit 8 --repo acme/monorepo --base
@@ -108,10 +108,10 @@ pub(crate) fn refusal_warning(retarget: &RetargetedPullRequest, repository: &Git
     "cannot retarget pull request #{} of {} to {}: {reason}; `gh pr edit {} --repo {} --base {}` retargets it",
     retarget.number,
     retarget.branch,
-    retarget.to,
+    retarget.new_base,
     retarget.number,
     repository.full_name(),
-    retarget.to
+    retarget.new_base
   )
 }
 

@@ -49,7 +49,7 @@ pub struct FoldOutput {
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct FoldedTarget {
   /// The target before the fold
-  pub target: String,
+  pub commit: String,
   pub subject: String,
   /// The target after the fold; omitted for a dry run
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -152,7 +152,7 @@ fn fold_output(
       .iter()
       .zip(&new_ids)
       .map(|(group, new_id)| FoldedTarget {
-        target: short.get(&group.target).to_string(),
+        commit: short.get(&group.target).to_string(),
         subject: group.target_subject.clone(),
         new_id: new_id.as_deref().map(|id| short.get(id).to_string()),
         fixups: group.folded.iter().map(|fixup| short.get(&fixup.commit_id).to_string()).collect(),

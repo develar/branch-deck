@@ -517,7 +517,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
           let mut error = github_write_error(error);
           error.message = format!(
             "Nothing was pushed or started: cannot retarget pull request #{} of {} from {} to {}: {}",
-            retarget.number, retarget.branch, retarget.from, retarget.to, error.message
+            retarget.number, retarget.branch, retarget.old_base, retarget.new_base, error.message
           );
           return Err(error);
         }

@@ -159,8 +159,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - A failure must print `{"schema":1,"error":{"code","message","commits","retryable"}}` with a stable snake_case code,
   and `paths` for `uncommitted_overlap` (the local files) and for a refused resolution of `bd update --continue` (the
   conflicting files).
-  A rewrite whose step after the rewrite failed must print its output with that `error` in it, so that the undo
-  token stays.
+  A write whose step after the write failed must print its output with that error as `after_error`, never the error
+  object, so that the undo token stays. The names must be one vocabulary: a write prints `previous_head` and
+  `new_head`, a commit and its copy are `{commit, new_id}`, a state is `state`.
 - The exit code must follow the code: 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network
   error. `retryable` must be true only where the same command again can succeed: never for `lease_rejected` (a push
   again with `--force` would drop what the remote has now) nor for a stale undo token (`undo_stale`).
@@ -314,7 +315,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_writes_descriptions_and_syncs`, `descriptions_are_validated_with_the_plan`, `a_stacked_branch_is_described_by_its_leaf`)
 - `--sync` must run the sync of `bd sync` after the writes, without releasing the repository lock in between, and add
   its output as `sync`; a conflict must exit with 1 and keep the undo token. A failed description write must skip the
-  sync; it and a failed sync must keep the rewrite output, with the `error` in it and its exit code. `--sync` must not
+  sync; it and a failed sync must keep the rewrite output, with the error as `after_error` and its exit code. `--sync` must not
   go with `--dry-run`.
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_writes_descriptions_and_syncs`, `a_sync_conflict_after_group_exits_with_1_and_keeps_the_undo_token`, `a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_token`, `descriptions_are_validated_with_the_plan`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`a_held_lock_is_not_taken_again`)
@@ -333,7 +334,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/sync-core/src/regroup_test.rs (`waits_for_the_repository_lock`, `refuses_while_a_rebase_is_in_progress`)
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_and_its_dry_run_are_refused_during_a_cherry_pick`)
 - The output must list every commit's resulting group with its new id, the new HEAD and an undo token;
-  `--dry-run` must write nothing and print the changed subjects and the stack forest; `--map` must add old → new ids.
+  `--dry-run` must write nothing and print the changed subjects and the stack forest; `--map` must add `{commit, new_id}` of every commit.
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`dry_run_prints_the_changes_and_the_forest`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`dry_run_writes_nothing`)
 - `bd rename` must replace the branch's level in every prefix path, children included, rename the issue groups and
@@ -404,9 +405,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   keep author and committer byte for byte, and its mapping note: with the new trees as its source for a commit
   between, as it was above. So the sync rebuilds the branches of `from` and `to` and keeps the others.
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_commit_between_that_shifts_the_lines_still_applies`, `moves_a_file_change_into_an_older_commit`)
-- It must print the moved hunks (`moved.hunks`, header and text), `commits` (old -> new id of every recreated commit),
-  `rewritten` (the commits whose changes differ) and an undo token `<previous head>..<new head>` for `bd undo`;
-  `--sync` must sync under the same lock (`sync`, or `error` with the token kept); `--dry-run` must print the hunks
+- It must print the moved hunks (`moved.hunks`, header and text), `commits` (`{commit, new_id}` of every recreated commit),
+  `changed` (the commits whose changes differ) and an undo token `<previous head>..<new head>` for `bd undo`;
+  `--sync` must sync under the same lock (`sync`, or `after_error` with the token kept); `--dry-run` must print the hunks
   and check the rewrite, writing nothing but git objects.
   [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_hunk_number_is_the_one_of_bd_commits_patch`)
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_dry_run_writes_no_ref_and_no_note`)
@@ -513,7 +514,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 - `bd suggest` must print a plan for `bd group` with only the commits whose branch changes (a fixup that follows its
   target left out, a prefixed commit that goes to its own issue branch in `unassign`), the clusters with their name,
-  commit count, `change` (`kept`, `renamed`, `merged`, `split`, `new`) against the groups now in `from`, `why`, `weak`, issue keys
+  commit count, `change` (`kept`, `renamed`, `merged`, `split`, `new`) against the groups now in `current_branches`, `why`, `weak`, issue keys
   and areas, with stacked branches the `parent` and `restacked`, the subjects the plan rewrites, and the trial sync of the plan. It must write git objects and the cache
   only, and the plan, applied, must suggest nothing more.
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`)
@@ -716,7 +717,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `parents_go_first_and_a_child_alone_carries_its_parents_commits`, `with_children_pushes_the_branches_stacked_on_the_named_ones`, `the_pull_request_command_names_a_github_mirror`)
 - After the push, with the lock released, it must retarget the open pull request of each pushed branch whose base is a
   virtual branch of the user (`{prefix}/virtual/…`) to the baseline, as the app's push does (one search of the pull
-  requests, one `PATCH pulls/<n>` each): `retargeted` lists them (`branch`, `number`, `url`, `from`, `to`, and
+  requests, one `PATCH pulls/<n>` each): `retargeted` lists them (`branch`, `number`, `url`, `old_base`, `new_base`, and
   `approved_by`, whose approvals GitHub may dismiss). A pull request into another base (a release branch) stays. A
   retarget GitHub refuses, or a listing that fails for another reason than a missing token, is a `retarget_warnings`
   line, with the `gh pr edit` that retargets it; the push stands. `--dry-run` lists the retargets a push would make

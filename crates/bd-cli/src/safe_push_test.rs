@@ -748,7 +748,7 @@ fn push_retargets_a_pull_request_into_a_virtual_branch_to_the_baseline() {
     all_args.extend_from_slice(args);
     run_json(&environment, &all_args)
   };
-  let retargeted = json!([{"branch": "login", "number": 8, "url": "https://github.com/acme/monorepo/pull/8", "from": AUTH, "to": "master", "approved_by": ["alice"]}]);
+  let retargeted = json!([{"branch": "login", "number": 8, "url": "https://github.com/acme/monorepo/pull/8", "old_base": AUTH, "new_base": "master", "approved_by": ["alice"]}]);
 
   // a dry run says it: GitHub is only asked
   let (exit_code, output) = push(&["login", "docs", "--dry-run"]);
@@ -793,8 +793,8 @@ fn the_pull_requests_of_the_branch_and_of_the_parents_it_pushes_go_into_the_targ
   github.answer("PATCH", "/repos/acme/monorepo/pulls/7", FakeAnswer::ok(json!({"number": 7})));
   let environment = reviewed_on_github(&space, &url);
   let retargeted = json!([
-    {"branch": "auth", "number": 6, "url": "https://github.com/acme/monorepo/pull/6", "from": "test-user/virtual/core", "to": "master"},
-    {"branch": "login", "number": 7, "url": "https://github.com/acme/monorepo/pull/7", "from": AUTH, "to": "master", "approved_by": ["alice"]},
+    {"branch": "auth", "number": 6, "url": "https://github.com/acme/monorepo/pull/6", "old_base": "test-user/virtual/core", "new_base": "master"},
+    {"branch": "login", "number": 7, "url": "https://github.com/acme/monorepo/pull/7", "old_base": AUTH, "new_base": "master", "approved_by": ["alice"]},
   ]);
 
   let (exit_code, output) = safe_push(&environment, &["login", "--check"]);
@@ -859,7 +859,7 @@ fn create_pull_request_takes_the_open_pull_request_of_the_branch_whatever_its_ba
     output["pull_request"],
     json!({"number": 7, "url": "https://github.com/acme/monorepo/pull/7", "comment_url": null, "reply": null})
   );
-  assert_eq!(output["retargeted"][0]["from"], json!("test-user/virtual/core"));
+  assert_eq!(output["retargeted"][0]["old_base"], json!("test-user/virtual/core"));
   assert!(github.requests_to("POST", "/repos/acme/monorepo/pulls").is_empty());
 }
 

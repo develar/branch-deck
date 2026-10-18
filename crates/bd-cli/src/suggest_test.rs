@@ -98,7 +98,7 @@ fn suggests_a_checked_plan_that_is_stable_once_applied() {
   let named = |name: &str| output["clusters"].as_array().unwrap().iter().find(|cluster| cluster["name"] == json!(name)).unwrap();
   let vm = named("vm");
   assert_eq!(
-    (&vm["why"], &vm["from"], &vm["areas"], &vm["weak"]),
+    (&vm["why"], &vm["current_branches"], &vm["areas"], &vm["weak"]),
     (
       &json!("2 units; scope vm in 2 subjects; area vm"),
       &json!([]),
@@ -130,7 +130,7 @@ fn suggests_a_checked_plan_that_is_stable_once_applied() {
   let parser = named("parser-parse");
   assert_eq!(parser["why"], json!("2 issue units; ABC-1 named in 1 body; area parser"));
   assert_eq!(parser["issue_keys"], json!(["ABC-1", "ABC-2"]));
-  assert_eq!(parser["from"], json!(["ABC-1", "ABC-2"]));
+  assert_eq!(parser["current_branches"], json!(["ABC-1", "ABC-2"]));
   // the issue group rewrites no subject
   assert_eq!(
     (&output["rewritten"], &output["check"]["ok"], &output["check"]["repair_rounds"]),

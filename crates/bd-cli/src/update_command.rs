@@ -100,8 +100,9 @@ pub struct UpdateOutput {
   pub fetched_at: Option<u32>,
   /// HEAD before the update
   pub previous_head: String,
-  /// HEAD afterwards; `previous_head` when nothing changed
-  pub head: String,
+  /// HEAD afterwards; `previous_head` when nothing changed, and for a dry run (its replay is a preview: the update
+  /// writes other ids)
+  pub new_head: String,
   pub upstream_head: String,
   /// The local commits replayed onto the baseline; omitted when nothing was applied
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -262,9 +263,8 @@ pub struct UpdateResolution {
   pub round: u32,
   /// The local commit as it was
   pub commit: String,
-  /// The commit written for it; absent when `--drop-empty` dropped the commit
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub resolved: Option<String>,
+  /// The commit written for it; `null` when `--drop-empty` dropped the commit
+  pub new_id: Option<String>,
   /// The resolution changes nothing: `kept` (an empty commit, `--allow-empty`) or `dropped` (`--drop-empty`)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub empty: Option<String>,
@@ -607,7 +607,7 @@ fn resolutions_of(resolutions: &[Resolution], short: &ShortIds) -> Vec<UpdateRes
     .map(|resolution| UpdateResolution {
       round: resolution.round,
       commit: short.get(&resolution.commit).to_string(),
-      resolved: resolution.resolved.as_deref().map(|id| short.get(id).to_string()),
+      new_id: resolution.resolved.as_deref().map(|id| short.get(id).to_string()),
       empty: resolution.empty.then(|| if resolution.dropped() { "dropped" } else { "kept" }.to_string()),
       files: resolution
         .paths
@@ -677,7 +677,7 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
     dry_run,
     fetched_at: None,
     previous_head: short.get(&state.head).to_string(),
-    head: short.get(&state.head).to_string(),
+    new_head: short.get(&state.head).to_string(),
     upstream_head: short.get(&state.upstream_head).to_string(),
     replayed: None,
     dropped_already_upstream: None,
@@ -693,7 +693,7 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
     Some((previous_head, new_head, (replayed, dropped, dropped_by_resolution), landed)) => {
       output.state = "rebase".to_string();
       output.previous_head = short.get(&previous_head).to_string();
-      output.head = short.get(&new_head).to_string();
+      output.new_head = short.get(&new_head).to_string();
       output.replayed = Some(replayed);
       output.dropped_already_upstream = Some(dropped);
       output.dropped_by_resolution = Some(dropped_by_resolution);
@@ -809,7 +809,7 @@ fn output(context: &RepoContext, check: &UpdateCheck, applied: Option<(&str, u32
     dry_run,
     fetched_at: check.fetched_at,
     previous_head: short.get(&check.head).to_string(),
-    head: short.get(head).to_string(),
+    new_head: short.get(head).to_string(),
     upstream_head: short.get(&check.upstream_head).to_string(),
     replayed: applied.map(|(_, replayed, _)| replayed),
     dropped_already_upstream: applied.map(|(_, _, dropped)| dropped),

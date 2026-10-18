@@ -52,22 +52,23 @@ pub struct MoveHunkOutput {
   pub commits: Vec<IdMapping>,
   /// The commits whose changes differ (or would differ): the two, and the ones between whose diff of the file changed.
   /// The others keep author and committer
-  pub rewritten: usize,
+  pub changed: usize,
   /// `<previous_head>..<new_head>`: `bd undo` restores `previous_head`; omitted for a dry run
   #[serde(skip_serializing_if = "Option::is_none")]
   pub undo_token: Option<String>,
-  /// With --sync: the `bd sync` output after the move; exit code 1 when a branch conflicts
+  /// With --sync: the `bd sync` output after the move; exit code 1 when a branch is not built
   #[serde(skip_serializing_if = "Option::is_none")]
   pub sync: Option<SyncOutput>,
-  /// The sync after the move failed. The move stays, `undo_token` reverts it, and the exit code is this error's
+  /// The sync after the move failed. The move stands, `undo_token` reverts it, and the exit code is this error's; retry
+  /// `bd sync`, never the move
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub error: Option<ErrorBody>,
+  pub after_error: Option<ErrorBody>,
 }
 
 impl MoveHunkOutput {
   /// 0, 1 when the sync conflicts, or the exit code of `error`
   pub fn exit_code(&self) -> i32 {
-    after_rewrite_exit_code(self.error.as_ref(), self.sync.as_ref())
+    after_rewrite_exit_code(self.after_error.as_ref(), self.sync.as_ref())
   }
 }
 
@@ -106,7 +107,7 @@ pub fn move_hunk(context: &RepoContext, args: &MoveHunkArgs) -> Result<MoveHunkO
   let result = move_hunk_core(&context.git, &context.repository, &params, &options).map_err(|error| move_hunk_error(context, error))?;
   let mut output = move_hunk_output(context, args.dry_run, &result);
   if args.sync {
-    (output.sync, output.error) = sync_after_rewrite(context);
+    (output.sync, output.after_error) = sync_after_rewrite(context);
   }
   Ok(output)
 }
@@ -164,13 +165,13 @@ fn move_hunk_output(context: &RepoContext, dry_run: bool, result: &MoveHunkResul
       .commits
       .iter()
       .map(|(old, new)| IdMapping {
-        from: short.get(old).to_string(),
-        to: short.get(new).to_string(),
+        commit: short.get(old).to_string(),
+        new_id: short.get(new).to_string(),
       })
       .collect(),
-    rewritten: result.changed.len(),
+    changed: result.changed.len(),
     undo_token,
     sync: None,
-    error: None,
+    after_error: None,
   }
 }

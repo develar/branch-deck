@@ -58,7 +58,7 @@ fn a_pick_lands_the_worktree_commits_with_their_groups_and_the_undo_moves_both_b
   let (exit_code, undo) = run_in(&repo, &["--full-ids", "undo", token]);
   assert_eq!(exit_code, 0, "{undo}");
   assert_eq!(
-    (&undo["head"], &undo["undone"], &undo["follow_undone"], &undo["already_undone"]),
+    (&undo["new_head"], &undo["previous_head"], &undo["follow_undone"], &undo["already_undone"]),
     (&json!(own), &json!(new_head), &json!(true), &json!(false))
   );
   assert_eq!(repo.head(), own);

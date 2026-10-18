@@ -90,7 +90,7 @@ pub struct SuggestedCluster {
   pub commit_count: usize,
   pub change: ClusterChange,
   /// The branches its commits are in now, by their oldest commit
-  pub from: Vec<String>,
+  pub current_branches: Vec<String>,
   /// Its commits that the plan leaves as they are, oldest first
   pub kept: Vec<String>,
   /// Its commits whose branch stays but whose subject the plan gives another stacked path to the same leaf, oldest
@@ -277,7 +277,7 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
         name: placement.path.clone(),
         commit_count: cluster.commits.len(),
         change,
-        from: from.into_iter().map(str::to_string).collect(),
+        current_branches: from.into_iter().map(str::to_string).collect(),
         kept: kept.into_iter().map(short_of).collect(),
         new_path: new_path.into_iter().map(short_of).collect(),
         moved: moved

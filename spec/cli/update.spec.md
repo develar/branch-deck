@@ -114,7 +114,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   ⌈log₂ n⌉ replays after the check; after a resolution, one replay of the rest, and a search only when it conflicts.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`the_first_conflict_is_found_with_a_binary_search`)
 - Every commit the session writes must have the committer of the session start (name, email and date), so the same
-  input gives the same ids; `--continue --dry-run` must report the `resolved` id that `--continue` writes.
+  input gives the same ids; `--continue --dry-run` must report the `new_id` that `--continue` writes.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_dry_run_of_continue_checks_and_gives_the_ids_of_the_real_one`)
 - `bd update` with a session open must fetch nothing and change nothing: it prints the open round again and writes
   its missing copies. With no round open (the finish is next), it prints `state: "pending"` (exit 1) and
@@ -249,17 +249,17 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`field_shaped_conflicts_resolve_as_the_hints_say`)
 - A resolution that leaves the commit without changes must be `empty_resolution` (exit 2), nothing written.
   `--allow-empty` keeps it as an empty commit (`empty: "kept"`); `--drop-empty <commit>` (the round's commit, at
-  least 4 characters of its id) drops it (`empty: "dropped"`, no `resolved` id, no note). The finish counts a dropped
+  least 4 characters of its id) drops it (`empty: "dropped"`, `new_id` null, no note). The finish counts a dropped
   commit as `dropped_by_resolution`, never in `dropped_already_upstream` or `landed`.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it`)
-- `--continue --dry-run` must run the checks, report the resolution with its `resolved` id, exit 0, and move no ref.
+- `--continue --dry-run` must run the checks, report the resolution with its `new_id`, exit 0, and move no ref.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_dry_run_of_continue_checks_and_gives_the_ids_of_the_real_one`)
 
 ### Finish
 
 - The finish must move the branch from the session's HEAD to the replayed tip with the reflog message
   `branch-deck: update project`, the files following through the guarded update, and print `state: "rebase"`, the
-  `undo_token` and `resolutions`: per round the `commit`, the `resolved` commit and per file `how` (`edited`, `onto`,
+  `undo_token` and `resolutions`: per round the `commit`, its `new_id` and per file `how` (`edited`, `onto`,
   `commit`, `deleted`) with the dropped lines. The session ref and the copies must be gone afterwards.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`)
 - Each resolved commit must get a note in `refs/notes/branch-deck/resolve` (the session, the round, the original

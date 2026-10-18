@@ -85,7 +85,10 @@ fn dry_run_prints_the_changes_and_the_forest() {
   assert_eq!(output.get("undo_token"), None);
   assert_eq!(output["new_head"], json!(short_id(&head)));
   // the path stacks login in the stack parents, so its prefix is the bare leaf
-  assert_eq!(output["changes"], json!([{ "id": short_id(&ids[1]), "from": "Add login", "to": "(login) Add login" }]));
+  assert_eq!(
+    output["changes"],
+    json!([{ "commit": short_id(&ids[1]), "old_subject": "Add login", "new_subject": "(login) Add login" }])
+  );
   assert_eq!(output["stack_parents"], json!({ "login": "auth" }));
   assert_eq!(
     output["forest"],
@@ -94,7 +97,7 @@ fn dry_run_prints_the_changes_and_the_forest() {
       { "name": "login", "parent": "auth", "parent_source": "store", "has_commits": true },
     ])
   );
-  assert_eq!(output["map"][1], json!({ "from": short_id(&ids[1]), "to": short_id(&ids[1]) }));
+  assert_eq!(output["map"][1], json!({ "commit": short_id(&ids[1]), "new_id": short_id(&ids[1]) }));
 }
 
 #[test_log::test]
@@ -152,7 +155,7 @@ fn group_with_allow_append_lists_the_appended_commits() {
   let (exit_code, output) = group(&repo, &plan, &["--expect-head", short_id(&expected), "--allow-append"]);
   assert_eq!(exit_code, 0, "{output}");
   let new_head = git(&repo, &["rev-parse", "HEAD"]);
-  assert_eq!(output["appended"], json!([{ "id": short_id(&new_head), "subject": "Three" }]));
+  assert_eq!(output["appended"], json!([{ "commit": short_id(&new_head), "subject": "Three" }]));
   assert_eq!(subjects(&repo), ["(a) One", "Two", "Three"]);
 
   // it needs --expect-head
@@ -196,7 +199,7 @@ fn rename_restack_unstack_and_undo() {
   // undo the last rewrite, then refuse a stale token
   let (exit_code, output) = run_in(&repo, &["undo", &unstack_token]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["head"], json!(short_id(&renamed_head)));
+  assert_eq!(output["new_head"], json!(short_id(&renamed_head)));
   assert!(output["undone_stack_parents"].is_string(), "{output}");
   assert_eq!(repo.head(), renamed_head);
   // the stack parents moved on: the token can never succeed again
@@ -260,7 +263,7 @@ fn issue_groups_plan_and_undo() {
   assert!(undone["undone_issue_groups"].is_string(), "{undone}");
   let (exit_code, undone) = run_in(&repo, &["undo", &token]);
   assert_eq!(exit_code, 0, "{undone}");
-  assert_eq!((&undone["head"], undone.get("undone")), (&json!(short_id(&head)), None));
+  assert_eq!((&undone["new_head"], undone.get("previous_head")), (&json!(short_id(&head)), None));
   assert_eq!(git(&repo, &["for-each-ref", "refs/branch-deck/issue-groups"]), "");
 
   let (exit_code, invalid) = group(&repo, &json!({ "issue_groups": { "parser": ["ABC-1"], "lexer": ["ABC-1"] } }), &[]);
@@ -345,7 +348,8 @@ fn a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_toke
   let (exit_code, output) = group(&repo, &plan, &["--sync"]);
   std::fs::remove_file(&config_lock).unwrap();
 
-  assert_error(&output, exit_code, 5, "git_error");
+  // the error of the step after the rewrite, never the error envelope: the output of the rewrite stays
+  assert_eq!((exit_code, &output["after_error"]["code"], output.get("error")), (5, &json!("git_error"), None), "{output}");
   assert_eq!((&output["rewritten"], output.get("described"), output.get("sync")), (&json!(1), None, None), "{output}");
   let (_, schema) = run_in(&repo, &["schema"]);
   assert_covered(&schema["outputs"]["rewrite"], &schema["outputs"]["rewrite"], &output, "rewrite with an error");

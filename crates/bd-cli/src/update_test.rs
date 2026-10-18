@@ -41,7 +41,7 @@ fn update_fast_forwards_and_the_undo_moves_the_files_back() {
   let (exit_code, output) = run_in(&clone, &["--full-ids", "update"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
-    (&output["state"], &output["previous_head"], &output["head"], &output["replayed"], &output["dry_run"]),
+    (&output["state"], &output["previous_head"], &output["new_head"], &output["replayed"], &output["dry_run"]),
     (&json!("fast_forward"), &json!(previous), &json!(upstream.head()), &json!(0), &json!(false))
   );
   assert_eq!(output["undo_token"], json!(format!("update:{previous}..{}", upstream.head())));
@@ -51,7 +51,7 @@ fn update_fast_forwards_and_the_undo_moves_the_files_back() {
 
   let (exit_code, undo) = run_in(&clone, &["--full-ids", "undo", output["undo_token"].as_str().unwrap()]);
   assert_eq!(exit_code, 0, "{undo}");
-  assert_eq!((&undo["head"], &undo["undone"]), (&json!(previous), &json!(upstream.head())));
+  assert_eq!((&undo["new_head"], &undo["previous_head"]), (&json!(previous), &json!(upstream.head())));
   assert_eq!(clone.head(), previous);
   assert_eq!(read(&clone, "shared.txt"), SHARED);
   assert!(!clone.path().join("new.txt").exists());
@@ -59,7 +59,7 @@ fn update_fast_forwards_and_the_undo_moves_the_files_back() {
 
   // a repeated undo is no error and changes nothing
   let (exit_code, again) = run_in(&clone, &["--full-ids", "undo", output["undo_token"].as_str().unwrap()]);
-  assert_eq!((exit_code, &again["already_undone"], &again["head"]), (0, &json!(true), &json!(previous)), "{again}");
+  assert_eq!((exit_code, &again["already_undone"], &again["new_head"]), (0, &json!(true), &json!(previous)), "{again}");
 }
 
 #[test_log::test]

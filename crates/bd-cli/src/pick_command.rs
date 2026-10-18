@@ -47,7 +47,7 @@ pub struct PickOutput {
   pub dry_run: bool,
   /// The worktree of --from, its top level; omitted for revisions
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub from: Option<String>,
+  pub source_worktree: Option<String>,
   /// The commit the range starts after: the fork point of the worktree from the branch, or `<a>` of `<a>..<b>`
   pub base: String,
   /// HEAD before the pick
@@ -224,7 +224,7 @@ fn output(context: &RepoContext, result: &PickResult, dry_run: bool) -> Result<P
       message,
     }
   });
-  let from = check.follow.as_ref().map(|follow| follow.worktree.clone());
+  let source_worktree = check.follow.as_ref().map(|follow| follow.worktree.clone());
   let conflict = match &check.state {
     PickState::Conflict(conflict) => Some(PickConflictOutput {
       commit: short.get(&conflict.commit.id).to_string(),
@@ -243,7 +243,7 @@ fn output(context: &RepoContext, result: &PickResult, dry_run: bool) -> Result<P
     branch: check.branch.clone(),
     state: state.to_string(),
     dry_run,
-    from,
+    source_worktree,
     base: short.get(&check.base).to_string(),
     previous_head: short.get(&check.head).to_string(),
     new_head: short.get(new_head).to_string(),

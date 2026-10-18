@@ -101,8 +101,12 @@ Agents branch on the code and the exit code, never on the message. `commits` nam
 `retryable` is true for `head_moved`, `groups_moved`, `stacks_moved`, `locked` and `network_error`: retry when it is
 true, whatever the exit code.
 
-One output carries an `error` next to its other fields: a rewrite (`bd group` and the others) whose step after the
-rewrite failed. The rewrite stands, and its `undo_token` reverts it (see `bd group`).
+A write whose step after the write failed (the descriptions or the sync of `bd group --sync`, the sync of
+`bd move-hunk --sync`) prints its output with `after_error`, never the error object: the write stands, its
+`undo_token` reverts it, and the exit code is that error's. Retry that step (`bd sync`), never the write.
+
+The names are one vocabulary across the commands: a write prints `previous_head` and `new_head`; a commit and its
+copy are `{commit, new_id}`; a state is `state`; a list of commits names each by `commit`.
 
 ## Commands
 
@@ -394,7 +398,7 @@ rebuilds the virtual branches, under the same repository lock.
 - `--expect-head` refuses with `head_moved` (exit 3) unless HEAD is still that commit; the rewrite itself only moves
   the branch from the HEAD it read (compare-and-swap). With `--allow-append` a HEAD with commits on top of it is
   fine while that commit is still ahead of the baseline (a peer appended, nothing the plan was made for changed): the
-  commits on top are regrouped with the rest and listed in `appended` (`{id, subject}`, new ids). `rename`, `restack`
+  commits on top are regrouped with the rest and listed in `appended` (`{commit, subject}`, new ids). `rename`, `restack`
   and `unstack` work by name, so they rename the prefix of an appended commit too.
 - The repository lock serializes rewrites with the app and other `bd` calls; after 10 s of waiting it is `locked`
   (exit 3). A rebase, merge, cherry-pick or revert in progress is `operation_in_progress`, a detached HEAD
@@ -415,8 +419,9 @@ rebuilds the virtual branches, under the same repository lock.
   head>` for a rewrite, `groups:<previous>..<new>` (commits of the issue groups) and `stacks:<previous>..<new>`
   (commits of the stack parents). A previous store commit is zeros when there was no store before. Pass the token to
   `bd undo` as printed.
-- `--dry-run` writes nothing and adds `changes` (`{id, from, to}` subjects) and, with stacked branches on, `forest`
-  (`{name, parent, parent_source, has_commits, problems}` per branch). `--map` adds `map`, old → new id of every commit.
+- `--dry-run` writes nothing and adds `changes` (`{commit, old_subject, new_subject}`) and, with stacked branches on,
+  `forest` (`{name, parent, parent_source, has_commits, problems}` per branch). `--map` adds `map`, `{commit, new_id}`
+  of every commit.
 - `described` lists the branches whose description the plan wrote (with `--dry-run`: would write), and
   `replaced_descriptions` the texts they replaced, by branch. `bd undo` doesn't restore a description; `bd describe`
   can, with the replaced text.
@@ -447,8 +452,8 @@ Moves the branch back from the token's new HEAD to its previous HEAD, and the is
 from the token's new commit to its previous one (or away), in one transaction with CAS on each, under the lock:
 `undo_stale` (exit 4) once anything else changed the branch or a store, since the token can never succeed again. Give the token as it was printed: a token with abbreviated ids, or whose store commit is not a
 write on its previous one, is `invalid_arguments`. Prints
-`{"schema":1,…,"head":"<restored>","undone":"<undone>","undone_issue_groups":"<undone>","undone_stack_parents":"<undone>"}`;
-each `undone…` is left out for a token without that part.
+`{"schema":1,…,"previous_head":"<undone>","new_head":"<restored>","undone_issue_groups":"<undone>","undone_stack_parents":"<undone>"}`;
+`previous_head` and each `undone…` are left out for a token without that part.
 
 An `update:<previous>..<new>` token of `bd update` moves the branch back and the files with it (see `bd update`); a
 `pick:<previous>..<new>[+follow:<worktree>:<previous>..<new>]` token of `bd pick` moves the branch and the worktree
@@ -462,7 +467,7 @@ lock, checks again and applies a clean update. The fetch runs before the lock, s
 
 ```json
 {"schema":1,…,"branch":"master","upstream":"origin/master","state":"rebase","dry_run":false,"fetched_at":1760500000,
- "previous_head":"77e01aa4","head":"c0ffee12","upstream_head":"5f6a7b8c","replayed":2,"dropped_already_upstream":1,
+ "previous_head":"77e01aa4","new_head":"c0ffee12","upstream_head":"5f6a7b8c","replayed":2,"dropped_already_upstream":1,
  "undo_token":"update:<full previous>..<full new>",
  "landed":[{"branch":"auth","commits":[{"commit":"1b2c3d4e","subject":"Add login","upstream":"9d0e1f2a"}],"remaining":0}]}
 ```
@@ -538,9 +543,9 @@ session open prints the open round again, fetches nothing and writes the missing
 - `bd update --continue [--round N] [--take onto:<path>|commit:<path>]… [--delete <path>]… [--allow-empty |
   --drop-empty <commit>] [--dry-run]` commits the round: every file needs an edited `edit`, a `--take` or a
   `--delete`. Exit 1 is the next round; exit 0 is the finish (`state` `rebase`, the `undo_token`,
-  `dropped_by_resolution`, and `resolutions`: per round the `commit`, the `resolved` commit, `empty` (`kept` or
+  `dropped_by_resolution`, and `resolutions`: per round the `commit`, its `new_id` (`null` when dropped), `empty` (`kept` or
   `dropped`) and per file `how` with `dropped_upstream_lines` and `dropped_commit_lines`, the lines of a side's change
-  that the result lost, to report to the user). `--dry-run` checks and reports the resolution, `resolved` id included,
+  that the result lost, to report to the user). `--dry-run` checks and reports the resolution, `new_id` included,
   and moves no ref.
 - Exit 2 changes nothing: `missing_resolution`, `resolution_outside_conflict` (a line outside the blocks changed, or
   only the line ends, or a byte order mark or UTF-16), `unresolved_markers`, with `paths` and the copies in the message (and the paths changed in the
@@ -568,7 +573,7 @@ with `git replay`, and under the repository lock, which every worktree shares, t
 through the guarded update. `--follow` moves the source worktree onto the new tip the same way.
 
 ```json
-{"schema":1,…,"branch":"master","state":"picked","dry_run":false,"from":"/Users/me/.treehouse/repo/3/repo","base":"5f6a7b8c",
+{"schema":1,…,"branch":"master","state":"picked","dry_run":false,"source_worktree":"/Users/me/.treehouse/repo/3/repo","base":"5f6a7b8c",
  "previous_head":"77e01aa4","new_head":"c0ffee12",
  "picked":[{"commit":"1b2c3d4e","new_id":"9d0e1f2a","subject":"(lane) Add the probe","group":"lane","grouped_by":"prefix"}],
  "already_present":[{"commit":"2c3d4e5f","subject":"(lane) Fix the build","on":"aa11bb22"}],
@@ -609,7 +614,7 @@ tree stay as they are.
 
 ```json
 {"schema":1,…,"dry_run":false,"previous_head":"77e01aa4","new_head":"c0ffee12",
- "folded":[{"target":"1b2c3d4e","subject":"(auth) Add login","new_id":"2c3d4e5f","fixups":["9d0e1f2a"]}],
+ "folded":[{"commit":"1b2c3d4e","subject":"(auth) Add login","new_id":"2c3d4e5f","fixups":["9d0e1f2a"]}],
  "orphans":["5f6a7b8c"],"undo_token":"<full previous>..<full new>"}
 ```
 
@@ -631,14 +636,14 @@ lock that keeps HEAD's tree, so the index and the working tree stay as they are
 ```json
 {"schema":1,…,"dry_run":false,"previous_head":"77e01aa4","new_head":"c0ffee12",
  "moved":{"path":"src/Host.kt","from":"9d0e1f2a","to":"1b2c3d4e","hunks":[{"header":"@@ -1,3 +1,3 @@","text":" a\n-b\n+B\n c\n"}]},
- "commits":[{"from":"1b2c3d4e","to":"2c3d4e5f"},…],"rewritten":2,"undo_token":"<full previous>..<full new>"}
+ "commits":[{"commit":"1b2c3d4e","new_id":"2c3d4e5f"},…],"changed":2,"undo_token":"<full previous>..<full new>"}
 ```
 
 - Into an older commit, the change is added to the trees of `[to, from)`, and `from` keeps its tree, so it holds only
   the rest; into a newer one, it is taken out of the trees of `[from, to)`, and `to` keeps its tree. A hunk applies by
   its line ranges, so a commit between that only shifts the lines takes it; one that changes the same lines, or lacks
   the file, is `hunk_conflict` (exit 1, `commits` and `paths` name it), and nothing changed.
-- `commits` maps every recreated commit, oldest first. `rewritten` counts the commits whose changes differ: `from`,
+- `commits` maps every recreated commit, oldest first. `changed` counts the commits whose changes differ: `from`,
   `to` and the commits between whose diff of the file changed. They get the current user as committer and lose their
   mapping note, so the next sync copies them again; the others keep author, committer and note, and their virtual
   commits stay.
@@ -827,10 +832,10 @@ same conflict comes again does the next round join their units.
 ```json
 {"schema":1,…,"head":"77e01aa4","baseline":"origin/master",
  "plan":{"branches":{"vm":["41c7d00e","5e2f9c3b"]},"unassign":[],"issue_groups":{"parser-parse":["ABC-1","ABC-2"]}},
- "clusters":[{"name":"vm","commit_count":2,"change":"new","from":[],"kept":[],"new_path":[],
+ "clusters":[{"name":"vm","commit_count":2,"change":"new","current_branches":[],"kept":[],"new_path":[],
    "moved":[{"commit":"41c7d00e","leaves":null},{"commit":"5e2f9c3b","leaves":null}],
    "why":"2 units; scope vm in 2 subjects; area vm","weak":false,"issue_keys":[],"areas":[{"dir":"vm","lines":2}]},
-  {"name":"parser-parse","commit_count":2,"change":"merged","from":["ABC-1","ABC-2"],"kept":[],"new_path":[],
+  {"name":"parser-parse","commit_count":2,"change":"merged","current_branches":["ABC-1","ABC-2"],"kept":[],"new_path":[],
    "moved":[{"commit":"9c0d1e2f","leaves":"ABC-1"},{"commit":"a3b4c5d6","leaves":"ABC-2"}],
    "why":"2 issue units; ABC-1 named in 1 body; area parser","weak":false,"issue_keys":["ABC-1","ABC-2"],
    "areas":[{"dir":"parser","lines":2}],"via":"issue_group"}],
@@ -847,7 +852,7 @@ same conflict comes again does the next round join their units.
   the plan leaves out) and the commits an issue group takes in or lets go. `moved` and `new_path` together are what
   the plan changes (the top-level `rewritten` counts them): refuse a plan that changes a commit of another session. Without `--fresh` a commit with an
   explicit prefix is never in `moved`: its prefix is an anchor, `--rewrite-issues` included.
-- Per cluster: `change` against the groups now in `from` (`kept`: one whole branch under its name; `renamed`: one
+- Per cluster: `change` against the groups now in `current_branches` (`kept`: one whole branch under its name; `renamed`: one
   whole branch under another name; `merged`: two or more whole branches, or one with unassigned commits; `split`: a
   part of one branch; `new`: anything else), `why` (one line to
   quote to the user, with the repair rounds and a new parent), `weak` (a merge by paths near the threshold, or one
@@ -959,8 +964,8 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
    "lease":null,"lease_source":"absent",
    "pull_request":{"base":"master","head":"develar/virtual/auth","title":"Add login","body":"The login form.",
      "command":"gh pr create --base master --head develar/virtual/auth --assignee @me --title 'Add login' --body-file -"}}],
- "retargeted":[{"branch":"login","number":8,"url":"https://github.com/acme/monorepo/pull/8","from":"develar/virtual/auth",
-   "to":"master","approved_by":["alice"]}]}
+ "retargeted":[{"branch":"login","number":8,"url":"https://github.com/acme/monorepo/pull/8","old_base":"develar/virtual/auth",
+   "new_base":"master","approved_by":["alice"]}]}
 ```
 
 - Refused with `push_refused` (exit 4), nothing pushed: a branch that didn't sync, and one whose remote branch has
@@ -1009,7 +1014,7 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
 - `retargeted`: after the push, with the lock released, the open pull requests of the pushed branches whose base is a
   virtual branch of the user (`<prefix>/virtual/…`: a parent's branch, opened when pull requests went there) go into
   the baseline (one search of the pull requests, one `PATCH pulls/<n>` each), as the app's push retargets them. Each
-  has `branch`, `number`, `url`, `from` (the old base), `to` and `approved_by`: GitHub may dismiss the approvals of a
+  has `branch`, `number`, `url`, `old_base`, `new_base` and `approved_by`: GitHub may dismiss the approvals of a
   pull request whose base changes, so name them to the user. A pull request into another base (a release branch)
   stays. A retarget GitHub refuses, or a listing that fails for another reason than a missing token, is a
   `retarget_warnings` line with the `gh pr edit` that does it; the push stands. With `--dry-run`, `retargeted` lists
@@ -1319,7 +1324,7 @@ blocked prompt names no command: the user updates in the app.
 
 ## Agent workflow
 
-1. Run `bd suggest`. It is read only, and its plan is checked already. Read the clusters: `change` and `from` against
+1. Run `bd suggest`. It is read only, and its plan is checked already. Read the clusters: `change` and `current_branches` against
    the branches now, `why` to quote to the user, `weak` to review first, and the `issue_groups` of the plan. For a
    closer look, run `bd status --brief` and `bd commits --brief`: per commit the group, issue key, fixup target and
    `areas`, the `units` that must stay together and the `dependencies` `{from, to, via}`. Run `bd commits <id>… --patch`

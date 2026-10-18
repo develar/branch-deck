@@ -230,7 +230,7 @@ or applies the update (exit 0). --take and --delete resolve a file without an ed
 open and the copies keep your edits (`edited` in the round). `round_moved` (exit 2):
 another round is open; `bd update` prints it. `empty_resolution` (exit 2): the resolution leaves the commit without
 changes; ask the user, then add --allow-empty (keep an empty commit) or --drop-empty <commit> (drop it).
-At exit 0, `resolutions[]` lists per round the `commit`, the `resolved` commit (`empty`: kept or dropped) and per file
+At exit 0, `resolutions[]` lists per round the `commit`, its `new_id` (`empty`: kept or dropped) and per file
 `how` (edited, onto, commit, deleted) with `dropped_upstream_lines` and `dropped_commit_lines`: the lines of a side's
 change that the result lost. Report each resolution to the user, these lines first. Then build and test: on a failure
 commit the fix as `fixup! <subject>` and run `bd fold`, or take the update back with `bd undo <undo_token>`.
@@ -283,7 +283,7 @@ adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a 
    decides.
 4. The owner's rewrites take the same lock and refuse while a cherry-pick, rebase, merge or revert is in progress in
    the shared checkout (`operation_in_progress`). After one, the owner tells the other sessions its new HEAD
-   (`new_head`, `head` of `bd update`); they pick again or check with --dry-run. Nobody squashes, amends or redates
+   (`new_head`); they pick again or check with --dry-run. Nobody squashes, amends or redates
    another session's commit.
 5. The reflog of the branch tells who moved it: `branch-deck: pick`, `undo pick`, `update project`, `undo update`,
    `squash fixups` (`bd fold` or the app's Squash Fixups), `reword <n> commits` (`bd group`, `bd rename`), `undo`,

@@ -47,7 +47,7 @@ fn fold_keeps_the_tree_and_the_undo_restores_the_head() {
   assert_eq!(output["previous_head"], json!(short_id(&head)));
   let folded = output["folded"].as_array().unwrap();
   assert_eq!(folded.len(), 2, "{output}");
-  assert_eq!((&folded[0]["target"], &folded[0]["fixups"]), (&json!(short_id(&ids[0])), &json!([short_id(&ids[2])])));
+  assert_eq!((&folded[0]["commit"], &folded[0]["fixups"]), (&json!(short_id(&ids[0])), &json!([short_id(&ids[2])])));
   assert_eq!(output["orphans"], json!([short_id(&ids[4])]));
 
   assert_undo_restores(&repo, &output, &head);
@@ -66,7 +66,7 @@ fn fold_of_one_branch_and_a_dry_run() {
   );
   assert_eq!(
     output["folded"],
-    json!([{ "target": short_id(&ids[1]), "subject": "(ui) Add b", "fixups": [short_id(&ids[3])] }])
+    json!([{ "commit": short_id(&ids[1]), "subject": "(ui) Add b", "fixups": [short_id(&ids[3])] }])
   );
   assert_eq!(repo.head(), head);
 
