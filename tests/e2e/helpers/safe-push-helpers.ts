@@ -64,12 +64,19 @@ export async function pathRows(page: Page): Promise<string[]> {
     .evaluateAll(rows => rows.filter(row => row.querySelector("[data-testid=stack-path-lanes]") !== null).map(row => row.getAttribute("data-branch-name") ?? ""))
 }
 
-/** The popover settles at `slot`, above or below it: the slide of its opening moves it (a canceled one ends it too) */
+/**
+ * The popover settles at `slot`, above or below it: the slide of its opening moves it (a canceled one ends it too), and
+ * so does a line that arrives later (the trial build alone): above the slot it grows upwards a frame after it grew
+ */
 export async function expectPopoverAtSlot(popover: Locator, slot: Locator): Promise<void> {
-  await popover.evaluate(element => Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => null))))
-  const box = (await popover.boundingBox())!
-  const anchor = (await slot.boundingBox())!
-  expect(Math.min(Math.abs(box.y - (anchor.y + anchor.height)), Math.abs(box.y + box.height - anchor.y))).toBeLessThan(24)
+  await expect
+    .poll(async () => {
+      await popover.evaluate(element => Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => null))))
+      const box = (await popover.boundingBox())!
+      const anchor = (await slot.boundingBox())!
+      return Math.min(Math.abs(box.y - (anchor.y + anchor.height)), Math.abs(box.y + box.height - anchor.y))
+    })
+    .toBeLessThan(24)
 }
 
 /**
