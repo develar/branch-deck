@@ -11,10 +11,12 @@ import {
   canStartRobot,
   canStartStackRobot,
   describeRobot,
+  formatLandedReason,
   formatPushMode,
   formatRobotRestartLabel,
   formatRobotSubject,
   getRobotRestartAction,
+  isLandedWhole,
   openRobot,
 } from "@/lib/patronus"
 import { openPullRequestUrl } from "@/lib/pull-request"
@@ -24,7 +26,17 @@ import { getStackBranchBlocker } from "@/lib/whole-stack"
 import { recordRobot } from "@/stores/activity"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { getStackBranch } from "@/stores/branch-sync"
-import { cancelPatronusRobot, getLandingAncestor, getLandingSpan, getStackLandingMember, isRobotFailing, isRobotNeedingReview, restartPatronusRobot } from "@/stores/patronus"
+import {
+  cancelPatronusRobot,
+  getLandedBy,
+  getLandingAncestor,
+  getLandingSpan,
+  getStackLandedReason,
+  getStackLandingMember,
+  isRobotFailing,
+  isRobotNeedingReview,
+  restartPatronusRobot,
+} from "@/stores/patronus"
 
 /**
  * Says that a robot started, restarted or is canceling, in a toast and in Activity: "Safe Push started" / "auth → master
@@ -55,21 +67,27 @@ export async function runRobotAction(action: (robot: PatronusRobot) => Promise<P
 /**
  * Whether the robot of `branch` can restart: not for a blocked branch, nor, for a Safe Push, while a robot lands an
  * ancestor of the branch or a branch built on it lands the branch (`canStartRobot`): two robots would land the same
- * commits. A dry run pushes nothing into the target, so only the block holds it back.
+ * commits. A dry run pushes nothing into the target, so only the block holds it back. Nor once a merged Safe Push
+ * landed all of the branch, a Dry Run too: its commits are in the target, as the next step says (row 1, "Landed in
+ * master with oauth").
  */
 function checkRobotRestart(robot: PatronusRobot, branch: Branch): RobotStartCheck {
   const landing = robot.pushMode !== "dryRun"
-  return canStartRobot(branch, undefined, landing ? getLandingAncestor(branch.name) : null, landing ? getLandingSpan(branch.name) : null)
+  const check = canStartRobot(branch, undefined, landing ? getLandingAncestor(branch.name) : null, landing ? getLandingSpan(branch.name) : null)
+  const landed = getLandedBy(branch.name)
+  return check.ok && isLandedWhole(landed) ? { ok: false, reason: formatLandedReason(landed) } : check
 }
 
 /**
  * Whether the robot of the whole stack of `root` can restart: on a stack branch the sync built, and, for a Safe Push,
- * not while the robot of a branch of the stack lands a part of it (`canStartStackRobot`)
+ * not while the robot of a branch of the stack lands a part of it (`canStartStackRobot`). Nor once merged Safe Pushes
+ * landed every branch of the stack, a Dry Run too: its stack branch carries only commits that are in the target
+ * (`getStackLandedReason`, "Landed in master with deploy and side-test"), as its Safe Push Whole Stack says.
  */
 function checkStackRobotRestart(robot: PatronusRobot, root: string): RobotStartCheck {
   const stack = getStackBranch(root)
   const landing = robot.pushMode !== "dryRun"
-  return canStartStackRobot(
+  const check = canStartStackRobot(
     getStackBranchBlocker(root, stack),
     undefined,
     stack?.tip ?? undefined,
@@ -77,6 +95,8 @@ function checkStackRobotRestart(robot: PatronusRobot, root: string): RobotStartC
     landing ? getStackLandingMember(root) : null,
     !landing,
   )
+  const landed = check.ok ? getStackLandedReason(root) : null
+  return landed === null ? check : { ok: false, reason: landed }
 }
 
 /** What a restart of the robot works on: the branch, or the stack branch of the whole stack */
@@ -110,13 +130,15 @@ export function hasRobotFailurePrompt(robot: PatronusRobot, needsReview: boolean
  * The actions of a robot, one list for every surface that shows it (the branch menu, the robot details, the robots
  * indicator), in this order: "Restart Safe Push" (it pushes first while the branch has work the remote lacks, also
  * for a running robot, which it cancels first, `getRobotRestartAction`; disabled with the reason while a start is not
- * possible: a blocked branch, a robot that lands an ancestor or the branch, `checkRobotRestart`), "Cancel Safe Push"
+ * possible: a blocked branch, a robot that lands an ancestor or the branch, a branch a merged Safe Push landed whole,
+ * `checkRobotRestart`), "Cancel Safe Push"
  * while it runs,
  * "Copy Prompt for Agent" and "Copy Prompt with CI Details" for a failed or failing robot (`hasRobotFailurePrompt`),
  * "Open in Patronus", and "Open Pull Request #12" for a robot of a pull request. `branch` is the branch of the robot,
  * null when it has no row (archived since it merged): the restart then takes the remote branch as Patronus has it.
  * The robot of the whole stack (`stackRoot`) has no branch: its restart works on the stack branch, which a push of it
- * sends first (`pushWholeStack`), and waits for a robot of a branch of the stack (`checkStackRobotRestart`).
+ * sends first (`pushWholeStack`), waits for a robot of a branch of the stack, and is refused once every branch of the
+ * stack landed (`checkStackRobotRestart`).
  * `needsReview`: the robot failed for missing approvals; a component passes the value it subscribed to, so its list
  * follows it; `failing` likewise: a required check of the running robot failed.
  */

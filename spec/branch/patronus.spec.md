@@ -936,8 +936,12 @@ explicit choice of the user, offered only where the approvals count in a pull re
 - A restart is a start: it waits where "Safe Push" waits (`canStartRobot`), disabled with the same reason on every
   surface, for a blocked branch, and, for a Safe Push, while a robot lands an ancestor of the branch or a branch built
   on it lands the branch: two robots would land the same commits. A dry run pushes nothing into the target, so only the
-  block holds its restart back.
-  [@test] ../../src/lib/patronus-actions.test.ts (`waits for a robot that lands an ancestor of the branch, as a start does; a dry run lands nothing and needn't`)
+  block holds its restart back. Once a merged Safe Push landed all of the branch ([below](#merged)), its restart is
+  refused, of a Dry Run too, as its Safe Push and Dry Run are ("Landed in master with oauth", row 1 of
+  [Next Step](next-step.spec.md#the-table)): its commits are in the target. One with commits after the landed ones
+  restarts, for them.
+  [@test] ../../src/lib/patronus-actions.test.ts (`waits for a robot that lands an ancestor of the branch, as a start does; a dry run lands nothing and needn't`, `refuses the restart of a branch a merged Safe Push landed whole, a Dry Run too, and restarts one with commits after the landed ones`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should refuse the restart of the failed robot of a branch a merged Safe Push of a branch built on it landed, in its menu, its robot's details and its preview`)
 - Cancel is offered for a running robot; the robot is canceling until its checks stopped.
 - One builder lists the actions of a robot (`getRobotActions`), and every surface of the robot renders that list: the
   branch menu, the details (the chip popover, the preview section) and the [landing overview](../repository/landing-overview.spec.md#overview).

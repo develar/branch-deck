@@ -47,18 +47,25 @@ export async function mergeRunningRobot(page: Page, repo: TestRepositoryBuilder,
 
 /**
  * The running `robots` merged in turn, an hour apart from `finishTime`, answered by one poll (`mergeRunningRobot`):
- * returned as the poll answered them, their commits kept in every later answer
+ * returned as the poll answered them, their commits kept in every later answer. `others` stay in every answer as they
+ * are (a robot that finished before)
  */
-export async function mergeRunningRobots(page: Page, repo: TestRepositoryBuilder, robots: readonly PatronusRobot[], finishTime = 1704142800): Promise<PatronusRobot[]> {
+export async function mergeRunningRobots(
+  page: Page,
+  repo: TestRepositoryBuilder,
+  robots: readonly PatronusRobot[],
+  finishTime = 1704142800,
+  others: readonly PatronusRobot[] = [],
+): Promise<PatronusRobot[]> {
   const polled = page.waitForResponse(response => response.url().endsWith("/invoke/poll_patronus_robots"))
-  await repo.setPatronus(availableRobots(...robots.map((robot, index) => ({ ...robot, status: "success" as const, finishTime: finishTime + index * 3600 }))))
+  await repo.setPatronus(availableRobots(...others, ...robots.map((robot, index) => ({ ...robot, status: "success" as const, finishTime: finishTime + index * 3600 }))))
   await emitTauriEvent(page, "tauri://focus")
   const answered = ((await (await polled).json()) as PatronusRobotsResult).robots
   const merged = robots.map(robot => answered.find(it => it.id === robot.id)!)
   for (const robot of merged) {
     expect(robot.sourceRevision).toMatch(/^[0-9a-f]{40}$/)
   }
-  await repo.setPatronus(availableRobots(...merged))
+  await repo.setPatronus(availableRobots(...others, ...merged))
   return merged
 }
 

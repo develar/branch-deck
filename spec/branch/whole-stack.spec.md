@@ -223,7 +223,13 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../src/lib/patronus.test.ts (`lands every branch of the stack, and waits for the robot of a branch of it, as that one waits for it`)
 - Its actions are the actions of a robot (`getRobotActions`): the restart works on the stack branch, and pushes it first
   while it has work its remote lacks (`pushWholeStack`, a running robot canceled first), only while the sync built it;
-  cancel, the prompts, Patronus, its pull request.
+  cancel, the prompts, Patronus, its pull request. Once merged Safe Pushes landed every branch of the stack, its restart
+  is refused, with or without the push, of a Dry Run too, with the reason its Safe Push Whole Stack says ("Landed in
+  master with deploy and side-test", `getStackLandedReason`), on every surface that lists the actions (the "⋯" of the
+  island, "Whole Stack ›" of the root's menu); the header offers no step, and the landing overview lists the stack in
+  master without its robot.
+  [@test] ../../src/lib/patronus-actions.test.ts (`restarts the robot of the whole stack on its stack branch, refused once merged Safe Pushes landed every branch of it, a Dry Run too`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should refuse the restart of the failed robot of the whole stack once Safe Pushes of its branches landed every branch of it, on every surface that offers it`)
 - A push of the stack branch alone (`pushWholeStack`: the restart, Request Review… of its pull request, the creation of
   its pull request, the start of its Safe Push) must show where the pushes of the stack show, one indicator: the push of
   the header of its island ([Stack Island](stack-island.spec.md#header)), else the push button of the root's row of a

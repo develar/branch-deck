@@ -4,11 +4,20 @@ import type { PatronusReviewRequirement, PatronusRobot, PullRequest, PullRequest
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
-import { AWAITING_CODE_OWNER, NOT_EVALUATED, NO_REVIEW_NEEDED, availableRobots, mergeRunningRobot, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
+import {
+  AWAITING_CODE_OWNER,
+  NOT_EVALUATED,
+  NO_REVIEW_NEEDED,
+  availableRobots,
+  mergeRunningRobot,
+  mergeRunningRobots,
+  robot,
+  routeReviewRequirement,
+} from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer } from "../helpers/pull-request-helpers"
 import type { PushRequest } from "../helpers/push-helpers"
 import { pushOutcome, routeHeldPush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
-import { openBranchPreview } from "../helpers/review-status-helpers"
+import { landingRow, openBranchPreview, openLandingOverview } from "../helpers/review-status-helpers"
 import { DEFAULT_CHECKS_ONLY, expectDisabledItems, expectLandedActions, expectPopoverAtSlot, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
@@ -795,6 +804,59 @@ test.describe("Whole stack", () => {
     await landed.hover()
     await expect(page.getByRole("tooltip").filter({ hasText: reason })).toHaveText(reason)
     await expect(page.getByRole("menuitem", { name: "Dry Run Whole Stack" })).toHaveAttribute("aria-disabled", "true")
+  })
+
+  test("should refuse the restart of the failed robot of the whole stack once Safe Pushes of its branches landed every branch of it, on every surface that offers it", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the robot of the whole stack failed on the stack branch the remote has; then the user landed it in pieces: the
+    // Safe Pushes of deploy and side-test run, between them they land every branch of the stack
+    const failed = wholeStackRobot("air", "whole", { status: "failure", sourceRevision: "stack-pushed", finishTime: 1704139300 })
+    const deploy = robot("deploy", "deploy-robot")
+    const sideTest = robot("side-test", "side-test-robot")
+    await rewriteNextSyncEvents(page, event =>
+      event.type === "stackBranchUpdate" && event.data.root === "air"
+        ? { ...event, data: { ...event.data, remote: pushOutcome("air", { remoteTip: event.data.tip ?? "" }).remoteStatus } }
+        : event,
+    )
+    const repo = await setupRepo("stack_island", { patronus: availableRobots(failed, deploy, sideTest) })
+    await syncAndWaitForBranches()
+    const restarts = await routeCommand(page, "restart_patronus_robot", () => wholeStackRobot("air", "restarted"))
+    const restartInOverview = (overview: Locator) => overview.getByRole("button", { name: "Restart Safe Push of the whole air stack" })
+    // while they run, its restart waits for them: the robot of a branch lands a part of the stack
+    await expect(findBranchRow(page, "side-fix").getByTestId("landing-span")).toHaveText("lands with side-test")
+    await openIslandMenu(page, "air")
+    await expectDisabledItems(page, [["Restart Safe Push", "A Safe Push of deploy is running: wait until it merges"]])
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("menu")).toHaveCount(0)
+    // the landing overview lists the failed robot with its actions
+    await expect(restartInOverview(await openLandingOverview(page))).toBeVisible()
+    await page.mouse.move(0, 0)
+    await expect(page.getByTestId("landing-popover")).toBeHidden()
+
+    // both merged: nothing of the stack is left to restart, with or without a push of its stack branch
+    await mergeRunningRobots(page, repo, [deploy, sideTest], 1704142800, [failed])
+    await expect(findBranchRow(page, "side-fix").getByTestId("landed-with")).toHaveText("Landed with side-test")
+    const reason = "Landed in master with deploy and side-test"
+    // the island's "⋯"
+    await openIslandMenu(page, "air")
+    await expectDisabledItems(page, [["Restart Safe Push", reason]])
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("menu")).toHaveCount(0)
+    // "Whole Stack ›" of the root's menu
+    await openWholeStackSubmenu(page, "air")
+    await expectDisabledItems(page, [["Restart Safe Push", reason]])
+    await page.keyboard.press("Escape")
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("menu")).toHaveCount(0)
+    // the header offers no step, and the landing overview has the stack in master, its failed robot no move any more
+    await expect(island(page, "air").getByTestId("stack-island-actions").getByTestId("next-step-slot")).toHaveAttribute("data-step", "none")
+    const overview = await openLandingOverview(page)
+    await expect(landingRow(overview.getByTestId("landing-in-master"), "air").getByTestId("landing-row-reason")).toHaveText(reason)
+    await expect(restartInOverview(overview)).toHaveCount(0)
+    expect(restarts).toEqual([])
   })
 
   test("should say that the pull request of the whole stack no longer matches it once a piece landed the root, and close it only when asked", async ({

@@ -4,13 +4,14 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, getStackChip, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
-import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots, mergeRunningRobot, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
+import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots, mergeRunningRobot, mergeRunningRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { confirmForcePush, expectPushedToast, PUSH_TIME, pushedToast, pushOutcome, routeHeldPush, routePush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, landingRow, openBranchPreview, openLandingOverview } from "../helpers/review-status-helpers"
 import {
   DEFAULT_CHECKS_ONLY,
   closeRefusal,
+  expectDisabledItems,
   expectLandedActions,
   expectPopoverAtSlot,
   openSafePushWithKey,
@@ -1302,6 +1303,43 @@ test.describe("Stacked branches", () => {
       await expect.poll(() => closes.map(close => close.pullRequestNumber as number)).toEqual([5])
       expect(closes[0]!.comment).toContain("the Safe Push of user-name/virtual/oauth")
       await expect(findBranchRow(page, "auth").getByTestId("landed-with")).toHaveText("Landed with oauth · 1 commit after it")
+    })
+
+    test("should refuse the restart of the failed robot of a branch a merged Safe Push of a branch built on it landed, in its menu, its robot's details and its preview", async ({
+      page,
+      setupRepo,
+      syncAndWaitForBranches,
+    }) => {
+      // the Safe Push of auth failed; then the Safe Push of oauth runs, which lands auth and login with it
+      const failed = robot("auth", "auth-failed", { status: "failure", finishTime: 1704139300 })
+      const running = robot("oauth", "oauth-robot")
+      const repo = await setupRepo("stacked_branches", { patronus: availableRobots(failed, running) })
+      await syncAndWaitForBranches()
+      const restarts = await routeCommand(page, "restart_patronus_robot", () => robot("auth", "restarted"))
+      const authRow = findBranchRow(page, "auth")
+      await expect(authRow.getByTestId("landing-span")).toHaveText("lands with oauth")
+      // while it runs, the restart of auth waits for it
+      await authRow.click({ button: "right" })
+      await expectDisabledItems(page, [["Restart Safe Push", "A Safe Push of oauth is running: it lands auth with it"]])
+      await page.keyboard.press("Escape")
+      await expect(page.getByRole("menu")).toHaveCount(0)
+
+      // it merged: auth is in master, nothing of it is left to restart
+      await mergeRunningRobots(page, repo, [running], 1704142800, [failed])
+      await expect(authRow.getByTestId("landed-with")).toHaveText("Landed with oauth")
+      const reason = "Landed in master with oauth"
+      await authRow.click({ button: "right" })
+      await expectDisabledItems(page, [["Restart Safe Push", reason]])
+      await page.keyboard.press("Escape")
+      await expect(page.getByRole("menu")).toHaveCount(0)
+      // the details of its robot in the preview say it too
+      const preview = await openBranchPreview(page, "auth")
+      const restart = preview.getByTestId("branch-preview-patronus").getByRole("button", { name: "Restart Safe Push" })
+      await expect(restart).toHaveAttribute("aria-disabled", "true")
+      await restart.hover()
+      await expect(page.getByRole("tooltip").filter({ hasText: reason })).toHaveText(reason)
+      await restart.click({ force: true })
+      expect(restarts).toEqual([])
     })
 
     test("should offer to land only a stacked branch that applies alone", async ({ page, setupRepo, syncAndWaitForBranches }) => {
