@@ -35,10 +35,11 @@ function holdsNothingMore(pullRequest: PullRequest, branch: Branch): boolean {
 /**
  * The open pull requests of the branches a merged robot landed whole besides its own (`findLandedBranches`, the branches
  * the rows say it landed): of the ancestors of a stacked branch (the branch carries their commits), or of every branch
- * of the stack for the robot of the whole stack (its stack branch carries them all); only while the robot ran on the
- * branch or the stack branch as the table has it, and only a pull request that holds nothing the branch lacks
- * (`holdsNothingMore`): then the merge has every commit of it. The pull request the robot started from is Patronus' to
- * close, and so is the robot's own branch's.
+ * of the stack for the robot of the whole stack (its stack branch carries them all); by the hashes while the robot ran
+ * on the branch or the stack branch as the table has it, else by content (`landings`: a change below its commit made new
+ * copies of the same changes), and only a pull request that holds nothing the branch lacks (`holdsNothingMore`): then
+ * the merge has every commit of it. The pull request the robot started from is Patronus' to close, and so is the
+ * robot's own branch's.
  */
 export function findLandedPullRequests(robot: PatronusRobot, facts: LandingFacts): LandedPullRequest[] {
   // the robot's own pull request is Patronus' to close; a branch with commits after the landed ones has work left in it
@@ -53,21 +54,22 @@ export function findLandedPullRequests(robot: PatronusRobot, facts: LandingFacts
 }
 
 /**
- * Closes the pull requests of the branches a merged robot landed (`findLandedPullRequests`), each with a comment that
- * names the robot's branch or the whole stack; a failure is an error toast. What the merge toast says about them:
+ * Closes the pull requests of the branches a merged robot landed (`findLandedPullRequests`: by the hashes, else by
+ * content, the answers of `get_robot_landings` in `landings`), each with a comment that names the robot's branch or the
+ * whole stack; a failure is an error toast. What the merge toast says about them:
  * "closes the pull requests of auth and login: they landed with oauth", "closes the pull requests of 6 branches: they
  * landed with the whole stack"; null when there are none. A Safe Push of a branch that lands the root of a stack whose
  * whole stack has an open pull request is remembered: that pull request no longer matches the stack
  * (`rememberLandedStackRoot`), and the toast says so too ("#12 no longer matches the air stack: oauth landed"); the user
  * decides on it, nothing closes it.
  */
-export function closeLandedPullRequests(robot: PatronusRobot): string | null {
-  const parts = [closeLanded(robot), rememberLandedRoot(robot)].filter((part): part is string => part !== null)
+export function closeLandedPullRequests(robot: PatronusRobot, landings: LandedSource["landings"]): string | null {
+  const parts = [closeLanded(robot, landings), rememberLandedRoot(robot)].filter((part): part is string => part !== null)
   return parts.length === 0 ? null : parts.join(" · ")
 }
 
-function closeLanded(robot: PatronusRobot): string | null {
-  const landed = findLandedPullRequests(robot, { branchOf: getBranch, pullRequestOf: getPullRequest, stackOf: getStackBranch })
+function closeLanded(robot: PatronusRobot, landings: LandedSource["landings"]): string | null {
+  const landed = findLandedPullRequests(robot, { branchOf: getBranch, pullRequestOf: getPullRequest, stackOf: getStackBranch, landings })
   const name = robot.branchName
   const root = robot.stackRoot ?? null
   if (landed.length === 0 || (name === null && root === null)) {

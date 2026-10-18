@@ -40,6 +40,7 @@ import {
   landingRequestOf,
   needsRobotAttention,
 } from "@/lib/patronus"
+import { testLanding } from "@/lib/test-robot"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -643,14 +644,7 @@ describe("findLandedBy", () => {
     expect(request).toEqual({ robotId: "oauth", branchName: "oauth", stackRoot: null, sourceRevision: "oauth-old", branches: ["auth", "login", "oauth"], tip: null })
     expect(findLandedBy(byId(piece), source).size).toBe(0)
     // auth got a commit after the landed one, which rebuilt login and oauth with the same changes
-    const landing = {
-      robotId: "oauth",
-      branches: [
-        { branch: "auth", landed: ["auth-1"], after: ["auth-2"] },
-        { branch: "login", landed: ["login-1"], after: [] },
-        { branch: "oauth", landed: ["oauth-1"], after: [] },
-      ],
-    }
+    const landing = testLanding("oauth", { auth: ["auth-2"], login: [], oauth: [] })
     const answered = { ...source, landings: { [landingKey(request!, source)]: landing } }
     const landed = findLandedBy(byId(piece), answered)
     expect(Object.fromEntries([...landed].map(([name, by]) => [name, formatLandedWith(by)]))).toEqual({

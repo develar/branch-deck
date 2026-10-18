@@ -225,7 +225,10 @@ The whole stack is an object of its own in the app, beside its branches, named "
   of a branch the sync had only rebuilt on a newer baseline open, though all of it landed. Which branches it landed is
   one function (`findLandedBranches`): a piece's ancestors while the robot ran on a commit its branch has (its tip, the
   same commits rebuilt, or one the branch built new commits on since: the copies below are the same objects, so the
-  ancestors are as it took them), the whole stack's branches while it ran on the stack branch as it is.
+  ancestors are as it took them), the whole stack's branches while it ran on the stack branch as it is; after a change
+  below its commit, by content (below): the merge toast waits for that answer (the sync that runs, one
+  `get_robot_landings`), so the closing and the rows agree, and a branch with commits added after the landed ones keeps
+  its pull request, which still shows work that did not land.
 - **Landed rows until the update.** The merge toast is gone in seconds, and the update that archives the branches may
   come hours later. Until then the rows of the branches a merged robot landed say who landed them ("Landed with
   oauth", "Landed with the whole air stack"; the branch it ran on keeps "Merged"), and offer no Safe Push, no Dry Run

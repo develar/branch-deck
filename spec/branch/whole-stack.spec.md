@@ -254,9 +254,11 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../crates/bd-cli/src/robot_test.rs (`the_robot_of_the_whole_stack_is_found_from_any_branch_of_it`)
 - When it merged, the open pull requests of every branch of the stack must be closed with a comment ("Landed in
   master with #12, the Safe Push of the whole air stack (user/stack/air), which holds this branch."), and the toast
-  says it ("Safe Push · closes the pull requests of 6 branches: they landed with the whole stack"); only while it ran
-  on the stack branch as it is, and only a pull request that holds nothing its branch lacks: its head is the branch's
-  tip, or the remote branch has no commit the branch lacks ([Patronus](patronus.spec.md#merged), the same for a piece).
+  says it ("Safe Push · closes the pull requests of 6 branches: they landed with the whole stack"); while it ran on the
+  stack branch as it is, else by the commits it tested against each branch (a change of a branch since rebuilt the
+  stack branch: `get_robot_landings`, the toast waiting for it), and only a pull request that holds nothing its branch
+  lacks: its head is the branch's tip, or the remote branch has no commit the branch lacks
+  ([Patronus](patronus.spec.md#merged), the same for a piece).
   [@test] ../../src/lib/landed-stack.test.ts (`closes the pull requests of every branch of the stack the robot of the whole stack landed, not the one it started from`)
   [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the branches the whole stack landed`)
 - Until the update archives them, every branch of the stack it landed (under the same conditions, also for a robot

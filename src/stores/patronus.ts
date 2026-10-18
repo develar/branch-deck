@@ -47,7 +47,7 @@ import { stackAncestors } from "@/lib/stack"
 import { lastFetchTime } from "@/lib/update-state"
 import { recordRobot } from "@/stores/activity"
 import type { BranchSyncState } from "@/stores/branch-sync"
-import { branchSyncStore, getStackBranch, stackDescendantsIn, useBranchRemoteTip, useBranchSync, useBranchTip, useStackBranch } from "@/stores/branch-sync"
+import { branchSyncStore, getStackBranch, stackDescendantsIn, useBranchRemoteTip, useBranchSync, useBranchTip, useStackBranch, whenSynced } from "@/stores/branch-sync"
 import { refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
@@ -519,13 +519,14 @@ function landedByIn(robots: Readonly<Record<string, PatronusRobot>>, landings: R
   return lastLandedBranches.landed
 }
 
-/** The landing requests asked and not answered yet, by `landingKey` */
-const landingsInFlight = new Set<string>()
+/** The landing requests asked and not answered yet, by `landingKey`: the answer each one waits for */
+const landingsInFlight = new Map<string, Promise<void>>()
 
 /**
  * Asks `get_robot_landings` for the merged robots whose hashes no longer tell what they landed (`landingRequestOf`: a
  * change below the robot's commit gave the branches new copies), once per state of their branches (`landingKey`), never
- * while a sync runs: the table is the sync's. One request for all of them; an error is an answer of nothing.
+ * while a sync runs: the table is the sync's. One request for all of them; an error is an answer of nothing. Resolves
+ * once each of them is answered, also one another call asked.
  */
 async function askRobotLandings(): Promise<void> {
   const key = currentKey()
@@ -537,24 +538,33 @@ async function askRobotLandings(): Promise<void> {
   }
   const source = landedSourceOf(state, repository.landings)
   const asked: { key: string; request: RobotLandingRequest }[] = []
+  const waiting: Promise<void>[] = []
   for (const robot of Object.values(repository.robots)) {
     const request = landingRequestOf(robot, source)
     if (request === null) {
       continue
     }
     const requestKey = landingKey(request, source)
-    if (!(requestKey in repository.landings) && !landingsInFlight.has(requestKey)) {
+    const inFlight = landingsInFlight.get(requestKey)
+    if (inFlight !== undefined) {
+      waiting.push(inFlight)
+    } else if (!(requestKey in repository.landings)) {
       asked.push({ key: requestKey, request })
     }
   }
-  if (asked.length === 0) {
-    return
+  if (asked.length > 0) {
+    const answered = requestLandings(key, project.path, state.baselineBranch, asked).finally(() => asked.forEach(it => landingsInFlight.delete(it.key)))
+    asked.forEach(it => landingsInFlight.set(it.key, answered))
+    waiting.push(answered)
   }
-  asked.forEach(it => landingsInFlight.add(it.key))
+  await Promise.all(waiting)
+}
+
+/** The one `get_robot_landings` of `asked`, its answers kept by their keys */
+async function requestLandings(key: string, repositoryPath: string, baselineBranch: string, asked: readonly { key: string; request: RobotLandingRequest }[]): Promise<void> {
   const result = await commands
-    .getRobotLandings({ repositoryPath: project.path, branchPrefix: getEffectiveBranchPrefix(), baselineBranch: state.baselineBranch, robots: asked.map(it => it.request) })
+    .getRobotLandings({ repositoryPath, branchPrefix: getEffectiveBranchPrefix(), baselineBranch, robots: asked.map(it => it.request) })
     .catch((error: unknown) => ({ status: "error" as const, error }))
-  asked.forEach(it => landingsInFlight.delete(it.key))
   if (result.status === "error") {
     console.warn("Cannot read what the merged robots landed", result.error)
   }
@@ -562,6 +572,26 @@ async function askRobotLandings(): Promise<void> {
   update(key, entry => ({
     landings: { ...entry.landings, ...Object.fromEntries(asked.map(it => [it.key, answers.find(landing => landing.robotId === it.request.robotId) ?? null])) },
   }))
+}
+
+/**
+ * The merged robot's hashes don't tell what it landed in the repository the table shows (`landingRequestOf`): a change
+ * below its commit gave the branches new copies since, so the content does, once the sync that runs leaves the table
+ * (`askRobotLandings`); resolves when it is known
+ */
+async function whenLandedByContent(key: string, robot: PatronusRobot): Promise<void> {
+  await whenSynced()
+  const repository = patronusStore.getState().repositories[key]
+  if (key === currentKey() && repository !== undefined && landingRequestOf(robot, landedSourceOf(branchSyncStore.getState(), repository.landings)) !== null) {
+    await askRobotLandings()
+  }
+}
+
+/** Whether what the merged robot landed in the table shown is told by the content only (`whenLandedByContent`) */
+function isLandedByContent(key: string, robot: PatronusRobot): boolean {
+  const repository = patronusStore.getState().repositories[key]
+  const state = branchSyncStore.getState()
+  return key === currentKey() && repository !== undefined && (state.isSyncing || landingRequestOf(robot, landedSourceOf(state, repository.landings)) !== null)
 }
 
 /**
@@ -881,7 +911,9 @@ const announcedMerges = new Set<string>()
  * learns that an update brings the branch in, and "Open in Patronus". While no window is focused, an OS notification
  * says it at once (unless Settings turned it off), and the toast waits for the focus.
  * A stacked branch landed its ancestors too, the whole stack every branch of it: their open pull requests are closed
- * by content (`closeLandedPullRequests`), and the toast says so.
+ * by content (`closeLandedPullRequests`), and the toast says so. While the hashes don't tell what it landed (a change
+ * below its commit since), the toast waits for the content (`whenLandedByContent`): the sync that runs, one
+ * `get_robot_landings`.
  */
 function announceMerge(key: string, robot: PatronusRobot): void {
   if (announcedMerges.has(robot.id)) {
@@ -892,7 +924,17 @@ function announceMerge(key: string, robot: PatronusRobot): void {
     // Patronus closed the pull request with the label `merged`
     void refreshPullRequests("push")
   }
-  const closed = closeLandedPullRequests(robot)
+  // which pull requests it landed is decided by content once a change below its commit made new copies
+  if (isLandedByContent(key, robot)) {
+    void whenLandedByContent(key, robot).then(() => tellMerge(key, robot))
+  } else {
+    tellMerge(key, robot)
+  }
+}
+
+/** The merge told (`announceMerge`), with the pull requests of what it landed closed, by the landings known now */
+function tellMerge(key: string, robot: PatronusRobot): void {
+  const closed = closeLandedPullRequests(robot, patronusStore.getState().repositories[key]?.landings ?? EMPTY.landings)
   const description = closed === null ? formatPushMode(robot.pushMode) : `${formatPushMode(robot.pushMode)} · ${closed}`
   const title = formatMergedRobotTitle(robot, patronusStore.getState().repositories[key]?.watched[robot.id])
   const [repositoryPath] = key.split("\n") as [string, string]

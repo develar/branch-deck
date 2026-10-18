@@ -196,6 +196,7 @@ vi.mock("@/stores/branch-sync", () => ({
   },
   getBranch: (name: string) => branches.current[name],
   getStackBranch: (root: string) => branches.stacks[root],
+  whenSynced: async () => {},
   // the branches built on `name`, parents first, by the parent each was placed on
   stackDescendantsIn: (state: { branches: Record<string, { name: string; stack?: { effectiveBase: string | null } }> }, name: string) => {
     const children = (parent: string): string[] =>
@@ -591,6 +592,44 @@ describe("merges", () => {
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
     expect(notices.closed).toEqual(["auth Landed in master with #7, the Safe Push of user/virtual/oauth, which is built on this branch."])
     expect(notices.toasts.map(it => it.description)).toEqual(["Safe Push · closes the pull request of auth: it landed with oauth"])
+  })
+
+  it("closes by content the pull requests of what a merged robot landed after a change below its commit, the toast waiting for the answer", async () => {
+    const stacked = (name: string, parent: string | null, commits: string[], remoteTip: string) => ({
+      name,
+      commits: commits.map(hash => ({ hash, originalHash: `${hash}-original` })),
+      remoteStatus: { exists: true, remoteTip, commitsBehind: 0 },
+      stack: { effectiveBase: parent },
+    })
+    // auth got a commit after the robot of oauth took its tip: login and oauth were rebuilt on it, no hash is the robot's
+    branches.current = {
+      auth: stacked("auth", null, ["auth-new", "auth-copy"], "auth-old"),
+      login: stacked("login", "auth", ["login-copy"], "login-old"),
+      oauth: stacked("oauth", "login", ["oauth-copy"], "oauth-old"),
+    }
+    notices.pullRequests = {
+      auth: { number: 5, state: "open", headRefOid: "auth-old" },
+      login: { number: 6, state: "open", headRefOid: "login-old" },
+    }
+    patronus.landings = [
+      {
+        robotId: "r1",
+        branches: [
+          { branch: "auth", landed: ["auth-copy-original"], after: ["auth-new-original"] },
+          { branch: "login", landed: ["login-copy-original"], after: [] },
+          { branch: "oauth", landed: ["oauth-copy-original"], after: [] },
+        ],
+      },
+    ]
+    const oauth = robot({ branchName: "oauth", sourceRevision: "oauth-old" })
+    patronus.list = available(oauth)
+    await refreshPatronus("sync")
+    patronus.poll = available({ ...oauth, status: "success", finishTime: 200 })
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    // asked once, for the branches as the table has them; login landed whole, auth has a commit left in its pull request
+    await vi.waitFor(() => expect(notices.closed).toEqual(["login Landed in master with the Safe Push of user/virtual/oauth, which is built on this branch."]))
+    expect(patronus.landingCalls.map(call => call.robots.map(it => it.robotId))).toEqual([["r1"]])
+    expect(notices.toasts.map(it => it.description)).toEqual(["Safe Push · closes the pull request of login: it landed with oauth"])
   })
 
   it("closes the pull requests of the branches the whole stack landed", async () => {

@@ -647,13 +647,17 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   pull request of auth: it landed with oauth", "closes the pull requests of 6 branches: they landed with the whole
   stack"). By content: only while the robot ran on the branch (the stack branch) as it is, its tip or the same commits
   rebuilt on a newer baseline, or (of a branch) a commit of it the branch built new ones on since: the copies below it
-  are the same objects, so its ancestors are as the robot took them (`findLandedBranches`); and only a pull request
+  are the same objects, so its ancestors are as the robot took them (`findLandedBranches`); after a change below its
+  commit (a new commit or an amend of a branch it is built on), which made new copies, by the commits it tested
+  (`get_robot_landings`, as the rows decide it, [below](#merged)): the toast waits for that answer (the sync that runs,
+  one request), and a branch with commits added after the landed ones keeps its pull request; and only a pull request
   that holds nothing its branch lacks: its head is the branch's tip, or it is the remote branch and that has no commit
   the branch lacks (older versions of commits amended here included: their newer versions landed). The pull request the
   robot started from is Patronus'. A failed close is an error toast "Cannot close pull request #5". A robot first seen
   merged closes nothing.
-  [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the ancestors a stacked branch landed, and says so`, `closes the pull requests of the branches the whole stack landed`)
-  [@test] ../../src/lib/landed-stack.test.ts (`closes the pull requests of the ancestors a merged piece landed, by content`, `leaves a pull request with a commit the branch lacks, and a robot of another state of the branch`)
+  [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the ancestors a stacked branch landed, and says so`, `closes the pull requests of the branches the whole stack landed`, `closes by content the pull requests of what a merged robot landed after a change below its commit, the toast waiting for the answer`)
+  [@test] ../../src/lib/landed-stack.test.ts (`closes the pull requests of the ancestors a merged piece landed, by content`, `leaves a pull request with a commit the branch lacks, and a robot of another state of the branch`, `decides by content after a change below the robot's commit: closes the pull requests of the branches it landed whole, not of one with work left`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should close by content the pull requests of the branches a Safe Push landed after a change below its commit, not of one with work left`)
   [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`closes_a_pull_request_with_a_comment`, `a_closed_pull_request_gets_no_second_comment_and_a_merged_one_is_not_closed`)
 - Until the update archives them, the branches a merged robot landed that way (the same `findLandedBranches`, a robot
   first seen merged too: `findLandedBy`) say so in their rows, "Landed with oauth", "Landed with the whole air stack"

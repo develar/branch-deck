@@ -1259,6 +1259,51 @@ test.describe("Stacked branches", () => {
       await expect(slotSafePush(page, "session")).toHaveText("Safe Push · 2")
     })
 
+    test("should close by content the pull requests of the branches a Safe Push landed after a change below its commit, not of one with work left", async ({
+      page,
+      setupRepo,
+      syncAndWaitForBranches,
+    }) => {
+      const running = robot("oauth", "oauth-robot")
+      const repo = await setupRepo("stacked_branches", {
+        patronus: availableRobots(running),
+        pullRequests: availablePullRequests(pullRequest("auth", 4, { headRefOid: "remote-auth" }), pullRequest("login", 5, { headRefOid: "remote-login" })),
+      })
+      // auth and login are on the remote as their pull requests show them; the robot takes oauth as this sync builds it
+      let taken = ""
+      const onRemote = () =>
+        rewriteNextSyncEvents(page, event => {
+          if (event.type === "commitSynced" && event.data.branchName === "oauth" && taken === "") {
+            taken = event.data.newHash
+          }
+          if (event.type === "remoteStatusUpdate" && (event.data.branchName === "auth" || event.data.branchName === "login")) {
+            const remoteTip = `remote-${event.data.branchName}`
+            return { ...event, data: { ...event.data, remoteExists: true, remoteTip, commitsBehind: 0, fastForward: false } }
+          }
+          return event
+        })
+      await onRemote()
+      await syncAndWaitForBranches()
+      expect(taken).toMatch(/^[0-9a-f]{40}$/)
+      await expect(findBranchRow(page, "login").getByTestId("landing-span")).toHaveText("lands with oauth")
+      const closes = await routeCommand(page, "close_pull_request", () => null)
+
+      // a new commit of auth behind the app's back: the sync rebuilds login and oauth on it, no hash is the robot's now
+      await onRemote()
+      await runAndWaitForSync(page, async () => {
+        await repo.commit("(auth) Check the token", { "token.js": "export const token = null\n" }, 1704128400)
+        await page.getByTestId("sync-button").click()
+      })
+      // it merged on oauth as it was: the content tells what it landed, the toast waits for it
+      await repo.setPatronus(availableRobots({ ...running, sourceRevision: taken, status: "success", finishTime: 1704142800 }))
+      await emitTauriEvent(page, "tauri://focus")
+      await expect(page.locator("[data-slot=toast]").filter({ hasText: "oauth merged into master" })).toContainText("closes the pull request of login: it landed with oauth")
+      // login landed whole and its pull request holds nothing it lacks; auth has the new commit left, its pull request stays
+      await expect.poll(() => closes.map(close => close.pullRequestNumber as number)).toEqual([5])
+      expect(closes[0]!.comment).toContain("the Safe Push of user-name/virtual/oauth")
+      await expect(findBranchRow(page, "auth").getByTestId("landed-with")).toHaveText("Landed with oauth · 1 commit after it")
+    })
+
     test("should offer to land only a stacked branch that applies alone", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const pushes = await setupStack(page, setupRepo, syncAndWaitForBranches)
       const starts = await routeCommand(page, "start_patronus_robot", () => robot("oauth", "oauth-robot", { sourceRevision: null }))
