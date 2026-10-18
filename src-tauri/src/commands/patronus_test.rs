@@ -11,7 +11,7 @@ async fn the_space_repository_is_one_push_url_and_then_kept() {
   git
     .execute_command(&["remote", "add", "origin", "ssh://git@git.jetbrains.team/ij/ultimate.git"], path)
     .unwrap();
-  let processes = || git.process_stats().unwrap().by_command().values().map(|stats| stats.count).sum::<u32>();
+  let processes = || git.process_stats().unwrap().total();
   let before = processes();
 
   let patronus = PatronusState::new("test");

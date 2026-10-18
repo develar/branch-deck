@@ -43,6 +43,17 @@ impl ProcessStats {
     self.by_command.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
   }
 
+  /// The processes of every subcommand
+  pub fn total(&self) -> u32 {
+    self
+      .by_command
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+      .values()
+      .map(|stats| stats.count)
+      .sum()
+  }
+
   /// `merge-tree 12×340ms, rev-list 3×40ms`, the most expensive first
   pub fn summary(&self) -> String {
     let mut commands: Vec<(String, CommandStats)> = self.by_command().into_iter().collect();

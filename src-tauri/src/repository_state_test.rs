@@ -46,20 +46,20 @@ fn issue_config_is_loaded_from_vcs_xml() {
   assert!(cache.issue_config(without_config.path().to_str().unwrap()).is_none());
 }
 
-/// A new repository in a temporary directory
-fn init_repository(git: &GitCommandExecutor) -> TempDir {
+/// A new repository in a temporary directory, with a git that counts its processes
+fn counted_repository() -> (GitCommandExecutor, TempDir) {
+  let git = GitCommandExecutor::new().with_process_stats("test");
   let repository = TempDir::new().unwrap();
   git.execute_command(&["init", "--quiet"], repository.path().to_str().unwrap()).unwrap();
-  repository
+  (git, repository)
 }
 
 #[test]
 fn object_cache_lives_in_the_common_dir_of_the_repository() {
   let cache = RepositoryStateCache::new();
-  let git = GitCommandExecutor::new().with_process_stats("test");
-  let repository = init_repository(&git);
+  let (git, repository) = counted_repository();
   let path = repository.path().to_str().unwrap();
-  let processes = || git.process_stats().unwrap().by_command().values().map(|stats| stats.count).sum::<u32>();
+  let processes = || git.process_stats().unwrap().total();
 
   let initialized = processes();
   assert!(cache.object_cache(&git, path).is_enabled());
@@ -80,11 +80,10 @@ fn object_cache_lives_in_the_common_dir_of_the_repository() {
 #[test]
 fn the_github_repository_is_kept_until_the_config_changes() {
   let cache = RepositoryStateCache::new();
-  let git = GitCommandExecutor::new().with_process_stats("test");
-  let repository = init_repository(&git);
+  let (git, repository) = counted_repository();
   let path = repository.path().to_str().unwrap();
   git.execute_command(&["remote", "add", "origin", "git@github.com:acme/widgets.git"], path).unwrap();
-  let processes = || git.process_stats().unwrap().by_command().values().map(|stats| stats.count).sum::<u32>();
+  let processes = || git.process_stats().unwrap().total();
 
   let widgets = GitHubRepository {
     owner: "acme".to_string(),

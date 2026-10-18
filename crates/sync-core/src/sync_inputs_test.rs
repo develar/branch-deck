@@ -79,7 +79,7 @@ fn changes_with_the_upstream_of_the_checked_out_branch() {
   let processes = |repo: &TestRepo| {
     let counting = GitCommandExecutor::new().with_process_stats("test");
     fingerprint(&counting, repo);
-    counting.process_stats().unwrap().by_command().values().map(|stats| stats.count).sum::<u32>()
+    counting.process_stats().unwrap().total()
   };
   assert_eq!(processes(&repo), 3);
   git(&executor, &repo, &["config", "branch.master.merge", "refs/heads/master"]);

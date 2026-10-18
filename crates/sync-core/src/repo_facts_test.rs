@@ -12,7 +12,7 @@ fn facts(repo: &TestRepo) -> (anyhow::Result<RepoFacts>, u32) {
   let git = GitCommandExecutor::new().with_process_stats("test");
   let branch = repo.current_branch().unwrap();
   let facts = read_repo_facts(&git, repo.path_str(), &branch, "test");
-  let processes = git.process_stats().unwrap().by_command().values().map(|stats| stats.count).sum();
+  let processes = git.process_stats().unwrap().total();
   (facts, processes)
 }
 
@@ -100,7 +100,7 @@ fn a_detached_head_tracks_nothing() {
   assert_eq!(listing.baseline, detect_baseline_branch(repo.git_executor(), repo.path_str()).unwrap());
   assert_eq!((listing.baseline.as_str(), listing.baseline_ref.as_str()), ("origin/master", "refs/remotes/origin/master"));
   assert_eq!(listing.upstream, resolve_baseline_upstream(repo.git_executor(), repo.path_str(), "origin/master").unwrap());
-  let processes: u32 = git.process_stats().unwrap().by_command().values().map(|stats| stats.count).sum();
+  let processes = git.process_stats().unwrap().total();
   assert_eq!(processes, 2, "remote and for-each-ref");
 }
 

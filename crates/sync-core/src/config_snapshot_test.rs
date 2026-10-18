@@ -120,7 +120,7 @@ fn one_read_of_the_settings_and_the_descriptions() {
 
   let git = GitCommandExecutor::new().with_process_stats("test");
   let read = ConfigSnapshot::read(&git, repo.path_str()).unwrap();
-  let processes: u32 = git.process_stats().unwrap().by_command().values().map(|stats| stats.count).sum();
+  let processes = git.process_stats().unwrap().total();
   assert_eq!(processes, 1);
   assert!(read.stacks().unwrap());
   assert_eq!(read.symbol_mode().unwrap(), SymbolMode::Report);
