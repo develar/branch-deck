@@ -2,7 +2,7 @@ import { Channel } from "@tauri-apps/api/core"
 import { toast } from "@/components/ui/toast"
 import type { PatronusRobot, TransferProgress } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { notifyError } from "@/lib/errors"
+import { getErrorDetails, notifyError } from "@/lib/errors"
 import { retargetBeforePush } from "@/lib/git/new-pull-request"
 import type { PushOutcome } from "@/lib/git/push-toast"
 import { showPushToast, showStackPushToast } from "@/lib/git/push-toast"
@@ -11,7 +11,7 @@ import { showRobotToast } from "@/lib/patronus-actions"
 import { describePush, dropsRemoteCommits } from "@/lib/push-summary"
 import type { PushUpToStep } from "@/lib/push-up-to"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
-import { buttonStackPushOrder, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
+import { buttonStackPushOrder, needsPush, stackAncestors, stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 import { recordPush, recordRobot } from "@/stores/activity"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
@@ -26,6 +26,7 @@ import {
   setBranchRemoteStatus,
   setStackPushCurrent,
   toRemoteStatus,
+  whenBranchPushed,
   whenSynced,
 } from "@/stores/branch-sync"
 import { cancelPatronusRobot, fetchPatronusRobotStatus, getPushHold, restartPatronusRobot } from "@/stores/patronus"
@@ -58,7 +59,15 @@ export interface PushOptions {
    * stay unpushed
    */
   tip?: string
+  /**
+   * Where a failure is said: an error toast by default (`notifyError`); an action whose step the push is takes the
+   * reason to say it in place (`pushForAction`)
+   */
+  report?: PushReport
 }
+
+/** Says why a push failed or was refused: the title of an error toast and its reason */
+type PushReport = (title: string, error: unknown) => void
 
 /**
  * Pushes a virtual branch and updates its remote status from the result, then the pull requests (the pull request of
@@ -85,11 +94,11 @@ export async function pushBranch(branchName: string, options: PushOptions = {}):
   return true
 }
 
-/** The branch in the table, or an error toast */
-function findBranch(branchName: string): Branch | undefined {
+/** The branch in the table after the sync, or why not; a sync that runs is awaited first, so a missing branch is gone */
+function findBranch(branchName: string, report: PushReport): Branch | undefined {
   const branch = getBranch(branchName)
   if (branch === undefined) {
-    notifyError(`Cannot push ${branchName}`, "The branch is not in the table: sync and try again.")
+    report(`Cannot push ${branchName}`, `${branchName} is no longer in the branch list`)
   }
   return branch
 }
@@ -99,30 +108,35 @@ function findBranch(branchName: string): Branch | undefined {
  * Activity, the caller says it); null when nothing was pushed (it said why)
  */
 async function pushOne(branchName: string, options: PushOptions): Promise<PushOutcome | null> {
-  if (isBranchPushing(branchName) || findBranch(branchName) === undefined) {
+  if (isBranchPushing(branchName)) {
     return null
   }
+  const report = options.report ?? notifyError
   // a push pressed while a sync rebuilds the branches waits for it, with the spinner of a push, and pushes the branch as
-  // the sync left it: the row stays as it was during the sync (a quiet resync), so its button stays enabled
+  // the sync left it: the row stays as it was during the sync (a quiet resync), so its button stays enabled; a branch the
+  // sync brings is pushed too
   if (branchSyncStore.getState().isSyncing) {
     setBranchPushing(branchName, true)
     await whenSynced()
     setBranchPushing(branchName, false)
   }
+  if (findBranch(branchName, report) === undefined) {
+    return null
+  }
 
-  if (!(await checkPushHold(branchName, options))) {
+  if (!(await checkPushHold(branchName, options, report))) {
     return null
   }
   const restartRobot = options.restartRobot
 
   // the check may have waited for Patronus while a sync changed the branch: push it as it is now
-  const branch = findBranch(branchName)
+  const branch = findBranch(branchName, report)
   if (branch === undefined || isBranchPushing(branchName)) {
     return null
   }
   // pushed onto another base, its pull request into the old one would show the wrong commits
   const retargeted = (await retargetBeforePush(branch)) ?? undefined
-  const pushed = await pushWithProgress(branch, options)
+  const pushed = await pushWithProgress(branch, options, report)
   if (pushed === null) {
     return null
   }
@@ -148,7 +162,7 @@ function sentPart(before: RemoteStatus | null, tip: string | undefined): RemoteS
  * The push itself, while the row shows its progress: the remote status the remote moved to when nothing was pushed
  * (`moved`), null when it failed (an error toast said so)
  */
-async function pushWithProgress(branch: Branch, options: PushOptions): Promise<{ moved: RemoteStatus | null } | null> {
+async function pushWithProgress(branch: Branch, options: PushOptions, report: PushReport): Promise<{ moved: RemoteStatus | null } | null> {
   const branchName = branch.name
   setBranchPushing(branchName, true)
   try {
@@ -183,9 +197,9 @@ async function pushWithProgress(branch: Branch, options: PushOptions): Promise<{
       void refreshPullRequestsAfterPush(branchName, options.tip ?? branch.commits[0]?.hash)
       return { moved: null }
     }
-    notifyError(`Cannot push ${branchName}`, result.error)
+    report(`Cannot push ${branchName}`, result.error)
   } catch (error) {
-    notifyError(`Cannot push ${branchName}`, error)
+    report(`Cannot push ${branchName}`, error)
   } finally {
     setBranchPushing(branchName, false)
   }
@@ -215,19 +229,19 @@ async function restartAfterPush(robot: PatronusRobot): Promise<PatronusRobot | u
  * first (one row on the server), so a robot that finished meanwhile holds nothing. The robot the push restarts or
  * replaces (`restartRobot`, `replacesRobot`) is canceled instead, and the push goes on. Resolves to whether to push.
  */
-async function checkPushHold(branchName: string, options: PushOptions): Promise<boolean> {
+async function checkPushHold(branchName: string, options: PushOptions, report: PushReport): Promise<boolean> {
   const hold = getPushHold(branchName)
   if (hold === null) {
     return true
   }
   if (hold.robot.id === options.restartRobot?.id || hold.robot.id === options.replacesRobot?.id) {
-    return await cancelHoldingRobot(hold.robot)
+    return await cancelHoldingRobot(hold.robot, report)
   }
   const status = await fetchPatronusRobotStatus(hold.robot).catch(() => null)
   if (status !== null && status !== "running") {
     return true
   }
-  notifyError(`Cannot push ${branchName}`, formatPushHoldReason(branchName, hold))
+  report(`Cannot push ${branchName}`, formatPushHoldReason(branchName, hold))
   return false
 }
 
@@ -235,13 +249,13 @@ async function checkPushHold(branchName: string, options: PushOptions): Promise<
  * Cancels the robot of a hold before the push that restarts or replaces it, or before a Safe Push start that replaces it
  * without a push; false when Patronus refused (it said so)
  */
-export async function cancelHoldingRobot(robot: PatronusRobot): Promise<boolean> {
+export async function cancelHoldingRobot(robot: PatronusRobot, report: PushReport = notifyError): Promise<boolean> {
   const mode = formatPushMode(robot.pushMode)
   try {
     await cancelPatronusRobot(robot)
     return true
   } catch (error) {
-    notifyError(`Cannot cancel the ${mode}`, error)
+    report(`Cannot cancel the ${mode}`, error)
     return false
   }
 }
@@ -323,6 +337,8 @@ export interface StackPushOptions {
   replacesRobot?: PatronusRobot
   /** Whether a toast says what was pushed (`PushOptions`) */
   announce?: boolean
+  /** Where a failure is said (`PushOptions`) */
+  report?: PushReport
 }
 
 /**
@@ -335,6 +351,71 @@ export async function pushStack(branchName: string, options: StackPushOptions = 
     branchName,
     options,
   )
+}
+
+/** How the push of an action went: pushed (or nothing to push), else why not, for the action to say in place */
+export type ActionPush = { readonly pushed: true } | { readonly pushed: false; readonly reason: string }
+
+export interface ActionPushOptions {
+  /** The running robot a Safe Push start replaces: canceled, never restarted (`PushOptions.replacesRobot`) */
+  replacesRobot?: PatronusRobot
+}
+
+/**
+ * The push an action needs before it runs (a pull request, a review request, a Safe Push start): the branch and the
+ * ancestors with work for the remote, root first, as the push button pushes them, without a toast of its own: the
+ * action says how it went. Nothing to push resolves at once. A sync and a push of the branch already running are
+ * awaited, so the action sees the branch as they leave it. A push the user decides is never made here: one that drops
+ * remote commits of the branch or of an ancestor between it and the root refuses with the reason, as does a hold.
+ */
+export async function pushForAction(branchName: string, options: ActionPushOptions = {}): Promise<ActionPush> {
+  await whenSynced()
+  await whenBranchPushed(branchName)
+  const branch = getBranch(branchName)
+  if (branch === undefined) {
+    return { pushed: false, reason: `${branchName} is no longer in the branch list` }
+  }
+  const isHeld = (name: string) => isHeldBy(name, options.replacesRobot)
+  const blocker = actionPushBlocker(branch, getBranch, isHeld)
+  if (blocker !== null) {
+    return { pushed: false, reason: blocker }
+  }
+  let reason: string | null = null
+  const report: PushReport = (_title, error) => {
+    reason ??= getErrorDetails(error)
+  }
+  const replacesRobot = options.replacesRobot
+  const order = stackPushOrder(branchName, getBranch, { stopAtConfirm: true, isHeld })
+  let pushed: boolean
+  if (order.length === 1 && !needsPush(branch)) {
+    // nothing to push: the robot a start replaces is canceled for the start alone
+    pushed = replacesRobot === undefined || (await cancelHoldingRobot(replacesRobot, report))
+  } else {
+    pushed =
+      order.length > 1
+        ? await pushStack(branchName, { stopAtConfirm: true, replacesRobot, announce: false, report })
+        : await pushBranch(branchName, { replacesRobot, announce: false, report })
+  }
+  // no reason: the remote moved since the row showed it, and its toast says what the remote has and pushes over it
+  return pushed ? { pushed: true } : { pushed: false, reason: reason ?? `The remote branch of ${branchName} changed: nothing was pushed` }
+}
+
+/**
+ * Why the push an action needs can't be made for the user: the push of the branch, or of an ancestor it is built on,
+ * drops commits of its remote branch (someone else's work; its row asks first); null when it can
+ */
+export function actionPushBlocker(branch: Branch, branchOf: (name: string) => Branch | undefined, isHeld: (name: string) => boolean): string | null {
+  for (const it of [branch, ...stackAncestors(branch.name, branchOf).reverse()]) {
+    // the robot of a held ancestor lands it: the branches above it are pushed, as the push button pushes them
+    if (it !== branch && isHeld(it.name)) {
+      break
+    }
+    if (it.remoteStatus != null && needsPush(it) && dropsRemoteCommits(it.remoteStatus)) {
+      const count = it.remoteStatus.commitsBehind
+      return `The remote branch of ${it.name} has ${count === 1 ? "a commit" : `${count} commits`} that ${it.name} lacks: push it from its row, which shows ${count === 1 ? "it" : "them"}`
+    }
+  }
+  return null
 }
 
 /** A Safe Push holds the branch (`getPushHold`), other than the robot a start replaces */
@@ -384,7 +465,7 @@ async function pushInOrder(names: readonly string[], startedFrom: string, option
     for (const name of names) {
       setStackPushCurrent(startedFrom, name)
       // a Safe Push start cancels the robot it replaces, at the first branch that robot holds: the branch or an ancestor
-      const outcome = await pushOne(name, { replacesRobot: options.replacesRobot, tip: tips.get(name) })
+      const outcome = await pushOne(name, { replacesRobot: options.replacesRobot, tip: tips.get(name), report: options.report })
       if (outcome === null) {
         break
       }

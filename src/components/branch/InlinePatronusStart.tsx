@@ -14,7 +14,7 @@ import type { Commit, PatronusProfile, PatronusPushMode, PatronusRobot, Patronus
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { canCreatePullRequest } from "@/lib/git/new-pull-request"
-import { cancelHoldingRobot, pushBranch, pushStack } from "@/lib/git/push"
+import { cancelHoldingRobot, pushForAction } from "@/lib/git/push"
 import { formatShortHash } from "@/lib/hash"
 import { allowsPushMode, formatPushHoldReason, formatPushMode, getBypassProfiles, getPullRequestStart, getStartPush, isStartBlocked } from "@/lib/patronus"
 import { announceRobot } from "@/lib/patronus-actions"
@@ -256,11 +256,11 @@ export function InlinePatronusStart({
             : null
 
   /**
-   * The branch on the remote with its commits: a start and a merge request need it. False when the push failed (it said
-   * so). A Safe Push running on an older commit is canceled for the push of a start (`replacesRobot`), not restarted:
-   * the form starts the new one; without a push it is canceled for the start alone. A dry run doesn't replace it: the
-   * form offers no start while it needs a push then. The push is a step of the form's action: the start's toast or the
-   * opened pull request say how it went, not a push toast.
+   * The branch on the remote with its commits: a start and a merge request need it (`pushForAction`). False when the
+   * push failed or was refused, said in a toast. A Safe Push running on an older commit is canceled for the push of a
+   * start (`replacesRobot`), not restarted: the form starts the new one; without a push it is canceled for the start
+   * alone. A dry run doesn't replace it: the form offers no start while it needs a push then. The push is a step of the
+   * form's action: the start's toast or the opened pull request say how it went, not a push toast.
    */
   const pushIfNeeded = async (purpose: "start" | "pullRequest" | "pushOnly", replacesRobot: PatronusRobot | undefined): Promise<boolean> => {
     if (!needsPush) {
@@ -268,12 +268,13 @@ export function InlinePatronusStart({
     }
     setPushingFor(purpose)
     setInlinePushing(branchName, true)
-    const pushed = pushesStack
-      ? await pushStack(branchName, { stopAtConfirm: true, replacesRobot, announce: false })
-      : await pushBranch(branchName, { replacesRobot, announce: false })
+    const result = await pushForAction(branchName, { replacesRobot })
     setInlinePushing(branchName, false)
     setPushingFor(null)
-    return pushed
+    if (!result.pushed) {
+      notifyError(purpose === "start" ? `Cannot start the ${modeName}` : `Cannot push ${branchName}`, result.reason)
+    }
+    return result.pushed
   }
 
   /** The push alone, before the review is asked again: the form stays, its review then says what is missing */

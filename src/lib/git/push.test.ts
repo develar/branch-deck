@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { formatNewPullRequestBlocker, getNewPullRequestUrl } from "@/lib/git/new-pull-request"
-import { pushBranch, pushStack } from "@/lib/git/push"
+import { pushBranch, pushForAction, pushStack } from "@/lib/git/push"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { createPullRequestDialogStore } from "@/stores/create-pull-request-dialog"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
@@ -86,6 +86,8 @@ vi.mock("@/stores/branch-sync", () => ({
   getBranch: (name: string) => stores.branches[name],
   getStackDescendants: () => [],
   isBranchPushing: () => false,
+  whenSynced: async () => {},
+  whenBranchPushed: async () => {},
   isStackPushing: (name: string) => Object.hasOwn(stores.stackPushes, name),
   setBranchPushing: () => {},
   setStackPushCurrent: (startedFrom: string, current: string | null) => {
@@ -402,6 +404,58 @@ describe("the toast of a stack push", () => {
     expect(await pushStack("oauth", { announce: false })).toBe(true)
     expect(calls).toEqual(["push auth", "push login", "push oauth"])
     expect(toasts).toHaveLength(0)
+  })
+})
+
+describe("pushForAction", () => {
+  beforeEach(() => {
+    robots.running = undefined
+  })
+
+  it("pushes the branch for the action without a toast, Activity records it", async () => {
+    expect(await pushForAction("auth")).toEqual({ pushed: true })
+    expect(calls).toEqual(["push auth"])
+    expect(toasts).toEqual([])
+    expect(records).toEqual(["push auth"])
+  })
+
+  it("pushes nothing for a branch the remote has", async () => {
+    stores.branches.auth = { ...stores.branches.auth!, remoteStatus: testRemoteStatus({ exists: true, remoteTip: "tip" }) }
+    expect(await pushForAction("auth")).toEqual({ pushed: true })
+    expect(calls).toEqual([])
+  })
+
+  it("pushes the ancestors with work for the remote first, root first", async () => {
+    addBranch("login", "auth", false)
+    expect(await pushForAction("login")).toEqual({ pushed: true })
+    expect(calls).toEqual(["push auth", "push login"])
+    expect(toasts).toEqual([])
+  })
+
+  it("refuses a push that drops remote commits of the branch or of an ancestor: the row asks first", async () => {
+    addBranch("login", "auth")
+    stores.branches.auth = {
+      ...stores.branches.auth!,
+      remoteStatus: testRemoteStatus({ exists: true, commitsAhead: 1, commitsBehind: 2, fastForward: false, remoteTip: "theirs" }),
+    }
+    expect(await pushForAction("login")).toEqual({
+      pushed: false,
+      reason: "The remote branch of auth has 2 commits that auth lacks: push it from its row, which shows them",
+    })
+    expect(calls).toEqual([])
+  })
+
+  it("returns the reason of a hold instead of a toast", async () => {
+    robots.running = { ...RUNNING }
+    const result = await pushForAction("auth")
+    expect(result.pushed).toBe(false)
+    expect(result.pushed ? null : result.reason).toContain("A Safe Push of auth is running")
+    expect(toasts).toEqual([])
+    expect(calls).toEqual([])
+  })
+
+  it("says a branch gone from the list in place", async () => {
+    expect(await pushForAction("gone")).toEqual({ pushed: false, reason: "gone is no longer in the branch list" })
   })
 })
 

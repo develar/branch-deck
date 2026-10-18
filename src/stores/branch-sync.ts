@@ -754,6 +754,21 @@ export function isBranchPushing(name: string): boolean {
   return Object.hasOwn(branchSyncStore.getState().pushingBranches, name)
 }
 
+/** Resolves once no push of the branch runs: at once while none does */
+export function whenBranchPushed(name: string): Promise<void> {
+  if (!isBranchPushing(name)) {
+    return Promise.resolve()
+  }
+  return new Promise(resolve => {
+    const unsubscribe = branchSyncStore.subscribe(state => {
+      if (!Object.hasOwn(state.pushingBranches, name)) {
+        unsubscribe()
+        resolve()
+      }
+    })
+  })
+}
+
 export function setBranchPushing(name: string, isPushing: boolean): void {
   branchSyncStore.setState(state => {
     if (Object.hasOwn(state.pushingBranches, name) === isPushing) {

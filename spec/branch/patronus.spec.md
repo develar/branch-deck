@@ -450,12 +450,16 @@ reports in it and closes it once merged.
 - The push is a step of the start: it has no toast of its own (Activity
   records it), the start's toast is the one toast of the action, and while it runs the button clicked shows it
   ("Pushing 45%", "Pushing login 45%" for a stack), the one indicator of it: the push button of the row is disabled
-  without its spinner and percent. A failed push starts nothing. A Safe Push of the branch still running on
+  without its spinner and percent. A failed push starts nothing. The push is `pushForAction`, the push of every action
+  that needs the remote (the pull request dialog, Request Review): it never drops someone's remote commits for the
+  user, and a branch, or an ancestor it pushes, whose remote branch has commits the branch lacks refuses the start: "The
+  remote branch of auth has 2 commits that auth lacks: push it from its row, which shows them". A Safe Push of the branch still running on
   an older commit is canceled for that push, not restarted ([below](#pushing-into-a-branch-whose-safe-push-runs)). Then
   `POST /robots` starts the robot on the pushed virtual branch, as the web UI does (`ROBOT_WEB_UI`, the source branch
   `refs/heads/{prefix}/virtual/{name}`, kept: delete policy `NEVER`), so a restart takes the newest commit of the
   branch. The robot shows at once and is polled.
   [@test] ../../crates/patronus/src/actions_test.rs (`starts_a_robot_on_the_pushed_branch_and_keeps_the_branch`)
+  [@test] ../../src/lib/git/push.test.ts (`pushes the branch for the action without a toast, Activity records it`, `pushes the ancestors with work for the remote first, root first`, `refuses a push that drops remote commits of the branch or of an ancestor: the row asks first`, `returns the reason of a hold instead of a toast`)
 - A started robot is a `success` toast "Safe Push started" ("Dry Run started") that names the branch, the target and
   the profile, never the ref the robot runs on ("auth → master · profile Large Scale Change", `describeRobot`), with
   "Open in Patronus" (the robot page), for 10 s; Activity records it in the same words. A failed start is an error
