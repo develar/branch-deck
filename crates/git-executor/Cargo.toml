@@ -14,6 +14,10 @@ tracing.workspace = true
 # SIGTERM for an interactive git that doesn't exit when its stdin closes (`interactive_command.rs`)
 rustix = { version = "1.1.5", default-features = false, features = ["std", "process"] }
 
+[target.'cfg(windows)'.dependencies]
+# the job object that a kill of git ends, with the git that the launcher of Git for Windows starts (`process_tree.rs`)
+windows-sys = { version = "0.61.2", features = ["Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+
 [dev-dependencies]
 tempfile.workspace = true
 

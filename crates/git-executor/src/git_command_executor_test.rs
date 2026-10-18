@@ -328,23 +328,42 @@ fn progress_resets_the_idle_timeout() {
   assert_eq!(lines, ["1", "2", "3", "4", "5"]);
 }
 
+/// Runs `script` as a git alias in `dir`, canceled once git reported something, so it surely runs
+fn run_until_reported(script: &str, dir: &Path) -> anyhow::Result<String> {
+  let reported = Cell::new(false);
+  let stop = ProgressStop {
+    idle_timeout: None,
+    is_cancelled: &|| reported.get(),
+  };
+  run_until(script, dir, &mut |_| reported.set(true), &stop, &Instant::now)
+}
+
 #[test]
 fn a_cancelled_git_is_killed() {
   let dir = holding_dir();
-  // canceled once git reported something, so it surely runs
-  let reported = Cell::new(false);
-  let result = run_until(
-    &format!("printf 'step 1\\n' >&2; {HOLD_STDERR}"),
-    dir.path(),
-    &mut |_| reported.set(true),
-    &ProgressStop {
-      idle_timeout: None,
-      is_cancelled: &|| reported.get(),
-    },
-    &Instant::now,
-  );
+  let result = run_until_reported(&format!("printf 'step 1\\n' >&2; {HOLD_STDERR}"), dir.path());
   assert_eq!(stopped(&result), Some(StoppedCommand::Cancelled), "{result:?}");
   assert_returned_while_stderr_held(&dir);
+}
+
+/// On Windows `git` is mostly the launcher of Git for Windows (`Git\cmd\git.exe`), which starts the real git as its child:
+/// a stop ends the launcher, the git and the shell of the alias (`process_tree.rs`), not the launcher alone
+#[cfg(windows)]
+#[test]
+fn a_stopped_git_ends_every_process_it_started() {
+  let dir = tempfile::tempdir().unwrap();
+  // the shell adds a line to `beats` every 50 ms, for 30 s at most; it is canceled at its first line
+  let script = "i=0; while [ $i -lt 600 ]; do echo $i >> beats; printf 'beat\\n' >&2; sleep 0.05; i=$((i+1)); done";
+  let result = run_until_reported(script, dir.path());
+  assert_eq!(stopped(&result), Some(StoppedCommand::Cancelled), "{result:?}");
+  let beats = || std::fs::read_to_string(dir.path().join("beats")).map_or(0, |text| text.lines().count());
+  // a beat may be on its way while the processes end
+  std::thread::sleep(Duration::from_millis(200));
+  let at_the_stop = beats();
+  assert!(at_the_stop > 0, "the shell never ran");
+  // a shell that still ran would add about ten
+  std::thread::sleep(Duration::from_millis(500));
+  assert_eq!(beats(), at_the_stop, "a process of the stopped git still runs");
 }
 
 /// Runs `script` as a git alias in `dir` with `input` on stdin, killed after `timeout` measured on `now`

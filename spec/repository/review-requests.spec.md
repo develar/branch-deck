@@ -13,6 +13,7 @@ targets:
   - ../../crates/sync-core/src/remote_command.rs
   - ../../crates/git-ops/src/commit_files.rs
   - ../../crates/git-executor/src/git_command_executor.rs
+  - ../../crates/git-executor/src/process_tree.rs
   - ../../crates/test-server/src/tauri_command_bridge.rs
   - ../../src-tauri/src/commands/review_requests.rs
   - ../../src-tauri/src/commands/pull_requests.rs
@@ -287,9 +288,10 @@ Safe Push it allows.
   its file count, until it is done, and after a failed fetch the alert says why. One fetch at a time per window
   (`fetch_review_head` and `cancel_review_fetch` count per webview label): another request, or the close of the window,
   kills the one in flight; a fetch that reports nothing for 120 s is killed too ("git reported nothing for 120 s").
+  On Windows the kill ends the git that the launcher of Git for Windows started too, with its ssh.
   After the answer, the source is the one the range names.
   [@test] ../../crates/sync-core/src/review_fetch_test.rs (`a_cancel_kills_the_fetch`, `a_stalled_fetch_is_killed`)
-  [@test] ../../crates/git-executor/src/git_command_executor_test.rs (`a_git_that_reports_nothing_for_the_idle_timeout_is_killed`, `progress_resets_the_idle_timeout`, `a_cancelled_git_is_killed`)
+  [@test] ../../crates/git-executor/src/git_command_executor_test.rs (`a_git_that_reports_nothing_for_the_idle_timeout_is_killed`, `progress_resets_the_idle_timeout`, `a_cancelled_git_is_killed`, `a_stopped_git_ends_every_process_it_started`)
   [@test] ../../src-tauri/src/commands/review_requests.rs (`a_window_kills_only_its_own_fetch`, `a_closed_window_kills_its_fetch`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
 - Changes (`D`, toggling) reviews the range in the island, the range review of a branch

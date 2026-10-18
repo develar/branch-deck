@@ -1,6 +1,7 @@
 use crate::git_info::GitInfo;
 use crate::interactive_command::InteractiveCommand;
 use crate::process_stats::ProcessStats;
+use crate::process_tree::ProcessTree;
 use anyhow::{Result, anyhow};
 use std::io::{Read, Write};
 use std::ops::ControlFlow;
@@ -314,6 +315,7 @@ impl<'a> GitCommand<'a> {
       .stderr(Stdio::piped())
       .spawn()
       .map_err(|e| anyhow!("Failed to spawn git command: {e}"))?;
+    let tree = ProcessTree::of(&child);
     let stdin = if pipe_stdin {
       Some(child.stdin.take().ok_or_else(|| anyhow!("git stdin is not piped"))?)
     } else {
@@ -323,6 +325,7 @@ impl<'a> GitCommand<'a> {
     let stderr = child.stderr.take().ok_or_else(|| anyhow!("git stderr is not piped"))?;
     Ok(Spawned {
       child,
+      tree,
       stdin,
       stdout,
       stderr,
@@ -349,6 +352,7 @@ impl<'a> GitCommand<'a> {
   fn run(&self, mut on_chunk: Option<&mut ChunkHandler<'_>>, mut on_line: Option<&mut dyn FnMut(&str)>, stop: &ProgressStop<'_>) -> Result<Finished> {
     let Spawned {
       child,
+      tree,
       stdin,
       stdout,
       stderr,
@@ -356,6 +360,7 @@ impl<'a> GitCommand<'a> {
     } = self.spawn(self.stdin.is_some())?;
     let mut running = Running {
       child,
+      tree,
       git: self.git,
       args: self.args,
       started,
@@ -501,6 +506,8 @@ type ChunkHandler<'h> = dyn FnMut(&[u8]) -> Result<ControlFlow<()>> + 'h;
 /// A started git with its pipes taken (`GitCommand::spawn`)
 pub(crate) struct Spawned {
   pub(crate) child: Child,
+  /// What a kill of git ends: git and the processes it started (`process_tree.rs`)
+  pub(crate) tree: ProcessTree,
   pub(crate) stdin: Option<ChildStdin>,
   pub(crate) stdout: ChildStdout,
   pub(crate) stderr: ChildStderr,
@@ -511,6 +518,7 @@ pub(crate) struct Spawned {
 /// counts the process (`with_process_stats`)
 struct Running<'a> {
   child: Child,
+  tree: ProcessTree,
   git: &'a GitCommandExecutor,
   args: &'a [&'a str],
   started: Instant,
@@ -519,7 +527,7 @@ struct Running<'a> {
 impl Running<'_> {
   fn kill(&mut self) {
     if matches!(self.child.try_wait(), Ok(None)) {
-      let _ = self.child.kill();
+      self.tree.kill(&mut self.child);
     }
   }
 

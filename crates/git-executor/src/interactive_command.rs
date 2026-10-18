@@ -10,6 +10,7 @@
 
 use crate::git_command_executor::{Spawned, decode};
 use crate::process_stats::ProcessStats;
+use crate::process_tree::ProcessTree;
 use anyhow::{Result, anyhow, bail};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin};
@@ -25,6 +26,8 @@ const EXIT_POLL: Duration = Duration::from_millis(10);
 /// A running git process with piped stdin, stdout and stderr
 pub struct InteractiveCommand {
   child: Child,
+  /// What the last-resort kill ends: git and the processes it started
+  tree: ProcessTree,
   stdin: Option<ChildStdin>,
   /// The records of stdout (lines, or fields of `delimiter`), read by a thread; the channel closes at the end of stdout
   lines: Receiver<std::io::Result<Vec<u8>>>,
@@ -42,6 +45,7 @@ impl InteractiveCommand {
   pub(crate) fn start(spawned: Spawned, description: String, delimiter: u8) -> Self {
     let Spawned {
       child,
+      tree,
       stdin,
       stdout,
       mut stderr,
@@ -64,6 +68,7 @@ impl InteractiveCommand {
     Self {
       stdin,
       child,
+      tree,
       lines,
       stderr: Some(stderr),
       description,
@@ -172,7 +177,7 @@ impl Drop for InteractiveCommand {
       }
     }
     tracing::warn!(command = %self.description, "git does not exit; killing it, which can leave its lock files");
-    let _ = self.child.kill();
+    self.tree.kill(&mut self.child);
     let _ = self.child.wait();
     self.record_exit();
   }

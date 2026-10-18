@@ -146,7 +146,7 @@ written, except by Update Project and the finish of its resolve session (their o
    environment and the per-call `env` of every other call, a reply line awaited with a timeout (60 s; ref locks are
    taken without waiting). A dropped handle closes stdin and waits up to 5 s: `update-ref` then aborts and removes its
    lock files. Then it sends SIGTERM, whose handler in git removes them too, and SIGKILL only as the last resort, which
-   would leave `HEAD.lock` and the branch lock behind. The same interactive git drives the chains of a sync
+   would leave `HEAD.lock` and the branch lock behind (on Windows the kill of its job, as for every git). The same interactive git drives the chains of a sync
    (`commit_chain.rs`: one `merge-tree --write-tree --stdin -z` and one `fast-import` per branch, each step waiting for
    the reply of the one before) and the tree check of a trial sync (`crates/sync-core/src/check.rs`:
    `cat-file --batch-check` of the trees the object cache remembers).
@@ -247,13 +247,16 @@ All git runs through `GitCommandExecutor` (`crates/git-executor/src/git_command_
 stdout and stderr are read by threads that send their events to the calling thread (a bounded queue, so a slow
 `stream` handler holds git back instead of filling the memory); a timeout or a `ProgressStop` (an idle timeout, a
 cancel) makes the run poll and kill git, the error a `StoppedCommand`, and after git exits the rest of its pipes is
-awaited for 500 ms only, because a helper of git (ssh, a credential helper) may hold them open. Each run is one tracing
-span (`git`, with the command, the exit code and the time), and a guard kills a git that still runs and counts the
-process however the run ends: a handler error, a stop or a `Break`. Text is decoded with `String::from_utf8`, lossily
-only when it is not UTF-8; stderr is read as bytes and decoded lossily, the interactive one too. Three shorthands
-stay for the common one-liners: `execute_command` is `.text()`, `execute_command_lines` is `.lines()` and
-`execute_command_with_status` is `.status()` as text (trimmed stdout on success, trimmed stderr otherwise, and the
-code); every other call is the builder. Besides its construction (`new`, `with_info`, `get_info`) and the process
+awaited for 500 ms only, because a helper of git (ssh, a credential helper) may hold them open. On Windows a kill ends
+the job object that git was put into when it started (`crates/git-executor/src/process_tree.rs`): `git` on `PATH` is
+mostly the launcher of Git for Windows (`Git\cmd\git.exe`), which starts the real git as its child, and a kill of the
+launcher alone would leave that git running with its ssh or helper, its lock files and our inherited pipe handles. A
+git that exits by itself ends nothing of its job. Each run is one tracing span (`git`, with the command, the exit code
+and the time), and a guard kills a git that still runs and counts the process however the run ends: a handler error, a
+stop or a `Break`. Text is decoded with `String::from_utf8`, lossily only when it is not UTF-8; stderr is read as bytes
+and decoded lossily, the interactive one too. Three shorthands stay for the common one-liners: `execute_command` is
+`.text()`, `execute_command_lines` is `.lines()` and `execute_command_with_status` is `.status()` as text (trimmed
+stdout on success, trimmed stderr otherwise, and the code); every other call is the builder. Besides its construction (`new`, `with_info`, `get_info`) and the process
 counts (`with_process_stats`, `process_stats`), that is all the executor offers: it knows no git command, and what a
 command means (a commit or a tree by name, whether a ref exists) is a function of `git_ops::revs`.
 
