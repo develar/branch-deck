@@ -211,7 +211,7 @@ describe("pushes of stacked branches", () => {
     expect(offersPushWithChildren("auth", [], { kind: "unpublished" })).toBe(false)
   })
 
-  it("says why Push with Children pushes nothing beyond the branch: the stack is on the remote, only the branch has work, or the children ask first", () => {
+  it("says why Push with Children pushes nothing beyond the branch: the stack is on the remote, only the branch has work, the children ask first, or they all landed", () => {
     expect(describePushWithChildrenBlocker("auth", ["auth", "login"], [])).toBeNull()
     expect(describePushWithChildrenBlocker("auth", ["login"], [])).toBeNull()
     expect(describePushWithChildrenBlocker("auth", [], [])).toBe("Nothing to push: the stack is on the remote")
@@ -228,6 +228,14 @@ describe("pushes of stacked branches", () => {
     )
     expect(describePushWithChildrenBlocker("auth", [], [], { kind: "dropsRemote" })).toBe(
       "The branches of the stack are on the remote. The whole stack branch stays: its push would drop remote commits it lacks",
+    )
+    // merged Safe Pushes landed the branch and every branch built on it: who landed them, its stack branch held too
+    const landed = "Landed in master with oauth and session"
+    expect(describePushWithChildrenBlocker("auth", [], [], { kind: "held", reason: `${landed}: nothing of it is left to push` }, landed)).toBe(
+      "Landed in master with oauth and session: nothing of auth and its children is left to push",
+    )
+    expect(describePushWithChildrenBlocker("auth", [], [], { kind: "held", reason: "A Safe Push of the whole auth stack is running: wait until it merges" })).toBe(
+      "The branches of the stack are on the remote. A Safe Push of the whole auth stack is running: wait until it merges",
     )
     expect(formatAskFirst(["login", "oauth"])).toBe("login and oauth ask first in their rows: the push drops remote commits")
     const dropping = testRemoteStatus({ commitsAhead: 1, commitsBehind: 1, fastForward: false })

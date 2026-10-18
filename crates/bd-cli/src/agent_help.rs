@@ -129,7 +129,8 @@ Workflow: the commits into pull requests
      would fail it at the end. Wait until it merges, or, once approved, --restart-running cancels it, pushes and
      restarts it on the pushed commit (`restarted`).
    - `landed` (exit 4): a merged Safe Push landed all of the branch (`landed_by` in `bd status`): nothing of it is
-     left to push until `bd update` archives it. A branch it is built on that landed is not pushed along.
+     left to push until `bd update` archives it. A branch it is built on that landed is not pushed along, and
+     `bd push --with-children` leaves a landed one out, refusing only when nothing else is left.
    `bd sync` prints the push each branch needs as `push`, ready to run once approved. With stacked branches, `stacks`
    in `bd sync` and `bd status` is the stack branch of each stack that forks, `{prefix}/stack/<root>`: all its commits
    in one branch, for a Safe Push of the whole stack (`state`: `built`, `blocked` by `member`, `conflict`, `stale`);

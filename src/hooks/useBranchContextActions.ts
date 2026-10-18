@@ -78,7 +78,15 @@ import {
 import { getSelectedBranches, requestReveal, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { closeCreatePullRequestDialog, openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
-import { getBranchRobot, getLandingBranchCount, getPatronusGitHubRepository, getPushHold, isPatronusAvailable } from "@/stores/patronus"
+import {
+  getBranchRobot,
+  getLandedWithChildrenReason,
+  getLandingBranchCount,
+  getPatronusGitHubRepository,
+  getPushHold,
+  getStackBranchHoldReason,
+  isPatronusAvailable,
+} from "@/stores/patronus"
 import { getPullRequest, getStackPullRequest } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { getReadinessTarget, getReviewReadiness, recheckReviewReadiness } from "@/stores/review-readiness"
@@ -576,9 +584,12 @@ function getStackMenuItems(branch: Branch, rewrite: (items: MenuItem[]) => MenuI
  * branches built on it that have work for the remote, parents first (`stackChildrenPushOrder`), in one push; of the root
  * of a stack that forks, the stack branch of its whole stack too, while it goes along (`getStackBranchAlong`), counted
  * and named in the hover. Every branch with children offers it, also during a sync (the push waits for it and pushes
- * what it leaves); null for a branch without children. Disabled with the reason while a Safe Push holds the branch
- * (`PushHold`: a push of the stack it runs in won't land, and every Safe Push in a stack holds its root), while the
- * stack is being pushed, and while it would push nothing beyond the branch itself (`describePushWithChildrenBlocker`).
+ * what it leaves); null for a branch without children. Disabled with the reason while a running Safe Push holds the
+ * branch (`PushHold`: a push of the stack it runs in won't land, and every Safe Push in a stack holds its root), while
+ * the stack is being pushed, and while it would push nothing beyond the branch itself (`describePushWithChildrenBlocker`),
+ * also once merged Safe Pushes landed it and every branch built on it ("Landed in master with deploy and side-test:
+ * nothing of air and its children is left to push"). A branch a merged one landed is only left out: its children push
+ * without it.
  */
 export function getPushWithChildrenItem(name: string): MenuItem | null {
   const descendants = getStackDescendants(name)
@@ -588,12 +599,14 @@ export function getPushWithChildrenItem(name: string): MenuItem | null {
   const isHeld = (it: string): boolean => getPushHold(it) !== null
   // the children are built on the branch: a push of it alone leaves their remote branches on its old head
   const order = stackChildrenPushOrder(name, descendants, getBranch, isHeld)
-  const hold = getPushHold(name)
+  // a running Safe Push holds the stack; a merged one that landed the branch leaves its children to push
+  const landedHold = getPushHold(name)
+  const hold = landedHold?.kind === "landed" ? null : landedHold
   const all = hold === null ? order : stackChildrenPushOrder(name, descendants, getBranch)
   // the pull request of the whole stack follows its branches: its stack branch goes along
   const stack = getStackBranch(name)
   const stackPullRequest = getStackPullRequest(name)
-  const along = getStackBranchAlong(name, stack, stackPullRequest)
+  const along = getStackBranchAlong(name, stack, stackPullRequest, getStackBranchHoldReason(name))
   const withStackBranch = along?.kind === "along"
   const offers = offersPushWithChildren(name, all, along)
   let reason: string | null
@@ -605,7 +618,7 @@ export function getPushWithChildrenItem(name: string): MenuItem | null {
     // the statuses the sync computes say what is left to push
     reason = "Wait for the sync to finish"
   } else {
-    reason = describePushWithChildrenBlocker(name, order, stackAskFirst(descendants, getBranch, isHeld), along)
+    reason = describePushWithChildrenBlocker(name, order, stackAskFirst(descendants, getBranch, isHeld), along, getLandedWithChildrenReason(name))
   }
   const description = reason ?? (withStackBranch && stack !== undefined ? describeStackBranchAlong(stack, stackPullRequest) : null)
   return {

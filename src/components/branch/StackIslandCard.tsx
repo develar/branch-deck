@@ -60,7 +60,7 @@ import {
 } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { useStackLandedBy } from "@/stores/landed-stacks"
-import { useBranchRobot, usePushHold, useStackRobot } from "@/stores/patronus"
+import { useBranchRobot, useLandedWithChildrenReason, usePushHold, useStackRobot } from "@/stores/patronus"
 import { useRepositoryPullRequestMap, useStackPullRequest } from "@/stores/pull-requests"
 import { getReadinessTarget } from "@/stores/review-readiness"
 import { useSafePushStarting } from "@/stores/safe-push"
@@ -78,7 +78,10 @@ interface IslandSummary {
   pushCommits: number
   /** The branches with work whose push drops remote commits: they ask first in their rows */
   askFirst: string[]
-  /** A Safe Push runs in the stack: every one holds the root (`PushHold`), and the header offers no push nor Safe Push */
+  /**
+   * A Safe Push runs in the stack: every one holds the root (`PushHold`), and the header offers no push nor Safe Push. A
+   * merged one that landed the root is no such hold: the rest of the stack pushes and lands without it
+   */
   rootHeld: boolean
   /** The main line, root first (`stackMainLineIn`): its last branch is the Safe Push of the header */
   mainLine: string[]
@@ -94,6 +97,7 @@ interface IslandSummary {
 function useIslandSummary(root: string): IslandSummary | null {
   const sources = useStackStateSources()
   const { isLanded, isHeld } = sources
+  const rootHold = usePushHold(root)
   // a string, so the store notifies only when the summary changes
   const key = useBranchSync(state => {
     const descendants = stackDescendantsIn(state, root)
@@ -123,7 +127,7 @@ function useIslandSummary(root: string): IslandSummary | null {
             branch.name !== root && branch.remoteStatus != null && needsPush(branch) && dropsRemoteCommits(branch.remoteStatus) && !isHeld(branch.name) && !isLanded(branch.name),
         )
         .map(branch => branch.name),
-      rootHeld: isHeld(root),
+      rootHeld: rootHold !== null && rootHold.kind !== "landed",
       mainLine: stackMainLineIn(state, root),
       members: branches.map(branch => branch.name),
     } satisfies IslandSummary)
@@ -403,15 +407,16 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
   const progress = alone ? stackBranchProgress : branchProgress
   const hold = usePushHold(root)
   const along = useStackBranchAlong(root)
+  const landed = useLandedWithChildrenReason(root)
   const stack = useStackBranch(root)
   const withStackBranch = along?.kind === "along" && stack !== undefined
   const { pushOrder, askFirst } = summary
   let blocker: string | null = null
   if (!busy) {
     if (summary.rootHeld) {
-      blocker = hold === null ? "A Safe Push runs in the stack" : formatPushHoldReason(root, hold)
+      blocker = hold === null || hold.kind === "landed" ? "A Safe Push runs in the stack" : formatPushHoldReason(root, hold)
     } else {
-      blocker = describePushWithChildrenBlocker(root, pushOrder, askFirst, along)
+      blocker = describePushWithChildrenBlocker(root, pushOrder, askFirst, along, landed)
     }
   }
   let label = "Push with Children"

@@ -334,12 +334,17 @@ menu stacks, unstacks and renames branches.
   while it would push nothing beyond the branch ("Nothing to push: the stack is on the remote", "Only auth has
   commits to push: its own push sends them", "login asks first in its row: the push drops remote commits"; "Wait for
   the sync to finish" while the sync computes the remote statuses), while the stack is being pushed ("The stack is being
-  pushed") and while a Safe Push holds the branch: every Safe Push of the stack lands it.
+  pushed") and while a running Safe Push holds the branch: every Safe Push of the stack lands it. A branch a merged
+  Safe Push landed whole is only left out, its own branch included: the branches built on it push without it, from its
+  menu, the island's header and the description of its push ("session is stacked on auth and has commits to push.",
+  "Push with Children (session)"). Once it and every branch built on it landed, nothing is left: "Landed in master
+  with deploy and side-test: nothing of air and its children is left to push" ([Patronus](patronus.spec.md#merged)).
 - Push with Children of the root of a stack that forks must also push the stack branch of its whole stack
   (`{prefix}/stack/<root>`, [Whole Stack](whole-stack.spec.md)) in the same atomic push, after the branches, leased
   on the remote head of its remote status, so the pull request of the whole stack follows its branches: only while the
   sync built it (never stale, conflicted or blocked), once it is on the remote or its pull request is open, while its
-  remote lacks commits of it and has none it lacks (`getStackBranchAlong`). It counts as one more branch and the
+  remote lacks commits of it and has none it lacks, and never while it is held (`getStackBranchAlong`: its own robot
+  runs, or every branch of the stack landed, [Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)). It counts as one more branch and the
   hover names it: "Push with Children (5 branches)", "Push with Children (the whole stack branch)" when only it has
   work, "Also pushes the whole stack branch user-name/stack/auth, the head of #12" on the menu item, "The whole stack
   branch user-name/stack/auth goes along." in the description of the root's push, its toast "… · pushed the whole
@@ -349,15 +354,18 @@ menu stacks, unstacks and renames branches.
   goes there with the pull request or the Safe Push of the whole stack", one the sync didn't build says why. A refused
   push names a stack branch that moved as the stack branch, apart from its root ("Cannot push the whole stack branch of
   auth"). `bd push <root> --with-children` follows the same rule ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
-  [@test] ../../src/lib/whole-stack.test.ts (`goes along with Push with Children of its root once it is on the remote or its pull request is open, while built, with work its remote lacks`)
-  [@test] ../../src/lib/stack.test.ts (`names Push with Children by what it pushes, and offers it only beyond the branch itself`, `says why Push with Children pushes nothing beyond the branch: the stack is on the remote, only the branch has work, or the children ask first`)
+  [@test] ../../src/lib/whole-stack.test.ts (`goes along with Push with Children of its root once it is on the remote or its pull request is open, while built, with work its remote lacks, and not held`)
+  [@test] ../../src/lib/stack.test.ts (`names Push with Children by what it pushes, and offers it only beyond the branch itself`, `says why Push with Children pushes nothing beyond the branch: the stack is on the remote, only the branch has work, the children ask first, or they all landed`)
   [@test] ../../src/lib/git/push.test.ts (`goes along after the branches once it is on the remote, leased on its remote head, in the one toast`, `goes along while its pull request is open, though the remote doesn't have it yet`, `stays local while it is neither on the remote nor in an open pull request, and while the sync didn't build it`, `is pushed alone when the branches are on the remote, with the pull request of the whole stack`, `refuses the whole push when its remote moved with commits it lacks, and says so as the stack branch`)
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`takes the stack branch of the whole stack of a root along once it is on the remote, counted and named, and says why while it doesn't`)
   [@test] ../../src/hooks/usePushButton.test.ts (`names the stack branch of the whole stack that Push with Children of a root takes along`)
   [@test] ../../crates/sync-core/src/push_test.rs (`the_stack_branch_goes_with_the_branches_and_a_moved_one_is_named_as_the_stack_branch`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should take the whole stack branch along in Push with Children of the root once its pull request is open, from the push and the menu`, `should push a parent with its children`)
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should take the whole stack branch along in the header's push once it is on the remote, and push it alone from the menu`)
-  [@test] ../../src/lib/stack.test.ts (`pushes the branch and its children that have work for the remote, parents first`, `leaves out the branches a running Safe Push holds, and starts a stack push above them`, `names Push with Children by what it pushes, and offers it only beyond the branch itself`, `says why Push with Children pushes nothing beyond the branch: the stack is on the remote, only the branch has work, or the children ask first`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should take the whole stack branch along in the header's push once it is on the remote, and push it alone from the menu`, `should hold the push of the whole stack branch once every branch of the stack landed, and push what is left without the landed ones`)
+  [@test] ../../src/hooks/usePushButton.test.ts (`offers no push while a Safe Push holds the branch, and says why; the children of a landed one push without it`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
+  [@test] ../../crates/bd-cli/src/landed_test.rs (`push_with_children_leaves_out_what_merged_safe_pushes_landed_and_refuses_once_nothing_else_is_left`)
+  [@test] ../../src/lib/stack.test.ts (`pushes the branch and its children that have work for the remote, parents first`, `leaves out the branches a running Safe Push holds, and starts a stack push above them`, `names Push with Children by what it pushes, and offers it only beyond the branch itself`, `says why Push with Children pushes nothing beyond the branch: the stack is on the remote, only the branch has work, the children ask first, or they all landed`)
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`is offered beside the push on every branch with children, disabled with the reason while it would push nothing beyond the branch`, `is offered while a sync runs and while the root is on the remote: the push waits for the sync`)
   [@test] ../../src/lib/git/push.test.ts (`starts above the branches a running Safe Push holds`, `waits for the sync, then pushes the children as the sync leaves them`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a parent with its children`, `should offer Push with Children while a sync runs and when the root is pushed`)

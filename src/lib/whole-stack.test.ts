@@ -74,7 +74,7 @@ describe("the whole stack", () => {
     expect(getStackBranchBlocker("air", stack({ state: "Stale", error: "Not rebuilt: another process moved the ref" }))).toBe("Not rebuilt: another process moved the ref")
   })
 
-  it("goes along with Push with Children of its root once it is on the remote or its pull request is open, while built, with work its remote lacks", () => {
+  it("goes along with Push with Children of its root once it is on the remote or its pull request is open, while built, with work its remote lacks, and not held", () => {
     const ahead = testRemoteStatus({ commitsAhead: 2, remoteTip: "old" })
     const absent = testRemoteStatus({ exists: false, commitsAhead: 4, remoteTip: null })
     expect(getStackBranchAlong("air", stack({ remoteStatus: ahead }), undefined)).toEqual({ kind: "along" })
@@ -88,6 +88,10 @@ describe("the whole stack", () => {
     expect(getStackBranchAlong("air", stack({ remoteStatus: testRemoteStatus({ commitsAhead: 1, commitsBehind: 1, fastForward: false }) }), undefined)).toEqual({
       kind: "dropsRemote",
     })
+    // never one that is held: every branch of the stack landed, or its own robot runs
+    const landed = "Landed in master with deploy and side-test: nothing of it is left to push"
+    expect(getStackBranchAlong("air", stack({ remoteStatus: ahead }), undefined, landed)).toEqual({ kind: "held", reason: landed })
+    expect(getStackBranchAlong("air", stack({ remoteStatus: absent }), undefined, landed)).toEqual({ kind: "unpublished" })
     // a stack that doesn't fork has none
     expect(getStackBranchAlong("air", stack({ members: [], state: "Stale", remoteStatus: ahead }), undefined)).toBeNull()
     expect(getStackBranchAlong("air", undefined, pullRequest)).toBeNull()

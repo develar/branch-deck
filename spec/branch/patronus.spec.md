@@ -963,16 +963,27 @@ explicit choice of the user, offered only where the approvals count in a pull re
   it lands auth with it" ([Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)). A branch a merged Safe Push
   landed whole ([Merged](#merged)), the branch it ran on included, is held too, before any other hold, until the update
   archives it: "Landed in master with oauth: nothing of it is left to push", "Merged by Patronus: nothing of it is left
-  to push"; one with commits added after the landed ones is not: they are work for the remote.
-  [@test] ../../src/lib/patronus.test.ts (`holds the push of a branch whose Safe Push runs, or that a running Safe Push of a branch built on it lands; not for a dry run or a cancel`, `holds the push of a branch a merged Safe Push landed, before a robot of its own`)
-  [@test] ../../src/stores/patronus.test.ts (`holds a branch whose Safe Push runs and the ancestors it lands; not for a dry run or a cancel`, `holds every branch the whole-stack Safe Push lands`, `holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`)
+  to push"; one with commits added after the landed ones is not: they are work for the remote. A landed branch is only
+  left out of the pushes of a stack: the branches built on it push without it (Push with Children of a landed root,
+  [Stacked Branches](stacked-branches.spec.md#pull-requests)), while a running Safe Push holds every push of its stack.
+- The stack branch of a whole stack ([Whole Stack](whole-stack.spec.md)) is held as a branch is
+  (`getStackBranchHoldReason`): while its own robot runs ("A Safe Push of the whole air stack is running: wait until
+  it merges, or restart it on the current stack"), and once merged Safe Pushes, of pieces or of the whole stack, landed
+  every branch of the stack whole, which says who landed them, each robot once, in the order they merged ("Landed in
+  master with deploy and side-test: nothing of it is left to push", "Merged by Patronus: …" of its own robot alone,
+  `formatLandedWholeReason`). Push with Children leaves it then, and its push alone (`pushWholeStack`: the restart of its
+  robot, Request Review… and the creation of its pull request) is refused with that reason.
+  [@test] ../../src/lib/patronus.test.ts (`holds the push of a branch whose Safe Push runs, or that a running Safe Push of a branch built on it lands; not for a dry run or a cancel`, `holds the push of a branch a merged Safe Push landed, before a robot of its own`, `says why a group of branches has nothing left once every one of them landed whole: who landed them, in the order they merged`)
+  [@test] ../../src/stores/patronus.test.ts (`holds a branch whose Safe Push runs and the ancestors it lands; not for a dry run or a cancel`, `holds every branch the whole-stack Safe Push lands`, `holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`, `holds the stack branch once merged Safe Pushes landed every branch of the whole stack, and says who landed them`)
+  [@test] ../../src/lib/git/push.test.ts (`is held once merged Safe Pushes landed every branch of the stack: Push with Children leaves it, its push alone says why`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should hold the push of the whole stack branch once every branch of the stack landed, and push what is left without the landed ones`)
 - A held branch offers no push: the place of the row's push button stays empty, as its Safe Push slot does; its Status
   cell says why (the robot chip, "lands with oauth", "Landed with oauth"). P does nothing; Push in the menu, the preview footer, the outgoing
   overview and the review window is disabled with the reason: "A Safe Push of auth is running: wait until it merges, or
   restart it on the current branch", "A Safe Push of oauth is running: it lands auth with it". The "to push" counts leave it out (the
   header, the stack chip, the island, the filter chip).
-  [@test] ../../src/hooks/usePushButton.test.ts (`offers no push while a Safe Push holds the branch, and says why`)
+  [@test] ../../src/hooks/usePushButton.test.ts (`offers no push while a Safe Push holds the branch, and says why; the children of a landed one push without it`)
   [@test] ../../src/lib/push-summary.test.ts (`skips a branch a running Safe Push holds: its row offers no push`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer no push: it won't land, and the menu says why`)
 - A push that raced with a start (the IDE, `bd`, another window) reads the status of the robot first (`GET

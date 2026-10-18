@@ -27,8 +27,10 @@ import {
   findMergedRobots,
   findPushHold,
   findStackRobot,
+  formatLandedWholeReason,
   formatMergedRobotTitle,
   formatPushMode,
+  formatStackPushHoldReason,
   isHoldingRobot,
   isLandedWhole,
   isPushingRobot,
@@ -45,7 +47,7 @@ import { stackAncestors } from "@/lib/stack"
 import { lastFetchTime } from "@/lib/update-state"
 import { recordRobot } from "@/stores/activity"
 import type { BranchSyncState } from "@/stores/branch-sync"
-import { branchSyncStore, getStackBranch, useBranchRemoteTip, useBranchSync, useBranchTip, useStackBranch } from "@/stores/branch-sync"
+import { branchSyncStore, getStackBranch, stackDescendantsIn, useBranchRemoteTip, useBranchSync, useBranchTip, useStackBranch } from "@/stores/branch-sync"
 import { refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
@@ -380,6 +382,85 @@ export function getLandedBy(branchName: string): LandedBy | null {
 export function getLandingBranchCount(branchName: string): number {
   const branches = branchSyncStore.getState().branches
   return stackAncestors(branchName, name => branches[name]).filter(ancestor => !isLandedWhole(getLandedBy(ancestor.name))).length + 1
+}
+
+/**
+ * Why Push with Children of `name` has nothing to push (`formatLandedWholeReason`): merged Safe Pushes landed the branch
+ * and every branch built on it whole ("Landed in master with deploy and side-test"); null while one of them is left, and
+ * for a branch without children. While the rest has work, the landed ones are only left out of the push.
+ */
+export function useLandedWithChildrenReason(name: string): string | null {
+  const robots = useRepositoryRobots()
+  const landings = useRepositoryLandings()
+  return useBranchSync(state => (robots === undefined ? null : landedWithChildrenIn(robots, landings, state, name)))
+}
+
+/** Non-hook variant of `useLandedWithChildrenReason`, for menus built on open */
+export function getLandedWithChildrenReason(name: string): string | null {
+  const repository = currentRepository()
+  return repository === undefined ? null : landedWithChildrenIn(repository.robots, repository.landings, branchSyncStore.getState(), name)
+}
+
+function landedWithChildrenIn(robots: Readonly<Record<string, PatronusRobot>>, landings: RepositoryPatronus["landings"], state: BranchSyncState, name: string): string | null {
+  const descendants = stackDescendantsIn(state, name)
+  if (descendants.length === 0) {
+    return null
+  }
+  const landed = landedByIn(robots, landings, state)
+  return formatLandedWholeReason(
+    [name, ...descendants].map(it => landed.get(it)),
+    name,
+  )
+}
+
+/**
+ * Why the whole stack of `root` has nothing left to push or land: merged Safe Pushes landed every branch of it whole
+ * (`formatLandedWholeReason`), "Merged by Patronus" of its own robot, else "Landed in master with oauth and the whole
+ * auth stack"; null while one of them is left, and for a stack that doesn't fork
+ */
+export function getStackLandedReason(root: string): string | null {
+  const repository = currentRepository()
+  return repository === undefined ? null : stackLandedIn(repository.robots, repository.landings, branchSyncStore.getState(), root)
+}
+
+function stackLandedIn(robots: Readonly<Record<string, PatronusRobot>>, landings: RepositoryPatronus["landings"], state: BranchSyncState, root: string): string | null {
+  const members = state.stackBranches[root]?.members ?? []
+  const landed = landedByIn(robots, landings, state)
+  return formatLandedWholeReason(
+    members.map(name => landed.get(name)),
+    root,
+  )
+}
+
+/**
+ * Why the stack branch of the whole stack of `root` is not pushed (`StackBranchAlong` `held`): merged Safe Pushes landed
+ * every branch of the stack whole, so it carries only commits that are in the target ("Landed in master with deploy and
+ * side-test: nothing of it is left to push", `getStackLandedReason`); or its own robot runs and pushes into the target,
+ * which a push of it would fail at the end (`formatStackPushHoldReason`). Null while neither holds it.
+ */
+export function useStackBranchHoldReason(root: string): string | null {
+  const robots = useRepositoryRobots()
+  const landings = useRepositoryLandings()
+  return useBranchSync(state => (robots === undefined ? null : stackBranchHoldReasonIn(robots, landings, state, root)))
+}
+
+/** Non-hook variant of `useStackBranchHoldReason`, for menus built on open and the push itself */
+export function getStackBranchHoldReason(root: string): string | null {
+  const repository = currentRepository()
+  return repository === undefined ? null : stackBranchHoldReasonIn(repository.robots, repository.landings, branchSyncStore.getState(), root)
+}
+
+function stackBranchHoldReasonIn(robots: Readonly<Record<string, PatronusRobot>>, landings: RepositoryPatronus["landings"], state: BranchSyncState, root: string): string | null {
+  const stack = state.stackBranches[root]
+  if (stack === undefined || stack.members.length === 0) {
+    return null
+  }
+  const landed = stackLandedIn(robots, landings, state, root)
+  if (landed !== null) {
+    return `${landed}: nothing of it is left to push`
+  }
+  const robot = findStackRobot(robots, root, stack.tip, stack.remoteStatus?.remoteTip ?? null)
+  return robot !== undefined && isHoldingRobot(robot) && robot.stackRoot === root ? formatStackPushHoldReason(root, robot) : null
 }
 
 /** What the branches a merged robot landed are found in, of a state of the branches (`LandedSource`) */

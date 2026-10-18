@@ -280,9 +280,17 @@ export function formatAskFirst(names: readonly string[]): string {
  * island header say it; null while it does (`offersPushWithChildren`). `order` is what it pushes
  * (`stackChildrenPushOrder`), `askFirst` the children left out because their push drops remote commits (`stackAskFirst`),
  * `along` what it does with the stack branch of the whole stack of a root (`getStackBranchAlong`): "Nothing to push"
- * only while that one has nothing to push either.
+ * only while that one has nothing to push either. `landed`: merged Safe Pushes landed the branch and every branch built
+ * on it whole (`useLandedWithChildrenReason`): "Landed in master with deploy and side-test: nothing of air and its
+ * children is left to push".
  */
-export function describePushWithChildrenBlocker(name: string, order: readonly string[], askFirst: readonly string[], along: StackBranchAlong | null = null): string | null {
+export function describePushWithChildrenBlocker(
+  name: string,
+  order: readonly string[],
+  askFirst: readonly string[],
+  along: StackBranchAlong | null = null,
+  landed: string | null = null,
+): string | null {
   if (offersPushWithChildren(name, order, along)) {
     return null
   }
@@ -292,10 +300,14 @@ export function describePushWithChildrenBlocker(name: string, order: readonly st
   if (order.includes(name)) {
     return `Only ${name} has commits to push: its own push sends them`
   }
+  if (landed !== null) {
+    return `${landed}: nothing of ${name} and its children is left to push`
+  }
   switch (along?.kind) {
     case "unpublished":
       return "The branches of the stack are on the remote. Its stack branch goes there with the pull request or the Safe Push of the whole stack"
     case "notBuilt":
+    case "held":
       return `The branches of the stack are on the remote. ${along.reason}`
     case "dropsRemote":
       return "The branches of the stack are on the remote. The whole stack branch stays: its push would drop remote commits it lacks"

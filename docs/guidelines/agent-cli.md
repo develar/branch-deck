@@ -982,6 +982,8 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
   of (`landed_by` without `after` in `bd status`): "login merged into master with its Safe Push (<robot>): nothing of it
   is left to push", "auth landed in master with the Safe Push of login (<robot>): nothing of it is left to push". An
   ancestor taken along that landed stays as it is. A branch with commits added after the landed ones pushes them.
+  With `--with-children` a landed branch is only left out, the named one included: its children push without it, and
+  `landed` refuses only a push with nothing else left of it, its stack branch included.
 - `--with-children` pushes the branches stacked on the named ones too, directly or further down, in the same atomic
   push; a blocked or conflicting child refuses it, as a named branch would. A parent taken along brings no children.
   Not with `--expect-remote`. A named root of a stack that forks also takes its stack branch along
@@ -993,8 +995,9 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
   on no remote and in no pull request stays local and needs no word: `bd safe-push --whole-stack` (or its
   `--create-pull-request`) puts it there. Of one on the remote or in an open pull request, a stack branch in any other
   state than `built` is never pushed, and neither is one to a `--remote` other than `origin`, which its remote status
-  compares with: `stack_warnings` names each one left out. Its remote branch with commits it lacks refuses the push
-  without `--force`, as a branch's does.
+  compares with: `stack_warnings` names each one left out, and so does one every branch of whose stack merged Safe
+  Pushes landed whole (it carries only commits that are in the target). Its remote branch with commits it lacks refuses
+  the push without `--force`, as a branch's does.
 - `state` is `new`, `updated`, `forced` or `up_to_date`. The lease is the remote head the sync of the same run
   compared with (`remote.head`, `lease_source: expected`), or none without a remote branch (`absent`: it must not
   exist). The push replaces exactly that remote state: a remote commit the branch has by content goes through,

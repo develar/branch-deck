@@ -13,14 +13,22 @@ import { getRobotActions } from "@/lib/patronus-actions"
 import { changesRequestedBy, openPullRequest, waitingReviewers } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
-import { joinNames } from "@/lib/text"
 import type { StackLandedPart } from "@/lib/whole-stack"
 import { describeWholeStackLanding, formatWholeStack, getStackBranchBlocker, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import type { StackBranch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getStackBranch, stackMainLineIn, useBranchSync } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { isProcessing } from "@/stores/inline-row-action"
-import { getLandedBy, getStackLandingMember, getStackPushHold, getStackRobot, isPatronusAvailable, isRobotFailing, isRobotNeedingReview } from "@/stores/patronus"
+import {
+  getLandedBy,
+  getStackLandedReason,
+  getStackLandingMember,
+  getStackPushHold,
+  getStackRobot,
+  isPatronusAvailable,
+  isRobotFailing,
+  isRobotNeedingReview,
+} from "@/stores/patronus"
 import { getPullRequestAvailability, getStackPullRequest } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { freshReadiness, getReadinessTarget, getReviewReadiness, useShowReviewReadiness } from "@/stores/review-readiness"
@@ -94,17 +102,6 @@ export function getWholeStackRest(stack: StackBranch): WholeStackRest {
     : { members, commitCount, landed: { names: landedNames, by }, byOwnRobot }
 }
 
-/**
- * Why the whole stack has nothing to land after merged Safe Pushes landed every branch of it: "Merged by Patronus" of its
- * own robot, else "Landed in master with deploy and side-test"; null while a branch of it is left
- */
-function formatStackLandedReason(rest: WholeStackRest, target: string): string | null {
-  if (rest.members.length > 0 || rest.landed === null) {
-    return null
-  }
-  return rest.byOwnRobot ? "Merged by Patronus" : `Landed in ${target} with ${joinNames(rest.landed.by)}`
-}
-
 /** The stack forks: its whole stack is its stack branch, which the sync builds (`StackBranch.members`) */
 export function isForkingStack(stack: StackBranch | undefined): stack is StackBranch {
   return stack !== undefined && stack.members.length > 0
@@ -112,15 +109,16 @@ export function isForkingStack(stack: StackBranch | undefined): stack is StackBr
 
 /**
  * "Create Pull Request of the Stack…": the pull request of the stack branch of a stack that forks into the baseline,
- * disabled with the reason while the sync didn't build it; null for a stack that doesn't fork or without the GitHub
- * repository of the branches
+ * disabled with the reason while the sync didn't build it, and once merged Safe Pushes landed every branch of it
+ * (`getStackLandedReason`: nothing of it is left to review or land); null for a stack that doesn't fork or without the
+ * GitHub repository of the branches
  */
 export function getCreateStackPullRequestItem(root: string): MenuItem | null {
   const stack = getStackBranch(root)
   if (stack === undefined || stack.members.length === 0 || getBranchesGitHubRepository() === null) {
     return null
   }
-  const blocker = getStackBranchBlocker(root, stack)
+  const blocker = getStackBranchBlocker(root, stack) ?? getStackLandedReason(root)
   return {
     id: "create-stack-pull-request",
     label: "Create Pull Request of the Stack…",
@@ -204,7 +202,7 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     held: getStackPushHold(root) !== null,
     landedIn,
     // merged Safe Pushes, of pieces of it or its own, landed every branch of it: nothing is left to land
-    landedWith: formatStackLandedReason(rest, target),
+    landedWith: getStackLandedReason(root),
     robot: slot,
     robotPullRequest: robot?.pullRequest?.number ?? null,
     restart,

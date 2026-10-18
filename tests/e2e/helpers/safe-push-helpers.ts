@@ -98,21 +98,29 @@ export async function expectPopoverWithoutReview(page: Page, groups: string): Pr
 export async function expectLandedActions(page: Page, branchName: string, reason: string): Promise<void> {
   const row = findBranchRow(page, branchName)
   await row.click({ button: "right" })
-  for (const [name, expected] of [
+  await expectDisabledItems(page, [
     // "Safe Push · 2" while a branch it is built on has commits after the landed ones
     [/^Safe Push( · \d+)? S/, reason],
     [/^Dry Run/, reason],
     [/^Push P$/, `${reason}: nothing of it is left to push`],
-  ] as const) {
-    const item = page.getByRole("menuitem", { name })
-    await expect(item).toHaveAttribute("aria-disabled", "true")
-    await item.hover()
-    // the description of the item before may still be fading out
-    await expect(page.getByRole("tooltip").filter({ hasText: expected }).last()).toHaveText(expected)
-  }
+  ])
   await page.keyboard.press("Escape")
   await row.focus()
   await page.keyboard.press("s")
   await expect(page.locator("[data-slot=toast]", { hasText: `Safe Push of ${branchName}` }).locator("[data-slot=toast-description]")).toHaveText(reason)
   await expect(safePushPopover(page)).toHaveCount(0)
+}
+
+/**
+ * Each item of the open menu, by its name (a string is the exact name), is disabled and says why on hover: the reason
+ * in its tooltip
+ */
+export async function expectDisabledItems(page: Page, items: readonly (readonly [string | RegExp, string])[]): Promise<void> {
+  for (const [name, expected] of items) {
+    const item = page.getByRole("menuitem", typeof name === "string" ? { name, exact: true } : { name })
+    await expect(item).toHaveAttribute("aria-disabled", "true")
+    await item.hover()
+    // the description of the item before may still be fading out
+    await expect(page.getByRole("tooltip").filter({ hasText: expected }).last()).toHaveText(expected)
+  }
 }

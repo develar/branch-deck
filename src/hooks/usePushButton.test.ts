@@ -237,7 +237,7 @@ describe("getPushButtonState", () => {
     })
   })
 
-  it("offers no push while a Safe Push holds the branch, and says why", () => {
+  it("offers no push while a Safe Push holds the branch, and says why; the children of a landed one push without it", () => {
     const running = { id: "r", status: "running", pushMode: "rebaseAutosquash", branchName: "login" } as PatronusRobot
     const own = state({ commitsAhead: 2 }, { hold: { kind: "own", branch: "login", robot: running }, unpushedChildren: { names: ["oauth"], pushOrder: ["login", "oauth"] } })
     expect(own).toMatchObject({
@@ -252,7 +252,13 @@ describe("getPushButtonState", () => {
     // a merged one landed it: its commits are in the target
     const merged = { ...running, branchName: "oauth", status: "success", targetBranch: "master" } as PatronusRobot
     const landed = state({ commitsAhead: 2 }, { hold: { kind: "landed", branch: "oauth", robot: merged } })
-    expect(landed).toMatchObject({ disabled: true, count: 0, tooltip: "Landed in master with oauth: nothing of it is left to push" })
+    expect(landed).toMatchObject({ disabled: true, count: 0, tooltip: "Landed in master with oauth: nothing of it is left to push", childrenAction: null })
+    // the branches built on a landed one push without it: its push offers theirs, as a running Safe Push's never does
+    const children = { unpushedChildren: { names: ["session"], pushOrder: ["session"] } }
+    expect(state({ commitsAhead: 2 }, { hold: { kind: "landed", branch: "oauth", robot: merged }, ...children }).childrenAction).toMatchObject({
+      description: "session is stacked on login and has commits to push.",
+      label: "Push with Children (session)",
+    })
     // a push that runs keeps its progress
     expect(state({ commitsAhead: 2 }, { hold: { kind: "own", branch: "login", robot: running }, isPushing: true }).tooltip).not.toContain("Safe Push")
   })

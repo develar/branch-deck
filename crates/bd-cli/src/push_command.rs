@@ -14,6 +14,7 @@
 
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorBranch, ErrorCode};
+use crate::landed::{LandedBranch, every_branch_landed};
 use crate::output::{SchemaVersion, ShortIds};
 use crate::pull_request_retarget::{RetargetedPullRequest, retarget_listed, retarget_pull_requests_of};
 use crate::push_hold::{PushHolds, read_push_holds};
@@ -236,7 +237,9 @@ fn base_on_remote<'a>(baseline: &'a str, remote: &str) -> &'a str {
 
 /// `bd push` for a caller that holds the repository lock and synced under it (`bd safe-push`, which cancels the robot
 /// it replaces itself and passes no `holds`). A branch a merged Safe Push landed whole is refused (`landed`), an
-/// ancestor taken along that it landed stays as it is. A branch a running Safe Push holds (`holds`) is refused, or, with
+/// ancestor taken along that it landed stays as it is; with `--with-children` one is only left out, as the app's Push
+/// with Children leaves it, and the push is refused as `landed` only when nothing else is left of it (the stack branch
+/// of a whole stack every branch of which landed included). A branch a running Safe Push holds (`holds`) is refused, or, with
 /// `--restart-running` and the robot on the branch itself, its robot is canceled before the push and restarted after it;
 /// an ancestor taken along that a robot holds stays as it is, unless that robot is the one restarted.
 /// `open_stack_pull_requests`: the roots whose pull request of the whole stack is open, for `--with-children`.
@@ -327,6 +330,8 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
   let mut refusals = Vec::new();
   let mut held = Vec::new();
   let mut landed = Vec::new();
+  // with --with-children, the named branches a merged Safe Push landed whole: left out while the rest has work
+  let mut left_out_landed = Vec::new();
   let mut behind = Vec::new();
   for name in &selected {
     let Some(branch) = synced.branches.iter().find(|branch| branch.name == *name) else {
@@ -339,7 +344,12 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
       // above it, as the app's does, and a child carries its commits
       if !implicit.contains(*name) {
         if hold.landed.is_some() {
-          landed.push(hold.reason(name));
+          // Push with Children pushes what is left of the stack: the landed branches stay as they are
+          if !args.with_children {
+            landed.push(hold.reason(name));
+          } else if args.branches.contains(&(*name).to_string()) {
+            left_out_landed.push(hold.reason(name));
+          }
         } else {
           held.push(hold.reason(name));
         }
@@ -391,7 +401,7 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
   // the whole stack of a named root goes along with its children: its stack branch, when this sync built it, never a
   // stale one
   let (stacks, stack_warnings) = if args.with_children {
-    stack_branches_to_push(report, &args.branches, &remote, open_stack_pull_requests)
+    stack_branches_to_push(report, &args.branches, &remote, open_stack_pull_requests, holds)
   } else {
     (Vec::new(), Vec::new())
   };
@@ -410,6 +420,10 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
         remote: RemoteSummary::new(remote_state, usize::try_from(stack.commit_count).unwrap_or(usize::MAX), &short),
       });
     }
+  }
+  // nothing of the stack is left but what merged Safe Pushes landed: the push sends nothing that lands
+  if candidates.is_empty() && stacks.is_empty() && held.is_empty() && refusals.is_empty() {
+    landed.append(&mut left_out_landed);
   }
   // landed for good before a robot that may still finish
   if !landed.is_empty() {
@@ -559,8 +573,15 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
 /// (`open_stack_pull_requests`, by root), the `built` ones the remote lacks (by content, as the sync's remote status
 /// compares), and a warning per one of them left out. One neither on the remote nor with an open pull request is no
 /// branch to publish by itself: `bd safe-push --whole-stack` and its pull request put it there. A stack branch in
-/// another state is not the stack's commits, and its remote status is of `origin` only
-fn stack_branches_to_push<'a>(report: &'a SyncReport, named: &[String], remote: &str, open_stack_pull_requests: &HashSet<String>) -> (Vec<&'a StackBranchUpdate>, Vec<String>) {
+/// another state is not the stack's commits, and its remote status is of `origin` only. One whose every branch merged
+/// Safe Pushes landed whole (`holds`) carries only commits that are in the target: a push of it lands nothing
+fn stack_branches_to_push<'a>(
+  report: &'a SyncReport,
+  named: &[String],
+  remote: &str,
+  open_stack_pull_requests: &HashSet<String>,
+  holds: &PushHolds,
+) -> (Vec<&'a StackBranchUpdate>, Vec<String>) {
   let mut stacks = Vec::new();
   let mut warnings = Vec::new();
   for stack in report.stack_branches.iter().filter(|stack| !stack.members.is_empty() && named.contains(&stack.root)) {
@@ -568,7 +589,14 @@ fn stack_branches_to_push<'a>(report: &'a SyncReport, named: &[String], remote: 
     if !on_remote && !open_stack_pull_requests.contains(&stack.root) {
       continue;
     }
-    if stack.state != StackBranchState::Built || stack.tip.is_none() {
+    let landed: Option<Vec<&LandedBranch>> = stack.members.iter().map(|member| holds.get(member).and_then(|hold| hold.landed.as_ref())).collect();
+    if let Some(landed) = landed {
+      warnings.push(format!(
+        "{} was not pushed: {}: nothing of it is left to push",
+        stack.branch_name,
+        every_branch_landed(&format!("the whole {} stack", stack.root), &landed)
+      ));
+    } else if stack.state != StackBranchState::Built || stack.tip.is_none() {
       warnings.push(format!(
         "{} was not pushed: this sync didn't build it ({}; `stacks` of `bd sync` says why)",
         stack.branch_name,

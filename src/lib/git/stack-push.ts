@@ -8,7 +8,7 @@ import type { PushReport } from "@/lib/git/push"
 import { cancelHoldingRobot, checkPushHold, isHeldBy, pushesOverMovedRemote, restartAfterPush, sentPart, showRemoteMovedToast } from "@/lib/git/push"
 import type { PushOutcome } from "@/lib/git/push-toast"
 import { showStackPushToast } from "@/lib/git/push-toast"
-import { formatPushMode } from "@/lib/patronus"
+import { formatPushMode, formatStackPushHoldReason } from "@/lib/patronus"
 import { showRobotToast } from "@/lib/patronus-actions"
 import { getPushAction } from "@/lib/push-summary"
 import type { PushUpToStep } from "@/lib/push-up-to"
@@ -34,7 +34,7 @@ import {
   whenBranchPushed,
   whenSynced,
 } from "@/stores/branch-sync"
-import { getPushHold, getStackPushHold } from "@/stores/patronus"
+import { getPushHold, getStackBranchHoldReason, getStackLandedReason, getStackPushHold } from "@/stores/patronus"
 import { getStackPullRequest, refreshPullRequests, refreshPullRequestsAfterPushes } from "@/stores/pull-requests"
 import { vcsRequestFactory } from "@/stores/repository"
 
@@ -89,10 +89,11 @@ export async function pushWithChildren(branchName: string): Promise<boolean> {
 
 /**
  * Whether Push with Children of `root` takes the stack branch of its whole stack along now (`getStackBranchAlong`):
- * never while the robot of the whole stack holds it, a push into its stack branch would fail it
+ * never while it is held (`getStackBranchHoldReason`): the robot of the whole stack runs, a push into its stack branch
+ * would fail it, or every branch of the stack landed, a push of it lands nothing
  */
 export function takesStackBranchAlong(root: string): boolean {
-  return getStackPushHold(root) === null && getStackBranchAlong(root, getStackBranch(root), getStackPullRequest(root))?.kind === "along"
+  return getStackBranchAlong(root, getStackBranch(root), getStackPullRequest(root), getStackBranchHoldReason(root))?.kind === "along"
 }
 
 /**
@@ -413,14 +414,15 @@ function joinableStackBranchPush(root: string): () => void {
 /**
  * Pushes the stack branch of the whole stack of `root` (`{prefix}/stack/<root>`), leased on the remote head its status
  * showed, as one more branch of `push_branches` (`wholeStack`): the head of the pull request of the whole stack, the
- * source of its robot. Only a stack branch the sync built (`getStackBranchBlocker`); never while its own Safe Push runs
- * (`getStackPushHold`), unless the push restarts that robot (`restartRobot`, canceled first, restarted on the pushed
- * commit) or a new start replaces it (`replacesRobot`, canceled first). A sync that runs is awaited first. A request
- * while a push of the stack branch runs (another action's, or Push with Children that takes it along) joins it: no push
- * of its own, one indicator; a failed push of it alone is said once, by the request that pushed, and fails the one that
- * joined too; then it pushes only what the remote still lacks (what a sync rebuilt since; the stack branch alone after a
- * Push with Children that failed for a branch), and nothing when the remote has it all. A second restart of the same
- * robot is the same request: one push, one restart, one toast. A remote branch
+ * source of its robot. Only a stack branch the sync built (`getStackBranchBlocker`); never once merged Safe Pushes
+ * landed every branch of the stack (`getStackLandedReason`: it carries only commits that are in the target), nor while
+ * its own Safe Push runs (`getStackPushHold`), unless the push restarts that robot (`restartRobot`, canceled first,
+ * restarted on the pushed commit) or a new start replaces it (`replacesRobot`, canceled first). A sync that runs is
+ * awaited first. A request while a push of the stack branch runs (another action's, or Push with Children that takes it
+ * along) joins it: no push of its own, one indicator; a failed push of it alone is said once, by the request that
+ * pushed, and fails the one that joined too; then it pushes only what the remote still lacks (what a sync rebuilt since;
+ * the stack branch alone after a Push with Children that failed for a branch), and nothing when the remote has it all.
+ * A second restart of the same robot is the same request: one push, one restart, one toast. A remote branch
  * that moved is fetched, and the push goes again over it once when it has no commit the stack branch lacks
  * (`pushesOverMovedRemote`). The branches of the stack stay as they are on the remote. While it runs, the stack branch
  * is pushing under its key (`stackReadinessKey`), its progress where the pushes of the stack show: the island's header,
@@ -466,6 +468,12 @@ async function sendWholeStack(root: string, joined: Promise<boolean> | null, opt
     await whenBranchPushed(key)
     await whenSynced()
   }
+  // its commits are in the target for good: nothing a push sends lands
+  const landed = getStackLandedReason(root)
+  if (landed !== null) {
+    report(`Cannot push ${subject}`, `${landed}: nothing of it is left to push`)
+    return false
+  }
   // a push that ran meanwhile left nothing to send, unless a sync rebuilt the stack branch since
   const upToDate = getPushAction({ remoteStatus: getStackBranch(root)?.remoteStatus ?? null }) === "upToDate"
   const hold = getStackPushHold(root)
@@ -475,7 +483,7 @@ async function sendWholeStack(root: string, joined: Promise<boolean> | null, opt
         return false
       }
     } else if (!upToDate) {
-      report(`Cannot push ${subject}`, `A ${formatPushMode(hold.robot.pushMode)} of ${subject} is running: wait until it merges, or restart it on the current stack`)
+      report(`Cannot push ${subject}`, formatStackPushHoldReason(root, hold.robot))
       return false
     }
   }

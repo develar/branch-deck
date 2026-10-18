@@ -128,20 +128,29 @@ export type StackBranchAlong =
   | { readonly kind: "notBuilt"; readonly reason: string }
   /** Its remote branch has commits it lacks: a push would drop them, as a child that asks first in its row */
   | { readonly kind: "dropsRemote" }
+  /**
+   * Held (`getStackBranchHoldReason`): every branch of the stack landed, or its own robot runs; the reason says which
+   */
+  | { readonly kind: "held"; readonly reason: string }
 
 /**
  * Whether Push with Children of `root` takes the stack branch of its whole stack along (`StackBranchAlong`): only one
  * the sync built, once it is on the remote or its pull request is open (a stack branch is no branch to publish by
  * itself: its pull request or its Safe Push puts it on the remote), while its remote lacks commits of it and has none
- * it lacks. `bd push <root> --with-children` follows the same rule. Null for a stack that doesn't fork, which has none.
+ * it lacks, and never while it is held (`held`, `getStackBranchHoldReason`: every branch of the stack landed, or its
+ * own robot runs). `bd push <root> --with-children` follows the same rule. Null for a stack that doesn't fork, which
+ * has none.
  */
-export function getStackBranchAlong(root: string, stack: StackBranch | undefined, pullRequest: PullRequest | undefined): StackBranchAlong | null {
+export function getStackBranchAlong(root: string, stack: StackBranch | undefined, pullRequest: PullRequest | undefined, held: string | null = null): StackBranchAlong | null {
   if (stack === undefined || stack.members.length === 0) {
     return null
   }
   const remote = stack.remoteStatus
   if (remote?.exists !== true && pullRequest?.state !== "open") {
     return { kind: "unpublished" }
+  }
+  if (held !== null) {
+    return { kind: "held", reason: held }
   }
   const reason = getStackBranchBlocker(root, stack)
   if (reason !== null) {

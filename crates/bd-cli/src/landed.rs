@@ -7,7 +7,7 @@
 use crate::context::{Environment, RepoContext};
 use crate::error::CliError;
 use crate::output::ShortIds;
-use crate::safe_push_command::{RobotSummary, patronus_service, robot_summary, robots};
+use crate::safe_push_command::{RobotSummary, join_names, patronus_service, robot_summary, robots};
 use crate::status::stack_ancestors;
 use git_ops::branch_names::to_final_branch_name;
 use schemars::JsonSchema;
@@ -53,6 +53,21 @@ impl LandedBranch {
       format!("{name} landed in {target} with the Safe Push of {} ({})", self.subject(), self.robot.url)
     }
   }
+}
+
+/// "every branch of the whole auth stack landed in master with the Safe Pushes of login and session": what merged Safe
+/// Pushes landed of a whole stack every branch of which they landed whole (`landed`, one per branch, in the order of
+/// the stack), each subject named once; the target of the first
+pub fn every_branch_landed(what: &str, landed: &[&LandedBranch]) -> String {
+  let mut by: Vec<String> = Vec::new();
+  for subject in landed.iter().map(|landed| landed.subject()) {
+    if !by.contains(&subject) {
+      by.push(subject);
+    }
+  }
+  let pushes = if by.len() == 1 { "Safe Push" } else { "Safe Pushes" };
+  let target = landed.first().map_or("the target", |landed| landed.robot.target_branch.as_str());
+  format!("every branch of {what} landed in {target} with the {pushes} of {}", join_names(&by))
 }
 
 /// `landed_by` of `bd status`: the merged Safe Push that landed the branch, and what of it

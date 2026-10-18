@@ -30,7 +30,7 @@ import type { StackBranchAlong } from "@/lib/whole-stack"
 import { getStackBranchAlong, stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 import { getBranch, stackDescendantsIn, useBranchSync, useIsStackBranchPushing, useStackBranch } from "@/stores/branch-sync"
-import { getPushHold, usePushHold, usePushHolds } from "@/stores/patronus"
+import { getPushHold, usePushHold, usePushHolds, useStackBranchHoldReason } from "@/stores/patronus"
 import { pullRequestsStore, useStackPullRequest } from "@/stores/pull-requests"
 import { useSafePushStarting } from "@/stores/safe-push"
 
@@ -197,7 +197,8 @@ export function getPushButtonState(
       confirm: false,
       pushesStack: false,
       action: null,
-      childrenAction: null,
+      // a merged Safe Push landed the branch: the children built on it push without it; a running one holds them
+      childrenAction: hold.kind === "landed" && landedIn === null ? childrenActionOf(branch.name, unpushedChildren) : null,
       retarget: null,
     }
   }
@@ -271,13 +272,8 @@ export function getPushButtonState(
     )
   }
   // the children have work while the branch's own push has any or none: the root of a stack pushed already offers them
-  if (landedIn === null && unpushedChildren !== null) {
-    const stackBranch = unpushedChildren.stackBranch ?? null
-    childrenAction = {
-      description: describeUnpushedChildren(branch.name, unpushedChildren.names, stackBranch),
-      label: formatPushWithChildrenLabel(unpushedChildren.pushOrder, stackBranch !== null),
-      run: () => void pushWithChildren(branch.name),
-    }
+  if (landedIn === null) {
+    childrenAction = childrenActionOf(branch.name, unpushedChildren)
   }
 
   return {
@@ -293,6 +289,19 @@ export function getPushButtonState(
     action,
     childrenAction,
     retarget,
+  }
+}
+
+/** Push with Children of the branch below the push of the branch alone, while its children have work (`useUnpushedChildren`) */
+function childrenActionOf(branchName: string, unpushedChildren: UnpushedChildren | null): PushButtonAction | null {
+  if (unpushedChildren === null) {
+    return null
+  }
+  const stackBranch = unpushedChildren.stackBranch ?? null
+  return {
+    description: describeUnpushedChildren(branchName, unpushedChildren.names, stackBranch),
+    label: formatPushWithChildrenLabel(unpushedChildren.pushOrder, stackBranch !== null),
+    run: () => void pushWithChildren(branchName),
   }
 }
 
@@ -401,14 +410,16 @@ export function useUnpushedChildren(branchName: string): UnpushedChildren | null
 }
 
 /**
- * What Push with Children of `root` does with the stack branch of its whole stack (`getStackBranchAlong`), re-rendering
- * when it changes; null for a branch that heads no stack that forks
+ * What Push with Children of `root` does with the stack branch of its whole stack (`getStackBranchAlong`, held while
+ * every branch of the stack landed or its own robot runs, `useStackBranchHoldReason`), re-rendering when it changes;
+ * null for a branch that heads no stack that forks
  */
 export function useStackBranchAlong(root: string): StackBranchAlong | null {
   const stack = useStackBranch(root)
   const pullRequest = useStackPullRequest(root)
+  const held = useStackBranchHoldReason(root)
   // a string, so a new store state with the same answer renders nothing
-  const along = JSON.stringify(getStackBranchAlong(root, stack, pullRequest))
+  const along = JSON.stringify(getStackBranchAlong(root, stack, pullRequest, held))
   return useMemo(() => JSON.parse(along) as StackBranchAlong | null, [along])
 }
 

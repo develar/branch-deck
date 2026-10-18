@@ -1744,7 +1744,9 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    On Space it then reads the user's robots once (best effort: off Space, without a token or
    an answer, nothing is held) and refuses (`robot_running`) a named branch whose Safe Push runs on it or on a branch
    built on it, which lands it, or on the stack branch of its stack; an ancestor such a robot lands stays out of the
-   push. `--restart-running` cancels the
+   push. A branch a merged Safe Push landed whole is refused as `landed`; with `--with-children` it is only left out,
+   and so is the stack branch of a stack every branch of which landed, the push refused only when nothing else is
+   left. `--restart-running` cancels the
    robot of a named branch over HTTP before the push and restarts it after it, as the app's restart that pushes first does.
 2. One `git push --porcelain --atomic --force-with-lease=refs/heads/<b>:<lease>… <remote> <tip>:refs/heads/<b>…`
    through `sync_core::push::push_leased`, the one leased push of the app's push too (below; `push_lease::push_refs`

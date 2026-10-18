@@ -1,5 +1,5 @@
 use crate::fixture_test::{PREFIX, assert_error, commit_all, git, run_json, write};
-use crate::safe_push_test::{Space, forking_stack, robot};
+use crate::safe_push_test::{STACK, Space, forking_stack, robot};
 use crate::schema_test::assert_covered;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -143,4 +143,46 @@ fn the_whole_stack_lands_what_is_left_of_it_and_refuses_once_every_branch_of_it_
     output["error"]["message"],
     json!("Nothing was pushed or started: every branch of the whole auth stack landed in master with the Safe Pushes of login and session: nothing of it is left to land")
   );
+}
+
+/// `--with-children` pushes what is left of a stack, as the app's Push with Children does: the branches merged Safe
+/// Pushes landed whole stay as they are, and so does the stack branch once every branch of it landed
+#[test_log::test]
+fn push_with_children_leaves_out_what_merged_safe_pushes_landed_and_refuses_once_nothing_else_is_left() {
+  let space = forking_stack();
+  sync(&space);
+  // the stack branch is on the remote (its pull request put it there); a new commit of session rebuilds it
+  git(&space.repo, &["push", "-q", "origin", &format!("refs/heads/{STACK}:refs/heads/{STACK}")]);
+  let pushed_before = space.remote_tip(STACK);
+  write(&space.repo, "session-more.txt", "more\n");
+  commit_all(&space.repo, "(auth/session) More session", 1_700_000_900);
+  sync(&space);
+  assert_ne!(space.local_tip(STACK), pushed_before);
+
+  // the Safe Pushes of login and session merged: every branch of the stack landed, nothing of it is left to push
+  space.set_robots(vec![
+    merged(&space, "login-robot", "login", "2026-10-14T11:00:00Z"),
+    merged(&space, "session-robot", "session", "2026-10-14T12:00:00Z"),
+  ]);
+  let (_, status) = bd(&space, &["status"]);
+  let url = landed_by(&status, "auth")["robot"]["url"].as_str().unwrap().to_string();
+  let (exit_code, output) = bd(&space, &["push", "auth", "--with-children"]);
+  assert_error(&output, exit_code, (4, "landed"));
+  assert_eq!(
+    output["error"]["message"],
+    json!(format!(
+      "Nothing was pushed: auth landed in master with the Safe Push of login ({url}): nothing of it is left to push"
+    ))
+  );
+  assert_eq!(space.remote_tip(STACK), pushed_before);
+
+  // a commit of session added since is what is left: it goes, with the stack branch; auth and login stay as they are
+  write(&space.repo, "session-check.txt", "check\n");
+  commit_all(&space.repo, "(auth/session) Check the session", 1_700_001_000);
+  let (exit_code, output) = bd(&space, &["push", "auth", "--with-children"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let names: Vec<&Value> = output["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
+  assert_eq!(names, [&json!("session")], "{output}");
+  assert_eq!((&output["stacks"][0]["name"], output.get("stack_warnings")), (&json!("auth"), None), "{output}");
+  assert_eq!(space.remote_tip(STACK), space.local_tip(STACK));
 }

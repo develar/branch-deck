@@ -26,6 +26,8 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
     landed: {} as Record<string, PatronusRobot>,
     /** The running Safe Push of the whole stack of `auth`, which holds the push of its stack branch */
     stack: undefined as PatronusRobot | undefined,
+    /** The whole stacks every branch of which merged Safe Pushes landed: root -> why nothing is left */
+    stackLanded: {} as Record<string, string>,
   },
   toasts: [] as { type?: string; title?: string; description?: unknown; actionProps?: { children: string; onClick: () => void } }[],
   stores: {
@@ -190,6 +192,13 @@ vi.mock("@/stores/patronus", () => ({
   getPatronusGitHubRepository: () => null,
   getStackPushHold: (root: string) =>
     root === "auth" && robots.stack !== undefined && robots.stack.status === "running" ? { kind: "own", branch: "auth", robot: robots.stack, wholeStack: true } : null,
+  getStackLandedReason: (root: string) => robots.stackLanded[root] ?? null,
+  getStackBranchHoldReason: (root: string) => {
+    if (robots.stackLanded[root] !== undefined) {
+      return `${robots.stackLanded[root]}: nothing of it is left to push`
+    }
+    return root === "auth" && robots.stack !== undefined && robots.stack.status === "running" ? `A Safe Push of the whole ${root} stack is running` : null
+  },
   fetchPatronusRobotStatus: async () => robots.status,
   cancelPatronusRobot: async (robot: PatronusRobot) => {
     calls.push(`cancel ${robot.id}`)
@@ -276,6 +285,7 @@ beforeEach(() => {
   robots.spans = {}
   robots.landed = {}
   robots.stack = undefined
+  robots.stackLanded = {}
   stores.branches = {}
   stores.pullRequests = {}
   stores.expectedRemotes = []
@@ -789,6 +799,31 @@ describe("pushWithChildren", () => {
       expect(records).toEqual(["push the whole stack branch of auth"])
       expect(toasts.map(toast => [toast.title, toast.description])).toEqual([
         ["Cannot push the whole stack branch of auth", "Its remote branch has a commit the stack branch lacks: sync, then push again"],
+      ])
+    })
+
+    it("is held once merged Safe Pushes landed every branch of the stack: Push with Children leaves it, its push alone says why", async () => {
+      forkingStack(testRemoteStatus({ commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old" }))
+      stores.stackPullRequests.auth = { number: 12, state: "open", url: "https://github.com/JetBrains/ultimate/pull/12" } as PullRequest
+      // a branch with work goes, the stack branch along: nothing landed yet
+      expect(await pushWithChildren("auth")).toBe(true)
+      expect(calls).toEqual(["push auth login session stack:auth"])
+      calls.length = 0
+      toasts.length = 0
+
+      const merged = { ...RUNNING, id: "landed", status: "success" as const, branchName: "login" }
+      for (const name of ["auth", "login", "session"]) {
+        stores.branches[name] = { ...stores.branches[name]!, remoteStatus: testRemoteStatus({ commitsAhead: 1, unpushedCommits: ["c"], remoteTip: "old" }) }
+        robots.landed[name] = merged
+      }
+      stores.stackBranches.auth = { ...stores.stackBranches.auth!, remoteStatus: testRemoteStatus({ commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old" }) }
+      robots.stackLanded.auth = "Landed in master with login and session"
+      // nothing of the stack is left to push: no branch and no stack branch goes
+      expect(await pushWithChildren("auth")).toBe(true)
+      expect(await pushWholeStack("auth")).toBe(false)
+      expect(calls).toEqual([])
+      expect(toasts.map(toast => [toast.title, toast.description])).toEqual([
+        ["Cannot push the whole auth stack", "Landed in master with login and session: nothing of it is left to push"],
       ])
     })
   })

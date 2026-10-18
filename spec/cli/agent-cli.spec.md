@@ -728,7 +728,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `stacks` lists it as `branches` lists a branch, `name` the root, with the pull request of the whole stack. One on
   no remote and in no pull request stays local without a warning. Of the others, a stack branch in another state, or
   pushed to another remote than `origin`, which its remote status compares with, must never be pushed:
-  `stack_warnings` names it. A child named with `--with-children` takes no stack branch.
+  `stack_warnings` names it, and so does one every branch of whose stack merged Safe Pushes landed whole
+  ("test-user/stack/auth was not pushed: every branch of the whole auth stack landed in master with the Safe Pushes of
+  login and session: nothing of it is left to push"). A child named with `--with-children` takes no stack branch.
   [@test] ../../crates/bd-cli/src/push_test.rs (`with_children_takes_the_stack_branch_along_once_it_is_on_the_remote`)
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`push_with_children_takes_the_stack_branch_along_while_its_pull_request_is_open`)
 - The lease must be the remote head the sync of the same run compared with (`remote.head`), as the app leases on the
@@ -774,8 +776,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - A named branch a merged Safe Push landed whole (`landed_by` of `bd status` without `after`) must be refused before
   any running robot, as `landed` (exit 4, nothing pushed): "login merged into master with its Safe Push (<robot>):
   nothing of it is left to push", "auth landed in master with the Safe Push of login (<robot>): …"; an ancestor taken
-  along that landed stays as it is. A branch with commits added after the landed ones pushes them.
-  [@test] ../../crates/bd-cli/src/landed_test.rs (`push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole`)
+  along that landed stays as it is. A branch with commits added after the landed ones pushes them. With
+  `--with-children` a landed branch is only left out, the named one included, as the app's Push with Children leaves
+  it: the branches built on it push without it, and the push is refused as `landed` only when nothing else is left of
+  it, its stack branch included.
+  [@test] ../../crates/bd-cli/src/landed_test.rs (`push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole`, `push_with_children_leaves_out_what_merged_safe_pushes_landed_and_refuses_once_nothing_else_is_left`)
 
 ### `bd safe-push`
 

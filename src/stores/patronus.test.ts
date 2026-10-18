@@ -24,8 +24,11 @@ import {
   SYNC_REFRESH_GAP_MS,
   getBranchRobot,
   getLandedBy,
+  getLandedWithChildrenReason,
   getLandingBranchCount,
   getPushHold,
+  getStackBranchHoldReason,
+  getStackLandedReason,
   markRobotFailing,
   mergeRobots,
   patronusStore,
@@ -193,6 +196,14 @@ vi.mock("@/stores/branch-sync", () => ({
   },
   getBranch: (name: string) => branches.current[name],
   getStackBranch: (root: string) => branches.stacks[root],
+  // the branches built on `name`, parents first, by the parent each was placed on
+  stackDescendantsIn: (state: { branches: Record<string, { name: string; stack?: { effectiveBase: string | null } }> }, name: string) => {
+    const children = (parent: string): string[] =>
+      Object.values(state.branches)
+        .filter(branch => branch.stack?.effectiveBase === parent)
+        .flatMap(branch => [branch.name, ...children(branch.name)])
+    return children(name)
+  },
   useStackBranch: () => undefined,
   useBranchSync: () => undefined,
   useBranchTip: () => undefined,
@@ -280,6 +291,8 @@ describe("holds", () => {
       null,
     ])
     expect(formatPushHoldReason("bazel", holds[1]!)).toBe("A Safe Push of the whole air stack is running: it lands bazel with it")
+    // and its stack branch: a push into it would fail the robot at the end
+    expect(getStackBranchHoldReason("air")).toBe("A Safe Push of the whole air stack is running: wait until it merges, or restart it on the current stack")
     // the robot of the whole stack is no branch's, not even the root's
     expect(getBranchRobot("air")).toBeUndefined()
   })
@@ -301,6 +314,28 @@ describe("holds", () => {
     expect(getLandingBranchCount("sso")).toBe(1)
     // no toast: no robot was seen running
     expect(notices.toasts).toEqual([])
+  })
+
+  it("holds the stack branch once merged Safe Pushes landed every branch of the whole stack, and says who landed them", async () => {
+    const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
+    branches.current = { auth: stacked("auth", null), login: stacked("login", "auth"), session: stacked("session", "auth") }
+    branches.stacks = { auth: { root: "auth", members: ["auth", "login", "session"], tip: "stack-tip", remoteStatus: null } }
+    const login = robot({ id: "login-robot", branchName: "login", sourceRevision: "login-tip", status: "success", finishTime: 200 })
+    patronus.list = available(login)
+    await refreshPatronus("sync")
+    // the Safe Push of login landed auth and login: session is left, so is the stack branch, which carries it
+    expect(getPushHold("auth")).toMatchObject({ kind: "landed", branch: "login" })
+    expect([getStackLandedReason("auth"), getStackBranchHoldReason("auth"), getLandedWithChildrenReason("auth")]).toEqual([null, null, null])
+
+    // session landed with its own: nothing of the stack is left
+    patronus.list = available(login, robot({ id: "session-robot", branchName: "session", sourceRevision: "session-tip", status: "success", finishTime: 300 }))
+    vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
+    await refreshPatronus("sync")
+    expect(getStackLandedReason("auth")).toBe("Landed in master with login and session")
+    expect(getStackBranchHoldReason("auth")).toBe("Landed in master with login and session: nothing of it is left to push")
+    expect(getLandedWithChildrenReason("auth")).toBe("Landed in master with login and session")
+    // a branch without children has no Push with Children
+    expect(getLandedWithChildrenReason("login")).toBeNull()
   })
 
   it("asks what a merged robot landed by content once a change below its commit gave the branches new copies, once per state of them", async () => {

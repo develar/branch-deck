@@ -17,6 +17,7 @@ import type { OutgoingState, PushAction } from "@/lib/push-summary"
 import type { ReviewCommitState } from "@/lib/review-commit"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import { formatBlockedReason, stackAncestors } from "@/lib/stack"
+import { joinNames } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
 import { formatWholeStack, formatWholeStackStart } from "@/lib/whole-stack"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
@@ -762,6 +763,32 @@ export function formatLandedWith(landed: LandedBy): string | null {
  */
 export function formatLandedReason(landed: Pick<LandedBy, "branch" | "robot" | "wholeStack" | "own">): string {
   return landed.own === true ? "Merged by Patronus" : `Landed in ${landed.robot.targetBranch} with ${formatLandingSubject(landed)}`
+}
+
+/**
+ * Why a group of branches has nothing left to push or land once merged Safe Pushes landed every one of them whole
+ * (`isLandedWhole` of each; the whole stack of `root`, a branch and the branches built on it): "Merged by Patronus"
+ * while the robot of the whole stack of `root` landed them all, else "Landed in master with oauth and the whole air
+ * stack", each robot named once, in the order they merged. Null while one of them is left, and for no branch.
+ */
+export function formatLandedWholeReason(landed: readonly (LandedBy | null | undefined)[], root: string): string | null {
+  if (landed.length === 0 || !landed.every(isLandedWhole)) {
+    return null
+  }
+  const all = landed as readonly LandedBy[]
+  if (all.every(it => it.wholeStack === true && it.branch === root)) {
+    return "Merged by Patronus"
+  }
+  const robots = [...new Map(all.map(it => [it.robot.id, it] as const)).values()].sort((a, b) => (a.robot.finishTime ?? 0) - (b.robot.finishTime ?? 0))
+  return `Landed in ${robots[0]!.robot.targetBranch} with ${joinNames([...new Set(robots.map(formatLandingSubject))])}`
+}
+
+/**
+ * "A Safe Push of the whole air stack is running: wait until it merges, or restart it on the current stack": why the
+ * stack branch of the whole stack is not pushed while its own robot runs, a push into it would fail the robot at the end
+ */
+export function formatStackPushHoldReason(root: string, robot: PatronusRobot): string {
+  return `A ${formatPushMode(robot.pushMode)} of ${formatWholeStack(root)} is running: wait until it merges, or restart it on the current stack`
 }
 
 /**

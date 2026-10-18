@@ -19,7 +19,7 @@
 use crate::check_command::{CheckConflict, CheckWarning, dangling_reference_message, dangling_references_in, session_of_sync};
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorBranch, ErrorCode};
-use crate::landed::{LandedBranch, LandingTable, find_landed};
+use crate::landed::{LandedBranch, LandingTable, every_branch_landed, find_landed};
 use crate::output::SchemaVersion;
 use crate::pull_request_retarget::{RetargetedPullRequest, is_virtual_branch_base, refusal_warning, retarget_one, virtual_base_retargets};
 use crate::push_command::{
@@ -892,21 +892,11 @@ fn plan(
   // a merged Safe Push landed all of it: its commits are in the target, a robot lands nothing, before any other reason
   let landed_refusal = match &stack_push {
     None => landed_whole(name).map(|landed| format!("Nothing was pushed or started: {}: nothing of it is left to land", landed.reason(name))),
-    Some(_) => lands.iter().all(|member| landed_whole(member).is_some()).then(|| {
-      let mut by: Vec<String> = Vec::new();
-      for member in &lands {
-        if let Some(subject) = landed_whole(member).map(LandedBranch::subject)
-          && !by.contains(&subject)
-        {
-          by.push(subject);
-        }
-      }
-      let pushes = if by.len() == 1 { "Safe Push" } else { "Safe Pushes" };
-      format!(
-        "Nothing was pushed or started: every branch of {what} landed in {target} with the {pushes} of {}: nothing of it is left to land",
-        join_names(&by)
-      )
-    }),
+    Some(_) => lands
+      .iter()
+      .map(|member| landed_whole(member))
+      .collect::<Option<Vec<&LandedBranch>>>()
+      .map(|landed| format!("Nothing was pushed or started: {}: nothing of it is left to land", every_branch_landed(&what, &landed))),
   };
   if let Some(message) = landed_refusal {
     refusals.insert(0, Refusal { code: ErrorCode::Landed, message });
@@ -1763,7 +1753,7 @@ fn alone_build(context: &RepoContext, session: &CheckSession, name: &str, parent
 }
 
 /// "auth", "auth and login", "auth, login and oauth"
-fn join_names(names: &[String]) -> String {
+pub(crate) fn join_names(names: &[String]) -> String {
   match names {
     [] => String::new(),
     [only] => only.clone(),

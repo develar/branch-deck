@@ -73,7 +73,7 @@ impl Space {
     safe_push(&self.environment(), args)
   }
 
-  fn remote_tip(&self, branch: &str) -> String {
+  pub(crate) fn remote_tip(&self, branch: &str) -> String {
     let output = git_command()
       .args(["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")])
       .current_dir(self.remote.path())

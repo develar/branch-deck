@@ -232,7 +232,11 @@ The whole stack is an object of its own in the app, beside its branches, named "
   and no push: their commits are in master, a second robot or a push would land nothing (`findLandedBy`, row 1 of the
   next step, a `landed` push hold, also of the robot's own branch). It is a state of the robots and the branches, not
   of the merge event, so a robot first seen merged (after a restart, a landing by `bd`) says it too. A branch built on
-  a landed one lands without it ("Safe Push" where it said "Safe Push · 2").
+  a landed one lands without it ("Safe Push" where it said "Safe Push · 2"), and pushes without it: a landed branch is
+  only left out of Push with Children, unlike a running robot, which holds every push of its stack. Once every branch of
+  a stack landed, its stack branch is held too: it carries only commits that are in master, so Push with Children, the
+  island's push, `pushWholeStack` and `bd push <root> --with-children` leave it and say who landed the stack ("Landed in
+  master with deploy and side-test: nothing of it is left to push", `getStackBranchHoldReason`).
 - **Landed by content.** A change below the commit the robot took (a new commit or an amend of a branch it is built
   on, a reword; for the whole stack any change of a branch of it, which rebuilds the stack branch) makes new copies, so
   the hashes no longer tell. Then the content does: the commits the robot tested against each branch as the table has

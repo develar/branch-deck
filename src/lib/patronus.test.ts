@@ -15,6 +15,7 @@ import {
   findLandingMember,
   findStackRobot,
   formatLandedReason,
+  formatLandedWholeReason,
   formatLandedWith,
   formatLandingReason,
   formatRobotSubject,
@@ -682,6 +683,36 @@ describe("findLandedBy", () => {
     // the later Safe Push of auth landed all of it, the earlier one of oauth only its older commit
     expect(landed.get("auth")).toMatchObject({ branch: "auth", own: true, after: [] })
     expect(landed.get("login")).toMatchObject({ branch: "oauth", after: [] })
+  })
+
+  it("says why a group of branches has nothing left once every one of them landed whole: who landed them, in the order they merged", () => {
+    const piece = robot({ id: "oauth", branchName: "oauth", sourceRevision: "oauth-tip", status: "success", finishTime: 200 })
+    const side = robot({ id: "session", branchName: "session", sourceRevision: "session-tip", status: "success", finishTime: 100 })
+    const whole = robot({ id: "whole", branchName: null, stackRoot: "auth", sourceRevision: "stack-tip", status: "success", finishTime: 300 })
+    const source = { branchOf: (name: string) => ({ auth, login, oauth, session })[name], stackOf: () => stack }
+    const reasonOf = (robots: PatronusRobot[], names = ["auth", "login", "oauth", "session"]) => {
+      const landed = findLandedBy(byId(...robots), source)
+      return formatLandedWholeReason(
+        names.map(name => landed.get(name)),
+        "auth",
+      )
+    }
+    // session merged first, then oauth: each named once, in that order
+    expect(reasonOf([piece, side])).toBe("Landed in master with session and oauth")
+    // the robot of the whole stack alone: its own merge
+    expect(reasonOf([whole])).toBe("Merged by Patronus")
+    expect(reasonOf([whole], ["login", "oauth"])).toBe("Merged by Patronus")
+    // a branch left, one with commits after the landed ones, or no branch: nothing to say
+    expect(reasonOf([piece])).toBeNull()
+    const grown = branch("oauth", "login", {
+      commits: [
+        { hash: "oauth-new", originalHash: "new" },
+        { hash: "oauth-tip", originalHash: "tip" },
+      ] as unknown as Branch["commits"],
+    })
+    const landed = findLandedBy(byId(piece, side), { ...source, branchOf: name => ({ auth, login, oauth: grown, session })[name] })
+    expect(formatLandedWholeReason([landed.get("auth"), landed.get("oauth")], "auth")).toBeNull()
+    expect(formatLandedWholeReason([], "auth")).toBeNull()
   })
 
   it("lands nothing for a dry run, a robot that didn't merge, one of another state of the branch, or of a temporary ref", () => {

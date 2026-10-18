@@ -9,7 +9,7 @@ import { availablePullRequests, createdPullRequest, createPullRequestDialog, get
 import type { PushRequest } from "../helpers/push-helpers"
 import { pushOutcome, routeHeldPush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
-import { DEFAULT_CHECKS_ONLY, expectLandedActions, expectPopoverAtSlot, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
+import { DEFAULT_CHECKS_ONLY, expectDisabledItems, expectLandedActions, expectPopoverAtSlot, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents } from "../helpers/sync-helpers"
@@ -745,6 +745,11 @@ test.describe("Whole stack", () => {
     // a branch of it: no Safe Push, no Dry Run, no push in its menu, each saying why; S says it too
     await expectLandedActions(page, "oauth", "Landed in master with the whole auth stack")
     await expectLandedActions(page, "session", "Landed in master with the whole auth stack")
+    // nor Push with Children of the root: nothing of the stack is left, its stack branch neither
+    await findBranchRow(page, "auth").click({ button: "right" })
+    await expectDisabledItems(page, [["Push with Children", "Merged by Patronus: nothing of auth and its children is left to push"]])
+    await page.keyboard.press("Escape")
+    expect(stackPushes).toHaveLength(1)
   })
 
   test("should land only what is left of the whole stack after a piece landed its main line, and offer nothing once every branch of it landed", async ({

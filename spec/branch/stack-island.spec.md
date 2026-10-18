@@ -127,9 +127,12 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   would push nothing beyond the root ("Nothing to push: the stack is on the remote" only while its stack branch has
   nothing to push either; "The branches of the stack are on the remote. Its stack branch goes there with the pull
   request or the Safe Push of the whole stack"; "Only air has commits to push: its own push sends them", the branches
-  that ask first) and while a Safe Push runs in the stack (the reason of the hold, "A Safe Push of runtime is running:
-  it lands air with it").
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header in one push, parents first`, `should take the whole stack branch along in the header's push once it is on the remote, and push it alone from the menu`, `should say what the stack holds in the header, each state a way to its first branch`)
+  that ask first; once merged Safe Pushes landed every branch of the stack, its stack branch held too: "Landed in master
+  with deploy and side-test: nothing of air and its children is left to push") and while a Safe Push runs in the stack
+  (the reason of the hold, "A Safe Push of runtime is running: it lands air with it"). A root a merged Safe Push landed
+  holds nothing: the header pushes what is left of the stack without the landed branches, and its slot shows what is
+  left to land.
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header in one push, parents first`, `should take the whole stack branch along in the header's push once it is on the remote, and push it alone from the menu`, `should say what the stack holds in the header, each state a way to its first branch`, `should hold the push of the whole stack branch once every branch of the stack landed, and push what is left without the landed ones`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the push of the stack branch alone in the header's push when the restart of its robot pushes it`, `should show the push of the stack branch alone in the header's push when Request Review… of its pull request pushes it`)
 - The Safe Push slot is the Safe Push of the whole stack: one robot lands every branch of it, side branches included
   ([Whole Stack](whole-stack.spec.md#the-safe-push-of-the-whole-stack-in-the-app)). Of a stack that forks it is the

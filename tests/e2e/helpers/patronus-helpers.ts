@@ -41,12 +41,24 @@ export function robot(branchName: string, id: string, patch: Partial<PatronusRob
  * Returns it as the poll answered it, and keeps that commit in every later answer, whatever the branch becomes
  */
 export async function mergeRunningRobot(page: Page, repo: TestRepositoryBuilder, robot: PatronusRobot, finishTime = 1704142800): Promise<PatronusRobot> {
+  const [merged] = await mergeRunningRobots(page, repo, [robot], finishTime)
+  return merged!
+}
+
+/**
+ * The running `robots` merged in turn, an hour apart from `finishTime`, answered by one poll (`mergeRunningRobot`):
+ * returned as the poll answered them, their commits kept in every later answer
+ */
+export async function mergeRunningRobots(page: Page, repo: TestRepositoryBuilder, robots: readonly PatronusRobot[], finishTime = 1704142800): Promise<PatronusRobot[]> {
   const polled = page.waitForResponse(response => response.url().endsWith("/invoke/poll_patronus_robots"))
-  await repo.setPatronus(availableRobots({ ...robot, status: "success", finishTime }))
+  await repo.setPatronus(availableRobots(...robots.map((robot, index) => ({ ...robot, status: "success" as const, finishTime: finishTime + index * 3600 }))))
   await emitTauriEvent(page, "tauri://focus")
-  const merged = ((await (await polled).json()) as PatronusRobotsResult).robots.find(it => it.id === robot.id)!
-  expect(merged.sourceRevision).toMatch(/^[0-9a-f]{40}$/)
-  await repo.setPatronus(availableRobots(merged))
+  const answered = ((await (await polled).json()) as PatronusRobotsResult).robots
+  const merged = robots.map(robot => answered.find(it => it.id === robot.id)!)
+  for (const robot of merged) {
+    expect(robot.sourceRevision).toMatch(/^[0-9a-f]{40}$/)
+  }
+  await repo.setPatronus(availableRobots(...merged))
   return merged
 }
 

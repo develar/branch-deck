@@ -3,10 +3,10 @@ import type { Locator, Page } from "@playwright/test"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow, getStackChip } from "../helpers/branch-helpers"
-import { NO_REVIEW_NEEDED, availableRobots, mergeRunningRobot, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
+import { NO_REVIEW_NEEDED, availableRobots, mergeRunningRobot, mergeRunningRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { pushOutcome, routeHeldPush, routePush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
-import { DEFAULT_CHECKS_ONLY, closeRefusal, expectPopoverAtSlot, openSafePushWithKey, popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
+import { DEFAULT_CHECKS_ONLY, closeRefusal, expectDisabledItems, expectPopoverAtSlot, openSafePushWithKey, popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { rewriteNextSyncEvents, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
@@ -233,6 +233,71 @@ test.describe("Stack island", () => {
     await expect.poll(() => stackPushes.length).toBe(2)
     expect(stackPushes[1]).toEqual([expect.objectContaining({ branchName: "air", wholeStack: true, expectedRemote: "stack-pushed" })])
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Pushed the whole stack branch of air" })).toBeVisible()
+  })
+
+  test("should hold the push of the whole stack branch once every branch of the stack landed, and push what is left without the landed ones", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the Safe Pushes of deploy and side-test run: between them they land every branch of the stack
+    const deploy = robot("deploy", "deploy-robot")
+    const sideTest = robot("side-test", "side-test-robot")
+    const repo = await setupRepo("stack_island", { patronus: availableRobots(deploy, sideTest), pullRequests: availablePullRequests() })
+    // its pull request or a push put the stack branch on the remote; the sync rebuilt it with 2 commits that remote lacks
+    const onRemote = () =>
+      rewriteNextSyncEvents(page, event =>
+        event.type === "stackBranchUpdate"
+          ? { ...event, data: { ...event.data, remote: pushOutcome("air", { unpushedCommits: ["s1", "s2"], remoteTip: "stack-pushed" }).remoteStatus } }
+          : event,
+      )
+    await onRemote()
+    await syncAndWaitForBranches()
+    const { stackPushes } = await routePushBranches(page)
+    const air = island(page, "air")
+    const push = air.getByTestId("stack-island-push")
+    const description = page.getByTestId("stack-island-push-description")
+    await expect(push).toHaveAttribute("aria-disabled", "true")
+    await push.hover()
+    await expect(description).toContainText("A Safe Push of side-test is running: it lands air with it")
+    await page.mouse.move(0, 0)
+
+    // both merged: nothing of the stack is left to push, its stack branch neither, though its remote lacks commits of it
+    await mergeRunningRobots(page, repo, [deploy, sideTest])
+    await expect(findBranchRow(page, "air").getByTestId("landed-with")).toHaveText("Landed with deploy")
+    await expect(findBranchRow(page, "side-fix").getByTestId("landed-with")).toHaveText("Landed with side-test")
+    const reason = "Landed in master with deploy and side-test"
+    const nothingLeft = `${reason}: nothing of air and its children is left to push`
+    await expect(push).toHaveAccessibleName("Push with Children")
+    await expect(push).toHaveAttribute("aria-disabled", "true")
+    await push.hover()
+    await expect(description).toContainText(nothingLeft)
+    await page.mouse.move(0, 0)
+    // the "⋯" of the island: Push with Children and the pull request of the whole stack, each saying why
+    await air.getByRole("button", { name: "More actions for the air stack" }).click()
+    await expectDisabledItems(page, [
+      ["Push with Children", nothingLeft],
+      ["Create Pull Request of the Stack…", reason],
+    ])
+    await page.keyboard.press("Escape")
+    // the root's menu says it too
+    await openContextMenu(page, findBranchRow(page, "air"))
+    await expectDisabledItems(page, [["Push with Children", nothingLeft]])
+    await page.keyboard.press("Escape")
+    expect(stackPushes).toEqual([])
+
+    // a commit of side-test added since is what is left: it goes with the stack branch, the landed branches stay
+    await onRemote()
+    await runAndWaitForSync(page, async () => {
+      await repo.commit("(side-fix/side-test) Test the manifest, part 3", { "side-test/part3.txt": "Test the manifest 3\n" }, 1704200000)
+      await page.getByTestId("sync-button").click()
+    })
+    await expect(findBranchRow(page, "side-test").getByTestId("landed-with")).toHaveText("Landed · 1 commit after it")
+    await expect(push).toHaveAccessibleName("Push with Children (2 branches)")
+    await push.click()
+    await expect.poll(() => stackPushes.length).toBe(1)
+    expect(stackPushes[0]!.map(branch => (branch.wholeStack === true ? `stack:${branch.branchName}` : branch.branchName))).toEqual(["side-test", "stack:air"])
+    await expect(page.locator("[data-slot=toast]").filter({ hasText: "Pushed side-test" })).toBeVisible()
   })
 
   test("should land the whole stack in one Safe Push from the header, its popover at the header", async ({ page, setupRepo, syncAndWaitForBranches }) => {
