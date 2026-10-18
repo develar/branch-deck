@@ -776,14 +776,15 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   safe-push` pushes without the check: it cancels the robot it replaces itself. A running Safe Push of the whole stack
   must hold every branch of the stack ("A Safe Push of the whole auth stack is running: it lands login with it").
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told`, `the_whole_stack_lands_in_one_robot_from_its_stack_branch`)
-- A named branch a merged Safe Push landed whole (`landed_by` of `bd status` without `after`) must be refused before
-  any running robot, as `landed` (exit 4, nothing pushed): "login merged into master with its Safe Push (<robot>):
-  nothing of it is left to push", "auth landed in master with the Safe Push of login (<robot>): …"; an ancestor taken
-  along that landed stays as it is. A branch with commits added after the landed ones pushes them. With
-  `--with-children` a landed branch is only left out, the named one included, as the app's Push with Children leaves
-  it: the branches built on it push without it, and the push is refused as `landed` only when nothing else is left of
-  it, its stack branch included.
-  [@test] ../../crates/bd-cli/src/landed_test.rs (`push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole`, `push_with_children_leaves_out_what_merged_safe_pushes_landed_and_refuses_once_nothing_else_is_left`)
+- A named branch a merged Safe Push landed whole (`landed_by` of `bd status` without `after`), and with
+  `--with-children` one built on a named one, must be left out of the push, as the app's Push with Children leaves it,
+  and the others pushed: `skipped` names each with `code` `landed`, the `message` ("login merged into master with its
+  Safe Push (<robot>): nothing of it is left to push", "auth landed in master with the Safe Push of login (<robot>):
+  …") and `landed_by` as `bd status` has it. The push must be refused as `landed` (exit 4, nothing pushed, before any
+  running robot) only when nothing else asked for is left, the stack branch of `--with-children` included; the error
+  names the named branches. An ancestor taken along that landed stays as it is. A branch with commits added after the
+  landed ones pushes them.
+  [@test] ../../crates/bd-cli/src/landed_test.rs (`push_leaves_out_a_named_branch_a_merged_safe_push_landed_whole_and_pushes_the_others`, `push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole`, `push_with_children_leaves_out_what_merged_safe_pushes_landed_and_refuses_once_nothing_else_is_left`)
 
 ### `bd safe-push`
 

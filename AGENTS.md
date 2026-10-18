@@ -125,8 +125,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   in the background, an OS notification, and the branches it landed say "Landed with oauth" (its own keeps "Merged"; no
   Safe Push, no push) until the update, after a change below its commit by content (`robot_landings`, the robot's
   tested commits against each branch: "Landed with oauth · 1 commit after it", the new commit the only work left; the
-  whole stack lands only what is left of it; `bd status` names it `landed_by`, `bd push` and `bd safe-push` refuse a
-  branch landed whole as `landed`); a running robot whose required check failed is "Failing" (Patronus' warning
+  whole stack lands only what is left of it; `bd status` names it `landed_by`, `bd push` leaves a branch landed whole
+  out (`skipped`), `bd safe-push` refuses it as `landed`); a running robot whose required check failed is "Failing" (Patronus' warning
   `robot_is_failing`), told once with Cancel Safe Push; Safe Push / Dry Run are actions, not a form (`requestSafePush`,
   `getSafePushDecision`): a click starts at once when there is nothing to say (the code-owner review pre-check, the
   push a step shown in the slot button, a toast with Cancel Safe Push), else a popover at the slot says what lands, the

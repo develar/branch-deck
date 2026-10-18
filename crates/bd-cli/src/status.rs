@@ -223,8 +223,8 @@ pub struct BranchStatus {
   pub tip: Option<String>,
   /// A merged Safe Push landed it, until the update archives it: its own, one of a branch built on it, or of the whole
   /// stack, decided by content (the commits the robot tested against the branch's). With an empty `after` all of it is
-  /// in the target: `bd push` and `bd safe-push` refuse it (`landed`); else `after` is the only work left. Asked of
-  /// Patronus on Space with a Space token; omitted otherwise
+  /// in the target: `bd push` leaves it out (`skipped`) and `bd safe-push` refuses it (`landed`); else `after` is the
+  /// only work left. Asked of Patronus on Space with a Space token; omitted otherwise
   #[serde(skip_serializing_if = "Option::is_none")]
   pub landed_by: Option<LandedBySummary>,
   /// With --stats

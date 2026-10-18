@@ -1,8 +1,9 @@
 //! The branches merged Safe Pushes landed, as the rows of the app say it (`findLandedBy`, `src/lib/patronus.ts`): the
 //! branch a robot ran on, the branches a piece is built on, every branch of the whole stack; decided by content
 //! (`sync_core::robot_landing`): the commits the robot tested against each branch as the sync placed it, the commits
-//! added after them the only work left. Until the update archives them, `bd status` names them (`landed_by`), and `bd
-//! push` and `bd safe-push` refuse one that landed whole (`landed`): a push or a robot would land nothing.
+//! added after them the only work left. Until the update archives them, `bd status` names them (`landed_by`), `bd
+//! push` leaves out one that landed whole (`skipped`, refused as `landed` when nothing else is left) and `bd
+//! safe-push` refuses it (`landed`): a push or a robot would land nothing.
 
 use crate::context::RepoContext;
 use crate::error::CliError;

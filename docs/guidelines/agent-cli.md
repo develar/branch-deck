@@ -188,9 +188,9 @@ what they listed.
   decided by content (`sync_core::robot_landing`: the commits the robot tested, the same commit, a patch-equivalent
   copy or a copy with the same changes on a newer base, against the branch's), so a new commit or a reword of a branch
   it is built on keeps it; an amend of a landed commit leaves the branch without it. A branch with no `after` is all
-  in the target: `bd push` and `bd safe-push` refuse it (`landed`). Off Space, without the Safe Push CLI's token or an
-  answer of Patronus there is none. A robot at the tip the sync left needs no git; one whose branches got new copies
-  costs two `rev-list` and at most a `diff-tree` and a `patch-id`.
+  in the target: `bd push` leaves it out (`skipped`) and `bd safe-push` refuses it (`landed`). Off Space, without the
+  Safe Push CLI's token or an answer of Patronus there is none. A robot at the tip the sync left needs no git; one
+  whose branches got new copies costs two `rev-list` and at most a `diff-tree` and a `patch-id`.
 
   ```json
   "landed_by":{"branch":"oauth","robot":{"id":"7f…","name":"…","state":"success","mode":"safe_push",
@@ -981,12 +981,21 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
   `auth`, pushes and restarts it on the pushed commit (`"restarted":[{"branch":"auth","url":…}]`). One robots request
   after the sync; off Space or without the Safe Push CLI's token nothing is held. A dry run or a canceling robot holds
   nothing.
-- Refused with `landed` (exit 4), nothing pushed, before `robot_running`: a named branch a merged Safe Push landed all
-  of (`landed_by` without `after` in `bd status`): "login merged into master with its Safe Push (<robot>): nothing of it
-  is left to push", "auth landed in master with the Safe Push of login (<robot>): nothing of it is left to push". An
-  ancestor taken along that landed stays as it is. A branch with commits added after the landed ones pushes them.
-  With `--with-children` a landed branch is only left out, the named one included: its children push without it, and
-  `landed` refuses only a push with nothing else left of it, its stack branch included.
+- A named branch a merged Safe Push landed all of (`landed_by` without `after` in `bd status`), and with
+  `--with-children` one built on a named one, is left out and the others push: `skipped` names each, with `code`
+  `landed`, the `message` and `landed_by` as `bd status` has it. Tell the user who landed it. An ancestor taken along
+  that landed stays as it is. A branch with commits added after the landed ones pushes them.
+
+  ```json
+  "skipped":[{"name":"login","code":"landed",
+    "message":"login merged into master with its Safe Push (https://patronus…/robot/7f…): nothing of it is left to push",
+    "landed_by":{"branch":"login","robot":{"id":"7f…","name":"…","state":"success","mode":"safe_push",
+      "commit":"9a8b7c6d","url":"https://patronus…/robot/7f…"},"commits":["1a2b3c4d"]}}]
+  ```
+- Refused with `landed` (exit 4), nothing pushed, before `robot_running`: nothing asked for is left but what merged
+  Safe Pushes landed, the stack branch of `--with-children` included. The message names the named branches: "login
+  merged into master with its Safe Push (<robot>): nothing of it is left to push", "auth landed in master with the Safe
+  Push of login (<robot>): nothing of it is left to push".
 - `--with-children` pushes the branches stacked on the named ones too, directly or further down, in the same atomic
   push; a blocked or conflicting child refuses it, as a named branch would. A parent taken along brings no children.
   Not with `--expect-remote`. A named root of a stack that forks also takes its stack branch along

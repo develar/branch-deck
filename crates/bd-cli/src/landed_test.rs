@@ -116,6 +116,64 @@ fn push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole() {
   assert_eq!((exit_code, output["refusals"][0]["code"].clone()), (0, json!("landed")), "{output}");
 }
 
+/// The names of the objects of the array `key` of `output`
+fn names<'a>(output: &'a Value, key: &str) -> Vec<&'a Value> {
+  output[key].as_array().map_or_else(Vec::new, |items| items.iter().map(|item| &item["name"]).collect())
+}
+
+#[test_log::test]
+fn push_leaves_out_a_named_branch_a_merged_safe_push_landed_whole_and_pushes_the_others() {
+  // auth and login built on it, docs apart: the Safe Push of login merged, docs has work
+  let space = Space::new(&["(auth) Add auth", "(auth/login) Add login", "(docs) Add docs"]);
+  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  sync(&space);
+  space.set_robots(vec![merged(&space, "merged", "login", "2026-10-14T11:00:00Z")]);
+  let (_, status) = bd(&space, &["status"]);
+  let url = landed_by(&status, "login")["robot"]["url"].as_str().unwrap().to_string();
+
+  // login is left out with who landed it, docs goes
+  let (exit_code, output) = bd(&space, &["push", "login", "docs"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let (_, schema) = run_json(&space.environment(), &["schema"]);
+  assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
+  assert_eq!(names(&output, "branches"), [&json!("docs")], "{output}");
+  assert_eq!(names(&output, "skipped"), [&json!("login")], "{output}");
+  let skipped = &output["skipped"][0];
+  assert_eq!(
+    (&skipped["code"], &skipped["message"]),
+    (
+      &json!("landed"),
+      &json!(format!("login merged into master with its Safe Push ({url}): nothing of it is left to push"))
+    )
+  );
+  assert_eq!(
+    (&skipped["landed_by"]["branch"], &skipped["landed_by"]["commits"]),
+    (&json!("login"), &json!([short(&space, "HEAD~1")]))
+  );
+  assert_eq!(space.remote_tip("test-user/virtual/docs"), space.local_tip("test-user/virtual/docs"));
+  assert_eq!(space.remote_tip("test-user/virtual/login"), "");
+
+  // with --with-children the same: auth and login are left out, docs goes
+  let (exit_code, output) = bd(&space, &["push", "auth", "docs", "--with-children", "--dry-run"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(names(&output, "branches"), [&json!("docs")], "{output}");
+  assert_eq!(names(&output, "skipped"), [&json!("auth"), &json!("login")], "{output}");
+  assert_eq!(
+    output["skipped"][0]["message"],
+    json!(format!("auth landed in master with the Safe Push of login ({url}): nothing of it is left to push"))
+  );
+
+  // nothing asked for is left: refused, nothing pushed
+  let (exit_code, output) = bd(&space, &["push", "login", "auth"]);
+  assert_error(&output, exit_code, (4, "landed"));
+  assert_eq!(
+    output["error"]["message"],
+    json!(format!(
+      "Nothing was pushed: auth landed in master with the Safe Push of login ({url}): nothing of it is left to push; login merged into master with its Safe Push ({url}): nothing of it is left to push"
+    ))
+  );
+}
+
 /// A merged robot of `name` at the tip of its virtual branch, finished at `finished`
 fn merged(space: &Space, id: &str, name: &str, finished: &str) -> Value {
   let mut merged = robot(id, "SUCCESS", name, &space.local_tip(&format!("test-user/virtual/{name}")));
@@ -182,8 +240,8 @@ fn push_with_children_leaves_out_what_merged_safe_pushes_landed_and_refuses_once
   commit_all(&space.repo, "(auth/session) Check the session", 1_700_001_000);
   let (exit_code, output) = bd(&space, &["push", "auth", "--with-children"]);
   assert_eq!(exit_code, 0, "{output}");
-  let names: Vec<&Value> = output["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
-  assert_eq!(names, [&json!("session")], "{output}");
+  assert_eq!(names(&output, "branches"), [&json!("session")], "{output}");
+  assert_eq!(names(&output, "skipped"), [&json!("auth"), &json!("login")], "{output}");
   assert_eq!((&output["stacks"][0]["name"], output.get("stack_warnings")), (&json!("auth"), None), "{output}");
   assert_eq!(space.remote_tip(STACK), space.local_tip(STACK));
 }

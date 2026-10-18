@@ -106,9 +106,9 @@ The specs are the contract of each part:
   the dangling references, so a start runs no trial ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-safe-push)).
   bd closes no pull request: the app closes those of the ancestors a merged robot landed when it sees the merge, a
   robot bd started included, so after a bd landing they stay open while the app doesn't run, and the agent says so.
-  What merged Safe Pushes landed, bd decides as the rows do (below): `bd status` names it (`landed_by`), and `bd
-  push` and `bd safe-push` refuse a branch landed whole (`landed`) and land only the rest of a piece or the whole
-  stack.
+  What merged Safe Pushes landed, bd decides as the rows do (below): `bd status` names it (`landed_by`), `bd push`
+  leaves a branch landed whole out (`skipped`), `bd safe-push` refuses it (`landed`), and both land only the rest of a
+  piece or the whole stack.
 - **The readiness.** A stacked branch is asked for its readiness now, for its own pull request. To keep the load on
   Patronus as it was, the readiness store asks only for the branches a surface shows (`showReviewReadiness`: a row on
   the screen, an island header, the preview, the review window), and for a hidden one whose answer waits for an

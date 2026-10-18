@@ -128,9 +128,10 @@ Workflow: the commits into pull requests
    - `robot_running` (exit 4): a Safe Push runs on the branch, or on a branch built on it that lands it; a push
      would fail it at the end. Wait until it merges, or, once approved, --restart-running cancels it, pushes and
      restarts it on the pushed commit (`restarted`).
-   - `landed` (exit 4): a merged Safe Push landed all of the branch (`landed_by` in `bd status`): nothing of it is
-     left to push until `bd update` archives it. A branch it is built on that landed is not pushed along, and
-     `bd push --with-children` leaves a landed one out, refusing only when nothing else is left.
+   - `landed` (exit 4): merged Safe Pushes landed all of every branch asked for (`landed_by` in `bd status`):
+     nothing of them is left to push until they are archived. With others to push, `bd push` only leaves a landed
+     one out (with `--with-children` its children too), named in `skipped` with who landed it; tell the user. A
+     branch it is built on that landed is not pushed along.
    `bd sync` prints the push each branch needs as `push`, ready to run once approved. With stacked branches, `stacks`
    in `bd sync` and `bd status` is the stack branch of each stack that forks, `{prefix}/stack/<root>`: all its commits
    in one branch, for a Safe Push of the whole stack (`state`: `built`, `blocked` by `member`, `conflict`, `stale`);
@@ -361,7 +362,7 @@ worktrees work on one branch, run `bd help worktrees` first.
   stacked branch lands the branches it is built on with it, in one robot, and `--whole-stack` lands the whole stack,
   its side branches included, in one robot.
 - A branch a merged Safe Push landed says so in `bd status` (`landed_by`) until `bd update`: only its `after` commits
-  are left to push or land, and with none `bd push` and `bd safe-push` refuse it (`landed`).
+  are left to push or land, and with none `bd push` leaves it out (`skipped`) and `bd safe-push` refuses it (`landed`).
 "
   )
 }

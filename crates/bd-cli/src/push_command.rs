@@ -14,7 +14,7 @@
 
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorBranch, ErrorCode};
-use crate::landed::{LandedBranch, every_branch_landed};
+use crate::landed::{LandedBranch, LandedBySummary, every_branch_landed};
 use crate::output::{SchemaVersion, ShortIds};
 use crate::pull_request_retarget::{RetargetedPullRequest, retarget_listed, retarget_pull_requests_of};
 use crate::push_hold::{PushHolds, read_push_holds};
@@ -106,6 +106,22 @@ pub struct PushOutput {
   /// another remote than `origin`, which its remote status compares with
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub stack_warnings: Vec<String>,
+  /// The branches asked for (named, or built on a named one with `--with-children`) that the push left out, the others
+  /// pushed: a merged Safe Push landed all of each, nothing of it is left to push. Tell the user who landed it
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub skipped: Vec<SkippedBranch>,
+}
+
+/// A branch `bd push` left out (`skipped`)
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SkippedBranch {
+  pub name: String,
+  /// Why: `landed`, the code a push with nothing else left is refused with
+  pub code: ErrorCode,
+  /// "auth landed in master with the Safe Push of login (<robot>): nothing of it is left to push"
+  pub message: String,
+  /// The merged Safe Push that landed it, as `landed_by` of `bd status`
+  pub landed_by: LandedBySummary,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -236,10 +252,10 @@ fn base_on_remote<'a>(baseline: &'a str, remote: &str) -> &'a str {
 }
 
 /// `bd push` for a caller that holds the repository lock and synced under it (`bd safe-push`, which cancels the robot
-/// it replaces itself and passes no `holds`). A branch a merged Safe Push landed whole is refused (`landed`), an
-/// ancestor taken along that it landed stays as it is; with `--with-children` one is only left out, as the app's Push
-/// with Children leaves it, and the push is refused as `landed` only when nothing else is left of it (the stack branch
-/// of a whole stack every branch of which landed included). A branch a running Safe Push holds (`holds`) is refused, or, with
+/// it replaces itself and passes no `holds`). A branch a merged Safe Push landed whole is left out, named or built on a
+/// named one with `--with-children` (`skipped`), as the app's Push with Children leaves it, and the others push; the
+/// push is refused as `landed` only when nothing else is left of it (the stack branch of a whole stack every branch of
+/// which landed included). An ancestor taken along that landed stays as it is. A branch a running Safe Push holds (`holds`) is refused, or, with
 /// `--restart-running` and the robot on the branch itself, its robot is canceled before the push and restarted after it;
 /// an ancestor taken along that a robot holds stays as it is, unless that robot is the one restarted.
 /// `open_stack_pull_requests`: the roots whose pull request of the whole stack is open, for `--with-children`.
@@ -329,9 +345,8 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
   let mut candidates = Vec::with_capacity(selected.len());
   let mut refusals = Vec::new();
   let mut held = Vec::new();
-  let mut landed = Vec::new();
-  // with --with-children, the named branches a merged Safe Push landed whole: left out while the rest has work
-  let mut left_out_landed = Vec::new();
+  // the branches asked for that a merged Safe Push landed whole: left out while the rest has work
+  let mut landed: Vec<(&str, &LandedBranch, String)> = Vec::new();
   let mut behind = Vec::new();
   for name in &selected {
     let Some(branch) = synced.branches.iter().find(|branch| branch.name == *name) else {
@@ -343,15 +358,10 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
       // a branch taken along that a Safe Push lands is on the remote as the robot took it: the push of the stack starts
       // above it, as the app's does, and a child carries its commits
       if !implicit.contains(*name) {
-        if hold.landed.is_some() {
-          // Push with Children pushes what is left of the stack: the landed branches stay as they are
-          if !args.with_children {
-            landed.push(hold.reason(name));
-          } else if args.branches.contains(&(*name).to_string()) {
-            left_out_landed.push(hold.reason(name));
-          }
-        } else {
-          held.push(hold.reason(name));
+        match &hold.landed {
+          // nothing of it is left to push: it stays as it is, the others push
+          Some(landed_branch) => landed.push((name, landed_branch, hold.reason(name))),
+          None => held.push(hold.reason(name)),
         }
       }
       continue;
@@ -421,13 +431,20 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
       });
     }
   }
-  // nothing of the stack is left but what merged Safe Pushes landed: the push sends nothing that lands
-  if candidates.is_empty() && stacks.is_empty() && held.is_empty() && refusals.is_empty() {
-    landed.append(&mut left_out_landed);
-  }
-  // landed for good before a robot that may still finish
-  if !landed.is_empty() {
-    return Err(CliError::new(ErrorCode::Landed, format!("Nothing was pushed: {}", landed.join("; "))));
+  // nothing asked for is left but what merged Safe Pushes landed: the push sends nothing that lands. The named ones
+  // say it (with --with-children their children landed too)
+  if candidates.is_empty() && stacks.is_empty() && held.is_empty() && refusals.is_empty() && !landed.is_empty() {
+    let named: Vec<&str> = landed
+      .iter()
+      .filter(|(name, ..)| args.branches.iter().any(|named| named == name))
+      .map(|(.., reason)| reason.as_str())
+      .collect();
+    let reasons = if named.is_empty() {
+      landed.iter().map(|(.., reason)| reason.as_str()).collect()
+    } else {
+      named
+    };
+    return Err(CliError::new(ErrorCode::Landed, format!("Nothing was pushed: {}", reasons.join("; "))));
   }
   if !held.is_empty() {
     return Err(CliError::new(ErrorCode::RobotRunning, format!("Nothing was pushed: {}", held.join("; "))));
@@ -553,6 +570,16 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
       });
     }
   }
+  let landed_ids = context.short_ids(landed.iter().flat_map(|(_, landed, _)| landed.landed.iter().chain(&landed.after).map(String::as_str)));
+  let skipped = landed
+    .into_iter()
+    .map(|(name, landed, message)| SkippedBranch {
+      name: name.to_string(),
+      code: ErrorCode::Landed,
+      message,
+      landed_by: LandedBySummary::new(context, landed, &landed_ids),
+    })
+    .collect();
   Ok(PushOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
@@ -565,6 +592,7 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
     retarget_warnings: Vec::new(),
     stacks,
     stack_warnings,
+    skipped,
   })
 }
 
