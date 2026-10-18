@@ -122,7 +122,9 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   Safe Push cancels, pushes and restarts; `bd push` refuses it as `robot_running`, `--restart-running`); a branch with a GitHub PR starts from it with a `/patronus merge`
   comment, so the PR's approvals count (`spec/branch/patronus.spec.md`); a stacked branch's Safe Push lands it with
   what it is built on in one robot, its form below its own row (the island header's under the header, `placement`),
-  landing it alone (unstack, move) the second way, and closes the PRs of the ancestors it landed. One model decides
+  landing it alone (unstack, move) the second way, and closes by content the PRs of the ancestors it landed (the robot
+  of the whole stack, `RobotSubject`, those of every branch of the stack; a stack PR that no longer matches is asked
+  about, never closed by itself). One model decides
   the next step of a branch (`getBranchNextStep`, `src/lib/branch-next-step.ts`, the table of
   `spec/branch/next-step.spec.md`), rendered by the slot, "⋯", S, the preview, the review window, the stack header and
   the form's Start: approvals are counted only by Patronus, the app asks it in the background for the branches a
@@ -159,7 +161,10 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   commits on the lanes, oldest first (`spec/branch/stack-island.spec.md`); a side stack collapses into its root (a
   quiet one starts collapsed); Push Up to Here pushes the ancestors whole and the branch up to a commit
   (`StackPushBranch.tip`, one `rev-list` checks the cut); a push of several branches is one atomic push, all or none
-  (`push_branches`, `src/lib/git/stack-push.ts`), through the leased push of `bd push` (`push_leased`).
+  (`push_branches`, `src/lib/git/stack-push.ts`), through the leased push of `bd push` (`push_leased`); the whole stack
+  (`{prefix}/stack/<root>`) is an object of its own, "the whole air stack": its robot, its PR ("Create Pull Request of
+  the Stack…"), "Review Whole Stack", one list of actions (`getWholeStackMenuItems`) in the island's "⋯" and the root's
+  "Whole Stack ›" (`spec/branch/whole-stack.spec.md`).
 - **Stack parents**: a child -> parent map in `refs/branch-deck/stack-parents` stacks a branch, an issue branch and an
   issue group included, without a rewrite; Stack On, Unstack, `bd restack`/`unstack` and a plan path `parent/leaf`
   write it, a prefix with a parent level still declares one; a sync drops the line of an integrated branch; a trial

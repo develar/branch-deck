@@ -3,6 +3,7 @@ import { commands } from "@/lib/bindings"
 import type { AgentCliCommand, PatronusRobot, RobotFailureReport } from "@/lib/bindings"
 import { copyTextLater } from "@/lib/clipboard"
 import { notifyError } from "@/lib/errors"
+import { formatRobotSubject } from "@/lib/patronus"
 import { buildRobotPrompt } from "@/lib/robot-prompt"
 import { stackAncestors } from "@/lib/stack"
 import { branchSyncStore } from "@/stores/branch-sync"
@@ -19,13 +20,14 @@ export interface RobotPrompt {
 
 /**
  * The branches the robot's branch is built on, root first (`stackAncestors`): the robot of a stacked branch builds the
- * whole stack, so the commit map has their commits too; empty for a root branch
+ * whole stack, so the commit map has their commits too; empty for a root branch. For the robot of the whole stack, the
+ * branches of the stack, the root first: its stack branch holds the commits of them all.
  */
 export function robotAncestors(robot: PatronusRobot): string[] {
+  const { branches, stackBranches } = branchSyncStore.getState()
   if (robot.branchName === null) {
-    return []
+    return robot.stackRoot == null ? [] : [...(stackBranches[robot.stackRoot]?.members ?? [])]
   }
-  const branches = branchSyncStore.getState().branches
   return stackAncestors(robot.branchName, name => branches[name]).map(branch => branch.name)
 }
 
@@ -59,7 +61,7 @@ export async function readRobotPrompt(robot: PatronusRobot, full: boolean): Prom
 }
 
 function branchLabel(robot: PatronusRobot): string {
-  return robot.branchName ?? robot.name
+  return formatRobotSubject(robot)
 }
 
 /** "Cannot copy the prompt for auth" */

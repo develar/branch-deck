@@ -4,12 +4,15 @@
 //! log of the last tip passes through the tip of every parent; the base of the root is the parent of the oldest
 //! commit, the range Patronus checks (`read_review_commits`).
 //!
+//! The whole stack (`whole_stack`) is one part: the stack branch `{prefix}/stack/<root>` on the baseline, every commit
+//! of the stack in the order of the history.
+//!
 //! The app memoises a review (`BranchReviewMemo`) by the tips and the baseline the `for-each-ref` reads, so that a
 //! review opened again runs only that `for-each-ref`.
 
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_names::to_final_branch_name;
+use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
 use moka::sync::Cache;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -31,6 +34,11 @@ pub struct GetBranchReviewParams {
   /// The branches from the root of the stack to the reviewed branch, without the `{prefix}/virtual/` namespace; one
   /// name for a branch outside a stack
   pub chain: Vec<String>,
+  /// The whole stack of the root `chain` names alone: its stack branch `{prefix}/stack/<root>` (spec/branch/whole-stack.spec.md),
+  /// one part named by the root
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub whole_stack: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -84,10 +92,20 @@ fn ref_candidates(name: &str) -> Vec<String> {
 }
 
 fn read_tips(git: &GitCommandExecutor, params: &GetBranchReviewParams) -> Result<BranchTips> {
+  if params.whole_stack && params.chain.len() != 1 {
+    bail!("The whole stack is reviewed by its root alone");
+  }
+  let full_name = |name: &str| {
+    if params.whole_stack {
+      to_stack_branch_name(&params.branch_prefix, name)
+    } else {
+      to_final_branch_name(&params.branch_prefix, name)
+    }
+  };
   let refs: Vec<String> = params
     .chain
     .iter()
-    .map(|name| to_final_branch_name(&params.branch_prefix, name).map(|branch| format!("refs/heads/{branch}")))
+    .map(|name| full_name(name).map(|branch| format!("refs/heads/{branch}")))
     .collect::<Result<_>>()?;
   if refs.is_empty() {
     bail!("No branch to review");
@@ -102,6 +120,7 @@ fn read_tips(git: &GitCommandExecutor, params: &GetBranchReviewParams) -> Result
     .zip(&params.chain)
     .map(|(reference, name)| match found.get(reference.as_str()) {
       Some(tip) => Ok((*tip).to_string()),
+      None if params.whole_stack => Err(anyhow!("The whole {name} stack has no stack branch: it builds only for a stack that forks")),
       None => Err(anyhow!("{name} has no virtual branch yet: sync first")),
     })
     .collect::<Result<_>>()?;
@@ -162,6 +181,7 @@ struct BranchReviewKey {
   branch_prefix: String,
   baseline_branch: String,
   chain: Vec<String>,
+  whole_stack: bool,
   tips: Vec<String>,
   baseline: Vec<(String, String)>,
 }
@@ -185,6 +205,7 @@ impl BranchReviewMemo {
       branch_prefix: params.branch_prefix.clone(),
       baseline_branch: params.baseline_branch.clone(),
       chain: params.chain.clone(),
+      whole_stack: params.whole_stack,
       tips,
       baseline,
     };

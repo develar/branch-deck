@@ -282,6 +282,14 @@ export function recordPullRequestCreated(title: string, description: string, url
 }
 
 /**
+ * A pull request the user closed in the app: "Closed pull request #12" / "#12 no longer matches the air stack: auth
+ * landed", with it on GitHub
+ */
+export function recordPullRequestClosed(title: string, description: string, url: string): void {
+  recordActivity({ kind: "review", title, description, details: { type: "pullRequest", url } })
+}
+
+/**
  * A pull request the app retargeted from a virtual branch to the baseline: "Retargeted #8 to master" / "login · it went
  * into auth", with it on GitHub
  */

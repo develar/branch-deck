@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { GetPatronusRobotsParams, PatronusCommandReply, PatronusRobot, PatronusRobotsResult, PollPatronusRobotsParams, PostPatronusCommandParams } from "@/lib/bindings"
+import { formatPushHoldReason } from "@/lib/patronus"
 import { FAILURE_PROBLEMS_WAIT_MS, formatFailedRobotToast, resetFailingAnnouncements, watchFailingRobots } from "@/lib/patronus-failing"
+import { getStackLandedBy, resetLandedStacks } from "@/stores/landed-stacks"
 import {
   BACKGROUND_POLL_INTERVAL_MS,
   COMMAND_REPLY_INTERVAL_MS,
@@ -43,7 +45,7 @@ const { patronus, branches } = vi.hoisted(() => ({
     replies: [] as PatronusCommandReply[],
     replyCalls: 0,
   },
-  branches: { current: {} as Record<string, unknown> },
+  branches: { current: {} as Record<string, unknown>, stacks: {} as Record<string, unknown> },
 }))
 
 vi.mock("@/lib/bindings", () => ({
@@ -103,6 +105,8 @@ const { notices } = vi.hoisted(() => ({
     pullRequests: {} as Record<string, { number: number; state: string; headRefOid: string }>,
     /** "<branch> <comment>" of each close of a pull request */
     closed: [] as string[],
+    /** The pull requests of the whole stacks GitHub lists, by root */
+    stackPullRequests: {} as Record<string, { number: number; state: string; headRefOid: string }>,
   },
 }))
 
@@ -111,6 +115,7 @@ vi.mock("@/stores/pull-requests", () => ({
     notices.pullRequestRefreshes.push(reason)
   },
   getPullRequest: (name: string) => notices.pullRequests[name],
+  getStackPullRequest: (root: string) => notices.stackPullRequests[root],
   closePullRequest: async (name: string, comment: string) => {
     notices.closed.push(`${name} ${comment}`)
   },
@@ -164,8 +169,10 @@ vi.mock("@/stores/settings/repositorySettings", async importOriginal => ({
 }))
 
 vi.mock("@/stores/branch-sync", () => ({
-  branchSyncStore: { getState: () => ({ branches: branches.current, branchOrder: Object.keys(branches.current) }) },
+  branchSyncStore: { getState: () => ({ branches: branches.current, branchOrder: Object.keys(branches.current), stackBranches: branches.stacks }) },
   getBranch: (name: string) => branches.current[name],
+  getStackBranch: (root: string) => branches.stacks[root],
+  useStackBranch: () => undefined,
   useBranchSync: () => undefined,
   useBranchTip: () => undefined,
   useBranchRemoteTip: () => null,
@@ -222,7 +229,10 @@ beforeEach(() => {
   notices.updates = 0
   notices.opened = []
   notices.pullRequests = {}
+  notices.stackPullRequests = {}
   notices.closed = []
+  branches.stacks = {}
+  resetLandedStacks()
   fetches.lastFetchTime = undefined
   patronus.list = available(robot({ status: "failure" }))
   patronus.poll = available()
@@ -231,6 +241,33 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
+})
+
+describe("holds", () => {
+  it("holds every branch the whole-stack Safe Push lands", async () => {
+    setBranches("air", "bazel", "side", "other")
+    branches.stacks = { air: { root: "air", members: ["air", "bazel", "side"], tip: "stack-tip", remoteStatus: null } }
+    patronus.list = available(robot({ branchName: null, stackRoot: "air", sourceRevision: "stack-tip" }))
+    await refreshPatronus("sync")
+    const holds = ["air", "bazel", "side", "other"].map(name => getPushHold(name))
+    expect(holds.map(hold => (hold === null ? null : [hold.kind, hold.branch, hold.wholeStack]))).toEqual([
+      ["span", "air", true],
+      ["span", "air", true],
+      ["span", "air", true],
+      null,
+    ])
+    expect(formatPushHoldReason("bazel", holds[1]!)).toBe("A Safe Push of the whole air stack is running: it lands bazel with it")
+    // the robot of the whole stack is no branch's, not even the root's
+    expect(getBranchRobot("air")).toBeUndefined()
+  })
+
+  it("holds nothing for a dry run of the whole stack", async () => {
+    setBranches("air", "bazel")
+    branches.stacks = { air: { root: "air", members: ["air", "bazel"], tip: "stack-tip", remoteStatus: null } }
+    patronus.list = available(robot({ branchName: null, stackRoot: "air", sourceRevision: "stack-tip", pushMode: "dryRun" }))
+    await refreshPatronus("sync")
+    expect([getPushHold("air"), getPushHold("bazel")]).toEqual([null, null])
+  })
 })
 
 describe("refreshPatronus", () => {
@@ -432,6 +469,55 @@ describe("merges", () => {
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
     expect(notices.closed).toEqual(["auth Landed in master with #7, the Safe Push of user/virtual/oauth, which is built on this branch."])
     expect(notices.toasts.map(it => it.description)).toEqual(["Safe Push · closes the pull request of auth: it landed with oauth"])
+  })
+
+  it("closes the pull requests of the branches the whole stack landed", async () => {
+    const member = (name: string, parent: string | null, remoteTip: string | null = null, commitsBehind = 0) => ({
+      name,
+      commits: [{ hash: `${name}-tip` }],
+      remoteStatus: remoteTip === null ? null : { remoteTip, commitsBehind },
+      stack: { effectiveBase: parent },
+    })
+    branches.current = {
+      air: member("air", null),
+      // pushed before a sync rebuilt it: the remote branch has nothing the branch lacks
+      bazel: member("bazel", "air", "bazel-old"),
+      // someone else's commit on the remote: the merge doesn't have it
+      side: member("side", "air", "side-old", 1),
+    }
+    branches.stacks = { air: { root: "air", members: ["air", "bazel", "side"], tip: "stack-tip", remoteStatus: null } }
+    notices.pullRequests = {
+      air: { number: 5, state: "open", headRefOid: "air-tip" },
+      bazel: { number: 6, state: "open", headRefOid: "bazel-old" },
+      side: { number: 7, state: "open", headRefOid: "side-old" },
+    }
+    const whole = robot({ branchName: null, stackRoot: "air", sourceRevision: "stack-tip", pullRequest: { number: 12, url: "u12" } })
+    patronus.list = available(whole)
+    await refreshPatronus("sync")
+    // the robot of the whole stack is polled: no branch has it
+    patronus.poll = available({ ...whole, status: "success", finishTime: 200 })
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    expect(patronus.polls.at(-1)?.robots).toEqual([{ id: "r1", status: "running" }])
+    const comment = "Landed in master with #12, the Safe Push of the whole air stack (user/stack/air), which holds this branch."
+    expect(notices.closed).toEqual([`air ${comment}`, `bazel ${comment}`])
+    expect(notices.toasts.map(it => [it.title, it.description])).toEqual([
+      ["Whole air stack merged into master", "Safe Push · closes the pull requests of air and bazel: they landed with the whole stack"],
+    ])
+  })
+
+  it("says that a piece that landed the root leaves the pull request of the whole stack, never closed by itself", async () => {
+    const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
+    branches.current = { air: stacked("air", null), auth: stacked("auth", "air"), side: stacked("side", "air") }
+    branches.stacks = { air: { root: "air", members: ["air", "auth", "side"], tip: "stack-tip", remoteStatus: null } }
+    notices.stackPullRequests = { air: { number: 12, state: "open", headRefOid: "stack-tip" } }
+    const auth = robot({ branchName: "auth", sourceRevision: "auth-tip" })
+    patronus.list = available(auth)
+    await refreshPatronus("sync")
+    patronus.poll = available({ ...auth, status: "success", finishTime: 200 })
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+    expect(notices.toasts.map(it => it.description)).toEqual(["Safe Push · #12 no longer matches the air stack: auth landed"])
+    expect(getStackLandedBy("air")).toBe("auth")
+    expect(notices.closed).toEqual([])
   })
 
   it("does not tell a successful dry run or a robot first seen merged", async () => {

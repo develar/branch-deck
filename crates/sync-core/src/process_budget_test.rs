@@ -13,6 +13,7 @@ use crate::remote_status::forget_statuses;
 use crate::repository_lock::RewriteOptions;
 use crate::squash::{SquashCommitsParams, squash_commits_core};
 use crate::stack_branch::forget_builds;
+use crate::stack_pull_request::{GetNewStackPullRequestParams, StackMemberSubjects, read_new_stack_pull_request};
 use crate::sync::{SyncOptions, sync_branches};
 use crate::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
 use crate::update_project::{UpdateProjectParams, check_baseline_update, update_project_core};
@@ -729,6 +730,35 @@ fn the_text_of_a_new_pull_request() {
   assert_processes(&git, &[("config", 1), ("log", 1)]);
 }
 
+/// The text of the pull request of the whole stack the app's form shows: the descriptions of the stack branch and of
+/// its members from one `config`, the subjects as the rows show them
+#[test]
+fn the_text_of_a_new_pull_request_of_the_whole_stack() {
+  let (repo, _) = repo();
+  repo.git(&["config", "branch.test/virtual/beta.description", "IJPL-2 Beta\n\nThe beta part."]);
+  let member = |name: &str, parent: Option<&str>, subjects: &[&str]| StackMemberSubjects {
+    name: name.to_string(),
+    parent: parent.map(str::to_string),
+    subjects: subjects.iter().map(|subject| (*subject).to_string()).collect(),
+  };
+  let params = GetNewStackPullRequestParams {
+    repository_path: path(&repo),
+    branch_prefix: PREFIX.to_string(),
+    root: "alpha".to_string(),
+    members: vec![
+      member("alpha", None, &["Alpha"]),
+      member("beta", Some("alpha"), &["Beta"]),
+      member("gamma", Some("alpha"), &["Gamma"]),
+    ],
+    target: "master".to_string(),
+  };
+  let git = counting();
+  let text = read_new_stack_pull_request(&git, &params).unwrap();
+  assert_eq!(text.title, "Alpha, with the 2 branches built on it");
+  assert!(text.body.contains("## beta: IJPL-2 Beta"), "{}", text.body);
+  assert_processes(&git, &[("config", 1)]);
+}
+
 /// The app's push of a stack (Push Stack, Push with Children): `alpha` and `beta` built on it, to a bare `origin` that
 /// has neither, in one atomic push. The tips are one `for-each-ref`, the push one `push`, the remote statuses after it
 /// one `for-each-ref` of the local and the remote tips of both and one `reflog` of their push times: no walk, each
@@ -754,6 +784,7 @@ fn an_atomic_push_of_a_stack() {
     parent_branch: parent.map(str::to_string),
     expected_remote: None,
     tip: None,
+    whole_stack: false,
   };
   let params = PushBranchesParams {
     repository_path: path(&repo),

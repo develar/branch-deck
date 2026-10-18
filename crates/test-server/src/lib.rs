@@ -131,6 +131,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_range_files", post(tauri_command_bridge::get_range_files))
     .route("/invoke/get_range_patch", post(tauri_command_bridge::get_range_patch))
     .route("/invoke/get_branch_review", post(tauri_command_bridge::get_branch_review))
+    .route("/invoke/get_new_stack_pull_request", post(tauri_command_bridge::get_new_stack_pull_request))
     .route("/invoke/prefetch_branch_review", post(tauri_command_bridge::prefetch_branch_review))
     .route("/invoke/get_file_owners", post(tauri_command_bridge::get_file_owners))
     .route("/invoke/get_patronus_robots", post(tauri_command_bridge::get_patronus_robots))

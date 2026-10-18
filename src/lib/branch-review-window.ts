@@ -13,7 +13,8 @@ import type { MenuItem } from "@/lib/menu"
 import { showRepository } from "@/lib/show-repository"
 import { stackAncestors } from "@/lib/stack"
 import { createWindowLink } from "@/lib/sub-window-link"
-import { branchSyncStore, getBranch } from "@/stores/branch-sync"
+import { formatWholeStack } from "@/lib/whole-stack"
+import { branchSyncStore, getBranch, getStackBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { getEffectiveBranchPrefix, getSelectedProject } from "@/stores/repository"
 import { demandReviewReadiness, showReviewReadiness } from "@/stores/review-readiness"
@@ -72,10 +73,10 @@ function releaseChain(): void {
   hideChain = null
 }
 
-/** The open review window: the repository and the chain it shows */
-const link = createWindowLink<{ repositoryPath: string; chain: readonly string[] }, BranchReviewWindowState>({
+/** The open review window: the repository and the chain it shows, or the whole stack of its root */
+const link = createWindowLink<{ repositoryPath: string; chain: readonly string[]; wholeStack: boolean }, BranchReviewWindowState>({
   label: BRANCH_REVIEW_WINDOW,
-  buildState: shown => buildState(shown.repositoryPath, shown.chain),
+  buildState: shown => (shown.wholeStack ? buildStackState(shown.repositoryPath, shown.chain[0] ?? "") : buildState(shown.repositoryPath, shown.chain)),
   onClose: () => {
     closeDialog()
     releaseChain()
@@ -145,7 +146,7 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
   // git reads while the window starts
   prefetchBranchReview(branchName, focus)
   // the window is one, reused: the main window keeps the state of the last opened chain up to date
-  const shown = { repositoryPath, chain }
+  const shown = { repositoryPath, chain, wholeStack: false }
   // the window starts over: no dialog is open in it
   closeDialog()
   link.setShown(shown)
@@ -170,6 +171,47 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
       return false
     },
   )
+}
+
+/**
+ * Reviews the whole stack of `root` in the review window: its stack branch `{prefix}/stack/<root>`, every commit of the
+ * stack on the baseline as one part ("Review Whole Stack"). The window shows no actions of a branch: the stack's are in
+ * the menus of the main window. Resolves to whether the window opened; a failure is told.
+ */
+export async function openWholeStackReviewWindow(root: string): Promise<boolean> {
+  const source = getBranchReviewSource(root, {})
+  if (source === null) {
+    return false
+  }
+  const { repositoryPath } = source
+  const chain = [root]
+  closeDialog()
+  releaseChain()
+  const shown = { repositoryPath, chain, wholeStack: true }
+  link.setShown(shown)
+  const data: BranchReviewWindowData = {
+    ...source,
+    chain,
+    groups: [],
+    wholeStack: true,
+    focus: { range: "own", filter: { kind: "all" }, commitId: null, path: null },
+    openedAt: Date.now(),
+    state: link.takeState()!,
+  }
+  const subject = formatWholeStack(root)
+  return link.open(shown, { url: "/branch-review", title: `Review ${subject}`, data }).then(
+    () => true,
+    (error: unknown) => {
+      notifyError(`Cannot open the review of ${subject}`, error)
+      return false
+    },
+  )
+}
+
+/** The tip of the stack branch the last sync left, which a review of the whole stack reads again when it moves */
+function buildStackState(repositoryPath: string, root: string): BranchReviewWindowState {
+  const tip = getSelectedProject()?.path === repositoryPath ? getStackBranch(root)?.tip : undefined
+  return { repositoryPath, selected: tip !== undefined, tips: tip == null ? {} : { [root]: tip }, items: {}, menus: {}, createPullRequest: null }
 }
 
 /** The tips of the chain the last sync built, and the actions of each branch; nothing for a repository not shown */

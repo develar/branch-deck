@@ -13,7 +13,7 @@ use crate::review_fetch::present_commits;
 use crate::snapshot::read_grouping_inputs;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_names::to_final_branch_name;
+use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::revs::{current_branch, is_object_id};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -114,15 +114,58 @@ pub fn robot_commit_map(
   ancestors: &[String],
 ) -> Result<RobotCommitMap> {
   let virtual_ref = format!("refs/heads/{}", to_final_branch_name(branch_prefix, branch_name)?);
+  let mut stack: Vec<&str> = ancestors.iter().map(String::as_str).collect();
+  stack.push(branch_name);
+  commit_map(git_executor, repository_path, &virtual_ref, &stack, source_revision, baseline_branch, MapBy::Notes)
+}
+
+/// The commits of the whole stack of `root` against those the robot of its stack branch (`{prefix}/stack/<root>`)
+/// checked, by the hashes of the checked-out branch: the commits of every member (`members`, the root first), each
+/// with its branch, in the phases of `robot_commit_map`. The stack branch has no mapping notes: its commits are shown
+/// by the HEAD commits of their identity, and a HEAD commit of a member that no commit of the stack branch shows was
+/// made after the last sync (`virtual_behind_head`).
+#[instrument(skip(git_executor))]
+pub fn stack_robot_commit_map(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  branch_prefix: &str,
+  root: &str,
+  source_revision: &str,
+  baseline_branch: &str,
+  members: &[String],
+) -> Result<RobotCommitMap> {
+  let stack_ref = format!("refs/heads/{}", to_stack_branch_name(branch_prefix, root)?);
+  let branches: Vec<&str> = members.iter().map(String::as_str).collect();
+  commit_map(git_executor, repository_path, &stack_ref, &branches, source_revision, baseline_branch, MapBy::Identity)
+}
+
+/// How the commits of the source branch are shown by the HEAD commits they are copies of
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MapBy {
+  /// The mapping note of a HEAD commit names its copy in the virtual branch, else its identity
+  Notes,
+  /// Only the identity (`CommitKey`): the stack branch writes no mapping notes
+  Identity,
+}
+
+/// The map of the commits of `virtual_ref` (the virtual branch, or the stack branch) against `source_revision`, the
+/// commits of `branches` on HEAD showing them (`robot_commit_map`)
+fn commit_map(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  virtual_ref: &str,
+  branches: &[&str],
+  source_revision: &str,
+  baseline_branch: &str,
+  map_by: MapBy,
+) -> Result<RobotCommitMap> {
   let [source_present, virtual_present] = if is_object_id(source_revision) {
-    present_commits(git_executor, repository_path, [source_revision, virtual_ref.as_str()])?
+    present_commits(git_executor, repository_path, [source_revision, virtual_ref])?
   } else {
     [false, false]
   };
 
-  let mut stack: Vec<&str> = ancestors.iter().map(String::as_str).collect();
-  stack.push(branch_name);
-  let head = head_commits(git_executor, repository_path, baseline_branch, &stack)?;
+  let head = head_commits(git_executor, repository_path, baseline_branch, branches)?;
   if !source_present {
     debug!("the source revision is not in the repository");
     return Ok(RobotCommitMap {
@@ -147,7 +190,7 @@ pub fn robot_commit_map(
   // the commits of the virtual branch, and the marks of those that differ from the source revision (`>`), and of the
   // robot's own (`<`). Without a virtual branch (archived, deleted) every robot commit is the robot's own
   let (virtual_commits, marked) = if virtual_present {
-    let virtual_commits = walk(git_executor, repository_path, &[], &[&baseline_exclusion, &virtual_ref])?;
+    let virtual_commits = walk(git_executor, repository_path, &[], &[&baseline_exclusion, virtual_ref])?;
     let range = format!("{source_revision}...{virtual_ref}");
     let marked = walk(git_executor, repository_path, &["--left-right", "--cherry-mark"], &[&baseline_exclusion, &range])?;
     (virtual_commits, marked)
@@ -180,7 +223,10 @@ pub fn robot_commit_map(
   };
 
   // the HEAD commit of each virtual commit: by its mapping note, else by its identity
-  let by_note: HashMap<&str, &HeadCommit> = head.iter().filter_map(|head| mapped_virtual(&head.commit).map(|mapped| (mapped, head))).collect();
+  let by_note: HashMap<&str, &HeadCommit> = match map_by {
+    MapBy::Notes => head.iter().filter_map(|head| mapped_virtual(&head.commit).map(|mapped| (mapped, head))).collect(),
+    MapBy::Identity => HashMap::new(),
+  };
   let by_key: HashMap<CommitKey, &HeadCommit> = head
     .iter()
     .map(|head| (CommitKey::from_subject(&head.commit.author_email, head.commit.author_timestamp, &head.commit.subject), head))
@@ -201,8 +247,8 @@ pub fn robot_commit_map(
     let local = by_note.get(commit.id.as_str()).or_else(|| by_key.get(&commit.key)).copied();
     if let Some(local) = local {
       shown.insert(local.commit.id.as_str());
-      // the HEAD commit changed since the sync copied it
-      if mapped_virtual(&local.commit) != Some(commit.id.as_str()) {
+      // the HEAD commit changed since the sync copied it; the stack branch has no notes that would say it
+      if map_by == MapBy::Notes && mapped_virtual(&local.commit) != Some(commit.id.as_str()) {
         virtual_behind_head = true;
         if matches!(state, RobotCommitState::Tested | RobotCommitState::Rebased) {
           state = RobotCommitState::Changed;
@@ -243,8 +289,9 @@ pub fn robot_commit_map(
 mod robot_commits_test;
 
 /// The failure of a robot with the commit map of its branch and the checked-out branch, for the prompt for an agent: the
-/// app and `bd robot` build it alike. No map without a branch or a source revision. One process besides the map:
-/// `symbolic-ref` names the checked-out branch.
+/// app and `bd robot` build it alike. For a robot of the whole stack (`stack_root`), `ancestors` are the members of the
+/// stack, the root first (`stack_robot_commit_map`). No map without a branch, a stack with members, or a source
+/// revision. One process besides the map: `symbolic-ref` names the checked-out branch.
 #[instrument(skip(git_executor, failure), fields(robot = %failure.robot.id))]
 pub fn robot_failure_report(
   git_executor: &GitCommandExecutor,
@@ -254,12 +301,22 @@ pub fn robot_failure_report(
   baseline_branch: &str,
   failure: RobotFailure,
 ) -> Result<RobotFailureReport> {
-  let commits = match (failure.robot.branch_name.as_deref(), failure.robot.source_revision.as_deref()) {
-    (Some(branch_name), Some(source_revision)) => Some(robot_commit_map(
+  let robot = &failure.robot;
+  let commits = match (robot.branch_name.as_deref(), robot.stack_root.as_deref(), robot.source_revision.as_deref()) {
+    (Some(branch_name), _, Some(source_revision)) => Some(robot_commit_map(
       git_executor,
       repository_path,
       branch_prefix,
       branch_name,
+      source_revision,
+      baseline_branch,
+      ancestors,
+    )?),
+    (None, Some(root), Some(source_revision)) if !ancestors.is_empty() => Some(stack_robot_commit_map(
+      git_executor,
+      repository_path,
+      branch_prefix,
+      root,
       source_revision,
       baseline_branch,
       ancestors,

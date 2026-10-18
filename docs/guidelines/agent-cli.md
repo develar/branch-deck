@@ -1141,8 +1141,8 @@ token and the repository on Space are needed as for `bd safe-push` (`not_logged_
   `robot_branch` names its branch. So does a newer robot of the whole stack the branch is a branch of, named by
   `stack_root`; `--whole-stack` prints the robot of the whole stack, as `bd safe-push --whole-stack` starts it (of a
   straight chain, the robot of its last branch). `--robot` of a robot of the whole stack is that of a branch of it;
-  with `--whole-stack`, only the whole stack's. The stack branch has no mapping notes: a failure of the whole stack's
-  robot has no `commits` yet.
+  with `--whole-stack`, only the whole stack's. A failure of the whole stack's robot lists the `commits` of every branch
+  of the stack, each with its `branch`; the stack branch has no mapping notes, so they are matched by identity.
 - `failure` is there when the robot failed, or runs while a required check failed already (Patronus' "will fail",
   or a running check with a failed build). `kind`: `checks`; `infrastructure` (every failed check only failed to
   start its builds: the user restarts it, nothing to fix); `massive` (Patronus detected a massive failure: the branch

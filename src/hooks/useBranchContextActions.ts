@@ -30,6 +30,7 @@ import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { canPushNow, getPushButtonNow } from "@/hooks/usePushButton"
 import { restackBranch } from "@/hooks/useStackActions"
+import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import { formatSquashFixupsLabel, getListFixups } from "@/lib/autosquash"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import type { BranchNextStep } from "@/lib/branch-next-step"
@@ -506,7 +507,11 @@ function getMoveMenuItems(name: string): MenuItem[] {
 /** The most branches "Stack On…" lists; the newest come first */
 const STACK_TARGET_LIMIT = 20
 
-/** "Stack On…" (any other branch that isn't stacked on this one), "Unstack" and the collapse of the stack */
+/**
+ * "Stack On…" (any other branch that isn't stacked on this one), "Unstack", the collapse of the stack, and on the root of
+ * a stack "Whole Stack ›", the actions of the whole stack (`getWholeStackMenuItems`; Push with Children stays beside
+ * the push), so a small stack without an island has them in the root's menu and preview
+ */
 function getStackMenuItems(branch: Branch, rewrite: (items: MenuItem[]) => MenuItem[]): MenuItem[] {
   const parent = branch.stack?.declaredParent ?? null
   const descendants = getStackDescendants(branch.name)
@@ -538,6 +543,10 @@ function getStackMenuItems(branch: Branch, rewrite: (items: MenuItem[]) => MenuI
         ? { id: "expand-stack", label: "Expand Stack", icon: UnfoldVerticalIcon, kbds: ["alt", "arrowright"], onSelect: () => void toggleStackCollapsed(branch.name, false) }
         : { id: "collapse-stack", label: "Collapse Stack", icon: FoldVerticalIcon, kbds: ["alt", "arrowleft"], onSelect: () => void toggleStackCollapsed(branch.name, true) },
     )
+  }
+  const wholeStack = parent === null && descendants.length > 0 ? getWholeStackMenuItems(branch.name, { withPush: false }) : []
+  if (wholeStack.length > 0) {
+    items.push({ id: "whole-stack", label: "Whole Stack", icon: LayersIcon, onSelect: () => {}, children: wholeStack })
   }
   return items
 }

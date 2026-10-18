@@ -34,6 +34,11 @@ export interface BranchReviewSource {
   readonly chain: readonly string[]
   /** The reviewer groups the code-owner check asks for, when it ran */
   readonly groups: readonly BranchReviewGroup[]
+  /**
+   * The whole stack of the root `chain` names alone: its stack branch `{prefix}/stack/<root>`, one part of every commit
+   * of the stack (`GetBranchReviewParams.wholeStack`)
+   */
+  readonly wholeStack?: boolean
 }
 
 /** What the review knows of the repository: the heads the last sync built (a branch not there has left) */
@@ -122,12 +127,13 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   }
 
   const { repositoryPath, branchPrefix, baselineBranch, chain } = source
+  const wholeStack = source.wholeStack === true
   const chainKey = chain.join("\n")
   // the focus of the first read only: a later read keeps what the user chose
   const initialFocus = useRef(focus)
   useEffect(() => {
     let current = true
-    void readBranchReview({ repositoryPath, branchPrefix, baselineBranch, chain: chainKey.split("\n") }).then(result => {
+    void readBranchReview({ repositoryPath, branchPrefix, baselineBranch, chain: chainKey.split("\n"), wholeStack }).then(result => {
       if (!current) {
         return
       }
@@ -140,7 +146,7 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
     return () => {
       current = false
     }
-  }, [repositoryPath, branchPrefix, baselineBranch, chainKey, readTips])
+  }, [repositoryPath, branchPrefix, baselineBranch, chainKey, wholeStack, readTips])
 
   const view = state.status === "loaded" ? state.view : null
   const setView = (change: Partial<ReviewView>) => setState(previous => (previous.status === "loaded" ? { status: "loaded", view: { ...previous.view, ...change } } : previous))

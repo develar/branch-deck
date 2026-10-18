@@ -211,7 +211,7 @@ test.describe("Stack island", () => {
     await expect(page.getByRole("menu", { name: "More actions for the air stack" }).getByRole("menuitem")).toHaveText([
       "Safe Push deploy…",
       "Push with Children (2 branches)",
-      "Review Changes",
+      "Review Whole Stack",
       "Collapse Stack",
     ])
     await page.getByRole("menuitem", { name: "Safe Push deploy…" }).click()
@@ -239,12 +239,12 @@ test.describe("Stack island", () => {
     await expect(air.getByTestId("stack-island-form")).toHaveCount(0)
     await page.keyboard.press("Escape")
 
-    // Review Changes: the review window of the main line's last branch, the whole stack
+    // Review Whole Stack: the review window of its stack branch, every branch of the stack
     await air.getByRole("button", { name: "More actions for the air stack" }).click()
-    await page.getByRole("menuitem", { name: "Review Changes" }).click()
+    await page.getByRole("menuitem", { name: "Review Whole Stack" }).click()
     await expect.poll(async () => (await getOpenedSubWindows<BranchReviewWindowData>(page)).length).toBe(1)
     const [opened] = await getOpenedSubWindows<BranchReviewWindowData>(page)
-    expect(opened).toMatchObject({ windowId: "branch-review", title: "Review deploy", data: { focus: { range: "all" } } })
+    expect(opened).toMatchObject({ windowId: "branch-review", title: "Review the whole air stack", data: { chain: ["air"], wholeStack: true } })
   })
 
   test("should push the stack up to a commit, the branches it is built on first, the rest left to push", async ({ page, setupRepo, syncAndWaitForBranches }) => {

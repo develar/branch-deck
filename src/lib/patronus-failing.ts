@@ -1,18 +1,19 @@
 import { toast } from "@/components/ui/toast"
 import { getPullRequestItem } from "@/hooks/useBranchContextActions"
+import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import type { PatronusRobot, RobotFailureKind } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { formatFailedCheckNames } from "@/lib/check-counts"
 import type { MenuItem } from "@/lib/menu"
 import { announce } from "@/lib/os-notification"
-import { describeRobot, findFailedRobots, formatPushMode, openRobot } from "@/lib/patronus"
+import { describeRobot, findFailedRobots, formatPushMode, formatRobotSubject, openRobot } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { copyRobotPrompt, robotAncestors } from "@/lib/robot-prompt-copy"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { recordRobot } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore } from "@/stores/branch-sync"
-import { getBranchRobot, patronusStore } from "@/stores/patronus"
+import { getBranchRobot, getStackRobot, patronusStore } from "@/stores/patronus"
 
 /** The failing robots already told about, once each */
 const announced = new Set<string>()
@@ -88,10 +89,10 @@ function tellFailed(id: string, needsReview: boolean): void {
 }
 
 /**
- * "Safe Push of auth failed" / "Fast Tests · auth → master", or for missing code-owner approvals "Safe Push of auth
- * needs review" / "The code owners did not approve the changes" (with a profile: "Large Scale Change doesn't skip the
- * code-owner review: …"). A massive failure says to look at the target first:
- * "Fast Tests · many tests failed, check master · auth → master"
+ * "Safe Push of auth failed" / "Fast Tests · auth → master" ("Safe Push of the whole air stack failed"), or for missing
+ * code-owner approvals "Safe Push of auth needs review" / "The code owners did not approve the changes" (with a
+ * profile: "Large Scale Change doesn't skip the code-owner review: …"). A massive failure says to look at the target
+ * first: "Fast Tests · many tests failed, check master · auth → master"
  */
 export function formatFailedRobotToast(
   robot: PatronusRobot,
@@ -100,7 +101,7 @@ export function formatFailedRobotToast(
   label?: string,
   kind: RobotFailureKind | null = null,
 ): { title: string; description: string } {
-  const subject = `${formatPushMode(robot.pushMode)} of ${label ?? robot.branchName ?? robot.name}`
+  const subject = `${formatPushMode(robot.pushMode)} of ${formatRobotSubject(robot, label)}`
   if (needsReview) {
     // a profile chosen to start without the approvals that checks them all the same: Patronus tells it only now
     const profile = robot.profile?.name
@@ -138,6 +139,10 @@ function showFailedToast(robot: PatronusRobot, needsReview: boolean, kind: Robot
   // the robot and the branch as the stores have them now: restarted meanwhile, nothing is left to restart
   showRobotToast(robot, needsReview ? "warning" : "error", title, description, (current, branch) => {
     if (needsReview) {
+      // the approvals of the whole stack count in the pull request of its stack branch
+      if (current.stackRoot != null) {
+        return getWholeStackMenuItems(current.stackRoot, { withPush: false }).find(item => item.id === "open-stack-pull-request" || item.id === "create-stack-pull-request") ?? null
+      }
       return branch === null ? null : getPullRequestItem(branch)
     }
     const actions = getRobotActions(current, branch, false, false)
@@ -146,11 +151,11 @@ function showFailedToast(robot: PatronusRobot, needsReview: boolean, kind: Robot
   })
 }
 
-/** "A required check of auth failed" / "Fast Tests · the Safe Push will fail" */
+/** "A required check of auth failed" / "Fast Tests · the Safe Push will fail" ("… of the whole air stack failed") */
 export function formatFailingRobotToast(robot: PatronusRobot, failedChecks: string | null, label?: string): { title: string; description: string } {
   const consequence = `the ${formatPushMode(robot.pushMode)} will fail`
   return {
-    title: `A required check of ${label ?? robot.branchName ?? robot.name} failed`,
+    title: `A required check of ${formatRobotSubject(robot, label)} failed`,
     description: failedChecks === null ? consequence : `${failedChecks} · ${consequence}`,
   }
 }
@@ -194,7 +199,8 @@ function showRobotToast(
     if (!ROBOT_STEPS.has(offered.id ?? "")) {
       return now ?? offered
     }
-    const newer = latest.branchName === null ? undefined : getBranchRobot(latest.branchName)
+    // a restart is a newer robot of the branch, or of the whole stack
+    const newer = latest.branchName !== null ? getBranchRobot(latest.branchName) : latest.stackRoot != null ? getStackRobot(latest.stackRoot) : undefined
     const stale = formatStaleRobotStep(offered, now, current, latest, newer !== undefined && newer.id !== latest.id && newer.startTime > latest.startTime ? newer : null)
     if (stale === null) {
       return now
@@ -223,7 +229,7 @@ function showRobotToast(
                     if (copied) {
                       toast.update(id, {
                         type: "success",
-                        title: `Copied the prompt for ${branchName ?? current.name}`,
+                        title: `Copied the prompt for ${formatRobotSubject(current)}`,
                         description: "Paste it into your coding agent",
                         actionProps: undefined,
                       })
@@ -279,7 +285,7 @@ export function formatStaleRobotStep(
   if (newer === null && now !== null && now.id === offered.id && now.disabled !== true) {
     return null
   }
-  const subject = `${formatPushMode(current.pushMode)} of ${current.branchName ?? current.name}`
+  const subject = `${formatPushMode(current.pushMode)} of ${formatRobotSubject(current)}`
   if (newer !== null) {
     return { title: `${subject} was restarted`, description: describeRobot(newer) }
   }
@@ -301,6 +307,7 @@ async function readFailureKind(repositoryPath: string, branchPrefix: string, rob
       branchPrefix,
       robotId: robot.id,
       branchName: robot.branchName,
+      // the members of the whole stack for its robot
       ancestors: robotAncestors(robot),
       baselineBranch,
       full: false,

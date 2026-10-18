@@ -96,6 +96,14 @@ with the user.
   [@test] ../../crates/sync-core/src/robot_commits_test.rs (`an_unchanged_branch_is_tested_by_its_local_commits`, `a_commit_after_the_robot_is_added`, `an_amended_commit_is_changed`, `a_rebuild_on_a_baseline_that_moves_the_context_is_rebased`, `a_dropped_commit_is_removed`, `a_commit_in_the_baseline_landed`, `the_commits_of_a_stack_parent_are_listed_with_their_branch`, `a_missing_source_revision_lists_the_local_commits_as_unknown`, `local_commits_after_the_last_sync_are_reported`)
   [@test] ../../src/lib/robot-prompt.test.ts (`names the commits of the branches a stacked branch is built on: its robot built them too`)
   [@test] ../../tests/e2e/patronus/robot-prompt.spec.ts (`should list the commits of the whole stack for the robot of a stacked branch, each with its branch`)
+- The robot of the whole stack (on the stack branch `{prefix}/stack/<root>`) built every branch of the stack: the map
+  has the commits of every member, each with its branch (`stack_robot_commit_map`, the members as the ancestors). The
+  stack branch has no mapping notes, so its commits are shown by the HEAD commits of their identity, and a commit of a
+  member the stack branch lacks is told as not synced. The prompt names the whole stack ("Safe Push of the whole `air`
+  stack into `master` failed"), the stack branch and its branches, each commit with its branch, and `bd robot <root>
+  --whole-stack --full` for the details ([Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)).
+  [@test] ../../crates/sync-core/src/robot_commits_test.rs (`a_robot_of_the_whole_stack_lists_the_commits_of_every_member_with_its_branch`)
+  [@test] ../../src/lib/robot-prompt.test.ts (`names the stack branch and every branch of the whole stack for its robot: it built them all`)
 
 ### The agent CLI
 

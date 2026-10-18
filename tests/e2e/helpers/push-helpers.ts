@@ -45,6 +45,8 @@ export interface PushRequest {
   expectedRemote: string | null
   /** Push Up to Here: the commit pushed instead of the tip */
   tip?: string | null
+  /** The stack branch of the whole stack whose root `branchName` is (`push_branches` only) */
+  wholeStack?: boolean
 }
 
 /** The time of the newest commit of the templates: the page runs on a fixed clock */

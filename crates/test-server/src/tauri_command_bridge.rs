@@ -487,7 +487,8 @@ pub async fn get_pull_requests(
   };
   let git_executor = state.git_executor.clone();
   run_command("list pull requests", move || {
-    for pull_request in result.pull_requests.values_mut() {
+    // the pull request of a stack branch too: its head is the stack branch the sync built
+    for pull_request in result.pull_requests.values_mut().chain(result.stack_pull_requests.values_mut()) {
       if pull_request.head_ref_oid.is_empty() {
         let full_ref = format!("refs/heads/{}", pull_request.head_ref_name);
         pull_request.head_ref_oid = git_executor
@@ -615,6 +616,20 @@ pub async fn get_range_patch(State(state): State<Arc<AppState>>, Json(params): J
 /// Nothing to read ahead: the bridge keeps no caches, every read of a review runs git (the E2E stay deterministic)
 pub async fn prefetch_branch_review() -> CommandResult<()> {
   Ok(Json(()))
+}
+
+/// The text of the pull request of the whole stack, from the real core (`read_new_stack_pull_request`); the viewer is
+/// GitHub's, which the test server has not
+pub async fn get_new_stack_pull_request(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::stack_pull_request::GetNewStackPullRequestParams>,
+) -> CommandResult<sync_types::pull_request::NewPullRequest> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("read the text of the stack's pull request", move || {
+    sync_core::stack_pull_request::read_new_stack_pull_request(&git_executor, &params)
+  })
+  .await
 }
 
 pub async fn get_branch_review(

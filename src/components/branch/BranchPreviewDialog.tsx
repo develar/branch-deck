@@ -10,6 +10,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchIssueBadge, BranchSummary } from "@/components/branch/BranchNameCell"
 import { BranchPreviewActions, BranchPreviewMenu } from "@/components/branch/BranchPreviewActions"
+import { OrphanedStackPullRequestNotice } from "@/components/branch/OrphanedStackPullRequest"
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
@@ -168,6 +169,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
           <PreviewDialogBody ref={bodyRef} itemKey={branch.name} data-testid="branch-preview-body">
             <div className="flex flex-col gap-5">
               <BranchErrorNotice branch={branch} />
+              <OrphanedStackPullRequestNotice root={branch.name} />
               {renderReviewSections?.(branch)}
               <ol data-testid="branch-preview-commits" aria-busy={isLoadingFiles || undefined} className="flex flex-col divide-y divide-border">
                 {branch.commits.map(commit => (

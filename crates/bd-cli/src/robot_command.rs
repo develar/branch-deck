@@ -376,9 +376,9 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
     return Ok(output);
   };
   // a robot of a temporary ref (the IDE, the CLI) was matched by the tip of this branch: its commits are this branch's.
-  // The stack branch has no mapping notes: no commit map of a robot of the whole stack
-  let ancestors = if failure.robot.stack_root.is_some() {
-    Vec::new()
+  // A robot of the whole stack built the commits of every member of it
+  let ancestors = if let Some(root) = failure.robot.stack_root.as_deref() {
+    stacks.iter().find(|stack| stack.root == root).map_or_default(|stack| stack.members.clone())
   } else {
     let robot_branch = failure.robot.branch_name.get_or_insert_with(|| name.to_string()).clone();
     stack_ancestors(&grouping.branches, &robot_branch)

@@ -43,6 +43,7 @@ targets:
   - ../../crates/sync-core/src/patronus_start.rs
   - ../../src/lib/patronus-stack.ts
   - ../../src/lib/landed-stack.ts
+  - ../../src/lib/whole-stack.ts
   - ../../crates/sync-core/src/pull_request_writes.rs
   - ../../src/components/branch/PatronusReviewBlock.tsx
   - ../../src/hooks/usePatronusReviewRequirement.ts
@@ -592,15 +593,24 @@ reports in it and closes it once merged.
 - A watched robot of no branch (the Safe Push of a reviewed pull request, `watchRobot`) is polled with the robots of
   the branches, and its merge is named by what it tested: "#101 Rework the session store merged into master".
   [@test] ../../src/stores/patronus.test.ts (`polls a watched robot of no branch and names its merge by what it tests`)
-- A robot of a stacked branch that merged landed the branches it is built on too: the open pull requests of those
-  ancestors are closed with a comment, as `gh pr close --comment` does ("Landed in master with #7, the Safe Push of
-  user/virtual/oauth, which is built on this branch."; one already closed gets no second comment, a merged one can't be
-  closed), and the toast and Activity say it ("Safe Push · closes the
-  pull request of auth: it landed with oauth"). Only while the robot ran on the branch's tip as the table has it, and
-  only a pull request whose head is the ancestor's tip: then the merge has all of it. A failed close is an error
-  toast "Cannot close pull request #5".
-  [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the ancestors a stacked branch landed, and says so`)
+- A robot of a stacked branch that merged landed the branches it is built on too, the robot of the whole stack every
+  branch of the stack ([Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app), "Whole air stack merged into
+  master"): the open pull requests of those branches are closed with a comment, as `gh pr close --comment` does
+  ("Landed in master with #7, the Safe Push of user/virtual/oauth, which is built on this branch."; one already closed
+  gets no second comment, a merged one can't be closed), and the toast and Activity say it ("Safe Push · closes the
+  pull request of auth: it landed with oauth", "closes the pull requests of 6 branches: they landed with the whole
+  stack"). By content: only while the robot ran on the branch (the stack branch) as it is, its tip or the same commits
+  rebuilt on a newer baseline, and only a pull request that holds nothing its branch lacks: its head is the branch's
+  tip, or it is the remote branch and that has no commit the branch lacks (older versions of commits amended here
+  included: their newer versions landed). The pull request the robot started from is Patronus'. A failed close is an
+  error toast "Cannot close pull request #5". A robot first seen merged closes nothing.
+  [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the ancestors a stacked branch landed, and says so`, `closes the pull requests of the branches the whole stack landed`)
+  [@test] ../../src/lib/landed-stack.test.ts (`closes the pull requests of the ancestors a merged piece landed, by content`, `leaves a pull request with a commit the branch lacks, and a robot of another state of the branch`)
   [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`closes_a_pull_request_with_a_comment`, `a_closed_pull_request_gets_no_second_comment_and_a_merged_one_is_not_closed`)
+- A merged robot of a branch that landed the root of a stack whose whole stack has an open pull request leaves that
+  pull request matching nothing: the toast says it ("Safe Push · #12 no longer matches the air stack: oauth landed"),
+  and the user decides on it ([Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)); nothing closes it.
+  [@test] ../../src/stores/patronus.test.ts (`says that a piece that landed the root leaves the pull request of the whole stack, never closed by itself`)
 - In the background (no Branch Deck window has the focus), an OS notification says it at once ("auth merged into
   master", "Safe Push": what merged, as the toast says it) while "Safe Push merges" is on in Settings → Notifications
   ([Review Requests](../repository/review-requests.spec.md#settings), `notifyPatronusMerges`, on by default); the toast
@@ -887,9 +897,11 @@ explicit choice of the user, offered only where the approvals count in a pull re
 - A branch is held (`PushHold`) while a Safe Push that pushes into the target runs on it (started on the branch, not of
   a temporary ref) or on a branch built on it, which lands it ("lands with oauth"). A push of a held branch won't land:
   Patronus merges the commit it took at the start, and a push into its own branch fails it at the end ("branch was
-  modified"). A dry run and a canceling robot hold nothing. Every Safe Push in a stack holds its root.
+  modified"). A dry run and a canceling robot hold nothing. Every Safe Push in a stack holds its root. The Safe Push of
+  the whole stack (on its stack branch) holds every branch of the stack: "A Safe Push of the whole air stack is running:
+  it lands auth with it" ([Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)).
   [@test] ../../src/lib/patronus.test.ts (`holds the push of a branch whose Safe Push runs, or that a running Safe Push of a branch built on it lands; not for a dry run or a cancel`)
-  [@test] ../../src/stores/patronus.test.ts (`holds a branch whose Safe Push runs and the ancestors it lands; not for a dry run or a cancel`)
+  [@test] ../../src/stores/patronus.test.ts (`holds a branch whose Safe Push runs and the ancestors it lands; not for a dry run or a cancel`, `holds every branch the whole-stack Safe Push lands`)
 - A held branch offers no push: the place of the row's push button stays empty, as its Safe Push slot does; its Status
   cell says why (the robot chip, "lands with oauth"). P does nothing; Push in the menu, the preview footer, the outgoing
   overview and the review window is disabled with the reason: "A Safe Push of auth is running: wait until it merges, or

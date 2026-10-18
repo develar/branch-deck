@@ -1732,7 +1732,11 @@ remote along, and the robot starts on the branch's virtual branch, which carries
    local branch the push sends: `refs/remotes/origin/<base>..refs/heads/<branch>` (`read_new_pull_request`, one
    `config` and one `log`). GitHub is asked over HTTP, never by git: `GET /user`, `POST pulls`, then the assignee and
    the reviewers; right after a push (`wait_for_mirror`) a `POST pulls` refused for a head or a base GitHub doesn't
-   have yet (a Space mirror copies a pushed branch a moment later) is asked again every 2 s for 30 s.
+   have yet (a Space mirror copies a pushed branch a moment later) is asked again every 2 s for 30 s. The app's dialog
+   of the whole stack ("Create Pull Request of the Stack…") takes its text from `read_new_stack_pull_request`: one
+   `config` for the descriptions of the stack branch and its members, the subjects as the rows show them, no `log`
+   (`stack_pull_request_text`); its Create pushes the stack branch alone (below, "App stack push"), then creates the
+   pull request of its head.
 
 Code: `crates/bd-cli/src/safe_push_command.rs`, `crates/sync-core/src/review_readiness.rs`,
 `crates/sync-core/src/patronus_review.rs`, `crates/sync-core/src/patronus_start.rs`,
@@ -1883,6 +1887,10 @@ lacks, and its pull request showing the parent's commits.
    what its remote has now. When that remote has no commits its branch lacks (`pushesOverMovedRemote`), the page pushes
    the stack again at once, leased on the fetched heads, once; else the toast of that branch offers its push over it.
    When every lease held, the remote refused for another reason: an error, as for one branch.
+5. The stack branch of the whole stack (`{prefix}/stack/<root>`) goes the same way, as a branch of `push_branches`
+   with `wholeStack` (no parent, no tip): the restart of the robot of the whole stack and the creation of its pull
+   request push it (`pushWholeStack`), only while the sync built it, leased on the remote head of its remote status;
+   the branches of the stack are not pushed with it.
 
 Code: `crates/sync-core/src/push.rs`, `src-tauri/src/commands/push.rs`, `src/lib/git/stack-push.ts`.
 
@@ -1934,7 +1942,8 @@ and cuts it at the tips: a child is built on the head of its parent (`release_ch
 passes through every parent's tip. The base of the root is the first parent of the oldest commit, the range the
 pre-check reads. A tip missing from the log is a child built on an older head of its parent: an error that asks for a
 sync. The diffs of a part are `DiffSubject::Range` (`get_range_files` and `get_range_patch`, one read in memory, see
-"Commit files").
+"Commit files"). The whole stack (`whole_stack`, the chain its root alone) is the same two processes on the stack
+branch `{prefix}/stack/<root>`: one part of every commit of the stack.
 - **Read ahead.** `prefetch_branch_review` reads what the window asks for first in the background: the review (through
   the memo) and the files and the patch of the part it shows (the branch on its parent, or the whole stack), so the
   window finds them in memory. The main window asks once per state of the branch (the chain and its heads): when the
@@ -1982,6 +1991,12 @@ A virtual commit is shown by the HEAD commit whose mapping note names it (a note
 tree, `notes.rewriteRef` on an amend, doesn't count), else by the HEAD commit with its identity. A HEAD commit no note
 maps into the virtual branch was made or changed after the last sync: `virtual_behind_head`, and a commit shown by it
 is `changed`, not `tested`. A missing virtual branch (archived) leaves every robot commit `landed` or `removed`.
+
+The robot of the whole stack ran on the stack branch `{prefix}/stack/<root>`: `stack_robot_commit_map` runs the same
+phases on it, the members of the stack (root first) as the branches of phase 2. The stack branch has no mapping notes,
+so every commit is shown by the HEAD commit of its identity; a HEAD commit of a member that no commit of the stack
+branch shows is `virtual_behind_head`. A HEAD commit amended since the last sync keeps its identity, so it is not told
+as changed: the next sync rebuilds the stack branch.
 
 ### Index policy
 
@@ -2123,7 +2138,7 @@ raise it. The totals, when each test was first pinned (the audit of the git laye
 in it; † with the remote statuses or the conflict chains in the object cache, 2026-10-18, first pinned is the code
 before it; ‡ with the stack branches, 2026-10-18; § with the landing of a stacked branch by `bd safe-push`, 2026-10-18,
 first pinned is the refusal before it, whose trial build alone opened a second trial session; ¶ with the Safe Push of
-the whole stack, 2026-10-18) and now:
+the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and now:
 
 | Operation | Test | First pinned | Now |
 |---|---|---|---|
@@ -2144,6 +2159,7 @@ the whole stack, 2026-10-18) and now:
 | Squash fixups | `a_squash_of_fixups` | 31 | 24 |
 | Update check, Update Project | `an_update_check`, `an_update` | 20, 38 | 20, 38 |
 | App stack push of two branches (`push_branches`; first a push per branch) | `an_atomic_push_of_a_stack` * | 8 | 4 |
+| The text of the app's pull request of the whole stack (`read_new_stack_pull_request`) | `the_text_of_a_new_pull_request_of_the_whole_stack` ** | 1 | 1 |
 | `bd check`, with `--build` of two paths | `a_check`, `a_check_with_a_build` | 20, 26 | 20, 23 |
 | `bd push --dry-run` | `a_push` | 54 | 25 |
 | `bd safe-push --check` | `a_safe_push_check` * | 57 | 32 |

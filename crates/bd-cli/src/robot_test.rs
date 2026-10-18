@@ -265,13 +265,7 @@ fn a_newer_robot_of_a_stacked_branch_tells_the_parent_with_the_commits_of_the_wh
 
   let output = space.robot_ok(&["auth"]);
   assert_eq!((output["robot"]["id"].clone(), output["robot_branch"].clone()), (json!("finished-child"), json!("login")));
-  let branches: Vec<(Value, Value)> = output["commits"]
-    .as_array()
-    .unwrap()
-    .iter()
-    .map(|commit| (commit["branch"].clone(), commit["state"].clone()))
-    .collect();
-  assert_eq!(branches, [(json!("login"), json!("tested")), (json!("auth"), json!("tested"))]);
+  assert_eq!(commit_branches(&output), [(json!("login"), json!("tested")), (json!("auth"), json!("tested"))]);
 
   // the child's own robot is its own
   let output = space.robot_ok(&["login"]);
@@ -299,7 +293,14 @@ fn the_robot_of_the_whole_stack_is_found_from_any_branch_of_it() {
     (output["robot"]["id"].clone(), output["stack_root"].clone(), output.get("robot_branch")),
     (json!("whole"), json!("auth"), None)
   );
-  assert_eq!((output["failure"]["kind"].clone(), output.get("commits")), (json!("checks"), None));
+  // the robot built the commits of every branch of the stack, each named with its branch
+  assert_eq!(
+    (output["failure"]["kind"].clone(), commit_branches(&output)),
+    (
+      json!("checks"),
+      vec![(json!("session"), json!("tested")), (json!("login"), json!("tested")), (json!("auth"), json!("tested"))]
+    )
+  );
   let output = space.robot_ok(&["session", "--whole-stack"]);
   assert_eq!((output["robot"]["id"].clone(), output["stack_root"].clone()), (json!("whole"), json!("auth")));
   // the branch's own robot by id, and the whole stack's for a branch of it
@@ -311,4 +312,14 @@ fn the_robot_of_the_whole_stack_is_found_from_any_branch_of_it() {
   let (exit_code, output) = space.robot(&["session", "--whole-stack", "--robot", "own"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
   assert!(output["error"]["message"].as_str().unwrap().contains("bd robot login --robot own"), "{output}");
+}
+
+/// The branch and the state of each commit of a robot's output, newest first
+fn commit_branches(output: &Value) -> Vec<(Value, Value)> {
+  output["commits"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|commit| (commit["branch"].clone(), commit["state"].clone()))
+    .collect()
 }

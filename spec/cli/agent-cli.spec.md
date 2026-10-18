@@ -851,8 +851,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/robot_test.rs (`robot_takes_a_robot_by_id_of_the_branch_only`)
 - A newer robot of the whole stack the branch is a branch of must win too, named by `stack_root`; `--whole-stack`
   must print the robot of the whole stack, as `bd safe-push --whole-stack` starts it (of a straight chain, the robot of
-  its last branch), and refuse `--robot` of another one. A failure of the whole stack's robot has no commit map: the
-  stack branch has no mapping notes.
+  its last branch), and refuse `--robot` of another one. A failure of the whole stack's robot must list the commits of
+  every branch of the stack, each with its branch, matched by identity: the stack branch has no mapping notes.
   [@test] ../../crates/bd-cli/src/robot_test.rs (`the_robot_of_the_whole_stack_is_found_from_any_branch_of_it`)
 - Without the Space token it must be `not_logged_in`, and outside Space `not_on_space`, before a request to Patronus.
   [@test] ../../crates/bd-cli/src/robot_test.rs (`robot_without_a_token_or_space_asks_nothing`)

@@ -27,6 +27,7 @@ targets:
   - ../../src/components/branch/BranchPreviewDialog.tsx
   - ../../src/components/branch/PatronusReviewBlock.tsx
   - ../../src/components/branch/StackIslandCard.tsx
+  - ../../src/hooks/useWholeStackActions.ts
   - ../../src/stores/repository.ts
   - ../../src/types/sub-window.ts
   - ../../src/lib/create-pull-request-context.ts
@@ -55,7 +56,9 @@ its commits above the files in the sidebar (`BranchReview`); the review of a pul
 ([Review Requests](../repository/review-requests.spec.md#review-window)). A review is a task of minutes beside the
 branch table: the window stays beside it (the Safe Push form too), where a dialog covered it. A
 stacked branch shows its stack from the baseline as a bar of segments, one per branch; a click shows one branch on its
-parent, Shift+click extends the part, "Whole Stack" shows everything from the baseline, which is what Patronus checks.
+parent, Shift+click extends the part, "From Root" shows everything from the baseline to the branch, root..branch, which
+is what its Safe Push lands and Patronus checks. The whole stack, every branch of a stack that forks
+([Landing](../../docs/design/landing.md)), is reviewed in the same window as its stack branch: "Review Whole Stack".
 The files are labelled with their code owners by the `OWNERSHIP` files of the baseline, and chips filter them by the
 reviewer groups the code-owner check of a Safe Push asks for and by owner. The Safe Push form names the files each
 group has to review; a file opens the review at it. The title bar of the window holds the stack, the diff view and the
@@ -79,16 +82,25 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
 
 ### Opening
 
-- "Review Changes" of the branch menu (key D, its only review item), D on a branch row, "Review Changes" of the menu
-  of a stack island (the whole main line), the code-owner block of the Safe Push form and D or the footer button of
-  the branch preview must open the review window of the branch (`openBranchReviewWindow`); there is no review dialog,
-  no W and no "Open in Window". The preview closes once the window opened, and stays (the error told) when it could
-  not; the Safe Push form stays in the main window. It is disabled, with the reason, for a branch without commits,
-  one that failed to sync and a blocked one (its virtual branch is not built on its parent).
+- "Review Changes" of the branch menu (key D, its only review item), D on a branch row, the code-owner block of the
+  Safe Push form and D or the footer button of the branch preview must open the review window of the branch
+  (`openBranchReviewWindow`); there is no review dialog, no W and no "Open in Window". The preview closes once the
+  window opened, and stays (the error told) when it could not; the Safe Push form stays in the main window. It is
+  disabled, with the reason, for a branch without commits, one that failed to sync and a blocked one (its virtual
+  branch is not built on its parent).
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should open the review of a branch in its window from its row, its menu and its preview`)
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should open the Safe Push of the main line under the header`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should list the files of each group and review them in the window beside the form`)
   [@test] ../../src/lib/branch-review.test.ts (`allows a synced branch with commits`)
+- "Review Whole Stack" (the "⋯" of a stack island and "Whole Stack ›" of the root's menu) must open the same window for
+  the whole stack of a stack that forks (`openWholeStackReviewWindow`, titled "Review the whole air stack"): one part,
+  its stack branch `{prefix}/stack/<root>` on the baseline (`GetBranchReviewParams::whole_stack`), named "Whole air
+  stack", every commit of the stack in the order of the history; read again when a sync moves the stack branch. It
+  shows no actions of a branch: the whole stack's are in the menus of the main window. It is disabled, with the
+  reason, while the stack branch has no tip. Of a straight chain, which has no stack branch, it opens the review of its
+  last branch from the root (`range: "all"`).
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should review the whole stack in the window of its stack branch, from the island's menu and the root's menu`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should open the Safe Push of the main line under the header`)
+  [@test] ../../crates/sync-core/src/branch_review_test.rs (`the_whole_stack_is_one_part_of_its_stack_branch`)
 - The window is one sub-window (`branch-review`, titled "Review <branch>", [Title Bar](../repository/title-bar.spec.md)
   for how it opens), reused for the next branch: opening it again replaces what it shows, its title too. Another
   branch or an open at a place (the code-owner block) starts it over; a plain open of the branch it shows only brings
@@ -114,7 +126,7 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
 
 - The stack bar must show the baseline, then a segment per branch of the chain with its number of commits. The
   branch itself is selected at first. A click selects one segment, Shift+click extends the part to the clicked
-  segment; "Whole Stack" selects all of them. The diff is from the base of the first segment of the part (the head of
+  segment; "From Root" selects all of them (root..branch, not the whole stack). The diff is from the base of the first segment of the part (the head of
   its parent, the commit the root is built on) to the head of its last one.
   [@test] ../../src/lib/branch-review.test.ts (`diffs the base of the first segment to the head of the last one`, `selects one segment, or extends the range to the clicked one with Shift`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
@@ -176,7 +188,7 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   ([Distributed Settings](../../docs/design/distributed-settings.md)): the window asks it, and keeps the choice on its
   answer.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should save the diff view the window chooses through the main window`)
-- The target branch is the branch of the last selected segment, the reviewed end of the part: for "Whole Stack", the
+- The target branch is the branch of the last selected segment, the reviewed end of the part: for "From Root", the
   reviewed branch; for a parent alone, the parent.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
 - What the window offers comes from the main window, over the link of the window (`sub-window-link.ts`): the state of
@@ -268,8 +280,8 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   48rem only the icon, the label in the hover. A disabled action is dimmed (`opacity-50`) and stays focusable for its
   tooltip.
 - A segment and a chip are outline `xs` buttons; the selected ones are `border-primary/50 bg-primary/10
-  text-primary`. "Whole Stack" is a ghost button with a tooltip that sizes the stack as the branch table does: "From origin/master:
-  2 branches · 3 commits, what Patronus checks · Shift+click a branch to extend". A group chip starts with `ShieldAlertIcon` in `text-warning`; its tooltip says
+  text-primary`. "From Root" is a ghost button with a tooltip that sizes the part as the branch table does: "auth to login
+  on origin/master: 2 branches · 3 commits, what the Safe Push of login lands · Shift+click a branch to extend". A group chip starts with `ShieldAlertIcon` in `text-warning`; its tooltip says
   "Needs approval for a Safe Push".
 - In the Safe Push form a group is a disclosure (`ChevronRightIcon`, the line of the group, "· 2 files" muted), its
   paths in `text-xs` muted, underlined on hover.

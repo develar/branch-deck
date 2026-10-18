@@ -9,6 +9,8 @@ targets:
   - ../../src/lib/stack-state.ts
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/components/branch/StackIslandCard.tsx
+  - ../../src/hooks/useWholeStackActions.ts
+  - ../../src/components/branch/OrphanedStackPullRequest.tsx
   - ../../src/components/branch/NextStepSlot.tsx
   - ../../src/components/branch/SafePushButton.tsx
   - ../../src/lib/stack.ts
@@ -78,8 +80,10 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
 - Below the name, muted: the open pull requests of the stack ("2 pull requests open · 1 approved · 1 changes
   requested") and what each running robot lands, with its time left ("Safe Push of runtime lands 4 branches · ~23m
-  left", the branch and the ones it lands with it, `useLandingSpans`), without a ring: the ring of the robot is on
-  "1 running".
+  left", the branch and the ones it lands with it, `useLandingSpans`; "Safe Push of the whole stack lands 7 branches"
+  for the robot of the whole stack, [Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)), without a ring: the
+  ring of the robot is on "1 running". A pull request of the whole stack that no longer matches it says so in
+  `text-warning`: "#12 no longer matches the air stack: auth landed".
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
 - The header must end with the Actions cell of a branch row, for the whole stack, at the widths of the rows below, so
   the columns line up: the compact push, the Safe Push slot and "⋯". No filled button: a push is not what lands the
@@ -115,12 +119,16 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   running" say why, as the Status cell of a row whose robot runs. The branches it lands are not to push: "3 to push"
   counts the others.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
-- "⋯" is the menu of the stack ("More actions for the air stack"): "Safe Push deploy…", "Push with Children (7
-  branches)" (disabled with the reason while a Safe Push holds the root and while it pushes nothing beyond the root, as
-  the root's menu: [Stacked Branches](stacked-branches.spec.md#pull-requests)),
-  "Review Changes" of the main line (its review window, the whole stack; disabled with the reason of the branch menu's,
-  `branchReviewBlocker` of its last branch: no commits, failed, blocked), and "Collapse Stack" / "Expand Stack".
+- "⋯" is the menu of the stack ("More actions for the air stack"), built when it opens: "Safe Push deploy…", then the
+  actions of the whole stack, the list the root's menu shows under "Whole Stack ›" (`getWholeStackMenuItems`,
+  [Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)): "Create Pull Request of the Stack…" or "Open Pull
+  Request #12", "Push with Children (7 branches)" (disabled with the reason while a Safe Push holds the root and while
+  it pushes nothing beyond the root, as the root's menu: [Stacked Branches](stacked-branches.spec.md#pull-requests)),
+  "Review Whole Stack" (the review window of the stack branch; of a straight chain, of its last branch from the root,
+  disabled with the reason of the branch menu's, `branchReviewBlocker`: no commits, failed, blocked) and the actions of
+  the robot of the whole stack; then "Collapse Stack" / "Expand Stack".
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should open the Safe Push of the main line under the header`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`)
 
 ### Rows and commits
 

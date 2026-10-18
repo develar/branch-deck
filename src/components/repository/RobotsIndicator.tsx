@@ -18,6 +18,7 @@ import { formatCheckProgress, formatRobotProgress } from "@/lib/robot-eta"
 import type { RobotIndicatorPart, RobotOverview, RobotOverviewEntry } from "@/lib/robot-overview"
 import { formatRobotIndicatorLabel, getRobotIndicatorParts, isFailingEntry } from "@/lib/robot-overview"
 import { statusChipTextColors } from "@/lib/status-chip"
+import { formatWholeStack } from "@/lib/whole-stack"
 import { useBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { useRobotNeedsReview } from "@/stores/patronus"
@@ -125,7 +126,10 @@ function RobotList({ title, testId, entries, onReveal }: RobotListProps) {
  */
 function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onReveal: (name: string) => void }) {
   const { robot, chip, branchName } = entry
-  const branch = useBranch(branchName)
+  const branch = useBranch(entry.stackRoot === undefined ? branchName : "")
+  // the whole stack is named in a sentence as "the whole air stack", and a click shows its root
+  const subject = entry.stackRoot === undefined ? branchName : formatWholeStack(entry.stackRoot)
+  const reveal = entry.stackRoot ?? branchName
   const needsReview = useRobotNeedsReview(robot.id)
   const mode = formatPushMode(robot.pushMode)
   const Icon = patronusChipIcons[chip.kind]
@@ -144,13 +148,13 @@ function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onReveal: (n
                 <button
                   type="button"
                   className="min-w-0 self-start truncate rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
-                  onClick={() => onReveal(branchName)}
+                  onClick={() => onReveal(reveal)}
                 />
               }
             >
               {branchName}
             </TooltipTrigger>
-            <TooltipContent>{`Show ${branchName}`}</TooltipContent>
+            <TooltipContent>{`Show ${reveal}`}</TooltipContent>
           </Tooltip>
         ) : (
           <span className="min-w-0 truncate text-sm">{branchName}</span>
@@ -176,7 +180,7 @@ function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onReveal: (n
       </span>
       <span className="flex shrink-0">
         {getGatedRobotActions(robot, branch ?? null, needsReview, failing).map(action => (
-          <IconAction key={action.id} action={action} label={action.id === "open-robot" ? `Open ${mode} of ${branchName} in Patronus` : `${action.label} of ${branchName}`} />
+          <IconAction key={action.id} action={action} label={action.id === "open-robot" ? `Open ${mode} of ${subject} in Patronus` : `${action.label} of ${subject}`} />
         ))}
       </span>
     </li>

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test"
 import { getRobotTiming } from "@/lib/robot-eta"
 import { collectRobotOverview, countConflicts, formatRobotIndicatorLabel, getDockProgress, getRobotIndicatorParts, isFailingEntry } from "@/lib/robot-overview"
 import { testRobot, robotsById } from "@/lib/test-robot"
-import type { Branch, SyncedCommit } from "@/stores/branch-sync"
+import type { Branch, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { testBranch } from "@/stores/test-branch"
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: async () => {} }))
@@ -22,6 +22,48 @@ const order = ["auth", "login", "docs", "api", "cache"]
 const branches = Object.fromEntries(order.map(name => [name, branchAtTip(name)]))
 
 describe("collectRobotOverview", () => {
+  it("lists the robot of the whole stack as the whole stack after the branches, on its stack branch as it is, a click showing the root", () => {
+    const stack = (root: string, tip: string): StackBranch => ({
+      root,
+      branchName: `user/stack/${root}`,
+      members: [root, "login"],
+      commitCount: 2,
+      state: "Built",
+      tip,
+      blockedBy: null,
+      conflict: null,
+      error: null,
+      remoteStatus: null,
+    })
+    const robots = robotsById(
+      testRobot("login-run", "login"),
+      testRobot("whole", null, { stackRoot: "auth", sourceRevision: "stack-tip" }),
+      testRobot("whole-failed", null, { stackRoot: "docs", sourceRevision: "docs-stack-tip", status: "failure", finishTime: NOW_SECONDS - 60 }),
+      // failed on a stack branch rebuilt since: nothing to act on
+      testRobot("whole-old", null, { stackRoot: "api", sourceRevision: "old", status: "failure", finishTime: NOW_SECONDS - 60 }),
+    )
+    const overview = collectRobotOverview(
+      order,
+      branches,
+      robots,
+      {},
+      NOW,
+      {},
+      {},
+      {
+        auth: stack("auth", "stack-tip"),
+        docs: stack("docs", "docs-stack-tip"),
+        api: stack("api", "api-stack-tip"),
+      },
+    )
+    expect(overview.running.map(it => [it.branchName, it.stackRoot, it.hasRow])).toEqual([
+      ["login", undefined, true],
+      ["Whole auth stack", "auth", true],
+    ])
+    expect(overview.attention.map(it => [it.branchName, it.chip.kind])).toEqual([["Whole docs stack", "failed"]])
+    expect(overview.finished.map(it => it.branchName)).toEqual(["Whole api stack"])
+  })
+
   it("lists a watched robot of no branch by what it tests, after the branches, also once it failed or merged", () => {
     const watched = { "pr-run": "#101 Rework the session store", "pr-failed": "#102 Add OAuth login", "pr-merged": "#103 Backport", "pr-gone": "#104 Gone" }
     const overview = collectRobotOverview(

@@ -1,4 +1,4 @@
-use crate::robot_commits::robot_commit_map;
+use crate::robot_commits::{robot_commit_map, stack_robot_commit_map};
 use crate::sync::{SyncOptions, sync_branches};
 use pretty_assertions::assert_eq;
 use sync_test_utils::TestReporter;
@@ -191,12 +191,18 @@ async fn a_commit_in_the_baseline_landed() {
   );
 }
 
-#[tokio::test]
-async fn the_commits_of_a_stack_parent_are_listed_with_their_branch() {
+/// `master` and the checked-out `feature` with stacked branches on
+fn stacks_repo() -> TestRepo {
   let repo = TestRepo::new();
   commit(&repo, "Initial commit", "README.md", "# Test", 900);
   repo.set_config("branchdeck.stacks", "true").unwrap();
   repo.checkout_new_branch("feature").unwrap();
+  repo
+}
+
+#[tokio::test]
+async fn the_commits_of_a_stack_parent_are_listed_with_their_branch() {
+  let repo = stacks_repo();
   commit(&repo, "(auth) Add auth", "auth.rs", "// auth", 1000);
   commit(&repo, "(auth/login) Add form", "login.rs", "// login", 1001);
   sync(&repo).await;
@@ -217,6 +223,38 @@ async fn the_commits_of_a_stack_parent_are_listed_with_their_branch() {
   let branches: Vec<Option<&str>> = map.commits.iter().map(|commit| commit.branch.as_deref()).collect();
   assert_eq!(branches, [Some("login"), Some("auth")]);
   assert!(!map.virtual_behind_head);
+}
+
+/// The robot of the whole stack built the stack branch of a stack that forks (`auth`, with `login` and `session` built
+/// on it): the map lists the commits of every member with its branch, shown by identity, as the stack branch has no
+/// mapping notes; a commit made since the last sync is behind
+#[tokio::test]
+async fn a_robot_of_the_whole_stack_lists_the_commits_of_every_member_with_its_branch() {
+  let repo = stacks_repo();
+  let auth = commit(&repo, "(auth) Add auth", "auth.rs", "// auth", 1000);
+  let login = commit(&repo, "(auth/login) Add form", "login.rs", "// login", 1001);
+  let session = commit(&repo, "(auth/session) Add session", "session.rs", "// session", 1002);
+  sync(&repo).await;
+  let source = repo.git(&["rev-parse", "refs/heads/test/stack/auth"]);
+  let members: Vec<String> = ["auth", "login", "session"].iter().map(|name| (*name).to_string()).collect();
+  let map_now = || stack_robot_commit_map(repo.git_executor(), repo.path_str(), "test", "auth", &source, "master", &members).unwrap();
+
+  let map = map_now();
+  assert_eq!(
+    describe(&map),
+    [
+      row("(auth/session) Add session", Tested, Some(&session)),
+      row("(auth/login) Add form", Tested, Some(&login)),
+      row("(auth) Add auth", Tested, Some(&auth)),
+    ]
+  );
+  let branches: Vec<Option<&str>> = map.commits.iter().map(|commit| commit.branch.as_deref()).collect();
+  assert_eq!(branches, [Some("session"), Some("login"), Some("auth")]);
+  assert!(!map.virtual_behind_head, "every commit of the stack is in its stack branch");
+
+  // a commit of a member after the last sync: the stack branch doesn't have it yet
+  commit(&repo, "(auth/login) Add the button", "button.rs", "// button", 1003);
+  assert!(map_now().virtual_behind_head);
 }
 
 #[tokio::test]

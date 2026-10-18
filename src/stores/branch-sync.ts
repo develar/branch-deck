@@ -869,6 +869,18 @@ export function setBranchRemoteStatus(name: string, remoteStatus: RemoteStatus):
   updateBranch(name, branch => withRemoteStatus(branch, remoteStatus))
 }
 
+/**
+ * The remote status of the stack branch of `root` after a push of it (`pushWholeStack`), until the next sync reports it
+ * again; nothing for a stack branch the store doesn't have
+ */
+export function setStackBranchRemoteStatus(root: string, remoteStatus: RemoteStatus): void {
+  const stack = branchSyncStore.getState().stackBranches[root]
+  if (stack === undefined || (stack.remoteStatus !== null && sameRemoteStatus(stack.remoteStatus, remoteStatus))) {
+    return
+  }
+  branchSyncStore.setState(state => ({ stackBranches: { ...state.stackBranches, [root]: { ...stack, remoteStatus } } }))
+}
+
 /** The branch with `remoteStatus`; the same record when its status has the same fields, so no subscriber re-renders */
 function withRemoteStatus(branch: Branch, remoteStatus: RemoteStatus): Branch {
   return branch.remoteStatus !== null && sameRemoteStatus(branch.remoteStatus, remoteStatus) ? branch : { ...branch, remoteStatus }

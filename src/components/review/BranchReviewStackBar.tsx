@@ -8,6 +8,7 @@ import type { BranchReviewSegment } from "@/lib/bindings"
 import { formatBranchesAndCommits } from "@/lib/branch"
 import { selectSegment, stackBarItems } from "@/lib/branch-review"
 import type { SegmentRange } from "@/lib/branch-review"
+import { formatWholeStackStart } from "@/lib/whole-stack"
 
 export interface BranchReviewStackBarProps {
   baselineBranch: string
@@ -15,14 +16,17 @@ export interface BranchReviewStackBarProps {
   segments: readonly BranchReviewSegment[]
   range: SegmentRange
   onRangeChange: (range: SegmentRange) => void
+  /** The review of the whole stack: its one part is the stack branch of the root, named "Whole air stack" */
+  wholeStack?: boolean
 }
 
 /**
  * The stack of the reviewed branch from the baseline: a segment per branch with its commits. A click shows one branch
- * on top of its parent, Shift+click extends the range to the clicked branch, "Whole Stack" shows everything from the
- * baseline (what Patronus checks). A long stack folds its middle into "… 14 more", which unfolds it.
+ * on top of its parent, Shift+click extends the range to the clicked branch, "From Root" shows everything from the
+ * baseline to the branch (root..branch, what its Safe Push lands and Patronus checks). A long stack folds its middle
+ * into "… 14 more", which unfolds it. The whole stack (`wholeStack`) is one part, its stack branch.
  */
-export function BranchReviewStackBar({ baselineBranch, segments, range, onRangeChange }: BranchReviewStackBarProps) {
+export function BranchReviewStackBar({ baselineBranch, segments, range, onRangeChange, wholeStack = false }: BranchReviewStackBarProps) {
   const isWhole = range.from === 0 && range.to === segments.length - 1
   const select = (index: number) => (event: MouseEvent) => onRangeChange(selectSegment(range, index, event.shiftKey))
   const commitCount = segments.reduce((sum, segment) => sum + segment.commits.length, 0)
@@ -81,7 +85,7 @@ export function BranchReviewStackBar({ baselineBranch, segments, range, onRangeC
               )}
               onClick={segments.length > 1 ? select(index) : undefined}
             >
-              <span className="truncate">{segment.name}</span>
+              <span className="truncate">{wholeStack ? formatWholeStackStart(segment.name) : segment.name}</span>
               <span className="text-muted-foreground tabular-nums">{segment.commits.length}</span>
             </Button>
           </Fragment>
@@ -100,9 +104,9 @@ export function BranchReviewStackBar({ baselineBranch, segments, range, onRangeC
               />
             }
           >
-            Whole Stack
+            From Root
           </TooltipTrigger>
-          <TooltipContent>{`From ${baselineBranch}: ${formatBranchesAndCommits(segments.length, commitCount)}, what Patronus checks · Shift+click a branch to extend`}</TooltipContent>
+          <TooltipContent>{`${segments[0]!.name} to ${segments.at(-1)!.name} on ${baselineBranch}: ${formatBranchesAndCommits(segments.length, commitCount)}, what the Safe Push of ${segments.at(-1)!.name} lands · Shift+click a branch to extend`}</TooltipContent>
         </Tooltip>
       )}
     </div>

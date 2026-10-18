@@ -58,10 +58,17 @@ function kindNote(failure: RobotFailure, target: string, bd: string | null): str
   }
 }
 
-function commitLine(commit: RobotCommit, branchName: string, baseline: string): string {
+function commitLine(commit: RobotCommit, branchName: string, baseline: string, wholeStack: boolean): string {
   const line = commitStateLine(commit, baseline)
+  if (commit.branch === null) {
+    return line
+  }
+  // the robot of the whole stack built the commits of every branch of it
+  if (wholeStack) {
+    return `${line} (of \`${commit.branch}\`)`
+  }
   // a commit of an ancestor of a stacked branch: the robot built it too
-  return commit.branch === null || commit.branch === branchName ? line : `${line} (of \`${commit.branch}\`, which the branch is built on)`
+  return commit.branch === branchName ? line : `${line} (of \`${commit.branch}\`, which the branch is built on)`
 }
 
 function commitStateLine(commit: RobotCommit, baseline: string): string {
@@ -88,6 +95,13 @@ function commitStateLine(commit: RobotCommit, baseline: string): string {
  * Which commits the robot checked, by the hashes of the checked-out branch: none of the hashes TeamCity shows is local
  * (the virtual branch copies the commits, Patronus rebases them)
  */
+/** The branches of the whole stack whose commits the map has, the root first; the root alone without a map */
+function stackMembers(commits: RobotCommitMap | null, root: string): string[] {
+  const branches = (commits?.commits ?? []).map(commit => commit.branch).filter((branch): branch is string => branch !== null)
+  // newest first in the map: the oldest branch last; the root first
+  return [root, ...[...new Set(branches)].reverse().filter(name => name !== root)]
+}
+
 /** The ancestors of a stacked branch whose commits the map has, root first */
 function stackedOn(commits: RobotCommitMap | null, branchName: string): string[] {
   const branches = (commits?.commits ?? []).map(commit => commit.branch).filter((branch): branch is string => branch !== null && branch !== branchName)
@@ -95,7 +109,7 @@ function stackedOn(commits: RobotCommitMap | null, branchName: string): string[]
   return [...new Set(branches)].reverse()
 }
 
-function commitSection(failure: RobotFailure, commits: RobotCommitMap | null, branchName: string, target: string, baseline: string): string {
+function commitSection(failure: RobotFailure, commits: RobotCommitMap | null, branchName: string, target: string, baseline: string, wholeStack: boolean): string {
   const { robot } = failure
   const built = [
     `Patronus rebased ${robot.sourceRevision === null ? "the branch" : formatShortHash(robot.sourceRevision)} onto \`${target}\``,
@@ -112,9 +126,9 @@ function commitSection(failure: RobotFailure, commits: RobotCommitMap | null, br
   } else {
     lines.push("The commits, newest first, by their local hash:")
   }
-  lines.push(bullets(commits.commits.map(commit => commitLine(commit, branchName, baseline))))
+  lines.push(bullets(commits.commits.map(commit => commitLine(commit, branchName, baseline, wholeStack))))
   if (commits.virtualBehindHead) {
-    lines.push("The checked-out branch has newer commits of this branch that Branch Deck has not synced yet: they are not listed and were not tested.")
+    lines.push(`The checked-out branch has newer commits of this ${wholeStack ? "stack" : "branch"} that Branch Deck has not synced yet: they are not listed and were not tested.`)
   }
   return lines.join("\n")
 }
@@ -156,10 +170,11 @@ function fullSection(failure: RobotFailure, builds: readonly FailedBuild[]): str
 }
 
 /** The commands that read the details the fast prompt leaves out */
-function detailCommands(failure: RobotFailure, branchName: string, bd: string | null): string | null {
+function detailCommands(failure: RobotFailure, branchName: string, bd: string | null, wholeStack: boolean): string | null {
   const build = failure.checks[0]?.buildId
+  const robot = `${bd} robot ${branchName}${wholeStack ? " --whole-stack" : ""} --full`
   const commands = [
-    ...(bd === null ? [] : [`The failed builds, their problems and failed tests with messages, and the commit map: \`${bd} robot ${branchName} --full\`.`]),
+    ...(bd === null ? [] : [`The failed builds, their problems and failed tests with messages, and the commit map: \`${robot}\`.`]),
     ...(build === undefined
       ? []
       : [
@@ -180,26 +195,37 @@ export function buildRobotPrompt({ repositoryPath, branchPrefix, baselineBranch,
   const { failure, commits, headBranch } = report
   const { robot } = failure
   const mode = formatPushMode(robot.pushMode)
-  const branchName = robot.branchName ?? robot.name
+  // the robot of the whole stack runs on the stack branch of its root
+  const root = robot.branchName === null ? (robot.stackRoot ?? null) : null
+  const wholeStack = root !== null
+  const branchName = robot.branchName ?? root ?? robot.name
   const target = robot.targetBranch
   // the command once, then its short name, as the update prompt does
   const bdCommand = bd === null ? null : "bd"
   const sections: string[] = []
 
+  const subject = wholeStack ? `the whole \`${branchName}\` stack` : `\`${branchName}\``
   sections.push(
     failure.running
-      ? `A required check of the ${mode} of \`${branchName}\` into \`${target}\` failed; the robot still runs, so more checks may fail: ${robot.url}`
-      : `${mode} of \`${branchName}\` into \`${target}\` failed: ${robot.url}`,
+      ? `A required check of the ${mode} of ${subject} into \`${target}\` failed; the robot still runs, so more checks may fail: ${robot.url}`
+      : `${mode} of ${subject} into \`${target}\` failed: ${robot.url}`,
   )
   const head = headBranch === null ? "the checked-out commits" : `the checked-out branch \`${headBranch}\``
-  const ancestors = stackedOn(commits, branchName)
-  const stack =
-    ancestors.length === 0
-      ? ""
-      : ` The branch is stacked on ${ancestors.map(name => `\`${name}\``).join(", ")}: the robot built their commits too, so a failure may come from one of them.`
-  sections.push(
-    `Repository: ${repositoryPath}. Branch Deck builds the virtual branch \`${branchPrefix}/virtual/${branchName}\` from the \`(${branchName})\` commits of ${head}; fix those commits, not the virtual branch.${stack}`,
-  )
+  if (wholeStack) {
+    const members = stackMembers(commits, branchName)
+    sections.push(
+      `Repository: ${repositoryPath}. Branch Deck builds the stack branch \`${branchPrefix}/stack/${branchName}\` from the commits of every branch of the stack in ${head} (${members.map(name => `\`${name}\``).join(", ")}): the robot built them all, so a failure may come from any of them. Fix those commits, not the stack branch.`,
+    )
+  } else {
+    const ancestors = stackedOn(commits, branchName)
+    const stack =
+      ancestors.length === 0
+        ? ""
+        : ` The branch is stacked on ${ancestors.map(name => `\`${name}\``).join(", ")}: the robot built their commits too, so a failure may come from one of them.`
+    sections.push(
+      `Repository: ${repositoryPath}. Branch Deck builds the virtual branch \`${branchPrefix}/virtual/${branchName}\` from the \`(${branchName})\` commits of ${head}; fix those commits, not the virtual branch.${stack}`,
+    )
+  }
   if (bd !== null) {
     sections.push(`bd is Branch Deck's CLI, \`${bd.command}\`${bd.powershell ? ", run in PowerShell" : ""}; below, \`bd\` stands for it. Each run prints one JSON object.`)
   }
@@ -216,10 +242,10 @@ export function buildRobotPrompt({ repositoryPath, branchPrefix, baselineBranch,
     sections.push(note)
   }
 
-  sections.push(commitSection(failure, commits, branchName, target, baselineBranch))
+  sections.push(commitSection(failure, commits, branchName, target, baselineBranch, wholeStack))
 
   if (failure.builds === null) {
-    const details = detailCommands(failure, branchName, bdCommand)
+    const details = detailCommands(failure, branchName, bdCommand, wholeStack)
     if (details !== null) {
       sections.push(details)
     }

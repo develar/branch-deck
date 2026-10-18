@@ -16,12 +16,12 @@ import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, Pr
 import { ReviewerPicker } from "@/components/shared/ReviewerPicker"
 import { useAvailabilityAction } from "@/hooks/useAvailabilityAction"
 import { getSafePushWithoutReviewItem } from "@/hooks/useBranchContextActions"
-import { useCreatePullRequestContext } from "@/hooks/useCreatePullRequestContext"
+import { useCreatePullRequestContext, useStackPullRequestContext } from "@/hooks/useCreatePullRequestContext"
 import type { ReviewRequirementState } from "@/hooks/usePatronusReviewRequirement"
 import { useReviewerSearch } from "@/hooks/useReviewerSearch"
 import type { GitHubUser, NewPullRequest } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { formatPullRequestIncludes, isLogin, preselectedReviewers, suggestedReviewers } from "@/lib/create-pull-request"
+import { isLogin, preselectedReviewers, suggestedReviewers } from "@/lib/create-pull-request"
 import type { SuggestedReviewer } from "@/lib/create-pull-request"
 import { continueOnGitHub, submitPullRequest } from "@/lib/create-pull-request-context"
 import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/create-pull-request-context"
@@ -34,7 +34,7 @@ import { showToast } from "@/lib/toast-message"
 import { transferLabel } from "@/lib/transfer-progress"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchPushProgress, useBranchSync, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
-import { closeCreatePullRequestDialog, useCreatePullRequestBranch, useCreatePullRequestGeneration } from "@/stores/create-pull-request-dialog"
+import { closeCreatePullRequestDialog, useCreatePullRequestBranch, useCreatePullRequestGeneration, useCreatePullRequestWholeStack } from "@/stores/create-pull-request-dialog"
 import { setCreatePullRequestAssignSelf, useAppSettings } from "@/stores/settings/appSettings"
 
 /**
@@ -48,21 +48,22 @@ import { setCreatePullRequestAssignSelf, useAppSettings } from "@/stores/setting
  */
 export function CreatePullRequestDialog() {
   const branchName = useCreatePullRequestBranch()
+  const wholeStack = useCreatePullRequestWholeStack()
   const generation = useCreatePullRequestGeneration()
   // the last branch stays while the closing animation runs
-  const [shown, setShown] = useState<{ branchName: string; generation: number } | null>(null)
+  const [shown, setShown] = useState<{ branchName: string; wholeStack: boolean; generation: number } | null>(null)
   if (branchName !== null && shown?.generation !== generation) {
-    setShown({ branchName, generation })
+    setShown({ branchName, wholeStack, generation })
   }
   const [isCreating, setIsCreating] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
   const branch = useBranchSync(state => (shown === null ? undefined : state.branches[shown.branchName]))
+  const formProps = { titleRef, isCreating, setIsCreating }
 
   return (
     <CreatePullRequestDialogFrame open={branchName !== null} isCreating={isCreating} titleRef={titleRef} onClose={closeCreatePullRequestDialog}>
-      {shown !== null && branch !== undefined && (
-        <MainCreatePullRequestForm key={shown.generation} branch={branch} titleRef={titleRef} isCreating={isCreating} setIsCreating={setIsCreating} />
-      )}
+      {shown?.wholeStack === true && <MainStackPullRequestForm key={shown.generation} root={shown.branchName} {...formProps} />}
+      {shown?.wholeStack === false && branch !== undefined && <MainCreatePullRequestForm key={shown.generation} branch={branch} {...formProps} />}
     </CreatePullRequestDialogFrame>
   )
 }
@@ -138,6 +139,20 @@ function usePushLabel(branchName: string): string | null {
 /** The form of the main window's dialog: the context from its stores, the creation by its store, the toast here */
 function MainCreatePullRequestForm({ branch, ...props }: FormProps & { branch: Branch }) {
   const context = useCreatePullRequestContext(branch)
+  return <MainForm context={context} safePushWithoutReview={() => getSafePushWithoutReviewItem(branch)?.onSelect()} pushLabel={usePushLabel(branch.name)} {...props} />
+}
+
+/** The form of the main window's dialog of the whole stack: its stack branch, no Safe Push without review */
+function MainStackPullRequestForm({ root, ...props }: FormProps & { root: string }) {
+  return <MainForm context={useStackPullRequestContext(root)} safePushWithoutReview={() => {}} pushLabel={null} {...props} />
+}
+
+function MainForm({
+  context,
+  safePushWithoutReview,
+  pushLabel,
+  ...props
+}: FormProps & { context: CreatePullRequestContext; safePushWithoutReview: () => void; pushLabel: string | null }) {
   const actions: CreatePullRequestActions = {
     create: async input => {
       const result = await submitPullRequest(context, input).catch((error: unknown) => {
@@ -158,10 +173,10 @@ function MainCreatePullRequestForm({ branch, ...props }: FormProps & { branch: B
           return false
         },
       ),
-    safePushWithoutReview: () => getSafePushWithoutReviewItem(branch)?.onSelect(),
+    safePushWithoutReview,
     close: closeCreatePullRequestDialog,
   }
-  return <CreatePullRequestForm context={context} actions={actions} pushLabel={usePushLabel(branch.name)} {...props} />
+  return <CreatePullRequestForm context={context} actions={actions} pushLabel={pushLabel} {...props} />
 }
 
 type TextState = { status: "loading" } | { status: "loaded"; text: NewPullRequest } | { status: "error"; message: string }
@@ -184,16 +199,23 @@ export function CreatePullRequestForm({
   /** The progress of the push the creation starts with, where the window knows it (the main window) */
   pushLabel?: string | null
 }) {
-  const { repositoryPath, branchName, head, base, includes } = context
+  const { repositoryPath, branchName, label, head, base, includesText, wholeStack } = context
 
   const [text, setText] = useState<TextState>({ status: "loading" })
   const [title, setTitle] = useState("")
   const [body, setBody] = useState("")
   // the text of the branch fills only what the user hasn't typed yet
   const [edited, setEdited] = useState({ title: false, body: false })
+  // the whole stack's text names its branches: the members as their rows show them
+  const stackText = wholeStack === null ? null : JSON.stringify(wholeStack)
   useEffect(() => {
     let current = true
-    commands.getNewPullRequest({ repositoryPath, head, base }).then(
+    const stack = stackText === null ? null : (JSON.parse(stackText) as NonNullable<CreatePullRequestContext["wholeStack"]>)
+    const read =
+      stack === null
+        ? commands.getNewPullRequest({ repositoryPath, head, base })
+        : commands.getNewStackPullRequest({ repositoryPath, branchPrefix: stack.branchPrefix, root: branchName, members: [...stack.members], target: base })
+    read.then(
       result => {
         if (!current) {
           return
@@ -209,7 +231,7 @@ export function CreatePullRequestForm({
     return () => {
       current = false
     }
-  }, [repositoryPath, head, base])
+  }, [repositoryPath, branchName, head, base, stackText])
   const [filled, setFilled] = useState(false)
   if (!filled && text.status === "loaded") {
     setFilled(true)
@@ -306,11 +328,11 @@ export function CreatePullRequestForm({
       <PreviewDialogHeader>
         <DialogTitle className="leading-5">Create pull request</DialogTitle>
         <p data-testid="create-pull-request-base" className="truncate text-xs text-muted-foreground">
-          {`${branchName} → ${base}`}
+          {`${label} → ${base}`}
         </p>
-        {includes !== null && (
+        {includesText !== null && (
           <p data-testid="create-pull-request-includes" className="text-xs text-muted-foreground">
-            {formatPullRequestIncludes(branchName, includes)}
+            {includesText}
           </p>
         )}
       </PreviewDialogHeader>
@@ -334,14 +356,14 @@ export function CreatePullRequestForm({
           {liveExisting !== null && (
             <Alert variant="info" data-testid="create-pull-request-exists">
               <AlertDescription className="flex flex-wrap items-center gap-x-2">
-                {`${branchName} already has pull request #${liveExisting.number}.`}
+                {`${label} already has pull request #${liveExisting.number}.`}
                 <Button variant="link" size="xs" className="h-auto p-0" onClick={() => openPullRequest(liveExisting)}>
                   Open Pull Request
                 </Button>
               </AlertDescription>
             </Alert>
           )}
-          {text.status === "error" && <p className="text-xs text-destructive">{`Cannot read the commits of ${branchName}: ${text.message}`}</p>}
+          {text.status === "error" && <p className="text-xs text-destructive">{`Cannot read the commits of ${label}: ${text.message}`}</p>}
 
           <label className="flex flex-col gap-1.5">
             <span className="text-xs text-muted-foreground">Title</span>

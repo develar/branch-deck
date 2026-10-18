@@ -4,8 +4,14 @@
 //! has one, else the descriptions of its members (`bd describe`, `ConfigSnapshot::descriptions`), else the subjects of
 //! their commits; no git process. GitHub refuses a body over 65,536 characters and a title over 256: both are cut.
 
-use git_ops::branch_description::Description;
+use anyhow::Result;
+use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::branch_description::{Description, read_descriptions};
+use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
+use serde::Deserialize;
 use std::fmt::Write as _;
+use sync_types::pull_request::NewPullRequest;
+use tracing::instrument;
 
 /// The most characters GitHub takes in the body of a pull request
 pub const MAX_BODY_CHARS: usize = 65_536;
@@ -112,6 +118,54 @@ fn member_section(member: &StackMemberText<'_>) -> String {
 /// "1 branch", "7 branches"
 fn count_of(count: usize, one: &str, many: &str) -> String {
   format!("{count} {}", if count == 1 { one } else { many })
+}
+
+/// A branch of the stack, as the app's form of the stack's pull request sends it: what its row shows
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct StackMemberSubjects {
+  pub name: String,
+  /// The branch it is built on; null for the root
+  pub parent: Option<String>,
+  /// The subjects of its commits without their prefix, oldest first
+  pub subjects: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct GetNewStackPullRequestParams {
+  pub repository_path: String,
+  pub branch_prefix: String,
+  /// The root of the stack, which names its stack branch `{prefix}/stack/<root>`
+  pub root: String,
+  /// The branches of the stack, the root first, each after its parent (`StackBranchUpdate::members`)
+  pub members: Vec<StackMemberSubjects>,
+  /// The branch it merges into, as the remote names it: `master`
+  pub target: String,
+}
+
+/// The text of the pull request of the whole stack for the app's form (`stack_pull_request_text`): the descriptions of
+/// the stack branch and of its members from one `git config`, the subjects as the rows show them. The viewer is left to
+/// the caller, who asks GitHub.
+#[instrument(skip(git, params), fields(root = %params.root))]
+pub fn read_new_stack_pull_request(git: &GitCommandExecutor, params: &GetNewStackPullRequestParams) -> Result<NewPullRequest> {
+  let descriptions = read_descriptions(git, &params.repository_path)?;
+  let description_of = |full_name: Result<String>| full_name.ok().and_then(|name| descriptions.get(&format!("refs/heads/{name}")));
+  let own = description_of(to_stack_branch_name(&params.branch_prefix, &params.root));
+  let members: Vec<StackMemberText<'_>> = params
+    .members
+    .iter()
+    .map(|member| StackMemberText {
+      name: &member.name,
+      parent: member.parent.as_deref(),
+      description: description_of(to_final_branch_name(&params.branch_prefix, &member.name)),
+      subjects: member.subjects.iter().map(String::as_str).collect(),
+    })
+    .collect();
+  let (title, body) = stack_pull_request_text(own, &members, &params.target);
+  Ok(NewPullRequest { title, body, viewer_login: None })
 }
 
 /// One line of at most `MAX_TITLE_CHARS`

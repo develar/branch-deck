@@ -22,6 +22,13 @@ at all.
 
 Every operation is judged by what it lands into master and in how many robots.
 
+Two words are used for what lands, never for anything else:
+
+- **A piece**: a branch and the branches it is built on, root..branch; what the Safe Push of a branch lands, and what
+  "From Root" of the review window shows.
+- **The whole stack**: every branch of a stack, its side branches included, named by its root ("the whole air
+  stack"); what the Safe Push of the stack branch lands. A straight chain's whole stack is its last branch's piece.
+
 - **A piece is a branch and what it is built on.** The Safe Push of a branch lands it together with every branch it
   is built on that isn't in master yet, in one robot. Its children stay. After the merge, the next sync builds them
   on master. A branch that builds without its parent can be unstacked, and then it lands alone.
@@ -153,6 +160,34 @@ beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stac
   a robot of a branch lands a part of the stack, so the whole stack's Safe Push waits for it (`find_landing_stack`,
   `find_landing_member`). A robot started elsewhere on a temporary ref is matched by its tip, as a branch's is.
 
+### The whole stack in the app
+
+The whole stack is an object of its own in the app, beside its branches, named "the whole air stack" as `bd` names it
+([Whole Stack](../../spec/branch/whole-stack.spec.md#the-whole-stack-in-the-app)):
+
+- **Its robot** (`RobotSubject` of `src/lib/patronus.ts`: a branch, or the stack of a root) is no branch's. It is
+  polled, told and listed by the whole stack ("Whole air stack merged into master"), it holds every branch of the
+  stack while it runs, and its rows say "lands with the whole air stack". Its restart works on the stack branch and
+  pushes it first while its remote lacks work (`pushWholeStack`, only a built one); its failure prompt lists the commits
+  of every branch, matched by identity (the stack branch has no mapping notes).
+- **Its pull request** comes from "Create Pull Request of the Stack…" (the dialog of the stack branch, its text from
+  `stack_pull_request_text`, the stack branch pushed alone on Create) and opens from "Open Pull Request #12".
+- **One list of its actions** (`getWholeStackMenuItems`, `src/hooks/useWholeStackActions.ts`) renders in the "⋯" of the
+  island and under "Whole Stack ›" in the root's menu, so a small stack without an island has them too, and the root's
+  preview: the pull request, Push with Children, "Review Whole Stack" (the review window of the stack branch) and the
+  actions of its robot. Its Safe Push comes with its form.
+- **Closing by content.** After a merge, the open pull requests of the branches the robot landed (the ancestors of a
+  piece, every branch of the whole stack) are closed, but only those that hold nothing the branch lacks: the head is the
+  branch's tip, or the remote branch has no commit the branch lacks. A head compared by hash alone left a pull request
+  of a branch the sync had only rebuilt on a newer baseline open, though all of it landed.
+- **A pull request that no longer matches.** The pull request of the whole stack shows the stack as it was. A Safe
+  Push of a piece that lands the root, or a stack that no longer forks, leaves it showing a stack that is no more. It
+  is never closed by itself, and its stack branch stays: the user may still want its review, or its approvals for
+  another landing. The merge toast, the root's menu and preview and the island say "#12 no longer matches the air
+  stack: auth landed", and "Close Pull Request #12…" asks in the root's row. The landing that made it so is known only
+  while the app saw the merge (in memory); after a restart the reason is the shape of the stack, and once the root is
+  no longer a branch (after the update that archives it) nothing in the app shows it.
+
 ## Alternatives Considered
 
 - **Stacked pull requests into the parent's branch.** Each pull request shows only its own commits.
@@ -166,6 +201,10 @@ beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stac
   the ids of its leaf's virtual branch.
   - *Why not:* a commit on a side branch moves every commit after it, and the order differs from the local history,
     so it can conflict where the user sees no conflict; Patronus rebases the source branch anyway.
+- **Closing the pull request of the whole stack once a piece landed its root.** It holds commits that did not land,
+  and its approvals may still matter to the user.
+  - *Why not:* closing a pull request someone reviews is not the app's decision; it says why it no longer matches and
+    asks.
 - **Knowing an unchanged stack branch by the identities of its commits** (author, author time, subject).
   - *Why not:* an amend keeps all three, so the stack branch would keep the old content and land it. The hash of the
     commit ids covers the content too.

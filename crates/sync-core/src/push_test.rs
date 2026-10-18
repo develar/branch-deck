@@ -371,6 +371,7 @@ fn push_stack(local: &TestRepo, expected: [Option<&str>; 2], tips: [Option<&str>
     parent_branch: parent.map(str::to_string),
     expected_remote: expected.map(str::to_string),
     tip: tip.map(str::to_string),
+    whole_stack: false,
   };
   let params = PushBranchesParams {
     repository_path: path(local).to_string(),
@@ -396,6 +397,46 @@ fn stack(local: &TestRepo) -> (String, String) {
   set_branch_of(local, AUTH, &auth);
   set_branch_of(local, LOGIN, &login);
   (auth, login)
+}
+
+/// The stack branch of the whole stack goes as one more branch of a push: `{prefix}/stack/<root>`, leased like a
+/// virtual branch, its remote status computed against the baseline (it has no parent)
+#[test]
+fn the_whole_stack_pushes_its_stack_branch() {
+  let (remote, local) = local_with_bare_remote();
+  let (auth, login) = stack(&local);
+  set_branch_of(&local, "prefix/stack/auth", &login);
+  let params = |expected: Option<String>| PushBranchesParams {
+    repository_path: path(&local).to_string(),
+    branch_prefix: "prefix".to_string(),
+    my_email: Some("test@example.com".to_string()),
+    baseline_branch: "origin/master".to_string(),
+    branches: vec![StackPushBranch {
+      branch_name: "auth".to_string(),
+      parent_branch: None,
+      expected_remote: expected,
+      tip: None,
+      whole_stack: true,
+    }],
+  };
+
+  let statuses = stack_pushed(push_branches(local.git_executor(), &params(None), &mut |_| {}).unwrap());
+  assert_eq!(remote_tip_of(&remote, "prefix/stack/auth"), Some(login.clone()));
+  assert_eq!(remote_tip_of(&remote, AUTH), None, "only the stack branch is pushed");
+  let [status] = statuses.as_slice() else { panic!("{statuses:?}") };
+  assert_eq!(
+    (status.remote_tip.as_deref(), status.unpushed_commits.len(), status.commits_behind),
+    (Some(login.as_str()), 0, 0)
+  );
+
+  // its lease holds as a virtual branch's: a rebuilt stack branch pushed as if it had no remote branch is refused
+  set_branch_of(&local, "prefix/stack/auth", &auth);
+  let moved = push_branches(local.git_executor(), &params(None), &mut |_| {}).unwrap();
+  assert!(
+    matches!(moved, PushBranchesOutcome::RemoteMoved { ref branch_name, .. } if branch_name == "auth"),
+    "{moved:?}"
+  );
+  assert_eq!(remote_tip_of(&remote, "prefix/stack/auth"), Some(login));
 }
 
 #[test]

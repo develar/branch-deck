@@ -101,6 +101,22 @@ describe("buildRobotPrompt", () => {
     expect(text).toContain("- aaaaaaaa (auth) Rename option — added after the robot ran, not tested\n")
   })
 
+  it("names the stack branch and every branch of the whole stack for its robot: it built them all", () => {
+    const whole: RobotCommitMap = {
+      ...commits,
+      commits: [
+        { localId: "e".repeat(40), subject: "(air/side) Add the side", authorTime: 0, branch: "side", state: "tested" },
+        { localId: "d".repeat(40), subject: "(air) Change the cache", authorTime: 0, branch: "air", state: "changed" },
+      ],
+    }
+    const text = prompt(report(failure({ robot: { ...robot, branchName: null, stackRoot: "air" } }), whole))
+    expect(text).toContain("Safe Push of the whole `air` stack into `master` failed: https://patronus/robot/r1")
+    expect(text).toContain("Branch Deck builds the stack branch `me/stack/air` from the commits of every branch of the stack")
+    expect(text).toContain("(`air`, `side`): the robot built them all, so a failure may come from any of them. Fix those commits, not the stack branch.")
+    expect(text).toContain("- eeeeeeee (air/side) Add the side — tested (of `side`)")
+    expect(text).toContain("`bd robot air --whole-stack --full`")
+  })
+
   it("points the fast version to the commands that read the details", () => {
     const text = prompt(report(failure()))
     expect(text).toContain("bd is Branch Deck's CLI, `bd -C /work/repo`; below, `bd` stands for it.")

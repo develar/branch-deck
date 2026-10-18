@@ -194,7 +194,7 @@ test.describe("Branch review window", () => {
     await expect(page.getByTestId("range-review-commit-header")).toContainText("Add the token")
     // then extended to the reviewed branch: the whole stack from the baseline
     await segments.nth(1).click({ modifiers: ["Shift"] })
-    await expect(page.getByRole("button", { name: "Whole Stack" })).toHaveAttribute("aria-pressed", "true")
+    await expect(page.getByRole("button", { name: "From Root" })).toHaveAttribute("aria-pressed", "true")
     await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js", "ui/login.css", "ui/login.js", "README.md"])
 
     // one commit of the part, under the name of its branch (the virtual commits have no prefix)
@@ -325,7 +325,7 @@ test.describe("Branch review window", () => {
     await expect(actions.getByRole("button", { name: "Open Pull Request" })).toHaveCount(0)
     await page.keyboard.press("s")
     // the whole stack: the reviewed branch
-    await page.getByRole("button", { name: "Whole Stack" }).click()
+    await page.getByRole("button", { name: "From Root" }).click()
     await expect(actions.getByRole("button", { name: "Open Pull Request" })).toBeVisible()
     await actions.getByRole("button", { name: "Push Stack (2 branches)", exact: true }).click()
     await expect

@@ -6,10 +6,15 @@ import {
   canCancelRobot,
   canRestartRobot,
   canStartRobot,
+  canStartStackRobot,
   describeRobot,
   findBranchRobot,
   findLandingAncestor,
   findLandingDescendants,
+  findLandingMember,
+  findStackRobot,
+  formatLandingReason,
+  formatRobotSubject,
   findMergedRobots,
   findPushHold,
   formatMergedRobotTitle,
@@ -57,6 +62,54 @@ function byId(...robots: PatronusRobot[]): Record<string, PatronusRobot> {
 const unpushedOnRobot: RemoteStatus = testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["fix"], commitsAhead: 1, myCommitsAhead: 1 })
 /** The remote branch is at the commit the robot took ("tip"), the local branch has the same commits on a newer baseline */
 const rebuiltOnRobot: RemoteStatus = testRemoteStatus({ remoteTip: "tip", fastForward: false })
+
+describe("the robot of the whole stack", () => {
+  const wholeStack = robot({ id: "stack", branchName: null, stackRoot: "air", sourceRevision: "stack-tip" })
+
+  it("belongs to the root of its stack by its stack branch, or as a robot of a temporary ref by the tips of the stack branch", () => {
+    expect(findStackRobot(byId(wholeStack), "air", "other", null)).toBe(wholeStack)
+    expect(findStackRobot(byId(wholeStack), "auth", "stack-tip", null)).toBeUndefined()
+    const cli = robot({ id: "cli", branchName: null, sourceRevision: "pushed-stack" })
+    expect(findStackRobot(byId(cli), "air", "stack-tip", "pushed-stack")).toBe(cli)
+    // a robot of a branch is never the whole stack's, not the root's either
+    expect(findStackRobot(byId(robot({ branchName: "air", sourceRevision: "stack-tip" })), "air", "local", null)).toBeUndefined()
+  })
+
+  it("is named the whole stack, at the start of a sentence too", () => {
+    expect(formatRobotSubject(wholeStack)).toBe("the whole air stack")
+    expect(formatMergedRobotTitle(wholeStack)).toBe("Whole air stack merged into master")
+    expect(describeRobot(wholeStack, "Large Scale Change")).toBe("Whole air stack → master · profile Large Scale Change")
+    expect(formatRobotSubject(robot({ branchName: null, sourceRevision: "x" }))).toBe("IJPL-1 fix the cache")
+  })
+
+  it("restarts on its stack branch, pushed first while the stack branch has work the remote lacks", () => {
+    const failed = { ...wholeStack, status: "failure" as const }
+    const stack = { kind: "stack", root: "air" } as const
+    expect(canRestartRobot(failed, stack, "stack-tip")).toBe(true)
+    expect(canRestartRobot(failed, { kind: "stack", root: "auth" }, "stack-tip")).toBe(false)
+    expect(canRestartRobot(failed, "air", "stack-tip")).toBe(false)
+    const ahead = testRemoteStatus({ remoteTip: "stack-tip", unpushedCommits: ["new"], commitsAhead: 1 })
+    expect(getRobotRestartAction(failed, stack, "new-stack-tip", ahead)).toBe("pushAndRestart")
+    expect(getRobotRestartAction(failed, stack, "stack-tip", testRemoteStatus({ remoteTip: "stack-tip" }))).toBe("restart")
+  })
+
+  it("lands every branch of the stack, and waits for the robot of a branch of it, as that one waits for it", () => {
+    const span = { branch: "air", robot: wholeStack, wholeStack: true }
+    expect(formatLandingReason("auth", span)).toBe("A Safe Push of the whole air stack is running: it lands auth with it")
+    expect(canStartRobot(testBranch("auth", "air"), undefined, null, span)).toEqual({ ok: false, reason: "A Safe Push of the whole air stack is running: it lands auth with it" })
+    expect(findPushHold("auth", undefined, span)).toEqual({ kind: "span", branch: "air", robot: wholeStack, wholeStack: true })
+
+    const auth = robot({ id: "auth", branchName: "auth" })
+    const landing = findLandingMember(["air", "auth", "side"], name => (name === "auth" ? auth : undefined))
+    expect(landing).toEqual({ branch: "auth", robot: auth })
+    expect(findLandingMember(["air", "auth"], () => robot({ pushMode: "dryRun" }))).toBeNull()
+    expect(canStartStackRobot(null, undefined, "stack-tip", null, landing)).toEqual({ ok: false, reason: "A Safe Push of auth is running: wait until it merges" })
+    // a dry run lands nothing: it waits only for the stack branch
+    expect(canStartStackRobot(null, undefined, "stack-tip", null, landing, true)).toEqual({ ok: true })
+    expect(canStartStackRobot("The stack branch conflicts", undefined, "stack-tip", null, null)).toEqual({ ok: false, reason: "The stack branch conflicts" })
+    expect(canStartStackRobot(null, wholeStack, "stack-tip", null, null)).toEqual({ ok: false, reason: "A Safe Push of the last commit is running" })
+  })
+})
 
 describe("findBranchRobot", () => {
   it("matches a robot started on the branch, and a Safe Push of a temporary ref by the local or the pushed tip", () => {

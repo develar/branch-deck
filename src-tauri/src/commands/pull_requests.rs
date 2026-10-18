@@ -14,6 +14,7 @@ use sync_core::pull_request_writes::{
   retarget_pull_request as core_retarget_pull_request, submit_pull_request_review as core_submit_pull_request_review,
 };
 use sync_core::pull_requests::{GetPullRequestsParams, GitHubRepository, failure_message, list_pull_requests, parse_known_github_repository};
+use sync_core::stack_pull_request::{GetNewStackPullRequestParams, read_new_stack_pull_request};
 use sync_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequestAvailability, PullRequestsResult, RequestedReviewers};
 use tauri::State;
 
@@ -131,11 +132,39 @@ pub async fn get_new_pull_request(
 ) -> Result<NewPullRequest, CommandError> {
   let git = git_executor.inner().clone();
   let (path, head, base) = (params.repository_path.clone(), params.head.clone(), params.base.clone());
-  let mut pull_request = run_blocking(move || read_new_pull_request(&git, &path, "origin", &head, &base).map_err(|e| CommandError::new(e.to_string()))).await?;
-  if let Some(repository) = github_repository(&git_executor, &repository_state, &params.repository_path, None).await? {
-    pull_request.viewer_login = read_viewer_login(&github.service, &params.repository_path, &repository).await.ok();
+  let pull_request = run_blocking(move || read_new_pull_request(&git, &path, "origin", &head, &base).map_err(|e| CommandError::new(e.to_string()))).await?;
+  with_viewer(&git_executor, &repository_state, &github, &params.repository_path, pull_request).await
+}
+
+/// The text of a new pull request with the user of the token, who is its assignee; none when GitHub doesn't answer
+async fn with_viewer(
+  git_executor: &State<'_, GitCommandExecutor>,
+  repository_state: &State<'_, RepositoryStateCache>,
+  github: &State<'_, GitHubState>,
+  repository_path: &str,
+  mut pull_request: NewPullRequest,
+) -> Result<NewPullRequest, CommandError> {
+  if let Some(repository) = github_repository(git_executor, repository_state, repository_path, None).await? {
+    pull_request.viewer_login = read_viewer_login(&github.service, repository_path, &repository).await.ok();
   }
   Ok(pull_request)
+}
+
+/// The text the "Create pull request" dialog of the whole stack starts with (`read_new_stack_pull_request`): the
+/// descriptions of the stack branch and its members, else the subjects of their commits; and the user of the token,
+/// who is the assignee
+#[tauri::command]
+#[specta::specta]
+pub async fn get_new_stack_pull_request(
+  git_executor: State<'_, GitCommandExecutor>,
+  repository_state: State<'_, RepositoryStateCache>,
+  github: State<'_, GitHubState>,
+  params: GetNewStackPullRequestParams,
+) -> Result<NewPullRequest, CommandError> {
+  let git = git_executor.inner().clone();
+  let request = params.clone();
+  let pull_request = run_blocking(move || read_new_stack_pull_request(&git, &request).map_err(|e| CommandError::new(e.to_string()))).await?;
+  with_viewer(&git_executor, &repository_state, &github, &params.repository_path, pull_request).await
 }
 
 /// Opens the pull request of a pushed virtual branch, assigned to the user and with the reviewers asked; one that

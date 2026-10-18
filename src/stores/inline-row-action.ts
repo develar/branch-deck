@@ -14,6 +14,7 @@ export type InlineActionType =
   | "unapply"
   | "squash-fixups"
   | "ungroup"
+  | "close-stack-pull-request"
   | "safe-push"
   | "dry-run"
 

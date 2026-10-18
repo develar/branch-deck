@@ -2,10 +2,11 @@ import { getSafePushWithoutReviewItem } from "@/hooks/useBranchContextActions"
 import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { getReviewRequirementState, usePatronusReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
 import type { CreatePullRequestContext } from "@/lib/create-pull-request-context"
-import { toCreatePullRequestContext } from "@/lib/create-pull-request-context"
+import { toCreatePullRequestContext, toStackPullRequestContext } from "@/lib/create-pull-request-context"
 import type { Branch } from "@/stores/branch-sync"
+import { getBranch, getStackBranch, useBranchSync, useStackBranch } from "@/stores/branch-sync"
 import { isPatronusAvailable, usePatronusAvailable } from "@/stores/patronus"
-import { getPullRequest, getPullRequestAvailability, usePullRequest, usePullRequestAvailability } from "@/stores/pull-requests"
+import { getPullRequest, getPullRequestAvailability, getStackPullRequest, usePullRequest, usePullRequestAvailability, useStackPullRequest } from "@/stores/pull-requests"
 import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
 
 /**
@@ -37,5 +38,31 @@ export function getCreatePullRequestContext(branch: Branch): CreatePullRequestCo
     patronusAvailable: isPatronusAvailable(),
     review: getReviewRequirementState(branch.name),
     withoutReview: getSafePushWithoutReviewItem(branch),
+  })
+}
+
+/**
+ * The context of the dialog of the whole stack of `root` (`toStackPullRequestContext`), re-rendering when its stack
+ * branch, its pull request or a branch of the stack changes
+ */
+export function useStackPullRequestContext(root: string): CreatePullRequestContext {
+  const stack = useStackBranch(root)
+  // the branches of the stack as one record, so the dialog renders again when one of them changes
+  const branches = useBranchSync(state => state.branches)
+  return toStackPullRequestContext(root, stack, {
+    repositoryPath: useSelectedProjectPath() ?? "",
+    pullRequest: useStackPullRequest(root),
+    availability: usePullRequestAvailability(),
+    branchOf: name => branches[name],
+  })
+}
+
+/** The same context from the stores as they are, for a request of the review window */
+export function getStackPullRequestContext(root: string): CreatePullRequestContext {
+  return toStackPullRequestContext(root, getStackBranch(root), {
+    repositoryPath: getSelectedProject()?.path ?? "",
+    pullRequest: getStackPullRequest(root),
+    availability: getPullRequestAvailability(),
+    branchOf: getBranch,
   })
 }

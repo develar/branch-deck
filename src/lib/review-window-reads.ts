@@ -12,7 +12,7 @@ type BranchReviewRead = ReturnType<typeof commands.getBranchReview>
 let startedBranchReview: { key: string; read: BranchReviewRead } | null = null
 
 function branchReviewKey(params: GetBranchReviewParams): string {
-  return JSON.stringify([params.repositoryPath, params.branchPrefix, params.baselineBranch, params.chain])
+  return JSON.stringify([params.repositoryPath, params.branchPrefix, params.baselineBranch, params.chain, params.wholeStack === true])
 }
 
 /** `get_branch_review`: the read the page started at its load when it is the same, once; otherwise a new one */
@@ -45,7 +45,13 @@ export function startReviewWindowReads(): void {
   } else if (label === "branch-review") {
     const data = window.__INIT_DATA__ as BranchReviewWindowData | undefined
     if (data !== undefined) {
-      const params = { repositoryPath: data.repositoryPath, branchPrefix: data.branchPrefix, baselineBranch: data.baselineBranch, chain: [...data.chain] }
+      const params = {
+        repositoryPath: data.repositoryPath,
+        branchPrefix: data.branchPrefix,
+        baselineBranch: data.baselineBranch,
+        chain: [...data.chain],
+        wholeStack: data.wholeStack === true,
+      }
       startedBranchReview = { key: branchReviewKey(params), read: commands.getBranchReview(params) }
     }
   }

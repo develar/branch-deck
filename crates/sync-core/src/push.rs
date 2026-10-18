@@ -1,14 +1,15 @@
 //! The push of virtual branches, forced and leased on the remote heads the user saw (`push_lease.rs`): the app's push of
 //! one branch (`push_branch`) and of a stack (`push_branches`), and `bd push`, all through one leased push
 //! (`push_leased`). A stack goes in one atomic `git push`, all of it or nothing; a remote that moved meanwhile is fetched
-//! and reported, never overwritten.
+//! and reported, never overwritten. The stack branch of a whole stack (`{prefix}/stack/<root>`, `whole_stack`) goes the
+//! same way.
 
 use crate::push_lease::{PushOptions, PushRef, PushedRefStatus, fetch_remote_branches, prepare_push_expecting, push_refs};
 use crate::remote_status::{AncestorCommits, StackParent, StatusBranch, compute_remote_statuses};
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Context, Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_names::to_final_branch_name;
+use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use sync_types::RemoteStatusUpdate;
@@ -68,6 +69,7 @@ pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams,
       parent_branch: params.parent_branch.clone(),
       expected_remote: params.expected_remote.clone(),
       tip: params.tip.clone(),
+      whole_stack: false,
     }],
   };
   let (remote_statuses, moved) = match push_branches(git_executor, &stack, on_progress)? {
@@ -100,6 +102,11 @@ pub struct StackPushBranch {
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub tip: Option<String>,
+  /// The stack branch of the whole stack whose root `branch_name` is (`{prefix}/stack/<root>`), not its virtual branch:
+  /// the caller pushes it only while the sync built it (`StackBranchState::Built`); no parent, no tip
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub whole_stack: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -140,6 +147,9 @@ pub fn push_branches(git_executor: &GitCommandExecutor, params: &PushBranchesPar
     .branches
     .iter()
     .map(|branch| {
+      if branch.whole_stack {
+        return Ok((to_stack_branch_name(&params.branch_prefix, &branch.branch_name)?, None));
+      }
       let final_name = to_final_branch_name(&params.branch_prefix, &branch.branch_name)?;
       let parent_ref = branch
         .parent_branch

@@ -9,6 +9,7 @@ fn params(repo: &TestRepo, chain: &[&str]) -> GetBranchReviewParams {
     branch_prefix: "user".to_string(),
     baseline_branch: "baseline".to_string(),
     chain: chain.iter().map(ToString::to_string).collect(),
+    whole_stack: false,
   }
 }
 
@@ -131,4 +132,30 @@ fn a_moved_tip_or_baseline_is_read_again() {
   assert_eq!(memo.get(repo.git_executor(), &remote).unwrap().segments[0].commits.len(), 3);
   git(&repo, &["update-ref", "refs/remotes/origin/main", &c3]);
   assert_eq!(memo.get(repo.git_executor(), &remote).unwrap().segments[0].commits.len(), 1);
+}
+
+/// The whole stack is its stack branch, one part named by the root: every commit of the stack on the baseline. Without
+/// a stack branch (a straight chain has none) the review says so
+#[test]
+fn the_whole_stack_is_one_part_of_its_stack_branch() {
+  let (repo, [base, c1, c2, c3]) = stacked_repo();
+  let whole = |root: &str| GetBranchReviewParams {
+    whole_stack: true,
+    ..params(&repo, &[root])
+  };
+  let error = get_branch_review(repo.git_executor(), &whole("auth")).unwrap_err();
+  assert!(error.to_string().contains("no stack branch"), "{error:#}");
+
+  repo.create_branch_at("user/stack/auth", &c3).unwrap();
+  let review = get_branch_review(repo.git_executor(), &whole("auth")).unwrap();
+  let [segment] = review.segments.as_slice() else { panic!("{review:?}") };
+  assert_eq!((segment.name.as_str(), segment.base.as_str(), segment.head.as_str()), ("auth", base.as_str(), c3.as_str()));
+  assert_eq!(ids(&segment.commits), [c3.as_str(), c2.as_str(), c1.as_str()]);
+
+  // the root alone names the whole stack
+  let chain = GetBranchReviewParams {
+    whole_stack: true,
+    ..params(&repo, &["auth", "ui"])
+  };
+  get_branch_review(repo.git_executor(), &chain).unwrap_err();
 }

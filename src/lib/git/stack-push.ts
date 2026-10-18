@@ -5,30 +5,35 @@ import { notifyError } from "@/lib/errors"
 import type { Retargeted } from "@/lib/git/new-pull-request"
 import { retargetBeforePush } from "@/lib/git/new-pull-request"
 import type { PushReport } from "@/lib/git/push"
-import { checkPushHold, isHeldBy, pushesOverMovedRemote, sentPart, showRemoteMovedToast } from "@/lib/git/push"
+import { cancelHoldingRobot, checkPushHold, isHeldBy, pushesOverMovedRemote, restartAfterPush, sentPart, showRemoteMovedToast } from "@/lib/git/push"
 import type { PushOutcome } from "@/lib/git/push-toast"
 import { showStackPushToast } from "@/lib/git/push-toast"
+import { formatPushMode } from "@/lib/patronus"
+import { showRobotToast } from "@/lib/patronus-actions"
 import type { PushUpToStep } from "@/lib/push-up-to"
 import { stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
+import { formatWholeStack, getStackBranchBlocker } from "@/lib/whole-stack"
 import { recordPush } from "@/stores/activity"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import {
   branchSyncStore,
   getBranch,
+  getStackBranch,
   getStackDescendants,
   isBranchPushing,
   isStackPushing,
   setBranchesPushProgress,
   setBranchPushing,
   setBranchRemoteStatus,
+  setStackBranchRemoteStatus,
   setStackPush,
   toRemoteStatus,
   whenBranchPushed,
   whenSynced,
 } from "@/stores/branch-sync"
-import { getPushHold } from "@/stores/patronus"
-import { refreshPullRequestsAfterPushes } from "@/stores/pull-requests"
+import { getPushHold, getStackPushHold } from "@/stores/patronus"
+import { refreshPullRequests, refreshPullRequestsAfterPushes } from "@/stores/pull-requests"
 import { vcsRequestFactory } from "@/stores/repository"
 
 export interface StackPushOptions {
@@ -274,5 +279,107 @@ async function sendTogether(
     for (const name of names) {
       setBranchPushing(name, false)
     }
+  }
+}
+
+export interface WholeStackPushOptions {
+  /**
+   * The robot of the whole stack the push restarts on the pushed commit ("Restart Safe Push"): a running one is canceled
+   * first, as a push into its stack branch would fail it at the end
+   */
+  restartRobot?: PatronusRobot
+  /** Where a failure is said (`PushOptions`) */
+  report?: PushReport
+}
+
+/**
+ * Pushes the stack branch of the whole stack of `root` (`{prefix}/stack/<root>`), leased on the remote head its status
+ * showed, as one more branch of `push_branches` (`wholeStack`): the head of the pull request of the whole stack, the
+ * source of its robot. Only a stack branch the sync built (`getStackBranchBlocker`); never while its own Safe Push runs
+ * (`getStackPushHold`), unless the push restarts that robot (`restartRobot`, canceled first, restarted on the pushed
+ * commit). A sync that runs is awaited first. A remote branch that moved is fetched, and the push goes again over it
+ * once when it has no commit the stack branch lacks (`pushesOverMovedRemote`). The branches of the stack stay as they
+ * are on the remote. No toast: the action it is a step of says it; Activity records the push. Resolves to whether it
+ * was pushed.
+ */
+export async function pushWholeStack(root: string, options: WholeStackPushOptions = {}): Promise<boolean> {
+  const report = options.report ?? notifyError
+  const subject = formatWholeStack(root)
+  await whenSynced()
+  const hold = getStackPushHold(root)
+  if (hold !== null) {
+    if (hold.robot.id !== options.restartRobot?.id) {
+      report(`Cannot push ${subject}`, `A ${formatPushMode(hold.robot.pushMode)} of ${subject} is running: wait until it merges, or restart it on the current stack`)
+      return false
+    }
+    if (!(await cancelHoldingRobot(hold.robot, report))) {
+      return false
+    }
+  }
+  let moved = await sendStackBranch(root, report)
+  if (moved !== null && moved !== undefined && pushesOverMovedRemote(moved)) {
+    moved = await sendStackBranch(root, report)
+  }
+  if (moved === undefined) {
+    return false
+  }
+  if (moved !== null) {
+    report(
+      `Cannot push ${subject}`,
+      `Its remote branch has ${moved.commitsBehind === 1 ? "a commit" : `${moved.commitsBehind} commits`} the stack branch lacks: sync, then push again`,
+    )
+    return false
+  }
+  if (options.restartRobot !== undefined) {
+    const restarted = await restartAfterPush(options.restartRobot)
+    // the restart is the action: its toast is the one toast, Activity has the push and the restart
+    if (restarted !== undefined) {
+      showRobotToast(`${formatPushMode(restarted.pushMode)} restarted`, restarted)
+    }
+  }
+  return true
+}
+
+/**
+ * The one push of the stack branch, leased on the remote head of its status; its remote status is updated from the
+ * result. What its remote has now when it moved, null when it was pushed, undefined when the push failed (it said why).
+ */
+async function sendStackBranch(root: string, report: PushReport): Promise<RemoteStatus | null | undefined> {
+  const subject = formatWholeStack(root)
+  const stack = getStackBranch(root)
+  const blocker = getStackBranchBlocker(root, stack)
+  if (stack === undefined || blocker !== null) {
+    report(`Cannot push ${subject}`, blocker ?? "The stack has no stack branch")
+    return undefined
+  }
+  const request = vcsRequestFactory.createRequest()
+  try {
+    const result = await commands.pushBranches(
+      {
+        repositoryPath: request.repositoryPath,
+        branchPrefix: request.branchPrefix,
+        myEmail: getBranch(root)?.myEmail ?? null,
+        baselineBranch: branchSyncStore.getState().baselineBranch!,
+        branches: [{ branchName: root, wholeStack: true, expectedRemote: stack.remoteStatus?.remoteTip ?? null }],
+      },
+      new Channel<TransferProgress>(),
+    )
+    if (result.status === "error") {
+      report(`Cannot push ${subject}`, result.error)
+      return undefined
+    }
+    const status = result.data.remoteStatuses[0] === undefined ? null : toRemoteStatus(result.data.remoteStatuses[0])
+    if (status !== null) {
+      setStackBranchRemoteStatus(root, status)
+    }
+    recordPush(request.repositoryPath, subject, stack.remoteStatus, result.data.type === "remoteMoved" ? status : null)
+    if (result.data.type === "remoteMoved") {
+      return status ?? undefined
+    }
+    void refreshPullRequests("push")
+    return null
+  } catch (error) {
+    report(`Cannot push ${subject}`, error)
+    return undefined
   }
 }

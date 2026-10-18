@@ -23,6 +23,11 @@ export interface RepositoryPullRequests {
   readonly availability: PullRequestAvailability | null
   /** By virtual branch name */
   readonly pullRequests: Readonly<Record<string, PullRequest>>
+  /**
+   * The pull requests of the stack branches (`{prefix}/stack/<root>`, the whole stack), by the root of the stack; never
+   * a branch's (spec/branch/whole-stack.spec.md)
+   */
+  readonly stackPullRequests: Readonly<Record<string, PullRequest>>
   /** `Date.now()` of the last answer, 0 = never */
   readonly fetchedAt: number
   readonly isRefreshing: boolean
@@ -35,7 +40,7 @@ export interface PullRequestsState {
 
 export const pullRequestsStore = createStore<PullRequestsState>(() => ({ repositories: {} }))
 
-const EMPTY: RepositoryPullRequests = { availability: null, pullRequests: {}, fetchedAt: 0, isRefreshing: false }
+const EMPTY: RepositoryPullRequests = { availability: null, pullRequests: {}, stackPullRequests: {}, fetchedAt: 0, isRefreshing: false }
 
 function repositoryKey(repositoryPath: string, branchPrefix: string): string {
   return `${repositoryPath}\n${branchPrefix}`
@@ -71,6 +76,18 @@ export function usePullRequest(branchName: string): PullRequest | undefined {
 export function getPullRequest(branchName: string): PullRequest | undefined {
   const key = currentKey()
   return key === null ? undefined : pullRequestsStore.getState().repositories[key]?.pullRequests[branchName]
+}
+
+/** The pull request of the whole stack of `root` (its stack branch); re-renders only when it changes */
+export function useStackPullRequest(root: string): PullRequest | undefined {
+  const key = useRepositoryKey()
+  return useStore(pullRequestsStore, state => state.repositories[key]?.stackPullRequests[root])
+}
+
+/** Non-hook variant of `useStackPullRequest`, for menus built on open */
+export function getStackPullRequest(root: string): PullRequest | undefined {
+  const key = currentKey()
+  return key === null ? undefined : pullRequestsStore.getState().repositories[key]?.stackPullRequests[root]
 }
 
 /**
@@ -176,6 +193,7 @@ export function refreshPullRequests(reason: RefreshReason): Promise<void> {
         update(key, {
           availability: sameJson(previous.availability, result.data.availability) ? previous.availability : result.data.availability,
           pullRequests: mergePullRequests(previous.pullRequests, withCreated(key, result.data.pullRequests, Date.now())),
+          stackPullRequests: mergePullRequests(previous.stackPullRequests, withCreated(stackKey(key), result.data.stackPullRequests ?? {}, Date.now())),
           fetchedAt: Date.now(),
         })
       } else {
@@ -240,11 +258,29 @@ export async function closePullRequest(branchName: string, comment: string): Pro
   if (key === null || pullRequest === undefined) {
     return
   }
+  await closeOnGitHub(key, pullRequest, comment)
+  setPullRequest(key, branchName, { ...pullRequest, state: "closed" })
+}
+
+/**
+ * Closes the pull request of the whole stack of `root` on GitHub with `comment` (the user asked: one that no longer
+ * matches the stack is never closed by itself), and in the store at once. Throws what GitHub said.
+ */
+export async function closeStackPullRequest(root: string, comment: string): Promise<void> {
+  const key = currentKey()
+  const pullRequest = getStackPullRequest(root)
+  if (key === null || pullRequest === undefined) {
+    return
+  }
+  await closeOnGitHub(key, pullRequest, comment)
+  setStackPullRequest(key, root, { ...pullRequest, state: "closed" })
+}
+
+async function closeOnGitHub(key: string, pullRequest: PullRequest, comment: string): Promise<void> {
   const result = await commands.closePullRequest({ repositoryPath: key.split("\n")[0]!, pullRequestNumber: pullRequest.number, comment })
   if (result.status === "error") {
     throw new Error(result.error.message)
   }
-  setPullRequest(key, branchName, { ...pullRequest, state: "closed" })
 }
 
 /**
@@ -278,6 +314,11 @@ export async function requestReviewers(branchName: string, logins: readonly stri
 /** GitHub's search lists a new pull request only after a while: one the app created is kept this long meanwhile */
 export const CREATED_KEEP_MS = 5 * 60_000
 
+/** The key of the pull requests of the stack branches the app created (`created`), beside those of the branches */
+function stackKey(key: string): string {
+  return `${key}\nstack`
+}
+
 /** By repository key, then branch: the pull requests the app created, until the search lists them */
 const created = new Map<string, Map<string, { pullRequest: PullRequest; until: number }>>()
 
@@ -300,7 +341,10 @@ function withCreated(key: string, incoming: Readonly<Record<string, PullRequest>
 
 /** What the "Create pull request" dialog asks for */
 export interface NewPullRequestRequest {
+  /** The branch, or the root of the whole stack (`wholeStack`) */
   branchName: string
+  /** The pull request of the stack branch of the whole stack whose root `branchName` is */
+  wholeStack?: boolean
   head: string
   base: string
   title: string
@@ -321,14 +365,20 @@ export async function createPullRequest(request: NewPullRequestRequest): Promise
     throw new Error("No repository is selected")
   }
   const [repositoryPath, branchPrefix] = key.split("\n") as [string, string]
-  const result = await commands.createPullRequest({ repositoryPath, branchPrefix, ...request })
+  const { wholeStack = false, ...params } = request
+  const result = await commands.createPullRequest({ repositoryPath, branchPrefix, ...params })
   if (result.status === "error") {
     throw new Error(result.error.message)
   }
-  const pending = created.get(key) ?? new Map()
+  const createdKey = wholeStack ? stackKey(key) : key
+  const pending = created.get(createdKey) ?? new Map()
   pending.set(request.branchName, { pullRequest: result.data.pullRequest, until: Date.now() + CREATED_KEEP_MS })
-  created.set(key, pending)
-  setPullRequest(key, request.branchName, result.data.pullRequest)
+  created.set(createdKey, pending)
+  if (wholeStack) {
+    setStackPullRequest(key, request.branchName, result.data.pullRequest)
+  } else {
+    setPullRequest(key, request.branchName, result.data.pullRequest)
+  }
   void refreshPullRequests("push")
   return result.data
 }
@@ -336,6 +386,11 @@ export async function createPullRequest(request: NewPullRequestRequest): Promise
 function setPullRequest(key: string, branchName: string, pullRequest: PullRequest): void {
   const pullRequests = pullRequestsStore.getState().repositories[key]?.pullRequests ?? {}
   update(key, { pullRequests: { ...pullRequests, [branchName]: pullRequest } })
+}
+
+function setStackPullRequest(key: string, root: string, pullRequest: PullRequest): void {
+  const stackPullRequests = pullRequestsStore.getState().repositories[key]?.stackPullRequests ?? {}
+  update(key, { stackPullRequests: { ...stackPullRequests, [root]: pullRequest } })
 }
 
 /** Forgets the gates and the data (tests) */

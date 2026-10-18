@@ -223,7 +223,7 @@ async function pushWithProgress(branch: Branch, options: PushOptions, report: Pu
  * Restarts a robot the push canceled, on the pushed commit, and records it in Activity in the words of a restart
  * toast; the caller says it, in the toast of its action. Undefined when the restart failed (an error toast said so).
  */
-async function restartAfterPush(robot: PatronusRobot): Promise<PatronusRobot | undefined> {
+export async function restartAfterPush(robot: PatronusRobot): Promise<PatronusRobot | undefined> {
   const mode = formatPushMode(robot.pushMode)
   try {
     const restarted = await restartPatronusRobot(robot)

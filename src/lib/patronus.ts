@@ -7,6 +7,7 @@ import type { ReviewCommitState } from "@/lib/review-commit"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import { formatBlockedReason } from "@/lib/stack"
 import type { UIColor } from "@/lib/ui-types"
+import { formatWholeStack, formatWholeStackStart } from "@/lib/whole-stack"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 
 /** What the chip shows of a robot */
@@ -24,6 +25,40 @@ export interface PatronusChipState {
   commit: ReviewCommitState
   /** The branch changed since the robot took its commit (not only rebuilt on a newer baseline): a `warning` dot */
   outdated: boolean
+}
+
+/**
+ * What a robot lands: a virtual branch (`branchName`), or the whole stack of a root (`stackRoot`, its stack branch
+ * `{prefix}/stack/<root>`); `robotSubjectOf` is null for a robot of a temporary ref (the IDE, the CLI)
+ */
+export type RobotSubject = { readonly kind: "branch"; readonly name: string } | { readonly kind: "stack"; readonly root: string }
+
+/** The subject of a robot started on a virtual branch or on a stack branch; null for one of a temporary ref */
+export function robotSubjectOf(robot: Pick<PatronusRobot, "branchName" | "stackRoot">): RobotSubject | null {
+  if (robot.branchName !== null) {
+    return { kind: "branch", name: robot.branchName }
+  }
+  return robot.stackRoot == null ? null : { kind: "stack", root: robot.stackRoot }
+}
+
+/**
+ * How a sentence names what a robot tests: "auth", "the whole air stack", else `label` (a watched robot of no branch,
+ * "#101 Rework the session store") or the robot's name (the subject of a Safe Push of a temporary ref)
+ */
+export function formatRobotSubject(robot: Pick<PatronusRobot, "branchName" | "stackRoot" | "name">, label?: string): string {
+  if (label !== undefined) {
+    return label
+  }
+  const subject = robotSubjectOf(robot)
+  if (subject === null) {
+    return robot.name
+  }
+  return subject.kind === "branch" ? subject.name : formatWholeStack(subject.root)
+}
+
+/** `formatRobotSubject` at the start of a sentence: "Whole air stack merged into master" */
+export function formatRobotSubjectStart(robot: Pick<PatronusRobot, "branchName" | "stackRoot" | "name">, label?: string): string {
+  return label === undefined && robot.branchName === null && robot.stackRoot != null ? formatWholeStackStart(robot.stackRoot) : formatRobotSubject(robot, label)
 }
 
 /** Still running, a cancel included: the app polls its status */
@@ -47,14 +82,37 @@ export function findBranchRobot(
     return undefined
   }
   const index = robotIndexOf(robots)
-  let best = index.byBranch.get(branchName)
-  for (const tip of [localTip, remoteTip]) {
+  return preferredOnTips(index, index.byBranch.get(branchName), [localTip, remoteTip])?.robot
+}
+
+/** `own`, or a robot of a temporary ref on one of the tips that is preferred over it (`isPreferredRanked`) */
+function preferredOnTips(index: RobotIndex, own: RankedRobot | undefined, tips: readonly (string | null | undefined)[]): RankedRobot | undefined {
+  let best = own
+  for (const tip of tips) {
     const candidate = tip == null ? undefined : index.byRevision.get(tip)
     if (candidate !== undefined && (best === undefined || isPreferredRanked(candidate, best))) {
       best = candidate
     }
   }
-  return best?.robot
+  return best
+}
+
+/**
+ * The robot of the whole stack of `root`: one started on its stack branch (`stackRoot`), or a Safe Push of a temporary
+ * ref on the local or the pushed tip of the stack branch (`find_stack_robot` of `bd`); the same preference as
+ * `findBranchRobot`
+ */
+export function findStackRobot(
+  robots: Readonly<Record<string, PatronusRobot>> | undefined,
+  root: string,
+  localTip: string | null | undefined,
+  remoteTip: string | null,
+): PatronusRobot | undefined {
+  if (robots === undefined) {
+    return undefined
+  }
+  const index = robotIndexOf(robots)
+  return preferredOnTips(index, index.byStack.get(root), [localTip, remoteTip])?.robot
 }
 
 interface RankedRobot {
@@ -63,9 +121,13 @@ interface RankedRobot {
   readonly order: number
 }
 
-/** The preferred robot per branch name, and per source revision of the robots without a branch */
+/**
+ * The preferred robot per branch name, per root of the robots of the whole stack, and per source revision of the robots
+ * of a temporary ref
+ */
 interface RobotIndex {
   readonly byBranch: ReadonlyMap<string, RankedRobot>
+  readonly byStack: ReadonlyMap<string, RankedRobot>
   readonly byRevision: ReadonlyMap<string, RankedRobot>
 }
 
@@ -79,21 +141,21 @@ function robotIndexOf(robots: Readonly<Record<string, PatronusRobot>>): RobotInd
   let index = robotIndexes.get(robots)
   if (index === undefined) {
     const byBranch = new Map<string, RankedRobot>()
+    const byStack = new Map<string, RankedRobot>()
     const byRevision = new Map<string, RankedRobot>()
     Object.values(robots).forEach((robot, order) => {
-      const key = robot.branchName ?? robot.sourceRevision
       // the whole stack's robot runs on its stack branch: never a branch's, not even by its revision
-      if (key === null || robot.stackRoot != null) {
+      const [map, key] = robot.branchName !== null ? [byBranch, robot.branchName] : robot.stackRoot != null ? [byStack, robot.stackRoot] : [byRevision, robot.sourceRevision]
+      if (key === null) {
         return
       }
-      const map = robot.branchName === null ? byRevision : byBranch
       const current = map.get(key)
       const ranked = { robot, order }
       if (current === undefined || isPreferredRanked(ranked, current)) {
         map.set(key, ranked)
       }
     })
-    index = { byBranch, byRevision }
+    index = { byBranch, byStack, byRevision }
     robotIndexes.set(robots, index)
   }
   return index
@@ -225,19 +287,20 @@ export function findFailedRobots(previous: Readonly<Record<string, PatronusRobot
 }
 
 /**
- * "IJPL-1 merged into master": the virtual branch, or the subject of a Safe Push of a temporary ref; `label` names a
- * watched robot of no branch ("#101 Rework the session store")
+ * "IJPL-1 merged into master", "Whole air stack merged into master": the virtual branch, the whole stack, or the
+ * subject of a Safe Push of a temporary ref; `label` names a watched robot of no branch ("#101 Rework the session store")
  */
 export function formatMergedRobotTitle(robot: PatronusRobot, label?: string): string {
-  return `${label ?? robot.branchName ?? robot.name} merged into ${robot.targetBranch}`
+  return `${formatRobotSubjectStart(robot, label)} merged into ${robot.targetBranch}`
 }
 
 /**
  * What a started, restarted or canceling robot tests, as its toast and Activity say it: "IJPL-1 → master · profile
- * Large Scale Change". The virtual branch (the subject for a robot of a temporary ref), never the ref the robot runs on.
+ * Large Scale Change", "Whole air stack → master". The virtual branch or the whole stack (the subject for a robot of a
+ * temporary ref), never the ref the robot runs on.
  */
 export function describeRobot(robot: PatronusRobot, profileName: string | null = null): string {
-  const target = `${robot.branchName ?? robot.name} → ${robot.targetBranch}`
+  const target = `${formatRobotSubjectStart(robot)} → ${robot.targetBranch}`
   return profileName === null ? target : `${target} · profile ${profileName}`
 }
 
@@ -272,14 +335,25 @@ export function isRobotOnBranch(robot: PatronusRobot, branchName: string): boole
 }
 
 /**
+ * A robot started on the branch or on the stack branch of the whole stack `on` names (a branch name is a branch), not on
+ * a temporary ref: Patronus can restart it on the newest commit of that branch
+ */
+export function isRobotOn(robot: PatronusRobot, on: string | RobotSubject): boolean {
+  if (typeof on === "string") {
+    return isRobotOnBranch(robot, on)
+  }
+  return on.kind === "branch" ? isRobotOnBranch(robot, on.name) : robot.branchName === null && robot.stackRoot === on.root
+}
+
+/**
  * Patronus restarts a failed or canceled robot of a branch on its newest commit, a canceling one too; a successful dry
  * run only when the branch has a newer commit on the remote. A merged robot or a running one is never restarted, nor
  * one that failed for missing approvals in a Space merge request. A robot of a pull request that failed for them is:
  * the restart counts the approvals the pull request has by then.
  */
-export function canRestartRobot(robot: PatronusRobot, branchName: string, remoteTip: string | null, needsReview = false): boolean {
+export function canRestartRobot(robot: PatronusRobot, on: string | RobotSubject, remoteTip: string | null, needsReview = false): boolean {
   // a restart keeps the merge request of the robot, which has no approvals: a new Safe Push with one is the way
-  if (!isRobotOnBranch(robot, branchName) || (needsReview && robot.pullRequest == null)) {
+  if (!isRobotOn(robot, on) || (needsReview && robot.pullRequest == null)) {
     return false
   }
   switch (robot.status) {
@@ -303,8 +377,8 @@ export function canCancelRobot(robot: PatronusRobot): boolean {
  * A running robot of the branch tests a commit the branch moved past: its restart cancels it, pushes and restarts it
  * on the pushed commit, the one way to push into a branch whose Safe Push runs (`PushHold`)
  */
-function canPushAndRestartRunning(robot: PatronusRobot, branchName: string, needsReview: boolean): boolean {
-  return robot.status === "running" && isRobotOnBranch(robot, branchName) && !(needsReview && robot.pullRequest == null)
+function canPushAndRestartRunning(robot: PatronusRobot, on: string | RobotSubject, needsReview: boolean): boolean {
+  return robot.status === "running" && isRobotOn(robot, on) && !(needsReview && robot.pullRequest == null)
 }
 
 /** The restart the details offer: a restart, one that pushes first, or none */
@@ -312,21 +386,22 @@ export type RobotRestartAction = "restart" | "pushAndRestart" | null
 
 /**
  * A restart takes the newest commit of the remote branch: a branch with work the remote lacks is pushed first ("Push and
- * Restart"), so the robot tests the branch as it is; a plain restart would test the commit the remote has.
+ * Restart"), so the robot tests the branch as it is; a plain restart would test the commit the remote has. `on` is the
+ * branch, or the whole stack whose stack branch `localTip` and `remote` describe.
  */
 export function getRobotRestartAction(
   robot: PatronusRobot,
-  branchName: string,
+  on: string | RobotSubject,
   localTip: string | undefined,
   remote: RemoteStatus | null,
   needsReview = false,
 ): RobotRestartAction {
   if (getReviewCommitState(robot.sourceRevision, localTip, remote) === "changedLocally") {
     // after the push, the remote branch is at the local tip; a running robot is canceled first (`pushBranch`)
-    const restartable = canRestartRobot(robot, branchName, localTip ?? null, needsReview) || canPushAndRestartRunning(robot, branchName, needsReview)
+    const restartable = canRestartRobot(robot, on, localTip ?? null, needsReview) || canPushAndRestartRunning(robot, on, needsReview)
     return localTip !== undefined && localTip !== "" && restartable ? "pushAndRestart" : null
   }
-  return canRestartRobot(robot, branchName, remote?.remoteTip ?? null, needsReview) ? "restart" : null
+  return canRestartRobot(robot, on, remote?.remoteTip ?? null, needsReview) ? "restart" : null
 }
 
 /**
@@ -351,13 +426,15 @@ export function formatRobotCommitNotice(robot: PatronusRobot, chip: Pick<Patronu
     return "Started on an earlier build of the same commits."
   }
   const now = localTip === undefined || localTip === "" ? "" : ` (now ${formatShortHash(localTip)})`
-  const changed = `Started on ${formatShortHash(robot.sourceRevision)}; the branch has changed since${now}: the result won't cover the newest commits.`
+  // the robot of the whole stack tests the stack branch
+  const what = robot.branchName === null && robot.stackRoot != null ? "stack" : "branch"
+  const changed = `Started on ${formatShortHash(robot.sourceRevision)}; the ${what} has changed since${now}: the result won't cover the newest commits.`
   if (action !== null) {
-    return `${changed} ${formatRobotRestartLabel(robot)} to test the current branch.`
+    return `${changed} ${formatRobotRestartLabel(robot)} to test the current ${what}.`
   }
-  // canceling, a robot started on the branch can be restarted; one of a temporary ref can't
-  if (canCancelRobot(robot) && robot.branchName !== null) {
-    return `${changed} Cancel ${formatPushMode(robot.pushMode)}, then ${formatRobotRestartLabel(robot)} to test the current branch.`
+  // canceling, a robot started on the branch or the stack branch can be restarted; one of a temporary ref can't
+  if (canCancelRobot(robot) && robotSubjectOf(robot) !== null) {
+    return `${changed} Cancel ${formatPushMode(robot.pushMode)}, then ${formatRobotRestartLabel(robot)} to test the current ${what}.`
   }
   return changed
 }
@@ -377,9 +454,11 @@ export function isHoldingRobot(robot: PatronusRobot): boolean {
  */
 export interface PushHold {
   kind: "own" | "span"
-  /** The branch of the robot: the branch itself for `own` */
+  /** The branch of the robot: the branch itself for `own`; the root of the stack for the robot of the whole stack */
   branch: string
   robot: PatronusRobot
+  /** The robot of the whole stack of the root `branch` holds every branch of the stack (`LandingDescendant.wholeStack`) */
+  wholeStack?: boolean
 }
 
 /**
@@ -392,7 +471,7 @@ export function findPushHold(branchName: string, ownRobot: PatronusRobot | undef
     return { kind: "own", branch: branchName, robot: ownRobot }
   }
   if (span != null && isHoldingRobot(span.robot)) {
-    return { kind: "span", branch: span.branch, robot: span.robot }
+    return { kind: "span", branch: span.branch, robot: span.robot, ...(span.wholeStack === true && { wholeStack: true }) }
   }
   return null
 }
@@ -468,15 +547,68 @@ export function canStartRobot(
     return { ok: false, reason: formatLandingReason(branch.name, landingDescendant) }
   }
   if (landingAncestor !== null) {
-    return { ok: false, reason: `A ${formatPushMode(landingAncestor.robot.pushMode)} of ${landingAncestor.branch} is running: wait until it merges` }
+    return { ok: false, reason: formatLandingWait(landingAncestor) }
   }
   return { ok: true }
 }
 
+/** "A Safe Push of auth is running: wait until it merges": a start waits for a robot that lands a part of what it lands */
+export function formatLandingWait(landing: LandingAncestor): string {
+  return `A ${formatPushMode(landing.robot.pushMode)} of ${formatLandingSubject(landing)} is running: wait until it merges`
+}
+
 /** An ancestor of a stacked branch whose robot pushes into the target: it lands the ancestor's commits */
 export interface LandingAncestor {
+  /** The ancestor; for the robot of the whole stack (`wholeStack`) the root of the stack */
   branch: string
   robot: PatronusRobot
+  /** The robot of the whole stack of the root `branch` lands it: it lands every branch of the stack */
+  wholeStack?: boolean
+}
+
+/** "oauth", "the whole air stack": the branch or the whole stack whose robot lands another one */
+export function formatLandingSubject(landing: LandingAncestor): string {
+  return landing.wholeStack === true ? formatWholeStack(landing.branch) : landing.branch
+}
+
+/**
+ * The first of `members` of a stack (stack order) whose own robot (`robotOf`) is active and pushes into the target:
+ * the robot of the whole stack waits for it, the stack branch carries the commits it lands (`find_landing_member` of
+ * `bd`); null when none runs
+ */
+export function findLandingMember(members: readonly string[], robotOf: (name: string) => PatronusRobot | undefined): LandingAncestor | null {
+  for (const name of members) {
+    const robot = robotOf(name)
+    if (robot !== undefined && isRobotActive(robot) && robot.pushMode !== "dryRun") {
+      return { branch: name, robot }
+    }
+  }
+  return null
+}
+
+/**
+ * Whether the robot of the whole stack can start or restart: only on a stack branch the sync built
+ * (`getStackBranchBlocker`), not while a robot runs on its commit, and, unless `dryRun`, not while the robot of a branch
+ * of the stack lands a part of it (`landingMember`, `findLandingMember`): two robots would land the same commits
+ */
+export function canStartStackRobot(
+  blocker: string | null,
+  robot: PatronusRobot | undefined,
+  tip: string | undefined,
+  remote: RemoteStatus | null,
+  landingMember: LandingAncestor | null,
+  dryRun = false,
+): RobotStartCheck {
+  if (blocker !== null) {
+    return { ok: false, reason: blocker }
+  }
+  if (robot !== undefined && isStartBlocked(robot, tip, remote)) {
+    return { ok: false, reason: `A ${formatPushMode(robot.pushMode)} of the last commit is running` }
+  }
+  if (!dryRun && landingMember !== null) {
+    return { ok: false, reason: formatLandingWait(landingMember) }
+  }
+  return { ok: true }
 }
 
 /**
@@ -502,10 +634,15 @@ export function findLandingAncestor(
   return null
 }
 
-/** A branch built on others whose robot pushes into the target: it lands the commits of the branches it is built on */
+/**
+ * A branch built on others whose robot pushes into the target: it lands the commits of the branches it is built on; or
+ * the robot of the whole stack (`wholeStack`, `branch` its root), which lands every branch of the stack
+ */
 export interface LandingDescendant {
   branch: string
   robot: PatronusRobot
+  /** The robot of the whole stack of the root `branch` (its stack branch `{prefix}/stack/<root>`) */
+  wholeStack?: boolean
 }
 
 /**
@@ -533,9 +670,12 @@ export function findLandingDescendants(
   return landed
 }
 
-/** Why a branch can't start while a robot of a branch built on it runs: "A Safe Push of oauth is running: it lands auth with it" */
+/**
+ * Why a branch can't start while a robot of a branch built on it runs: "A Safe Push of oauth is running: it lands auth
+ * with it", "A Safe Push of the whole air stack is running: it lands auth with it"
+ */
 export function formatLandingReason(branchName: string, landing: LandingDescendant): string {
-  return `A ${formatPushMode(landing.robot.pushMode)} of ${landing.branch} is running: it lands ${branchName} with it`
+  return `A ${formatPushMode(landing.robot.pushMode)} of ${formatLandingSubject(landing)} is running: it lands ${branchName} with it`
 }
 
 /**

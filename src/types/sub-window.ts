@@ -115,6 +115,8 @@ export interface BranchReviewWindowData {
   chain: string[]
   /** The reviewer groups the code-owner check asks for, when it ran */
   groups: BranchReviewGroup[]
+  /** The whole stack of the root `chain` names alone: its stack branch (`openWholeStackReviewWindow`) */
+  wholeStack?: boolean
   /** Where the review starts: the part of the stack, the files, the commit, the file (the code-owner block of the Safe Push form) */
   focus: Omit<BranchReviewFocus, "groups">
   /** A new value on every open: the same branch opened again resets the window */

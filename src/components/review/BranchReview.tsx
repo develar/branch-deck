@@ -29,7 +29,15 @@ export function BranchReviewBar({ model }: { model: BranchReviewModel }) {
   if (loaded === null) {
     return null
   }
-  return <BranchReviewStackBar baselineBranch={model.source.baselineBranch} segments={loaded.segments} range={loaded.range} onRangeChange={model.setRange} />
+  return (
+    <BranchReviewStackBar
+      baselineBranch={model.source.baselineBranch}
+      segments={loaded.segments}
+      range={loaded.range}
+      onRangeChange={model.setRange}
+      wholeStack={model.source.wholeStack === true}
+    />
+  )
 }
 
 /**

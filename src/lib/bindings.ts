@@ -33,6 +33,12 @@ export const commands = {
 	 */
 	getNewPullRequest: (params: GetNewPullRequestParams) => typedError<NewPullRequest, CommandError>(__TAURI_INVOKE("get_new_pull_request", { params })),
 	/**
+	 *  The text the "Create pull request" dialog of the whole stack starts with (`read_new_stack_pull_request`): the
+	 *  descriptions of the stack branch and its members, else the subjects of their commits; and the user of the token,
+	 *  who is the assignee
+	 */
+	getNewStackPullRequest: (params: GetNewStackPullRequestParams) => typedError<NewPullRequest, CommandError>(__TAURI_INVOKE("get_new_stack_pull_request", { params })),
+	/**
 	 *  Opens the pull request of a pushed virtual branch, assigned to the user and with the reviewers asked; one that
 	 *  already exists is found instead
 	 */
@@ -1047,6 +1053,11 @@ export type GetBranchReviewParams = {
 	 *  name for a branch outside a stack
 	 */
 	chain: string[],
+	/**
+	 *  The whole stack of the root `chain` names alone: its stack branch `{prefix}/stack/<root>` (spec/branch/whole-stack.spec.md),
+	 *  one part named by the root
+	 */
+	wholeStack?: boolean,
 };
 
 export type GetBranchReviewReadinessParams = {
@@ -1109,6 +1120,17 @@ export type GetNewPullRequestParams = {
 	head: string,
 	/**  The branch it merges into, as the remote names it: `master`, or the parent's `user/virtual/auth` */
 	base: string,
+};
+
+export type GetNewStackPullRequestParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	/**  The root of the stack, which names its stack branch `{prefix}/stack/<root>` */
+	root: string,
+	/**  The branches of the stack, the root first, each after its parent (`StackBranchUpdate::members`) */
+	members: StackMemberSubjects[],
+	/**  The branch it merges into, as the remote names it: `master` */
+	target: string,
 };
 
 export type GetPatronusRobotsParams = {
@@ -2586,6 +2608,15 @@ export type StackMemberBlock = {
 	reason: BlockReason,
 };
 
+/**  A branch of the stack, as the app's form of the stack's pull request sends it: what its row shows */
+export type StackMemberSubjects = {
+	name: string,
+	/**  The branch it is built on; null for the root */
+	parent: string | null,
+	/**  The subjects of its commits without their prefix, oldest first */
+	subjects: string[],
+};
+
 /**  Why a branch of a stack can't be placed; it never fails the other branches */
 export type StackProblem = 
 /**  Commits declare different parents, in first-declared order */
@@ -2614,6 +2645,11 @@ export type StackPushBranch = {
 	expectedRemote: string | null,
 	/**  Push Up to Here: the commit to push instead of the tip (`PushBranchParams::tip`) */
 	tip?: string | null,
+	/**
+	 *  The stack branch of the whole stack whose root `branch_name` is (`{prefix}/stack/<root>`), not its virtual branch:
+	 *  the caller pushes it only while the sync built it (`StackBranchState::Built`); no parent, no tip
+	 */
+	wholeStack?: boolean,
 };
 
 /**  A use of a name that a commit of an ancestor adds, by a commit of the branch */

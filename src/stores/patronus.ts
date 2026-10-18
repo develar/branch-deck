@@ -12,10 +12,13 @@ import {
   findBranchRobot,
   findLandingAncestor,
   findLandingDescendants,
+  findLandingMember,
   findMergedRobots,
   findPushHold,
+  findStackRobot,
   formatMergedRobotTitle,
   formatPushMode,
+  isHoldingRobot,
   isPushingRobot,
   isRobotActive,
   openRobot,
@@ -28,7 +31,7 @@ import { stackAncestors } from "@/lib/stack"
 import { lastFetchTime } from "@/lib/update-state"
 import { recordRobot } from "@/stores/activity"
 import type { BranchSyncState } from "@/stores/branch-sync"
-import { branchSyncStore, useBranchRemoteTip, useBranchSync, useBranchTip } from "@/stores/branch-sync"
+import { branchSyncStore, getStackBranch, useBranchRemoteTip, useBranchSync, useBranchTip, useStackBranch } from "@/stores/branch-sync"
 import { refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
@@ -140,6 +143,56 @@ export function useBranchRobot(branchName: string): PatronusRobot | undefined {
 }
 
 /**
+ * The robot of the whole stack of `root` (`findStackRobot`, on its stack branch `{prefix}/stack/<root>`); re-renders
+ * only when it changes
+ */
+export function useStackRobot(root: string): PatronusRobot | undefined {
+  const key = useRepositoryKey()
+  const stack = useStackBranch(root)
+  const localTip = stack?.tip
+  const remoteTip = stack?.remoteStatus?.remoteTip ?? null
+  return useStore(patronusStore, state => findStackRobot(state.repositories[key]?.robots, root, localTip, remoteTip))
+}
+
+/** Non-hook variant of `useStackRobot`, for menus built on open */
+export function getStackRobot(root: string): PatronusRobot | undefined {
+  const key = currentKey()
+  return key === null ? undefined : stackRobotIn(patronusStore.getState().repositories[key]?.robots, root)
+}
+
+function stackRobotIn(robots: Readonly<Record<string, PatronusRobot>> | undefined, root: string): PatronusRobot | undefined {
+  const stack = getStackBranch(root)
+  return findStackRobot(robots, root, stack?.tip, stack?.remoteStatus?.remoteTip ?? null)
+}
+
+/**
+ * The first branch of the stack of `root` whose own robot lands a part of it (`findLandingMember`): the robot of the
+ * whole stack waits for it; null while none runs. For menus built on open.
+ */
+export function getStackLandingMember(root: string): LandingAncestor | null {
+  const key = currentKey()
+  const robots = key === null ? undefined : patronusStore.getState().repositories[key]?.robots
+  const members = getStackBranch(root)?.members ?? []
+  if (robots === undefined || members.length === 0) {
+    return null
+  }
+  const branches = branchSyncStore.getState().branches
+  return findLandingMember(members, name => {
+    const branch = branches[name]
+    return findBranchRobot(robots, name, branch?.commits[0]?.hash, branch?.remoteStatus?.remoteTip ?? null)
+  })
+}
+
+/**
+ * The hold of the stack branch of `root`: its own robot runs and pushes into the target, so a push of the stack branch
+ * makes it fail at the end; its restart, which cancels it first, is the way through. Null while none holds it.
+ */
+export function getStackPushHold(root: string): PushHold | null {
+  const robot = getStackRobot(root)
+  return robot !== undefined && isHoldingRobot(robot) && robot.stackRoot === root ? { kind: "own", branch: root, robot, wholeStack: true } : null
+}
+
+/**
  * The nearest ancestor of a stacked branch whose robot lands it (`findLandingAncestor`): a Safe Push of the branch waits
  * for it; null for a root and while none runs
  */
@@ -207,12 +260,20 @@ export function useLandingSpan(branchName: string): LandingDescendant | null {
 }
 
 /**
- * Every landing span of the selected repository, ancestor → the branch whose running robot lands it, for the stack
- * graph (`landingSegments`); renders again only when a span changes, not on every sync event
+ * Every landing span of a branch of the selected repository, ancestor → the branch whose running robot lands it, for
+ * the stack graph (`landingSegments`); renders again only when a span changes, not on every sync event. The robot of
+ * the whole stack lands no path of the graph: every branch of the stack says it in its row.
  */
 export function useLandingSpans(): ReadonlyMap<string, string> {
   const robots = useRepositoryRobots()
-  const key = useBranchSync(state => (robots === undefined ? "" : [...landingSpansIn(robots, state)].map(([name, span]) => `${name}\t${span.branch}`).join("\n")))
+  const key = useBranchSync(state =>
+    robots === undefined
+      ? ""
+      : [...landingSpansIn(robots, state)]
+          .filter(([, span]) => span.wholeStack !== true)
+          .map(([name, span]) => `${name}\t${span.branch}`)
+          .join("\n"),
+  )
   return useMemo(() => new Map(key === "" ? [] : key.split("\n").map(line => line.split("\t") as [string, string])), [key])
 }
 
@@ -227,16 +288,21 @@ interface LandingSpans {
   readonly robots: Readonly<Record<string, PatronusRobot>>
   readonly branches: BranchSyncState["branches"]
   readonly order: BranchSyncState["branchOrder"]
+  readonly stackBranches: BranchSyncState["stackBranches"]
   readonly spans: ReadonlyMap<string, LandingDescendant>
 }
 
 /** The last landing spans: every row asks for its own, they are computed once per change of the robots or the branches */
 let lastLandingSpans: LandingSpans | null = null
 
+/**
+ * The landing spans: the ancestors a running robot of a branch built on them lands (`findLandingDescendants`), then
+ * every branch of a stack whose robot of the whole stack runs (on its stack branch, `stackRoot`): it lands all of them
+ */
 function landingSpansIn(robots: Readonly<Record<string, PatronusRobot>>, state: BranchSyncState): ReadonlyMap<string, LandingDescendant> {
-  const { branches, branchOrder: order } = state
+  const { branches, branchOrder: order, stackBranches } = state
   const last = lastLandingSpans
-  if (last !== null && last.robots === robots && last.branches === branches && last.order === order) {
+  if (last !== null && last.robots === robots && last.branches === branches && last.order === order && last.stackBranches === stackBranches) {
     return last.spans
   }
   const spans = findLandingDescendants(
@@ -247,14 +313,25 @@ function landingSpansIn(robots: Readonly<Record<string, PatronusRobot>>, state: 
       return findBranchRobot(robots, name, branch?.commits[0]?.hash, branch?.remoteStatus?.remoteTip ?? null)
     },
   )
+  for (const stack of Object.values(stackBranches)) {
+    const robot = findStackRobot(robots, stack.root, stack.tip, stack.remoteStatus?.remoteTip ?? null)
+    if (robot === undefined || !isRobotActive(robot) || robot.pushMode === "dryRun") {
+      continue
+    }
+    for (const member of stack.members) {
+      if (!spans.has(member)) {
+        spans.set(member, { branch: stack.root, robot, wholeStack: true })
+      }
+    }
+  }
   // the same object while the same robot lands the branch, so its row doesn't render again on every sync event
   for (const [name, span] of spans) {
     const previous = last?.spans.get(name)
-    if (previous !== undefined && previous.branch === span.branch && previous.robot === span.robot) {
+    if (previous !== undefined && previous.branch === span.branch && previous.robot === span.robot && previous.wholeStack === span.wholeStack) {
       spans.set(name, previous)
     }
   }
-  lastLandingSpans = { robots, branches, order, spans }
+  lastLandingSpans = { robots, branches, order, stackBranches, spans }
   return spans
 }
 
@@ -308,7 +385,9 @@ function pushHoldsIn(robots: Readonly<Record<string, PatronusRobot>>, state: Bra
     }
     // the same object while the same robot holds the branch, so its row doesn't render again on every sync event
     const previous = last?.holds.get(name)
-    holds.set(name, previous !== undefined && previous.kind === hold.kind && previous.branch === hold.branch && previous.robot === hold.robot ? previous : hold)
+    const same =
+      previous !== undefined && previous.kind === hold.kind && previous.branch === hold.branch && previous.robot === hold.robot && previous.wholeStack === hold.wholeStack
+    holds.set(name, same ? previous : hold)
   }
   // the same map while every hold is the same, for `usePushHolds`
   const same = last !== null && last.holds.size === holds.size && [...holds].every(([name, hold]) => last.holds.get(name) === hold)
@@ -532,11 +611,11 @@ function storeRobots(key: string, incoming: readonly PatronusRobot[], replace: b
 const announcedMerges = new Set<string>()
 
 /**
- * A robot merged a branch: a toast with Fetch, so the header learns that an update brings the branch in, and "Open in
- * Patronus". While no window is focused, an OS notification says it at once (unless Settings turned it off), and the
- * toast waits for the focus.
- * A stacked branch landed its ancestors too: their open pull requests are closed (`closeLandedPullRequests`), and the
- * toast says so.
+ * A robot merged a branch or the whole stack ("Whole air stack merged into master"): a toast with Fetch, so the header
+ * learns that an update brings the branch in, and "Open in Patronus". While no window is focused, an OS notification
+ * says it at once (unless Settings turned it off), and the toast waits for the focus.
+ * A stacked branch landed its ancestors too, the whole stack every branch of it: their open pull requests are closed
+ * by content (`closeLandedPullRequests`), and the toast says so.
  */
 function announceMerge(key: string, robot: PatronusRobot): void {
   if (announcedMerges.has(robot.id)) {
@@ -735,8 +814,13 @@ async function loadReviewProblems(key: string): Promise<void> {
   if (entry === undefined) {
     return
   }
-  for (const branch of Object.values(branchSyncStore.getState().branches)) {
-    const robot = findBranchRobot(entry.robots, branch.name, branch.commits[0]?.hash, branch.remoteStatus?.remoteTip ?? null)
+  const { branches, stackBranches } = branchSyncStore.getState()
+  const robots = [
+    ...Object.values(branches).map(branch => findBranchRobot(entry.robots, branch.name, branch.commits[0]?.hash, branch.remoteStatus?.remoteTip ?? null)),
+    // the robot of the whole stack fails for missing approvals in the pull request of the stack
+    ...Object.values(stackBranches).map(stack => findStackRobot(entry.robots, stack.root, stack.tip, stack.remoteStatus?.remoteTip ?? null)),
+  ]
+  for (const robot of robots) {
     if (robot === undefined || robot.status !== "failure" || robot.id in entry.needsReview || problemsInFlight.has(robot.id)) {
       continue
     }
@@ -755,7 +839,10 @@ async function loadReviewProblems(key: string): Promise<void> {
   }
 }
 
-/** The running robots of the branches of the selected repository and the watched ones, with the status the app knows */
+/**
+ * The running robots of the branches of the selected repository, of the whole stacks and the watched ones, with the
+ * status the app knows
+ */
 function activeBranchRobots(key: string): PatronusRobot[] {
   const repository = patronusStore.getState().repositories[key]
   const robots = repository?.robots
@@ -766,8 +853,15 @@ function activeBranchRobots(key: string): PatronusRobot[] {
       active.set(id, robot)
     }
   }
-  for (const branch of Object.values(branchSyncStore.getState().branches)) {
+  const { branches, stackBranches } = branchSyncStore.getState()
+  for (const branch of Object.values(branches)) {
     const robot = findBranchRobot(robots, branch.name, branch.commits[0]?.hash, branch.remoteStatus?.remoteTip ?? null)
+    if (robot !== undefined && isRobotActive(robot)) {
+      active.set(robot.id, robot)
+    }
+  }
+  for (const stack of Object.values(stackBranches)) {
+    const robot = findStackRobot(robots, stack.root, stack.tip, stack.remoteStatus?.remoteTip ?? null)
     if (robot !== undefined && isRobotActive(robot)) {
       active.set(robot.id, robot)
     }

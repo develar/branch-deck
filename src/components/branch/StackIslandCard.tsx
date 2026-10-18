@@ -1,26 +1,26 @@
 import { lazy, Suspense } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
-import { FileDiffIcon, FoldVerticalIcon, ShieldCheckIcon, UnfoldVerticalIcon } from "lucide-react"
+import { FoldVerticalIcon, ShieldCheckIcon, UnfoldVerticalIcon } from "lucide-react"
 import { useShallow } from "zustand/react/shallow"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { CompactPushLabel, PushProgressDescription } from "@/components/branch/BranchPushButton"
 import { NextStepSlot } from "@/components/branch/NextStepSlot"
+import { OrphanedStackPullRequestLine } from "@/components/branch/OrphanedStackPullRequest"
 import { RobotRing } from "@/components/branch/RobotProgress"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
-import { getPushWithChildrenItem, getSafePushBlocker } from "@/hooks/useBranchContextActions"
+import { getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { useStackStateSources } from "@/hooks/useStackStateSources"
+import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { formatBranchCount, formatBranchesAndCommits } from "@/lib/branch"
-import { branchReviewBlocker } from "@/lib/branch-review"
-import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { pushWithChildren } from "@/lib/git/stack-push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { formatPushHoldReason, formatPushMode } from "@/lib/patronus"
@@ -34,10 +34,10 @@ import { firstBranchOfEachState, getStackStateChips, summarizeStackState } from 
 import { joinNames } from "@/lib/text"
 import { transferLabel } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
-import { getBranch, stackDescendantsIn, stackMainLineIn, useBranch, useBranchPushProgress, useBranchSync, useStackPush } from "@/stores/branch-sync"
+import { getBranch, stackDescendantsIn, stackMainLineIn, useBranch, useBranchPushProgress, useBranchSync, useStackBranch, useStackPush } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { openInline, useStackHeaderInline } from "@/stores/inline-row-action"
-import { isPatronusAvailable, useBranchRobot, usePushHold } from "@/stores/patronus"
+import { isPatronusAvailable, useBranchRobot, usePushHold, useStackRobot } from "@/stores/patronus"
 import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
 import { getReadinessTarget } from "@/stores/review-readiness"
 import { toggleStackCollapsed } from "@/stores/stack-collapse"
@@ -158,7 +158,7 @@ export function StackIslandCard({ island, filtered, landing, children }: StackIs
             <RowActions>
               <StackPushSlot root={root} summary={summary} />
               <StackSafePushSlot summary={summary} />
-              <MoreActionsMenu name={`the ${root} stack`} menu={<DropdownMenuItems groups={getStackIslandMenuItems(root, summary.mainLine, island.collapsed)} />} />
+              <MoreActionsMenu name={`the ${root} stack`} menu={<StackIslandMenu root={root} mainLine={summary.mainLine} collapsed={island.collapsed} />} />
             </RowActions>
           </div>
         </>
@@ -193,6 +193,8 @@ function IslandHeader({ root, summary, landing }: { root: string; summary: Islan
         {[...landed].map(([branch, count]) => (
           <LandingLine key={branch} branch={branch} count={count} />
         ))}
+        <WholeStackLandingLine root={root} />
+        <OrphanedStackPullRequestLine root={root} />
       </div>
     </div>
   )
@@ -233,6 +235,29 @@ function RunningLanding({ branch, count, robot }: { branch: string; count: numbe
   return (
     <span data-testid="stack-island-landing">
       {`${formatPushMode(robot.pushMode)} of ${branch} lands ${formatBranchCount(count)}`}
+      {progress.eta !== null && ` · ${progress.eta}`}
+    </span>
+  )
+}
+
+/**
+ * "Safe Push of the whole stack lands 7 branches · ~23m left": the robot of the whole stack runs (on its stack branch),
+ * and how long it takes; the "1 running" chip beside the name has its ring
+ */
+function WholeStackLandingLine({ root }: { root: string }) {
+  const robot = useStackRobot(root)
+  const members = useStackBranch(root)?.members.length ?? 0
+  if (robot === undefined || members === 0 || robot.status !== "running") {
+    return null
+  }
+  return <RunningWholeStack count={members} robot={robot} />
+}
+
+function RunningWholeStack({ count, robot }: { count: number; robot: PatronusRobot }) {
+  const progress = formatRobotProgress(useRobotTiming(robot, true))
+  return (
+    <span data-testid="stack-island-landing">
+      {`${formatPushMode(robot.pushMode)} of the whole stack lands ${formatBranchCount(count)}`}
       {progress.eta !== null && ` · ${progress.eta}`}
     </span>
   )
@@ -420,10 +445,14 @@ function StackHeaderForm({ leaf }: { leaf: string | undefined }) {
   )
 }
 
+/** The items of the "⋯" of the header, built when it opens: Patronus, GitHub and the robots answer after the first render */
+function StackIslandMenu({ root, mainLine, collapsed }: { root: string; mainLine: readonly string[]; collapsed: boolean }) {
+  return <DropdownMenuItems groups={getStackIslandMenuItems(root, mainLine, collapsed)} />
+}
+
 /**
- * The "⋯" of the header, the actions of the whole stack: the Safe Push of the main line, Push with Children of the root
- * (`getPushWithChildrenItem`, disabled with the reason while a Safe Push holds the root), the review of the whole main
- * line, and the collapse
+ * The "⋯" of the header: the Safe Push of the main line, then the actions of the whole stack (`getWholeStackMenuItems`:
+ * its pull request, Push with Children of the root, Review Whole Stack, its robot), and the collapse
  */
 function getStackIslandMenuItems(root: string, mainLine: readonly string[], collapsed: boolean): MenuItemGroups {
   const leaf = mainLine.at(-1) ?? root
@@ -440,22 +469,8 @@ function getStackIslandMenuItems(root: string, mainLine: readonly string[], coll
       onSelect: () => openStackSafePush(leaf),
     })
   }
-  const push = getPushWithChildrenItem(root)
-  if (push !== null) {
-    remote.push(push)
-  }
-  // as the branch menu's: a leaf without commits, failed or blocked has nothing to review
-  const reviewBlocker = branch === undefined ? "The branch is not in the table" : branchReviewBlocker(branch)
-  const review: MenuItem = {
-    id: "review-changes",
-    label: "Review Changes",
-    icon: FileDiffIcon,
-    disabled: reviewBlocker !== null,
-    description: reviewBlocker ?? `The diff of ${formatBranchCount(mainLine.length)} of the main line, the files of each code owner`,
-    onSelect: () => void openBranchReviewWindow(leaf, { range: "all" }),
-  }
   const collapse: MenuItem = collapsed
     ? { id: "expand-stack", label: "Expand Stack", icon: UnfoldVerticalIcon, onSelect: () => void toggleStackCollapsed(root, false) }
     : { id: "collapse-stack", label: "Collapse Stack", icon: FoldVerticalIcon, onSelect: () => void toggleStackCollapsed(root, true) }
-  return [remote, [review, collapse]].filter(group => group.length > 0)
+  return [remote, getWholeStackMenuItems(root, { withPush: true }), [collapse]].filter(group => group.length > 0)
 }

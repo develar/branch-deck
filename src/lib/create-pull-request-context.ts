@@ -1,21 +1,27 @@
 import type { ReviewRequirementState } from "@/hooks/usePatronusReviewRequirement"
-import type { CreatedPullRequest, PullRequest, PullRequestAvailability } from "@/lib/bindings"
+import type { CreatedPullRequest, PullRequest, PullRequestAvailability, StackMemberSubjects } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import { formatBranchesAndCommits } from "@/lib/branch"
 import type { PullRequestIncludes } from "@/lib/create-pull-request"
-import { formatCreatedToast } from "@/lib/create-pull-request"
+import { formatCreatedToast, formatPullRequestIncludes } from "@/lib/create-pull-request"
+import { getErrorDetails } from "@/lib/errors"
 import { formatNewPullRequestBlocker, getBranchesGitHubRepository, getPullRequestBase, openNewPullRequest } from "@/lib/git/new-pull-request"
 import { pushForAction } from "@/lib/git/push"
+import { pushWholeStack } from "@/lib/git/stack-push"
 import type { MenuItem } from "@/lib/menu"
 import type { CompareFields, GitHubRepository } from "@/lib/pull-request"
 import { getCompareUrl } from "@/lib/pull-request"
 import { needsPush, stackAncestors, stackPushOrder } from "@/lib/stack"
+import { joinNames } from "@/lib/text"
 import type { ToastMessage } from "@/lib/toast-message"
+import { formatWholeStackStart, getStackBranchBlocker } from "@/lib/whole-stack"
 import { recordPullRequestCreated } from "@/stores/activity"
-import type { Branch } from "@/stores/branch-sync"
+import type { Branch, StackBranch } from "@/stores/branch-sync"
 import { getBranch } from "@/stores/branch-sync"
+import { forgetLandedStackRoot } from "@/stores/landed-stacks"
 import { getPushHold } from "@/stores/patronus"
 import { createPullRequest } from "@/stores/pull-requests"
-import { getFullBranchName } from "@/stores/repository"
+import { getEffectiveBranchPrefix, getFullBranchName, getFullStackBranchName } from "@/stores/repository"
 
 /**
  * What the "Create pull request" dialog of a branch shows, from the main window, which owns the branches: the dialog
@@ -24,7 +30,15 @@ import { getFullBranchName } from "@/stores/repository"
  */
 export interface CreatePullRequestContext {
   readonly repositoryPath: string
+  /** The branch, or the root of the whole stack (`wholeStack`) */
   readonly branchName: string
+  /** How the dialog names what the pull request is of: the branch, or "Whole air stack" */
+  readonly label: string
+  /**
+   * The pull request of the whole stack: its stack branch `{prefix}/stack/<root>` holds the commits of every branch of
+   * the stack (`members`, as their rows show them); null for a branch
+   */
+  readonly wholeStack: { readonly branchPrefix: string; readonly members: readonly StackMemberSubjects[] } | null
   /** The remote branch, as GitHub takes it */
   readonly head: string
   /** The base: the baseline as the remote names it (`master`), for every branch, stacked or not */
@@ -36,6 +50,8 @@ export interface CreatePullRequestContext {
    * the commits of them all; null for a branch built on the baseline
    */
   readonly includes: PullRequestIncludes | null
+  /** What the pull request holds besides the branch's own commits, under the title: `formatPullRequestIncludes` */
+  readonly includesText: string | null
   /** Why neither GitHub's form nor the creation can open the pull request now (`formatNewPullRequestBlocker`) */
   readonly newPullRequestBlocker: string | null
   /** The live pull request of the branch (open or merged), one that appeared meanwhile */
@@ -66,13 +82,17 @@ export function toCreatePullRequestContext(branch: Branch, facts: CreatePullRequ
   const ancestors = stackAncestors(branch.name, getBranch)
   const existing = facts.pullRequest !== undefined && facts.pullRequest.state !== "closed" ? facts.pullRequest : null
   const withoutReview = facts.withoutReview
+  const includes = ancestors.length === 0 ? null : { ancestors: ancestors.map(it => it.name), commitCount: ancestors.reduce((sum, it) => sum + it.commitCount, branch.commitCount) }
   return {
     repositoryPath: facts.repositoryPath,
     branchName: branch.name,
+    label: branch.name,
+    wholeStack: null,
     head,
     base: getPullRequestBase(),
     pushNeeded,
-    includes: ancestors.length === 0 ? null : { ancestors: ancestors.map(it => it.name), commitCount: ancestors.reduce((sum, it) => sum + it.commitCount, branch.commitCount) },
+    includes,
+    includesText: includes === null ? null : formatPullRequestIncludes(branch.name, includes),
     newPullRequestBlocker: formatNewPullRequestBlocker(branch.name, existing),
     existing,
     availability: facts.availability,
@@ -80,6 +100,59 @@ export function toCreatePullRequestContext(branch: Branch, facts: CreatePullRequ
     patronusAvailable: facts.patronusAvailable,
     review: facts.review,
     withoutReview: withoutReview === null ? null : { label: withoutReview.label, disabled: withoutReview.disabled === true, description: withoutReview.description ?? "" },
+  }
+}
+
+/** The facts of the main window the context of the whole stack's pull request is built of */
+export interface StackPullRequestFacts {
+  readonly repositoryPath: string
+  readonly pullRequest: PullRequest | undefined
+  readonly availability: PullRequestAvailability | null
+  readonly branchOf: (name: string) => Branch | undefined
+}
+
+/**
+ * The context of the "Create pull request" dialog of the whole stack of `root`: the pull request of its stack branch
+ * into the baseline, whose approvals the one robot of the whole stack counts. It holds every commit of the stack
+ * ("Holds the commits of every branch of the stack: air, auth and 5 more: 7 branches · 14 commits"); Create and
+ * "Continue on GitHub" push the stack branch first, and only a stack branch the sync built (`getStackBranchBlocker`).
+ * The code owners of the whole stack come with its Safe Push: the dialog suggests none.
+ */
+export function toStackPullRequestContext(root: string, stack: StackBranch | undefined, facts: StackPullRequestFacts): CreatePullRequestContext {
+  const members = (stack?.members ?? []).flatMap(name => {
+    const branch = facts.branchOf(name)
+    return branch === undefined ? [] : [{ branch, parent: name === root ? null : (branch.stack?.effectiveBase ?? null) }]
+  })
+  const existing = facts.pullRequest !== undefined && facts.pullRequest.state !== "closed" ? facts.pullRequest : null
+  const label = formatWholeStackStart(root)
+  const remote = stack?.remoteStatus ?? null
+  const commitCount = stack?.commitCount ?? 0
+  const names = members.map(it => it.branch.name)
+  return {
+    repositoryPath: facts.repositoryPath,
+    branchName: root,
+    label,
+    wholeStack: {
+      branchPrefix: getEffectiveBranchPrefix(),
+      members: members.map(({ branch, parent }) => ({
+        name: branch.name,
+        parent,
+        // oldest first, as the stack branch has them
+        subjects: [...branch.commits].reverse().map(commit => commit.strippedSubject),
+      })),
+    },
+    head: getFullStackBranchName(root),
+    base: getPullRequestBase(),
+    pushNeeded: remote === null || !remote.exists || remote.remoteTip !== stack?.tip,
+    includes: null,
+    includesText: names.length === 0 ? null : `Holds the commits of every branch of the stack: ${joinNames(names)}: ${formatBranchesAndCommits(names.length, commitCount)}`,
+    newPullRequestBlocker: getStackBranchBlocker(root, stack) ?? (existing === null ? null : formatNewPullRequestBlocker(label, existing)),
+    existing,
+    availability: facts.availability,
+    repository: getBranchesGitHubRepository(),
+    patronusAvailable: false,
+    review: { status: "loading" },
+    withoutReview: null,
   }
 }
 
@@ -93,9 +166,24 @@ export interface CreatePullRequestInput {
   readonly viewerLogin: string | null
 }
 
-/** The push the creation starts with (`pushForAction`). Throws why nothing was pushed. */
+/**
+ * The push the creation starts with (`pushForAction`; the stack branch of the whole stack, `pushWholeStack`). Throws why
+ * nothing was pushed.
+ */
 async function pushForPullRequest(context: CreatePullRequestContext): Promise<void> {
   if (!context.pushNeeded) {
+    return
+  }
+  if (context.wholeStack !== null) {
+    let reason: string | null = null
+    const pushed = await pushWholeStack(context.branchName, {
+      report: (_title, error) => {
+        reason ??= getErrorDetails(error)
+      },
+    })
+    if (!pushed) {
+      throw new Error(reason ?? `Cannot push the stack branch of ${context.branchName}`)
+    }
     return
   }
   const pushed = await pushForAction(context.branchName)
@@ -117,6 +205,7 @@ export async function submitPullRequest(
   await pushForPullRequest(context)
   const request = {
     branchName: context.branchName,
+    wholeStack: context.wholeStack !== null,
     head: context.head,
     base: context.base,
     title: input.title,
@@ -126,7 +215,11 @@ export async function submitPullRequest(
     waitForMirror: context.pushNeeded,
   }
   const result: CreatedPullRequest = await createPullRequest(request)
-  const toast = formatCreatedToast(context.branchName, context.base, input.viewerLogin, result)
+  if (context.wholeStack !== null) {
+    // a new pull request of the stack matches the stack as it is
+    forgetLandedStackRoot(context.branchName)
+  }
+  const toast = formatCreatedToast(context.label, context.base, input.viewerLogin, result)
   if (result.created) {
     recordPullRequestCreated(toast.title, toast.description ?? "", result.pullRequest.url, toast.type === "warning")
   }
