@@ -136,7 +136,11 @@ test.describe("Conflict Viewer Feature", () => {
       await expect(missingFile).toContainText(MISSING_COMMIT_CHANGE)
       expect(reads).toHaveLength(1)
       const conflict = JSON.parse(reads[0]!) as { commit: string; parent: string; target: string }
-      expect(conflict).toMatchObject({ commit: expect.stringMatching(/^[0-9a-f]{40}$/), parent: expect.stringMatching(/^[0-9a-f]{40}$/), target: expect.stringMatching(/^[0-9a-f]{40}$/) })
+      expect(conflict).toMatchObject({
+        commit: expect.stringMatching(/^[0-9a-f]{40}$/),
+        parent: expect.stringMatching(/^[0-9a-f]{40}$/),
+        target: expect.stringMatching(/^[0-9a-f]{40}$/),
+      })
     })
 
     test("should say why the contents of a conflict did not load", async ({ page }) => {
