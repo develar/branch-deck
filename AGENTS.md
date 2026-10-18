@@ -411,8 +411,8 @@ headers of `crates/git-ops/src/lib.rs` and `crates/sync-core/src/lib.rs` map the
   `tauri_command_bridge.rs`).
 - **Same commit**: the spec, the flow's section in [Git Operations](docs/design/git-operations.md), and a test of the
   operation in `process_budget_test.rs` (`crates/sync-core/src/` for a core, `crates/bd-cli/src/` for a `bd` command)
-  that pins its processes by subcommand; the scans of the sources (`crates/git-executor/src/worktree_safety_test.rs`)
-  stay green.
+  that pins its processes by subcommand; the scan tests stay green (`worktree_safety_test.rs`,
+  `git_usage_scan_test.rs`, "Scan tests" above), an exemption added only with its reason and its number of hits.
 
 | Helper | Module | For |
 |---|---|---|

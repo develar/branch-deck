@@ -2003,7 +2003,8 @@ Left out of the audit of the git layer on purpose, the gain smaller than the noi
   `crates/sync-core/src/resolve_copies.rs`, `crates/sync-core/src/regroup.rs`, `crates/sync-core/src/repository_lock.rs`,
   `crates/object-cache/src/cache.rs`, `crates/git-ops/src/commit_files.rs`; the module maps in
   `crates/git-ops/src/lib.rs` and `crates/sync-core/src/lib.rs`
-- Tests: `crates/git-executor/src/worktree_safety_test.rs` (the scan of the git argument lists),
+- Tests: `crates/git-executor/src/worktree_safety_test.rs` and `git_usage_scan_test.rs` (the scans of the git argument
+  lists),
   `crates/sync-core/src/process_budget_test.rs` and `crates/bd-cli/src/process_budget_test.rs` (the process budgets)
 - Specs: [Commit Row](../../spec/commit/commit-row.spec.md), [Commit Files](../../spec/commit/commit-files.spec.md),
   [Move Commits](../../spec/branch/move-commits.spec.md),
