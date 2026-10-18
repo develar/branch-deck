@@ -15,6 +15,7 @@ import {
 } from "../helpers/pull-request-helpers"
 import { expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, hoverStatusChip, openBranchPreview, landingRow, openLandingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
+import { expectPopoverAtSlot } from "../helpers/safe-push-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { routeCommand, routeCommandError } from "../helpers/wait-helpers"
@@ -358,6 +359,51 @@ test.describe("Pull request chip", () => {
     await switchBranchPreview(page, preview, "feature-auth")
     await expect(preview.getByTestId("branch-preview-pull-request")).toHaveCount(0)
     await expect(preview.getByRole("button", { name: "Open Pull Request" })).toHaveCount(0)
+  })
+})
+
+test.describe("Request Review without Patronus", () => {
+  test("should ask for a review from the branch menu, the row's ⋯ and the preview, the popover at the row", async ({ page }) => {
+    const pushes = await routePush(page, {})
+    await routeCommand(page, "search_github_users", params => ((params.query as string).startsWith("ca") ? [{ login: "carol", name: "Carol Danvers" }] : []))
+    const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["carol"], refused: [] }))
+    const row = findBranchRow(page, "ABC-123")
+    const popover = page.getByTestId("request-review-popover")
+    // no next step where Patronus doesn't answer; the anchor of the popover takes no room: the push of the row stands
+    // where it stands in a row without a pull request
+    await expect(row.getByTestId("request-review-anchor")).toHaveCount(1)
+    await expect(page.getByTestId("next-step-slot")).toHaveCount(0)
+    const pushX = async (branchName: string) => (await getPushButton(findBranchRow(page, branchName)).boundingBox())!.x
+    expect(await pushX("ABC-123")).toBe(await pushX("feature-auth"))
+
+    // the right-click: the popover at the row; no code owner without Patronus, the search finds whom to ask
+    await row.click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Request Review…" }).click()
+    await expect(popover).toContainText("Request a review on #761")
+    await expect(popover.getByTestId("request-review-candidates")).toHaveCount(0)
+    await expectPopoverAtSlot(popover, row)
+    await page.keyboard.press("Escape")
+    await expect(popover).toHaveCount(0)
+
+    // the row's "⋯": the same popover, which asks GitHub, the branch pushed first so the reviewer sees its commits
+    await row.getByRole("button", { name: "More actions for ABC-123" }).click()
+    await page.getByRole("menuitem", { name: "Request Review…" }).click()
+    await expectPopoverAtSlot(popover, row)
+    await popover.getByTestId("request-review-reviewer-search").fill("ca")
+    await page.getByRole("option", { name: /carol/ }).click()
+    await popover.getByTestId("request-review-submit").click()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Carol Danvers on #761" })).toBeVisible()
+    expect(requests).toEqual([expect.objectContaining({ pullRequestNumber: 761, reviewers: ["carol"] })])
+    expect(pushes.map(push => push.branchName)).toEqual(["ABC-123"])
+    await expect(popover).toHaveCount(0)
+
+    // the preview's "⋯": the preview closes, the popover opens at the row
+    const preview = await openBranchPreview(page, "ABC-123")
+    await preview.getByRole("button", { name: "More actions for ABC-123" }).click()
+    await page.getByRole("menuitem", { name: "Request Review…" }).click()
+    await expect(preview).toHaveCount(0)
+    await expect(popover).toContainText("Request a review on #761")
+    await expectPopoverAtSlot(popover, row)
   })
 })
 

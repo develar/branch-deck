@@ -1,5 +1,5 @@
 import { lazy, Suspense, useRef } from "react"
-import type { RefObject } from "react"
+import type { ReactNode, RefObject } from "react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
@@ -35,7 +35,8 @@ const SafePushPopover = lazy(() => import("@/components/branch/SafePushPopover")
  *   "Awaiting 2 Reviews"), "Changes Requested" in `destructive`, "Draft";
  * - nothing while the Status cell says why: a sync, a failed sync, a blocked branch, a robot that runs or merged, a
  *   Safe Push that lands the branch (`PushHold`), a branch that landed.
- * Nothing in a repository that is not on Space.
+ * Nothing in a repository that is not on Space, but the anchors of Request Review…, which asks GitHub
+ * (`RequestReviewAnchors`).
  */
 export interface NextStepSlotProps {
   branch: Branch
@@ -55,7 +56,8 @@ export function NextStepSlot({ branch, stackHeader, wholeStackInHeader = false }
   const wholeStackAsk = useSafePushAsk(stackReadinessKey(branch.name), "row")
   const slotRef = useRef<HTMLDivElement>(null)
   if (step === null || step.kind === "hidden") {
-    return null
+    // no step where Patronus doesn't answer; Request Review… of an open pull request asks GitHub, from the menus
+    return stackHeader === undefined ? <RequestReviewAnchors branch={branch} wholeStack={!wholeStackInHeader} /> : null
   }
   const item = step.item
   return (
@@ -132,6 +134,39 @@ export function RequestReviewSlot({ owner, pullRequest, step }: { owner: Pick<Br
         {step.description}
       </TooltipContent>
     </Tooltip>
+  )
+}
+
+/**
+ * The anchors of the Request Review… popovers of a row without a next step (a repository without Patronus): of its
+ * pull request and, on the root of a small stack, of the pull request of its whole stack, which the menus open
+ * (`openRequestReview`); the push and "⋯" of the row stand where they stand in every other row (`GaplessAnchors`)
+ */
+function RequestReviewAnchors({ branch, wholeStack }: { branch: Branch; wholeStack: boolean }) {
+  const own = usePullRequest(branch.name)?.state === "open"
+  const stack = useStackBranch(branch.name)
+  const stackPullRequest = useStackPullRequest(branch.name)
+  const ofStack = wholeStack && isForkingStack(stack) && stackPullRequest?.state === "open"
+  if (!own && !ofStack) {
+    return null
+  }
+  return (
+    <GaplessAnchors>
+      <RequestReview branch={branch} step={null} />
+      {ofStack && <WholeStackRequestReviewAnchor root={branch.name} />}
+    </GaplessAnchors>
+  )
+}
+
+/**
+ * Anchors of popovers among the actions of a row or a header (`RowActions`): without a width and out of the gap
+ * between the actions (`gap-2`), so the buttons stand where they stand where the anchors aren't
+ */
+export function GaplessAnchors({ children }: { children: ReactNode }) {
+  return (
+    <div className="-ml-2 flex self-stretch" data-testid="request-review-anchors">
+      {children}
+    </div>
   )
 }
 

@@ -1,5 +1,5 @@
 import { useRef } from "react"
-import { RequestReviewSlot, SafePushAskPopover, StepButton } from "@/components/branch/NextStepSlot"
+import { GaplessAnchors, RequestReviewSlot, SafePushAskPopover, StepButton } from "@/components/branch/NextStepSlot"
 import { SafePushButton } from "@/components/branch/SafePushButton"
 import { useStackNextStep } from "@/hooks/useStackNextStep"
 import { stackReadinessKey } from "@/lib/whole-stack"
@@ -33,8 +33,17 @@ export function WholeStackSlot({ root, leaf }: WholeStackSlotProps) {
   const pullRequest = useStackPullRequest(root)
   const slotRef = useRef<HTMLDivElement>(null)
   const step = next?.leaf === null ? next.step : null
-  if (step === null || step.kind === "hidden" || rootBranch === undefined) {
+  if (step === null || rootBranch === undefined) {
     return null
+  }
+  const owner = { name: key, remoteStatus: stack?.remoteStatus ?? null }
+  if (step.kind === "hidden") {
+    // no step where Patronus doesn't answer; Request Review… of its pull request asks GitHub, from the "⋯": its anchor
+    return pullRequest?.state !== "open" ? null : (
+      <GaplessAnchors>
+        <RequestReviewSlot owner={owner} pullRequest={pullRequest} step={null} />
+      </GaplessAnchors>
+    )
   }
   const item = step.item
   const requestReview = step.kind === "requestReview" && item?.disabled !== true ? item : null
@@ -46,7 +55,7 @@ export function WholeStackSlot({ root, leaf }: WholeStackSlotProps) {
         ) : requestReview !== null ? null : (
           <StepButton action={item} tone={step.tone} showKeys={false} />
         ))}
-      <RequestReviewSlot owner={{ name: key, remoteStatus: stack?.remoteStatus ?? null }} pullRequest={pullRequest} step={requestReview} />
+      <RequestReviewSlot owner={owner} pullRequest={pullRequest} step={requestReview} />
       <SafePushAskPopover ask={stackAsk ?? pieceAsk} anchor={slotRef} />
     </div>
   )

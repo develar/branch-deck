@@ -408,6 +408,61 @@ test.describe("Whole stack", () => {
     await expectPopoverAtSlot(popover, actions)
   })
 
+  test("should ask for a review of the pull request of a small stack without Patronus from Whole Stack › of the root's menu, the popover at the root's row", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // no Patronus: no next step in any row, the request asks GitHub
+    await setupRepo("stacked_branches", { pullRequests: withStackPullRequests(availablePullRequests(), { auth: stackPullRequest("auth", 12) }) })
+    await syncAndWaitForBranches()
+    await routePushBranches(page, {})
+    await routeCommand(page, "search_github_users", params => ((params.query as string).startsWith("ca") ? [{ login: "carol", name: "Carol Danvers" }] : []))
+    const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["carol"], refused: [] }))
+    const popover = page.getByTestId("request-review-popover")
+    const root = findBranchRow(page, "auth")
+    await expect(root.getByTestId("request-review-anchor")).toHaveCount(1)
+    await expect(page.getByTestId("next-step-slot")).toHaveCount(0)
+
+    await openWholeStackSubmenu(page, "auth")
+    await page.getByRole("menuitem", { name: "Request Review…" }).click()
+    await expect(popover).toContainText("Request a review on #12")
+    await expect(popover.getByTestId("request-review-candidates")).toHaveCount(0)
+    await expectPopoverAtSlot(popover, root)
+    await popover.getByTestId("request-review-reviewer-search").fill("ca")
+    await page.getByRole("option", { name: /carol/ }).click()
+    await popover.getByTestId("request-review-submit").click()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Carol Danvers on #12" })).toBeVisible()
+    expect(requests).toEqual([expect.objectContaining({ pullRequestNumber: 12, reviewers: ["carol"] })])
+    await expect(popover).toHaveCount(0)
+  })
+
+  test("should ask for a review of the pull request of the whole stack without Patronus from the island's ⋯, the popover at the header", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await setupRepo("stack_island", { pullRequests: withStackPullRequests(availablePullRequests(), { air: stackPullRequest("air", 12) }) })
+    await syncAndWaitForBranches()
+    const actions = island(page, "air").getByTestId("stack-island-actions")
+    // no step at the header without Patronus: the anchor of the popover takes no room
+    await expect(actions.getByTestId("request-review-anchor")).toHaveCount(1)
+    await expect(actions.getByTestId("next-step-slot")).toHaveCount(0)
+
+    await openIslandMenu(page, "air")
+    await expect(page.getByRole("menu", { name: "More actions for the air stack" }).getByRole("menuitem")).toHaveText([
+      "Open Pull Request #12",
+      "Request Review…",
+      "Push with Children (8 branches)",
+      "Review Whole Stack",
+      "Collapse Stack",
+    ])
+    await page.getByRole("menuitem", { name: "Request Review…" }).click()
+    const popover = page.getByTestId("request-review-popover")
+    await expect(popover).toContainText("Request a review on #12")
+    await expectPopoverAtSlot(popover, actions)
+  })
+
   test("should say on S why the whole stack can't start without its pull request, and create it from the notice", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupAwaitingCodeOwner(page, setupRepo, syncAndWaitForBranches)
 

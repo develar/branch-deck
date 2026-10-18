@@ -167,7 +167,9 @@ branch from all the facts (the branch, its robots, its pull request and the read
   a branch that may have one; the start then holds nothing back either, and confirms first: "GitHub doesn't list the
   pull requests of the repository: Patronus checks the approvals when the robot starts." A repository only on
   Space (no GitHub) never asks; its Safe Push stays possible, its
-  merge requests are deprecated and the robot decides. A repository not on Space has no slot.
+  merge requests are deprecated and the robot decides. A repository not on Space has no slot; Request Review… of an
+  open pull request, which asks GitHub, still opens from the menus, at an anchor of the row that takes no room
+  ([Pull Requests](pull-requests.spec.md#request-review)).
   [@test] ../../src/lib/branch-next-step.test.ts (`treats the readiness as unavailable without the pull requests: never a duplicate Create Pull Request…`, `has no slot in a repository that is not on Space, and keeps the reasons of the branch`)
 
 ### The whole stack
