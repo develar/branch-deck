@@ -418,8 +418,9 @@ test.describe("Branch review window", () => {
     await expect(createPullRequestDialog(page)).toHaveCount(0)
     expect(await page.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls ?? [])).not.toContain("set_focus")
 
+    // the title takes the focus with the caret after its text, a frame after the open ("Focus" in docs/design/e2e-testing.md)
     // S and O are letters of the title while the dialog is open, not the keys of the review
-    await dialog.getByTestId("create-pull-request-title").press("End")
+    await expect(dialog.getByTestId("create-pull-request-title")).toBeFocused()
     await reviewPage.keyboard.type(" so")
     await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("Add auth so")
     expect(await windowRequests(reviewPage)).toEqual([expect.objectContaining({ branchName: "auth", dialog: "open" })])

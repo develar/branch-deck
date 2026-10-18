@@ -189,6 +189,10 @@ State isolation:
 - **Time**: `base-test.ts` installs the Playwright clock at a fixed time; it runs at real speed. A test that waits for
   a timer of the app (the 2 s "Copied" state of `useCopyToClipboard`) runs the clock past it with
   `page.clock.fastForward` instead of a real wait, which a loaded machine overruns
+- **Focus**: Base UI moves the focus into a dialog a frame after it opened (`requestAnimationFrame`, which the clock
+  drives), often after the dialog's text came. A test that types into the dialog waits for `toBeFocused()` first and
+  types with `page.keyboard`: `press` or `type` on an input without the focus focuses it with the caret at 0, and End
+  moves no caret on macOS (Playwright maps it to `scrollToEndOfDocument:`, as macOS does)
 
 HTML snapshots (`captureHtmlSnapshot`, `tests/e2e/helpers/aria-snapshot-helpers.ts`):
 - **Formatter**: `formatElementWithNormalization` in the mock script prints one attribute set per element with sorted attributes,
