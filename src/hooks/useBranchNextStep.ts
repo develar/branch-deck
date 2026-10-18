@@ -18,10 +18,10 @@ import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
-import { formatWholeStack } from "@/lib/whole-stack"
+import { formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
 import { recordApproval, recordRetarget } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getStackBranchOf } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getStackBranchOf, useBranchSync } from "@/stores/branch-sync"
 import { inlineRowActionStore, isProcessing } from "@/stores/inline-row-action"
 import { landedStore } from "@/stores/landed"
 import {
@@ -246,10 +246,13 @@ const shownSteps = new Map<string, { sources: readonly unknown[]; key: string; s
  * The next step of the branch, re-rendering when it changes: it depends on the branches, the robots, the pull
  * requests, the readiness, the landed commits and the inline action of the row, so each of their stores is watched.
  * The component shows the step: the readiness store asks for the readiness of the branch while it does
- * (`useShowReviewReadiness`), never for a row a collapse hides.
+ * (`useShowReviewReadiness`), never for a row a collapse hides; of the root of a stack that forks, the readiness of its
+ * whole stack too (`stackReadinessKey`), whose Safe Push its menu and its popover offer, with or without an island.
  */
 export function useBranchNextStep(name: string): BranchNextStep | null {
   useShowReviewReadiness(name)
+  const headsWholeStack = useBranchSync(state => (state.stackBranches[name]?.members.length ?? 0) > 0)
+  useShowReviewReadiness(headsWholeStack ? stackReadinessKey(name) : "")
   const select = () => getBranchNextStepNow(name)
   useStore(branchSyncStore, select)
   useStore(patronusStore, select)

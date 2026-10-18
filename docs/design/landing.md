@@ -192,7 +192,10 @@ The whole stack is an object of its own in the app, beside its branches, named "
   `stack:<root>`: the stack branch, the robot of the whole stack, its pull request, its readiness
   (`ReviewReadinessBranch::source`). The header of its island shows its next step ("Safe Push · 7", the same table as a
   branch's, [Next Step](../../spec/branch/next-step.spec.md#the-whole-stack)); its slot, its "⋯" and S on the header
-  open its popover at the header, "Whole Stack ›" of the root's menu at the root's row for a small stack. The popover
+  open its popover at the header, "Whole Stack ›" of the root's menu at the root's row for a small stack, and so does
+  "Land the whole stack: Safe Push Whole Stack" in the popover of a piece (the root, any branch of a stack that forks):
+  the piece and the whole stack are the two ways, side by side. Its readiness is asked while the header or the root's
+  row shows, so the menus of a small stack know its missing approvals before a click. The popover
   says what one robot lands, the main line first and then the side branches, which only the whole stack lands ("Lands 7
   branches · 14 commits into master in one Safe Push: air, bazel, … side-fix and side-test."), and that only the stack
   branch is pushed; Enter pushes it alone and starts the robot from it, or comments on its pull request. A stack branch

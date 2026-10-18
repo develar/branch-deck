@@ -17,7 +17,9 @@ import {
   syncIfChanged,
   toRemoteStatus,
   whenSynced,
+  wholeStackRootIn,
 } from "@/stores/branch-sync"
+import { testBranch } from "@/stores/test-branch"
 
 // a function runs between the events, while the sync still streams them
 const { syncEvents, syncResult, toasts, inputs, held, repository, projectUpdates, settledPlaceholders } = vi.hoisted(() => ({
@@ -606,6 +608,33 @@ describe("stack branches", () => {
     await syncBranches()
     resetBranchSync()
     expect(getStackBranch("a")).toBeUndefined()
+  })
+})
+
+describe("the whole stack a Safe Push of a branch can land instead", () => {
+  afterEach(() => {
+    branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, stackBranches: {} })
+  })
+
+  it("is the stack that forks and holds the branch, else the straight chain the branch heads", () => {
+    const branches = [testBranch("auth", null), testBranch("login", "auth"), testBranch("oauth", "login"), testBranch("session", "auth"), testBranch("docs", null)]
+    branchSyncStore.setState({ branches: Object.fromEntries(branches.map(branch => [branch.name, branch])), branchOrder: branches.map(branch => branch.name), stacksEnabled: true })
+    // without its stack branch auth heads a chain of its own; login heads none, docs no stack
+    expect(["auth", "login", "oauth", "docs"].map(name => wholeStackRootIn(branchSyncStore.getState(), name))).toEqual(["auth", null, null, null])
+    const stack = {
+      root: "auth",
+      branchName: "user/stack/auth",
+      members: ["auth", "login", "oauth", "session"],
+      commitCount: 4,
+      state: "Built",
+      tip: "t",
+      blockedBy: null,
+      conflict: null,
+      error: null,
+      remoteStatus: null,
+    } as const
+    branchSyncStore.setState({ stackBranches: { auth: stack } })
+    expect(["auth", "login", "oauth", "session", "docs"].map(name => wholeStackRootIn(branchSyncStore.getState(), name))).toEqual(["auth", "auth", "auth", "auth", null])
   })
 })
 

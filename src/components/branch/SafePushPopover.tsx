@@ -17,16 +17,20 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent } from "@/components/ui/popover"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import type { SafePushRead } from "@/hooks/useSafePush"
 import { pushAlone, requestSafePush, useSafePushRead } from "@/hooks/useSafePush"
 import { restackBranch } from "@/hooks/useStackActions"
 import { useStackIndependence } from "@/hooks/useStackIndependence"
+import { useStackNextStep } from "@/hooks/useStackNextStep"
+import { getWholeStackStartItems } from "@/hooks/useWholeStackActions"
 import type { Commit, PatronusReviewRequirement, Person, PullRequest, ReviewReadiness, StackCommit } from "@/lib/bindings"
 import { formatPerson } from "@/lib/branch-next-step"
 import { openBranchReviewWindow, openWholeStackReviewWindow, toReviewGroups } from "@/lib/branch-review-window"
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
+import type { MenuItem } from "@/lib/menu"
 import { formatPushMode, formatReviewerGroup, formatReviewerGroupFiles } from "@/lib/patronus"
 import { openMergeRequest } from "@/lib/patronus-merge-request"
 import type { StackAlone } from "@/lib/patronus-stack"
@@ -35,7 +39,7 @@ import { startSafePush } from "@/lib/safe-push-start"
 import { openSettings } from "@/lib/settings-window"
 import { joinNames } from "@/lib/text"
 import { describeWholeStackApprovalsForPiece, describeWholeStackLanding, formatReadinessSubject, formatWholeStackApprovals, stackRootOfReadinessKey } from "@/lib/whole-stack"
-import { getBranch, useBranchSync } from "@/stores/branch-sync"
+import { getBranch, useBranchSync, wholeStackRootIn } from "@/stores/branch-sync"
 import { usePullRequest, useStackPullRequest } from "@/stores/pull-requests"
 import type { SafePushAsk, SafePushMode, SafePushPlacement } from "@/stores/safe-push"
 import { closeSafePushPopover } from "@/stores/safe-push"
@@ -64,7 +68,8 @@ function syncedCommits(commits: readonly StackCommit[]): Commit[] {
  * oauth with auth and login, which it is built on: 3 branches · 12 commits into master."; below it only what applies,
  * in sentences: the pull request it comments on, the branches that stay, the profile (the branch's own named as the last
  * Safe Push's), the review as Patronus answered it, the running Safe Push it cancels, the second way to land a stacked
- * branch alone (the unstack, the move of what it needs; offered, never decided). The footer says what it waits for or
+ * branch alone (the unstack, the move of what it needs; offered, never decided), and of the root of a stack or a branch
+ * of one that forks the whole stack in one robot (`WholeStackOption`). The footer says what it waits for or
  * why it can't start, then Dry Run, Cancel and the start, which takes Enter once it can run. A start closes it: the
  * slot shows the push and the start.
  */
@@ -77,6 +82,13 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
   const read = useSafePushRead(ask, chosenProfile)
   const stacked = read !== null && read.ancestors.length > 0
   const independence = useStackIndependence(branchName, mode === "rebaseAutosquash" && stacked)
+  // a branch of a stack: the whole stack lands in one Safe Push too, the second way its popover offers
+  const wholeStackRoot = useBranchSync(state => (root === null ? wholeStackRootIn(state, branchName) : null))
+  const wholeStackNext = useStackNextStep(wholeStackRoot ?? "")
+  const wholeStackItem =
+    wholeStackRoot === null
+      ? undefined
+      : getWholeStackStartItems(wholeStackRoot, wholeStackNext).find(item => item.id === (mode === "dryRun" ? "dry-run-whole-stack" : "safe-push-whole-stack"))
   const branchPullRequest = usePullRequest(branchName)
   const stackPullRequest = useStackPullRequest(root ?? "")
   const pullRequest = root === null ? branchPullRequest : stackPullRequest
@@ -198,6 +210,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
         {landing?.alone != null && read !== null && (
           <AloneOption alone={landing.alone} disabled={isRegrouping} onUnstack={() => void unstack()} onMove={commitsToMove => void moveHere(commitsToMove)} />
         )}
+        {wholeStackItem !== undefined && wholeStackRoot !== null && <WholeStackOption root={wholeStackRoot} item={wholeStackItem} mode={mode} onSelect={close} />}
         {independence.state.status === "loading" && (
           <p className="flex items-center gap-2 text-muted-foreground" data-testid="safe-push-alone-checking">
             <Spinner className="size-4" />
@@ -536,6 +549,48 @@ function Status({ read, isRegrouping, placement, onPiece }: { read: SafePushRead
     )
   }
   return null
+}
+
+/**
+ * "Land the whole stack: Safe Push Whole Stack": in the popover of a branch of a stack, the start of its whole stack
+ * (`getWholeStackStartItems`, the item of the menus), which opens its own popover (at the header of its island, else at
+ * the root's row); its hover what it lands. Disabled, it says why under it, as the menus do.
+ */
+function WholeStackOption({ root, item, mode, onSelect }: { root: string; item: MenuItem; mode: SafePushMode; onSelect: () => void }) {
+  const disabled = item.disabled === true
+  const button = (
+    <Button
+      variant="outline"
+      size="xs"
+      className={cn("w-fit", disabled && "opacity-50")}
+      disabled={disabled}
+      focusableWhenDisabled
+      data-testid="safe-push-whole-stack"
+      onClick={() => {
+        onSelect()
+        item.onSelect()
+      }}
+    >
+      {mode === "dryRun" ? <FlaskConicalIcon data-icon="inline-start" /> : <ShieldCheckIcon data-icon="inline-start" />}
+      {item.label}
+    </Button>
+  )
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="safe-push-whole-stack-option" data-whole-stack={root}>
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
+        {mode === "dryRun" ? "Check the whole stack:" : "Land the whole stack:"}
+        {disabled || item.description === undefined ? (
+          button
+        ) : (
+          <Tooltip>
+            <TooltipTrigger render={button} />
+            <TooltipContent>{item.description}</TooltipContent>
+          </Tooltip>
+        )}
+      </p>
+      {disabled && item.description !== undefined && <Line testId="safe-push-whole-stack-reason">{item.description}</Line>}
+    </div>
+  )
 }
 
 /**

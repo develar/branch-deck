@@ -739,6 +739,19 @@ export function getStackBranch(root: string): StackBranch | undefined {
   return branchSyncStore.getState().stackBranches[root]
 }
 
+/**
+ * The root whose whole stack a Safe Push of `name` can land instead (the popover offers it): the root of the stack
+ * that forks and holds the branch (`StackBranch.members`), else `name` itself while it heads a straight chain; null for
+ * a branch outside a stack and for one inside a straight chain, whose whole stack its last branch's Safe Push lands
+ */
+export function wholeStackRootIn(state: BranchSyncState, name: string): string | null {
+  const forking = Object.values(state.stackBranches).find(stack => stack.members.includes(name))
+  if (forking !== undefined) {
+    return forking.root
+  }
+  return stackParentIn(state.branches, name) === null && stackDescendantsIn(state, name).length > 0 ? name : null
+}
+
 /** The stack branch of the stack that forks and holds the branch `name` (`StackBranch.members`); undefined otherwise */
 export function getStackBranchOf(name: string): StackBranch | undefined {
   return Object.values(branchSyncStore.getState().stackBranches).find(stack => stack.members.includes(name))

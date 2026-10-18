@@ -1,6 +1,7 @@
 import { FileDiffIcon, FlaskConicalIcon, GitPullRequestClosedIcon, GitPullRequestIcon, ShieldCheckIcon } from "lucide-react"
 import { getPushWithChildrenItem, getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import { requestSafePush } from "@/hooks/useSafePush"
+import type { StackNextStep } from "@/hooks/useStackNextStep"
 import { getCreateStackPullRequestItem, getStackNextStepNow, getWholeStackMembers, isForkingStack } from "@/hooks/useStackNextStep"
 import type { PatronusPushMode } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
@@ -109,12 +110,12 @@ export function getWholeStackMenuItems(root: string, options: WholeStackMenuOpti
  * "Safe Push Whole Stack" and "Dry Run Whole Stack": the start of the whole stack (`requestSafePush` of its key,
  * `stackReadinessKey`), from its stack branch while the stack forks, of the last branch of a straight chain otherwise;
  * at the header of its island, else at the root's row. Disabled with the reasons of the next step of the whole stack
- * (`getStackNextStepNow`: its stack branch not built, a robot of a branch of it, its approvals); none where Patronus
- * doesn't answer or for a branch that heads no stack.
+ * (`next`, `getStackNextStepNow`: its stack branch not built, a robot of a branch of it, its approvals); none where
+ * Patronus doesn't answer or for a branch that heads no stack. The menus of the whole stack and the Safe Push popover of
+ * a branch of it render them (a component passes the step it subscribed to, `useStackNextStep`).
  */
-export function getWholeStackStartItems(root: string): MenuItem[] {
-  const next = isPatronusAvailable() ? getStackNextStepNow(root) : null
-  if (next === null || next.step.kind === "hidden") {
+export function getWholeStackStartItems(root: string, next: StackNextStep | null = getStackNextStepNow(root)): MenuItem[] {
+  if (!isPatronusAvailable() || next === null || next.step.kind === "hidden") {
     return []
   }
   const { step, leaf } = next

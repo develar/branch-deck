@@ -473,21 +473,38 @@ export async function pushAlone(branchName: string): Promise<boolean> {
 
 /**
  * The `info` toast of a start the next step refuses (`BranchNextStep.notice`): the pull request it waits in opens from
- * it; the whole stack whose stack branch the sync didn't build lands in pieces, the Safe Push of the last branch of its
- * main line the first (`WholeStackRead.piece`)
+ * it, and the one its approvals need is created from it ("Create Pull Request…", "Create Pull Request of the Stack…":
+ * the step's own action, row 7); the whole stack whose stack branch the sync didn't build lands in pieces, the Safe Push
+ * of the last branch of its main line the first (`WholeStackRead.piece`)
  */
 function tellNotice(branchName: string, step: BranchNextStep, notice: { readonly title: string; readonly description: string }, request: SafePushRequest): void {
   const root = stackRootOfReadinessKey(branchName)
   const pullRequest = root === null ? getPullRequest(branchName) : getStackPullRequest(root)
   const stack = root === null ? undefined : getStackBranch(root)
   const piece = root === null || getStackBranchBlocker(root, stack) === null ? undefined : stackMainLineIn(branchSyncStore.getState(), root).at(-1)
+  const item = step.item
   let action: { children: string; onClick: () => void } | undefined
   if (piece !== undefined) {
     action = { children: `Safe Push ${piece}`, onClick: () => void requestSafePush(piece, { ...request, via: "click" }) }
   } else if (pullRequest !== undefined && step.tone !== "default") {
     action = { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) }
+  } else if (step.kind === "createPullRequest" && step.tone === "default" && item !== null && item.disabled !== true) {
+    action = { children: item.label, onClick: () => item.onSelect() }
   }
   showToast({ type: "info", title: notice.title, description: notice.description, ...(action !== undefined && { action }) })
+}
+
+/**
+ * The next step of a start as the stores have it now: of the branch, or of the whole stack of a key
+ * (`stackReadinessKey`)
+ */
+function currentStepOf(branchName: string): BranchNextStep | undefined {
+  const root = stackRootOfReadinessKey(branchName)
+  if (root !== null) {
+    return getStackNextStepNow(root)?.step
+  }
+  const branch = getBranch(branchName)
+  return branch === undefined ? undefined : getBranchNextStepOf(branch)
 }
 
 /**
@@ -566,9 +583,16 @@ export async function requestSafePush(branchName: string, request: SafePushReque
     case "start":
       await startSafePush(read.start)
       return
-    case "refuse":
-      tellRefusal(branchName, mode, decision.reason, decision.offersPush)
+    case "refuse": {
+      // the answer the click waited for may be the step's own reason (the approvals): its notice says it, with its action
+      const settled = mode === "rebaseAutosquash" && !decision.offersPush ? currentStepOf(branchName) : undefined
+      if (settled?.notice != null && settled.safePushBlocker === decision.reason) {
+        tellNotice(branchName, settled, settled.notice, { ...request, placement })
+      } else {
+        tellRefusal(branchName, mode, decision.reason, decision.offersPush)
+      }
       return
+    }
     case "wait":
     case "choose":
     case "confirm":

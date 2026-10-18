@@ -9,8 +9,10 @@ import { availablePullRequests, createdPullRequest, createPullRequestDialog, get
 import { routePushBranches } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { DEFAULT_CHECKS_ONLY, expectLandedActions, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
+import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextSyncEvents } from "../helpers/sync-helpers"
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { routeCommand } from "../helpers/wait-helpers"
 
 /** The island of the stack on `root` */
@@ -43,6 +45,23 @@ function withStackPullRequests(result: PullRequestsResult, stacks: Record<string
 /** A running Safe Push of the whole stack of `root`, on its stack branch as the sync built it */
 function wholeStackRobot(root: string, id: string, patch: Partial<PatronusRobot> = {}): PatronusRobot {
   return robot(root, id, { name: `Safe Push of the whole ${root} stack`, branchName: null, stackRoot: root, ...patch })
+}
+
+/**
+ * stack_island reviewed on GitHub, synced: Patronus asked about the stack branch says IJPL Code Platform has to approve
+ * the whole stack, in a pull request it doesn't have yet. Returns the slot of the header, whose step creates it
+ */
+async function setupAwaitingCodeOwner(
+  page: Page,
+  setupRepo: (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<void>,
+): Promise<Locator> {
+  const repo = await setupRepo("stack_island", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests() })
+  await repo.setReviewAnswers({ answers: { "stack:air": AWAITING_CODE_OWNER } })
+  await syncAndWaitForBranches()
+  const slot = island(page, "air").getByTestId("stack-island-actions").getByTestId("next-step-slot")
+  await expect(slot).toHaveAttribute("data-step", "createPullRequest")
+  return slot
 }
 
 test.describe("Whole stack", () => {
@@ -110,14 +129,9 @@ test.describe("Whole stack", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    const repo = await setupRepo("stack_island", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests() })
-    // Patronus asked about the stack branch: IJPL Code Platform has to approve the whole stack, in a pull request
-    await repo.setReviewAnswers({ answers: { "stack:air": AWAITING_CODE_OWNER } })
-    await syncAndWaitForBranches()
+    const slot = await setupAwaitingCodeOwner(page, setupRepo, syncAndWaitForBranches)
     await routePushBranches(page, {})
     const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(stackPullRequest("air", 12)))
-    const slot = island(page, "air").getByTestId("stack-island-actions").getByTestId("next-step-slot")
-    await expect(slot).toHaveAttribute("data-step", "createPullRequest")
 
     // the step of the header opens the dialog of the stack branch, the code owner Patronus suggests asked to review
     await slot.getByTestId("next-step").click()
@@ -127,6 +141,20 @@ test.describe("Whole stack", () => {
     await dialog.getByTestId("create-pull-request-submit").click()
     await expect.poll(() => creates.length).toBe(1)
     expect(creates[0]).toMatchObject({ branchName: "air", head: "user-name/stack/air", reviewers: ["ikorennoy"] })
+  })
+
+  test("should say on S why the whole stack can't start without its pull request, and create it from the notice", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupAwaitingCodeOwner(page, setupRepo, syncAndWaitForBranches)
+
+    // S on the focused header: the notice says where the approvals count, and its action creates that pull request
+    await island(page, "air")
+      .getByRole("button", { name: /^air Stack · 7 branches/ })
+      .focus()
+    await page.keyboard.press("s")
+    const notice = page.locator("[data-slot=toast]").filter({ hasText: "Safe Push of the whole air stack needs a pull request" })
+    await expect(notice.locator("[data-slot=toast-description]")).toHaveText("Code owners must approve in it: IJPL Code Platform")
+    await notice.getByRole("button", { name: "Create Pull Request of the Stack…" }).click()
+    await expect(createPullRequestDialog(page).getByTestId("create-pull-request-base")).toHaveText("Whole air stack → master")
   })
 
   test("should count the approvals of the whole stack in its pull request: the header says so apart from the branches', and a branch without its own points to it", async ({

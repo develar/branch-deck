@@ -167,7 +167,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   hovered branch lights its path to the root (`stack-view.ts`) (`spec/branch/stacked-branches.spec.md`); a stack of 5+
   branches or 40+ commits is an island below the table: a header that says what it holds, with the Actions cell of a row for the stack (↑ Push with Children of
   the root, the Safe Push of the whole stack, its popover at the header, also from S on the header and "⋯", the main
-  line's piece while the stack branch is not built; nothing while a Safe Push runs in it), the
+  line's piece while the stack branch is not built; nothing while a Safe Push runs in it; the popover of a piece offers
+  "Safe Push Whole Stack", whose readiness the root's row asks), the
   commits on the lanes, oldest first (`spec/branch/stack-island.spec.md`); a side stack collapses into its root (a
   quiet one starts collapsed); Push Up to Here pushes the ancestors whole and the branch up to a commit
   (`StackPushBranch.tip`, one `rev-list` checks the cut); a push of several branches is one atomic push, all or none

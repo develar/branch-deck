@@ -59,6 +59,7 @@ targets:
   - ../../src/components/repository/RobotsIndicator.tsx
   - ../../src/lib/branch-review-window.ts
   - ../../src/hooks/useStackNextStep.ts
+  - ../../src/hooks/useBranchNextStep.ts
   - ../../src/hooks/useSafePush.ts
   - ../../src/lib/safe-push-start.ts
   - ../../src/lib/safe-push-decision.ts
@@ -285,17 +286,25 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a small stack with its side branch from the root's menu, its popover at the root`)
 - It must be asked from the header of an island (its slot, "Safe Push Whole Stack" and "Dry Run Whole Stack" of its
-  "⋯", S on the focused header), the popover at the header's slot ([Stack Island](stack-island.spec.md#header)), and
-  from "Whole Stack ›" of the root's menu, the popover at the header of the root's island, else at the root's row (a
-  small stack, `getWholeStackStartItems`).
+  "⋯", S on the focused header), the popover at the header's slot ([Stack Island](stack-island.spec.md#header)),
+  from "Whole Stack ›" of the root's menu, and from the Safe Push popover of the root and of any branch of a stack that
+  forks ("Land the whole stack: Safe Push Whole Stack", [Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)),
+  the popover at the header of the root's island, else at the root's row (a small stack, `getWholeStackStartItems`).
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a small stack with its side branch from the root's menu, its popover at the root`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a small stack with its side branch from the root's menu, its popover at the root`, `should offer the whole stack in the Safe Push popover of its root and of its branches, which opens its own popover`)
 - Its next step must be the table of [Next Step](next-step.spec.md#the-whole-stack) on its facts: disabled with the
   reason while the sync didn't build its stack branch ("The stack branch conflicts at 0caf9066 in config.js: the
   stack lands in pieces", a Dry Run too), while a robot of a branch of it runs, while its approvals are missing in its
-  own pull request. A stack branch not built lands the stack in pieces: the "⋯" of the island offers the Safe Push of
+  own pull request. Its readiness is asked while the header of its island or its root's row shows
+  ([Next Step](next-step.spec.md#the-readiness-store)), so a small stack's menu and popovers know the missing approvals
+  before a click: "Safe Push Whole Stack" disabled with "Code owners must approve in a pull request: IJPL Code
+  Platform" beside "Create Pull Request of the Stack…"; a click that waited for the answer, and S on the header, say
+  it in the notice, whose action is "Create Pull Request of the Stack…". A stack branch not built lands the stack in pieces: the "⋯" of the island offers the Safe Push of
   the last branch of its main line, and so do the notice of S and the popover ("Land it in pieces").
   [@test] ../../src/hooks/useStackNextStep.test.ts (`is disabled with the reason of a stack branch the sync didn't build, for a Dry Run too: the stack lands in pieces`, `waits for the robot of a branch of the stack, which lands a part of it; a Dry Run doesn't`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should ask for the approvals of the whole stack of a small stack while its root's row shows, and offer its pull request where they are missing`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on S why the whole stack can't start without its pull request, and create it from the notice`)
+  [@test] ../../src/stores/branch-sync.test.ts (`is the stack that forks and holds the branch, else the straight chain the branch heads`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should disable the whole stack's Safe Push while its stack branch conflicts, and land it in pieces from the header`)
 - Its approvals must count in its own pull request only: the island's header says "Approvals count in #12, the pull
   request of the whole stack", apart from the pull requests of the branches; a branch of it without a pull request of

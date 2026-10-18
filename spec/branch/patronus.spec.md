@@ -524,8 +524,12 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   itself, its popover at its own row: its slot, "⋯", S, the preview footer and the review window. The header of a stack
   island asks the start of the whole stack, one robot of its stack branch, its popover at the header ([Stack
   Island](stack-island.spec.md#header), [Whole Stack](whole-stack.spec.md#the-safe-push-of-the-whole-stack-in-the-app));
-  of a straight chain, which has none, the start of its last branch.
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should say in the Safe Push popover of a branch in the middle what lands and what stays`)
+  of a straight chain, which has none, the start of its last branch. The popover of the root of a stack and of any
+  branch of a stack that forks offers the whole stack as its second way, below what it lands: "Land the whole stack:"
+  with "Safe Push Whole Stack" ("Check the whole stack:" with "Dry Run Whole Stack" for a Dry Run), the item of the
+  menus (`getWholeStackStartItems`), its hover what it lands, disabled with the reason under it; it opens the popover
+  of the whole stack.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should say in the Safe Push popover of a branch in the middle what lands and what stays`, `should offer the whole stack in the Safe Push popover of its root and of its branches, which opens its own popover`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
 - A stored stack parent can stay after the branch stopped needing it ([Stack Parents](stack-parents.spec.md#a-stacked-branch-that-builds-alone)).
   So the popover of a Safe Push of a stacked branch asks the trial build of the branch alone (`get_stack_independence`)
