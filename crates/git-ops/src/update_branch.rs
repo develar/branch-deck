@@ -935,7 +935,7 @@ pub fn finish_pending_update(git_executor: &GitCommandExecutor, repo_path: &str)
 /// not follow a move. A path that is neither side (staged since) counts as followed
 pub(crate) fn index_left_behind(git_executor: &GitCommandExecutor, repo_path: &str, changed: &[ChangedPath]) -> Result<bool> {
   let input = index_names(changed.iter().map(|c| c.path.as_slice()));
-  let output = git_executor.execute_command_with_input_bytes(&["cat-file", "--batch-check=%(objectname)", "-Z"], repo_path, &input)?;
+  let output = git_executor.cmd(&["cat-file", "--batch-check=%(objectname)", "-Z"], repo_path).stdin(&input).bytes()?;
   Ok(
     changed
       .iter()
@@ -1111,7 +1111,10 @@ fn previous_upstream_tips(git_executor: &GitCommandExecutor, repo_path: &str, up
 /// only the replay of single commits conflicts, those changed on both sides of the merge base
 fn conflicting_files(git_executor: &GitCommandExecutor, repo_path: &str, base: &str, upstream_head: &str, head: &str) -> Result<Vec<Vec<u8>>> {
   // `<tree>\0<file>\0...`, exit code 1 on conflicts; the files as git stores them, untrimmed
-  let (output, _) = git_executor.execute_command_raw_accepting(&["merge-tree", "--write-tree", "--name-only", "-z", "--no-messages", upstream_head, head], repo_path, &[1])?;
+  let output = git_executor
+    .cmd(&["merge-tree", "--write-tree", "--name-only", "-z", "--no-messages", upstream_head, head], repo_path)
+    .accept(&[1])
+    .bytes()?;
   let mut files: Vec<Vec<u8>> = output.split(|&b| b == 0).skip(1).filter(|file| !file.is_empty()).map(<[u8]>::to_vec).collect();
   if files.is_empty() {
     let upstream_files: HashSet<Vec<u8>> = changed_paths(git_executor, repo_path, base, upstream_head)?.into_iter().map(|c| c.path).collect();
@@ -1186,7 +1189,7 @@ fn blocking_paths_against(git_executor: &GitCommandExecutor, repo_path: &str, ol
     let mut paths = overlapping_local_changes(git_executor, repo_path, changed)?;
     if let Some(local_base) = local_base {
       // tracked paths that differ from `local_base` in the index or the working tree; untracked ones stay
-      let (output, _) = git_executor.execute_command_raw_accepting(&["diff-index", "--name-only", "-z", local_base, "--"], repo_path, &[])?;
+      let output = git_executor.cmd(&["diff-index", "--name-only", "-z", local_base, "--"], repo_path).bytes()?;
       let differ: HashSet<&[u8]> = output.split(|&b| b == 0).filter(|path| !path.is_empty()).collect();
       let tracked: HashSet<&[u8]> = changed.iter().filter(|c| c.status != 'A').map(|c| c.path.as_slice()).collect();
       paths.retain(|path| differ.contains(path.as_slice()) || !tracked.contains(path.as_slice()));
@@ -1285,7 +1288,7 @@ fn preview_blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, ch
       input.extend_from_slice(&changed[*i].path);
       input.push(b'\n');
     }
-    let ids = git_executor.execute_command_with_input_bytes(&["hash-object", "--stdin-paths"], repo_path, &input)?;
+    let ids = git_executor.cmd(&["hash-object", "--stdin-paths"], repo_path).stdin(&input).bytes()?;
     let ids = String::from_utf8(ids)?;
     for ((i, stamp), id) in to_hash.into_iter().zip(ids.lines()) {
       blocked[i] = id != changed[i].old_id;
@@ -1345,7 +1348,7 @@ fn read_index_ids(git_executor: &GitCommandExecutor, repo_path: &str, changed: &
 
   // `<id>\0` per entry, `<input> missing\0` for a path not in the index
   let input = index_names(unknown.iter().copied());
-  let output = git_executor.execute_command_with_input_bytes(&["cat-file", "--batch-check=%(objectname)", "-Z"], repo_path, &input)?;
+  let output = git_executor.cmd(&["cat-file", "--batch-check=%(objectname)", "-Z"], repo_path).stdin(&input).bytes()?;
   let mut ids = output.split(|&b| b == 0);
   for path in unknown {
     let id = ids.next().filter(|id| !id.ends_with(b" missing")).map(|id| String::from_utf8_lossy(id).into_owned());
@@ -1405,7 +1408,9 @@ fn deleted_paths(changed: &[ChangedPath]) -> HashSet<&[u8]> {
 
 /// The uncommitted, staged and untracked paths (`git status`) on, inside or in place of the changed paths, as bytes
 fn overlapping_local_changes(git_executor: &GitCommandExecutor, repo_path: &str, changed: &[ChangedPath]) -> Result<Vec<Vec<u8>>> {
-  let (output, _) = git_executor.execute_command_raw_accepting(&["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all"], repo_path, &[])?;
+  let output = git_executor
+    .cmd(&["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all"], repo_path)
+    .bytes()?;
   let changed_paths: HashSet<&[u8]> = changed.iter().map(|c| c.path.as_slice()).collect();
   // the directories of the changed paths: an untracked file there blocks a directory the update adds
   let mut changed_dirs: HashSet<&[u8]> = HashSet::new();

@@ -103,22 +103,25 @@ struct FileEntry {
 /// The file before and after `from`, from one `diff-tree --raw` without rename detection
 fn read_file_change(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, path: &str) -> Result<(Option<FileEntry>, Option<FileEntry>), MoveHunkError> {
   let pathspec = format!(":(literal){path}");
-  let output = git_executor.execute_command_raw(
-    &[
-      "diff-tree",
-      "-r",
-      "-z",
-      "--raw",
-      "--no-renames",
-      "--no-commit-id",
-      "--root",
-      "--end-of-options",
-      from,
-      "--",
-      &pathspec,
-    ],
-    repo_path,
-  )?;
+  let output = git_executor
+    .cmd(
+      &[
+        "diff-tree",
+        "-r",
+        "-z",
+        "--raw",
+        "--no-renames",
+        "--no-commit-id",
+        "--root",
+        "--end-of-options",
+        from,
+        "--",
+        &pathspec,
+      ],
+      repo_path,
+    )
+    .bytes()?;
+  let output = String::from_utf8_lossy(&output);
   // `:<old mode> <new mode> <old id> <new id> <status>\0<path>\0`
   let mut fields = output.split('\0');
   let meta = fields.next().unwrap_or_default();
@@ -371,7 +374,10 @@ fn rewrite(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHun
     let _ = writeln!(input, "{base_tree} -- {} {}", tree_of(index), theirs.tree);
     input
   });
-  let output = git_executor.execute_command_with_input_raw(&["merge-tree", "--write-tree", "--stdin", "-z", "--no-messages", "-X", "no-renames"], repo_path, &input)?;
+  let output = git_executor
+    .cmd(&["merge-tree", "--write-tree", "--stdin", "-z", "--no-messages", "-X", "no-renames"], repo_path)
+    .stdin(input.as_bytes())
+    .bytes()?;
   let merges = parse_merge_tree_batch(&output, range.len())?;
   if let Some((index, _)) = range.clone().zip(&merges).find(|(_, merge)| !merge.clean) {
     return Err(MoveHunkError::Conflict {
@@ -540,11 +546,13 @@ fn same_file_diffs<'a>(
   let mut input = headers.join("\n");
   input.push('\n');
   let pathspec = format!(":(literal){path}");
-  let output = git_executor.execute_command_with_input_raw(
-    &["diff-tree", "--stdin", "-p", "-U0", "--no-renames", "--no-ext-diff", "--no-textconv", "--", &pathspec],
-    repo_path,
-    &input,
-  )?;
+  let output = git_executor
+    .cmd(
+      &["diff-tree", "--stdin", "-p", "-U0", "--no-renames", "--no-ext-diff", "--no-textconv", "--", &pathspec],
+      repo_path,
+    )
+    .stdin(input.as_bytes())
+    .bytes()?;
 
   // each pair prints its `<tree> <tree>` line, then its patch (none for no change); a patch line never is one
   let hash_length = headers[0].find(' ').unwrap_or(40);
@@ -560,7 +568,7 @@ fn same_file_diffs<'a>(
     }
     patches.extend_from_slice(line);
   }
-  let ids = git_executor.execute_command_with_input_bytes(&["patch-id", "--stable"], repo_path, &patches)?;
+  let ids = git_executor.cmd(&["patch-id", "--stable"], repo_path).stdin(&patches).bytes()?;
   // `<patch id> <pair number>` per pair with a change
   let ids = String::from_utf8_lossy(&ids);
   let patch_of: HashMap<usize, &str> = ids

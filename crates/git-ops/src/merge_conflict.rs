@@ -184,8 +184,10 @@ pub(crate) fn merge_with_markers(git_executor: &GitCommandExecutor, repo_path: &
     commits.commit,
   ];
   // Exit code 1 means the merge has conflicts; the output still holds the tree and the conflicted entries
-  let (output, _) = git_executor
-    .execute_command_raw_accepting(&args, repo_path, &[1])
+  let output = git_executor
+    .cmd(&args, repo_path)
+    .accept(&[1])
+    .bytes()
     .map_err(|e| CopyCommitError::Other(anyhow!("Failed to execute git merge-tree: {e}")))?;
   debug!(output_length = output.len(), "git merge-tree completed");
   let merge = parse_merge_tree_output(&output).map_err(CopyCommitError::Other)?;

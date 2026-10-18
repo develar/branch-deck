@@ -75,7 +75,8 @@ impl CommitChain {
       None => self.merger.insert(
         self
           .git_executor
-          .spawn_interactive_with_delimiter(&["merge-tree", "--write-tree", "--stdin", "-z", "--no-messages"], &self.repo_path, b'\0')?,
+          .cmd(&["merge-tree", "--write-tree", "--stdin", "-z", "--no-messages"], &self.repo_path)
+          .interactive(b'\0')?,
       ),
     };
     merger.send(&format!("{base} -- {target} {commit}"))?;
@@ -106,7 +107,8 @@ impl CommitChain {
       None => self.writer.insert(
         self
           .git_executor
-          .spawn_interactive(&["fast-import", "--quiet", "--done", "--date-format=raw"], &self.repo_path)?,
+          .cmd(&["fast-import", "--quiet", "--done", "--date-format=raw"], &self.repo_path)
+          .interactive(b'\n')?,
       ),
     };
     writer.send_bytes(&stream)?;

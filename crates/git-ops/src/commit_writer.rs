@@ -375,7 +375,10 @@ pub fn write_commits_with_notes(
   }
   stream.extend_from_slice(b"done\n");
 
-  let output = git_executor.execute_command_with_input_bytes(&["fast-import", "--quiet", "--done", "--date-format=raw", "--signed-commits=strip"], repo_path, &stream)?;
+  let output = git_executor
+    .cmd(&["fast-import", "--quiet", "--done", "--date-format=raw", "--signed-commits=strip"], repo_path)
+    .stdin(&stream)
+    .bytes()?;
   let mut ids: Vec<String> = String::from_utf8(output)?.lines().map(str::to_string).collect();
   let store_commits = ids.split_off(ids.len().saturating_sub(stores.len()));
   if ids.len() != commits.len() || store_commits.len() != stores.len() || store_commits.iter().any(String::is_empty) {
@@ -498,7 +501,10 @@ pub fn write_store_commits(
   }
   stream.extend_from_slice(b"done\n");
 
-  let output = git_executor.execute_command_with_input_bytes(&["fast-import", "--quiet", "--done", "--date-format=raw"], repo_path, &stream)?;
+  let output = git_executor
+    .cmd(&["fast-import", "--quiet", "--done", "--date-format=raw"], repo_path)
+    .stdin(&stream)
+    .bytes()?;
   let mut ids: Vec<String> = String::from_utf8(output)?.lines().map(str::to_string).collect();
   let notes_commit = if notes.is_some() { ids.pop() } else { None };
   if ids.len() != commits.len() || notes_commit.as_ref().is_none_or(String::is_empty) != notes.is_none() {
@@ -581,7 +587,10 @@ pub fn write_edited_commit(git_executor: &GitCommandExecutor, repo_path: &str, c
   }
   stream.extend_from_slice(format!("\nls :1 \"\"\nls {} \"\"\nget-mark :1\ndone\n", commit.parent).as_bytes());
 
-  let output = git_executor.execute_command_with_input_bytes(&["fast-import", "--quiet", "--done", "--date-format=raw", "--signed-commits=strip"], repo_path, &stream)?;
+  let output = git_executor
+    .cmd(&["fast-import", "--quiet", "--done", "--date-format=raw", "--signed-commits=strip"], repo_path)
+    .stdin(&stream)
+    .bytes()?;
   let output = String::from_utf8(output)?;
   // `040000 tree <id>\t` per `ls`, then the commit id
   let mut lines = output.lines();
@@ -637,7 +646,7 @@ pub fn write_notes_to_refs(git_executor: &GitCommandExecutor, repo_path: &str, r
     );
   }
   stream.extend_from_slice(b"done\n");
-  git_executor.execute_command_with_input_bytes(&["fast-import", "--quiet", "--done"], repo_path, &stream)?;
+  git_executor.cmd(&["fast-import", "--quiet", "--done"], repo_path).stdin(&stream).bytes()?;
   Ok(())
 }
 

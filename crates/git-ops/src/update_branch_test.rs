@@ -113,14 +113,18 @@ const LATIN_1_PATH: &[u8] = b"dir/caf\xe9.txt";
 /// The tree of `content` at `LATIN_1_PATH`, written without the file system
 fn latin_1_tree(repo: &TestRepo, content: &str) -> (String, String) {
   let git = repo.git_executor();
-  let blob = git.execute_command_with_input(&["hash-object", "-w", "--stdin"], repo.path_str(), content).unwrap();
+  let blob = git.cmd(&["hash-object", "-w", "--stdin"], repo.path_str()).stdin(content.as_bytes()).text().unwrap();
   let entry = |name: &[u8], mode_type_id: String| [mode_type_id.as_bytes(), b"\t", name, b"\0"].concat();
   let dir = git
-    .execute_command_with_input_bytes(&["mktree", "-z"], repo.path_str(), &entry(b"caf\xe9.txt", format!("100644 blob {blob}")))
+    .cmd(&["mktree", "-z"], repo.path_str())
+    .stdin(&entry(b"caf\xe9.txt", format!("100644 blob {blob}")))
+    .bytes()
     .unwrap();
   let dir = String::from_utf8(dir).unwrap().trim().to_string();
   let tree = git
-    .execute_command_with_input_bytes(&["mktree", "-z"], repo.path_str(), &entry(b"dir", format!("040000 tree {dir}")))
+    .cmd(&["mktree", "-z"], repo.path_str())
+    .stdin(&entry(b"dir", format!("040000 tree {dir}")))
+    .bytes()
     .unwrap();
   (String::from_utf8(tree).unwrap().trim().to_string(), blob)
 }
@@ -138,7 +142,9 @@ fn a_path_that_is_not_utf8_names_its_index_entry() {
   let entry = [format!("100644 {old_blob}\t").as_bytes(), LATIN_1_PATH, b"\0"].concat();
   repo
     .git_executor()
-    .execute_command_with_input_bytes(&["update-index", "-z", "--index-info"], repo.path_str(), &entry)
+    .cmd(&["update-index", "-z", "--index-info"], repo.path_str())
+    .stdin(&entry)
+    .bytes()
     .unwrap();
   assert!(index_left_behind(repo.git_executor(), repo.path_str(), &changed).unwrap());
 }

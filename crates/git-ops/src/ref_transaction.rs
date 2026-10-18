@@ -97,7 +97,9 @@ impl RefTransaction {
     debug!(commands = %self.commands, "updating refs");
     let message = format!("{REFLOG_PREFIX}{operation}");
     git_executor
-      .execute_command_with_input(&self.args(&message), repo_path, &self.commands)
+      .cmd(&self.args(&message), repo_path)
+      .stdin(self.commands.as_bytes())
+      .text()
       .map_err(|e| anyhow!("Failed to update refs ({operation}): {e:#}"))?;
     Ok(())
   }
@@ -112,7 +114,7 @@ impl RefTransaction {
     debug!(commands = %self.commands, "updating refs after a check under their locks");
     let message = format!("{REFLOG_PREFIX}{operation}");
     let failed = |e: anyhow::Error| anyhow!("Failed to update refs ({operation}): {e:#}");
-    let mut update_ref = git_executor.spawn_interactive(&self.args(&message), repo_path).map_err(failed)?;
+    let mut update_ref = git_executor.cmd(&self.args(&message), repo_path).interactive(b'\n').map_err(failed)?;
     request(&mut update_ref, "start").map_err(failed)?;
     for command in self.commands.lines() {
       update_ref.send(command).map_err(failed)?;

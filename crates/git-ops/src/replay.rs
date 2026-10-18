@@ -23,9 +23,10 @@ pub fn replay_range_with_env(git_executor: &GitCommandExecutor, repo_path: &str,
   let ref_arg = format!("--ref={REPLAY_REF}");
   let mut args = vec!["replay", "--ref-action=print", &onto_arg, &ref_arg];
   args.extend_from_slice(revs);
-  let (output, exit_code) = git_executor.execute_command_with_status_env(&args, repo_path, env)?;
-  match exit_code {
+  let output = git_executor.cmd(&args, repo_path).env(env).status()?;
+  match output.code {
     0 => {
+      let output = output.into_text();
       // `update <ref> <new> <old>`
       let new_tip = output
         .lines()
@@ -34,7 +35,7 @@ pub fn replay_range_with_env(git_executor: &GitCommandExecutor, repo_path: &str,
       Ok(Some(new_tip.to_string()))
     }
     1 => Ok(None),
-    _ => Err(CopyCommitError::Other(anyhow!("git replay failed: {output}"))),
+    _ => Err(CopyCommitError::Other(anyhow!("git replay failed: {}", output.stderr))),
   }
 }
 

@@ -37,7 +37,7 @@ pub fn get_commits_info(git_executor: &GitCommandExecutor, repo_path: &str, ids:
 
   let pretty_format = format!("--pretty=format:{COMMIT_RECORD_FORMAT}");
   let args = ["log", "--no-walk=unsorted", "--stdin", pretty_format.as_str()];
-  let output = git_executor.execute_command_with_input(&args, repo_path, &input)?;
+  let output = git_executor.cmd(&args, repo_path).stdin(input.as_bytes()).text()?;
   commit_records(&output)
     .map(|record| commit_list::parse_single_commit(record).map(|commit| (commit.id.clone(), commit)))
     .collect()

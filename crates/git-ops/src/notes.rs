@@ -75,7 +75,10 @@ pub fn read_notes(git_executor: &GitCommandExecutor, repo_path: &str, notes_ref:
   }
   let notes_arg = format!("--notes={notes_ref}");
   // `-z` ends each record with NUL, which a text note never holds
-  let output = git_executor.execute_command_with_input(&["log", "--no-walk", "--stdin", "-z", "--format=%H%x1f%N", &notes_arg], repo_path, &input)?;
+  let output = git_executor
+    .cmd(&["log", "--no-walk", "--stdin", "-z", "--format=%H%x1f%N", &notes_arg], repo_path)
+    .stdin(input.as_bytes())
+    .text()?;
   Ok(
     output
       .split('\0')

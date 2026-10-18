@@ -158,7 +158,7 @@ pub fn read_commit_files(git: &GitCommandExecutor, repository_path: &str, ids: &
   let mut args = vec!["diff-tree", "--stdin", "--raw", "--numstat", "-z"];
   args.extend(DIFF_OPTIONS);
   let input = stdin_lines(ids);
-  let output = git.execute_command_with_input_raw(&args, repository_path, &input)?;
+  let output = git.cmd(&args, repository_path).stdin(input.as_bytes()).bytes()?;
   parse_commit_files(&output)
 }
 
@@ -182,7 +182,7 @@ pub fn read_files_from_base(git: &GitCommandExecutor, repository_path: &str, bas
     input.push('\n');
     input
   });
-  let output = git.execute_command_with_input_raw(&args, repository_path, &input)?;
+  let output = git.cmd(&args, repository_path).stdin(input.as_bytes()).bytes()?;
   parse_commit_files(&output)
 }
 
@@ -216,7 +216,7 @@ pub fn read_commit_files_cached(git: &GitCommandExecutor, repository_path: &str,
 #[instrument(skip(git))]
 pub fn read_diff_files(git: &GitCommandExecutor, repository_path: &str, subject: &DiffSubject) -> Result<CommitFiles> {
   let args = subject.diff_tree_args(&["--raw", "--numstat", "-z", "--no-commit-id"])?;
-  let output = git.execute_command_raw_accepting(&args, repository_path, &[])?.0;
+  let output = git.cmd(&args, repository_path).bytes()?;
   let id = subject.id();
   let mut files = parse_files(&output, Some(id.clone()))?;
   Ok(CommitFiles::new(id.clone(), files.remove(&id).unwrap_or_default()))
@@ -412,9 +412,9 @@ pub fn read_patch(git: &GitCommandExecutor, repository_path: &str, subject: &Dif
   options.extend(PATCH_OPTIONS);
   let args = subject.diff_tree_args(&options)?;
   let mut splitter = PatchSplitter::new(*limits);
-  git.execute_command_streaming(&args, repository_path, |chunk| {
+  git.cmd(&args, repository_path).stream(|chunk| {
     splitter.push(chunk);
-    Ok(())
+    Ok(ControlFlow::Continue(()))
   })?;
   Ok(CommitPatch {
     commit_id: subject.id(),
@@ -433,10 +433,10 @@ pub fn read_patch_and_files(git: &GitCommandExecutor, repository_path: &str, sub
   let mut files_output = Vec::new();
   let mut in_patch = false;
   let mut splitter = PatchSplitter::new(*limits);
-  git.execute_command_streaming(&args, repository_path, |chunk| {
+  git.cmd(&args, repository_path).stream(|chunk| {
     if in_patch {
       splitter.push(chunk);
-      return Ok(());
+      return Ok(ControlFlow::Continue(()));
     }
     // a NUL that ended the previous chunk may be the first of the two
     let from = files_output.len().saturating_sub(1);
@@ -446,7 +446,7 @@ pub fn read_patch_and_files(git: &GitCommandExecutor, repository_path: &str, sub
       in_patch = true;
       splitter.push(&patch);
     }
-    Ok(())
+    Ok(ControlFlow::Continue(()))
   })?;
   let id = subject.id();
   let mut files = parse_files(&files_output, Some(id.clone()))?;

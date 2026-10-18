@@ -28,10 +28,8 @@ pub(crate) fn commit_count(repo: &TestRepo) -> Result<usize> {
 
 /// `git status --porcelain` of tracked files
 pub(crate) fn status(repo: &TestRepo) -> Result<String> {
-  let output = repo
-    .git_executor()
-    .execute_command_raw(&["status", "--porcelain", "--untracked-files=no"], repo_path(repo))?;
-  Ok(output.trim_end().to_string())
+  let output = repo.git_executor().cmd(&["status", "--porcelain", "--untracked-files=no"], repo_path(repo)).bytes()?;
+  Ok(String::from_utf8_lossy(&output).trim_end().to_string())
 }
 
 /// Trimmed content of `file` at `rev`
@@ -47,7 +45,7 @@ pub(crate) fn log_format(repo: &TestRepo, rev: &str, format: &str) -> Result<Str
 
 /// The status, the staged and the unstaged changes (binary diffs): what a rewrite that keeps HEAD's tree must not change
 pub(crate) fn worktree_snapshot(repo: &TestRepo) -> Result<[String; 3]> {
-  let git = |args: &[&str]| repo.git_executor().execute_command_raw(args, repo_path(repo));
+  let git = |args: &[&str]| -> Result<String> { Ok(String::from_utf8_lossy(&repo.git_executor().cmd(args, repo_path(repo)).bytes()?).into_owned()) };
   Ok([
     git(&["status", "--porcelain=v2", "--untracked-files=all"])?,
     git(&["diff", "--cached", "--binary"])?,

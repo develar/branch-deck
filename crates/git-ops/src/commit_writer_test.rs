@@ -12,10 +12,7 @@ fn a_message_is_completed_as_commit_tree_stores_it() {
   let tree = repo.git(&["write-tree"]);
   for message in ["", "Add login", "Add login\n", "Add login\n\nBody\n\n"] {
     let commit = repo.git(&["commit-tree", &tree, "-m", message]);
-    let (raw, _) = repo
-      .git_executor()
-      .execute_command_raw_accepting(&["cat-file", "commit", &commit], repo.path_str(), &[])
-      .unwrap();
+    let raw = repo.git_executor().cmd(&["cat-file", "commit", &commit], repo.path_str()).bytes().unwrap();
     let stored = &raw[raw.windows(2).position(|pair| pair == b"\n\n").unwrap() + 2..];
     assert_eq!(complete_line(message), stored, "{message:?}");
   }

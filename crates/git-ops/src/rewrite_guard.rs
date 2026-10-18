@@ -167,15 +167,8 @@ impl IndexUpdate {
   pub fn apply(&self, git_executor: &GitCommandExecutor, repo_path: &str) -> Result<()> {
     let result = match self {
       Self::TwoWay { old_tree, new_tree } if old_tree == new_tree => return Ok(()),
-      Self::TwoWay { old_tree, new_tree } => git_executor.execute_command(&["read-tree", "-m", "-i", old_tree, new_tree], repo_path),
-      Self::FromWorktree(files) => {
-        let mut input = String::new();
-        for file in files {
-          input.push_str(file);
-          input.push('\0');
-        }
-        git_executor.execute_command_with_input(&["update-index", "--add", "--remove", "-z", "--stdin"], repo_path, &input)
-      }
+      Self::TwoWay { old_tree, new_tree } => git_executor.execute_command(&["read-tree", "-m", "-i", old_tree, new_tree], repo_path).map(drop),
+      Self::FromWorktree(files) => stage_worktree_files(git_executor, repo_path, &[], files),
     };
     result.map_err(|e| anyhow!("The branch was rewritten, but the index could not follow it; run `git reset -q` to reset the index to HEAD: {e:#}"))?;
     // read-tree drops the stat data of the replaced entries; refresh it so `git status` doesn't rehash those files.
@@ -183,6 +176,22 @@ impl IndexUpdate {
     git_executor.execute_command_with_status(&["update-index", "-q", "--refresh"], repo_path)?;
     Ok(())
   }
+}
+
+/// Stage the working-tree versions of `files` (a missing file is removed) into the index of `env`: the user's, or a
+/// temporary one by `GIT_INDEX_FILE`. One `update-index --add --remove -z --stdin`
+pub(crate) fn stage_worktree_files(git_executor: &GitCommandExecutor, repo_path: &str, env: &[(&str, &str)], files: &[String]) -> Result<()> {
+  let mut input = String::new();
+  for file in files {
+    input.push_str(file);
+    input.push('\0');
+  }
+  git_executor
+    .cmd(&["update-index", "--add", "--remove", "-z", "--stdin"], repo_path)
+    .env(env)
+    .stdin(input.as_bytes())
+    .text()?;
+  Ok(())
 }
 
 /// The paths a two-way `read-tree -m <old_tree> <new_tree>` of the index of `env` refuses: staged as neither tree has

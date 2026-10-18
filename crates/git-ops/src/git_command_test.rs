@@ -65,7 +65,9 @@ fn test_large_stdin_and_stdout_do_not_deadlock() {
   // Input and output are both far larger than a pipe buffer: stdin must be written while stdout is drained
   let input = format!("{head}\n").repeat(50_000);
   let output = git_executor
-    .execute_command_with_input(&["cat-file", "--batch-check"], repo.path().to_str().unwrap(), &input)
+    .cmd(&["cat-file", "--batch-check"], repo.path().to_str().unwrap())
+    .stdin(input.as_bytes())
+    .text()
     .unwrap();
   assert_eq!(output.lines().count(), 50_000);
 }

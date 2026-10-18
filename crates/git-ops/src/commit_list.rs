@@ -6,6 +6,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "specta")]
 use specta::Type;
+use std::ops::ControlFlow;
 use tracing::{debug, instrument};
 
 /// Struct to hold commit data returned by git CLI
@@ -98,7 +99,7 @@ where
     Ok(())
   };
 
-  git_executor.execute_command_streaming(&args, repo_path, |chunk| {
+  git_executor.cmd(&args, repo_path).stream(|chunk| {
     // Search only the new bytes: earlier bytes in the buffer are known to hold no separator
     let search_from = buffer.len();
     buffer.extend_from_slice(chunk);
@@ -110,7 +111,7 @@ where
       record_start = separator_pos + 1;
     }
     buffer.drain(..record_start);
-    Ok(())
+    Ok(ControlFlow::Continue(()))
   })?;
 
   // Process any remaining data in buffer

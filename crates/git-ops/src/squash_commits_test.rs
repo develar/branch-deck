@@ -55,7 +55,7 @@ fn base_a_b() -> (TestRepo, String, String) {
 }
 
 fn git(repo: &TestRepo, args: &[&str]) -> Result<String> {
-  repo.git_executor().execute_command_raw(args, repo_path(repo))
+  Ok(String::from_utf8_lossy(&repo.git_executor().cmd(args, repo_path(repo)).bytes()?).into_owned())
 }
 
 fn subjects(repo: &TestRepo) -> Result<String> {
@@ -145,7 +145,9 @@ fn target_message_keeps_the_bytes_and_the_encoding() -> Result<()> {
   let head = repo.head();
   let target = repo
     .git_executor()
-    .execute_command_with_input_bytes(&["commit-tree", &tree, "-p", &head, "-F", "-"], repo_path(&repo), message)?;
+    .cmd(&["commit-tree", &tree, "-p", &head, "-F", "-"], repo_path(&repo))
+    .stdin(message)
+    .bytes()?;
   let target = String::from_utf8(target)?.trim().to_string();
   git(&repo, &["update-ref", "HEAD", &target])?;
   let folded = repo.create_commit("fixup! Café", "a.txt", "a");
@@ -153,9 +155,7 @@ fn target_message_keeps_the_bytes_and_the_encoding() -> Result<()> {
   let prepared = prepare(&repo, &[group(&target, &[&folded], SquashMessage::Target)])?;
   prepared.apply(repo.git_executor(), repo_path(&repo), RefTransaction::new(), "squash")?;
 
-  let raw = repo
-    .git_executor()
-    .execute_command_with_input_bytes(&["cat-file", "commit", "HEAD"], repo_path(&repo), b"")?;
+  let raw = repo.git_executor().cmd(&["cat-file", "commit", "HEAD"], repo_path(&repo)).bytes()?;
   assert!(raw.windows(20).any(|w| w == b"encoding ISO-8859-1\n"), "{}", String::from_utf8_lossy(&raw));
   assert!(raw.ends_with(message));
   assert_eq!(show(&repo, "HEAD", "a.txt")?, "a");

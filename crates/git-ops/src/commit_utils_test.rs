@@ -96,7 +96,7 @@ fn test_get_commits_info_many_ids() {
     )
     .unwrap();
   }
-  git_executor.execute_command_with_input(&["fast-import", "--quiet"], repo_path, &stream).unwrap();
+  git_executor.cmd(&["fast-import", "--quiet"], repo_path).stdin(stream.as_bytes()).text().unwrap();
   let ids = git_executor.execute_command_lines(&["rev-list", "many"], repo_path).unwrap();
   assert_eq!(ids.len(), count);
 
@@ -145,7 +145,9 @@ fn a_blob_id_is_the_one_of_hash_object() {
     for content in ["", "target/of/a/link", "line\n\u{e9}\0binary"] {
       let expected = repo
         .git_executor()
-        .execute_command_with_input(&["hash-object", "--stdin"], repo.path_str(), content)
+        .cmd(&["hash-object", "--stdin"], repo.path_str())
+        .stdin(content.as_bytes())
+        .text()
         .unwrap();
       assert_eq!(blob_id(&tree, content.as_bytes()), expected, "{format} {content:?}");
     }

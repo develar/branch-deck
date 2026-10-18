@@ -4,6 +4,7 @@
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::io::Write;
+use std::ops::ControlFlow;
 
 /// Stream the tar of the tree of `commit` (a full id), only `paths` if given, into `out`: one `git archive --format=tar`,
 /// written as it arrives, never held whole
@@ -13,7 +14,10 @@ pub fn write_tree_archive(git_executor: &GitCommandExecutor, repository_path: &s
     args.push("--");
     args.extend(paths);
   }
-  git_executor.execute_command_streaming(&args, repository_path, |chunk| out.write_all(chunk).map_err(anyhow::Error::from))
+  git_executor.cmd(&args, repository_path).stream(|chunk| {
+    out.write_all(chunk)?;
+    Ok(ControlFlow::Continue(()))
+  })
 }
 
 #[cfg(test)]

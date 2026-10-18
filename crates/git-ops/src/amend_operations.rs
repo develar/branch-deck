@@ -9,7 +9,7 @@ use crate::model::BranchError;
 use crate::ref_transaction::RefTransaction;
 use crate::replay::{merge_trees, replay_onto};
 use crate::revs::short_id;
-use crate::rewrite_guard::IndexUpdate;
+use crate::rewrite_guard::{IndexUpdate, stage_worktree_files};
 use crate::rewrite_plan::{PreparedRewrite, check_target};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -173,20 +173,13 @@ impl TempIndex {
 fn tree_with_worktree_files(git_executor: &GitCommandExecutor, repo_path: &str, base_tree: &str, files: &[String]) -> Result<String, CopyCommitError> {
   let tmp_idx = TempIndex::new()?;
   git_executor
-    .execute_command_with_env(&["read-tree", base_tree], repo_path, &tmp_idx.env())
+    .cmd(&["read-tree", base_tree], repo_path)
+    .env(&tmp_idx.env())
+    .text()
     .map_err(CopyCommitError::Other)?;
 
-  let mut input = String::new();
-  for file in files {
-    input.push_str(file);
-    input.push('\0');
-  }
-  git_executor
-    .execute_command_with_env_and_stdin(&["update-index", "--add", "--remove", "-z", "--stdin"], repo_path, &tmp_idx.env(), &input)
-    .map_err(|e| CopyCommitError::Other(anyhow!("Failed to read the working tree changes: {e}")))?;
+  stage_worktree_files(git_executor, repo_path, &tmp_idx.env(), files).map_err(|e| CopyCommitError::Other(anyhow!("Failed to read the working tree changes: {e}")))?;
 
-  let tree = git_executor
-    .execute_command_with_env(&["write-tree"], repo_path, &tmp_idx.env())
-    .map_err(CopyCommitError::Other)?;
+  let tree = git_executor.cmd(&["write-tree"], repo_path).env(&tmp_idx.env()).text().map_err(CopyCommitError::Other)?;
   Ok(tree.trim().to_string())
 }

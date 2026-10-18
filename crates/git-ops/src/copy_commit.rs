@@ -64,7 +64,8 @@ pub fn read_virtual_commits(git_executor: &GitCommandExecutor, repo_path: &str, 
   let mut args = vec!["log", "--format=%H%x1f%P%x1f%T%x1f%an%x1f%ae%x1f%at%x1f%B%x1e", "--end-of-options"];
   args.extend_from_slice(tips);
   args.push(&exclude);
-  let output = git_executor.execute_command_raw(&args, repo_path)?;
+  let output = git_executor.cmd(&args, repo_path).bytes()?;
+  let output = String::from_utf8_lossy(&output);
   let mut commits = HashMap::new();
   for record in output.split('\u{1e}') {
     let record = record.trim_start_matches('\n');

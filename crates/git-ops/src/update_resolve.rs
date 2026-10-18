@@ -869,8 +869,11 @@ fn patch_identical(git_executor: &GitCommandExecutor, repo_path: &str, upstream_
     let _ = writeln!(input, "{id}");
     input
   });
-  let patches = git_executor.execute_command_with_input_raw(&["diff-tree", "--stdin", "-p", "--no-renames", "--no-ext-diff", "--no-textconv"], repo_path, &input)?;
-  let ids = git_executor.execute_command_with_input_bytes(&["patch-id", "--stable"], repo_path, &patches)?;
+  let patches = git_executor
+    .cmd(&["diff-tree", "--stdin", "-p", "--no-renames", "--no-ext-diff", "--no-textconv"], repo_path)
+    .stdin(input.as_bytes())
+    .bytes()?;
+  let ids = git_executor.cmd(&["patch-id", "--stable"], repo_path).stdin(&patches).bytes()?;
   // `<patch id> <commit>` per commit
   let mut upstream_by_patch: HashMap<&str, &str> = HashMap::new();
   let mut local_by_patch: Vec<(&str, &str)> = Vec::new();
@@ -1245,23 +1248,23 @@ pub fn read_round_objects(git_executor: &GitCommandExecutor, repo_path: &str, co
 
 /// `c^..c` of the round's commit, with its message and stat: what the agent reapplies onto `onto`
 pub fn commit_patch(git_executor: &GitCommandExecutor, repo_path: &str, commit: &str) -> Result<Vec<u8>> {
-  let (output, _) = git_executor.execute_command_raw_accepting(
-    &[
-      "log",
-      "-1",
-      "--patch-with-stat",
-      "--no-ext-diff",
-      "--no-textconv",
-      "--default-prefix",
-      "-M",
-      "--format=fuller",
-      commit,
-      "--",
-    ],
-    repo_path,
-    &[],
-  )?;
-  Ok(output)
+  git_executor
+    .cmd(
+      &[
+        "log",
+        "-1",
+        "--patch-with-stat",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--default-prefix",
+        "-M",
+        "--format=fuller",
+        commit,
+        "--",
+      ],
+      repo_path,
+    )
+    .bytes()
 }
 
 /// The upstream commits since the merge base that changed the conflicting files of the round, newest
@@ -1346,23 +1349,25 @@ fn advance(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut Sessi
 fn open_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState) -> Result<(RoundConflict, RoundObjects)> {
   let commit = &state.local[state.replayed];
   let parent = format!("{commit}^");
-  let (output, exit_code) = git_executor.execute_command_raw_accepting(
-    &[
-      "-c",
-      "merge.conflictStyle=zdiff3",
-      "merge-tree",
-      "--write-tree",
-      "-z",
-      "--merge-base",
-      &parent,
-      &state.tip,
-      commit,
-    ],
-    repo_path,
-    &[1],
-  )?;
-  let merge = parse_merge_tree_output(&output)?;
-  if exit_code == 0 || merge.entries.is_empty() {
+  let output = git_executor
+    .cmd(
+      &[
+        "-c",
+        "merge.conflictStyle=zdiff3",
+        "merge-tree",
+        "--write-tree",
+        "-z",
+        "--merge-base",
+        &parent,
+        &state.tip,
+        commit,
+      ],
+      repo_path,
+    )
+    .accept(&[1])
+    .output()?;
+  let merge = parse_merge_tree_output(&output.stdout)?;
+  if output.code == 0 || merge.entries.is_empty() {
     bail!("{} replays with a conflict, but merge-tree merges it cleanly", short_id(commit));
   }
   let files = conflict_files(&merge).map_err(|e| name_the_commit(git_executor, repo_path, state, e))?;

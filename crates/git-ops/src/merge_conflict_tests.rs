@@ -512,11 +512,12 @@ fn the_report_of_a_conflict_costs_five_processes() {
   let (parent, target, cherry) = conflict_with_a_missing_commit(&test_repo);
   let merge_tree = test_repo
     .git_executor()
-    .execute_command_accepting(
+    .cmd(
       &["-c", "merge.conflictStyle=zdiff3", "merge-tree", "--write-tree", "--merge-base", &parent, &target, &cherry],
       test_repo.path_str(),
-      &[1],
     )
+    .accept(&[1])
+    .text()
     .unwrap();
   let merge_tree = merge_tree.lines().next().unwrap().to_string();
   let files = [PathBuf::from("f.txt")];

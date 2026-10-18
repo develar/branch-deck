@@ -34,7 +34,7 @@ pub fn read_attributes<'a>(
   let source = format!("--source={source}");
   let mut args = vec!["check-attr", source.as_str(), "--stdin", "-z"];
   args.extend_from_slice(attributes);
-  let output = git.execute_command_with_input_raw(&args, repository_path, &input)?;
+  let output = git.cmd(&args, repository_path).stdin(input.as_bytes()).bytes()?;
   // `<path>` NUL `<attribute>` NUL `<value>` NUL
   let fields: Vec<&[u8]> = output.split(|&b| b == 0).collect();
   Ok(

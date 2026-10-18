@@ -408,7 +408,9 @@ fn a_blob_over_the_limit_is_too_large_with_its_size() {
   let write = |content: &str| {
     repo
       .git_executor()
-      .execute_command_with_input(&["hash-object", "-w", "--stdin"], repo_path(&repo), content)
+      .cmd(&["hash-object", "-w", "--stdin"], repo_path(&repo))
+      .stdin(content.as_bytes())
+      .text()
       .unwrap()
   };
   let (large_id, small_id) = (write(&large), write("small\n"));

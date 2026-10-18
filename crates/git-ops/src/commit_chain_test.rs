@@ -17,20 +17,18 @@ fn commit_tree(repo: &TestRepo, commit: &ChainCommit<'_>) -> String {
   let committer_date = date(commit.committer_timestamp, commit.committer_timezone);
   repo
     .git_executor()
-    .execute_command_with_env(
-      &["commit-tree", commit.tree, "-p", commit.parent, "-m", commit.message],
-      repo.path_str(),
-      &[
-        ("GIT_AUTHOR_NAME", commit.author_name),
-        ("GIT_AUTHOR_EMAIL", commit.author_email),
-        ("GIT_AUTHOR_DATE", &author_date),
-        ("GIT_COMMITTER_NAME", commit.committer_name),
-        ("GIT_COMMITTER_EMAIL", commit.committer_email),
-        ("GIT_COMMITTER_DATE", &committer_date),
-        // a date without a timezone is in the local one; the chain writes UTC
-        ("TZ", "UTC"),
-      ],
-    )
+    .cmd(&["commit-tree", commit.tree, "-p", commit.parent, "-m", commit.message], repo.path_str())
+    .env(&[
+      ("GIT_AUTHOR_NAME", commit.author_name),
+      ("GIT_AUTHOR_EMAIL", commit.author_email),
+      ("GIT_AUTHOR_DATE", &author_date),
+      ("GIT_COMMITTER_NAME", commit.committer_name),
+      ("GIT_COMMITTER_EMAIL", commit.committer_email),
+      ("GIT_COMMITTER_DATE", &committer_date),
+      // a date without a timezone is in the local one; the chain writes UTC
+      ("TZ", "UTC"),
+    ])
+    .text()
     .unwrap()
 }
 

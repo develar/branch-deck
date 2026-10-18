@@ -33,7 +33,9 @@ fn commit(repo: &TestRepo, message: &str, files: &[(&str, &str)], timestamp: i64
   let date = format!("{timestamp} +0200");
   repo
     .git_executor()
-    .execute_command_with_env(&["commit", "-m", message], repo_path(repo), &[("GIT_AUTHOR_DATE", &date), ("GIT_COMMITTER_DATE", &date)])
+    .cmd(&["commit", "-m", message], repo_path(repo))
+    .env(&[("GIT_AUTHOR_DATE", &date), ("GIT_COMMITTER_DATE", &date)])
+    .text()
     .unwrap();
   repo.head()
 }

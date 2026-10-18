@@ -372,7 +372,7 @@ fn reads_the_timezones_of_the_author_and_committer_dates() {
   let git_executor = test_repo.git_executor();
   git_executor.execute_command(&["add", "a.txt"], repo_path).unwrap();
   let env = [("GIT_AUTHOR_DATE", "1700000000 +0530"), ("GIT_COMMITTER_DATE", "1700000100 -0700")];
-  git_executor.execute_command_with_env(&["commit", "-m", "Add a"], repo_path, &env).unwrap();
+  git_executor.cmd(&["commit", "-m", "Add a"], repo_path).env(&env).text().unwrap();
 
   let commit = crate::commit_utils::get_commits_info(git_executor, repo_path, &["HEAD"])
     .unwrap()

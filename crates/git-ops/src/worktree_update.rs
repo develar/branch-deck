@@ -19,16 +19,19 @@ pub(crate) fn dry_run_worktree_update(git_executor: &GitCommandExecutor, repo_pa
   let copy = IndexCopy::new(git_executor, repo_path)?;
   let env = [("GIT_INDEX_FILE", copy.path())];
 
-  let (output, exit_code) = git_executor.execute_command_with_status_env(&["update-index", "-q", "--refresh"], repo_path, &env)?;
-  if exit_code != 0 {
-    bail!("Failed to refresh a copy of the index: {output}");
+  let refreshed = git_executor.cmd(&["update-index", "-q", "--refresh"], repo_path).env(&env).status()?;
+  if refreshed.code != 0 {
+    bail!("Failed to refresh a copy of the index: {}", refreshed.stderr);
   }
-  let (output, exit_code) = git_executor.execute_command_with_status_env(&["read-tree", "-m", "-u", "-n", "--no-recurse-submodules", old_tree, new_tree], repo_path, &env)?;
-  if exit_code == 0 {
+  let dry_run = git_executor
+    .cmd(&["read-tree", "-m", "-u", "-n", "--no-recurse-submodules", old_tree, new_tree], repo_path)
+    .env(&env)
+    .status()?;
+  if dry_run.code == 0 {
     return Ok(None);
   }
-  debug!(output = %output, "working tree update dry run refused");
-  Ok(Some(output))
+  debug!(output = %dry_run.stderr, "working tree update dry run refused");
+  Ok(Some(dry_run.stderr))
 }
 
 /// Update the user's index and working tree from `old_tree` (the tree of the commit HEAD pointed at) to `new_tree`

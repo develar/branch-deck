@@ -22,7 +22,7 @@ pub(crate) fn commits_touching(git_executor: &GitCommandExecutor, repo_path: &st
   args.push("--");
   args.extend(files.iter().take(MAX_ATTRIBUTED_FILES).map(String::as_str));
   // the paths are names, not globs
-  let output = git_executor.execute_command_with_env(&args, repo_path, &[("GIT_LITERAL_PATHSPECS", "1")])?;
+  let output = git_executor.cmd(&args, repo_path).env(&[("GIT_LITERAL_PATHSPECS", "1")]).text()?;
   Ok(parse_commits(&output))
 }
 
@@ -82,7 +82,9 @@ impl ChangedPath {
 
 /// Every path that differs between two tree-ish (`diff-tree -r -z --no-renames`, raw format), the paths as bytes
 pub(crate) fn changed_paths(git_executor: &GitCommandExecutor, repo_path: &str, from: &str, to: &str) -> Result<Vec<ChangedPath>> {
-  let (output, _) = git_executor.execute_command_raw_accepting(&["diff-tree", "-r", "-z", "--no-renames", "--end-of-options", from, to], repo_path, &[])?;
+  let output = git_executor
+    .cmd(&["diff-tree", "-r", "-z", "--no-renames", "--end-of-options", from, to], repo_path)
+    .bytes()?;
   let mut fields = output.split(|&b| b == 0).filter(|field| !field.is_empty());
   let mut paths = Vec::new();
   // `:<old mode> <new mode> <old id> <new id> <status>`, then the path
