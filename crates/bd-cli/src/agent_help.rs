@@ -100,14 +100,20 @@ Workflow:
    Push of the whole stack (`state`: `built`, `blocked` by `member`, `conflict`, `stale`); push none that isn't
    `built`.
 5. A Patronus Safe Push (the repository on Space, the Safe Push CLI logged in once, else `not_logged_in`): first
-   `bd safe-push <branch> --check`. It prints the merge `profile` (default: the one of the last robot of the
-   branch), the `profiles` to choose from, the code-owner `review` (`readiness`: `not_required`, `approved`,
+   `bd safe-push <branch> --check`, always. It prints `lands`, the merge `profile` (default: the one of the last robot
+   of the branch), the `profiles` to choose from, the code-owner `review` (`readiness`: `not_required`, `approved`,
    `missing` or `unknown`; `groups` with their `reviewers` and `paths`, `waiting_for`, `not_counted`, `merge_request`),
-   `push_needed` and the `refusals` of a start. Patronus judges the approvals of the pull request: a bot's approval
-   counts for nothing (`not_counted`). Show them to the user; only after the
-   user approves, `bd safe-push <branch>` (--profile <id|name|none>; --dry-run runs the checks without the push into
-   the target and checks no review). It pushes the branch first when `push_needed` (by content: a branch only rebuilt
-   on a newer baseline is not pushed), as `bd push` does, then starts the robot:
+   `push_needed` and the `refusals` of a start. `lands` is what the one robot lands into the target, root first: a
+   stacked branch carries the commits of the branches it is built on, so its Safe Push lands them with it, and the
+   branches built on it stay. For a stacked branch `alone` is a trial build of the branch without them: `builds` (it
+   could land alone after `bd unstack <branch>`, unless `uses` names a name of its stack) or `needs` (the commits of
+   its parents it needs, `movable` into it). Landing what it is built on is always right: name `lands` to the user,
+   offer the branch alone only as a second way, and unstack or move only when the user chooses it. Patronus judges
+   the approvals of the pull request: a bot's approval counts for nothing (`not_counted`). Show them to the user; only
+   after the user approves, `bd safe-push <branch>` (--profile <id|name|none>; --dry-run runs the checks without the
+   push into the target and checks no review). It pushes the branch first when `push_needed`, with the parents that
+   have commits for the remote (by content: a branch only rebuilt on a newer baseline is not pushed), as `bd push`
+   does, then starts the robot:
    `robot.url` is its page; a branch with an open pull request into the target starts from a `/patronus` comment
    there, where its approvals count (`started_via`); one into a virtual branch is retargeted to the target first
    (`retargeted`, also those of the parents it pushes). `approvals_missing` (exit 4): nothing was pushed or started,
@@ -118,13 +124,12 @@ Workflow:
    `review.waiting_for` are the code owners asked who haven't approved yet. Once they approved it there
    (`review.approved_on_github` names the approvals that count), run it again.
    --without-approvals starts anyway, only when the user says so: Patronus fails it without them. `robot_running`:
-   a robot runs on the last commit, or lands the branch with a branch of its stack; a Safe Push of an older commit
-   is canceled with --cancel-running, after the user approves. `stack_not_landed`: Safe Push the root first, or
-   --land-stack lands the parents with the branch. Its message ends with a trial build of the branch alone: it builds
-   alone (`bd unstack <branch>`, after the user approves), or it needs commits of its parents (move them first).
+   a robot runs on the last commit, lands the branch with a branch of its stack, or lands a branch it is built on; a
+   Safe Push of an older commit is canceled with --cancel-running, after the user approves.
    `dangling_reference`: the branch or a parent removes a declaration that a commit of another branch still changes
    the use of, as check reports it: fix it, or `bd safe-push <branch> --allow-dangling` when the user says it is a
-   false alarm.
+   false alarm. bd closes no pull request after the merge: the app closes those of the parents that landed with the
+   branch when it sees the robot merge; if the app isn't running then, tell the user that they stay open.
    A pull request that exists but asks no code owner of a missing group: `bd request-review <branch> --check` names
    whom it would ask (`reviewers`: one suggested code owner of each such group); only after the user approves,
    `bd request-review <branch>` asks them on GitHub (--reviewer <login>, repeatable, asks these instead and doesn't
@@ -229,8 +234,8 @@ pub fn skill_text(command: &str) -> String {
     "\
 ---
 name: branch-deck
-description: Group the commits of a Git branch into virtual branches and stacked pull requests with the `bd` command \
-line of Branch Deck, update onto the baseline and resolve conflicts. Use when the user asks to split, group, cluster \
+description: Group the commits of a Git branch into virtual branches and pull requests, stacked when they build on \
+each other, with the `bd` command line of Branch Deck, update onto the baseline and resolve conflicts. Use when the user asks to split, group, cluster \
 or reorganize commits into branches or pull requests, to stack branches, to sync or push virtual branches, to start a \
 Patronus Safe Push or Dry Run of a branch or to fix one that failed, to update a branch onto its baseline or resolve its update conflicts, or \
 mentions Branch Deck.
@@ -255,6 +260,8 @@ version. To update a branch or resolve its update conflicts, run `bd help update
 - Never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; move a
   change between commits only with `bd move-hunk`; never push, start a Safe Push or create pull requests before the
   user approved them.
+- Before a Safe Push, run `bd safe-push <branch> --check` first and show the user what it lands: the Safe Push of a
+  stacked branch lands the branches it is built on with it, in one robot.
 "
   )
 }

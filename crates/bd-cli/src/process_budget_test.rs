@@ -325,6 +325,48 @@ fn a_safe_push_check() {
   );
 }
 
+/// `bd safe-push form --check` of a branch stacked on auth: what `a_safe_push_check` runs, and the trial build of form
+/// alone (`alone`) in the same trial session as the dangling references, so no second `log` or `for-each-ref`: its
+/// build (`merge-tree`, `fast-import`) and the changes of the commits for the names they use (`log`). The sync of the
+/// stack builds form on auth without a merge and looks for the notes of the stack (`show-ref`). The `stack_not_landed`
+/// refusal before it opened a second trial session for the same build: 40 processes
+#[test]
+fn a_safe_push_check_of_a_stacked_branch() {
+  let space = Space::new(&["(auth) Add login", "(auth/form) Add form"]);
+  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  let environment = space.environment();
+  let context = space_context(&environment);
+  let args = SafePushArgs {
+    branch: "form".to_string(),
+    check: true,
+    ..SafePushArgs::default()
+  };
+  let output = safe_push(&context, &args, &environment).unwrap();
+  assert_eq!(output.lands, ["auth", "form"]);
+  assert!(output.alone.as_ref().is_some_and(|alone| alone.result == "builds"), "{output:?}");
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 2),
+      ("config", 1),
+      ("diff-tree", 1),
+      ("fast-import", 4),
+      ("for-each-ref", 2),
+      ("log", 8),
+      ("merge-base", 1),
+      ("merge-tree", 1),
+      ("notes", 1),
+      ("remote", 2),
+      ("rev-list", 2),
+      ("rev-parse", 4),
+      ("show-ref", 2),
+      ("symbolic-ref", 1),
+      ("update-ref", 2),
+      ("var", 1),
+    ],
+  );
+}
+
 /// The context of the environment of a Space fixture, after its sync
 fn space_context(environment: &crate::context::Environment) -> RepoContext {
   let options = RepoOptions {

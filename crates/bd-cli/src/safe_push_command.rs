@@ -1,19 +1,22 @@
 //! `bd safe-push`: start a Patronus robot on a virtual branch, as the app's Safe Push form does: a Safe Push (rebase onto
-//! the target, the checks, the push into the target) or a Dry Run (the checks only), with a merge profile. Before a Safe
-//! Push the code-owner review is checked; unlike the form, which only warns, missing approvals refuse the start
-//! (`approvals_missing`): Patronus would fail the robot with "Changes require review approval". A branch the remote
-//! lacks commits of (by content, as the sync's remote status compares) is pushed first, parents first, as `bd push`
-//! pushes it; one only rebuilt on a newer baseline is not: the robot takes the remote branch. The start is never repeated. With `--check` nothing is pushed or
-//! started: the profiles, the review and what stands in the way, for the user to approve. The approvals count in the
-//! GitHub pull request of the branch (Space merge requests are deprecated): `--create-pull-request` opens it, into the
-//! target as every pull request of a virtual branch (or takes the open one of the branch, whatever its base), and the
-//! Safe Push then starts from it with a `/patronus` comment. An open pull request of the branch, or of a branch the push
-//! takes along, whose base is a virtual branch is retargeted to the target first (`pull_request_retarget`).
+//! the target, the checks, the push into the target) or a Dry Run (the checks only), with a merge profile. A stacked
+//! branch carries the commits of the branches it is built on, so its Safe Push lands them with it, in one robot
+//! (`lands`); with `--check` the trial build of the branch alone says whether it could land without them (`alone`), a
+//! second way the user chooses (`bd unstack`), never the lead. Before a Safe Push the code-owner review is checked;
+//! unlike the form, which only warns, missing approvals refuse the start (`approvals_missing`): Patronus would fail the
+//! robot with "Changes require review approval". A branch the remote lacks commits of (by content, as the sync's
+//! remote status compares) is pushed first, parents first, as `bd push` pushes it; one only rebuilt on a newer baseline
+//! is not: the robot takes the remote branch. The start is never repeated. With `--check` nothing is pushed or started:
+//! the profiles, the review and what stands in the way, for the user to approve. The approvals count in the GitHub pull
+//! request of the branch (Space merge requests are deprecated): `--create-pull-request` opens it, into the target as
+//! every pull request of a virtual branch (or takes the open one of the branch, whatever its base), and the Safe Push
+//! then starts from it with a `/patronus` comment. An open pull request of the branch, or of a branch the push takes
+//! along, whose base is a virtual branch is retargeted to the target first (`pull_request_retarget`).
 //!
 //! The sync, the checks before the push and the push run under the repository lock; the start, which can wait up to a
 //! minute for the answer to a pull request comment, after it.
 
-use crate::check_command::{CheckWarning, dangling_reference_message, dangling_references_of};
+use crate::check_command::{CheckConflict, CheckWarning, dangling_reference_message, dangling_references_in, session_of_sync};
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
@@ -40,7 +43,6 @@ use sync_core::patronus_start::{allows_push_mode, find_landing_ancestor, find_la
 use sync_core::pull_request_create::{CreatePullRequestParams, create_pull_request as core_create_pull_request, fill_pull_request};
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests};
 use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
-use sync_core::sync::SyncReport;
 use sync_types::patronus::{
   MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode,
   PatronusReviewRequirement, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart, ReviewerApprovalState, UnavailableReadinessReason,
@@ -88,8 +90,9 @@ pub struct SafePushArgs {
   /// the Safe Push replaces it
   #[arg(long)]
   pub cancel_running: bool,
-  /// Start a stacked branch whose parents are not in the target yet: its Safe Push lands them with it
-  #[arg(long)]
+  /// Obsolete and without effect: the Safe Push of a stacked branch always lands the branches it is built on with it.
+  /// Accepted so that an older command line still runs
+  #[arg(long, hide = true)]
   pub land_stack: bool,
   /// Start although the branch removes a declaration that a commit of another branch still changes the use of
   /// (`dangling_reference`): the build fails unless the reference is a false alarm
@@ -108,6 +111,10 @@ pub struct SafePushOutput {
   pub mode: String,
   /// The branch of `origin` the robot pushes into, e.g. `master`
   pub target: String,
+  /// What the robot takes, root first, ending with the branch: the branches it is built on (none for a root), then the
+  /// branch itself, whose virtual branch carries all their commits. A Safe Push lands them all into the target in one
+  /// robot, a dry run checks them; with `--create-pull-request`, what its pull request holds. Name them to the user
+  pub lands: Vec<String>,
   /// The merge profile the robot starts with; `null` for the default checks, also for a start from a pull request
   /// comment, which can't choose one
   pub profile: Option<ProfileSummary>,
@@ -122,6 +129,10 @@ pub struct SafePushOutput {
   /// With `--check`: what refuses a start, each with the error code the start would fail with
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub refusals: Vec<Refusal>,
+  /// With `--check`, for a stacked branch: the trial build of the branch alone, as a root, whether it could land
+  /// without the branches it is built on. A second way for the user to choose, never the lead; a start runs no trial
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub alone: Option<AloneBuild>,
   /// What may break the build though no commit proves it, as `bd check` warns: `possible_dangling_reference`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub warnings: Vec<CheckWarning>,
@@ -165,6 +176,60 @@ pub struct ProfileSummary {
 pub struct Refusal {
   pub code: ErrorCode,
   pub message: String,
+}
+
+/// The trial build of a stacked branch alone (`stack_independence` in `crates/sync-core/src/check.rs`): the branch as a
+/// root on the base the sync builds on, not on the newest target; it writes git objects only and unstacks nothing
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct AloneBuild {
+  /// `builds`: it applies alone, and `bd unstack <branch>` (only after the user approves) makes it a root that lands
+  /// alone, unless `uses` names a name of its stack; `needs`: a commit of it conflicts without the branches it is built
+  /// on; `unknown`: the trial failed, `message` says why
+  pub result: String,
+  /// The parent the branch is stacked on
+  pub parent: String,
+  /// With `builds`: the names commits of the branch use that commits of the branches it is built on add, one per name:
+  /// it applies alone but would not compile (found by names, not by a compiler)
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub uses: Vec<AloneUse>,
+  /// With `builds`: whether the names were read (`branchdeck.symbols on`): then an empty `uses` says that it uses no
+  /// name of its stack; `false`: lines only, a compile dependency on the stack is not seen
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub symbols: Option<bool>,
+  /// With `needs`: the first commit of the branch that conflicts, and its files
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub conflict: Option<CheckConflict>,
+  /// With `needs`: the commits of the branches it is built on that it needs, and what these need, oldest first, by the
+  /// line dependencies: what a move into the branch would move; empty when no commit of them explains the conflict
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub needs: Vec<StackCommitSummary>,
+  /// With `needs`: whether `needs` can move into the branch (then `bd unstack <branch>`); `false`: other branches need
+  /// them too, and a move would make those need this one
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub movable: Option<bool>,
+  /// What it means, in a sentence to tell the user
+  pub message: String,
+}
+
+/// A use, by a commit of the branch, of a name a commit of a branch it is built on adds
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct AloneUse {
+  pub identifier: String,
+  /// The commit of the branch that uses it
+  pub used_by: String,
+  /// The commit that adds it
+  pub declared_by: String,
+  /// The branch of `declared_by`
+  pub declared_in: String,
+}
+
+/// A commit ahead of the baseline and its branch
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct StackCommitSummary {
+  pub commit: String,
+  /// The subject without its prefix
+  pub subject: String,
+  pub branch: String,
 }
 
 /// The code-owner review of the branch, as the pre-check of Patronus answers it
@@ -313,7 +378,11 @@ struct Plan {
   /// The open pull requests into a virtual branch of the branch and of the branches its push takes along
   retargets: Vec<RetargetedPullRequest>,
   push_needed: bool,
+  /// The branches it is built on, root first, then the branch
+  lands: Vec<String>,
   refusals: Vec<Refusal>,
+  /// With `--check`, for a stacked branch: its trial build alone
+  alone: Option<AloneBuild>,
   warnings: Vec<CheckWarning>,
   /// The running Safe Push of an older commit that the start replaces: a push would fail it, and without a push the new
   /// robot would run beside it; canceled first with `--cancel-running`, as the app's form cancels it
@@ -336,11 +405,13 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     branch: args.branch.clone(),
     mode: mode_name(mode),
     target: plan.target.clone(),
+    lands: plan.lands.clone(),
     profile: plan.profile.as_ref().map(profile_summary),
     profiles: plan.profiles.iter().map(profile_summary).collect(),
     review: plan.review.as_ref().map(|review| review_summary(review, plan.github.is_some(), plan.pull_request.as_ref())),
     push_needed: plan.push_needed,
     refusals: Vec::new(),
+    alone: None,
     warnings: plan.warnings.clone(),
     pushed: Vec::new(),
     canceled: None,
@@ -361,6 +432,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   };
   if args.check {
     output.refusals = plan.refusals;
+    output.alone = plan.alone;
     output.retargeted = plan.retargets;
     return Ok(output);
   }
@@ -554,28 +626,25 @@ fn plan(
       ),
     });
   }
-  if pushes && !ancestors.is_empty() && !args.land_stack && !args.create_pull_request {
-    refusals.push(Refusal {
-      code: ErrorCode::StackNotLanded,
-      message: format!(
-        "{name} is built on {}, which aren't in {target} yet. Safe Push {} first, then the next: after a merge, the next sync moves the branches built on it onto {target}. Or pass --land-stack: the Safe Push of {name} lands {} with it{}",
-        join_names(&ancestors),
-        ancestors[0],
-        join_names(&ancestors),
-        stack_independence_hint(context, &synced.report, name)
-      ),
-    });
-  }
+  // the virtual branch of a stacked branch carries the commits of its ancestors: one robot lands them all, and the
+  // branches built on it stay
+  let lands: Vec<String> = ancestors.iter().cloned().chain(std::iter::once(name.to_string())).collect();
 
   // a removed declaration that another branch's commit still changes the use of: git merges it, the build fails
-  let built: Vec<&str> = std::iter::once(name).chain(ancestors.iter().map(String::as_str)).collect();
-  let (dangling, warnings) = dangling_references_of(context, &synced.report, &built)?;
+  let session = session_of_sync(context, &synced.report)?;
+  let built: Vec<&str> = lands.iter().map(String::as_str).collect();
+  let (dangling, warnings) = dangling_references_in(context, &session, &built)?;
   if !dangling.is_empty() && !args.allow_dangling {
     refusals.push(Refusal {
       code: ErrorCode::DanglingReference,
       message: dangling_reference_message(name, &dangling),
     });
   }
+  // the second way, for the user to choose: the branch alone, in the same trial session; a start never asks
+  let alone = match ancestors.last() {
+    Some(parent) if args.check => Some(alone_build(context, &session, name, parent)),
+    _ => None,
+  };
 
   let options = runtime
     .block_on(service.start_options(&space.project_key, &space.name, &target, robot.map(|robot| robot.id.as_str())))
@@ -692,7 +761,9 @@ fn plan(
     other_base_pull_request,
     retargets,
     push_needed,
+    lands,
     refusals,
+    alone,
     warnings,
     risky_robot,
   })
@@ -1193,50 +1264,104 @@ pub(crate) fn robot_summary(context: &RepoContext, robot: &PatronusRobot) -> Rob
   }
 }
 
-/// What the trial build of the branch as a root says, as a sentence after the refusal: it builds alone, or it needs
-/// commits of its ancestors. The build is on the base the sync of `report` builds on, not on the newest target. Empty
-/// when the check fails or names no commit
-fn stack_independence_hint(context: &RepoContext, report: &SyncReport, name: &str) -> String {
-  let session = CheckSession::of_sync(&context.git, &context.repository, &context.prefix, &context.cache(), report);
-  let independence = match session.and_then(|session| session.stack_independence(name)) {
+/// The trial build of the stacked branch `name` alone, as a root on the base the sync built on (not the newest target),
+/// in the trial session of the dangling references; `parent` is the branch it is built on, for a trial that failed
+fn alone_build(context: &RepoContext, session: &CheckSession, name: &str, parent: &str) -> AloneBuild {
+  let independence = match session.stack_independence(name) {
     Ok(independence) => independence,
     Err(error) => {
       tracing::debug!(%error, "cannot check whether {name} builds alone");
-      return String::new();
+      return AloneBuild {
+        result: "unknown".to_string(),
+        parent: parent.to_string(),
+        uses: Vec::new(),
+        symbols: None,
+        conflict: None,
+        needs: Vec::new(),
+        movable: None,
+        message: format!("The trial build of {name} alone failed: {error}"),
+      };
     }
   };
   match independence {
-    StackIndependence::Builds { uses, .. } if !uses.is_empty() => {
-      let first = &uses[0];
-      let short = context.short_ids([first.commit.id.as_str(), first.declared_by.id.as_str()]);
-      format!(
-        ". {name} applies on the baseline alone, but {} uses {}, which {} of {} adds: it needs its stack to compile (found by names, not by a compiler)",
-        short.get(&first.commit.id),
-        first.name,
-        short.get(&first.declared_by.id),
-        first.declared_by.branch
-      )
-    }
-    StackIndependence::Builds { symbols: true, .. } => {
-      format!(". {name} builds alone on the baseline and uses no name its stack adds: `bd unstack {name}` makes it a root (not checked by a compiler)")
-    }
-    StackIndependence::Builds { .. } => {
-      format!(". {name} builds alone on the baseline: `bd unstack {name}` makes it a root (lines only: compile dependencies are not checked)")
-    }
-    StackIndependence::Needs { parent_commits, movable, .. } if !parent_commits.is_empty() => {
-      let short = context.short_ids(parent_commits.iter().map(|commit| commit.id.as_str()));
-      let ids: Vec<String> = parent_commits.iter().map(|commit| format!("{} ({})", short.get(&commit.id), commit.branch)).collect();
-      let them = if ids.len() == 1 { "it" } else { "them" };
-      if movable {
-        format!(". {name} needs {}: move {them} into the branch, then `bd unstack {name}`", join_names(&ids))
-      } else {
-        format!(
-          ". {name} needs {}, and other branches need {them} too: a move would make those need {name}",
-          join_names(&ids)
-        )
+    StackIndependence::Builds { parent, uses, symbols } => {
+      let short = context.short_ids(uses.iter().flat_map(|stack_use| [stack_use.commit.id.as_str(), stack_use.declared_by.id.as_str()]));
+      let message = match uses.first() {
+        Some(first) => format!(
+          "{name} applies on the baseline alone, but {} uses {}, which {} of {} adds: it needs its stack to compile (found by names, not by a compiler)",
+          short.get(&first.commit.id),
+          first.name,
+          short.get(&first.declared_by.id),
+          first.declared_by.branch
+        ),
+        None if symbols => {
+          format!("{name} builds alone on the baseline and uses no name its stack adds: `bd unstack {name}` makes it a root that lands alone (not checked by a compiler)")
+        }
+        None => format!("{name} builds alone on the baseline: `bd unstack {name}` makes it a root that lands alone (lines only: compile dependencies are not checked)"),
+      };
+      AloneBuild {
+        result: "builds".to_string(),
+        parent,
+        uses: uses
+          .iter()
+          .map(|stack_use| AloneUse {
+            identifier: stack_use.name.clone(),
+            used_by: short.get(&stack_use.commit.id).to_string(),
+            declared_by: short.get(&stack_use.declared_by.id).to_string(),
+            declared_in: stack_use.declared_by.branch.clone(),
+          })
+          .collect(),
+        symbols: Some(symbols),
+        conflict: None,
+        needs: Vec::new(),
+        movable: None,
+        message,
       }
     }
-    StackIndependence::Needs { .. } => String::new(),
+    StackIndependence::Needs {
+      parent,
+      child_commit,
+      files,
+      parent_commits,
+      movable,
+    } => {
+      let short = context.short_ids(std::iter::once(child_commit.id.as_str()).chain(parent_commits.iter().map(|commit| commit.id.as_str())));
+      let ids: Vec<String> = parent_commits.iter().map(|commit| format!("{} ({})", short.get(&commit.id), commit.branch)).collect();
+      let them = if ids.len() == 1 { "it" } else { "them" };
+      let message = if ids.is_empty() {
+        format!(
+          "{name} doesn't apply alone: {} conflicts in {} without the branches it is built on, and no commit of theirs explains it by lines",
+          short.get(&child_commit.id),
+          join_names(&files)
+        )
+      } else if movable {
+        format!("{name} needs {}: move {them} into the branch, then `bd unstack {name}`", join_names(&ids))
+      } else {
+        format!("{name} needs {}, and other branches need {them} too: a move would make those need {name}", join_names(&ids))
+      };
+      AloneBuild {
+        result: "needs".to_string(),
+        parent,
+        uses: Vec::new(),
+        symbols: None,
+        conflict: Some(CheckConflict {
+          commit: short.get(&child_commit.id).to_string(),
+          subject: child_commit.subject,
+          files,
+          missing_commits: Vec::new(),
+        }),
+        needs: parent_commits
+          .into_iter()
+          .map(|commit| StackCommitSummary {
+            commit: short.get(&commit.id).to_string(),
+            subject: commit.subject,
+            branch: commit.branch,
+          })
+          .collect(),
+        movable: Some(movable),
+        message,
+      }
+    }
   }
 }
 

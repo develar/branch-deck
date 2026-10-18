@@ -91,7 +91,7 @@ An error looks like this:
 | 1 | conflict | `conflict`, `hunk_conflict` |
 | 2 | invalid input | `invalid_arguments`, `hunk_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `round_moved` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `lease_rejected`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `undo_stale`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `stack_not_landed`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `staged_overlap`, `uncommitted_overlap`, `undo_stale`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
@@ -938,7 +938,7 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
   what a push would retarget and GitHub is only asked. Without a GitHub repository of the branches or a token, GitHub
   is not asked.
 
-### `bd safe-push <branch> [--dry-run] [--profile P] [--check] [--without-approvals] [--create-pull-request] [--cancel-running] [--land-stack] [--allow-dangling]`
+### `bd safe-push <branch> [--dry-run] [--profile P] [--check] [--without-approvals] [--create-pull-request] [--cancel-running] [--allow-dangling]`
 
 Starts a Patronus robot on the virtual branch, as the Safe Push form of the app ([Patronus](../../spec/branch/patronus.spec.md)):
 a Safe Push (Patronus rebases the branch onto the target, runs the checks and pushes it into the target when they
@@ -947,20 +947,46 @@ pass) or, with `--dry-run`, a Dry Run (the checks only). The repository must be 
 `./safePush.cmd` once, or set `SPACE_TOKEN` (else `not_logged_in`). `SAFEPUSH_PATRONUS_URL` picks another Patronus
 instance, as for the Safe Push CLI.
 
+A stacked branch lands with every branch it is built on, in one robot, as the app's Safe Push of a piece
+([Landing](../design/landing.md)): its virtual branch carries their commits, so the robot starts on it and Patronus
+lands them all. The branches built on it stay; after the merge the next sync builds them on the target.
+
 ```json
-{"schema":1,…,"branch":"auth","mode":"safe_push","target":"master",
+{"schema":1,…,"branch":"login","mode":"safe_push","target":"master","lands":["auth","login"],
  "profile":{"id":"lsc","name":"Large Scale Change","description":"All the tests"},
  "profiles":[{"id":"default","name":"Default"},{"id":"lsc","name":"Large Scale Change","description":"All the tests"}],
  "review":{"required":false,"skipped":false,"counts_in":"space_merge_request",
    "merge_request":{"key":"IJ-CR-7","url":"https://jetbrains.team/p/ij/reviews/7"},"groups":[]},
- "push_needed":true,"pushed":[{"name":"auth",…,"status":"new",…}],
+ "push_needed":true,"pushed":[{"name":"auth",…,"status":"new",…},{"name":"login",…,"status":"new",…}],
  "started_via":"api","robot":{"id":"r1","name":"Add login","status":"running","mode":"safe_push","commit":"1b2c3d4e",
    "url":"https://patronus.labs.jb.gg/robot/r1"}}
 ```
 
-- `--check` syncs and prints the same object without pushing or starting anything: the profiles, the review,
-  `push_needed`, and `refusals`, each `{code, message}` a start would fail with. The agent shows it to the user and
-  starts only after the user approves.
+- `--check` syncs and prints the same object without pushing or starting anything: what it `lands`, the profiles, the
+  review, `push_needed`, and `refusals`, each `{code, message}` a start would fail with. The agent shows it to the user
+  and starts only after the user approves.
+- `lands` is what the robot takes, root first, ending with the branch: the branches it is built on, then the branch
+  (only the branch for a root). A Safe Push lands them all into the target; a dry run checks the same commits; with
+  `--create-pull-request` its pull request holds them. There is no refusal and no flag for it: the obsolete
+  `--land-stack` of an older bd is accepted, hidden, and changes nothing.
+- `alone` (only with `--check`, only for a stacked branch) is the trial build of the branch as a root, on the base the
+  sync builds on, not on the newest target (`stack_independence` in `crates/sync-core/src/check.rs`): the second way,
+  landing the branch without what it is built on, for the user to choose; bd never unstacks or moves anything for it.
+  `result` is `builds` (it applies alone: `bd unstack <branch>` makes it a root; `uses` lists the names of its stack
+  that its commits use, `{identifier, used_by, declared_by, declared_in}`, so it applies but would not compile;
+  `symbols: false` means lines only), `needs` (`conflict` `{commit, subject, files}` is its first commit that conflicts
+  alone; `needs` the commits of its ancestors it needs, `{commit, subject, branch}`, and what these need, by the line
+  dependencies, so a compile dependency is not seen; `movable`: they can move into the branch, then `bd unstack`;
+  otherwise other branches need them too, and a move would make those need this one) or `unknown` (the trial failed).
+  `message` says it in one sentence:
+
+  ```json
+  "alone":{"result":"needs","parent":"auth","conflict":{"commit":"5e6f7a8b","subject":"Use auth","files":["auth.txt"]},
+    "needs":[{"commit":"1b2c3d4e","subject":"Add auth","branch":"auth"}],"movable":true,
+    "message":"login needs 1b2c3d4e (auth): move it into the branch, then `bd unstack login`"}
+  ```
+
+  It runs in the trial session of the dangling references; a start runs no trial.
 - The profile: `--profile` takes an id or a name (any case), `none` for the default checks of the target; without it,
   the profile of the last robot of the branch, as the form does. `profiles` lists those of the target that allow the
   mode, never the emergency ones; another name is `invalid_arguments`, listing them.
@@ -991,6 +1017,9 @@ instance, as for the Safe Push CLI.
 - The branch is pushed first, as `bd push <branch>` pushes it (`pushed`; the branches it is built on that have
   commits for the remote go along, parents first, with the lease and the refusals of `bd push`), under the repository
   lock with the sync and the checks; the start runs after the lock. A start is never repeated.
+- bd closes no pull request after the merge. The app closes the open pull requests of the ancestors a merged robot
+  landed, with a comment, when it sees the robot merge ([Patronus](../../spec/branch/patronus.spec.md#merged)); a
+  robot bd started is seen too while the app runs. Otherwise they stay open: the agent tells the user.
 - A start through the API (`started_via: api`) starts the robot on `refs/heads/<prefix>/virtual/<branch>`, kept
   after the merge. Branches reviewed on GitHub (the mirror of the Space settings, or `branchdeck.githubRepository`)
   with an open pull request into the target start from it (`started_via: pull_request`). One into a virtual branch, of
@@ -1004,14 +1033,10 @@ instance, as for the Safe Push CLI.
   Patronus didn't answer within the minute (the robot is `null`); a rejected comment or a draft pull request is
   `patronus_refused`.
 - `robot_running` (exit 4): a robot runs on the last commit of the branch ("A Safe Push of the last commit is
-  running"), or a Safe Push lands it with a branch of its stack. A running Safe Push of an older commit fails once the
-  push changes its branch: `--cancel-running` cancels it first (`canceled`); a dry run is not affected.
-- `stack_not_landed` (exit 4): a Safe Push of a stacked branch whose parents aren't in the target yet; Safe Push the
-  root first, or `--land-stack` lands the parents with it. A dry run needs no flag. The message ends with a trial build
-  of the branch as a root (`stack_independence` in `crates/sync-core/src/check.rs`): "builds alone on the baseline:
-  `bd unstack <branch>`", or "needs <ids> (<branch>): move it into the branch". The needed commits come from the line
-  dependencies, so a compile dependency on the parent is not seen. The build is on the base the sync builds on, not
-  on the newest target. "Other branches need them too" means that a move would make those branches need this one.
+  running"), a Safe Push lands it with a branch of its stack ("A Safe Push of oauth is running: it lands login with
+  it"), or a Safe Push of a branch it is built on runs, whose commits it would land a second time ("A Safe Push of
+  auth is running: wait until it merges"). A running Safe Push of an older commit fails once the push changes its
+  branch: `--cancel-running` cancels it first (`canceled`); a dry run is not affected.
 - `dangling_reference` (exit 4, nothing pushed): the branch or a branch it is built on removes a declaration that a
   commit of another branch still changes the use of, as `bd check` reports it (`dangling_references`); the message
   names the use, the commits and the fix. `--check` lists it in `refusals`; `--allow-dangling` starts anyway, when
@@ -1151,7 +1176,8 @@ How an agent learns that bd exists. `bd install`, or Help → Install Agent CLI�
   `~/.agents/skills/branch-deck/` (Codex and others). Its description tells an agent when to use bd: grouping or
   splitting commits into branches or pull requests, stacked branches, an update onto the baseline and its conflicts,
   Branch Deck. Its body names bd by its full path, so it works without `PATH`, and sends the agent to `bd help agent`
-  first, or to `bd help update` for an update. The workflow stays in the binary, so the
+  first, or to `bd help update` for an update; before a Safe Push it asks for `bd safe-push <branch> --check`, as the
+  Safe Push of a stacked branch lands its parents too. The workflow stays in the binary, so the
   skill can't fall out of date with it. Its `allowed-tools` is `Bash(<bd>:*)`: while the skill is active, Claude Code
   runs every bd command without a permission prompt, also `bd group`, which rewrites the checked out branch, and
   `bd push`. The approval of a push or a Safe Push is the rule of the skill's body, not a prompt.
@@ -1193,8 +1219,9 @@ blocked prompt names no command: the user updates in the app.
    lines it prints, piping each `body` into its command.
 5. For a Patronus Safe Push, run `bd safe-push <branch> --check` and show the profile and the review to the user;
    start with `bd safe-push <branch>` only after the user approves. On `approvals_missing`, show `error.review` and
-   open the pull request with `--create-pull-request`; `--without-approvals`, `--cancel-running` and `--land-stack`
-   only when the user says so.
+   open the pull request with `--create-pull-request`; `--without-approvals` and `--cancel-running` only when the user
+   says so. Name `lands` to the user: a stacked branch lands with the branches it is built on, in one robot; `alone`
+   is a second way (`bd unstack`, or a move first), only when the user chooses it.
    After a failed Safe Push, `bd robot <branch> --full` says why and which local commits it tested: fix and check
    them locally, then the user pushes and restarts it.
 

@@ -740,13 +740,20 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   with `dangling_reference` (exit 4), nothing pushed, naming the use, `fixed_by` and the fix; `--check` must list it
   in `refusals`, `--allow-dangling` must start anyway, and the possible ones are `warnings`.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_dangling_reference_refuses_the_safe_push_unless_allowed`)
-- A Safe Push of a stacked branch whose parents aren't in the target yet must be `stack_not_landed`, naming the root to
-  start first, unless `--land-stack`, which pushes the parents first and lands them with it; a dry run needs no flag.
-  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_stacked_branch_leads_root_first_or_lands_its_parents_when_told`)
-- The `stack_not_landed` message, also as a refusal of `--check`, must end with the trial build of the branch as a
-  root: that it builds alone with `bd unstack <branch>`, or the commits of its ancestors it needs, with their branch.
-  It must never unstack the branch itself.
-  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_stacked_branch_leads_root_first_or_lands_its_parents_when_told`, `a_stacked_branch_that_needs_a_commit_of_its_parent_names_it`)
+- A Safe Push of a stacked branch must land it with every branch it is built on, in one robot, as the app's form does
+  ([Landing](../../docs/design/landing.md)): no refusal and no flag, the parents with commits for the remote pushed
+  first, the robot started on the branch's own virtual branch, which carries their commits. `lands` must name what the
+  robot takes, root first, ending with the branch (only the branch for a root), in the start, in `--check` and in a dry
+  run, which checks the same commits. `--land-stack`, which an older bd needed, must be accepted, hidden, and change
+  nothing.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_stacked_branch_lands_its_parents_with_it`, `check_names_the_profiles_and_the_review_and_starts_nothing`)
+- `--check` of a stacked branch must add `alone`, the trial build of the branch as a root on the base the sync built
+  on: `builds` (with `uses`, the names of its stack it uses, and `symbols`, whether names were read) or `needs` (the
+  conflicting commit and its files, the commits of its ancestors it needs with their branch, and `movable`), with a
+  `message` naming `bd unstack <branch>` or the move; `unknown` when the trial fails. It must share the trial session
+  of the dangling references, and a start must run no trial. It must never unstack or move anything itself.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_stacked_branch_lands_its_parents_with_it`, `a_stacked_branch_that_needs_a_commit_of_its_parent_to_land_alone_names_it`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check_of_a_stacked_branch`)
 - Branches reviewed on GitHub with an open pull request into the target must start from a `/patronus` comment on it,
   waiting up to a minute for the answer, and must refuse `--profile` there; no Space merge request is looked up.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_branch_with_an_open_pull_request_starts_from_a_comment`)
@@ -826,8 +833,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 - It must print the agent workflow as text: `bd suggest`, `bd check` only after an edit of the plan, `bd group
   --sync` with descriptions for the branches that have none, `bd push` after the user approves, and `bd safe-push`
-  with `--check` first and the start after the user approves, then `bd robot --full` after a failed Safe Push; one
-  line names
+  with `--check` first, its `lands` and `alone` named to the user, and the start after the user approves, that bd
+  closes no pull request of a parent that landed (the app does when it sees the merge), then `bd robot --full` after a
+  failed Safe Push; one line names
   `bd update` and `bd fold` and sends a conflict to `bd help update`, one `bd move-hunk` for a change in the wrong
   commit, and the rules say that a change moves between commits only with `bd move-hunk`, and only `bd update` and its
   undo write the working tree, through the guarded update. Together with `bd help update` it must name every command
@@ -843,8 +851,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   symlink in `~/.local/bin` to the app binary, replacing a symlink there and refusing anything else
   (`install_refused`); on Windows `bd.exe` next to the app.
 - It must write the skill `branch-deck` into `~/.claude/skills/` and `~/.agents/skills/`: a description of when to use
-  bd (grouping, and updating onto the baseline with its conflicts), its full path, `bd help agent` as the workflow and
-  `bd help update` for an update; `bd help skill` must print the same text. Its `allowed-tools` must be
+  bd (grouping into branches and pull requests, stacked when they build on each other, and updating onto the baseline
+  with its conflicts), its full path, `bd help agent` as the workflow, `bd help update` for an update, and
+  `bd safe-push <branch> --check` before a Safe Push, which lands a stacked branch with its parents; `bd help skill`
+  must print the same text. Its `allowed-tools` must be
   `Bash(<bd>:*)`, `<bd>` as the body names it, so that Claude Code runs every bd command without a permission prompt.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_allows_every_bd_command_as_named`)
 - It must say whether `bd` on `PATH` is the installed one; `--uninstall` must remove the skills and only its own

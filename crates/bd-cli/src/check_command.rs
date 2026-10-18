@@ -638,12 +638,19 @@ fn read_plan(path: Option<&PathBuf>) -> Result<Option<GroupPlan>, CliError> {
 /// The proven dangling references of some branches, each with its branch, and the possible ones as warnings
 pub(crate) type BranchDangling = (Vec<(String, DanglingReferenceSummary)>, Vec<CheckWarning>);
 
-/// The dangling references of `branches` (a branch and the branches it is built on) in a check of the grouping the sync of
-/// `report` read: the ones a commit proves, by branch, and the possible ones as warnings
-pub(crate) fn dangling_references_of(context: &RepoContext, report: &SyncReport, branches: &[&str]) -> Result<BranchDangling, CliError> {
-  let session = CheckSession::of_sync(&context.git, &context.repository, &context.prefix, &context.cache(), report)
-    .map_err(regroup_error)?
-    .verifying_mapping_notes(!context.use_cache);
+/// A trial session on the grouping the sync of `report` read: no guards, HEAD, config, stores or baseline read again,
+/// only the commits ahead of the baseline with the mapping notes the sync wrote and the branch tips
+pub(crate) fn session_of_sync(context: &RepoContext, report: &SyncReport) -> Result<CheckSession, CliError> {
+  Ok(
+    CheckSession::of_sync(&context.git, &context.repository, &context.prefix, &context.cache(), report)
+      .map_err(regroup_error)?
+      .verifying_mapping_notes(!context.use_cache),
+  )
+}
+
+/// The dangling references of `branches` (a branch and the branches it is built on) in a check of the grouping of
+/// `session` (`session_of_sync`): the ones a commit proves, by branch, and the possible ones as warnings
+pub(crate) fn dangling_references_in(context: &RepoContext, session: &CheckSession, branches: &[&str]) -> Result<BranchDangling, CliError> {
   let report = session.check(None).map_err(regroup_error)?;
   let short = context.short_ids(report.regroup.commits.iter().map(|commit| commit.id.as_str()));
   let files_of = if has_mutual_reference(&report) {
@@ -652,7 +659,7 @@ pub(crate) fn dangling_references_of(context: &RepoContext, report: &SyncReport,
     HashMap::new()
   };
   let no_plan = RegroupPlan::default();
-  let mut prover = FixProver::new(context, &session, &no_plan, &report, &files_of, &short);
+  let mut prover = FixProver::new(context, session, &no_plan, &report, &files_of, &short);
   let confirmed = branches
     .iter()
     .filter_map(|name| report.branches.iter().find(|branch| branch.name == *name))

@@ -1555,7 +1555,8 @@ changes of every commit ahead of the baseline are read (the object cache, one `l
 dependencies (`dependencies.rs`), lock files included: they name the commits of the ancestors the branch needs. The
 changes and the line dependencies with the fixup units (`CheckSession::line_graph`) are read once per session, and the
 conflict fix, the symbol edges and `bd check` share them.
-The app (`get_stack_independence`) and `bd safe-push` ask it; the sync never does. It takes no lock.
+The app (`get_stack_independence`) and `bd safe-push --check` (`alone`, in the session of its dangling references)
+ask it; the sync and a start of `bd safe-push` never do. It takes no lock.
 
 `bd check --build` runs a command in the tree of each branch that builds, extracted by `git archive` into a temporary
 directory outside every working tree (`git_ops::tree_archive::write_tree_archive`, streamed into the file). With
@@ -1696,7 +1697,9 @@ Code: `crates/bd-cli/src/push_command.rs`, `crates/sync-core/src/push.rs`, `crat
 #### Agent Safe Push (`bd safe-push`)
 
 `bd safe-push` pushes the branch exactly as `bd push <branch>` does (`push_locked`, the same sync, refusals and
-lease), so its git side adds only reads before the push, all under the repository lock with the sync:
+lease), so its git side adds only reads before the push, all under the repository lock with the sync. A stacked
+branch lands with its ancestors in one robot ([Landing](landing.md)): the push takes the ancestors with work for the
+remote along, and the robot starts on the branch's virtual branch, which carries their commits (`lands`).
 
 1. The Space repository from the push URL of `origin` (`RepoContext::origin_url`, the one read the push and the
    GitHub repository share), the target branch from the upstream of the baseline the sync read (`SyncReport::upstream`,
@@ -1705,10 +1708,12 @@ lease), so its git side adds only reads before the push, all under the repositor
    the object cache (one `diff-tree --stdin` for the misses), and, for the groups Patronus names without paths, one
    `cat-file --batch` of the `OWNERSHIP` files of the baseline (`sync_core::review_readiness`, shared with the app's
    Safe Push form).
-   The dangling references of the branch and its ancestors, and the hint of a stacked branch that is refused, come
-   from a trial check on the sync's report (`CheckSession::of_sync`): no guards, HEAD, config, stores or baseline are
-   read again, only the commits ahead of the baseline with the mapping notes the sync wrote (one `log`, so the trial
-   reuses the virtual commits) and the branch tips under the prefix (one `for-each-ref`).
+   The dangling references of the branch and its ancestors come from a trial check on the sync's report
+   (`session_of_sync`, `CheckSession::of_sync`): no guards, HEAD, config, stores or baseline are read again, only the
+   commits ahead of the baseline with the mapping notes the sync wrote (one `log`, so the trial reuses the virtual
+   commits) and the branch tips under the prefix (one `for-each-ref`). With `--check`, the trial build of a stacked
+   branch alone (`alone`, `stack_independence`) runs in the same session: its build and, for the names it uses, the
+   changes of the commits; a start runs no trial.
 3. Then the push; the lock is released before the robot starts, as a start from a pull request comment waits up to a
    minute for the answer of Patronus.
 4. `--create-pull-request` without a `bd describe` text fills the pull request as `gh pr create --fill`: one
@@ -2105,7 +2110,8 @@ per operation on a small fixture (two branches of three commits, unless the test
 process lowers a number there, so the diff of the assert names the process that went away; a change that adds one must
 raise it. The totals, when each test was first pinned (the audit of the git layer, 2026-10-17; the tests marked * later
 in it; † with the remote statuses or the conflict chains in the object cache, 2026-10-18, first pinned is the code
-before it; ‡ with the stack branches, 2026-10-18) and now:
+before it; ‡ with the stack branches, 2026-10-18; § with the landing of a stacked branch by `bd safe-push`, 2026-10-18,
+first pinned is the refusal before it, whose trial build alone opened a second trial session) and now:
 
 | Operation | Test | First pinned | Now |
 |---|---|---|---|
@@ -2129,6 +2135,7 @@ before it; ‡ with the stack branches, 2026-10-18) and now:
 | `bd check`, with `--build` of two paths | `a_check`, `a_check_with_a_build` | 20, 26 | 20, 23 |
 | `bd push --dry-run` | `a_push` | 54 | 25 |
 | `bd safe-push --check` | `a_safe_push_check` * | 57 | 32 |
+| `bd safe-push --check` of a stacked branch, with its trial build alone | `a_safe_push_check_of_a_stacked_branch` § | 40 | 35 |
 | `bd fold` | `a_fold` | 36 | 30 |
 | `bd status` | `a_status` * | 10 | 7 |
 | `bd status` of a stack that forks | `a_status_of_a_forking_stack` ‡ | 7 | 7 |

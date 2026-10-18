@@ -74,6 +74,13 @@ This document is a draft while the model is implemented. The specs are the contr
   own form below its own row. The header of a stack island opens the form of the last branch of its main line right
   under the header (`InlinePlacement` `stack-header`), also while the island is collapsed; its key, processing and
   holds stay the branch's.
+- **bd.** `bd safe-push <branch>` lands the same piece: no refusal and no flag (the old `stack_not_landed` and
+  `--land-stack` are gone, the flag is accepted and ignored), the ancestors with work for the remote pushed first, the
+  robot started on the branch's virtual branch. `lands` names root..branch, in the start and in `--check`; only
+  `--check` adds `alone`, the same trial build of the branch alone as the form's second way, in the trial session of
+  the dangling references, so a start runs no trial ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-safe-push)).
+  bd closes no pull request: the app closes those of the ancestors a merged robot landed when it sees the merge, a
+  robot bd started included, so after a bd landing they stay open while the app doesn't run, and the agent says so.
 - **The readiness.** A stacked branch is asked for its readiness now, for its own pull request. To keep the load on
   Patronus as it was, the readiness store asks only for the branches a surface shows (`showReviewReadiness`: a row on
   the screen, an island header, the preview, the review window), and for a hidden one whose answer waits for an

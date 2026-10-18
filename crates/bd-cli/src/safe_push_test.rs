@@ -118,6 +118,8 @@ fn check_names_the_profiles_and_the_review_and_starts_nothing() {
   assert_covered(&schema["outputs"]["safe_push"], &schema["outputs"]["safe_push"], &output, "safe_push");
   assert_eq!(output["mode"], json!("safe_push"));
   assert_eq!(output["target"], json!("master"));
+  // a root lands alone: no trial build of it alone
+  assert_eq!((output["lands"].clone(), output.get("alone")), (json!(["auth"]), None));
   // the emergency profile is never offered; no robot of the branch yet, so no default
   assert_eq!(
     output["profiles"],
@@ -287,56 +289,69 @@ fn a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_witho
   assert_eq!(space.remote_tip(AUTH), pushed, "nothing was pushed");
 }
 
-#[test_log::test]
-fn a_stacked_branch_leads_root_first_or_lands_its_parents_when_told() {
+/// login stacked on auth, each with one commit of its own file
+fn login_on_auth() -> Space {
   let space = Space::new(&["(auth) Add auth", "(auth/login) Add login"]);
   space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  space
+}
+
+/// `bd safe-push login --check`, which lands auth with login and refuses nothing; the output matches the schema
+fn check_login_lands_auth(space: &Space) -> Value {
+  let (exit_code, output) = space.run(&["login", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((output["lands"].clone(), output.get("refusals")), (json!(["auth", "login"]), None));
+  let (_, schema) = run_json(&space.environment(), &["schema"]);
+  assert_covered(&schema["outputs"]["safe_push"], &schema["outputs"]["safe_push"], &output, "safe_push");
+  output
+}
+
+/// The virtual branch of a stacked branch carries the commits of the branches it is built on: one robot lands them all.
+/// No refusal and no flag; `--check` adds the trial build of the branch alone, the second way, which a start never runs
+#[test_log::test]
+fn a_stacked_branch_lands_its_parents_with_it() {
+  let space = login_on_auth();
+  let output = check_login_lands_auth(&space);
+  // its commit changes a file of its own: it builds alone
+  assert_eq!(
+    output["alone"],
+    json!({"result": "builds", "parent": "auth", "symbols": true,
+      "message": "login builds alone on the baseline and uses no name its stack adds: `bd unstack login` makes it a root that lands alone (not checked by a compiler)"})
+  );
+  // the obsolete --land-stack is accepted and changes nothing
+  let (exit_code, landed_stack) = space.run(&["login", "--land-stack", "--check"]);
+  assert_eq!((exit_code, &landed_stack), (0, &output));
 
   let (exit_code, output) = space.run(&["login"]);
-  assert_error(&output, exit_code, (4, "stack_not_landed"));
-  let message = output["error"]["message"].as_str().unwrap();
-  assert!(message.contains("Safe Push auth first"), "{output}");
-  // its commit changes a file of its own: it builds alone
-  assert!(
-    message.contains("login builds alone on the baseline and uses no name its stack adds: `bd unstack login` makes it a root (not checked by a compiler)"),
-    "{output}"
-  );
-
-  let (exit_code, output) = space.run(&["login", "--land-stack"]);
   assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((output["lands"].clone(), output.get("alone")), (json!(["auth", "login"]), None));
   let pushed: Vec<&Value> = output["pushed"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
   assert_eq!(pushed, [&json!("auth"), &json!("login")]);
+  assert_eq!(space.remote_tip(AUTH), space.local_tip(AUTH));
   assert_eq!(space.last_start()["sourceBranch"], json!("refs/heads/test-user/virtual/login"));
+  assert_eq!(space.fake.start_calls.load(Ordering::SeqCst), 1, "one robot");
 
-  // a dry run checks the parents' commits too, and lands nothing: no --land-stack
+  // a dry run checks the same commits
   let (exit_code, output) = space.run(&["login", "--dry-run"]);
-  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((exit_code, output["lands"].clone()), (0, json!(["auth", "login"])), "{output}");
   assert_eq!(space.last_start()["mode"], json!("DRY_RUN"));
 }
 
 #[test_log::test]
-fn a_stacked_branch_that_needs_a_commit_of_its_parent_names_it() {
-  let space = Space::new(&["(auth) Add auth", "(auth/login) Add login"]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+fn a_stacked_branch_that_needs_a_commit_of_its_parent_to_land_alone_names_it() {
+  let space = login_on_auth();
   // a second commit of login changes the file the commit of auth adds
   write(&space.repo, "f0.txt", "(auth) Add auth, for login");
-  commit_all(&space.repo, "(auth/login) Use auth", 1_700_000_500);
+  let uses = commit_all(&space.repo, "(auth/login) Use auth", 1_700_000_500)[..8].to_string();
   let auth = git(&space.repo, &["rev-parse", "HEAD~2"])[..8].to_string();
 
-  let (exit_code, output) = space.run(&["login", "--check"]);
-  assert_eq!(exit_code, 0, "{output}");
-  let refusal = output["refusals"]
-    .as_array()
-    .unwrap()
-    .iter()
-    .find(|refusal| refusal["code"] == json!("stack_not_landed"))
-    .unwrap();
-  assert!(
-    refusal["message"]
-      .as_str()
-      .unwrap()
-      .ends_with(&format!("login needs {auth} (auth): move it into the branch, then `bd unstack login`")),
-    "{output}"
+  let output = check_login_lands_auth(&space);
+  assert_eq!(
+    output["alone"],
+    json!({"result": "needs", "parent": "auth",
+      "conflict": {"commit": uses, "subject": "Use auth", "files": ["f0.txt"]},
+      "needs": [{"commit": auth, "subject": "Add auth", "branch": "auth"}], "movable": true,
+      "message": format!("login needs {auth} (auth): move it into the branch, then `bd unstack login`")})
   );
 }
 
@@ -661,8 +676,7 @@ fn a_dangling_reference_refuses_the_safe_push_unless_allowed() {
 
 #[test_log::test]
 fn push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told() {
-  let space = Space::new(&["(auth) Add auth", "(auth/login) Add login"]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  let space = login_on_auth();
   let push = |args: &[&str]| {
     let mut all_args = vec!["--prefix", PREFIX, "push"];
     all_args.extend_from_slice(args);
@@ -769,8 +783,7 @@ fn push_retargets_a_pull_request_into_a_virtual_branch_to_the_baseline() {
 /// retargeted before anything is pushed, as are those of the branches its push takes along
 #[test_log::test]
 fn the_pull_requests_of_the_branch_and_of_the_parents_it_pushes_go_into_the_target_before_the_start() {
-  let space = Space::new(&["(auth) Add auth", "(auth/login) Add login"]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  let space = login_on_auth();
   // auth's goes into the branch it was stacked on before, login's into auth's; the comment is answered on #7
   let (github, url) = fake_github(
     &space,
@@ -784,14 +797,14 @@ fn the_pull_requests_of_the_branch_and_of_the_parents_it_pushes_go_into_the_targ
     {"branch": "login", "number": 7, "url": "https://github.com/acme/monorepo/pull/7", "from": AUTH, "to": "master", "approved_by": ["alice"]},
   ]);
 
-  let (exit_code, output) = safe_push(&environment, &["login", "--land-stack", "--check"]);
+  let (exit_code, output) = safe_push(&environment, &["login", "--check"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!((&output["retargeted"], &output["pull_request"]["number"]), (&retargeted, &json!(7)));
   assert_eq!(retargets_sent(&github), []);
   let (_, schema) = run_json(&environment, &["schema"]);
   assert_covered(&schema["outputs"]["safe_push"], &schema["outputs"]["safe_push"], &output, "safe_push");
 
-  let (exit_code, output) = safe_push(&environment, &["login", "--land-stack"]);
+  let (exit_code, output) = safe_push(&environment, &["login"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!((&output["retargeted"], &output["started_via"]), (&retargeted, &json!("pull_request")));
   assert_eq!(
@@ -815,7 +828,7 @@ fn the_pull_requests_of_the_branch_and_of_the_parents_it_pushes_go_into_the_targ
   write(&space.repo, "form.txt", "form\n");
   commit_all(&space.repo, "(auth/login) Add the form", 1_700_000_900);
   let pushed = space.remote_tip("test-user/virtual/login");
-  let (exit_code, output) = safe_push(&environment, &["login", "--land-stack"]);
+  let (exit_code, output) = safe_push(&environment, &["login"]);
   assert_error(&output, exit_code, (5, "network_error"));
   assert!(
     output["error"]["message"]

@@ -347,7 +347,8 @@ menu stacks, unstacks and renames branches.
   is open ([Branch Row](branch-row.spec.md#tree)).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
   When a robot of a stacked branch merged, the open pull requests of the ancestors it landed are closed with a comment
-  ([Patronus](patronus.spec.md#merged)).
+  ([Patronus](patronus.spec.md#merged)). `bd safe-push` lands a stacked branch the same way, with its ancestors in one
+  robot ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
 
 ### Push Up to Here
 

@@ -123,7 +123,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   `spec/branch/next-step.spec.md`), rendered by the slot, "⋯", S, the preview, the review window, the stack header and
   the form's Start: approvals are counted only by Patronus, the app asks it in the background for the branches a
   surface shows (`src/stores/review-readiness.ts`, the one reader) and never offers a Safe Push it would fail
-  ("Awaiting Ilya Korennoy" opens the PR). `bd safe-push` starts one from the agent CLI with a merge profile;
+  ("Awaiting Ilya Korennoy" opens the PR). `bd safe-push` starts one from the agent CLI with a merge profile, a
+  stacked branch with its ancestors in one robot (`lands`; `--check` adds the trial build alone, `alone`);
   missing code-owner approvals refuse it (`approvals_missing`) unless `--without-approvals`
   (Patronus judges the approvals of the pull request the robot starts from: the pre-check sends it, the readiness
   `sync_core::review_readiness` is shared with the app, its answer kept in the object cache by paths and reviews); `--create-pull-request`

@@ -88,9 +88,6 @@ pub enum ErrorCode {
   /// it; or a Safe Push of an older commit runs, which the push would fail (`--cancel-running`). `bd push`: a Safe Push
   /// runs on the branch or lands it with a branch built on it: a push won't land (`--restart-running`)
   RobotRunning,
-  /// `bd safe-push`: the branch is built on branches that aren't in the target yet; Safe Push the root first, or pass
-  /// `--land-stack` to land them with it
-  StackNotLanded,
   /// `bd safe-push`: the branch, or a branch it is built on, removes a declaration that its tree still uses, and a
   /// commit of another branch changes the use (`bd check` names it); the build would fail. `--allow-dangling` starts
   /// anyway
@@ -154,7 +151,6 @@ impl ErrorCode {
       | Self::InstallRefused
       | Self::ApprovalsMissing
       | Self::RobotRunning
-      | Self::StackNotLanded
       | Self::DanglingReference
       | Self::NotOnSpace
       | Self::NotLoggedIn

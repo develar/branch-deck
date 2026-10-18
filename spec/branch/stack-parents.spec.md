@@ -22,6 +22,7 @@ targets:
   - ../../crates/bd-cli/src/rewrite.rs
   - ../../crates/bd-cli/src/status.rs
   - ../../crates/bd-cli/src/suggest.rs
+  - ../../crates/bd-cli/src/safe_push_command.rs
   - ../../crates/bd-cli/src/clustering.rs
   - ../../crates/bd-cli/src/error.rs
   - ../../src/lib/commit.ts
@@ -232,9 +233,10 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
 - `bd suggest` must mark a cluster `stacked_without_need` when its stored parent stays and it depends on no cluster of
   that parent's lineage. The plan must keep the parent.
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_stored_parent_without_need_is_reported_and_kept`)
-- The `stack_not_landed` refusal of `bd safe-push` must end with the trial build of the branch alone: "builds alone on
-  the baseline: `bd unstack <branch>`", or the commits of its ancestors that it needs.
-  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_stacked_branch_leads_root_first_or_lands_its_parents_when_told`, `a_stacked_branch_that_needs_a_commit_of_its_parent_names_it`)
+- `bd safe-push <branch> --check` of a stacked branch must print the trial build of the branch alone as `alone`:
+  `builds` with "`bd unstack <branch>` makes it a root that lands alone", or the commits of its ancestors that it
+  needs, with their branch. Its Safe Push lands it with its ancestors either way; the unstack is the user's choice.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_stacked_branch_lands_its_parents_with_it`, `a_stacked_branch_that_needs_a_commit_of_its_parent_to_land_alone_names_it`)
 
 ### App
 
