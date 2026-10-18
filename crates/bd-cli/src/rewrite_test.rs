@@ -1,4 +1,4 @@
-use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, sync_statuses, with_header, write};
+use crate::fixture_test::{assert_refused_during, commit_all, git, repo_with_baseline, run_in, start_cherry_pick, sync_statuses, with_header, write};
 use crate::schema_test::assert_covered;
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
@@ -128,6 +128,14 @@ fn group_errors_and_exit_codes() {
   assert_error(&output, exit_code, 4, "detached_head");
 
   assert_eq!(repo.head(), head, "nothing was written");
+}
+
+#[test_log::test]
+fn group_and_its_dry_run_are_refused_during_a_cherry_pick() {
+  let (repo, ids) = repo_with(&["One", "Two"]);
+  start_cherry_pick(&repo, repo.path());
+  let plan = json!({ "branches": { "a": [ids[0]] } });
+  assert_refused_during(&repo, "a cherry-pick", |extra| group(&repo, &plan, extra));
 }
 
 #[test_log::test]

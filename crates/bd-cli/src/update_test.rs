@@ -1,4 +1,4 @@
-use crate::fixture_test::{assert_error, environment, git, run_in, run_json, write};
+use crate::fixture_test::{assert_error, assert_refused_during, environment, git, run_in, run_json, start_cherry_pick, write};
 use crate::schema_test::assert_covered;
 use pretty_assertions::assert_eq;
 #[cfg(unix)]
@@ -12,6 +12,15 @@ const SHARED: &str = "one\ntwo\nthree\n";
 /// An upstream repository with `shared.txt` and `other.txt`, and a clone whose `master` tracks `origin/master`
 fn clone_of_upstream() -> (TestRepo, TestRepo) {
   TestRepo::upstream_and_clone(&[("shared.txt", SHARED), ("other.txt", "other\n")])
+}
+
+/// `clone_of_upstream` with a local commit and a fetched upstream change of `shared.txt`
+fn clone_with_a_fetched_change() -> (TestRepo, TestRepo) {
+  let (upstream, clone) = clone_of_upstream();
+  clone.create_commit("(auth) Add login", "login.txt", "login\n");
+  upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
+  git(&clone, &["fetch", "-q", "origin"]);
+  (upstream, clone)
 }
 
 fn read(repo: &TestRepo, file: &str) -> String {
@@ -95,6 +104,14 @@ fn uncommitted_changes_on_updated_files_block_with_their_paths() {
   assert_error(&output, exit_code, (4, "uncommitted_overlap"));
 }
 
+#[test_log::test]
+fn update_and_its_dry_run_are_refused_during_a_cherry_pick() {
+  let (_upstream, clone) = clone_with_a_fetched_change();
+  start_cherry_pick(&clone, clone.path());
+  assert_refused_during(&clone, "a cherry-pick", |extra| run_in(&clone, &[&["update"][..], extra].concat()));
+  assert_eq!(read(&clone, "shared.txt"), SHARED);
+}
+
 /// `count` names under `dir`, each with `content`
 fn files_of<'a>(names: &'a [String], content: &'a str) -> Vec<(&'a str, &'a str)> {
   names.iter().map(|name| (name.as_str(), content)).collect()
@@ -171,10 +188,7 @@ fn a_dry_run_reports_the_files_and_commits_of_a_conflict_and_changes_nothing() {
 
 #[test_log::test]
 fn dry_run_neither_fetches_nor_writes() {
-  let (upstream, clone) = clone_of_upstream();
-  clone.create_commit("(auth) Add login", "login.txt", "login\n");
-  upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
-  git(&clone, &["fetch", "-q", "origin"]);
+  let (upstream, clone) = clone_with_a_fetched_change();
   let fetched = git(&clone, &["rev-parse", "origin/master"]);
   upstream.create_commit("Not fetched", "later.txt", "later\n");
   write(&clone, "untracked.txt", "untracked\n");

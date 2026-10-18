@@ -68,6 +68,9 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   change nothing, and exit with 1. The output goes into an agent's context: `files` lists the first 50, the ones
   with their commits, and `files_omitted` counts the rest.
   [@test] ../../crates/bd-cli/src/update_test.rs (`dry_run_neither_fetches_nor_writes`, `a_dry_run_reports_the_files_and_commits_of_a_conflict_and_changes_nothing`, `a_dry_run_of_a_wide_conflict_lists_the_first_files_and_counts_the_rest`)
+- A rebase, merge, cherry-pick or revert in progress must be `operation_in_progress` (exit 4) for the update and its
+  dry run, moving neither the branch nor the files.
+  [@test] ../../crates/bd-cli/src/update_test.rs (`update_and_its_dry_run_are_refused_during_a_cherry_pick`)
 - A `git switch` between the check and the move must move no branch: `head_moved` for the update, `undo_stale` for
   the undo.
   [@test] ../../crates/bd-cli/src/update_test.rs (`a_switch_between_the_check_and_the_move_moves_no_branch`, `a_switch_during_the_move_fails_on_the_head_lock`)

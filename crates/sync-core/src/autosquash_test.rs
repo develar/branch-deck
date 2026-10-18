@@ -184,6 +184,17 @@ fn needs_the_space_after_the_marker() {
 }
 
 #[test]
+fn a_subject_without_a_marker_is_never_a_fixup() {
+  // an issue key or a prefix is no marker, also when an older commit has the same subject or starts with it
+  assert_eq!(
+    plan(&["ABC-1 Fix x", "(auth) Add a", "ABC-1 Fix x", "(auth) Add a", "(auth) ABC-1 Fix x", "ABC-1 Fix x again"]),
+    (vec![], vec![])
+  );
+  // a prefixed commit stays the target of a fixup that names it
+  assert_eq!(plan(&["ABC-1 Fix x", "(auth) Add a", "fixup! (auth) Add a"]), (groups(&["c1 <- c2"]), vec![]));
+}
+
+#[test]
 fn builds_the_message_like_git() {
   let target = "(auth) Add login\n\nThe form\n";
   assert_eq!(build_fixup_message(target, &[(FixupKind::Fixup, "fixup! (auth) Add login\n\nignored")]), None);

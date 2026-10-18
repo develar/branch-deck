@@ -325,9 +325,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/sync-core/src/regroup_test.rs (`allow_append_accepts_commits_on_top_and_refuses_a_rewritten_head`)
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_with_allow_append_lists_the_appended_commits`)
 - Rewrites must hold `$GIT_COMMON_DIR/branch-deck.lock`, wait a bounded time for another holder, then fail with
-  `locked` (exit 3). A rebase or merge in progress is `operation_in_progress` and a detached HEAD `detached_head`
-  (exit 4).
+  `locked` (exit 3). A rebase, merge, cherry-pick or revert in progress is `operation_in_progress`, also for
+  `--dry-run`, and a detached HEAD `detached_head` (exit 4).
   [@test] ../../crates/sync-core/src/regroup_test.rs (`waits_for_the_repository_lock`, `refuses_while_a_rebase_is_in_progress`)
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_and_its_dry_run_are_refused_during_a_cherry_pick`)
 - The output must list every commit's resulting group with its new id, the new HEAD and an undo token;
   `--dry-run` must write nothing and print the changed subjects and the stack forest; `--map` must add old → new ids.
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`dry_run_prints_the_changes_and_the_forest`)
@@ -375,6 +376,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   commits and the history it rewrites all end at the planned head; a held lock is `locked`.
   [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
   [@test] ../../crates/sync-core/src/autosquash_test.rs (`refuses_when_the_branch_moved_since_the_plan`)
+- A rebase, merge, cherry-pick or revert in progress in this worktree must be `operation_in_progress` (exit 4) for the
+  fold and its dry run, moving nothing; one in another worktree refuses nothing, since git keeps that state per
+  worktree.
+  [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_and_its_dry_run_are_refused_during_a_cherry_pick`, `a_cherry_pick_in_another_worktree_does_not_refuse_the_fold`)
 
 ### `bd move-hunk`
 

@@ -61,6 +61,29 @@ pub(crate) fn assert_error(output: &Value, exit_code: i32, expected: (i32, &str)
   assert_eq!((exit_code, &output["error"]["code"]), (expected.0, &serde_json::json!(expected.1)), "{output}");
 }
 
+/// A cherry-pick in progress in `worktree` of `repo`, as one that stopped leaves it: `CHERRY_PICK_HEAD` names its HEAD
+pub(crate) fn start_cherry_pick(repo: &TestRepo, worktree: &Path) {
+  let git = repo.git_executor();
+  let worktree_path = worktree.to_str().unwrap();
+  // relative to the worktree in the main one, absolute in a linked one
+  let marker = git.execute_command(&["rev-parse", "--git-path", "CHERRY_PICK_HEAD"], worktree_path).unwrap();
+  let head = git.execute_command(&["rev-parse", "HEAD"], worktree_path).unwrap();
+  std::fs::write(worktree.join(marker), format!("{head}\n")).unwrap();
+}
+
+/// `run(&[])` and its dry run `run(&["--dry-run"])` are refused as `operation_in_progress` (exit 4) naming
+/// `operation`, and HEAD stays
+pub(crate) fn assert_refused_during(repo: &TestRepo, operation: &str, run: impl Fn(&[&str]) -> (i32, Value)) {
+  let head = repo.head();
+  for extra in [&[][..], &["--dry-run"]] {
+    let (exit_code, output) = run(extra);
+    assert_error(&output, exit_code, (4, "operation_in_progress"));
+    let message = output["error"]["message"].as_str().unwrap_or_default();
+    assert!(message.contains(&format!("{operation} is in progress")), "{extra:?}: {output}");
+    assert_eq!(repo.head(), head, "{extra:?}");
+  }
+}
+
 /// `fields` after the `schema`, `repository` and `prefix` every output of `bd` in `repo` starts with
 pub(crate) fn with_header(repo: &TestRepo, fields: Value) -> Value {
   let mut output = serde_json::json!({ "schema": 1, "repository": repository(repo), "prefix": PREFIX });

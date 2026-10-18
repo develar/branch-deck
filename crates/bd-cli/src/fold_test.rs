@@ -1,4 +1,6 @@
-use crate::fixture_test::{assert_undo_restores, commit_all, environment, git, repo_with_baseline, run_in, run_json, write};
+use crate::fixture_test::{
+  PREFIX, assert_error, assert_refused_during, assert_undo_restores, commit_all, environment, git, repo_with_baseline, run_in, run_json, start_cherry_pick, write,
+};
 use crate::schema_test::assert_covered;
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
@@ -97,4 +99,27 @@ fn fold_is_refused_on_another_head_or_while_the_lock_is_held() {
   let (_, schema) = run_json(&environment(repo.path()), &["schema"]);
   let (_, output) = run_in(&repo, &["fold"]);
   assert_covered(&schema["outputs"]["fold"], &schema["outputs"]["fold"], &output, "fold");
+}
+
+#[test_log::test]
+fn fold_and_its_dry_run_are_refused_during_a_cherry_pick() {
+  let (repo, _) = repo_with_fixups();
+  start_cherry_pick(&repo, repo.path());
+  assert_refused_during(&repo, "a cherry-pick", |extra| run_in(&repo, &[&["fold"][..], extra].concat()));
+}
+
+#[test_log::test]
+fn a_cherry_pick_in_another_worktree_does_not_refuse_the_fold() {
+  let (repo, _) = repo_with_fixups();
+  let linked = tempfile::tempdir().unwrap();
+  let linked_path = linked.path().join("wt");
+  git(&repo, &["worktree", "add", "-q", "-b", "other", linked_path.to_str().unwrap()]);
+  start_cherry_pick(&repo, &linked_path);
+  // the state files are per worktree: the linked one is in the middle of a cherry-pick, this one is not
+  let (exit_code, output) = run_json(&environment(&linked_path), &["--prefix", PREFIX, "fold", "--dry-run"]);
+  assert_error(&output, exit_code, (4, "operation_in_progress"));
+
+  let (exit_code, output) = run_in(&repo, &["fold"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(subjects(&repo), "fixup! Nothing like it\n(ui) Add b\n(auth) Add a");
 }

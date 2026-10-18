@@ -45,8 +45,10 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
 ### Target resolution
 
 - A subject is a fixup if it starts with `fixup! `, `squash! ` or `amend! `; the space is required, as in git
-  (`fixup!X` is an ordinary subject). All leading markers are stripped; the first one gives the kind.
-  [@test] ../../crates/sync-core/src/autosquash_test.rs (`strips_every_marker_and_takes_the_kind_from_the_first`, `needs_the_space_after_the_marker`)
+  (`fixup!X` is an ordinary subject). All leading markers are stripped; the first one gives the kind. A subject without
+  a marker is never a fixup, also when it starts with an issue key (`ABC-1 Fix x`) or a prefix and an older commit has
+  the same subject; a prefixed commit stays the target of a fixup that names it.
+  [@test] ../../crates/sync-core/src/autosquash_test.rs (`strips_every_marker_and_takes_the_kind_from_the_first`, `needs_the_space_after_the_marker`, `a_subject_without_a_marker_is_never_a_fixup`)
   [@test] ../../crates/sync-core/src/commit_grouper_test.rs (`test_autosquash_commits_edge_cases`)
   [@test] ../../src/lib/commit.test.ts (`groupFor`)
 - The target is the oldest older commit of the range that matches, in this order:
