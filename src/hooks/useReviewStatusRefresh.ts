@@ -7,7 +7,7 @@ import { setWindowFocus } from "@/lib/os-notification"
 import { watchFailingRobots } from "@/lib/patronus-failing"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { refreshGitHubAuthStatus } from "@/stores/github-auth"
-import { refreshPatronus, setPatronusWindowFocus } from "@/stores/patronus"
+import { refreshPatronus, setPatronusWindowFocus, watchRobotLandings } from "@/stores/patronus"
 import { refreshPullRequests } from "@/stores/pull-requests"
 import { hasAwaitingRow, watchReviewReadiness } from "@/stores/review-readiness"
 import { onReviewRequestsPoll, refreshReviewRequests } from "@/stores/review-requests"
@@ -22,7 +22,8 @@ function isAwaiting(): boolean {
  * Patronus robots, after every successful sync and on window focus (each store throttles both). A push refreshes the
  * pull requests itself. Running robots are polled every minute while the window is focused, a robot that pushes every
  * five minutes while it is not; a running robot that will fail and a robot that failed are told once
- * (`watchFailingRobots`); the review requests
+ * (`watchFailingRobots`); what a merged robot landed is read by content when a change below its commit gave the
+ * branches new copies (`watchRobotLandings`); the review requests
  * every five minutes, focused or not. A sign-in or a sign-out of
  * GitHub (`github-auth-changed`, from any window) asks GitHub again at once. The readiness of the branches whose next
  * step depends on it is asked as they change (`watchReviewReadiness`), the whole stack of an island header too; while a
@@ -32,6 +33,7 @@ function isAwaiting(): boolean {
  */
 export function useReviewStatusRefresh(): void {
   useEffect(() => watchFailingRobots(), [])
+  useEffect(() => watchRobotLandings(), [])
   useEffect(() => watchReviewReadiness(readinessKeysNeedingAnswer, tellReadinessNews), [])
   // a row waits for an approval: each poll of the review requests asks GitHub for the user's pull requests too, whose
   // new reviews make the readiness ask Patronus once

@@ -66,6 +66,7 @@ function setRobots(...robots: PatronusRobot[]): void {
         githubRepository: "acme/air",
         watched: {},
         failing: {},
+        landings: {},
       },
     },
   })
@@ -175,6 +176,33 @@ describe("the next step of the whole stack", () => {
       safePushBlocker: "A Safe Push of bazel is running: wait until it merges",
       dryRunBlocker: null,
     })
+  })
+
+  it("lands only the rest after a piece landed its main line, and offers nothing once every branch of it landed", () => {
+    // the Safe Push of deploy landed air, bazel and deploy: side is left, with its 2 commits
+    setRobots(testRobot("d1", "deploy", { status: "success", sourceRevision: "deploy-tip", finishTime: 200 }))
+    const rest = "Lands 1 branch · 2 commits into master in one Safe Push: side; air, bazel and deploy landed with deploy"
+    expect(getStackNextStepNow("air")?.step).toMatchObject({
+      kind: "safePush",
+      item: { label: "Safe Push", disabled: false, description: rest },
+      safePushBlocker: null,
+    })
+    // side landed too, with its own Safe Push: nothing of the whole stack is left
+    setRobots(
+      testRobot("d1", "deploy", { status: "success", sourceRevision: "deploy-tip", finishTime: 200 }),
+      testRobot("s1", "side", { status: "success", sourceRevision: "side-tip", finishTime: 300 }),
+    )
+    expect(getStackNextStepNow("air")?.step).toMatchObject({
+      kind: "none",
+      item: null,
+      safePushBlocker: "Landed in master with deploy and side",
+      dryRunBlocker: "Landed in master with deploy and side",
+    })
+  })
+
+  it("offers nothing once its own robot landed every branch of it", () => {
+    setRobots(testRobot("w1", null, { stackRoot: "air", sourceRevision: "stack-tip", status: "success", finishTime: 200 }))
+    expect(getStackNextStepNow("air")?.step).toMatchObject({ kind: "none", safePushBlocker: "Merged by Patronus" })
   })
 
   it("offers nothing while the robot of the whole stack runs: it holds every branch of the stack", () => {

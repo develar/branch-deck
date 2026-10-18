@@ -11,7 +11,7 @@ import { notifyError } from "@/lib/errors"
 import { isVirtualBranchBase } from "@/lib/git/new-pull-request"
 import { isFullyLanded } from "@/lib/landed"
 import { announce } from "@/lib/os-notification"
-import { canStartRobot, formatLandedReason, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
+import { canStartRobot, formatLandedReason, getSafePushSlot, isLandedByOwnRobot, isLandedWhole, isPullRequestIntoTarget } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { changesRequestedBy, openPullRequest, waitingReviewers } from "@/lib/pull-request"
@@ -131,7 +131,16 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
   const needsReview = robot !== undefined && isRobotNeedingReview(robot.id)
   const failing = robot !== undefined && isRobotFailing(robot.id)
   const localTip = branch.commits[0]?.hash
-  const slot = getSafePushSlot({ robot, localTip, remote: branch.remoteStatus, needsReview, failing, canOffer: available && !branch.hasError && branch.commitCount > 0 })
+  const landedBy = getLandedBy(name)
+  const slot = getSafePushSlot({
+    robot,
+    localTip,
+    remote: branch.remoteStatus,
+    needsReview,
+    failing,
+    canOffer: available && !branch.hasError && branch.commitCount > 0,
+    landed: isLandedByOwnRobot(landedBy, robot),
+  })
   const start = canStartRobot(branch, robot, getLandingAncestor(name), getLandingSpan(name))
   const dryRun = canStartRobot(branch, robot)
   const target = getReadinessTarget()
@@ -139,7 +148,6 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
   const restart =
     robot === undefined ? null : (getRobotActions(robot, branch, needsReview, failing).find(it => it.id === "restart-robot" || it.id === "push-and-restart-robot") ?? null)
   const readiness = options === null ? getReviewReadiness(name) : (freshReadiness(getReviewReadiness(name), name) ?? undefined)
-  const landedBy = getLandedBy(name)
   return {
     branchName: name,
     subject: name,
@@ -153,7 +161,8 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
     dryRunStartBlocker: dryRun.ok ? null : dryRun.reason,
     held: getPushHold(name) !== null,
     landedIn: getLandedIn(name),
-    landedWith: landedBy === null ? null : formatLandedReason(landedBy),
+    // all of it landed; one with commits after the landed ones has them to land
+    landedWith: isLandedWhole(landedBy) ? formatLandedReason(landedBy) : null,
     robot: slot,
     robotPullRequest: robot?.pullRequest?.number ?? null,
     restart,

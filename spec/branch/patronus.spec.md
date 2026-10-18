@@ -10,6 +10,7 @@ targets:
   - ../../crates/patronus/src/review.rs
   - ../../crates/patronus/src/review_readiness.rs
   - ../../crates/sync-core/src/review_readiness.rs
+  - ../../crates/sync-core/src/robot_landing.rs
   - ../../crates/object-cache/src/review_answer.rs
   - ../../crates/patronus/src/service.rs
   - ../../crates/patronus/src/token.rs
@@ -656,13 +657,29 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   first seen merged too: `findLandedBy`) say so in their rows, "Landed with oauth", "Landed with the whole air stack"
   (`LandedWithChip`, `info`, beside the status "landed" and the hollow `info` node of a branch in master), its hover "In master with the
   Safe Push of oauth · the update removes the local copies" and when it merged, a click the robot in Patronus; the
-  preview shows it too. They offer no Safe Push and no Dry Run ([Next Step](next-step.spec.md#the-table), row 1:
-  "Landed in master with oauth") and no push ([below](#pushing-into-a-branch-whose-safe-push-runs)); the "to push" counts
-  leave them out. Once the fetched baseline has their commits, the Landed chip takes its place.
+  preview shows it too. The branch the robot ran on landed too: it keeps its robot chip, "Merged". They offer no Safe
+  Push and no Dry Run ([Next Step](next-step.spec.md#the-table), row 1: "Landed in master with oauth", "Merged by
+  Patronus") and no push ([below](#pushing-into-a-branch-whose-safe-push-runs)); the "to push" counts leave them out.
+  Once the fetched baseline has their commits, the Landed chip takes its place.
   [@test] ../../src/lib/patronus.test.ts (`knows the ancestors a merged piece carried and every branch a merged whole stack landed, and names who landed them`, `keeps the ancestors landed while the branch has the commit the robot took: rebuilt on a newer baseline, or with new commits on it`, `lands nothing for a dry run, a robot that didn't merge, one of another state of the branch, or of a temporary ref`)
   [@test] ../../src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
+- A change below the commit the robot took (a new commit or an amend of a branch it is built on, a reword; for the
+  whole stack any change of a branch of it) gives the branches new copies, so the hashes no longer tell what landed:
+  the app asks by content (`get_robot_landings`, `robot_landings` of `crates/sync-core/src/robot_landing.rs`): the
+  robot's tested commits (the same commit, a patch-equivalent copy, or a copy with the same changes on a
+  newer base, as the robot commit map compares them) against each branch as the table has it. A branch whose oldest
+  commits the robot tested and whose other commits were added after them landed, those commits the only work left:
+  "Landed with oauth · 1 commit after it" ("Landed · 1 commit after it" of the robot's own branch), its push and Safe
+  Push offered for them. A branch with a commit changed since, or a new one below a tested one, is not landed. Asked
+  once per state of the branches (`landingKey`: the robot's commit and the commits of the branches), never while a sync
+  runs; of several robots that landed a branch, the one that left the fewest commits after it counts.
+  [@test] ../../src/lib/patronus.test.ts (`decides by content once a change below the robot's commit gave the branches new copies: a commit added after the landed ones is the only work left`, `takes the landing that left the fewest commits after a branch, of equals the first merge`)
+  [@test] ../../src/stores/patronus.test.ts (`asks what a merged robot landed by content once a change below its commit gave the branches new copies, once per state of them`)
+  [@test] ../../crates/sync-core/src/robot_landing_test.rs (`a_robot_at_the_tip_landed_the_branch_and_what_it_is_built_on`, `a_commit_added_below_the_robots_commit_is_the_only_work_left`, `a_reworded_commit_below_keeps_the_branches_landed`, `an_amended_commit_leaves_its_branch_not_landed`, `a_commit_not_synced_yet_is_after_the_landed_ones`, `the_robot_of_the_whole_stack_landed_every_branch_of_it`, `a_missing_source_lands_nothing`)
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`the_landing_of_a_merged_robot_after_a_change_below_its_commit`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
 - A merged robot of a branch that landed the root of a stack whose whole stack has an open pull request leaves that
   pull request matching nothing: the toast says it ("Safe Push · #12 no longer matches the air stack: oauth landed"),
   and the user decides on it ([Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)); nothing closes it.
@@ -941,10 +958,12 @@ explicit choice of the user, offered only where the approvals count in a pull re
   modified"). A dry run and a canceling robot hold nothing. Every Safe Push in a stack holds its root. The Safe Push of
   the whole stack (on its stack branch) holds every branch of the stack: "A Safe Push of the whole air stack is running:
   it lands auth with it" ([Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)). A branch a merged Safe Push
-  landed besides its own branch ([Merged](#merged)) is held too, before any other hold, until the update archives it:
-  "Landed in master with oauth: nothing of it is left to push".
+  landed whole ([Merged](#merged)), the branch it ran on included, is held too, before any other hold, until the update
+  archives it: "Landed in master with oauth: nothing of it is left to push", "Merged by Patronus: nothing of it is left
+  to push"; one with commits added after the landed ones is not: they are work for the remote.
   [@test] ../../src/lib/patronus.test.ts (`holds the push of a branch whose Safe Push runs, or that a running Safe Push of a branch built on it lands; not for a dry run or a cancel`, `holds the push of a branch a merged Safe Push landed, before a robot of its own`)
-  [@test] ../../src/stores/patronus.test.ts (`holds a branch whose Safe Push runs and the ancestors it lands; not for a dry run or a cancel`, `holds every branch the whole-stack Safe Push lands`)
+  [@test] ../../src/stores/patronus.test.ts (`holds a branch whose Safe Push runs and the ancestors it lands; not for a dry run or a cancel`, `holds every branch the whole-stack Safe Push lands`, `holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
 - A held branch offers no push: the place of the row's push button stays empty, as its Safe Push slot does; its Status
   cell says why (the robot chip, "lands with oauth", "Landed with oauth"). P does nothing; Push in the menu, the preview footer, the outgoing
   overview and the review window is disabled with the reason: "A Safe Push of auth is running: wait until it merges, or

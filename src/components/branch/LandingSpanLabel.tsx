@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LandedWithChip } from "@/components/branch/LandedChip"
-import { formatLandingSubject, formatPushMode } from "@/lib/patronus"
+import { formatLandedWith, formatLandingSubject, formatPushMode } from "@/lib/patronus"
 import { useBranchLanded } from "@/stores/landed"
 import { useLandedBy, useLandingSpan } from "@/stores/patronus"
 
@@ -9,15 +9,17 @@ import { useLandedBy, useLandingSpan } from "@/stores/patronus"
  * "lands with oauth" in the Status cell of a branch that a running robot of a branch built on it lands
  * (`useLandingSpan`): the robot pushes the commits of every branch the branch is built on; "lands with the whole air
  * stack" on every branch of a stack whose robot of the whole stack runs (on its stack branch). Once that robot merged,
- * "Landed with oauth" (`useLandedBy`, `LandedWithChip`) until the fetched baseline has the commits, which the Landed
- * chip beside it shows then. `fallback` ("on master" of a branch built elsewhere) while none runs: the landing robot
- * says more about the branch now.
+ * "Landed with oauth" (`useLandedBy`, `LandedWithChip`; "Landed with oauth · 1 commit after it" while a commit added
+ * since is the work left, "Landed · 1 commit after it" of its own robot's branch) until the fetched baseline has the
+ * commits, which the Landed chip beside it shows then. `fallback` ("on master" of a branch built elsewhere) while none
+ * runs: the landing robot says more about the branch now.
  */
 export function LandingSpanLabel({ name, fallback }: { name: string; fallback: ReactNode }) {
   const landing = useLandingSpan(name)
   const landedBy = useLandedBy(name)
   const landed = useBranchLanded(name)
-  if (landedBy !== null) {
+  // its own robot's branch landed whole: the robot chip says "Merged"
+  if (landedBy !== null && formatLandedWith(landedBy) !== null) {
     return landed === null ? <LandedWithChip landed={landedBy} /> : null
   }
   if (landing === null) {

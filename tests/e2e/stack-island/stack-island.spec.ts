@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow, getStackChip } from "../helpers/branch-helpers"
-import { NO_REVIEW_NEEDED, availableRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
+import { NO_REVIEW_NEEDED, availableRobots, mergeRunningRobot, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { pushOutcome, routeHeldPush, routePush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
 import { DEFAULT_CHECKS_ONLY, closeRefusal, expectPopoverAtSlot, openSafePushWithKey, popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
@@ -401,6 +401,37 @@ test.describe("Stack island", () => {
     const [air, bazel] = stackPushes[0]!
     expect(air!.tip ?? null).toBeNull()
     expect(bazel!.tip).toMatch(/^[0-9a-f]{40}$/)
+  })
+
+  test("should show no push arrow on the commits a merged Safe Push landed, only on a commit added after them", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the Safe Push of bazel lands air with it
+    const running = robot("bazel", "bazel-robot")
+    const repo = await setupRepo("stack_island", { patronus: availableRobots(running) })
+    await syncAndWaitForBranches()
+    const marks = (name: string) => page.locator(`[data-testid=branch-commit-lines-row][data-branch-of="${name}"] [data-testid=commit-push-mark]`)
+    await expect(marks("air")).toHaveCount(2)
+    await expect(marks("bazel")).toHaveCount(2)
+
+    // merged: its commits and air's are in master, their lines muted and without the arrow
+    await mergeRunningRobot(page, repo, running)
+    await expect(findBranchRow(page, "air").getByTestId("landed-with")).toHaveText("Landed with bazel")
+    for (const name of ["air", "bazel"]) {
+      await expect(marks(name)).toHaveCount(0)
+      await expect(page.locator(`[data-testid=branch-commit-lines-row][data-branch-of="${name}"] [data-testid=stack-commit-line][data-landed]`)).toHaveCount(2)
+    }
+    // bridge, built on bazel, still has its own to push
+    await expect(marks("bridge")).toHaveCount(2)
+
+    // a new commit of air: the arrow is on it alone, the only work left of air
+    await runAndWaitForSync(page, async () => {
+      await repo.commit("(air) Add the agent, part 3", { "air/part3.txt": "Add the agent 3\n" }, 1704200000)
+      await page.getByTestId("sync-button").click()
+    })
+    await expect(findBranchRow(page, "air").getByTestId("landed-with")).toHaveText("Landed with bazel · 1 commit after it")
+    await expect(marks("air")).toHaveCount(1)
+    expect(await commitLines(page, "air")).toEqual(["Add the agent, part 1", "Add the agent, part 2", "Add the agent, part 3"])
+    await expect(page.locator("[data-testid=branch-commit-lines-row][data-branch-of=air] [data-testid=stack-commit-line]").last()).toHaveAttribute("data-unpushed", "true")
+    await expect(marks("bazel")).toHaveCount(0)
   })
 
   test("should push up to a commit from its menu in the full list", async ({ page, setupRepo, syncAndWaitForBranches }) => {

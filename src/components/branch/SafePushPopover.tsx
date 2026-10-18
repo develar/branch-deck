@@ -181,7 +181,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
   const commits = read?.commitCount ?? 0
   const wholeStack = read?.wholeStack ?? null
   const title =
-    (wholeStack === null ? null : `${describeWholeStackLanding(wholeStack.members, commits, target, mode)}.`) ??
+    (wholeStack === null ? null : `${describeWholeStackLanding(wholeStack.members, commits, target, mode, wholeStack.landed)}.`) ??
     landing?.lands ??
     (mode === "dryRun"
       ? `Checks ${branchName} on ${target} without pushing into it: ${formatCommitCount(commits)}.`

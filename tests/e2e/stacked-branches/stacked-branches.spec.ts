@@ -4,7 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, getStackChip, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
-import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
+import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots, mergeRunningRobot, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { confirmForcePush, expectPushedToast, PUSH_TIME, pushedToast, pushOutcome, routeHeldPush, routePush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, openBranchPreview } from "../helpers/review-status-helpers"
@@ -1197,6 +1197,53 @@ test.describe("Stacked branches", () => {
       await expect(footer).toHaveAttribute("aria-disabled", "true")
       await footer.hover()
       await expect(page.getByRole("tooltip").filter({ hasText: reason })).toHaveText(reason)
+    })
+
+    test("should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left", async ({
+      page,
+      setupRepo,
+      syncAndWaitForBranches,
+    }) => {
+      const running = robot("oauth", "oauth-robot")
+      const repo = await setupRepo("stacked_branches", { patronus: availableRobots(running) })
+      await syncAndWaitForBranches()
+      await expect(findBranchRow(page, "login").getByTestId("landing-span")).toHaveText("lands with oauth")
+      // it merged on oauth as the table has it
+      await mergeRunningRobot(page, repo, running)
+      await expect(page.locator("[data-slot=toast]").filter({ hasText: "oauth merged into master" })).toBeVisible()
+      const authRow = findBranchRow(page, "auth")
+      const loginRow = findBranchRow(page, "login")
+      const oauthRow = findBranchRow(page, "oauth")
+
+      // oauth, the branch it ran on, landed whole too: its row says Merged and offers no Safe Push and no push
+      await expect(oauthRow.getByTestId("patronus-chip")).toHaveAttribute("data-kind", "merged")
+      await expect(oauthRow.getByTestId("next-step-slot")).toHaveAttribute("data-step", "none")
+      await expect(getPushButton(oauthRow)).toHaveCount(0)
+      await expectLandedActions(page, "oauth", "Merged by Patronus")
+      await expect(authRow.getByTestId("landed-with")).toHaveText("Landed with oauth")
+
+      // a new commit of auth behind the app's back: the sync rebuilds login and oauth on it, no hash is the robot's now
+      await runAndWaitForSync(page, async () => {
+        await repo.commit("(auth) Check the token", { "token.js": "export const token = null\n" }, 1704128400)
+        await page.getByTestId("sync-button").click()
+      })
+      // by content: auth landed but for the new commit, the only work left of it, which its Safe Push and push send
+      const authChip = authRow.getByTestId("landed-with")
+      await expect(authChip).toHaveText("Landed with oauth · 1 commit after it")
+      await expect(slotSafePush(page, "auth")).toHaveText("Safe Push")
+      await expect(getPushButton(authRow)).toHaveCount(1)
+      await authChip.hover()
+      await expect(page.getByTestId("landed-with-after")).toHaveText("1 commit added since, not in master yet")
+      await page.mouse.move(0, 0)
+      // login and oauth, copies of the same changes, landed whole
+      await expect(loginRow.getByTestId("landed-with")).toHaveText("Landed with oauth")
+      await expectLandedActions(page, "login", "Landed in master with oauth")
+      // oauth, rebuilt with the same changes, stays Merged and held (auth above shows the push its new commit needs)
+      await expect(oauthRow.getByTestId("patronus-chip")).toHaveAttribute("data-kind", "merged")
+      await expect(oauthRow.getByTestId("next-step-slot")).toHaveAttribute("data-step", "none")
+      await expect(getPushButton(oauthRow)).toHaveCount(0)
+      // session, built on auth: its Safe Push lands the new commit of auth with it
+      await expect(slotSafePush(page, "session")).toHaveText("Safe Push · 2")
     })
 
     test("should offer to land only a stacked branch that applies alone", async ({ page, setupRepo, syncAndWaitForBranches }) => {

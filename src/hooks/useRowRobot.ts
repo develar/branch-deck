@@ -1,8 +1,8 @@
 import type { PatronusRobot } from "@/lib/bindings"
 import type { RobotStartCheck, SafePushSlot } from "@/lib/patronus"
-import { canStartRobot, getSafePushSlot } from "@/lib/patronus"
+import { canStartRobot, getSafePushSlot, isLandedByOwnRobot } from "@/lib/patronus"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranchRobot, useLandingAncestor, useLandingSpan, usePatronusAvailable, useRobotFailing, useRobotNeedsReview } from "@/stores/patronus"
+import { useBranchRobot, useLandedBy, useLandingAncestor, useLandingSpan, usePatronusAvailable, useRobotFailing, useRobotNeedsReview } from "@/stores/patronus"
 
 /** The robot of a branch row, which its Status cell shows and whose next step its Actions cell offers */
 export interface RowRobot {
@@ -23,6 +23,7 @@ export function useRowRobot(branch: Branch): RowRobot {
   const failing = useRobotFailing(robot?.id)
   const landingAncestor = useLandingAncestor(branch.name)
   const landingSpan = useLandingSpan(branch.name)
+  const landedBy = useLandedBy(branch.name)
   const start = canStartRobot(branch, robot, landingAncestor, landingSpan)
   const slot = getSafePushSlot({
     robot,
@@ -31,6 +32,7 @@ export function useRowRobot(branch: Branch): RowRobot {
     needsReview,
     failing,
     canOffer: available && !branch.hasError && branch.commitCount > 0,
+    landed: isLandedByOwnRobot(landedBy, robot),
   })
   return { available, robot, slot, start, needsReview }
 }

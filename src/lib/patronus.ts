@@ -1,5 +1,16 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
-import type { PatronusAvailability, PatronusProfile, PatronusPushMode, PatronusReviewerGroup, PatronusRobot, PatronusStartOptions, PullRequest } from "@/lib/bindings"
+import type {
+  PatronusAvailability,
+  PatronusProfile,
+  PatronusPushMode,
+  PatronusReviewerGroup,
+  PatronusRobot,
+  PatronusStartOptions,
+  PullRequest,
+  RobotLanding,
+  RobotLandingRequest,
+} from "@/lib/bindings"
+import { formatCommitCount } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
 import type { OutgoingState, PushAction } from "@/lib/push-summary"
@@ -451,8 +462,8 @@ export function isHoldingRobot(robot: PatronusRobot): boolean {
  * Why a branch offers no push: a Safe Push runs on it (`own`, the robot of the branch) or on a branch built on it that
  * lands it (`span`, `findLandingDescendants`). A push now won't land: the robot merges the commit it took, and a push
  * into its own branch makes it fail at the end ("branch was modified"). The restart, which pushes first, is the way through.
- * Or a merged Safe Push of a branch built on it or of the whole stack landed it (`landed`, `findLandedBy`): its commits
- * are in the target, a push sends nothing that lands, until the update archives the branch.
+ * Or a merged Safe Push landed all of it (`landed`, `findLandedBy`): its own, one of a branch built on it, or of the
+ * whole stack. Its commits are in the target, a push sends nothing that lands, until the update archives the branch.
  */
 export interface PushHold {
   kind: "own" | "span" | "landed"
@@ -474,8 +485,8 @@ export function findPushHold(
   span: LandingDescendant | null | undefined,
   landed: LandedBy | null | undefined = null,
 ): PushHold | null {
-  // its commits are in the target for good: nothing a push sends lands
-  if (landed != null) {
+  // its commits are in the target for good: nothing a push sends lands; commits after them are work for the remote
+  if (landed != null && landed.after.length === 0) {
     return { kind: "landed", branch: landed.branch, robot: landed.robot, ...(landed.wholeStack === true && { wholeStack: true }) }
   }
   // a Safe Push of a temporary ref (the IDE, the CLI) is not on the branch: a push leaves it as it is
@@ -495,7 +506,7 @@ export function findPushHold(
  */
 export function formatPushHoldReason(branchName: string, hold: PushHold): string {
   if (hold.kind === "landed") {
-    return `${formatLandedReason(hold)}: nothing of it is left to push`
+    return `${formatLandedReason({ ...hold, own: hold.branch === branchName && hold.wholeStack !== true })}: nothing of it is left to push`
   }
   return hold.kind === "own"
     ? `A ${formatPushMode(hold.robot.pushMode)} of ${branchName} is running: wait until it merges, or restart it on the current branch`
@@ -695,32 +706,73 @@ export function formatLandingReason(branchName: string, landing: LandingDescenda
 }
 
 /**
- * A branch a merged Safe Push landed besides the branch it ran on (`findLandedBy`): an ancestor the robot of a branch
- * built on it carried, or a branch of the stack the robot of the whole stack landed. Its commits are in the target until
- * the update archives the branch: its row says who landed it, and it offers no Safe Push, Dry Run or push.
+ * A branch a merged Safe Push landed (`findLandedBy`): its own robot's branch, an ancestor the robot of a branch built on
+ * it carried, or a branch of the stack the robot of the whole stack landed. Its commits are in the target until the
+ * update archives the branch: its row says who landed it, and while nothing was added after them (`after`) it offers no
+ * Safe Push, Dry Run or push.
  */
 export interface LandedBy {
-  /** The branch of the robot; for the robot of the whole stack (`wholeStack`) the root of the stack */
+  /** The branch of the robot (the branch itself for `own`); for the robot of the whole stack (`wholeStack`) the root */
   readonly branch: string
   readonly robot: PatronusRobot
   /** The robot of the whole stack of the root `branch` landed it, with every branch of the stack */
   readonly wholeStack?: boolean
+  /** The robot ran on this branch itself: its row shows the robot ("Merged") */
+  readonly own?: boolean
+  /**
+   * The commits of the branch added after the ones the robot landed (original hashes, newest first): the only work left
+   * of it; empty when all of it landed
+   */
+  readonly after: readonly string[]
 }
 
-/** "Landed with oauth", "Landed with the whole air stack": the Status cell of a branch a merged Safe Push landed */
-export function formatLandedWith(landed: LandedBy): string {
-  return `Landed with ${formatLandingSubject(landed)}`
+/**
+ * The robot of the branch row (`robot`) is the merged one that landed all of it (`landed`): a rebuild since gave the
+ * branch new hashes, not new work, so its row keeps the robot ("Merged") and offers no new start
+ */
+export function isLandedByOwnRobot(landed: LandedBy | null | undefined, robot: PatronusRobot | undefined): boolean {
+  return isLandedWhole(landed) && landed.own === true && robot !== undefined && landed.robot.id === robot.id
 }
 
-/** "Landed in master with oauth": why a branch a merged Safe Push landed starts no Safe Push and no Dry Run */
-export function formatLandedReason(landed: LandedBy): string {
-  return `Landed in ${landed.robot.targetBranch} with ${formatLandingSubject(landed)}`
+/** All of the branch landed: nothing was added after the commits the robot took */
+export function isLandedWhole(landed: LandedBy | null | undefined): landed is LandedBy {
+  return landed != null && landed.after.length === 0
 }
 
-/** What the branches a merged robot landed are found in: the branches of the table and the stack branches */
+/** " · 1 commit after it": what is left of a branch a merged Safe Push landed; empty when nothing is */
+function formatAfter(landed: Pick<LandedBy, "after">): string {
+  return landed.after.length === 0 ? "" : ` · ${formatCommitCount(landed.after.length)} after it`
+}
+
+/**
+ * "Landed with oauth", "Landed with the whole air stack", "Landed with oauth · 1 commit after it", of its own robot
+ * "Landed · 1 commit after it": the Status cell of a branch a merged Safe Push landed. Null for one its own robot landed
+ * whole: its robot chip says "Merged"
+ */
+export function formatLandedWith(landed: LandedBy): string | null {
+  if (landed.own === true) {
+    return landed.after.length === 0 ? null : `Landed${formatAfter(landed)}`
+  }
+  return `Landed with ${formatLandingSubject(landed)}${formatAfter(landed)}`
+}
+
+/**
+ * "Landed in master with oauth", of its own robot "Merged by Patronus": why a branch a merged Safe Push landed whole starts
+ * no Safe Push and no Dry Run
+ */
+export function formatLandedReason(landed: Pick<LandedBy, "branch" | "robot" | "wholeStack" | "own">): string {
+  return landed.own === true ? "Merged by Patronus" : `Landed in ${landed.robot.targetBranch} with ${formatLandingSubject(landed)}`
+}
+
+/**
+ * What the branches a merged robot landed are found in: the branches of the table, the stack branches, and the answers
+ * of `get_robot_landings` for robots whose branches got new copies since (`landingRequestOf`, by `landingKey`)
+ */
 export interface LandedSource {
   readonly branchOf: (name: string) => Branch | undefined
   readonly stackOf: (root: string) => StackBranch | undefined
+  /** By `landingKey`, what a robot landed by content; null: nothing it could tell */
+  readonly landings?: Readonly<Record<string, RobotLanding | null>>
 }
 
 /**
@@ -731,44 +783,134 @@ export function tookAsItIs(sourceRevision: string, tip: string | null | undefine
   return sourceRevision === tip || (tip != null && remote !== null && getReviewCommitState(sourceRevision, tip, remote) === "rebased")
 }
 
-/**
- * The robot took a commit the branch has (`tookAsItIs`, or one of its commits the branch built new ones on since): the
- * copies are the same objects, so what it is built on is as the robot took it
- */
-function carriesAncestorsOf(sourceRevision: string, branch: Branch): boolean {
-  return tookAsItIs(sourceRevision, branch.commits[0]?.hash, branch.remoteStatus) || branch.commits.some(commit => commit.hash === sourceRevision)
+/** A branch a merged robot landed (`findLandedBranches`) */
+export interface LandedBranch {
+  readonly branch: Branch
+  /** The branch the robot ran on */
+  readonly own: boolean
+  /** The commits added after the landed ones, original hashes, newest first */
+  readonly after: readonly string[]
 }
 
 /**
- * The branches a merged robot landed besides the branch it ran on: the ancestors of a stacked branch (it carries their
- * commits, `carriesAncestorsOf`: only while it ran on a commit of the branch as the table has it), every branch of the
- * stack for the robot of the whole stack (its stack branch carries them all, only while it ran on the stack branch as
- * it is, `tookAsItIs`). None for a dry run, a robot of a temporary ref or one of another state of the branch.
+ * The commits of the branch above the one the robot took (`tookAsItIs`, or one of its commits the branch built new ones
+ * on since: the copies below are the same objects, so the branch and what it is built on are as the robot took them),
+ * newest first; null when the hashes don't tell
  */
-export function findLandedBranches(robot: PatronusRobot, source: LandedSource): Branch[] {
-  const revision = robot.sourceRevision
-  if (robot.pushMode === "dryRun" || revision === null) {
+function commitsAbove(sourceRevision: string, branch: Branch): readonly string[] | null {
+  if (tookAsItIs(sourceRevision, branch.commits[0]?.hash, branch.remoteStatus)) {
     return []
   }
+  const at = branch.commits.findIndex(commit => commit.hash === sourceRevision)
+  return at < 0 ? null : branch.commits.slice(0, at).map(commit => commit.originalHash)
+}
+
+/** What a merged robot may have landed: the branch it ran on and those it is built on, root first; or the stack's */
+function landingCandidates(robot: PatronusRobot, source: LandedSource): readonly string[] | null {
   if (robot.branchName !== null) {
-    const branch = source.branchOf(robot.branchName)
-    return branch !== undefined && carriesAncestorsOf(revision, branch) ? stackAncestors(robot.branchName, source.branchOf) : []
+    return source.branchOf(robot.branchName) === undefined ? null : [...stackAncestors(robot.branchName, source.branchOf).map(it => it.name), robot.branchName]
   }
   if (robot.stackRoot != null) {
     const stack = source.stackOf(robot.stackRoot)
-    return stack !== undefined && tookAsItIs(revision, stack.tip, stack.remoteStatus) ? stack.members.flatMap(name => source.branchOf(name) ?? []) : []
+    return stack === undefined || stack.members.length === 0 ? null : stack.members
   }
-  return []
+  return null
 }
 
 /**
- * The branches merged Safe Pushes landed besides the branches they ran on (`findLandedBranches`), each with the robot
- * that landed it, the first merge first; a robot first seen merged (after a restart, a `bd` landing) included: the
- * table has the branches as the robot took them
+ * Whether the hashes tell what a merged robot landed: it ran on a commit of its branch as the table has it
+ * (`commitsAbove`), or on the stack branch as it is (`tookAsItIs`)
+ */
+function hashesTell(robot: PatronusRobot, revision: string, source: LandedSource): boolean {
+  if (robot.branchName !== null) {
+    const branch = source.branchOf(robot.branchName)
+    return branch !== undefined && commitsAbove(revision, branch) !== null
+  }
+  const stack = robot.stackRoot == null ? undefined : source.stackOf(robot.stackRoot)
+  return stack !== undefined && tookAsItIs(revision, stack.tip, stack.remoteStatus)
+}
+
+/** A robot that pushes into the target, of a branch or of the whole stack: a dry run lands nothing, a robot of a temporary ref is no branch's */
+function isLandingRobot(robot: PatronusRobot): robot is PatronusRobot & { sourceRevision: string } {
+  return robot.pushMode !== "dryRun" && robot.sourceRevision !== null && robotSubjectOf(robot) !== null
+}
+
+/** A robot that merged into the target (`isLandingRobot`) */
+function isMergedLanding(robot: PatronusRobot): robot is PatronusRobot & { sourceRevision: string } {
+  return robot.status === "success" && isLandingRobot(robot)
+}
+
+/**
+ * The question for `get_robot_landings` of a merged robot whose hashes don't tell what it landed (`hashesTell`): a change
+ * below its commit (an amend, a new commit of a branch it is built on; for the whole stack any change of a branch of
+ * it, which rebuilds the stack branch) gave the branches new copies. Null for a robot the hashes answer, a dry run,
+ * one of a temporary ref, or of no branch of the table.
+ */
+export function landingRequestOf(robot: PatronusRobot, source: LandedSource): RobotLandingRequest | null {
+  if (!isMergedLanding(robot) || hashesTell(robot, robot.sourceRevision, source)) {
+    return null
+  }
+  const branches = landingCandidates(robot, source)
+  if (branches === null) {
+    return null
+  }
+  return { robotId: robot.id, branchName: robot.branchName, stackRoot: robot.stackRoot ?? null, sourceRevision: robot.sourceRevision, branches: [...branches], tip: null }
+}
+
+/**
+ * What the answer of a landing request depends on: the robot's commit, the tip it ran on and the commits of the branches
+ * as the table has them; an answer for another key is of another state of the branches
+ */
+export function landingKey(request: RobotLandingRequest, source: LandedSource): string {
+  const subject =
+    request.stackRoot == null ? (request.branchName === null ? undefined : source.branchOf(request.branchName)?.commits[0]?.hash) : source.stackOf(request.stackRoot)?.tip
+  const branches = request.branches.map(name => `${name}:${(source.branchOf(name)?.commits ?? []).map(commit => `${commit.originalHash}>${commit.hash ?? ""}`).join(",")}`)
+  return [request.robotId, request.sourceRevision, subject ?? "", ...branches].join("\n")
+}
+
+/**
+ * The branches a merged robot landed (not a dry run, not a robot of a temporary ref; the caller knows it merged), with
+ * the commits added after them:
+ * - by the hashes: the robot of a branch ran on a commit of it as the table has it (`commitsAbove`), so the branch and
+ *   every branch it is built on landed, the branch's commits above that commit are after it; the robot of the whole
+ *   stack ran on the stack branch as it is, so every branch of the stack landed;
+ * - else by content, the answer of `get_robot_landings` for the branches as the table has them (`landingKey`): after a
+ *   change below the robot's commit its tested commits against each branch's, so a commit added above the landed ones is
+ *   the only work left, and a branch with a commit changed since is not listed.
+ */
+export function findLandedBranches(robot: PatronusRobot, source: LandedSource): LandedBranch[] {
+  if (!isLandingRobot(robot)) {
+    return []
+  }
+  const revision = robot.sourceRevision
+  const candidates = landingCandidates(robot, source)
+  if (candidates === null) {
+    return []
+  }
+  if (hashesTell(robot, revision, source)) {
+    const own = robot.branchName === null ? undefined : source.branchOf(robot.branchName)
+    const above = own === undefined ? [] : (commitsAbove(revision, own) ?? [])
+    return candidates.flatMap(name => {
+      const branch = source.branchOf(name)
+      return branch === undefined ? [] : [{ branch, own: name === robot.branchName, after: name === robot.branchName ? above : [] }]
+    })
+  }
+  const request = landingRequestOf(robot, source)
+  const landing = request === null ? undefined : source.landings?.[landingKey(request, source)]
+  return (landing?.branches ?? []).flatMap(landed => {
+    const branch = source.branchOf(landed.branch)
+    return branch === undefined || !candidates.includes(landed.branch) ? [] : [{ branch, own: landed.branch === robot.branchName, after: landed.after }]
+  })
+}
+
+/**
+ * The branches merged Safe Pushes landed (`findLandedBranches`), each with the robot that landed it: the one that left
+ * the fewest commits after it, of equals the first merge; a robot first seen merged (after a restart, a `bd` landing)
+ * included: the table has the branches as the robot took them, by hash or by content
  */
 export function findLandedBy(robots: Readonly<Record<string, PatronusRobot>>, source: LandedSource): Map<string, LandedBy> {
   const merged = Object.values(robots)
-    .filter(robot => robot.status === "success" && isPushingRobot(robot))
+    .filter(isMergedLanding)
     .sort((a, b) => (a.finishTime ?? 0) - (b.finishTime ?? 0))
   const landed = new Map<string, LandedBy>()
   for (const robot of merged) {
@@ -776,10 +918,13 @@ export function findLandedBy(robots: Readonly<Record<string, PatronusRobot>>, so
     if (subject === null) {
       continue
     }
-    for (const branch of findLandedBranches(robot, source)) {
-      if (!landed.has(branch.name)) {
-        landed.set(branch.name, subject.kind === "branch" ? { branch: subject.name, robot } : { branch: subject.root, robot, wholeStack: true })
+    for (const { branch, own, after } of findLandedBranches(robot, source)) {
+      const known = landed.get(branch.name)
+      if (known !== undefined && known.after.length <= after.length) {
+        continue
       }
+      const by = subject.kind === "branch" ? { branch: subject.name, robot } : { branch: subject.root, robot, wholeStack: true }
+      landed.set(branch.name, { ...by, ...(own && { own: true }), after })
     }
   }
   return landed
@@ -809,10 +954,15 @@ export interface SafePushSlotInput {
   readonly failing: boolean
   /** "Safe Push" is offered: Patronus answered and the branch can be pushed */
   readonly canOffer: boolean
+  /**
+   * Its merged robot landed all of the branch as it is now, by content (`findLandedBy`): a rebuild since gave the branch
+   * new hashes, not new work
+   */
+  readonly landed?: boolean
 }
 
 /** The robot of a branch row (`NextStepSlot`, `BranchRowStatus`) */
-export function getSafePushSlot({ robot, localTip, remote, needsReview, failing, canOffer }: SafePushSlotInput): SafePushSlot {
+export function getSafePushSlot({ robot, localTip, remote, needsReview, failing, canOffer, landed = false }: SafePushSlotInput): SafePushSlot {
   if (robot === undefined) {
     return canOffer ? { kind: "start" } : { kind: "none" }
   }
@@ -821,7 +971,7 @@ export function getSafePushSlot({ robot, localTip, remote, needsReview, failing,
     return { kind: "running", chip }
   }
   // a merged robot has no warning dot, yet a branch with other commits since (the same name, new work) starts anew
-  if (canOffer && isReviewCommitOutdated(getReviewCommitState(robot.sourceRevision, localTip, remote))) {
+  if (canOffer && !landed && isReviewCommitOutdated(getReviewCommitState(robot.sourceRevision, localTip, remote))) {
     return { kind: "start" }
   }
   return { kind: "finished", chip, offered: canOffer }

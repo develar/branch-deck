@@ -2,7 +2,7 @@ import { FileDiffIcon, FlaskConicalIcon, GitPullRequestClosedIcon, GitPullReques
 import { getPushWithChildrenItem, getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import { requestSafePush } from "@/hooks/useSafePush"
 import type { StackNextStep } from "@/hooks/useStackNextStep"
-import { getCreateStackPullRequestItem, getStackNextStepNow, getWholeStackMembers, isForkingStack } from "@/hooks/useStackNextStep"
+import { getCreateStackPullRequestItem, getStackNextStepNow, getWholeStackRest, isForkingStack } from "@/hooks/useStackNextStep"
 import type { PatronusPushMode } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
 import { branchReviewBlocker } from "@/lib/branch-review"
@@ -132,7 +132,8 @@ export function getWholeStackStartItems(root: string, next: StackNextStep | null
     const stack = getStackBranch(root)
     const target = getReadinessTarget()
     if (leaf === null && stack !== undefined) {
-      return describeWholeStackLanding(getWholeStackMembers(stack), stack.commitCount, target, mode)
+      const rest = getWholeStackRest(stack)
+      return describeWholeStackLanding(rest.members, rest.commitCount, target, mode, rest.landed)
     }
     return describeStart(mode, leaf ?? root, stackMainLineIn(branchSyncStore.getState(), root).length, target)
   }

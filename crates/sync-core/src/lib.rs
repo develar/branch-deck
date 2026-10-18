@@ -93,6 +93,7 @@
 //! - `patronus_start`: the robot of a branch or of the whole stack, and whether a Safe Push or a Dry Run can start
 //! - `review_readiness`: the review readiness of branches, shared by the app and `bd safe-push`
 //! - `robot_commits`: the commits a robot checked, by the hashes of the checked out branch
+//! - `robot_landing`: what a merged robot landed of the branches, by content: the commits it tested, and those after
 //!
 //! The rest:
 //! - `branch_review`: the stack and the commits of a branch review
@@ -163,6 +164,7 @@ pub mod review_readiness;
 pub mod review_requests;
 pub mod reword_commit;
 pub mod robot_commits;
+pub mod robot_landing;
 pub mod snapshot;
 pub mod squash;
 pub mod stack;

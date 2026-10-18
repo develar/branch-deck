@@ -1,5 +1,6 @@
 import { useMemo } from "react"
 import { fullyLandedNames, isFullyLanded } from "@/lib/landed"
+import { isLandedWhole } from "@/lib/patronus"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { useBranchLanded, useLanding } from "@/stores/landed"
 import { useLandedBy } from "@/stores/patronus"
@@ -22,7 +23,8 @@ export function useLandedIn(name: string): string | null {
   if (landed !== null && isFullyLanded(landed.branch, landed.incoming)) {
     return upstream
   }
-  return landedBy?.robot.targetBranch ?? null
+  // its own robot's branch shows the robot ("Merged"); one with commits after the landed ones has work left
+  return isLandedWhole(landedBy) && landedBy.own !== true ? landedBy.robot.targetBranch : null
 }
 
 /** Whether the fetched baseline has every commit of a branch, for the push summary */

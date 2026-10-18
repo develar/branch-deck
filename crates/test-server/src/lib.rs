@@ -82,6 +82,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}", get(get_repository))
     .route("/repositories/{id}", axum::routing::delete(delete_repository))
     .route("/repositories/{id}/reword", post(reword_commit))
+    .route("/repositories/{id}/commit", post(commit_on_head))
     .route("/repositories/{id}/pull-requests", post(set_pull_requests).get(get_pull_request_fixture))
     .route(
       "/repositories/{id}/branch-name-suggestions",
@@ -139,6 +140,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_patronus_robot_details", post(tauri_command_bridge::get_patronus_robot_details))
     .route("/invoke/get_patronus_robot_problems", post(tauri_command_bridge::get_patronus_robot_problems))
     .route("/invoke/get_robot_failure", post(tauri_command_bridge::get_robot_failure))
+    .route("/invoke/get_robot_landings", post(tauri_command_bridge::get_robot_landings))
     .route("/invoke/get_patronus_failing_robots", post(tauri_command_bridge::get_patronus_failing_robots))
     .route("/invoke/get_branch_review_readiness", post(tauri_command_bridge::get_branch_review_readiness))
     .route("/invoke/get_patronus_start_options", post(tauri_command_bridge::get_patronus_start_options))
@@ -543,6 +545,33 @@ pub async fn reword_commit(
     Ok(mapping) => Ok(Json(serde_json::json!({ "newCommitId": mapping.get(&request.commit_id) }))),
     Err(e) => {
       tracing::error!("Failed to reword commit {}: {}", request.commit_id, e);
+      Err(StatusCode::INTERNAL_SERVER_ERROR)
+    }
+  }
+}
+
+#[derive(Deserialize)]
+pub struct CommitRequest {
+  message: String,
+  /// Path -> content of the files the commit writes
+  files: Vec<(String, String)>,
+  /// Unix seconds of the author and committer dates
+  timestamp: i64,
+}
+
+/// Commits files onto HEAD as a commit in a terminal would: lets an E2E test add work behind the app's back (a new commit
+/// of a branch). Returns the new commit id.
+pub async fn commit_on_head(
+  axum::extract::Path(id): axum::extract::Path<String>,
+  State(state): State<Arc<AppState>>,
+  Json(request): Json<CommitRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+  let path = state.repositories.get(&id).map(|repo| repo.path.clone()).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+  let files: Vec<(&str, &str)> = request.files.iter().map(|(name, content)| (name.as_str(), content.as_str())).collect();
+  match test_utils::git_test_utils::commit_files_on_head(std::path::Path::new(&path), &request.message, &files, request.timestamp) {
+    Ok(commit) => Ok(Json(serde_json::json!({ "commitId": commit }))),
+    Err(e) => {
+      tracing::error!("Failed to commit onto HEAD: {e}");
       Err(StatusCode::INTERNAL_SERVER_ERROR)
     }
   }

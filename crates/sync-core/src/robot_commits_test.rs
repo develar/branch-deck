@@ -21,11 +21,11 @@ fn lines(changed: &[(usize, &str)]) -> String {
 }
 
 /// A commit authored (and committed) at `time`: the same subject and time make the same identity after a rewrite
-fn commit(repo: &TestRepo, subject: &str, file: &str, content: &str, time: i64) -> String {
+pub(crate) fn commit(repo: &TestRepo, subject: &str, file: &str, content: &str, time: i64) -> String {
   repo.create_commit_with_timestamp(subject, file, content, Some(1_700_000_000 + time))
 }
 
-async fn sync(repo: &TestRepo) {
+pub(crate) async fn sync(repo: &TestRepo) {
   sync_branches(repo.git_executor(), repo.path_str(), "test", TestReporter::new(), SyncOptions::default())
     .await
     .unwrap();
@@ -192,7 +192,7 @@ async fn a_commit_in_the_baseline_landed() {
 }
 
 /// `master` and the checked-out `feature` with stacked branches on
-fn stacks_repo() -> TestRepo {
+pub(crate) fn stacks_repo() -> TestRepo {
   let repo = TestRepo::new();
   commit(&repo, "Initial commit", "README.md", "# Test", 900);
   repo.set_config("branchdeck.stacks", "true").unwrap();
@@ -225,17 +225,24 @@ async fn the_commits_of_a_stack_parent_are_listed_with_their_branch() {
   assert!(!map.virtual_behind_head);
 }
 
-/// The robot of the whole stack built the stack branch of a stack that forks (`auth`, with `login` and `session` built
-/// on it): the map lists the commits of every member with its branch, shown by identity, as the stack branch has no
-/// mapping notes; a commit made since the last sync is behind
-#[tokio::test]
-async fn a_robot_of_the_whole_stack_lists_the_commits_of_every_member_with_its_branch() {
+/// A stack that forks, synced: `auth`, with `login` and `session` built on it; their commits, and the tip of the stack
+/// branch the robot of the whole stack ran on
+pub(crate) async fn forking_stack() -> (TestRepo, [String; 3], String) {
   let repo = stacks_repo();
   let auth = commit(&repo, "(auth) Add auth", "auth.rs", "// auth", 1000);
   let login = commit(&repo, "(auth/login) Add form", "login.rs", "// login", 1001);
   let session = commit(&repo, "(auth/session) Add session", "session.rs", "// session", 1002);
   sync(&repo).await;
   let source = repo.git(&["rev-parse", "refs/heads/test/stack/auth"]);
+  (repo, [auth, login, session], source)
+}
+
+/// The robot of the whole stack built the stack branch of a stack that forks (`auth`, with `login` and `session` built
+/// on it): the map lists the commits of every member with its branch, shown by identity, as the stack branch has no
+/// mapping notes; a commit made since the last sync is behind
+#[tokio::test]
+async fn a_robot_of_the_whole_stack_lists_the_commits_of_every_member_with_its_branch() {
+  let (repo, [auth, login, session], source) = forking_stack().await;
   let members: Vec<String> = ["auth", "login", "session"].iter().map(|name| (*name).to_string()).collect();
   let map_now = || stack_robot_commit_map(repo.git_executor(), repo.path_str(), "test", "auth", &source, "master", &members).unwrap();
 

@@ -69,6 +69,23 @@ export class TestRepositoryBuilder {
     return data.newCommitId
   }
 
+  /**
+   * Commits files onto HEAD behind the app's back, as a commit in a terminal would (a new commit of a branch), authored
+   * at `timestamp` (Unix seconds); returns the new commit id
+   */
+  async commit(message: string, files: Record<string, string>, timestamp: number): Promise<string> {
+    const response = await fetch(`${this.baseUrl}/repositories/${this.id}/commit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, files: Object.entries(files), timestamp }),
+    })
+    if (!response.ok) {
+      throw new Error(`Failed to commit ${message}: ${response.statusText}`)
+    }
+    const data = await response.json()
+    return data.commitId
+  }
+
   /** Sets what `get_pull_requests` answers from now on (E2E never runs gh) */
   async setPullRequests(result: PullRequestsResult): Promise<void> {
     await this.setFixture("pull-requests", result)

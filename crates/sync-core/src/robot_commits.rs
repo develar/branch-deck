@@ -26,15 +26,15 @@ fn walk(git_executor: &GitCommandExecutor, repository_path: &str, options: &[&st
 }
 
 /// A commit of the checked-out branch with the virtual branch it is grouped into
-struct HeadCommit {
-  commit: Commit,
-  branch: String,
+pub(crate) struct HeadCommit {
+  pub(crate) commit: Commit,
+  pub(crate) branch: String,
 }
 
 /// The commits of `branches` on HEAD, oldest first, grouped as the sync groups them, with their mapping notes. Three
 /// or four processes: the stack setting and one `cat-file --batch` for the issue groups and the stack parents, one `log`
 /// of the commits ahead of the baseline (plus a `rev-parse` on a local baseline)
-fn head_commits(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str, branches: &[&str]) -> Result<Vec<HeadCommit>> {
+pub(crate) fn head_commits(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str, branches: &[&str]) -> Result<Vec<HeadCommit>> {
   let grouping = read_grouping_inputs(git_executor, repository_path)?;
   Ok(
     get_commit_list(git_executor, repository_path, baseline_branch)?
@@ -49,7 +49,7 @@ fn head_commits(git_executor: &GitCommandExecutor, repository_path: &str, baseli
 
 /// The virtual commit a HEAD commit's mapping note names, unless the note is stale: one copied onto a commit with
 /// another tree (`notes.rewriteRef` on an amend) records the source it was copied from
-fn mapped_virtual(commit: &Commit) -> Option<&str> {
+pub(crate) fn mapped_virtual(commit: &Commit) -> Option<&str> {
   let mapped = commit.mapped_commit_id.as_deref()?;
   match &commit.mapped_source {
     Some(source) if source.tree != commit.tree_id => None,
@@ -148,6 +148,86 @@ enum MapBy {
   Identity,
 }
 
+/// The commits of a virtual branch (or the stack branch) against the source revision of a robot: phase 3 of
+/// `robot_commit_map`, two `rev-list` walks without the baseline
+pub(crate) struct SourceWalk {
+  /// The commits of the virtual branch, newest first; empty without one
+  pub(crate) virtual_commits: Vec<WalkedCommit>,
+  /// `--left-right --cherry-mark` of `<source>...<virtual branch>`: `<` a robot commit the virtual branch lacks, `>` a
+  /// virtual commit the robot lacks, `=` a patch-equivalent copy. Without a virtual branch every robot commit, as `<`
+  marked: Vec<WalkedCommit>,
+  /// By commit id, the mark of `marked`
+  marks: HashMap<String, char>,
+}
+
+impl SourceWalk {
+  /// The two walks; without a virtual branch (archived, deleted) one walk of the robot's commits
+  pub(crate) fn read(
+    git_executor: &GitCommandExecutor,
+    repository_path: &str,
+    virtual_ref: &str,
+    source_revision: &str,
+    baseline_branch: &str,
+    virtual_present: bool,
+  ) -> Result<Self> {
+    let baseline_exclusion = format!("^{baseline_branch}");
+    let (virtual_commits, marked) = if virtual_present {
+      let virtual_commits = walk(git_executor, repository_path, &[], &[&baseline_exclusion, virtual_ref])?;
+      let range = format!("{source_revision}...{virtual_ref}");
+      let marked = walk(git_executor, repository_path, &["--left-right", "--cherry-mark"], &[&baseline_exclusion, &range])?;
+      (virtual_commits, marked)
+    } else {
+      let source_commits = walk(git_executor, repository_path, &[], &[&baseline_exclusion, source_revision])?;
+      (Vec::new(), source_commits.into_iter().map(|commit| WalkedCommit { mark: '<', ..commit }).collect())
+    };
+    let marks = marked.iter().map(|commit| (commit.id.clone(), commit.mark)).collect();
+    Ok(Self { virtual_commits, marked, marks })
+  }
+
+  /// The robot commits the virtual branch lacks
+  pub(crate) fn robot_only(&self) -> impl Iterator<Item = &WalkedCommit> {
+    self.marked.iter().filter(|commit| commit.mark == '<')
+  }
+
+  /// `(robot commit, virtual commit)` of one identity (`CommitKey`), the virtual commit new to the robot: a version of
+  /// it, rebased or changed, as `same_changes` tells
+  pub(crate) fn versions(&self) -> Vec<(&str, &str)> {
+    let robot_by_key: HashMap<&CommitKey, &WalkedCommit> = self.robot_only().map(|commit| (&commit.key, commit)).collect();
+    self
+      .virtual_commits
+      .iter()
+      .filter(|commit| self.marks.get(&commit.id) == Some(&'>'))
+      .filter_map(|commit| robot_by_key.get(&commit.key).map(|robot| (robot.id.as_str(), commit.id.as_str())))
+      .collect()
+  }
+
+  /// The state of a commit of the virtual branch: `tested` when both reach it or it is a patch-equivalent copy (`=`);
+  /// a new one is `rebased` or `changed` by `rebased` (the answer of `same_changes` for its version), else `added`
+  pub(crate) fn state_of(&self, commit: &WalkedCommit, rebased: &HashMap<&str, bool>) -> RobotCommitState {
+    match self.marks.get(&commit.id) {
+      Some('>') => match rebased.get(commit.id.as_str()) {
+        Some(true) => RobotCommitState::Rebased,
+        Some(false) => RobotCommitState::Changed,
+        None => RobotCommitState::Added,
+      },
+      // reached from both, or a patch-equivalent copy (`=`)
+      _ => RobotCommitState::Tested,
+    }
+  }
+}
+
+/// By the newer commit of each `(robot commit, newer commit)` version pair (`SourceWalk::versions`), whether it has the
+/// same changes (`same_changes`, one `diff-tree` and one `patch-id`, none without pairs): rebased, else changed
+pub(crate) fn rebased_versions<'a>(git_executor: &GitCommandExecutor, repository_path: &str, versions: &[(&'a str, &'a str)]) -> Result<HashMap<&'a str, bool>> {
+  Ok(
+    versions
+      .iter()
+      .map(|(_, newer)| *newer)
+      .zip(same_changes(git_executor, repository_path, versions)?)
+      .collect(),
+  )
+}
+
 /// The map of the commits of `virtual_ref` (the virtual branch, or the stack branch) against `source_revision`, the
 /// commits of `branches` on HEAD showing them (`robot_commit_map`)
 fn commit_map(
@@ -185,37 +265,13 @@ fn commit_map(
     });
   }
 
-  let baseline_exclusion = format!("^{baseline_branch}");
-
-  // the commits of the virtual branch, and the marks of those that differ from the source revision (`>`), and of the
-  // robot's own (`<`). Without a virtual branch (archived, deleted) every robot commit is the robot's own
-  let (virtual_commits, marked) = if virtual_present {
-    let virtual_commits = walk(git_executor, repository_path, &[], &[&baseline_exclusion, virtual_ref])?;
-    let range = format!("{source_revision}...{virtual_ref}");
-    let marked = walk(git_executor, repository_path, &["--left-right", "--cherry-mark"], &[&baseline_exclusion, &range])?;
-    (virtual_commits, marked)
-  } else {
-    let source_commits = walk(git_executor, repository_path, &[], &[&baseline_exclusion, source_revision])?;
-    (Vec::new(), source_commits.into_iter().map(|commit| WalkedCommit { mark: '<', ..commit }).collect())
-  };
-  let virtual_marks: HashMap<&str, char> = marked.iter().map(|commit| (commit.id.as_str(), commit.mark)).collect();
-  let robot_only: Vec<&WalkedCommit> = marked.iter().filter(|commit| commit.mark == '<').collect();
-
-  // a new commit with the identity of a robot commit is a version of it: rebased, or changed
-  let robot_by_key: HashMap<&CommitKey, &WalkedCommit> = robot_only.iter().map(|commit| (&commit.key, *commit)).collect();
-  let versions: Vec<(&str, &str)> = virtual_commits
-    .iter()
-    .filter(|commit| virtual_marks.get(commit.id.as_str()) == Some(&'>'))
-    .filter_map(|commit| robot_by_key.get(&commit.key).map(|robot| (robot.id.as_str(), commit.id.as_str())))
-    .collect();
-  let rebased: HashMap<&str, bool> = versions
-    .iter()
-    .map(|(_, newer)| *newer)
-    .zip(same_changes(git_executor, repository_path, &versions)?)
-    .collect();
+  let walked = SourceWalk::read(git_executor, repository_path, virtual_ref, source_revision, baseline_branch, virtual_present)?;
+  let versions = walked.versions();
+  let rebased = rebased_versions(git_executor, repository_path, &versions)?;
   let paired: HashSet<&str> = versions.iter().map(|(older, _)| *older).collect();
+  let virtual_commits = &walked.virtual_commits;
 
-  let remaining: Vec<&WalkedCommit> = robot_only.into_iter().filter(|commit| !paired.contains(commit.id.as_str())).collect();
+  let remaining: Vec<&WalkedCommit> = walked.robot_only().filter(|commit| !paired.contains(commit.id.as_str())).collect();
   let landed = if remaining.is_empty() {
     HashSet::new()
   } else {
@@ -234,16 +290,8 @@ fn commit_map(
   let mut shown: HashSet<&str> = HashSet::new();
   let mut virtual_behind_head = false;
   let mut commits: Vec<RobotCommit> = Vec::with_capacity(virtual_commits.len() + remaining.len());
-  for commit in &virtual_commits {
-    let mut state = match virtual_marks.get(commit.id.as_str()) {
-      Some('>') => match rebased.get(commit.id.as_str()) {
-        Some(true) => RobotCommitState::Rebased,
-        Some(false) => RobotCommitState::Changed,
-        None => RobotCommitState::Added,
-      },
-      // reached from both, or a patch-equivalent copy (`=`)
-      _ => RobotCommitState::Tested,
-    };
+  for commit in virtual_commits {
+    let mut state = walked.state_of(commit, &rebased);
     let local = by_note.get(commit.id.as_str()).or_else(|| by_key.get(&commit.key)).copied();
     if let Some(local) = local {
       shown.insert(local.commit.id.as_str());
@@ -286,7 +334,7 @@ fn commit_map(
 
 #[cfg(test)]
 #[path = "robot_commits_test.rs"]
-mod robot_commits_test;
+pub(crate) mod robot_commits_test;
 
 /// The failure of a robot with the commit map of its branch and the checked-out branch, for the prompt for an agent: the
 /// app and `bd robot` build it alike. For a robot of the whole stack (`stack_root`), `ancestors` are the members of the

@@ -99,7 +99,8 @@ export async function expectLandedActions(page: Page, branchName: string, reason
   const row = findBranchRow(page, branchName)
   await row.click({ button: "right" })
   for (const [name, expected] of [
-    [/^Safe Push S/, reason],
+    // "Safe Push · 2" while a branch it is built on has commits after the landed ones
+    [/^Safe Push( · \d+)? S/, reason],
     [/^Dry Run/, reason],
     [/^Push P$/, `${reason}: nothing of it is left to push`],
   ] as const) {

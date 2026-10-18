@@ -355,6 +355,20 @@ pub async fn get_stack_independence(
   .await
 }
 
+/// What the merged robots of the request landed, by the real core on the test repository: a fixture robot's commit is
+/// the tip its virtual branch had when the test set it (an empty `sourceRevision`)
+pub async fn get_robot_landings(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_types::robot_landing::GetRobotLandingsParams>,
+) -> CommandResult<Vec<sync_types::robot_landing::RobotLanding>> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("read what the merged robots landed", move || {
+    sync_core::robot_landing::robot_landings(&git_executor, &params.repository_path, &params.branch_prefix, &params.baseline_branch, &params.robots)
+  })
+  .await
+}
+
 /// Without the object cache, as every command of the mock server; nothing cancels it
 pub async fn find_conflict_fix(
   State(state): State<Arc<AppState>>,

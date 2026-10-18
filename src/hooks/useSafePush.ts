@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { useStore } from "zustand"
 import { getBranchNextStepOf } from "@/hooks/useBranchNextStep"
 import { peekDismissesStaleReviews, readDismissesStaleReviews } from "@/hooks/useDismissesStaleReviews"
-import { getStackNextStepNow, getWholeStackMembers, isForkingStack, stackFactsOf } from "@/hooks/useStackNextStep"
+import { getStackNextStepNow, getWholeStackRest, isForkingStack, stackFactsOf } from "@/hooks/useStackNextStep"
 import type { PatronusProfile, PatronusRobot, PatronusStartOptions, PullRequest } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { BranchNextStep } from "@/lib/branch-next-step"
@@ -11,7 +11,7 @@ import { notifyError } from "@/lib/errors"
 import { pushForAction } from "@/lib/git/push"
 import { pushWholeStack } from "@/lib/git/stack-push"
 import type { BypassProfiles, PullRequestStart } from "@/lib/patronus"
-import { allowsPushMode, formatPushHoldReason, formatPushMode, getBypassProfiles, getPullRequestStart, getStartPush, isStartBlocked } from "@/lib/patronus"
+import { allowsPushMode, formatPushHoldReason, formatPushMode, getBypassProfiles, getPullRequestStart, getStartPush, isLandedWhole, isStartBlocked } from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
 import { getPushAction } from "@/lib/push-summary"
 import type { DismissFact, ReviewFact, SafePushDecision, SafePushFacts, StartOptionsFact } from "@/lib/safe-push-decision"
@@ -20,6 +20,7 @@ import type { SafePushStart } from "@/lib/safe-push-start"
 import { startSafePush } from "@/lib/safe-push-start"
 import { stackAncestors, stackPushOrder } from "@/lib/stack"
 import { showToast } from "@/lib/toast-message"
+import type { StackLandedPart } from "@/lib/whole-stack"
 import { formatReadinessSubject, formatWholeStack, getStackBranchBlocker, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { branchSyncStore, getBranch, getStackBranch, getStackBranchOf, getStackIslandRoots, stackDescendantsIn, stackMainLineIn } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
@@ -92,8 +93,13 @@ export interface SafePushRead {
 /** What a start of the whole stack lands and pushes */
 export interface WholeStackRead {
   readonly root: string
-  /** The branches of the stack, the root first: one robot lands them all */
+  /**
+   * The branches of the stack, the main line first: one robot lands them all; but those merged Safe Pushes landed whole
+   * already (`getWholeStackRest`)
+   */
   readonly members: readonly string[]
+  /** The branches merged Safe Pushes landed whole already, and who landed them; null while none is */
+  readonly landed: StackLandedPart | null
   /** Its stack branch `{prefix}/stack/<root>`, the only branch the start pushes */
   readonly stackBranch: string
   /** The branches of it on the remote, in the order of `members`: they stay as they are there */
@@ -282,7 +288,7 @@ export function readSafePush(branchName: string, ask: Omit<SafePushRequest, "pla
   // the ancestors a merged Safe Push landed are in the target: the robot lands the others with the branch
   const ancestors = stackAncestors(branchName, getBranch)
     .map(it => it.name)
-    .filter(name => getLandedBy(name) === null)
+    .filter(name => !isLandedWhole(getLandedBy(name)))
   // a Dry Run counts no approval: the pull request of the whole stack doesn't matter to it
   const stackPullRequest = mode === "rebaseAutosquash" ? openWholeStackPullRequestOf(branchName) : null
   const facts: SafePushFacts = {
@@ -387,7 +393,9 @@ function readWholeStackSafePush(root: string, ask: Omit<SafePushRequest, "placem
     wholeStackPullRequest: null,
   }
   const piece = getStackBranchBlocker(root, stack) === null ? null : (stackMainLineIn(branchSyncStore.getState(), root).at(-1) ?? null)
-  const members = getWholeStackMembers(stack)
+  // what merged Safe Pushes landed of it is in the target: the popover names the rest
+  const rest = getWholeStackRest(stack)
+  const members = rest.members
   return {
     facts,
     decision: getSafePushDecision(facts),
@@ -403,13 +411,13 @@ function readWholeStackSafePush(root: string, ask: Omit<SafePushRequest, "placem
     },
     ancestors: [],
     children: [],
-    commitCount: stack.commitCount,
+    commitCount: rest.commitCount,
     pushOrder: [],
     profiles,
     bypassProfiles: null,
     branchProfileId,
     readiness,
-    wholeStack: { root, members, stackBranch: stack.branchName, onRemote: members.filter(name => getBranch(name)?.remoteStatus?.exists === true), piece },
+    wholeStack: { root, members, landed: rest.landed, stackBranch: stack.branchName, onRemote: members.filter(name => getBranch(name)?.remoteStatus?.exists === true), piece },
     wholeStackPullRequest: null,
   }
 }

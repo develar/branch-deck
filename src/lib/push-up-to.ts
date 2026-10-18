@@ -104,7 +104,11 @@ function blocker(branch: Branch, holdOf: (name: string) => PushHold | null): Pus
     case "span":
       return { ok: false, reason: `A Safe Push of ${formatLandingSubject(hold)} lands all of ${branch.name}.`, show: hold.branch }
     case "landed":
-      return { ok: false, reason: `${formatLandedReason(hold)}: nothing of ${branch.name} is left to push.`, show: hold.branch }
+      return {
+        ok: false,
+        reason: `${formatLandedReason({ ...hold, own: hold.branch === branch.name && hold.wholeStack !== true })}: nothing of ${branch.name} is left to push.`,
+        show: hold.branch,
+      }
   }
 }
 

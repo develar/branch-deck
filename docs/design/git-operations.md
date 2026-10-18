@@ -2076,6 +2076,28 @@ so every commit is shown by the HEAD commit of its identity; a HEAD commit of a 
 branch shows is `virtual_behind_head`. A HEAD commit amended since the last sync keeps its identity, so it is not told
 as changed: the next sync rebuilds the stack branch.
 
+#### Robot landing
+
+Read-only. What a merged robot landed of the branches as the table has them ([Landing](landing.md), "Landed by
+content"), for the rows of the app (`get_robot_landings`): `robot_landings` (`crates/sync-core/src/robot_landing.rs`),
+the phases of the robot commit map for many robots at once.
+
+1. The commits of the branches on HEAD as the sync groups them (phase 2 above), read once for every robot; a caller
+   that read the grouped branches already passes them (`robot_landings_of_grouped`), so this phase runs no process.
+2. One `cat-file --batch-check` of every robot's source revision and of the ref it ran on (the virtual branch, or the
+   stack branch of the whole stack), but of a robot whose ref the caller knows at its commit (`RobotLandingRequest::
+   tip`, from a sync of the same process): a source the repository lacks lands nothing, a ref at the source needs no walk. At the
+   source every HEAD commit the sync built into the ref landed (its mapping note names its copy); one without a note
+   was made since.
+3. Per other robot the two walks of phase 3 above (`SourceWalk`), and one `same_changes` (one `diff-tree --stdin -p -U0`
+   and one `patch-id --stable`) of the pairs of every robot, none without such pairs.
+4. No process: each HEAD commit takes the state of the commit of the ref with its identity (`CommitKey`), and a branch
+   landed when its oldest commits are `tested` or `rebased` and the rest only `added` (or not in the ref yet): those
+   are after it, the work left. A `changed` commit, or an added one below a tested one, leaves the branch not landed.
+
+The app asks only for a robot whose hashes don't tell (its commit is not a commit of its branch as the table has it,
+nor the stack branch as it is), once per state of the branches (`landingKey`), never while a sync runs.
+
 ### Index policy
 
 When a rewrite changes HEAD's tree, the index has to follow. Otherwise `git status` shows the rewrite reversed as
@@ -2238,6 +2260,7 @@ the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and
 | Update check, Update Project | `an_update_check`, `an_update` | 20, 38 | 20, 38 |
 | App stack push of two branches (`push_branches`; first a push per branch) | `an_atomic_push_of_a_stack` * | 8 | 4 |
 | The text of the app's pull request of the whole stack (`read_new_stack_pull_request`) | `the_text_of_a_new_pull_request_of_the_whole_stack` ** | 1 | 1 |
+| What a merged robot landed after a change below its commit (`robot_landings`, 2026-10-18) | `the_landing_of_a_merged_robot_after_a_change_below_its_commit` | 8 | 8 |
 | `bd check`, with `--build` of two paths | `a_check`, `a_check_with_a_build` | 20, 26 | 20, 23 |
 | `bd push --dry-run` | `a_push` | 54 | 25 |
 | `bd safe-push --check` | `a_safe_push_check` * | 57 | 32 |

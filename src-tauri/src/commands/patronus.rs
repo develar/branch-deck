@@ -15,12 +15,14 @@ use std::time::Duration;
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
 use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
 use sync_core::robot_commits::robot_failure_report;
+use sync_core::robot_landing::robot_landings;
 use sync_types::patronus::{
   BranchReviewReadiness, GetBranchReviewReadinessParams, GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability,
   PatronusCommandComment, PatronusCommandReply, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus,
   PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
 use sync_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
+use sync_types::robot_landing::{GetRobotLandingsParams, RobotLanding};
 use tauri::State;
 use tracing::instrument;
 
@@ -141,6 +143,17 @@ pub async fn get_robot_failure(
   .map_err(CommandError::new)?;
   let git = git_executor.inner().clone();
   run_blocking(move || robot_failure_report(&git, &params.repository_path, &params.branch_prefix, &params.ancestors, &params.baseline_branch, failure)).await
+}
+
+/// What merged robots landed of the branches, by content: the commits each tested against the branches as the last sync
+/// built them, and the commits added after them. The app asks it when a change below a robot's commit (an amend, a new
+/// commit of a branch it is built on, any change of the whole stack) gave the branches new copies, so their hashes no
+/// longer tell (`robot_landings`)
+#[tauri::command]
+#[specta::specta]
+pub async fn get_robot_landings(git_executor: State<'_, GitCommandExecutor>, params: GetRobotLandingsParams) -> Result<Vec<RobotLanding>, CommandError> {
+  let git = git_executor.inner().clone();
+  run_blocking(move || robot_landings(&git, &params.repository_path, &params.branch_prefix, &params.baseline_branch, &params.robots)).await
 }
 
 /// The branch a start pushes to and its merge profiles; the profile of the branch's last robot is the default

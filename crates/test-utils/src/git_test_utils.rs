@@ -86,6 +86,31 @@ fn windows_git_form(text: &str) -> String {
   plain.replace('\\', "/")
 }
 
+/// Commits `files` onto HEAD of the repository at `repo_path` as a commit in a terminal would (`git add`, `git commit`),
+/// authored and committed at `timestamp` (Unix seconds): lets the E2E mock server change a repository behind the app's
+/// back. Returns the new commit id.
+pub fn commit_files_on_head(repo_path: &Path, message: &str, files: &[(&str, &str)], timestamp: i64) -> Result<String, String> {
+  let git = GitCommandExecutor::new();
+  let path = repo_path.to_str().ok_or("the repository path is not UTF-8")?;
+  let mut add_args = vec!["add", "--"];
+  for (name, content) in files {
+    let file = repo_path.join(name);
+    if let Some(parent) = file.parent() {
+      fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::write(&file, content).map_err(|e| e.to_string())?;
+    add_args.push(name);
+  }
+  git.execute_command(&add_args, path).map_err(|e| e.to_string())?;
+  let date = format!("{timestamp} +0000");
+  git
+    .cmd(&["commit", "-m", message], path)
+    .env(&[("GIT_AUTHOR_DATE", date.as_str()), ("GIT_COMMITTER_DATE", date.as_str())])
+    .text()
+    .map_err(|e| e.to_string())?;
+  git.execute_command(&["rev-parse", "HEAD"], path).map(|id| id.trim().to_string()).map_err(|e| e.to_string())
+}
+
 /// Git test repository wrapper with helper methods
 pub struct TestRepo {
   dir: TempDir,

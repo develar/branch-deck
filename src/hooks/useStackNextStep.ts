@@ -8,17 +8,19 @@ import type { BranchNextStep, NextStepFacts, NextStepPullRequest } from "@/lib/b
 import { getBranchNextStep } from "@/lib/branch-next-step"
 import { getBranchesGitHubRepository } from "@/lib/git/new-pull-request"
 import type { MenuItem } from "@/lib/menu"
-import { canStartStackRobot, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
+import { canStartStackRobot, formatLandingSubject, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { changesRequestedBy, openPullRequest, waitingReviewers } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
+import { joinNames } from "@/lib/text"
+import type { StackLandedPart } from "@/lib/whole-stack"
 import { describeWholeStackLanding, formatWholeStack, getStackBranchBlocker, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import type { StackBranch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getStackBranch, stackMainLineIn, useBranchSync } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { isProcessing } from "@/stores/inline-row-action"
-import { getStackLandingMember, getStackPushHold, getStackRobot, isPatronusAvailable, isRobotFailing, isRobotNeedingReview } from "@/stores/patronus"
+import { getLandedBy, getStackLandingMember, getStackPushHold, getStackRobot, isPatronusAvailable, isRobotFailing, isRobotNeedingReview } from "@/stores/patronus"
 import { getPullRequestAvailability, getStackPullRequest } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { freshReadiness, getReadinessTarget, getReviewReadiness, useShowReviewReadiness } from "@/stores/review-readiness"
@@ -42,6 +44,65 @@ export interface StackNextStep {
 export function getWholeStackMembers(stack: StackBranch): string[] {
   const mainLine = stackMainLineIn(branchSyncStore.getState(), stack.root).filter(name => stack.members.includes(name))
   return [...mainLine, ...stack.members.filter(name => !mainLine.includes(name))]
+}
+
+/**
+ * What the Safe Push of the whole stack lands now (`getWholeStackRest`): its branches less those merged Safe Pushes
+ * landed whole (`getLandedBy`), each with its commits, one landed with commits after it by those commits only
+ */
+export interface WholeStackRest {
+  /** The branches left, in the order of a sentence (`getWholeStackMembers`) */
+  readonly members: readonly string[]
+  /** Their commits, of a branch landed with commits after it those only */
+  readonly commitCount: number
+  /** The branches landed whole and who landed them; null while none is */
+  readonly landed: StackLandedPart | null
+  /** The robot of the whole stack itself landed every branch of it */
+  readonly byOwnRobot: boolean
+}
+
+/**
+ * What is left of the whole stack after merged Safe Pushes of pieces of it or of the whole stack landed branches of it:
+ * its stack branch still carries their commits (Patronus finds them in the target and lands the rest), so the start
+ * names, counts and says only the rest; nothing left is the step of a landed branch (row 1)
+ */
+export function getWholeStackRest(stack: StackBranch): WholeStackRest {
+  const members: string[] = []
+  const landedNames: string[] = []
+  const by: string[] = []
+  let commitCount = 0
+  let byOwnRobot = true
+  for (const name of getWholeStackMembers(stack)) {
+    const landed = getLandedBy(name)
+    // a branch landed with commits after it lands those
+    if (landed !== null && landed.after.length === 0) {
+      landedNames.push(name)
+      const subject = formatLandingSubject(landed)
+      if (!by.includes(subject)) {
+        by.push(subject)
+      }
+      byOwnRobot &&= landed.wholeStack === true && landed.branch === stack.root
+      continue
+    }
+    members.push(name)
+    commitCount += landed === null ? (getBranch(name)?.commitCount ?? 0) : landed.after.length
+    byOwnRobot = false
+  }
+  // nothing landed: the commit count of the stack branch, which the sync counted
+  return landedNames.length === 0
+    ? { members, commitCount: stack.commitCount, landed: null, byOwnRobot: false }
+    : { members, commitCount, landed: { names: landedNames, by }, byOwnRobot }
+}
+
+/**
+ * Why the whole stack has nothing to land after merged Safe Pushes landed every branch of it: "Merged by Patronus" of its
+ * own robot, else "Landed in master with deploy and side-test"; null while a branch of it is left
+ */
+function formatStackLandedReason(rest: WholeStackRest, target: string): string | null {
+  if (rest.members.length > 0 || rest.landed === null) {
+    return null
+  }
+  return rest.byOwnRobot ? "Merged by Patronus" : `Landed in ${target} with ${joinNames(rest.landed.by)}`
 }
 
 /** The stack forks: its whole stack is its stack branch, which the sync builds (`StackBranch.members`) */
@@ -106,7 +167,17 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
   const needsReview = robot !== undefined && isRobotNeedingReview(robot.id)
   const failing = robot !== undefined && isRobotFailing(robot.id)
   const tip = stack.tip ?? undefined
-  const slot = getSafePushSlot({ robot, localTip: tip, remote: stack.remoteStatus, needsReview, failing, canOffer: available && stack.commitCount > 0 })
+  const rest = getWholeStackRest(stack)
+  const slot = getSafePushSlot({
+    robot,
+    localTip: tip,
+    remote: stack.remoteStatus,
+    needsReview,
+    failing,
+    canOffer: available && stack.commitCount > 0,
+    // a rebuild of the stack branch after its robot landed all of it: new hashes, not new work
+    landed: rest.byOwnRobot && rest.members.length === 0,
+  })
   const blocker = getStackBranchBlocker(root, stack)
   const landingMember = getStackLandingMember(root)
   const start = canStartStackRobot(blocker, robot, tip, stack.remoteStatus, landingMember)
@@ -131,16 +202,17 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     dryRunStartBlocker: dryRun.ok ? null : dryRun.reason,
     held: getStackPushHold(root) !== null,
     landedIn,
-    // its own merged robot is its row 1 (`robot`): no other robot lands the whole stack
-    landedWith: null,
+    // merged Safe Pushes, of pieces of it or its own, landed every branch of it: nothing is left to land
+    landedWith: formatStackLandedReason(rest, target),
     robot: slot,
     robotPullRequest: robot?.pullRequest?.number ?? null,
     restart,
     pullRequestsAvailable: getPullRequestAvailability()?.status === "available",
     pullRequest: stackPullRequestFactOf(stack, target),
     target,
-    landsBranches: stack.members.length,
-    startDescription: describeWholeStackLanding(getWholeStackMembers(stack), stack.commitCount, target, "rebaseAutosquash"),
+    // what merged Safe Pushes landed of it is in the target: the robot lands the rest
+    landsBranches: rest.members.length,
+    startDescription: describeWholeStackLanding(rest.members, rest.commitCount, target, "rebaseAutosquash", rest.landed),
     readiness: readiness === undefined ? null : { readiness: readiness.readiness, stale: readiness.stale },
     stackPullRequest: null,
     actions: {

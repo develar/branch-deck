@@ -30,15 +30,24 @@ export function formatWholeStackMembers(members: readonly string[]): string {
   return `${members.slice(0, 2).join(", ")}, … ${members.at(-2)} and ${members.at(-1)}`
 }
 
+/** The branches of a whole stack merged Safe Pushes landed already (`names`), and who landed them (`by`, "deploy") */
+export interface StackLandedPart {
+  readonly names: readonly string[]
+  readonly by: readonly string[]
+}
+
 /**
  * What one robot of the whole stack lands, the hover of its start and the title of its popover: "Lands 7 branches · 14
  * commits into master in one Safe Push: air, bazel, … side-fix and side-test"; a Dry Run checks them: "Checks 7 branches
- * · 14 commits on master in one Dry Run: …"
+ * · 14 commits on master in one Dry Run: …". After merged Safe Pushes landed branches of it (`landed`), what is left of
+ * it, and who landed the others: "Lands 2 branches · 3 commits into master in one Safe Push: side-fix and side-test;
+ * air, bazel and deploy landed with deploy"
  */
-export function describeWholeStackLanding(members: readonly string[], commitCount: number, target: string, mode: PatronusPushMode): string {
+export function describeWholeStackLanding(members: readonly string[], commitCount: number, target: string, mode: PatronusPushMode, landed: StackLandedPart | null = null): string {
   const size = formatBranchesAndCommits(members.length, commitCount)
   const names = formatWholeStackMembers(members)
-  return mode === "dryRun" ? `Checks ${size} on ${target} in one Dry Run: ${names}` : `Lands ${size} into ${target} in one Safe Push: ${names}`
+  const rest = landed === null || landed.names.length === 0 ? "" : `; ${formatWholeStackMembers(landed.names)} landed with ${joinNames(landed.by)}`
+  return mode === "dryRun" ? `Checks ${size} on ${target} in one Dry Run: ${names}${rest}` : `Lands ${size} into ${target} in one Safe Push: ${names}${rest}`
 }
 
 /** The prefix of the readiness key of a whole stack: a branch name has no ":" (git refuses it in a ref) */

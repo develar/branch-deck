@@ -36,6 +36,7 @@ import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { pushOrConfirm } from "@/lib/git/push"
 import { formatMissingCommitsTitle } from "@/lib/merge-conflict"
+import { formatLandedWith } from "@/lib/patronus"
 import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { openPullRequest } from "@/lib/pull-request"
 import { formatTimestamp } from "@/lib/time"
@@ -265,7 +266,8 @@ function BranchPreviewMeta({ branch }: { branch: Branch }) {
   if (robot) {
     items.push(<PatronusChip branchName={branch.name} />)
   }
-  if (landedBy !== null) {
+  // its own robot's branch landed whole: the Patronus chip says "Merged"
+  if (landedBy !== null && formatLandedWith(landedBy) !== null) {
     items.push(<LandedWithChip landed={landedBy} />)
   }
 

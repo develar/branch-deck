@@ -33,18 +33,22 @@ function holdsNothingMore(pullRequest: PullRequest, branch: Branch): boolean {
 }
 
 /**
- * The open pull requests of the branches a merged robot landed besides its own (`findLandedBranches`, the branches the
- * rows say it landed): of the ancestors of a stacked branch (the branch carries their commits), or of every branch of
- * the stack for the robot of the whole stack (its stack branch carries them all); only while the robot ran on the branch
- * or the stack branch as the table has it, and only a pull request that holds nothing the branch lacks
+ * The open pull requests of the branches a merged robot landed whole besides its own (`findLandedBranches`, the branches
+ * the rows say it landed): of the ancestors of a stacked branch (the branch carries their commits), or of every branch
+ * of the stack for the robot of the whole stack (its stack branch carries them all); only while the robot ran on the
+ * branch or the stack branch as the table has it, and only a pull request that holds nothing the branch lacks
  * (`holdsNothingMore`): then the merge has every commit of it. The pull request the robot started from is Patronus' to
- * close.
+ * close, and so is the robot's own branch's.
  */
 export function findLandedPullRequests(robot: PatronusRobot, facts: LandingFacts): LandedPullRequest[] {
-  return findLandedBranches(robot, facts).flatMap(branch => {
+  // the robot's own pull request is Patronus' to close; a branch with commits after the landed ones has work left in it
+  return findLandedBranches(robot, facts).flatMap(({ branch, own, after }) => {
+    if (own || after.length > 0) {
+      return []
+    }
     const pullRequest = facts.pullRequestOf(branch.name)
-    const own = pullRequest !== undefined && pullRequest.number === robot.pullRequest?.number
-    return pullRequest?.state === "open" && !own && holdsNothingMore(pullRequest, branch) ? [{ branch: branch.name, number: pullRequest.number }] : []
+    const started = pullRequest !== undefined && pullRequest.number === robot.pullRequest?.number
+    return pullRequest?.state === "open" && !started && holdsNothingMore(pullRequest, branch) ? [{ branch: branch.name, number: pullRequest.number }] : []
   })
 }
 

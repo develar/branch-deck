@@ -178,9 +178,12 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   menu; a table of its own without the column heads, with a lane column as wide as its stack.
 - Each branch must show its commits below its row while the row is not expanded, a line each on its lane
   (`StackCommitLines`): subject, short hash, the short time of the commit ("Today 2:32 PM", "Oct 3"); the push arrow on a commit the remote lacks (`unpushedCommits`), a
-  muted subject for one the remote has. A click on the row expands the full commit list in its place. A click on the
+  muted subject for one the remote has, and for one a merged Safe Push landed (`useLandedBy`: every commit of a landed
+  branch but those added after the landed ones, [Patronus](patronus.spec.md#merged)): it is in the target, a push of it
+  lands nothing, so it has no arrow. A click on the row expands the full commit list in its place. A click on the
   arrow opens Push Up to Here of the commit: what goes out, in what order, and the push
   ([Stacked Branches](stacked-branches.spec.md#push-up-to-here)).
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should show no push arrow on the commits a merged Safe Push landed, only on a commit added after them`)
 - On the lane of a stack the commits must be listed oldest first, the lines and the full list of every table with
   stacks: time runs down with the graph, so the tip of a parent sits right above the row of its child. The amend target
   is then the last commit, and the squash dialog still gets the commits newest first.

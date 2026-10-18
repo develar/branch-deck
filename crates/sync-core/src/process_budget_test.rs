@@ -11,6 +11,7 @@ use crate::pull_request_create::read_new_pull_request;
 use crate::push::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
 use crate::remote_status::forget_statuses;
 use crate::repository_lock::RewriteOptions;
+use crate::robot_landing::robot_landings;
 use crate::squash::{SquashCommitsParams, squash_commits_core};
 use crate::stack_branch::forget_builds;
 use crate::stack_pull_request::{GetNewStackPullRequestParams, StackMemberSubjects, read_new_stack_pull_request};
@@ -23,6 +24,7 @@ use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap};
 use sync_test_utils::TestReporter;
+use sync_types::robot_landing::RobotLandingRequest;
 use sync_types::{RemoteStatusUpdate, SyncEvent};
 use test_utils::git_test_utils::{TestRepo, disable_background_maintenance};
 
@@ -858,4 +860,45 @@ fn an_atomic_push_of_a_stack() {
     "{outcome:?}"
   );
   assert_processes(&git, &[("for-each-ref", 2), ("push", 1), ("reflog", 1)]);
+}
+
+/// What a merged robot of `beta` (built on `alpha`) landed after a new commit of `alpha` rebuilt `beta`: the commits of
+/// both branches from HEAD as the sync groups them (the stack setting, one `cat-file --batch` of the stores, one
+/// `log`), one `cat-file --batch-check` of the robot's commit and the ref, the two walks against the robot's commit,
+/// and one `diff-tree` with one `patch-id` of the copy whose identity the robot had
+#[tokio::test]
+async fn the_landing_of_a_merged_robot_after_a_change_below_its_commit() {
+  let repo = repo_on_origin();
+  repo.git(&["config", "branchdeck.stacks", "true"]);
+  let lines = |changed: &[(usize, &str)]| -> String {
+    (1..=10)
+      .map(|number| {
+        changed
+          .iter()
+          .find(|(line, _)| *line == number)
+          .map_or_else(|| format!("line {number}\n"), |(_, text)| format!("{text}\n"))
+      })
+      .collect()
+  };
+  repo.create_commit("(alpha) Alpha", "shared.txt", &lines(&[]));
+  repo.create_commit("(alpha/beta) Beta", "shared.txt", &lines(&[(5, "beta")]));
+  sync(&GitCommandExecutor::new(), &repo).await;
+  let source = repo.git(&["rev-parse", "refs/heads/test/virtual/beta"]);
+  // a change next to beta's moves the context of its copy: only the changes without context tell it is the same
+  repo.create_commit("(alpha) Alpha again", "shared.txt", &lines(&[(3, "alpha"), (5, "beta")]));
+  sync(&GitCommandExecutor::new(), &repo).await;
+
+  let git = counting();
+  let request = RobotLandingRequest {
+    robot_id: "beta-robot".to_string(),
+    branch_name: Some("beta".to_string()),
+    stack_root: None,
+    source_revision: source,
+    branches: vec!["alpha".to_string(), "beta".to_string()],
+    tip: None,
+  };
+  let landings = robot_landings(&git, &path(&repo), PREFIX, "origin/master", &[request]).unwrap();
+  let after: Vec<usize> = landings[0].branches.iter().map(|branch| branch.after.len()).collect();
+  assert_eq!(after, [1, 0]);
+  assert_processes(&git, &[("cat-file", 2), ("config", 1), ("diff-tree", 1), ("log", 1), ("patch-id", 1), ("rev-list", 2)]);
 }

@@ -6,6 +6,7 @@ import { InlineCode } from "@/components/shared/InlineCode"
 import { RelativeTime } from "@/components/shared/RelativeTime"
 import { useUpstreamName } from "@/hooks/useLandedIn"
 import type { LandedCommit } from "@/lib/bindings"
+import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
 import { formatStayLocal, landedChipLabel } from "@/lib/landed"
 import type { LandedBy } from "@/lib/patronus"
@@ -80,11 +81,17 @@ export function LandedChip({ branchName }: { branchName: string }) {
 /**
  * `info` "Landed with oauth" ("Landed with the whole air stack") after the status of a branch a merged Safe Push of a
  * branch built on it or of the whole stack landed (`useLandedBy`), until the fetched baseline has its commits and the
- * Landed chip shows them; hover says when it merged, a click opens the robot in Patronus
+ * Landed chip shows them; with commits added since, "Landed with oauth · 1 commit after it" (of its own robot's branch
+ * "Landed · 1 commit after it"), the only work left. Hover says when it merged and what is left, a click opens the robot
+ * in Patronus. Nothing for its own robot's branch landed whole: the robot chip says "Merged".
  */
 export function LandedWithChip({ landed }: { landed: LandedBy }) {
   const label = formatLandedWith(landed)
   const { robot } = landed
+  if (label === null) {
+    return null
+  }
+  const left = landed.after.length
   return (
     <StatusChip
       label={label}
@@ -96,6 +103,12 @@ export function LandedWithChip({ landed }: { landed: LandedBy }) {
           heading="Landed"
           title={`In ${robot.targetBranch} with the ${formatPushMode(robot.pushMode)} of ${formatLandingSubject(landed)} · the update removes the local copies`}
         >
+          {left > 0 && (
+            <>
+              <dt className="text-muted-foreground">After it</dt>
+              <dd data-testid="landed-with-after">{`${formatCommitCount(left)} added since, not in ${robot.targetBranch} yet`}</dd>
+            </>
+          )}
           {robot.finishTime !== null && (
             <>
               <dt className="text-muted-foreground">Merged</dt>

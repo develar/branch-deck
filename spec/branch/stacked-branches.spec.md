@@ -377,10 +377,12 @@ menu stacks, unstacks and renames branches.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
   When a robot of a stacked branch merged, the open pull requests of the ancestors it landed are closed with a comment
   ([Patronus](patronus.spec.md#merged)), and until the update archives them their rows say "Landed with oauth" and
-  offer no Safe Push, no Dry Run and no push; a branch built on a landed ancestor lands without it ("Safe Push" where
-  it was "Safe Push · 2"). `bd safe-push` lands a stacked branch the same way, with its ancestors in one robot
+  offer no Safe Push, no Dry Run and no push, nor does the branch it ran on ("Merged"); a branch built on a landed
+  ancestor lands without it ("Safe Push" where it was "Safe Push · 2"). A new commit of an ancestor rebuilds the
+  branches built on it: they stay landed by content, the new commit the only work left of its branch ("Landed with
+  oauth · 1 commit after it"). `bd safe-push` lands a stacked branch the same way, with its ancestors in one robot
   ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
 
 ### Push Up to Here
 

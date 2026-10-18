@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
-import type { GetPatronusRobotsParams, PatronusCommandReply, PatronusRobot, PatronusRobotsResult, PollPatronusRobotsParams, PostPatronusCommandParams } from "@/lib/bindings"
+import type {
+  GetPatronusRobotsParams,
+  GetRobotLandingsParams,
+  PatronusCommandReply,
+  PatronusRobot,
+  PatronusRobotsResult,
+  PollPatronusRobotsParams,
+  PostPatronusCommandParams,
+  RobotLanding,
+} from "@/lib/bindings"
 import { formatPushHoldReason } from "@/lib/patronus"
 import { FAILURE_PROBLEMS_WAIT_MS, formatFailedRobotToast, resetFailingAnnouncements, watchFailingRobots } from "@/lib/patronus-failing"
 import { getStackLandedBy, resetLandedStacks } from "@/stores/landed-stacks"
@@ -26,6 +35,7 @@ import {
   startPatronusFromPullRequest,
   startPatronusFromReviewedPullRequest,
   watchRobot,
+  watchRobotLandings,
 } from "@/stores/patronus"
 
 const { patronus, branches } = vi.hoisted(() => ({
@@ -46,6 +56,8 @@ const { patronus, branches } = vi.hoisted(() => ({
     commands: [] as PostPatronusCommandParams[],
     replies: [] as PatronusCommandReply[],
     replyCalls: 0,
+    landingCalls: [] as GetRobotLandingsParams[],
+    landings: [] as RobotLanding[],
   },
   branches: { current: {} as Record<string, unknown>, stacks: {} as Record<string, unknown> },
 }))
@@ -77,6 +89,10 @@ vi.mock("@/lib/bindings", () => ({
       return { status: "ok", data: { checks: { failed: 1, failedNames: ["Fast Tests"], running: 2, passed: 3, canceled: 0 } } }
     },
     getRobotFailure: async () => ({ status: "ok", data: { failure: { kind: patronus.failureKind }, commits: null, headBranch: "master" } }),
+    getRobotLandings: async (params: GetRobotLandingsParams) => {
+      patronus.landingCalls.push(params)
+      return { status: "ok", data: patronus.landings }
+    },
     getPatronusRobotProblems: async (params: { robotId: string }) => {
       patronus.problemCalls.push(params.robotId)
       if (patronus.problems === "offline") {
@@ -171,7 +187,10 @@ vi.mock("@/stores/settings/repositorySettings", async importOriginal => ({
 }))
 
 vi.mock("@/stores/branch-sync", () => ({
-  branchSyncStore: { getState: () => ({ branches: branches.current, branchOrder: Object.keys(branches.current), stackBranches: branches.stacks }) },
+  branchSyncStore: {
+    getState: () => ({ branches: branches.current, branchOrder: Object.keys(branches.current), stackBranches: branches.stacks, isSyncing: false, baselineBranch: "origin/master" }),
+    subscribe: () => () => {},
+  },
   getBranch: (name: string) => branches.current[name],
   getStackBranch: (root: string) => branches.stacks[root],
   useStackBranch: () => undefined,
@@ -223,6 +242,8 @@ beforeEach(() => {
   patronus.commands = []
   patronus.replies = []
   patronus.replyCalls = 0
+  patronus.landingCalls = []
+  patronus.landings = []
   notices.pullRequestRefreshes = []
   notices.toasts = []
   notices.notifications = []
@@ -271,13 +292,60 @@ describe("holds", () => {
     patronus.list = available(robot({ branchName: "oauth", sourceRevision: "oauth-tip", status: "success", finishTime: 200 }))
     await refreshPatronus("sync")
     const holds = ["auth", "login", "oauth", "sso"].map(name => getPushHold(name))
-    expect(holds.map(hold => (hold === null ? null : [hold.kind, hold.branch]))).toEqual([["landed", "oauth"], ["landed", "oauth"], null, null])
+    // oauth too: all of it landed with its own robot
+    expect(holds.map(hold => (hold === null ? null : [hold.kind, hold.branch]))).toEqual([["landed", "oauth"], ["landed", "oauth"], ["landed", "oauth"], null])
     expect(formatPushHoldReason("login", holds[1]!)).toBe("Landed in master with oauth: nothing of it is left to push")
+    expect(formatPushHoldReason("oauth", holds[2]!)).toBe("Merged by Patronus: nothing of it is left to push")
     expect(getLandedBy("auth")?.branch).toBe("oauth")
     // sso, built on login too, lands only itself now
     expect(getLandingBranchCount("sso")).toBe(1)
     // no toast: no robot was seen running
     expect(notices.toasts).toEqual([])
+  })
+
+  it("asks what a merged robot landed by content once a change below its commit gave the branches new copies, once per state of them", async () => {
+    const stacked = (name: string, parent: string | null, commits: string[]) => ({
+      name,
+      commits: commits.map(hash => ({ hash, originalHash: `${hash}-original` })),
+      remoteStatus: null,
+      stack: { effectiveBase: parent },
+    })
+    // auth got a commit after the robot of login merged: login was rebuilt on it
+    branches.current = { auth: stacked("auth", null, ["auth-new", "auth-copy"]), login: stacked("login", "auth", ["login-copy"]) }
+    patronus.landings = [
+      {
+        robotId: "r1",
+        branches: [
+          { branch: "auth", landed: ["auth-copy-original"], after: ["auth-new-original"] },
+          { branch: "login", landed: ["login-copy-original"], after: [] },
+        ],
+      },
+    ]
+    patronus.list = available(robot({ branchName: "login", sourceRevision: "login-old", status: "success", finishTime: 200 }))
+    await refreshPatronus("sync")
+    // the hashes don't tell
+    expect(getLandedBy("auth")).toBeNull()
+    const stop = watchRobotLandings()
+    await vi.waitFor(() => expect(getLandedBy("auth")).toMatchObject({ branch: "login", after: ["auth-new-original"] }))
+    expect(patronus.landingCalls).toEqual([
+      {
+        repositoryPath: "/repo",
+        branchPrefix: "user",
+        baselineBranch: "origin/master",
+        robots: [{ robotId: "r1", branchName: "login", stackRoot: null, sourceRevision: "login-old", branches: ["auth", "login"], tip: null }],
+      },
+    ])
+    // auth has work after the landed commit: it is pushed and lands by its own Safe Push; login, all of it landed, is held
+    expect(getPushHold("auth")).toBeNull()
+    expect(getPushHold("login")).toMatchObject({ kind: "landed", branch: "login" })
+    expect(getLandingBranchCount("login")).toBe(2)
+    // the same state of the branches is not asked again
+    patronus.list = available(robot({ branchName: "login", sourceRevision: "login-old", status: "success", finishTime: 200 }), robot({ id: "r2", status: "failure" }))
+    vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
+    await refreshPatronus("sync")
+    await Promise.resolve()
+    expect(patronus.landingCalls).toHaveLength(1)
+    stop()
   })
 
   it("holds nothing for a dry run of the whole stack", async () => {

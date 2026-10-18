@@ -11,6 +11,8 @@ import type {
   ReviewReadinessBranch,
 } from "../../../src/lib/bindings"
 import { expect } from "../fixtures/test-fixtures"
+import { emitTauriEvent } from "./sync-helpers"
+import type { TestRepositoryBuilder } from "./test-repository"
 import { routeCommand } from "./wait-helpers"
 
 /**
@@ -32,6 +34,20 @@ export function robot(branchName: string, id: string, patch: Partial<PatronusRob
     url: `https://patronus.labs.jb.gg/robot/${id}`,
     ...patch,
   }
+}
+
+/**
+ * The running `robot` merged: Patronus answers it on the next focus (a poll), its commit the tip its branch has then.
+ * Returns it as the poll answered it, and keeps that commit in every later answer, whatever the branch becomes
+ */
+export async function mergeRunningRobot(page: Page, repo: TestRepositoryBuilder, robot: PatronusRobot, finishTime = 1704142800): Promise<PatronusRobot> {
+  const polled = page.waitForResponse(response => response.url().endsWith("/invoke/poll_patronus_robots"))
+  await repo.setPatronus(availableRobots({ ...robot, status: "success", finishTime }))
+  await emitTauriEvent(page, "tauri://focus")
+  const merged = ((await (await polled).json()) as PatronusRobotsResult).robots.find(it => it.id === robot.id)!
+  expect(merged.sourceRevision).toMatch(/^[0-9a-f]{40}$/)
+  await repo.setPatronus(availableRobots(merged))
+  return merged
 }
 
 /** The answer of `get_patronus_robots` for these robots */

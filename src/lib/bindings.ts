@@ -155,6 +155,13 @@ export const commands = {
 	 *  with the failed builds, their tests and the log tails of the `teamcity` CLI
 	 */
 	getRobotFailure: (params: GetRobotFailureParams) => typedError<RobotFailureReport, CommandError>(__TAURI_INVOKE("get_robot_failure", { params })),
+	/**
+	 *  What merged robots landed of the branches, by content: the commits each tested against the branches as the last sync
+	 *  built them, and the commits added after them. The app asks it when a change below a robot's commit (an amend, a new
+	 *  commit of a branch it is built on, any change of the whole stack) gave the branches new copies, so their hashes no
+	 *  longer tell (`robot_landings`)
+	 */
+	getRobotLandings: (params: GetRobotLandingsParams) => typedError<RobotLanding[], CommandError>(__TAURI_INVOKE("get_robot_landings", { params })),
 	/**  Of the running robots, the ones a failed required check dooms (Patronus' warning), asked after each poll until known */
 	getPatronusFailingRobots: (params: PatronusFailingRobotsParams) => typedError<string[], CommandError>(__TAURI_INVOKE("get_patronus_failing_robots", { params })),
 	/**
@@ -487,6 +494,21 @@ export type BranchIntegrationStatus = { kind: "integrated"; integratedAt: number
  *  when it can't be found, and in cache notes written before it was recorded
  */
 commit: UpstreamCommit | null } | { kind: "notIntegrated"; totalCommitCount: number; integratedCount: number; orphanedCount: number; integratedAt: number | null } | { kind: "partial"; missing: number };
+
+/**
+ *  A branch a merged robot landed: its oldest commits are what the robot tested (the same commit, or a copy with the
+ *  same changes on a newer base), and only commits added after them are not: the work left
+ */
+export type BranchLanding = {
+	branch: string,
+	/**  The commits of the branch the robot landed, by the ids of the checked-out branch, newest first */
+	landed: string[],
+	/**
+	 *  The commits of the branch added after them, newest first: what is left of the branch to land; empty when all of it
+	 *  landed
+	 */
+	after: string[],
+};
 
 /**  What a request for branch names ended with; a failure of git or of `claude` is an outcome, not an error */
 export type BranchNameSuggestionOutcome = 
@@ -1199,6 +1221,14 @@ export type GetRobotFailureParams = {
 	baselineBranch: string,
 	/**  The full version: the failed builds, their problems and failed tests with messages, and the log tails */
 	full: boolean,
+};
+
+export type GetRobotLandingsParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	/**  As the sync detected it, e.g. `origin/master` */
+	baselineBranch: string,
+	robots: RobotLandingRequest[],
 };
 
 export type GetUncommittedChangesParams = {
@@ -2427,6 +2457,44 @@ export type RobotFailureReport = {
 	commits: RobotCommitMap | null,
 	/**  The checked-out branch, whose commits the agent fixes; null when HEAD is detached */
 	headBranch: string | null,
+};
+
+/**
+ *  What a merged robot landed: the branches of its request whose commits it tested, each with the commits added after
+ *  them; a branch it didn't land (a commit of it changed since, none of it tested) is not listed
+ */
+export type RobotLanding = {
+	robotId: string,
+	/**  In the order of the request, root first */
+	branches: BranchLanding[],
+};
+
+/**
+ *  A merged robot whose landing is asked: a Safe Push of a branch (a piece: the branches it is built on and the branch),
+ *  or of the whole stack of a root (its stack branch: every branch of the stack)
+ */
+export type RobotLandingRequest = {
+	robotId: string,
+	/**
+	 *  The virtual branch the robot ran on, without the `{prefix}/virtual/` namespace; null for the robot of the whole
+	 *  stack
+	 */
+	branchName: string | null,
+	/**  The root of the stack whose stack branch (`{prefix}/stack/<root>`) the robot ran on; null for a branch's robot */
+	stackRoot: string | null,
+	/**  The commit Patronus took at the start */
+	sourceRevision: string,
+	/**
+	 *  The branches it may have landed, root first: the branches a stacked branch is built on, then the branch; or the
+	 *  branches of the whole stack
+	 */
+	branches: string[],
+	/**
+	 *  The local tip of the branch or the stack branch the robot ran on, when the caller knows it (from a sync of the same
+	 *  process): at the robot's commit no git looks it up, and every commit of `branches` the sync built into it landed.
+	 *  Null: the core reads it
+	 */
+	tip: string | null,
 };
 
 export type SearchGitHubUsersParams = {

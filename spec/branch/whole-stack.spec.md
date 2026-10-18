@@ -59,6 +59,7 @@ targets:
   - ../../src/components/repository/RobotsIndicator.tsx
   - ../../src/lib/branch-review-window.ts
   - ../../src/hooks/useStackNextStep.ts
+  - ../../crates/sync-core/src/robot_landing.rs
   - ../../src/hooks/useBranchNextStep.ts
   - ../../src/hooks/useSafePush.ts
   - ../../src/lib/safe-push-start.ts
@@ -251,7 +252,10 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   first seen merged) must say so in its row, "Landed with the whole air stack" ([Patronus](patronus.spec.md#merged)),
   and offer no Safe Push, no Dry Run and no push: "Landed in master with the whole air stack"
   ([Next Step](next-step.spec.md#the-table), row 1); the "to push" counts of the header, the island and the filter chip
-  leave them out.
+  leave them out. Any change of a branch of the stack rebuilds the stack branch, so no hash is the robot's any more:
+  what it landed is then read by content ([Patronus](patronus.spec.md#merged)), a commit added to a branch since the
+  only work left of it ("Landed with the whole air stack · 1 commit after it").
+  [@test] ../../crates/sync-core/src/robot_landing_test.rs (`the_robot_of_the_whole_stack_landed_every_branch_of_it`)
   [@test] ../../src/lib/patronus.test.ts (`knows the ancestors a merged piece carried and every branch a merged whole stack landed, and names who landed them`)
   [@test] ../../src/lib/patronus.test.ts (`holds the push of a branch a merged Safe Push landed, before a robot of its own`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
@@ -313,6 +317,14 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   the popover at the header of the root's island, else at the root's row (a small stack, `getWholeStackStartItems`).
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a small stack with its side branch from the root's menu, its popover at the root`, `should offer the whole stack in the Safe Push popover of its root and of its branches, which opens its own popover`)
+- After merged Safe Pushes landed branches of it (a piece that landed its main line, `getLandedBy`), it must land only
+  the rest and say so: its label counts the rest ("Safe Push" for one branch left), its hover, menu item and popover
+  "Lands 1 branch · 1 commit into master in one Safe Push: session; auth, login and oauth landed with oauth"
+  (`getWholeStackRest`, `describeWholeStackLanding`); the stack branch still carries the landed commits, which Patronus
+  finds in the target. Once every branch of it landed, nothing is left: Safe Push Whole Stack and Dry Run Whole Stack
+  disabled with "Landed in master with oauth and the whole auth stack" ([Next Step](next-step.spec.md#the-whole-stack)).
+  [@test] ../../src/hooks/useStackNextStep.test.ts (`lands only the rest after a piece landed its main line, and offers nothing once every branch of it landed`, `offers nothing once its own robot landed every branch of it`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should land only what is left of the whole stack after a piece landed its main line, and offer nothing once every branch of it landed`)
 - Its next step must be the table of [Next Step](next-step.spec.md#the-whole-stack) on its facts: disabled with the
   reason while the sync didn't build its stack branch ("The stack branch conflicts at 0caf9066 in config.js: the
   stack lands in pieces", a Dry Run too), while a robot of a branch of it runs, while its approvals are missing in its
