@@ -10,6 +10,7 @@ use crate::push_command::{PushArgs, push};
 use crate::push_test::repo_with_remote;
 use crate::request_review_command::{RequestReviewArgs, request_review};
 use crate::request_review_test::needs_code_owner;
+use crate::rewrite::{GroupArgs, RewriteArgs, group};
 use crate::robot_command::{RobotArgs, robot};
 use crate::safe_push_command::{SafePushArgs, safe_push};
 use crate::safe_push_test::Space;
@@ -343,6 +344,37 @@ fn a_request_review_check() {
       ("log", 2),
       ("remote", 2),
       ("rev-parse", 3),
+    ],
+  );
+}
+
+/// `bd group --dry-run` of a plan with a description, with the prefix of the config: the current descriptions come from
+/// the one `git config` of the command, the regroup's snapshot reads its own
+#[test]
+fn a_group_dry_run_with_a_description() {
+  let repo = repo_with_branches();
+  let context = context_with_the_config_prefix(&repo);
+  let plan = tempfile::NamedTempFile::new().unwrap();
+  std::fs::write(plan.path(), r#"{"descriptions": {"auth": {"title": "Login"}}}"#).unwrap();
+  let args = GroupArgs {
+    plan: Some(plan.path().to_path_buf()),
+    rewrite: RewriteArgs {
+      dry_run: true,
+      ..RewriteArgs::default()
+    },
+  };
+  let output = group(&context, &args).unwrap();
+  assert_eq!(output.described, ["auth"]);
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 1),
+      ("config", 2),
+      ("for-each-ref", 1),
+      ("log", 1),
+      ("remote", 1),
+      ("rev-parse", 4),
+      ("symbolic-ref", 1),
     ],
   );
 }

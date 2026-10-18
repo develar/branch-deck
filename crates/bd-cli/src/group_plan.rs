@@ -4,7 +4,7 @@
 use crate::context::RepoContext;
 use crate::describe::{description_branch, write_description};
 use crate::error::{CliError, ErrorCode};
-use git_ops::branch_description::{Description, read_descriptions};
+use git_ops::branch_description::Description;
 use std::collections::{BTreeMap, BTreeSet};
 use sync_core::regroup::{RegroupError, RegroupPlan, RegroupedCommit};
 
@@ -84,12 +84,13 @@ pub struct DescriptionChange<'a> {
   pub previous: Option<Description>,
 }
 
-/// The descriptions that differ from `descriptions`, with the current texts; one `git config --get-regexp` for all
+/// The descriptions that differ from `descriptions`, with the current texts of the command's config
+/// (`RepoContext::config`, read again after a wait for the repository lock)
 pub fn changed_descriptions<'a>(context: &RepoContext, descriptions: &'a BTreeMap<String, Description>) -> Result<Vec<DescriptionChange<'a>>, CliError> {
   if descriptions.is_empty() {
     return Ok(Vec::new());
   }
-  let mut current = read_descriptions(&context.git, &context.repository)?;
+  let mut current = context.config()?.descriptions().clone();
   let mut changed = Vec::new();
   for (branch, description) in descriptions {
     let (reference, name) = description_branch(context, branch)?;

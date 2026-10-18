@@ -367,7 +367,8 @@ wrote from the HEAD it read. A fetch never runs under the lock: on a monorepo it
 **One call: rewrite, descriptions, sync.** `bd group` (and `rename`, `restack`, `unstack`) takes the lock itself and
 passes it to the regroup (`RegroupOptions.held_lock`), so the regroup takes no lock of its own and the lock has no gap:
 
-1. Read the current descriptions (one `git config --get-regexp`), when the plan has `descriptions`.
+1. The current descriptions, when the plan has `descriptions`: those of the command's config (`RepoContext::config`,
+   one `git config --get-regexp` read once per command and again after a wait for the lock).
 2. The regroup above. Before it writes, `regroup_commits_accepted` lets bd refuse the result: a description without a
    title of one line, or of a branch that has no commits after the plan, is `invalid_plan`.
 3. After the ref transaction: one `git config` per changed description (the exception of the batch rule).
