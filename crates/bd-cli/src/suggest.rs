@@ -91,9 +91,12 @@ pub struct SuggestedCluster {
   pub change: ClusterChange,
   /// The branches its commits are in now, by their oldest commit
   pub from: Vec<String>,
-  /// Its commits whose branch stays, oldest first. A commit whose subject the plan gives only another path to the same
-  /// leaf (a restack) stays
+  /// Its commits that the plan leaves as they are, oldest first
   pub kept: Vec<String>,
+  /// Its commits whose branch stays but whose subject the plan gives another stacked path to the same leaf, oldest
+  /// first (`(gone/a)` to `a`, a restack): the commit gets a new id. With `moved`, what the plan changes of a commit
+  /// another session made
+  pub new_path: Vec<String>,
   /// Its commits that change branch, oldest first: the commits of `plan.branches` and `unassign` that go to it, a fixup
   /// that follows its target (left out of the plan), and the commits an issue group takes in or lets go
   /// (`issue_groups`, `ungroup_issues`)
@@ -253,6 +256,8 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
   let short = context.short_ids(commit_ids.iter().copied().chain([snapshot.head.as_str()]));
   let short_of = |commit: usize| short.get(commit_ids[commit]).to_string();
   let linked = diffs.linked();
+  // the commits whose subject the plan rewrites
+  let in_plan: HashSet<usize> = positions.branches.values().flatten().chain(&positions.unassign).copied().collect();
   let without_need = stacked_without_need(&input, &repaired.clustering, &placements);
   let clusters = repaired
     .clustering
@@ -264,12 +269,14 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
       let (change, from) = cluster_change(&input, cluster, &placement.path);
       let via = (!args.rewrite_issues && is_issue_only(&input, cluster)).then(|| "issue_group".to_string());
       let (kept, moved) = kept_and_moved(&input, cluster, &placement.path);
+      let (new_path, kept): (Vec<usize>, Vec<usize>) = kept.into_iter().partition(|commit| in_plan.contains(commit));
       SuggestedCluster {
         name: placement.path.clone(),
         commit_count: cluster.commits.len(),
         change,
         from: from.into_iter().map(str::to_string).collect(),
         kept: kept.into_iter().map(short_of).collect(),
+        new_path: new_path.into_iter().map(short_of).collect(),
         moved: moved
           .into_iter()
           .map(|(commit, leaves)| MovedCommit {
@@ -629,7 +636,7 @@ pub(crate) fn plan_of(input: &ClusterInput, clustering: &Clustering, placements:
 /// unassigned), by position. The branch is the group of the commit now against the leaf of `path`, so this agrees
 /// with `plan_of`: a commit the plan moves or unassigns changes branch, and so does a fixup that follows its target
 /// and a commit an issue group takes in or lets go. The one difference is a subject that the plan gives another path to the same
-/// leaf (a restack): the commit stays in its branch
+/// leaf (a restack): the commit stays in its branch, and `suggest` lists it in `new_path`
 pub(crate) fn kept_and_moved<'a>(input: &'a ClusterInput, cluster: &Cluster, path: &str) -> (Vec<usize>, Vec<(usize, Option<&'a str>)>) {
   let leaf = leaf_of_path(path);
   let (kept, moved): (Vec<usize>, Vec<usize>) = cluster.commits.iter().partition(|&&commit| input.commits[commit].group.as_deref() == Some(leaf));

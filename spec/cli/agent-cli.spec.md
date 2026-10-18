@@ -493,14 +493,16 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   and areas, with stacked branches the `parent` and `restacked`, the subjects the plan rewrites, and the trial sync of the plan. It must write git objects and the cache
   only, and the plan, applied, must suggest nothing more.
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`)
-- Each cluster must name its commits whose branch stays in `kept` and those that change branch in `moved`, each with
-  `leaves`, the branch it leaves (`null` when unassigned), by its group now against the leaf of the cluster's path, so
-  that they agree with the plan: a fixup that follows its target moves with it, the commits an issue group takes in
-  or lets go move, and a commit whose subject only gets another path to the same leaf stays.
+- Each cluster must name its commits in three disjoint lists that agree with the plan: `kept`, the ones it leaves as
+  they are; `moved`, the ones that change branch, each with `leaves`, the branch it leaves (`null` when unassigned),
+  by its group now against the leaf of the cluster's path (a fixup that follows its target moves with it, the commits
+  an issue group takes in or lets go move); and `new_path`, the ones whose branch stays but whose subject the plan
+  gives another stacked path to the same leaf, so that `moved` and `new_path` together are what the plan changes of a
+  commit (the top-level `rewritten` counts them).
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`, `a_plan_never_moves_a_commit_with_an_explicit_prefix`)
 - Without `--fresh`, a plan must never move a commit with an explicit `(prefix)`, `--rewrite-issues` included: it stays
-  in `kept`. The one rewrite of such a subject is the stacked path it declares (`(gone/a)` to `a`), and the commit
-  stays in its branch.
+  in `kept`. The one rewrite of such a subject is the stacked path it declares (`(gone/a)` to `a`): the commit stays
+  in its branch and is in `new_path`.
   [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_plan_never_moves_a_commit_with_an_explicit_prefix`)
 - Hard units must join the dependencies, a fixup and its target, the commits of one prefix (unless `--fresh`) and the
   commits without a prefix of one issue key. Two prefixes must never join, and a dependency between them must be an

@@ -689,9 +689,16 @@ fn with_the_symbols_on_an_override_of_another_branch_stacks() {
   assert_eq!(suggest(), [(json!("abc"), Value::Null), (json!("xyz"), Value::Null)]);
 }
 
-/// The plan of a suggestion as commit -> the path it goes to (`None`: unassigned), and the commits its clusters keep
-/// and move
-fn plan_kept_and_moved(output: &Value) -> (BTreeMap<String, Option<String>>, Vec<String>, Vec<String>) {
+/// The plan of a suggestion as commit -> the path it goes to (`None`: unassigned), and the commits its clusters keep,
+/// move and give a new path
+struct PlanLists {
+  plan: BTreeMap<String, Option<String>>,
+  kept: Vec<String>,
+  moved: Vec<String>,
+  new_path: Vec<String>,
+}
+
+fn plan_kept_and_moved(output: &Value) -> PlanLists {
   let ids = |value: &Value| value.as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_string()).collect::<Vec<_>>();
   let mut plan: BTreeMap<String, Option<String>> = BTreeMap::new();
   for (path, commits) in output["plan"]["branches"].as_object().unwrap() {
@@ -705,13 +712,14 @@ fn plan_kept_and_moved(output: &Value) -> (BTreeMap<String, Option<String>>, Vec
     .flat_map(|cluster| cluster["moved"].as_array().unwrap())
     .map(|moved| moved["commit"].as_str().unwrap().to_string())
     .collect();
-  (plan, kept, moved)
+  let new_path = clusters.iter().flat_map(|cluster| ids(&cluster["new_path"])).collect();
+  PlanLists { plan, kept, moved, new_path }
 }
 
 /// A commit with an explicit `(prefix)` stays in its branch: its own prefix is its anchor. Neither the plan nor
 /// `--rewrite-issues` moves it, only an unprefixed commit, its fixup and whole issue branches move. With stacked
 /// branches the one exception is the path a subject declares: the plan rewrites `(gone/a)` to `(a)`, and the commit
-/// stays in its branch
+/// stays in its branch, in `new_path`
 #[test_log::test]
 fn a_plan_never_moves_a_commit_with_an_explicit_prefix() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -734,7 +742,8 @@ fn a_plan_never_moves_a_commit_with_an_explicit_prefix() {
   for args in [&["suggest"][..], &["suggest", "--rewrite-issues"]] {
     let (exit_code, output) = run_in(&repo, args);
     assert_eq!(exit_code, 0, "{output}");
-    let (plan, kept, moved) = plan_kept_and_moved(&output);
+    let PlanLists { plan, kept, moved, new_path } = plan_kept_and_moved(&output);
+    assert_eq!(new_path, Vec::<String>::new(), "{args:?} {output}");
     // the unprefixed follow-up moves into the branch of what it needs, and its fixup follows it
     assert_eq!(plan.get(&short(1)), Some(&Some("feat".to_string())), "{args:?} {output}");
     assert!(moved.contains(&short(7)) && !plan.contains_key(&short(7)), "{args:?} {output}");
@@ -744,7 +753,7 @@ fn a_plan_never_moves_a_commit_with_an_explicit_prefix() {
   }
   // --rewrite-issues gives the whole issue branches a prefix, and still none to a commit that has one
   let (_, rewriting) = run_in(&repo, &["suggest", "--rewrite-issues"]);
-  let (plan, _, _) = plan_kept_and_moved(&rewriting);
+  let plan = plan_kept_and_moved(&rewriting).plan;
   assert!(plan.contains_key(&short(4)) && plan.contains_key(&short(5)), "{rewriting}");
 
   let (repo, ids) = stacked_repo(&[
@@ -756,11 +765,11 @@ fn a_plan_never_moves_a_commit_with_an_explicit_prefix() {
   let short = |index: usize| short_id(&ids[index]).to_string();
   let (exit_code, output) = run_in(&repo, &["suggest"]);
   assert_eq!(exit_code, 0, "{output}");
-  let (plan, kept, moved) = plan_kept_and_moved(&output);
+  let PlanLists { plan, kept, moved, new_path } = plan_kept_and_moved(&output);
   assert_eq!(
     plan,
     BTreeMap::from([(short(0), Some("a".to_string())), (short(1), Some("a/b".to_string())), (short(3), Some("c".to_string())),])
   );
-  // the rewritten paths keep the leaf, so the commits stay in their branches
-  assert_eq!((kept, moved), (vec![short(0), short(1), short(2)], vec![short(3)]));
+  // the rewritten paths keep the leaf: the commits stay in their branches, with a new subject and a new id
+  assert_eq!((kept, new_path, moved), (vec![short(2)], vec![short(0), short(1)], vec![short(3)]));
 }
