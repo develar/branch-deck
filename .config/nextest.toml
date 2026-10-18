@@ -1,11 +1,20 @@
 # Documentation: https://nexte.st/docs/configuration/
+# flaky-result needs 0.9.131
+nextest-version = { required = "0.9.131", recommended = "0.9.148" }
 
 [profile.default]
-failure-output = "immediate"
-success-output = "never"
+# a hung git (a prompt, a full pipe) is killed after 5 minutes instead of holding the run
+slow-timeout = { period = "60s", terminate-after = 5 }
+# a git process that outlives its test fails the test
+leak-timeout = { period = "500ms", result = "fail" }
 
 [profile.ci]
 fail-fast = false
+failure-output = "immediate-final"
+# a test that passes on a retry is FLAKY, and the run still fails: a flaky test is a race to fix
+retries = 2
+flaky-result = "fail"
+global-timeout = "30m"
 
 [profile.ci.junit]
 path = "junit.xml"

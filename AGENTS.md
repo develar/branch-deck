@@ -24,6 +24,7 @@ pnpm install-app          # Unsigned release build of the .app, copied to /Appli
 # Testing
 pnpm test                 # Run all tests (Rust and E2E)
 pnpm test:backend         # Run backend tests with nextest (fast)
+cargo nextest run -R latest  # Rerun what failed or did not run in the last run (record on in the user config)
 pnpm test:unit            # Run frontend unit tests (`vp test`, Vitest; src/**/*.test.ts)
 
 # E2E Testing (Playwright)
@@ -54,13 +55,16 @@ the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the w
 ## ⚠️ Critical Testing Rule
 **NEVER use `cargo test` - ALWAYS use `cargo nextest run`**
 
-This is not optional. `nextest` is mandatory for all Rust testing because it provides:
-- **Automatic retries** for flaky tests
-- **Parallel execution** for speed
-- **Better output formatting** and diffs
-- **Proper test isolation**
-
-Using `cargo test` may lead to incorrect results or miss failures.
+This is not optional. `cargo test` runs the tests of a binary as threads of one process, and a test that sets
+environment variables (`test_utils::env_vars::EnvVars`, sound only with a process per test) changes them under the
+others. `nextest` (`.config/nextest.toml`) gives:
+- **A process per test**, all in parallel: the suite takes about 80 s on 18 cores.
+- **Timeouts**: a test still running after 5 minutes (a hung git) is killed, and a git process that outlives its test
+  fails it.
+- **Flaky tests made visible**: in CI (`NEXTEST_PROFILE=ci`) a failed test runs twice more; one that passes on a retry
+  is FLAKY and the run still fails, because a flaky test is a race to fix. Locally there are no retries.
+- **Rerun**: with recording on in the user config (`[experimental] record = true` and `[record] enabled = true` in
+  `~/.config/nextest/config.toml`), `cargo nextest run -R latest` runs only what failed; finish with a full run.
 
 ## Technology Stack
 We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.

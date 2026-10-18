@@ -101,6 +101,15 @@ jobs:
         env:
           NEXTEST_PROFILE: ci
 
+      # the failed and FLAKY tests of the run with their output (.config/nextest.toml, profile ci)
+      - name: Upload Rust test report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-${{ matrix.platform }}
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
