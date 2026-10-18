@@ -230,6 +230,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
   spawn("long_subjects", |path| templates::long_subjects().build(path));
   spawn("commit_tree", |path| templates::commit_tree().build(path));
   spawn("commit_deleted", |path| templates::commit_deleted().build(path));
+  spawn("commit_many_files", |path| templates::commit_many_files().build(path));
   spawn("stacked_branches", |path| templates::stacked_branches().build(path));
   spawn("stack_island", |path| templates::stack_island().build(path));
   spawn("stack_side_conflict", |path| templates::stack_side_conflict().build(path));
@@ -293,6 +294,8 @@ pub enum RepositoryTemplate {
   CommitTree,
   #[serde(rename = "commit_deleted")]
   CommitDeleted,
+  #[serde(rename = "commit_many_files")]
+  CommitManyFiles,
   #[serde(rename = "stacked_branches")]
   StackedBranches,
   #[serde(rename = "stack_island")]
@@ -354,6 +357,7 @@ impl RepositoryTemplate {
       Self::LongSubjects => "long_subjects",
       Self::CommitTree => "commit_tree",
       Self::CommitDeleted => "commit_deleted",
+      Self::CommitManyFiles => "commit_many_files",
       Self::StackedBranches => "stacked_branches",
       Self::StackIsland => "stack_island",
       Self::StackSideConflict => "stack_side_conflict",

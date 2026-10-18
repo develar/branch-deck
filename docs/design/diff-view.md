@@ -47,8 +47,9 @@ flowchart LR
 - **Contents.** A missing commit and a modify/delete conflict also send both file contents, from the same two versions as the
   patch. With `withContents` the parsed diff is complete, and its hunk separators expand the unchanged lines without a
   request. Without the contents the separators only count the lines.
-- **Commit files.** The files of a commit in its preview come from the patch of the whole commit
-  (`get_commit_patch`, one `diff-tree -p --full-index`, kept for the last 8 commits by `src/stores/commit-patch.ts`).
+- **Commit files.** The Files section of the preview starts closed and renders nothing until it opens; a file of it
+  starts collapsed, so the first expanded file is what reads the patch. The files of a commit in its preview come from
+  the patch of the whole commit (`get_commit_patch`, one `diff-tree -p --full-index`, kept for the last 8 commits by `src/stores/commit-patch.ts`).
   Behind that per-window store the backend caches the patch for every window: in memory (96 MiB, `PatchCache`,
   `src-tauri/src/patch_cache.rs`) and on disk in the `commit_patch` store of the object cache, and it warms the store
   for the commits of every list once their files are read (one `diff-tree --stdin -p` per list in the background), so

@@ -1,14 +1,13 @@
 import { useEffect } from "react"
-import { cn } from "cn"
 import { GitPullRequestCreateIcon, GitPullRequestIcon, InfoIcon, ShieldAlertIcon, ShieldCheckIcon, UploadIcon } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { Alert, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchReviewStackBar } from "@/components/review/BranchReviewStackBar"
 import { RangeReview } from "@/components/review/RangeReview"
 import { ActionButton } from "@/components/shared/ActionButton"
 import { Callout } from "@/components/shared/Callout"
+import { ChoiceChip } from "@/components/shared/ChoiceChip"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { BranchReviewAction, BranchReviewModel } from "@/hooks/useBranchReview"
@@ -151,20 +150,11 @@ function OwnerFilter({ chips, filter, onFilterChange }: { chips: readonly Review
 
 function FilterChip({ chip, pressed, onPress }: { chip: ReviewFilterChip; pressed: boolean; onPress: () => void }) {
   const button = (
-    <Button
-      size="xs"
-      variant="outline"
-      aria-pressed={pressed}
-      disabled={chip.count === null}
-      data-testid="branch-review-owner"
-      data-owner={chip.label}
-      className={cn(pressed && "border-primary/50 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary")}
-      onClick={onPress}
-    >
+    <ChoiceChip chosen={pressed} disabled={chip.count === null} data-testid="branch-review-owner" data-owner={chip.label} onClick={onPress}>
       {chip.needsApproval && <ShieldAlertIcon data-icon="inline-start" className="text-warning" />}
       {chip.label}
-      {chip.count !== null && <span className="text-muted-foreground tabular-nums">{chip.count}</span>}
-    </Button>
+      {chip.count !== null && <span className="tabular-nums opacity-70">{chip.count}</span>}
+    </ChoiceChip>
   )
   if (!chip.needsApproval) {
     return button

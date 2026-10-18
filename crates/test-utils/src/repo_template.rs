@@ -452,6 +452,29 @@ pub mod templates {
       )
   }
 
+  /// One commit of nine files in three modules, enough for the search of the files of a review
+  /// (`FILE_FILTER_MIN_FILES`): `parser`, `lexer` and `printer`, each with a source, a test and a README
+  pub fn commit_many_files() -> RepoTemplate {
+    RepoTemplate::new("commit_many_files")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Tools\n")], Some(1704117600))
+      .commit_with_timestamp(
+        "(tools) every tool reads its input as a stream",
+        &[
+          ("parser/src/Parser.kt", "class Parser {\n  fun parse(input: Stream) = input\n}\n"),
+          ("parser/testSrc/ParserTest.kt", "class ParserTest {\n  fun readsAStream() {}\n}\n"),
+          ("parser/README.md", "# Parser\n\nReads a stream.\n"),
+          ("lexer/src/Lexer.kt", "class Lexer {\n  fun lex(input: Stream) = input\n}\n"),
+          ("lexer/testSrc/LexerTest.kt", "class LexerTest {\n  fun readsAStream() {}\n}\n"),
+          ("lexer/README.md", "# Lexer\n\nReads a stream.\n"),
+          ("printer/src/Printer.kt", "class Printer {\n  fun print(input: Stream) = input\n}\n"),
+          ("printer/testSrc/PrinterTest.kt", "class PrinterTest {\n  fun readsAStream() {}\n}\n"),
+          ("printer/README.md", "# Printer\n\nReads a stream.\n"),
+        ],
+        Some(1704119400),
+      )
+  }
+
   /// An issue branch whose commits are independent, so any of them can be split off into its own branch, its
   /// description titled with its key as a pull request title is; a prefix branch and an unassigned commit
   pub fn issue_split() -> RepoTemplate {

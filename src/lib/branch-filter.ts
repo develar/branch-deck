@@ -2,6 +2,7 @@ import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { findBranchRobot, isRobotActive, needsRobotAttention } from "@/lib/patronus"
 import { formatAuthorAttention } from "@/lib/pull-request"
 import { summarizePushState } from "@/lib/push-summary"
+import { matchesAllWords, searchWords } from "@/lib/text-search"
 import type { Branch } from "@/stores/branch-sync"
 
 /** A state chip of the filter bar; `all` takes every state */
@@ -30,17 +31,10 @@ type SearchedBranch = Pick<Branch, "name" | "issueKey" | "summary" | "descriptio
  * or the subject of one of its commits, ignoring case; any branch for a blank text
  */
 export function matchesBranchText(branch: SearchedBranch, text: string): boolean {
-  const words = text
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(word => word !== "")
-  if (words.length === 0) {
-    return true
-  }
-  const texts = [branch.name, branch.issueKey ?? "", branch.summary, branch.descriptionTitle ?? "", ...branch.commits.map(commit => commit.strippedSubject)].map(it =>
-    it.toLowerCase(),
+  return matchesAllWords(
+    [branch.name, branch.issueKey ?? "", branch.summary, branch.descriptionTitle ?? "", ...branch.commits.map(commit => commit.strippedSubject)],
+    searchWords(text),
   )
-  return words.every(word => texts.some(it => it.includes(word)))
 }
 
 /**

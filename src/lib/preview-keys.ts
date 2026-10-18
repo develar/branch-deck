@@ -8,7 +8,7 @@ export function hasKeyModifier(event: KeyboardEvent): boolean {
 }
 
 /** The key is typed into a text field (the comment of a review, a commit message): it is no key of the preview */
-export function isTypingTarget(event: KeyboardEvent): boolean {
+export function isTypingTarget(event: { target: EventTarget | null }): boolean {
   return event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.closest("input, textarea, select") !== null)
 }
 

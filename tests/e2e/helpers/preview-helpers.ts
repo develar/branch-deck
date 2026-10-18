@@ -13,3 +13,12 @@ export async function openCommitPreview(page: Page, row: Locator): Promise<Locat
   await expect(preview.getByTestId("commit-preview-body")).toBeFocused()
   return preview
 }
+
+/** Opens the Files section of the commit preview, closed at first, by its header; returns the tree of the files */
+export async function openCommitFilesSection(preview: Locator): Promise<Locator> {
+  const header = preview.getByTestId("commit-files-header")
+  await expect(header).toHaveAttribute("aria-expanded", "false")
+  await header.click()
+  await expect(header).toHaveAttribute("aria-expanded", "true")
+  return preview.getByRole("tree", { name: "Changed files" })
+}

@@ -4,12 +4,11 @@ import type { CodeView as CodeViewInstance, CodeViewDiffItem, CodeViewItem } fro
 import { CodeView, WorkerPoolContext } from "@pierre/diffs/react"
 import type { CodeViewHandle } from "@pierre/diffs/react"
 import { cn } from "cn"
-import { ChevronRightIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
+import { FILE_HEADER_CLASS_NAME, FileHeaderChevron, FileHeaderCopyButton } from "@/components/files/FileHeaderParts"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
-import { CopyButton } from "@/components/shared/CopyButton"
 import type { CommitFile, CommitPatch } from "@/lib/bindings"
 import { formatCommitFilePath } from "@/lib/commit-files"
 import { getChangeTargets } from "@/lib/diff/change-targets"
@@ -164,8 +163,12 @@ export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath,
       const start = changeCursor.current ?? { path: visiblePath.current ?? order[0] ?? "", index: -1 }
       let fileIndex = order.indexOf(start.path)
       let index = start.index + direction
-      // from the top of a file going back: the last block of the file before it
-      if (direction === -1 && start.index === -1) {
+      if (fileIndex === -1) {
+        // the file at the top is filtered out: from the first file, or back from the last one
+        fileIndex = direction === 1 ? 0 : order.length - 1
+        index = direction === 1 ? 0 : Number.MAX_SAFE_INTEGER
+      } else if (direction === -1 && start.index === -1) {
+        // from the top of a file going back: the last block of the file before it
         fileIndex--
         index = Number.MAX_SAFE_INTEGER
       }
@@ -274,7 +277,7 @@ function ReviewFileHeader({ entry, pending = false, owner, collapsed, onToggle }
     <FileContextMenu
       target={() => ({ kind: "file", path: file.path })}
       selectable
-      render={<div data-testid="review-file-header" data-path={file.path} className="group/header flex h-9 items-center gap-2 border-b border-border bg-card px-2 text-sm" />}
+      render={<div data-testid="review-file-header" data-path={file.path} className={cn(FILE_HEADER_CLASS_NAME, "border-b border-border bg-card")} />}
     >
       <Button
         variant="ghost"
@@ -284,17 +287,12 @@ function ReviewFileHeader({ entry, pending = false, owner, collapsed, onToggle }
         disabled={pending || notice !== null}
         onClick={() => onToggle(file.path)}
       >
-        <ChevronRightIcon className={cn("transition-transform duration-150", !collapsed && "rotate-90")} />
+        <FileHeaderChevron open={!collapsed} />
       </Button>
       <span className="flex min-w-0" title={formatCommitFilePath(file)}>
         <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} emphasis />
       </span>
-      <CopyButton
-        text={() => file.path}
-        tooltip="Copy path"
-        label={`Copy path of ${name}`}
-        className="duration-200 ease-out group-hover/header:opacity-100 group-hover/header:delay-300"
-      />
+      <FileHeaderCopyButton path={file.path} />
       <span className="ml-auto flex shrink-0 items-center gap-3 text-xs">
         {notice !== null && <span className="text-muted-foreground">{notice}</span>}
         {owner !== undefined && (

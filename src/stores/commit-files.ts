@@ -16,14 +16,14 @@ export interface CommitFilesState {
   byCommit: ReadonlyMap<string, CommitFiles>
   /** The commits whose files are being read: a list is busy until its commits are done */
   loading: ReadonlySet<string>
-  /** The Files section of the commit preview is shown; `F` toggles it */
+  /** The Files section of the commit preview is open; `F` toggles it, closed at first */
   isPreviewSectionOpen: boolean
 }
 
 export const commitFilesStore = createStore<CommitFilesState>(() => ({
   byCommit: new Map(),
   loading: new Set(),
-  isPreviewSectionOpen: true,
+  isPreviewSectionOpen: false,
 }))
 
 /** The loads in flight, by commit id: a second request for an id waits for the first one */

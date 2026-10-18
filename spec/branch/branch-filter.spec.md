@@ -10,6 +10,9 @@ targets:
   - ../../src/components/branch/BranchSelectionBar.tsx
   - ../../src/hooks/useBranchFilter.ts
   - ../../src/lib/branch-filter.ts
+  - ../../src/lib/text-search.ts
+  - ../../src/components/shared/SearchField.tsx
+  - ../../src/hooks/useSlashFocus.ts
   - ../../src/stores/branch-filter.ts
   - ../../src/stores/branch-sync.ts
   - ../../crates/test-utils/src/repo_template.rs
@@ -131,8 +134,9 @@ that stops matching while the user looks at it (pushed, its robot done) stays un
 
 - The bar is `flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-2`, on the card like the
   selection bar below it.
-- The search is an `InputGroup` `h-7 w-60` with the `SearchIcon`, the placeholder "Filter branches" (also its
-  accessible name), the `Kbd` `/` at its end while empty and an `icon-xs` X button ("Clear the filter text") once typed.
+- The search is the `SearchField` of every list with a search (the files of a review too): an `InputGroup` `h-7`,
+  here `w-60`, with the `SearchIcon`, the placeholder "Filter branches" (also its accessible name), the `Kbd` `/` at
+  its end while empty and an `icon-xs` X button ("Clear the filter text") once typed.
 - The chips are `ChoiceChip`s (`xs`) in a group named "Branch state": the chosen one soft primary (`aria-pressed`), the
   others `secondary`; the label in Title Case as a tab (All, To Push, Running, Attention), the count after it in tabular
   figures at 70% opacity. E2E finds them by `data-chip`.

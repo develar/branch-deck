@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchCommitRow } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
-import { openCommitPreview as openPreview } from "../helpers/preview-helpers"
+import { openCommitFilesSection, openCommitPreview as openPreview } from "../helpers/preview-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
 
@@ -58,6 +58,10 @@ testWithIssueLinks.describe("Commit files", () => {
 
     const files = preview.getByRole("region", { name: "Files" })
     await expect(files).toHaveAttribute("data-testid", "commit-files")
+    // closed at first: its header with the count, no tree
+    await expect(files.getByTestId("commit-files-header")).toHaveText("Files1")
+    await expect(files.getByRole("tree")).toHaveCount(0)
+    await openCommitFilesSection(preview)
     // grouped by directory: `db/`, then the file by its name, the status and the counts in its description
     await expect(files.getByRole("treeitem", { name: "db" })).toHaveAttribute("aria-level", "1")
     const file = files.getByRole("treeitem", { name: "pool.js" })
@@ -82,28 +86,39 @@ testWithIssueLinks.describe("Commit files", () => {
     await expect(files).not.toContainText("size: 50")
   })
 
-  testWithIssueLinks("should show and hide the files with F and the footer button", async ({ page }) => {
+  testWithIssueLinks("should open and close the files with their header, F and the footer button", async ({ page }) => {
     await expandIssueBranch(page)
     const preview = await openPreview(page, getBranchCommitRow(page, BRANCH, RETRY))
-    const files = preview.getByTestId("commit-files")
+    const header = preview.getByTestId("commit-files-header")
+    const tree = preview.getByRole("tree", { name: "Changed files" })
     const toggle = preview.getByTestId("commit-files-toggle")
-    await expect(files).toBeVisible()
-    await expect(toggle).toHaveAttribute("aria-pressed", "true")
+    // closed at first: the header, no tree
+    await expect(header).toHaveAttribute("aria-expanded", "false")
+    await expect(toggle).toHaveAttribute("aria-pressed", "false")
+    await expect(tree).toHaveCount(0)
 
     await page.keyboard.press("f")
-    await expect(files).toHaveCount(0)
-    await expect(toggle).toHaveAttribute("aria-pressed", "false")
+    await expect(header).toHaveAttribute("aria-expanded", "true")
+    await expect(toggle).toHaveAttribute("aria-pressed", "true")
+    await expect(tree.getByRole("treeitem", { name: "retry.js" })).toBeVisible()
+    await page.keyboard.press("f")
+    await expect(header).toHaveAttribute("aria-expanded", "false")
+    await expect(tree).toHaveCount(0)
     // the message stays
     await expect(preview.getByTestId("commit-message-body")).toBeVisible()
 
-    // the choice holds for the next preview
+    // the header opens it, and the choice holds for the next preview
+    await header.click()
+    await expect(tree.getByRole("treeitem", { name: "retry.js" })).toBeVisible()
     await page.keyboard.press("Escape")
     await openPreview(page, getBranchCommitRow(page, BRANCH, POOL_SIZE))
-    await expect(files).toHaveCount(0)
+    await expect(header).toHaveAttribute("aria-expanded", "true")
+    await expect(tree.getByRole("treeitem", { name: "pool.js" })).toBeVisible()
 
+    // the footer button closes it
     await toggle.click()
-    await expect(files).toBeVisible()
-    await expect(files.getByRole("treeitem", { name: "pool.js" })).toBeVisible()
+    await expect(header).toHaveAttribute("aria-expanded", "false")
+    await expect(tree).toHaveCount(0)
   })
 
   testWithIssueLinks("should move through the tree with the keyboard and switch commits with Alt", async ({ page }) => {
@@ -111,6 +126,7 @@ testWithIssueLinks.describe("Commit files", () => {
     const preview = await openPreview(page, getBranchCommitRow(page, BRANCH, POOL_SIZE))
     const heading = preview.getByRole("heading", { level: 2 })
     const files = preview.getByTestId("commit-files")
+    await openCommitFilesSection(preview)
     const directory = files.getByRole("treeitem", { name: "db" })
     const file = files.getByRole("treeitem", { name: "pool.js" })
 
@@ -166,7 +182,7 @@ testWithIssueLinks.describe("Commit files", () => {
 async function openTreePreview(page: Page) {
   await expandBranch(page, findBranchRow(page, "session"))
   const preview = await openPreview(page, getBranchCommitRow(page, "session", "a prompt that waits for its turn keeps the session row running"))
-  return { preview, tree: preview.getByRole("tree", { name: "Changed files" }) }
+  return { preview, tree: await openCommitFilesSection(preview) }
 }
 
 simpleTest.describe("Commit files in nested directories", () => {

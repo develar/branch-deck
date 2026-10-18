@@ -254,7 +254,7 @@ export function CommitPreviewDialog({
                 ) : (
                   <p className="text-sm text-muted-foreground">No description</p>
                 )}
-                {isFilesOpen && <CommitFilesSection commitId={hash} onReviewFile={review} />}
+                <CommitFilesSection commitId={hash} fileCount={fileStats?.count} onReviewFile={review} />
               </div>
             )}
           </PreviewDialogBody>

@@ -1,3 +1,4 @@
+import { SearchIcon } from "lucide-react"
 import {
   Combobox,
   ComboboxChip,
@@ -53,6 +54,8 @@ export function ReviewerPicker({ testIdPrefix, reviewers, setReviewers, search, 
       disabled={disabled}
     >
       <ComboboxChips ref={anchor} data-testid={`${testIdPrefix}-reviewers`}>
+        {/* a search, as every search of a list: the icon first */}
+        <SearchIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
         <ComboboxValue>
           {(chosen: GitHubUser[]) => (
             <>

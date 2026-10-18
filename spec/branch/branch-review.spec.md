@@ -285,8 +285,11 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   `GitPullRequestCreateIcon`, `ShieldCheckIcon`, `UploadIcon`), the label and the key; in a title bar narrower than
   48rem only the icon, the label in the hover. A disabled action is dimmed (`opacity-50`) and stays focusable for its
   tooltip.
-- A segment and a chip are outline `xs` buttons; the selected ones are `border-primary/50 bg-primary/10
-  text-primary`. "From Root" is a ghost button with a tooltip that sizes the part as the branch table does: "auth to login
+- A segment is an outline `xs` button, the selected ones `border-primary/50 bg-primary/10 text-primary`. A chip is a
+  `ChoiceChip` (`xs`), as the state chips of the branch filter: the chosen one soft primary (`aria-pressed`), the
+  others `secondary`, the count after the name in tabular numbers at 70% opacity. Above the chips, from 8 files on,
+  is the search of the files ([Commit Review](../commit/commit-review.spec.md#the-search-of-the-files)); it keeps the
+  files of the chosen chip whose path has its words. "From Root" is a ghost button with a tooltip that sizes the part as the branch table does: "auth to login
   on origin/master: 2 branches · 3 commits, what the Safe Push of login lands · Shift+click a branch to extend". A group chip starts with `ShieldAlertIcon` in `text-warning`; its tooltip says
   "Needs approval for a Safe Push".
 - In the Safe Push popover the groups are a list below the review line, a group per line in the foreground colour,

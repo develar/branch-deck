@@ -6,6 +6,7 @@ import { focusRange, keepSegmentRange, segmentRangeSubject } from "@/lib/branch-
 import type { BranchReviewFocus, SegmentRange } from "@/lib/branch-review"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId } from "@/lib/commit-files"
+import { isTypingTarget } from "@/lib/preview-keys"
 import { ALL_CHANGES, isSingleCommit, keepCommit, rangePosition, segmentItems } from "@/lib/range-review"
 import type { RangeReviewItem } from "@/lib/range-review"
 import type { filterPaths } from "@/lib/review-owners"
@@ -214,7 +215,8 @@ export interface BranchReviewAction {
 
 /** The action whose single key the event is (O, S); the physical key, in any keyboard layout */
 export function keyedAction<T extends BranchReviewAction>(actions: readonly T[], event: KeyboardEvent | ReactKeyboardEvent): T | undefined {
-  if (event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
+  // a letter typed into the filter of the files is no action
+  if (event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey || isTypingTarget(event)) {
     return undefined
   }
   return actions.find(it => it.kbds?.length === 1 && event.code === `Key${it.kbds[0]!.toUpperCase()}`)

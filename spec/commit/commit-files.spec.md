@@ -51,8 +51,9 @@ Date: 2026-10-14
 
 A commit row says what is in the commit: its meta line ends with the number of changed files and the added and deleted
 lines, "3 files · +42 −7".
-The commit preview lists the files after the message, grouped by directory as IntelliJ and Space show the changes of a
-commit. A file expands to its diff; the first one read the patch of the whole commit with one git process.
+The commit preview has a Files section after the message, closed at first ("› Files 4"): opened, it lists the files
+grouped by directory as IntelliJ and Space show the changes of a commit. A file expands to its diff; the first one
+read the patch of the whole commit with one git process.
 The context menu of a commit copies the paths it changed.
 Everything is read with read-only plumbing, one git process for a whole list, and cached by commit id.
 
@@ -163,7 +164,10 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 
 ### Files section
 
-- The commit preview must show a "Files" section after the message, unless the message is being edited.
+- The commit preview must show a "Files" section after the message, unless the message is being edited. It starts
+  closed: its header ("Files 4", the count once a list read the files of the commit) with a chevron, no tree, and
+  nothing of the files is read or rendered for it until it opens. A commit without files says "No changed files".
+  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should list the files of the commit in the preview and load a diff when a file is expanded`, `should open and close the files with their header, F and the footer button`)
 - The files must be a tree grouped by directory. A directory that holds nothing but one directory must be one row
   with the joined name (`plugins/air/backend/session`). Directories come before files, names in a human order
   (`file2` before `file10`, case-insensitive). A directory row shows the sums of the line counts of its subtree.
@@ -202,9 +206,9 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 - The section must offer the unified and the split view; the choice is the one of the conflict viewer.
 - Another commit (↑, ↓) must show its own files, collapsed.
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should list the files of the commit in the preview and load a diff when a file is expanded`)
-- F must show or hide the section, and so must the `F Files` button of the footer. The choice must hold for the
-  next preview, until the app restarts.
-  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should show and hide the files with F and the footer button`)
+- The header of the section, F and the `F Files` button of the footer must open or close it. The choice must hold
+  for the next preview, until the app restarts.
+  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should open and close the files with their header, F and the footer button`)
 - A preview of a commit no list loaded must load its files alone (`get_commit_files`).
   [@test] ../../src/stores/commit-files.test.ts (`loads the one commit a preview shows with the single command`)
 - A failed read must show "Cannot read the files of the commit" in the section.
@@ -245,8 +249,10 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 
 ### Files section
 
-- A `border-border` rule above the section separates it from the message. The section label "Files" is muted
-  `text-xs font-medium` (`SectionLabel`), with the `Unified`/`Split` toggle on its right.
+- A `border-border` rule above the section separates it from the message. Its header is a button: a `ChevronRightIcon`
+  (`size-3.5` muted, turned down when open, as a tree row's) and the label "Files 4", muted `text-xs font-medium`
+  (`SectionLabel` with the count, as the files of a review), `hover:bg-muted rounded-md`, `aria-expanded`; the
+  `Unified`/`Split` toggle on its right while it is open.
 - The tree rows are `h-6 rounded-md text-sm`, `hover:bg-muted`, indented by 0.75rem per level, a `ring-2 ring-ring/50`
   inset on the focused row. A row starts with a `ChevronRightIcon` (`size-3.5` muted, turned down when open). A 1px
   `border` guide per level runs under the chevron of each parent, on the rows only (not on a diff under a row).
@@ -262,7 +268,7 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   the gutter, the changed words a stronger tint ([UI Theme](../../docs/design/ui-theme.md) "Diffs").
 - Loading: an inline spinner and "Loading files…" in muted `text-sm`; a file's diff shows "Loading diff…". A failed
   read of the patch is a destructive callout "Cannot read the changes of the commit" in the panel.
-- The footer shows the ghost `xs` buttons `D Review Changes` and `F Files` (pressed while the section is shown) before
+- The footer shows the ghost `xs` buttons `D Review Changes` and `F Files` (pressed while the section is open) before
   `E Edit`.
 
 ## Testing / Local Run

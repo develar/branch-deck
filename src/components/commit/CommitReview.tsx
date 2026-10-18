@@ -1,19 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode } from "react"
 import { useDefaultLayout } from "react-resizable-panels"
+import { Button } from "@/components/ui/button"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { CommitReviewCode, PendingFileHeaders } from "@/components/diff/CommitReviewCode"
 import type { CommitReviewCodeHandle } from "@/components/diff/CommitReviewCode"
 import { FileTree } from "@/components/files/FileTree"
 import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
+import { SearchField } from "@/components/shared/SearchField"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { CommitFile, CommitPatch } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import { getDiffWorkerPool } from "@/lib/diff/diff-engine"
 import { prepareFirstDiffs } from "@/lib/diff/review-diffs"
+import { FILE_FILTER_MIN_FILES, filterFilesByText, formatNoFileMatch } from "@/lib/file-filter"
 import { buildFileTree, flattenTreeFiles, getInitiallyCollapsed, revealInTree, toggleInSet } from "@/lib/file-tree"
+import { isTypingTarget } from "@/lib/preview-keys"
 import type { ReviewPosition } from "@/lib/review-position"
 import { markSubWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
@@ -53,7 +57,9 @@ export interface CommitReviewProps {
  * header of the files, their directory tree) beside the diffs of all of them in one virtualized view. The split is
  * there in every state, so what the sidebar holds keeps its focus while another commit or filter loads.
  * The tree follows the diffs as they scroll, a file selected in the tree scrolls the diffs to it. J and K step through
- * the files, N and P through the blocks of changed lines.
+ * the files, N and P through the blocks of changed lines. From `FILE_FILTER_MIN_FILES` files on the sidebar has a
+ * search of the files ("/"): the tree and the diffs show the files with every word in their path, also of the next
+ * commit (⌥↑/⌥↓), on top of `pathFilter`.
  */
 export function CommitReview({
   subject,
@@ -72,7 +78,15 @@ export function CommitReview({
   const commitFiles = useFilesOfCommit(subjectId)
   const entry = useCommitPatch(subjectId)
   const [filesFailed, setFilesFailed] = useState<string | null>(null)
-  const shownFiles = useMemo(() => (commitFiles === undefined ? undefined : filterFiles(commitFiles.files, pathFilter)), [commitFiles, pathFilter])
+  const [filterText, setFilterText] = useState("")
+  const filteredFiles = useMemo(() => (commitFiles === undefined ? undefined : filterFiles(commitFiles.files, pathFilter)), [commitFiles, pathFilter])
+  const shownFiles = useMemo(() => (filteredFiles === undefined ? undefined : filterFilesByText(filteredFiles, filterText)), [filteredFiles, filterText])
+  // the count of the last subject read: the search stays while the next one loads
+  const [fileCount, setFileCount] = useState(0)
+  if (filteredFiles !== undefined && filteredFiles.length !== fileCount) {
+    setFileCount(filteredFiles.length)
+  }
+  const isSearchShown = filterText !== "" || fileCount >= FILE_FILTER_MIN_FILES
 
   // by the id: the subject object may be new on every render
   useEffect(() => {
@@ -120,6 +134,15 @@ export function CommitReview({
         Loading changes…
       </LoadingLine>
     )
+  } else if (shownFiles.length === 0 && filteredFiles !== undefined && filteredFiles.length > 0) {
+    message = (
+      <div data-testid="review-files-no-match" className="flex items-center gap-3 p-6 text-sm text-muted-foreground">
+        <span className="min-w-0 truncate">{formatNoFileMatch(filterText)}</span>
+        <Button variant="link" size="xs" className="h-auto px-0" onClick={() => setFilterText("")}>
+          Clear Filter
+        </Button>
+      </div>
+    )
   } else if (shownFiles.length === 0) {
     message = (
       <p className="p-6 text-sm text-muted-foreground">
@@ -131,6 +154,7 @@ export function CommitReview({
       // the selection and the collapsed directories belong to one commit or range, and to one filter
       key: pathFilter === null ? subjectId : `${subjectId}|${[...pathFilter].join("\n")}`,
       files: shownFiles,
+      totalCount: filteredFiles?.length ?? shownFiles.length,
       patch: entry?.kind === "loaded" ? entry.patch : null,
       initialPath: initialPath !== null && shownFiles.some(file => file.path === initialPath) ? initialPath : null,
     }
@@ -152,6 +176,7 @@ export function CommitReview({
         sidebarTop={sidebarTop}
         filesHeader={filesHeader}
         codeTop={codeTop}
+        search={isSearchShown ? { text: filterText, onTextChange: setFilterText } : null}
       />
     </ReviewRoot>
   )
@@ -205,9 +230,18 @@ function filterFiles(files: readonly CommitFile[], pathFilter: ReadonlySet<strin
 interface LoadedReview {
   /** The subject and the filter: a new key starts the tree and the diffs over */
   key: string
+  /** The files the search kept */
   files: readonly CommitFile[]
+  /** The files before the search: "Files 2 of 18" */
+  totalCount: number
   patch: CommitPatch | null
   initialPath: string | null
+}
+
+/** The search of the files: the text belongs to the window, not to one subject */
+interface FileSearch {
+  text: string
+  onTextChange: (text: string) => void
 }
 
 interface ReviewLayoutProps {
@@ -219,25 +253,36 @@ interface ReviewLayoutProps {
   sidebarTop: ReactNode
   filesHeader: ReactNode
   codeTop: ReactNode
+  search: FileSearch | null
 }
 
-/** The tree state of one loaded subject (`LoadedReview.key`) */
+/** The tree state of one loaded subject (`LoadedReview.key`) and one search text */
 interface TreeSelection {
   key: string | null
+  filterText: string
   collapsed: ReadonlySet<string>
   selectedPath: string | null
 }
 
-function initialSelection(loaded: LoadedReview | null, nodes: ReturnType<typeof buildFileTree>, fileCount: number, firstPath: string | null): TreeSelection {
+function initialSelection(loaded: LoadedReview | null, filterText: string, nodes: ReturnType<typeof buildFileTree>, fileCount: number, firstPath: string | null): TreeSelection {
   if (loaded === null) {
-    return { key: null, collapsed: new Set(), selectedPath: null }
+    return { key: null, filterText, collapsed: new Set(), selectedPath: null }
   }
-  const initial = getInitiallyCollapsed(nodes, fileCount)
+  // what a search found shows whole: its directories open
+  const initial = filterText.trim() === "" ? getInitiallyCollapsed(nodes, fileCount) : new Set<string>()
   return {
     key: loaded.key,
+    filterText,
     collapsed: loaded.initialPath === null ? initial : revealInTree(initial, loaded.initialPath),
     selectedPath: loaded.initialPath ?? firstPath,
   }
+}
+
+/** Another search text: the directories as a new tree has them, the selected file kept while the search keeps it */
+function searchedSelection(previous: TreeSelection, filterText: string, nodes: ReturnType<typeof buildFileTree>, files: readonly CommitFile[]): TreeSelection {
+  const selectedPath = files.some(file => file.path === previous.selectedPath) ? previous.selectedPath : (files[0]?.path ?? null)
+  const collapsed = filterText.trim() === "" ? getInitiallyCollapsed(nodes, files.length) : new Set<string>()
+  return { key: previous.key, filterText, collapsed: selectedPath === null ? collapsed : revealInTree(collapsed, selectedPath), selectedPath }
 }
 
 // the sidebar takes 30% until the divider is dragged; never narrower than the names need
@@ -247,19 +292,33 @@ const initialLayout = { sidebar: 30, code: 70 }
  * The sidebar beside the diffs, in every state of the review: the parts of the sidebar (the commits, the header of the
  * files) stay mounted, only the tree and the diffs start over for another subject or filter.
  */
-function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTop, filesHeader, codeTop }: ReviewLayoutProps) {
+function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTop, filesHeader, codeTop, search }: ReviewLayoutProps) {
   const diffViewMode = useConflictViewerSettings(state => state.conflictDiffViewMode)
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "review-sidebar", storage: localStorage, onlySaveAfterUserInteractions: true })
   const loadedFiles = loaded?.files
   const nodes = useMemo(() => (loadedFiles === undefined ? [] : buildFileTree(loadedFiles)), [loadedFiles])
   const files = useMemo(() => flattenTreeFiles(nodes), [nodes])
-  const [selection, setSelection] = useState<TreeSelection>(() => initialSelection(loaded, nodes, files.length, files[0]?.path ?? null))
+  const filterText = search?.text ?? ""
+  const [selection, setSelection] = useState<TreeSelection>(() => initialSelection(loaded, filterText, nodes, files.length, files[0]?.path ?? null))
   const loadedKey = loaded?.key ?? null
   if (selection.key !== loadedKey) {
-    setSelection(initialSelection(loaded, nodes, files.length, files[0]?.path ?? null))
+    setSelection(initialSelection(loaded, filterText, nodes, files.length, files[0]?.path ?? null))
+  } else if (selection.filterText !== filterText) {
+    setSelection(searchedSelection(selection, filterText, nodes, files))
   }
   const { collapsed, selectedPath } = selection
   const code = useRef<CommitReviewCodeHandle>(null)
+  const tree = useRef<HTMLDivElement>(null)
+
+  // the diffs show the selected file of what the search kept
+  const scrollToSelected = useEffectEvent(() => {
+    if (selectedPath !== null) {
+      code.current?.scrollToFile(selectedPath)
+    }
+  })
+  useEffect(() => {
+    scrollToSelected()
+  }, [filterText])
 
   // the diffs mount once their first screen is ready (`prepareFirstDiffs`), so their first frame is highlighted
   const patch = loaded?.patch ?? null
@@ -310,7 +369,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
   }, [onPositionChange, loadedKey, selectedPath, selectedIndex, files.length])
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (loaded === null || event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) {
+    if (loaded === null || event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey || isTypingTarget(event)) {
       return
     }
     // the physical keys, as E and F of the preview
@@ -348,14 +407,30 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
                 {sidebarTop}
               </div>
             )}
+            {search !== null && (
+              // the diffs that mount for what is typed leave the focus in the field
+              <div data-review-keeps-focus="" className="shrink-0 px-2 pt-2">
+                <SearchField
+                  value={search.text}
+                  onValueChange={search.onTextChange}
+                  label="Filter files"
+                  className="w-full"
+                  onLeave={() => (code.current ?? tree.current?.closest<HTMLElement>("[data-review-root]"))?.focus()}
+                  onArrowDown={() => tree.current?.querySelector<HTMLElement>("[role=treeitem][tabindex='0']")?.focus()}
+                />
+              </div>
+            )}
             <div
               data-review-keeps-focus=""
               className="flex min-h-10 shrink-0 flex-wrap items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground"
               data-testid="review-files-header"
             >
-              {filesHeader ?? (loaded !== null && <SectionLabel title="Files" count={loaded.files.length} className="flex-1" />)}
+              {filesHeader ??
+                (loaded !== null && (
+                  <SectionLabel title="Files" count={loaded.files.length} of={loaded.files.length === loaded.totalCount ? undefined : loaded.totalCount} className="flex-1" />
+                ))}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+            <div ref={tree} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
               {loaded !== null && (
                 <FileTree
                   key={loaded.key}

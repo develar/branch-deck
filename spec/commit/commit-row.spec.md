@@ -3,6 +3,8 @@ name: Commit Row
 description: Requirements for the commit row, the commit preview with the message body and its editing, and the commit hash popover.
 style: plain-1
 targets:
+  - ../../src/components/conflict/CollapsibleFileHeader.tsx
+  - ../../src/components/files/FileHeaderParts.tsx
   - ../../src/components/commit/CommitList.tsx
   - ../../src/components/commit/CommitHeader.tsx
   - ../../src/components/commit/CommitSubject.tsx
@@ -400,8 +402,10 @@ The commit hash popover shows the same header and body.
 - The title is `text-sm font-medium` after a `destructive` `TriangleAlertIcon`.
 - The explanation is a `warning` `Callout` with `FileDiffIcon`; its chips are `secondary` `xs` buttons, the count muted
   and tabular.
-- A conflicting file is a `rounded-lg border` item with the header of the commit files (the path, the copy button, a
-  chevron) and an `outline` badge with its conflict count; the unresolved file has no file header of its own.
+- A conflicting file is a `rounded-lg border` item with the file header of a review (`FileHeaderParts`: `h-9`, the
+  chevron first, turned down when open, the name `FilePathLabel` `emphasis`, Copy Path on hover; a click anywhere on it
+  toggles) and an `outline` badge with its conflict count at its end; the unresolved file has no file header of its
+  own.
 - The file without conflict markers states it in a muted `text-xs` line above its diff.
 
 ### Branch table

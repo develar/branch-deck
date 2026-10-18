@@ -33,6 +33,11 @@ targets:
   - ../../src/lib/review-position.ts
   - ../../src/router.ts
   - ../../src-tauri/capabilities/sub-windows.json
+  - ../../src/components/shared/SearchField.tsx
+  - ../../src/hooks/useSlashFocus.ts
+  - ../../src/lib/file-filter.ts
+  - ../../src/lib/text-search.ts
+  - ../../src/components/files/FileHeaderParts.tsx
 ---
 
 # Commit Review
@@ -63,7 +68,8 @@ where a dialog would cover it.
 
 - No comments, no "viewed" marks: the review reads, it does not record.
 - No review of uncommitted changes; the amend card shows them ([Amend Changes](amend.spec.md)).
-- No search in the diffs: the browser's find sees only the rendered part of a virtualized view.
+- No search in the diffs: the browser's find sees only the rendered part of a virtualized view. The search of the
+  sidebar finds files by their path, not text in them.
 
 ## Requirements
 
@@ -154,14 +160,36 @@ where a dialog would cover it.
   keeps its width for the name. A filter that keeps nothing says why ("No files of Air Plugin in this range").
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
 
+### The search of the files
+
+- From 8 files on (`FILE_FILTER_MIN_FILES`, the count of the branch filter), or while it has a text, the sidebar must
+  have a search of the files above their header, the search of the branch table (`SearchField`). A review of fewer
+  files has none.
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+- The tree and the diffs must show the files with every word of the text in their path or the old path of a rename,
+  ignoring case, as it is typed; the header says "Files 3 of 9". The directories of what it found are open, the
+  selected file stays while the search keeps it, else the first one is selected, and the diffs show it at the top.
+  It applies on top of the filter of the surface (the owner chips of a branch review) and holds for the next commit
+  (⌥↑/⌥↓) until the window closes.
+  [@test] ../../src/lib/file-filter.test.ts (`keeps the files with every word in their path, ignoring case`, `finds a renamed file by its old path`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should filter the files of a review by their path, with / from the diffs, Escape and Clear Filter`)
+- `/` must focus the search from anywhere in the window and select its text, except in another input, a menu or a
+  dialog. The letters typed into it are text, never J, K, N, P or an action of the window (S, O). Escape must clear
+  the text, and in an empty search give the diffs the focus (the next Escape closes the window); ↓ must move the
+  focus to the tree. A search that keeps nothing says "No files match “parser”" with Clear Filter.
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should filter the files of a review by their path, with / from the diffs, Escape and Clear Filter`)
+
 ## User Experience
 
 - The island of the review fills the window below its title bar; the panes scroll on their own. A 1px `bg-border`
   divider separates them.
-- The sidebar has the commits above a `border-b`, then the header of the files ("Files 5", a muted `text-xs font-medium`
+- The sidebar has the commits above a `border-b`, then the search of the files (`SearchField` `w-full`: the
+  `SearchIcon`, the placeholder "Filter files", `Kbd` `/` while empty, the X "Clear the filter text" once typed), then
+  the header of the files ("Files 5", "Files 3 of 9" while searched, a muted `text-xs font-medium`
   `SectionLabel`, at least `h-10`), then the tree with the rows of the Files section. The selected row is `bg-primary/15`; a file row has no
   chevron, its name keeps the indent.
-- A file header is `h-9` on `bg-card` with a `border-b`: a ghost `icon-xs` chevron (disabled without lines to show),
+- A file header is `h-9` on `bg-card` with a `border-b` (`FileHeaderParts`, shared with the conflict and
+  missing-commits accordions): a ghost `icon-xs` chevron (disabled without lines to show),
   the file as every list of changed files names it (`FilePathLabel`: the status letter in `font-mono text-xs` in the
   status colour, the name `font-medium` in the status colour, the directory muted after it), the copy button on hover, then on the right the notice and the owner muted and the coloured counts in `text-xs`.
 - The review window ([Title Bar](../repository/title-bar.spec.md)) names the list and the commit in its title bar
@@ -175,7 +203,8 @@ where a dialog would cover it.
 
 - `pnpm test:unit`: `src/lib/diff/change-targets.test.ts`, and the tests of [Commit Files](commit-files.spec.md) for
   the tree and the patch.
-- `pnpm e2e`: `tests/e2e/commit-files/commit-review.spec.ts` on the `commit_tree` and `issue_links` templates. A
+- `pnpm e2e`: `tests/e2e/commit-files/commit-review.spec.ts` on the `commit_tree`, `commit_many_files` (nine files,
+  the search) and `issue_links` templates. A
   virtualized view renders what is on screen: assert on the text of files the review scrolled to.
 
 ## Open Questions / Risks

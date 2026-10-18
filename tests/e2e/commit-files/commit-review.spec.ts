@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import type { CommitReviewWindowData } from "../../../src/lib/commit-review-window"
 import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchCommitRow } from "../helpers/branch-helpers"
-import { getCommitPreview, openCommitPreview } from "../helpers/preview-helpers"
+import { getCommitPreview, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
 import { getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
 import type { OpenedSubWindow } from "../helpers/sub-window-helpers"
 import { holdCommand } from "../helpers/wait-helpers"
@@ -69,6 +69,8 @@ simpleTest.describe("Commit review", () => {
     await expect(position).toHaveText("File 1 / 5")
     await expect(selectedFile(window)).toHaveAttribute("aria-label", "RowMapper.kt")
     await expect(code).toContainText("SessionRowMapper")
+    // five files are read in one look: no search of them
+    await expect(window.getByRole("textbox", { name: "Filter files" })).toHaveCount(0)
     // the header of a file names itself, then its directory, as every list of changed files does
     await expect(code.getByTestId("review-file-header").first()).toContainText("RowMapper.ktplugins/air/backend/session/catalog/src")
 
@@ -100,6 +102,7 @@ simpleTest.describe("Commit review", () => {
 
   simpleTest("should open the review at a file with Enter in the tree, and with the footer button", async ({ page }) => {
     const preview = await openTreePreview(page)
+    await openCommitFilesSection(preview)
     await preview.getByRole("treeitem", { name: "plugins/air" }).focus()
     // plugins/air, backend/session, catalog, src, RowMapper.kt, testSrc, RowMapperTest.kt
     for (let i = 0; i < 6; i++) {
@@ -129,6 +132,7 @@ simpleTest("should strike a deleted file through, never its status letter, in th
   await syncAndWaitForBranches()
   await expandBranch(page, findBranchRow(page, "cleanup"))
   const preview = await openCommitPreview(page, getBranchCommitRow(page, "cleanup", "drop the legacy mapper"))
+  await openCommitFilesSection(preview)
 
   const expectStruckName = async (file: Locator) => {
     await expect(file.getByText("LegacyMapper.kt", { exact: true })).toHaveCSS("text-decoration-line", "line-through")
@@ -260,4 +264,63 @@ testWithIssueLinks("should give the focus to the list after the preview, its key
   await page.mouse.move(1, 1)
   await page.keyboard.press("d")
   expect((await openedReview(page, 3)).data).toMatchObject({ index: 1 })
+})
+
+simpleTest("should filter the files of a review by their path, with / from the diffs, Escape and Clear Filter", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  // the `commit_many_files` template: one commit of `tools` with nine files, a source, a test and a README per module
+  await setupRepo("commit_many_files")
+  await syncAndWaitForBranches()
+  await expandBranch(page, findBranchRow(page, "tools"))
+  await openCommitPreview(page, getBranchCommitRow(page, "tools", "every tool reads its input as a stream"))
+  await page.keyboard.press("d")
+  const window = await showReviewWindow(page, await openedReview(page, 1))
+  const search = window.getByRole("textbox", { name: "Filter files" })
+  const tree = window.getByRole("tree", { name: "Changed files" })
+  const files = tree.locator("[role=treeitem]:not([aria-expanded])")
+  const code = window.getByTestId("commit-review-code")
+  const diffs = code.locator("[aria-label='Changes of the commit']")
+  const position = window.getByTestId("commit-review-position")
+  const header = window.getByTestId("review-files-header")
+  await expect(files).toHaveCount(9)
+  await expect(header).toHaveText("Files9")
+
+  // / from the diffs focuses the search; the letters of the review's keys (N, P) are typed, not pressed
+  await diffs.focus()
+  await page.keyboard.press("/")
+  await expect(search).toBeFocused()
+  await page.keyboard.type("printer")
+  await expect(search).toHaveValue("printer")
+  await expect(files).toHaveCount(3)
+  await expect(header).toHaveText("Files3 of 9")
+  await expect(position).toHaveText("File 1 / 3")
+  await expect(code.getByTestId("review-file-header")).toHaveCount(3)
+
+  // every word, in any part of the path
+  await page.keyboard.type(" test")
+  await expect(files).toHaveCount(1)
+  await expect(files).toHaveAttribute("aria-label", "PrinterTest.kt")
+  await expect(code.getByTestId("review-file-header")).toHaveCount(1)
+  await expect(code).toContainText("class PrinterTest")
+
+  // ↓ goes into the tree
+  await page.keyboard.press("ArrowDown")
+  await expect(files).toBeFocused()
+
+  // Escape clears the text, Escape in the empty search gives the diffs the focus; the window stays
+  await search.focus()
+  await page.keyboard.press("Escape")
+  await expect(search).toHaveValue("")
+  await expect(files).toHaveCount(9)
+  await expect(header).toHaveText("Files9")
+  await page.keyboard.press("Escape")
+  await expect(diffs).toBeFocused()
+  await expect(window).toBeVisible()
+
+  // a search that keeps nothing says so, Clear Filter shows all again
+  await search.fill("nothing")
+  await expect(window.getByTestId("review-files-no-match")).toContainText("No files match “nothing”")
+  await expect(tree).toHaveCount(0)
+  await window.getByRole("button", { name: "Clear Filter" }).click()
+  await expect(search).toHaveValue("")
+  await expect(files).toHaveCount(9)
 })
