@@ -22,8 +22,8 @@ export const commands = {
 	 */
 	retargetPullRequest: (params: RetargetPullRequestParams) => typedError<null, CommandError>(__TAURI_INVOKE("retarget_pull_request", { params })),
 	/**
-	 *  The text a new pull request of a pushed virtual branch starts with (`bd describe`, else its pushed commits), the
-	 *  commits the push lacks, and the user of the token it is created with
+	 *  The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show), and the
+	 *  user of the token it is created with
 	 */
 	getNewPullRequest: (params: GetNewPullRequestParams) => typedError<NewPullRequest, CommandError>(__TAURI_INVOKE("get_new_pull_request", { params })),
 	/**
@@ -31,6 +31,11 @@ export const commands = {
 	 *  already exists is found instead
 	 */
 	createPullRequest: (params: CreatePullRequestParams) => typedError<CreatedPullRequest, CommandError>(__TAURI_INVOKE("create_pull_request", { params })),
+	/**
+	 *  Waits until GitHub has the branch just pushed (a mirror copies it a moment later): false when it still doesn't after
+	 *  `MIRROR_WAIT`
+	 */
+	waitForGithubBranch: (params: WaitForGitHubBranchParams) => typedError<boolean, CommandError>(__TAURI_INVOKE("wait_for_github_branch", { params })),
 	/**  The users of the repository a review can be asked from whose login or name matches the query */
 	searchGithubUsers: (params: SearchGitHubUsersParams) => typedError<GitHubUser[], CommandError>(__TAURI_INVOKE("search_github_users", { params })),
 	/**
@@ -773,6 +778,11 @@ export type CreatePullRequestParams = {
 	/**  Logins; the author's own is left out, GitHub refuses it */
 	reviewers: string[],
 	assignSelf: boolean,
+	/**
+	 *  The branch (or its base) was just pushed: GitHub may not know it for a moment (a Space mirror copies it), so a
+	 *  creation GitHub refuses for a missing head or base is asked again until `MIRROR_WAIT` (`create_pull_request`)
+	 */
+	waitForMirror?: boolean,
 };
 
 /**  A pull request the app or `bd` opened, or found open */
@@ -1412,11 +1422,9 @@ export type MovedCommit = {
 
 /**  The text a new pull request of a virtual branch starts with, and what the form says about it */
 export type NewPullRequest = {
-	/**  The `bd describe` title, else as `gh pr create --fill` takes it from the pushed commits */
+	/**  The `bd describe` title, else as `gh pr create --fill` takes it from the commits the pull request will show */
 	title: string,
 	body: string,
-	/**  Commits of the local branch the remote branch lacks: the pull request shows the pushed ones */
-	unpushed: number,
 	/**  The user of the token the pull request is created with; null when GitHub didn't answer */
 	viewerLogin: string | null,
 };
@@ -2801,6 +2809,12 @@ export type UpstreamCommit = {
 
 export type ValidateRepositoryPathParams = {
 	path: string,
+};
+
+export type WaitForGitHubBranchParams = {
+	repositoryPath: string,
+	/**  The full branch name on the remote, e.g. `user/virtual/feature-auth` */
+	branch: string,
 };
 
 /* Tauri Specta runtime */

@@ -2,6 +2,7 @@ import type { MergeConflictInfo } from "@/lib/bindings"
 import type { BranchReviewFocus } from "@/lib/branch-review"
 import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/create-pull-request-context"
 import type { MissingCommitOwners } from "@/lib/merge-conflict"
+import type { CompareFields } from "@/lib/pull-request"
 import type { ToastMessage } from "@/lib/toast-message"
 
 /** `__INIT_DATA__` of the `conflicting-files` sub-window (opened from ConflictingFileListCard) */
@@ -80,6 +81,7 @@ export type BranchReviewRequest = { readonly id: string; readonly repositoryPath
   | { readonly itemId: "safe-push" | "push" }
   | { readonly dialog: "open" | "close" | "safePushWithoutReview" }
   | { readonly dialog: "create"; readonly input: CreatePullRequestInput }
+  | { readonly dialog: "continueOnGitHub"; readonly fields: CompareFields }
 )
 
 /**

@@ -294,7 +294,8 @@ test.describe("Branch review window", () => {
     // the window opens with the actions of each branch of its chain, the items of its menu
     const opened = await openReviewWindow(page, "login")
     const repositoryPath = opened.data.repositoryPath
-    expect(itemSummary(opened.data.state.items)).toEqual({ auth: ["safe-push", "push"], login: ["open-pull-request", "safe-push", "push"] })
+    // auth has no pull request: its Create pushes it first, on the remote or not
+    expect(itemSummary(opened.data.state.items)).toEqual({ auth: ["create-pull-request", "safe-push", "push"], login: ["open-pull-request", "safe-push", "push"] })
     expect(opened.data.state.items.login![0]).toMatchObject({ label: "Open Pull Request", kbds: ["o"], url: LOGIN_PULL_REQUEST.url })
     // the push of login's menu and button, the stack; P is the previous change in the review: the push has no key there
     expect(opened.data.state.items.login![2]).toEqual({ id: "push", label: "Push Stack (2 branches)", description: "Pushes auth and login, parents first" })

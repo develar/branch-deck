@@ -782,16 +782,18 @@ reports in it and closes it once merged.
   - `unknown`: an `info` block "Patronus judges the approvals when the robot starts", naming the approvals nobody but
     Patronus can judge yet: "Patronus doesn't tell yet whose approvals count: Branch Deck can't check junie-jetbrains's
     approval."; Start stays enabled.
-  The actions: "Request Review…" while a missing group has nobody asked in the open pull request, "Open Pull Request
-  #7" (a merged one too: it keeps the branch from a new one, `canCreatePullRequest`, never a Create that would push and
-  open nothing), or without a live pull request "Create Pull Request…" (the branch is pushed first, without a push
-  toast, then the "Create pull request" dialog opens with the code owners of the groups suggested, one per group chosen
-  when Patronus names its GitHub login ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)); while the push
-  runs, the button says "Pushing 45%", the start and the push button of the row are disabled without a spinner),
-  "Review Changes" and Recheck (the pull request from GitHub, then Patronus asked again). Once the pull request is
-  created, the form starts from it: a `/patronus merge` comment there.
+  The actions, in every state while GitHub lists the pull requests (`notRequired`, `approved` and a skipped check
+  too: a pull request is the user's to open whatever the approvals; without the list a Create may duplicate one):
+  "Request Review…" while a missing group has nobody asked in the open pull request, "Open Pull Request #7" (a merged
+  one too: it keeps the branch from a new one, `canCreatePullRequest`, never a Create that would open nothing), or
+  without a live pull request "Create Pull Request…" (the "Create pull request" dialog opens at once with the code
+  owners of the groups suggested, one per group chosen when Patronus names its GitHub login; its Create pushes the
+  branch first, [Pull Requests](pull-requests.spec.md#creating-a-pull-request)), "Review Changes" and Recheck (the pull
+  request from GitHub, then Patronus asked again). A check skipped for too many commits says "The code-owner review is
+  checked when the Safe Push starts." Once the pull request is created, the form starts from it: a `/patronus merge`
+  comment there.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer to create the pull request the approvals count in, and no start Patronus would fail`, `should ask the code owner Patronus names, and the Safe Push form then starts from the pull request`)
-  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should say in the form whose approvals don't count, and disable Start while Patronus would fail it`, `should offer Safe Push… once the code owner approved, and name whose approval counts`, `should keep Safe Push… while Patronus doesn't tell whose approvals count, and say so`)
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should say in the form whose approvals don't count, and disable Start while Patronus would fail it`, `should offer Safe Push… once the code owner approved, and name whose approval counts`, `should keep Safe Push… while Patronus doesn't tell whose approvals count, and say so`, `should offer Create Pull Request… in the Safe Push form of a branch that needs no review`)
 - The Patronus group of the branch menu creates no merge request: "Create Pull Request…" of its history group opens the
   pull request the approvals count in.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)

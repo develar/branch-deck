@@ -22,21 +22,22 @@ import type { GitHubUser, NewPullRequest } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { isLogin, preselectedReviewers, suggestedReviewers } from "@/lib/create-pull-request"
 import type { SuggestedReviewer } from "@/lib/create-pull-request"
-import { getContextPullRequestUrl, submitPullRequest } from "@/lib/create-pull-request-context"
+import { continueOnGitHub, submitPullRequest } from "@/lib/create-pull-request-context"
 import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/create-pull-request-context"
 import { notifyError } from "@/lib/errors"
-import { openNewPullRequest } from "@/lib/git/new-pull-request"
 import { isMac } from "@/lib/platform"
 import { formatAvailabilityHint, openPullRequest } from "@/lib/pull-request"
+import type { CompareFields } from "@/lib/pull-request"
 import { showToast } from "@/lib/toast-message"
+import { transferLabel } from "@/lib/transfer-progress"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranchSync } from "@/stores/branch-sync"
+import { useBranchPushProgress, useBranchSync, useIsBranchPushing, useStackPushCurrent } from "@/stores/branch-sync"
 import { closeCreatePullRequestDialog, useCreatePullRequestBranch, useCreatePullRequestGeneration } from "@/stores/create-pull-request-dialog"
 import { setCreatePullRequestAssignSelf, useAppSettings } from "@/stores/settings/appSettings"
 
 /**
  * The "Create pull request" dialog of the branch the store names: the title and the description (the `bd describe`
- * text, else the pushed commits), the reviewers (the code owners Patronus suggests, one per group chosen at once,
+ * text, else the commits it will show), the reviewers (the code owners Patronus suggests, one per group chosen at once,
  * and a search of the repository's users), "Assign to me"; ⌘↵ creates it through the GitHub API, "Continue on GitHub"
  * opens GitHub's form with the text instead (it takes no reviewers). Without a token GitHub accepts, it says why and
  * GitHub's form is the way.
@@ -106,8 +107,10 @@ export function CreatePullRequestDialogFrame({
 
 /** What the form does, where it runs: the main window creates the pull request, the review window asks it to */
 export interface CreatePullRequestActions {
-  /** Creates the pull request and tells how it went: true when it was (the dialog closes then) */
+  /** Pushes what the pull request needs, creates it and tells how it went: true when it was (the dialog closes then) */
   create: (input: CreatePullRequestInput) => Promise<boolean>
+  /** Pushes what the pull request needs, then opens GitHub's form with the fields: true when it opened */
+  continueOnGitHub: (fields: CompareFields) => Promise<boolean>
   /** "Safe Push Without Review…": the Safe Push form of the row, in the main window */
   safePushWithoutReview: () => void
   close: () => void
@@ -117,6 +120,17 @@ interface FormProps {
   titleRef: RefObject<HTMLInputElement | null>
   isCreating: boolean
   setIsCreating: (isCreating: boolean) => void
+}
+
+/** "Pushing 45%" while the push a creation starts with runs ("Pushing auth 45%" for a parent), else null */
+function usePushLabel(branchName: string): string | null {
+  const pushing = useIsBranchPushing(branchName)
+  const stackPushCurrent = useStackPushCurrent(branchName)
+  const progress = useBranchPushProgress(stackPushCurrent ?? branchName)
+  if (!pushing && stackPushCurrent === null) {
+    return null
+  }
+  return transferLabel(stackPushCurrent === null || stackPushCurrent === branchName ? "Pushing" : `Pushing ${stackPushCurrent}`, progress)
 }
 
 /** The form of the main window's dialog: the context from its stores, the creation by its store, the toast here */
@@ -134,10 +148,18 @@ function MainCreatePullRequestForm({ branch, ...props }: FormProps & { branch: B
       showToast({ ...result.toast, action: { children: "Open Pull Request", onClick: () => openPullRequest(result.pullRequest) } })
       return true
     },
+    continueOnGitHub: fields =>
+      continueOnGitHub(context, fields).then(
+        () => true,
+        (error: unknown) => {
+          notifyError("Cannot open GitHub", error)
+          return false
+        },
+      ),
     safePushWithoutReview: () => getSafePushWithoutReviewItem(branch)?.onSelect(),
     close: closeCreatePullRequestDialog,
   }
-  return <CreatePullRequestForm context={context} actions={actions} {...props} />
+  return <CreatePullRequestForm context={context} actions={actions} pushLabel={usePushLabel(branch.name)} {...props} />
 }
 
 type TextState = { status: "loading" } | { status: "loaded"; text: NewPullRequest } | { status: "error"; message: string }
@@ -153,7 +175,13 @@ export function CreatePullRequestForm({
   titleRef,
   isCreating,
   setIsCreating,
-}: FormProps & { context: CreatePullRequestContext; actions: CreatePullRequestActions }) {
+  pushLabel = null,
+}: FormProps & {
+  context: CreatePullRequestContext
+  actions: CreatePullRequestActions
+  /** The progress of the push the creation starts with, where the window knows it (the main window) */
+  pushLabel?: string | null
+}) {
   const { repositoryPath, branchName, head, base, baseName } = context
 
   const [text, setText] = useState<TextState>({ status: "loading" })
@@ -239,10 +267,14 @@ export function CreatePullRequestForm({
     }
   }
 
-  const continueOnGitHub = () => {
-    const url = getContextPullRequestUrl(context, { title: title.trim(), body, assignee: assignSelf ? (viewerLogin ?? undefined) : undefined })
-    if (url !== null) {
-      openNewPullRequest(url)
+  const continueOnGitHub = async () => {
+    if (isCreating || newPullRequestBlocker !== null) {
+      return
+    }
+    setIsCreating(true)
+    const fields = { title: title.trim(), body, assignee: assignSelf ? (viewerLogin ?? undefined) : undefined }
+    const opened = await actions.continueOnGitHub(fields).finally(() => setIsCreating(false))
+    if (opened) {
       actions.close()
     }
   }
@@ -332,13 +364,6 @@ export function CreatePullRequestForm({
               }}
             />
           </label>
-          {text.status === "loaded" && text.text.unpushed > 0 && (
-            <p data-testid="create-pull-request-unpushed" className="text-xs text-muted-foreground">
-              {text.text.unpushed === 1
-                ? `1 commit of ${branchName} isn't on the remote: the pull request shows the pushed ones`
-                : `${text.text.unpushed} commits of ${branchName} aren't on the remote: the pull request shows the pushed ones`}
-            </p>
-          )}
 
           {/* GitHub's form takes no reviewers, and without a token nobody can be searched */}
           {!unavailable && (
@@ -404,7 +429,7 @@ export function CreatePullRequestForm({
                 // the hover says why; Base UI keeps the button focusable, so the dimming is ours
                 focusableWhenDisabled
                 className={cn(newPullRequestBlocker !== null && "opacity-50")}
-                onClick={continueOnGitHub}
+                onClick={() => void continueOnGitHub()}
               />
             }
           >
@@ -428,7 +453,7 @@ export function CreatePullRequestForm({
               }
             >
               {isCreating && <Spinner data-icon="inline-start" />}
-              Create Pull Request
+              {pushLabel ?? "Create Pull Request"}
               <Kbd>{isMac ? "⌘↵" : "Ctrl+Enter"}</Kbd>
             </TooltipTrigger>
             <TooltipContent>{submitBlocker}</TooltipContent>

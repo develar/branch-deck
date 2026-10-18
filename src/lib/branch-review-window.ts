@@ -7,7 +7,7 @@ import type { BranchReviewPart, PatronusReviewRequirement } from "@/lib/bindings
 import { commands } from "@/lib/bindings"
 import { BRANCH_REVIEW_WINDOW, branchGoneReason, requestAction } from "@/lib/branch-review"
 import type { BranchReviewFocus } from "@/lib/branch-review"
-import { submitPullRequest } from "@/lib/create-pull-request-context"
+import { continueOnGitHub, submitPullRequest } from "@/lib/create-pull-request-context"
 import { logError, notifyError, recordError } from "@/lib/errors"
 import { stackAncestors } from "@/lib/stack"
 import { createWindowLink } from "@/lib/sub-window-link"
@@ -205,7 +205,9 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
     return true
   }
   const action =
-    "itemId" in request ? requestAction(request.itemId, branchName) : requestAction(request.dialog === "create" ? "create-pull-request" : "safe-push-without-review", branchName)
+    "itemId" in request
+      ? requestAction(request.itemId, branchName)
+      : requestAction(request.dialog === "create" ? "create-pull-request" : request.dialog === "continueOnGitHub" ? "continue-on-github" : "safe-push-without-review", branchName)
   const title = `Cannot ${action}`
   // a reason, or what GitHub said
   const refuse = (reason: unknown) => {
@@ -229,6 +231,12 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
         send({ kind: "toast", toast, pullRequestUrl: pullRequest.url })
         return true
       },
+      (error: unknown) => refuse(error),
+    )
+  }
+  if ("dialog" in request && request.dialog === "continueOnGitHub") {
+    return continueOnGitHub(getCreatePullRequestContext(branch), request.fields).then(
+      () => true,
       (error: unknown) => refuse(error),
     )
   }

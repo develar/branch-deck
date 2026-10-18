@@ -72,7 +72,7 @@ export interface NextStepActions {
   readonly openPullRequest: () => void
   /** Retargets the pull request to `NextStepFacts.target` */
   readonly retarget: () => void
-  /** "Create Pull Request…" of the menu; null when the branch can't get one now (not pushed, no GitHub repository) */
+  /** "Create Pull Request…" of the menu, which pushes first; null when the branch can't get one (no GitHub repository) */
   readonly createPullRequest: MenuItem | null
   /**
    * "Request Review…" of the open pull request (`getRequestReviewItem`), which opens its popover: disabled with the
@@ -110,8 +110,6 @@ export interface NextStepFacts {
   /** GitHub lists the pull requests of the repository: without it the table never offers one it may have */
   readonly pullRequestsAvailable: boolean
   readonly pullRequest: NextStepPullRequest | null
-  /** The remote branch exists */
-  readonly pushed: boolean
   /** The branch Patronus pushes into, as a pull request names its base ("master") */
   readonly target: string
   /** The root of the stack of a stacked branch, whose Safe Push lands first, with why it can't start now */
@@ -349,7 +347,8 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
   const pullRequest = facts.pullRequestsAvailable ? facts.pullRequest : null
   const open = pullRequest?.state === "open" ? pullRequest : null
   const readiness = facts.pullRequestsAvailable ? (facts.readiness?.readiness ?? null) : null
-  const asks = facts.pullRequestsAvailable && facts.pushed
+  // Patronus judges the local commits: an unpushed branch is asked too, so its step is never a leftover answer
+  const asks = facts.pullRequestsAvailable
   const approved = readiness?.kind === "approved" || readiness?.kind === "notRequired"
 
   if (robot.kind === "finished") {
@@ -437,7 +436,7 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
       label: "Create Pull Request…",
       icon: GitPullRequestArrowIcon,
       disabled: true,
-      description: facts.pushed ? "The GitHub repository of the branches is unknown" : "Push first: a pull request needs the remote branch",
+      description: "The GitHub repository of the branches is unknown",
       onSelect: () => {},
     }
     return step("createPullRequest", { ...item, description: item.disabled === true ? item.description : reason }, general ?? reason, dryRunBlocker, {

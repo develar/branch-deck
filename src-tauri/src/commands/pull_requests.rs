@@ -5,8 +5,8 @@ use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_core::branch_rules::{BranchRules, GetBranchRulesParams, read_branch_rules};
 use sync_core::pull_request_create::{
-  CreatePullRequestParams, GetNewPullRequestParams, SearchGitHubUsersParams, create_pull_request as core_create_pull_request, read_new_pull_request, read_viewer_login,
-  search_github_users as core_search_github_users,
+  CreatePullRequestParams, GetNewPullRequestParams, MIRROR_WAIT, SearchGitHubUsersParams, WaitForGitHubBranchParams, create_pull_request as core_create_pull_request,
+  read_new_pull_request, read_viewer_login, search_github_users as core_search_github_users, wait_for_branch,
 };
 use sync_core::pull_request_writes::{
   ClosePullRequestParams, GetPullRequestHeadParams, RequestPullRequestReviewersParams, RetargetPullRequestParams, SubmitPullRequestReviewParams,
@@ -119,8 +119,8 @@ pub async fn get_pull_request_head(
     .map_err(|e| CommandError::new(e.to_string()))
 }
 
-/// The text a new pull request of a pushed virtual branch starts with (`bd describe`, else its pushed commits), the
-/// commits the push lacks, and the user of the token it is created with
+/// The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show), and the
+/// user of the token it is created with
 #[tauri::command]
 #[specta::specta]
 pub async fn get_new_pull_request(
@@ -152,6 +152,22 @@ pub async fn create_pull_request(
   core_create_pull_request(&github.service, &repository, &params)
     .await
     .map_err(|e| CommandError::new(e.to_string()))
+}
+
+/// Waits until GitHub has the branch just pushed (a mirror copies it a moment later): false when it still doesn't after
+/// `MIRROR_WAIT`
+#[tauri::command]
+#[specta::specta]
+pub async fn wait_for_github_branch(
+  git_executor: State<'_, GitCommandExecutor>,
+  repository_state: State<'_, RepositoryStateCache>,
+  github: State<'_, GitHubState>,
+  params: WaitForGitHubBranchParams,
+) -> Result<bool, CommandError> {
+  let repository = required_github_repository(&git_executor, &repository_state, &params.repository_path, None).await?;
+  wait_for_branch(&github.service, &params.repository_path, &repository, &params.branch, MIRROR_WAIT)
+    .await
+    .map_err(|failure| CommandError::new(failure_message(&failure)))
 }
 
 /// The users of the repository a review can be asked from whose login or name matches the query

@@ -356,19 +356,18 @@ export interface BranchActionItem extends MenuItem {
 }
 
 /**
- * The actions on a branch in its review window: its pull request (Open, or Create of a pushed branch), "Safe Push…"
- * where Patronus is and the branch has work, "Push" for a branch with work. The same items as the menu; Push has no
- * key, P is the previous change there.
+ * The actions on a branch in its review window: its pull request (Open; Create without a live one, also beside a
+ * closed one, as the menu offers both), "Safe Push…" where Patronus is and the branch has work, "Push" for a branch
+ * with work. The same items as the menu; Push has no key, P is the previous change there.
  */
 export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
   const items: BranchActionItem[] = []
   const pullRequest = getPullRequest(branch.name)
-  if (pullRequest === undefined) {
-    // the review window opens the dialog itself, with what the main window sends for it
-    items.push(...getCreatePullRequestItems(branch))
-  } else {
+  if (pullRequest !== undefined) {
     items.push({ ...openPullRequestItemOf(pullRequest), url: pullRequest.url })
   }
+  // the review window opens the dialog itself, with what the main window sends for it
+  items.push(...getCreatePullRequestItems(branch))
   // as the push button of the row: only a branch that synced without an error has something to push
   const hasPush = !branch.hasError && branch.commitCount > 0
   if (hasPush && isPatronusAvailable()) {
@@ -389,13 +388,23 @@ function getBranchRobotActions(robot: PatronusRobot, branch: Branch, pullRequest
   return getGatedRobotActions(robot, branch).filter(item => item.id !== "open-robot-pull-request" || pullRequest?.url !== robot.pullRequest?.url)
 }
 
-/** "Open Pull Request" with the key of the focused row and of the branch preview */
+/**
+ * "Open Pull Request" with the key of the focused row and of the branch preview; a closed one says so, beside the
+ * Create Pull Request… a branch with only a closed one gets
+ */
 export function openPullRequestItemOf(pullRequest: PullRequest): MenuItem {
-  return { id: "open-pull-request", label: "Open Pull Request", icon: GitPullRequestIcon, kbds: ["o"], onSelect: () => openPullRequest(pullRequest) }
+  return {
+    id: "open-pull-request",
+    label: "Open Pull Request",
+    icon: GitPullRequestIcon,
+    kbds: ["o"],
+    ...(pullRequest.state === "closed" && { description: `#${pullRequest.number} is closed` }),
+    onSelect: () => openPullRequest(pullRequest),
+  }
 }
 
 /**
- * "Open Pull Request" of a branch with one, else "Create Pull Request…" of a pushed branch on GitHub; null for neither:
+ * "Open Pull Request" of a branch with one, else "Create Pull Request…" of a branch on GitHub; null for neither:
  * the step of a branch row after a robot that needs the code-owner review, whose approvals count in the pull request
  */
 export function getPullRequestItem(branch: Branch): MenuItem | null {
@@ -404,8 +413,8 @@ export function getPullRequestItem(branch: Branch): MenuItem | null {
 }
 
 /**
- * "Create Pull Request…": the dialog of a pull request of the pushed branch into its base (title, description,
- * reviewers, the user as its assignee), while it has none
+ * "Create Pull Request…": the dialog of a pull request of the branch into its base (title, description, reviewers, the
+ * user as its assignee), which pushes the branch first, while it has none
  */
 function getCreatePullRequestItems(branch: Branch): MenuItem[] {
   const item = getCreatePullRequestItem(branch)
@@ -435,7 +444,7 @@ export function getSafePushWithoutReviewItem(branch: Branch, nextStep: BranchNex
   }
 }
 
-/** "Create Pull Request…" of a pushed branch without a live pull request, on GitHub; null otherwise */
+/** "Create Pull Request…" of a branch without a live pull request, on GitHub, pushed or not (the dialog pushes it); null otherwise */
 export function getCreatePullRequestItem(branch: Branch): MenuItem | null {
   return canCreatePullRequest(branch)
     ? { id: "create-pull-request", label: CREATE_PULL_REQUEST_LABEL, icon: GitPullRequestCreateIcon, onSelect: () => openCreatePullRequestDialog(branch.name) }

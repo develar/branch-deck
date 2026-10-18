@@ -43,7 +43,7 @@ use commands::patronus::{
 };
 use commands::pull_requests::{
   close_pull_request, create_pull_request, get_branch_rules, get_new_pull_request, get_pull_request_head, get_pull_requests, request_pull_request_reviewers, retarget_pull_request,
-  search_github_users, submit_pull_request_review,
+  search_github_users, submit_pull_request_review, wait_for_github_branch,
 };
 use commands::push::push_branch;
 use commands::repository_browser::{browse_repository, validate_repository_path};
@@ -86,6 +86,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
     retarget_pull_request,
     get_new_pull_request,
     create_pull_request,
+    wait_for_github_branch,
     search_github_users,
     get_branch_rules,
     submit_pull_request_review,

@@ -56,8 +56,8 @@ Date: 2026-10-14
 Reviews happen on GitHub pull requests of the pushed virtual branches. Branch Deck shows, per branch, the pull request
 the user opened for it: its number, the review decision, the checks and whether it shows the branch as it is. The
 status is read through the GitHub API, with the first token the user already has: `GH_TOKEN`, `gh` or the credentials
-git stores for github.com; the `gh` CLI is not needed. Opening a pull request opens the browser. A pushed branch without one gets "Create
-Pull Request…": a dialog that creates the pull request into the branch's base, asks its reviewers (the code owners
+git stores for github.com; the `gh` CLI is not needed. Opening a pull request opens the browser. A branch without one gets "Create
+Pull Request…", on the remote or not: a dialog that pushes the branch and creates the pull request into its base, asks its reviewers (the code owners
 Patronus suggests, and whom the user finds) and assigns it to the user; "Request Review…" asks them later, on the open
 pull request. The branches may be pushed to Space, which mirrors them to GitHub: the committed Space settings name the
 GitHub repository then. The app writes to GitHub in six places only: the creation of a pull request with its assignee
@@ -285,15 +285,26 @@ pull request before its push, the close of the pull requests a Safe Push of a st
   Reviewers, "Assign to me", and the footer "Esc Cancel", "Continue on GitHub", "Create Pull Request ⌘↵". The base is
   the pull request base of the branch ([Stacked Branches](stacked-branches.spec.md#pull-requests): its parent's pushed
   branch, else the baseline as the remote names it, `master`, also while the parent isn't on the remote).
-  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a pushed branch in the push toast, the branch menu and the preview`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and name the pull request base`)
+- "Create Pull Request…" is offered to any branch without a live pull request, on the remote or not (`canCreatePullRequest`
+  asks only the GitHub repository and the pull request): the push is the creation's first step, never a step the user
+  takes or reads about. Opening the dialog pushes nothing; Create (and "Continue on GitHub") pushes what the push
+  button would (`pushForAction`: the branch and the ancestors with work, root first, without a push toast; Activity
+  records it), its progress in the button ("Pushing 45%"), Escape and a click outside don't close the dialog meanwhile.
+  A push the user decides is never made for them: one that drops commits of the remote branch keeps the dialog with
+  "Cannot create pull request" / "The remote branch of feature-auth has 2 commits that feature-auth lacks: push it from
+  its row, which shows them", and creates nothing. Right after its push GitHub may not have the branch yet (a Space
+  mirror copies it a moment later): the creation asks again every 2 s for 30 s (`wait_for_mirror`), "Continue on GitHub"
+  waits until GitHub has the branch (`wait_for_github_branch`) before it opens GitHub's form; bd's
+  `safe-push --create-pull-request` waits the same way after its push.
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should create the pull request of a branch not on the remote yet: Create pushes it, Cancel pushes nothing`, `should open GitHub's form of a branch not on the remote yet from its preview, after the push`, `should keep the dialog, with the reason, when the push would drop commits of the remote branch`)
+  [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`right_after_a_push_the_creation_waits_for_the_mirror_to_copy_the_branch`, `the_wait_for_the_mirror_ends_with_the_reason`, `waits_until_github_has_the_branch`)
 - The text starts as `bd push` and `bd safe-push --create-pull-request` fill it (`get_new_pull_request`,
-  `read_new_pull_request`): the `bd describe` description of the branch, else the commits GitHub will show
-  (`<remote>/<base>..<remote>/<head>`): one commit gives its subject and body, several the branch name and their
-  subjects. A field the user typed in is not replaced by the text that arrives later. Commits of the local branch the
-  remote one lacks are named below the fields: "2 commits of feature-auth aren't on the remote: the pull request shows
-  the pushed ones".
-  [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`the_text_is_the_description_else_the_pushed_commits`)
+  `read_new_pull_request`): the `bd describe` description of the branch, else the commits the pull request will show,
+  those of the local branch the creation pushes (`<remote>/<base>..<head>`): one commit gives its subject and body,
+  several the branch name and their subjects. A field the user typed in is not replaced by the text that arrives later.
+  [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`the_text_is_the_description_else_the_commits_the_pull_request_will_show`)
 - Reviewers: chips of GitHub logins with a search of the users of the repository a review can be asked from (GitHub's
   `assignableUsers`, from 2 characters, after a pause in the typing; an older answer never replaces a newer one); the
   user is never offered, GitHub refuses a review request of the author. Where Patronus is, "Suggested by code owners:"
@@ -329,7 +340,7 @@ pull request before its push, the close of the pull requests a Safe Push of a st
   Create and "Continue on GitHub" are disabled, and their hover says why ("feature-auth already has pull request #7",
   "Pull request #7 of feature-auth is merged"): GitHub's form would open nothing. A disabled Create always says why on
   hover: "Enter a title", "The title must be one line", "Reading the commits of the branch…".
-  [@test] ../../src/lib/git/push.test.ts (`says why GitHub's form and Create can't make a new pull request: a live one, or no remote branch`)
+  [@test] ../../src/lib/git/push.test.ts (`says why GitHub's form and Create can't make a new pull request: a live one; a branch not on the remote can, it is pushed first`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say why it can't create, and offer only Open Pull Request once the branch has one`)
   [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`a_pull_request_that_already_exists_is_found_and_left_as_it_is`)
   [@test] ../../src/lib/create-pull-request.test.ts (`says that one which existed got nothing of the dialog`)
@@ -351,12 +362,12 @@ pull request before its push, the close of the pull requests a Safe Push of a st
   the branches are mirrored to (the Space settings, no token needed for a link). A branch name keeps its slashes,
   anything else that a URL path can't hold is encoded. GitHub creates nothing until the form is submitted.
   [@test] ../../src/lib/pull-request.test.ts (`opens the pull request form of the pushed branch into its base`, `fills in the title, the description and the assignee of the dialog, and cuts a long description`)
-- The history group of the branch menu (the right-click and "⋯") has "Create Pull Request…" when the branch is on the
-  remote, has no open or merged pull request and the GitHub repository is known; a branch that isn't pushed or has one
-  doesn't. A closed pull request doesn't count: the branch gets a new one, and "Open Pull Request" still opens the
-  closed one.
+- The history group of the branch menu (the right-click and "⋯") has "Create Pull Request…" when the branch has no
+  open or merged pull request and the GitHub repository is known, on the remote or not (the dialog pushes it); a branch
+  with one doesn't. A closed pull request doesn't count: the branch gets a new one, and "Open Pull Request" (its hover
+  "#7 is closed") still opens the closed one, beside it in the menu, the preview and the review window alike.
   [@test] ../../src/lib/git/push.test.ts (`offers a new pull request when the branch has only a closed one`)
-  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a pushed branch in the push toast, the branch menu and the preview`, `should open the pull request of a pushed branch from the push toast`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`, `should open the pull request of a pushed branch from the push toast`)
 - The toast of a push ("Pushed feature-auth", [Outgoing Commits](../repository/outgoing.spec.md#push)) of any branch,
   stacked or not, with stacked branches on or off, has the action "Create Pull Request…" under the same conditions as
   the menu, else "Open Pull Request" when the branch has a pull request, and stays 10 s; off GitHub it has no action.
@@ -365,7 +376,7 @@ pull request before its push, the close of the pull requests a Safe Push of a st
   ([Stacked Branches](stacked-branches.spec.md#pull-requests)). A push that is a step of another action has no toast
   ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)).
   [@test] ../../src/lib/git/push.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `opens the pull request the branch has`)
-  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a pushed branch in the push toast, the branch menu and the preview`, `should open the pull request of a pushed branch from the push toast`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`, `should open the pull request of a pushed branch from the push toast`)
 - The review window of a branch ([Branch Review](branch-review.spec.md#the-create-pull-request-dialog)) has "Create
   Pull Request…" too: the dialog opens in the window, the main window sends what it shows and creates the pull request
   it asks for, or says why it can't ("Cannot create the pull request of auth"); the toast is in the window.
@@ -427,7 +438,7 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   section (the details of the chip popover) above the commits; `O` and the footer button "Open Pull Request" open it.
   A branch without a pull request has neither. Where the menu offers "Create Pull Request…", the footer has it instead
   of "Open Pull Request": the preview closes and the dialog opens; `O` keeps opening a closed pull request.
-  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the pull request in the branch preview and open it with O`, `should offer to create the pull request of a pushed branch in the push toast, the branch menu and the preview`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the pull request in the branch preview and open it with O`, `should offer to create the pull request of a branch in the push toast, the branch menu and the preview`)
 
 ### Outgoing overview
 

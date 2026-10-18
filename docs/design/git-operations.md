@@ -1606,9 +1606,11 @@ lease), so its git side adds only reads before the push, all under the repositor
    minute for the answer of Patronus.
 4. `--create-pull-request` without a `bd describe` text fills the pull request as `gh pr create --fill`: one
    `git log --reverse --format=%s%x1f%b%x1e refs/remotes/<remote>/<base>..refs/remotes/<remote>/<branch>` after the
-   push (`sync_core::pull_request_create`, shared with the app's "Create pull request" dialog, which also counts the
-   commits the push lacks with one `rev-list --count refs/remotes/origin/<branch>..refs/heads/<branch>`). GitHub is
-   asked over HTTP, never by git: `GET /user`, `POST pulls`, then the assignee and the reviewers.
+   push (`sync_core::pull_request_create`). The app's "Create pull request" dialog fills it before its push, from the
+   local branch the push sends: `refs/remotes/origin/<base>..refs/heads/<branch>` (`read_new_pull_request`, one
+   `config` and one `log`). GitHub is asked over HTTP, never by git: `GET /user`, `POST pulls`, then the assignee and
+   the reviewers; right after a push (`wait_for_mirror`) a `POST pulls` refused for a head or a base GitHub doesn't
+   have yet (a Space mirror copies a pushed branch a moment later) is asked again every 2 s for 30 s.
 
 Code: `crates/bd-cli/src/safe_push_command.rs`, `crates/sync-core/src/review_readiness.rs`,
 `crates/sync-core/src/patronus_review.rs`, `crates/sync-core/src/patronus_start.rs`.

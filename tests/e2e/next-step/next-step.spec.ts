@@ -5,9 +5,10 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { waitForTransitionsSettled } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { APPROVED_BY_CODE_OWNER, AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, NOT_EVALUATED, availableRobots, codeOwner, evaluatedGroup, robot } from "../helpers/patronus-helpers"
-import { availablePullRequests, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
-import { routePush } from "../helpers/push-helpers"
+import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
+import { pushedToast, routePush } from "../helpers/push-helpers"
 import { availableReviewRequests } from "../helpers/review-request-helpers"
+import { openBranchPreview } from "../helpers/review-status-helpers"
 import { rewriteNextRemoteStatus } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { routeCommand } from "../helpers/wait-helpers"
@@ -26,8 +27,8 @@ const UNASKED_CODE_OWNER: PatronusReviewRequirement = {
 const AWAITED = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved"), reviewer("ikorennoy", "requested")] })
 
 /**
- * issue_links mirrored to `acme/monorepo`, JIRA-456 pushed (its remote branch has its commits), with these pull requests;
- * Patronus answers the review pre-check of JIRA-456 with `answer`
+ * issue_links mirrored to `acme/monorepo`, JIRA-456 pushed (its remote branch has its commits; not on the remote with
+ * `unpushed`), with these pull requests; Patronus answers the review pre-check of JIRA-456 with `answer`
  */
 async function setup(
   page: Page,
@@ -36,17 +37,31 @@ async function setup(
   answer: PatronusReviewRequirement,
   pullRequests: PullRequest[],
   robots = availableRobots(),
-  options: object = {},
+  { unpushed = false, ...options }: { unpushed?: boolean } & Record<string, unknown> = {},
 ): Promise<TestRepositoryBuilder> {
-  await rewriteNextRemoteStatus(page, status =>
-    status.branchName === BRANCH ? { ...status, remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true } : status,
-  )
+  if (!unpushed) {
+    await rewriteNextRemoteStatus(page, status =>
+      status.branchName === BRANCH ? { ...status, remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true } : status,
+    )
+  }
   const repo = await setupRepo("issue_links", { patronus: { ...robots, githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests(...pullRequests), ...options })
   await repo.setReviewAnswers({ answers: { [BRANCH]: answer } })
   await syncAndWaitForBranches()
   await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
   await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
   return repo
+}
+
+/**
+ * JIRA-456 not on the remote (as `rewriteNextRemoteStatus` before it leaves it), its approvals missing, no pull
+ * request: the pushes and the creations of its "Create pull request" dialog, answered in the page
+ */
+async function setupUnpushedCreation(page: Page, setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>, syncAndWaitForBranches: () => Promise<unknown>) {
+  await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(), { unpushed: true })
+  await routeNewPullRequest(page)
+  const pushes = await routePush(page, {})
+  const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(pullRequest(BRANCH, 1079)))
+  return { pushes, creates }
 }
 
 function slot(page: Page) {
@@ -128,8 +143,11 @@ test.describe("Next step", () => {
     const approved = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved"), reviewer("ikorennoy", "approved")] })
     await setup(page, setupRepo, syncAndWaitForBranches, APPROVED_BY_CODE_OWNER, [approved])
     const form = await openSafePushForm(page, "approved")
-    await expect(form.getByTestId("patronus-review")).toHaveText("Approved by Ilya Korennoy for IJPL Code Platform.")
+    await expect(form.getByTestId("patronus-review-status")).toHaveText("Approved by Ilya Korennoy for IJPL Code Platform.")
     await expect(form.getByRole("button", { name: "Start Safe Push" })).toBeEnabled()
+    // the pull request stays the user's to open, whatever the approvals
+    await form.getByTestId("patronus-open-pull-request").click()
+    expect(await getOpenedUrls(page)).toEqual([approved.url])
   })
 
   test("should keep Safe Push… while Patronus doesn't tell whose approvals count, and say so", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -155,6 +173,71 @@ test.describe("Next step", () => {
     await step.click()
     const dialog = createPullRequestDialog(page)
     await expect(dialog.getByTestId("create-pull-request-reviewers").locator("[data-slot=combobox-chip]")).toHaveText(["ikorennoy"])
+  })
+
+  test("should create the pull request of a branch not on the remote yet: Create pushes it, Cancel pushes nothing", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const { pushes, creates } = await setupUnpushedCreation(page, setupRepo, syncAndWaitForBranches)
+    // the step of the slot, never a "push first": the push is the dialog's to make
+    await expect(slot(page)).toHaveAttribute("data-step", "createPullRequest")
+    const step = slot(page).getByTestId("next-step")
+    await expect(step).toBeEnabled()
+    await step.click()
+    const dialog = createPullRequestDialog(page)
+    await expect(dialog.getByTestId("create-pull-request-submit")).toHaveText(/^Create Pull Request/)
+    await page.keyboard.press("Escape")
+    await expect(dialog).toHaveCount(0)
+    expect(pushes).toEqual([])
+
+    // the menu offers it too, and its Create pushes the branch, then creates the pull request
+    const menu = await openMenu(page)
+    await menu.getByRole("menuitem", { name: "Create Pull Request…" }).click()
+    await expect(dialog).toBeVisible()
+    await dialog.getByTestId("create-pull-request-submit").click()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Created pull request #1079" })).toBeVisible()
+    await expect(dialog).toHaveCount(0)
+    expect(pushes.map(push => push.branchName)).toEqual([BRANCH])
+    expect(creates).toEqual([expect.objectContaining({ branchName: BRANCH, waitForMirror: true })])
+    // one action, one toast: the push says nothing of its own
+    await expect(pushedToast(page, BRANCH)).toHaveCount(0)
+  })
+
+  test("should open GitHub's form of a branch not on the remote yet from its preview, after the push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [], availableRobots(), { unpushed: true })
+    await routeNewPullRequest(page)
+    const pushes = await routePush(page, {})
+    const waits = await routeCommand(page, "wait_for_github_branch", () => true)
+    const preview = await openBranchPreview(page, BRANCH)
+    await preview.getByRole("button", { name: "Create Pull Request…" }).click()
+    const dialog = createPullRequestDialog(page)
+    await dialog.getByTestId("create-pull-request-on-github").click()
+    await expect(dialog).toHaveCount(0)
+    expect(pushes.map(push => push.branchName)).toEqual([BRANCH])
+    expect(waits).toEqual([expect.objectContaining({ branch: `user-name/virtual/${BRANCH}` })])
+    expect(await getOpenedUrls(page)).toEqual([expect.stringMatching(new RegExp(`/compare/master\\.\\.\\.user-name/virtual/${BRANCH}\\?`))])
+  })
+
+  test("should keep the dialog, with the reason, when the push would drop commits of the remote branch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await rewriteNextRemoteStatus(page, status =>
+      status.branchName === BRANCH ? { ...status, remoteExists: true, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 2, fastForward: false, remoteTip: "theirs" } : status,
+    )
+    const { pushes, creates } = await setupUnpushedCreation(page, setupRepo, syncAndWaitForBranches)
+    await slot(page).getByTestId("next-step").click()
+    const dialog = createPullRequestDialog(page)
+    await dialog.getByTestId("create-pull-request-submit").click()
+    const error = page.locator("[data-slot=toast]", { hasText: "Cannot create pull request" })
+    await expect(error).toContainText(`The remote branch of ${BRANCH} has 2 commits that ${BRANCH} lacks: push it from its row, which shows them`)
+    await expect(dialog).toBeVisible()
+    expect(pushes).toEqual([])
+    expect(creates).toEqual([])
+  })
+
+  test("should offer Create Pull Request… in the Safe Push form of a branch that needs no review", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [])
+    await routeNewPullRequest(page)
+    const form = await openSafePushForm(page, "notRequired")
+    await expect(form.getByTestId("patronus-review-status")).toHaveText("No code-owner review needed.")
+    await form.getByTestId("patronus-create-pull-request").click()
+    await expect(createPullRequestDialog(page)).toBeVisible()
   })
 
   test("should ask the code owner nobody asked yet from Request Review…, then wait for him", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -263,7 +346,7 @@ test.describe("Next step", () => {
 
     await toast.getByRole("button", { name: "Safe Push…" }).click()
     const form = page.getByTestId("patronus-start-form")
-    await expect(form.getByTestId("patronus-review")).toHaveText("Approved by Ilya Korennoy for IJPL Code Platform.")
+    await expect(form.getByTestId("patronus-review-status")).toHaveText("Approved by Ilya Korennoy for IJPL Code Platform.")
     await expect(form.getByRole("button", { name: "Start Safe Push" })).toBeEnabled()
     // Activity keeps it
     await page.getByRole("button", { name: "Activity" }).click()

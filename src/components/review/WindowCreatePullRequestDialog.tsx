@@ -29,8 +29,13 @@ export function WindowCreatePullRequestDialog({
   }
   const [isCreating, setIsCreating] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
-  const ask = (branchName: string, request: { dialog: "safePushWithoutReview" } | { dialog: "create"; input: Parameters<CreatePullRequestActions["create"]>[0] }) =>
-    askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, ...request })
+  const ask = (
+    branchName: string,
+    request:
+      | { dialog: "safePushWithoutReview" }
+      | { dialog: "create"; input: Parameters<CreatePullRequestActions["create"]>[0] }
+      | { dialog: "continueOnGitHub"; fields: Parameters<CreatePullRequestActions["continueOnGitHub"]>[0] },
+  ) => askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, ...request })
   const open = dialog !== null && shown?.generation === dialog.generation
   return (
     <CreatePullRequestDialogFrame open={open} isCreating={isCreating} titleRef={titleRef} onClose={onClose}>
@@ -40,6 +45,7 @@ export function WindowCreatePullRequestDialog({
           context={shown.context}
           actions={{
             create: input => ask(shown.branchName, { dialog: "create", input }),
+            continueOnGitHub: fields => ask(shown.branchName, { dialog: "continueOnGitHub", fields }),
             safePushWithoutReview: () => {
               onClose()
               void ask(shown.branchName, { dialog: "safePushWithoutReview" })

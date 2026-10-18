@@ -101,22 +101,23 @@ function getLivePullRequest(branchName: string): PullRequest | undefined {
 }
 
 /**
- * A branch can get a new pull request: it is on the remote, has no open or merged pull request (a closed one doesn't
- * count), and the GitHub repository is known (`getBranchesGitHubRepository`)
+ * A branch can get a new pull request: it has no open or merged pull request (a closed one doesn't count), and the
+ * GitHub repository is known (`getBranchesGitHubRepository`). Whether it is on the remote doesn't matter: the creation
+ * pushes it first (`pushForAction`).
  */
 export function canCreatePullRequest(branch: Branch): boolean {
-  return getBranchesGitHubRepository() !== null && branch.remoteStatus?.exists === true && getLivePullRequest(branch.name) === undefined
+  return getBranchesGitHubRepository() !== null && getLivePullRequest(branch.name) === undefined
 }
 
 /**
  * Why the branch can't get a new pull request now, null when it can: its live pull request (open or merged, as the
- * dialog subscribes to it), or no remote branch. "Continue on GitHub" and Create are disabled with it.
+ * dialog subscribes to it). "Continue on GitHub" and Create are disabled with it.
  */
-export function formatNewPullRequestBlocker(branchName: string, live: PullRequest | null, onRemote: boolean): string | null {
-  if (live !== null) {
-    return live.state === "merged" ? `Pull request #${live.number} of ${branchName} is merged` : `${branchName} already has pull request #${live.number}`
+export function formatNewPullRequestBlocker(branchName: string, live: PullRequest | null): string | null {
+  if (live === null) {
+    return null
   }
-  return onRemote ? null : `${branchName} isn't on the remote: push it first`
+  return live.state === "merged" ? `Pull request #${live.number} of ${branchName} is merged` : `${branchName} already has pull request #${live.number}`
 }
 
 /**

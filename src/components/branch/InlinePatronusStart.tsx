@@ -148,7 +148,7 @@ export function InlinePatronusStart({
   const [chosenProfile, setChosenProfile] = useState<string | null>(null)
   const [chosenBypassProfile, setChosenBypassProfile] = useState<string | null>(null)
   // the action whose first step pushes the branch: its button shows the push ("Pushing 45%"), the row's doesn't
-  const [pushingFor, setPushingFor] = useState<"start" | "pullRequest" | "pushOnly" | null>(null)
+  const [pushingFor, setPushingFor] = useState<"start" | "pushOnly" | null>(null)
   const isPushing = pushingFor !== null
   const stackPushCurrent = useStackPushCurrent(branchName)
   const pushProgress = useBranchPushProgress(stackPushCurrent ?? branchName)
@@ -256,13 +256,13 @@ export function InlinePatronusStart({
             : null
 
   /**
-   * The branch on the remote with its commits: a start and a merge request need it (`pushForAction`). False when the
+   * The branch on the remote with its commits: a start needs it (`pushForAction`). False when the
    * push failed or was refused, said in a toast. A Safe Push running on an older commit is canceled for the push of a
    * start (`replacesRobot`), not restarted: the form starts the new one; without a push it is canceled for the start
    * alone. A dry run doesn't replace it: the form offers no start while it needs a push then. The push is a step of the
    * form's action: the start's toast or the opened pull request say how it went, not a push toast.
    */
-  const pushIfNeeded = async (purpose: "start" | "pullRequest" | "pushOnly", replacesRobot: PatronusRobot | undefined): Promise<boolean> => {
+  const pushIfNeeded = async (purpose: "start" | "pushOnly", replacesRobot: PatronusRobot | undefined): Promise<boolean> => {
     if (!needsPush) {
       return replacesRobot === undefined || (await cancelHoldingRobot(replacesRobot))
     }
@@ -320,14 +320,10 @@ export function InlinePatronusStart({
   }
 
   /**
-   * The branch on the remote with its tip, then the dialog of its pull request, where the approvals count; once it is
+   * The dialog of its pull request, where the approvals count; it pushes the branch before it creates it. Once it is
    * created, the form starts from it (`fromPullRequest`)
    */
-  const createPullRequest = async () => {
-    // the pull request doesn't replace a running Safe Push: its push waits for it as any push
-    if (!(await pushIfNeeded("pullRequest", undefined))) {
-      return
-    }
+  const createPullRequest = () => {
     const branch = getBranch(branchName)
     if (branch !== undefined && canCreatePullRequest(branch)) {
       openCreatePullRequestDialog(branchName)
@@ -384,7 +380,6 @@ export function InlinePatronusStart({
       // the dialog of the pull request is where the Safe Push without review was asked: no way back to it from here
       onCreatePullRequest={bypassReview ? null : createPullRequest}
       bypassReview={bypassReview}
-      pushLabel={pushingFor === "pullRequest" ? pushLabel : null}
     />
   )
   const items = [...(bypassProfiles === null ? [{ value: NO_PROFILE, label: "No profile" }] : []), ...offeredProfiles.map(it => ({ value: it.id, label: it.name }))]

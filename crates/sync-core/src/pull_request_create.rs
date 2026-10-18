@@ -15,6 +15,7 @@ use git_ops::branch_description::read_descriptions;
 use github::client::{GitHubClient, GitHubError};
 use github::service::{GitHubFailure, GitHubService, RequestKind};
 use serde::Deserialize;
+use std::time::Duration;
 use sync_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequest, PullRequestState, Reviewer, ReviewerState};
 use sync_utils::timestamp::parse_rfc3339_timestamp;
 use tracing::instrument;
@@ -45,6 +46,19 @@ pub struct CreatePullRequestParams {
   /// Logins; the author's own is left out, GitHub refuses it
   pub reviewers: Vec<String>,
   pub assign_self: bool,
+  /// The branch (or its base) was just pushed: GitHub may not know it for a moment (a Space mirror copies it), so a
+  /// creation GitHub refuses for a missing head or base is asked again until `MIRROR_WAIT` (`create_pull_request`)
+  #[serde(default)]
+  pub wait_for_mirror: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct WaitForGitHubBranchParams {
+  pub repository_path: String,
+  /// The full branch name on the remote, e.g. `user/virtual/feature-auth`
+  pub branch: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -61,34 +75,29 @@ const SEARCH_LIMIT: u32 = 10;
 pub const MIN_SEARCH_LENGTH: usize = 2;
 
 /// The text of the pull request of `head` into `base` on `remote`: the description of the branch (`bd describe`), else
-/// the commits of `<remote>/<base>..<remote>/<head>` as `gh pr create --fill` takes them; and how many commits of the
-/// local branch the remote one lacks; the viewer is left to the caller, who asks GitHub. Three git processes: `config`, `rev-list --count` and, without a description, `log`.
+/// the commits the pull request will show as `gh pr create --fill` takes them: those of the local branch, which the
+/// creation pushes first, against `<remote>/<base>`. The viewer is left to the caller, who asks GitHub. Two git
+/// processes: `config` and, without a description, `log`.
 #[instrument(skip(git))]
 pub fn read_new_pull_request(git: &GitCommandExecutor, repository_path: &str, remote: &str, head: &str, base: &str) -> Result<NewPullRequest> {
   let local = format!("refs/heads/{head}");
-  let remote_head = format!("refs/remotes/{remote}/{head}");
   let description = read_descriptions(git, repository_path)?.remove(&local);
-  // a remote branch git hasn't fetched yet counts nothing: the form offers the pull request of a pushed branch only
-  let range = format!("{remote_head}..{local}");
-  let (count, exit_code) = git.execute_command_with_status(&["rev-list", "--count", &range, "--"], repository_path)?;
-  let unpushed = if exit_code == 0 { count.trim().parse().unwrap_or(0) } else { 0 };
   let (title, body) = match description {
     Some(description) => (description.title, description.body),
-    None => fill_pull_request(git, repository_path, remote, head, base)?.unwrap_or_else(|| (title_of_branch(head), String::new())),
+    None => fill_from_range(git, repository_path, &format!("refs/remotes/{remote}/{base}..{local}"), head)?.unwrap_or_else(|| (title_of_branch(head), String::new())),
   };
-  Ok(NewPullRequest {
-    title,
-    body,
-    unpushed,
-    viewer_login: None,
-  })
+  Ok(NewPullRequest { title, body, viewer_login: None })
 }
 
 /// The title and the body `gh pr create --fill` takes from the commits `<remote>/<base>..<remote>/<head>`: one commit
 /// gives its subject and body, several the branch name and their subjects; None without commits. One `git log`.
 pub fn fill_pull_request(git: &GitCommandExecutor, repository_path: &str, remote: &str, head: &str, base: &str) -> Result<Option<(String, String)>> {
-  let range = format!("refs/remotes/{remote}/{base}..refs/remotes/{remote}/{head}");
-  let (log, exit_code) = git.execute_command_with_status(&["log", "--reverse", "--format=%s%x1f%b%x1e", &range, "--"], repository_path)?;
+  fill_from_range(git, repository_path, &format!("refs/remotes/{remote}/{base}..refs/remotes/{remote}/{head}"), head)
+}
+
+/// The title and the body of the commits of `range` (`fill_pull_request`); `head` names a pull request of several
+fn fill_from_range(git: &GitCommandExecutor, repository_path: &str, range: &str, head: &str) -> Result<Option<(String, String)>> {
+  let (log, exit_code) = git.execute_command_with_status(&["log", "--reverse", "--format=%s%x1f%b%x1e", range, "--"], repository_path)?;
   if exit_code != 0 {
     bail!("Cannot read the commits of {range}: {log}");
   }
@@ -140,13 +149,81 @@ enum Creation {
 /// exists is found instead and left as it is.
 #[instrument(skip(github, params), fields(head = %params.head, base = %params.base))]
 pub async fn create_pull_request(github: &GitHubService, repository: &GitHubRepository, params: &CreatePullRequestParams) -> Result<CreatedPullRequest, GitHubWriteError> {
+  create_pull_request_waiting(github, repository, params, MIRROR_WAIT).await
+}
+
+/// How long a creation right after a push asks again while GitHub doesn't have the branch (`wait_for_mirror`): a
+/// Space mirror copies a pushed branch a few seconds later
+pub const MIRROR_WAIT: MirrorWait = MirrorWait {
+  poll: Duration::from_secs(2),
+  deadline: Duration::from_secs(30),
+};
+
+/// The pause between two asks and the time after which a missing branch is an error
+#[derive(Clone, Copy, Debug)]
+pub struct MirrorWait {
+  pub poll: Duration,
+  pub deadline: Duration,
+}
+
+/// `create_pull_request` with the wait for a mirror given: the tests wait milliseconds
+pub(crate) async fn create_pull_request_waiting(
+  github: &GitHubService,
+  repository: &GitHubRepository,
+  params: &CreatePullRequestParams,
+  wait: MirrorWait,
+) -> Result<CreatedPullRequest, GitHubWriteError> {
   let title = params.title.trim();
   if title.is_empty() || title.contains(['\n', '\r']) {
     return Err(GitHubWriteError::Refused("A pull request needs a title of one line".to_string()));
   }
+  let mut waited = Duration::ZERO;
+  let creation = loop {
+    match post_pull_request(github, repository, params, title).await {
+      // nothing was created: asking again is safe
+      Err(failure) if params.wait_for_mirror && is_missing_ref(&failure) && waited < wait.deadline => {
+        tokio::time::sleep(wait.poll).await;
+        waited += wait.poll;
+      }
+      creation => break creation,
+    }
+  }
+  .map_err(|failure| creation_error(failure, params))?;
+  match creation {
+    Creation::Created {
+      pull_request,
+      requested,
+      assignees,
+      warnings,
+    } => Ok(CreatedPullRequest {
+      pull_request: to_pull_request(*pull_request, requested),
+      created: true,
+      assignees,
+      warnings,
+    }),
+    Creation::Exists => {
+      let listed = list_pull_requests(github, &params.repository_path, repository, &params.branch_prefix).await;
+      let existing = listed
+        .pull_requests
+        .get(&params.branch_name)
+        .filter(|pull_request| pull_request.state == PullRequestState::Open)
+        .cloned()
+        .ok_or_else(|| GitHubWriteError::Refused(format!("{} already has a pull request, but GitHub does not list it yet", params.branch_name)))?;
+      Ok(CreatedPullRequest {
+        pull_request: existing,
+        created: false,
+        assignees: Vec::new(),
+        warnings: Vec::new(),
+      })
+    }
+  }
+}
+
+/// `GET /user`, `POST pulls`, then the assignee and the reviewers of the pull request it created (`create_pull_request`)
+async fn post_pull_request(github: &GitHubService, repository: &GitHubRepository, params: &CreatePullRequestParams, title: &str) -> Result<Creation, GitHubFailure> {
   let request = serde_json::json!({"title": title, "body": params.body, "head": params.head, "base": params.base});
   let (owner, name, request) = (repository.owner.as_str(), repository.name.as_str(), &request);
-  let creation = github
+  github
     .ask(&params.repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {
       // first: a 401 here replaces the token before anything is written
       let viewer = client.viewer_login(&token).await?;
@@ -187,35 +264,40 @@ pub async fn create_pull_request(github: &GitHubService, repository: &GitHubRepo
       })
     })
     .await
-    .map_err(|failure| creation_error(failure, params))?;
-  match creation {
-    Creation::Created {
-      pull_request,
-      requested,
-      assignees,
-      warnings,
-    } => Ok(CreatedPullRequest {
-      pull_request: to_pull_request(*pull_request, requested),
-      created: true,
-      assignees,
-      warnings,
-    }),
-    Creation::Exists => {
-      let listed = list_pull_requests(github, &params.repository_path, repository, &params.branch_prefix).await;
-      let existing = listed
-        .pull_requests
-        .get(&params.branch_name)
-        .filter(|pull_request| pull_request.state == PullRequestState::Open)
-        .cloned()
-        .ok_or_else(|| GitHubWriteError::Refused(format!("{} already has a pull request, but GitHub does not list it yet", params.branch_name)))?;
-      Ok(CreatedPullRequest {
-        pull_request: existing,
-        created: false,
-        assignees: Vec::new(),
-        warnings: Vec::new(),
+}
+
+/// Waits until GitHub has `branch` (`GET repos/…/branches/<name>` every `wait.poll`): GitHub's form of a new pull
+/// request opened right after a push shows nothing while a mirror hasn't copied the branch yet. False after
+/// `wait.deadline`; an error other than the missing branch (404) ends the wait at once.
+#[instrument(skip(github))]
+pub async fn wait_for_branch(github: &GitHubService, repository_path: &str, repository: &GitHubRepository, branch: &str, wait: MirrorWait) -> Result<bool, GitHubFailure> {
+  let mut waited = Duration::ZERO;
+  loop {
+    let answer = github
+      .ask(repository_path, &repository.full_name(), RequestKind::Single, |client, token| async move {
+        let mut path = vec!["repos", repository.owner.as_str(), repository.name.as_str(), "branches"];
+        path.extend(branch.split('/'));
+        match client.get::<serde_json::Value>(&token, &path, &[]).await {
+          Ok(_) => Ok(true),
+          Err(GitHubError::NoAccess { status: 404, .. }) => Ok(false),
+          Err(error) => Err(error),
+        }
       })
+      .await?;
+    if answer {
+      return Ok(true);
     }
+    if waited >= wait.deadline {
+      return Ok(false);
+    }
+    tokio::time::sleep(wait.poll).await;
+    waited += wait.poll;
   }
+}
+
+/// GitHub refused the creation for a head or a base it doesn't have: a mirror copies a pushed branch a moment later
+fn is_missing_ref(failure: &GitHubFailure) -> bool {
+  matches!(failure, GitHubFailure::Failed { error: GitHubError::Http { status: 422, message }, .. } if message.contains("head invalid") || message.contains("base invalid"))
 }
 
 /// The user as the assignee of pull request `<n>`; GitHub leaves out a user it can't assign without an error, so the

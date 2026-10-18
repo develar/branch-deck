@@ -1,4 +1,3 @@
-import { useState } from "react"
 import { cn } from "cn"
 import { ChevronRightIcon, CircleCheckIcon, ExternalLinkIcon, FileDiffIcon, GitPullRequestCreateIcon, RefreshCwIcon, SettingsIcon, UserPlusIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -31,12 +30,10 @@ export interface PatronusReviewBlockProps {
    * null = unknown: no pull request can be opened, as Space merge requests are deprecated.
    */
   github: { pullRequest: PullRequest | undefined; target: string; listed: boolean } | null
-  /** Pushes the branch if needed and opens the GitHub form of its pull request; null: not offered */
-  onCreatePullRequest: (() => Promise<void>) | null
+  /** Opens the "Create pull request" dialog of the branch, which pushes it first; null: not offered */
+  onCreatePullRequest: (() => void) | null
   /** A Safe Push without review: the missing approvals are told, the start doesn't wait for them */
   bypassReview?: boolean
-  /** While the push of Create Pull Request runs, its label ("Pushing 45%"): the button shows it, the row's doesn't */
-  pushLabel: string | null
 }
 
 /**
@@ -45,10 +42,11 @@ export interface PatronusReviewBlockProps {
  * requested changes and how many more count, the approvals Patronus doesn't count, and why a start through the API
  * counts none; or unknown, naming the approvals nobody but Patronus can judge yet. Patronus checks the approvals once,
  * when the robot starts, and fails without them at once: with approvals missing the form's Start is disabled. The
- * actions: Request Review… (in the pull request), Open Pull Request or Create Pull Request…, Review Changes, Recheck.
+ * actions, in every state GitHub lists the pull requests in: Request Review… (in the pull request), Open Pull Request or
+ * Create Pull Request… (a pull request is the user's to open whatever the approvals), Review Changes, Recheck.
  * Off GitHub (a repository only on Space) the merge request path stays: an open merge request found counts and opens.
  */
-export function PatronusReviewBlock({ branchName, review, github, onCreatePullRequest, pushLabel, bypassReview = false }: PatronusReviewBlockProps) {
+export function PatronusReviewBlock({ branchName, review, github, onCreatePullRequest, bypassReview = false }: PatronusReviewBlockProps) {
   const { state } = review
   if (state.status === "loading") {
     return (
@@ -63,11 +61,19 @@ export function PatronusReviewBlock({ branchName, review, github, onCreatePullRe
   }
 
   const { requirement, readiness } = state
+  const pullRequest = github?.pullRequest
+  // a pull request is the user's to open whatever the approvals: the actions are there in every state GitHub lists
+  // the pull requests in (without the list, a Create may duplicate one the branch has)
+  const actions =
+    github?.listed === true ? (
+      <ReviewActions branchName={branchName} review={review} requirement={requirement} pullRequest={pullRequest} onCreatePullRequest={onCreatePullRequest} />
+    ) : null
   if (requirement.skipped) {
     return (
-      <p className="text-sm text-muted-foreground" data-testid="patronus-review" data-status="skipped">
-        Too many commits to check the review before the start; the robot checks it.
-      </p>
+      <div className="flex flex-col gap-2 text-sm text-muted-foreground" data-testid="patronus-review" data-status="skipped">
+        <p data-testid="patronus-review-status">The code-owner review is checked when the Safe Push starts.</p>
+        {actions}
+      </div>
     )
   }
   if (github === null) {
@@ -80,21 +86,26 @@ export function PatronusReviewBlock({ branchName, review, github, onCreatePullRe
       </p>
     )
   }
-  const pullRequest = github.pullRequest
   switch (readiness.kind) {
     case "notRequired":
       return (
-        <p className="flex items-center gap-1.5 text-sm text-muted-foreground" data-testid="patronus-review" data-status="notRequired">
-          <CircleCheckIcon className="size-4 shrink-0 text-success" />
-          No code-owner review needed.
-        </p>
+        <div className="flex flex-col gap-2" data-testid="patronus-review" data-status="notRequired">
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground" data-testid="patronus-review-status">
+            <CircleCheckIcon className="size-4 shrink-0 text-success" />
+            No code-owner review needed.
+          </p>
+          {actions}
+        </div>
       )
     case "approved":
       return (
-        <p className="flex items-start gap-1.5 text-sm text-muted-foreground" data-testid="patronus-review" data-status="approved">
-          <CircleCheckIcon className="mt-0.5 size-4 shrink-0 text-success" />
-          <span>{formatApproved(readiness.groups)}</span>
-        </p>
+        <div className="flex flex-col gap-2" data-testid="patronus-review" data-status="approved">
+          <p className="flex items-start gap-1.5 text-sm text-muted-foreground" data-testid="patronus-review-status">
+            <CircleCheckIcon className="mt-0.5 size-4 shrink-0 text-success" />
+            <span>{formatApproved(readiness.groups)}</span>
+          </p>
+          {actions}
+        </div>
       )
     case "unknown":
     case "unavailable":
@@ -102,14 +113,7 @@ export function PatronusReviewBlock({ branchName, review, github, onCreatePullRe
         <Callout tone="info" title="Patronus judges the approvals when the robot starts" data-testid="patronus-review" data-status={readiness.kind}>
           <p data-testid="patronus-review-unknown">{formatUnknown(readiness, pullRequest)}</p>
           <ReviewerGroups branchName={branchName} requirement={requirement} />
-          <ReviewActions
-            branchName={branchName}
-            review={review}
-            requirement={requirement}
-            pullRequest={pullRequest}
-            onCreatePullRequest={onCreatePullRequest}
-            pushLabel={pushLabel}
-          />
+          <ReviewActions branchName={branchName} review={review} requirement={requirement} pullRequest={pullRequest} onCreatePullRequest={onCreatePullRequest} />
         </Callout>
       )
     case "missing":
@@ -128,7 +132,6 @@ export function PatronusReviewBlock({ branchName, review, github, onCreatePullRe
             requirement={requirement}
             pullRequest={pullRequest}
             onCreatePullRequest={onCreatePullRequest}
-            pushLabel={pushLabel}
             requestReview={readiness.reason !== "noPullRequestContext" && readiness.groups.some(isShortOfRequests)}
             readiness={readiness}
           />
@@ -327,8 +330,8 @@ function ReviewChangesButton({ branchName, requirement }: { branchName: string; 
 
 /**
  * The actions of the review on GitHub: Request Review… in the open pull request while a missing group has nobody asked,
- * Open Pull Request #7 (also a merged one, never a Create that would push and open nothing), Create Pull Request…
- * without one (the branch is pushed first), Review Changes and Recheck
+ * Open Pull Request #7 (also a merged one, never a Create that would open nothing), Create Pull Request… without one
+ * (its dialog pushes the branch first), Review Changes and Recheck
  */
 function ReviewActions({
   branchName,
@@ -336,7 +339,6 @@ function ReviewActions({
   requirement,
   pullRequest,
   onCreatePullRequest,
-  pushLabel,
   requestReview = false,
   readiness = null,
 }: {
@@ -344,12 +346,10 @@ function ReviewActions({
   review: ReviewRequirement
   requirement: PatronusReviewRequirement
   pullRequest: PullRequest | undefined
-  onCreatePullRequest: (() => Promise<void>) | null
-  pushLabel: string | null
+  onCreatePullRequest: (() => void) | null
   requestReview?: boolean
   readiness?: ReviewReadiness | null
 }) {
-  const [isCreating, setCreating] = useState(false)
   // a merged pull request keeps the branch from a new one (`canCreatePullRequest`): it opens instead
   const live = pullRequest?.state === "closed" ? undefined : pullRequest
   return (
@@ -357,20 +357,9 @@ function ReviewActions({
       {requestReview && live?.state === "open" && <RequestReviewAction branchName={branchName} pullRequest={live} readiness={readiness} />}
       {live === undefined ? (
         onCreatePullRequest !== null && (
-          <Button
-            variant="outline"
-            size="xs"
-            className="tabular-nums"
-            disabled={isCreating}
-            aria-busy={isCreating || undefined}
-            data-testid="patronus-create-pull-request"
-            onClick={() => {
-              setCreating(true)
-              void onCreatePullRequest().finally(() => setCreating(false))
-            }}
-          >
-            {isCreating ? <Spinner data-icon="inline-start" /> : <GitPullRequestCreateIcon data-icon="inline-start" />}
-            {pushLabel ?? CREATE_PULL_REQUEST_LABEL}
+          <Button variant="outline" size="xs" data-testid="patronus-create-pull-request" onClick={onCreatePullRequest}>
+            <GitPullRequestCreateIcon data-icon="inline-start" />
+            {CREATE_PULL_REQUEST_LABEL}
           </Button>
         )
       ) : (

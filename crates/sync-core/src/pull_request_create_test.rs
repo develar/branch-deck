@@ -1,8 +1,11 @@
 use crate::patronus_command_test::repository;
-use crate::pull_request_create::{CreatePullRequestParams, create_pull_request, fill_pull_request, read_new_pull_request, search_github_users};
+use crate::pull_request_create::{
+  CreatePullRequestParams, MirrorWait, create_pull_request, create_pull_request_waiting, fill_pull_request, read_new_pull_request, search_github_users, wait_for_branch,
+};
 use github::fake_github::{FakeAnswer, FakeGitHub, start_fake_service};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+use std::time::Duration;
 use sync_types::pull_request::{GitHubUser, NewPullRequest, Reviewer, ReviewerState};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -22,6 +25,7 @@ fn params(reviewers: &[&str], assign_self: bool) -> CreatePullRequestParams {
     body: "- **Add login**".to_string(),
     reviewers: reviewers.iter().map(|reviewer| (*reviewer).to_string()).collect(),
     assign_self,
+    wait_for_mirror: false,
   }
 }
 
@@ -243,27 +247,80 @@ async fn searches_the_users_a_review_can_be_asked_from() {
 }
 
 #[test]
-fn the_text_is_the_description_else_the_pushed_commits() {
+fn the_text_is_the_description_else_the_commits_the_pull_request_will_show() {
   let (_upstream, clone) = TestRepo::upstream_and_clone(&[("README.md", "x")]);
   clone.git(&["checkout", "-q", "-b", "me/virtual/auth"]);
   clone.create_commit("Add login\n\nThe form and the session.", "login.txt", "1");
-  clone.git(&["push", "-q", "origin", "me/virtual/auth"]);
   let git = clone.git_executor();
   let path = clone.path_str();
 
-  let text = |pull_request: NewPullRequest| (pull_request.title, pull_request.body, pull_request.unpushed);
+  let text = |pull_request: NewPullRequest| (pull_request.title, pull_request.body);
+  // not on the remote yet: the creation pushes it first, the text is of the local commits
   let one = read_new_pull_request(git, path, "origin", "me/virtual/auth", "master").unwrap();
-  assert_eq!(text(one), ("Add login".to_string(), "The form and the session.".to_string(), 0));
+  assert_eq!(text(one), ("Add login".to_string(), "The form and the session.".to_string()));
 
-  clone.create_commit("Add logout", "logout.txt", "1");
   clone.git(&["push", "-q", "origin", "me/virtual/auth"]);
-  clone.create_commit("Not pushed yet", "later.txt", "1");
+  clone.create_commit("Add logout", "logout.txt", "1");
+  // a commit the remote lacks is in the pull request too: the creation pushes it
   let several = read_new_pull_request(git, path, "origin", "me/virtual/auth", "master").unwrap();
-  assert_eq!(text(several), ("auth".to_string(), "- **Add login**\n- **Add logout**".to_string(), 1));
+  assert_eq!(text(several), ("auth".to_string(), "- **Add login**\n- **Add logout**".to_string()));
 
   clone.git(&["config", "branch.me/virtual/auth.description", "Auth\n\nLogin and logout."]);
   let described = read_new_pull_request(git, path, "origin", "me/virtual/auth", "master").unwrap();
-  assert_eq!(text(described), ("Auth".to_string(), "Login and logout.".to_string(), 1));
+  assert_eq!(text(described), ("Auth".to_string(), "Login and logout.".to_string()));
 
   assert_eq!(fill_pull_request(git, path, "origin", "master", "master").unwrap(), None);
+}
+
+/// Waits of milliseconds: a test of the mirror wait doesn't sleep 30 s
+const SHORT_WAIT: MirrorWait = MirrorWait {
+  poll: Duration::from_millis(5),
+  deadline: Duration::from_millis(20),
+};
+
+#[test(tokio::test)]
+async fn right_after_a_push_the_creation_waits_for_the_mirror_to_copy_the_branch() {
+  let (fake, github) = start_fake_service("t").await;
+  answer_user(&fake);
+  let missing = |field: &str| {
+    FakeAnswer::status(
+      422,
+      json!({"message": "Validation Failed", "errors": [{"resource": "PullRequest", "field": field, "code": "invalid"}]}),
+    )
+  };
+  fake.answer_in_turn("POST", PULLS, vec![missing("head"), missing("base"), created(&[])]);
+  let mut request = params(&[], false);
+  request.wait_for_mirror = true;
+  let result = create_pull_request_waiting(&github, &repository(), &request, SHORT_WAIT).await.unwrap();
+  assert_eq!(result.pull_request.number, 12);
+  assert_eq!(fake.requests_to("POST", PULLS).len(), 3);
+}
+
+#[test(tokio::test)]
+async fn the_wait_for_the_mirror_ends_with_the_reason() {
+  let (fake, github) = start_fake_service("t").await;
+  answer_user(&fake);
+  refuse_creation(&fake, &json!({"resource": "PullRequest", "field": "head", "code": "invalid"}));
+  let mut request = params(&[], false);
+  request.wait_for_mirror = true;
+  let error = create_pull_request_waiting(&github, &repository(), &request, SHORT_WAIT).await.unwrap_err().to_string();
+  assert_eq!(error, "GitHub doesn't have me/virtual/auth yet: a mirror copies a pushed branch a moment later; try again");
+  // asked once per poll until the deadline, then once more
+  assert_eq!(fake.requests_to("POST", PULLS).len(), 5);
+}
+
+#[test(tokio::test)]
+async fn waits_until_github_has_the_branch() {
+  let (fake, github) = start_fake_service("t").await;
+  let branch = "/repos/acme/monorepo/branches/me/virtual/auth";
+  fake.answer_in_turn(
+    "GET",
+    branch,
+    vec![
+      FakeAnswer::status(404, json!({"message": "Branch not found"})),
+      FakeAnswer::ok(json!({"name": "me/virtual/auth"})),
+    ],
+  );
+  assert!(wait_for_branch(&github, ".", &repository(), "me/virtual/auth", SHORT_WAIT).await.unwrap());
+  assert_eq!(fake.requests_to("GET", branch).len(), 2);
 }

@@ -460,10 +460,9 @@ describe("pushForAction", () => {
 })
 
 describe("formatNewPullRequestBlocker", () => {
-  it("says why GitHub's form and Create can't make a new pull request: a live one, or no remote branch", () => {
-    expect(formatNewPullRequestBlocker("auth", null, true)).toBeNull()
-    expect(formatNewPullRequestBlocker("auth", { number: 8, state: "open" } as PullRequest, true)).toBe("auth already has pull request #8")
-    expect(formatNewPullRequestBlocker("auth", { number: 8, state: "merged" } as PullRequest, true)).toBe("Pull request #8 of auth is merged")
-    expect(formatNewPullRequestBlocker("auth", null, false)).toBe("auth isn't on the remote: push it first")
+  it("says why GitHub's form and Create can't make a new pull request: a live one; a branch not on the remote can, it is pushed first", () => {
+    expect(formatNewPullRequestBlocker("auth", null)).toBeNull()
+    expect(formatNewPullRequestBlocker("auth", { number: 8, state: "open" } as PullRequest)).toBe("auth already has pull request #8")
+    expect(formatNewPullRequestBlocker("auth", { number: 8, state: "merged" } as PullRequest)).toBe("Pull request #8 of auth is merged")
   })
 })

@@ -296,10 +296,12 @@ export interface NewPullRequestRequest {
   body: string
   reviewers: string[]
   assignSelf: boolean
+  /** The branch was just pushed: the creation waits while GitHub doesn't have it (a mirror copies it a moment later) */
+  waitForMirror: boolean
 }
 
 /**
- * Opens the pull request of a pushed branch on GitHub (or finds the one it has), and puts it into the store at once:
+ * Opens the pull request of a branch on GitHub (or finds the one it has), and puts it into the store at once:
  * the row's chip and the Safe Push form read it before the next refresh, which follows. Throws what GitHub said.
  */
 export async function createPullRequest(request: NewPullRequestRequest): Promise<CreatedPullRequest> {

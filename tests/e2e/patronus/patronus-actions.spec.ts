@@ -1,5 +1,5 @@
 // @spec spec/branch/patronus.spec.md
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import type { PatronusMergeRequest, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, PullRequest } from "../../../src/lib/bindings"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
@@ -521,6 +521,24 @@ test.describe("Patronus actions", () => {
       }
     }
 
+    /**
+     * Patronus answers the review of JIRA-456 with no review needed until `require` names the requirement: the Safe Push
+     * form a user opened then, whose Recheck finds the approvals missing (with them missing the row offers no Safe Push…)
+     */
+    async function routeChangingReview(page: Page): Promise<(requirement: PatronusReviewRequirement) => void> {
+      let answer: PatronusReviewRequirement = { ...REVIEW_REQUIRED, required: false, groups: [] }
+      await routeReviewRequirement(page, () => answer)
+      return requirement => {
+        answer = requirement
+      }
+    }
+
+    /** Recheck of the open form, after Patronus changed its answer: the review block shows `status` */
+    async function recheck(form: Locator, status: string) {
+      await form.getByTestId("patronus-review-recheck").click()
+      await expect(form.getByTestId("patronus-review")).toHaveAttribute("data-status", status)
+    }
+
     /** JIRA-456 with the open pull request #7 and no review needed; its push is answered in the page */
     async function setupPullRequestStart(
       page: Page,
@@ -644,31 +662,27 @@ test.describe("Patronus actions", () => {
     })
 
     test("should offer to create the pull request the approvals count in, and no start Patronus would fail", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const requireReview = await routeChangingReview(page)
       await setupGitHub(page, setupRepo, syncAndWaitForBranches)
-      const { pushes, release } = await routeHeldPush(page, "JIRA-456", 45)
+      const pushes = await routePush(page, {})
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      await routeReviewRequirement(page, () => REVIEW_REQUIRED)
       const starts = await routeCommand(page, "start_patronus_robot", () => robot("JIRA-456", "started-robot", { sourceRevision: null }))
 
       await routeNewPullRequest(page)
-      // not pushed yet: the row asks nothing, the form asks for its review
+      // not pushed yet: Patronus judges its local commits; it needs the code owners now
       const form = await openSafePush(page)
+      requireReview(REVIEW_REQUIRED)
+      await recheck(form, "missing")
       const review = form.getByTestId("patronus-review")
-      await expect(review).toHaveAttribute("data-status", "missing")
+      // the row's step is the pull request, which the dialog creates after the push
+      await expect(findBranchRow(page, "JIRA-456").getByTestId("next-step-slot")).toHaveAttribute("data-step", "createPullRequest")
       await expect(review.getByTestId("patronus-review-groups")).toHaveText("Air Plugin Release Team: nobody requested")
       await expect(review.getByTestId("patronus-review-reason")).toHaveText("Patronus checks the approvals when the robot starts and fails without them.")
       await review.getByRole("button", { name: "Create Pull Request…" }).click()
-      // one indicator of its push: the button clicked; the start waits without a spinner, as the row's push
-      await expect(review.getByTestId("patronus-create-pull-request")).toHaveText("Pushing 45%")
-      await expect(form.getByRole("button", { name: /Start Safe Push/ })).toBeDisabled()
-      await expect(form.getByRole("button", { name: /Start Safe Push/ }).getByRole("status")).toHaveCount(0)
-      await expect(getPushButton(findBranchRow(page, "JIRA-456")).getByRole("status")).toHaveCount(0)
-      release()
-      // pushed first, without a toast of its own (it would offer the dialog that is opening): GitHub opens a pull request of a pushed branch
+      // the dialog opens at once: its Create pushes the branch, a dialog closed without one pushes nothing
       const dialog = createPullRequestDialog(page)
       await expect(dialog).toBeVisible()
-      expect(pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
-      await expect(pushedToast(page, "JIRA-456")).toHaveCount(0)
+      await expect(dialog.getByTestId("create-pull-request-submit")).toHaveText(/^Create Pull Request/)
       // Patronus names the code owner without a GitHub login: the user finds the person
       const suggestions = dialog.getByTestId("create-pull-request-suggestions")
       await expect(suggestions.getByRole("button")).toHaveText(["Alice"])
@@ -680,6 +694,7 @@ test.describe("Patronus actions", () => {
       await page.keyboard.press("Escape")
       await expect(dialog).toHaveCount(0)
       expect(await getOpenedUrls(page)).toEqual([])
+      expect(pushes).toEqual([])
 
       // Patronus would fail the robot at once: Start says why, and starts nothing
       const start = form.getByRole("button", { name: /Start Safe Push/ })
@@ -691,13 +706,15 @@ test.describe("Patronus actions", () => {
     })
 
     test("should turn the open Safe Push form into one without review from the pull request dialog", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const requireReview = await routeChangingReview(page)
       await setupGitHub(page, setupRepo, syncAndWaitForBranches)
       await routePush(page, {})
       await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-      await routeReviewRequirement(page, () => REVIEW_REQUIRED)
       await routeNewPullRequest(page)
 
       const form = await openSafePush(page)
+      requireReview(REVIEW_REQUIRED)
+      await recheck(form, "missing")
       await expect(form).toContainText("Safe Push of JIRA-456")
       await expect(form).not.toContainText("without review")
       await form.getByTestId("patronus-review").getByRole("button", { name: "Create Pull Request…" }).click()
@@ -716,23 +733,27 @@ test.describe("Patronus actions", () => {
       }
 
       test("should ask the code owner Patronus names, and the Safe Push form then starts from the pull request", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+        const requireReview = await routeChangingReview(page)
         await setupRepo("issue_links", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests() })
         await syncAndWaitForBranches()
-        await routePush(page, {})
+        const pushes = await routePush(page, {})
         await routeNewPullRequest(page)
         await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-        await routeReviewRequirement(page, () => CODE_OWNERS)
         const created = pullRequest("JIRA-456", 7, { reviewers: [reviewer("alice-gh", "requested")] })
         const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(created))
 
         const form = await openSafePush(page)
+        requireReview(CODE_OWNERS)
+        await recheck(form, "missing")
         await form.getByTestId("patronus-review").getByRole("button", { name: "Create Pull Request…" }).click()
         const dialog = createPullRequestDialog(page)
         // one suggested reviewer of each group is chosen at once
         await expect(dialog.getByTestId("create-pull-request-reviewers").locator("[data-slot=combobox-chip]")).toHaveText(["alice-gh"])
         await dialog.getByTestId("create-pull-request-submit").click()
         await expect(dialog).toHaveCount(0)
-        expect(creates).toEqual([expect.objectContaining({ branchName: "JIRA-456", reviewers: ["alice-gh"], assignSelf: true })])
+        // pushed first: GitHub opens a pull request of a branch it has
+        expect(pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
+        expect(creates).toEqual([expect.objectContaining({ branchName: "JIRA-456", reviewers: ["alice-gh"], assignSelf: true, waitForMirror: true })])
         // the approvals count in it: the form starts from it with a comment
         await expect(form.getByTestId("patronus-start-explanation")).toContainText("Comments /patronus merge on pull request #7:")
         await expect(form.getByTestId("patronus-review-reason")).toHaveText("Patronus checks the approvals when the robot starts and fails without them: they count in #7.")

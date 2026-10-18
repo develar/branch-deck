@@ -872,6 +872,8 @@ fn create_pull_request(
     body,
     reviewers: args.reviewers.clone(),
     assign_self: !args.no_assign,
+    // pushed right before: a mirror copies the branch to GitHub a moment later
+    wait_for_mirror: plan.push_needed,
   };
   let created = runtime.block_on(core_create_pull_request(github, repository, &params)).map_err(|error| match error {
     GitHubWriteError::GitHub(failure) => github_error(&failure),

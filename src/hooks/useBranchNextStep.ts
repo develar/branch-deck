@@ -137,7 +137,6 @@ function factsOf(branch: Branch): NextStepFacts {
     restart,
     pullRequestsAvailable: getPullRequestAvailability()?.status === "available",
     pullRequest: pullRequestFactOf(branch, target),
-    pushed: branch.remoteStatus?.exists === true,
     target,
     // the root has no root: one level
     stackRoot: root === undefined ? null : { name: root.name, blocker: getBranchNextStepNow(root.name)?.safePushBlocker ?? null },

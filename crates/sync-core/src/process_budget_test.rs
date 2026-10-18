@@ -7,6 +7,7 @@ use crate::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams,
 use crate::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
 use crate::check::{CheckSession, check_plan};
 use crate::conflict_contents::{GetConflictContentsParams, read_conflict_contents};
+use crate::pull_request_create::read_new_pull_request;
 use crate::remote_status::forget_statuses;
 use crate::repository_lock::RewriteOptions;
 use crate::squash::{SquashCommitsParams, squash_commits_core};
@@ -558,4 +559,15 @@ fn an_update() {
       ("update-ref", 2),
     ],
   );
+}
+
+/// The text of the "Create pull request" dialog of a branch without a description: its commits against the baseline
+#[test]
+fn the_text_of_a_new_pull_request() {
+  let (repo, _) = repo();
+  repo.git(&["branch", "test/virtual/alpha"]);
+  let git = counting();
+  let text = read_new_pull_request(&git, &path(&repo), "origin", "test/virtual/alpha", "master").unwrap();
+  assert_eq!(text.title, "alpha");
+  assert_processes(&git, &[("config", 1), ("log", 1)]);
 }

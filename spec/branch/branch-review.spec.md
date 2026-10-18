@@ -163,8 +163,8 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   end the Unified/Split toggle and the actions on the target branch. The footer must show the position in the review
   ("All Changes · File 2 / 5", "Commit 1 / 3 · File 1 / 2") and the keys of the commit review (`J K Files`, `N P
   Changes`, `⌥↑ ⌥↓ Commits` with several commits), `Esc Close` (Escape closes a sub-window). The actions are the items
-  of the branch's menu (`getBranchReviewItems`), their keys working in the whole window: `O Open Pull Request` when it has a pull request, else `Create Pull Request…` for a
-  pushed branch on GitHub (its dialog opens in the window, [below](#the-create-pull-request-dialog)), `S Safe Push…` where Patronus is on the repository and the branch has work, and the push for
+  of the branch's menu (`getBranchReviewItems`), their keys working in the whole window: `O Open Pull Request` when it has a pull request, `Create Pull Request…` for a
+  branch on GitHub without a live one, pushed or not (its dialog opens in the window, [below](#the-create-pull-request-dialog), and the main window pushes the branch on Create or "Continue on GitHub"), `S Safe Push…` where Patronus is on the repository and the branch has work, and the push for
   a branch with work, named as the push button of its row (`Push (2)`, `Push Stack (2 branches)`), without a key: P is
   the previous change.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)

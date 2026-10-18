@@ -202,11 +202,9 @@ impl PullRequestsResult {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct NewPullRequest {
-  /// The `bd describe` title, else as `gh pr create --fill` takes it from the pushed commits
+  /// The `bd describe` title, else as `gh pr create --fill` takes it from the commits the pull request will show
   pub title: String,
   pub body: String,
-  /// Commits of the local branch the remote branch lacks: the pull request shows the pushed ones
-  pub unpushed: u32,
   /// The user of the token the pull request is created with; null when GitHub didn't answer
   pub viewer_login: Option<String>,
 }

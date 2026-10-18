@@ -50,7 +50,6 @@ function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
     restart: null,
     pullRequestsAvailable: true,
     pullRequest: openPullRequest,
-    pushed: true,
     target: "master",
     stackRoot: null,
     readiness: null,
@@ -187,11 +186,11 @@ describe("getBranchNextStep", () => {
         withoutReview: { blocker: null },
       })
     }
-    // not pushed yet: the dialog needs the remote branch
-    const unpushed = getBranchNextStep(
-      withReadiness(missing([group()], { reason: "noPullRequestContext" }), { pullRequest: null, pushed: false, actions: { ...facts().actions, createPullRequest: null } }),
+    // a branch not pushed yet gets the menu's item too: the dialog pushes it first; only an unknown repository disables it
+    const unknownRepository = getBranchNextStep(
+      withReadiness(missing([group()], { reason: "noPullRequestContext" }), { pullRequest: null, actions: { ...facts().actions, createPullRequest: null } }),
     )
-    expect(unpushed.item).toMatchObject({ disabled: true, description: "Push first: a pull request needs the remote branch" })
+    expect(unknownRepository.item).toMatchObject({ disabled: true, description: "The GitHub repository of the branches is unknown" })
   })
 
   it("row 8: changes requested by a member of a missing group: a destructive quiet step that opens the pull request", () => {
@@ -281,8 +280,8 @@ describe("getBranchNextStep", () => {
     expect(step).toMatchObject({ kind: "safePush", needsReadiness: false })
   })
 
-  it("asks for the readiness only of a pushed branch on GitHub", () => {
-    expect(getBranchNextStep(facts({ pushed: false })).needsReadiness).toBe(false)
+  it("asks for the readiness of a branch on GitHub, pushed or not: Patronus judges the local commits", () => {
+    expect(getBranchNextStep(facts()).needsReadiness).toBe(true)
     expect(getBranchNextStep(facts({ pullRequestsAvailable: false })).needsReadiness).toBe(false)
   })
 

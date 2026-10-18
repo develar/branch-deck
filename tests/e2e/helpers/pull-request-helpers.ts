@@ -63,11 +63,7 @@ export const VIEWER_LOGIN = "user-name"
  * pushes nothing, so there are no remote branches to read the commits of
  */
 export function routeNewPullRequest(page: Page, patch: Partial<NewPullRequest> = {}): Promise<Record<string, unknown>[]> {
-  return routeCommand(
-    page,
-    "get_new_pull_request",
-    () => ({ title: "Add auth", body: "- **Add login**", unpushed: 0, viewerLogin: VIEWER_LOGIN, ...patch }) satisfies NewPullRequest,
-  )
+  return routeCommand(page, "get_new_pull_request", () => ({ title: "Add auth", body: "- **Add login**", viewerLogin: VIEWER_LOGIN, ...patch }) satisfies NewPullRequest)
 }
 
 /** The answer of `create_pull_request` for a pull request GitHub created, assigned to the user */

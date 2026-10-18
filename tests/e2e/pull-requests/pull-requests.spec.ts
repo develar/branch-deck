@@ -177,17 +177,19 @@ test.describe("Pull request chip", () => {
     expect(await readClipboard(page)).toBe(CHANGES_REQUESTED.url)
   })
 
-  test("should offer to create the pull request of a pushed branch in the push toast, the branch menu and the preview", async ({ page }) => {
-    await routePush(page, {})
+  test("should offer to create the pull request of a branch in the push toast, the branch menu and the preview", async ({ page }) => {
+    const pushes = await routePush(page, {})
     const texts = await routeNewPullRequest(page)
     const dialog = createPullRequestDialog(page)
     const row = findBranchRow(page, "feature-auth")
 
-    // not on the remote yet: GitHub has nothing to open a pull request of
+    // not on the remote yet: the menu offers it, the dialog pushes the branch on Create, never on its opening
     await row.click({ button: "right" })
-    await expect(page.getByRole("menuitem", { name: "Copy Branch Name" })).toBeVisible()
-    await expect(page.getByRole("menuitem", { name: "Create Pull Request…" })).toHaveCount(0)
+    await page.getByRole("menuitem", { name: "Create Pull Request…" }).click()
+    await expect(dialog).toBeVisible()
     await page.keyboard.press("Escape")
+    await expect(dialog).toHaveCount(0)
+    expect(pushes).toEqual([])
 
     await getPushButton(row).click()
     const toast = pushedToast(page, "feature-auth")
@@ -197,7 +199,7 @@ test.describe("Pull request chip", () => {
     await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("feature-auth → master")
     await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("Add auth")
     await expect(dialog.getByTestId("create-pull-request-body")).toHaveValue("- **Add login**")
-    expect(texts).toEqual([{ repositoryPath: expect.any(String), head: "user-name/virtual/feature-auth", base: "master" }])
+    expect(texts.at(-1)).toEqual({ repositoryPath: expect.any(String), head: "user-name/virtual/feature-auth", base: "master" })
     await page.keyboard.press("Escape")
     await expect(dialog).toHaveCount(0)
 
@@ -261,6 +263,8 @@ test.describe("Pull request chip", () => {
         body: "- **Add login**",
         reviewers: ["bob"],
         assignSelf: true,
+        // pushed before the dialog opened: no push, no wait for a mirror
+        waitForMirror: false,
       },
     ])
     const toast = page.locator("[data-slot=toast]", { hasText: "Created pull request #900" })
