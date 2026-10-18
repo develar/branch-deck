@@ -11,6 +11,7 @@ use std::process::Command;
 use std::time::Duration;
 use sync_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
 use sync_utils::child_process::{ChildOutput, ChildProcessError, cached_login_shell_path, find_executable, run_child};
+use sync_utils::list_cut;
 use tracing::{info, instrument, warn};
 
 /// A call takes 2-5 s; the rest is headroom for a cold start or a slow network
@@ -251,14 +252,20 @@ pub fn clean_branch_name(raw: &str) -> Option<String> {
   (!name.is_empty()).then(|| name.to_string())
 }
 
-/// `text` cut at the last line that fits into `max_bytes`, with a note on what was left out
+/// `text` cut at the last line that fits into `max_bytes`, with a note on what was left out ("[… 2 more lines
+/// omitted]"). A cut list never leaves out only one (`list_cut::kept`): one line past the budget is sent whole, so the
+/// count of a cut is at least 2
 pub(crate) fn cap_input(text: &str, max_bytes: usize) -> Cow<'_, str> {
   if text.len() <= max_bytes {
     return Cow::Borrowed(text);
   }
   let head = &text[..text.floor_char_boundary(max_bytes)];
   let kept = head.rfind('\n').map_or(head, |end| &head[..end]);
+  let fitting = kept.lines().filter(|line| !line.is_empty()).count();
   let omitted = text[kept.len()..].lines().filter(|line| !line.is_empty()).count();
+  if list_cut::kept(fitting + omitted, fitting) == fitting + omitted {
+    return Cow::Borrowed(text);
+  }
   Cow::Owned(format!("{kept}\n[… {omitted} more lines omitted]"))
 }
 

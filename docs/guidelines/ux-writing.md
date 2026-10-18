@@ -91,7 +91,10 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
   ("Failed: Fast Tests, Smoke, Compilation and Lint", four of four), a chip row's ("+2 branches"), the dropped
   commits of a push ("and 2 more" past ten) and `bd`'s output (`files_omitted`, " (2 more: bd check)" after the
   dangling references it describes): a list one longer than its limit is given whole, the count of the rest is never 1
-  (`cutList`; the backend's lists `sync_utils::list_cut::kept`). The one exception is a list whose rows a poll keeps
+  (`cutList`; the backend's lists `sync_utils::list_cut::kept`). An item with no name to stand there is said as such,
+  never counted alone ("tests and a check without a name", a GitHub check without one), and a text cut to a budget
+  sends its one line past it rather than "1 more lines" (the input of the branch naming, "[… 2 more lines omitted]").
+  The one exception is a list whose rows a poll keeps
   in place: Your Turn shows three rows, then "Show 1 More", since a fourth row would come and go with the polls.
 
 ## Actions

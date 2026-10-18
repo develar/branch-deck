@@ -10,7 +10,7 @@ export interface CheckCounts {
   readonly passed: number
 }
 
-/** "1 failing (tests), 2 running, 9 passed"; "All 4 passed" */
+/** "1 failing (tests), 2 running, 9 passed", "5 failing (a, b, c and 2 more)" (`formatFailedCheckNames`); "All 4 passed" */
 export function formatCheckCounts(checks: CheckCounts): string {
   const canceled = checks.canceled ?? 0
   const total = checks.failed + checks.running + canceled + checks.passed
@@ -19,7 +19,7 @@ export function formatCheckCounts(checks: CheckCounts): string {
   }
   const parts: string[] = []
   if (checks.failed > 0) {
-    const names = checks.failedNames.length === 0 ? "" : ` (${checks.failedNames.join(", ")}${checks.failed > checks.failedNames.length ? ", …" : ""})`
+    const names = checks.failedNames.length === 0 ? "" : ` (${formatFailedCheckNames(checks)})`
     parts.push(`${checks.failed} failing${names}`)
   }
   if (checks.running > 0) {
@@ -39,7 +39,8 @@ const NAMED_CHECKS = 3
 
 /**
  * "Fast Tests", "Fast Tests, Smoke, Compilation and Lint", "Fast Tests, Smoke, Compilation and 2 more" (`cutList`: never
- * "and 1 more"), "2 checks" without names; null while none failed
+ * "and 1 more"), "2 checks" without names; null while none failed. The backend never leaves out only one named check, so
+ * one left out has no name that could stand there (a GitHub check without one): "tests and a check without a name"
  */
 export function formatFailedCheckNames(checks: Pick<CheckCounts, "failed" | "failedNames">): string | null {
   if (checks.failed === 0) {
@@ -49,7 +50,10 @@ export function formatFailedCheckNames(checks: Pick<CheckCounts, "failed" | "fai
     return checks.failed === 1 ? "1 check" : `${checks.failed} checks`
   }
   const { shown, more } = cutList(checks.failedNames, NAMED_CHECKS, checks.failed)
-  return more > 0 ? `${shown.join(", ")} and ${more} more` : joinNames(shown)
+  if (more === 0) {
+    return joinNames(shown)
+  }
+  return `${shown.join(", ")} and ${more === 1 ? "a check without a name" : `${more} more`}`
 }
 
 /** "Failed: Fast Tests", for the row of a running robot; null while none failed */

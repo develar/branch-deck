@@ -242,6 +242,9 @@ fn caps_the_input_of_a_large_selection_at_a_line() {
   let text = "line\n".repeat(10);
   assert_eq!(cap_input(&text, 100), text);
   assert_eq!(cap_input(&text, 12), "line\nline\n[… 8 more lines omitted]");
+  // never "1 more lines": the one line past the budget is sent, two are cut
+  assert_eq!(cap_input(&text, 47), text);
+  assert_eq!(cap_input(&text, 42), "line\nline\nline\nline\nline\nline\nline\nline\n[… 2 more lines omitted]");
 }
 
 #[test]

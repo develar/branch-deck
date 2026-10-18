@@ -101,7 +101,8 @@ describe("formatAuthorAttention", () => {
 describe("formatChecks", () => {
   it("lists the failing checks first", () => {
     expect(formatChecks(failing)).toBe("1 failing (tests), 2 running, 9 passed")
-    expect(formatChecks({ state: "failing", passed: 0, failed: 5, pending: 0, failedNames: ["a", "b", "c"] })).toBe("5 failing (a, b, c, …)")
+    expect(formatChecks({ state: "failing", passed: 0, failed: 5, pending: 0, failedNames: ["a", "b", "c"] })).toBe("5 failing (a, b, c and 2 more)")
+    expect(formatChecks({ state: "failing", passed: 0, failed: 2, pending: 0, failedNames: ["tests"] })).toBe("2 failing (tests and a check without a name)")
     expect(formatChecks({ state: "passing", passed: 4, failed: 0, pending: 0, failedNames: [] })).toBe("All 4 passed")
     expect(formatChecks({ state: "passing", passed: 1, failed: 0, pending: 0, failedNames: [] })).toBe("Passed")
   })

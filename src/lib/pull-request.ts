@@ -124,7 +124,7 @@ export function changesRequestedBy(pullRequest: Pick<PullRequest, "reviewers">):
   return pullRequest.reviewers.filter(it => it.state === "changesRequested" && !it.requested && !isBotReviewer(it.login)).map(it => it.login)
 }
 
-/** "1 failing (tests), 2 running, 9 passed"; "All 4 passed" */
+/** "1 failing (tests), 2 running, 9 passed", "5 failing (a, b, c and 2 more)"; "All 4 passed" */
 export function formatChecks(checks: ChecksSummary): string {
   return formatCheckCounts({ failed: checks.failed, failedNames: checks.failedNames, running: checks.pending, passed: checks.passed })
 }

@@ -13,6 +13,7 @@ targets:
   - ../../src-tauri/src/repository_state.rs
   - ../../src/stores/pull-requests.ts
   - ../../src/lib/pull-request.ts
+  - ../../src/lib/check-counts.ts
   - ../../src/lib/review-commit.ts
   - ../../src/components/branch/PullRequestChip.tsx
   - ../../src/components/branch/ReviewCommitNotice.tsx
@@ -259,9 +260,12 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   [@test] ../../src/lib/review-commit.test.ts (`takes the branch as it is for its own tip, and while nothing says otherwise`)
 - Its accessible name is "Pull request #760: Approved".
 - Hovering the chip opens the details: the number and the state, the title, the checks ("1 failing (tests), 2
-  running, 9 passed", "All 4 passed"), the reviewers, the last update, the notice about the head (below), "Open Pull
-  Request" and "Copy Pull Request Link" (which says "Copied" in place), named as in the branch menu.
+  running, 9 passed", "All 4 passed"; the failed ones named as a cut list, "5 failing (a, b, c and 2 more)", one
+  without a name said as such, never "and 1 more": "2 failing (tests and a check without a name)"), the reviewers, the
+  last update, the notice about the head (below), "Open Pull Request" and "Copy Pull Request Link" (which says
+  "Copied" in place), named as in the branch menu.
   [@test] ../../src/lib/pull-request.test.ts (`lists the failing checks first`)
+  [@test] ../../src/lib/check-counts.test.ts (`never counts one failed check left out: one without a name is said as such, in the counts of the checks too`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the details on hover and open the pull request on click`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
 - With the dot, the details say "Shows 3264f30f; the branch has changed since: push to update the pull request.", or,

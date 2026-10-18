@@ -73,7 +73,8 @@ is its 2.5 GB download.
   so no option reaches git.
   [@test] ../../crates/sync-core/src/branch_name_suggestion_test.rs (`passes_the_flags_and_the_commits_on_stdin`)
   [@test] ../../crates/sync-core/src/branch_name_suggestion_test.rs (`rejects_what_is_not_a_commit_id`)
-- At most 32 KiB of it is sent, cut at a line, with "[… N more lines omitted]".
+- At most 32 KiB of it is sent, cut at a line, with "[… N more lines omitted]"; never one line: the one line past the
+  budget is sent with the rest, as every cut list keeps one more than its limit (`list_cut::kept`).
   [@test] ../../crates/sync-core/src/branch_name_suggestion_test.rs (`caps_the_input_of_a_large_selection_at_a_line`)
 
 ### Calling Claude Code
