@@ -42,6 +42,7 @@ targets:
   - ../../src/lib/merge-conflict.ts
   - ../../src/stores/conflict-contents.ts
   - ../../crates/sync-core/src/conflict_contents.rs
+  - ../../crates/sync-core/src/conflict_chain.rs
   - ../../src-tauri/src/commands/conflict_contents.rs
 ---
 
@@ -307,9 +308,12 @@ The commit hash popover shows the same header and body.
   A view reads the contents (the merged files, the change of the commit, the diffs of the missing commits) when it
   shows the conflict, with one read for its conflicting files and its missing commits, and drops them when it closes;
   an open item shows "Loading the conflict…" until then. The read takes the contents the sync left in the object
-  cache, else merges and analyses the conflict again.
+  cache, else merges and analyses the conflict again; that merge must work after `git gc` too, while the branch
+  conflicts, also after a sync without the object cache: the sync keeps the copies of the branch's commits before the
+  conflict, which the conflict merges onto, on a ref of its own.
   [@test] ../../crates/sync-core/src/conflict_contents_test.rs (`a_sync_reports_a_conflict_without_the_contents_of_its_files`, `the_remembered_contents_are_the_ones_the_analysis_makes`)
-  [@test] ../../crates/sync-core/src/process_budget_test.rs (`opening_a_conflict`)
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`opening_a_conflict`, `opening_a_conflict_after_gc`)
+  [@test] ../../crates/sync-core/src/conflict_chain_test.rs (`a_conflicting_branch_keeps_its_copies_while_it_conflicts`, `the_refs_move_with_compare_and_swap_and_a_move_by_another_process_counts`, `a_branch_and_a_branch_below_it_have_refs_of_their_own`)
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should load the contents of a conflict when its view shows it, once for all its files`)
 - A failed read must be the sticky toast "Cannot load the conflict" with the reason, and an open item must say
   "Cannot load the conflict: <reason>" under its header, which keeps the file and its conflict count. The conflict is

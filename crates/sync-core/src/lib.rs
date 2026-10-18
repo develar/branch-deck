@@ -20,6 +20,7 @@
 //! - `missing_commits`: the commits a conflicting commit likely needs, with their branches
 //! - `conflict_contents`: the contents of a conflict view, read when the view shows it
 //! - `cache_memo`: the merges, commit trees and conflict views in the object cache
+//! - `conflict_chain`: the copies of a conflicting branch before its conflict, kept by a ref and remembered
 //! - `landed`: the user's commits that reached the baseline, before and after an update
 //! - `baseline_fetch`: the fetch of the baseline without an update
 //!
@@ -113,6 +114,7 @@ pub mod commit_ids;
 pub mod commit_key;
 pub mod commit_walk;
 pub mod config_snapshot;
+mod conflict_chain;
 pub mod conflict_contents;
 pub mod conflict_fix;
 pub mod dangling_fix;

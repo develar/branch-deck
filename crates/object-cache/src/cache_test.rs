@@ -515,7 +515,7 @@ fn conflict_views_are_read_by_their_version_and_big_contents_are_not_kept() {
   assert_eq!(cache.get_conflict_contents::<Vec<String>>(1, &key("c1")), None);
   assert_eq!(cache.get_conflict_info::<Vec<String>>(2, &key("c2")), Some(view));
   let names = database_names(&open_env(&dir.path().join("conflicts"), DEFAULT_CONFLICT_MAP_SIZE).unwrap());
-  assert_eq!(names, ["conflict_info.v1"]);
+  assert_eq!(names, ["conflict_chain.v1", "conflict_info.v1"]);
 }
 
 /// A passed build is read by the key version that wrote it; the first write of another version clears the store
@@ -573,4 +573,23 @@ fn remote_statuses_are_read_by_their_version() {
   cache.put_remote_statuses(2, &[([2; 32], &status)]);
   assert_eq!(cache.get_remote_status::<Vec<String>>(1, &[1; 32]), None);
   assert_eq!(cache.get_remote_status::<Vec<String>>(2, &[2; 32]), Some(status));
+}
+
+/// The chains of the conflicting branches are read by the copy version that wrote them, in the conflict environment,
+/// and the first write of another version clears them
+#[test_log::test]
+fn conflict_chains_are_read_by_their_version() {
+  let dir = tempfile::tempdir().unwrap();
+  let cache = open(dir.path());
+  let chain = vec!["c1".to_string()];
+  cache.put_conflict_chains(1, &[([1; 32], &chain)]);
+  assert_eq!(cache.get_conflict_chain::<Vec<String>>(1, &[1; 32]), Some(chain.clone()));
+  assert_eq!(cache.get_conflict_chain::<Vec<String>>(1, &[2; 32]), None);
+  assert_eq!(cache.get_conflict_chain::<Vec<String>>(2, &[1; 32]), None, "a chain of another version is never read");
+
+  cache.put_conflict_chains(2, &[([2; 32], &chain)]);
+  assert_eq!(cache.get_conflict_chain::<Vec<String>>(1, &[1; 32]), None);
+  assert_eq!(cache.get_conflict_chain::<Vec<String>>(2, &[2; 32]), Some(chain));
+  let names = database_names(&open_env(&dir.path().join("conflicts"), DEFAULT_CONFLICT_MAP_SIZE).unwrap());
+  assert!(names.contains(&"conflict_chain.v1".to_string()), "{names:?}");
 }

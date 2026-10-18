@@ -1029,6 +1029,28 @@ branches and the tips from the report (`SyncOutput::report`), so a command that 
    the branch is built, before its head goes to the branches built on it. Its ref is reset before `done`, so the
    commits are on no ref until the sync's transaction moves the branch, as with `commit-tree`; a chain dropped on an
    error still ends `fast-import` with `done`, which would otherwise leave a crash report in the git directory.
+
+   **A conflicting branch keeps its copies before the conflict** (`crates/sync-core/src/conflict_chain.rs`). When
+   commit k of a branch conflicts, the branch keeps its last good tip, and the copies of commits 1..k-1 are on no
+   branch, yet the conflict's merge, and its view, are onto the copy of commit k-1. The sync keeps that copy, and with
+   it the copies below it, on `refs/branch-deck/conflict/<sha256 of the branch's full name>` (a hash, so the refs of
+   a branch `a` and a branch `a/b` never clash and a rename is a delete and a create): `git gc` doesn't prune them,
+   and the view of the conflict opens from them while the branch conflicts, with or without the object cache. No ref
+   is kept when the conflict is at the first commit or the copy of commit k-1 is on the virtual branch already, both
+   on a ref. The object cache remembers the chain (`conflict_chain`), and the next sync of the unchanged branch takes
+   the copies (`RememberedCopy` of `copy_commit`, their trees into the tree cache, the status and the note as a copy
+   written again would get) instead of merging and writing them: its chain starts no process, and the remembered
+   view of the conflict needs no merge. Only while the copies are kept: the ref is at the last copy, or the last copy
+   is on the virtual branch. Only a sync: a check rewrites messages under the same commit ids.
+
+   The refs are listed by the sync's one `for-each-ref` and moved by one transaction per sync, after the branches,
+   with CAS on the listed tips, only when one changes: created or moved for a branch that conflicts after commit 1,
+   deleted for a branch that built, conflicts at its first commit or has the copy on its branch, and for the refs of
+   the branches no longer grouped; the ref of a branch not built for another reason (blocked, a stack problem, an
+   error) stays. A failed transaction fails no sync: the refs are listed again, and a ref another sync already moved
+   where this one wants it (the copies are deterministic) counts as moved; the rest waits for the next sync. The
+   fingerprint of the automatic sync doesn't include `refs/branch-deck/`, so the move starts no sync; the chains show
+   in `git log --all`.
 3. Known trees are seeded into the tree cache (`%T` of the listed commits, the tree of each new commit), and the
    cherry-pick takes the parent from the commit list instead of asking git.
 4. A branch is moved with an `update-ref --stdin` transaction, and its `original → new` mapping notes are written as
@@ -1230,6 +1252,14 @@ id stays whole).
   `build_merge_conflict_info` bumps it,
   and its first write clears the store. A check reports light conflicts and reads none; `--no-cache` analyses every
   conflict.
+- `conflict_chain` ((chain version, a hash of the branch's full name and its base) → the originals before the conflict
+  and their copies with their trees) is written and read by the sync through `ChainMemo`
+  (`crates/sync-core/src/conflict_chain.rs`), in the conflict environment beside the views: a conflicting branch whose
+  originals still start with those commits takes the copies instead of merging and writing them again (see "A
+  conflicting branch keeps its copies" in "Virtual branch sync"; the copies are on `refs/branch-deck/conflict/`, which
+  keeps them from `gc`). Not in the key, as for `conflict_info`: the merge config and the version of git.
+  `CONFLICT_CHAIN_VERSION` (`merge_memo.rs`) is part of the key: a change of how `copy_commit` copies a commit bumps it,
+  and its first write clears the store. The new chains are written in one transaction when the memo drops.
 - `commit_files` (commit → files with statuses and line counts, no hunks) is read and written by the app for the
   commit rows (see "Commit files" below) and by the review pre-check for the paths of the commits (see "Patronus
   review pre-check"). It is a store of its own: an entry without hunks in `commit_diff` would read as "no hunks" to
@@ -1947,7 +1977,7 @@ recovery hint (`git reset -q`).
 | Squash the fixups of a range | a terminal `rebase -i --autosquash` | 1 `log` + 1 `rev-parse` for the plan, then the squash, with one `cat-file` more if messages are combined |
 | Move a hunk across n commits | `commit-tree` plumbing by hand, per commit | 1 `log` + the guard + 1 `cat-file` + 1 `diff-tree` (+ 1 `cat-file` of two blobs) + 1 `fast-import` + 1 `merge-tree --stdin` + 1 `diff-tree --stdin` + 1 `patch-id` + 1 `fast-import` + 1 `update-ref` |
 | Squash k commits into one, n commits after it | a terminal `rebase -i` | 1 `log` + 1 `cat-file` + 1 `merge-tree --stdin` (k merges) + 1 `fast-import` + 1 `replay` + 1 `rev-list` + 1 `update-ref` |
-| Sync of a branch whose n commits are copied, m of them merged | m `merge-tree` + n `commit-tree` | 1 `merge-tree --stdin` + 1 `fast-import` (a conflict: 1 `merge-tree` more and the conflict analysis) |
+| Sync of a branch whose n commits are copied, m of them merged | m `merge-tree` + n `commit-tree` | 1 `merge-tree --stdin` + 1 `fast-import` (a conflict: 1 `merge-tree` more and the conflict analysis, 1 `update-ref` per sync for the refs that keep the copies before the conflicts; none of these for a conflicting branch that did not change, whose copies and view the object cache remembers) |
 | Sync notes for n created commits | n `notes add` | 1 `fast-import` per sync |
 | Existing virtual branches of a sync | 1 `show-ref` per branch | 1 `for-each-ref` per sync |
 | Update check inside a sync, p paths changed by the update | an index copy, a full `update-index --refresh` and a dry run: grows with the index | unchanged state: 2 `merge-base` and an `lstat` per path, the guards, the upstream and the commits from the sync's `RepoFacts`; new state: + `rev-list`, `replay`, `diff-tree`, `cat-file`, `hash-object` of the paths not seen yet |
@@ -1967,13 +1997,15 @@ and `crates/bd-cli/src/process_budget_test.rs` (a whole `bd` command, its contex
 per operation on a small fixture (two branches of three commits, unless the test says otherwise). A change that saves a
 process lowers a number there, so the diff of the assert names the process that went away; a change that adds one must
 raise it. The totals, when each test was first pinned (the audit of the git layer, 2026-10-17; the tests marked * later
-in it; † with the remote statuses in the object cache, 2026-10-18, first pinned is the code before it) and now:
+in it; † with the remote statuses or the conflict chains in the object cache, 2026-10-18, first pinned is the code
+before it) and now:
 
 | Operation | Test | First pinned | Now |
 |---|---|---|---|
 | First sync | `a_first_sync` | 37 | 22 |
 | Unchanged sync | `an_unchanged_sync` | 25 | 12 |
 | Unchanged sync of a conflicting branch, without / with the object cache | `an_unchanged_sync_of_a_conflicting_branch` * | 20 / 13 | 19 / 12 |
+| A branch that conflicts after a clean commit, with the object cache: its first sync, each next one | `an_unchanged_sync_of_a_conflict_after_a_clean_commit` † | 34, 14 | 35, 12 |
 | Unchanged sync of a pushed and a fetched branch in a new process (`bd sync`): the first, each next one | `an_unchanged_sync_of_pushed_branches_in_a_new_process` † | 16, 16 | 15, 13 |
 | Open a conflict view, from the object cache / without it | `opening_a_conflict` * | 0 / 6 | 0 / 6 |
 | Trial sync (the core of `bd check`), empty / filled object cache | `a_check` | 18 / 16 | 18 / 16 |
@@ -2013,7 +2045,11 @@ copied again (3 `merge-tree --stdin`, 3 `fast-import`; see "Follow-ups"). Since 
 object cache (`remote_status`), a `bd sync` of commits that did not move walks no branch: on the same clone with the
 remote branches of 2026-10-18 (14 of the 38 branches on the remote), an unchanged `bd sync` ran 32 processes before
 (10 `rev-list`, 3 `reflog`; 0.47–0.92 s) and 20 after (the 13 fixed reads, one `reflog` for the push times of all
-branches and the chains of the conflicting branches; 0.14 s), the same output.
+branches and the chains of the conflicting branches; 0.14 s), the same output. Since the conflicting branches take
+the copies before their conflicts from the object cache (`conflict_chain`), measured with `pnpm perf:monorepo` on that
+pin: an unchanged `bd sync` 20 → 14 (no `merge-tree`, no `fast-import`: the 13 fixed reads and one `reflog`),
+`bd push --dry-run` of one branch after it 23 → 17, `--all` 21 → 15; the full sync 162 → 163 (one `update-ref` for the
+refs that keep the copies), every output the same.
 
 ### Measuring on a large repository
 
@@ -2067,11 +2103,6 @@ Left out of the audit of the git layer on purpose, the gain smaller than the noi
   would be a cheap one.
 - **The landing check reads `HEAD ^base` again** (`read_local` in `crates/sync-core/src/landed.rs`): one `log` per sync
   of a fresh process while an update is pending, though the commit list of the sync has those commits.
-- **Chains of conflicting branches are copied again at every sync**: the commits before the conflict are on no ref and
-  get no mapping notes, so each such branch runs its `merge-tree --stdin` and its `fast-import` again.
-- **A conflict view after `git gc`**: a view whose contents the object cache misses merges the commits again
-  (`rebuild_merge_conflict`), and its target, the copy written before the conflict on no ref, may have been pruned
-  since the sync; the view then fails until a sync writes the copy again.
 
 ## References
 

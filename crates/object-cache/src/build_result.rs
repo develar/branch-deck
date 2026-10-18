@@ -4,31 +4,18 @@
 //! entry stays valid as long as the build depends only on the tree (see `cache.rs`). The version of the key is part of
 //! each key, and the first write of a process with another version clears the store, as for `conflict_info`
 
-use crate::cache::{ObjectCache, Store};
-use std::sync::atomic::AtomicU64;
-
-/// The version this process checked the store for
-static CHECKED: AtomicU64 = AtomicU64::new(0);
-
-/// The version, big-endian, then the hash
-fn key_bytes(version: u32, key: &[u8; 32]) -> Vec<u8> {
-  [version.to_be_bytes().as_slice(), key].concat()
-}
+use crate::cache::{ObjectCache, Store, hashed_key};
 
 impl ObjectCache {
   /// Whether the build of each of `keys`, hashed by the caller of `version`, passed; in their order
   pub fn passed_builds(&self, version: u32, keys: &[[u8; 32]]) -> Vec<bool> {
-    let raw: Vec<Vec<u8>> = keys.iter().map(|key| key_bytes(version, key)).collect();
+    let raw: Vec<Vec<u8>> = keys.iter().map(|key| hashed_key(version, key)).collect();
     self.contains_many(Store::BuildResult, &raw)
   }
 
   /// Remember that the builds of `keys` passed, in one transaction
   pub fn put_passed_builds(&self, version: u32, keys: &[[u8; 32]]) {
-    if !self.is_enabled() || keys.is_empty() {
-      return;
-    }
-    self.keep_only_version(Store::BuildResult, version, &CHECKED);
-    let entries: Vec<(Vec<u8>, &())> = keys.iter().map(|key| (key_bytes(version, key), &())).collect();
-    self.put_many(Store::BuildResult, &entries);
+    let entries: Vec<([u8; 32], ())> = keys.iter().map(|key| (*key, ())).collect();
+    self.put_hashed(Store::BuildResult, version, &entries);
   }
 }

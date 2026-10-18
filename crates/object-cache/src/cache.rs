@@ -5,9 +5,9 @@
 //! - **Four environments**, so that what is bulky never evicts what is small and costly: the patches of `commit_patch`
 //!   in `patches/` (`CacheConfig::patch_map_size`); the merges of `merge_result` and the trees of `commit_tree`, small
 //!   entries a check costs most to learn again, in `merges/` (`CacheConfig::merge_map_size`); the conflict views of
-//!   `conflict_info`, a few that may each hold megabytes of file contents, in `conflicts/`
-//!   (`CacheConfig::conflict_map_size`); the other stores (the diffs, lines and summaries of commits and blobs) in the
-//!   cache directory itself. A store moved to another environment is dropped from the old one on open.
+//!   `conflict_info`, a few that may each hold megabytes of file contents, and the chains of `conflict_chain`, in
+//!   `conflicts/` (`CacheConfig::conflict_map_size`); the other stores (the diffs, lines and summaries of commits and
+//!   blobs) in the cache directory itself. A store moved to another environment is dropped from the old one on open.
 //! - **The two exceptions are `review_answer` and `build_result`**, keyed by a hash of what they decide on. An answer
 //!   of Patronus (the changed paths, the target, the reviews of a pull request), which the target's ownership rules
 //!   can outdate: its value carries when it was fetched, and the reader decides how long it holds
@@ -107,10 +107,11 @@ pub(crate) enum Store {
   ConflictInfo,
   RemoteStatus,
   BuildResult,
+  ConflictChain,
 }
 
 /// How many stores there are
-const STORE_COUNT: usize = 11;
+const STORE_COUNT: usize = 12;
 
 pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::CommitDiff,
@@ -124,6 +125,7 @@ pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::ConflictInfo,
   Store::RemoteStatus,
   Store::BuildResult,
+  Store::ConflictChain,
 ];
 
 impl Store {
@@ -136,7 +138,7 @@ impl Store {
       // algorithm, the inter-hunk context and the indent heuristic pinned, whatever the user's diff config
       Self::CommitDiff | Self::CommitLines => 3,
       // a new extractor needs no bump: its version is part of each key (`blob_summary`, `conflict_info`,
-      // `remote_status`, `build_result`)
+      // `remote_status`, `build_result`, `conflict_chain`)
       Self::CommitFiles
       | Self::CommitTree
       | Self::MergeResult
@@ -145,7 +147,8 @@ impl Store {
       | Self::CommitPatch
       | Self::ConflictInfo
       | Self::RemoteStatus
-      | Self::BuildResult => 1,
+      | Self::BuildResult
+      | Self::ConflictChain => 1,
     }
   }
 
@@ -153,7 +156,7 @@ impl Store {
     match self {
       Self::CommitPatch => Environment::Patches,
       Self::MergeResult | Self::CommitTree => Environment::Merges,
-      Self::ConflictInfo => Environment::Conflicts,
+      Self::ConflictInfo | Self::ConflictChain => Environment::Conflicts,
       Self::CommitDiff | Self::CommitFiles | Self::CommitLines | Self::BlobSummary | Self::ReviewAnswer | Self::RemoteStatus | Self::BuildResult => Environment::Main,
     }
   }
@@ -176,6 +179,7 @@ impl Store {
       Self::ConflictInfo => "conflict_info",
       Self::RemoteStatus => "remote_status",
       Self::BuildResult => "build_result",
+      Self::ConflictChain => "conflict_chain",
     }
   }
 }
@@ -205,6 +209,15 @@ impl Default for CacheConfig {
     }
   }
 }
+
+/// The key of an entry of a store keyed by a hash the caller makes of what the value is a function of
+/// (`remote_status`, `build_result`, `conflict_chain`): the version that wrote it, big-endian, then the hash
+pub(crate) fn hashed_key(version: u32, hash: &[u8; 32]) -> Vec<u8> {
+  [version.to_be_bytes().as_slice(), hash].concat()
+}
+
+/// The version this process checked each store keyed by a hash for (`put_hashed`), by `Store::index`
+static HASHED_CHECKED: [AtomicU64; STORE_COUNT] = [const { AtomicU64::new(0) }; STORE_COUNT];
 
 /// `$GIT_COMMON_DIR/branch-deck/cache`: shared by all worktrees of a repository
 pub fn cache_dir(git_common_dir: &Path) -> PathBuf {
@@ -350,6 +363,22 @@ impl ObjectCache {
       debug!(error = %e, store = store.base_name(), "cache read failed");
       vec![false; keys.len()]
     })
+  }
+
+  /// The value of `hash` in a store keyed by a hash the caller makes (`hashed_key`), written by `version`
+  pub(crate) fn get_hashed<V: DeserializeOwned>(&self, store: Store, version: u32, hash: &[u8; 32]) -> Option<V> {
+    self.get_many(store, &[hashed_key(version, hash)]).pop().flatten()
+  }
+
+  /// Write `entries` of `version` into a store keyed by a hash in one transaction; the first write of a process clears
+  /// the entries of another version (`keep_only_version`)
+  pub(crate) fn put_hashed<V: Serialize>(&self, store: Store, version: u32, entries: &[([u8; 32], V)]) {
+    if !self.is_enabled() || entries.is_empty() {
+      return;
+    }
+    self.keep_only_version(store, version, &HASHED_CHECKED[store.index()]);
+    let entries: Vec<(Vec<u8>, &V)> = entries.iter().map(|(hash, value)| (hashed_key(version, hash), value)).collect();
+    self.put_many(store, &entries);
   }
 
   /// Write `entries` in one transaction. When the map is full, every database is cleared and the write retried once

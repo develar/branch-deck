@@ -10,6 +10,11 @@ use object_cache::merge_result::MergeResult;
 /// `build_merge_conflict_info` computes them change, so no view of the old analysis is read
 pub const CONFLICT_INFO_VERSION: u32 = 2;
 
+/// The version of a remembered chain of copies of a conflicting branch (`sync_core::conflict_chain`): bump it when how a
+/// commit is copied changes (`copy_commit`: its tree, message, author, committer or date), so no copy of the old way is
+/// taken
+pub const CONFLICT_CHAIN_VERSION: u32 = 1;
+
 /// The trees of a cherry-pick: the commit's parent tree, the commit's tree and the tree it is applied onto
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MergeTrees {

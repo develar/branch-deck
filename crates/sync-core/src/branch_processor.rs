@@ -3,6 +3,7 @@
 //! computed and its notes returned for the one notes write of the sync.
 
 use crate::commit_key::CommitKey;
+use crate::conflict_chain::{ChainMemo, ConflictChain, conflict_ref};
 use crate::missing_commits::CommitOwners;
 use crate::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent, compute_remote_status_for_branch};
 use anyhow::Result;
@@ -10,7 +11,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::to_final_branch_name;
 use git_ops::commit_chain::CommitChain;
 use git_ops::commit_list::Commit;
-use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, VirtualCommit, create_or_update_commit, read_virtual_commits};
+use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, RememberedCopy, VirtualCommit, create_or_update_commit, read_virtual_commits};
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus};
 use git_ops::notes::MappingNote;
 use git_ops::ref_transaction::RefTransaction;
@@ -46,6 +47,11 @@ pub(crate) struct BranchSyncContext<P: ProgressReporter> {
   pub verify_mapping_notes: bool,
   /// The branch of each commit, for the missing commits of a conflict
   pub owners: CommitOwners,
+  /// The copies of the conflicting branches before their conflicts, remembered by the object cache; only a sync has
+  /// them: a check rewrites messages under the same commit ids
+  pub conflict_chains: Option<ChainMemo>,
+  /// Ref -> tip of the refs that keep those copies (`conflict_chain::CONFLICT_REFS`), read once per sync
+  pub conflict_tips: HashMap<String, String>,
 }
 
 /// The commits of every existing virtual branch above the base of the sync, read with one `log` by the first branch
@@ -130,8 +136,17 @@ impl BuiltBranch {
 
 pub(crate) enum BuildOutcome {
   Built(Box<BuiltBranch>),
-  /// A commit could not be copied (`Conflict` or `Error`); its events are sent and the branch is left as it was
-  Failed(BlockReason),
+  /// A commit could not be copied (`Conflict` or `Error`); its events are sent and the branch is left as it was. A
+  /// conflict names what its conflict ref keeps
+  Failed(BlockReason, Option<KeptChain>),
+}
+
+/// What the conflict ref of a conflicting branch keeps (`conflict_chain`)
+pub(crate) struct KeptChain {
+  pub full_branch_name: String,
+  /// The copy of the last commit before the conflict; `None` when no ref is needed: the conflict is at the first commit,
+  /// or that copy is on the virtual branch already
+  pub last_copy: Option<String>,
 }
 
 /// Result of processing a single commit
@@ -150,7 +165,7 @@ enum CommitProcessingResult {
 pub(crate) fn process_single_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job: BranchJob) -> Result<Vec<MappingNote>> {
   match build_branch(ctx, job)? {
     BuildOutcome::Built(built) => finish_branch(ctx, *built).map(|notes| notes.mappings),
-    BuildOutcome::Failed(_) => Ok(Vec::new()),
+    BuildOutcome::Failed(..) => Ok(Vec::new()),
   }
 }
 
@@ -177,6 +192,8 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
     existing_commits,
     verify_mapping_notes,
     owners,
+    conflict_chains,
+    conflict_tips,
     ..
   } = ctx;
   let total_branches = *total_branches;
@@ -215,6 +232,18 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
   } else {
     None
   };
+
+  // the copies before the conflict an earlier sync remembered, while they are kept: by the conflict ref, or on the branch
+  let remembered = conflict_chains
+    .as_ref()
+    .and_then(|memo| memo.get(&full_branch_name, &base_commit))
+    .filter(|chain| chain.starts(&commits))
+    .filter(|chain| {
+      chain.last().is_none_or(|last| {
+        conflict_tips.get(&conflict_ref(&full_branch_name)).is_some_and(|tip| tip == last) || existing_virtual_commits.as_ref().is_some_and(|commits| commits.contains_key(last))
+      })
+    });
+  let mut copies: Vec<(String, String)> = Vec::new();
 
   let mut current_parent_hash = base_commit.clone();
   // a copy is never older than the commits below it, and its date depends only on the originals and the base
@@ -262,6 +291,10 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
       existing_virtual_commits: existing_virtual_commits.as_ref(),
       verify_notes: *verify_mapping_notes,
       committer_timestamp,
+      remembered: remembered
+        .as_ref()
+        .and_then(|chain| chain.copies.get(current_commit_idx))
+        .map(|(id, tree)| RememberedCopy { id, tree }),
     };
 
     match process_single_commit(
@@ -283,13 +316,32 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
         }
         // the note of a created commit, or the source a reused commit's older note lacked
         pending_notes.extend(mapping_info);
+        // every path to a copy leaves its tree in the cache
+        let tree = tree_id_cache.get_tree_id(git_executor, repository_path, &new_commit_hash)?;
+        copies.push((new_commit_hash.clone(), tree));
 
         current_parent_hash.clone_from(&new_commit_hash);
         last_commit_hash = new_commit_hash;
       }
       CommitProcessingResult::BranchError(reason) => {
         // Error already handled and events sent by process_single_commit
-        return Ok(BuildOutcome::Failed(reason));
+        if reason != BlockReason::Conflict {
+          return Ok(BuildOutcome::Failed(reason, None));
+        }
+        let chain = ConflictChain {
+          originals: commits[..current_commit_idx].iter().map(|commit| commit.id.clone()).collect(),
+          copies,
+        };
+        let last_copy = chain
+          .last()
+          .filter(|last| !existing_virtual_commits.as_ref().is_some_and(|commits| commits.contains_key(*last)))
+          .map(str::to_string);
+        if let Some(memo) = conflict_chains
+          && remembered.as_ref() != Some(&chain)
+        {
+          memo.remember(&full_branch_name, &base_commit, chain);
+        }
+        return Ok(BuildOutcome::Failed(reason, Some(KeptChain { full_branch_name, last_copy })));
       }
     }
   }

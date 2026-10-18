@@ -7,29 +7,15 @@
 
 use crate::cache::{ObjectCache, Store};
 use serde::{Serialize, de::DeserializeOwned};
-use std::sync::atomic::AtomicU64;
-
-/// The version, big-endian, then the hash
-fn key_bytes(version: u32, key: &[u8; 32]) -> Vec<u8> {
-  [version.to_be_bytes().as_slice(), key].concat()
-}
-
-/// The version this process checked the store for
-static CHECKED: AtomicU64 = AtomicU64::new(0);
 
 impl ObjectCache {
   /// The cached status of `key`, written by the status of `version`
   pub fn get_remote_status<V: DeserializeOwned>(&self, version: u32, key: &[u8; 32]) -> Option<V> {
-    self.get_many(Store::RemoteStatus, &[key_bytes(version, key)]).pop().flatten()
+    self.get_hashed(Store::RemoteStatus, version, key)
   }
 
   /// Write the statuses of `version` in one transaction
   pub fn put_remote_statuses<V: Serialize>(&self, version: u32, statuses: &[([u8; 32], V)]) {
-    if !self.is_enabled() || statuses.is_empty() {
-      return;
-    }
-    self.keep_only_version(Store::RemoteStatus, version, &CHECKED);
-    let entries: Vec<(Vec<u8>, &V)> = statuses.iter().map(|(key, status)| (key_bytes(version, key), status)).collect();
-    self.put_many(Store::RemoteStatus, &entries);
+    self.put_hashed(Store::RemoteStatus, version, statuses);
   }
 }

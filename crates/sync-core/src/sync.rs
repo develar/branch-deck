@@ -7,6 +7,7 @@ use crate::cache_memo::ConflictMemo;
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs, parse_subject};
 use crate::commit_key::CommitKey;
 use crate::config_snapshot::ConfigSnapshot;
+use crate::conflict_chain::{ChainMemo, conflict_ref, move_conflict_refs};
 use crate::issue_navigation::load_issue_navigation_config;
 use crate::landed::record_sync;
 use crate::missing_commits::CommitOwners;
@@ -578,6 +579,11 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
 ) -> Result<HashMap<String, Option<String>>> {
   let context = Arc::new(context);
   let max_running = permits.capacity();
+  let grouped_refs: HashSet<String> = branches
+    .keys()
+    .filter_map(|name| to_final_branch_name(&context.branch_prefix, name).ok())
+    .map(|full_name| conflict_ref(&full_name))
+    .collect();
   let mut schedule = Schedule {
     jobs: HashMap::with_capacity(branches.len()),
     children: HashMap::new(),
@@ -637,6 +643,14 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
     schedule.ready(index);
   }
 
+  // the conflict refs to move: of the conflicting branches, of the built ones, and of the branches no longer grouped;
+  // a branch not built for another reason (blocked, a stack problem, an error) keeps its ref as it is
+  let mut conflict_refs: HashMap<String, Option<String>> = context
+    .conflict_tips
+    .keys()
+    .filter(|reference| !grouped_refs.contains(*reference))
+    .map(|reference| (reference.clone(), None))
+    .collect();
   let mut tasks = JoinSet::new();
   let mut to_finish: Vec<BuiltBranch> = Vec::new();
   let mut first_error = None;
@@ -673,7 +687,12 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
         to_finish.push(*built);
         None
       }
-      Ok(TaskOutput::Built(branch_name, Ok(BuildOutcome::Failed(reason)))) => Some((branch_name, reason)),
+      Ok(TaskOutput::Built(branch_name, Ok(BuildOutcome::Failed(reason, kept)))) => {
+        if let Some(kept) = kept {
+          conflict_refs.insert(conflict_ref(&kept.full_branch_name), kept.last_copy);
+        }
+        Some((branch_name, reason))
+      }
       Ok(TaskOutput::Built(branch_name, Err(e)) | TaskOutput::Finished(branch_name, Err(e))) => {
         error!(branch = %branch_name, error = ?e, "Branch processing failed");
         first_error.get_or_insert_with(|| e.context(format!("Failed to sync branch {branch_name}")));
@@ -682,6 +701,8 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
       Ok(TaskOutput::Finished(_, Ok(branch_notes))) => {
         notes.extend(branch_notes.mappings);
         stack_notes.extend(branch_notes.stack_note);
+        // a branch that builds keeps no copies
+        conflict_refs.insert(conflict_ref(&branch_notes.tip.0), None);
         tips.insert(branch_notes.tip.0, branch_notes.tip.1);
         None
       }
@@ -705,9 +726,12 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
   // the notes only save copying the commits again; the copies are deterministic, so a lost note costs time, not ids
   // (a copy older than the deterministic dates is kept by checking it against its tree, see `copy_commit`)
   // a stacked branch's base lets the integration detection of its archived branch look at its own commits only
-  let notes_result = tokio::task::spawn_blocking(move || write_commit_notes_with(&context.git_executor, &context.repository_path, &notes, Some((STACK_NOTES_REF, &stack_notes))))
-    .await
-    .map_err(|e| anyhow!("Writing the commit notes failed: {e}"))?;
+  let notes_result = tokio::task::spawn_blocking(move || {
+    move_conflict_refs(&context.git_executor, &context.repository_path, &context.conflict_tips, &conflict_refs);
+    write_commit_notes_with(&context.git_executor, &context.repository_path, &notes, Some((STACK_NOTES_REF, &stack_notes)))
+  })
+  .await
+  .map_err(|e| anyhow!("Writing the commit notes failed: {e}"))?;
   match first_error {
     Some(e) => Err(e),
     None => notes_result.map(|()| tips).map_err(|e| e.context("Failed to write commit notes")),
@@ -787,6 +811,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     baseline: baseline_branch,
     baseline_commit,
     branches: listed_branches,
+    conflict_tips,
     ..
   } = facts;
   let existing_tips = virtual_tips(&listed_branches, branch_prefix);
@@ -850,7 +875,10 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       tree_id_cache,
       existing_commits: Some(Arc::new(ExistingCommits::new(&parent_commit_hash, existing_tips.values().cloned()))),
       existing_tips,
-      remote_statuses: remote_tips.map(|RemoteTips { baseline, remote }| RemoteStatusMemo::new(git_executor.clone(), repository_path, object_cache, "origin", baseline, remote)),
+      remote_statuses: remote_tips
+        .map(|RemoteTips { baseline, remote }| RemoteStatusMemo::new(git_executor.clone(), repository_path, object_cache.clone(), "origin", baseline, remote)),
+      conflict_chains: object_cache.is_enabled().then(|| ChainMemo::new(object_cache)),
+      conflict_tips,
       ancestor_keys: ancestor_keys(&branches, stacks.as_ref()),
       verify_mapping_notes,
       owners: CommitOwners::new(&branches, |name| {

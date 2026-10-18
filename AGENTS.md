@@ -334,6 +334,10 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   tree). Only a regroup writes them, under the repository lock, in the ref transaction that moves HEAD, with CAS on
   every ref it moves; a sync only reads them, except that it drops the stack parent of a branch whose archived branch
   is integrated (one CAS write, best effort, `drop_integrated_stack_parents`).
+- **Conflict refs** (`refs/branch-deck/conflict/<sha256 of the branch's full name>`, `conflict_chain.rs`): they keep the
+  copies a sync wrote of a conflicting branch's commits before its conflict, which its view merges onto and the object
+  cache remembers (`conflict_chain`). Only a sync writes them, in one CAS transaction per sync after the branches, only
+  when one changes; a failed move fails no sync (listed again, a ref already where it should be counts as moved).
 - **Repository lock**: every rewrite of the checked-out branch takes it in its core, before it reads anything: the
   regroup (`regroup.rs`) and the move of a hunk through their options, and the app's squash and its undo, squash
   fixups (also `bd fold`), amend, unapply, reword and add issue reference through `RewriteOptions` (`held_lock`,

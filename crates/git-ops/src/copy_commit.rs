@@ -118,6 +118,16 @@ pub struct CreateCommitParams<'a> {
   pub verify_notes: bool,
   /// Committer date (unix seconds) of a new commit: the same input then writes the same commit
   pub committer_timestamp: u32,
+  /// The copy an earlier sync wrote of this commit onto `new_parent_oid`, which it remembers for a branch that
+  /// conflicts after it (`sync_core::conflict_chain`): taken without a merge and without a write
+  pub remembered: Option<RememberedCopy<'a>>,
+}
+
+/// A copy of a commit an earlier sync wrote, and its tree
+#[derive(Debug, Clone, Copy)]
+pub struct RememberedCopy<'a> {
+  pub id: &'a str,
+  pub tree: &'a str,
 }
 
 /// Result of copying one commit onto the virtual branch
@@ -162,6 +172,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     existing_virtual_commits,
     verify_notes,
     committer_timestamp,
+    remembered,
   } = params;
 
   // the commit list read the tree with the commit
@@ -181,6 +192,12 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     parent_tree: original_parent_tree_id.clone(),
     tree: original_tree_id.clone(),
   };
+  if let Some(copy) = remembered {
+    debug!(commit_id = %commit.id, copy = copy.id, "taking the copy the sync remembers");
+    // the next commit of the branch is copied onto this one
+    tree_id_cache.insert(copy.id, copy.tree);
+    return Ok(copied(commit, copy.id.to_string(), new_parent_oid, existing_virtual_commits, source));
+  }
   let commit_message = virtual_message(commit);
 
   // the tree of the copy: the original's tree on the same parent tree, else a 3-way merge with conflict handling
@@ -270,8 +287,13 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     .map_err(|e| CopyCommitError::Other(anyhow!("Failed to create commit: {e}")))?;
   // the next commit of the branch is copied onto this one; its tree is known, so don't ask git for it
   tree_id_cache.insert(&new_commit_hash, &tree_id);
+  Ok(copied(commit, new_commit_hash, new_parent_oid, existing_virtual_commits, source))
+}
 
-  // a re-copy that writes the commit the note maps to (the same input gives the same commit) keeps the branch as it is
+/// The copy `new_commit_hash` of `commit` onto `new_parent_oid`, written now or remembered: a re-copy that writes the
+/// commit the note maps to (the same input gives the same commit) keeps the branch as it is; the note is recorded for a
+/// created copy and for one whose note had another source
+fn copied(commit: &Commit, new_commit_hash: String, new_parent_oid: &str, existing_virtual_commits: Option<&HashMap<String, VirtualCommit>>, source: NoteSource) -> CopiedCommit {
   let status = if commit.mapped_commit_id.as_deref() == Some(new_commit_hash.as_str())
     && existing_virtual_commits.is_some_and(|commits| commits.get(&new_commit_hash).is_some_and(|existing| existing.parent == new_parent_oid))
   {
@@ -284,10 +306,9 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     mapped: new_commit_hash.clone(),
     source,
   });
-
-  Ok(CopiedCommit {
+  CopiedCommit {
     hash: new_commit_hash,
     status,
     note,
-  })
+  }
 }

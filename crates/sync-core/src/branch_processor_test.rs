@@ -71,6 +71,8 @@ fn sync_context(test_repo: &TestRepo, progress: TestReporter) -> BranchSyncConte
     git_executor: GitCommandExecutor::new(),
     tree_id_cache: TreeIdCache::new(),
     remote_statuses: None,
+    conflict_chains: None,
+    conflict_tips: HashMap::new(),
     existing_commits: None,
     existing_tips: existing_tips(test_repo),
     ancestor_keys: HashMap::new(),
@@ -102,7 +104,7 @@ fn rebuild_branch(test_repo: &TestRepo, branch: &str, base: &str) {
 fn build(context: &BranchSyncContext<TestReporter>, job: BranchJob) -> BuiltBranch {
   match build_branch(context, job).unwrap() {
     BuildOutcome::Built(built) => *built,
-    BuildOutcome::Failed(reason) => panic!("the build failed: {reason:?}"),
+    BuildOutcome::Failed(reason, _) => panic!("the build failed: {reason:?}"),
   }
 }
 

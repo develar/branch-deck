@@ -504,6 +504,8 @@ impl CheckSession {
         base.as_deref(),
       ),
       remote_statuses: None,
+      conflict_chains: None,
+      conflict_tips: HashMap::new(),
       // the commits of every copy a build may reuse, by one `log` for all branches and all checks of the session
       existing_commits: base.as_deref().map(|base| self.existing_commits_on(base, &existing_tips)),
       existing_tips,
@@ -874,7 +876,7 @@ fn build(
   };
   match build_branch(context, job) {
     Ok(BuildOutcome::Built(built)) => CheckOutcome::Ok { head: built.head },
-    Ok(BuildOutcome::Failed(_)) => progress.commit_error(name).unwrap_or_else(|| CheckOutcome::Error {
+    Ok(BuildOutcome::Failed(..)) => progress.commit_error(name).unwrap_or_else(|| CheckOutcome::Error {
       message: format!("Branch {name} failed to build"),
     }),
     Err(e) => CheckOutcome::Error { message: format!("{e:#}") },

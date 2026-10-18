@@ -140,13 +140,40 @@ fn repo_with_a_conflict() -> TestRepo {
   repo
 }
 
-/// A sync with the object cache, whose conflict views it remembers, on `git`
-async fn sync_with_cache(git: &GitCommandExecutor, repo: &TestRepo, cache: &ObjectCache) {
+/// The events of a sync of `repo` with `cache` (disabled: without the object cache) on `git`
+async fn sync_events(git: &GitCommandExecutor, repo: &TestRepo, cache: &ObjectCache) -> Vec<SyncEvent> {
+  let progress = TestReporter::new();
   let options = SyncOptions {
     object_cache: cache.clone(),
     ..SyncOptions::default()
   };
-  sync_branches(git, &path(repo), PREFIX, TestReporter::new(), options).await.unwrap();
+  sync_branches(git, &path(repo), PREFIX, progress.clone(), options).await.unwrap();
+  progress.get_events()
+}
+
+/// A sync with the object cache, whose conflict views it remembers, on `git`
+async fn sync_with_cache(git: &GitCommandExecutor, repo: &TestRepo, cache: &ObjectCache) {
+  sync_events(git, repo, cache).await;
+}
+
+/// What a view reads the contents of the first conflict of a sync by, from its `events`
+fn conflict_params(repo: &TestRepo, events: Vec<SyncEvent>) -> GetConflictContentsParams {
+  let conflict = events
+    .into_iter()
+    .find_map(|event| match event {
+      SyncEvent::CommitError {
+        error: BranchError::MergeConflict(info),
+        ..
+      } => Some(info),
+      _ => None,
+    })
+    .expect("a branch conflicts");
+  GetConflictContentsParams {
+    repository_path: path(repo),
+    commit: conflict.commit.hash.clone(),
+    parent: conflict.original_parent.hash.clone(),
+    target: conflict.target_branch.hash.clone(),
+  }
 }
 
 /// The conflict of an unchanged branch costs its merge (in its own `merge-tree`) and the analysis (`rev-list`, two
@@ -191,14 +218,8 @@ async fn pushed_repo(cache: &ObjectCache) -> TestRepo {
 
 /// The remote statuses a sync of `repo` with `cache` sends, by branch, on `git`
 async fn remote_statuses(git: &GitCommandExecutor, repo: &TestRepo, cache: &ObjectCache) -> BTreeMap<String, RemoteStatusUpdate> {
-  let progress = TestReporter::new();
-  let options = SyncOptions {
-    object_cache: cache.clone(),
-    ..SyncOptions::default()
-  };
-  sync_branches(git, &path(repo), PREFIX, progress.clone(), options).await.unwrap();
-  progress
-    .get_events()
+  sync_events(git, repo, cache)
+    .await
     .into_iter()
     .filter_map(|event| match event {
       SyncEvent::RemoteStatusUpdate(status) => Some((status.branch_name.clone(), status)),
@@ -240,29 +261,7 @@ async fn an_unchanged_sync_of_pushed_branches_in_a_new_process() {
 async fn opening_a_conflict() {
   let repo = repo_with_a_conflict();
   let (_dir, cache) = empty_cache();
-  let progress = TestReporter::new();
-  let options = SyncOptions {
-    object_cache: cache.clone(),
-    ..SyncOptions::default()
-  };
-  sync_branches(&GitCommandExecutor::new(), &path(&repo), PREFIX, progress.clone(), options).await.unwrap();
-  let conflict = progress
-    .get_events()
-    .into_iter()
-    .find_map(|event| match event {
-      SyncEvent::CommitError {
-        error: BranchError::MergeConflict(info),
-        ..
-      } => Some(info),
-      _ => None,
-    })
-    .expect("delta conflicts");
-  let params = GetConflictContentsParams {
-    repository_path: path(&repo),
-    commit: conflict.commit.hash.clone(),
-    parent: conflict.original_parent.hash.clone(),
-    target: conflict.target_branch.hash.clone(),
-  };
+  let params = conflict_params(&repo, sync_events(&GitCommandExecutor::new(), &repo, &cache).await);
 
   let git = counting();
   read_conflict_contents(&git, &cache, &params).unwrap();
@@ -275,6 +274,94 @@ async fn opening_a_conflict() {
   assert_processes(&git, &analysed);
   read_conflict_contents(&git, &empty, &params).unwrap();
   assert_processes(&git, &analysed);
+}
+
+/// `repo` with a branch whose clean first commit is copied with a merge (its parent tree is not the base's) before its
+/// second commit conflicts: `delta` conflicts at every sync onto the copy of its first commit
+pub(crate) fn repo_with_a_conflict_after_a_clean_commit() -> TestRepo {
+  let (repo, _) = repo();
+  repo.create_commit("(gamma) Add file", "file.txt", "1\n");
+  repo.create_commit("(delta) Add notes", "notes.txt", "notes\n");
+  repo.create_commit("(delta) Change file", "file.txt", "2\n");
+  repo
+}
+
+/// The events of a sync of `repo` with `cache` on `git` that say what became of each commit and branch, sorted: the
+/// branches finish in parallel
+async fn commit_events(git: &GitCommandExecutor, repo: &TestRepo, cache: &ObjectCache) -> Vec<String> {
+  let mut events: Vec<String> = sync_events(git, repo, cache)
+    .await
+    .into_iter()
+    .filter(|event| {
+      matches!(
+        event,
+        SyncEvent::CommitSynced { .. } | SyncEvent::CommitError { .. } | SyncEvent::CommitsBlocked { .. } | SyncEvent::BranchStatusUpdate { .. }
+      )
+    })
+    .map(|event| format!("{event:?}"))
+    .collect();
+  events.sort_unstable();
+  events
+}
+
+/// The copies of a conflicting branch before its conflict are remembered with the object cache and kept by
+/// `refs/branch-deck/conflict/`, so an unchanged sync neither merges nor writes them again (its first sync writes that
+/// ref, one `update-ref` more), and says the same about every commit
+#[tokio::test]
+async fn an_unchanged_sync_of_a_conflict_after_a_clean_commit() {
+  let repo = repo_with_a_conflict_after_a_clean_commit();
+  let (_dir, cache) = empty_cache();
+  let git = counting();
+  commit_events(&git, &repo, &cache).await;
+  // the conflict analysed, and one `update-ref` for the conflict ref beside one per built branch
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 2),
+      ("config", 1),
+      ("diff-tree", 1),
+      ("fast-import", 5),
+      ("for-each-ref", 1),
+      ("log", 4),
+      ("merge-base", 1),
+      ("merge-tree", 5),
+      ("notes", 1),
+      ("remote", 1),
+      ("rev-list", 4),
+      ("rev-parse", 2),
+      ("show-ref", 1),
+      ("symbolic-ref", 1),
+      ("update-ref", 4),
+      ("var", 1),
+    ],
+  );
+
+  let git = counting();
+  let second = commit_events(&git, &repo, &cache).await;
+  assert_processes(&git, &UNCHANGED_SYNC);
+  let git = counting();
+  assert_eq!(commit_events(&git, &repo, &cache).await, second);
+  assert_processes(&git, &UNCHANGED_SYNC);
+  assert!(second.iter().any(|event| event.starts_with("CommitSynced") && event.contains("delta")), "{second:#?}");
+
+  // a commit added after the conflict is blocked by it, and the copies before it are still taken
+  repo.create_commit("(delta) Add more", "more.txt", "more\n");
+  let git = counting();
+  commit_events(&git, &repo, &cache).await;
+  assert_processes(&git, &UNCHANGED_SYNC);
+}
+
+/// The view of a conflict onto the copy of an earlier commit of the branch opens after `git gc`, also from a sync
+/// without the object cache: `refs/branch-deck/conflict/` keeps that copy while the branch conflicts
+#[tokio::test]
+async fn opening_a_conflict_after_gc() {
+  let repo = repo_with_a_conflict_after_a_clean_commit();
+  let params = conflict_params(&repo, sync_events(&GitCommandExecutor::new(), &repo, &ObjectCache::disabled()).await);
+  // the target is the copy of delta's first commit, on no branch
+  assert_ne!(params.target, repo.rev_parse("test/virtual/delta").unwrap_or_default());
+  repo.git(&["gc", "--prune=now", "--quiet"]);
+  let (_dir, empty) = empty_cache();
+  read_conflict_contents(&GitCommandExecutor::new(), &empty, &params).unwrap();
 }
 
 /// `bd check` without a plan before the first sync, with an empty object cache and then with the one it filled

@@ -56,6 +56,8 @@ targets:
   - ../../crates/sync-core/src/cache_memo.rs
   - ../../crates/object-cache/src/conflict_info.rs
   - ../../crates/object-cache/src/remote_status.rs
+  - ../../crates/object-cache/src/conflict_chain.rs
+  - ../../crates/sync-core/src/conflict_chain.rs
   - ../../crates/object-cache/src/build_result.rs
   - ../../crates/sync-core/src/regroup.rs
   - ../../crates/sync-core/src/issue_groups.rs
@@ -568,8 +570,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - A conflict must name the conflicting commit, its subject, the files and the commits the change likely needs, and the
   exit code must be 1. A sync of an unchanged conflicting branch must take that view from the object cache, shared
   with the app, and run neither the merge nor the analysis of the conflict again; it must report the view the analysis
-  made, with the branches of the missing commits named as it groups them. `--no-cache` must analyse every conflict.
-  [@test] ../../crates/sync-core/src/process_budget_test.rs (`an_unchanged_sync_of_a_conflicting_branch`)
+  made, with the branches of the missing commits named as it groups them. A branch that conflicts after commits that
+  copy cleanly must not copy those again either: the copies the sync wrote before the conflict are taken while the
+  branch's commits before it are the same, also with a commit added after the conflict, and it says the same about
+  every commit. `--no-cache` must analyse every conflict.
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`an_unchanged_sync_of_a_conflicting_branch`, `an_unchanged_sync_of_a_conflict_after_a_clean_commit`)
+  [@test] ../../crates/object-cache/src/cache_test.rs (`conflict_chains_are_read_by_their_version`)
   [@test] ../../crates/sync-core/src/sync_test.rs (`a_remembered_conflict_is_the_one_the_analysis_made`)
   [@test] ../../crates/bd-cli/src/sync_test.rs (`a_conflict_exits_with_1`)
 - Per branch whose remote branch a push would change it must print the `bd push` to run, as bd names itself

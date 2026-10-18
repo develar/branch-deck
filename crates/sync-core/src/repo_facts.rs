@@ -3,6 +3,7 @@
 //! sync"). Three git processes after the guards, a fourth only when HEAD's branch tracks a branch the listing lacks.
 
 use crate::baseline::{NoBaseline, baseline_candidates, no_baseline};
+use crate::conflict_chain::CONFLICT_REFS;
 use crate::landed::STATE_FILE;
 use crate::update_project::{BaselineUpstream, KnownBaseline, TrackedUpstream, baseline_upstream_of, modified_time};
 use anyhow::{Result, bail};
@@ -36,6 +37,8 @@ pub(crate) struct RepoFacts {
   pub branches: Vec<ListedBranch>,
   /// Full name -> tip of its remote branch on `origin`, of the branches under the prefix
   pub remote_tips: HashMap<String, String>,
+  /// Ref -> tip of the refs that keep the copies of the conflicting branches (`conflict_chain`)
+  pub conflict_tips: HashMap<String, String>,
 }
 
 impl RepoFacts {
@@ -72,12 +75,15 @@ pub(crate) struct BaselineListing {
   pub branches: Vec<ListedBranch>,
   /// Full name -> tip of its remote branch on `origin`, of the branches under the prefix
   pub remote_tips: HashMap<String, String>,
+  /// Ref -> tip of the refs that keep the copies of the conflicting branches, when asked for (`conflict_chain`)
+  pub conflict_tips: HashMap<String, String>,
 }
 
 /// The baseline of the checked out `branch` (`None` for a detached HEAD, which tracks nothing) and the branches under
 /// `branch_prefix`, local and on `origin`: `remote` and one `for-each-ref` of the branch, the baseline candidates and the
-/// two namespaces. An upstream the listing lacks (not a candidate) costs one `rev-parse` more
-pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path: &str, branch: Option<&str>, branch_prefix: &str) -> Result<BaselineListing> {
+/// two namespaces, and with `conflict_refs` the refs of the conflicting branches. An upstream the listing lacks (not a
+/// candidate) costs one `rev-parse` more
+pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path: &str, branch: Option<&str>, branch_prefix: &str, conflict_refs: bool) -> Result<BaselineListing> {
   let remotes: Vec<String> = git_executor
     .execute_command_lines(&["remote"], repo_path)?
     .into_iter()
@@ -97,6 +103,9 @@ pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path
   args.extend(current_ref.as_deref());
   args.extend([local_prefix.as_str(), remote_prefix.as_str()]);
   args.extend(candidates.iter().map(|(full_ref, _)| full_ref.as_str()));
+  if conflict_refs {
+    args.push(CONFLICT_REFS);
+  }
   let lines = git_executor.execute_command_lines(&args, repo_path)?;
 
   let mut listed: HashMap<&str, &str> = HashMap::with_capacity(lines.len());
@@ -104,6 +113,7 @@ pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path
   let mut tracked_short = "";
   let mut branches = Vec::new();
   let mut remote_tips = HashMap::new();
+  let mut conflict_tips = HashMap::new();
   for line in &lines {
     let mut fields = line.splitn(6, '\0');
     let (Some(name), Some(upstream), Some(remote), Some(remote_ref), Some(upstream_short), Some(rest)) =
@@ -123,6 +133,8 @@ pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path
       && name.starts_with(&remote_prefix)
     {
       remote_tips.insert(full_name.to_string(), tip.to_string());
+    } else if name.starts_with(CONFLICT_REFS) {
+      conflict_tips.insert(name.to_string(), tip.to_string());
     }
   }
 
@@ -148,6 +160,7 @@ pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path
     baseline_ref,
     branches,
     remote_tips,
+    conflict_tips,
   })
 }
 
@@ -162,7 +175,8 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
     upstream,
     branches,
     remote_tips,
-  } = read_baseline_listing(git_executor, repo_path, Some(branch), branch_prefix)?;
+    conflict_tips,
+  } = read_baseline_listing(git_executor, repo_path, Some(branch), branch_prefix, true)?;
   let baseline_rev = format!("{baseline_ref}^{{commit}}");
   let (output, exit_code) = git_executor.execute_command_with_status(
     &[
@@ -198,6 +212,7 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
     landed_state: PathBuf::from(landed_state),
     branches,
     remote_tips,
+    conflict_tips,
   })
 }
 
