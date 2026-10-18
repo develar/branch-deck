@@ -90,6 +90,8 @@ jobs:
         run: pnpm lint:typecheck && pnpm lint:cpd
 
       - name: Check Rust formatting and clippy
+        # bash: pwsh, the Windows default, fails a step only on the exit code of its last command
+        shell: bash
         run: |
           cargo fmt --all --check
           cargo clippy --workspace --all-targets --features branch-deck/auto-update -- -D warnings

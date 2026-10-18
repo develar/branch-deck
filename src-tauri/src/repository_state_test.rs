@@ -56,15 +56,19 @@ fn init_repository(git: &GitCommandExecutor) -> TempDir {
 #[test]
 fn object_cache_lives_in_the_common_dir_of_the_repository() {
   let cache = RepositoryStateCache::new();
-  let git = GitCommandExecutor::new();
+  let git = GitCommandExecutor::new().with_process_stats("test");
   let repository = init_repository(&git);
   let path = repository.path().to_str().unwrap();
+  let processes = || git.process_stats().unwrap().by_command().values().map(|stats| stats.count).sum::<u32>();
 
+  let initialized = processes();
   assert!(cache.object_cache(&git, path).is_enabled());
   assert!(repository.path().join(".git/branch-deck/cache").is_dir());
-  // remembered: the second call runs no git, so it works without the repository
-  std::fs::remove_dir_all(repository.path().join(".git")).unwrap();
+  let resolved = processes();
+  assert!(resolved > initialized, "the first call asks git for the common dir");
+  // remembered: the second call runs no git (counted, because Windows refuses to delete the open cache under `.git`)
   assert!(cache.object_cache(&git, path).is_enabled());
+  assert_eq!(processes(), resolved, "the second call runs no git");
 
   // outside a repository, the cache is disabled
   let plain = TempDir::new().unwrap();
