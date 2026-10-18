@@ -1,6 +1,13 @@
 # Branch Deck Development Context
 
 ## Project Overview
+The work of one local branch (the master of a large repository) is done when it is in master; in the IntelliJ
+monorepo it gets there through Patronus Safe Push. Branch Deck cuts that work into virtual branches, optionally
+stacked, only so that it can land in pieces: a piece is a branch and what it is built on, landed in one robot; a whole
+stack lands in one robot too; every pull request goes into master, holding what its Safe Push lands. Judge every
+feature by what it lands into master and in how many robots ([Landing Work into Master](docs/design/landing.md), a
+draft while the model is implemented).
+
 Desktop Git branch management tool using React 19 + Vite + Tauri v2. Use `pnpm` only: the version is `packageManager`
 in `package.json`, Node.js is `.node-version`; CI reads both through `voidzero-dev/setup-vp`.
 
@@ -567,6 +574,7 @@ the `peekaboo` CLI.
 - [Rendering Performance](docs/design/rendering-performance.md) - React Compiler, narrow selectors, sync events applied in batches, derived structure cached, lazy main page
 - [E2E Testing Architecture](docs/design/e2e-testing.md) - E2E test infrastructure with mock Tauri API
 - [Git Operations](docs/design/git-operations.md) - Working-tree safety, exact-metadata rewrites, `git replay`, batching and the Git 2.54 minimum
+- [Landing Work into Master](docs/design/landing.md) - The product model: everything lands into master, stacks cut it into pieces, every pull request into master, a whole stack in one robot
 - [Integration Detection and Caching](docs/design/integration-detection.md) - How branch integration detection works with git notes caching
 - [Remote Status](docs/design/remote-status.md) - How remote tracking status is computed and displayed
 - [Symbol Dependencies](docs/design/symbol-dependencies.md) - tree-sitter summaries of the changed files, `Order` edges by evidence, the subtraction in the dangling-reference check
