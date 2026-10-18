@@ -1,7 +1,9 @@
 //! The program of a fake CLI on Windows (`test_utils::fake_executable::fake_executable`). Windows runs no `#!` script,
 //! so a fake there is `<name>.exe`, a copy of this program, beside its script `<name>.sh`: it runs the script with the
 //! sh named on the script's first line (`#!C:\Program Files\Git\usr\bin\sh.exe`), with the same stdin, stdout, stderr
-//! and environment, and exits with its code.
+//! and environment, and exits with its code. The directory of that sh (`usr\bin`, with `cat`, `sleep` and the other
+//! tools of a script) comes first on `PATH`, as in the programs git runs: the launcher of Git for Windows puts it there
+//! for git, while a test may run with only `Git\cmd` on `PATH`.
 //!
 //! The arguments go in the environment, `FAKE_CLI_ARGC` and `FAKE_CLI_ARG_<n>` from 1, and the second line of the
 //! script sets them back as `"$@"`: the sh of Git for Windows splits its Windows command line by rules of its own (it
@@ -28,6 +30,12 @@ fn main() {
 
   let mut command = Command::new(sh);
   command.arg(sh_path(&script));
+  if let Some(tools) = Path::new(sh).parent() {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    if let Ok(path) = std::env::join_paths(std::iter::once(tools.to_path_buf()).chain(std::env::split_paths(&path))) {
+      command.env("PATH", path);
+    }
+  }
   let args: Vec<_> = std::env::args_os().skip(1).collect();
   command.env("FAKE_CLI_ARGC", args.len().to_string());
   for (index, arg) in args.iter().enumerate() {

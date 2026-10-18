@@ -7,11 +7,18 @@ use test_utils::fake_executable::fake_executable;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 
+/// A child that copies its stdin to stdout, or one that hangs: `cat` and `sleep` of the fake's sh, which Windows has
+/// only in Git's `usr\bin`, not always on `PATH`
+fn fake(dir: &tempfile::TempDir, body: &str) -> std::path::PathBuf {
+  fake_executable(dir.path(), "child", body)
+}
+
 #[test]
 fn writes_stdin_while_reading_stdout() {
   // more than a pipe buffer in both directions: writing all input before reading would deadlock
   let input = "0123456789abcdef\n".repeat(64 * 1024).into_bytes();
-  let output = run_child(&mut Command::new("cat"), Some(input.clone()), TIMEOUT, &|| false).unwrap();
+  let dir = tempfile::tempdir().unwrap();
+  let output = run_child(&mut Command::new(fake(&dir, "exec cat")), Some(input.clone()), TIMEOUT, &|| false).unwrap();
   assert!(output.status.success());
   assert_eq!(output.stdout, input);
 }
@@ -25,14 +32,18 @@ fn reports_a_missing_binary() {
 
 #[test]
 fn kills_the_child_after_the_timeout() {
+  let dir = tempfile::tempdir().unwrap();
+  let mut hang = Command::new(fake(&dir, "exec sleep 30"));
   let started = Instant::now();
-  let result = run_child(Command::new("sleep").arg("30"), None, Duration::from_millis(300), &|| false);
+  let result = run_child(&mut hang, None, Duration::from_millis(300), &|| false);
   assert!(matches!(result, Err(ChildProcessError::TimedOut)), "{result:?}");
   assert!(started.elapsed() < Duration::from_secs(5));
 }
 
 #[test]
 fn kills_the_child_when_superseded() {
+  let dir = tempfile::tempdir().unwrap();
+  let mut hang = Command::new(fake(&dir, "exec sleep 30"));
   let superseded = Arc::new(AtomicBool::new(false));
   let flag = Arc::clone(&superseded);
   std::thread::spawn(move || {
@@ -40,7 +51,7 @@ fn kills_the_child_when_superseded() {
     flag.store(true, Ordering::SeqCst);
   });
   let started = Instant::now();
-  let result = run_child(Command::new("sleep").arg("30"), None, TIMEOUT, &|| superseded.load(Ordering::SeqCst));
+  let result = run_child(&mut hang, None, TIMEOUT, &|| superseded.load(Ordering::SeqCst));
   assert!(matches!(result, Err(ChildProcessError::Superseded)), "{result:?}");
   assert!(started.elapsed() < Duration::from_secs(5));
 }

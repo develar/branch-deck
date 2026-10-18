@@ -14,8 +14,9 @@ const WINDOWS_ARGUMENTS: &str =
 
 /// Writes `body` as the sh script of the fake `name` in `dir` and returns the path to run: on Unix `dir/name`, the
 /// script itself (`#!/bin/sh`, executable); on Windows `dir/name.exe`, which runs `dir/name.sh` with its arguments,
-/// stdin, stdout, stderr and environment, exits with its code, and ends with it the processes it started. A second
-/// fake of the same name replaces the first. A git config value names it by `shell_path`.
+/// stdin, stdout, stderr and environment (Git's `usr\bin` first on `PATH`), exits with its code, and ends with it the
+/// processes it started. A second fake of the same name replaces the first. A git config value names it by
+/// `shell_path`.
 pub fn fake_executable(dir: &Path, name: &str, body: &str) -> PathBuf {
   if cfg!(windows) {
     return windows_fake_executable(dir, name, body);

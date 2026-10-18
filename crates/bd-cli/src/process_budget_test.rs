@@ -56,6 +56,10 @@ fn repo_with_branches() -> TestRepo {
   repo
 }
 
+/// A build that passes in the shell of `bd check --build` on every OS: `sh -c`, and `cmd` on Windows, which has no `true`
+/// unless Git's `usr\bin` is on `PATH`
+const PASSING_BUILD: &str = "exit 0";
+
 /// `bd check` of `build` with `build_paths`, an empty plan file standing for no plan
 fn run_check(repo: &TestRepo, build: Option<&str>, build_paths: &[&str]) -> RepoContext {
   let plan = tempfile::NamedTempFile::new().unwrap();
@@ -115,7 +119,7 @@ fn a_check() {
 #[test]
 fn a_check_with_a_build() {
   let repo = repo_with_branches();
-  let context = run_check(&repo, Some("true"), &["f0.txt", "f1.txt"]);
+  let context = run_check(&repo, Some(PASSING_BUILD), &["f0.txt", "f1.txt"]);
   assert_processes(&context, &changed(&CHECK, &[("archive", 2), ("cat-file", 2)]));
 }
 
@@ -124,10 +128,10 @@ fn a_check_with_a_build() {
 #[test]
 fn a_warm_check_with_a_build() {
   let repo = repo_with_branches();
-  run_check(&repo, Some("true"), &[]);
+  run_check(&repo, Some(PASSING_BUILD), &[]);
   let warm = run_check(&repo, None, &[]);
   assert_processes(&warm, &WARM_CHECK);
-  let context = run_check(&repo, Some("true"), &[]);
+  let context = run_check(&repo, Some(PASSING_BUILD), &[]);
   assert_processes(&context, &changed(&WARM_CHECK, &[("cat-file", 3)]));
 }
 
