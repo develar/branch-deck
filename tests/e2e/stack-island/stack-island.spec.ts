@@ -511,6 +511,44 @@ test.describe("Stack island", () => {
     await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["air", "bazel"])
   })
 
+  test("should offer Push Up to Here in the full list only for a commit added after the ones a merged Safe Push landed, without the landed branches", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the Safe Push of bazel lands air with it
+    const running = robot("bazel", "bazel-robot")
+    const repo = await setupRepo("stack_island", { patronus: availableRobots(running) })
+    await syncAndWaitForBranches()
+    const pushes = await routePush(page, {})
+    await expandBranch(page, findBranchRow(page, "bazel"))
+    const commitRows = getBranchDetailsRow(page, "bazel").locator("tr[data-row-id]")
+    const first = commitRows.first()
+    await expect(first).toContainText("Build the deploy jar, part 1")
+    // before the merge its commit offers the push up to it
+    await openContextMenu(page, first)
+    await expect(page.getByRole("menuitem", { name: "Push Up to Here" })).toBeVisible()
+    await page.keyboard.press("Escape")
+
+    // merged: air's and bazel's commits are in master, then a new commit of bazel is the only work left of it
+    await mergeRunningRobot(page, repo, running)
+    await runAndWaitForSync(page, async () => {
+      await repo.commit("(air/bazel) Build the deploy jar, part 3", { "bazel/part3.txt": "Build the deploy jar 3\n" }, 1704200000)
+      await page.getByTestId("sync-button").click()
+    })
+    await expect(findBranchRow(page, "bazel").getByTestId("landed-with")).toHaveText("Landed · 1 commit after it")
+    await expect(commitRows).toHaveCount(3)
+    // a landed commit offers no push, as the island shows no arrow for it: its menu is the same menu without the item
+    await openContextMenu(page, first)
+    await expect(page.getByRole("menuitem", { name: "Copy Commit Hash" })).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: "Push Up to Here" })).toHaveCount(0)
+    await page.keyboard.press("Escape")
+    // the new commit pushes bazel, without air: all of air landed
+    await openContextMenu(page, commitRows.last())
+    await clickContextMenuItem(page, "Push Up to Here")
+    await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["bazel"])
+  })
+
   test("should collapse a side stack into its root, from its chip and with Alt+Left before the whole stack", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stack_island")
     await syncAndWaitForBranches()

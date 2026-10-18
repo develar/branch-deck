@@ -2,6 +2,7 @@ import { cn } from "cn"
 import { PushUpToMark } from "@/components/commit/PushUpToMark"
 import { getCommitSubject, stripLeadingIssueKey } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
+import { isLandedCommit } from "@/lib/patronus"
 import { formatCompactTimestamp } from "@/lib/time"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { useLandedBy } from "@/stores/patronus"
@@ -11,21 +12,20 @@ import { useIsCommitPushedUpTo } from "@/stores/stack-view"
  * The commits of a branch of a stack island as one line each, oldest first, on the lane of the branch (`bd-lane-rail`
  * draws a dot per `tr[data-row-id]`): time runs down with the graph, so the tip of a parent sits right above the row of
  * its child. A commit the remote lacks (`unpushedCommits`) has the push arrow, which offers Push Up to Here
- * (`PushUpToMark`); one on the remote is muted, and so is one a merged Safe Push landed (`useLandedBy`, all but the
- * commits added after the landed ones): it is in the target, a push of it lands nothing. No files, no selection: a click
- * on the branch row opens the full list.
+ * (`PushUpToMark`); one on the remote is muted, and so is one a merged Safe Push landed (`isLandedCommit`, all but
+ * the commits added after the landed ones): it is in the target, a push of it lands nothing, and Push Up to Here offers
+ * nothing for it on any surface (`pushUpToPlan`). No files, no selection: a click on the branch row opens the full list.
  */
 export function StackCommitLines({ branch }: { branch: Branch }) {
   const unpushed = new Set(branch.remoteStatus?.unpushedCommits ?? [])
   // before the remote status loads nothing is marked
   const known = branch.remoteStatus != null
   const landedBy = useLandedBy(branch.name)
-  const after = new Set(landedBy?.after ?? [])
   return (
     <table className="w-full table-fixed" data-testid="stack-commit-lines">
       <tbody>
         {branch.commits.toReversed().map(commit => {
-          const landed = landedBy !== null && !after.has(commit.originalHash)
+          const landed = isLandedCommit(landedBy, commit.originalHash)
           return (
             <CommitLine
               key={commit.originalHash}

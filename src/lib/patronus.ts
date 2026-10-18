@@ -740,6 +740,15 @@ export function isLandedWhole(landed: LandedBy | null | undefined): landed is La
   return landed != null && landed.after.length === 0
 }
 
+/**
+ * A merged Safe Push landed the commit `originalHash` of a branch it landed (`landed`, `findLandedBy`): every commit but
+ * those added after the landed ones. It is in the target: a push of it lands nothing, so it offers no Push Up to Here
+ * and no push arrow, as a commit the remote has.
+ */
+export function isLandedCommit(landed: LandedBy | null | undefined, originalHash: string): boolean {
+  return landed != null && !landed.after.includes(originalHash)
+}
+
 /** " · 1 commit after it": what is left of a branch a merged Safe Push landed; empty when nothing is */
 function formatAfter(landed: Pick<LandedBy, "after">): string {
   return landed.after.length === 0 ? "" : ` · ${formatCommitCount(landed.after.length)} after it`

@@ -368,6 +368,15 @@ export function useLandedBy(branchName: string): LandedBy | null {
   return useBranchSync(state => (robots === undefined ? null : (landedByIn(robots, landings, state).get(branchName) ?? null)))
 }
 
+/** Every branch a merged Safe Push landed (`useLandedBy`), branch → who landed it; the same map while none changes */
+export function useLandedBranches(): ReadonlyMap<string, LandedBy> {
+  const robots = useRepositoryRobots()
+  const landings = useRepositoryLandings()
+  return useBranchSync(state => (robots === undefined ? NO_LANDED : landedByIn(robots, landings, state)))
+}
+
+const NO_LANDED: ReadonlyMap<string, LandedBy> = new Map()
+
 /** Non-hook variant of `useLandedBy`, for menus built on open and the next step */
 export function getLandedBy(branchName: string): LandedBy | null {
   const repository = currentRepository()

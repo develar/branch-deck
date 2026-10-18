@@ -414,9 +414,16 @@ menu stacks, unstacks and renames branches.
 - It must say why it can't, with a link that shows the branch in the way: an ancestor blocked or failed to sync ("auth
   can't be pushed: blocked by core."), an ancestor whose push drops remote commits ("auth's push drops 2 remote
   commits: Force Push auth first.": it asks first in its own row), a branch a running Safe Push lands ("A Safe Push of
-  oauth lands all of auth.", "A Safe Push of the whole air stack lands all of air."), a branch a merged one landed
-  ("Landed in master with oauth: nothing of auth is left to push."); the menu item is disabled with the reason.
-  [@test] ../../src/lib/push-up-to.test.ts (`stops at an ancestor that can't be pushed or asks first, at a branch a running Safe Push holds, and at one a merged Safe Push landed`)
+  oauth lands all of auth.", "A Safe Push of the whole air stack lands all of air."); the menu item is disabled with
+  the reason.
+  [@test] ../../src/lib/push-up-to.test.ts (`stops at an ancestor that can't be pushed or asks first, and at a branch a running Safe Push holds`)
+- A commit a merged Safe Push landed (`isLandedCommit`: every commit of a landed branch but those added after the
+  landed ones, [Patronus](patronus.spec.md#merged)) is in the target, as a commit the remote has: one rule for every
+  surface (`pushUpToPlan`), so it has no push arrow in the island's commit lines and no "Push Up to Here" in the menu
+  of the full list. A branch it landed whole is no step of a push up to a commit built on it: the branch is pushed
+  without it, as its own push leaves it.
+  [@test] ../../src/lib/push-up-to.test.ts (`offers nothing for a commit a merged Safe Push landed, only for one added after the landed ones, and leaves out a branch it landed whole`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should offer Push Up to Here in the full list only for a commit added after the ones a merged Safe Push landed, without the landed branches`, `should show no push arrow on the commits a merged Safe Push landed, only on a commit added after them`)
 
 ### Messages
 

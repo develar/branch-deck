@@ -29,7 +29,7 @@ function branch(name: string, parent: string | null, count: number, overrides: P
 
 function sources(...branches: Branch[]) {
   const byName = new Map(branches.map(it => [it.name, it]))
-  return { branchOf: (name: string) => byName.get(name), holdOf: () => null }
+  return { branchOf: (name: string) => byName.get(name), holdOf: () => null, landedOf: () => null }
 }
 
 describe("pushUpToPlan", () => {
@@ -68,7 +68,26 @@ describe("pushUpToPlan", () => {
     expect(plan).toEqual({ ok: false, reason: "login was rewritten since its push: it pushes whole." })
   })
 
-  it("stops at an ancestor that can't be pushed or asks first, at a branch a running Safe Push holds, and at one a merged Safe Push landed", () => {
+  it("offers nothing for a commit a merged Safe Push landed, only for one added after the landed ones, and leaves out a branch it landed whole", () => {
+    const auth = branch("auth", null, 1)
+    const login = branch("login", "auth", 3)
+    const merged = { ...testRobot("login", "login"), status: "success" as const }
+    // its Safe Push landed login-1 and login-2 with auth; login-3 came after
+    const landedLogin = { branch: "login", robot: merged, own: true, after: ["login-3"] }
+    const landedAuth = { branch: "login", robot: merged, after: [] }
+    const landed = {
+      ...sources(auth, login),
+      holdOf: (name: string): PushHold | null => (name === "auth" ? { kind: "landed", branch: "login", robot: merged } : null),
+      landedOf: (name: string) => (name === "login" ? landedLogin : name === "auth" ? landedAuth : null),
+    }
+    expect(pushUpToPlan("login", "login-1", landed)).toBeNull()
+    expect(pushUpToPlan("login", "login-2", landed)).toBeNull()
+    expect(pushUpToPlan("auth", "auth-1", landed)).toBeNull()
+    // the one commit left is the push of the whole branch, without auth: all of it is in the target
+    expect(pushUpToPlan("login", "login-3", landed)).toEqual({ ok: true, steps: [{ name: "login", sent: 3, total: 3 }] })
+  })
+
+  it("stops at an ancestor that can't be pushed or asks first, and at a branch a running Safe Push holds", () => {
     const auth = branch("auth", null, 1)
     const login = branch("login", "auth", 2)
     expect(pushUpToPlan("login", "login-1", sources({ ...auth, status: "Blocked", statusText: "blocked by core" }, login))).toEqual({
@@ -79,7 +98,7 @@ describe("pushUpToPlan", () => {
     const dropping = branch("auth", null, 2, {}, 1)
     const behind = { ...dropping, remoteStatus: { ...dropping.remoteStatus!, commitsBehind: 2, fastForward: false } }
     expect(pushUpToPlan("login", "login-1", sources(behind, login))).toEqual({ ok: false, reason: "auth's push drops 2 remote commits: Force Push auth first.", show: "auth" })
-    const holding = (name: string, hold: PushHold) => ({ branchOf: sources(auth, login).branchOf, holdOf: (it: string) => (it === name ? hold : null) })
+    const holding = (name: string, hold: PushHold) => ({ ...sources(auth, login), holdOf: (it: string) => (it === name ? hold : null) })
     const oauth = testRobot("oauth", "oauth")
     expect(pushUpToPlan("login", "login-1", holding("auth", { kind: "span", branch: "oauth", robot: oauth }))).toEqual({
       ok: false,
@@ -91,12 +110,6 @@ describe("pushUpToPlan", () => {
       ok: false,
       reason: "A Safe Push of the whole auth stack lands all of auth.",
       show: "auth",
-    })
-    // a merged one landed it: its commits are in the target
-    expect(pushUpToPlan("login", "login-1", holding("auth", { kind: "landed", branch: "oauth", robot: { ...oauth, status: "success" } }))).toEqual({
-      ok: false,
-      reason: "Landed in master with oauth: nothing of auth is left to push.",
-      show: "oauth",
     })
     // its own Safe Push holds the branch: its restart is the push
     const own = holding("login", { kind: "own", branch: "login", robot: testRobot("login", "login") })

@@ -1,6 +1,6 @@
 import { formatCommitCount } from "@/lib/commit"
-import type { PushHold } from "@/lib/patronus"
-import { formatLandedReason, formatLandingSubject } from "@/lib/patronus"
+import type { LandedBy, PushHold } from "@/lib/patronus"
+import { formatLandingSubject, isLandedCommit } from "@/lib/patronus"
 import { dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
 import { formatForcePushPart } from "@/lib/remote-status"
 import { needsPush, stackAncestors } from "@/lib/stack"
@@ -34,6 +34,8 @@ export interface PushUpToSources {
    * the whole stack that lands it whole, or a merged one that landed it; null while none does
    */
   readonly holdOf: (name: string) => PushHold | null
+  /** The merged Safe Push that landed `name` (`getLandedBy`): its landed commits offer nothing; null for none */
+  readonly landedOf: (name: string) => LandedBy | null
 }
 
 /**
@@ -41,10 +43,12 @@ export interface PushUpToSources {
  * is built on that has work for the remote, whole (the branch is built on their tips), root first. Only a commit the
  * remote lacks on a branch whose remote is an older state of it (not on the remote, or a fast-forward) can be a cut: a
  * part of a branch rewritten since its push would rewind its pull request. An ancestor that can't be pushed (blocked,
- * failed to sync) or asks first (its push drops remote commits), and a branch a running Safe Push lands, stop it.
- * Null for a commit the remote has: it offers nothing.
+ * failed to sync) or asks first (its push drops remote commits), and a branch a running Safe Push lands, stop it; an
+ * ancestor a merged Safe Push landed whole is left out, as the push of the branch leaves it. Null for a commit the
+ * remote has, and for one a merged Safe Push landed (`isLandedCommit`): it is in the target, it offers nothing, on every
+ * surface (the arrow of the island, the menu of the full list).
  */
-export function pushUpToPlan(name: string, originalHash: string, { branchOf, holdOf }: PushUpToSources): PushUpToPlan | null {
+export function pushUpToPlan(name: string, originalHash: string, { branchOf, holdOf, landedOf }: PushUpToSources): PushUpToPlan | null {
   const branch = branchOf(name)
   const commit = branch?.commits.find(it => it.originalHash === originalHash)
   const remote = branch?.remoteStatus
@@ -52,7 +56,7 @@ export function pushUpToPlan(name: string, originalHash: string, { branchOf, hol
     return null
   }
   const at = remote.unpushedCommits.indexOf(commit.hash)
-  if (at < 0) {
+  if (at < 0 || isLandedCommit(landedOf(name), originalHash)) {
     return null
   }
   const own = blocker(branch, holdOf)
@@ -64,6 +68,10 @@ export function pushUpToPlan(name: string, originalHash: string, { branchOf, hol
   }
   const steps: PushUpToStep[] = []
   for (const ancestor of stackAncestors(name, branchOf)) {
+    // all of it is in the target: the branch is pushed without it
+    if (holdOf(ancestor.name)?.kind === "landed") {
+      continue
+    }
     const stop = blocker(ancestor, holdOf)
     if (stop !== null) {
       return stop
@@ -88,8 +96,9 @@ export function pushUpToPlan(name: string, originalHash: string, { branchOf, hol
 }
 
 /**
- * Why the branch can't be pushed in a Push Up to Here: blocked, failed to sync, its own Safe Push running, landed whole
- * by the running Safe Push of a branch built on it or of the whole stack, or landed by a merged one
+ * Why the branch can't be pushed in a Push Up to Here: blocked, failed to sync, its own Safe Push running, or landed
+ * whole by the running Safe Push of a branch built on it or of the whole stack. A merged one stops nothing: its commits
+ * offer nothing, and a branch it landed whole is left out.
  */
 function blocker(branch: Branch, holdOf: (name: string) => PushHold | null): PushUpToRefusal | null {
   if (branch.status === "Blocked" || branch.hasError) {
@@ -98,17 +107,12 @@ function blocker(branch: Branch, holdOf: (name: string) => PushHold | null): Pus
   const hold = holdOf(branch.name)
   switch (hold?.kind) {
     case undefined:
+    case "landed":
       return null
     case "own":
       return { ok: false, reason: `A Safe Push of ${branch.name} is running: wait until it merges, or restart it on the current branch.`, show: branch.name }
     case "span":
       return { ok: false, reason: `A Safe Push of ${formatLandingSubject(hold)} lands all of ${branch.name}.`, show: hold.branch }
-    case "landed":
-      return {
-        ok: false,
-        reason: `${formatLandedReason({ ...hold, own: hold.branch === branch.name && hold.wholeStack !== true })}: nothing of ${branch.name} is left to push.`,
-        show: hold.branch,
-      }
   }
 }
 

@@ -15,7 +15,7 @@ import { hasKeyModifier } from "@/lib/preview-keys"
 import { describePushUpTo, pushUpToPlan } from "@/lib/push-up-to"
 import { getAutosquashPlan, getBranch, getIssueGroups, getMoveTargets } from "@/stores/branch-sync"
 import { claimSelection, requestReveal, startCommitDrag, UNASSIGNED_SOURCE, useCommitMove, useRevealRequest } from "@/stores/commit-move"
-import { getPushHold } from "@/stores/patronus"
+import { getLandedBy, getPushHold } from "@/stores/patronus"
 
 /** Branches listed in the "Move to" submenu */
 const MAX_MENU_TARGETS = 8
@@ -101,10 +101,11 @@ function getSquashIntoItems(commit: Commit): MenuItem[] {
 
 /**
  * "Push Up to Here" of a commit the remote lacks (`pushUpToPlan`): the branch up to it, after the branches it is built
- * on that have work, root first; disabled with the reason when it can't; nothing for a commit the remote has
+ * on that have work, root first; disabled with the reason when it can't; nothing for a commit the remote has, nor for
+ * one a merged Safe Push landed, as the island's commit lines show no arrow for either
  */
 function getPushUpToItems(branchName: string, commit: Commit): MenuItem[] {
-  const plan = pushUpToPlan(branchName, commit.originalHash, { branchOf: getBranch, holdOf: getPushHold })
+  const plan = pushUpToPlan(branchName, commit.originalHash, { branchOf: getBranch, holdOf: getPushHold, landedOf: getLandedBy })
   if (plan === null) {
     return []
   }
