@@ -1,7 +1,7 @@
 # Remote Status for Virtual Branches
 
 **Status:** Implemented  
-**Updated:** 2026-10-17  
+**Updated:** 2026-10-18  
 **Tags:** [git, remote-status, virtual-branches]
 
 ## Problem
@@ -116,13 +116,13 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   remote branch exists and returns the commit it points to (`remote_tip`) and the branch's commit, in the one process
   the existence check needs anyway; a ref name holds no glob character, so each pattern matches its ref only. The sync
   reads the remote tips of all its branches with the local ones, in its one `for-each-ref` of `refs/heads/<prefix>/`
-  and `refs/remotes/origin/<prefix>/`, and the baseline's commit with one `rev-parse` (`KnownTips`). The
+  and `refs/remotes/origin/<prefix>/`, and the baseline's commit with one `rev-parse` (`RemoteStatusMemo`). The
   [Patronus](../../spec/branch/patronus.spec.md) chip matches a Safe Push of the IDE or the CLI to the branch by it.
   The walks below use these commits, not the ref names, so a fetch or a sync meanwhile can't make the counts disagree
   with it.
 - **Remote at the tip**: a remote tip equal to the branch's tip is up to date and a fast-forward without a walk; only
   the push time is read. It is the state of a branch after its push until the sync rebuilds it: the status the app's
-  push computes after it, and the first sync of a process, which remembers no status yet.
+  push computes after it, and the first sync after the push, whose statuses of the branch were of other commits.
 - **The walks** are one `rev-list` of `crates/sync-core/src/commit_walk.rs` (`walk_commits`, shared with the robot
   commit map): `--format=%m%x00%H%x00%an%x00%ae%x00%at%x00%s`, the caller's options, then the revs between
   `--end-of-options` and `--`.
@@ -156,11 +156,16 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   `<remote tip>...local` is empty, so the remote tip is the branch's tip or one of its ancestors. A rebased branch
   lists its remote commits as `=`, nothing behind, and is no fast-forward: the push replaces them with their copies.
 - **Branch not on the remote**: the same walk without the remote, `git rev-list ^baseline local`.
-- **Push time** (`last_push_time`): `git reflog show -1 '--grep-reflog=^update by push$' --date=unix --format=%gd
-  refs/remotes/origin/branch`, the newest entry of the remote-tracking ref's reflog that git's push wrote. Its message
-  is a literal git never translates; `-1` stops the walk at it, so a fetch that moved the ref later doesn't count. The
-  time is the selector's, `<ref>@{<time>}`, cut at the last `@{`: a ref name may hold a `{`, never an `@{`. No push
-  from this clone (or no reflog) is 0.
+- **Push time** (`last_push_time`): the newest entry of the remote-tracking ref's reflog that git's push wrote,
+  `update by push`, a literal git never translates, so a fetch that moved the ref later doesn't count. The time is the
+  selector's, `<ref>@{<time>}` with `--date=unix`, cut at the last `@{`: a ref name may hold a `{`, never an `@{`. No
+  push from this clone (or no reflog) is 0. The sync and `bd push --remote` read the push times of all their branches
+  with one process (`PushTimes`), when the first status needs one: `git reflog show --stdin
+  '--grep-reflog=^update by push$' --date=unix --format=%gD`, the refs on stdin, so their number is not bounded by the
+  command line; `%gD` names the full ref, and the newest time of each ref counts. It reads every push entry of those
+  reflogs (`-1` would count the entries of all refs together), a few hundred lines. A ref deleted since its tip was
+  read fails the whole read; then each status reads its own, `git reflog show -1 … --format=%gd <ref>`, which stops at
+  the newest push, as one status outside an operation does (the app's push).
 
 The cherry-pick algorithm ensures accurate comparison:
 1. `--cherry-pick` - Excludes commits that are patch-equivalent (same content, different SHA); `--cherry-mark`, in
@@ -171,7 +176,7 @@ The cherry-pick algorithm ensures accurate comparison:
 Key components:
 - **Remote status calculation**: `crates/sync-core/src/remote_status.rs`
 - **UI display**: `src/lib/remote-status.ts`
-- **Branch processor**: `BranchSyncContext` carries the baseline branch and `RemoteTips` the baseline commit and the
+- **Branch processor**: `BranchSyncContext` carries the baseline branch and `RemoteStatusMemo` the baseline commit and the
   remote tips, read once per sync (`crates/sync-core/src/branch_processor.rs`)
 - **Sync orchestration**: Propagates baseline through entire pipeline
 
@@ -240,13 +245,23 @@ is the same commits on an older baseline: no warning, a quiet line in the detail
 - **Constraint**: Must not slow down status calculation
 - **Same commits, same status**: a status is a function of the branch's tip, the remote tip, the baseline commit, the
   parent's head (a stacked branch) and the user's email. The sync walks these commits, not the refs, and remembers
-  the status by them for the life of the process (`compute_remote_status_with_tips`, at most 4096 statuses). A sync
-  in which a branch, its remote and the baseline did not move answers its status without git: the usual sync, on
-  focus, runs no remote status process at all. The push time comes from the newest push entry of the remote branch's
-  reflog, and only a push adds one, which moves the remote tip as well.
+  the status by them (`RemoteStatusMemo`):
+  - **in the process**, push time included (at most 4096 statuses): a sync in which a branch, its remote and the
+    baseline did not move answers its status without git, so the usual sync of the app, on focus, runs no remote
+    status process at all. Its push time is the one of the first status of these commits, also after a push of the
+    same commit again once the remote branch was elsewhere (push X, fetch Y, push X), a case the app accepts;
+  - **in the object cache** (`remote_status`, `$GIT_COMMON_DIR/branch-deck/cache`), without the push time: every `bd`
+    is a new process, and an unchanged `bd sync` walks no branch, it reads only the push times of all branches with one
+    `reflog`. The key is a hash of the commits (full ids only: a status with a ref name is only remembered by the
+    process), the email and where the commits of the stack ancestors came from (the sync knows them, a push outside it
+    reads them), so those two never share an entry. The value holds the walks' answer, the commits ahead and the first
+    `DROPPED_COMMITS_LIMIT` dropped ones, so the limit is part of the version, which a change of the walks bumps. The
+    computed statuses are written in one transaction when the memo drops, none for a remote branch at the branch's tip,
+    which ran no walk.
 - **Solution**: one `for-each-ref` for the tips (none in the sync, which reads them with its branches), two walks per
   branch (ahead with mine and the identities, behind with the dropped commits, the identities and the fast-forward),
-  none when the remote branch is at the branch's tip, and one bounded `reflog` for the push time; the `^baseline`
+  none when the remote branch is at the branch's tip, and one `reflog` per operation for the push times of all its
+  branches; the `^baseline`
   exclusion keeps the walk to the branch's own commits instead of every baseline commit since the last push. The
   commits ahead no longer carry baseline hashes to the UI. The identities of the stack ancestors cost the sync no
   process (it has every branch's commits); a push outside the sync reads them with one `rev-list`, and only when a

@@ -11,6 +11,9 @@
 //! - **The one exception is `review_answer`**: an answer of Patronus keyed by a hash of what it decides on (the changed
 //!   paths, the target, the reviews of a pull request), which the target's ownership rules can outdate. Its value
 //!   carries when it was fetched, and the reader decides how long it holds (`sync_core::review_readiness`).
+//!   `remote_status` is keyed by a hash too, of commit ids and the user's email: its value is what walks between those
+//!   commits find, so it holds as long as the commit graph does (a `git replace` of a commit in that range would outdate
+//!   it).
 //! - **Several processes** (the app and parallel `bd` calls) share the environment: LMDB serializes writers through its
 //!   lock file and readers never block. Within a process there is one `Env` per directory (`ENVS`), because LMDB must
 //!   not open the same environment twice in one process.
@@ -95,10 +98,11 @@ pub(crate) enum Store {
   ReviewAnswer,
   CommitPatch,
   ConflictInfo,
+  RemoteStatus,
 }
 
 /// How many stores there are
-const STORE_COUNT: usize = 9;
+const STORE_COUNT: usize = 10;
 
 pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::CommitDiff,
@@ -110,6 +114,7 @@ pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::ReviewAnswer,
   Store::CommitPatch,
   Store::ConflictInfo,
+  Store::RemoteStatus,
 ];
 
 impl Store {
@@ -121,8 +126,9 @@ impl Store {
       // space or a quote is there (`commit_lines`). 3: the hunks, and the lines and their order in each, with the
       // algorithm, the inter-hunk context and the indent heuristic pinned, whatever the user's diff config
       Self::CommitDiff | Self::CommitLines => 3,
-      // a new extractor needs no bump: its version is part of each key (`blob_summary`, `conflict_info`)
-      Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::BlobSummary | Self::ReviewAnswer | Self::CommitPatch | Self::ConflictInfo => 1,
+      // a new extractor needs no bump: its version is part of each key (`blob_summary`, `conflict_info`,
+      // `remote_status`)
+      Self::CommitFiles | Self::CommitTree | Self::MergeResult | Self::BlobSummary | Self::ReviewAnswer | Self::CommitPatch | Self::ConflictInfo | Self::RemoteStatus => 1,
     }
   }
 
@@ -131,7 +137,7 @@ impl Store {
       Self::CommitPatch => Environment::Patches,
       Self::MergeResult | Self::CommitTree => Environment::Merges,
       Self::ConflictInfo => Environment::Conflicts,
-      Self::CommitDiff | Self::CommitFiles | Self::CommitLines | Self::BlobSummary | Self::ReviewAnswer => Environment::Main,
+      Self::CommitDiff | Self::CommitFiles | Self::CommitLines | Self::BlobSummary | Self::ReviewAnswer | Self::RemoteStatus => Environment::Main,
     }
   }
 
@@ -151,6 +157,7 @@ impl Store {
       Self::ReviewAnswer => "review_answer",
       Self::CommitPatch => "commit_patch",
       Self::ConflictInfo => "conflict_info",
+      Self::RemoteStatus => "remote_status",
     }
   }
 }

@@ -55,6 +55,7 @@ targets:
   - ../../crates/git-ops/src/cherry_pick.rs
   - ../../crates/sync-core/src/cache_memo.rs
   - ../../crates/object-cache/src/conflict_info.rs
+  - ../../crates/object-cache/src/remote_status.rs
   - ../../crates/sync-core/src/regroup.rs
   - ../../crates/sync-core/src/issue_groups.rs
   - ../../crates/sync-core/src/commit_ids.rs
@@ -260,6 +261,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Several processes must use the cache at once; a full cache must be cleared; the older versions of a store must be
   dropped, and only of that store; any cache failure must be a miss.
   [@test] ../../crates/object-cache/src/cache_test.rs (`round_trip`, `older_versions_of_a_store_are_dropped`, `a_bumped_store_keeps_the_other_stores`, `unusable_cache_is_a_miss`, `full_cache_is_cleared`, `parallel_threads`, `parallel_processes`)
+- `bd sync` must walk no branch whose commits, remote branch and baseline did not move since a `bd` computed its remote
+  status: the status of the same commits comes from the cache (`remote_status`, read only by the status version that
+  wrote it), and the push times of all branches from one `reflog`.
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`an_unchanged_sync_of_pushed_branches_in_a_new_process`)
+  [@test] ../../crates/object-cache/src/cache_test.rs (`remote_statuses_are_read_by_their_version`)
 
 ### `bd group`, `rename`, `restack`, `unstack`
 

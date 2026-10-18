@@ -2,7 +2,7 @@
 //! branch in parallel beside the detection of the archived branches, then one notes write; the events reach the app as
 //! they happen (docs/design/git-operations.md, "Virtual branch sync").
 
-use crate::branch_processor::{BranchJob, BranchNotes, BranchSyncContext, BuildOutcome, BuiltBranch, ExistingCommits, RemoteTips, build_branch, finish_branch};
+use crate::branch_processor::{BranchJob, BranchNotes, BranchSyncContext, BuildOutcome, BuiltBranch, ExistingCommits, build_branch, finish_branch};
 use crate::cache_memo::ConflictMemo;
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs, parse_subject};
 use crate::commit_key::CommitKey;
@@ -10,6 +10,7 @@ use crate::config_snapshot::ConfigSnapshot;
 use crate::issue_navigation::load_issue_navigation_config;
 use crate::landed::record_sync;
 use crate::missing_commits::CommitOwners;
+use crate::remote_status::RemoteStatusMemo;
 use crate::repo_facts::{RepoFacts, read_repo_facts};
 use crate::snapshot::read_grouping_inputs_with;
 use crate::stack::{PendingDetection, StackForest, describe_block, describe_problem, empty_parent_states_listed, place_branches};
@@ -273,6 +274,13 @@ struct PreparedSync {
   update_check: tokio::task::JoinHandle<Result<()>>,
 }
 
+/// The remote tips of the grouped virtual branches and the baseline commit, read once per sync for the remote statuses
+struct RemoteTips {
+  baseline: String,
+  /// Full name of the virtual branch -> tip of its remote branch on `origin`
+  remote: HashMap<String, String>,
+}
+
 /// A sync waits while HEAD is not the branch the user works on: git in the middle of a rebase, merge, cherry-pick or
 /// revert, or a detached HEAD. The history of HEAD then lacks the commits of groups, and the sync would archive their
 /// virtual branches (docs/design/git-operations.md, "Guards"). Nothing is changed.
@@ -376,9 +384,16 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   let (remote_tips, description_titles) = if branches.is_empty() {
     (None, HashMap::new())
   } else {
+    // the remote branches of the grouped branches: the push times are read for them, not for remote branches whose
+    // group is gone
+    let remote = branches
+      .keys()
+      .filter_map(|name| to_final_branch_name(branch_prefix, name).ok())
+      .filter_map(|full_name| Some((full_name.clone(), facts.remote_tips.get(&full_name)?.clone())))
+      .collect();
     let remote_tips = RemoteTips {
       baseline: facts.baseline_commit.clone(),
-      remote: facts.remote_tips.clone(),
+      remote,
     };
     (Some(remote_tips), description_titles(config.descriptions(), branch_prefix))
   };
@@ -724,7 +739,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   let permits = ProcessPermits::for_operation();
   // the conflict views of the unchanged branches come from the object cache, the new ones go there
   let tree_id_cache = if object_cache.is_enabled() {
-    TreeIdCache::with_merge_memo(Arc::new(ConflictMemo::new(object_cache)))
+    TreeIdCache::with_merge_memo(Arc::new(ConflictMemo::new(object_cache.clone())))
   } else {
     TreeIdCache::new()
   };
@@ -835,7 +850,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       tree_id_cache,
       existing_commits: Some(Arc::new(ExistingCommits::new(&parent_commit_hash, existing_tips.values().cloned()))),
       existing_tips,
-      remote_tips,
+      remote_statuses: remote_tips.map(|RemoteTips { baseline, remote }| RemoteStatusMemo::new(git_executor.clone(), repository_path, object_cache, "origin", baseline, remote)),
       ancestor_keys: ancestor_keys(&branches, stacks.as_ref()),
       verify_mapping_notes,
       owners: CommitOwners::new(&branches, |name| {

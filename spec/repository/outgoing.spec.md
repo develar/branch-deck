@@ -21,6 +21,7 @@ targets:
   - ../../src/lib/remote-status.ts
   - ../../src/lib/outgoing-attention.ts
   - ../../crates/sync-core/src/remote_status.rs
+  - ../../crates/object-cache/src/remote_status.rs
   - ../../crates/sync-core/src/commit_key.rs
   - ../../crates/sync-core/src/commit_walk.rs
   - ../../crates/sync-core/src/push.rs
@@ -119,8 +120,14 @@ is outgoing compares content, not hashes: the question is whether the remote has
 - The last push time of a remote status (`lastPushTime`, "Pushed …" in the description of the status text and in the
   branch preview) must be the time of the newest push of the branch from this clone, by its remote-tracking ref: a
   fetch that moved the remote branch later doesn't change it, also for a branch whose name holds a `{`. Without such
-  a push it is 0, and nothing is shown.
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`the_push_time_is_the_newest_push_not_a_later_fetch`)
+  a push it is 0, and nothing is shown. The push times of the branches of a sync are one read, when a status needs
+  one; a remote branch deleted meanwhile has none, and the others keep theirs.
+  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`the_push_time_is_the_newest_push_not_a_later_fetch`, `the_push_times_of_several_branches_are_one_read`)
+- The remote status of commits that did not move (the branch, its remote branch, the baseline, a stacked branch's
+  parent) must be the one computed before, without a walk: the app remembers it, push time included; `bd`, a new
+  process each time, takes it from the object cache and reads only the push times.
+  [@test] ../../crates/sync-core/src/sync_test.rs (`the_remote_status_of_unchanged_commits_runs_no_git`)
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`an_unchanged_sync_of_pushed_branches_in_a_new_process`)
 - The total and the mine counts must sum the outgoing branches; "mine" uses the remote status count of the user's
   commits.
   [@test] ../../src/lib/push-summary.test.ts (`sums the outgoing branches in order and counts them by state`)

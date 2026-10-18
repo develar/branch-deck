@@ -7,6 +7,7 @@ use crate::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams,
 use crate::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
 use crate::check::{CheckSession, check_plan};
 use crate::conflict_contents::{GetConflictContentsParams, read_conflict_contents};
+use crate::remote_status::forget_statuses;
 use crate::repository_lock::RewriteOptions;
 use crate::squash::{SquashCommitsParams, squash_commits_core};
 use crate::sync::{SyncOptions, sync_branches};
@@ -16,9 +17,9 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::BranchError;
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use sync_test_utils::TestReporter;
-use sync_types::SyncEvent;
+use sync_types::{RemoteStatusUpdate, SyncEvent};
 use test_utils::git_test_utils::TestRepo;
 
 const PREFIX: &str = "test";
@@ -165,6 +166,71 @@ async fn an_unchanged_sync_of_a_conflicting_branch() {
   let git = counting();
   sync_with_cache(&git, &repo, &cache).await;
   assert_processes(&git, &UNCHANGED_SYNC);
+}
+
+/// The time of the push of `alpha` in `pushed_repo`
+const PUSH_TIME: u32 = 1_700_000_000;
+
+/// `repo` synced, `alpha` pushed at `PUSH_TIME` (its remote branch at its tip) and `beta` fetched one commit behind
+/// its tip; the statuses of that sync are forgotten, as by a new process
+async fn pushed_repo(cache: &ObjectCache) -> TestRepo {
+  let (repo, _) = repo();
+  sync_with_cache(&GitCommandExecutor::new(), &repo, cache).await;
+  let alpha = repo.rev_parse("test/virtual/alpha").unwrap();
+  GitCommandExecutor::new()
+    .cmd(&["update-ref", "-m", "update by push", "refs/remotes/origin/test/virtual/alpha", &alpha], &path(&repo))
+    .env(&[("GIT_COMMITTER_DATE", &format!("@{PUSH_TIME} +0000"))])
+    .text()
+    .unwrap();
+  let behind = repo.rev_parse("test/virtual/beta~1").unwrap();
+  repo.git(&["update-ref", "refs/remotes/origin/test/virtual/beta", &behind]);
+  forget_statuses();
+  repo
+}
+
+/// The remote statuses a sync of `repo` with `cache` sends, by branch, on `git`
+async fn remote_statuses(git: &GitCommandExecutor, repo: &TestRepo, cache: &ObjectCache) -> BTreeMap<String, RemoteStatusUpdate> {
+  let progress = TestReporter::new();
+  let options = SyncOptions {
+    object_cache: cache.clone(),
+    ..SyncOptions::default()
+  };
+  sync_branches(git, &path(repo), PREFIX, progress.clone(), options).await.unwrap();
+  progress
+    .get_events()
+    .into_iter()
+    .filter_map(|event| match event {
+      SyncEvent::RemoteStatusUpdate(status) => Some((status.branch_name.clone(), status)),
+      _ => None,
+    })
+    .collect()
+}
+
+/// `bd sync` is a new process at every call: the statuses of commits that did not move come from the object cache, and
+/// the push times of all branches from one `reflog`. The first such sync walks `beta`, whose remote branch is not at
+/// its tip (2 `rev-list`); `alpha`'s remote branch is at its tip and needs no walk
+#[tokio::test]
+async fn an_unchanged_sync_of_pushed_branches_in_a_new_process() {
+  let (_dir, cache) = empty_cache();
+  let repo = pushed_repo(&cache).await;
+  let with = |extra: &[(&'static str, u32)]| {
+    let mut expected: Vec<(&str, u32)> = UNCHANGED_SYNC.iter().copied().chain(extra.iter().copied()).collect();
+    expected.sort_unstable();
+    expected
+  };
+
+  let git = counting();
+  let first = remote_statuses(&git, &repo, &cache).await;
+  assert_processes(&git, &with(&[("reflog", 1), ("rev-list", 2)]));
+  assert_eq!(first["alpha"].last_push_time, PUSH_TIME);
+  assert_eq!(first["beta"].last_push_time, 0, "only a fetch moved it");
+  assert_eq!(first["beta"].unpushed_commits.len(), 1);
+
+  forget_statuses();
+  let git = counting();
+  let second = remote_statuses(&git, &repo, &cache).await;
+  assert_processes(&git, &with(&[("reflog", 1)]));
+  assert_eq!(second, first);
 }
 
 /// The contents of a conflict, when a view shows it (`get_conflict_contents`): none from the object cache a sync left

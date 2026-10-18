@@ -1172,7 +1172,7 @@ Code: `crates/git-ops/src/copy_commit.rs`, `crates/sync-core/src/branch_processo
 ranges and the blob ids before and after) from a disk cache before they run git, and run one `log --no-walk=unsorted
 --stdin -z --raw --no-abbrev -p -U0` only for the commits it misses (`--no-abbrev`, not `--abbrev=40`, so a SHA-256
 id stays whole).
-- **Safe without invalidation** (but `review_answer`, below). Keys are object ids, and an object never changes: the changes of a commit against
+- **Safe without invalidation** (but `review_answer`, below). Keys are object ids (`remote_status`: a hash of them), and an object never changes: the changes of a commit against
   its first parent with fixed diff options (`-M`, `--no-ext-diff`, `--no-textconv`, and `--diff-algorithm=myers`,
   `--inter-hunk-context=0`, `--indent-heuristic` for where the hunks start and end, so `diff.algorithm` and
   `diff.interHunkContext` change no dependency edge) are the same forever. Entries are only evicted, never stale. Each
@@ -1235,8 +1235,19 @@ id stays whole).
 - `commit_patch` ((limits version, subject id) → the patch cut into file sections) is read and written by the app for
   the diff views (see "Commit files" below); a range is keyed by `<base>..<head>`, as immutable as a commit id. The
   version of `PATCH_LIMITS` is part of the key, and its first write of another version clears the store.
+- `remote_status` ((status version, a hash of the branch's tip, its remote tip, the baseline commit, a stacked
+  branch's parent head, where the parent's commits came from and the user's email) → the remote status without its
+  push time) is read and written by the sync of the app and of `bd`, and by `bd push --remote`, through
+  `RemoteStatusMemo` (`crates/sync-core/src/remote_status.rs`), after the process's own memory of the statuses. The
+  walks of a status read only what those commits reach above the baseline, so an unchanged `bd sync` walks no branch
+  (`an_unchanged_sync_of_pushed_branches_in_a_new_process`); a status with a ref name among its commits is not kept.
+  The push time is not a function of the commits (push X, fetch Y, push X again), so it is not kept: the first status
+  that needs one reads the push times of all branches of the operation with one `reflog`. The computed statuses wait
+  in memory and are written in one transaction when the memo drops; a remote branch at the branch's tip ran no walk
+  and is not written. The version is part of the key (it covers `DROPPED_COMMITS_LIMIT`), and its first write clears
+  the store.
 - `review_answer` (a hash of what the Patronus pre-check decides on → its answer and when it was fetched) is the one
-  store not keyed by object ids: the ownership rules of the target can outdate an answer, so the reader decides how
+  store not keyed by object ids or a hash of them: the ownership rules of the target can outdate an answer, so the reader decides how
   long it holds (`sync_core::review_readiness`): an answer that evaluated the pull request a day, one without the
   evaluation 2 minutes while approvals are missing, 10 without. Errors are never written; `bd safe-push` always asks
   again and writes the answer for the app.
@@ -1550,7 +1561,8 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    that commit. Step 1 decides whether the push may drop commits; the lease only makes sure it drops nothing the sync
    didn't see. With `--remote` other than `origin`, which the sync compares with, `bd push` computes the remote status
    of the branches it pushes against that remote's remote-tracking refs: one `for-each-ref` of all of them, then
-   `compute_remote_status_with_tips` on the tips the sync left and its baseline commit (1 to 6 processes per branch),
+   `RemoteStatusMemo` on the tips the sync left and its baseline commit (0 to 5 processes per branch, none for commits
+   the object cache has a status of, and one `reflog` for the push times of all of them),
    so steps 1, 3 and 4 work the same for every remote. A `--remote` that is not one of the remotes the sync listed
    (`git remote`) is `no_remote`: a URL has no remote-tracking refs.
 4. A rejection fetches the rejected branches (`fetch_remote_branches`) and lists them in `lease_rejected` with their
@@ -1925,7 +1937,7 @@ recovery hint (`git reset -q`).
 | Update check inside a sync, p paths changed by the update | an index copy, a full `update-index --refresh` and a dry run: grows with the index | unchanged state: 2 `merge-base` and an `lstat` per path, the guards, the upstream and the commits from the sync's `RepoFacts`; new state: + `rev-list`, `replay`, `diff-tree`, `cat-file`, `hash-object` of the paths not seen yet |
 | The repository facts of a sync | the guards, the current branch, `remote`, the upstream and the baseline commit read again by the update check, the archive step and the detection, 15–17 processes | the guards (2) + `remote` + 1 `for-each-ref` + 1 `rev-parse`; 1 `rev-parse` more for an upstream that is no `master` or `main` |
 | Conflict view | `ls-tree` + `cat-file` per revision, 1 `show` per missing commit | 1 `merge-tree` + 5: 1 `rev-list` (merge base and divergence), 2 `log`, 1 `cat-file` for all contents, 1 `diff-tree --stdin -p` for all patches; none, not even the merge, for a view the object cache remembers (`conflict_info`) |
-| Remote status of a branch in a sync | 1 `rev-parse` + 1–6 walks and checks | none when the branch, its remote and the baseline did not move; else 2 walks (the fast-forward from the walk of the remote commits) and 1 `reflog`, only the `reflog` when the remote branch is at the branch's tip, the remote tips read with the branches; 2 more to tell an amend from a rebased copy |
+| Remote status of a branch in a sync | 1 `rev-parse` + 1–6 walks and checks | none when the branch, its remote and the baseline did not move since a status of this process; else none from the object cache for the same commits (`bd sync`), or 2 walks (the fast-forward from the walk of the remote commits), none when the remote branch is at the branch's tip, the remote tips read with the branches; 2 more to tell an amend from a rebased copy; 1 `reflog` per sync for the push times of all branches, read only when a status needs one |
 | A round of `bd update --continue`, n commits left | a terminal `rebase --continue` per commit | about 18 processes (guards, reads, 2 `fast-import`, 1 `update-ref`, 5 for `blocked_paths`; the planned 9 not reached) + 1 `replay`, ⌈log₂ n⌉ more only for a new conflict |
 | File counts of an expanded branch of n commits | not shown | 1 `diff-tree --stdin` for the commits the object cache misses, none for a branch seen before |
 | Patches of a list of n commits, before their review | 1 `diff-tree -p` per commit at its first diff | 1 background `diff-tree --stdin -p` for the commits the patch store misses, none for a list seen before |
@@ -1939,13 +1951,14 @@ and `crates/bd-cli/src/process_budget_test.rs` (a whole `bd` command, its contex
 per operation on a small fixture (two branches of three commits, unless the test says otherwise). A change that saves a
 process lowers a number there, so the diff of the assert names the process that went away; a change that adds one must
 raise it. The totals, when each test was first pinned (the audit of the git layer, 2026-10-17; the tests marked * later
-in it) and now:
+in it; † with the remote statuses in the object cache, 2026-10-18, first pinned is the code before it) and now:
 
 | Operation | Test | First pinned | Now |
 |---|---|---|---|
 | First sync | `a_first_sync` | 37 | 22 |
 | Unchanged sync | `an_unchanged_sync` | 25 | 12 |
 | Unchanged sync of a conflicting branch, without / with the object cache | `an_unchanged_sync_of_a_conflicting_branch` * | 20 / 13 | 19 / 12 |
+| Unchanged sync of a pushed and a fetched branch in a new process (`bd sync`): the first, each next one | `an_unchanged_sync_of_pushed_branches_in_a_new_process` † | 16, 16 | 15, 13 |
 | Open a conflict view, from the object cache / without it | `opening_a_conflict` * | 0 / 6 | 0 / 6 |
 | Trial sync (the core of `bd check`), empty / filled object cache | `a_check` | 18 / 16 | 18 / 16 |
 | Trial sync after a sync | `a_check_of_synced_branches` * | 16 | 15 |
@@ -1978,9 +1991,13 @@ runs on a loaded machine (noisy):
 | `bd push --all --dry-run` | 238 | 37 |
 
 An unchanged sync reads every fact once (`RepoFacts`, `ConfigSnapshot`) and asks git nothing for a clean branch whose
-commits, remote and baseline did not move. Its 36 are about 13 fixed reads, the remote status walks of the 5 branches
+commits, remote and baseline did not move. Its 36 were about 13 fixed reads, the remote status walks of the 5 branches
 whose remote tip differs from the local one (12 `rev-list`, 5 `reflog`), and the chains of the conflicting branches,
-copied again (3 `merge-tree --stdin`, 3 `fast-import`; see "Follow-ups").
+copied again (3 `merge-tree --stdin`, 3 `fast-import`; see "Follow-ups"). Since the remote statuses are kept in the
+object cache (`remote_status`), a `bd sync` of commits that did not move walks no branch: on the same clone with the
+remote branches of 2026-10-18 (14 of the 38 branches on the remote), an unchanged `bd sync` ran 32 processes before
+(10 `rev-list`, 3 `reflog`; 0.47–0.92 s) and 20 after (the 13 fixed reads, one `reflog` for the push times of all
+branches and the chains of the conflicting branches; 0.14 s), the same output.
 
 ## Follow-ups
 

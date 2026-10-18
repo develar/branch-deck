@@ -460,3 +460,20 @@ fn a_full_conflict_store_keeps_the_merges() {
   assert!((0..30).filter(|index| cache.get_conflict_contents::<String>(1, &conflict(*index)).is_some()).count() < 30);
   assert_eq!(cache.get_merge_results(std::slice::from_ref(&key)), [Some(clean)]);
 }
+
+/// The remote statuses are read by the status version that wrote them, and the first write of another version clears
+/// them
+#[test_log::test]
+fn remote_statuses_are_read_by_their_version() {
+  let dir = tempfile::tempdir().unwrap();
+  let cache = open(dir.path());
+  let status = vec!["c1".to_string()];
+  cache.put_remote_statuses(1, &[([1; 32], &status)]);
+  assert_eq!(cache.get_remote_status::<Vec<String>>(1, &[1; 32]), Some(status.clone()));
+  assert_eq!(cache.get_remote_status::<Vec<String>>(1, &[2; 32]), None);
+  assert_eq!(cache.get_remote_status::<Vec<String>>(2, &[1; 32]), None, "a status of another version is never read");
+
+  cache.put_remote_statuses(2, &[([2; 32], &status)]);
+  assert_eq!(cache.get_remote_status::<Vec<String>>(1, &[1; 32]), None);
+  assert_eq!(cache.get_remote_status::<Vec<String>>(2, &[2; 32]), Some(status));
+}

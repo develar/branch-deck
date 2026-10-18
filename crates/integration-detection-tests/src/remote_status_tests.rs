@@ -3,7 +3,7 @@ use branch_integration::strategy::DetectionStrategy;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
-use sync_core::remote_status::{AncestorCommits, DROPPED_COMMITS_LIMIT, StackParent, compute_remote_status_for_branch};
+use sync_core::remote_status::{AncestorCommits, DROPPED_COMMITS_LIMIT, PushTimes, StackParent, compute_remote_status_for_branch};
 use sync_core::sync::sync_branches;
 use sync_test_utils::TestReporter;
 use sync_types::{DroppedCommit, SyncEvent};
@@ -897,4 +897,46 @@ fn the_push_time_is_the_newest_push_not_a_later_fetch() {
   let status = branch_status(&scenario.git_executor, &scenario, name);
   assert_eq!(status.commits_behind, 1, "the fetch moved the remote branch");
   assert_eq!(status.last_push_time, 1_700_000_100);
+}
+
+/// The push times of the branches of an operation, read by an executor that counts its processes: `(times, processes)`
+fn counted_push_times(scenario: &TestScenario, names: &[&str]) -> (Vec<u32>, BTreeMap<String, u32>) {
+  let git_executor = GitCommandExecutor::new().with_process_stats("test");
+  let refs: Vec<String> = names.iter().map(|name| format!("refs/remotes/origin/user/virtual/{name}")).collect();
+  let push_times = PushTimes::new(refs.clone());
+  let times = refs
+    .iter()
+    .map(|remote_ref| push_times.of(&git_executor, scenario.local_repo.path_str(), remote_ref))
+    .collect();
+  let processes = git_executor.process_stats().unwrap().by_command();
+  (times, processes.into_iter().map(|(command, stats)| (command, stats.count)).collect())
+}
+
+/// The push times of all branches of an operation are one `reflog`, the newest push of each, a fetch not counted. A
+/// remote branch deleted since its tip was read fails that read: then each branch reads its own, and the deleted one
+/// has none
+#[test]
+fn the_push_times_of_several_branches_are_one_read() {
+  let scenario = TestScenario::new();
+  scenario.setup_development_branch();
+  for (name, time) in [("pushed", 1_700_000_000), ("fetched", 1_700_000_100), ("deleted", 1_700_000_200)] {
+    let commit = scenario.local_repo.create_commit(&format!("({name}) First"), &format!("{name}.txt"), name);
+    scenario.local_repo.create_branch_at(&format!("user/virtual/{name}"), &commit).unwrap();
+    push_at(&scenario, name, time);
+  }
+  // `fetched` was pushed by someone else, the clone only fetched it
+  let fetched = scenario.local_repo.rev_parse("user/virtual/fetched").unwrap();
+  scenario.local_repo.git(&["update-ref", "-d", "refs/remotes/origin/user/virtual/fetched"]);
+  scenario
+    .local_repo
+    .git(&["update-ref", "-m", "fetch", "refs/remotes/origin/user/virtual/fetched", &fetched]);
+
+  let (times, processes) = counted_push_times(&scenario, &["pushed", "fetched", "deleted"]);
+  assert_eq!(times, [1_700_000_000, 0, 1_700_000_200]);
+  assert_eq!(processes, BTreeMap::from([("reflog".to_string(), 1)]));
+
+  scenario.local_repo.git(&["update-ref", "-d", "refs/remotes/origin/user/virtual/deleted"]);
+  let (times, processes) = counted_push_times(&scenario, &["pushed", "fetched", "deleted"]);
+  assert_eq!(times, [1_700_000_000, 0, 0]);
+  assert_eq!(processes, BTreeMap::from([("reflog".to_string(), 4)]), "the failed read, then one per branch");
 }

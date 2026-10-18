@@ -503,7 +503,7 @@ impl CheckSession {
         seeded_tree_cache(TreeIdCache::with_merge_memo(Arc::<CacheMemo>::clone(&memo)), branches.values().flatten()),
         base.as_deref(),
       ),
-      remote_tips: None,
+      remote_statuses: None,
       // the commits of every copy a build may reuse, by one `log` for all branches and all checks of the session
       existing_commits: base.as_deref().map(|base| self.existing_commits_on(base, &existing_tips)),
       existing_tips,

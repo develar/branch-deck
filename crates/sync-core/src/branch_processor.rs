@@ -4,7 +4,7 @@
 
 use crate::commit_key::CommitKey;
 use crate::missing_commits::CommitOwners;
-use crate::remote_status::{AncestorCommits, KnownTips, StackParent, compute_remote_status_for_branch, compute_remote_status_with_tips};
+use crate::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent, compute_remote_status_for_branch};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::to_final_branch_name;
@@ -34,8 +34,8 @@ pub(crate) struct BranchSyncContext<P: ProgressReporter> {
   pub tree_id_cache: TreeIdCache,
   /// Full name -> tip of every existing virtual branch, read with one `for-each-ref` per sync
   pub existing_tips: HashMap<String, String>,
-  /// The commits the remote statuses are computed from, read once per sync; `None` reads them per branch
-  pub remote_tips: Option<RemoteTips>,
+  /// The remote statuses on the commits read once per sync (the remote tips, the baseline); `None` reads them per branch
+  pub remote_statuses: Option<RemoteStatusMemo>,
   /// The commits of all existing virtual branches, read once per sync (once per session of checks, which share them);
   /// `None` reads them per branch
   pub existing_commits: Option<Arc<ExistingCommits>>,
@@ -46,13 +46,6 @@ pub(crate) struct BranchSyncContext<P: ProgressReporter> {
   pub verify_mapping_notes: bool,
   /// The branch of each commit, for the missing commits of a conflict
   pub owners: CommitOwners,
-}
-
-/// The remote tips of the virtual branches and the baseline commit, read once per sync for the remote statuses
-pub(crate) struct RemoteTips {
-  pub baseline: String,
-  /// Full name of the virtual branch -> tip of its remote branch on `origin`
-  pub remote: HashMap<String, String>,
 }
 
 /// The commits of every existing virtual branch above the base of the sync, read with one `log` by the first branch
@@ -401,22 +394,10 @@ pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, bui
     base,
     ancestors: ctx.ancestor_keys.get(&branch_name).map_or(AncestorCommits::ReadWhenNeeded, AncestorCommits::Known),
   });
-  let remote_status = match &ctx.remote_tips {
-    // an unchanged branch whose remote and baseline did not move has the status of the previous sync
-    Some(tips) => compute_remote_status_with_tips(
-      git_executor,
-      repository_path,
-      "origin",
-      &full_branch_name,
-      &branch_name,
-      my_email.as_deref(),
-      parent,
-      KnownTips {
-        local: &head,
-        remote: tips.remote.get(&full_branch_name).map(String::as_str),
-        baseline: &tips.baseline,
-      },
-    ),
+  let remote_status = match &ctx.remote_statuses {
+    // an unchanged branch whose remote and baseline did not move has the status of the previous sync, or of the object
+    // cache
+    Some(statuses) => statuses.status(&full_branch_name, &branch_name, &head, my_email.as_deref(), parent),
     None => compute_remote_status_for_branch(
       git_executor,
       repository_path,

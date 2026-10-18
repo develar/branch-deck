@@ -17,7 +17,7 @@ pub mod stack;
 pub mod upstream_commit;
 
 /// Remote branch status information, by content: the baseline and patch-equivalent (rebased) commits don't count
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteStatusUpdate {

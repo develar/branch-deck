@@ -24,7 +24,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use sync_core::pull_requests::{GitHubRepository, parse_github_repository, resolve_github_repository_with};
 use sync_core::push_lease::{PushOptions, fetch_remote_branches, leased_push_refs, push_refs};
-use sync_core::remote_status::{AncestorCommits, KnownTips, StackParent, compute_remote_status_for_branch, compute_remote_status_with_tips};
+use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent, compute_remote_status_for_branch};
 use sync_core::sync::SyncReport;
 use sync_types::patronus::PatronusRobot;
 
@@ -221,6 +221,17 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
     Vec::new()
   };
   let on_remote = remote_tips(context, report, &remote)?;
+  // the statuses against another remote, computed here on the commits the sync left: `origin`'s are the sync's
+  let statuses = (remote != "origin").then(|| {
+    RemoteStatusMemo::new(
+      context.git.clone(),
+      &context.repository,
+      context.cache(),
+      &remote,
+      report.baseline_commit.clone(),
+      on_remote.as_ref().clone(),
+    )
+  });
   let mut candidates = Vec::with_capacity(selected.len());
   let mut refusals = Vec::new();
   let mut held = Vec::new();
@@ -253,7 +264,7 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
     };
     let parent = parent_of(name);
     let parent_ref = parent.as_deref().map(|parent| final_name(context, parent)).transpose()?;
-    let remote_state = remote_status(context, &remote, report, branch, (&full_name, tip), parent_ref.as_deref(), &on_remote)?;
+    let remote_state = remote_status(context, statuses.as_ref(), report, branch, (&full_name, tip), parent_ref.as_deref())?;
     let along = implicit.contains(*name);
     if along
       && remote_state
@@ -454,38 +465,22 @@ fn remote_tips<'a>(context: &RepoContext, report: &'a SyncReport, remote: &str) 
   Ok(Cow::Owned(tips_under(&ref_tips(&context.git, &context.repository, &[&pattern])?, &namespace)))
 }
 
-/// The status of `branch` (`(full name, tip)`) against `remote`: the one of the sync for `origin`, which the sync
-/// compares with; for another remote computed now the same way, on the commits the sync left and the remote-tracking
-/// tips of `remote_tips`
+/// The status of `branch` (`(full name, tip)`): the one of the sync for `origin` (`statuses` is `None`), which the sync
+/// compares with; for another remote computed now by `statuses` the same way, on the commits the sync left
 fn remote_status(
   context: &RepoContext,
-  remote: &str,
+  statuses: Option<&RemoteStatusMemo>,
   report: &SyncReport,
   branch: &SyncedBranch,
   (full_name, tip): (&str, &str),
   parent_ref: Option<&str>,
-  remote_tips: &HashMap<String, String>,
 ) -> Result<Option<RemoteSummary>, CliError> {
-  if remote == "origin" {
+  let Some(statuses) = statuses else {
     return Ok(branch.remote.clone());
-  }
+  };
   // the parent as the sync left it
   let parent_base = parent_ref.map(|parent_ref| report.tips.get(parent_ref).map_or(parent_ref, String::as_str));
-  let tips = KnownTips {
-    local: tip,
-    remote: remote_tips.get(full_name).map(String::as_str),
-    baseline: &report.baseline_commit,
-  };
-  let status = compute_remote_status_with_tips(
-    &context.git,
-    &context.repository,
-    remote,
-    full_name,
-    &branch.name,
-    None,
-    parent_base.map(stack_parent),
-    tips,
-  )?;
+  let status = statuses.status(full_name, &branch.name, tip, None, parent_base.map(stack_parent))?;
   let short = context.short_ids(RemoteSummary::ids(&status));
   Ok(Some(RemoteSummary::new(&status, branch.commit_count, &short)))
 }
