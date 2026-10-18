@@ -11,8 +11,9 @@
 //! - renames are followed (`-M`), copies are not.
 //!
 //! The approximation sees only text: it misses semantic dependencies (a call to a function another commit added in
-//! another file), which `symbol_dependencies` adds (`with_symbols`), and over-reports independent edits that happen to
-//! be adjacent.
+//! another file), which `symbol_dependencies` adds (`with_symbols`). Adjacent edits do conflict in merge-ort; a false
+//! edge comes from the hunks, which myers cuts and merge-ort's histogram diff may cut otherwise in a large rewrite (one
+//! of 1,591 measured edges, "Line Dependencies" in `docs/design/virtual-branches.md`).
 
 use crate::diff_scan::CommitDiff;
 use crate::symbol_dependencies::{SymbolGraph, SymbolLink};

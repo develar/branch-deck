@@ -296,7 +296,9 @@ This is in `crates/sync-core/src/dependencies.rs`.
 - Renames are followed. Copies are not.
 
 The approximation sees only text. It misses semantic dependencies, such as a call to a function that another commit
-adds in another file. It can also report independent edits that happen to be next to each other. Treat an edge as
+adds in another file. Edits next to each other do conflict in git's merge. Rarely, an edge is one git's merge would
+not conflict on: the hunks come from the myers diff, git's merge uses histogram, and in a large rewrite the two can
+disagree about which commit added a line. Treat an edge as
 "these can't be cherry-picked apart without a conflict", not as a proof.
 
 The edges by symbols (`crates/sync-core/src/symbol_dependencies.rs`, unless `branchdeck.symbols` is `off`) add those: a
