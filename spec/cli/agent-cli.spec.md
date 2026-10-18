@@ -30,6 +30,7 @@ targets:
   - ../../crates/bd-cli/src/sync_command.rs
   - ../../crates/sync-core/src/branch_processor.rs
   - ../../crates/bd-cli/src/check_command.rs
+  - ../../crates/git-ops/src/tree_archive.rs
   - ../../crates/bd-cli/src/robot_command.rs
   - ../../crates/bd-cli/src/request_review_command.rs
   - ../../crates/bd-cli/src/fold_command.rs

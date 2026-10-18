@@ -35,6 +35,8 @@ sha2 = "0.10.9"
 test-utils = { path = "../test-utils" }
 pretty_assertions = { workspace = true }
 test-log = { workspace = true }
+# reads the tar of `tree_archive`
+tar = "0.4.46"
 
 [features]
 default = []

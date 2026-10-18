@@ -1,4 +1,4 @@
-use super::{BatchEntry, BatchParser, NO_LIMIT, for_each_object, read_objects};
+use super::{BatchEntry, BatchParser, NO_LIMIT, for_each_object, object_types, read_objects};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -45,6 +45,22 @@ fn names_with_a_space_or_a_newline_and_missing_names() {
   let entries = read(&repo, &["HEAD:a b.txt", "HEAD:line\nbreak.txt", "HEAD:no such file", "no such ref"], NO_LIMIT);
 
   assert_eq!(entries, [blob(b"space\n"), blob(b"newline\n"), Seen::Missing, Seen::Missing]);
+}
+
+#[test]
+fn the_types_of_paths_with_a_newline_a_directory_a_gitlink_and_missing_names() {
+  let repo = TestRepo::new();
+  let head = repo.create_commit_in_index("files", &[("line\nbreak.txt", "newline\n"), ("src/main.rs", "fn main() {}\n")]);
+  // a gitlink to a commit of another repository, and one to a commit that is here as well
+  repo.git(&["update-index", "--add", "--cacheinfo", "160000,0123456789abcdef0123456789abcdef01234567,vendor"]);
+  repo.git(&["update-index", "--add", "--cacheinfo", &format!("160000,{head},self")]);
+  repo.git(&["commit", "-q", "-m", "gitlinks"]);
+
+  let names = ["HEAD:line\nbreak.txt", "HEAD:src", "HEAD:vendor", "HEAD:self", "HEAD", "HEAD:no such file", "no such ref"];
+  let types = object_types(repo.git_executor(), repo.path_str(), &names).unwrap();
+  assert_eq!(types, [Some("blob"), Some("tree"), Some("submodule"), Some("commit"), Some("commit"), None, None]);
+  assert_eq!(object_types::<&str>(repo.git_executor(), repo.path_str(), &[]).unwrap(), []);
+  object_types(repo.git_executor(), repo.path_str(), &["HEAD:a\0b"]).unwrap_err();
 }
 
 #[test]

@@ -10,6 +10,8 @@ use crate::rewrite::regroup_error;
 use crate::status::{StackBlockSummary, StackIssue, stack_issues};
 use crate::suggest::SuggestPlan;
 use crate::text_input::{read_stdin_unless_terminal, read_text};
+use git_ops::cat_file_batch::object_types;
+use git_ops::tree_archive::write_tree_archive;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -667,26 +669,9 @@ fn present_paths<'a>(context: &RepoContext, heads: &[(usize, &'a str)], paths: &
   if pairs.is_empty() {
     return Ok(HashSet::new());
   }
-  let mut input = Vec::new();
-  for (head, path) in &pairs {
-    input.extend_from_slice(format!("{head}:{path}").as_bytes());
-    input.push(0);
-  }
-  let output = context
-    .git
-    .cmd(&["cat-file", "--batch-check=%(objecttype)", "-Z"], &context.repository)
-    .stdin(&input)
-    .bytes()?;
-  // the type of each, or `<name> missing` (`ambiguous`); a submodule is `<id> submodule`
-  let replies = output.split(|&b| b == 0).map(String::from_utf8_lossy);
-  Ok(
-    pairs
-      .into_iter()
-      .zip(replies)
-      .filter(|(_, reply)| matches!(reply.as_ref(), "blob" | "tree" | "commit" | "tag") || reply.ends_with(" submodule"))
-      .map(|(pair, _)| pair)
-      .collect(),
-  )
+  let names: Vec<String> = pairs.iter().map(|(head, path)| format!("{head}:{path}")).collect();
+  let types = object_types(&context.git, &context.repository, &names)?;
+  Ok(pairs.into_iter().zip(types).filter(|(_, kind)| kind.is_some()).map(|(pair, _)| pair).collect())
 }
 
 /// `command` run in the tree of `head`, extracted (`git archive`; only `paths`, the given ones the tree has, if given)
@@ -704,14 +689,7 @@ fn build_tree(context: &RepoContext, branch: &str, head: &str, command: &str, pa
     std::fs::create_dir_all(&tree).map_err(|e| io_error("create a directory", e))?;
   } else {
     let mut archive = std::fs::File::create(&archive_path).map_err(|e| io_error("write the archive", e))?;
-    let mut args = vec!["archive", "--format=tar", head];
-    if let Some(paths) = paths {
-      args.push("--");
-      args.extend(paths);
-    }
-    context.git.execute_command_streaming(&args, &context.repository, |chunk| {
-      std::io::Write::write_all(&mut archive, chunk).map_err(anyhow::Error::from)
-    })?;
+    write_tree_archive(&context.git, &context.repository, head, paths, &mut archive)?;
     drop(archive);
     let archive = std::fs::File::open(&archive_path).map_err(|e| io_error("read the archive", e))?;
     tar::Archive::new(archive).unpack(&tree).map_err(|e| io_error("extract the tree", e))?;

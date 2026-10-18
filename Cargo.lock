@@ -2184,6 +2184,7 @@ dependencies = [
  "sha1",
  "sha2",
  "specta",
+ "tar",
  "tempfile",
  "test-log",
  "test-utils",

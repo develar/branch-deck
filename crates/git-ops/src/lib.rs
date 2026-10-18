@@ -29,6 +29,7 @@ pub mod reword_commits;
 pub mod rewrite_guard;
 pub mod rewrite_plan;
 pub mod squash_commits;
+pub mod tree_archive;
 pub mod update_branch;
 pub mod update_resolve;
 pub mod worktree_update;

@@ -1,7 +1,7 @@
 //! The objects of many names (an object id, `<rev>:<path>`, a ref) from one `git cat-file --batch --buffer -Z`, read as
-//! the output streams. Names and entries are NUL-terminated (`-Z`), so a name may hold a space or a newline; the content
-//! of an object over the caller's limit is skipped as it arrives, never buffered, so memory holds one object within the
-//! limit, not the output.
+//! the output streams, or only their types from one `--batch-check` (`object_types`). Names and entries are
+//! NUL-terminated (`-Z`), so a name may hold a space or a newline; the content of an object over the caller's limit is
+//! skipped as it arrives, never buffered, so memory holds one object within the limit, not the output.
 
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -35,6 +35,45 @@ pub fn for_each_object<S: AsRef<str>>(
   if names.is_empty() {
     return Ok(());
   }
+  let input = nul_terminated(names)?;
+  let mut parser = BatchParser::new(names.len(), max_bytes, on_entry);
+  git
+    .cmd(&["cat-file", "--batch", "--buffer", "-Z"], repository_path)
+    .stdin(&input)
+    .stream(|chunk| parser.push(chunk).map(ControlFlow::Continue))?;
+  parser.finish()
+}
+
+/// The type of the object each of `names` names (`blob`, `tree`, `commit`, `tag`, and `submodule` for a gitlink of a
+/// `<rev>:<path>` to a commit this repository lacks), `None` for a name git cannot resolve (`missing`, `ambiguous`):
+/// one `cat-file --batch-check=%(objecttype) -Z`, in the order of `names`. A name that holds a NUL is an error
+pub fn object_types<S: AsRef<str>>(git: &GitCommandExecutor, repository_path: &str, names: &[S]) -> Result<Vec<Option<&'static str>>> {
+  if names.is_empty() {
+    return Ok(Vec::new());
+  }
+  let input = nul_terminated(names)?;
+  let output = git.cmd(&["cat-file", "--batch-check=%(objecttype)", "-Z"], repository_path).stdin(&input).bytes()?;
+  // the type of each, or `<name> missing` (`ambiguous`); a gitlink is `<id> submodule`
+  let types: Vec<Option<&'static str>> = output
+    .split(|&byte| byte == 0)
+    .take(names.len())
+    .map(|reply| match reply {
+      b"blob" => Some("blob"),
+      b"tree" => Some("tree"),
+      b"commit" => Some("commit"),
+      b"tag" => Some("tag"),
+      reply if reply.ends_with(b" submodule") => Some("submodule"),
+      _ => None,
+    })
+    .collect();
+  if types.len() != names.len() {
+    bail!("cat-file --batch-check answered {} of {} names", types.len(), names.len());
+  }
+  Ok(types)
+}
+
+/// `names` for the stdin of a `-Z` batch: each followed by a NUL, which none may hold
+fn nul_terminated<S: AsRef<str>>(names: &[S]) -> Result<Vec<u8>> {
   let mut input = Vec::with_capacity(names.iter().map(|name| name.as_ref().len() + 1).sum());
   for name in names {
     let name = name.as_ref();
@@ -44,12 +83,7 @@ pub fn for_each_object<S: AsRef<str>>(
     input.extend_from_slice(name.as_bytes());
     input.push(0);
   }
-  let mut parser = BatchParser::new(names.len(), max_bytes, on_entry);
-  git
-    .cmd(&["cat-file", "--batch", "--buffer", "-Z"], repository_path)
-    .stdin(&input)
-    .stream(|chunk| parser.push(chunk).map(ControlFlow::Continue))?;
-  parser.finish()
+  Ok(input)
 }
 
 /// What `map` makes of the entry of each of `names`, in this order (`for_each_object`)
