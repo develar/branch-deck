@@ -291,14 +291,24 @@ test.describe("Whole stack", () => {
     const rootSlot = findBranchRow(page, "auth").getByTestId("next-step-slot")
     const ask = "Waits for the approval of IJPL Code Platform: nobody of it is requested on #12. Ask Ilya Korennoy to review #12"
 
-    // the right-click on the root: "Whole Stack ›" asks the code owner of the whole stack, the popover at the root's row
+    // the right-click on the root: "Whole Stack ›" asks the code owner of the whole stack, the popover at the root's row;
+    // its candidate comes with the readiness of the whole stack, which the root's row asks for in the background
+    await openWholeStackSubmenu(page, "auth")
+    await page.getByRole("menuitem", { name: "Request Review…" }).click()
+    await expect(popover).toHaveCount(1)
+    await expect(popover).toContainText("Request a review on #12")
+    await expect(popover.getByTestId("request-review-candidate-ikorennoy")).toBeChecked()
+    await expectPopoverAtSlot(popover, rootSlot)
+    await page.keyboard.press("Escape")
+    await expect(popover).toHaveCount(0)
+    expect(requests).toEqual([])
+
+    // a menu is built on open: with the readiness known, the item's hover says whom it asks and why, and it asks him
     await openWholeStackSubmenu(page, "auth")
     const item = page.getByRole("menuitem", { name: "Request Review…" })
     await item.hover()
     await expect(page.getByRole("tooltip", { name: ask })).toBeVisible()
     await item.click()
-    await expect(popover).toHaveCount(1)
-    await expect(popover).toContainText("Request a review on #12")
     await expect(popover.getByTestId("request-review-candidate-ikorennoy")).toBeChecked()
     await expectPopoverAtSlot(popover, rootSlot)
     await popover.getByTestId("request-review-submit").click()
