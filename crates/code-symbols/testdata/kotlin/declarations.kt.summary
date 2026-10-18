@@ -53,10 +53,10 @@ Function platformName in - Public TopLevel 64-64 @64 () `expect fun platformName
 @40 :Int
 @43 ~Color.toString()
 @46 :String rgb <Int>rgb.toString(Number)
-@49 :Int entries entries.first(Lambda) ?.rgb
+@49 :Int entries entries.first(Lambda) ?.rgb@co?
 @54 :Result
 @57 :List :Shape
 @61 :String uppercase()
 @62 Registry :Shape
-@63 :List :Shape ?.area maxByOrNull(Lambda)
+@63 :List :Shape ?.area@co? maxByOrNull(Lambda)
 @64 :String

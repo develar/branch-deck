@@ -13,7 +13,7 @@ Function limit in Hidden Public Instance 22-22 @22 () `fun limit`
 Type After in - Public TopLevel 25-27 @25 new(registrar: Registrar)
 Value registrar in After Public Instance 25-25 @25 <Registrar> `val registrar : Registrar`
 Function run in After Public Instance 26-26 @26 () `fun run`
-@5 :Int
+@5 :Int@co?
 @6 :String
 @10 :String
 @15 :Suppress

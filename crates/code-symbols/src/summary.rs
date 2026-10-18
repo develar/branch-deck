@@ -203,6 +203,12 @@ pub struct Reference {
   pub receiver_type: Option<Vec<u32>>,
   /// The `receiver_type` is the type a constructor call gave its local or property (`value_constructed`)
   pub receiver_constructed: bool,
+  /// Whether the code around it may call a suspend function, in Kotlin and Java: `Some(true)` in a `suspend` function
+  /// with no lambda between, or in the lambda of a coroutine builder (`runBlocking`, `launch`, `withContext`, `flow`,
+  /// …); `Some(false)` in any other function, an accessor, an initializer, the lambda of `sequence` or `iterator`, and
+  /// everywhere in Java; `None` in the lambda of another function, whose parameter may be a suspend function type, and
+  /// in the other languages
+  pub coroutine: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

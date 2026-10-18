@@ -21,8 +21,8 @@
 
 // jscpd:ignore-start: every language module implements one `Spec` with the same vocabulary
 use crate::extract::{
-  Binder, CallArguments, Child, DeclRule, Header, Holder, JvmFields, JvmHooks, LINE_COMMENT, Modality, Opens, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, ValueType, Walk, binder,
-  decl, function_decl, line_of, type_decl,
+  Binder, CallArguments, Child, Context, DeclRule, Header, Holder, JvmFields, JvmHooks, LINE_COMMENT, Modality, Opens, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, ValueType, Walk,
+  binder, decl, function_decl, line_of, type_decl,
 };
 use crate::language::Language;
 use crate::summary::{Argument, Constructor, DeclKind, MemberKind, Parameter, Reach, Role, Signature};
@@ -210,6 +210,7 @@ pub(crate) static SPEC: Spec = Spec {
     },
   }),
   call_shape: Some(call_shape),
+  coroutine: Some(coroutine),
   header: Header {
     ends: &["function_body", "property_delegate", "getter", "setter"],
     end_tokens: &["="],
@@ -218,6 +219,62 @@ pub(crate) static SPEC: Spec = Spec {
     parameters: &["function_value_parameters"],
   },
 };
+
+/// The functions whose lambda argument is a coroutine: a suspend call is allowed in it
+const COROUTINE_BUILDERS: &[&str] = &[
+  "runBlocking",
+  "launch",
+  "async",
+  "coroutineScope",
+  "supervisorScope",
+  "withContext",
+  "withTimeout",
+  "withTimeoutOrNull",
+  "runTest",
+  "flow",
+  "channelFlow",
+  "callbackFlow",
+  "produce",
+  "timeoutRunBlocking",
+];
+
+/// The coroutine context a node opens (`Spec::coroutine`): a function is one by its `suspend`, an accessor, a
+/// constructor and an initializer none; a lambda is one when a coroutine builder takes it, none for `sequence` and
+/// `iterator` (whose restricted scope calls no foreign suspend function), unknown for any other callee
+fn coroutine<'t>(w: &Walk<'t>, node: Node<'t>) -> Option<Context> {
+  match node.kind() {
+    "function_declaration" if modifier_texts(w, node).contains(&"suspend") => Some(Context::Coroutine),
+    "function_declaration" | "getter" | "setter" | "secondary_constructor" | "anonymous_initializer" | "class_body" | "enum_class_body" => Some(Context::Plain),
+    "anonymous_function" => Some(Context::Unknown),
+    "lambda_literal" => Some(match lambda_callee(w, node) {
+      Some(callee) if COROUTINE_BUILDERS.contains(&callee) => Context::Coroutine,
+      Some("sequence" | "iterator") => Context::Plain,
+      _ => Context::Unknown,
+    }),
+    _ => None,
+  }
+}
+
+/// The name of the function a lambda is an argument of: `launch` of `scope.launch { … }` and of `launch(context) { … }`
+fn lambda_callee<'t>(w: &Walk<'t>, lambda: Node<'t>) -> Option<&'t str> {
+  let mut node = lambda.parent()?;
+  if w.is(node, "annotated_lambda") {
+    node = node.parent()?;
+  } else if w.is(node, "value_argument") {
+    node = node.parent()?.parent()?;
+  }
+  if !w.is(node, "call_suffix") {
+    return None;
+  }
+  let callee = node.parent().filter(|it| w.is(*it, "call_expression"))?.named_child(0)?;
+  let name = if w.is(callee, "navigation_expression") {
+    let suffix = callee.named_child(callee.named_child_count().checked_sub(1)?.try_into().ok()?)?;
+    suffix.named_child(0)?
+  } else {
+    callee
+  };
+  w.is(name, "simple_identifier").then(|| w.text(name)).flatten()
+}
 
 /// `@file:JvmName("Util")` names the JVM class of the top-level declarations
 fn file_annotation<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {

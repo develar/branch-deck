@@ -177,6 +177,7 @@ pub(crate) static SPEC: Spec = Spec {
   hoist: Some(hoist),
   jvm: None,
   call_shape: None,
+  coroutine: None,
   header: Header {
     ends: &["statement_block"],
     end_tokens: &["="],

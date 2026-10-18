@@ -117,16 +117,16 @@ Function local in Lanes Public Instance 163-165 @163 () `fun local`
 @131 :Event :Unit :Weighted
 @132 :Event ~?.invoke(Event) ~Weighted.invoke(Event)
 @135 :Array :String :ToolWindowManagerImpl
-@136 ?.close(){} <ToolWindowManagerImpl>.convert(Number,into=_,Lambda) mutableListOf(Number,_)
+@136 ?.close(){}@co? <ToolWindowManagerImpl>.convert(Number,into=_,Lambda) mutableListOf(Number,_)
 @137 <ToolWindowManagerImpl>.paneButtons(Text,Boolean,_,_)
 @138 listOf(_,Text)*
 @139 <ToolWindowManagerImpl>.stripes(ids=_)*
 @144 add(Number,Text)
 @147 :Int add(Number,Text)
 @149 :Int :String
-@151 :List :String add(Number,Text){} buildList(Lambda)
-@153 :String this.add(Number,Text){} ?.apply(Lambda) mutableListOf()
+@151 :List :String add(Number,Text){}@co? buildList(Lambda)
+@153 :String this.add(Number,Text){}@co? ?.apply(Lambda) mutableListOf()
 @155 ArrayList() :String
 @157 add(Number,Text){}
-@161 :String add(Number,_){}
+@161 :String@co? add(Number,_){}@co?
 @164 add(Number,Text){}

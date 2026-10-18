@@ -40,7 +40,7 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 15;
+pub const RULES_VERSION: u32 = 16;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -198,6 +198,10 @@ pub(crate) struct Spec {
   pub(crate) jvm: Option<JvmHooks>,
   /// What the header of a function or a value is (`Declaration::header`)
   pub(crate) header: Header,
+  /// Of a JVM language, the coroutine context a node opens for the references below it (`Reference::coroutine`):
+  /// `Some(context)` for a function or a lambda, `None` for any other node; outside them the context is `Some(false)`.
+  /// `None` for a language without suspend functions
+  pub(crate) coroutine: Option<CoroutineRule>,
   /// The arguments of a call node (a `Rule::Call`, a `Rule::Member` of the role `Call`, a call of `Walk::give_call`),
   /// for the `Shape::Call` of the reference of its callee; `None` when it says nothing of them
   pub(crate) call_shape: Option<for<'t> fn(&mut Walk<'t>, Node<'t>) -> Option<CallArguments>>,
@@ -217,6 +221,20 @@ pub(crate) struct Header {
   /// The kinds of a parameter list: left out where `signature` holds the parameters, else kept, `=` included
   pub(crate) parameters: &'static [&'static str],
 }
+
+/// The coroutine context of the code a node holds (`Spec::coroutine`, `Reference::coroutine`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Context {
+  /// A suspend call is allowed: a `suspend` function, the lambda of a coroutine builder
+  Coroutine,
+  /// It isn't: any other function, an initializer, an accessor
+  Plain,
+  /// A lambda that a suspend function type may take
+  Unknown,
+}
+
+/// The context a node opens for the references below it, `None` for a node that opens none
+pub(crate) type CoroutineRule = for<'t> fn(&Walk<'t>, Node<'t>) -> Option<Context>;
 
 /// The type of a value as `JvmHooks::value_type` reads it: its path, and whether a constructor call gave it
 pub(crate) type ValueType<'t> = (Vec<&'t str>, bool);
@@ -569,6 +587,8 @@ struct Frame<'t> {
   container: bool,
   /// The entries this node pushed onto `Walk::supertypes`
   supertypes: u8,
+  /// It pushed its coroutine context onto `Walk::coroutines`
+  coroutine: bool,
   error: bool,
   /// The first line of the doc comments and attributes above the next child
   leading: Option<u32>,
@@ -662,6 +682,8 @@ pub(crate) struct Walk<'t> {
   /// The supertypes whose members the declarations at this level override; a class-like node pushes its own, a
   /// function body and a lambda an empty list
   supertypes: Vec<Vec<Vec<u32>>>,
+  /// The coroutine contexts of the functions and lambdas around the current node (`Spec::coroutine`)
+  coroutines: Vec<Context>,
   shapes: Vec<Shape>,
   shape_ids: HashMap<Shape, u32>,
   error_bytes: u32,
@@ -700,6 +722,7 @@ impl<'t> Walk<'t> {
       pending: Vec::new(),
       containers: Vec::new(),
       supertypes: Vec::new(),
+      coroutines: Vec::new(),
       shapes: Vec::new(),
       shape_ids: HashMap::new(),
       error_bytes: 0,
@@ -769,11 +792,16 @@ impl<'t> Walk<'t> {
       scopes: 0,
       container: false,
       supertypes: 0,
+      coroutine: false,
       error: false,
       leading: None,
       last_decl: None,
       tokens: None,
     };
+    if let Some(context) = self.spec.coroutine.and_then(|opens| opens(self, node)) {
+      self.coroutines.push(context);
+      frame.coroutine = true;
+    }
     if node.is_error() || node.is_missing() {
       if self.error_depth == 0 {
         let bytes = u32::try_from(node.byte_range().len()).unwrap_or(u32::MAX).max(u32::from(node.is_missing()));
@@ -887,6 +915,9 @@ impl<'t> Walk<'t> {
     }
     for _ in 0..frame.supertypes {
       self.supertypes.pop();
+    }
+    if frame.coroutine {
+      self.coroutines.pop();
     }
     if frame.error {
       self.error_depth -= 1;
@@ -1347,6 +1378,11 @@ impl<'t> Walk<'t> {
       shape,
       receiver_type: None,
       receiver_constructed: false,
+      coroutine: self.spec.coroutine.and_then(|_| match self.coroutines.last() {
+        Some(Context::Coroutine) => Some(true),
+        Some(Context::Plain) | None => Some(false),
+        Some(Context::Unknown) => None,
+      }),
     });
   }
 

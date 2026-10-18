@@ -572,3 +572,38 @@ fn a_header_is_the_form_before_the_body() {
   assert_eq!(header("class L {\n  val cleanup: Int by lazy { 1 }\n}\n").as_deref(), Some("val cleanup : Int"));
   assert_eq!(header("class cleanup\n"), None, "a type has none");
 }
+
+/// A reference knows whether a suspend call is allowed where it is: in a `suspend` function and the lambda of a
+/// coroutine builder, not in another function, an initializer or the lambda of `sequence`; unknown in the lambda of
+/// another function
+#[test]
+fn a_reference_knows_its_coroutine_context() {
+  let source = "class L {
+  val ready = check()
+  fun plain() { check() }
+  suspend fun suspending() { check() }
+  fun blocking() = runBlocking { check() }
+  suspend fun nested() { fun local() { check() } }
+  fun scoped(scope: CoroutineScope) { scope.launch(Dispatchers.IO) { check() } }
+  fun lazy() = sequence { check() }
+  fun other() = assertThrows(E::class.java) { check() }
+}
+";
+  let summary = summarize(Language::Kotlin, source.as_bytes());
+  let contexts: Vec<(u32, Option<bool>)> = summary.references_to("check").map(|it| (it.line, it.coroutine)).collect();
+  assert_eq!(
+    contexts,
+    [
+      (2, Some(false)),
+      (3, Some(false)),
+      (4, Some(true)),
+      (5, Some(true)),
+      (6, Some(false)),
+      (7, Some(true)),
+      (8, Some(false)),
+      (9, None)
+    ]
+  );
+  let java = summarize(Language::Java, b"class L { void plain() { check(); } }\n");
+  assert_eq!(java.references_to("check").map(|it| it.coroutine).collect::<Vec<_>>(), [Some(false)]);
+}

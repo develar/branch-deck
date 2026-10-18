@@ -1660,12 +1660,15 @@ a check, `find_dangling_references` looks for such uses without a compiler:
 6. With `branchdeck.symbols on` and a commit that changes a source file of a grammar, the same `diff-tree` and
    `cat-file` also serve the checks by the declarations (`declaration_checks.rs`, decision 15 of
    [Symbol Dependencies](symbol-dependencies.md)): an instance or static member a branch's commit removes, a function,
-   property or constant whose header, parameters or reach it changes or a type whose constructors it changes, and a
-   JVM type or Kotlin top-level function it adds while the tree has the key in another file of its package and module.
-   The declarations come from the summaries of the commits' files (`CheckSession::symbol_input`, read once per
-   session, or handed over by `bd suggest`), only those on the changed lines. A use counts where it resolves to the
-   declaration as an edge would and, for a change, fits the old form but no form in the branch's tree; `fixed_by` is
-   the commit outside the tree whose change of the path removes such uses (or the other declaration). A blob is read
+   Kotlin or Java function, property or constant whose header, parameters or reach it changes, a type whose
+   constructors it changes or a key of which it removes an overload, and a JVM type or Kotlin top-level function it
+   adds while the tree has the key in another file of its package and module. The declarations come from the
+   summaries of the commits' files (`CheckSession::symbol_input`, read once per session and shared with the sessions
+   of `with_rewrite`, or handed over by `bd suggest`), only those on the changed lines. A use counts where it resolves
+   to the declaration as an edge would and, for a change, fits the old form but no form in the branch's tree; a change
+   the summary can't judge the use by (a return type, a suspend call in the lambda of an unknown function) makes the
+   reference only possible, a warning. `fixed_by` is the commit outside the tree whose change of the path removes such
+   uses (or the other declaration). A blob is read
    only where its summary names a search or is unknown (a merge of a trial), and the summary of a blob a commit has
    comes from the session, so only those of new blobs are parsed. The `kind` of the reference says which:
    `removed_declaration`, `changed_declaration`, `duplicate_declaration`.

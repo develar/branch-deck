@@ -688,10 +688,14 @@ repository lock.
   is `syntax_tree` where they confirmed the uses, `lines` where the lines alone found them. With `branchdeck.symbols
   on` the syntax summaries find three more kinds by themselves (`kind`; the lines' are `removed_declaration`):
   `removed_declaration` of an instance or static member, or an enum entry, used on a receiver of its type, by `this`,
-  an override, an inherited call or its static path (not by a bare name elsewhere); `changed_declaration`, a function,
-  property or constant whose header (`suspend`, the return type, the receiver), parameters or reach the branch changes
-  (`removed_by`), or the constructors of a type, used where the old form fits and no form in the branch's tree does (a
-  parameter with a default takes the old calls; a change of the body is none); `duplicate_declaration`, a type or a
+  an override, an inherited call or its static path (not by a bare name elsewhere); `changed_declaration`, a Kotlin or
+  Java function, property or constant whose header, parameters or reach the branch changes (`removed_by`), the
+  constructors of a type or an overload it removes, used where the old form fits and no form in the branch's tree does:
+  a call the new parameters reject, an added `suspend` outside a coroutine, a changed extension receiver (a parameter
+  with a default, a call in a coroutine, a `var` for a `val` take the old uses; a change of the body is none). A change
+  the summary can't judge a use by (a return type, nullability, type parameters, a suspend call in the lambda of an
+  unknown function) is only a `possible_changed_declaration` warning, with the `fixed_by` to stack on if the build
+  fails; `duplicate_declaration`, a type or a
   Kotlin top-level function the branch adds while its tree declares the key in another file of the package and module
   (`file`, `line`) that `fixed_by` deletes: a move whose deletion is in another branch. Their possible ones are
   `possible_changed_declaration` and `possible_duplicate_declaration`. It searches only the paths where the branch's tree and HEAD's differ,

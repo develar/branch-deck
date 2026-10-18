@@ -5,7 +5,7 @@
 //! rule change shows as a diff. `CODE_SYMBOLS_UPDATE=1 cargo nextest run -p code-symbols` rewrites them; review the diff.
 
 use crate::extract::summarize;
-use crate::language::language_of;
+use crate::language::{Language, language_of};
 use crate::summary::{Argument, Constructor, Declaration, FileSummary, ImportTarget, Reach, Reference, Role, Shape, Signature, TypeRef};
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -120,7 +120,13 @@ pub(crate) fn render(summary: &FileSummary) -> String {
       line = reference.line;
       let _ = write!(out, "@{line}");
     }
-    let _ = write!(out, " {}", reference_text(summary, reference));
+    // a suspend call is allowed there (`@co`), or may be (`@co?`, Kotlin's lambda of an unknown function)
+    let coroutine = match reference.coroutine {
+      Some(true) => "@co",
+      None if summary.language == Language::Kotlin => "@co?",
+      _ => "",
+    };
+    let _ = write!(out, " {}{coroutine}", reference_text(summary, reference));
   }
   if line != 0 {
     out.push('\n');

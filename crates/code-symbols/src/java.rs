@@ -187,6 +187,7 @@ pub(crate) static SPEC: Spec = Spec {
     receiver_node: |_, node| node,
   }),
   call_shape: Some(call_shape),
+  coroutine: Some(|_, _| None),
   header: Header {
     ends: &["block", "constructor_body"],
     end_tokens: &["="],

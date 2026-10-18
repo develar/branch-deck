@@ -22,7 +22,7 @@
 
 use crate::check::{BranchCheck, CheckOutcome};
 use crate::diff_scan::{HUNK_OPTIONS, split_records};
-use crate::symbol_dependencies::declaration_checks::{DeclarationFacts, DeclarationSearch, TreeForm, searches_of};
+use crate::symbol_dependencies::declaration_checks::{DeclarationFacts, DeclarationSearch, Fit, TreeForm, searches_of};
 use anyhow::{Result, anyhow};
 use code_symbols::extract::summarize;
 use code_symbols::language::language_of as symbols_language_of;
@@ -52,6 +52,7 @@ pub enum DanglingKind {
 /// A use of a name that a branch removes or changes, or a declaration of a name it adds again, in its virtual tree but
 /// not in HEAD's tree (or on the baseline tip)
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(clippy::struct_excessive_bools, reason = "independent facts of a reference")]
 pub struct DanglingReference {
   pub kind: DanglingKind,
   pub identifier: String,
@@ -65,6 +66,10 @@ pub struct DanglingReference {
   pub fixed_by: Option<String>,
   /// The use is on the baseline tip, which got it after the base of the branch
   pub on_baseline: bool,
+  /// The summary can't tell that the use breaks (`declaration_checks::Fit::Unknown`: a changed return type or
+  /// nullability, new type parameters, a suspend call in the lambda of an unknown function): only possible, with
+  /// `fixed_by` too
+  pub possible: bool,
   /// The lines `fixed_by` adds in `file` use a name the branch declares (the fix needs the branch): stacking one
   /// branch on the other can't help, moving the fix into `removed_by` does
   pub mutual: bool,
@@ -116,7 +121,7 @@ fn on_syntax<'a>(uses: Vec<(usize, &'a str)>, summary: &FileSummary, name: &str)
 impl DanglingReference {
   /// Whether a commit proves it: one outside the branch changed the use
   pub const fn is_confirmed(&self) -> bool {
-    self.fixed_by.is_some() && !self.on_baseline
+    self.fixed_by.is_some() && !self.on_baseline && !self.possible
   }
 }
 
@@ -806,6 +811,7 @@ pub fn find_dangling_references(
           removed_by: search.removed_by.clone(),
           fixed_by: fixed_by.map(|(id, _)| id.clone()),
           on_baseline: false,
+          possible: false,
           mutual,
           by_syntax,
         });
@@ -826,6 +832,7 @@ pub fn find_dangling_references(
             removed_by: search.removed_by.clone(),
             fixed_by: None,
             on_baseline: true,
+            possible: false,
             mutual: false,
             by_syntax,
           });
@@ -934,10 +941,15 @@ impl TreeSearch<'_, '_> {
       };
       let mut uses = search.uses(symbols, &form, path, &ours_summary);
       if search.kind == DanglingKind::Changed {
-        // a use the branch's own commits wrote is written against the form they gave the declaration
-        let written: HashSet<&str> = self.written_by_branch(path);
-        let lines: Vec<&str> = ours_text.lines().collect();
-        uses.retain(|line| !lines.get(*line as usize - 1).is_some_and(|text| written.contains(text.trim())));
+        // a use the branch's own commits wrote is written against the form they gave the declaration: by the lines of
+        // their hunks, where they lead from the base to the branch's blob, else by the text of their added lines
+        if let Some(written) = self.written_lines(path, ours) {
+          uses.retain(|(line, _)| !written.contains(line));
+        } else {
+          let written: HashSet<&str> = self.written_by_branch(path);
+          let lines: Vec<&str> = ours_text.lines().collect();
+          uses.retain(|(line, _)| !lines.get(*line as usize - 1).is_some_and(|text| written.contains(text.trim())));
+        }
       }
       declared += uses.len();
       let their_uses = theirs_summary.as_ref().map_or_else(Vec::new, |summary| search.uses(symbols, &form, path, summary));
@@ -947,14 +959,17 @@ impl TreeSearch<'_, '_> {
       }
       let their_lines: HashSet<&str> = theirs.as_deref().and_then(|theirs| (self.text)(theirs)).map_or_default(|text| {
         let lines: Vec<&str> = text.lines().collect();
-        their_uses.iter().filter_map(|line| lines.get(*line as usize - 1)).map(|line| line.trim()).collect()
+        their_uses.iter().filter_map(|(line, _)| lines.get(*line as usize - 1)).map(|line| line.trim()).collect()
       });
       let ours_lines: Vec<&str> = ours_text.lines().collect();
-      let line = uses
+      let (line, _) = uses
         .iter()
         .copied()
-        .find(|line| ours_lines.get(*line as usize - 1).is_none_or(|text| !their_lines.contains(text.trim())))
+        .find(|(line, _)| ours_lines.get(*line as usize - 1).is_none_or(|text| !their_lines.contains(text.trim())))
         .unwrap_or(uses[0]);
+      // proven only by more uses the summary tells break than HEAD has
+      let breaking = |uses: &[(u32, Fit)]| uses.iter().filter(|(_, fit)| *fit == Fit::Breaks).count();
+      let possible = breaking(&uses) <= breaking(&their_uses);
       let (fixed_by, needs_branch) = self.fixed_by(search, &form, path);
       let mutual = needs_branch
         || fixed_by.is_some_and(|id| {
@@ -975,6 +990,7 @@ impl TreeSearch<'_, '_> {
         removed_by: search.commit.to_string(),
         fixed_by: fixed_by.map(str::to_string),
         on_baseline: false,
+        possible,
         mutual,
         by_syntax: true,
       });
@@ -992,6 +1008,46 @@ impl TreeSearch<'_, '_> {
       Some(summary) => Some(Arc::clone(summary)).filter(|summary| !summary.is_degraded() && !summary.truncated),
       None => (self.syntax)(id, path),
     }
+  }
+
+  /// The lines of `ours`, the branch's blob of `path`, that its commits wrote: their added lines, followed through the
+  /// hunks of the later ones. `None` where the hunks don't lead from the base to `ours`: a commit of the branch whose
+  /// old blob of the path is not the one before it in the branch's tree (another commit, outside, came between)
+  fn written_lines(&self, path: &str, ours: &str) -> Option<HashSet<u32>> {
+    let changes = self.facts.diffs.iter().flat_map(|diff| diff.files.iter().map(move |change| (diff, change)));
+    // the base's blob, before the first commit of the range that changes the path
+    let mut blob = changes
+      .clone()
+      .find(|(_, change)| change.path == path || change.old_path.as_deref() == Some(path))?
+      .1
+      .old_blob
+      .clone();
+    let mut written: HashSet<u32> = HashSet::new();
+    for (_, change) in changes.filter(|(diff, change)| self.members.contains(diff.id.as_str()) && change.path == path) {
+      if change.old_blob != blob || change.old_path.as_deref().is_some_and(|old| old != path) {
+        return None;
+      }
+      written = written
+        .into_iter()
+        .filter_map(|line| {
+          let mut shift: i64 = 0;
+          for hunk in &change.hunks {
+            let end = hunk.old_start + hunk.old_lines;
+            if hunk.old_lines > 0 && (hunk.old_start..end).contains(&line) {
+              return None;
+            }
+            let before = if hunk.old_lines == 0 { hunk.old_start < line } else { end <= line };
+            if before {
+              shift += i64::from(hunk.new_lines) - i64::from(hunk.old_lines);
+            }
+          }
+          u32::try_from(i64::from(line) + shift).ok()
+        })
+        .collect();
+      written.extend(change.hunks.iter().flat_map(|hunk| hunk.new_start..hunk.new_start + hunk.new_lines));
+      blob.clone_from(&change.new_blob);
+    }
+    (blob.as_deref() == Some(ours)).then_some(written)
   }
 
   /// The trimmed lines the commits of the branch's tree add to `path`

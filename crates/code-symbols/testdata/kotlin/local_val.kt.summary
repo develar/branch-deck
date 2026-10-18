@@ -8,8 +8,8 @@ Function record in Recorder Public Instance 18-18 @18 () `fun record`
 @5 <List>.first() ?.id
 @6 check(_)
 @7 <List>.forEach(Lambda)
-@8 ?.id
-@9 record(_){}
+@8 ?.id@co?
+@9 record(_){}@co?
 @11 report(_)
 @16 :Int nextTurn()
 @18 store(_) turnId

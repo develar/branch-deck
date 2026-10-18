@@ -462,33 +462,47 @@ flowchart TD
     it; a proven one is a dangling reference of its own `kind`, repaired by the same edge in `bd suggest`. Three kinds,
     each counted per path like the lines (more such uses in the branch's tree than in HEAD's):
     - `removed`: an instance or static member of a JVM type, or an enum entry, that a commit removes with all its
-      overloads and that no commit of the tree declares again, used where a use resolves to it (a receiver of its type,
-      `this`, an override, an inherited call, its static path; in its own file only inside its type). The lines search
-      the top-level declarations, and a use by a bare name of an instance member is no evidence.
-    - `changed`: a function, a property or a constant whose header (`Declaration::header`: `suspend`, `async`,
-      `unsafe`, the return type, the receiver, the type parameters, Java's `static` or `throws`), parameters, reach,
-      modality, `@JvmStatic`, `@JvmField` or `@JvmName` a commit changes, or a type whose constructors it changes, its
-      name kept. A use counts where the old form takes it (it resolves, and its call fits, `accepts_call`) and no
-      declaration of the key in the branch's tree does: one of the same header that the use resolves to by the same
-      rules and whose parameters accept its call, a constructor for a call of a type. A use the branch's own commits
-      wrote is written against the new form, and an import compiles with any.
+      overloads and whose key (its type and name) no commit of the tree declares again, used where a use resolves to
+      it (a receiver of its type, `this`, an override, an inherited call, its static path; in its own file only inside
+      its type). The lines search the top-level declarations, and a use by a bare name of an instance member is no
+      evidence.
+    - `changed`: a Kotlin or Java function, property or constant whose header (`Declaration::header`), parameters
+      (their names, defaults, varargs and types with `?`), reach, modality, `@JvmStatic`, `@JvmField` or `@JvmName` a
+      commit changes, a type whose constructors it changes, or a key of which it removes an overload while another
+      stays, its name kept. A use counts where the old form takes it (it resolves, and its call fits, `accepts_call`)
+      and no declaration of the key in the branch's tree does by the same rules; of those that take it, the header
+      decides as a token diff (`header_fit`): a changed extension receiver breaks it, an added `suspend` breaks it
+      outside a coroutine (`Reference::coroutine`: a non-suspend function, an initializer, an accessor, the lambda of
+      `sequence`, Java) and fits it inside one (a `suspend` function, the lambda of `runBlocking`, `launch`, `async`,
+      `withContext`, `coroutineScope`, `flow`, …), `var` for `val`, `const`, `operator`, `infix`, an explicit type of a
+      property and Java's `throws` fit, and anything else (a return type, nullability, type parameters, `suspend` in
+      the lambda of another function) may break it: such a reference is `possible`, a warning with its `fixed_by` and
+      no repair edge. A use the branch's own commits wrote is written against the new form: the lines of their hunks,
+      followed through the later ones, where they lead from the base to the branch's blob, else their added lines by
+      their text; an import compiles with any form. Rust and TypeScript have no signature, so their parameter lists,
+      defaults included, are in the header, and their forms are not judged.
     - `duplicate`: a JVM type, or a Kotlin top-level function or property (its parameter types told apart), that a
       commit adds while the branch's tree has a second declaration of the key in another file of the same package and
       module, or twice in one file, that HEAD's tree lacks: a move whose deletion is in another branch.
     **Rationale**: the Safe Push of IJAI-4185 failed on `ledger.cleanup()` in a test that HEAD no longer has, because
     a commit of another branch deleted it, while the branch made `cleanup` suspend: no line dependency, no edge (the
     form of decision 10 has no `suspend`, and `removes_after` needs the whole key gone), no dangling reference (only a
-    removed declaration was searched, and no instance member). The header leaves out what no use depends on (the body,
+    removed declaration was searched, and no instance member). A proven reference fails `bd check`, refuses a Safe
+    Push and adds a repair edge, so it is one only where the summary sees the break: a call the new parameters reject
+    (a literal of another family, `fits_literal`), a call only a removed overload took, a suspend call outside a
+    coroutine, an extension called on its old receiver. The header leaves out what no use depends on (the body,
     annotations, comments, `inline`, `final`, `synchronized`) and what the summary judges itself (the reach, the
-    overriding, the parameters of a signature), so a change of only those is judged by the rules that decide a use
-    (`resolve`, `accepts_call`): a widened reach or a new parameter with a default takes every old use. What the header
-    still holds no summary judges: a `suspend` function needs a coroutine, a narrower return type or nullability a
-    use the summary has no types for. The resolution of decision 13 makes an instance member searchable at all: `cleanup`
-    by its name alone is everywhere. A wrong report costs a repair edge, so `accepts_call` errs toward fitting, and an
-    old form that rejects a use counts it nowhere (the summary misjudges it). Limits: a change of a parameter's type
-    that an argument other than a literal doesn't show (`foo(x)`) fits; a type's header (`abstract`, `sealed`, its
-    supertypes) is not compared; a use on the baseline after the base is not searched; Rust and TypeScript have no
-    duplicates (a `#[cfg]` pair and the overload signatures of TypeScript declare a name twice on purpose).
+    overriding, the parameters of a signature). A changed return type breaks only a use that needs the old one, which
+    the summary has no types for, and a lambda of a function the range doesn't show may be a suspend one (a
+    `suspend () -> Unit` parameter): those are for the user to judge. The resolution of decision 13 makes an instance
+    member searchable at all: `cleanup` by its name alone is everywhere. A wrong report costs a repair edge, so
+    `accepts_call` errs toward fitting, and an old form that rejects a use counts it nowhere (the summary misjudges
+    it); a member removed from one type and added to another is still removed, as a use on the old type's receiver
+    doesn't find it there. Limits: a changed parameter type that an argument other than a literal doesn't show
+    (`foo(x)`) fits; a type's header (`abstract`, `sealed`, its supertypes) is not compared; a use on the baseline after
+    the base is not searched; a coroutine builder the list leaves out makes its lambda unknown, a possible reference;
+    Rust and TypeScript have no `changed` and no duplicates (a `#[cfg]` pair and the overload signatures of TypeScript
+    declare a name twice on purpose).
 
 ### Implementation Notes
 
@@ -530,9 +544,11 @@ flowchart TD
   `diff-tree` and `cat-file` (`branch_file`, the summaries of the commits' blobs before `SyntaxMemo`, `fixed_by`).
 - `crates/sync-core/src/declaration_checks.rs`, a child module of `symbol_dependencies` (decision 15):
   `searches_of` (the declarations on the changed lines of a branch's commits, `changed_form`, `constructor_forms`,
-  `push_duplicates`), `DeclarationSearch::in_tree`, `uses` (`resolved`, `fits`, `calls`), `removes_use` and
-  `needs_new_form` for `fixed_by` and `mutual`; `crates/code-symbols/src/extract.rs`: `Walk::header` by
-  `Spec::header` of each language.
+  `push_duplicates`), `DeclarationSearch::in_tree`, `uses` (`resolved`, `fit` with `header_fit`, `calls`),
+  `removes_use` and `needs_new_form` for `fixed_by` and `mutual`; `TreeSearch::written_lines` of
+  `dangling_references.rs` for the uses the branch wrote; `crates/code-symbols/src/extract.rs`: `Walk::header` by
+  `Spec::header`, and `Reference::coroutine` by `Spec::coroutine` (`coroutine` and `COROUTINE_BUILDERS` of
+  `kotlin.rs`).
 - `crates/sync-core/src/dependencies.rs`: `with_symbols` merges the edges into the line dependencies (`Dependency::lines`,
   `symbols`) for `bd commits`.
 - `crates/sync-core/src/check.rs`: `CheckSession::symbol_graph`, read once per session with `on`, for the conflict fix
@@ -766,7 +782,18 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     only, looked uses up by name (`references_to`), read the summaries of the commits' blobs before parsing a tree's,
     and read a blob only where its summary names a search (or is unknown) and, for a duplicate, in its module; then
     10.3–11.0 s against 10.4–10.9 s, and `bd check` 9.3–10.2 s against 8.9–9.1 s, at a load average of 40–60. The
-    processes are the same: the searches run on the `diff-tree` and the `cat-file` of the check.
+    processes are the same: the searches run on the `diff-tree` and the `cat-file` of the check. The review's fixes (a
+    proven `changed` only where the summary sees the break, else `possible`; `Reference::coroutine`; the types of the
+    parameters; a removed overload judged by those left; the keys, not the names, of what the tree adds; a removed
+    member's use that the file imports otherwise is none; the lines of the branch's hunks; the summaries shared with
+    the sessions of a rewrite; the added keys once per commit) keep the real case a proven `cleanup` with `fixed_by`
+    aa0fb473 (both uses at lines 199 and 216 are outside a coroutine, 199 in the lambda of `assertThrows`, which makes
+    it unknown) and the stack of `bd suggest`; the range and the pair report nothing new and plan as master. The keys
+    first made `dynamicAgentOptions` of `AcpDynamicFakeAgentUiTest.kt` a false removed member of IJAI-4012 in the plan of
+    `bd suggest`: eaf5d15d moves a member extension to the top level of another file and imports it there, which the
+    rule of imports now answers. `bd suggest` 10.5–12.1 s CPU against 10.0–11.5 s, `bd check` 9.2–10.4 s against
+    8.8–9.8 s (load average 27–37, the object cache off, so every run parses all 2573 blobs; the coroutine context
+    costs 40 ms of that parse).
   - The accessors and the facade (decision 14, `facade`), against the build before: no link, edge or output changes, as
     on the real pair, and the five repro cases make one edge by symbols each. The range adds 249 lines of Java, two of
     them a call of an accessor or a facade: `variable.getKey()` of a `Map.Entry` and

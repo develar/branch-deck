@@ -88,6 +88,7 @@ fn the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch() {
       removed_by,
       fixed_by: Some(fixed_by),
       on_baseline: false,
+      possible: false,
       // the fix uses `AcpControlProtocol`, which the branch adds: only moving the fix into the branch helps
       mutual: true,
       by_syntax: true,
@@ -262,6 +263,7 @@ fn a_removed_top_level_function_is_searched_by_its_name() {
       removed_by,
       fixed_by: Some(fixed_by),
       on_baseline: false,
+      possible: false,
       mutual: false,
       by_syntax: true,
     }]

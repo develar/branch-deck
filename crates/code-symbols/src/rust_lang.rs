@@ -212,6 +212,7 @@ pub(crate) static SPEC: Spec = Spec {
   hoist: None,
   jvm: None,
   call_shape: None,
+  coroutine: None,
   header: Header {
     ends: &["block"],
     end_tokens: &["="],

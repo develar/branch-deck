@@ -54,7 +54,7 @@ Type Stamp in - Public TopLevel 88-90 @88 new(date: Date) Container new(date: Da
 @74 :Any :Project
 @75 :String ToolWindowManagerImpl(_,isNewUi=Boolean,isEdtRequired=Boolean,value=_)
 @76 ~ToolWindowManagerImpl.toString()
-@78 Base(Number){} run(Lambda)
+@78 Base(Number){}@co? run(Lambda)
 @79 :Suppress
 @80 Base(Number) :Runnable
 @81 Hidden(Text,Number,Number)

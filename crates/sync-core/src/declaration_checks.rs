@@ -22,15 +22,16 @@
 use crate::dangling_references::DanglingKind;
 use crate::diff_scan::CommitDiff;
 use crate::symbol_dependencies::{
-  Accessor, Evidence, FileCtx, Site, accepts_call, accessor_names, bare, changed_lines, changed_sites, constructor_reaches, contains, has_entries, in_ranges, names, resolve,
-  same_entry, site_of, with_constructors,
+  Accessor, Evidence, FileCtx, Site, accepts_call, accessor_names, bare, changed_lines, changed_sites, constructor_reaches, contains, has_entries, in_ranges, names, receiver_of,
+  resolve, same_entry, same_names, site_of, with_constructors,
 };
 use crate::symbol_scan::SymbolInput;
 use code_symbols::language::{Family, Language, language_of};
-use code_symbols::summary::{DeclKind, Declaration, FileSummary, MemberKind, Reference, Role, Shape};
+use code_symbols::summary::{DeclKind, FileSummary, ImportTarget, MemberKind, Reference, Role, Shape};
 use std::borrow::Cow;
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 /// The summaries and the changes of the commits ahead of the baseline, for the checks of the branches' trees
 #[derive(Clone, Copy)]
@@ -38,6 +39,129 @@ pub struct DeclarationFacts<'a> {
   pub input: &'a SymbolInput,
   /// Oldest first, as the commits ahead of the baseline
   pub diffs: &'a [CommitDiff],
+  /// The keys each commit declares anew, by commit id, shared by the checks of a session
+  pub added: &'a AddedKeys,
+}
+
+/// Commit id -> the keys its added lines declare anew in a file (`added_keys`), computed once per commit: a commit id
+/// names its changes, so the sessions of `with_rewrite` share it
+#[derive(Debug, Default)]
+pub struct AddedKeys(Mutex<HashMap<String, Arc<Vec<String>>>>);
+
+/// The keys that the added lines of `diff` declare anew in a file
+fn added_keys(input: &SymbolInput, diff: &CommitDiff) -> Vec<String> {
+  let summary_of = |blob: Option<&String>| blob.and_then(|blob| input.summaries.get(blob)).map(AsRef::as_ref).filter(|summary| !summary.is_degraded());
+  let mut keys = Vec::new();
+  for change in &diff.files {
+    let Some(after) = summary_of(change.new_blob.as_ref()) else { continue };
+    let (added_lines, _) = changed_lines(change);
+    if !after.declarations.iter().any(|declaration| in_ranges(&added_lines, declaration.name_line)) {
+      continue;
+    }
+    let before = summary_of(change.old_blob.as_ref()).map(|summary| input.file_ctx(change.old_path.as_deref().unwrap_or(&change.path), summary));
+    let after = input.file_ctx(&change.path, after);
+    for declaration in after.summary.declarations.iter().filter(|declaration| in_ranges(&added_lines, declaration.name_line)) {
+      let name = after.summary.name(declaration.name);
+      let key = site_of(&after, declaration).key;
+      let had = before.as_ref().is_some_and(|before| {
+        before
+          .summary
+          .declarations
+          .iter()
+          .filter(|it| before.summary.name(it.name) == name)
+          .any(|it| site_of(before, it).key == key)
+      });
+      if !had {
+        keys.push(key);
+      }
+    }
+  }
+  keys
+}
+
+impl AddedKeys {
+  fn of(&self, input: &SymbolInput, diff: &CommitDiff) -> Arc<Vec<String>> {
+    let known = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&diff.id).cloned();
+    known.unwrap_or_else(|| {
+      let keys = Arc::new(added_keys(input, diff));
+      self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(diff.id.clone(), Arc::clone(&keys));
+      keys
+    })
+  }
+}
+
+/// How a use of an old form fits the forms of its key in the branch's tree
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Fit {
+  /// It may not compile, and the summary can tell: a call the new parameters reject, a suspend call outside a
+  /// coroutine, a changed extension receiver, a removed declaration
+  Breaks,
+  /// It may not compile, and the summary can't tell: a changed return type or nullability, new type parameters, a
+  /// suspend call in the lambda of an unknown function
+  Unknown,
+  Fits,
+}
+
+/// Tokens of a header whose addition breaks no use: a `var` for a `val`, `const`, `operator`, `infix`
+const HARMLESS_ADDITIONS: [&str; 3] = ["const", "operator", "infix"];
+
+/// How a use, in the coroutine context `coroutine` (`Reference::coroutine`), of the declaration `old` fits `new`, a
+/// declaration of the same key that takes it by the rules of a use, by their headers (`Declaration::header`) as a
+/// token diff: a changed extension receiver breaks it, an added `suspend` breaks it outside a coroutine, an explicit
+/// type of a property for an inferred one, Java's `throws` and the additions of `HARMLESS_ADDITIONS` fit, any other
+/// change may break it
+fn header_fit(old: &Site<'_>, new: &Site<'_>, coroutine: Option<bool>) -> Fit {
+  let (before, after) = (old.declaration.header.as_deref().unwrap_or_default(), new.declaration.header.as_deref().unwrap_or_default());
+  if before == after {
+    return Fit::Fits;
+  }
+  if receiver_of(old) != receiver_of(new) {
+    return Fit::Breaks;
+  }
+  // a `var` for a `val` takes every read
+  let widened;
+  let after = if before.split(' ').any(|token| token == "val") && after.split(' ').any(|token| token == "var") {
+    widened = after.split(' ').map(|token| if token == "var" { "val" } else { token }).collect::<Vec<_>>().join(" ");
+    widened.as_str()
+  } else {
+    after
+  };
+  if before == after {
+    return Fit::Fits;
+  }
+  // an explicit type for the one a property's initializer gives it: the header goes on with the type. A function
+  // without one returns `Unit` unless its body is an expression, which the header doesn't show
+  let value = matches!(old.declaration.kind, DeclKind::Value | DeclKind::Constant);
+  if value && after.strip_prefix(before).is_some_and(|rest| rest.trim_start().starts_with(':')) {
+    return Fit::Fits;
+  }
+  let throws = |header: &'_ str| -> String {
+    if old.ctx.language == Language::Java {
+      header.split_once(" throws ").map_or(header, |(head, _)| head).to_string()
+    } else {
+      header.to_string()
+    }
+  };
+  let (before, after) = (throws(before), throws(after));
+  let mut removed: Vec<&str> = before.split(' ').collect();
+  let mut added: Vec<&str> = Vec::new();
+  for token in after.split(' ') {
+    match removed.iter().position(|it| *it == token) {
+      Some(found) => {
+        removed.swap_remove(found);
+      }
+      None => added.push(token),
+    }
+  }
+  added.retain(|token| !HARMLESS_ADDITIONS.contains(token));
+  // a suspend function that is no longer one takes every call
+  removed.retain(|token| *token != "suspend");
+  let suspend = added.iter().position(|it| *it == "suspend").map(|found| added.swap_remove(found)).is_some();
+  match (suspend, removed.is_empty() && added.is_empty(), coroutine) {
+    (false, true, _) | (true, true, Some(true)) => Fit::Fits,
+    (true, _, Some(false)) => Fit::Breaks,
+    _ => Fit::Unknown,
+  }
 }
 
 /// The shortest name searched, as in the line search: shorter ones are everywhere
@@ -86,6 +210,7 @@ fn by_key<'a>(ctx: &'a FileCtx<'a>, names: Option<&HashSet<&str>>) -> BTreeMap<S
 /// Whether a commit changes the form of a declaration that keeps its identity, as a use may see it
 fn changed_form(before: &Site<'_>, after: &Site<'_>) -> bool {
   let (a, b) = (before.declaration, after.declaration);
+  // the names, defaults and varargs of the parameters, and their types with `?`, by which a literal fits
   let parameters = |site: &Site<'_>| {
     site.signature().map(|signature| {
       signature
@@ -95,7 +220,18 @@ fn changed_form(before: &Site<'_>, after: &Site<'_>) -> bool {
         .collect::<Vec<_>>()
     })
   };
+  let same_types = match (before.signature(), after.signature()) {
+    (Some(x), Some(y)) => {
+      x.parameters.len() == y.parameters.len()
+        && x.parameters.iter().zip(&y.parameters).all(|(x, y)| match (&x.type_ref, &y.type_ref) {
+          (Some(x), Some(y)) => x.nullable == y.nullable && same_names(before.ctx.summary, x, after.ctx.summary, y),
+          (x, y) => x.is_none() && y.is_none(),
+        })
+    }
+    (x, y) => x.is_none() && y.is_none(),
+  };
   a.header != b.header
+    || !same_types
     || parameters(before) != parameters(after)
     || (a.reach, a.member, a.overridable, a.jvm_static, a.jvm_field, a.jvm_name) != (b.reach, b.member, b.overridable, b.jvm_static, b.jvm_field, b.jvm_name)
 }
@@ -140,23 +276,11 @@ pub fn searches_of<'a>(facts: DeclarationFacts<'a>, own: &[&'a str], members: &H
   let input = facts.input;
   let summary_of = |blob: Option<&String>| blob.and_then(|blob| input.summaries.get(blob)).map(AsRef::as_ref).filter(|summary| !summary.is_degraded());
   let diff_of = |id: &str| facts.diffs.iter().find(|diff| diff.id == id);
-  // the names that the commits of the tree declare anew in a file, on their added lines: a member removed here and
-  // added there moved
-  let mut added: HashSet<&str> = HashSet::new();
+  // the keys that the commits of the tree declare anew in a file, on their added lines: a member removed here and
+  // added there with its type moved
+  let mut added: HashSet<String> = HashSet::new();
   for diff in facts.diffs.iter().filter(|diff| members.contains(diff.id.as_str())) {
-    for change in &diff.files {
-      let Some(after) = summary_of(change.new_blob.as_ref()) else { continue };
-      let before = summary_of(change.old_blob.as_ref());
-      let (added_lines, _) = changed_lines(change);
-      added.extend(
-        after
-          .declarations
-          .iter()
-          .filter(|declaration| in_ranges(&added_lines, declaration.name_line))
-          .map(|declaration| after.name(declaration.name))
-          .filter(|name| before.is_none_or(|before| !before.declares(name))),
-      );
-    }
+    added.extend(facts.added.of(input, diff).iter().cloned());
   }
 
   let mut searches: BTreeMap<(DanglingKind, String), DeclarationSearch<'a>> = BTreeMap::new();
@@ -195,7 +319,7 @@ pub fn searches_of<'a>(facts: DeclarationFacts<'a>, own: &[&'a str], members: &H
           });
           // a member moved to another type of the file (pulled up) keeps its uses
           let name = before.summary.name(before.summary.declarations[old[0]].name);
-          if removable && !added.contains(name) && !after.summary.declares(name) && before.namespace == after.namespace {
+          if removable && !added.contains(key) && !after.summary.declares(name) && before.namespace == after.namespace {
             insert(
               &mut searches,
               DanglingKind::Removed,
@@ -226,7 +350,7 @@ pub fn searches_of<'a>(facts: DeclarationFacts<'a>, own: &[&'a str], members: &H
           pairs.push((*old_index, *new_index));
           unmatched_new.clear();
         }
-        let changed: Vec<usize> = pairs
+        let mut changed: Vec<usize> = pairs
           .iter()
           .filter(|(old_index, new_index)| {
             let (old_site, new_site) = (&old_sites[*old_index], &new_sites[*new_index]);
@@ -238,7 +362,15 @@ pub fn searches_of<'a>(facts: DeclarationFacts<'a>, own: &[&'a str], members: &H
           })
           .map(|(old_index, _)| old[*old_index])
           .collect();
-        if let Some(&first) = changed.first() {
+        // an overload removed while another of the key stays: its uses are judged by those left
+        changed.extend(
+          unmatched_old
+            .iter()
+            .filter(|index| !pairs.iter().any(|(paired, _)| paired == *index))
+            .map(|&index| old[index]),
+        );
+        // a form only the JVM languages judge: the others keep the parameters in the header, with their defaults
+        if let Some(&first) = changed.first().filter(|_| before.language.family() == Family::Jvm) {
           let declaration = &before.summary.declarations[first];
           let name = before.summary.name(declaration.name);
           insert(
@@ -367,6 +499,17 @@ fn words_of(kind: DanglingKind, name: &str, language: Language) -> Vec<String> {
   words
 }
 
+/// Whether an import of `summary` brings `name` in, by its name or an alias
+fn imports_name(summary: &FileSummary, name: &str) -> bool {
+  summary.imports.iter().any(|import| {
+    let target = match import.target {
+      ImportTarget::Name(target) => Some(target),
+      _ => None,
+    };
+    import.alias.or(target).is_some_and(|bound| summary.name(bound) == name)
+  })
+}
+
 /// The context of a use that names a declaration by `accessor`: `use_site` itself without one
 fn named_by<'c, 'u>(use_site: &'c FileCtx<'u>, accessor: Option<Accessor>) -> Cow<'c, FileCtx<'u>> {
   match accessor {
@@ -419,16 +562,16 @@ impl DeclarationSearch<'_> {
 
   /// The lines of `summary`, the file `path`, that the search counts: the uses that may not compile in the branch's
   /// tree (`form`, of `in_tree`), or for a duplicate the declarations of its key
-  pub fn uses(&self, input: &SymbolInput, form: &TreeForm<'_>, path: &str, summary: &FileSummary) -> Vec<u32> {
+  pub fn uses(&self, input: &SymbolInput, form: &TreeForm<'_>, path: &str, summary: &FileSummary) -> Vec<(u32, Fit)> {
     let use_site = input.file_ctx(path, summary);
     match self.kind {
-      DanglingKind::Duplicate => self.declarations_of_key(&use_site),
-      DanglingKind::Removed => self.resolved(input, &use_site).into_iter().map(|(reference, _)| reference.line).collect(),
+      DanglingKind::Duplicate => self.declarations_of_key(&use_site).into_iter().map(|line| (line, Fit::Breaks)).collect(),
+      DanglingKind::Removed => self.resolved(input, &use_site).into_iter().map(|(reference, ..)| (reference.line, Fit::Breaks)).collect(),
       DanglingKind::Changed => self
         .resolved(input, &use_site)
         .into_iter()
-        .filter(|(reference, accessor)| !self.fits(input, form, &use_site, reference, *accessor))
-        .map(|(reference, _)| reference.line)
+        .map(|(reference, accessor, old)| (reference.line, self.fit(input, form, &use_site, reference, accessor, &old)))
+        .filter(|(_, fit)| *fit != Fit::Fits)
         .collect(),
     }
   }
@@ -453,7 +596,7 @@ impl DeclarationSearch<'_> {
 
   /// The references of `use_site` that mean one of the old declarations, with the accessor they name it by, and that
   /// the old form takes: an import compiles with any form, and a call the old form rejects is one the summary misjudges
-  fn resolved<'u>(&self, input: &SymbolInput, use_site: &FileCtx<'u>) -> Vec<(&'u Reference, Option<Accessor>)> {
+  fn resolved<'u>(&self, input: &SymbolInput, use_site: &FileCtx<'u>) -> Vec<(&'u Reference, Option<Accessor>, Site<'_>)> {
     let summary = use_site.summary;
     let old = self.old_sites();
     let mut found = Vec::new();
@@ -482,10 +625,15 @@ impl DeclarationSearch<'_> {
       if reference.role == Role::Import || (self.constructors && reference.role != Role::Call) {
         continue;
       }
+      // a removed member whose name the file declares or imports otherwise may be meant there: a member extension
+      // moved to the top level, which the file imports now
+      if self.kind == DanglingKind::Removed && (summary.declares(self.name) || imports_name(summary, self.name)) {
+        continue;
+      }
       let accessor = accessors.first().copied();
       let ctx = &*named_by(use_site, accessor);
       let qualifier = reference.qualifier.as_deref().map(|qualifier| names(summary, qualifier));
-      let means = old.iter().any(|site| {
+      let means = old.iter().find(|site| {
         let Some(evidence) = resolve(input, ctx, reference, qualifier.as_deref(), site) else {
           return false;
         };
@@ -495,8 +643,8 @@ impl DeclarationSearch<'_> {
         }
         self.calls(ctx, reference, site)
       });
-      if means {
-        found.push((reference, accessor));
+      if let Some(site) = means {
+        found.push((reference, accessor, site.clone()));
       }
     }
     found
@@ -517,19 +665,19 @@ impl DeclarationSearch<'_> {
     accepts_call(use_site.summary, arguments, *spread, site)
   }
 
-  /// Whether a use of an old declaration fits a declaration of the key in the branch's tree: the same header, resolved
-  /// by the same rules, its call accepted
-  fn fits(&self, input: &SymbolInput, form: &TreeForm<'_>, use_site: &FileCtx<'_>, reference: &Reference, accessor: Option<Accessor>) -> bool {
+  /// How a use of the old declaration `old` fits the declarations of the key in the branch's tree, the best of them: one
+  /// that takes it by the same rules and accepts its call fits as far as its header does (`header_fit`); none breaks it
+  fn fit(&self, input: &SymbolInput, form: &TreeForm<'_>, use_site: &FileCtx<'_>, reference: &Reference, accessor: Option<Accessor>, old: &Site<'_>) -> Fit {
     let ctx = &*named_by(use_site, accessor);
     let qualifier = reference.qualifier.as_deref().map(|qualifier| names(use_site.summary, qualifier));
-    let headers: HashSet<Option<&str>> = self.old.iter().map(|&index| self.side.summary.declarations[index].header.as_deref()).collect();
-    form.declarations.iter().any(|&index| {
-      let declaration: &Declaration = &form.ctx.summary.declarations[index];
-      let site = site_of(&form.ctx, declaration);
-      (self.constructors || headers.contains(&declaration.header.as_deref()))
-        && resolve(input, ctx, reference, qualifier.as_deref(), &site).is_some()
-        && self.calls(ctx, reference, &site)
-    })
+    form
+      .declarations
+      .iter()
+      .map(|&index| site_of(&form.ctx, &form.ctx.summary.declarations[index]))
+      .filter(|site| resolve(input, ctx, reference, qualifier.as_deref(), site).is_some() && self.calls(ctx, reference, site))
+      .map(|site| if self.constructors { Fit::Fits } else { header_fit(old, &site, reference.coroutine) })
+      .max()
+      .unwrap_or(Fit::Breaks)
   }
 
   /// Whether a commit's change of a file, `before` to `after` (each a path and its summary), removes uses the search

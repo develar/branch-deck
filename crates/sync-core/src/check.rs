@@ -21,7 +21,7 @@ use crate::regroup::{RegroupError, RegroupOutcome, RegroupPlan, plan_in_memory};
 use crate::snapshot::Snapshot;
 use crate::stack::{PendingDetection, empty_parent_states, place_branches, read_only_detection};
 use crate::stack::{StackForest, describe_problem};
-use crate::symbol_dependencies::declaration_checks::DeclarationFacts;
+use crate::symbol_dependencies::declaration_checks::{AddedKeys, DeclarationFacts};
 use crate::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
 use crate::symbol_scan::{SymbolInput, SymbolMode, read_symbol_input, read_symbol_mode};
 use crate::sync::{SyncReport, seeded_tree_cache};
@@ -214,8 +214,12 @@ pub struct CheckSession {
   /// The syntax trees of the blobs the dangling-reference checks read, shared with the sessions of `with_rewrite`
   syntax: Arc<SyntaxMemo>,
   /// The summaries of the files the commits ahead of the baseline change, with the module structure above them, read by
-  /// the first that asks, with `branchdeck.symbols on`
-  symbol_input: OnceLock<Result<Option<SymbolInput>, String>>,
+  /// the first that asks, with `branchdeck.symbols on`; shared with the sessions of `with_rewrite`, whose rewritten
+  /// commits keep HEAD's tree (a blob only they have lacks its summary there, and its file is not searched)
+  symbol_input: Arc<OnceLock<Result<Option<SymbolInput>, String>>>,
+  /// The keys each commit declares anew, for the declaration searches of its checks, shared with the sessions of
+  /// `with_rewrite`
+  added_keys: Arc<AddedKeys>,
   /// The dependencies by symbols of the commits ahead of the baseline, computed by the first that asks, with
   /// `branchdeck.symbols on`
   symbol_graph: OnceLock<Result<Option<SymbolGraph>, String>>,
@@ -326,7 +330,8 @@ impl CheckSession {
       dangling_input: OnceLock::new(),
       symbols,
       syntax: Arc::default(),
-      symbol_input: OnceLock::new(),
+      symbol_input: Arc::default(),
+      added_keys: Arc::default(),
       symbol_graph: OnceLock::new(),
       commit_diffs: OnceLock::new(),
       line_graph: OnceLock::new(),
@@ -395,7 +400,8 @@ impl CheckSession {
       dangling_input: OnceLock::new(),
       symbols: self.symbols,
       syntax: Arc::clone(&self.syntax),
-      symbol_input: OnceLock::new(),
+      symbol_input: Arc::clone(&self.symbol_input),
+      added_keys: Arc::clone(&self.added_keys),
       symbol_graph: OnceLock::new(),
       commit_diffs: OnceLock::new(),
       line_graph: OnceLock::new(),
@@ -744,6 +750,7 @@ impl CheckSession {
       Some(input) => Some(DeclarationFacts {
         input,
         diffs: self.commit_diffs()?,
+        added: &self.added_keys,
       }),
       None => None,
     };

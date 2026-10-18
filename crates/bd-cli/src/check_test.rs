@@ -1,7 +1,7 @@
 use crate::check_command::{DanglingReferenceSummary, dangling_reference_message};
 use crate::fixture_test::{
-  ACP_HOST, LEDGER_TEST, MANAGER_TEST, commit_all, commit_changed_declaration, commit_dangling_reference, commit_override_of_overload, git, repo_with_baseline, run_in,
-  with_header, write,
+  ACP_HOST, LEDGER_TEST, MANAGER_TEST, commit_all, commit_changed_declaration, commit_changed_member, commit_dangling_reference, commit_override_of_overload, git,
+  repo_with_baseline, run_in, with_header, write,
 };
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
@@ -29,6 +29,12 @@ fn check(repo: &TestRepo, plan: &Value, extra: &[&str]) -> (i32, Value) {
   let mut args = vec!["check", "--plan", file.path().to_str().unwrap()];
   args.splice(0..0, extra.iter().copied());
   run_in(repo, &args)
+}
+
+/// The schema of `bd check` covers every field of `output`
+fn assert_check_schema(repo: &TestRepo, output: &Value) {
+  let (_, schema) = run_in(repo, &["schema"]);
+  crate::schema_test::assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], output, "check");
 }
 
 /// The branch `name` of a `bd check` output
@@ -211,8 +217,7 @@ fn a_branch_that_removes_a_used_declaration_is_dangling_reference() {
     })
   );
   assert_eq!(state(&repo), before, "a check changes no ref, note or HEAD");
-  let (_, schema) = run_in(&repo, &["schema"]);
-  crate::schema_test::assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], &output, "check");
+  assert_check_schema(&repo, &output);
 
   // the fix in the same branch: ok
   let plan = json!({ "branches": { "fake-agent": [removed_by, fixed_by] } });
@@ -247,13 +252,37 @@ fn a_branch_that_changes_a_used_declaration_is_dangling_reference() {
     })
   );
   assert_eq!(branch(&output, "journey")["result"], json!("ok"), "{output}");
-  let (_, schema) = run_in(&repo, &["schema"]);
-  crate::schema_test::assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], &output, "check");
+  assert_check_schema(&repo, &output);
 
   // the deletion in the same branch: ok
   let plan = json!({ "branches": { "suspend": [deleted_by, changed_by] } });
   let (exit_code, output) = check(&repo, &plan, &[]);
   assert_eq!(exit_code, 0, "{output}");
+}
+
+/// A changed return type, which the summary can't judge a use by: only a `possible_changed_declaration` warning, with
+/// the commit that changed the use, and exit 0
+#[test_log::test]
+fn a_changed_return_type_is_a_possible_changed_declaration() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let (deleted_by, changed_by) = commit_changed_member(&repo, "fun cleanup(): Int");
+  let (exit_code, output) = run_in(&repo, &["check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(branch(&output, "suspend")["result"], json!("ok"), "{output}");
+  assert_eq!(
+    output["warnings"],
+    json!([{
+      "kind": "possible_changed_declaration",
+      "branch": "suspend",
+      "identifier": "cleanup",
+      "file": LEDGER_TEST,
+      "line": 8,
+      "removed_by": short_id(&changed_by),
+      "fixed_by": short_id(&deleted_by),
+      "via": "syntax_tree",
+    }])
+  );
+  assert_check_schema(&repo, &output);
 }
 
 /// The commit that changes the use changes another file too: the fix moves the change of the one file, and the command
@@ -433,8 +462,7 @@ fn a_build_that_passed_on_a_tree_is_not_run_again() {
   assert_eq!((exit_code, runs.count()), (0, 2), "{output}");
   assert_eq!(build_results(&output), results(&[("a", "ok", true), ("c", "ok", true)]));
   assert_eq!(branch(&output, "a")["build"], json!({ "exit_code": 0, "cached": true }));
-  let (_, schema) = run_in(&repo, &["schema"]);
-  crate::schema_test::assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], &output, "check");
+  assert_check_schema(&repo, &output);
 
   // a new commit of the same tree (`BD_COMMIT` differs) is the same build; a changed tree is another
   git(&repo, &["commit", "-q", "--amend", "-m", "(c) Add the other file"]);
@@ -525,8 +553,7 @@ fn a_parent_that_needs_its_child_is_an_inverted_stack() {
       ],
     })
   );
-  let (_, schema) = run_in(&repo, &["schema"]);
-  crate::schema_test::assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], &output, "check");
+  assert_check_schema(&repo, &output);
 
   // each fix, applied as printed, builds
   let head = repo.head();
@@ -627,8 +654,7 @@ fn a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration() {
       "evidence": "import",
     }])
   );
-  let (_, schema) = run_in(&repo, &["schema"]);
-  crate::schema_test::assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], &output, "check");
+  assert_check_schema(&repo, &output);
 
   git(&repo, &["config", "branchdeck.symbols", "report"]);
   let (exit_code, output) = run_in(&repo, &["check"]);
@@ -657,8 +683,7 @@ fn an_override_of_another_branchs_overload_is_a_missing_declaration() {
       "evidence": "override",
     }])
   );
-  let (_, schema) = run_in(&repo, &["schema"]);
-  crate::schema_test::assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], &output, "check");
+  assert_check_schema(&repo, &output);
 }
 
 /// The refusal of `bd safe-push` says what the branch does to the declaration: a change of its form, a second

@@ -461,18 +461,25 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_branch_that_removes_a_used_declaration_is_dangling_reference`, `a_possible_dangling_reference_is_a_warning_and_exit_0`)
 - With `branchdeck.symbols on`, a dangling reference must also be found by the syntax summaries alone, with its `kind`
   (`removed_declaration` for the line search above): `removed_declaration` for an instance or static member of a JVM
-  type or an enum entry that a commit of the branch removes with all its overloads, where a use resolves to it (a
-  receiver of its type, `this`, an override, an inherited call, its static path); `changed_declaration` for a function,
-  property or constant whose header (`suspend`, the return type, the receiver), parameters or reach a commit of the
-  branch changes, or a type whose constructors it changes, where the old form takes a use and no declaration of the key
-  in the branch's tree does; `duplicate_declaration` for a JVM type or Kotlin top-level function a commit of the branch
-  adds while the branch's tree, but not HEAD's, declares the key in another file of the same package and module. A
-  change of the body alone, a use the new form takes (a parameter with a default), a call on a receiver of another
-  type, a bare call of a name in another class, a use the branch's own commits wrote, a declaration of another package
-  and a single declaration in a file another branch deletes must not count. A possible one is a warning of the kind
-  `possible_changed_declaration` or `possible_duplicate_declaration`.
-  [@test] ../../crates/sync-core/src/declaration_checks_test.rs (`a_function_made_suspend_dangles_where_another_branch_removed_its_call`, `a_change_of_the_body_alone_changes_no_form`, `a_new_parameter_dangles_only_where_the_call_does_not_fit_it`, `a_call_on_a_receiver_of_another_type_is_no_use`, `a_use_the_branch_writes_fits_its_form`, `a_removed_instance_member_dangles_where_its_receiver_calls_it`, `a_type_declared_again_in_the_same_package_is_a_duplicate`, `a_type_of_the_same_name_in_another_package_is_no_duplicate`, `a_declaration_another_branch_deletes_is_no_duplicate`)
-  [@test] ../../crates/bd-cli/src/check_test.rs (`a_branch_that_changes_a_used_declaration_is_dangling_reference`)
+  type or an enum entry that a commit of the branch removes with all its overloads, its key declared nowhere else in the
+  tree, where a use resolves to it (a receiver of its type, `this`, an override, an inherited call, its static path);
+  `changed_declaration` for a Kotlin or Java function, property or constant whose header, parameters (their types
+  included) or reach a commit of the branch changes, a type whose constructors it changes, or a key of which it removes
+  an overload while another stays, where the old form takes a use and no declaration of the key in the branch's tree
+  does: proven only for a call the new parameters reject, a call only the removed overload took, an added `suspend`
+  outside a coroutine and a changed extension receiver; a changed return type, nullability or type parameters and a
+  suspend call in the lambda of an unknown function must be only a `possible_changed_declaration` warning with its
+  `fixed_by`; `duplicate_declaration` for a JVM type or Kotlin top-level function a commit of the branch adds while the
+  branch's tree, but not HEAD's, declares the key in another file of the same package and module. A change of the body
+  alone, a use the new form takes (a parameter with a default, a call in a suspend function or a coroutine builder, a
+  `var` for a `val`, an explicit type of a property, `operator`), an argument of no literal type, a call on a receiver of
+  another type, a bare call of a name in another class, a use the branch's own commits wrote (by the lines of their
+  hunks, not the text), a member that moves with its type, a change of a Rust or TypeScript signature, a declaration of
+  another package and a single declaration in a file another branch deletes must not count. A possible one is a
+  warning of the kind `possible_changed_declaration` or `possible_duplicate_declaration`.
+  [@test] ../../crates/sync-core/src/declaration_checks_test.rs (`a_function_made_suspend_dangles_where_another_branch_removed_its_call`, `a_function_made_suspend_fits_a_coroutine`, `a_header_change_the_summary_cannot_judge_is_only_possible`, `a_changed_parameter_type_rejects_a_literal`, `a_removed_overload_dangles_where_the_one_left_rejects_the_call`, `a_changed_extension_receiver_breaks_its_call`, `a_changed_form_is_judged_in_the_jvm_languages_only`, `a_removed_member_is_kept_only_by_its_own_key`, `a_use_the_branch_writes_is_told_by_its_line_not_its_text`, `a_change_of_the_body_alone_changes_no_form`, `a_new_parameter_dangles_only_where_the_call_does_not_fit_it`, `a_call_on_a_receiver_of_another_type_is_no_use`, `a_use_the_branch_writes_fits_its_form`, `a_removed_instance_member_dangles_where_its_receiver_calls_it`, `a_type_declared_again_in_the_same_package_is_a_duplicate`, `a_type_of_the_same_name_in_another_package_is_no_duplicate`, `a_declaration_another_branch_deletes_is_no_duplicate`)
+  [@test] ../../crates/bd-cli/src/check_test.rs (`a_branch_that_changes_a_used_declaration_is_dangling_reference`, `a_changed_return_type_is_a_possible_changed_declaration`)
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`the_checks_of_a_session_on_sources`)
 - A branch whose conflict or dangling reference needs a commit of a branch stacked on it, at any depth, must have
   `inverted_stack {branch, child, fixes}` and keep its `result`; the fixes (`move_to_child`, `swap`) must be plan
   parts for `bd group` that a trial build of the plan with them passes for both branches, and no `swap` for a mutual

@@ -212,6 +212,11 @@ pub struct CheckWarning {
   pub line: u32,
   /// The commit of the branch that removes, changes or adds the declaration
   pub removed_by: String,
+  /// A `possible_changed_declaration` whose use a commit outside the branch changes, though the summary can't tell
+  /// that the use breaks (a changed return type or nullability, new type parameters, a suspend call in the lambda of
+  /// an unknown function): what to stack the branch on if the build fails
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub fixed_by: Option<String>,
   /// The use is on the baseline tip, not in the virtual tree
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub on_baseline: bool,
@@ -514,6 +519,7 @@ pub(crate) fn possible_dangling_references(report: &CheckReport, short: &ShortId
       file: reference.file.clone(),
       line: reference.line,
       removed_by: short.get(&reference.removed_by).to_string(),
+      fixed_by: reference.fixed_by.as_deref().filter(|_| !reference.on_baseline).map(|id| short.get(id).to_string()),
       on_baseline: reference.on_baseline,
       via: found_via(reference),
     })

@@ -481,6 +481,13 @@ async fn a_check_of_synced_branches() {
   );
 }
 
+/// A check session of `repo` on a counting executor
+fn counted_session(repo: &TestRepo, cache: &ObjectCache) -> (GitCommandExecutor, CheckSession) {
+  let git = counting();
+  let session = CheckSession::open(&git, &path(repo), PREFIX, cache).unwrap();
+  (git, session)
+}
+
 /// The processes of `run` on `git`, which may have counted others before
 fn processes_of(git: &GitCommandExecutor, run: impl FnOnce()) -> Vec<(String, u32)> {
   let before: HashMap<String, u32> = processes(git).into_iter().collect();
@@ -499,8 +506,7 @@ async fn the_second_check_of_a_session() {
   let (repo, _) = repo();
   sync(&GitCommandExecutor::new(), &repo).await;
   let (_dir, cache) = empty_cache();
-  let git = counting();
-  let session = CheckSession::open(&git, &path(&repo), PREFIX, &cache).unwrap();
+  let (git, session) = counted_session(&repo, &cache);
   let first = processes_of(&git, || {
     session.check(None).unwrap();
   });
@@ -515,6 +521,57 @@ async fn the_second_check_of_a_session() {
     rewritten.check(None).unwrap();
   });
   assert_eq!(third, []);
+}
+
+/// The checks of a session on Kotlin sources, whose declaration searches read the summaries of the commits' files: the
+/// first reads them once (the commits' changes, the trees above them, the blobs) with the changed lines; the next
+/// checks of the session, and of a session of a rewrite, which shares them, read none of them again: only the builds
+/// (the copies, which no sync wrote) and the trees' differences and blobs of the search (`diff-tree`, `cat-file`)
+#[test]
+fn the_checks_of_a_session_on_sources() {
+  let repo = repo_on_origin();
+  let ledger = |modifier: &str| format!("package bridge\n\nclass Ledger {{\n  {modifier}fun cleanup() {{\n  }}\n}}\n");
+  repo.create_commit_with_files(
+    "Add the ledger",
+    &[
+      ("bridge/Ledger.kt", &ledger("")),
+      (
+        "contract/LedgerTest.kt",
+        "package contract\n\nimport bridge.Ledger\n\nfun cleans(ledger: Ledger) {\n  ledger.cleanup()\n}\n",
+      ),
+    ],
+  );
+  repo.git(&["update-ref", "refs/remotes/origin/master", "HEAD"]);
+  repo.git(&["rm", "-q", "--", "contract/LedgerTest.kt"]);
+  repo.git(&["commit", "-q", "-m", "(journey) The test goes"]);
+  repo.create_commit_with_files("(suspend) The cleanup suspends", &[("bridge/Ledger.kt", &ledger("suspend "))]);
+  let (_dir, cache) = empty_cache();
+  let (git, session) = counted_session(&repo, &cache);
+  let first = processes_of(&git, || {
+    let report = session.check(None).unwrap();
+    assert!(!report.builds_cleanly("suspend"), "{:?}", report.dangling);
+  });
+  assert_eq!(
+    first,
+    [
+      ("cat-file".to_string(), 3),
+      ("diff-tree".to_string(), 1),
+      ("fast-import".to_string(), 2),
+      ("log".to_string(), 3),
+      ("merge-tree".to_string(), 1),
+      ("rev-parse".to_string(), 1),
+    ]
+  );
+  let second = processes_of(&git, || {
+    session.check(None).unwrap();
+  });
+  let again = [("cat-file".to_string(), 2), ("diff-tree".to_string(), 1), ("fast-import".to_string(), 2)];
+  assert_eq!(second, again);
+  let rewritten = session.with_rewrite(&[], &[]);
+  let third = processes_of(&git, || {
+    rewritten.check(None).unwrap();
+  });
+  assert_eq!(third, again);
 }
 
 /// A change of the working tree amended into the oldest commit of alpha

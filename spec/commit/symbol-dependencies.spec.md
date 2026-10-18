@@ -117,6 +117,11 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_header_is_the_form_before_the_body`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`a_header_is_the_form_before_the_body`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+- A Kotlin or Java reference must know whether a suspend call is allowed where it is: yes in a `suspend` function with
+  no lambda between and in the lambda of a coroutine builder (`runBlocking`, `launch`, `withContext`, …); no in another
+  function, an initializer, an accessor, the lambda of `sequence` or `iterator`, and in Java; unknown in the lambda of
+  another function.
+  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_reference_knows_its_coroutine_context`)
 - The dangling-reference check must take the name of an `override` member for no use: it declares one.
   [@test] ../../crates/sync-core/src/dangling_references_test.rs (`an_override_line_is_no_use`)
 - A rule must name only node kinds its grammar has.

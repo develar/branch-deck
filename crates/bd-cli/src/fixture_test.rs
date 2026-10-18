@@ -228,8 +228,13 @@ pub(crate) const LEDGER_TEST: &str = "plugins/air/tests/contract/AcpJourneyLifec
 /// compiles, the tree of `(suspend)` has the call outside a coroutine. Returns `(the commit that deletes the test, the
 /// commit that changes the function)`
 pub(crate) fn commit_changed_declaration(repo: &TestRepo) -> (String, String) {
-  let ledger = |modifier: &str| format!("package bridge\n\nclass AcpOwnershipLedger {{\n  {modifier}fun cleanup() {{\n  }}\n}}\n");
-  write(repo, "plugins/air/tests/bridge/AcpOwnershipLedger.kt", ledger(""));
+  commit_changed_member(repo, "suspend fun cleanup()")
+}
+
+/// `commit_changed_declaration` with `cleanup` changed to `header` instead
+pub(crate) fn commit_changed_member(repo: &TestRepo, header: &str) -> (String, String) {
+  let ledger = |header: &str| format!("package bridge\n\nclass AcpOwnershipLedger {{\n  {header} {{\n  }}\n}}\n");
+  write(repo, "plugins/air/tests/bridge/AcpOwnershipLedger.kt", ledger("fun cleanup()"));
   write(
     repo,
     LEDGER_TEST,
@@ -239,7 +244,7 @@ pub(crate) fn commit_changed_declaration(repo: &TestRepo) -> (String, String) {
   git(repo, &["update-ref", "refs/remotes/origin/master", &base]);
   git(repo, &["rm", "-q", "--", LEDGER_TEST]);
   let deleted_by = commit_all(repo, "(journey) IJAI-4182 The journey support goes with its tests", 1_700_000_100);
-  write(repo, "plugins/air/tests/bridge/AcpOwnershipLedger.kt", ledger("suspend "));
+  write(repo, "plugins/air/tests/bridge/AcpOwnershipLedger.kt", ledger(header));
   let changed_by = commit_all(repo, "(suspend) IJAI-4185 The cleanups may suspend", 1_700_000_200);
   (deleted_by, changed_by)
 }
