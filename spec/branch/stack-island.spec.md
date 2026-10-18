@@ -81,8 +81,13 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   stack chip, the header is it.
 - After it, what the stack holds, each counted as the stack chip counts it (`summarizeStackState` over the whole
   stack, `getStackStateChips`), the strongest first: "1 failed", "1 running", "3 to push"; a click on a count shows the
-  first branch in that state (`requestReveal`: it expands the island and the row), also from a collapsed island.
+  first branch in that state (`requestReveal`: it expands the island and the row), also from a collapsed island. The
+  robot of the whole stack, which runs on its stack branch and on no branch, counts as the root's: "1 running" with
+  its ring while it runs ("1 failing", "1 failed" or "1 needs review" on the stack branch as it is), its count showing
+  the root.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should count the robot of the whole stack in the header of its island, a click on it showing the root`)
+  [@test] ../../src/lib/stack-state.test.ts (`counts the robot of the whole stack, which runs on its stack branch, as the root's: running, failing or failed on it as it is`)
 - Below the name, muted: the open pull requests of the stack ("2 pull requests open · 1 approved · 1 changes
   requested") and what each running robot lands, with its time left ("Safe Push of runtime lands 4 branches · ~23m
   left", the branch and the ones it lands with it, `useLandingSpans`; "Safe Push of the whole stack lands 7 branches"

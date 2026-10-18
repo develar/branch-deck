@@ -65,8 +65,9 @@ interface IslandSummary {
 }
 
 /**
- * The size of the stack on `root` and what its branches need, each counted as the header and the filter chips count it
- * (`summarizeStackState`), over the whole stack: a filter that shows a part of it doesn't change what the stack holds
+ * The size of the stack on `root` and what its branches and the robot of its whole stack need, each counted as the
+ * header and the filter chips count it (`summarizeStackState`), over the whole stack: a filter that shows a part of it
+ * doesn't change what the stack holds
  */
 function useIslandSummary(root: string): IslandSummary | null {
   const sources = useStackStateSources()
@@ -78,6 +79,8 @@ function useIslandSummary(root: string): IslandSummary | null {
     if (state.branches[root] === undefined) {
       return ""
     }
+    // its robot runs on its stack branch, no branch's: counted as the header counts the robots of the branches
+    const stack = state.stackBranches[root]
     // the push counts as the "to push" chip: what the rows offer, the landed branches left out
     const pushOrder = stackChildrenPushOrder(
       root,
@@ -88,8 +91,8 @@ function useIslandSummary(root: string): IslandSummary | null {
     return JSON.stringify({
       branchCount: branches.length,
       commitCount: branches.reduce((sum, branch) => sum + branch.commitCount, 0),
-      state: summarizeStackState(branches, sources),
-      first: firstBranchOfEachState(branches, sources),
+      state: summarizeStackState(branches, sources, stack),
+      first: firstBranchOfEachState(branches, sources, stack),
       pushOrder,
       pushCommits: pushOrder.reduce((sum, name) => sum + (state.branches[name]?.remoteStatus?.commitsAhead ?? 0), 0),
       askFirst: branches

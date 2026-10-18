@@ -48,6 +48,7 @@ targets:
   - ../../src/components/branch/InlineCloseStackPullRequest.tsx
   - ../../src/components/branch/OrphanedStackPullRequest.tsx
   - ../../src/components/branch/StackIslandCard.tsx
+  - ../../src/lib/stack-state.ts
   - ../../src/components/branch/LandingSpanLabel.tsx
   - ../../src/components/repository/RobotsIndicator.tsx
   - ../../src/lib/branch-review-window.ts
@@ -192,8 +193,10 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   Push of a temporary ref on the tip of the stack branch), polled while it runs, its problems and its failing read, as
   the robot of a branch is; it is told when it merged ("Whole air stack merged into master", in the toast, Activity and
   the OS notification), failed ("Safe Push of the whole air stack failed", its pull request the step when it needs
-  review) or will fail, and listed in the robots indicator as "Whole air stack", a click showing the root.
+  review) or will fail, listed in the robots indicator as "Whole air stack", a click showing the root, and counted in
+  the header of its island as the root's ("1 running" with its ring, [Stack Island](stack-island.spec.md#header)).
   [@test] ../../src/lib/patronus.test.ts (`belongs to the root of its stack by its stack branch, or as a robot of a temporary ref by the tips of the stack branch`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should count the robot of the whole stack in the header of its island, a click on it showing the root`)
   [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the branches the whole stack landed`)
   [@test] ../../src/lib/robot-overview.test.ts (`lists the robot of the whole stack as the whole stack after the branches, on its stack branch as it is, a click showing the root`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the robot of the whole stack on the rows of a small stack, hold their pushes and cancel it from the root's menu`)

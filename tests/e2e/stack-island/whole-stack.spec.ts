@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import type { PatronusRobot, PullRequest, PullRequestsResult } from "../../../src/lib/bindings"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow } from "../helpers/branch-helpers"
+import { findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
 import { AWAITING_CODE_OWNER, availableRobots, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { routePushBranches } from "../helpers/push-helpers"
@@ -194,6 +194,27 @@ test.describe("Whole stack", () => {
     await expect.poll(() => cancels.length).toBe(1)
     expect(cancels[0]).toMatchObject({ robotId: "whole" })
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Safe Push is canceling" })).toContainText("Whole auth stack → master")
+  })
+
+  test("should count the robot of the whole stack in the header of its island, a click on it showing the root", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stack_island", { patronus: availableRobots(wholeStackRobot("air", "whole")) })
+    await syncAndWaitForBranches()
+    const air = island(page, "air")
+    const states = air.getByTestId("stack-island-states")
+
+    // it runs on the stack branch, no branch's: the header counts it as running, its ring on the count, and the line
+    // below the name says what it lands
+    await expect(air.getByTestId("stack-island-landing")).toHaveText("Safe Push of the whole stack lands 7 branches")
+    await expect(states.getByRole("button")).toHaveText(["1 running"])
+    await expect(states.getByTestId("robot-ring")).toHaveCount(1)
+    await expect(air.getByTestId("stack-island-landing").getByTestId("robot-ring")).toHaveCount(0)
+
+    // collapsed, the island still tells it, and the count shows the root, whose stack it lands
+    await air.getByTestId("stack-island-root").click()
+    await expect(air).toHaveAttribute("data-state", "closed")
+    await states.getByRole("button", { name: "1 running" }).click()
+    await expect(air).toHaveAttribute("data-state", "open")
+    await expect(getBranchDetailsRow(page, "air")).toBeVisible()
   })
 
   test("should close the pull requests of every branch of the whole stack once its Safe Push merged", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -1,7 +1,7 @@
 import type { PatronusRobot } from "@/lib/bindings"
-import { findBranchRobot, isRobotActive, needsRobotAttention } from "@/lib/patronus"
+import { findBranchRobot, findStackRobot, isRobotActive, needsRobotAttention } from "@/lib/patronus"
 import { summarizePushState } from "@/lib/push-summary"
-import type { Branch } from "@/stores/branch-sync"
+import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 
 /** What the branches of a stack hold, each counted by the rule of the surface that tells it for all branches */
 export interface StackState {
@@ -38,6 +38,29 @@ export interface StackStateSources {
 /** A state of `StackState` a branch is in, but the push */
 export type StackStateKey = Exclude<keyof StackState, "toPush">
 
+/**
+ * The stack branch of a stack that forks (`StackBranch`): the robot of the whole stack runs on it (`findStackRobot`),
+ * no branch's, and lands every branch of the stack
+ */
+export type WholeStackSource = Pick<StackBranch, "root" | "tip" | "remoteStatus">
+
+/** The state of a robot on the tips it is matched by: failing, running, or failed on them as they are */
+function robotState(robot: PatronusRobot | undefined, localTip: string | undefined, remote: RemoteStatus | null, sources: StackStateSources): StackStateKey | null {
+  if (robot === undefined) {
+    return null
+  }
+  if (robot.status === "running" && sources.failing[robot.id] === true) {
+    return "failing"
+  }
+  if (isRobotActive(robot)) {
+    return "running"
+  }
+  if (needsRobotAttention(robot, localTip, remote)) {
+    return sources.needsReview[robot.id] === true ? "needsReview" : "failed"
+  }
+  return null
+}
+
 /** The states of `StackState` the branch is in, but the push: a sync failure, a block, its robot */
 function branchStates(branch: Branch, sources: StackStateSources): StackStateKey[] {
   const states: StackStateKey[] = []
@@ -50,33 +73,51 @@ function branchStates(branch: Branch, sources: StackStateSources): StackStateKey
     states.push("blocked")
   }
   const localTip = branch.commits[0]?.hash
-  const robot = findBranchRobot(sources.robots, branch.name, localTip, branch.remoteStatus?.remoteTip ?? null)
-  if (robot !== undefined) {
-    if (robot.status === "running" && sources.failing[robot.id] === true) {
-      states.push("failing")
-    } else if (isRobotActive(robot)) {
-      states.push("running")
-    } else if (needsRobotAttention(robot, localTip, branch.remoteStatus)) {
-      states.push(sources.needsReview[robot.id] === true ? "needsReview" : "failed")
-    }
+  const robot = robotState(findBranchRobot(sources.robots, branch.name, localTip, branch.remoteStatus?.remoteTip ?? null), localTip, branch.remoteStatus, sources)
+  if (robot !== null) {
+    states.push(robot)
   }
   return states
 }
 
-export function summarizeStackState(branches: readonly Branch[], sources: StackStateSources): StackState {
+/** The state of the robot of the whole stack, on its stack branch as it is; none for a stack without a stack branch */
+function wholeStackState(stack: WholeStackSource | undefined, sources: StackStateSources): StackStateKey | null {
+  if (stack === undefined) {
+    return null
+  }
+  const robot = findStackRobot(sources.robots, stack.root, stack.tip, stack.remoteStatus?.remoteTip ?? null)
+  return robotState(robot, stack.tip ?? undefined, stack.remoteStatus, sources)
+}
+
+/**
+ * What `branches` hold, and the robot of the whole stack on its stack branch (`stack`), which runs on no branch: "1
+ * running" while it runs, as the island's header has it
+ */
+export function summarizeStackState(branches: readonly Branch[], sources: StackStateSources, stack?: WholeStackSource): StackState {
   const counts: Record<StackStateKey, number> = { conflicts: 0, errors: 0, blocked: 0, failed: 0, needsReview: 0, failing: 0, running: 0 }
   for (const branch of branches) {
     for (const state of branchStates(branch, sources)) {
       counts[state]++
     }
   }
+  const whole = wholeStackState(stack, sources)
+  if (whole !== null) {
+    counts[whole]++
+  }
   const toPush = summarizePushState(branches, sources.isLanded, sources.isHeld).branches.length
   return { ...counts, toPush }
 }
 
-/** The first of `branches` (in their order) in each state of `StackState`: where a click on its count goes */
-export function firstBranchOfEachState(branches: readonly Branch[], sources: StackStateSources): Partial<Record<keyof StackState, string>> {
+/**
+ * The first of `branches` (in their order) in each state of `StackState`: where a click on its count goes; the root for
+ * the robot of the whole stack (`stack`), as the robots indicator shows it
+ */
+export function firstBranchOfEachState(branches: readonly Branch[], sources: StackStateSources, stack?: WholeStackSource): Partial<Record<keyof StackState, string>> {
   const first: Partial<Record<keyof StackState, string>> = {}
+  const whole = wholeStackState(stack, sources)
+  if (whole !== null && stack !== undefined) {
+    first[whole] = stack.root
+  }
   for (const branch of branches) {
     for (const state of branchStates(branch, sources)) {
       first[state] ??= branch.name

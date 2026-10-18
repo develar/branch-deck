@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot } from "@/lib/bindings"
-import { getStackAttention, summarizeStackState } from "@/lib/stack-state"
+import { firstBranchOfEachState, getStackAttention, summarizeStackState } from "@/lib/stack-state"
 import type { StackState } from "@/lib/stack-state"
 import { robotsById, testRobot } from "@/lib/test-robot"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
@@ -54,6 +54,22 @@ describe("summarizeStackState", () => {
     ]
     const state = summarizeStackState(branches, { robots: undefined, needsReview: {}, failing: {}, isLanded: name => name === "login" })
     expect(state).toEqual({ ...NONE, blocked: 1, toPush: 1 })
+  })
+
+  it("counts the robot of the whole stack, which runs on its stack branch, as the root's: running, failing or failed on it as it is", () => {
+    const branches = [branch("air"), branch("bazel"), branch("side-fix")]
+    const stack = { root: "air", tip: "stack-tip", remoteStatus: testRemoteStatus({ remoteTip: "stack-tip" }) }
+    const sources = (...robots: PatronusRobot[]) => ({ robots: robotsById(...robots), needsReview: {}, failing: {}, isLanded: () => false })
+    const whole = testRobot("whole", null, { stackRoot: "air", sourceRevision: "stack-tip" })
+    expect(summarizeStackState(branches, sources(whole), stack)).toEqual({ ...NONE, running: 1 })
+    expect(firstBranchOfEachState(branches, sources(whole), stack)).toEqual({ running: "air" })
+    // no branch has it: without its stack branch the stack holds nothing
+    expect(summarizeStackState(branches, sources(whole))).toEqual(NONE)
+    expect(summarizeStackState(branches, { ...sources(whole), failing: { whole: true } }, stack)).toEqual({ ...NONE, failing: 1 })
+    // failed on the stack branch as it is; one of an older stack branch is fixed since
+    const failedOn = (sourceRevision: string) => failed("whole", "air", { branchName: null, stackRoot: "air", sourceRevision })
+    expect(summarizeStackState(branches, sources(failedOn("stack-tip")), stack)).toEqual({ ...NONE, failed: 1 })
+    expect(summarizeStackState(branches, sources(failedOn("old-stack")), stack)).toEqual(NONE)
   })
 
   it("tells a conflict from another sync error", () => {
