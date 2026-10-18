@@ -1,7 +1,7 @@
 # UX Writing: Toasts, Errors and Labels
 
 **Status:** Active  
-**Updated:** 2026-10-16  
+**Updated:** 2026-10-18  
 **Tags:** [ui, wording, toasts, actions]
 
 ## Summary
@@ -55,6 +55,8 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
   clipboard". One failure verb: not "Failed to …", "… Failed", "Can't …", "Couldn't …".
 - **The description is the reason**, the `message` of the error (`getErrorDetails`), never prefixed with "Error:".
 - The same words in a tooltip or an inline error: "Cannot check the update: <reason>".
+- **Typing a field refuses says what is wrong**, under the field, without "Cannot …": nothing was attempted ("A prefix
+  cannot contain spaces, …", "acme/app/x is not a GitHub repository: use owner/name").
 
 ## Help
 

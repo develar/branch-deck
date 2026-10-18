@@ -17,12 +17,13 @@ pub const BRANCH_PREFIX_CONFIG_KEY: &str = "branchdeck.branchPrefix";
 pub struct GitBranchPrefix {
   /// Trimmed, empty if no config sets it
   pub prefix: String,
-  /// Set in the local or the worktree config of the repository: it wins over the app's prefix (`resolve_branch_prefix`)
+  /// Set in the local or the worktree config of the repository, or by `git -c` / `GIT_CONFIG_*`: it wins over the app's
+  /// prefix (`resolve_branch_prefix`, `ConfigScope::is_repository_scoped`)
   pub repository_scoped: bool,
 }
 
 /// The prefix the branches are named with, the specific one first: the repository's own git prefix (local or worktree
-/// config), else the app's prefix (`globalUserBranchPrefix`), else the global or system git prefix. Empty if none is set
+/// config, `git -c`), else the app's prefix (`globalUserBranchPrefix`), else the global or system git prefix. Empty if none is set
 pub fn resolve_branch_prefix(git: &GitBranchPrefix, app: Option<&str>) -> String {
   if git.repository_scoped && !git.prefix.is_empty() {
     return git.prefix.clone();
@@ -79,7 +80,7 @@ pub(crate) fn parse_scoped_prefix(output: &str) -> GitBranchPrefix {
   };
   GitBranchPrefix {
     prefix: value.trim().to_string(),
-    repository_scoped: matches!(ConfigScope::parse(scope), ConfigScope::Local | ConfigScope::Worktree),
+    repository_scoped: ConfigScope::parse(scope).is_repository_scoped(),
   }
 }
 

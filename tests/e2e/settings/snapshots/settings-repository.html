@@ -35,7 +35,7 @@
               <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
                 .git/config
               </code>
-              of [REPO_ID], read by bd too
+              of [REPO_ID], which bd reads too
             </p>
             <div class="flex flex-col gap-1" data-testid="repository-setting-stacks">
               <div class="flex min-h-7 items-center gap-3">
@@ -52,16 +52,16 @@
               </div>
               <div class="flex flex-col gap-0.5 text-xs text-muted-foreground">
                 <p>
-                  A (parent/child) prefix builds the child on its parent ·
+                  (auth/login) in a commit builds login on top of auth ·
                   <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
                     branchdeck.stacks
                   </code>
                 </p>
                 <p data-testid="repository-setting-source">
-                  This repository
+                  Set in this repository
                 </p>
                 <p class="text-warning" data-testid="repository-setting-reason">
-                  login and 1 more are stacked by their prefixes: turned off, auth/login is a flat branch git cannot keep beside auth. Unstack them first
+                  Turning this off renames login and 1 more to names like auth/login, which git cannot keep next to auth. Unstack them first
                 </p>
               </div>
             </div>
@@ -86,13 +86,13 @@
               </div>
               <div class="flex flex-col gap-0.5 text-xs text-muted-foreground">
                 <p>
-                  Reported by bd commits and the checks; they decide nothing ·
+                  Shown by bd commits, never used for the branches ·
                   <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
                     branchdeck.symbols
                   </code>
                 </p>
                 <p data-testid="repository-setting-source">
-                  From your global Git config: report
+                  Set in your global Git config
                 </p>
               </div>
             </div>
@@ -110,13 +110,13 @@
               </div>
               <div class="flex flex-col gap-0.5 text-xs text-muted-foreground">
                 <p>
-                  Empty, acme/app from the Space mirror ·
+                  Where pull requests are opened ·
                   <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
                     branchdeck.githubRepository
                   </code>
                 </p>
                 <p class="text-warning" data-testid="repository-setting-reason">
-                  From the config of this worktree (config.worktree), which wins over .git/config: change it there
+                  Set in config.worktree, which overrides .git/config: change it there
                 </p>
               </div>
             </div>
@@ -134,16 +134,16 @@
               </div>
               <div class="flex flex-col gap-0.5 text-xs text-muted-foreground">
                 <p>
-                  Names the branches here, over the prefix of General ·
+                  Used here instead of the prefix in General ·
                   <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-slot="inline-code">
                     branchdeck.branchPrefix
                   </code>
                 </p>
                 <p data-testid="repository-setting-source">
-                  This repository
+                  Set in this repository
                 </p>
                 <p class="text-warning">
-                  jane doe is not a valid branch prefix: no spaces, none of ~^:?*[\, no .. and no @{
+                  A prefix cannot contain spaces, "..", "@{" or any of ~ ^ : ? * [ \
                 </p>
               </div>
             </div>

@@ -15,14 +15,16 @@ import { LoadingLine } from "@/components/shared/LoadingLine"
 import { useRepositoryConfig } from "@/hooks/useRepositoryConfig"
 import type { ConfigSetting, RepositoryConfig, RepositoryConfigChange } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
+import { INVALID_PREFIX_TEXT, isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
 import { logError, notifyError } from "@/lib/errors"
 import {
   CONFIG_KEYS,
   SYMBOL_MODES,
+  describeAppPrefixSource,
+  describeDetectedGitHubRepository,
   describeFallback,
   describeSource,
-  invalidBranchPrefixReason,
+  detectedGitHubRepositoryText,
   invalidGitHubRepositoryReason,
   isValidGitHubRepository,
   overriddenReason,
@@ -30,6 +32,7 @@ import {
   resetLabel,
   stacksOffReason,
   symbolModeLabel,
+  withAppPrefix,
   writeErrorTitle,
 } from "@/lib/repository-config"
 import type { RepositoryConfigKey } from "@/lib/repository-config"
@@ -70,7 +73,7 @@ function RepositorySettings({ path }: { path: string }) {
       <p className="text-xs text-muted-foreground">
         {"Saved in "}
         <InlineCode>.git/config</InlineCode>
-        {` of ${name}, read by bd too`}
+        {` of ${name}, which bd reads too`}
       </p>
       {state.status === "loading" && <LoadingLine>Reading the settings…</LoadingLine>}
       {state.status === "error" && (
@@ -122,12 +125,13 @@ function ConfigRows({ path, config, onConfig }: { path: string; config: Reposito
 
   /** The typed value as the backend takes it: trimmed, the prefix without its trailing slash; empty unsets */
   const typedValue = (key: TextKey, draft: string): string => (key === "branchPrefix" ? normalizeBranchPrefix(draft) : draft.trim())
+  /** What is wrong with the typing, under the field: nothing was written yet, so no "Cannot …" */
   const invalidReason = (key: TextKey, value: string): string | null => {
     if (value === "") {
       return null
     }
     if (key === "branchPrefix") {
-      return isValidBranchPrefix(value) ? null : invalidBranchPrefixReason(value)
+      return isValidBranchPrefix(value) ? null : INVALID_PREFIX_TEXT
     }
     return isValidGitHubRepository(value) ? null : invalidGitHubRepositoryReason(value)
   }
@@ -182,9 +186,8 @@ function ConfigRows({ path, config, onConfig }: { path: string; config: Reposito
     }
   }, [])
 
-  const textField = (key: TextKey, label: string, placeholder: string) => {
+  const textField = (key: TextKey, setting: ConfigSetting<string | null>, label: string, placeholder: string) => {
     const draft = drafts[key]
-    const setting = config[key]
     const reason = draft === undefined ? null : invalidReason(key, typedValue(key, draft))
     return {
       control: (
@@ -214,13 +217,15 @@ function ConfigRows({ path, config, onConfig }: { path: string; config: Reposito
           className="h-7 w-56"
         />
       ),
-      error: reason === null ? null : `${writeErrorTitle({ key, value: null }, false, path)}: ${reason}`,
+      error: reason,
     }
   }
 
   const detected = config.detectedGithubRepository
-  const github = textField("githubRepository", "GitHub repository", detected?.fullName ?? "owner/name")
-  const prefix = textField("branchPrefix", "Branch prefix", appPrefix || config.branchPrefix.fallbackValue || "your-name")
+  const github = textField("githubRepository", config.githubRepository, "GitHub repository", detected?.fullName ?? "owner/name")
+  // the prefix of General wins over a global or system one: the row shows the prefix the branches are named by
+  const branchPrefix = withAppPrefix(config.branchPrefix, appPrefix)
+  const prefix = textField("branchPrefix", branchPrefix, "Branch prefix", appPrefix || config.branchPrefix.fallbackValue || "your-name")
   const stacksOff = config.stacks.value ? stacksOffReason(config.stacksOffClashes) : null
   const currentMode = SYMBOL_MODES.find(it => it.mode === config.symbols.value)
 
@@ -230,11 +235,10 @@ function ConfigRows({ path, config, onConfig }: { path: string; config: Reposito
         configKey="stacks"
         label="Stacked branches"
         setting={config.stacks}
-        valueText={String(config.stacks.value)}
-        fallbackText={config.stacks.fallbackValue ? "On" : "Off"}
+        fallback={describeFallback(config.stacks, config.stacks.fallbackValue ? "On" : "Off")}
         busy={writing === "stacks"}
         onReset={() => void write({ key: "stacks", value: null })}
-        description="A (parent/child) prefix builds the child on its parent"
+        description="(auth/login) in a commit builds login on top of auth"
         reason={stacksOff}
         control={labelId => (
           <Switch
@@ -250,8 +254,7 @@ function ConfigRows({ path, config, onConfig }: { path: string; config: Reposito
         configKey="symbols"
         label="Symbol dependencies"
         setting={config.symbols}
-        valueText={config.symbols.value}
-        fallbackText={symbolModeLabel(config.symbols.fallbackValue)}
+        fallback={describeFallback(config.symbols, symbolModeLabel(config.symbols.fallbackValue))}
         busy={writing === "symbols"}
         onReset={() => void write({ key: "symbols", value: null })}
         description={currentMode?.description ?? ""}
@@ -284,25 +287,23 @@ function ConfigRows({ path, config, onConfig }: { path: string; config: Reposito
         configKey="githubRepository"
         label="GitHub repository"
         setting={config.githubRepository}
-        valueText={config.githubRepository.value ?? ""}
-        fallbackText={config.githubRepository.fallbackValue ?? detected?.fullName ?? "none"}
+        fallback={describeFallback(config.githubRepository, config.githubRepository.fallbackValue ?? "", detectedGitHubRepositoryText(detected))}
         busy={writing === "githubRepository"}
         onReset={() => void write({ key: "githubRepository", value: null })}
-        description={
-          detected === null ? "Empty, none: origin is not on GitHub" : `Empty, ${detected.fullName} ${detected.source === "spaceMirror" ? "from the Space mirror" : "from origin"}`
-        }
+        description="Where pull requests are opened"
+        unsetSource={describeDetectedGitHubRepository(detected)}
         error={github.error}
         control={() => github.control}
       />
       <ConfigRow
         configKey="branchPrefix"
         label="Branch prefix"
-        setting={config.branchPrefix}
-        valueText={config.branchPrefix.value ?? ""}
-        fallbackText={config.branchPrefix.fallbackValue ?? (appPrefix === "" ? "none" : `${appPrefix}, of Branch Deck`)}
+        setting={branchPrefix}
+        fallback={describeFallback(branchPrefix, branchPrefix.fallbackValue ?? "", appPrefix === "" ? "no prefix" : `${appPrefix}, the prefix of General`)}
         busy={writing === "branchPrefix"}
         onReset={() => void write({ key: "branchPrefix", value: null })}
-        description="Names the branches here, over the prefix of General"
+        description="Used here instead of the prefix in General"
+        unsetSource={describeAppPrefixSource(config.branchPrefix, appPrefix)}
         error={prefix.error}
         control={() => prefix.control}
       />
@@ -312,17 +313,18 @@ function ConfigRows({ path, config, onConfig }: { path: string; config: Reposito
 
 /**
  * One setting: its label and control, "Use Default" or "Use Global" while the local config sets it, what it does with
- * its git key, where its value comes from (not for the default), why it can't be changed, what is wrong with it
+ * its git key, where its value comes from (for the default only where the row says it), why it can't be changed, what
+ * is wrong with it
  */
 function ConfigRow({
   configKey,
   label,
   setting,
-  valueText,
-  fallbackText,
+  fallback,
   busy,
   onReset,
   description,
+  unsetSource = null,
   reason = null,
   error = null,
   control,
@@ -330,13 +332,13 @@ function ConfigRow({
   configKey: RepositoryConfigKey
   label: string
   setting: ConfigSetting<unknown>
-  /** The effective value as git has it, for the source line */
-  valueText: string
-  /** The value once the local one is unset, for the tooltip of the reset */
-  fallbackText: string
+  /** What unsetting the local value gives (`describeFallback`), for the tooltip of the reset */
+  fallback: string
   busy: boolean
   onReset: () => void
   description: string
+  /** Where the value comes from while no config sets it: the detected GitHub repository, the prefix of General */
+  unsetSource?: string | null
   /** Why the control is disabled, besides the worktree config or the command line */
   reason?: string | null
   /** The typing the backend would refuse */
@@ -346,7 +348,7 @@ function ConfigRow({
   const labelId = useId()
   const overridden = overriddenReason(setting)
   // a value the page can't change says where it comes from in its reason
-  const source = overridden === null ? describeSource(setting, valueText) : null
+  const source = overridden === null ? (describeSource(setting) ?? unsetSource) : null
   const shownReason = overridden ?? reason
   return (
     <div className="flex flex-col gap-1" data-testid={`repository-setting-${configKey}`}>
@@ -359,7 +361,7 @@ function ConfigRow({
           {setting.localSet && (
             <Tooltip>
               <TooltipTrigger render={<Button variant="ghost" size="xs" disabled={overridden !== null || busy} onClick={onReset} />}>{resetLabel(setting)}</TooltipTrigger>
-              <TooltipContent>{`Removes it from .git/config: ${describeFallback(setting, fallbackText)}`}</TooltipContent>
+              <TooltipContent>{`Removes it from .git/config: back to ${fallback}`}</TooltipContent>
             </Tooltip>
           )}
         </div>

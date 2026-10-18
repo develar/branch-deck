@@ -121,8 +121,15 @@ fn the_scope_of_the_prefix_is_read_with_it() {
   assert_eq!(parse_scoped_prefix("local\0jane\0"), git_prefix("jane", true));
   assert_eq!(parse_scoped_prefix("worktree\0 jane \0"), git_prefix("jane", true));
   assert_eq!(parse_scoped_prefix("global\0jane\0"), git_prefix("jane", false));
-  assert_eq!(parse_scoped_prefix("command\0jane\0"), git_prefix("jane", false));
   assert_eq!(parse_scoped_prefix(""), GitBranchPrefix::default());
+}
+
+#[test]
+fn a_prefix_of_git_c_is_repository_scoped() {
+  // `git -c` and `GIT_CONFIG_*` win over every config file, so over the app's prefix too
+  let prefix = parse_scoped_prefix("command\0jane\0");
+  assert_eq!(prefix, git_prefix("jane", true));
+  assert_eq!(resolve_branch_prefix(&prefix, Some("app")), "jane");
 }
 
 #[test]

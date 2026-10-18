@@ -5,7 +5,7 @@
 use crate::branch_prefix::GitBranchPrefix;
 use crate::pull_requests::GitHubRepository;
 use crate::remote_url::split_owner_and_name;
-use crate::repository_config::{ConfigEntry, ConfigScope, RepositoryConfig, parse_config_entries, repository_config_from_entries};
+use crate::repository_config::{ConfigEntry, RepositoryConfig, parse_config_entries, repository_config_from_entries};
 use crate::stack::STACKS_CONFIG_KEY;
 use crate::symbol_scan::{SYMBOLS_CONFIG_KEY, SymbolMode};
 use anyhow::{Result, anyhow};
@@ -87,7 +87,7 @@ impl ConfigSnapshot {
       None => GitBranchPrefix::default(),
       Some(entry) => GitBranchPrefix {
         prefix: entry.value.as_deref().unwrap_or_default().trim().to_string(),
-        repository_scoped: matches!(entry.scope, ConfigScope::Local | ConfigScope::Worktree),
+        repository_scoped: entry.scope.is_repository_scoped(),
       },
     }
   }

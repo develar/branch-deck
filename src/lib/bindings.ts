@@ -1168,7 +1168,10 @@ export type GetUncommittedChangesParams = {
 export type GitBranchPrefix = {
 	/**  Trimmed, empty if no config sets it */
 	prefix: string,
-	/**  Set in the local or the worktree config of the repository: it wins over the app's prefix (`resolve_branch_prefix`) */
+	/**
+	 *  Set in the local or the worktree config of the repository, or by `git -c` / `GIT_CONFIG_*`: it wins over the app's
+	 *  prefix (`resolve_branch_prefix`, `ConfigScope::is_repository_scoped`)
+	 */
 	repositoryScoped: boolean,
 };
 

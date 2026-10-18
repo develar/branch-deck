@@ -6,7 +6,7 @@ import { BranchPrefixHelpDialog } from "@/components/repository/BranchPrefixHelp
 import { InlineCode } from "@/components/shared/InlineCode"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { commands } from "@/lib/bindings"
-import { isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
+import { INVALID_PREFIX_TEXT, isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
 import { openSettings } from "@/lib/settings-window"
 import { computeEffectiveBranchPrefix, repositoryOwnBranchPrefix } from "@/stores/repository"
 import type { BranchPrefixResult } from "@/stores/repository"
@@ -79,7 +79,7 @@ export function BranchPrefixSetting() {
         </Button>
       </div>
       {invalid ? (
-        <p className="text-xs text-destructive">A prefix cannot contain spaces, "..", or any of ~ ^ : ? * [ \</p>
+        <p className="text-xs text-destructive">{INVALID_PREFIX_TEXT}</p>
       ) : (
         showsNames && (
           <p className="text-xs text-muted-foreground">

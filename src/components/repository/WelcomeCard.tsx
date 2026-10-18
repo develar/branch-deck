@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { BranchPrefixHelpDialog } from "@/components/repository/BranchPrefixHelp"
 import { CommandLine } from "@/components/shared/CommandLine"
 import { InlineCode } from "@/components/shared/InlineCode"
-import { isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
+import { INVALID_PREFIX_TEXT, isValidBranchPrefix, normalizeBranchPrefix } from "@/lib/branch-prefix"
 import { useRepository } from "@/stores/repository"
 import { setGlobalUserBranchPrefix } from "@/stores/settings/appSettings"
 
@@ -110,7 +110,7 @@ function BranchPrefixForm() {
         </Button>
       </div>
       {invalid ? (
-        <p className="text-xs text-destructive">A prefix cannot contain spaces, "..", or any of ~ ^ : ? * [ \</p>
+        <p className="text-xs text-destructive">{INVALID_PREFIX_TEXT}</p>
       ) : (
         <p className="text-xs text-muted-foreground">
           {"Branches will be named "}

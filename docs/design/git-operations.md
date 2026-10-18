@@ -1662,7 +1662,7 @@ same keys, so the app keeps nothing of them in its own settings.
   text unsets. The answer is the settings read again, and the main window gets `repository_config_changed`
   (`{repositoryPath, key}`) to sync.
 - **Branch prefix**: the backend's order (`resolve_branch_prefix`, used by `bd`) puts the specific prefix first: the
-  repository's own (local or worktree scope), then the app's `globalUserBranchPrefix`, then the global or system one.
+  repository's own (local, worktree or command scope), then the app's `globalUserBranchPrefix`, then the global or system one.
   `get_branch_prefix_from_git_config_sync` reads the value with its scope in one `git config -z --show-scope --get`.
 
 No other git config is written by the app, except the branch descriptions of `bd describe`.

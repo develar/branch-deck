@@ -41,6 +41,7 @@ targets:
   - ../../crates/sync-core/src/config_snapshot.rs
   - ../../src-tauri/src/commands/repository_config.rs
   - ../../src/lib/repository-config.ts
+  - ../../src/lib/branch-prefix.ts
   - ../../src/hooks/useRepositoryConfig.ts
   - ../../src/hooks/useRepositoryConfigChanges.ts
   - ../../src/hooks/useStackIndependence.ts
@@ -210,35 +211,50 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 - The page shows the `branchdeck.*` git config of the selected repository (`get_repository_config`, one
   `git config --show-scope --get-regexp`, [Git Operations](../../docs/design/git-operations.md#repository-settings)),
   read when the page shows, when the window gets the focus (a `git config` or `bd` meanwhile) and on a switch of the
-  repository, under the line "Saved in `.git/config` of <repository>, read by bd too". Without a repository it says
+  repository, under the line "Saved in `.git/config` of <repository>, which bd reads too". Without a repository it says
   "Select a repository to see its settings"; a failed read is a `destructive` callout "Cannot read the settings of
   <repository>" with the reason and Retry.
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should say what to do without a repository`, `should write nothing when the repository is switched while a field holds typing`, `should save Report Only, its source this repository, which the main window syncs, and read it again when the window gets the focus`)
-- Four rows, each with its git key (muted `InlineCode`) after what it does: Stacked branches (a switch,
-  `branchdeck.stacks`, [Stacked Branches](../branch/stacked-branches.spec.md)), Symbol dependencies (Off · Report Only ·
-  On, `aria-pressed` buttons, the sentence of the mode chosen; `branchdeck.symbols`,
-  [Symbol Dependencies](../commit/symbol-dependencies.spec.md)), GitHub repository (`owner/name`, the detected one as
-  the placeholder with where it comes from, "from origin" or "from the Space mirror"; `branchdeck.githubRepository`,
-  [Pull Requests](../branch/pull-requests.spec.md)) and Branch prefix (`branchdeck.branchPrefix`, which wins over the
-  app's prefix, [Branch prefix order](#branch-prefix-order)).
+- Four rows, each with its git key (muted `InlineCode`) after what it does, one line each: Stacked branches (a switch,
+  "(auth/login) in a commit builds login on top of auth", `branchdeck.stacks`,
+  [Stacked Branches](../branch/stacked-branches.spec.md)), Symbol dependencies (Off · Report Only · On, `aria-pressed`
+  buttons, the sentence of the mode chosen: "Commits depend only on the lines they change", "Shown by bd commits,
+  never used for the branches", "Commits also depend on the commits that add the
+  symbols they use"; `branchdeck.symbols`, [Symbol Dependencies](../commit/symbol-dependencies.spec.md)), GitHub
+  repository (`owner/name`, "Where pull requests are opened", the detected one as the placeholder;
+  `branchdeck.githubRepository`, [Pull Requests](../branch/pull-requests.spec.md)) and Branch prefix ("Used here
+  instead of the prefix in General", `branchdeck.branchPrefix`, [Branch prefix order](#branch-prefix-order)).
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
-- A row names where its value comes from only when it is not the default: "This repository" for `.git/config`, "From
-  your global Git config: true" and the like for the others (`describeSource`). While `.git/config` sets the key, "Use
-  Default" (or "Use Global", when a global or system value applies then) unsets it there, its tooltip the result ("Off,
-  the default"; `fallbackValue`, `fallbackScope` of the read). A value of the worktree config or the command line wins
-  over `.git/config`: its control is disabled with that reason ("From the config of this worktree (config.worktree),
-  which wins over .git/config: change it there"), as the backend refuses the write. An invalid value says why; a
+- A row names where its value comes from only when it is not the default, without the value its control shows: "Set
+  in this repository" for `.git/config`, "Set in your global Git config", "Set in the system Git config"
+  (`describeSource`). Two rows also name the source of their default: the GitHub repository the remote it was detected
+  from ("Detected from origin", "Detected from the Space mirror", "None detected: neither origin nor its Space mirror
+  is on GitHub"), the branch prefix the prefix of General below. While `.git/config` sets the key, "Use Default" (or
+  "Use Global", when a global or system value applies then) unsets it there, its tooltip the result ("Removes it from
+  .git/config: back to Off, the default", "… back to On, set in your global Git config", "… back to acme/app, detected
+  from origin", "… back to no GitHub repository"; `fallbackValue`, `fallbackScope` of the read). A value of the
+  worktree config or of `git -c` and `GIT_CONFIG_*` wins over `.git/config`: its control is disabled with that reason
+  ("Set in config.worktree, which overrides .git/config: change it there", "Set by git -c or GIT_CONFIG_*, which
+  overrides .git/config"), as the backend refuses the write. An invalid value says why; a
   boolean is invalid exactly when `git config --type=bool` refuses it (` true `, `08`, `1kb`), and `0x10`, `1k` or
   `-1` are true as git reads them.
-  [@test] ../../src/lib/repository-config.test.ts (`names the source only when it is not the default`, `offers the global value, else the default, once the local one is unset`, `can't change a key the worktree config or the command line sets`)
+  [@test] ../../src/lib/repository-config.test.ts (`names the source only when it is not the default`, `says where the GitHub repository comes from while no config sets it`, `offers the global value, else the default, once the local one is unset`, `can't change a key the worktree config or the command line sets`)
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_fallback_is_the_last_global_or_system_value_parsed`, `a_value_of_the_worktree_config_refuses_the_write`)
   [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`a_boolean_is_what_git_makes_of_it`)
-  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn stacked branches off and on, and back to the default, the main window syncing each change`)
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn stacked branches off and on, and back to the default, the main window syncing each change`, `should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`)
+- The branch prefix row follows the [Branch prefix order](#branch-prefix-order): with a prefix in General, a global or
+  system `branchdeck.branchPrefix` is not the row's value (the field stays empty, General's prefix its placeholder),
+  the row says "Set in General" ("Set in General, which overrides your global Git config" when a global or system one
+  gives way), and "Use Default" gives General's prefix back ("Removes it from .git/config: back to jane, the prefix of
+  General"; `withAppPrefix`, `describeAppPrefixSource`).
+  [@test] ../../src/lib/repository-config.test.ts (`takes the prefix of General over a global git one, as the branches are named`)
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should give the prefix back to General once the repository's own is unset, and say so`)
 - A write goes to `.git/config` only (`set_repository_config`) and answers the settings read again; a switch or a
   button writes at once, a field on Enter and when it is left, never on a key, and Escape takes the typing back before
   it closes the window. The typing is checked before a write as the backend checks it (`isValidGitHubRepository`,
-  `isValidBranchPrefix`), refused in place in the words of the failure ("Cannot change the GitHub repository of app:
-  acme/app/x is not a GitHub repository: use owner/name"). A field writes to the repository the typing began in: a
+  `isValidBranchPrefix`), refused in place by what is wrong, without "Cannot …", since nothing was written: "acme/app/x
+  is not a GitHub repository: use owner/name", and for a prefix the words of General ("A prefix cannot contain spaces,
+  "..", "@{" or any of ~ ^ : ? * [ \", `INVALID_PREFIX_TEXT`). A field writes to the repository the typing began in: a
   switch of the repository drops the typing (one page per repository, `key={path}`) and writes nothing. A window closed
   with valid typing (⌘W, the close button) saves it first (`onCloseRequested`).
   [@test] ../../src/lib/repository-config.test.ts (`takes owner/name without whitespace, as the backend does`)
@@ -256,8 +272,9 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn stacked branches off and on, and back to the default, the main window syncing each change`, `should save Report Only, its source this repository, which the main window syncs, and read it again when the window gets the focus`, `should refuse a GitHub repository that is not owner/name in place, and save one that is, which the main window asks GitHub about`, `should name the branches by the repository's own prefix over the app's, in the main window too`)
 - Stacked branches are not offered off while a sync would fail then: with them on, the read groups the commits as with
   them off (`stacks_off_clashes`, baseline detection, one `cat-file`, one `log`) and names the flat branches git cannot
-  keep beside another one (`auth/login` beside `auth`). The switch is disabled with what to do: "login and 1 more are
-  stacked by their prefixes: turned off, auth/login is a flat branch git cannot keep beside auth. Unstack them first".
+  keep beside another one (`auth/login` beside `auth`). The switch is disabled with what to do: "Turning this off
+  renames login and 1 more to names like auth/login, which git cannot keep next to auth. Unstack them first" (one:
+  "Turning this off makes login the branch auth/login, which git cannot keep next to auth. Unstack login first").
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`with_stacks_on_the_read_names_the_flat_branches_that_would_clash`, `with_stacks_off_the_read_groups_nothing`)
   [@test] ../../src/lib/repository-config.test.ts (`says why stacked branches can't be turned off, and what to do`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should not offer to turn stacked branches off while their flat names would clash, and say what to do`)
@@ -266,11 +283,11 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 
 - The branches of a repository are named by the specific prefix first, in the app as in `bd`
   (`resolve_branch_prefix` in `crates/sync-core/src/branch_prefix.rs`, `computeEffectiveBranchPrefix` in
-  `src/stores/repository.ts`): the repository's own `branchdeck.branchPrefix` (its local or worktree git config),
+  `src/stores/repository.ts`): the repository's own `branchdeck.branchPrefix` (its local or worktree git config, or `git -c` and `GIT_CONFIG_*`),
   else the app's prefix (General, `globalUserBranchPrefix`), else the one of the global or system git config. The
   prefix of git is read with its scope (`get_branch_prefix_from_git_config`: `GitBranchPrefix { prefix,
   repositoryScoped }`, one `git config --show-scope`).
-  [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`the_specific_prefix_wins`, `a_local_prefix_is_repository_scoped`, `the_scope_of_the_prefix_is_read_with_it`)
+  [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`the_specific_prefix_wins`, `a_local_prefix_is_repository_scoped`, `the_scope_of_the_prefix_is_read_with_it`, `a_prefix_of_git_c_is_repository_scoped`)
   [@test] ../../src/stores/repository.test.ts (`takes the repository's own git prefix, then the app's, then the global git prefix`, `names the branches as the backend does: no trailing slash`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`names the branches by the repository's own prefix over the app's, and says so in Settings`, `names the branches by the app's prefix where the repository has none`)
 - The main window caches the prefix of git per repository with its scope (`cachedBranchPrefix` of `recentProjects`:

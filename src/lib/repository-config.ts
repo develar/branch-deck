@@ -1,4 +1,4 @@
-import type { ConfigScope, ConfigSetting, FlatNameClash, RepositoryConfigChange, SymbolMode } from "@/lib/bindings"
+import type { ConfigScope, ConfigSetting, DetectedGitHubRepository, FlatNameClash, RepositoryConfigChange, SymbolMode } from "@/lib/bindings"
 
 /*
  * Settings → Repository (spec/repository/settings.spec.md#repository): the `branchdeck.*` git config of the selected
@@ -38,47 +38,44 @@ export function invalidGitHubRepositoryReason(value: string): string {
   return `${value} is not a GitHub repository: use owner/name`
 }
 
-/** Why the backend refuses the text as a branch prefix, in its words (`validate_branch_prefix`) */
-export function invalidBranchPrefixReason(value: string): string {
-  return `${value} is not a valid branch prefix: no spaces, none of ~^:?*[\\, no .. and no @{`
-}
-
 /** The modes of `branchdeck.symbols`, each with what it does (spec/commit/symbol-dependencies.spec.md) */
 export const SYMBOL_MODES: ReadonlyArray<{ mode: SymbolMode; label: string; description: string }> = [
-  { mode: "off", label: "Off", description: "Not read: only the changed lines link commits" },
-  { mode: "report", label: "Report Only", description: "Reported by bd commits and the checks; they decide nothing" },
-  { mode: "on", label: "On", description: "The symbols also order and stack the branches" },
+  { mode: "off", label: "Off", description: "Commits depend only on the lines they change" },
+  { mode: "report", label: "Report Only", description: "Shown by bd commits, never used for the branches" },
+  { mode: "on", label: "On", description: "Commits also depend on the commits that add the symbols they use" },
 ]
 
 export function symbolModeLabel(mode: SymbolMode): string {
   return SYMBOL_MODES.find(it => it.mode === mode)?.label ?? mode
 }
 
-/** Where the effective value comes from, as the row says it before the value */
-function scopeText(scope: ConfigScope): string {
+/** The config a value comes from, as a sentence names it */
+function scopeName(scope: ConfigScope): string {
   switch (scope) {
     case "system":
-      return "From the system Git config"
+      return "the system Git config"
     case "global":
-      return "From your global Git config"
+      return "your global Git config"
     case "local":
-      return "This repository"
+      return "this repository"
     case "worktree":
-      return "From the config of this worktree"
+      return "config.worktree"
     case "command":
-      return "From the command line"
+      return "git -c or GIT_CONFIG_*"
   }
 }
 
+/** "Set in your global Git config", "Set by git -c or GIT_CONFIG_*" */
+function scopeText(scope: ConfigScope): string {
+  return `${scope === "command" ? "Set by" : "Set in"} ${scopeName(scope)}`
+}
+
 /**
- * The source of the value, only when it is not the default: "From your global Git config: true"; the local config is
- * "This repository" (the control shows its value). Null for the default
+ * Where the value comes from, only when it is not the default: "Set in this repository", "Set in your global Git
+ * config"; not the value, which the control shows. Null for the default
  */
-export function describeSource(setting: ConfigSetting<unknown>, valueText: string): string | null {
-  if (setting.scope === null) {
-    return null
-  }
-  return setting.scope === "local" ? scopeText("local") : `${scopeText(setting.scope)}: ${valueText}`
+export function describeSource(setting: ConfigSetting<unknown>): string | null {
+  return setting.scope === null ? null : scopeText(setting.scope)
 }
 
 /**
@@ -88,9 +85,9 @@ export function describeSource(setting: ConfigSetting<unknown>, valueText: strin
 export function overriddenReason(setting: ConfigSetting<unknown>): string | null {
   switch (setting.scope) {
     case "worktree":
-      return "From the config of this worktree (config.worktree), which wins over .git/config: change it there"
+      return `${scopeText("worktree")}, which overrides .git/config: change it there`
     case "command":
-      return "From the command line (git -c or GIT_CONFIG_*), which wins over .git/config"
+      return `${scopeText("command")}, which overrides .git/config`
     default:
       return null
   }
@@ -101,13 +98,69 @@ export function resetLabel(setting: ConfigSetting<unknown>): string {
   return setting.fallbackScope === null ? "Use Default" : "Use Global"
 }
 
-/** What unsetting the local value gives, for the tooltip of its button: "Off, the default" or "On, from your global Git config" */
-export function describeFallback(setting: ConfigSetting<unknown>, valueText: string): string {
+/**
+ * What unsetting the local value gives, for the tooltip of its button after "back to": "On, set in your global Git
+ * config", else the default ("Off, the default", or the words of the row: "acme/app, detected from origin")
+ */
+export function describeFallback(setting: ConfigSetting<unknown>, valueText: string, defaultText = `${valueText}, the default`): string {
   if (setting.fallbackScope === null) {
-    return `${valueText}, the default`
+    return defaultText
   }
   const source = scopeText(setting.fallbackScope)
   return `${valueText}, ${source.charAt(0).toLowerCase()}${source.slice(1)}`
+}
+
+/** Where the GitHub repository comes from while no config sets it: the remote it was detected from, or why there is none */
+export function describeDetectedGitHubRepository(detected: DetectedGitHubRepository | null): string {
+  if (detected === null) {
+    return "None detected: neither origin nor its Space mirror is on GitHub"
+  }
+  return detected.source === "spaceMirror" ? "Detected from the Space mirror" : "Detected from origin"
+}
+
+/** The tooltip text of the GitHub repository's default: the detected one, or none */
+export function detectedGitHubRepositoryText(detected: DetectedGitHubRepository | null): string {
+  if (detected === null) {
+    return "no GitHub repository"
+  }
+  return `${detected.fullName}, detected from ${detected.source === "spaceMirror" ? "the Space mirror" : "origin"}`
+}
+
+/**
+ * The branch prefix row as the prefix order has it (spec/repository/settings.spec.md#branch-prefix-order): the prefix
+ * of General wins over a global or system `branchdeck.branchPrefix`, so such a value is not shown as the effective one,
+ * and General's prefix is what unsetting the repository's own gives. Unchanged without a prefix in General
+ */
+export function withAppPrefix(setting: ConfigSetting<string | null>, appPrefix: string): ConfigSetting<string | null> {
+  if (appPrefix === "") {
+    return setting
+  }
+  const hidden = setting.scope === "global" || setting.scope === "system"
+  return {
+    ...setting,
+    ...(hidden && { value: null, scope: null, invalid: null }),
+    fallbackValue: appPrefix,
+    fallbackScope: null,
+  }
+}
+
+/**
+ * Where the branch prefix comes from while the repository has none of its own and General has one: "Set in General",
+ * "Set in General, which overrides your global Git config" when a global or system prefix gives way. Null otherwise
+ */
+export function describeAppPrefixSource(setting: ConfigSetting<string | null>, appPrefix: string): string | null {
+  if (appPrefix === "") {
+    return null
+  }
+  switch (setting.scope) {
+    case null:
+      return "Set in General"
+    case "global":
+    case "system":
+      return `Set in General, which overrides ${scopeName(setting.scope)}`
+    default:
+      return null
+  }
 }
 
 /**
@@ -120,8 +173,10 @@ export function stacksOffReason(clashes: readonly FlatNameClash[]): string | nul
     return null
   }
   const leaf = first.branch.split("/").at(-1) ?? first.branch
-  const subject = clashes.length === 1 ? `${leaf} is stacked by its prefix` : `${leaf} and ${clashes.length - 1} more are stacked by their prefixes`
-  return `${subject}: turned off, ${first.branch} is a flat branch git cannot keep beside ${first.beside}. Unstack ${clashes.length === 1 ? leaf : "them"} first`
+  if (clashes.length === 1) {
+    return `Turning this off makes ${leaf} the branch ${first.branch}, which git cannot keep next to ${first.beside}. Unstack ${leaf} first`
+  }
+  return `Turning this off renames ${leaf} and ${clashes.length - 1} more to names like ${first.branch}, which git cannot keep next to ${first.beside}. Unstack them first`
 }
 
 /** The title of a failed write, in the words of the change (ux-writing: "Cannot <verb> <object>") */

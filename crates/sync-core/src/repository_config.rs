@@ -53,6 +53,12 @@ impl ConfigScope {
   pub const fn overrides_local(self) -> bool {
     matches!(self, Self::Worktree | Self::Command)
   }
+
+  /// A value of the repository itself: `.git/config`, the worktree config, or `git -c` and `GIT_CONFIG_*` of the process
+  /// that runs git, which win over every config file; such a branch prefix wins over the app's
+  pub const fn is_repository_scoped(self) -> bool {
+    matches!(self, Self::Local | Self::Worktree | Self::Command)
+  }
 }
 
 /// One line of `git config -z --show-scope --get-regexp`
@@ -211,7 +217,8 @@ fn validate_github_repository(value: &str) -> Result<&str, String> {
 
 fn validate_branch_prefix(value: &str) -> Result<&str, String> {
   if !is_valid_branch_prefix(value) {
-    return Err(format!(r"{value} is not a valid branch prefix: no spaces, none of ~^:?*[\, no .. and no @{{"));
+    // the words of the fields (`INVALID_PREFIX_TEXT` in src/lib/branch-prefix.ts), which show the value
+    return Err(r#"A prefix cannot contain spaces, "..", "@{" or any of ~ ^ : ? * [ \"#.to_string());
   }
   Ok(value)
 }
@@ -451,10 +458,10 @@ pub fn write_repository_config(git: &GitCommandExecutor, repository_path: &str, 
     && effective.scope.overrides_local()
   {
     let place = match effective.scope {
-      ConfigScope::Worktree => "the config of this worktree (config.worktree)",
-      _ => "the command line (git -c or GIT_CONFIG_*)",
+      ConfigScope::Worktree => "in config.worktree, which overrides .git/config: change it there",
+      _ => "by git -c or GIT_CONFIG_*, which overrides .git/config",
     };
-    bail!("{config_key} is set in {place}, which wins over .git/config: change it there");
+    bail!("{config_key} is set {place}");
   }
 
   let (output, exit_code) = match &value {

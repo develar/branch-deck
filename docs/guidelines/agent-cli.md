@@ -34,7 +34,7 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
 - `-C <repo>` sets the repository. It defaults to the current directory, and any subdirectory resolves to the
   top level of the working tree.
 - `--prefix <p>` sets the branch prefix. Without it the specific prefix wins: `branchdeck.branchPrefix` of the
-  repository's local or worktree config (`git config branchdeck.branchPrefix <p>` in the repository), else the app
+  repository's local or worktree config (`git config branchdeck.branchPrefix <p>` in the repository) or `git -c`, else the app
   setting `globalUserBranchPrefix`, read from `settings.json` in the app data directory
   (`~/Library/Application Support/org.develar.branch-deck/` on macOS, `%APPDATA%\org.develar.branch-deck\` on
   Windows), else the global or system `branchdeck.branchPrefix` (`resolve_branch_prefix`). An empty prefix is the error

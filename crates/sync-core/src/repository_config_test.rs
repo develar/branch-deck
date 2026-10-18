@@ -301,7 +301,7 @@ fn a_value_of_the_worktree_config_refuses_the_write() {
   let error = set_repository_config(git, path, &RepositoryConfigChange::Stacks(Some(false))).unwrap_err();
   assert_eq!(
     error.to_string(),
-    "branchdeck.stacks is set in the config of this worktree (config.worktree), which wins over .git/config: change it there"
+    "branchdeck.stacks is set in config.worktree, which overrides .git/config: change it there"
   );
   assert_eq!(local_entries(&test_repo).iter().filter(|entry| entry.key == "branchdeck.stacks").count(), 0);
 }

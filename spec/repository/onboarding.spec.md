@@ -103,7 +103,7 @@ alert with the reason and the next step, never a raw Git error.
   A sync reads the prefix when it starts: a change during one names the branches of the next.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`, `pre-fills the prefix from the git identity and saves it only on Save`)
 - The specific prefix wins, in the app as in `bd` ([Settings](settings.spec.md#branch-prefix-order)): a repository
-  whose own git config (local or worktree) sets `branchdeck.branchPrefix` names its branches by it, whatever the field
+  whose own git config (local or worktree, or `git -c`) sets `branchdeck.branchPrefix` names its branches by it, whatever the field
   says; the field says so ("This repository uses its own prefix `user-name`", with "Open Repository Settings") and
   names the branches the typed prefix gives elsewhere. Without one, the app's prefix applies, then the global git prefix.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`names the branches by the repository's own prefix over the app's, and says so in Settings`, `names the branches by the app's prefix where the repository has none`)

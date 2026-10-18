@@ -70,11 +70,11 @@ test.describe("Settings → Repository", () => {
     await expectDocsStacked(page, true)
 
     const window = await openRepositorySettings(page)
-    await expect(window.getByTestId("repository-settings")).toContainText(`Saved in .git/config of ${nameOf(repo.path)}, read by bd too`)
+    await expect(window.getByTestId("repository-settings")).toContainText(`Saved in .git/config of ${nameOf(repo.path)}, which bd reads too`)
     const stacks = row(window, "stacks")
     const toggle = stacks.getByRole("switch", { name: "Stacked branches" })
     await expect(toggle).toBeChecked()
-    await expect(stacks.getByTestId("repository-setting-source")).toHaveText("This repository")
+    await expect(stacks.getByTestId("repository-setting-source")).toHaveText("Set in this repository")
 
     // off: the main window syncs, docs is a branch of its own
     let syncs = await finishedSyncCount(page)
@@ -93,7 +93,7 @@ test.describe("Settings → Repository", () => {
     // Use Default removes the line of .git/config: off, the default, and no source to name
     const reset = stacks.getByRole("button", { name: "Use Default" })
     await reset.hover()
-    await expect(window.getByRole("tooltip")).toHaveText("Removes it from .git/config: Off, the default")
+    await expect(window.getByRole("tooltip")).toHaveText("Removes it from .git/config: back to Off, the default")
     syncs = await finishedSyncCount(page)
     await reset.click()
     await expect(toggle).not.toBeChecked()
@@ -110,7 +110,7 @@ test.describe("Settings → Repository", () => {
     await expect(stacks.getByRole("switch", { name: "Stacked branches" })).toBeChecked()
     await expect(stacks.getByRole("switch", { name: "Stacked branches" })).toBeDisabled()
     await expect(stacks.getByTestId("repository-setting-reason")).toHaveText(
-      "login and 1 more are stacked by their prefixes: turned off, auth/login is a flat branch git cannot keep beside auth. Unstack them first",
+      "Turning this off renames login and 1 more to names like auth/login, which git cannot keep next to auth. Unstack them first",
     )
   })
 
@@ -133,8 +133,8 @@ test.describe("Settings → Repository", () => {
     // the mode decides how the branches stack: the main window syncs
     await waitForSyncComplete(page, syncs)
     await expect(symbols.getByRole("button", { name: "On", exact: true })).toHaveAttribute("aria-pressed", "false")
-    await expect(symbols.getByTestId("repository-setting-source")).toHaveText("This repository")
-    await expect(symbols).toContainText("Reported by bd commits and the checks; they decide nothing")
+    await expect(symbols.getByTestId("repository-setting-source")).toHaveText("Set in this repository")
+    await expect(symbols).toContainText("Shown by bd commits, never used for the branches")
 
     // read from git again: the write is in .git/config
     const read = window.waitForResponse(response => response.url().endsWith("/invoke/get_repository_config"))
@@ -149,19 +149,19 @@ test.describe("Settings → Repository", () => {
     const writes = recordWrites(window)
     const github = row(window, "githubRepository")
     const field = github.getByRole("textbox", { name: "GitHub repository" })
+    // unset: the row says why no repository was detected
+    await expect(github.getByTestId("repository-setting-source")).toHaveText("None detected: neither origin nor its Space mirror is on GitHub")
 
     await field.fill("acme/app/x")
     await expect(field).toHaveAttribute("aria-invalid", "true")
     await field.press("Enter")
-    await expect(github.getByTestId("repository-setting-error")).toHaveText(
-      `Cannot change the GitHub repository of ${nameOf(repo.path)}: acme/app/x is not a GitHub repository: use owner/name`,
-    )
+    await expect(github.getByTestId("repository-setting-error")).toHaveText("acme/app/x is not a GitHub repository: use owner/name")
 
     const pullRequestCalls = await repo.getPullRequestCalls()
     await field.fill("acme/app")
     await expect(github.getByTestId("repository-setting-error")).toHaveCount(0)
     await field.press("Enter")
-    await expect(github.getByTestId("repository-setting-source")).toHaveText("This repository")
+    await expect(github.getByTestId("repository-setting-source")).toHaveText("Set in this repository")
     // one write: the refused text never reached the backend
     expect(writes).toEqual([{ repositoryPath: repo.path, change: { key: "githubRepository", value: "acme/app" } }])
     await expect(field).toHaveValue("acme/app")
@@ -206,6 +206,32 @@ test.describe("Settings → Repository", () => {
     await expect(general).toContainText("This repository uses its own prefix team")
     await general.getByRole("button", { name: "Open Repository Settings" }).click()
     await expectSettingsOpened(page, { page: "repository", focus: "branchPrefix" }, 2)
+  })
+
+  test("should give the prefix back to General once the repository's own is unset, and say so", async ({ page, setupRepo }) => {
+    // the template sets branchdeck.branchPrefix user-name in .git/config
+    await setupRepo("simple", { prepopulateStore: true })
+    const window = await openSettingsWindow(page, { page: "general" })
+    const general = window.getByRole("textbox", { name: "Branch prefix", exact: true })
+    await general.fill("jane")
+    await general.press("Enter")
+    await expect(window.getByTestId("setting-branch-prefix-repository")).toContainText("This repository uses its own prefix user-name")
+
+    await settingsTab(window, "Repository").click()
+    const prefix = row(window, "branchPrefix")
+    const field = prefix.getByRole("textbox", { name: "Branch prefix" })
+    await expect(field).toHaveValue("user-name")
+    await expect(prefix.getByTestId("repository-setting-source")).toHaveText("Set in this repository")
+    const reset = prefix.getByRole("button", { name: "Use Default" })
+    await reset.hover()
+    await expect(window.getByRole("tooltip")).toHaveText("Removes it from .git/config: back to jane, the prefix of General")
+    await reset.click()
+    await expect(reset).toHaveCount(0)
+    await expect(field).toHaveValue("")
+    await expect(field).toHaveAttribute("placeholder", "jane")
+    await expect(prefix.getByTestId("repository-setting-source")).toHaveText("Set in General")
+    // the main window names the branches by General's prefix now
+    await expect(page.getByTestId("ready-to-sync-card")).toContainText("jane/virtual/<name>")
   })
 
   test("should write nothing when the repository is switched while a field holds typing", async ({ page, setupRepo, testStore }) => {

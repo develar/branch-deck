@@ -24,7 +24,7 @@ const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
     value: "jane doe",
     scope: "local",
     localSet: true,
-    invalid: "jane doe is not a valid branch prefix: no spaces, none of ~^:?*[\\, no .. and no @{",
+    invalid: 'A prefix cannot contain spaces, "..", "@{" or any of ~ ^ : ? * [ \\',
     fallbackValue: null,
     fallbackScope: null,
   },

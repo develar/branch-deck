@@ -1,7 +1,20 @@
 // @spec spec/repository/settings.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { ConfigSetting } from "@/lib/bindings"
-import { describeFallback, describeSource, isValidGitHubRepository, overriddenReason, repositoryName, resetLabel, stacksOffReason, writeErrorTitle } from "@/lib/repository-config"
+import {
+  describeAppPrefixSource,
+  describeDetectedGitHubRepository,
+  describeFallback,
+  describeSource,
+  detectedGitHubRepositoryText,
+  isValidGitHubRepository,
+  overriddenReason,
+  repositoryName,
+  resetLabel,
+  stacksOffReason,
+  withAppPrefix,
+  writeErrorTitle,
+} from "@/lib/repository-config"
 
 const setting = (overrides: Partial<ConfigSetting<boolean>>): ConfigSetting<boolean> => ({
   value: false,
@@ -27,9 +40,18 @@ describe("isValidGitHubRepository", () => {
 
 describe("the rows of Settings → Repository", () => {
   it("names the source only when it is not the default", () => {
-    expect(describeSource(setting({}), "false")).toBeNull()
-    expect(describeSource(setting({ scope: "global", value: true }), "true")).toBe("From your global Git config: true")
-    expect(describeSource(setting({ scope: "local", localSet: true }), "report")).toBe("This repository")
+    expect(describeSource(setting({}))).toBeNull()
+    expect(describeSource(setting({ scope: "global", value: true }))).toBe("Set in your global Git config")
+    expect(describeSource(setting({ scope: "system", value: true }))).toBe("Set in the system Git config")
+    expect(describeSource(setting({ scope: "local", localSet: true }))).toBe("Set in this repository")
+  })
+
+  it("says where the GitHub repository comes from while no config sets it", () => {
+    expect(describeDetectedGitHubRepository({ fullName: "acme/app", source: "origin" })).toBe("Detected from origin")
+    expect(describeDetectedGitHubRepository({ fullName: "acme/app", source: "spaceMirror" })).toBe("Detected from the Space mirror")
+    expect(describeDetectedGitHubRepository(null)).toBe("None detected: neither origin nor its Space mirror is on GitHub")
+    expect(detectedGitHubRepositoryText({ fullName: "acme/app", source: "spaceMirror" })).toBe("acme/app, detected from the Space mirror")
+    expect(detectedGitHubRepositoryText(null)).toBe("no GitHub repository")
   })
 
   it("offers the global value, else the default, once the local one is unset", () => {
@@ -37,26 +59,54 @@ describe("the rows of Settings → Repository", () => {
     expect(describeFallback(setting({ localSet: true }), "Off")).toBe("Off, the default")
     const global = setting({ localSet: true, fallbackValue: true, fallbackScope: "global" })
     expect(resetLabel(global)).toBe("Use Global")
-    expect(describeFallback(global, "On")).toBe("On, from your global Git config")
+    expect(describeFallback(global, "On")).toBe("On, set in your global Git config")
+    expect(describeFallback(setting({ localSet: true }), "", "no GitHub repository")).toBe("no GitHub repository")
+  })
+
+  it("takes the prefix of General over a global git one, as the branches are named", () => {
+    const prefix = (overrides: Partial<ConfigSetting<string | null>>): ConfigSetting<string | null> => ({
+      value: null,
+      scope: null,
+      localSet: false,
+      invalid: null,
+      fallbackValue: null,
+      fallbackScope: null,
+      ...overrides,
+    })
+    const global = prefix({ value: "g", scope: "global", invalid: "g is not valid", fallbackValue: "g", fallbackScope: "global" })
+    expect(withAppPrefix(global, "")).toBe(global)
+    const shown = withAppPrefix(global, "jane")
+    expect(shown).toEqual(prefix({ fallbackValue: "jane" }))
+    expect(describeSource(shown)).toBeNull()
+    expect(describeAppPrefixSource(global, "jane")).toBe("Set in General, which overrides your global Git config")
+    expect(describeAppPrefixSource(prefix({}), "jane")).toBe("Set in General")
+    expect(describeAppPrefixSource(prefix({}), "")).toBeNull()
+
+    // the repository's own prefix stays; unsetting it gives General's
+    const local = withAppPrefix(prefix({ value: "team", scope: "local", localSet: true, fallbackValue: "g", fallbackScope: "global" }), "jane")
+    expect(local).toMatchObject({ value: "team", scope: "local", fallbackValue: "jane", fallbackScope: null })
+    expect(resetLabel(local)).toBe("Use Default")
+    expect(describeFallback(local, "jane", "jane, the prefix of General")).toBe("jane, the prefix of General")
+    expect(describeAppPrefixSource(local, "jane")).toBeNull()
   })
 
   it("can't change a key the worktree config or the command line sets", () => {
     expect(overriddenReason(setting({ scope: "local" }))).toBeNull()
-    expect(overriddenReason(setting({ scope: "worktree" }))).toBe("From the config of this worktree (config.worktree), which wins over .git/config: change it there")
-    expect(overriddenReason(setting({ scope: "command" }))).toBe("From the command line (git -c or GIT_CONFIG_*), which wins over .git/config")
+    expect(overriddenReason(setting({ scope: "worktree" }))).toBe("Set in config.worktree, which overrides .git/config: change it there")
+    expect(overriddenReason(setting({ scope: "command" }))).toBe("Set by git -c or GIT_CONFIG_*, which overrides .git/config")
   })
 
   it("says why stacked branches can't be turned off, and what to do", () => {
     expect(stacksOffReason([])).toBeNull()
     expect(stacksOffReason([{ branch: "auth/login", beside: "auth" }])).toBe(
-      "login is stacked by its prefix: turned off, auth/login is a flat branch git cannot keep beside auth. Unstack login first",
+      "Turning this off makes login the branch auth/login, which git cannot keep next to auth. Unstack login first",
     )
     expect(
       stacksOffReason([
         { branch: "auth/login", beside: "auth" },
         { branch: "auth/session", beside: "auth" },
       ]),
-    ).toBe("login and 1 more are stacked by their prefixes: turned off, auth/login is a flat branch git cannot keep beside auth. Unstack them first")
+    ).toBe("Turning this off renames login and 1 more to names like auth/login, which git cannot keep next to auth. Unstack them first")
   })
 
   it("titles a failed write by what it changes", () => {

@@ -94,7 +94,7 @@ function gitBranchPrefixOf(cachedBranchPrefix: GitBranchPrefix | undefined, gitP
   return gitProvidedBranchPrefix.status === "ok" ? gitProvidedBranchPrefix.data : cachedBranchPrefix
 }
 
-/** The repository's own prefix (its local or worktree git config), which wins over the app's; empty without one */
+/** The repository's own prefix (its local or worktree git config, or `git -c`), which wins over the app's; empty without one */
 export function repositoryOwnBranchPrefix(gitPrefix: GitBranchPrefix | undefined): string {
   return gitPrefix?.repositoryScoped === true ? normalizeBranchPrefix(gitPrefix.prefix) : ""
 }
