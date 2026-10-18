@@ -151,6 +151,18 @@ branches under the prefix in one listing, as a sync reads them.
   - `problems` (`{message, commits}`): conflicting parents, a cycle, a self parent, a case collision, an empty level.
 
   The output has `forest`: the branches with commits, each after its parent.
+- With stacked branches on, `stacks` lists the stack branch of each stack that forks: one more virtual branch,
+  `{prefix}/stack/<root>` (`branch`), of all the stack's commits in the order of the history (see `bd sync`), as the
+  last sync left it; left out without one, and with `--branch` or `--unassigned`. Its `state` comes without a sync and
+  without a git process: `blocked` (with `member` and `reason`) when a member has a stack problem or is blocked, else
+  `built` when the object cache remembers the build of the current commits and the ref is at it, `conflict` when it
+  remembers their build conflicting, else `stale` (`error` says why: a new commit since the sync, or never built). With
+  `--no-cache` a built one reads `stale`. `bd status` has no `remote`: `bd sync` says what a push sends.
+
+  ```json
+  "stacks":[{"root":"auth","branch":"develar/stack/auth","state":"built","tip":"5e6f7a8b","commits":5,
+    "members":["auth","login","session"]}]
+  ```
 - `description` is `{title}` of the branch's `bd describe` text, read for all branches with one
   `git config --get-regexp`.
 - `--stats` adds `stats` to each listed branch:
@@ -178,7 +190,7 @@ branches under the prefix in one listing, as a sync reads them.
   branches and 74 commits of a large monorepo branch, where `bd status` prints 11.5 KB.
   - Per branch it lists `name`, `commit_count`, `issue_key` (left out when it is the `name`) and `newest`, the subject
     of the newest commit, and `issue_keys` of an issue group. With stacked branches on, it keeps `parent`,
-    `parent_source`, `blocked_by`, `pr_base_changed`, `problems` and `forest`. It keeps `idle_issue_groups`,
+    `parent_source`, `blocked_by`, `pr_base_changed`, `problems`, `forest` and `stacks`. It keeps `idle_issue_groups`,
     `issue_group_problems`, `idle_stack_parents` and `stack_parent_problems`.
   - `unassigned` lists the ids and subjects.
   - It reads what `bd status` reads, except the virtual branch tips and the descriptions.
@@ -833,6 +845,28 @@ rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress
   landed with an update and the app hasn't dismissed: per branch (omitted for unassigned commits) the commits with
   `commit`, `subject` and the baseline commit `upstream` (omitted when squashed upstream), and `remaining`, the commits
   that stay local.
+- With stacked branches on, `stacks` lists the stack branch of each stack that forks (a branch of it has two children
+  or more), then those kept for their remote branch: `{prefix}/stack/<root>` (`branch`), all the commits of the
+  stack's branches (`members`, the root first, each after its parent; `commits` counts them) in the order of the
+  history, on the base of the sync, as a flat virtual branch of them. It is what a Safe Push of the whole stack lands;
+  a straight chain has none, its leaf is the whole stack. `state`:
+  - `built`: `tip` is the build of the stack's commits now;
+  - `conflict`: a commit conflicts with the commits of the stack before it (`conflict`: `commit`, `subject`, `files`);
+  - `blocked`: `member` failed or is blocked (`reason`: `error`, `conflict` or `blocked`, as its branch says), the
+    first in stack order, while the stack branch itself builds;
+  - `stale`: not rebuilt for another reason (`error`): another process moved the ref, or the stack no longer forks and
+    the ref stays for its remote branch (then `members` is empty).
+
+  In every state but `built` the ref keeps its tip: never push it. `remote` is the remote summary of `tip`, as for a
+  branch. The stack branch writes no mapping note; its build is remembered by its commits (the object cache), so an
+  unchanged one costs no git process. A stack that no longer forks loses its stack branch unless it has a remote
+  branch or a worktree has it checked out.
+
+  ```json
+  "stacks":[{"root":"auth","branch":"develar/stack/auth","state":"blocked","tip":"5e6f7a8b","member":"login",
+    "reason":"conflict","commits":5,"members":["auth","login","session"],
+    "remote":{"exists":false,"unpushed":5,"behind":0,"head":null}}]
+  ```
 - A virtual commit is reused only while its mapping note still fits the commit: the note names the trees it was copied
   from, and the copy must have the message and the author of the commit. A note that `git notes copy`, `git rebase` or
   `git commit --amend` (`notes.rewriteRef`) carried to a changed commit is stale; the sync copies the commit again and

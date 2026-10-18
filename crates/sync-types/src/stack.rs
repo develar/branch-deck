@@ -93,3 +93,70 @@ pub struct BranchStack {
   /// A commit of the branch comes before every commit of its parent on the current branch
   pub child_precedes_parent: bool,
 }
+
+/// How the stack branch of a stack (`{prefix}/stack/<root>`) stands after a sync
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub enum StackBranchState {
+  /// The ref is the build of the stack's commits as the sync grouped them: the only state whose ref may be pushed
+  Built,
+  /// A member failed or is blocked (`StackBranchUpdate::blocked_by`): the stack branch is not rebuilt
+  Blocked,
+  /// A commit conflicts with the commits of the stack before it (`StackBranchUpdate::conflict`): not rebuilt
+  Conflict,
+  /// Not rebuilt for another reason (`StackBranchUpdate::error`): the stack no longer forks and the ref stays for its
+  /// remote branch, another process moved the ref, or the build failed
+  Stale,
+}
+
+/// The member of a stack that keeps its stack branch from being built, and why: `Error` for a stack problem or a failed
+/// build, `Conflict` for a merge conflict of its own branch, `Blocked` when its parent can't be built on
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct StackMemberBlock {
+  pub member: String,
+  pub reason: BlockReason,
+}
+
+/// The commit of a stack branch whose copy conflicts with the commits of the stack before it, and the conflicting
+/// paths
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct StackBranchConflict {
+  /// The original commit, as in `GroupedBranchInfo::commits`
+  pub commit: String,
+  pub files: Vec<String>,
+}
+
+/// The stack branch of a stack after a sync: all commits of a stack that forks, in the order of the checked out
+/// branch's history, on the base of the sync, as one more virtual branch (`{prefix}/stack/<root>`), which a Safe Push
+/// of the whole stack lands in one robot. Sent once per stack branch the sync reports (`BranchesGrouped::stack_branches`)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct StackBranchUpdate {
+  /// The root branch of the stack, which names the stack branch
+  pub root: String,
+  /// The full branch name, `{prefix}/stack/<root>`
+  pub branch_name: String,
+  /// The branches of the stack, the root first, each after its parent; empty for a stack branch whose stack no longer
+  /// forks
+  pub members: Vec<String>,
+  /// The commits of the stack: every commit of its members
+  pub commit_count: u32,
+  pub state: StackBranchState,
+  /// The tip of the ref after the sync: the build for `Built`, else the tip the ref kept, which no push may send; `None`
+  /// without a ref
+  pub tip: Option<String>,
+  /// `Blocked`: the member that failed or is blocked
+  pub blocked_by: Option<StackMemberBlock>,
+  /// `Conflict`: the commit that conflicts and its files
+  pub conflict: Option<StackBranchConflict>,
+  /// `Stale`: why the ref was not rebuilt
+  pub error: Option<String>,
+  /// The remote status of `tip` against its remote branch on `origin`, by content as for a virtual branch; `None`
+  /// without a ref or when it could not be computed
+  pub remote: Option<crate::RemoteStatusUpdate>,
+}

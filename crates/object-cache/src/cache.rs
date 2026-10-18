@@ -15,7 +15,8 @@
 //!   extracts), which what the build reads outside the tree (a JDK, a toolchain) can outdate: `--rebuild` runs it
 //!   anyway. `remote_status` is keyed by a hash too, of commit ids and the user's email: its value is what walks
 //!   between those commits find, so it holds as long as the commit graph does (a `git replace` of a commit in that
-//!   range would outdate it).
+//!   range would outdate it). `stack_branch` is keyed by a hash of the base and the original commits of a stack
+//!   branch: its value is what their build gave (the tip, or the conflict), a function of those commits.
 //! - **Several processes** (the app and parallel `bd` calls) share the environment: LMDB serializes writers through its
 //!   lock file and readers never block. Within a process there is one `Env` per directory (`ENVS`), because LMDB must
 //!   not open the same environment twice in one process.
@@ -108,10 +109,14 @@ pub(crate) enum Store {
   RemoteStatus,
   BuildResult,
   ConflictChain,
+  StackBranch,
 }
 
 /// How many stores there are
-const STORE_COUNT: usize = 12;
+const STORE_COUNT: usize = 13;
+
+/// The version each store was checked for by this process (`keep_only_version`), by `Store::index`; 0 before a check
+static CHECKED_VERSIONS: [AtomicU64; STORE_COUNT] = [const { AtomicU64::new(0) }; STORE_COUNT];
 
 pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::CommitDiff,
@@ -126,6 +131,7 @@ pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::RemoteStatus,
   Store::BuildResult,
   Store::ConflictChain,
+  Store::StackBranch,
 ];
 
 impl Store {
@@ -138,7 +144,7 @@ impl Store {
       // algorithm, the inter-hunk context and the indent heuristic pinned, whatever the user's diff config
       Self::CommitDiff | Self::CommitLines => 3,
       // a new extractor needs no bump: its version is part of each key (`blob_summary`, `conflict_info`,
-      // `remote_status`, `build_result`, `conflict_chain`)
+      // `remote_status`, `build_result`, `conflict_chain`, `stack_branch`)
       Self::CommitFiles
       | Self::CommitTree
       | Self::MergeResult
@@ -148,7 +154,8 @@ impl Store {
       | Self::ConflictInfo
       | Self::RemoteStatus
       | Self::BuildResult
-      | Self::ConflictChain => 1,
+      | Self::ConflictChain
+      | Self::StackBranch => 1,
     }
   }
 
@@ -157,7 +164,9 @@ impl Store {
       Self::CommitPatch => Environment::Patches,
       Self::MergeResult | Self::CommitTree => Environment::Merges,
       Self::ConflictInfo | Self::ConflictChain => Environment::Conflicts,
-      Self::CommitDiff | Self::CommitFiles | Self::CommitLines | Self::BlobSummary | Self::ReviewAnswer | Self::RemoteStatus | Self::BuildResult => Environment::Main,
+      Self::CommitDiff | Self::CommitFiles | Self::CommitLines | Self::BlobSummary | Self::ReviewAnswer | Self::RemoteStatus | Self::BuildResult | Self::StackBranch => {
+        Environment::Main
+      }
     }
   }
 
@@ -180,6 +189,7 @@ impl Store {
       Self::RemoteStatus => "remote_status",
       Self::BuildResult => "build_result",
       Self::ConflictChain => "conflict_chain",
+      Self::StackBranch => "stack_branch",
     }
   }
 }
@@ -211,13 +221,11 @@ impl Default for CacheConfig {
 }
 
 /// The key of an entry of a store keyed by a hash the caller makes of what the value is a function of
-/// (`remote_status`, `build_result`, `conflict_chain`): the version that wrote it, big-endian, then the hash
+/// (`remote_status`, `build_result`, `conflict_chain`, `stack_branch`): the version that wrote it, big-endian, then the
+/// hash
 pub(crate) fn hashed_key(version: u32, hash: &[u8; 32]) -> Vec<u8> {
   [version.to_be_bytes().as_slice(), hash].concat()
 }
-
-/// The version this process checked each store keyed by a hash for (`put_hashed`), by `Store::index`
-static HASHED_CHECKED: [AtomicU64; STORE_COUNT] = [const { AtomicU64::new(0) }; STORE_COUNT];
 
 /// `$GIT_COMMON_DIR/branch-deck/cache`: shared by all worktrees of a repository
 pub fn cache_dir(git_common_dir: &Path) -> PathBuf {
@@ -292,9 +300,11 @@ impl ObjectCache {
   }
 
   /// Clear `store` unless it holds the entries of `version` (its `VERSION_KEY` entry), then mark it so: the entries of
-  /// another version go at once instead of waiting for a full map. Once per process and version (`checked`)
-  pub(crate) fn keep_only_version(&self, store: Store, version: u32, checked: &AtomicU64) {
+  /// another version go at once instead of waiting for a full map. Once per process, store and version
+  /// (`CHECKED_VERSIONS`)
+  pub(crate) fn keep_only_version(&self, store: Store, version: u32) {
     let Some(inner) = &self.inner else { return };
+    let checked = &CHECKED_VERSIONS[store.index()];
     // the high bit tells a checked version from the initial 0
     let stamp = u64::from(version) | 1 << 63;
     if checked.load(Ordering::Relaxed) == stamp {
@@ -376,7 +386,7 @@ impl ObjectCache {
     if !self.is_enabled() || entries.is_empty() {
       return;
     }
-    self.keep_only_version(store, version, &HASHED_CHECKED[store.index()]);
+    self.keep_only_version(store, version);
     let entries: Vec<(Vec<u8>, &V)> = entries.iter().map(|(hash, value)| (hashed_key(version, hash), value)).collect();
     self.put_many(store, &entries);
   }

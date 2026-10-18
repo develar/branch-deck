@@ -13,6 +13,7 @@
 //! - `commit_grouper`: the groups of the commits ahead of the baseline by prefix, issue group and issue key
 //! - `grouping`: the grouping of a sync without its builds, for the reads of `bd`
 //! - `stack`: stacked branches, the parents a prefix declares, the forest and where each branch goes
+//! - `stack_branch`: the stack branch `{prefix}/stack/<root>` of a stack that forks: all its commits in one branch
 //! - `issue_navigation`: the issue key patterns of `.idea/vcs.xml`
 //! - `remote_status`: what a virtual branch has that its remote branch lacks and the reverse, by content
 //! - `commit_walk`: one `rev-list` walk of commits that a caller matches across a rebase by `CommitKey`
@@ -161,6 +162,7 @@ pub mod robot_commits;
 pub mod snapshot;
 pub mod squash;
 pub mod stack;
+pub mod stack_branch;
 pub mod stack_operations;
 pub mod stack_parents;
 pub mod store_lines;

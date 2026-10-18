@@ -117,6 +117,11 @@ written, except by Update Project and the finish of its resolve session (their o
    value as the old one. A writer that moved the notes ref meanwhile is therefore never overwritten. The check is a
    fast-forward, not the exact old value of a transaction: a notes ref moved back to an ancestor of the `from` commit
    meanwhile would be moved forward again.
+
+   **The stack branches** (`{prefix}/stack/<root>`, see "Stack branch") follow the rule without an exception: a sync
+   moves one with CAS on the tip it listed, only when every branch of its stack was built, and deletes the ones of
+   stacks that no longer fork in one CAS transaction, never one with a remote branch or checked out in a worktree. A
+   stack branch the sync did not rebuild keeps its tip, and nothing pushes it.
    The notes of a resolve session are not written this way: their commit is written on a temporary ref
    (`StoreNotes`), and the session's transaction moves `refs/notes/branch-deck/resolve` with CAS. fast-import also
    creates the temporary ref its commits are written on (`refs/branch-deck/tmp/<pid>-<time>-<n>`, a name of its own
@@ -1006,9 +1011,10 @@ detection and the update check compare with the same commit.
 
 **What a sync returns** (`SyncReport`): the baseline, its commit, HEAD and the checked out branch as it read them, the
 grouping inputs (the stack setting, the issue groups, the stack parents), the grouped branches as `BranchesGrouped`
-sent them (with their placements), the stack forest, the remote tips on `origin`, the descriptions, and the tip of
+sent them (with their placements), the stack forest, the remote tips on `origin`, the descriptions, the tip of
 each grouped branch's virtual branch after it (the head it wrote or kept, another process's tip after
-a lost CAS, the old tip of a branch it could not rebuild). The app takes the events; `bd sync` takes the baseline, the
+a lost CAS, the old tip of a branch it could not rebuild), and the stack branches as their `StackBranchUpdate` events
+sent them (see "Stack branch"). The app takes the events; `bd sync` takes the baseline, the
 branches and the tips from the report (`SyncOutput::report`), so a command that goes on after the sync (`bd push`,
 `bd safe-push`) need not read them again.
 
@@ -1103,6 +1109,58 @@ Code: `crates/git-ops/src/copy_commit.rs`, `crates/git-ops/src/cherry_pick.rs`, 
 `crates/sync-core/src/branch_processor.rs`. The integration-detection cache writes its notes in one `fast-import` as
 well (`crates/branch-integration/src/detection_notes.rs`).
 
+#### Stack branch
+
+With stacked branches on, a stack that forks (a branch of it has two children or more) also builds as one more virtual
+branch, `{prefix}/stack/<root>`: every commit of its branches, in the order of the checked out branch's history, on
+the base of the sync, as a flat virtual branch of those commits would be built. A Safe Push of the whole stack lands
+it in one robot ([Whole Stack](../../spec/branch/whole-stack.spec.md), [Landing](landing.md)); a straight chain has
+none, its leaf is the whole stack. `crates/sync-core/src/stack_branch.rs`.
+
+- **Which branches.** The tree of a stack follows `effective_base` (a branch built past a parent without commits is in
+  the stack of the branch it is built on), the parent that blocks a blocked branch, and the declared parent of a branch
+  with a stack problem: every member's virtual branch has its ancestors' commits, so the stack branch has every piece.
+  A branch whose parents lead into a cycle is in no stack. The plan (`plan_stack_branches`) is a function of the
+  grouping and the order of the commit list: no git.
+- **The history order**, not the main line first: a new commit on a side branch would turn the stack branch over and
+  rewrite all of it, and a build in another order than the local history can conflict where nothing conflicts locally.
+  The commits of the main line keep no ids by being first: Patronus rebases the source branch with
+  `REBASE_AUTOSQUASH` anyway.
+- **One chain, no notes, no branch events.** The build runs `create_or_update_commit` for each commit in one
+  `CommitChain` (one `merge-tree --stdin`, one `fast-import`), with the deterministic committer dates, so a copy is the
+  commit a flat build of the same commits on the same parent writes. Its mapping notes are dropped: the one note of an
+  original names the copy of its own branch. It sends no event of a branch row (`CommitSynced`, `BranchStatusUpdate`, …),
+  only `StackBranchUpdate`. A conflict is reported by its commit and files (`MergeConflictInfo::light`, a tree cache
+  with the `LightConflicts` memo), without the analysis of a conflict view.
+- **Built beside the branches.** The builds run as tasks of the sync's `ProcessPermits` beside the builds of the virtual
+  branches, from the same tree cache (the trees of the commit list, the date of the base). Once the branches are built,
+  one blocking task moves each stack branch (`move_branch`, CAS on the listed tip), computes its remote status on the
+  sync's `RemoteStatusMemo` (its remote tip is read with the others) and sends the updates.
+- **Unchanged without a process.** The build is a function of the base and the ids of the original commits in their
+  order (a commit id covers its tree, parents, author, committer and message), so its outcome is remembered by a hash
+  of them (`StackBuilds`): in the memory of the process, else in the object cache (`stack_branch`). A sync whose stack
+  has the same commits on the same base takes the tip from it and runs no git for the stack branch
+  (`an_unchanged_sync_of_a_forking_stack`); without the object cache a new process builds it again, to the same commit,
+  and the ref does not move. Not by the identities of the commits (`CommitKey`): an amend keeps the author, the time
+  and the subject, and the stack branch would keep the old content.
+- **States.** `Built`: the ref is the build of the stack's commits now. `Conflict`: a commit conflicts with the commits
+  of the stack before it. `Blocked`: a member has a stack problem, is blocked, conflicts or failed (the first in stack
+  order, a failure before a block, `StackMemberBlock`) while the stack branch's own build is clean; that build is
+  remembered but not written. The stack branch's own conflict comes first: it is a function of its commits, so
+  `bd status` knows it without a sync, and the member's row says its own. `Stale`: the ref was not rebuilt for another
+  reason (another process moved it, the build failed, its stack no longer forks). In every state but `Built` the ref
+  keeps its tip, and no push may send it: only a `Built` tip is the stack's commits as they are.
+- **Deletion.** A stack branch whose stack no longer forks (its root has no branch with two children, the root is gone,
+  stacks are off) is deleted in one transaction with CAS on the listed tip (`branch-deck: delete stack branch`), best
+  effort: a failure leaves it for the next sync. One with a remote branch stays, `Stale` without members, for the user
+  to decide on (its pull request may be open); so does one a worktree has checked out. `BranchesGrouped` names the
+  roots of the stack branches the sync reports (`stack_branches`), so the app drops the others at once.
+- **Not a branch of the archive.** The listing of the sync has the stack branches (`read_baseline_listing` lists every
+  namespace under the prefix), but the archive step and the integration detection leave them out (`branch_data_of`):
+  a stack branch is never archived, and its tip must not name the detection note of a branch that is.
+- **`bd status`** reads the state without a sync (`read_stack_branches`): blocked by the placement, else the
+  remembered build of the current commits when the ref is at it, else stale; no git.
+
 #### Sync inputs check
 
 Auto-sync on Focus syncs only when what a sync reads changed since the last sync (`sync_inputs_fingerprint`,
@@ -1194,7 +1252,7 @@ Code: `crates/git-ops/src/copy_commit.rs`, `crates/sync-core/src/branch_processo
 ranges and the blob ids before and after) from a disk cache before they run git, and run one `log --no-walk=unsorted
 --stdin -z --raw --no-abbrev -p -U0` only for the commits it misses (`--no-abbrev`, not `--abbrev=40`, so a SHA-256
 id stays whole).
-- **Safe without invalidation** (but `review_answer` and `build_result`, below). Keys are object ids (`remote_status`: a hash of them), and an object never changes: the changes of a commit against
+- **Safe without invalidation** (but `review_answer` and `build_result`, below). Keys are object ids (`remote_status`, `stack_branch`: a hash of them), and an object never changes: the changes of a commit against
   its first parent with fixed diff options (`-M`, `--no-ext-diff`, `--no-textconv`, and `--diff-algorithm=myers`,
   `--inter-hunk-context=0`, `--indent-heuristic` for where the hunks start and end, so `diff.algorithm` and
   `diff.interHunkContext` change no dependency edge) are the same forever. Entries are only evicted, never stale. Each
@@ -1278,6 +1336,12 @@ id stays whole).
   in memory and are written in one transaction when the memo drops; a remote branch at the branch's tip ran no walk
   and is not written. The version is part of the key (it covers `DROPPED_COMMITS_LIMIT`), and its first write clears
   the store.
+- `stack_branch` ((build version, a hash of the base and the ids of the original commits of a stack branch, in their
+  order) → what their build gave: the tip, or the commit that conflicts and its files) is read and written by the sync
+  of the app and of `bd` through `StackBuilds` (`crates/sync-core/src/stack_branch.rs`), after the memory of the
+  process, and read by `bd status`. The copies are deterministic, so the build is a function of those commits; the new
+  builds are written in one transaction when the sync drops the memo. `STACK_BUILD_VERSION` is part of the key: a
+  change of the copies bumps it, and its first write clears the store.
 - `review_answer` (a hash of what the Patronus pre-check decides on → its answer and when it was fetched) is the first
   store not keyed by object ids or a hash of them: the ownership rules of the target can outdate an answer, so the reader decides how
   long it holds (`sync_core::review_readiness`): an answer that evaluated the pull request a day, one without the
@@ -2037,7 +2101,7 @@ per operation on a small fixture (two branches of three commits, unless the test
 process lowers a number there, so the diff of the assert names the process that went away; a change that adds one must
 raise it. The totals, when each test was first pinned (the audit of the git layer, 2026-10-17; the tests marked * later
 in it; † with the remote statuses or the conflict chains in the object cache, 2026-10-18, first pinned is the code
-before it) and now:
+before it; ‡ with the stack branches, 2026-10-18) and now:
 
 | Operation | Test | First pinned | Now |
 |---|---|---|---|
@@ -2046,6 +2110,8 @@ before it) and now:
 | Unchanged sync of a conflicting branch, without / with the object cache | `an_unchanged_sync_of_a_conflicting_branch` * | 20 / 13 | 19 / 12 |
 | A branch that conflicts after a clean commit, with the object cache: its first sync, each next one | `an_unchanged_sync_of_a_conflict_after_a_clean_commit` † | 34, 14 | 35, 12 |
 | Unchanged sync of a pushed and a fetched branch in a new process (`bd sync`): the first, each next one | `an_unchanged_sync_of_pushed_branches_in_a_new_process` † | 16, 16 | 15, 13 |
+| First sync of a stack that forks (three branches and the stack branch) | `a_first_sync_of_a_forking_stack` ‡ | 30 | 30 |
+| Unchanged sync of a stack that forks, the same process / a new one with the object cache | `an_unchanged_sync_of_a_forking_stack` ‡ | 12 / 12 | 12 / 12 |
 | Open a conflict view, from the object cache / without it | `opening_a_conflict` * | 0 / 6 | 0 / 6 |
 | Trial sync (the core of `bd check`), empty / filled object cache | `a_check` | 18 / 16 | 18 / 16 |
 | Trial sync after a sync | `a_check_of_synced_branches` * | 16 | 15 |
@@ -2061,6 +2127,7 @@ before it) and now:
 | `bd safe-push --check` | `a_safe_push_check` * | 57 | 32 |
 | `bd fold` | `a_fold` | 36 | 30 |
 | `bd status` | `a_status` * | 10 | 7 |
+| `bd status` of a stack that forks | `a_status_of_a_forking_stack` ‡ | 7 | 7 |
 | `bd robot`, `bd request-review --check`, `bd group --dry-run` | `a_robot`, `a_request_review_check`, `a_group_dry_run_with_a_description` * | 8, 11, 11 | 8, 11, 11 |
 
 `bd sync` runs the processes of its core and one `rev-parse` for its context (`a_sync_with_the_prefix_of_the_config`).
@@ -2090,6 +2157,15 @@ the copies before their conflicts from the object cache (`conflict_chain`), meas
 pin: an unchanged `bd sync` 20 → 14 (no `merge-tree`, no `fast-import`: the 13 fixed reads and one `reflog`),
 `bd push --dry-run` of one branch after it 23 → 17, `--all` 21 → 15; the full sync 162 → 163 (one `update-ref` for the
 refs that keep the copies), every output the same.
+
+The stack branches (2026-10-18), on the same clone: its one stack that forks (11 branches, 63 commits) conflicts at
+its first commit, as its root does, so a full `bd sync` ran 162 processes before and 163 after (the stack branch's
+`merge-tree --stdin`, one merge), an unchanged one 20 and 20, `bd status` 7 and 7; the outputs are the same but for
+`stacks`. Under a load of 64–117 the wall times of alternating runs overlap (a full sync 1.3–9.0 s before, 1.2–6.3 s
+after; an unchanged one 0.16–2.8 s and 0.14–0.61 s). That was measured on the code before the conflict chains above;
+with both, a full `bd sync` runs 164 (the stack branch's merge and the conflict refs' `update-ref`), an unchanged one
+14 and `bd status` 7, the outputs those of each alone. A stack branch that builds runs its chain beside the branches:
+about one merge per commit whose parent tree differs, in the first sync after a change only.
 
 ### Measuring on a large repository
 

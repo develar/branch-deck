@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
-import type { GroupedBranchInfo, RemoteStatusUpdate, SyncEvent } from "@/lib/bindings"
+import type { GroupedBranchInfo, RemoteStatusUpdate, StackBranchUpdate, SyncEvent } from "@/lib/bindings"
 import {
   branchSyncStore,
   getBranch,
   getBranchPushProgress,
   getBranchTableRows,
+  getStackBranch,
   isBranchPushing,
   requestSync,
   resetBranchSync,
@@ -544,6 +545,67 @@ describe("sync events", () => {
     const rows = getBranchTableRows()
     branchSyncStore.setState(state => ({ branches: { ...state.branches, a: { ...state.branches.a!, status: "Unchanged" } } }))
     expect(getBranchTableRows()).toBe(rows)
+  })
+})
+
+describe("stack branches", () => {
+  beforeEach(() => {
+    branchSyncStore.setState(branchSyncStore.getInitialState(), true)
+  })
+
+  function grouped(stackBranches: string[]): SyncEvent {
+    return { type: "branchesGrouped", data: { branches: [group("a"), group("b")], baselineBranch: "origin/master", stacks: true, stackBranches } }
+  }
+
+  function stackBranchUpdate(root: string, patch: Partial<StackBranchUpdate> = {}): SyncEvent {
+    const update: StackBranchUpdate = {
+      root,
+      branchName: `user/stack/${root}`,
+      members: [root, "b"],
+      commitCount: 2,
+      state: "Built",
+      tip: `${root}-tip`,
+      blockedBy: null,
+      conflict: null,
+      error: null,
+      remote: remoteStatusUpdate(`user/stack/${root}`, 2),
+      ...patch,
+    }
+    return { type: "stackBranchUpdate", data: update }
+  }
+
+  it("keeps the stack branch of each stack the sync reports, with its state and remote status", async () => {
+    syncEvents.current = [grouped(["a"]), stackBranchUpdate("a")]
+    await syncBranches()
+
+    const stackBranch = getStackBranch("a")!
+    expect(stackBranch).toMatchObject({ branchName: "user/stack/a", members: ["a", "b"], commitCount: 2, state: "Built", tip: "a-tip" })
+    expect(stackBranch.remoteStatus!.commitsAhead).toBe(2)
+    expect(getStackBranch("b")).toBeUndefined()
+  })
+
+  it("keeps what the last sync reported until the next one updates it, and drops a stack branch the grouping no longer announces", async () => {
+    syncEvents.current = [grouped(["a", "x"]), stackBranchUpdate("a"), stackBranchUpdate("x", { members: [], state: "Stale", error: "Not rebuilt" })]
+    await syncBranches()
+    const before = getStackBranch("a")
+    expect(getStackBranch("x")).toMatchObject({ state: "Stale", members: [] })
+
+    // a grouping that announces `a` only, whose update did not come (yet)
+    syncEvents.current = [grouped(["a"])]
+    await syncBranches()
+    expect(getStackBranch("a")).toBe(before)
+    expect(getStackBranch("x")).toBeUndefined()
+
+    syncEvents.current = [grouped(["a"]), stackBranchUpdate("a", { state: "Blocked", blockedBy: { member: "b", reason: "Conflict" } })]
+    await syncBranches()
+    expect(getStackBranch("a")).toMatchObject({ state: "Blocked", blockedBy: { member: "b", reason: "Conflict" }, tip: "a-tip" })
+  })
+
+  it("forgets the stack branches with the repository", async () => {
+    syncEvents.current = [grouped(["a"]), stackBranchUpdate("a")]
+    await syncBranches()
+    resetBranchSync()
+    expect(getStackBranch("a")).toBeUndefined()
   })
 })
 

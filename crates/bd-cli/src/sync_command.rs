@@ -6,6 +6,7 @@ use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::install::shell_word;
 use crate::output::{SchemaVersion, ShortIds};
+use crate::stack_summary::StackSummary;
 use crate::status::placement;
 use git_ops::branch_names::to_final_branch_name;
 use git_ops::model::{BranchError, BranchSyncStatus};
@@ -30,6 +31,10 @@ pub struct SyncOutput {
   pub baseline: String,
   /// In the order of `bd status`
   pub branches: Vec<SyncedBranch>,
+  /// With stacked branches on: the stack branch of each stack that forks (`{prefix}/stack/<root>`, all its commits in
+  /// one branch), then those kept for their remote branch after their stack stopped forking
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub stacks: Vec<StackSummary>,
   pub unassigned_count: usize,
   /// The archived branches that integration detection checked
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -396,7 +401,9 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
           (None, None) => None,
         };
       }
-      SyncEvent::BranchesGrouped { .. }
+      // the report has them
+      SyncEvent::StackBranchUpdate(_)
+      | SyncEvent::BranchesGrouped { .. }
       | SyncEvent::CommitSynced { .. }
       | SyncEvent::IssueNavigationConfig { .. }
       | SyncEvent::CommitError { .. }
@@ -415,6 +422,7 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
     .collect();
   ids.extend(conflicts);
   ids.extend(remotes.values().flat_map(RemoteSummary::ids));
+  ids.extend(report.stack_branches.iter().flat_map(StackSummary::ids));
   ids.extend(landed_ids(&landing));
   ids.extend(landed_ids(&landed));
   let short = context.short_ids(ids);
@@ -460,6 +468,11 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
     })
     .collect();
   let branches = with_push_commands(branches, &bases, &context.bd);
+  let stacks = report
+    .stack_branches
+    .iter()
+    .map(|stack| StackSummary::new(stack, report.branches.iter().flat_map(|branch| &branch.commits), &short))
+    .collect();
 
   SyncOutput {
     schema: SchemaVersion,
@@ -467,6 +480,7 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
     prefix: context.prefix.clone(),
     baseline: report.baseline.clone(),
     branches,
+    stacks,
     unassigned_count,
     archived: archived.into_values().collect(),
     update,

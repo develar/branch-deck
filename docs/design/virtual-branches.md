@@ -1,7 +1,7 @@
 # Virtual Branches Architecture
 
 **Status:** Implemented  
-**Updated:** 2026-10-14  
+**Updated:** 2026-10-18  
 **Tags:** [architecture, git, workflow]
 
 ## Problem
@@ -164,6 +164,20 @@ issue families come from the stack roots. `groupFor` (`src/lib/commit.ts`) mirro
 and Move to…, with the stack parents of the `branchesGrouped` event. The branch menu restacks and renames over
 `rename_branch` and `restack_branch` (`crates/sync-core/src/stack_operations.rs`, wrapping the regroup cores), which
 write the stack parents and rewrite only the prefixes that need it, in one ref transaction.
+
+### Stack Branches
+
+A stack that forks (a branch of it with two children or more) is also one more virtual branch,
+`user/stack/<root>`: every commit of its branches in the order of the local history, on the base of the sync, as a
+flat virtual branch of those commits. It is what a Safe Push of the whole stack lands in one robot, its own pull request
+into master ([Landing Work into Master](landing.md)); a straight chain has none, its leaf is the whole stack. The sync
+plans it from the grouping (`plan_stack_branches`, `crates/sync-core/src/stack_branch.rs`), builds it beside the
+branches in one `CommitChain` and moves its ref once every member is built; it writes no mapping notes and sends one
+`StackBranchUpdate` (state, tip, remote status) instead of the events of a branch row. The build is remembered by a
+hash of the base and the original commit ids (`StackBuilds`, the object cache), so an unchanged stack costs no git
+process. A stack branch whose stack no longer forks is deleted unless it is on the remote; one not rebuilt keeps its
+tip and is never pushed. See "Stack branch" in [Git Operations](git-operations.md) and
+[Whole Stack](../../spec/branch/whole-stack.spec.md).
 
 ### Line Dependencies
 

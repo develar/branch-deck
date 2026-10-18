@@ -107,7 +107,7 @@ pub fn get_all_branch_data(git_executor: &GitCommandExecutor, repo_path: &str, b
 }
 
 /// The virtual and archived branches among `branches` (newest first, as `list_branches` lists them), with the detection
-/// notes of their tips: one `log` for the notes
+/// notes of their tips: one `log` for the notes. The stack branches (`{prefix}/stack/<root>`) are left out
 #[instrument(skip(git_executor, branches), fields(count = branches.len()))]
 pub fn branch_data_of(git_executor: &GitCommandExecutor, repo_path: &str, branch_prefix: &str, branches: &[ListedBranch]) -> BranchData {
   let branch_prefix = branch_prefix.trim_end_matches('/');
@@ -131,6 +131,11 @@ pub fn branch_data_of(git_executor: &GitCommandExecutor, repo_path: &str, branch
   } in branches
   {
     let (branch, commit) = (branch.as_str(), commit.as_str());
+    // a stack branch is never archived nor detected, and its tip must not name the detection note of a branch that
+    // is (`commit_to_branch` below)
+    if strip_branch_namespace(branch, branch_prefix, BranchKind::Stack).is_some() {
+      continue;
+    }
     debug!(branch = %branch, commit = %commit, "Found branch with commit");
     commit_subjects.insert(commit.to_string(), subject.clone());
     // Store ALL branch commits, not just virtual ones

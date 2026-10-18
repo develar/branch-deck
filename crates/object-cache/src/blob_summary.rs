@@ -6,10 +6,6 @@
 use crate::cache::{ObjectCache, Store};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use std::sync::atomic::AtomicU64;
-
-/// The version this process checked the store for
-static CHECKED: AtomicU64 = AtomicU64::new(0);
 
 fn key(version: u32, language: u8, blob: &str) -> Vec<u8> {
   let mut key = Vec::with_capacity(5 + blob.len());
@@ -31,7 +27,7 @@ impl ObjectCache {
     if summaries.is_empty() {
       return;
     }
-    self.keep_only_version(Store::BlobSummary, version, &CHECKED);
+    self.keep_only_version(Store::BlobSummary, version);
     let entries: Vec<(Vec<u8>, &V)> = summaries.iter().map(|&((language, blob), summary)| (key(version, language, blob), summary)).collect();
     self.put_many(Store::BlobSummary, &entries);
   }

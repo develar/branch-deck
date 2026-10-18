@@ -6,15 +6,11 @@
 
 use crate::cache::{ObjectCache, Store};
 use serde::{Serialize, de::DeserializeOwned};
-use std::sync::atomic::AtomicU64;
 
 /// The key of the patch of `id`: the version, big-endian, then the id
 fn key(version: u32, id: &str) -> Vec<u8> {
   [version.to_be_bytes().as_slice(), id.as_bytes()].concat()
 }
-
-/// The version this process checked the store for
-static CHECKED: AtomicU64 = AtomicU64::new(0);
 
 impl ObjectCache {
   /// The cached patch of `id` cut by the limits of `version`
@@ -33,7 +29,7 @@ impl ObjectCache {
     if patches.is_empty() {
       return;
     }
-    self.keep_only_version(Store::CommitPatch, version, &CHECKED);
+    self.keep_only_version(Store::CommitPatch, version);
     let entries: Vec<(Vec<u8>, &V)> = patches.iter().map(|&(id, patch)| (key(version, id), patch)).collect();
     self.put_many(Store::CommitPatch, &entries);
   }

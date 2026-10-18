@@ -2438,6 +2438,66 @@ export type StackBlock = {
 	reason: BlockReason,
 };
 
+/**
+ *  The commit of a stack branch whose copy conflicts with the commits of the stack before it, and the conflicting
+ *  paths
+ */
+export type StackBranchConflict = {
+	/**  The original commit, as in `GroupedBranchInfo::commits` */
+	commit: string,
+	files: string[],
+};
+
+/**  How the stack branch of a stack (`{prefix}/stack/<root>`) stands after a sync */
+export type StackBranchState = 
+/**  The ref is the build of the stack's commits as the sync grouped them: the only state whose ref may be pushed */
+"Built" | 
+/**  A member failed or is blocked (`StackBranchUpdate::blocked_by`): the stack branch is not rebuilt */
+"Blocked" | 
+/**  A commit conflicts with the commits of the stack before it (`StackBranchUpdate::conflict`): not rebuilt */
+"Conflict" | 
+/**
+ *  Not rebuilt for another reason (`StackBranchUpdate::error`): the stack no longer forks and the ref stays for its
+ *  remote branch, another process moved the ref, or the build failed
+ */
+"Stale";
+
+/**
+ *  The stack branch of a stack after a sync: all commits of a stack that forks, in the order of the checked out
+ *  branch's history, on the base of the sync, as one more virtual branch (`{prefix}/stack/<root>`), which a Safe Push
+ *  of the whole stack lands in one robot. Sent once per stack branch the sync reports (`BranchesGrouped::stack_branches`)
+ */
+export type StackBranchUpdate = {
+	/**  The root branch of the stack, which names the stack branch */
+	root: string,
+	/**  The full branch name, `{prefix}/stack/<root>` */
+	branchName: string,
+	/**
+	 *  The branches of the stack, the root first, each after its parent; empty for a stack branch whose stack no longer
+	 *  forks
+	 */
+	members: string[],
+	/**  The commits of the stack: every commit of its members */
+	commitCount: number,
+	state: StackBranchState,
+	/**
+	 *  The tip of the ref after the sync: the build for `Built`, else the tip the ref kept, which no push may send; `None`
+	 *  without a ref
+	 */
+	tip: string | null,
+	/**  `Blocked`: the member that failed or is blocked */
+	blockedBy: StackMemberBlock | null,
+	/**  `Conflict`: the commit that conflicts and its files */
+	conflict: StackBranchConflict | null,
+	/**  `Stale`: why the ref was not rebuilt */
+	error: string | null,
+	/**
+	 *  The remote status of `tip` against its remote branch on `origin`, by content as for a virtual branch; `None`
+	 *  without a ref or when it could not be computed
+	 */
+	remote: RemoteStatusUpdate | null,
+};
+
 /**  A commit ahead of the baseline, as `StackIndependence` names it */
 export type StackCommit = {
 	id: string,
@@ -2487,6 +2547,15 @@ export type StackIndependenceParams = {
 	branchPrefix: string,
 	/**  A stacked branch */
 	branchName: string,
+};
+
+/**
+ *  The member of a stack that keeps its stack branch from being built, and why: `Error` for a stack problem or a failed
+ *  build, `Conflict` for a merge conflict of its own branch, `Blocked` when its parent can't be built on
+ */
+export type StackMemberBlock = {
+	member: string,
+	reason: BlockReason,
 };
 
 /**  Why a branch of a stack can't be placed; it never fails the other branches */
@@ -2612,6 +2681,11 @@ export type SyncEvent =
 	 *  stacked branches off
 	 */
 	stackParents?: { [key in string]: string },
+	/**
+	 *  The roots of the stack branches this sync reports, each with one `StackBranchUpdate` later: the stacks that fork
+	 *  and the stack branches kept for their remote branch; any other stack branch is gone
+	 */
+	stackBranches?: string[],
 } } | 
 /**  Sent for commits that don't match any prefix pattern */
 { type: "unassignedCommits"; data: {
@@ -2653,6 +2727,11 @@ export type SyncEvent =
 } } | 
 /**  Sent when remote branch status is checked */
 { type: "remoteStatusUpdate"; data: RemoteStatusUpdate } | 
+/**
+ *  Sent for each stack branch `BranchesGrouped` announced, once the branches of its stack are built: its state, its
+ *  tip and its remote status
+ */
+{ type: "stackBranchUpdate"; data: StackBranchUpdate } | 
 /**
  *  Sent once after `BranchesGrouped`: whether the checked out branch can be updated onto the last fetched baseline
  *  (checked without the network). Both fields `None` for a local baseline, which has nothing to update from.

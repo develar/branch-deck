@@ -36,8 +36,8 @@ Every operation is judged by what it lands into master and in how many robots.
 
 This document is a draft while the model is implemented. The specs are the contract of each part:
 [Stacked Branches](../../spec/branch/stacked-branches.spec.md), [Patronus](../../spec/branch/patronus.spec.md),
-[Next Step](../../spec/branch/next-step.spec.md), [Stack Island](../../spec/branch/stack-island.spec.md) and
-[Pull Requests](../../spec/branch/pull-requests.spec.md).
+[Next Step](../../spec/branch/next-step.spec.md), [Stack Island](../../spec/branch/stack-island.spec.md),
+[Pull Requests](../../spec/branch/pull-requests.spec.md) and [Whole Stack](../../spec/branch/whole-stack.spec.md).
 
 ## Design
 
@@ -79,6 +79,26 @@ This document is a draft while the model is implemented. The specs are the contr
   the screen, an island header, the preview, the review window), and for a hidden one whose answer waits for an
   approval, so its approval is still news.
 
+### The stack branch
+
+The whole stack of a stack that forks is one more virtual branch, `{prefix}/stack/<root>`, which every sync builds
+beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stack branch" in
+[Git Operations](git-operations.md)):
+
+- **What it holds.** The original commits of every branch of the stack, in the order of the checked out branch's
+  history, on the base of the sync: a flat virtual branch of those commits. Not the main line first and the side
+  branches after: a new commit on a side branch would rewrite all of it, and an order the local history doesn't have
+  can conflict where nothing conflicts locally. Patronus rebases the source with `REBASE_AUTOSQUASH` anyway, so the
+  main line gains nothing from keeping its ids.
+- **Only for a stack that forks.** A straight chain has none: its leaf is the whole stack, and its Safe Push lands it.
+- **When it is landable.** Only a `Built` stack branch has the stack's commits as they are. A member that is blocked,
+  conflicts or failed, a commit that conflicts in the stack branch itself, or a ref another process moved leave the
+  ref as it was (`Blocked`, `Conflict`, `Stale`), and nothing pushes it.
+- **Free while nothing changed.** Its build is a function of the base and the original commits, remembered by a hash
+  of them (the process, the object cache): an unchanged sync runs no git for it.
+- **Its life.** A stack that stops forking loses its stack branch, unless the stack branch is on the remote: its pull
+  request may be open, and the user decides on it.
+
 ## Alternatives Considered
 
 - **Stacked pull requests into the parent's branch.** Each pull request shows only its own commits.
@@ -88,6 +108,13 @@ This document is a draft while the model is implemented. The specs are the contr
   built on, its own start a muted alternative.
   - *Why not:* one robot per branch, hours each, and each landing rebuilds the children on master and force-pushes
     them, which dismisses their approvals. The form of a child led away from the branch the user asked for.
+- **The whole stack as the main line's branches first, then the side branches.** The main line's commits would keep
+  the ids of its leaf's virtual branch.
+  - *Why not:* a commit on a side branch moves every commit after it, and the order differs from the local history,
+    so it can conflict where the user sees no conflict; Patronus rebases the source branch anyway.
+- **Knowing an unchanged stack branch by the identities of its commits** (author, author time, subject).
+  - *Why not:* an amend keeps all three, so the stack branch would keep the old content and land it. The hash of the
+    commit ids covers the content too.
 
 ## References
 
@@ -95,3 +122,4 @@ This document is a draft while the model is implemented. The specs are the contr
 - [Git Operations](git-operations.md)
 - [Stacked Branches](../../spec/branch/stacked-branches.spec.md)
 - [Patronus](../../spec/branch/patronus.spec.md)
+- [Whole Stack](../../spec/branch/whole-stack.spec.md)

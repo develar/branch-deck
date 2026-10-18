@@ -28,6 +28,7 @@ targets:
   - ../../crates/bd-cli/src/describe.rs
   - ../../crates/git-ops/src/branch_description.rs
   - ../../crates/bd-cli/src/sync_command.rs
+  - ../../crates/bd-cli/src/stack_summary.rs
   - ../../crates/sync-core/src/branch_processor.rs
   - ../../crates/bd-cli/src/check_command.rs
   - ../../crates/git-ops/src/tree_archive.rs
@@ -193,6 +194,14 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   first; `bd commits` must group by the leaf as well. The `parent_source` of a parent is `prefix` or `store` (the stack
   parents), and the output lists `idle_stack_parents` and `stack_parent_problems` ([Stack Parents](../branch/stack-parents.spec.md)).
   [@test] ../../crates/bd-cli/src/status_test.rs (`stacks_in_status`, `stored_parents_in_status`)
+- With stacked branches on, `stacks` must list the stack branch of each stack that forks (`root`, `branch`
+  `{prefix}/stack/<root>`, `state`, `tip`, `member` and `reason` of a block, `conflict`, `error`, `commits`, `members`)
+  and the ones kept for their remote branch, as the last sync left them, read without a sync and without a git
+  process: `blocked` by a member's placement, else `built` when the object cache remembers the build of the current
+  commits at the ref's tip, `conflict` when it remembers their build conflicting, else `stale`; no `remote`
+  ([Whole Stack](../branch/whole-stack.spec.md)).
+  [@test] ../../crates/bd-cli/src/status_test.rs (`the_stack_branch_of_a_forking_stack_in_sync_and_status`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status_of_a_forking_stack`)
 - Each branch with a `bd describe` text must show its title, read for all branches in one git process, the one that
   also gives the stack setting of the grouping.
   [@test] ../../crates/bd-cli/src/describe_test.rs (`sets_prints_and_clears_a_description`)
@@ -203,8 +212,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/status_test.rs (`stats_per_branch`)
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`lists_the_files_of_each_tip_against_a_base`)
 - `--brief` must print per branch only the name, the commit count, the issue key when it is not the name, and the
-  newest subject, with stacked branches on also the parent, `blocked_by`, `pr_base_changed`, the problems and the
-  forest, then the unassigned commits; it must not go with `--branch` or `--stats`.
+  newest subject, with stacked branches on also the parent, `blocked_by`, `pr_base_changed`, the problems, the
+  forest and the `stacks`, then the unassigned commits; it must not go with `--branch` or `--stats`.
   [@test] ../../crates/bd-cli/src/status_test.rs (`brief_status`, `brief_status_keeps_the_stack_state`)
 
 ### `bd commits`
@@ -551,6 +560,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   while a rebase, merge, cherry-pick or revert is in progress (`operation_in_progress`) or HEAD is detached
   (`detached_head`, exit 4 both): the sync would archive the branches the half-done history lacks.
   [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`, `waits_for_the_lock`, `waits_while_a_rebase_is_in_progress`)
+- With stacked branches on, `stacks` must list the stack branch of each stack that forks, as the sync built it, with its
+  `state` (`built`; `blocked` with the `member` and the `reason`; `conflict` with the commit, its subject and files;
+  `stale` with the `error`), its `tip`, `commits`, `members` and the `remote` summary of its tip, then the ones kept
+  for their remote branch (`stale`, no members); a tip in any state but `built` is not the stack's commits and must
+  never be pushed ([Whole Stack](../branch/whole-stack.spec.md)).
+  [@test] ../../crates/bd-cli/src/status_test.rs (`the_stack_branch_of_a_forking_stack_in_sync_and_status`)
+  [@test] ../../crates/bd-cli/src/schema_test.rs (`outputs_match_schema`)
 - A sync (the app's and `bd sync`, which don't share the repository lock) must move a virtual branch only from the tip
   it listed at its start, or create it only while no ref of its name exists: a branch another process moved to
   another tip meanwhile must keep that tip and be `error` ("Not updated: another process moved …; sync again"), while

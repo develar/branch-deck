@@ -9,7 +9,6 @@
 
 use crate::cache::{ObjectCache, Store};
 use serde::{Serialize, de::DeserializeOwned};
-use std::sync::atomic::AtomicU64;
 use tracing::debug;
 
 /// The largest part of a conflict view kept, encoded: the conflict environment holds 8 such contents at least
@@ -48,9 +47,6 @@ impl ConflictKey {
   }
 }
 
-/// The version this process checked the store for
-static CHECKED: AtomicU64 = AtomicU64::new(0);
-
 impl ObjectCache {
   /// The cached conflict view of `key`, written by the analysis of `version`
   pub fn get_conflict_info<V: DeserializeOwned>(&self, version: u32, key: &ConflictKey) -> Option<V> {
@@ -68,7 +64,7 @@ impl ObjectCache {
     if !self.is_enabled() || infos.is_empty() {
       return;
     }
-    self.keep_only_version(Store::ConflictInfo, version, &CHECKED);
+    self.keep_only_version(Store::ConflictInfo, version);
     let mut keys = Vec::with_capacity(infos.len() * 2);
     let mut values = Vec::with_capacity(infos.len() * 2);
     for (key, info, contents) in infos {

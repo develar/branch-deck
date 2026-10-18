@@ -185,6 +185,23 @@ fn a_status() {
   );
 }
 
+/// `bd status` of a stack that forks: its stack branch is read from the listing and the object cache, without a git
+/// process of its own
+#[test]
+fn a_status_of_a_forking_stack() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  commit_subjects(&repo, &["(auth) Add a", "(auth/login) Add b", "(auth/session) Add c"]);
+  sync(&context(&repo)).unwrap();
+  let context = context(&repo);
+  let output = status(&context, &StatusArgs::default()).unwrap();
+  assert_eq!(output.stacks.len(), 1);
+  assert_processes(
+    &context,
+    &[("cat-file", 1), ("config", 1), ("for-each-ref", 1), ("log", 1), ("remote", 1), ("rev-parse", 2)],
+  );
+}
+
 /// `bd push --dry-run auth` to a local bare remote: the sync, then the push it asks the remote about. The push takes the
 /// stack, the tips, the remote tips, the remotes and the descriptions from the sync's report; besides the push only the
 /// push URL of `origin` (`remote`, for the Space and the GitHub repository) and the Space settings (`cat-file`, for the

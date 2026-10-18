@@ -494,3 +494,63 @@ fn a_sync_drops_the_stack_parent_of_an_integrated_branch() {
   let (_, status) = run_in(&repo, &["status"]);
   assert_eq!(status["idle_stack_parents"], json!(["ghost"]));
 }
+
+/// A stack that forks has its stack branch: `bd sync` builds it, and `bd status` reads its state without a sync, from
+/// the build the object cache remembers: `built` while the commits are those the ref was built of, `stale` after a new
+/// commit, `blocked` while a member has a stack problem
+#[test_log::test]
+fn the_stack_branch_of_a_forking_stack_in_sync_and_status() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  commit_subjects(&repo, &["(auth) Add auth", "(auth/login) Add login", "(docs) Add docs", "(auth/session) Add session"]);
+
+  let (_, status) = run_in(&repo, &["status"]);
+  let stale = json!({
+    "root": "auth",
+    "branch": format!("{PREFIX}/stack/auth"),
+    "state": "stale",
+    "tip": null,
+    "error": "Not the build of these commits: `bd sync` builds it or says why not",
+    "commits": 3,
+    "members": ["auth", "login", "session"],
+  });
+  assert_eq!(status["stacks"], json!([stale]));
+
+  let (exit_code, sync) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{sync}");
+  let tip = repo.rev_parse(&format!("{PREFIX}/stack/auth")).unwrap();
+  let stack = &sync["stacks"][0];
+  assert_eq!((&stack["state"], &stack["tip"], &stack["commits"]), (&json!("built"), &json!(short_id(&tip)), &json!(3)));
+  assert_eq!(stack["remote"], json!({ "exists": false, "unpushed": 3, "behind": 0, "head": null }));
+  assert_eq!(
+    git(&repo, &["log", "--format=%s", &format!("origin/master..{PREFIX}/stack/auth")]),
+    "Add session\nAdd login\nAdd auth"
+  );
+
+  let (_, status) = run_in(&repo, &["status"]);
+  let built = json!({
+    "root": "auth",
+    "branch": format!("{PREFIX}/stack/auth"),
+    "state": "built",
+    "tip": short_id(&tip),
+    "commits": 3,
+    "members": ["auth", "login", "session"],
+  });
+  assert_eq!(status["stacks"], json!([built]));
+  let (_, brief) = run_in(&repo, &["status", "--brief"]);
+  assert_eq!(brief["stacks"], json!([built]));
+  let (_, branch) = run_in(&repo, &["status", "--branch", "auth"]);
+  assert_eq!(branch.get("stacks"), None);
+
+  commit_subjects(&repo, &["(login) Validate login"]);
+  let (_, status) = run_in(&repo, &["status"]);
+  assert_eq!((&status["stacks"][0]["state"], &status["stacks"][0]["tip"]), (&json!("stale"), &json!(short_id(&tip))));
+
+  commit_subjects(&repo, &["(session/session) Loop"]);
+  let (_, status) = run_in(&repo, &["status"]);
+  let stack = &status["stacks"][0];
+  assert_eq!(
+    (&stack["state"], &stack["member"], &stack["reason"]),
+    (&json!("blocked"), &json!("session"), &json!("error"))
+  );
+}

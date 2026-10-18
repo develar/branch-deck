@@ -593,3 +593,19 @@ fn conflict_chains_are_read_by_their_version() {
   let names = database_names(&open_env(&dir.path().join("conflicts"), DEFAULT_CONFLICT_MAP_SIZE).unwrap());
   assert!(names.contains(&"conflict_chain.v1".to_string()), "{names:?}");
 }
+
+/// The builds of the stack branches are read by the build version that wrote them, in the order of their keys, and the
+/// first write of another version clears them
+#[test_log::test]
+fn stack_builds_are_read_by_their_version() {
+  let dir = tempfile::tempdir().unwrap();
+  let cache = open(dir.path());
+  let tip = "c1".to_string();
+  cache.put_stack_builds(1, &[([1; 32], &tip)]);
+  assert_eq!(cache.get_stack_builds::<String>(1, &[[2; 32], [1; 32]]), [None, Some(tip.clone())]);
+  assert_eq!(cache.get_stack_builds::<String>(2, &[[1; 32]]), [None], "a build of another version is never read");
+
+  cache.put_stack_builds(2, &[([2; 32], &tip)]);
+  assert_eq!(cache.get_stack_builds::<String>(1, &[[1; 32]]), [None]);
+  assert_eq!(cache.get_stack_builds::<String>(2, &[[2; 32]]), [Some(tip)]);
+}

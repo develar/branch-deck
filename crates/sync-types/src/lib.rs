@@ -85,6 +85,10 @@ pub enum SyncEvent {
     /// stacked branches off
     #[cfg_attr(feature = "specta", specta(optional))]
     stack_parents: BTreeMap<String, String>,
+    /// The roots of the stack branches this sync reports, each with one `StackBranchUpdate` later: the stacks that fork
+    /// and the stack branches kept for their remote branch; any other stack branch is gone
+    #[cfg_attr(feature = "specta", specta(optional))]
+    stack_branches: Vec<String>,
   },
   /// Sent for commits that don't match any prefix pattern
   UnassignedCommits { commits: Vec<Commit> },
@@ -122,6 +126,10 @@ pub enum SyncEvent {
   /// Sent when remote branch status is checked
   #[serde(rename_all = "camelCase")]
   RemoteStatusUpdate(RemoteStatusUpdate),
+  /// Sent for each stack branch `BranchesGrouped` announced, once the branches of its stack are built: its state, its
+  /// tip and its remote status
+  #[serde(rename_all = "camelCase")]
+  StackBranchUpdate(stack::StackBranchUpdate),
   /// Sent once after `BranchesGrouped`: whether the checked out branch can be updated onto the last fetched baseline
   /// (checked without the network). Both fields `None` for a local baseline, which has nothing to update from.
   #[serde(rename_all = "camelCase")]

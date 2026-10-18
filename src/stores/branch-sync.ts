@@ -15,6 +15,10 @@ import type {
   DroppedCommit,
   GroupedBranchInfo,
   RemoteStatusUpdate,
+  StackBranchConflict,
+  StackBranchState,
+  StackBranchUpdate,
+  StackMemberBlock,
   SyncEvent,
   TransferProgress,
   UpdateCheck,
@@ -113,6 +117,31 @@ export interface Branch {
 
 type MutableBranch = { -readonly [K in keyof Branch]: Branch[K] }
 
+/**
+ * The stack branch of a stack that forks (`{prefix}/stack/<root>`, `getFullStackBranchName`): all its commits in one more
+ * virtual branch, which a Safe Push of the whole stack lands in one robot, as the last sync reported it. Only a `Built`
+ * one has the stack's commits as they are; no push may send another (spec/branch/whole-stack.spec.md).
+ */
+export interface StackBranch {
+  readonly root: string
+  /** `{prefix}/stack/<root>` */
+  readonly branchName: string
+  /** The branches of the stack, the root first, each after its parent; empty for one kept for its remote branch */
+  readonly members: readonly string[]
+  readonly commitCount: number
+  readonly state: StackBranchState
+  /** The tip the sync left: its build for `Built`, else the tip the ref kept; null without a ref */
+  readonly tip: string | null
+  /** `Blocked`: the member that failed or is blocked */
+  readonly blockedBy: StackMemberBlock | null
+  /** `Conflict`: the commit that conflicts and its files */
+  readonly conflict: StackBranchConflict | null
+  /** `Stale`: why the ref is not the build of the stack's commits */
+  readonly error: string | null
+  /** null while the sync didn't compute it */
+  readonly remoteStatus: RemoteStatus | null
+}
+
 /** Whether the checked out branch can be updated onto the last fetched baseline, as the last sync checked it. */
 export interface BaselineStatus {
   /** The repository the sync checked */
@@ -172,6 +201,11 @@ export interface BranchSyncState {
   issueGroups: Readonly<Record<string, string>>
   /** Child -> parent: the stack parents the last grouping read (`refs/branch-deck/stack-parents`); empty with stacks off */
   stackParents: Readonly<Record<string, string>>
+  /**
+   * Root -> its stack branch, as the last sync reported it. A grouping keeps the ones it announces, as they were until
+   * their update comes, and drops the others.
+   */
+  stackBranches: Readonly<Record<string, StackBranch>>
 }
 
 export const branchSyncStore = createStore<BranchSyncState>(() => ({
@@ -193,6 +227,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   stacksEnabled: false,
   issueGroups: {},
   stackParents: {},
+  stackBranches: {},
 }))
 
 /**
@@ -693,6 +728,15 @@ export function setBaselineUpdate(repositoryPath: string, update: UpdateCheck): 
 
 export function getBranch(name: string): Branch | undefined {
   return branchSyncStore.getState().branches[name]
+}
+
+/** The stack branch of the stack rooted at `root`; undefined for a stack that doesn't fork or before a sync reported it */
+export function useStackBranch(root: string): StackBranch | undefined {
+  return useStore(branchSyncStore, state => state.stackBranches[root])
+}
+
+export function getStackBranch(root: string): StackBranch | undefined {
+  return branchSyncStore.getState().stackBranches[root]
 }
 
 /** The root of the stack of `name`: itself without a parent branch; cycle-safe */
@@ -1205,6 +1249,7 @@ export function resetBranchSync(): void {
     stacksEnabled: false,
     issueGroups: {},
     stackParents: {},
+    stackBranches: {},
   })
   resetArchivedBranches()
 }
@@ -1337,6 +1382,9 @@ function applySyncEvent(draft: SyncDraft, event: SyncEvent, repositoryPath: stri
       updateDraftBranch(draft, event.data.branchName, branch => withRemoteStatus(branch, remoteStatus))
       break
     }
+    case "stackBranchUpdate":
+      applyStackBranchUpdate(draft, event.data)
+      break
     case "baselineStatus": {
       const { landing, landed, ...status } = event.data
       draft.patch.baselineStatus = { repositoryPath, ...status }
@@ -1441,8 +1489,41 @@ function applyBranchesGrouped(draft: SyncDraft, data: Extract<SyncEvent, { type:
     stacksEnabled: data.stacks ?? false,
     issueGroups: sameStringRecord(issueGroups, previousGroups) ? previousGroups : issueGroups,
     stackParents: sameStringRecord(stackParents, previousStackParents) ? previousStackParents : stackParents,
+    stackBranches: announcedStackBranches(draft.patch.stackBranches ?? branchSyncStore.getState().stackBranches, data.stackBranches ?? []),
   })
   draft.ownsBranches = true
+}
+
+/** The stack branches a grouping announces, as the last sync left them until their update; the same record when it has them all */
+function announcedStackBranches(previous: Readonly<Record<string, StackBranch>>, roots: readonly string[]): Readonly<Record<string, StackBranch>> {
+  const kept: Record<string, StackBranch> = {}
+  for (const root of roots) {
+    const stackBranch = previous[root]
+    if (stackBranch !== undefined) {
+      kept[root] = stackBranch
+    }
+  }
+  return Object.keys(kept).length === Object.keys(previous).length ? previous : kept
+}
+
+function toStackBranch(update: StackBranchUpdate): StackBranch {
+  return {
+    root: update.root,
+    branchName: update.branchName,
+    members: update.members,
+    commitCount: update.commitCount,
+    state: update.state,
+    tip: update.tip,
+    blockedBy: update.blockedBy,
+    conflict: update.conflict,
+    error: update.error,
+    remoteStatus: update.remote === null ? null : toRemoteStatus(update.remote),
+  }
+}
+
+function applyStackBranchUpdate(draft: SyncDraft, update: StackBranchUpdate): void {
+  const stackBranches = draft.patch.stackBranches ?? branchSyncStore.getState().stackBranches
+  draft.patch.stackBranches = { ...stackBranches, [update.root]: toStackBranch(update) }
 }
 
 function applyCommitSynced(draft: SyncDraft, data: Extract<SyncEvent, { type: "commitSynced" }>["data"]): void {

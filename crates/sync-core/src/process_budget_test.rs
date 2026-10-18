@@ -12,6 +12,7 @@ use crate::push::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push
 use crate::remote_status::forget_statuses;
 use crate::repository_lock::RewriteOptions;
 use crate::squash::{SquashCommitsParams, squash_commits_core};
+use crate::stack_branch::forget_builds;
 use crate::sync::{SyncOptions, sync_branches};
 use crate::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
 use crate::update_project::{UpdateProjectParams, check_baseline_update, update_project_core};
@@ -52,12 +53,18 @@ fn path(repo: &TestRepo) -> String {
   repo.path().to_str().unwrap().to_string()
 }
 
-/// `origin/master` at the initial commit, then three commits of `alpha` and three of `beta` in turns; returns them
-fn repo() -> (TestRepo, Vec<String>) {
+/// A repository whose `origin/master` is its initial commit
+fn repo_on_origin() -> TestRepo {
   let repo = TestRepo::new();
   let initial = repo.create_commit("Initial commit", "README.md", "# Test Project\n");
   repo.git(&["remote", "add", "origin", "."]);
   repo.git(&["update-ref", "refs/remotes/origin/master", &initial]);
+  repo
+}
+
+/// `origin/master` at the initial commit, then three commits of `alpha` and three of `beta` in turns; returns them
+fn repo() -> (TestRepo, Vec<String>) {
+  let repo = repo_on_origin();
   let mut commits = Vec::new();
   for index in 1..=3 {
     commits.push(repo.create_commit(&format!("(alpha) Alpha {index}"), &format!("alpha-{index}.txt"), "alpha\n"));
@@ -71,7 +78,7 @@ async fn sync(git: &GitCommandExecutor, repo: &TestRepo) {
 }
 
 /// An empty object cache in a temporary directory, which the cache needs while it is open
-fn empty_cache() -> (tempfile::TempDir, ObjectCache) {
+pub(crate) fn empty_cache() -> (tempfile::TempDir, ObjectCache) {
   let dir = tempfile::tempdir().unwrap();
   let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
   (dir, cache)
@@ -142,7 +149,7 @@ fn repo_with_a_conflict() -> TestRepo {
 }
 
 /// The events of a sync of `repo` with `cache` (disabled: without the object cache) on `git`
-async fn sync_events(git: &GitCommandExecutor, repo: &TestRepo, cache: &ObjectCache) -> Vec<SyncEvent> {
+pub(crate) async fn sync_events(git: &GitCommandExecutor, repo: &TestRepo, cache: &ObjectCache) -> Vec<SyncEvent> {
   let progress = TestReporter::new();
   let options = SyncOptions {
     object_cache: cache.clone(),
@@ -191,7 +198,69 @@ async fn an_unchanged_sync_of_a_conflicting_branch() {
   assert_processes(&git, &analysed);
 
   let (_dir, cache) = empty_cache();
-  sync_with_cache(&GitCommandExecutor::new(), &repo, &cache).await;
+  assert_unchanged_with_cache(&repo, &cache).await;
+}
+
+/// A sync of `repo` with `cache`, then another one that changes nothing: it runs the processes of `UNCHANGED_SYNC`
+async fn assert_unchanged_with_cache(repo: &TestRepo, cache: &ObjectCache) {
+  sync_with_cache(&GitCommandExecutor::new(), repo, cache).await;
+  let git = counting();
+  sync_with_cache(&git, repo, cache).await;
+  assert_processes(&git, &UNCHANGED_SYNC);
+}
+
+/// `origin/master` at the initial commit and, with stacked branches on, `alpha` with two children, `beta` and
+/// `gamma`: a stack that forks, whose stack branch `test/stack/alpha` the sync builds too
+fn forking_stack_repo() -> TestRepo {
+  let repo = repo_on_origin();
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  for (index, prefix) in ["alpha", "alpha/beta", "alpha/gamma", "beta", "gamma", "alpha"].into_iter().enumerate() {
+    repo.create_commit(&format!("({prefix}) Change {index}"), &format!("file-{index}.txt"), "text\n");
+  }
+  repo
+}
+
+/// The first sync of a stack that forks: its stack branch is one more build beside the three branches, one `fast-import`
+/// (its commits are every commit ahead of the baseline here, so each copy keeps its tree and merges nothing; a
+/// `merge-tree` otherwise), its ref one more `update-ref` and its remote status one more walk (`rev-list`)
+#[tokio::test]
+async fn a_first_sync_of_a_forking_stack() {
+  let repo = forking_stack_repo();
+  let git = counting();
+  sync(&git, &repo).await;
+  assert!(repo.branch_exists("test/stack/alpha"));
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 1),
+      ("config", 1),
+      ("fast-import", 5),
+      ("for-each-ref", 1),
+      ("log", 2),
+      ("merge-base", 1),
+      ("merge-tree", 3),
+      ("notes", 1),
+      ("remote", 1),
+      ("rev-list", 4),
+      ("rev-parse", 2),
+      ("show-ref", 2),
+      ("symbolic-ref", 1),
+      ("update-ref", 4),
+      ("var", 1),
+    ],
+  );
+}
+
+/// An unchanged sync of a stack that forks runs no git for its stack branch: the build of the same commits is
+/// remembered by the process, and in a new process by the object cache, and so is its remote status
+#[tokio::test]
+async fn an_unchanged_sync_of_a_forking_stack() {
+  let repo = forking_stack_repo();
+  let (_dir, cache) = empty_cache();
+  assert_unchanged_with_cache(&repo, &cache).await;
+
+  forget_statuses();
+  forget_builds();
   let git = counting();
   sync_with_cache(&git, &repo, &cache).await;
   assert_processes(&git, &UNCHANGED_SYNC);

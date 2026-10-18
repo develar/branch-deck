@@ -1,9 +1,14 @@
+use crate::process_budget_test::{empty_cache, sync_events};
+use crate::remote_status::forget_statuses;
+use crate::stack_branch::forget_builds;
 use crate::sync::{SyncOptions, sync_branches};
+use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchError, BranchSyncStatus};
+use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use sync_test_utils::TestReporter;
-use sync_types::stack::{BranchStack, ParentSource, ParentState};
+use sync_types::stack::{BlockReason, BranchStack, ParentSource, ParentState, StackBranchConflict, StackBranchState, StackBranchUpdate, StackMemberBlock};
 use sync_types::{GroupedBranchInfo, SyncEvent};
 use test_utils::git_test_utils::TestRepo;
 
@@ -207,14 +212,19 @@ async fn a_problem_is_not_built_and_a_missing_parent_is_passed() {
   assert!(!test_repo.branch_exists("test/virtual/a"));
 }
 
-#[tokio::test]
-async fn the_unpushed_commits_of_a_child_exclude_its_parent() {
+/// `stacked_repo` with a bare `origin` that has the baseline: (the repository, the remote)
+fn stacked_repo_with_remote() -> (TestRepo, TestRepo) {
   let test_repo = stacked_repo();
   let remote = TestRepo::new_empty();
   remote.git_executor().execute_command(&["init", "--bare"], repo_path(&remote)).unwrap();
   test_repo.add_remote("origin", repo_path(&remote)).unwrap();
-  // the baseline
   test_repo.push("origin", "master").unwrap();
+  (test_repo, remote)
+}
+
+#[tokio::test]
+async fn the_unpushed_commits_of_a_child_exclude_its_parent() {
+  let (test_repo, _remote) = stacked_repo_with_remote();
   test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
   test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
   sync(&test_repo).await;
@@ -287,4 +297,300 @@ async fn turning_stacks_off_fails_the_sync_on_the_flat_child() {
   assert!(test_repo.branch_exists("test/virtual/auth"));
   assert!(!test_repo.branch_exists("test/virtual/login"));
   assert_eq!(test_repo.list_branches("test/archived/*/login").unwrap().len(), 1);
+}
+
+/// The stack branch updates of a sync, by root
+fn stack_updates(events: &[SyncEvent]) -> BTreeMap<String, StackBranchUpdate> {
+  events
+    .iter()
+    .filter_map(|event| match event {
+      SyncEvent::StackBranchUpdate(update) => Some((update.root.clone(), update.clone())),
+      _ => None,
+    })
+    .collect()
+}
+
+/// The roots of the stack branches `BranchesGrouped` announced
+fn announced_stacks(events: &[SyncEvent]) -> Vec<String> {
+  events
+    .iter()
+    .find_map(|event| match event {
+      SyncEvent::BranchesGrouped { stack_branches, .. } => Some(stack_branches.clone()),
+      _ => None,
+    })
+    .expect("BranchesGrouped is sent")
+}
+
+/// `auth` with two children, `login` and `session`, a commit of `docs` between them, and `oauth` on `login`; the
+/// commits oldest first: auth, login, docs, session, oauth, auth
+fn forking_repo() -> TestRepo {
+  let test_repo = stacked_repo();
+  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
+  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
+  test_repo.create_commit("(docs) Document", "docs.md", "docs");
+  test_repo.create_commit("(auth/session) Add session", "session.rs", "// session");
+  test_repo.create_commit("(login/oauth) Add OAuth", "oauth.rs", "// oauth");
+  test_repo.create_commit("(auth) Add logout", "logout.rs", "// logout");
+  test_repo
+}
+
+#[tokio::test]
+async fn a_forking_stack_builds_its_commits_in_history_order_as_one_branch() {
+  let test_repo = forking_repo();
+
+  let progress = TestReporter::new();
+  let report = sync_branches(test_repo.git_executor(), repo_path(&test_repo), "test", progress.clone(), SyncOptions::default())
+    .await
+    .unwrap();
+  let events = progress.get_events();
+
+  assert_eq!(announced_stacks(&events), ["auth"]);
+  let tip = rev(&test_repo, "test/stack/auth");
+  let update = &stack_updates(&events)["auth"];
+  assert_eq!(
+    (
+      update.branch_name.as_str(),
+      update.members.as_slice(),
+      update.commit_count,
+      update.state,
+      update.tip.as_deref()
+    ),
+    (
+      "test/stack/auth",
+      &["auth".to_string(), "login".to_string(), "session".to_string(), "oauth".to_string()][..],
+      5,
+      StackBranchState::Built,
+      Some(tip.as_str())
+    )
+  );
+  assert_eq!(report.stack_branches, std::slice::from_ref(update));
+  // on the base of the sync, the commits of every member in the order of the history, the prefixes stripped
+  assert_eq!(rev(&test_repo, "test/stack/auth~5"), rev(&test_repo, "master~6"));
+  assert_eq!(
+    test_repo.log(&["--format=%s", "master~6..test/stack/auth"]).unwrap().lines().collect::<Vec<_>>(),
+    ["Add logout", "Add OAuth", "Add session", "Add form", "Add auth"]
+  );
+  let mut files = test_repo
+    .git(&["ls-tree", "--name-only", "test/stack/auth"])
+    .lines()
+    .map(str::to_string)
+    .collect::<Vec<_>>();
+  files.sort_unstable();
+  assert_eq!(files, ["README.md", "auth.rs", "login.rs", "logout.rs", "oauth.rs", "session.rs"]);
+  // a copy is the one a virtual branch of the same commits on the same parent gets, the same commit
+  assert_eq!(rev(&test_repo, "test/stack/auth~4"), rev(&test_repo, "test/virtual/auth~1"));
+  assert_eq!(test_repo.log(&["-1", "--format=%cn", "test/stack/auth"]).unwrap().trim(), "branch-deck");
+}
+
+#[tokio::test]
+async fn the_stack_branch_writes_no_mapping_notes_and_sends_no_branch_events() {
+  let test_repo = forking_repo();
+
+  let events = sync(&test_repo).await;
+
+  // one note per original, naming the copy in the virtual branch of its own branch
+  let branch_of = |subject: &str| match subject {
+    "(auth) Add auth" | "(auth) Add logout" => "auth",
+    "(auth/login) Add form" => "login",
+    "(docs) Document" => "docs",
+    "(auth/session) Add session" => "session",
+    _ => "oauth",
+  };
+  let originals = test_repo.log(&["--format=%H %s", "master~6..master"]).unwrap();
+  for line in originals.lines() {
+    let (original, subject) = line.split_once(' ').unwrap();
+    let note = test_repo.show_note(original).unwrap();
+    let copy = note.lines().find_map(|line| line.strip_prefix("v-commit-v1:")).expect("a mapping note").trim().to_string();
+    let virtual_branch = format!("test/virtual/{}", branch_of(subject));
+    let status = test_utils::git_test_utils::git_command()
+      .args(["merge-base", "--is-ancestor", &copy, &virtual_branch])
+      .current_dir(test_repo.path())
+      .status()
+      .unwrap();
+    assert!(status.success(), "the note of {subject} names {copy}, a commit of {virtual_branch}");
+  }
+  // every branch event names a grouped branch; the stack branch has its own event only
+  let grouped = grouped(&events);
+  for event in &events {
+    let branch = match event {
+      SyncEvent::CommitSynced { branch_name, .. }
+      | SyncEvent::CommitError { branch_name, .. }
+      | SyncEvent::CommitsBlocked { branch_name, .. }
+      | SyncEvent::BranchStatusUpdate { branch_name, .. } => branch_name,
+      SyncEvent::RemoteStatusUpdate(update) => &update.branch_name,
+      _ => continue,
+    };
+    assert!(grouped.contains_key(branch), "{event:?}");
+  }
+  assert_eq!(events.iter().filter(|event| matches!(event, SyncEvent::StackBranchUpdate(_))).count(), 1);
+  assert_eq!(
+    final_statuses(&events).values().map(|(status, _)| *status).collect::<Vec<_>>(),
+    [BranchSyncStatus::Created; 5]
+  );
+}
+
+/// The subcommands `git` counted
+fn subcommands(git: &GitCommandExecutor) -> Vec<String> {
+  git.process_stats().unwrap().by_command().into_keys().collect()
+}
+
+/// The build of the same commits on the same base is remembered: by the process, and by the object cache for a new
+/// process; without either the stack branch is built again, to the same commit, and the ref doesn't move
+#[tokio::test]
+async fn an_unchanged_stack_reuses_its_stack_branch_without_a_git_process() {
+  let test_repo = forking_repo();
+  let (_dir, cache) = empty_cache();
+  sync_events(&GitCommandExecutor::new(), &test_repo, &cache).await;
+  let tip = rev(&test_repo, "test/stack/auth");
+
+  for new_process in [false, true] {
+    if new_process {
+      forget_builds();
+      forget_statuses();
+    }
+    let git = GitCommandExecutor::new().with_process_stats("test");
+    let events = sync_events(&git, &test_repo, &cache).await;
+    let update = &stack_updates(&events)["auth"];
+    assert_eq!((update.state, update.tip.as_deref()), (StackBranchState::Built, Some(tip.as_str())));
+    let counted = subcommands(&git);
+    for writer in ["fast-import", "merge-tree", "update-ref"] {
+      assert!(!counted.contains(&writer.to_string()), "{writer} in {counted:?}");
+    }
+  }
+
+  // a remembered tip counts only while the ref is at it: a deleted ref (its commits may be pruned since) is built again
+  test_repo.git(&["update-ref", "-d", "refs/heads/test/stack/auth"]);
+  let git = GitCommandExecutor::new().with_process_stats("test");
+  let events = sync_events(&git, &test_repo, &cache).await;
+  assert_eq!(stack_updates(&events)["auth"].tip.as_deref(), Some(tip.as_str()));
+  assert_eq!(rev(&test_repo, "test/stack/auth"), tip);
+  assert!(subcommands(&git).contains(&"fast-import".to_string()));
+
+  // a new process without the object cache builds it again, the same commit
+  forget_builds();
+  let git = GitCommandExecutor::new().with_process_stats("test");
+  let events = sync_events(&git, &test_repo, &ObjectCache::disabled()).await;
+  assert_eq!(stack_updates(&events)["auth"].tip.as_deref(), Some(tip.as_str()));
+  assert_eq!(rev(&test_repo, "test/stack/auth"), tip);
+  let counted = subcommands(&git);
+  assert!(counted.contains(&"fast-import".to_string()) && !counted.contains(&"update-ref".to_string()), "{counted:?}");
+
+  // a new commit of a member rebuilds it
+  test_repo.create_commit("(session) Expire sessions", "expire.rs", "// expire");
+  let update = stack_updates(&sync_events(&GitCommandExecutor::new(), &test_repo, &cache).await)["auth"].clone();
+  assert_eq!(update.state, StackBranchState::Built);
+  assert_ne!(update.tip.as_deref(), Some(tip.as_str()));
+  assert_eq!(rev(&test_repo, "test/stack/auth~1"), tip);
+  assert_eq!(update.commit_count, 6);
+}
+
+/// A commit of the stack that conflicts with the commits of the stack before it keeps the stack branch from being
+/// built: the ref keeps the tip of the last build, which is stale, and the update names the commit and its files. The
+/// member it belongs to conflicts too; the stack branch's own conflict is what it says
+#[tokio::test]
+async fn a_conflict_keeps_the_old_ref_stale_and_says_why() {
+  let test_repo = forking_repo();
+  sync(&test_repo).await;
+  let tip = rev(&test_repo, "test/stack/auth");
+
+  // `session` changes a file that only an unassigned commit creates
+  test_repo.create_commit("Add config", "config.txt", "a");
+  let changed = test_repo.create_commit("(session) Change config", "config.txt", "b");
+  let events = sync(&test_repo).await;
+
+  assert_eq!(final_statuses(&events)["session"].0, BranchSyncStatus::MergeConflict);
+  let update = &stack_updates(&events)["auth"];
+  assert_eq!(update.state, StackBranchState::Conflict);
+  assert_eq!(
+    update.conflict,
+    Some(StackBranchConflict {
+      commit: changed,
+      files: vec!["config.txt".to_string()],
+    })
+  );
+  assert_eq!((update.tip.as_deref(), update.commit_count), (Some(tip.as_str()), 6));
+  assert_eq!(rev(&test_repo, "test/stack/auth"), tip);
+}
+
+/// A member that can't be built blocks the stack branch, though its commits build in the order of the history: here the
+/// child's commit creates the file its parent's later commit changes, so the parent conflicts on its own. The ref is
+/// not written, and the update names the member and why
+#[tokio::test]
+async fn a_member_that_fails_blocks_the_stack_branch() {
+  let test_repo = stacked_repo();
+  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
+  test_repo.create_commit("(auth/login) Add config", "config.txt", "a");
+  test_repo.create_commit("(auth) Change config", "config.txt", "b");
+  test_repo.create_commit("(auth/session) Add session", "session.rs", "// session");
+
+  let events = sync(&test_repo).await;
+
+  assert_eq!(final_statuses(&events)["auth"].0, BranchSyncStatus::MergeConflict);
+  let update = &stack_updates(&events)["auth"];
+  assert_eq!((update.state, update.tip.as_deref()), (StackBranchState::Blocked, None));
+  assert_eq!(
+    update.blocked_by,
+    Some(StackMemberBlock {
+      member: "auth".to_string(),
+      reason: BlockReason::Conflict,
+    })
+  );
+  assert!(!test_repo.branch_exists("test/stack/auth"));
+}
+
+/// A stack that stops forking loses its stack branch, which a delete with compare-and-swap removes; one with a remote
+/// branch stays, stale and without members, for the user to decide on
+#[tokio::test]
+async fn a_stack_that_no_longer_forks_loses_its_stack_branch_unless_it_is_on_the_remote() {
+  let (test_repo, _remote) = stacked_repo_with_remote();
+  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
+  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
+  let straight = test_repo.head();
+  test_repo.create_commit("(auth/session) Add session", "session.rs", "// session");
+  let forking = test_repo.head();
+  sync(&test_repo).await;
+  assert!(test_repo.branch_exists("test/stack/auth"));
+
+  // without a remote branch: deleted
+  test_repo.reset_hard(&straight).unwrap();
+  let events = sync(&test_repo).await;
+  assert!(!test_repo.branch_exists("test/stack/auth"));
+  assert_eq!(announced_stacks(&events), Vec::<String>::new());
+  assert!(stack_updates(&events).is_empty());
+
+  // with one: kept
+  test_repo.reset_hard(&forking).unwrap();
+  sync(&test_repo).await;
+  let pushed = rev(&test_repo, "test/stack/auth");
+  test_repo.push("origin", "test/stack/auth").unwrap();
+  test_repo.reset_hard(&straight).unwrap();
+  let events = sync(&test_repo).await;
+  assert_eq!(rev(&test_repo, "test/stack/auth"), pushed);
+  assert_eq!(announced_stacks(&events), ["auth"]);
+  let update = &stack_updates(&events)["auth"];
+  assert_eq!(
+    (update.state, update.tip.as_deref(), update.members.len()),
+    (StackBranchState::Stale, Some(pushed.as_str()), 0)
+  );
+  assert_eq!(
+    update.error.as_deref(),
+    Some("Not rebuilt: auth heads no stack that forks; the ref stays for its remote branch")
+  );
+  let remote_status = update.remote.as_ref().expect("its remote status");
+  assert!(remote_status.remote_exists && remote_status.unpushed_commits.is_empty());
+}
+
+#[tokio::test]
+async fn a_straight_stack_has_none() {
+  let test_repo = stacked_repo();
+  test_repo.create_commit("(auth) Add auth", "auth.rs", "// auth");
+  test_repo.create_commit("(auth/login) Add form", "login.rs", "// login");
+  test_repo.create_commit("(login/oauth) Add OAuth", "oauth.rs", "// oauth");
+  test_repo.create_commit("(docs) Document", "docs.md", "docs");
+
+  let events = sync(&test_repo).await;
+
+  assert_eq!(announced_stacks(&events), Vec::<String>::new());
+  assert!(stack_updates(&events).is_empty());
+  assert_eq!(test_repo.list_branches("test/stack/*").unwrap(), Vec::<String>::new());
 }

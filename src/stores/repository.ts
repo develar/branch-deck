@@ -135,6 +135,11 @@ export function getFullBranchName(branchName: string): string {
   return `${getEffectiveBranchPrefix()}/virtual/${branchName}`
 }
 
+/** Full git branch name of the stack branch of a stack that forks, all its commits in one branch: `john/stack/auth` */
+export function getFullStackBranchName(root: string): string {
+  return `${getEffectiveBranchPrefix()}/stack/${root}`
+}
+
 export const vcsRequestFactory = new VcsRequestFactory(() => getSelectedProject()?.path ?? "", getEffectiveBranchPrefix)
 
 // ---- actions ----

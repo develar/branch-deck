@@ -170,6 +170,25 @@ fn outputs_match_schema() {
   let (_, undo) = run_in(&repo, &["undo", rewrite["undo_token"].as_str().unwrap()]);
   assert_covered(&schema["outputs"]["undo"], &schema["outputs"]["undo"], &undo, "undo of issue groups");
 
+  // a stack that forks: its stack branch in the sync and the status
+  write(&repo, "d.txt", "d\n");
+  commit_all(&repo, "(PROJ-1/side) Add d", 1_700_000_500);
+  write(&repo, "e.txt", "e\n");
+  commit_all(&repo, "(PROJ-1/other) Add e", 1_700_000_600);
+  let (_, sync) = run_in(&repo, &["sync"]);
+  assert_eq!(sync["stacks"][0]["state"], json!("built"), "{sync}");
+  assert_covered(&schema["outputs"]["sync"], &schema["outputs"]["sync"], &sync, "sync with a stack branch");
+  let (_, status) = run_in(&repo, &["status"]);
+  assert_eq!(status["stacks"][0]["state"], json!("built"), "{status}");
+  assert_covered(&schema["outputs"]["status"], &schema["outputs"]["status"], &status, "status with a stack branch");
+  let (_, brief) = run_in(&repo, &["status", "--brief"]);
+  assert_covered(
+    &schema["outputs"]["status_brief"],
+    &schema["outputs"]["status_brief"],
+    &brief,
+    "status_brief with a stack branch",
+  );
+
   let (_, error) = run_in(&repo, &["status", "--branch", "missing"]);
   assert_covered(&schema["outputs"]["error"], &schema["outputs"]["error"], &error, "error");
 }

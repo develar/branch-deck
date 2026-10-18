@@ -35,8 +35,9 @@ pub(crate) struct BranchSyncContext<P: ProgressReporter> {
   pub tree_id_cache: TreeIdCache,
   /// Full name -> tip of every existing virtual branch, read with one `for-each-ref` per sync
   pub existing_tips: HashMap<String, String>,
-  /// The remote statuses on the commits read once per sync (the remote tips, the baseline); `None` reads them per branch
-  pub remote_statuses: Option<RemoteStatusMemo>,
+  /// The remote statuses on the commits read once per sync (the remote tips, the baseline), shared with the stack
+  /// branches of the sync; `None` reads them per branch
+  pub remote_statuses: Option<Arc<RemoteStatusMemo>>,
   /// The commits of all existing virtual branches, read once per sync (once per session of checks, which share them);
   /// `None` reads them per branch
   pub existing_commits: Option<Arc<ExistingCommits>>,
@@ -477,7 +478,7 @@ pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, bui
 }
 
 /// How the move of a virtual branch ended
-enum BranchMove {
+pub(crate) enum BranchMove {
   /// The ref is at the new head: moved by this sync, or by another one to the same copy
   Written,
   /// Another process moved the ref to this tip (`None`: deleted it) since the sync listed it
@@ -487,7 +488,7 @@ enum BranchMove {
 /// Moves `refs/heads/<full_branch_name>` from `old_tip` (`None`: no such ref) to `head` in one CAS transaction. A
 /// failed transaction whose ref is at neither `head` nor `old_tip` any more lost to another writer; any other failure is
 /// not about the old value and is returned
-fn move_branch(git_executor: &GitCommandExecutor, repository_path: &str, full_branch_name: &str, head: &str, old_tip: Option<&str>) -> Result<BranchMove> {
+pub(crate) fn move_branch(git_executor: &GitCommandExecutor, repository_path: &str, full_branch_name: &str, head: &str, old_tip: Option<&str>) -> Result<BranchMove> {
   let reference = format!("refs/heads/{full_branch_name}");
   let mut transaction = RefTransaction::new();
   match old_tip {

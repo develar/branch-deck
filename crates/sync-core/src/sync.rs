@@ -1,6 +1,7 @@
 //! The sync of the virtual branches (`sync_branches`): the guards, the facts and the grouping read once, one build per
-//! branch in parallel beside the detection of the archived branches, then one notes write; the events reach the app as
-//! they happen (docs/design/git-operations.md, "Virtual branch sync").
+//! branch in parallel beside the detection of the archived branches and the builds of the stack branches, then one
+//! notes write and the stack branches' refs; the events reach the app as they happen (docs/design/git-operations.md,
+//! "Virtual branch sync").
 
 use crate::branch_processor::{BranchJob, BranchNotes, BranchSyncContext, BuildOutcome, BuiltBranch, ExistingCommits, build_branch, finish_branch};
 use crate::cache_memo::ConflictMemo;
@@ -15,6 +16,7 @@ use crate::remote_status::RemoteStatusMemo;
 use crate::repo_facts::{RepoFacts, read_repo_facts};
 use crate::snapshot::read_grouping_inputs_with;
 use crate::stack::{PendingDetection, StackForest, describe_block, describe_problem, empty_parent_states_listed, place_branches};
+use crate::stack_branch::{BuildResult, StackBranchSync, StackBuilds, StackFinish, build_planned, finish_stack_branches, plan_stack_branches};
 use crate::stack_parents::{drop_integrated_stack_parents, integrated_children};
 use crate::update_project::{BaselineCheck, BaselineUpstream, KnownBaseline, check_known_baseline_update};
 use anyhow::{Result, anyhow};
@@ -39,7 +41,7 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 use std::sync::Arc;
 use sync_types::issue_navigation::IssueNavigationConfig;
-use sync_types::stack::{BlockReason, BranchStack, StackBlock};
+use sync_types::stack::{BlockReason, BranchStack, StackBlock, StackBranchUpdate};
 use sync_types::{BranchOrigin, GroupedBranchInfo, ProgressReporter, SyncEvent};
 use sync_utils::issue_pattern::{find_issue_number, find_issue_range, has_issue_reference};
 use tokio::task::JoinSet;
@@ -250,6 +252,9 @@ pub struct SyncReport {
   pub remote_tips: HashMap<String, String>,
   /// The `branchdeck.*` settings and the branch descriptions (`bd describe`), as the sync read them
   pub config: ConfigSnapshot,
+  /// The stack branches as the `StackBranchUpdate` events sent them: of each stack that forks, then those kept for
+  /// their remote branch
+  pub stack_branches: Vec<StackBranchUpdate>,
 }
 
 /// Result of the sequential first phase of a sync
@@ -271,6 +276,8 @@ struct PreparedSync {
   /// With stacked branches on, the children of the stack parents that no branch on this HEAD reaches: the detection of
   /// the archived branches drops the lines of those that are integrated
   idle_stack_parents: Vec<String>,
+  /// The stack branches: the stacks that fork, and the listed stack branches the sync keeps or deletes
+  stack_branches: StackBranchSync,
   /// The update check, started once the baseline is known; sends `BaselineStatus` whenever it is done
   update_check: tokio::task::JoinHandle<Result<()>>,
 }
@@ -278,7 +285,7 @@ struct PreparedSync {
 /// The remote tips of the grouped virtual branches and the baseline commit, read once per sync for the remote statuses
 struct RemoteTips {
   baseline: String,
-  /// Full name of the virtual branch -> tip of its remote branch on `origin`
+  /// Full name of the virtual branch or the stack branch -> tip of its remote branch on `origin`
   remote: HashMap<String, String>,
 }
 
@@ -355,9 +362,13 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     move || send_baseline_status(&git_executor, &repository_path, baseline_branch, known.as_ref(), &grouping, &progress)
   });
 
-  // Use streaming commit processing
+  // Use streaming commit processing; with stacked branches the order of the history too, for the stack branches
   let mut grouper = CommitGrouper::new_with(&grouping);
+  let mut commit_ids = Vec::new();
   get_commit_list_with_handler(git_executor, repository_path, &baseline_branch, |commit| {
+    if grouping.stacks {
+      commit_ids.push(commit.id.clone());
+    }
     grouper.add_commit(commit);
     Ok(())
   })?;
@@ -382,21 +393,10 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     commits: unassigned.into_iter().rev().collect(),
   })?;
 
-  let (remote_tips, description_titles) = if branches.is_empty() {
-    (None, HashMap::new())
+  let description_titles = if branches.is_empty() {
+    HashMap::new()
   } else {
-    // the remote branches of the grouped branches: the push times are read for them, not for remote branches whose
-    // group is gone
-    let remote = branches
-      .keys()
-      .filter_map(|name| to_final_branch_name(branch_prefix, name).ok())
-      .filter_map(|full_name| Some((full_name.clone(), facts.remote_tips.get(&full_name)?.clone())))
-      .collect();
-    let remote_tips = RemoteTips {
-      baseline: facts.baseline_commit.clone(),
-      remote,
-    };
-    (Some(remote_tips), description_titles(config.descriptions(), branch_prefix))
+    description_titles(config.descriptions(), branch_prefix)
   };
   let stacks = match &forest {
     Some(forest) => {
@@ -413,6 +413,32 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     None => None,
   };
 
+  let plans = match (&forest, &stacks) {
+    (Some(forest), Some(placements)) => {
+      let commits: HashMap<&str, &[Commit]> = branches.iter().map(|(name, commits)| (name.as_str(), commits.as_slice())).collect();
+      let positions: HashMap<&str, usize> = commit_ids.iter().enumerate().map(|(index, id)| (id.as_str(), index)).collect();
+      plan_stack_branches(branch_prefix, &forest.order, placements, &commits, &positions)
+    }
+    _ => Vec::new(),
+  };
+  let stack_branches = StackBranchSync::new(plans, &facts.branches, branch_prefix, &facts.remote_tips);
+  let remote_tips = if branches.is_empty() && stack_branches.kept.is_empty() {
+    None
+  } else {
+    // the remote branches of the grouped branches and the reported stack branches: the push times are read for them,
+    // not for remote branches whose group is gone
+    let remote = branches
+      .keys()
+      .filter_map(|name| to_final_branch_name(branch_prefix, name).ok())
+      .chain(stack_branches.full_names().map(str::to_string))
+      .filter_map(|full_name| Some((full_name.clone(), facts.remote_tips.get(&full_name)?.clone())))
+      .collect();
+    Some(RemoteTips {
+      baseline: facts.baseline_commit.clone(),
+      remote,
+    })
+  };
+
   let grouped = prepare_branches_for_ui(&branches, &branch_emails, stacks.as_ref(), &description_titles);
   let report = SyncReport {
     baseline: baseline_branch.clone(),
@@ -427,6 +453,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     tips: HashMap::new(),
     remote_tips: facts.remote_tips.clone(),
     config,
+    stack_branches: Vec::new(),
   };
   progress.send(SyncEvent::BranchesGrouped {
     branches: grouped,
@@ -434,6 +461,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     stacks: stacks.is_some(),
     issue_groups: grouping.issue_groups.entries,
     stack_parents: if grouping.stacks { grouping.stack_parents.entries } else { BTreeMap::new() },
+    stack_branches: stack_branches.reported_roots(),
   })?;
 
   let tree_id_cache = seeded_tree_cache(tree_id_cache, branches.values().flatten());
@@ -454,6 +482,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     remote_tips,
     stacks,
     idle_stack_parents,
+    stack_branches,
     update_check,
   })
 }
@@ -564,11 +593,20 @@ fn report_not_built(progress: &dyn ProgressReporter, job: &BranchJob, status: Br
   });
 }
 
+/// What `process_branches` did
+#[derive(Default)]
+struct ProcessedBranches {
+  /// Full name -> the tip after its finish of each finished branch (`BranchNotes::tip`)
+  tips: HashMap<String, Option<String>>,
+  /// Branch -> why it was not built: a stack problem or a failure (`Error`), a merge conflict, a block by its parent
+  failed: HashMap<String, BlockReason>,
+}
+
 /// Rebuild every virtual branch on the blocking pool, each task in a slot of `permits` (shared with the integration
-/// detection, which runs beside), then write the mapping notes and the stack notes of all of them in one `fast-import`
-/// run. A stacked branch starts once its parent's head is written, built on that head; a branch waiting for its parent
-/// holds no slot. A parent that fails blocks its descendants. Returns the full name and the tip after its finish of each
-/// finished branch (`BranchNotes::tip`), or the first failure, naming its branch.
+/// detection and the stack branches, which run beside), then write the mapping notes and the stack notes of all of them
+/// in one `fast-import` run. A stacked branch starts once its parent's head is written, built on that head; a branch
+/// waiting for its parent holds no slot. A parent that fails blocks its descendants. Returns the tips of the finished
+/// branches and the branches not built, or the first failure, naming its branch.
 async fn process_branches<P: ProgressReporter + Clone + 'static>(
   context: BranchSyncContext<P>,
   branches: IndexMap<String, Vec<Commit>>,
@@ -576,8 +614,9 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
   base_commit: String,
   stacks: Option<IndexMap<String, BranchStack>>,
   permits: ProcessPermits,
-) -> Result<HashMap<String, Option<String>>> {
+) -> Result<ProcessedBranches> {
   let context = Arc::new(context);
+  let mut failed: HashMap<String, BlockReason> = HashMap::new();
   let max_running = permits.capacity();
   let grouped_refs: HashSet<String> = branches
     .keys()
@@ -605,10 +644,12 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
     if let Some(stack) = stack {
       if let Some(problem) = stack.problems.first() {
         report_not_built(&context.progress, &job, BranchSyncStatus::Error, describe_problem(problem));
+        failed.insert(job.branch_name, BlockReason::Error);
         continue;
       }
       if let Some(block) = &stack.blocked_by {
         report_not_built(&context.progress, &job, BranchSyncStatus::Blocked, describe_block(block));
+        failed.insert(job.branch_name, BlockReason::Blocked);
         continue;
       }
       if let Some(parent) = &stack.effective_base {
@@ -681,7 +722,7 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
     }
 
     let Some(joined) = tasks.join_next().await else { break };
-    let failed = match joined {
+    let failure = match joined {
       Ok(TaskOutput::Built(branch_name, Ok(BuildOutcome::Built(built)))) => {
         schedule.release_children(&branch_name, &built.head);
         to_finish.push(*built);
@@ -712,15 +753,18 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
         None
       }
     };
-    if let Some((branch_name, reason)) = failed {
+    if let Some((branch_name, reason)) = failure {
       for (job, block) in schedule.block_descendants(&branch_name, reason) {
         report_not_built(&context.progress, &job, BranchSyncStatus::Blocked, describe_block(&block));
+        failed.insert(job.branch_name, BlockReason::Blocked);
       }
+      failed.insert(branch_name, reason);
     }
   }
   // a branch whose parent's task panicked is still waiting
   for job in schedule.jobs.values() {
     report_not_built(&context.progress, job, BranchSyncStatus::Blocked, "Blocked: the parent branch failed".to_string());
+    failed.insert(job.branch_name.clone(), BlockReason::Blocked);
   }
 
   // the notes only save copying the commits again; the copies are deterministic, so a lost note costs time, not ids
@@ -734,8 +778,43 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
   .map_err(|e| anyhow!("Writing the commit notes failed: {e}"))?;
   match first_error {
     Some(e) => Err(e),
-    None => notes_result.map(|()| tips).map_err(|e| e.context("Failed to write commit notes")),
+    None => notes_result
+      .map(|()| ProcessedBranches { tips, failed })
+      .map_err(|e| e.context("Failed to write commit notes")),
   }
+}
+
+/// The build of each stack branch of `stacks` on the blocking pool, each task in a slot of `permits`, beside the builds
+/// of the virtual branches: in the order of the plans, `None` for a plan its placement blocks or whose task panicked
+async fn build_stack_branches(
+  git_executor: GitCommandExecutor,
+  repository_path: String,
+  stacks: Arc<StackBranchSync>,
+  builds: Arc<StackBuilds>,
+  tree_id_cache: TreeIdCache,
+  base: Option<String>,
+  permits: ProcessPermits,
+) -> Vec<Option<BuildResult>> {
+  let mut results: Vec<Option<BuildResult>> = stacks.plans.iter().map(|_| None).collect();
+  let Some(base) = base else { return results };
+  let mut tasks = JoinSet::new();
+  for index in (0..stacks.plans.len()).filter(|index| stacks.plans[*index].blocked_by.is_none()) {
+    let (stacks, builds, tree_id_cache, permits, base) = (Arc::clone(&stacks), Arc::clone(&builds), tree_id_cache.clone(), permits.clone(), base.clone());
+    let (git_executor, repository_path) = (git_executor.clone(), repository_path.clone());
+    tasks.spawn_blocking(move || {
+      let _permit = permits.acquire();
+      let plan = &stacks.plans[index];
+      let listed_tip = stacks.tips.get(&plan.full_name).map(String::as_str);
+      (index, build_planned(&git_executor, &repository_path, &tree_id_cache, &builds, &base, plan, listed_tip))
+    });
+  }
+  while let Some(joined) = tasks.join_next().await {
+    match joined {
+      Ok((index, result)) => results[index] = result,
+      Err(e) => error!(error = %e, "Stack branch task failed"),
+    }
+  }
+  results
 }
 
 /// Sync virtual branches: group the commits ahead of the baseline by prefix, rebuild one virtual branch per group,
@@ -785,6 +864,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     remote_tips,
     stacks,
     idle_stack_parents,
+    stack_branches,
     update_check,
   } = task
     .spawn(move |git_executor, repository_path, branch_prefix, progress| {
@@ -859,24 +939,47 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       Some((full_name.clone(), existing_tips.get(&full_name)?.clone()))
     })
     .collect();
-  let processing = async {
+  // the remote statuses of the virtual branches and of the stack branches, on the commits read once
+  let remote_statuses = remote_tips.map(|RemoteTips { baseline, remote }| {
+    Arc::new(RemoteStatusMemo::new(
+      git_executor.clone(),
+      repository_path,
+      object_cache.clone(),
+      "origin",
+      baseline,
+      remote,
+    ))
+  });
+  let stack_branches = Arc::new(stack_branches);
+  let stack_builds = Arc::new(StackBuilds::new(object_cache.clone()));
+  // the stack branches are built beside the virtual branches, from the same originals and trees
+  let stack_building = build_stack_branches(
+    git_executor.clone(),
+    repository_path.to_string(),
+    Arc::clone(&stack_branches),
+    Arc::clone(&stack_builds),
+    tree_id_cache.clone(),
+    first_parent_id.clone(),
+    permits.clone(),
+  );
+  let context_statuses = remote_statuses.clone();
+  let branch_processing = async {
     if branches.is_empty() {
       info!("No commits ahead of baseline, only checking for integrated branches");
-      return Ok(HashMap::new());
+      return Ok(ProcessedBranches::default());
     }
-    let parent_commit_hash = first_parent_id.ok_or_else(|| anyhow!("The oldest commit ahead of the baseline has no parent"))?;
+    let parent_commit_hash = first_parent_id.clone().ok_or_else(|| anyhow!("The oldest commit ahead of the baseline has no parent"))?;
     let context = BranchSyncContext {
       repository_path: repository_path.to_string(),
       branch_prefix: branch_prefix.to_string(),
       baseline_branch,
       total_branches: branches.len(),
-      progress,
+      progress: progress.clone(),
       git_executor: git_executor.clone(),
       tree_id_cache,
       existing_commits: Some(Arc::new(ExistingCommits::new(&parent_commit_hash, existing_tips.values().cloned()))),
       existing_tips,
-      remote_statuses: remote_tips
-        .map(|RemoteTips { baseline, remote }| RemoteStatusMemo::new(git_executor.clone(), repository_path, object_cache.clone(), "origin", baseline, remote)),
+      remote_statuses: context_statuses,
       conflict_chains: object_cache.is_enabled().then(|| ChainMemo::new(object_cache)),
       conflict_tips,
       ancestor_keys: ancestor_keys(&branches, stacks.as_ref()),
@@ -885,17 +988,45 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
         stacks.as_ref().and_then(|stacks| stacks.get(name)).and_then(|stack| stack.effective_base.as_deref())
       }),
     };
-    process_branches(context, branches, branch_emails, parent_commit_hash, stacks, permits).await
+    process_branches(context, branches, branch_emails, parent_commit_hash, stacks, permits.clone()).await
+  };
+  let processing = async {
+    let (processed, stack_results) = tokio::join!(branch_processing, stack_building);
+    let processed = processed?;
+    // the stack branches once their members are built: the refs, the deletes and the events
+    let stack_updates = task
+      .spawn(move |git_executor, repository_path, _, progress| {
+        let failed = processed.failed;
+        let finish = StackFinish {
+          git_executor,
+          repository_path,
+          remote_statuses: remote_statuses.as_deref(),
+          failed: &failed,
+        };
+        let updates = finish_stack_branches(&finish, &stack_branches, stack_results);
+        for update in &updates {
+          let _ = progress.send(SyncEvent::StackBranchUpdate(update.clone()));
+        }
+        // their writes to the object cache, here on the blocking pool
+        drop(remote_statuses);
+        drop(stack_builds);
+        updates
+      })
+      .await
+      .map_err(|e| anyhow!("Stack branch task failed: {e}"))?;
+    anyhow::Ok((processed.tips, stack_updates))
   };
 
   // join (not try_join) so a failure on one side doesn't orphan the other
   let (processing_result, detection_result, update_check_result) = tokio::join!(processing, detection, update_check);
-  for (full_name, tip) in processing_result? {
+  let (tips, stack_updates) = processing_result?;
+  for (full_name, tip) in tips {
     match tip {
       Some(tip) => report.tips.insert(full_name, tip),
       None => report.tips.remove(&full_name),
     };
   }
+  report.stack_branches = stack_updates;
   update_check_result.map_err(|e| anyhow!("Update check task failed: {e}"))??;
   detection_result.map_err(|e| anyhow!("Integration detection task failed: {e}"))??;
   Ok(report)

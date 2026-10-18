@@ -341,6 +341,13 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   copies a sync wrote of a conflicting branch's commits before its conflict, which its view merges onto and the object
   cache remembers (`conflict_chain`). Only a sync writes them, in one CAS transaction per sync after the branches, only
   when one changes; a failed move fails no sync (listed again, a ref already where it should be counts as moved).
+- **Stack branches** (`{prefix}/stack/<root>`, `crates/sync-core/src/stack_branch.rs`): only a sync writes them, for a
+  stack that forks: its members' original commits in history order on the base of the sync, in one `CommitChain`,
+  without mapping notes (an original's note names the copy of its own branch) and without branch events; moved with
+  CAS on the tip the sync listed, and only when every member was built; deleted in one CAS transaction once the stack
+  stops forking, never while it has a remote branch or a worktree has it checked out. A stack branch the sync did not
+  rebuild (any state but `Built`) keeps its tip and is never pushed. Its build is remembered by a hash of the base and
+  the original ids (`StackBuilds`, the object cache's `stack_branch`), never by `CommitKey`, which an amend keeps.
 - **Repository lock**: every rewrite of the checked-out branch takes it in its core, before it reads anything: the
   regroup (`regroup.rs`) and the move of a hunk through their options, and the app's squash and its undo, squash
   fixups (also `bd fold`), amend, unapply, reword and add issue reference through `RewriteOptions` (`held_lock`,
@@ -455,6 +462,7 @@ headers of `crates/git-ops/src/lib.rs` and `crates/sync-core/src/lib.rs` map the
 | `read_descriptions`, `write_description`, `clear_description` | `git_ops::branch_description` | the pull request text of a branch |
 | `to_final_branch_name`, `qualified_branch_name`, `strip_branch_namespace`, `sanitize_branch_name` | `git_ops::branch_names` | `{prefix}/virtual/<name>` and the other namespaces under the prefix; a group name valid in a ref |
 | `RepoFacts`, `read_baseline_listing` | `sync_core::repo_facts` | the baseline, HEAD, upstream and the branches under the prefix, read once per sync |
+| `plan_stack_branches`, `StackBuilds`, `read_stack_branches` | `sync_core::stack_branch` | the stack branch of a stack that forks: its members and commits, its remembered builds, its state without a sync |
 | `ConfigSnapshot` | `sync_core::config_snapshot` | the `branchdeck.*` settings and the descriptions from one `git config` |
 | `Snapshot`, `CommitsAhead`, `read_grouping_inputs` | `sync_core::snapshot` | the commits ahead of the baseline and what groups them, once per operation |
 | `LineStore`; `ISSUE_GROUPS`, `STACK_PARENTS` | `sync_core::store_lines`; `issue_groups`, `stack_parents` | a `key<TAB>value` map in a ref of its own: read, CAS write |

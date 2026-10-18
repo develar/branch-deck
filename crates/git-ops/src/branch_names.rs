@@ -1,5 +1,5 @@
-//! The names of the branches Branch Deck manages under the user's prefix (`{prefix}/virtual/<name>`, `BranchKind`), the
-//! prefix itself, and a group name made valid for a ref.
+//! The names of the branches Branch Deck manages under the user's prefix (`{prefix}/virtual/<name>`,
+//! `{prefix}/stack/<root>`, `BranchKind`), the prefix itself, and a group name made valid for a ref.
 
 use anyhow::ensure;
 
@@ -12,6 +12,8 @@ pub enum BranchKind {
   Unapplied,
   /// `{prefix}/archived/{YYYY-MM-DD}/{name}`: virtual branches a sync archived (the name here includes the date)
   Archived,
+  /// `{prefix}/stack/{root}`: the whole stack of `root` as one branch, which a sync builds for a stack that forks
+  Stack,
 }
 
 impl BranchKind {
@@ -20,6 +22,7 @@ impl BranchKind {
       Self::Virtual => "virtual",
       Self::Unapplied => "unapplied",
       Self::Archived => "archived",
+      Self::Stack => "stack",
     }
   }
 }
@@ -43,6 +46,11 @@ pub fn qualified_branch_name(branch_prefix: &str, kind: BranchKind, branch_name:
 /// Build the virtual branch name `{prefix}/virtual/{name}`
 pub fn to_final_branch_name(branch_prefix: &str, branch_name: &str) -> anyhow::Result<String> {
   qualified_branch_name(branch_prefix, BranchKind::Virtual, branch_name)
+}
+
+/// Build the stack branch name `{prefix}/stack/{root}`: all commits of the stack of `root` in one branch
+pub fn to_stack_branch_name(branch_prefix: &str, root: &str) -> anyhow::Result<String> {
+  qualified_branch_name(branch_prefix, BranchKind::Stack, root)
 }
 
 /// Strip `{prefix}/{kind}/` from a full branch name, e.g. "user/virtual/feature-auth" -> "feature-auth"

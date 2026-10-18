@@ -185,19 +185,8 @@ pub(crate) fn conflict_key(commits: CherryCommits<'_>) -> ConflictKey {
   }
 }
 
+/// Remembers no merge and no commit tree (the defaults of `MergeMemo`)
 impl MergeMemo for ConflictMemo {
-  fn merge(&self, _trees: &MergeTrees) -> Option<MergeOutcome> {
-    None
-  }
-
-  fn remember_merge(&self, _trees: &MergeTrees, _result: &MergeOutcome) {}
-
-  fn commit_tree(&self, _commit: &str) -> Option<String> {
-    None
-  }
-
-  fn remember_commit_tree(&self, _commit: &str, _tree: &str) {}
-
   fn conflict(&self, commits: CherryCommits<'_>) -> Option<MergeConflictInfo> {
     let key = conflict_key(commits);
     if let Some((info, _)) = self.pending().get(&key) {

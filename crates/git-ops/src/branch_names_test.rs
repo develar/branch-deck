@@ -1,4 +1,6 @@
-use crate::branch_names::{BranchKind, is_valid_branch_prefix, normalize_branch_prefix, qualified_branch_name, sanitize_branch_name, strip_branch_namespace, to_final_branch_name};
+use crate::branch_names::{
+  BranchKind, is_valid_branch_prefix, normalize_branch_prefix, qualified_branch_name, sanitize_branch_name, strip_branch_namespace, to_final_branch_name, to_stack_branch_name,
+};
 
 #[test]
 fn test_to_final_branch_name_valid_inputs() {
@@ -86,6 +88,18 @@ fn test_qualified_branch_name_and_strip_namespace() {
   assert_eq!(strip_branch_namespace(&unapplied, "user", BranchKind::Virtual), None);
   assert_eq!(strip_branch_namespace("user/virtual/a/b", "user/", BranchKind::Virtual), Some("a/b"));
   assert_eq!(strip_branch_namespace("username/virtual/a", "user", BranchKind::Virtual), None);
+}
+
+/// The whole stack of a root is one branch of its own namespace: neither a virtual nor an archived branch
+#[test]
+fn the_stack_branch_of_a_root_is_in_its_own_namespace() {
+  let stack = to_stack_branch_name("user/", "auth").unwrap();
+  assert_eq!(stack, "user/stack/auth");
+  assert_eq!(strip_branch_namespace(&stack, "user", BranchKind::Stack), Some("auth"));
+  assert_eq!(strip_branch_namespace(&stack, "user", BranchKind::Virtual), None);
+  assert_eq!(strip_branch_namespace("user/virtual/stack/auth", "user", BranchKind::Stack), None);
+  assert_eq!(to_stack_branch_name("user", "").unwrap_err().to_string(), "branch name cannot be blank");
+  to_stack_branch_name("user", "a b").unwrap_err();
 }
 
 #[test]

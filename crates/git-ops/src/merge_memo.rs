@@ -75,11 +75,16 @@ pub struct CherryCommits<'a> {
   pub target: &'a str,
 }
 
+/// What a memo remembers; each kind it doesn't is left at its default, which remembers nothing
 pub trait MergeMemo: Send + Sync {
-  fn merge(&self, trees: &MergeTrees) -> Option<MergeOutcome>;
-  fn remember_merge(&self, trees: &MergeTrees, result: &MergeOutcome);
-  fn commit_tree(&self, commit: &str) -> Option<String>;
-  fn remember_commit_tree(&self, commit: &str, tree: &str);
+  fn merge(&self, _trees: &MergeTrees) -> Option<MergeOutcome> {
+    None
+  }
+  fn remember_merge(&self, _trees: &MergeTrees, _result: &MergeOutcome) {}
+  fn commit_tree(&self, _commit: &str) -> Option<String> {
+    None
+  }
+  fn remember_commit_tree(&self, _commit: &str, _tree: &str) {}
   /// Report a conflict with its files only (`MergeConflictInfo::light`), without the conflict analysis a conflict
   /// view needs: for a dry run that only asks whether branches build
   fn light_conflicts(&self) -> bool {

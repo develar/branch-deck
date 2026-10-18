@@ -93,7 +93,10 @@ Workflow:
    nothing was pushed, and bd fetched it. For a branch behind or rejected, `error.branches[].remote.dropped_commits`
    lists what a push drops: show it, and only after the user approves,
    `bd push <branch> --force --expect-remote <remote.head>`. `bd sync` prints the push each branch needs as `push`,
-   ready to run as written once the user approved it.
+   ready to run as written once the user approved it. With stacked branches, `stacks` in `bd sync` and `bd status`
+   is the stack branch of each stack that forks, `{prefix}/stack/<root>`: all its commits in one branch, for a Safe
+   Push of the whole stack (`state`: `built`, `blocked` by `member`, `conflict`, `stale`); push none that isn't
+   `built`.
 5. A Patronus Safe Push (the repository on Space, the Safe Push CLI logged in once, else `not_logged_in`): first
    `bd safe-push <branch> --check`. It prints the merge `profile` (default: the one of the last robot of the
    branch), the `profiles` to choose from, the code-owner `review` (`readiness`: `not_required`, `approved`,

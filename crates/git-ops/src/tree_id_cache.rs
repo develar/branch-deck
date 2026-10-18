@@ -40,6 +40,17 @@ impl TreeIdCache {
     }
   }
 
+  /// The same trees and dates, shared with this cache, with `memo` instead of its merge memo: a build that wants
+  /// another conflict report (`MergeMemo::light_conflicts`) than the other builds of its operation
+  #[must_use]
+  pub fn with_other_memo(&self, memo: Arc<dyn MergeMemo>) -> Self {
+    Self {
+      cache: Arc::clone(&self.cache),
+      committer_timestamps: Arc::clone(&self.committer_timestamps),
+      merge_memo: Some(memo),
+    }
+  }
+
   pub fn merge_memo(&self) -> Option<&dyn MergeMemo> {
     self.merge_memo.as_deref()
   }

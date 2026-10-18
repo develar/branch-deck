@@ -28,14 +28,21 @@ fn sorted(names: impl IntoIterator<Item = String>) -> Vec<String> {
 }
 
 /// A group name may contain `virtual/` or `archived/`: a branch is virtual or archived by its namespace only, and an
-/// unapplied branch is neither, so it is never archived nor cleaned up
+/// unapplied branch is neither, so it is never archived nor cleaned up. A stack branch is not even listed: its tip,
+/// which may be the tip of an archived branch too, must not name that branch's detection note
 #[test]
 fn branches_are_classified_by_their_namespace() {
   let (_upstream_repo, local_repo, git_executor) = setup_test_repos();
   let repo_path = local_repo.path().to_str().unwrap();
   let commit = local_repo.create_commit("(auth) Add auth", "auth.js", "// auth");
   let archived = "user/archived/2026-10-01/a/virtual/b";
-  for branch in ["user/virtual/c/archived/d", archived, "user/unapplied/x/archived/y", "user/unapplied/x/virtual/y"] {
+  for branch in [
+    "user/virtual/c/archived/d",
+    archived,
+    "user/unapplied/x/archived/y",
+    "user/unapplied/x/virtual/y",
+    "user/stack/auth",
+  ] {
     local_repo.create_branch_at(branch, &commit).unwrap();
   }
   // a tag of the same name makes `%(refname:short)` `heads/<name>`
@@ -45,6 +52,8 @@ fn branches_are_classified_by_their_namespace() {
   let data = get_all_branch_data(&git_executor, repo_path, "user").unwrap();
   assert_eq!(sorted(data.virtual_commits.into_keys()), ["user/virtual/c/archived/d"]);
   assert_eq!(data.archived_all, [archived]);
+  assert!(!data.all_branch_commits.contains_key("user/stack/auth"), "{:?}", data.all_branch_commits.keys());
+  assert!(data.all_branch_commits.contains_key("user/unapplied/x/virtual/y"));
 }
 
 /// A virtual branch checked out in another worktree stays: deleting it would leave that worktree on an unborn branch

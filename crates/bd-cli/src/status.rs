@@ -2,12 +2,14 @@ use crate::branch_stats::{BranchInput, BranchStats, branch_stats};
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
+use crate::stack_summary::StackSummary;
 use git_ops::branch_names::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
 use sync_core::grouping::{BranchGrouping, group_commits_ahead_of_baseline_with};
 use sync_core::regroup::{describe_problem, problem_commits};
+use sync_core::stack_branch::read_stack_branches;
 use sync_core::store_lines::StoreLineProblem;
 use sync_types::stack::{BlockReason, BranchStack, ParentSource, ParentState};
 use sync_types::{BranchOrigin, GroupedBranchInfo};
@@ -58,6 +60,11 @@ pub struct StatusOutput {
   /// Newest first; omitted with --branch
   #[serde(skip_serializing_if = "Option::is_none")]
   pub unassigned: Option<Vec<CommitSummary>>,
+  /// With stacked branches on: the stack branch of each stack that forks (`{prefix}/stack/<root>`, all its commits in
+  /// one branch), then those kept for their remote branch; as the last sync left them, by what the object cache knows
+  /// of their builds; omitted with --branch or --unassigned
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub stacks: Vec<StackSummary>,
   /// The keys of the issue groups (`refs/branch-deck/issue-groups`) that group no commit ahead of the baseline on this
   /// branch. The map is shared by every branch and worktree, so they may group the commits of another one: nothing
   /// removes them on its own
@@ -102,6 +109,9 @@ pub struct StatusBrief {
   pub branches: Option<Vec<BriefBranch>>,
   /// Newest first
   pub unassigned: Vec<CommitSummary>,
+  /// The stack branches, as `bd status` lists them
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub stacks: Vec<StackSummary>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub idle_issue_groups: Vec<String>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -274,15 +284,19 @@ pub struct StackBlockSummary {
 
 impl StackBlockSummary {
   pub fn of(parent: &str, reason: BlockReason) -> Self {
-    let reason = match reason {
-      BlockReason::Error => "error",
-      BlockReason::Conflict => "conflict",
-      BlockReason::Blocked => "blocked",
-    };
     Self {
       parent: parent.to_string(),
-      reason: reason.to_string(),
+      reason: block_reason_name(reason).to_string(),
     }
+  }
+}
+
+/// `error`, `conflict` or `blocked`
+pub const fn block_reason_name(reason: BlockReason) -> &'static str {
+  match reason {
+    BlockReason::Error => "error",
+    BlockReason::Conflict => "conflict",
+    BlockReason::Blocked => "blocked",
   }
 }
 
@@ -369,6 +383,11 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
 
   // the brief view prints neither
   let tips = if args.brief { HashMap::new() } else { virtual_tips(context, &grouping) };
+  let stacks = if args.branch.is_some() || args.unassigned {
+    Vec::new()
+  } else {
+    read_stack_branches(&context.prefix, &grouping, &context.cache())
+  };
   let descriptions = if args.brief { HashMap::new() } else { context.config()?.descriptions().clone() };
   let forest = grouping.forest.as_ref();
   let placement = |name: &str| grouping.placements.as_ref().and_then(|placements| placements.get(name));
@@ -380,6 +399,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
       .chain(&grouping.unassigned)
       .map(|commit| commit.id.as_str())
       .chain(tips.values().map(String::as_str))
+      .chain(stacks.iter().flat_map(StackSummary::ids))
       .chain(grouping.base.as_deref())
       .chain(std::iter::once(head_id.as_str())),
   );
@@ -470,6 +490,10 @@ pub fn status(context: &RepoContext, args: &StatusArgs) -> Result<StatusOutput, 
     forest: forest.map(|forest| forest.order.clone()),
     branches,
     unassigned,
+    stacks: stacks
+      .iter()
+      .map(|stack| StackSummary::new(stack, grouping.branches.iter().flat_map(|branch| &branch.commits), &short))
+      .collect(),
     idle_issue_groups: grouping.idle_issue_groups.clone(),
     issue_group_problems: store_lines(&issue_groups.problems),
     idle_stack_parents: grouping.idle_stack_parents.clone(),
@@ -533,6 +557,7 @@ pub fn status_brief(context: &RepoContext, args: &StatusArgs) -> Result<StatusBr
     forest: full.forest,
     branches,
     unassigned: full.unassigned.unwrap_or_default(),
+    stacks: full.stacks,
     idle_issue_groups: full.idle_issue_groups,
     issue_group_problems: full.issue_group_problems,
     idle_stack_parents: full.idle_stack_parents,

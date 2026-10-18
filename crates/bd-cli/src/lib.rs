@@ -24,6 +24,7 @@ pub mod rewrite;
 pub mod robot_command;
 pub mod safe_push_command;
 pub mod schema;
+pub mod stack_summary;
 pub mod status;
 pub mod suggest;
 pub mod symbol_stats;
