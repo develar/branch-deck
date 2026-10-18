@@ -34,7 +34,9 @@ targets:
   - ../../src/hooks/useSafePush.ts
   - ../../src/components/branch/BranchRowStatus.tsx
   - ../../src/hooks/useRowRobot.ts
-  - ../../src/hooks/useLaneNode.ts
+  - ../../src/hooks/useLandingNode.ts
+  - ../../src/lib/landing-node.ts
+  - ../../src/components/branch/BranchGraphHelpPopover.tsx
   - ../../src/components/branch/LandingSpanLabel.tsx
   - ../../src/components/shared/RowActions.tsx
   - ../../src/components/shared/MoreActionsMenu.tsx
@@ -83,9 +85,9 @@ count, the Status cell and the actions. The Status cell says the state of the br
 runs or once it finished, else its status text, then up to two chips (the pull request, the landed commits), each kind in
 its own column, so a look down the table compares like with like. The actions are compact: the copy icon, the push as
 an arrow and its count, then the Safe Push slot, the one labelled action, the next step after the robot ("Safe Push",
-"Restart Safe Push", the pull request), and "⋯". Stacked branches are a graph, root on top, with a lane per line that
-runs in parallel and a node per branch in the colour of its status; the branches of an issue hang one indent level
-under it. The commits of an expanded branch sit on its lane.
+"Restart Safe Push", the pull request), and "⋯". Every branch has a node at the left edge that says where it is on its way into master; stacked
+branches are a graph of those nodes, root on top, with a lane per line that runs in parallel; the branches of an issue
+hang one indent level under it. The commits of an expanded branch sit on its lane.
 
 ## Goals
 
@@ -149,13 +151,15 @@ under it. The commits of an expanded branch sit on its lane.
 
 ### Tree
 
-- In a table with stacked branches, the name cell must start with the stack graph: a column of lanes (`--bd-lane-width`,
-  1rem each, as many as the table needs), the node of the branch on its lane and, over the whole row height, the lanes
-  passing the row, the line up into the node from its parent above, the line down from it to its children or its
-  commits, and the curve from the parent's lane into the node of a side child. Every name starts at the same x. A table
-  without a branch stacked on another has no lane column.
-  [@test] ../../src/stores/branch-table-rows.test.ts (`puts each branch under its parent, depth-first, wherever the parent is in the order`, `keeps a straight chain on one lane and forks a leaf sibling and a side chain off it`, `has no lanes while no branch is stacked on another`)
+- The name cell of every table must start with the graph: a column of lanes (`--bd-lane-width`, 1rem each, as many as
+  the table needs), the node of the branch on its lane and, over the whole row height, the lanes passing the row, the
+  line up into the node from its parent above, the line down from it to its children or its commits, and the curve
+  from the parent's lane into the node of a side child. Every name starts at the same x. A table without a branch
+  stacked on another has one lane, the node of each branch alone on it (`StackLanes.alone`), as IntelliJ's log keeps
+  its graph column for a straight history.
+  [@test] ../../src/stores/branch-table-rows.test.ts (`puts each branch under its parent, depth-first, wherever the parent is in the order`, `keeps a straight chain on one lane and forks a leaf sibling and a side chain off it`, `puts every branch on one lane while no branch is stacked on another: its node says where it is on its way into master`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`)
+  [@test] ../../tests/e2e/branch-graph/branch-graph.spec.ts (`should give every branch of a table without stacks its node, and keep the push on the dot of the status`)
 - The divider above a row must run full width only between the top-level units of the table: a stack, a lone branch,
   an issue family. Inside a unit it starts at the folder buttons (`--bd-tree-x`) above a member of an issue family or
   a stack root in it, one `--bd-family-step` further above a branch stacked on another in a family, and at the
@@ -163,16 +167,33 @@ under it. The commits of an expanded branch sit on its lane.
   commits), so a stack reads as one block and its lanes run on past the dividers (`branchRowDivider`, `data-divider`,
   `bd-branch-rows`): where a long stack ends shows as a full-width line.
   [@test] ../../src/stores/branch-table-rows.test.ts (`runs the divider full width above each top-level unit, from the tree inside a stack or an issue family`)
-- The node must be an 8px circle in the colour of the status: the push colour, `destructive` for an error or a
-  conflict, `warning` for a blocked branch, `info` for a landed one, and, filled, `destructive` for a robot that failed
-  on the branch as it is (`warning` for missing code-owner approvals), as the Status cell shows that robot: the left
-  edge, where a look down the table starts, tells a failure. It is filled while the branch has work for the remote (and
-  for an error, a conflict or a failed robot), hollow when it is up to date or landed. It replaces the dot of the status
-  text, which a table with stacks drops. An amended or restacked branch is a filled node in the push colour, `warning`
-  only with remote commits its push drops ([Push colours](../repository/outgoing.spec.md#push-colours)).
-  [@test] ../../src/hooks/useStatusBadge.test.ts (`takes the colour of the status and is filled while the branch has work for the remote`, `is a filled node in the push colour for an amended or restacked branch: its push replaces older versions`, `takes the colour of a robot that failed on the branch as it is, filled, unless the status says more`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should name in the chip of a collapsed stack only the robots that failed on its branches as they are`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`, `should push a stack parents first and create each pull request into master`)
+- The node must be an 8px circle that says where the branch is on its way into master ([Landing](../../docs/design/landing.md)),
+  the first state that matches (`getLandingNode`, `landingNodeLooks`), the left edge where a look down the table starts.
+  Filled: the next step is the user's and on this row; hollow: it waits for others (people, the parent, the header of
+  its island, a robot) or is done. The push is not the node's: it is the dot of the status text in every table.
+
+  | Node | Legend | When |
+  |---|---|---|
+  | `success`, filled | Ready to land: Safe Push | the next step is "Safe Push" or "Restart Safe Push" ([Next Step](next-step.spec.md) rows 2, 3, 11) once Patronus answered; `unknown`/`unavailable` too, its hover adds "Patronus checks the approvals when the robot starts" |
+  | `primary`, filled | Your step first: a pull request, a review, a retarget | rows 5, 6, 7 (not "In #12"), 9 and the pull request of a robot that failed for approvals; without Patronus: no pull request, a draft, or (GitHub lists none) the remote lacks work of the branch |
+  | `destructive`, filled | Needs a fix | a sync error, a conflict, its analysis, a Safe Push that failed on the branch as it is, row 8 (changes requested) |
+  | `primary`, hollow | Landing now | its own Safe Push runs (the ring around it), or a running Safe Push of a branch built on it or of the whole stack lands it ("Lands with oauth") |
+  | neutral, hollow | Waits for others | row 10 (awaiting), 5′ (another base), "In #12", a robot of an ancestor that a start waits for, Blocked, a Dry Run running, no commits, before the first answer of Patronus; without Patronus an open pull request ("Lands through #7") |
+  | `info`, hollow | In master | landed in the baseline, landed with a merged Safe Push, merged by Patronus or by its pull request |
+
+  A sync and an inline action of the row pass: the node keeps the state they started from.
+  [@test] ../../src/lib/landing-node.test.ts (`is ready to land once Patronus answered that a Safe Push can land it, with the branches it lands`, `waits before the first answer of Patronus, never a green that turns blue`, `is the user's step before it lands: a pull request, a review request, a retarget, a draft`, `needs a fix: a sync error, a conflict, a robot that failed on the branch as it is, changes requested`, `is landing while its own Safe Push runs or one of a branch built on it lands it; a dry run lands nothing`, `waits for others: the reviewers, its parent, a robot that lands an ancestor, a base that may be meant`, `is in master once the baseline has it or a merge says so, also over a robot that failed before`, `keeps its state while a sync or an inline action of the row runs`, `lands by its pull request in a repository that is not on Space`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`, `should name in the chip of a collapsed stack only the robots that failed on its branches as they are`, `should say which branches a running Safe Push lands, and not start them on their own`)
+- Hovering the node must say its state in the words the row uses elsewhere (the reason of the next step, the status):
+  "Ready to land: Safe Push lands 2 branches", "Waits for the approval of IJPL Code Platform: Ilya Korennoy is
+  requested on #1078", "Lands with oauth: its Safe Push runs", "Landed in origin/master". Its hover target is the lane's
+  16px square around the 8px circle; a click goes on to the row.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`, `should say which branches a running Safe Push lands, and not start them on their own`)
+  [@test] ../../tests/e2e/branch-graph/branch-graph.spec.ts (`should give every branch of a table without stacks its node, and keep the push on the dot of the status`)
+- The "Branch Name" head must end with the legend of the nodes, "About Branch Graph" (`BranchGraphHelpPopover`): one
+  line on what a node says and what filled means, each kind as its node with its legend, and a line on the lines of
+  a stack.
+  [@test] ../../tests/e2e/branch-graph/branch-graph.spec.ts (`should explain the nodes in the legend after the Branch Name head`)
 - The node of a branch whose robot runs must have the rotating ring of its robot around it. The lines of a
   landing span, from the root of the stack down to the branch whose running Safe Push lands the branches it is built
   on, must be drawn in the colour of the robot: the line down from each branch of the span, the lanes passing the side
@@ -200,14 +221,14 @@ under it. The commits of an expanded branch sit on its lane.
   [@test] ../../src/stores/branch-sync.test.ts (`nests the branches of an issue under the issue branch, wherever it is in the order`, `heads the branches of an issue without a branch of its own with an issue row`)
   [@test] ../../src/stores/branch-table-rows.test.ts (`indents a family member and the stack on it one level, with the lanes of the stack inside`)
   [@test] ../../src/lib/branch.test.ts (`formats the branches and their commits in one summary`)
-- In a table with stacks, the commits of an expanded branch must sit on its lane, a dot per commit at its subject line,
-  beside the lanes that run on below the row, oldest first: time runs down with the graph, so the tip of a parent sits
-  right above the row of its child ([Stack Island](stack-island.spec.md#rows-and-commits)). The lane runs on into the
-  children below, or ends at the last commit of a branch without children. Without stacks they sit behind a neutral rail under the folder icon, which runs into the
-  guide of the family below; a family member keeps its guide beside them.
+- The commits of an expanded branch must sit on its lane, a dot per commit at its subject line, beside the lanes that
+  run on below the row. In a table with stacks they are oldest first: time runs down with the graph, so the tip of a
+  parent sits right above the row of its child ([Stack Island](stack-island.spec.md#rows-and-commits)); without stacks
+  newest first, as no graph runs down with time. The lane runs on into the children below, or ends at the last commit
+  of a branch without children; a family member keeps its guide beside them.
 - The commit subjects must start at the branch name.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should carry the commits of a branch on its lane, into the lines of its children`)
-- In a table with stacks, the inline form row and the amend conflict row of a branch must draw the lanes that run on
+- The inline form row and the amend conflict row of a branch must draw the lanes that run on
   and the family guide, so the graph doesn't pause; their content starts right of them, the title at the branch name.
   [@test] ../../src/lib/stack-lanes.test.ts (`runs the lanes passing a row on below it, and its own while it has children or shows its commits`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should draw the lanes beside the inline form of a stacked branch`)
@@ -252,8 +273,8 @@ under it. The commits of an expanded branch sit on its lane.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch pressed during a sync once the sync finished, the row as it was meanwhile`)
 - Only an error or a conflict must be a badge (`destructive`; `warning` while the conflict is analysed). Every other
   status is muted text after a dot of its colour; the dot of a remote status has the push colour of the branch
-  ([Push colours](../repository/outgoing.spec.md#push-colours)). In a table with stacks the node of the row is the dot
-  ([Tree](#tree)).
+  ([Push colours](../repository/outgoing.spec.md#push-colours)), in every table: the node of the row says where it is on
+  its way into master ([Tree](#tree)), not its push.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should display correct branch row structure`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
   [@test] ../../src/lib/push-summary.test.ts (`takes the hue from the risk: warning only for a push that drops remote commits`, `is neutral for a safe push of no commit of the user`)
@@ -273,7 +294,8 @@ under it. The commits of an expanded branch sit on its lane.
 
 ### Blocked
 
-- A blocked stacked branch must have one treatment: the muted status "blocked by <parent>" after a `warning` dot, a
+- A blocked stacked branch must have one treatment: a hollow neutral node ("Blocked by auth, which doesn't build": the
+  fix is in the row of its parent), the muted status "blocked by <parent>" after a `warning` dot, a
   disabled push button, and, expanded, a `warning` alert with the reason and "Show <parent>", which reveals the parent.
   Its commits carry the `warning` Blocked badge.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
@@ -537,7 +559,7 @@ under it. The commits of an expanded branch sit on its lane.
 ### Row
 
 - Every cell has the vertical padding `--bd-cell-y` (6px), so a row is 36px around the 24px folder button, as dense as
-  an IntelliJ list. The name cell has `px-6`, a family member `pl-8 pr-6`; in a table with stacks `pl-(--bd-lane-start)`
+  an IntelliJ list. The name cell has `pl-(--bd-lane-start)`
   (1.25rem, the left edge of a lane-0 node under the header text) and `pr-6`, the folder button at `--bd-tree-x` after
   the lane column. The other cells have `px-4`, `w-px` and `whitespace-nowrap`. The Status `<th>` has `min-w-[12rem]`.
 - The table header is quiet: `text-xs font-medium text-muted-foreground` on the card, with a bottom border and no fill.
@@ -545,15 +567,13 @@ under it. The commits of an expanded branch sit on its lane.
 - The folder button is a ghost `icon-xs` button in `text-muted-foreground`, `text-foreground` while expanded: it
   repeats on every row, so it carries no accent. The name is `text-sm font-medium`, the summary
   `text-xs text-muted-foreground`, the prefix of a subject `font-mono`, muted as the summary.
-- The family guide and the commit rail of a table without stacks are neutral `border-l border-border` lines
-  (`bd-family-guide`, `bd-family-rule` and `--bd-family-step` in `src/index.css`); with stacks the guide is a `w-px
-  bg-border` line over the cell.
+- The family guide is a `w-px bg-border` line over the cell (`--bd-family-step` in `src/index.css`).
 - The lanes (`StackLanes.tsx`) are 1px strokes in `--bd-lane-line`, the muted foreground at 40% over the card: opaque,
   so the curve of a fork doesn't darken the line it leaves, and stronger than a separator. One SVG per cell stretches
   over the row (`preserveAspectRatio="none"`, `vector-effect: non-scaling-stroke`); the fork is a quadratic curve from
   the parent's lane at the top of the row into the left edge of the node, and the lines end at the edge of the node.
-  The node is `size-2 rounded-full` with a 1.5px border in the status colour (`currentColor`), `bg-current` when
-  filled; a running robot puts its `RobotRing` around it (`lane-ring`: `size-4`, the lane's width, a thinner and wider
+  The node is `size-2 rounded-full` with a 1.5px border in the colour of its kind (`currentColor`), `bg-current` when
+  filled, centred in a `size-4` hover target (`LaneNodeDot`, which the legend and the island header draw too); a running robot puts its `RobotRing` around it (`lane-ring`: `size-4`, the lane's width, a thinner and wider
   ring than in the slot, so the node keeps its gap; `text-primary`, turning). The
   segments of a landing span are a 1.5px stroke in `--color-primary` over the lines (`landing-lanes`), the colour of
   the ring and of the robot's progress line. The path to the root is a 1.5px stroke in `--bd-lane-path`, the
@@ -622,12 +642,13 @@ under it. The commits of an expanded branch sit on its lane.
 
 - `pnpm test:unit`: `src/stores/branch-table-rows.test.ts`, `src/lib/stack-lanes.test.ts`,
   `src/lib/branch-row-keys.test.ts`, `src/stores/branch-sync.test.ts`, `src/hooks/useStatusBadge.test.ts`,
+  `src/lib/landing-node.test.ts`,
   `src/lib/push-summary.test.ts`, `src/lib/integration-commit.test.ts`, `src/stores/archived-branches.test.ts`.
-- `pnpm e2e`: `tests/e2e/branch-row-layout`, `tests/e2e/stacked-branches`, `tests/e2e/branch-filter` (the keys),
+- `pnpm e2e`: `tests/e2e/branch-row-layout`, `tests/e2e/stacked-branches`, `tests/e2e/branch-graph`, `tests/e2e/branch-filter` (the keys),
   `tests/e2e/archived-branches`, the chip specs and `tests/e2e/issue-reference.spec.ts` for the inline forms (a
   failure is a `page.route` of the command with status 500). E2E reads the status text by
-  `data-testid="branch-status"`, the graph by `data-lane` on the row, `lane-node` (`data-color`, `data-filled`,
-  `data-ring`), `lane-ring`, `lane-lines`, `landing-lanes` and `stack-path-lanes` (a node the hovered push sends has
+  `data-testid="branch-status"` and its dot by `branch-status-dot` (`data-color`), the graph by `data-lane` on the row,
+  `lane-node` (`data-kind`, `data-color`, `data-filled`, `data-ring`) in `lane-node-target`, `lane-ring`, `lane-lines`, `landing-lanes` and `stack-path-lanes` (a node the hovered push sends has
   `data-pushed`), the stack chip by `stack-chip` (`data-stack`: `expanded`, `collapsed`, `filtered`;
   `stack-chip-attention`) and `lane-collapsed`, the dividers by `data-divider`, the family guide by `family-guide`, the rail by `commit-rail`, a dimmed row by `data-dimmed` and the
   archived status by `archived-branch-status` (`data-status`: `merged`, `partial`, `not-merged`, `unknown`).
@@ -639,9 +660,6 @@ under it. The commits of an expanded branch sit on its lane.
   and the same chips only.
 - 12rem fits the status text and a chip; a row with both chips and a long status text widens the column once, when
   they load.
-- In a table without stacks, the inline form row and the amend conflict row of a family member draw no guide: the guide
-  pauses while a form is open.
-- The first branch stacked on another switches the table to the lane column: every name moves right by its width.
 - The SVG units assume the 36px row: a taller row (a cell that wraps) stretches the fork curve, and the lines end a
   little off the edge of the node.
 - The lane of a branch without children ends at its last commit through a line that starts far above it and is cut

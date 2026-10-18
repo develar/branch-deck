@@ -18,9 +18,7 @@ export interface BranchNameCellProps {
   canExpand?: boolean
   /** Archived branches: show only the last path segment */
   simplified?: boolean
-  /** Under the row of its issue: indented one step, with the guide of the family under the icon of the row above */
-  familyIndent?: 0 | 1
-  /** The lanes of a table with stacks (`LaneCell`), before the folder button; the cell is their positioning box */
+  /** The lanes of the branch table (`LaneCell`), before the folder button; the cell is their positioning box */
   lanes?: ReactNode
   /** The issue of the branch, shown as a chip next to the name */
   issueKey?: string | null
@@ -38,7 +36,6 @@ export function BranchNameCell({
   expanded,
   canExpand = true,
   simplified = false,
-  familyIndent = 0,
   lanes,
   issueKey = null,
   fixupCount = 0,
@@ -48,11 +45,7 @@ export function BranchNameCell({
   const FolderIcon = expanded ? FolderOpenIcon : FolderClosedIcon
   const shownSummary = getBranchSummary(summary, descriptionTitle, getShownIssueKey(name, issueKey))
   const content = (
-    // without lanes, the family guide spans the row height, under the icon of the row above (`bd-family-guide` in index.css)
-    <div
-      className={cn("flex min-w-0 items-center gap-2", lanes === undefined && familyIndent > 0 && "bd-family-guide")}
-      data-testid={lanes === undefined && familyIndent > 0 ? "family-guide" : undefined}
-    >
+    <div className="flex min-w-0 items-center gap-2">
       {lanes}
       {canExpand && (
         <Tooltip>
@@ -98,10 +91,8 @@ export function BranchNameCell({
     // the lane column starts at --bd-lane-start; its lines span the cell
     return <td className="relative w-full max-w-0 py-(--bd-cell-y) pr-6 pl-(--bd-lane-start)">{content}</td>
   }
-  return (
-    // a family member starts at its guide (2rem), any other row at its folder icon
-    <td className={cn("w-full max-w-0 py-(--bd-cell-y)", familyIndent > 0 ? "pr-6 pl-8" : "px-6")}>{content}</td>
-  )
+  // the archived table has no lanes
+  return <td className="w-full max-w-0 px-6 py-(--bd-cell-y)">{content}</td>
 }
 
 /** The issue of a branch as a chip next to its name. */

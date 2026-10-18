@@ -26,12 +26,12 @@ export interface ActiveBranchExpandedProps {
   /** The next rows are the members of its issue family: the guide of the family runs beside the commits into theirs */
   familyBelow?: boolean
   /** The place of the branch in the stack graph: the commits sit on its lane; null in a table without stacks */
-  lanes?: StackLanes | null
+  lanes: StackLanes
   /** The segments of a landing span in the row (`landingSegments`): the lanes of the span run on beside the commits */
   landing?: LaneSegments | null
 }
 
-export function ActiveBranchExpanded({ branch, highlightTipCommit = false, familyIndent = 0, familyBelow = false, lanes = null, landing = null }: ActiveBranchExpandedProps) {
+export function ActiveBranchExpanded({ branch, highlightTipCommit = false, familyIndent = 0, familyBelow = false, lanes, landing = null }: ActiveBranchExpandedProps) {
   const genericError = branch.errorDetails?.Generic
   return (
     <CommitRail name={branch.name} familyIndent={familyIndent} familyBelow={familyBelow} lanes={lanes} landing={landing}>
@@ -42,7 +42,7 @@ export function ActiveBranchExpanded({ branch, highlightTipCommit = false, famil
           <AlertDescription>{genericError}</AlertDescription>
         </Alert>
       ) : branch.commits.length > 0 ? (
-        <BranchCommitList branch={branch} highlightTipCommit={highlightTipCommit} oldestFirst={lanes !== null} />
+        <BranchCommitList branch={branch} highlightTipCommit={highlightTipCommit} oldestFirst={lanes.alone !== true} />
       ) : (
         <div className="text-sm text-muted-foreground">No commits found</div>
       )}
@@ -55,50 +55,31 @@ export interface CommitRailProps {
   name: string
   familyIndent: 0 | 1
   familyBelow: boolean
-  lanes: StackLanes | null
+  lanes: StackLanes
   landing: LaneSegments | null
   children: ReactNode
 }
 
 /**
- * The commits of an expanded branch, their subjects at the branch name. In a table with stacks they sit on the lane of
- * the branch, a dot per commit (`bd-lane-rail` in index.css), beside the lanes that run on below the row; the lane of
- * the branch runs on into its children, or ends at the last commit. Without stacks, a neutral rail under the folder
- * icon, which runs into the family guide of the rows below; a family member keeps its guide beside it.
+ * The commits of an expanded branch, their subjects at the branch name, on the lane of the branch: a dot per commit
+ * (`bd-lane-rail` in index.css), beside the lanes that run on below the row; the lane of the branch runs on into its
+ * children, or ends at the last commit; a family member keeps its guide beside them.
  */
 export function CommitRail({ name, familyIndent, familyBelow, lanes, landing, children }: CommitRailProps) {
-  if (lanes !== null) {
-    return (
-      <>
-        <LanesBelow name={name} lanes={lanes} commitsBelow={false} landing={landing} />
-        {(familyIndent === 1 || familyBelow) && <FamilyGuide />}
-        <div
-          className={cn("bd-lane-rail animate-in py-(--bd-cell-y) duration-150 fade-in-0", laneContentInsetClass(familyIndent))}
-          style={{ "--bd-rail-lane": lanes.lane } as CSSProperties}
-          data-lane-end={lanes.down ? undefined : ""}
-        >
-          <div className="flex flex-col gap-2 pr-6" data-testid="commit-rail">
-            {children}
-          </div>
-        </div>
-      </>
-    )
-  }
-  const rail = (
-    <div className={cn("flex flex-col gap-2 border-l border-border pr-6", familyBelow && "-mb-(--bd-cell-y) pb-(--bd-cell-y)")} data-testid="commit-rail">
-      {children}
-    </div>
-  )
   return (
-    <div className="animate-in pl-8 duration-150 fade-in-0">
-      {familyIndent === 1 ? (
-        <div className="bd-family-rule" data-testid="family-guide">
-          {rail}
+    <>
+      <LanesBelow name={name} lanes={lanes} commitsBelow={false} landing={landing} />
+      {(familyIndent === 1 || familyBelow) && <FamilyGuide />}
+      <div
+        className={cn("bd-lane-rail animate-in py-(--bd-cell-y) duration-150 fade-in-0", laneContentInsetClass(familyIndent))}
+        style={{ "--bd-rail-lane": lanes.lane } as CSSProperties}
+        data-lane-end={lanes.down ? undefined : ""}
+      >
+        <div className="flex flex-col gap-2 pr-6" data-testid="commit-rail">
+          {children}
         </div>
-      ) : (
-        rail
-      )}
-    </div>
+      </div>
+    </>
   )
 }
 

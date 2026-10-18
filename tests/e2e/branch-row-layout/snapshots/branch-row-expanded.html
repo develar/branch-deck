@@ -1,8 +1,13 @@
-<table class="w-full outline-none" data-space-preview="" tabindex="-1">
+<table class="w-full outline-none bd-lanes" data-space-preview="" style="--bd-lane-count: 1" tabindex="-1">
   <thead class="border-b border-border">
     <tr>
       <th class="px-6 py-2 text-left text-xs font-medium text-muted-foreground">
-        Branch Name
+        <span class="inline-flex items-center gap-1">
+          Branch Name
+          <button aria-expanded="false" aria-haspopup="dialog" aria-label="About Branch Graph" class="inline-flex shrink-0 cursor-help rounded-sm text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30" data-base-ui-click-trigger="" data-slot="popover-trigger" data-testid="branch-graph-help-icon" id="base-ui-[ID]" tabindex="0" type="button">
+            <svg aria-hidden="true" class="lucide lucide-info size-3.5" />
+          </button>
+        </span>
       </th>
       <th class="py-2 text-left text-xs font-medium text-muted-foreground hidden w-px px-4 whitespace-nowrap sm:table-cell">
         Commits
@@ -16,9 +21,11 @@
     </tr>
   </thead>
   <tbody class="bd-branch-rows">
-    <tr class="group cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset data-[state=open]:bg-muted/50 select-none" data-branch-name="test-branch" data-row-id="test-branch" data-selected="false" data-slot="context-menu-trigger" data-state="open" data-testid="branch-row" draggable="true" tabindex="-1">
-      <td class="w-full max-w-0 py-(--bd-cell-y) px-6">
+    <tr class="group cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset data-[state=open]:bg-muted/50 select-none" data-branch-name="test-branch" data-lane="0" data-row-id="test-branch" data-selected="false" data-slot="context-menu-trigger" data-state="open" data-testid="branch-row" draggable="true" tabindex="-1">
+      <td class="relative w-full max-w-0 py-(--bd-cell-y) pr-6 pl-(--bd-lane-start)">
         <div class="flex min-w-0 items-center gap-2">
+          <span aria-hidden="true" class="shrink-0 w-(--bd-lane-column)" />
+          <span aria-hidden="true" class="pointer-events-none absolute inset-y-0 left-(--bd-lane-start)" style="--bd-lanes-drawn: 1;  --bd-node-lane: 0" />
           <button aria-expanded="true" aria-label="Collapse test-branch" class="group/button inline-flex items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3 shrink-0 text-muted-foreground aria-expanded:text-foreground" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
             <svg aria-hidden="true" class="lucide lucide-folder-open" />
           </button>
@@ -37,7 +44,7 @@
           <div class="flex min-w-0">
             <div>
               <span class="flex max-w-40 items-center gap-2 text-sm text-muted-foreground tabular-nums" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
-                <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" />
+                <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" data-color="primary" data-testid="branch-status-dot" />
                 <span class="truncate" data-testid="branch-status">
                   not pushed
                 </span>
@@ -66,9 +73,9 @@
       </td>
     </tr>
     <tr data-branch-of="test-branch" data-divider="stack" data-testid="branch-commits-row">
-      <td class="px-0 py-(--bd-cell-y)" colspan="4">
-        <div class="animate-in pl-8 duration-150 fade-in-0">
-          <div class="flex flex-col gap-2 border-l border-border pr-6" data-testid="commit-rail">
+      <td class="relative p-0" colspan="4">
+        <div class="bd-lane-rail animate-in py-(--bd-cell-y) duration-150 fade-in-0 pl-(--bd-row-inset) [--bd-row-inset:calc(var(--bd-tree-x)+0.5rem)]" data-lane-end="" style="--bd-rail-lane: 0">
+          <div class="flex flex-col gap-2 pr-6" data-testid="commit-rail">
             <div class="flex flex-col gap-2">
               <div>
                 <table class="w-full rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/30" data-space-preview="" tabindex="0">

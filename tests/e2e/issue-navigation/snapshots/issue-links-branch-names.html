@@ -1,8 +1,13 @@
-<table class="w-full outline-none" data-space-preview="" tabindex="-1">
+<table class="w-full outline-none bd-lanes" data-space-preview="" style="--bd-lane-count: 1" tabindex="-1">
   <thead class="border-b border-border">
     <tr>
       <th class="px-6 py-2 text-left text-xs font-medium text-muted-foreground">
-        Branch Name
+        <span class="inline-flex items-center gap-1">
+          Branch Name
+          <button aria-expanded="false" aria-haspopup="dialog" aria-label="About Branch Graph" class="inline-flex shrink-0 cursor-help rounded-sm text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30" data-base-ui-click-trigger="" data-slot="popover-trigger" data-testid="branch-graph-help-icon" id="base-ui-[ID]" tabindex="0" type="button">
+            <svg aria-hidden="true" class="lucide lucide-info size-3.5" />
+          </button>
+        </span>
       </th>
       <th class="py-2 text-left text-xs font-medium text-muted-foreground hidden w-px px-4 whitespace-nowrap sm:table-cell">
         Commits
@@ -16,9 +21,11 @@
     </tr>
   </thead>
   <tbody class="bd-branch-rows">
-    <tr class="group cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset select-none" data-branch-name="JIRA-456" data-row-id="JIRA-456" data-selected="false" data-slot="context-menu-trigger" data-state="closed" data-testid="branch-row" draggable="true" tabindex="-1">
-      <td class="w-full max-w-0 py-(--bd-cell-y) px-6">
+    <tr class="group cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset select-none" data-branch-name="JIRA-456" data-lane="0" data-row-id="JIRA-456" data-selected="false" data-slot="context-menu-trigger" data-state="closed" data-testid="branch-row" draggable="true" tabindex="-1">
+      <td class="relative w-full max-w-0 py-(--bd-cell-y) pr-6 pl-(--bd-lane-start)">
         <div class="flex min-w-0 items-center gap-2">
+          <span aria-hidden="true" class="shrink-0 w-(--bd-lane-column)" />
+          <span aria-hidden="true" class="pointer-events-none absolute inset-y-0 left-(--bd-lane-start)" style="--bd-lanes-drawn: 1;  --bd-node-lane: 0" />
           <button aria-expanded="false" aria-label="Expand JIRA-456" class="group/button inline-flex items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3 shrink-0 text-muted-foreground aria-expanded:text-foreground" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
             <svg aria-hidden="true" class="lucide lucide-folder-closed" />
           </button>
@@ -46,7 +53,7 @@
           <div class="flex min-w-0">
             <div>
               <span class="flex max-w-40 items-center gap-2 text-sm text-muted-foreground tabular-nums" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
-                <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" />
+                <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" data-color="primary" data-testid="branch-status-dot" />
                 <span class="truncate" data-testid="branch-status">
                   not pushed
                 </span>
@@ -74,9 +81,11 @@
         </div>
       </td>
     </tr>
-    <tr class="group cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset select-none" data-branch-name="ABC-123" data-row-id="ABC-123" data-selected="false" data-slot="context-menu-trigger" data-state="closed" data-testid="branch-row" draggable="true" tabindex="-1">
-      <td class="w-full max-w-0 py-(--bd-cell-y) px-6">
+    <tr class="group cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset select-none" data-branch-name="ABC-123" data-lane="0" data-row-id="ABC-123" data-selected="false" data-slot="context-menu-trigger" data-state="closed" data-testid="branch-row" draggable="true" tabindex="-1">
+      <td class="relative w-full max-w-0 py-(--bd-cell-y) pr-6 pl-(--bd-lane-start)">
         <div class="flex min-w-0 items-center gap-2">
+          <span aria-hidden="true" class="shrink-0 w-(--bd-lane-column)" />
+          <span aria-hidden="true" class="pointer-events-none absolute inset-y-0 left-(--bd-lane-start)" style="--bd-lanes-drawn: 1;  --bd-node-lane: 0" />
           <button aria-expanded="false" aria-label="Expand ABC-123" class="group/button inline-flex items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3 shrink-0 text-muted-foreground aria-expanded:text-foreground" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
             <svg aria-hidden="true" class="lucide lucide-folder-closed" />
           </button>
@@ -104,7 +113,7 @@
           <div class="flex min-w-0">
             <div>
               <span class="flex max-w-40 items-center gap-2 text-sm text-muted-foreground tabular-nums" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
-                <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" />
+                <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" data-color="primary" data-testid="branch-status-dot" />
                 <span class="truncate" data-testid="branch-status">
                   not pushed
                 </span>
@@ -132,9 +141,11 @@
         </div>
       </td>
     </tr>
-    <tr class="group cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset select-none" data-branch-name="feature-docs" data-row-id="feature-docs" data-selected="false" data-slot="context-menu-trigger" data-state="closed" data-testid="branch-row" draggable="true" tabindex="-1">
-      <td class="w-full max-w-0 py-(--bd-cell-y) px-6">
+    <tr class="group cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset select-none" data-branch-name="feature-docs" data-lane="0" data-row-id="feature-docs" data-selected="false" data-slot="context-menu-trigger" data-state="closed" data-testid="branch-row" draggable="true" tabindex="-1">
+      <td class="relative w-full max-w-0 py-(--bd-cell-y) pr-6 pl-(--bd-lane-start)">
         <div class="flex min-w-0 items-center gap-2">
+          <span aria-hidden="true" class="shrink-0 w-(--bd-lane-column)" />
+          <span aria-hidden="true" class="pointer-events-none absolute inset-y-0 left-(--bd-lane-start)" style="--bd-lanes-drawn: 1;  --bd-node-lane: 0" />
           <button aria-expanded="false" aria-label="Expand feature-docs" class="group/button inline-flex items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3 shrink-0 text-muted-foreground aria-expanded:text-foreground" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
             <svg aria-hidden="true" class="lucide lucide-folder-closed" />
           </button>
@@ -153,7 +164,7 @@
           <div class="flex min-w-0">
             <div>
               <span class="flex max-w-40 items-center gap-2 text-sm text-muted-foreground tabular-nums" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
-                <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" />
+                <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" data-color="primary" data-testid="branch-status-dot" />
                 <span class="truncate" data-testid="branch-status">
                   not pushed
                 </span>
@@ -181,9 +192,11 @@
         </div>
       </td>
     </tr>
-    <tr class="group cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset select-none" data-branch-name="feature-db" data-row-id="feature-db" data-selected="false" data-slot="context-menu-trigger" data-state="closed" data-testid="branch-row" draggable="true" tabindex="-1">
-      <td class="w-full max-w-0 py-(--bd-cell-y) px-6">
+    <tr class="group cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset select-none" data-branch-name="feature-db" data-lane="0" data-row-id="feature-db" data-selected="false" data-slot="context-menu-trigger" data-state="closed" data-testid="branch-row" draggable="true" tabindex="-1">
+      <td class="relative w-full max-w-0 py-(--bd-cell-y) pr-6 pl-(--bd-lane-start)">
         <div class="flex min-w-0 items-center gap-2">
+          <span aria-hidden="true" class="shrink-0 w-(--bd-lane-column)" />
+          <span aria-hidden="true" class="pointer-events-none absolute inset-y-0 left-(--bd-lane-start)" style="--bd-lanes-drawn: 1;  --bd-node-lane: 0" />
           <button aria-expanded="false" aria-label="Expand feature-db" class="group/button inline-flex items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3 shrink-0 text-muted-foreground aria-expanded:text-foreground" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
             <svg aria-hidden="true" class="lucide lucide-folder-closed" />
           </button>
@@ -224,7 +237,7 @@
           <div class="flex min-w-0">
             <div>
               <span class="flex max-w-40 items-center gap-2 text-sm text-muted-foreground tabular-nums" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
-                <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" />
+                <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" data-color="primary" data-testid="branch-status-dot" />
                 <span class="truncate" data-testid="branch-status">
                   not pushed
                 </span>
@@ -252,9 +265,11 @@
         </div>
       </td>
     </tr>
-    <tr class="group cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset select-none" data-branch-name="feature-ui" data-row-id="feature-ui" data-selected="false" data-slot="context-menu-trigger" data-state="closed" data-testid="branch-row" draggable="true" tabindex="-1">
-      <td class="w-full max-w-0 py-(--bd-cell-y) px-6">
+    <tr class="group cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset select-none" data-branch-name="feature-ui" data-lane="0" data-row-id="feature-ui" data-selected="false" data-slot="context-menu-trigger" data-state="closed" data-testid="branch-row" draggable="true" tabindex="-1">
+      <td class="relative w-full max-w-0 py-(--bd-cell-y) pr-6 pl-(--bd-lane-start)">
         <div class="flex min-w-0 items-center gap-2">
+          <span aria-hidden="true" class="shrink-0 w-(--bd-lane-column)" />
+          <span aria-hidden="true" class="pointer-events-none absolute inset-y-0 left-(--bd-lane-start)" style="--bd-lanes-drawn: 1;  --bd-node-lane: 0" />
           <button aria-expanded="false" aria-label="Expand feature-ui" class="group/button inline-flex items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3 shrink-0 text-muted-foreground aria-expanded:text-foreground" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
             <svg aria-hidden="true" class="lucide lucide-folder-closed" />
           </button>
@@ -273,7 +288,7 @@
           <div class="flex min-w-0">
             <div>
               <span class="flex max-w-40 items-center gap-2 text-sm text-muted-foreground tabular-nums" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
-                <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" />
+                <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" data-color="primary" data-testid="branch-status-dot" />
                 <span class="truncate" data-testid="branch-status">
                   not pushed
                 </span>
@@ -301,9 +316,11 @@
         </div>
       </td>
     </tr>
-    <tr class="group cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset select-none" data-branch-name="feature-api" data-row-id="feature-api" data-selected="false" data-slot="context-menu-trigger" data-state="closed" data-testid="branch-row" draggable="true" tabindex="-1">
-      <td class="w-full max-w-0 py-(--bd-cell-y) px-6">
+    <tr class="group cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset select-none" data-branch-name="feature-api" data-lane="0" data-row-id="feature-api" data-selected="false" data-slot="context-menu-trigger" data-state="closed" data-testid="branch-row" draggable="true" tabindex="-1">
+      <td class="relative w-full max-w-0 py-(--bd-cell-y) pr-6 pl-(--bd-lane-start)">
         <div class="flex min-w-0 items-center gap-2">
+          <span aria-hidden="true" class="shrink-0 w-(--bd-lane-column)" />
+          <span aria-hidden="true" class="pointer-events-none absolute inset-y-0 left-(--bd-lane-start)" style="--bd-lanes-drawn: 1;  --bd-node-lane: 0" />
           <button aria-expanded="false" aria-label="Expand feature-api" class="group/button inline-flex items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3 shrink-0 text-muted-foreground aria-expanded:text-foreground" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
             <svg aria-hidden="true" class="lucide lucide-folder-closed" />
           </button>
@@ -322,7 +339,7 @@
           <div class="flex min-w-0">
             <div>
               <span class="flex max-w-40 items-center gap-2 text-sm text-muted-foreground tabular-nums" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
-                <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" />
+                <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" data-color="primary" data-testid="branch-status-dot" />
                 <span class="truncate" data-testid="branch-status">
                   not pushed
                 </span>
@@ -350,9 +367,11 @@
         </div>
       </td>
     </tr>
-    <tr class="group cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset select-none" data-branch-name="feature-auth" data-row-id="feature-auth" data-selected="false" data-slot="context-menu-trigger" data-state="closed" data-testid="branch-row" draggable="true" tabindex="-1">
-      <td class="w-full max-w-0 py-(--bd-cell-y) px-6">
+    <tr class="group cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset select-none" data-branch-name="feature-auth" data-lane="0" data-row-id="feature-auth" data-selected="false" data-slot="context-menu-trigger" data-state="closed" data-testid="branch-row" draggable="true" tabindex="-1">
+      <td class="relative w-full max-w-0 py-(--bd-cell-y) pr-6 pl-(--bd-lane-start)">
         <div class="flex min-w-0 items-center gap-2">
+          <span aria-hidden="true" class="shrink-0 w-(--bd-lane-column)" />
+          <span aria-hidden="true" class="pointer-events-none absolute inset-y-0 left-(--bd-lane-start)" style="--bd-lanes-drawn: 1;  --bd-node-lane: 0" />
           <button aria-expanded="false" aria-label="Expand feature-auth" class="group/button inline-flex items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3 shrink-0 text-muted-foreground aria-expanded:text-foreground" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
             <svg aria-hidden="true" class="lucide lucide-folder-closed" />
           </button>
@@ -385,7 +404,7 @@
           <div class="flex min-w-0">
             <div>
               <span class="flex max-w-40 items-center gap-2 text-sm text-muted-foreground tabular-nums" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
-                <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" />
+                <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" data-color="primary" data-testid="branch-status-dot" />
                 <span class="truncate" data-testid="branch-status">
                   not pushed
                 </span>

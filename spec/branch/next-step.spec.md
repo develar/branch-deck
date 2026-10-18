@@ -11,6 +11,8 @@ targets:
   - ../../src/components/branch/WholeStackSlot.tsx
   - ../../src/stores/review-readiness.ts
   - ../../src/components/branch/NextStepSlot.tsx
+  - ../../src/lib/landing-node.ts
+  - ../../src/hooks/useLandingNode.ts
   - ../../src/components/branch/SafePushButton.tsx
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useBranchRowKeys.ts
@@ -193,6 +195,12 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner the pull request asks, never offer a Safe Push that fails, and say why on S`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on S why the whole stack can't start without its pull request, and create it from the notice`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should ask for the approvals of the whole stack of a small stack while its root's row shows, and offer its pull request where they are missing`)
+- The node of the row, at the left edge of the name cell, renders the step too, as where the branch is on its way
+  into master ([Branch Row](branch-row.spec.md#tree), `getLandingNode` over the same facts): ready to land, the user's
+  step first, a fix, landing now, a wait, in master. It says what the slot can't: why the slot is empty (row 1: a
+  robot runs, the branch is held, landed, blocked) and, in a repository not on Space, which has no slot, the pull
+  request it lands through; the header of a stack island has the node of the whole stack.
+  [@test] ../../src/lib/landing-node.test.ts (`is ready to land once Patronus answered that a Safe Push can land it, with the branches it lands`, `waits for others: the reviewers, its parent, a robot that lands an ancestor, a base that may be meant`)
 - A quiet step is the state as its label (the [UX Writing](../../docs/guidelines/ux-writing.md#actions) exception): a
   ghost `xs` button in `text-muted-foreground` (`destructive` for Changes Requested), the `ClockIcon` before "Awaiting
   …"; the label truncates to the slot; the hover gives the whole text, a line per missing group ("Awaiting Ilya

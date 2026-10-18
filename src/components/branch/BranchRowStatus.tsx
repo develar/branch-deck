@@ -26,12 +26,12 @@ const ROW_ROBOT = "h-6 gap-2 px-0 text-sm"
  * finished on the branch as it is ("Failed", "Needs review", "Merged", "Dry run passed", "Canceled"), else the status
  * text (`BranchStatusBadge`). A sync running, an error, a conflict, a block and a landed branch say more than the robot.
  */
-export function BranchRowStatus({ branch, showDot }: { branch: Branch; showDot: boolean }) {
+export function BranchRowStatus({ branch }: { branch: Branch }) {
   const landedIn = useLandedIn(branch.name)
   const { robot, slot } = useRowRobot(branch)
   const chip = getRowRobotChip(slot)
   if (robot === undefined || chip === null || statusOutranksRobot(branch, landedIn)) {
-    return <BranchStatusBadge branch={branch} showDot={showDot} />
+    return <BranchStatusBadge branch={branch} />
   }
   return slot.kind === "running" ? (
     <RunningRowRobot branchName={branch.name} robot={robot} chip={chip} />

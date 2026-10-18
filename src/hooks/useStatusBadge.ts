@@ -1,11 +1,10 @@
 import { useMemo } from "react"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { landedBranchDescription } from "@/lib/landed"
-import { getPushAction, getPushColor } from "@/lib/push-summary"
+import { getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
 import type { StatusTexts } from "@/lib/remote-status"
 import { blockingBranchOf } from "@/lib/stack"
-import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
 
 /**
@@ -73,25 +72,4 @@ export function statusOutranksRobot(branch: Branch, landedIn: string | null): bo
 export function useStatusBadge(branch: Branch): StatusTexts {
   const landedIn = useLandedIn(branch.name)
   return useMemo(() => getStatusBadge(branch, landedIn), [branch, landedIn])
-}
-
-/** The node of a branch in the stack graph: the colour of its status, filled while it needs something */
-export interface LaneNode {
-  color: UIColor
-  /** The branch has work for the remote, or an error or a conflict; hollow when up to date or landed */
-  filled: boolean
-}
-
-/**
- * The node of a branch in the stack graph: it replaces the dot of the status text. `robotAttention` is the robot of the
- * branch that failed on it as it is (`needsRobotAttention`): `error`, or `warning` for missing code-owner approvals; a
- * filled node in that colour, as the Status cell shows the robot then, unless the status outranks it.
- */
-export function getLaneNode(branch: Branch, landedIn: string | null = null, robotAttention: "error" | "warning" | null = null): LaneNode {
-  if (robotAttention !== null && !statusOutranksRobot(branch, landedIn)) {
-    return { color: robotAttention, filled: true }
-  }
-  const color = getStatusBadge(branch, landedIn).color
-  const action = landedIn === null ? getPushAction(branch) : null
-  return { color, filled: color === "error" || (action !== null && action !== "upToDate") }
 }

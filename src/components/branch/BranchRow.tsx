@@ -61,8 +61,8 @@ export interface BranchRowProps {
   depth?: number
   /** Under the row of its issue: one indent step, with the guide of the family */
   familyIndent?: 0 | 1
-  /** Its place in the stack graph; null in a table without stacks */
-  lanes?: StackLanes | null
+  /** Its place in the graph: its node and the lines of its stack */
+  lanes: StackLanes
   /** The segments of a landing span in the row (`landingSegments`), in the colour of the robot; null outside one */
   landing?: LaneSegments | null
   /** Shows the issue the branch belongs to next to its name (no issue row above it) */
@@ -96,7 +96,7 @@ export const BranchRow = memo(function BranchRow({
   name,
   depth = 0,
   familyIndent = 0,
-  lanes = null,
+  lanes,
   landing = null,
   showIssueKey = false,
   dimmed = false,
@@ -174,11 +174,11 @@ export const BranchRow = memo(function BranchRow({
   // the expanded commits sit on the lane of the branch: its line runs down from the node to them
   const hasCommitList = branch.commits.length > 0 && branch.errorDetails?.Generic === undefined
   // in an island the commits show without the row expanded, a line each
-  const showsCommitLines = commitLines && !expanded && hasCommitList && lanes !== null
+  const showsCommitLines = commitLines && !expanded && hasCommitList
   const commitsOnLane = (expanded && hasCommitList) || showsCommitLines
   // the lines beside the inline form and the amend conflict, and where their content starts
-  const gutter = lanes === null ? null : <LaneGutter name={name} lanes={lanes} commitsBelow={commitsOnLane} familyIndent={familyIndent} landing={landing} />
-  const insetClass = lanes === null ? undefined : laneContentInsetClass(familyIndent)
+  const gutter = <LaneGutter name={name} lanes={lanes} commitsBelow={commitsOnLane} familyIndent={familyIndent} landing={landing} />
+  const insetClass = laneContentInsetClass(familyIndent)
   // inside its unit the divider above a row starts at the tree, so the unit reads as one block
   const below = dividerAttributes(rowBelowDivider(familyIndent))
 
@@ -189,7 +189,7 @@ export const BranchRow = memo(function BranchRow({
         name={name}
         rowId={name}
         depth={depth}
-        lane={lanes?.lane}
+        lane={lanes.lane}
         dimmed={dimmed}
         divider={branchRowDivider(depth, familyIndent)}
         expanded={expanded}
@@ -210,19 +210,16 @@ export const BranchRow = memo(function BranchRow({
       >
         <BranchNameCell
           name={name}
-          familyIndent={familyIndent}
           lanes={
-            lanes === null ? undefined : (
-              <LaneCell
-                lanes={lanes}
-                branch={branch}
-                familyIndent={familyIndent}
-                lineDown={lanes.down || commitsOnLane}
-                collapsedBelow={stackCollapsed && !commitsOnLane}
-                ring={robotRuns}
-                highlight={landing}
-              />
-            )
+            <LaneCell
+              lanes={lanes}
+              branch={branch}
+              familyIndent={familyIndent}
+              lineDown={lanes.down || commitsOnLane}
+              collapsedBelow={stackCollapsed && !commitsOnLane}
+              ring={robotRuns}
+              highlight={landing}
+            />
           }
           issueKey={showIssueKey ? branch.issueKey : null}
           fixupCount={fixupCount}
@@ -255,7 +252,7 @@ export const BranchRow = memo(function BranchRow({
           */}
           <div className="grid grid-cols-[9rem_auto_auto] items-center justify-start gap-2">
             <div className="flex min-w-0">
-              <BranchRowStatus branch={branch} showDot={lanes === null} />
+              <BranchRowStatus branch={branch} />
             </div>
             <div className="col-start-2 flex">
               <PullRequestChip branchName={name} />
@@ -275,7 +272,7 @@ export const BranchRow = memo(function BranchRow({
         <tr className={blockDropClass} data-branch-of={name} {...below} {...dropTarget.dropProps}>
           <td id={portalTargetIdFor(name)} colSpan={columnCount} className={cn("relative overflow-hidden p-0", insetClass)}>
             {gutter}
-            {processing && <InlineRowProgressBar className={lanes === null ? undefined : "right-0 left-(--bd-row-inset) w-auto"} />}
+            {processing && <InlineRowProgressBar className="right-0 left-(--bd-row-inset) w-auto" />}
             <Suspense fallback={null}>
               {activeInline.type === "issue-reference" && <InlineIssueReferenceInput key={`issue-reference:${name}`} branchName={name} />}
               {activeInline.type === "rename" && <InlineRenameBranchInput key={`rename:${name}`} branchName={name} />}
@@ -326,8 +323,8 @@ export const BranchRow = memo(function BranchRow({
 
       {expanded && (
         <tr data-testid="branch-commits-row" className={blockDropClass} data-branch-of={name} {...below} {...dropTarget.dropProps}>
-          {/* with lanes, the cell positions their lines and the rail pads itself */}
-          <td colSpan={columnCount} className={lanes === null ? "px-0 py-(--bd-cell-y)" : "relative p-0"}>
+          {/* the cell positions the lines of the lanes, the rail pads itself */}
+          <td colSpan={columnCount} className="relative p-0">
             <ActiveBranchExpanded
               branch={branch}
               familyIndent={familyIndent}

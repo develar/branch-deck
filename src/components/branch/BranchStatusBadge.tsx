@@ -7,10 +7,10 @@ import type { Branch } from "@/stores/branch-sync"
 
 /**
  * Sync/remote status of an active branch; the full description is a tooltip, as in the branch preview.
- * Only an error or a conflict is a badge; a routine state ("not pushed", "1 (3)↑ · 2↓") is muted text with a colour dot.
- * In a table with stacks the node of the branch is the dot (`showDot` false).
+ * Only an error or a conflict is a badge; a routine state ("not pushed", "1 (3)↑ · 2↓") is muted text with a dot in
+ * the push colour. The node of the row says where the branch is on its way into master, not its push.
  */
-export function BranchStatusBadge({ branch, showDot = true }: { branch: Branch; showDot?: boolean }) {
+export function BranchStatusBadge({ branch }: { branch: Branch }) {
   const status = useStatusBadge(branch)
   const exceptional = status.badge === true
   return (
@@ -27,7 +27,9 @@ export function BranchStatusBadge({ branch, showDot = true }: { branch: Branch; 
             )
           }
         >
-          {!exceptional && showDot && <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", statusDotClassName(status.color))} />}
+          {!exceptional && (
+            <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", statusDotClassName(status.color))} data-testid="branch-status-dot" data-color={status.color} />
+          )}
           {exceptional ? (
             status.text
           ) : (

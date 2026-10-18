@@ -654,7 +654,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`closes_a_pull_request_with_a_comment`, `a_closed_pull_request_gets_no_second_comment_and_a_merged_one_is_not_closed`)
 - Until the update archives them, the branches a merged robot landed that way (the same `findLandedBranches`, a robot
   first seen merged too: `findLandedBy`) say so in their rows, "Landed with oauth", "Landed with the whole air stack"
-  (`LandedWithChip`, `info`, beside the status "landed" and a hollow node in the graph), its hover "In master with the
+  (`LandedWithChip`, `info`, beside the status "landed" and the hollow `info` node of a branch in master), its hover "In master with the
   Safe Push of oauth · the update removes the local copies" and when it merged, a click the robot in Patronus; the
   preview shows it too. They offer no Safe Push and no Dry Run ([Next Step](next-step.spec.md#the-table), row 1:
   "Landed in master with oauth") and no push ([below](#pushing-into-a-branch-whose-safe-push-runs)); the "to push" counts

@@ -102,29 +102,10 @@
   }
 }
 
-/* on the table with stacked branches, which sets --bd-lane-count */
+/* on the branch table, which sets --bd-lane-count */
 @utility bd-lanes {
   --bd-lane-column: calc(var(--bd-lane-count) * var(--bd-lane-width));
   --bd-tree-x: calc(var(--bd-lane-start) + var(--bd-lane-column) + 0.5rem);
-}
-
-/*
- * without lanes, the guide of a family member: its rule over the whole row, then the folder icon one step right of the
- * rule above, less the 0.5rem from the icon to its rule
- */
-@utility bd-family-guide {
-  @apply border-l border-border;
-  margin-block: calc(var(--bd-cell-y) * -1);
-  padding-block: var(--bd-cell-y);
-  padding-left: calc(var(--bd-family-step) - 0.5rem - 1px);
-}
-
-/* without lanes, the guide of a family member beside its expanded commits, whose rail is one step further right */
-@utility bd-family-rule {
-  @apply border-l border-border;
-  margin-block: calc(var(--bd-cell-y) * -1);
-  padding-block: var(--bd-cell-y);
-  padding-left: calc(var(--bd-family-step) - 1px);
 }
 
 /*

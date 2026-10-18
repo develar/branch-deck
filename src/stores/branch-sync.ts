@@ -269,7 +269,7 @@ export type BranchTableRow =
       readonly depth: number
       readonly showIssueKey: boolean
       readonly familyIndent: 0 | 1
-      readonly lanes: StackLanes | null
+      readonly lanes: StackLanes
       readonly dimmed: boolean
     }
   | { readonly kind: "issue"; readonly key: string; readonly issueKey: string; readonly members: readonly string[] }
@@ -289,11 +289,16 @@ function internRow(row: BranchTableRow): BranchTableRow {
   return row
 }
 
-function lanesKey(lanes: StackLanes | null): string {
-  return lanes === null ? "-" : `${lanes.lane},${lanes.forkFrom ?? ""},${lanes.up ? 1 : 0}${lanes.down ? 1 : 0},${lanes.through.join(".")}`
+function lanesKey(lanes: StackLanes): string {
+  return `${lanes.lane},${lanes.forkFrom ?? ""},${lanes.up ? 1 : 0}${lanes.down ? 1 : 0},${lanes.through.join(".")}${lanes.alone === true ? "a" : ""}`
 }
 
-function branchRow(name: string, depth: number, showIssueKey: boolean, familyIndent: 0 | 1, lanes: StackLanes | null, dimmed: boolean): BranchTableRow {
+/** The lanes of a branch in a table without stacks: the node alone */
+function aloneLanes(lanes: StackLanes): StackLanes {
+  return { ...lanes, alone: true }
+}
+
+function branchRow(name: string, depth: number, showIssueKey: boolean, familyIndent: 0 | 1, lanes: StackLanes, dimmed: boolean): BranchTableRow {
   const key = `b:${depth}:${showIssueKey ? 1 : 0}:${familyIndent}:${dimmed ? 1 : 0}:${lanesKey(lanes)}:${name}`
   return internRow({ kind: "branch", key, name, depth, showIssueKey, familyIndent, lanes, dimmed })
 }
@@ -394,7 +399,7 @@ function computeBranchTableRows(state: BranchSyncState, visible: ReadonlySet<str
   }
   const roots = branchOrder.filter(name => stackParentIn(branches, name) === null || isRoot(name))
   const rootSet = new Set(roots)
-  // without a branch stacked on another, the table has no graph to draw
+  // without a branch stacked on another the table has no graph: a lane for the node of each branch
   const hasStacks = children.size > 0
 
   // the prefix branches of each issue among the stack roots (an issue branch is named after its key)
@@ -428,7 +433,8 @@ function computeBranchTableRows(state: BranchSyncState, visible: ReadonlySet<str
         showIssueKey = childIssueKey !== null && childIssueKey !== issueKey && childIssueKey !== name
       }
       const dimmed = visible !== null && !visible.has(name)
-      rows.push(branchRow(name, familyIndent + depth, showIssueKey, familyIndent, hasStacks ? lanes : null, dimmed))
+      // every branch has its node, where it is on its way into master: a table without stacks has one lane
+      rows.push(branchRow(name, familyIndent + depth, showIssueKey, familyIndent, hasStacks ? lanes : aloneLanes(lanes), dimmed))
     }
   }
   const placeFamily = (issueKey: string) => {

@@ -436,9 +436,10 @@ menu stacks, unstacks and renames branches.
   child forks from, the line up into its node and down from it, and the lanes passing it. A straight chain stays on
   lane 0; at a fork the last child continues the parent's lane and each other child takes the lowest free lane for
   its subtree, which follows the parent at once, so lines never cross; a lane is free again after its subtree. Each
-  stack starts at lane 0, so separate stacks share no line. Without a branch stacked on another, no row has lanes.
+  stack starts at lane 0, so separate stacks share no line. Without a branch stacked on another, every row has lane 0
+  alone (`alone`): the node of the branch, no line, its commits newest first.
   [@test] ../../src/lib/stack-lanes.test.ts (`keeps a straight chain on lane 0`, `continues the longest chain on the parent's lane and forks the others off it, shortest first`, `opens a lane per fork inside a side subtree, and frees it after the subtree`, `keeps the given order of children with chains of the same length: the oldest is the main line`)
-  [@test] ../../src/stores/branch-table-rows.test.ts (`keeps a straight chain on one lane and forks a leaf sibling and a side chain off it`, `starts each stack on lane 0, so separate stacks share no line`, `has no lanes while no branch is stacked on another`)
+  [@test] ../../src/stores/branch-table-rows.test.ts (`keeps a straight chain on one lane and forks a leaf sibling and a side chain off it`, `starts each stack on lane 0, so separate stacks share no line`, `puts every branch on one lane while no branch is stacked on another: its node says where it is on its way into master`)
 - The review window of a stacked branch must show its stack from the baseline as segments: the branch on its parent
   first, Shift+click extends the part, "From Root" shows what its Safe Push lands and Patronus checks ([Branch Review](branch-review.spec.md#the-stack-and-the-commits)).
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)

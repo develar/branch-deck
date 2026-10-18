@@ -4,6 +4,7 @@ import { cn } from "cn"
 import { GitBranchPlusIcon } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { BranchFilterBar, BranchFilterEmptyRow } from "@/components/branch/BranchFilterBar"
+import { BranchGraphHelpPopover } from "@/components/branch/BranchGraphHelpPopover"
 import { BranchRow } from "@/components/branch/BranchRow"
 import { BranchSelectionBar } from "@/components/branch/BranchSelectionBar"
 import { IssueFamilyRow } from "@/components/branch/IssueFamilyRow"
@@ -189,7 +190,7 @@ export function BranchTableCard() {
           name={name}
           depth={row.depth}
           familyIndent={row.familyIndent}
-          lanes={row.lanes !== null && collapsed ? collapsedLanes(row.lanes) : row.lanes}
+          lanes={collapsed ? collapsedLanes(row.lanes) : row.lanes}
           // the header of an island sizes its stack
           stackShown={!inIsland && isStackRoot(row) ? (stackShown.get(name) ?? 1) : sideStackRoots.has(name) ? (sideStackShown.get(name) ?? 1) : undefined}
           stackKind={isStackRoot(row) ? "stack" : "side"}
@@ -231,7 +232,12 @@ export function BranchTableCard() {
             >
               <thead className="border-b border-border">
                 <tr>
-                  <TableHeader>Branch Name</TableHeader>
+                  <TableHeader>
+                    <span className="inline-flex items-center gap-1">
+                      Branch Name
+                      <BranchGraphHelpPopover />
+                    </span>
+                  </TableHeader>
                   <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">Commits</TableHeader>
                   {/* room for the status text, the pull request chip and the Landed chip, so the table doesn't reflow when the chips arrive */}
                   <TableHeader className="hidden w-px min-w-[12rem] px-4 whitespace-nowrap sm:table-cell">Status</TableHeader>

@@ -3,7 +3,16 @@ import { attentionRow, neighbourRow, parentRow } from "@/lib/branch-row-keys"
 import type { BranchTableRow } from "@/stores/branch-sync"
 
 function branchRow(name: string, depth: number): BranchTableRow {
-  return { kind: "branch", key: name, name, depth, showIssueKey: false, familyIndent: 0, lanes: null, dimmed: false }
+  return {
+    kind: "branch",
+    key: name,
+    name,
+    depth,
+    showIssueKey: false,
+    familyIndent: 0,
+    lanes: { lane: 0, forkFrom: null, up: false, down: false, through: [], alone: true },
+    dimmed: false,
+  }
 }
 
 describe("branch row keys", () => {

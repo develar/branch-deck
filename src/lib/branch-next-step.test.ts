@@ -1,76 +1,10 @@
 // @spec spec/branch/next-step.spec.md
 import { describe, expect, it, vi } from "vite-plus/test"
-import type { MissingReviewGroup, Person, ReviewReadiness } from "@/lib/bindings"
-import type { NextStepFacts, NextStepPullRequest } from "@/lib/branch-next-step"
+import type { ReviewReadiness } from "@/lib/bindings"
+import type { NextStepFacts } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
 import type { MenuItem } from "@/lib/menu"
-import type { PatronusChipKind, PatronusChipState, SafePushSlot } from "@/lib/patronus"
-
-const ilya: Person = { login: "ikorennoy", fullName: "Ilya Korennoy" }
-const alice: Person = { login: "alice", fullName: null }
-const junie: Person = { login: "junie-jetbrains", fullName: null }
-
-function chip(kind: PatronusChipKind): PatronusChipState {
-  return { kind, color: "neutral", label: kind, commit: "current", outdated: false }
-}
-
-function finished(kind: PatronusChipKind): SafePushSlot {
-  return { kind: "finished", chip: chip(kind), offered: true }
-}
-
-function group(patch: Partial<MissingReviewGroup> = {}): MissingReviewGroup {
-  return { name: "IJPL Code Platform", needed: 1, approvedBy: [], requested: [ilya], suggested: [ilya], changesRequestedBy: [], ...patch }
-}
-
-function missing(groups: MissingReviewGroup[], patch: Partial<Extract<ReviewReadiness, { kind: "missing" }>> = {}): ReviewReadiness {
-  return { kind: "missing", groups, notCounted: [junie], reason: "approvalsMissing", ...patch }
-}
-
-const openPullRequest: NextStepPullRequest = { number: 1078, state: "open", isDraft: false, base: "master", intoTarget: true, mergedCurrent: false, baseIsVirtualBranch: false }
-
-const restart: MenuItem = { id: "restart-robot", label: "Restart Safe Push", onSelect: () => {} }
-const createPullRequest: MenuItem = { id: "create-pull-request", label: "Create Pull Request…", onSelect: () => {} }
-const requestReview: MenuItem = { id: "request-review", label: "Request Review…", description: "Ask Ilya Korennoy to review #1078", onSelect: () => {} }
-
-function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
-  return {
-    branchName: "wsm-skip-wa-2",
-    subject: "wsm-skip-wa-2",
-    patronusAvailable: true,
-    syncing: false,
-    hasError: false,
-    commitCount: 2,
-    processing: false,
-    blocked: false,
-    startBlocker: null,
-    dryRunStartBlocker: null,
-    held: false,
-    landedIn: null,
-    landedWith: null,
-    robot: { kind: "start" },
-    robotPullRequest: null,
-    restart: null,
-    pullRequestsAvailable: true,
-    pullRequest: openPullRequest,
-    target: "master",
-    landsBranches: 1,
-    readiness: null,
-    startDescription: null,
-    stackPullRequest: null,
-    actions: {
-      openSafePush: vi.fn(),
-      openPullRequest: vi.fn(),
-      retarget: vi.fn(),
-      createPullRequest,
-      requestReview,
-    },
-    ...patch,
-  }
-}
-
-function withReadiness(readiness: ReviewReadiness, patch: Partial<NextStepFacts> = {}): NextStepFacts {
-  return facts({ readiness: { readiness, stale: false }, ...patch })
-}
+import { alice, chip, createPullRequest, facts, finished, group, ilya, missing, openPullRequest, requestReview, restart, withReadiness } from "@/lib/test-next-step-facts"
 
 describe("getBranchNextStep", () => {
   it("has no slot in a repository that is not on Space, and keeps the reasons of the branch", () => {

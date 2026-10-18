@@ -1,7 +1,10 @@
-import type { CSSProperties } from "react"
+import type { CSSProperties, ReactNode } from "react"
 import { cn } from "cn"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { RobotRing } from "@/components/branch/RobotProgress"
-import { useLaneNode } from "@/hooks/useLaneNode"
+import { useLandingNode } from "@/hooks/useLandingNode"
+import type { LandingNodeKind } from "@/lib/landing-node"
+import { landingNodeLooks } from "@/lib/landing-node"
 import { robotRingColor } from "@/lib/patronus"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { lanesBelow, segmentLanesBelow } from "@/lib/stack-lanes"
@@ -117,36 +120,62 @@ export function LaneCell({ lanes, branch, familyIndent, lineDown, collapsedBelow
 }
 
 /**
- * The node of a branch, an 8px circle on its lane: the colour of its status (the push colour, `destructive` an error
- * or a conflict, `warning` blocked, `info` landed), filled while the branch has work for the remote, hollow when up to
- * date. It is the dot of the status text, which a table with stacks drops.
+ * The node of a branch, an 8px circle on its lane: where the branch is on its way into master (`getLandingNode`), filled
+ * while the next step is the user's, hollow while it waits for others or is done; the hover says it. The push has the
+ * dot of the status text.
  */
 function LaneNodeMark({ branch, ring }: { branch: Branch; ring: boolean }) {
-  const { color, filled } = useLaneNode(branch)
+  const node = useLandingNode(branch.name)
   // the hovered push button sends this branch: the node is circled in its colour
   const pushed = useIsPushedOnPath(branch.name)
+  const kind = node?.kind ?? "waiting"
   return (
-    <>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            className="pointer-events-auto absolute top-1/2 left-[calc((var(--bd-node-lane)+0.5)*var(--bd-lane-width))] flex size-4 -translate-1/2 items-center justify-center"
+            data-testid="lane-node-target"
+          />
+        }
+      >
+        <LaneNodeDot kind={kind} ring={ring ? <LaneRobotRing branchName={branch.name} /> : null} pushed={pushed} />
+      </TooltipTrigger>
+      {node !== null && <TooltipContent className="whitespace-pre-line">{node.label}</TooltipContent>}
+    </Tooltip>
+  )
+}
+
+/**
+ * The 8px circle of a landing state in the colour and form of its kind (`landingNodeLooks`), in a 16px box: the node of
+ * a row, of an island header and of the legend; `ring` the ring of a running robot around it, `pushed` circled while
+ * the hovered push button sends the branch
+ */
+export function LaneNodeDot({ kind, ring = null, pushed = false }: { kind: LandingNodeKind; ring?: ReactNode; pushed?: boolean }) {
+  const { color, filled } = landingNodeLooks[kind]
+  return (
+    <span className="relative flex size-4 shrink-0 items-center justify-center">
       <span
         data-testid="lane-node"
+        data-kind={kind}
         data-color={color}
         data-filled={filled}
-        data-ring={ring || undefined}
+        data-ring={ring !== null || undefined}
         data-pushed={pushed || undefined}
         className={cn(
-          "absolute top-1/2 left-[calc((var(--bd-node-lane)+0.5)*var(--bd-lane-width))] size-2 -translate-1/2 rounded-full border-[1.5px] border-current",
+          "size-2 rounded-full border-[1.5px] border-current",
           nodeColorClass[color],
           filled && "bg-current",
           pushed && "bd-path-in outline-[1.5px] outline-offset-2 outline-current",
         )}
       />
-      {/* the ring of the Safe Push slot, around the node; its own box, as the ring turns and the box is translated */}
-      {ring && (
-        <span className="absolute top-1/2 left-[calc((var(--bd-node-lane)+0.5)*var(--bd-lane-width))] flex size-4 -translate-1/2" data-testid="lane-ring">
-          <LaneRobotRing branchName={branch.name} />
+      {/* the ring of the Safe Push slot, around the node; its own box, as the ring turns */}
+      {ring !== null && (
+        <span className="absolute inset-0 flex" data-testid="lane-ring">
+          {ring}
         </span>
       )}
-    </>
+    </span>
   )
 }
 

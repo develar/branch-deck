@@ -4,7 +4,16 @@ import { collectOutgoingAttention, collectReturnedToYou, formatAttentionLine, fo
 import type { BranchTableRow } from "@/stores/branch-sync"
 
 function row(name: string): BranchTableRow {
-  return { kind: "branch", key: name, name, depth: 0, showIssueKey: false, familyIndent: 0, lanes: null, dimmed: false }
+  return {
+    kind: "branch",
+    key: name,
+    name,
+    depth: 0,
+    showIssueKey: false,
+    familyIndent: 0,
+    lanes: { lane: 0, forkFrom: null, up: false, down: false, through: [], alone: true },
+    dimmed: false,
+  }
 }
 
 function openPullRequest(branchName: string, patch: Partial<PullRequest>): PullRequest {

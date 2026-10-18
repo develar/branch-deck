@@ -32,6 +32,7 @@ targets:
   - ../../src/hooks/useSafePush.ts
   - ../../src/stores/safe-push.ts
   - ../../crates/test-utils/src/repo_template.rs
+  - ../../src/hooks/useLandingNode.ts
 ---
 
 # Stack Island
@@ -78,7 +79,11 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
 ### Header
 
 - The header must name the root and size the stack ("air", "Stack · 7 branches · 14 commits"); the root row has no
-  stack chip, the header is it.
+  stack chip, the header is it. Before the name, the node of the whole stack says where it is on its way into master,
+  as the node of a row says it of a branch ([Branch Row](branch-row.spec.md#tree)): of its stack branch while the stack
+  forks, of its last branch for a straight chain; its hover says it ("Ready to land: Safe Push lands 7 branches"), so
+  a collapsed island still answers it.
+  [@test] ../../tests/e2e/branch-graph/branch-graph.spec.ts (`should say in the island header where the whole stack is on its way into master`)
 - After it, what the stack holds, each counted as the stack chip counts it (`summarizeStackState` over the whole
   stack, `getStackStateChips`), the strongest first: "1 failed", "1 running", "3 to push"; a click on a count shows the
   first branch in that state (`requestReveal`: it expands the island and the row), also from a collapsed island. The

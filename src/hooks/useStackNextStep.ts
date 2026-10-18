@@ -1,7 +1,6 @@
 import { GitPullRequestCreateIcon } from "lucide-react"
-import { useStore } from "zustand"
 import type { StartStepOptions } from "@/hooks/useBranchNextStep"
-import { announceApproval, getBranchNextStepNow, getLandedIn, nextStepSources, tellApprovalNews, useBranchNextStep } from "@/hooks/useBranchNextStep"
+import { announceApproval, getBranchNextStepNow, getLandedIn, nextStepSources, tellApprovalNews, useBranchNextStep, useNextStepStores } from "@/hooks/useBranchNextStep"
 import { requestSafePush } from "@/hooks/useSafePush"
 import type { ApprovalNews } from "@/lib/approval-news"
 import { formatBranchCount } from "@/lib/branch"
@@ -18,13 +17,12 @@ import { describeWholeStackLanding, formatWholeStack, getStackBranchBlocker, sta
 import type { StackBranch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getStackBranch, stackMainLineIn, useBranchSync } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
-import { inlineRowActionStore, isProcessing } from "@/stores/inline-row-action"
-import { landedStore } from "@/stores/landed"
-import { getStackLandingMember, getStackPushHold, getStackRobot, isPatronusAvailable, isRobotFailing, isRobotNeedingReview, patronusStore } from "@/stores/patronus"
-import { getPullRequestAvailability, getStackPullRequest, pullRequestsStore } from "@/stores/pull-requests"
+import { isProcessing } from "@/stores/inline-row-action"
+import { getStackLandingMember, getStackPushHold, getStackRobot, isPatronusAvailable, isRobotFailing, isRobotNeedingReview } from "@/stores/patronus"
+import { getPullRequestAvailability, getStackPullRequest } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
-import { freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore, useShowReviewReadiness } from "@/stores/review-readiness"
-import { getSafePushStarting, safePushStore } from "@/stores/safe-push"
+import { freshReadiness, getReadinessTarget, getReviewReadiness, useShowReviewReadiness } from "@/stores/review-readiness"
+import { getSafePushStarting } from "@/stores/safe-push"
 
 /**
  * The next step of the whole stack of a root ([Next Step](../../spec/branch/next-step.spec.md#the-whole-stack)): of its
@@ -229,14 +227,7 @@ function computeStackNextStep(root: string): StackNextStep | null {
 export function useStackNextStep(root: string): StackNextStep | null {
   const forks = useBranchSync(state => isForkingStack(state.stackBranches[root]))
   useShowReviewReadiness(forks ? stackReadinessKey(root) : "")
-  const select = () => getStackNextStepNow(root)
-  useStore(branchSyncStore, select)
-  useStore(patronusStore, select)
-  useStore(pullRequestsStore, select)
-  useStore(reviewReadinessStore, select)
-  useStore(landedStore, select)
-  useStore(safePushStore, select)
-  return useStore(inlineRowActionStore, select)
+  return useNextStepStores(() => getStackNextStepNow(root))
 }
 
 /**

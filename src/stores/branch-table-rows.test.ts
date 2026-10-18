@@ -28,7 +28,7 @@ function rows(visible: ReadonlySet<string> | null = null): string[] {
 
 /**
  * The stack graph: `name:lane`, `<n` the lane a side child forks from, `^` the line up into the node, `v` the line down,
- * `|0,1` the lanes passing the row; `>` before a branch under its issue, `~` after a dimmed one, `name:-` without lanes
+ * `|0,1` the lanes passing the row; `>` before a branch under its issue, `~` after a dimmed one
  */
 function graph(visible: ReadonlySet<string> | null = null): string[] {
   return getBranchTableRows(visible).map(row => {
@@ -36,10 +36,7 @@ function graph(visible: ReadonlySet<string> | null = null): string[] {
       return `#${row.issueKey}`
     }
     const lanes = row.lanes
-    const place =
-      lanes === null
-        ? "-"
-        : `${lanes.lane}${lanes.forkFrom === null ? "" : `<${lanes.forkFrom}`}${lanes.up ? "^" : ""}${lanes.down ? "v" : ""}${lanes.through.length > 0 ? `|${lanes.through.join(",")}` : ""}`
+    const place = `${lanes.lane}${lanes.forkFrom === null ? "" : `<${lanes.forkFrom}`}${lanes.up ? "^" : ""}${lanes.down ? "v" : ""}${lanes.through.length > 0 ? `|${lanes.through.join(",")}` : ""}`
     return `${row.familyIndent === 1 ? ">" : ""}${row.name}:${place}${row.dimmed ? "~" : ""}`
   })
 }
@@ -76,15 +73,15 @@ describe("branch table rows with stacked branches", () => {
     expect(graph()).toEqual(["b:0v", "b2:0^", "flat:0", "a:0v", "a2:0^"])
   })
 
-  it("has no lanes while no branch is stacked on another", () => {
+  it("puts every branch on one lane while no branch is stacked on another: its node says where it is on its way into master", () => {
     setBranches(["parser", null, "ABC-1"], ["lexer", null, "ABC-1"], ["docs", null])
-    expect(graph()).toEqual(["#ABC-1", ">parser:-", ">lexer:-", "docs:-"])
+    expect(graph()).toEqual(["#ABC-1", ">parser:0", ">lexer:0", "docs:0"])
   })
 
   it("keeps a branch whose parent has no row, or whose parents form a cycle, at the top level", () => {
     setBranches(["login", "auth"], ["a", "b"], ["b", "a"])
     expect(rows()).toEqual(["login@0", "a@0", "b@0"])
-    expect(graph()).toEqual(["login:-", "a:-", "b:-"])
+    expect(graph()).toEqual(["login:0", "a:0", "b:0"])
     // beside a stack, each on lane 0 without a line
     setBranches(["login", "auth"], ["a", "b"], ["b", "a"], ["y", "x"], ["x", null])
     expect(graph()).toEqual(["login:0", "a:0", "b:0", "x:0v", "y:0^"])
@@ -150,8 +147,8 @@ describe("branch table rows with stacked branches", () => {
     // the lanes are laid out over the rows that remain: login is the only child of auth
     expect(graph(new Set(["oauth", "auth"]))).toEqual(["auth:0v", "login:0^v~", "oauth:0^"])
     expect(graph(new Set(["docs", "session"]))).toEqual(["docs:0", "auth:0v~", "session:0^"])
-    // nothing stacked among them: no lanes
-    expect(graph(new Set(["docs", "gone"]))).toEqual(["docs:-"])
+    // nothing stacked among them: one lane, without a line
+    expect(graph(new Set(["docs", "gone"]))).toEqual(["docs:0"])
     expect(graph(new Set())).toEqual([])
   })
 

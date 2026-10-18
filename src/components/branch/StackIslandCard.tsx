@@ -9,11 +9,13 @@ import { CompactPushLabel, PushProgressDescription } from "@/components/branch/B
 import { NextStepSlot } from "@/components/branch/NextStepSlot"
 import { OrphanedStackPullRequestLine } from "@/components/branch/OrphanedStackPullRequest"
 import { RobotRing } from "@/components/branch/RobotProgress"
+import { LaneNodeDot } from "@/components/branch/StackLanes"
 import { WholeStackSlot } from "@/components/branch/WholeStackSlot"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
+import { useStackLandingNode } from "@/hooks/useLandingNode"
 import { useStackBranchAlong } from "@/hooks/usePushButton"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { requestSafePush } from "@/hooks/useSafePush"
@@ -181,6 +183,22 @@ export function StackIslandCard({ island, filtered, landing, children }: StackIs
   )
 }
 
+/** Where the whole stack is on its way into master, as the node of a row says it of a branch; the hover says it */
+function IslandLandingNode({ root }: { root: string }) {
+  const node = useStackLandingNode(root)
+  if (node === null) {
+    return null
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className="flex shrink-0" data-testid="stack-island-node" />}>
+        <LaneNodeDot kind={node.kind} />
+      </TooltipTrigger>
+      <TooltipContent className="whitespace-pre-line">{node.label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 function IslandHeader({ root, summary, landing }: { root: string; summary: IslandSummary; landing: ReadonlyMap<string, string> }) {
   // the branches whose robot lands a part of the stack, with the count of the branches it lands, itself included
   const landed = new Map<string, number>()
@@ -193,6 +211,7 @@ function IslandHeader({ root, summary, landing }: { root: string; summary: Islan
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
       <div className="flex min-w-0 items-center gap-2">
+        <IslandLandingNode root={root} />
         <h2 className="truncate text-sm font-semibold text-foreground" data-testid="stack-island-root">
           {root}
         </h2>

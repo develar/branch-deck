@@ -1,0 +1,51 @@
+<div aria-labelledby="base-ui-[ID]" class="z-50 flex origin-(--transform-origin) flex-col rounded-3xl bg-popover text-popover-foreground shadow-lg ring-1 ring-foreground/5 outline-hidden duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 w-80 gap-3 p-3 text-xs" data-align="start" data-base-ui-focusable="" data-open="" data-side="bottom" data-slot="popover-content" id="[ID]" role="dialog" tabindex="-1">
+  <div class="flex flex-col text-sm gap-0.5" data-slot="popover-header">
+    <h2 class="font-medium text-sm" data-slot="popover-title" id="base-ui-[ID]">
+      Branch Graph
+    </h2>
+  </div>
+  <p>
+    Each dot says where the branch is on its way into master. Filled: the next step is yours.
+  </p>
+  <dl class="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1" data-testid="branch-graph-legend">
+    <div class="contents">
+      <dt />
+      <dd>
+        Ready to land: Safe Push
+      </dd>
+    </div>
+    <div class="contents">
+      <dt />
+      <dd>
+        Your step first: a pull request, a review, a retarget
+      </dd>
+    </div>
+    <div class="contents">
+      <dt />
+      <dd>
+        Needs a fix: a conflict, a failed robot, changes requested
+      </dd>
+    </div>
+    <div class="contents">
+      <dt />
+      <dd>
+        Landing now
+      </dd>
+    </div>
+    <div class="contents">
+      <dt />
+      <dd>
+        Waits for others: reviewers, its parent, a robot
+      </dd>
+    </div>
+    <div class="contents">
+      <dt />
+      <dd>
+        In master
+      </dd>
+    </div>
+  </dl>
+  <p>
+    Lines join a branch to the branches built on it; hover a row to see what it is built on.
+  </p>
+</div>

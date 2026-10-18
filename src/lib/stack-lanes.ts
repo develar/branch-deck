@@ -15,6 +15,11 @@ export interface StackLanes {
   readonly down: boolean
   /** The other lanes that pass the row from top to bottom, ascending */
   readonly through: readonly number[]
+  /**
+   * A table without a branch stacked on another: the lane holds the node alone, and the expanded commits stay newest
+   * first, as no graph runs down with time
+   */
+  readonly alone?: true
 }
 
 /** A branch of one stack in table order */
@@ -85,7 +90,7 @@ export function layoutStack(root: string, childrenOf: (name: string) => readonly
   return rows
 }
 
-/** The lanes the table draws: the highest lane of a row plus one; 0 without stacked branches */
+/** The lanes the table draws: the highest lane of a row plus one; 0 without a branch row */
 export function laneCountOf(lanes: readonly (StackLanes | null)[]): number {
   let count = 0
   for (const it of lanes) {

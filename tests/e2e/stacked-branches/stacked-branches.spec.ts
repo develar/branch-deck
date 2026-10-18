@@ -63,7 +63,7 @@ async function boxOf(locator: Locator): Promise<{ x: number; y: number; width: n
 
 test.describe("Stacked branches", () => {
   test("should show the branches of a stack under their parents", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("stacked_branches")
+    await setupRepo("stacked_branches", { patronus: availableRobots() })
     await syncAndWaitForBranches()
     await verifyCommitCount(findBranchRow(page, "login"), "1 commit")
 
@@ -77,10 +77,14 @@ test.describe("Stacked branches", () => {
     const nameX = async (name: string) => Math.round((await boxOf(findBranchRow(page, name).getByText(name, { exact: true }))).x)
     expect(await nameX("session")).toBe(await nameX("docs"))
     expect(await nameX("oauth")).toBe(await nameX("docs"))
-    // the node is the dot of the status: filled in the push colour while the branch is not pushed
+    // the node says where the branch is on its way into master, its hover in words; the push is the dot of the status
     const node = findBranchRow(page, "login").getByTestId("lane-node")
-    await expect(node).toHaveAttribute("data-color", "primary")
+    await expect(node).toHaveAttribute("data-kind", "ready")
     await expect(node).toHaveAttribute("data-filled", "true")
+    await findBranchRow(page, "login").getByTestId("lane-node-target").hover()
+    // GitHub doesn't list the pull requests here: nobody judges the approvals before the start
+    await expect(page.getByRole("tooltip")).toHaveText("Ready to land: Safe Push lands 2 branches\nPatronus checks the approvals when the robot starts")
+    await expect(findBranchRow(page, "login").getByTestId("branch-status-dot")).toHaveAttribute("data-color", "primary")
     // the graph shows what a branch is built on: the row doesn't say it
     await expect(findBranchRow(page, "oauth").getByTestId("stack-base")).toHaveCount(0)
     // the preview has no tree: it says what the branch is built on
@@ -215,10 +219,11 @@ test.describe("Stacked branches", () => {
     })
     await syncAndWaitForBranches()
     await expect(page.getByTestId("robots-indicator")).toHaveText("1 failed")
-    // the node of the failed branch is red, where the eye starts reading a row; the ones fixed since keep the push colour
+    // the node of the failed branch needs a fix, where the eye starts reading a row; the ones fixed since can land again
+    await expect(findBranchRow(page, "session").getByTestId("lane-node")).toHaveAttribute("data-kind", "needsFix")
     await expect(findBranchRow(page, "session").getByTestId("lane-node")).toHaveAttribute("data-color", "error")
     await expect(findBranchRow(page, "session").getByTestId("lane-node")).toHaveAttribute("data-filled", "true")
-    await expect(findBranchRow(page, "login").getByTestId("lane-node")).toHaveAttribute("data-color", "primary")
+    await expect(findBranchRow(page, "login").getByTestId("lane-node")).toHaveAttribute("data-kind", "ready")
     const chip = getStackChip(findBranchRow(page, "auth"))
     await chip.click()
     // the header's count: the failure the user has to act on, not the two fixed since
@@ -393,7 +398,7 @@ test.describe("Stacked branches", () => {
 
     // login isn't pushed yet: the button of oauth pushes the stack, its description offers oauth alone
     const oauth = findBranchRow(page, "oauth")
-    await expect(oauth.getByTestId("lane-node")).toHaveAttribute("data-filled", "true")
+    await expect(oauth.getByTestId("branch-status-dot")).toHaveAttribute("data-color", "primary")
     const button = getPushButton(oauth)
     // the menu names it alike, the arrow counts the commits
     await expect(button).toHaveAccessibleName("Push Stack (3 branches)")
@@ -416,9 +421,9 @@ test.describe("Stacked branches", () => {
     await button.click()
     await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["auth", "login", "oauth"])
     expect(pushes.map(push => push.parentBranch ?? null)).toEqual([null, "auth", "login"])
-    // the stack is on the remote: its nodes are hollow
+    // the stack is on the remote: the dots of their status are neutral
     for (const name of ["auth", "login", "oauth"]) {
-      await expect(findBranchRow(page, name).getByTestId("lane-node")).toHaveAttribute("data-filled", "false")
+      await expect(findBranchRow(page, name).getByTestId("branch-status-dot")).toHaveAttribute("data-color", "neutral")
     }
     // one toast for the stack, as Activity has an entry per branch; it creates the pull request of oauth
     const toast = page.locator("[data-slot=toast]", { hasText: "Pushed auth, login and oauth" })
@@ -468,7 +473,7 @@ test.describe("Stacked branches", () => {
     // no toast of a push, and the branches below and above login are still not on the remote
     await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
     for (const name of ["auth", "oauth"]) {
-      await expect(findBranchRow(page, name).getByTestId("lane-node")).toHaveAttribute("data-filled", "true")
+      await expect(findBranchRow(page, name).getByTestId("branch-status-dot")).toHaveAttribute("data-color", "primary")
     }
 
     // the toast pushes login alone over what its remote has now, after the row shows the commit the push drops
@@ -1077,6 +1082,13 @@ test.describe("Stacked branches", () => {
       await expect(findBranchRow(page, "oauth").getByTestId("lane-node")).toHaveAttribute("data-ring", "true")
       await expect(findBranchRow(page, "oauth").getByTestId("lane-ring")).toBeVisible()
       await expect(findBranchRow(page, "login").getByTestId("lane-ring")).toHaveCount(0)
+      // the nodes of the span are landing: the ring only around the branch the robot runs on
+      for (const name of ["auth", "login", "oauth"]) {
+        await expect(findBranchRow(page, name).getByTestId("lane-node")).toHaveAttribute("data-kind", "landing")
+      }
+      await findBranchRow(page, "login").getByTestId("lane-node-target").hover()
+      await expect(page.getByRole("tooltip", { name: "Lands with oauth: its Safe Push runs" })).toBeVisible()
+      await page.mouse.move(0, 0)
       for (const name of ["auth", "session", "login", "oauth"]) {
         await expect(findBranchRow(page, name).getByTestId("landing-lanes")).toHaveCount(1)
       }

@@ -120,8 +120,8 @@ function stackPullRequestFactOf(name: string): StackPullRequestFact | null {
   return { number: pullRequest.number, subject: formatWholeStack(stack.root), open: () => openPullRequest(getStackPullRequest(stack.root) ?? pullRequest) }
 }
 
-/** What decides the next step of the branch now, from the stores */
-function factsOf(branch: Branch, options: StartStepOptions | null = null): NextStepFacts {
+/** What decides the next step of the branch now, from the stores; the node of its row reads them too (`useLandingNode`) */
+export function getNextStepFacts(branch: Branch, options: StartStepOptions | null = null): NextStepFacts {
   const name = branch.name
   const available = isPatronusAvailable()
   const robot = getBranchRobot(name)
@@ -213,7 +213,7 @@ export function nextStepSources(): readonly unknown[] {
 
 /** The next step of `branch` as it is given (a menu of the branch it shows), the rest from the stores; `options` for a start */
 export function getBranchNextStepOf(branch: Branch, options: StartStepOptions | null = null): BranchNextStep {
-  return getBranchNextStep(factsOf(branch, options))
+  return getBranchNextStep(getNextStepFacts(branch, options))
 }
 
 /** What a surface renders of a step: one object while it stays, so a row renders again only when its step changes */
@@ -253,7 +253,11 @@ export function useBranchNextStep(name: string): BranchNextStep | null {
   useShowReviewReadiness(name)
   const headsWholeStack = useBranchSync(state => (state.stackBranches[name]?.members.length ?? 0) > 0)
   useShowReviewReadiness(headsWholeStack ? stackReadinessKey(name) : "")
-  const select = () => getBranchNextStepNow(name)
+  return useNextStepStores(() => getBranchNextStepNow(name))
+}
+
+/** Renders again with `select` when a store the next step reads changes (of a branch, of a whole stack, of a node) */
+export function useNextStepStores<T>(select: () => T): T {
   useStore(branchSyncStore, select)
   useStore(patronusStore, select)
   useStore(pullRequestsStore, select)

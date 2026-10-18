@@ -1007,6 +1007,12 @@ export function isPatronusAvailable(): boolean {
   return status !== undefined && status !== "notPatronus"
 }
 
+/** Patronus answered whether the selected repository is on Space: before that, nothing says how its branches land */
+export function isPatronusKnown(): boolean {
+  const key = currentKey()
+  return key !== null && patronusStore.getState().repositories[key]?.availability?.status !== undefined
+}
+
 /**
  * Watches a robot of no branch the user started (a Safe Push of a reviewed pull request), named by what it tests
  * ("#101 Rework the session store"): it is stored, polled while it runs, told when it merged and listed in the header,

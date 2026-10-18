@@ -175,7 +175,7 @@ export function sideStackSizes(rows: readonly BranchTableRow[]): Map<string, num
 
 /** A branch of a stack forked off the lane of its parent: the root of a side stack when a branch is stacked on it */
 function isSideRoot(row: BranchTableRow): row is BranchRowOf {
-  return row.kind === "branch" && row.lanes?.forkFrom != null
+  return row.kind === "branch" && row.lanes.forkFrom !== null
 }
 
 /**

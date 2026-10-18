@@ -260,16 +260,15 @@ The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/
   code comes from.
 - **Density** is the IntelliJ list density:
   - a branch row is 36px: every cell of the branch tables has the vertical padding `--bd-cell-y` (6px), which the lanes
-    of the stack graph and the family guide span (`StackLanes`, `bd-family-guide`);
+    of the graph and the family guide span (`StackLanes`, `FamilyGuide`);
   - the dividers of the branch table group its rows: full width between the top-level units (a stack, a lone branch,
     an issue family), from the tree (`--bd-tree-x`) inside one, so a long stack reads as one block and still has a
     line per row to follow across (`bd-branch-rows`, a 1px cell background: a collapsed border can't start inside a
     row). The archived table and the lists inside a row keep `divide-y`;
   - a two-line commit row is 50px (`bd-padding-list-item`, `py-1.5`, the subject 2px above the meta line);
   - island header rows are 40px; the table header is `text-xs font-medium text-muted-foreground` without a fill;
-  - the horizontal padding stays `px-6` (24px): the family guide sits under the folder icon and the commit subjects
-    start at the branch name only with it; a table with stacks starts its lane column at 1.25rem instead, so a lane-0
-    node lines up with the header text.
+  - the name cell starts its lane column at 1.25rem, so a lane-0 node lines up with the header text; every other cell
+    keeps `px-6` or `px-4`.
 - **Motion**: an expanded branch row and an open `CollapsibleCard` fade their content in (`animate-in fade-in-0
   duration-150`, opacity only, so nothing a test measures moves). Under `prefers-reduced-motion` the enter and exit
   animations and the transitions are off; the progress indicators (`animate-spin`, `animate-carousel`,
