@@ -25,6 +25,8 @@ async function testBrowseRepository(
 
   // First run (no repository, no recent projects): the welcome card is shown, it renders shortly after the header
   await expect(page.getByTestId("welcome-card")).toBeVisible()
+  // the prefix field is pre-filled once git's suggestion answers, after the card
+  await expect(page.getByRole("textbox", { name: "Branch prefix to save" })).toHaveValue("test-user")
 
   // Capture initial state (before clicking browse) - same for both tests
   await captureHtmlSnapshot(page.locator("body"), "browse-repository-initial")

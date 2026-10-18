@@ -13,6 +13,8 @@ test.describe("Welcome Card", () => {
     const welcomeCard = page.locator('[data-testid="welcome-card"]')
     await expect(welcomeCard).toBeVisible()
     await expect(welcomeCard.getByTestId("welcome-step-number")).toHaveText(["1", "2"])
+    // the prefix field is pre-filled once git's suggestion answers, after the card
+    await expect(welcomeCard.getByRole("textbox", { name: "Branch prefix to save" })).toHaveValue("test-user")
 
     await captureHtmlSnapshot(welcomeCard, "welcome-card-new-user")
   })
@@ -62,6 +64,9 @@ test.describe("Welcome Card", () => {
     // Should NOT show Step 1 content
     await expect(welcomeCard.getByText("Select a Git repository")).toHaveCount(0)
 
+    // the suggestion of the repository's git identity (test@example.com) pre-fills the field
+    await expect(welcomeCard.getByRole("textbox", { name: "Branch prefix to save" })).toHaveValue("test")
+
     // Capture HTML snapshot for regression safety
     await captureHtmlSnapshot(welcomeCard, "welcome-card-repo-no-prefix")
   })
@@ -85,6 +90,9 @@ test.describe("Welcome Card", () => {
 
     // Step 1 should no longer be shown inside the welcome card (avoid matching tooltip text elsewhere)
     await expect(welcomeCardAfter.getByText("Select a Git repository")).toHaveCount(0)
+
+    // the field shows the suggestion of the selected repository's git identity (test@example.com)
+    await expect(welcomeCardAfter.getByRole("textbox", { name: "Branch prefix to save" })).toHaveValue("test")
 
     // Capture HTML snapshot for regression safety
     await captureHtmlSnapshot(welcomeCardAfter, "welcome-card-repo-selected-no-prefix")
