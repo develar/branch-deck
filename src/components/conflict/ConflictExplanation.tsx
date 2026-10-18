@@ -4,6 +4,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Callout } from "@/components/shared/Callout"
 import { formatMissingCommitsReason, formatMissingCommitsTitle } from "@/lib/merge-conflict"
 import type { MissingCommitOwner, MissingCommitOwners } from "@/lib/merge-conflict"
+import { cutList } from "@/lib/text"
 import { requestReveal } from "@/stores/commit-move"
 
 /** The owner chips shown before "+N branches" */
@@ -24,13 +25,14 @@ export interface ConflictExplanationProps {
  */
 export function ConflictExplanation({ owners, branchName, builtOn, revealable }: ConflictExplanationProps) {
   const reason = formatMissingCommitsReason(owners, branchName, builtOn)
-  const hidden = owners.branches.length - SHOWN_OWNERS
+  // never "+1 branch": one more chip costs no more than the count (`cutList`)
+  const { shown, more: hidden } = cutList(owners.branches, SHOWN_OWNERS)
   return (
     <Callout tone="warning" icon={FileDiffIcon} title={formatMissingCommitsTitle(owners)} data-testid="conflict-explanation">
       {reason !== null && <p>{reason}</p>}
       {owners.branches.length > 0 && (
         <div className="flex flex-wrap items-center gap-1" data-testid="missing-commit-owners">
-          {owners.branches.slice(0, SHOWN_OWNERS).map(owner => (
+          {shown.map(owner => (
             <OwnerChip key={owner.branch} owner={owner} revealable={revealable} />
           ))}
           {hidden > 0 && <span className="px-1 text-xs">{`+${hidden} ${hidden === 1 ? "branch" : "branches"}`}</span>}

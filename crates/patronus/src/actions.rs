@@ -30,7 +30,7 @@ const BUILD_PROGRESS_TTL: Duration = Duration::from_secs(60);
 /// The profiles of a branch change rarely
 const START_SUPPORTED_TTL: Duration = Duration::from_secs(600);
 const START_SUPPORTED_ERROR_TTL: Duration = Duration::from_secs(60);
-/// Failed check names kept for the popover
+/// Failed check names kept for the popover (all of them when only one more, `list_cut::kept`)
 const MAX_FAILED_NAMES: usize = 3;
 /// The limits of a robot failure, so a prompt for an agent stays readable: the failed builds, the names of failed tests,
 /// the tests with their message (each list whole when only one more, `list_cut::kept`), the lines of a message, the
@@ -511,9 +511,7 @@ pub fn summarize_checks(checks: &[TeamCityCheckDto]) -> Option<PatronusChecks> {
     match check.status.as_str() {
       "FAILURE" => {
         summary.failed += 1;
-        if summary.failed_names.len() < MAX_FAILED_NAMES {
-          summary.failed_names.push(check.label().to_string());
-        }
+        summary.failed_names.push(check.label().to_string());
       }
       "QUEUED" | "RUNNING" => summary.running += 1,
       "CANCELED" => summary.canceled += 1,
@@ -521,6 +519,7 @@ pub fn summarize_checks(checks: &[TeamCityCheckDto]) -> Option<PatronusChecks> {
       _ => summary.passed += 1,
     }
   }
+  summary.failed_names.truncate(kept(summary.failed_names.len(), MAX_FAILED_NAMES));
   Some(summary)
 }
 

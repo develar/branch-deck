@@ -105,6 +105,8 @@ describe("new requests", () => {
     expect(describeNewRequests([request(12, { requestedBy: null })]).title).toBe("Your review was requested")
     expect(describeNewRequests([1, 2, 3].map(it => request(it)))).toEqual({ title: "3 reviews requested", description: "#1 Change 1 · #2 Change 2 · #3 Change 3" })
     expect(describeNewRequests([1, 2, 3, 4, 5].map(it => request(it))).description).toBe("#1 Change 1 · #2 Change 2 · #3 Change 3 · 2 more")
+    // never "1 more": the fourth is named
+    expect(describeNewRequests([1, 2, 3, 4].map(it => request(it))).description).toBe("#1 Change 1 · #2 Change 2 · #3 Change 3 · #4 Change 4")
     expect(describeRequestActivity(request(7, { requestedBy: "carol" }))).toEqual({ title: "carol requested your review on #7", description: "Change 7" })
   })
 })

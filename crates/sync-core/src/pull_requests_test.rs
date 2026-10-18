@@ -138,6 +138,44 @@ const FIXTURE: &str = r#"{
   ]}
 }"#;
 
+/// The data of the search with one open pull request per branch, each with `count` failed check runs
+fn failing_checks_fixture(branches: &[(&str, usize)]) -> String {
+  let nodes: Vec<String> = branches
+    .iter()
+    .enumerate()
+    .map(|(index, (branch, count))| {
+      let checks: Vec<String> = (1..=*count)
+        .map(|check| format!(r#"{{"__typename": "CheckRun", "name": "check-{check}", "status": "COMPLETED", "conclusion": "FAILURE"}}"#))
+        .collect();
+      format!(
+        r#"{{"number": {number}, "title": "{branch}", "url": "https://github.com/JetBrains/ultimate/pull/{number}", "state": "OPEN", "isDraft": false,
+          "reviewDecision": "", "headRefName": "develar/virtual/{branch}", "headRefOid": "1111111111111111111111111111111111111111",
+          "headRepositoryOwner": {{"login": "JetBrains"}}, "isCrossRepository": false, "updatedAt": "2026-10-14T09:30:00Z",
+          "commits": {{"nodes": [{{"commit": {{"statusCheckRollup": {{"contexts": {{"nodes": [{checks}]}}}}}}}}]}}}}"#,
+        number = 800 + index,
+        checks = checks.join(", ")
+      )
+    })
+    .collect();
+  format!(r#"{{"repository": {{"viewerPermission": "WRITE"}}, "search": {{"nodes": [{}]}}}}"#, nodes.join(", "))
+}
+
+/// The failed checks of a pull request it names: all of them up to one more than the limit, never "and 1 more"; from
+/// two more on, the first three (`list_cut::kept`)
+#[test]
+fn the_failed_checks_of_a_pull_request_are_named_whole_when_only_one_is_past_the_limit() {
+  let fixture = failing_checks_fixture(&[("three", 3), ("four", 4), ("five", 5)]);
+  let pull_requests = parse_pull_requests(fixture.as_bytes(), "develar", "JetBrains").unwrap();
+  let names = |branch: &str| {
+    let checks = pull_requests[branch].checks.as_ref().unwrap();
+    (checks.failed, checks.failed_names.clone())
+  };
+  let listed = |count: usize| (1..=count).map(|check| format!("check-{check}")).collect::<Vec<_>>();
+  assert_eq!(names("three"), (3, listed(3)));
+  assert_eq!(names("four"), (4, listed(4)));
+  assert_eq!(names("five"), (5, listed(3)));
+}
+
 #[test]
 fn parses_and_matches_pull_requests_by_virtual_branch() {
   let pull_requests = parse_pull_requests(FIXTURE.as_bytes(), "develar", "JetBrains").unwrap();

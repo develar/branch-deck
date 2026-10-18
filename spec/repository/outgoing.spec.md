@@ -213,7 +213,9 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   [@test] ../../src/lib/remote-status.test.ts (`says how many commits the remote has that the branch lacks, and by whom; the action is a force push`, `offers the push the button would show when the remote lacks nothing of the branch`, `offers to create a branch deleted on the remote`, `names the distinct authors in the order of the commits`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show what the remote has when it moved since the status, and force push over it from the toast`)
 - The description of a push that drops remote commits must list them under its text, newest first: subject, author,
-  short id and age, then "and N more" past the ten listed.
+  short id and age, then "and N more" past the ten listed, all eleven of eleven (`DROPPED_COMMITS_LIMIT`,
+  `list_cut::kept`: never "and 1 more").
+  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_dropped_commits_are_listed_newest_first_up_to_the_limit`, `test_dropped_commits_one_more_than_the_limit_are_listed_whole`)
   [@test] ../../src/hooks/usePushButton.test.ts (`lists the remote commits a force push drops under its description, with how many more there are`, `lists nothing for a push that drops no remote commit`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`)
 - A push that drops remote commits (the `warning` hue, `· 2↓`), someone else's work, must ask first: the click opens its

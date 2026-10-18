@@ -1,4 +1,4 @@
-use crate::actions::summarize_progress;
+use crate::actions::{summarize_checks, summarize_progress};
 use crate::client::{BuildProgressDto, TeamCityCheckAttemptDto, TeamCityCheckDto};
 use crate::fake_patronus::start_fake;
 use crate::service_test::{service, token};
@@ -101,6 +101,29 @@ async fn the_progress_of_a_build_is_asked_once_a_minute_and_never_for_a_finished
   let details = service.robot_details("me", "running").await.unwrap();
   assert_eq!(fake.build_progress_calls.lock().unwrap().len(), 2);
   assert_eq!(details.progress.and_then(|progress| progress.remaining_seconds), Some(540));
+}
+
+/// The failed checks a robot names: all of them up to one more than the limit, never "and 1 more"; from two more on,
+/// the first three (`list_cut::kept`)
+#[test]
+fn the_failed_checks_of_a_robot_are_named_whole_when_only_one_is_past_the_limit() {
+  let failed = |count: usize| -> Vec<TeamCityCheckDto> {
+    (1..=count)
+      .map(|index| TeamCityCheckDto {
+        name: None,
+        build_configuration_id: None,
+        build_configuration_name: format!("Check {index}"),
+        status: "FAILURE".to_string(),
+        attempt_limit: None,
+        attempts: Vec::new(),
+      })
+      .collect()
+  };
+  let names = |count: usize| summarize_checks(&failed(count)).map(|checks| (checks.failed, checks.failed_names));
+  let listed = |names: &[&str]| names.iter().map(ToString::to_string).collect::<Vec<_>>();
+  assert_eq!(names(3), Some((3, listed(&["Check 1", "Check 2", "Check 3"]))));
+  assert_eq!(names(4), Some((4, listed(&["Check 1", "Check 2", "Check 3", "Check 4"]))));
+  assert_eq!(names(5), Some((5, listed(&["Check 1", "Check 2", "Check 3"]))));
 }
 
 #[test]

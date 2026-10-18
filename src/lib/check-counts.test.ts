@@ -14,6 +14,9 @@ describe("formatFailedChecks", () => {
     expect(formatFailedChecks({ failed: 1, failedNames: ["Bazel Community Build Aggregator"] })).toBe("Failed: Bazel Community Build Aggregator")
     expect(formatFailedChecks({ failed: 2, failedNames: ["a", "b"] })).toBe("Failed: a and b")
     expect(formatFailedChecks({ failed: 5, failedNames: ["a", "b", "c"] })).toBe("Failed: a, b, c and 2 more")
+    // never "and 1 more": the backend names four of four
+    expect(formatFailedChecks({ failed: 4, failedNames: ["a", "b", "c", "d"] })).toBe("Failed: a, b, c and d")
+    expect(formatFailedChecks({ failed: 5, failedNames: ["a", "b", "c", "d"] })).toBe("Failed: a, b, c and 2 more")
     expect(formatFailedChecks({ failed: 2, failedNames: [] })).toBe("Failed: 2 checks")
     expect(formatFailedChecks({ failed: 0, failedNames: [] })).toBeNull()
   })

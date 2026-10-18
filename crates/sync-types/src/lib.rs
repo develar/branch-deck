@@ -32,8 +32,8 @@ pub struct RemoteStatusUpdate {
   /// Commits of the remote whose content the branch lacks and that are no older version of a commit it has: a push drops
   /// them
   pub commits_behind: u32,
-  /// The newest of the commits behind, newest first, at most `remote_status::DROPPED_COMMITS_LIMIT`
-  /// (`commits_behind` is the total)
+  /// The newest of the commits behind, newest first, at most `remote_status::DROPPED_COMMITS_LIMIT`, all of them when
+  /// only one more (`commits_behind` is the total)
   pub dropped_commits: Vec<DroppedCommit>,
   /// Commits of the remote that are older versions of commits amended here (author, author time and subject match an
   /// unpushed commit of the branch, the changes differ; a copy with the same changes on moved lines counts nowhere): a

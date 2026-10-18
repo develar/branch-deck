@@ -245,7 +245,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   - blocked: a `warning` icon, tooltip "Your uncommitted changes in … overlap origin/master";
   - a failed check: muted with a question mark, tooltip "Cannot check the update: <reason>".
   [@test] ../../src/lib/update-state.test.ts (`names the state, never a count of upstream commits`)
-  [@test] ../../src/lib/update-state.test.ts (`names at most three files`)
+  [@test] ../../src/lib/update-state.test.ts (`names at most three files, four of four: never 'and 1 more'`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should be muted when up to date`)
 - The tooltip must say when the baseline was last fetched: Branch Deck's own fetch or one elsewhere (`FETCH_HEAD`),
   whichever is newer, and the shortcut: "Fetched 5 minutes ago · fetch and update ⌘T".
@@ -379,7 +379,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
 - A large conflict stays a short list: the files the check reported (50), then "… and 10 more files"; per file at
   most 5 commits a side, yours the oldest (the first to stop the rebase) and the upstream's the newest, then
-  "… and 2 more". The tooltip names three files of all, "Conflicts in 60 files: a, b, c and 57 more". A block lists
+  "… and 2 more". The tooltip names three files of all, "Conflicts in 60 files: a, b, c and 57 more" (four of four). A block lists
   the paths the check reported (100), then "… and 20 more files". Every list is cut so that the count of the rest is
   never 1: one more than the limit is listed whole (51 files, 6 commits a side, 101 paths; `cutList`, and the check's
   `list_cut::kept`).

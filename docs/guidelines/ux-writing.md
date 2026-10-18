@@ -87,9 +87,12 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
   items of a line that come from several places (the island header); never "•", "|" or " - ".
 - **A list of names in a sentence** names up to four ("auth, session, login and oauth") and from five on the first
   three and the count ("auth, login, oauth and 2 more", `joinNames`): never "and 1 more", where one name would do.
-  Every cut list follows the same rule, a dialog's, a prompt's for an agent ("… and 280 more files") and `bd`'s
-  output (`files_omitted`): a list one longer than its limit is given whole, the count of the rest is never 1
-  (`cutList`; the backend's lists `sync_utils::list_cut::kept`).
+  Every cut list follows the same rule, a dialog's, a prompt's for an agent ("… and 280 more files"), a hover's
+  ("Failed: Fast Tests, Smoke, Compilation and Lint", four of four), a chip row's ("+2 branches"), the dropped
+  commits of a push ("and 2 more" past ten) and `bd`'s output (`files_omitted`, " (2 more: bd check)" after the
+  dangling references it describes): a list one longer than its limit is given whole, the count of the rest is never 1
+  (`cutList`; the backend's lists `sync_utils::list_cut::kept`). The one exception is a list whose rows a poll keeps
+  in place: Your Turn shows three rows, then "Show 1 More", since a fourth row would come and go with the polls.
 
 ## Actions
 

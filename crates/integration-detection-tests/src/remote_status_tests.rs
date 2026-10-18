@@ -533,14 +533,12 @@ async fn test_rebased_branch_with_new_commit_is_not_fast_forward() {
   assert_eq!(result.remote_tip.as_deref(), Some(first.as_str()), "the remote still has the commit before the rebase");
 }
 
-/// Someone else added commits to the pushed branch: a push drops them. They are listed newest first, with their author
-/// and time, up to the limit; the count covers them all, and the status names the remote head it compared with
-#[test(tokio::test)]
-async fn test_dropped_commits_are_listed_newest_first_up_to_the_limit() {
+/// The pushed feature branch with `count` commits someone else added to its remote, oldest first, fetched
+fn feature_with_their_fixes(count: i64) -> (TestScenario, Vec<String>) {
   let (scenario, _) = pushed_feature();
   scenario.upstream_repo.checkout("user/virtual/feature").unwrap();
   configure_test_author(&scenario.upstream_repo, "other@example.com", "Other User");
-  let theirs: Vec<String> = (0..12_i64)
+  let theirs: Vec<String> = (0..count)
     .map(|index| {
       scenario
         .upstream_repo
@@ -548,6 +546,14 @@ async fn test_dropped_commits_are_listed_newest_first_up_to_the_limit() {
     })
     .collect();
   scenario.local_repo.fetch_prune("origin").unwrap();
+  (scenario, theirs)
+}
+
+/// Someone else added commits to the pushed branch: a push drops them. They are listed newest first, with their author
+/// and time, up to the limit; the count covers them all, and the status names the remote head it compared with
+#[test(tokio::test)]
+async fn test_dropped_commits_are_listed_newest_first_up_to_the_limit() {
+  let (scenario, theirs) = feature_with_their_fixes(12);
 
   let result = feature_status(&scenario);
 
@@ -566,6 +572,20 @@ async fn test_dropped_commits_are_listed_newest_first_up_to_the_limit() {
     }
   );
   assert!(!result.fast_forward);
+}
+
+/// One dropped commit more than the limit is listed too: the push never says "and 1 more" (`list_cut::kept`)
+#[test(tokio::test)]
+async fn test_dropped_commits_one_more_than_the_limit_are_listed_whole() {
+  let count = i64::try_from(DROPPED_COMMITS_LIMIT).unwrap() + 1;
+  let (scenario, theirs) = feature_with_their_fixes(count);
+
+  let result = feature_status(&scenario);
+
+  assert_eq!(result.commits_behind, u32::try_from(count).unwrap());
+  let listed: Vec<&str> = result.dropped_commits.iter().map(|commit| commit.id.as_str()).collect();
+  let newest: Vec<&str> = theirs.iter().rev().map(String::as_str).collect();
+  assert_eq!(listed, newest);
 }
 
 /// The remote status of `user/virtual/{branch}` in the events of a sync

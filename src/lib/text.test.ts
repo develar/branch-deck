@@ -17,6 +17,9 @@ describe("cutList", () => {
     expect(cutList([1, 2, 3, 4, 5], 3)).toEqual({ shown: [1, 2, 3], more: 2 })
     // the first items of a list the backend cut: the rest of all of them
     expect(cutList([1, 2, 3, 4], 20, 60)).toEqual({ shown: [1, 2, 3, 4], more: 56 })
+    // the backend listed one more than the limit of all of them: cut by all, never "1 more"
+    expect(cutList([1, 2, 3, 4], 3, 5)).toEqual({ shown: [1, 2, 3], more: 2 })
+    expect(cutList([1, 2, 3, 4], 3, 4)).toEqual({ shown: [1, 2, 3, 4], more: 0 })
     expect(cutList([], 3)).toEqual({ shown: [], more: 0 })
   })
 })

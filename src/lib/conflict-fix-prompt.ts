@@ -1,5 +1,6 @@
 import type { AgentCliCommand } from "@/lib/bindings"
 import { bullets, numbered } from "@/lib/prompt-text"
+import { cutList } from "@/lib/text"
 
 export interface ConflictPromptInput {
   repositoryPath: string
@@ -21,7 +22,7 @@ const CONFLICT_RULES = [
   "Don't push.",
 ]
 
-/** The most conflicting files the prompt names */
+/** The most conflicting files the prompt names, one more too (`cutList`) */
 const SHOWN_FILES = 20
 
 /**
@@ -30,8 +31,7 @@ const SHOWN_FILES = 20
  */
 export function buildConflictPrompt(input: ConflictPromptInput): string {
   const { repositoryPath, branch, commit, builtOn, files, explanation, bd } = input
-  const shown = files.slice(0, SHOWN_FILES)
-  const more = files.length - shown.length
+  const { shown, more } = cutList(files, SHOWN_FILES)
   const fileLines = more > 0 ? [...shown, `… and ${more} more`] : shown
   const steps =
     bd === null

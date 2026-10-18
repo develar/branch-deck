@@ -1,4 +1,4 @@
-import { joinNames } from "@/lib/text"
+import { cutList, joinNames } from "@/lib/text"
 
 /** The checks of a pull request or a Patronus robot, counted */
 export interface CheckCounts {
@@ -34,17 +34,22 @@ export function formatCheckCounts(checks: CheckCounts): string {
   return parts.join(", ")
 }
 
-/** "Fast Tests", "Fast Tests, Smoke, Compilation and 2 more", "2 checks" without names; null while none failed */
+/** The failed checks named in a sentence: the backend names all of them up to one more than this (`list_cut::kept`) */
+const NAMED_CHECKS = 3
+
+/**
+ * "Fast Tests", "Fast Tests, Smoke, Compilation and Lint", "Fast Tests, Smoke, Compilation and 2 more" (`cutList`: never
+ * "and 1 more"), "2 checks" without names; null while none failed
+ */
 export function formatFailedCheckNames(checks: Pick<CheckCounts, "failed" | "failedNames">): string | null {
   if (checks.failed === 0) {
     return null
   }
-  const names = checks.failedNames
-  if (names.length === 0) {
+  if (checks.failedNames.length === 0) {
     return checks.failed === 1 ? "1 check" : `${checks.failed} checks`
   }
-  const more = checks.failed - names.length
-  return more > 0 ? `${names.join(", ")} and ${more} more` : joinNames(names)
+  const { shown, more } = cutList(checks.failedNames, NAMED_CHECKS, checks.failed)
+  return more > 0 ? `${shown.join(", ")} and ${more} more` : joinNames(shown)
 }
 
 /** "Failed: Fast Tests", for the row of a running robot; null while none failed */

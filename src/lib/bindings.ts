@@ -2064,8 +2064,8 @@ export type RemoteStatusUpdate = {
 	 */
 	commitsBehind: number,
 	/**
-	 *  The newest of the commits behind, newest first, at most `remote_status::DROPPED_COMMITS_LIMIT`
-	 *  (`commits_behind` is the total)
+	 *  The newest of the commits behind, newest first, at most `remote_status::DROPPED_COMMITS_LIMIT`, all of them when
+	 *  only one more (`commits_behind` is the total)
 	 */
 	droppedCommits: DroppedCommit[],
 	/**

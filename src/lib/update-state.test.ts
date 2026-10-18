@@ -25,11 +25,13 @@ describe("describeUpdateState", () => {
     expect(describeUpdateState({ status: "clean", kind: "fastForward" }, "origin/main").summary).toBe("Fast-forwards to origin/main")
   })
 
-  it("names at most three files", () => {
+  it("names at most three files, four of four: never 'and 1 more'", () => {
     const one = describeUpdateState({ status: "conflict", files: ["a.txt"], fileCount: 1, commits: [], upstreamCommits: [] }, "origin/master")
     expect(one).toEqual({ tone: "warning", summary: "Conflicts in 1 file: a.txt", short: "conflicts in 1 file" })
     const five = describeUpdateState({ status: "conflict", files: ["a", "b", "c", "d", "e"], fileCount: 5, commits: [], upstreamCommits: [] }, "origin/master")
     expect(five.summary).toBe("Conflicts in 5 files: a, b, c and 2 more")
+    const four = describeUpdateState({ status: "conflict", files: ["a", "b", "c", "d"], fileCount: 4, commits: [], upstreamCommits: [] }, "origin/master")
+    expect(four.summary).toBe("Conflicts in 4 files: a, b, c, d")
     expect(describeUpdateState({ status: "blocked", paths: ["src/app.txt"], pathCount: 1 }, "origin/master")).toEqual({
       tone: "warning",
       summary: "Your uncommitted changes in src/app.txt overlap origin/master",

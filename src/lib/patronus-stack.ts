@@ -1,7 +1,7 @@
 import type { PatronusPushMode, StackCommit, StackIndependence, StackUse } from "@/lib/bindings"
 import { formatBranchesAndCommits } from "@/lib/branch"
 import { formatCommitCount } from "@/lib/commit"
-import { joinNames } from "@/lib/text"
+import { cutList, joinNames } from "@/lib/text"
 
 /**
  * The second way to land a stacked branch, never the lead: alone, after the unstack from its parent (it builds without
@@ -47,14 +47,25 @@ function describeNeed(child: StackCommit, needed: readonly StackCommit[]): strin
   return `"${child.subject}" changes lines that ${formatCommitCount(needed.length)} of ${joinNames(branches)} add.`
 }
 
-/** "Start the lane" uses LaneDocument, which "Add the document" of air-lane adds; with more names, "and 2 more names" */
+/**
+ * "Start the lane" uses LaneDocument, which "Add the document" of air-lane adds; two uses both ("uses LaneDocument and
+ * LaneStore, which …" when one commit uses what one commit adds), never "and 1 more name" (`cutList`); from three on the
+ * first and "and 2 more names"
+ */
 function describeUses(uses: readonly StackUse[]): string {
-  const [first] = uses
+  const { shown, more } = cutList(uses, 1)
+  const [first, second] = shown
   if (first === undefined) {
     return ""
   }
-  const more = uses.length === 1 ? "" : uses.length === 2 ? " and 1 more name" : ` and ${uses.length - 1} more names`
-  return `"${first.commit.subject}" uses ${first.name}${more}, which "${first.declaredBy.subject}" of ${first.declaredBy.branch} adds.`
+  const adds = (use: StackUse) => `which "${use.declaredBy.subject}" of ${use.declaredBy.branch} adds.`
+  if (second === undefined) {
+    return `"${first.commit.subject}" uses ${first.name}${more === 0 ? "" : ` and ${more} more names`}, ${adds(first)}`
+  }
+  if (second.commit.id === first.commit.id && second.declaredBy.id === first.declaredBy.id) {
+    return `"${first.commit.subject}" uses ${first.name} and ${second.name}, ${adds(first)}`
+  }
+  return shown.map(use => `"${use.commit.subject}" uses ${use.name}, ${adds(use)}`).join(" ")
 }
 
 /**

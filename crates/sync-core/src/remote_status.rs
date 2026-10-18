@@ -16,9 +16,11 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::sync::{LazyLock, Mutex, OnceLock};
 use sync_types::{DroppedCommit, RemoteStatusUpdate};
+use sync_utils::list_cut::kept;
 use tracing::{debug, instrument};
 
-/// At most this many dropped commits are listed (`RemoteStatusUpdate::dropped_commits`); the count covers all of them
+/// At most this many dropped commits are listed (`RemoteStatusUpdate::dropped_commits`), all of them when only one more
+/// (`list_cut::kept`); the count covers all of them
 pub const DROPPED_COMMITS_LIMIT: usize = 10;
 
 /// The entries of a remote-tracking ref's reflog that git's push wrote: `update by push`, a literal git never translates
@@ -376,11 +378,11 @@ struct StatusKey {
 static STATUS_CACHE: LazyLock<Mutex<HashMap<StatusKey, RemoteStatusUpdate>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 const STATUS_CACHE_LIMIT: usize = 4096;
 
-/// The version of `CachedStatus` in the object cache, the number of dropped commits it lists in the low half. Bump the
-/// high half when the status of the same commits changes: its fields, the options of its walks, `CommitKey`,
-/// `same_changes`
+/// The version of `CachedStatus` in the object cache, the most dropped commits it lists in the low half (one more than
+/// the limit, `list_cut::kept`). Bump the high half when the status of the same commits changes: its fields, the options
+/// of its walks, `CommitKey`, `same_changes`
 fn cached_status_version() -> u32 {
-  (1 << 16) | count(DROPPED_COMMITS_LIMIT)
+  (1 << 16) | count(DROPPED_COMMITS_LIMIT + 1)
 }
 
 /// A dropped commit in the object cache (`DroppedCommit`)
@@ -630,6 +632,7 @@ fn compute(git_executor: &GitCommandExecutor, repository_path: &str, branch: &Br
     (unpushed, classified, fast_forward)
   };
 
+  let dropped_count = dropped.len();
   Ok(CachedStatus {
     remote_tip: Some(remote_tip.to_string()),
     my_unpushed_count: unpushed.mine,
@@ -637,7 +640,7 @@ fn compute(git_executor: &GitCommandExecutor, repository_path: &str, branch: &Br
     commits_behind: count(dropped.len()),
     dropped_commits: dropped
       .into_iter()
-      .take(DROPPED_COMMITS_LIMIT)
+      .take(kept(dropped_count, DROPPED_COMMITS_LIMIT))
       .map(|behind| CachedDroppedCommit {
         id: behind.commit.id,
         subject: behind.commit.subject,

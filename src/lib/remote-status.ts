@@ -1,5 +1,6 @@
 import type { DroppedCommit } from "@/lib/bindings"
 import { formatPushCount, getPushAction, isRemoteUpToDate, replacesOlderVersions } from "@/lib/push-summary"
+import { cutList } from "@/lib/text"
 import { formatTimestamp } from "@/lib/time"
 import type { UIColor } from "@/lib/ui-types"
 import type { RemoteStatus } from "@/stores/branch-sync"
@@ -162,16 +163,17 @@ function formatByAuthors(commits: readonly DroppedCommit[]): string {
   return authors === "" ? "" : ` (by ${authors})`
 }
 
-/** "Ann", "Ann and Bob", "Ann, Bob and Cy", "Ann, Bob and 2 others": the distinct authors, in the order of the commits */
+/**
+ * "Ann", "Ann and Bob", "Ann, Bob and Cy", "Ann, Bob and 2 others": the distinct authors, in the order of the commits,
+ * never "and 1 other" (`cutList`)
+ */
 export function formatAuthors(commits: readonly DroppedCommit[]): string {
   const authors = [...new Set(commits.map(commit => commit.author))]
-  if (authors.length <= 1) {
-    return authors[0] ?? ""
+  const { shown, more } = cutList(authors, 2)
+  if (more > 0) {
+    return `${shown.join(", ")} and ${more} others`
   }
-  if (authors.length <= 3) {
-    return `${authors.slice(0, -1).join(", ")} and ${authors.at(-1)}`
-  }
-  return `${authors.slice(0, 2).join(", ")} and ${authors.length - 2} others`
+  return shown.length <= 1 ? (shown[0] ?? "") : `${shown.slice(0, -1).join(", ")} and ${shown.at(-1)}`
 }
 
 export interface RemoteMovedTexts {

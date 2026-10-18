@@ -109,12 +109,14 @@ indicator, whose states were the same story told twice.
   (`getGatedRobotActions`, [Patronus](../branch/patronus.spec.md#restart-and-cancel)), icon buttons named after the
   robot ("Cancel Safe Push of JIRA-456") with the name of the action as the tooltip, a disabled one adding why. While
   the overview is open, a running row asks for the details of its robot, as its popover would: the checks that failed
-  already ("Failed: Bazel Community Build Aggregator"), then the check it waits for and the queued checks. A failing
+  already ("Failed: Bazel Community Build Aggregator", "and 2 more" past three, four of four named: the backend names
+  one more than three, `list_cut::kept`), then the check it waits for and the queued checks. A failing
   robot has a `destructive` ring and bar, and "18m · Failing" instead of the time left. A watched robot of no branch is
   listed by what it tests ("#101 Rework the session store"); a branch without a row and a watched robot are plain
   text.
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should cancel a running robot from the overview`, `should restart a failed robot from the overview, and open the pull request it was started from`, `should count a running Safe Push whose required check failed as a move, show it failing and cancel it from the toast`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should read the estimate of the CI only while the details of a running robot are open`)
+  [@test] ../../src/lib/check-counts.test.ts (`names the checks that failed, counts the ones beyond the first three, nothing while none failed`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should watch the robot of a reviewed pull request: listed by what it tests, its merge told`)
 - While the overview is open, each of its rows is a surface of the readiness of its branch (`useShowReviewReadiness`),
   so the units of a collapsed stack get their answer too; while some wait, a line under the title says "Asking

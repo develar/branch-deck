@@ -24,6 +24,7 @@ import {
   stackChildrenPushOrder,
   stackPushOrder,
 } from "@/lib/stack"
+import { cutList } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
 import type { StackBranchAlong } from "@/lib/whole-stack"
 import { getStackBranchAlong, stackReadinessKey } from "@/lib/whole-stack"
@@ -151,14 +152,16 @@ function stackPushColor(branch: Branch, stack: readonly Branch[]): UIColor {
  */
 function describeUnpushedChildren(branchName: string, names: readonly string[], stackBranch: string | null): string {
   const along = stackBranch === null ? null : `The whole stack branch ${stackBranch} goes along.`
-  const [first, second] = names
   if (names.length === 0) {
     return `The whole stack branch ${stackBranch ?? ""} has commits to push.`
   }
+  // the first child named, two of two (`cutList`: never "and 1 more branch")
+  const { shown, more } = cutList(names, 1)
+  const [first, second] = shown
   const children =
     names.length === 1
       ? `${first} is stacked on ${branchName} and has commits to push.`
-      : `${names.length === 2 ? `${first} and ${second}` : `${first} and ${names.length - 1} more branches`} are stacked on ${branchName} and have commits to push.`
+      : `${more === 0 ? `${first} and ${second}` : `${first} and ${more} more branches`} are stacked on ${branchName} and have commits to push.`
   return along === null ? children : `${children} ${along}`
 }
 

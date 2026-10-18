@@ -113,9 +113,9 @@ The names are one vocabulary across the commands: a write prints `previous_head`
 copy are `{commit, new_id}`; a state is `state`; a list of commits names each by `commit`.
 
 A list too long to print whole is cut at its limit with the count of the rest (`files_omitted`,
-`blocked_paths_omitted`, the `omitted` of `bd robot --full`), never leaving out only one: a list one longer than its
-limit is printed whole (`sync_utils::list_cut::kept`, the rule of the app's lists and prompts, `cutList`), so a count is
-0 or at least 2.
+`blocked_paths_omitted`, the `omitted` of `bd robot --full`, the "(2 more: bd check)" of the dangling references a
+refusal describes), never leaving out only one: a list one longer than its limit is printed whole
+(`sync_utils::list_cut::kept`, the rule of the app's lists and prompts, `cutList`), so a count is 0 or at least 2.
 
 ## Commands
 
@@ -1158,7 +1158,8 @@ lands them all. The branches built on it stay; after the merge the next sync bui
 - `dangling_reference` (exit 4, nothing pushed): the branch or a branch it is built on removes, changes or declares
   again a declaration whose use (or other declaration) a commit of another branch changes, as `bd check` reports it
   (`dangling_references`, with its `kind`); the message
-  names the use, the commits and the fix. `--check` lists it in `refusals`; `--allow-dangling` starts anyway, when
+  names the use, the commits and the fix, of two references both, from three on of the first, with the count of the
+  rest ("(2 more: bd check)", which lists them). `--check` lists it in `refusals`; `--allow-dangling` starts anyway, when
   the user says it is a false alarm. A possible one (`bd check` `warnings`) is in `warnings` and refuses nothing.
 - `patronus_refused`: the target is not protected by Patronus, the pull request is a draft, or Patronus rejected the
   comment; `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.

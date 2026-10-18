@@ -182,9 +182,14 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/status_test.rs (`empty_prefix_is_an_error`, `not_a_repository`, `invalid_arguments`, `status_filters_and_pages`)
 - A list cut at its limit must leave out two or more, never one: a list one longer than its limit is printed whole
   (`sync_utils::list_cut::kept`: `files` and `files_omitted` of `bd update` and `bd pick`, `paths` and
-  `blocked_paths_omitted`, the builds, test names and messages of `bd robot --full` and their `omitted`), as the app
-  cuts its lists and prompts (`cutList`).
+  `blocked_paths_omitted`, the builds, test names and messages of `bd robot --full` and their `omitted`, the dangling
+  references the refusal of `bd safe-push` describes, the `dropped_commits` of a remote, the failed checks a robot or a
+  pull request names), as the app cuts its lists and prompts (`cutList`).
   [@test] ../../crates/sync-utils/src/list_cut_test.rs (`a_list_one_longer_than_its_limit_is_kept_whole_and_a_longer_one_is_cut_at_the_limit`)
+  [@test] ../../crates/bd-cli/src/check_test.rs (`a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
+  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_dropped_commits_one_more_than_the_limit_are_listed_whole`)
+  [@test] ../../crates/patronus/src/actions_test.rs (`the_failed_checks_of_a_robot_are_named_whole_when_only_one_is_past_the_limit`)
+  [@test] ../../crates/sync-core/src/pull_requests_test.rs (`the_failed_checks_of_a_pull_request_are_named_whole_when_only_one_is_past_the_limit`)
   [@test] ../../crates/sync-core/src/update_project_test.rs (`a_conflict_one_file_wider_than_the_list_reports_every_file_with_its_commits`, `many_blocking_paths_are_counted`)
   [@test] ../../crates/patronus/src/actions_test.rs (`a_list_of_the_full_failure_one_longer_than_its_limit_is_given_whole`)
 - Commit ids must be 8 characters, longer for the whole output when two of its ids share that prefix; `--full-ids`
@@ -841,10 +846,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told`)
   [@test] ../../crates/sync-core/src/patronus_start_test.rs (`the_robot_of_a_branch_is_the_running_one_then_the_newest_and_a_temporary_ref_by_its_revision`, `a_start_waits_for_a_robot_on_the_last_commit_and_a_push_guards_a_running_safe_push`, `a_safe_push_waits_for_a_robot_that_lands_an_ancestor_or_the_branch_itself`, `a_profile_allows_the_modes_it_lists_and_any_when_it_lists_none`)
 - A proven dangling reference (as `bd check` reports it) of the branch or a branch it is built on must refuse the start
-  with `dangling_reference` (exit 4), nothing pushed, naming the use, `fixed_by` and the fix; `--check` must list it
-  in `refusals`, `--allow-dangling` must start anyway, and the possible ones are `warnings`.
+  with `dangling_reference` (exit 4), nothing pushed, naming the use, `fixed_by` and the fix (of two references both,
+  from three on of the first and "(2 more: bd check)"); `--check` must list it in `refusals`, `--allow-dangling` must
+  start anyway, and the possible ones are `warnings`.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_dangling_reference_refuses_the_safe_push_unless_allowed`)
-  [@test] ../../crates/bd-cli/src/check_test.rs (`a_dangling_reference_message_names_the_kind`)
+  [@test] ../../crates/bd-cli/src/check_test.rs (`a_dangling_reference_message_names_the_kind`, `a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
 - A Safe Push of a stacked branch must land it with every branch it is built on, in one robot, as the app's start does
   ([Landing](../../docs/design/landing.md)): no refusal and no flag, the parents with commits for the remote pushed
   first, the robot started on the branch's own virtual branch, which carries their commits. `lands` must name what the

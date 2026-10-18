@@ -14,6 +14,7 @@ use github::service::{GitHubFailure, GitHubService, RequestKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use sync_types::pull_request::{ChecksState, ChecksSummary, PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewDecision, Reviewer, ReviewerState};
+use sync_utils::list_cut::kept;
 use sync_utils::timestamp::parse_rfc3339_timestamp;
 use tracing::{instrument, warn};
 
@@ -80,7 +81,7 @@ pub const MERGED_LABEL: &str = "merged";
 /// saying so in its settings; it wins over everything else
 pub const GITHUB_REPOSITORY_CONFIG: &str = "branchdeck.githubRepository";
 
-/// Failed check names kept for the popover
+/// Failed check names kept for the popover (all of them when only one more, `list_cut::kept`)
 const MAX_FAILED_NAMES: usize = 3;
 
 /// The message of a write without any GitHub token
@@ -592,14 +593,13 @@ fn summarize_checks(checks: &[GhCheck]) -> Option<ChecksSummary> {
       CheckOutcome::Pending => summary.pending += 1,
       CheckOutcome::Failed => {
         summary.failed += 1;
-        if let Some(name) = name
-          && summary.failed_names.len() < MAX_FAILED_NAMES
-        {
+        if let Some(name) = name {
           summary.failed_names.push(name.to_string());
         }
       }
     }
   }
+  summary.failed_names.truncate(kept(summary.failed_names.len(), MAX_FAILED_NAMES));
   if summary.passed + summary.failed + summary.pending == 0 {
     return None;
   }

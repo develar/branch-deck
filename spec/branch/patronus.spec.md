@@ -546,7 +546,9 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
     dependencies are not checked."
   - The branch builds alone but uses a name its parent adds (`uses`), a warning: "\"Cache the parsed icon\" uses
     parsedIcon, which \"Parse the icon off the EDT\" of IJPL-257337 adds. perf-part-2 applies on the baseline
-    without IJPL-257337, but needs it to compile. Found by names, not by a compiler." "Unstack from IJPL-257337"
+    without IJPL-257337, but needs it to compile. Found by names, not by a compiler." (two uses both: "uses parsedIcon
+    and iconCache, which …" of one commit and what one commit adds, else a sentence each; from three on "uses
+    parsedIcon and 2 more names, which …", never "and 1 more name") "Unstack from IJPL-257337"
     follows as a link: names found the use, so the unstack is offered, never decided.
   - The branch needs commits that can move: "To land perf-part-2 alone, move what it needs here: \"Cache the parsed
     icon\" changes lines that \"Parse the icon off the EDT\" of IJPL-257337 adds." (with more commits, "2 commits of

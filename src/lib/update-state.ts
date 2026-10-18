@@ -1,5 +1,6 @@
 import type { UpdateCheck, UpdateState } from "@/lib/bindings"
 import { formatFileCount } from "@/lib/commit-files"
+import { cutList } from "@/lib/text"
 import { formatRelativeTime } from "@/lib/time"
 import { transferAmount } from "@/lib/transfer-progress"
 import type { TimedStep, UpdateRun, UpdateStep } from "@/lib/update-progress"
@@ -19,10 +20,14 @@ export interface UpdateStateDescription {
 /** At most this many file names in a sentence */
 const NAMED_FILES = 3
 
-/** The first `NAMED_FILES` of `files`, then how many more of `count` (the backend reports the first files of all) */
+/**
+ * The first `NAMED_FILES` of `files`, then how many more of `count` (the backend reports the first files of all), never
+ * "and 1 more": a list one longer is named whole (`cutList`)
+ */
 function formatFileList(files: readonly string[], count: number): string {
-  const named = files.slice(0, NAMED_FILES).join(", ")
-  return count > NAMED_FILES ? `${named} and ${count - NAMED_FILES} more` : named
+  const { shown, more } = cutList(files, NAMED_FILES, count)
+  const named = shown.join(", ")
+  return more > 0 ? `${named} and ${more} more` : named
 }
 
 /** The words for a checked update. Deliberately without a count of upstream commits: only conflicts matter. */

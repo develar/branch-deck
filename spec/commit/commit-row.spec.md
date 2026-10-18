@@ -285,7 +285,7 @@ The commit hash popover shows the same header and body.
   says what the branch lacks: "<branch> is built on <base>, which doesn't have them." (not for an amend conflict).
   [@test] ../../src/lib/merge-conflict.test.ts (`groups the commits by branch, the most first, and finds the branch built on all the others`, `has no stack top when the branches are on two stacks`, `names a single branch`, `says that no commit outside the branch changed the files`, `says what the branch is built on`, `says nothing for a conflict with the amended commit`)
 - The explanation must show a chip per branch with its number of missing commits, the most first, at most 8 and then
-  "+N branches". In the main window a chip shows the branch with its missing commits (`requestReveal`); the window
+  "+N branches", all 9 of 9 (`cutList`: never "+1 branch"). In the main window a chip shows the branch with its missing commits (`requestReveal`); the window
   only names them. The common ancestor and the divergence counts are not shown.
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show branches with missing commits`, `should show the branch of the missing commits from the explanation`)
 - The missing commits details must group the commits by branch, in the order of the chips, the unassigned ones last

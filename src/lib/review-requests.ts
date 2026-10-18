@@ -1,4 +1,5 @@
 import type { PullRequestAvailability, ReviewRequest } from "@/lib/bindings"
+import { cutList } from "@/lib/text"
 import { formatRelativeTime } from "@/lib/time"
 
 /*
@@ -90,17 +91,21 @@ export function findNewRequests(previous: readonly ReviewRequest[] | null, next:
   return next.filter(request => !known.has(reviewRequestKey(request)))
 }
 
-/** "alice requested your review" / "#123 Fix the login": a toast and an OS notification, one for several requests */
+/** The new requests one toast names; one more is named too (`cutList`) */
+const NAMED_REQUESTS = 3
+
+/**
+ * "alice requested your review" / "#123 Fix the login": a toast and an OS notification, one for several requests, the
+ * first ones named and the count of the rest, never "1 more"
+ */
 export function describeNewRequests(news: readonly ReviewRequest[]): { title: string; description: string } {
   const [first] = news
   if (news.length === 1 && first !== undefined) {
     return { title: first.requestedBy === null ? "Your review was requested" : `${first.requestedBy} requested your review`, description: `#${first.number} ${first.title}` }
   }
-  const shown = news.slice(0, 3).map(request => `#${request.number} ${request.title}`)
-  if (news.length > shown.length) {
-    shown.push(`${news.length - shown.length} more`)
-  }
-  return { title: `${news.length} reviews requested`, description: shown.join(" · ") }
+  const { shown, more } = cutList(news, NAMED_REQUESTS)
+  const lines = shown.map(request => `#${request.number} ${request.title}`)
+  return { title: `${news.length} reviews requested`, description: (more === 0 ? lines : [...lines, `${more} more`]).join(" · ") }
 }
 
 /** The Activity entry of a request: "alice requested your review on #123" / "Fix the login" */
@@ -133,7 +138,8 @@ export function mergeReviewRequests(previous: readonly ReviewRequest[], incoming
 
 /**
  * The rows the card shows before "Show N More": the oldest `cap`, and every unread request on top of them, in their
- * order; an unread request takes the place of a read one while the rows are full, so a poll doesn't grow the list
+ * order; an unread request takes the place of a read one while the rows are full, so a poll doesn't grow the list. The
+ * named exception to the cut rule of `cutList`: "Show 1 More" stays, a fourth row would come and go with the polls
  */
 export function pickVisibleRequests(sorted: readonly ReviewRequest[], unread: ReadonlySet<string>, cap: number = VISIBLE_ROW_CAP): readonly ReviewRequest[] {
   const unreadCount = sorted.filter(request => unread.has(reviewRequestKey(request))).length

@@ -28,6 +28,7 @@ use sync_core::missing_declarations::missing_declarations;
 use sync_core::regroup::{RegroupError, RegroupPlan};
 use sync_core::sync::SyncReport;
 use sync_types::stack::BranchStack;
+use sync_utils::list_cut::kept;
 
 #[derive(Debug, Default, clap::Args)]
 pub struct CheckArgs {
@@ -720,35 +721,53 @@ pub(crate) fn dangling_references_in(context: &RepoContext, session: &CheckSessi
   Ok((confirmed, warnings))
 }
 
-/// What the build of `branch` fails on, in a sentence: the first dangling reference and how to fix it
+/// The dangling references a refusal describes; one more is described too, so the count of the rest is never 1
+/// (`list_cut::kept`)
+const DESCRIBED_REFERENCES: usize = 1;
+
+/// What the build of `branch` fails on: each dangling reference it describes and how to fix it (two of two, else the
+/// first and the count of the rest, which `bd check` lists)
 pub(crate) fn dangling_reference_message(branch: &str, references: &[(String, DanglingReferenceSummary)]) -> String {
-  let Some((owner, first)) = references.first() else { return String::new() };
-  let fix = if let Some(fix) = &first.fix {
+  if references.is_empty() {
+    return String::new();
+  }
+  let described = kept(references.len(), DESCRIBED_REFERENCES);
+  let sentences: Vec<String> = references[..described]
+    .iter()
+    .map(|(owner, reference)| describe_dangling_reference(branch, owner, reference))
+    .collect();
+  let more = match references.len() - described {
+    0 => String::new(),
+    rest => format!(" ({rest} more: bd check)"),
+  };
+  format!("{}{more}; --allow-dangling starts anyway", sentences.join(". "))
+}
+
+/// One dangling reference of the build of `branch` (`owner` the branch that removes the declaration), in a sentence:
+/// what breaks and how to fix it
+fn describe_dangling_reference(branch: &str, owner: &str, reference: &DanglingReferenceSummary) -> String {
+  let fix = if let Some(fix) = &reference.fix {
     match &fix.command {
-      Some(command) => format!("move that change of {} into {}: {command}", first.file, first.removed_by),
-      None => format!("move {} into {owner}: it changes only {}", first.fixed_by, first.file),
+      Some(command) => format!("move that change of {} into {}: {command}", reference.file, reference.removed_by),
+      None => format!("move {} into {owner}: it changes only {}", reference.fixed_by, reference.file),
     }
   } else {
-    format!("move {} into {owner}, or stack {owner} on its branch", first.fixed_by)
-  };
-  let more = match references.len() {
-    1 => String::new(),
-    count => format!(" ({} more: bd check)", count - 1),
+    format!("move {} into {owner}, or stack {owner} on its branch", reference.fixed_by)
   };
   let of = if owner == branch { String::new() } else { format!(", which {branch} is built on,") };
-  let (uses, change) = if first.kind == "duplicate_declaration" {
+  let (uses, change) = if reference.kind == "duplicate_declaration" {
     ("still declares it too", "removes that declaration")
   } else {
     ("still uses it", "changes that use")
   };
   format!(
-    "{owner}{of} {} {} in {}, and {}:{} {uses}: {} {change} in another branch, so the build fails. To fix it, {fix}{more}; --allow-dangling starts anyway",
-    kind_verb(first.kind),
-    first.identifier,
-    first.removed_by,
-    first.file,
-    first.line,
-    first.fixed_by
+    "{owner}{of} {} {} in {}, and {}:{} {uses}: {} {change} in another branch, so the build fails. To fix it, {fix}",
+    kind_verb(reference.kind),
+    reference.identifier,
+    reference.removed_by,
+    reference.file,
+    reference.line,
+    reference.fixed_by
   )
 }
 

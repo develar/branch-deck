@@ -86,9 +86,16 @@ describe("describeStackLanding", () => {
         text: '"Cache the parsed icon" uses parsedIcon, which "Parse the icon off the EDT" of IJPL-257337 adds. perf-part-2 applies on the baseline without IJPL-257337, but needs it to compile. Found by names, not by a compiler.',
         warning: true,
       })
-      const more = [...uses, { commit: CHILD, name: "iconCache", declaredBy: PARSED }]
-      expect(landing({ ...stacked, independence: { kind: "builds", parent: "IJPL-257337", uses: more, symbols: true } }).alone?.text).toMatch(
-        /^"Cache the parsed icon" uses parsedIcon and 1 more name, which/,
+      // two names both, never "and 1 more name"; from three on the first and the count
+      const alone = (names: readonly string[]) =>
+        landing({ ...stacked, independence: { kind: "builds", parent: "IJPL-257337", uses: names.map(name => ({ commit: CHILD, name, declaredBy: PARSED })), symbols: true } })
+          .alone?.text
+      expect(alone(["parsedIcon", "iconCache"])).toMatch(/^"Cache the parsed icon" uses parsedIcon and iconCache, which "Parse the icon off the EDT" of IJPL-257337 adds\. /)
+      expect(alone(["parsedIcon", "iconCache", "iconSize"])).toMatch(/^"Cache the parsed icon" uses parsedIcon and 2 more names, which/)
+      // two uses of two commits: each said
+      const other = { commit: { ...CHILD, id: "other", subject: "Draw the icon" }, name: "iconSize", declaredBy: { ...PARSED, id: "size", subject: "Measure the icon" } }
+      expect(landing({ ...stacked, independence: { kind: "builds", parent: "IJPL-257337", uses: [...uses, other], symbols: true } }).alone?.text).toMatch(
+        /^"Cache the parsed icon" uses parsedIcon, which "Parse the icon off the EDT" of IJPL-257337 adds\. "Draw the icon" uses iconSize, which "Measure the icon" of IJPL-257337 adds\. /,
       )
     })
 

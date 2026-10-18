@@ -147,8 +147,9 @@ there, in the preview and in the review alike, on the commit the review shows; t
   [@test] ../../src/lib/review-requests.test.ts (`is silent for the first answer after a start or a repository switch`, `tells the requests not known yet, a re-request too`)
   [@test] ../../src/stores/review-requests.test.ts (`is silent for the first answer after a repository switch`)
 - While a Branch Deck window has the focus (a conflict window counts), one toast tells the new requests of an answer:
-  "dave requested your review" / "#104 Document the CLI", or "3 reviews requested" / "#1 … · #2 … · #3 …", with the
-  action "Review", which opens the first one, for 10 s.
+  "dave requested your review" / "#104 Document the CLI", or "3 reviews requested" / "#1 … · #2 … · #3 …" (four of
+  four named, from five on the first three and "2 more", `cutList`), with the action "Review", which opens the first
+  one, for 10 s.
   [@test] ../../src/lib/review-requests.test.ts (`tells one request by who asked, several in one notice`)
   [@test] ../../src/stores/review-requests.test.ts (`tells nothing for the first answer, then one toast with Review for what is new, recorded in Activity`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should tell a request that comes with a poll in a toast whose Review opens it, unread until opened`)
@@ -217,8 +218,10 @@ Safe Push it allows.
   after one working day (Saturdays and Sundays don't count); never `destructive`. The age is a leaf on the shared clock.
   [@test] ../../src/lib/review-requests.test.ts (`is old after a day of working time, the weekend skipped`, `says how long a request waits, or when the user was asked again`, `names who asked for the review when it is not the author`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the oldest three first, the rest behind Show More, and say how long each waits`)
-- Three rows, then "Show N More" ("Show Less" back). An unread request is always shown, in the place of a read one
-  while the rows are full: a poll never grows the list or inserts a row above the others. Rows fade in by opacity;
+- Three rows, then "Show N More" ("Show Less" back), "Show 1 More" too: the named exception to the cut rule of
+  [UX Writing](../../docs/guidelines/ux-writing.md), a fourth row would come and go with the polls. An unread request
+  is always shown, in the place of a read one while the rows are full: a poll never grows the list or inserts a row
+  above the others. Rows fade in by opacity;
   only the first entrance of the card slides.
   [@test] ../../src/lib/review-requests.test.ts (`shows the oldest three and every unread request, an unread one in the place of a read one`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should tell a request that comes with a poll in a toast whose Review opens it, unread until opened`)
