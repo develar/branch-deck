@@ -221,7 +221,10 @@ The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/
   app (the stack chip, the file rows, the groups of a form); `CollapsibleCard` draws it, its callers don't.
 - **A dialog is a `PreviewDialogFrame`** (`src/components/shared/PreviewDialogFrame.tsx`): a header with a visible
   `text-base` title, a body that alone scrolls, a footer of key hints and `xs` buttons. `width` is `sm` for a picker,
-  `md` for a question or a help text, `lg` (default) for a preview. Escape is a key hint (`Esc Close`), not a button.
+  `md` for a question or a help text, `form` for a form with a text field and several actions (the pull request),
+  `lg` (default) for a preview. Its one column is the dialog's width (`minmax(0,1fr)`), so no row widens it past the
+  card; a footer that doesn't fit wraps, a text `start` beside the actions first. Escape is a key hint (`Esc Close`),
+  not a button.
 - **A form below a row is an `InlineForm`** (`src/components/shared/InlineForm.tsx`, `InlineInputDialog` for one input):
   - a visible `text-sm font-medium` title and, only where it adds something, a muted description;
   - the content is at most `max-w-3xl`, an input `max-w-md`; Cancel and the submit are `xs` buttons, the submit of a

@@ -373,6 +373,9 @@ pull request before its push, the close of the pull requests a Safe Push of a st
 - At row 7 of the [next step](next-step.spec.md) the footer has "Safe Push Without Review…" at its left: the Safe Push
   form of the row with a profile that skips the code-owner review ([Patronus](patronus.spec.md#safe-push-without-review)).
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should start from the pull request dialog with the profile the user chooses`)
+- The dialog, in the main window and in the review window, is wide enough for its footer in one line, "Safe Push
+  Without Review…" included (`form`, 48rem); in a narrower window the footer wraps, and nothing leaves the dialog.
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should keep the pull request dialog's footer in one line inside the dialog`)
 - A copied or printed `gh` command (`gh pr edit` of the toast and of the menu's "Copy Retarget Command", the
   `gh pr create … --assignee @me` of `bd push`) gets `--repo <owner>/<name>` when the GitHub repository is not the one
   `origin` pushes to (a mirror): `gh` finds no GitHub repository among the remotes of a mirrored checkout.

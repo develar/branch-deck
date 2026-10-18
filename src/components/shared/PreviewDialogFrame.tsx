@@ -4,12 +4,17 @@ import { cn } from "cn"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 
-/** `sm` a picker, `md` a question or a help text, `lg` (default) a preview of commits or files; a review is a window */
-export type PreviewDialogWidth = "sm" | "md" | "lg"
+/**
+ * `sm` a picker, `md` a question or a help text, `form` a form with a text field and several actions (the pull
+ * request), `lg` (default) a preview of commits or files; a review is a window
+ */
+export type PreviewDialogWidth = "sm" | "md" | "form" | "lg"
 
 const widthClasses: Record<PreviewDialogWidth, string> = {
   sm: "sm:max-w-xs",
   md: "sm:max-w-lg",
+  // any `sm:max-w-*` replaces the 1rem margin of the base class: the review window at 150% is 640 CSS px wide
+  form: "sm:max-w-[min(48rem,calc(100%-2rem))]",
   lg: "sm:max-w-[min(56rem,calc(100%-4rem))]",
 }
 
@@ -56,7 +61,9 @@ export function PreviewDialogFrame({
         initialFocus={initialFocus}
         finalFocus={finalFocus}
         showCloseButton={showCloseButton}
-        className={cn("max-h-[min(80vh,48rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0", widthClasses[width])}
+        // the column is the dialog's width: an `auto` track grows with its widest row, so a footer wider than the
+        // dialog would widen every row past its card
+        className={cn("max-h-[min(80vh,48rem)] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0", widthClasses[width])}
         onKeyDown={onKeyDown}
       >
         {children}
@@ -102,12 +109,15 @@ export function PreviewDialogBody({ ref, itemKey, fill = false, "data-testid": t
 /**
  * `start` on the left (the position or a hint), the key hints and the actions (`children`) on the right. `className`
  * lays it out elsewhere: on the canvas of a window, below its islands.
+ *
+ * Where they don't fit in one line, a text `start` wraps beside the actions first (its basis is 0, so the actions
+ * don't jump to the next line while a hint grows); only what can't wrap (a button) moves the actions below it.
  */
 export function PreviewDialogFooter({ start, className, children, "data-testid": testId }: { start?: ReactNode; className?: string; children: ReactNode; "data-testid"?: string }) {
   return (
-    <div data-testid={testId} className={cn("flex items-center justify-between gap-4 border-t border-border px-6 py-2 text-xs text-muted-foreground", className)}>
-      {start}
-      <div className="ml-auto flex items-center gap-3">{children}</div>
+    <div data-testid={testId} className={cn("flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border px-6 py-2 text-xs text-muted-foreground", className)}>
+      {start !== undefined && start !== null && start !== false && <div className="flex flex-1 items-center">{start}</div>}
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-2">{children}</div>
     </div>
   )
 }

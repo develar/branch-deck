@@ -85,7 +85,7 @@ export function CreatePullRequestDialogFrame({
   return (
     <PreviewDialogFrame
       data-testid="create-pull-request-dialog"
-      width="md"
+      width="form"
       open={open}
       onOpenChange={(nextOpen, eventDetails) => {
         if (nextOpen) {

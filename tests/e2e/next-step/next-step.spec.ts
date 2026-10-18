@@ -1,7 +1,8 @@
 // @spec spec/branch/next-step.spec.md
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import type { PatronusReviewRequirement, PatronusStartOptions, PullRequest } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
+import { waitForTransitionsSettled } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { APPROVED_BY_CODE_OWNER, AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, NOT_EVALUATED, availableRobots, codeOwner, evaluatedGroup, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
@@ -372,6 +373,50 @@ test.describe("Next step", () => {
       await start.click()
       await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
       expect(starts).toEqual([expect.objectContaining({ branchName: BRANCH, mode: "rebaseAutosquash", profileId: "lsc" })])
+    })
+
+    test("should keep the pull request dialog's footer in one line inside the dialog", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupRow7(page, setupRepo, syncAndWaitForBranches)
+      const { dialog, withoutReview } = await openWithoutReview(page)
+      const onGitHub = dialog.getByTestId("create-pull-request-on-github")
+      const submit = dialog.getByTestId("create-pull-request-submit")
+      const title = dialog.getByTestId("create-pull-request-title")
+      for (const element of [withoutReview, onGitHub, submit, title]) {
+        await expect(element).toBeVisible()
+      }
+      // the dialog zooms in as it opens: measure it settled
+      await waitForTransitionsSettled(page)
+
+      const box = async (element: Locator) => {
+        const result = await element.boundingBox()
+        expect(result).not.toBeNull()
+        return result!
+      }
+      const expectInside = async () => {
+        const frame = await box(dialog)
+        for (const element of [withoutReview, onGitHub, submit, title]) {
+          const inner = await box(element)
+          expect(inner.x).toBeGreaterThanOrEqual(frame.x)
+          expect(inner.x + inner.width).toBeLessThanOrEqual(frame.x + frame.width)
+        }
+        return frame
+      }
+      const center = (it: { y: number; height: number }) => it.y + it.height / 2
+
+      // 1280 wide: the dialog is a form, its footer one line
+      expect((await expectInside()).width).toBeCloseTo(48 * 16, 0)
+      const line = center(await box(withoutReview))
+      expect(Math.abs(center(await box(onGitHub)) - line)).toBeLessThanOrEqual(1)
+      expect(Math.abs(center(await box(submit)) - line)).toBeLessThanOrEqual(1)
+
+      // the review window at 150%: the dialog keeps its margin, the actions wrap below the button that can't
+      await page.setViewportSize({ width: 640, height: 720 })
+      await expect.poll(async () => (await box(dialog)).width).toBeLessThanOrEqual(640 - 2 * 16)
+      const frame = await expectInside()
+      expect(frame.x).toBeGreaterThanOrEqual(16)
+      expect(frame.x + frame.width).toBeLessThanOrEqual(640 - 16)
+      const button = await box(withoutReview)
+      expect((await box(submit)).y).toBeGreaterThanOrEqual(button.y + button.height)
     })
 
     test("should say that an emergency profile skips all checks, and start with it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
