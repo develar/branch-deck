@@ -191,9 +191,11 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   Patronus when it sends them, else by owner name) (`spec/branch/branch-review.spec.md`).
 - **Symbol dependencies**: tree-sitter summaries of the files the commits change (`crates/code-symbols`: Kotlin, Java,
   Rust, TypeScript and JavaScript), cached by blob id; `bd commits` names the edges by symbols (`via`, the class
-  `Order`: never joins `units`), and the dangling-reference check subtracts comments, strings, locals and still-bound
-  names; with `branchdeck.symbols on` (the default; `report`, `off`) they also order and stack branches in `bd suggest`,
-  the conflict fix, `missing_declarations` of `bd check` and the Safe Push lead (`spec/commit/symbol-dependencies.spec.md`).
+  `Order`: never joins `units`), an override of a member, the overload or constructor form a call's arguments select
+  and a member's changed form included (Kotlin, Java), and the dangling-reference check subtracts comments, strings,
+  locals, still-bound names and override lines; with `branchdeck.symbols on` (the default; `report`, `off`) they also
+  order and stack branches in `bd suggest`, the conflict fix, `missing_declarations` of `bd check` and the Safe Push
+  lead (`spec/commit/symbol-dependencies.spec.md`).
 - **Zoom**: View → Zoom In / Zoom Out / Actual Size, our own (WKWebView has no zoom keys), 67–150%, one saved level
   for all windows (`appSettings.zoom`), the toolbar not zoomed, the minimum window wider above 125%
   (`spec/repository/zoom.spec.md`).
