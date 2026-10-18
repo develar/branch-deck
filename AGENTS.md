@@ -288,6 +288,11 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   protocol is `git.cmd(&args, repo)` with `.env`, `.stdin`, `.accept`, `.timeout` and one finisher (`.text`, `.bytes`,
   `.lines`, `.output`, `.status`, `.stream`, `.progress`, `.interactive`), all on one spawn core; the only shorthands are
   `execute_command` (`.text`), `execute_command_lines` (`.lines`) and `execute_command_with_status` (`.status` as text).
+- **Scan tests** (`crates/git-executor/src/git_usage_scan_test.rs`, on the sources as `source_scan_test.rs` reads them
+  for the worktree safety scan too): bd-cli and src-tauri start no git of their own; no `--no-pager`, no
+  `credential.helper=`; `update-ref` only in `ref_transaction.rs`; `cat-file --batch*` only in `cat_file_batch.rs`;
+  `--name-only`, `--name-status` and `--raw` only with `-z`; `push`, `fetch` and `ls-remote` only through
+  `execute_remote_command*`. An exemption names its file, its reason and its exact number of hits.
 - **Never write to the working tree**: no `checkout`, `checkout-index`, `switch`, `reset`, `rebase`, `stash`, `commit`,
   `cherry-pick`, `merge`, `restore`, `clean`, `apply` without `--cached`, `read-tree -u`/`--reset`, `git history`;
   `crates/git-executor/src/worktree_safety_test.rs` enforces it. Reading worktree files into a temporary

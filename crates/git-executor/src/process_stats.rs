@@ -74,17 +74,28 @@ impl Drop for ProcessStats {
   }
 }
 
-/// The git subcommand of `args`: the first argument that is not a global option (`-c <name>=<value>`, `--no-pager`)
+/// git's global options whose value is the next argument (`-C <path>`, `-c <name>=<value>`); every other global option
+/// is one argument (`--no-pager`, `--git-dir=<path>`)
+const GLOBAL_OPTIONS_WITH_VALUE: [&str; 8] = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env", "--attr-source"];
+
+/// The git subcommand of `args`, see `subcommand_index`; `git` for none
 pub(crate) fn subcommand<'a>(args: &[&'a str]) -> &'a str {
-  let mut args = args.iter();
-  while let Some(arg) = args.next() {
-    if *arg == "-c" || *arg == "-C" {
-      args.next();
-    } else if !arg.starts_with('-') {
-      return arg;
+  subcommand_index(args).map_or("git", |index| args[index])
+}
+
+/// The index of the git subcommand in `args`: the first argument that is neither a global option nor the value of one
+pub(crate) fn subcommand_index(args: &[&str]) -> Option<usize> {
+  let mut index = 0;
+  while let Some(arg) = args.get(index) {
+    if GLOBAL_OPTIONS_WITH_VALUE.contains(arg) {
+      index += 2;
+    } else if arg.starts_with('-') {
+      index += 1;
+    } else {
+      return Some(index);
     }
   }
-  "git"
+  None
 }
 
 #[cfg(test)]
@@ -95,6 +106,8 @@ mod tests {
   fn the_subcommand_skips_global_options() {
     assert_eq!(subcommand(&["-c", "merge.conflictStyle=zdiff3", "merge-tree", "--write-tree"]), "merge-tree");
     assert_eq!(subcommand(&["--no-pager", "log", "-1"]), "log");
+    assert_eq!(subcommand(&["-C", "repo", "--git-dir", ".git", "--literal-pathspecs", "status"]), "status");
+    assert_eq!(subcommand(&["--work-tree=.", "--namespace", "ns", "push"]), "push");
     assert_eq!(subcommand(&["--version"]), "git");
   }
 

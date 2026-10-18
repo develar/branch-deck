@@ -1,0 +1,190 @@
+//! Rules of how the production code runs git (AGENTS.md, "Git Operations"), checked on its sources like the worktree
+//! safety scan (`source_scan_test.rs`). A failure names the place and what to do instead. Each rule allows a file only
+//! with its reason and exact number of hits, so a new hit and a stale exemption both fail.
+
+use crate::source_scan_test::{ArgList, Source, argument_lists, production_sources};
+
+/// A file a rule allows, with its number of hits and why
+struct Exemption {
+  path: &'static str,
+  hits: usize,
+  reason: &'static str,
+}
+
+/// Fails when `find` hits a line outside `exemptions`, or an exempt file has another number of hits than its exemption
+fn check(rule: &str, instead: &str, exemptions: &[Exemption], find: impl Fn(&Source) -> Vec<usize>) {
+  let mut report = Vec::new();
+  let mut exempt_hits = vec![0; exemptions.len()];
+  for source in production_sources() {
+    let lines = find(&source);
+    match exemptions.iter().position(|exemption| exemption.path == source.path) {
+      Some(index) => exempt_hits[index] += lines.len(),
+      None => report.extend(lines.iter().map(|line| format!("  {}:{line}", source.path))),
+    }
+  }
+  for (exemption, hits) in exemptions.iter().zip(exempt_hits) {
+    if hits != exemption.hits {
+      report.push(format!(
+        "  {}: {hits} hits, but its exemption says {} ({}); a new hit there needs a review, a gone one lowers the count",
+        exemption.path, exemption.hits, exemption.reason
+      ));
+    }
+  }
+  assert!(report.is_empty(), "{rule}:\n{}\nInstead: {instead}", report.join("\n"));
+}
+
+/// The lines of the argument lists of `source` that `test` selects
+fn list_lines(source: &Source, test: impl Fn(&ArgList<'_>) -> bool) -> Vec<usize> {
+  argument_lists(&source.text).iter().filter(|list| test(list)).map(|list| list.line).collect()
+}
+
+/// The code lines of `source` (not comments) that contain `needle`
+fn code_lines_with(source: &Source, needle: &str) -> Vec<usize> {
+  source.code_lines().filter(|(_, line)| line.contains(needle)).map(|(number, _)| number).collect()
+}
+
+/// Whether the code that ends with `before` passes what follows straight to an executor call (`git.cmd(&`,
+/// `git.execute_command(&`), not to a helper
+fn is_executor_argument(before: &str) -> bool {
+  let Some(call) = before.trim_end().strip_suffix('&').unwrap_or(before).trim_end().strip_suffix('(') else {
+    return false;
+  };
+  let name = &call[call.trim_end_matches(|c: char| c.is_ascii_alphanumeric() || c == '_').len()..];
+  name == "cmd" || name.starts_with("execute_command")
+}
+
+#[test]
+fn bd_and_the_app_run_no_git_of_their_own() {
+  check(
+    "bd-cli and src-tauri start git themselves",
+    "they are adapters: put the git call into a function of crates/git-ops (the git) or a core of crates/sync-core (the \
+     lock, the guards, the orchestration), and call that",
+    &[],
+    |source| {
+      if !(source.path.starts_with("crates/bd-cli/src/") || source.path.starts_with("src-tauri/src/")) {
+        return Vec::new();
+      }
+      let mut lines = code_lines_with(source, ".execute_command");
+      lines.extend(code_lines_with(source, ".cmd("));
+      lines
+    },
+  );
+}
+
+#[test]
+fn no_caller_passes_no_pager() {
+  check(
+    "git is given --no-pager",
+    "drop it: the executor reads git's stdout through a pipe, so git never starts a pager",
+    &[],
+    |source| code_lines_with(source, "\"--no-pager\""),
+  );
+}
+
+#[test]
+fn no_caller_overrides_the_credential_helpers() {
+  check(
+    "git is given a credential.helper",
+    "keep the user's credential helpers: run push, fetch and ls-remote with sync_core::remote_command::execute_remote_command*, \
+     which keeps them and turns their prompts off",
+    &[],
+    |source| code_lines_with(source, "credential.helper="),
+  );
+}
+
+#[test]
+fn refs_move_only_through_ref_transaction() {
+  check(
+    "refs are moved by an update-ref of its own",
+    "move refs with git_ops::ref_transaction::RefTransaction: one update-ref --stdin for all of them, each with its old \
+     value (compare and swap) and a branch-deck reflog message, and commit_while when the files follow the move",
+    &[Exemption {
+      path: "crates/git-ops/src/ref_transaction.rs",
+      hits: 1,
+      reason: "RefTransaction itself",
+    }],
+    |source| list_lines(source, |list| list.subcommand() == Some("update-ref")),
+  );
+}
+
+#[test]
+fn objects_are_read_through_cat_file_batch() {
+  check(
+    "objects are read by a cat-file --batch of its own",
+    "read objects with git_ops::cat_file_batch: for_each_object or read_objects for the content (streamed, with a size \
+     limit), object_types for the types; one cat-file -Z per call, the names NUL-terminated",
+    &[
+      Exemption {
+        path: "crates/git-ops/src/cat_file_batch.rs",
+        hits: 2,
+        reason: "the shared reader itself",
+      },
+      Exemption {
+        path: "crates/git-ops/src/update_branch.rs",
+        hits: 2,
+        reason: "the ids of index entries, named by path as bytes (`:<path>`, not always UTF-8), which the str names of cat_file_batch cannot carry",
+      },
+      Exemption {
+        path: "crates/sync-core/src/cache_memo.rs",
+        hits: 1,
+        reason: "one interactive --batch-check that answers the memo's tree checks one at a time, as they come",
+      },
+    ],
+    |source| list_lines(source, |list| list.subcommand() == Some("cat-file") && list.has(|arg| arg.starts_with("--batch"))),
+  );
+}
+
+#[test]
+fn listed_paths_are_nul_terminated() {
+  check(
+    "git lists paths (--name-only, --name-status, --raw) without -z",
+    "add -z and split the output at NUL: without it git quotes a path with a quote, a backslash or a control character, \
+     and a newline in a path breaks the lines",
+    &[
+      Exemption {
+        path: "crates/sync-core/src/branch_name_suggestion.rs",
+        hits: 1,
+        reason: "`show --name-status` is text for the AI prompt, never parsed into paths",
+      },
+      Exemption {
+        path: "crates/patronus/src/teamcity_cli.rs",
+        hits: 1,
+        reason: "the teamcity CLI's --raw, not git",
+      },
+    ],
+    |source| {
+      list_lines(source, |list| {
+        list.has(|arg| matches!(arg, "--name-only" | "--name-status" | "--raw")) && !list.has(|arg| arg == "-z")
+      })
+    },
+  );
+}
+
+#[test]
+fn network_commands_run_through_remote_command() {
+  check(
+    "a network command runs on a plain executor call",
+    "run push, fetch and ls-remote with sync_core::remote_command::execute_remote_command* (AGENTS.md, Network \
+     commands): the credential helpers stay, prompts are off, stalled HTTP transfers abort and the locale is C",
+    &[],
+    |source| {
+      let calls_remote_command = source.code_lines().any(|(_, line)| {
+        line
+          .split("execute_remote_command")
+          .skip(1)
+          .any(|rest| rest.trim_start_matches(|c: char| c.is_ascii_alphanumeric() || c == '_').starts_with('('))
+      });
+      list_lines(source, |list| {
+        matches!(list.subcommand(), Some("push" | "fetch" | "pull" | "ls-remote" | "clone")) && (!calls_remote_command || is_executor_argument(list.before))
+      })
+    },
+  );
+}
+
+#[test]
+fn an_executor_argument_is_told_from_a_helper_argument() {
+  assert!(is_executor_argument("let output = git.cmd(&"));
+  assert!(is_executor_argument("git_executor.execute_command_with_status(\n    &"));
+  assert!(!is_executor_argument("execute_remote_command(git_executor, &"));
+  assert!(!is_executor_argument("let args = vec!"));
+}
