@@ -1,3 +1,7 @@
+//! The analysis of a conflict view (`merge_conflict.rs`): the commits of the source that the target lacks and that
+//! change a conflicting file, where the two diverged, and the contents and patches of those files, each read for all
+//! commits in one process, the paths as literal pathspecs.
+
 use crate::commit_files::{FilePatch, MAX_BLOB_BYTES, PATCH_LIMITS, PatchLimits, is_object_id, split_patches};
 use crate::object_texts::read_texts;
 use crate::revs::merge_base;

@@ -1,3 +1,7 @@
+//! `RefTransaction`: the ref moves of an operation in one `git update-ref --stdin`, all or none, each with
+//! compare-and-swap on its old value and a `branch-deck: <operation>` reflog message; `commit_while` checks a condition
+//! while git holds the locks of the refs.
+
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::interactive_command::InteractiveCommand;

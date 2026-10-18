@@ -1,3 +1,6 @@
+//! The app's push of a virtual branch to `origin`, forced and leased on the remote head the user saw (`push_lease.rs`);
+//! a remote that moved meanwhile is fetched and reported, never overwritten.
+
 use crate::push_lease::{PushOptions, PushedRefStatus, fetch_remote_branches, prepare_push_expecting, push_refs};
 use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch};
 use crate::transfer_progress::TransferProgress;

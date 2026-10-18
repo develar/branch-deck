@@ -1,3 +1,6 @@
+//! Whether a path the user picks is the working tree of a repository (`.git` a directory, or the file of a linked
+//! worktree), by file system checks only, no git process.
+
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::path::Path;

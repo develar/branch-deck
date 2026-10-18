@@ -1,3 +1,7 @@
+//! The reword of commits of the checked out branch, the app's edit of a message and the writes of the regroup
+//! (`reword_read_commits_at`): the messages cleaned up as `git commit` does, written with one `fast-import` under the
+//! repository lock.
+
 use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::stripped_subject;
 use crate::repository_lock::RewriteOptions;

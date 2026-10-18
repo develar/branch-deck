@@ -1,3 +1,6 @@
+//! The app's squash of commits into the oldest of them, which keeps its place and its author
+//! (`git_ops::squash_commits`), and its undo, a move of the branch back; both under the repository lock.
+
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions, lock_repository};
 use crate::reword_commit::normalize_message;
 use anyhow::{Result, ensure};

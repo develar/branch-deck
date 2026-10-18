@@ -1,3 +1,6 @@
+//! The grouping of the commits ahead of the baseline as a sync groups them, without the builds and the events
+//! (`BranchGrouping`): what `bd status`, `bd robot` and the other reads of `bd` start from.
+
 use crate::baseline::{NoBaseline, is_unborn_head};
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs};
 use crate::repo_facts::{BaselineListing, read_baseline_listing};

@@ -1,3 +1,6 @@
+//! The trees and committer dates of the commits a sync asks for (`TreeIdCache`), each read at most once per sync and
+//! shared by its branches, with the merge memo that remembers merges and commit trees across operations.
+
 use crate::copy_commit::CopyCommitError;
 use crate::merge_memo::MergeMemo;
 use anyhow::Result;

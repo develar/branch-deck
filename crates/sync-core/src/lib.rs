@@ -1,3 +1,101 @@
+//! The operations of Branch Deck over git-ops: the sync of the virtual branches, one core per operation
+//! (`*_core(params, options)`: the repository lock, the expected HEAD and the order of the git steps), the trial syncs
+//! of `bd check`, Update Project, the pushes and what GitHub and Patronus know of the branches. The app and `bd` call
+//! these cores, git-ops directly only for reads that need no lock, and run no git of their own (AGENTS.md, "Adding a
+//! git operation").
+//!
+//! The sync:
+//! - `sync`: `sync_branches`, the guards, the grouping, one build per branch and the detection of the archived ones
+//! - `branch_processor`: the build of one virtual branch, then its ref move with compare-and-swap and its remote status
+//! - `repo_facts`: `RepoFacts`, what a sync reads once at its start: the baseline, HEAD, the branches under the prefix
+//! - `sync_inputs`: the fingerprint of what a sync reads, so that a focus syncs only when it changed
+//! - `baseline`: `detect_baseline_branch`, the baseline outside a sync
+//! - `commit_grouper`: the groups of the commits ahead of the baseline by prefix, issue group and issue key
+//! - `grouping`: the grouping of a sync without its builds, for the reads of `bd`
+//! - `stack`: stacked branches, the parents a prefix declares, the forest and where each branch goes
+//! - `issue_navigation`: the issue key patterns of `.idea/vcs.xml`
+//! - `remote_status`: what a virtual branch has that its remote branch lacks and the reverse, by content
+//! - `commit_walk`: one `rev-list` walk of commits that a caller matches across a rebase by `CommitKey`
+//! - `commit_key`: the identity of a commit across a rebase and an amend
+//! - `missing_commits`: the commits a conflicting commit likely needs, with their branches
+//! - `conflict_contents`: the contents of a conflict view, read when the view shows it
+//! - `cache_memo`: the merges, commit trees and conflict views in the object cache
+//! - `landed`: the user's commits that reached the baseline, before and after an update
+//! - `baseline_fetch`: the fetch of the baseline without an update
+//!
+//! Rewrites of the checked out branch, each under the repository lock its core takes:
+//! - `repository_lock`: `$GIT_COMMON_DIR/branch-deck.lock`, `RewriteOptions` and `ensure_expected_head`
+//! - `regroup`: one reword that sets the prefixes of a plan, with the issue groups and the stack parents, and its undo
+//! - `move_commits`: the app's move of commits to a branch, through the regroup
+//! - `move_plan`: the smallest regroup of a move: by the issue groups, by prefixes, or both
+//! - `stack_operations`: rename a branch, stack it on another one or make it a root, through the regroup
+//! - `reword_commit`: new messages of commits
+//! - `add_issue_reference`: an issue key into the subjects of commits
+//! - `amend_to_branch`: uncommitted changes into a commit of a branch
+//! - `squash`: commits into the oldest of them, and the undo
+//! - `autosquash`: the `fixup!`, `squash!` and `amend!` commits into their targets (`bd fold`)
+//! - `unapply_branch`: the commits of a virtual branch out of HEAD, the branch kept as an unapplied one
+//! - `move_hunk`: the checks of `bd move-hunk` against the commits ahead of the baseline
+//! - `commit_ids`: the commit ids of a request, abbreviated or full, among the commits ahead of the baseline
+//! - `delete_archived_branch`: the delete of an archived branch, with compare-and-swap on its tip
+//!
+//! Stores and config:
+//! - `snapshot`: the commits ahead of the baseline and what groups them, read once per operation
+//! - `store_lines`: `LineStore`, a map of `key<TAB>value` lines in a ref of its own
+//! - `issue_groups`: `ISSUE_GROUPS`, issue key -> branch name
+//! - `stack_parents`: `STACK_PARENTS`, branch -> stack parent
+//! - `config_snapshot`: `ConfigSnapshot`, the `branchdeck.*` keys and the branch descriptions from one `git config`
+//! - `repository_config`: the `branchdeck.*` config that Settings → Repository shows and writes
+//! - `branch_prefix`: the branch prefix by git config and the app setting
+//!
+//! The check, trial syncs that write objects only:
+//! - `check`: `CheckSession`, the trial sync of a regroup plan
+//! - `conflict_fix`: the regroup after which the conflicting branches apply cleanly, found by trial builds
+//! - `dangling_references`: the declarations a branch removes while its tree still uses them
+//! - `dangling_fix`: the fix of a mutual dangling reference, offered when a trial build proves it
+//! - `inverted_stack`: a branch that needs a commit of a branch stacked on it, and its fixes
+//! - `missing_declarations`: the names a built branch uses that a commit outside it adds
+//! - `dependencies`: which commits depend on which, from the hunks of `diff_scan`
+//! - `diff_scan`: the changes of many commits from one `log -p -U0 --raw -z`
+//! - `symbol_scan`: the syntax summaries of the changed source files, by blob id
+//! - `symbol_dependencies`: the edges between commits by the names they declare and use
+//! - `module_roots`: where the modules of source files begin
+//!
+//! Update Project:
+//! - `update_project`: the fetch and the update onto the baseline, and the check every sync runs
+//! - `resolve_session`: the resolve sessions of a conflicting `bd update`
+//! - `resolve_copies`: the copies of a round that the agent edits, the only files of a session
+//!
+//! Remotes:
+//! - `remote_command`: the policy of every git that talks to a remote (push, fetch)
+//! - `transfer_progress`: the progress of a fetch or a push, from its stderr lines
+//! - `push_lease`: the lease of a virtual branch push and `push_refs`, shared by the app and `bd push`
+//! - `push`: the app's push of a virtual branch
+//! - `remote_url`: the host and the repository path of a remote URL
+//! - `review_fetch`: the commits of a pull request to review, into `refs/branch-deck/review/<n>/`
+//!
+//! GitHub:
+//! - `pull_requests`: the pull request status of the virtual branches, from one GraphQL search
+//! - `pull_request_create`: a new pull request of a virtual branch
+//! - `pull_request_writes`: the base of a stacked pull request, reviews, reviewers and the closing of landed ones
+//! - `review_requests`: the pull requests of others that wait for the user's review
+//! - `branch_rules`: the rules GitHub applies to pull requests into a branch
+//!
+//! Patronus:
+//! - `patronus`: the Space repository the virtual branches are pushed to
+//! - `patronus_command`: the `/patronus` comment of a pull request
+//! - `patronus_review`: the commits of the code-owner pre-check of a Safe Push
+//! - `patronus_start`: the robot of a branch, and whether a Safe Push or a Dry Run can start
+//! - `review_readiness`: the review readiness of branches, shared by the app and `bd safe-push`
+//! - `robot_commits`: the commits a robot checked, by the hashes of the checked out branch
+//!
+//! The rest:
+//! - `branch_review`: the stack and the commits of a branch review
+//! - `branch_name_suggestion`: branch names for commits from the user's Claude Code
+//! - `git_setup`: git, the identity and a branch prefix to suggest, checked before the first run
+//! - `repository_validation`: whether a path is the working tree of a repository, without git
+//! - `uncommitted_changes`: the uncommitted files and the diff of one of them
+
 pub mod add_issue_reference;
 pub mod amend_to_branch;
 pub mod autosquash;

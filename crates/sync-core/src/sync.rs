@@ -1,3 +1,7 @@
+//! The sync of the virtual branches (`sync_branches`): the guards, the facts and the grouping read once, one build per
+//! branch in parallel beside the detection of the archived branches, then one notes write; the events reach the app as
+//! they happen (docs/design/git-operations.md, "Virtual branch sync").
+
 use crate::branch_processor::{BranchJob, BranchNotes, BranchSyncContext, BuildOutcome, BuiltBranch, ExistingCommits, RemoteTips, build_branch, finish_branch};
 use crate::cache_memo::ConflictMemo;
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs, parse_subject};
@@ -268,10 +272,6 @@ struct PreparedSync {
   update_check: tokio::task::JoinHandle<Result<()>>,
 }
 
-/// Phase 1 (blocking): issue config, baseline, commit grouping. Sends `IssueNavigationConfig`, `UnassignedCommits`
-/// and then `BranchesGrouped` (also when empty, so the UI drops stale branches) before any per-branch event can exist.
-/// The update check runs beside it and the rest of the sync, from the moment the baseline is known: its
-/// `BaselineStatus` can come at any point of the event stream.
 /// A sync waits while HEAD is not the branch the user works on: git in the middle of a rebase, merge, cherry-pick or
 /// revert, or a detached HEAD. The history of HEAD then lacks the commits of groups, and the sync would archive their
 /// virtual branches (docs/design/git-operations.md, "Guards"). Nothing is changed.
@@ -292,6 +292,10 @@ pub fn check_sync_guards(git_executor: &GitCommandExecutor, repository_path: &st
   current_branch(git_executor, repository_path)?.ok_or_else(|| SyncDeferred::DetachedHead.into())
 }
 
+/// Phase 1 (blocking): issue config, baseline, commit grouping. Sends `IssueNavigationConfig`, `UnassignedCommits`
+/// and then `BranchesGrouped` (also when empty, so the UI drops stale branches) before any per-branch event can exist.
+/// The update check runs beside it and the rest of the sync, from the moment the baseline is known: its
+/// `BaselineStatus` can come at any point of the event stream.
 /// `tree_id_cache` is empty; the phase seeds it with the trees of the commit list and the date of the base
 #[expect(clippy::too_many_arguments, reason = "the inputs of the first phase of a sync")]
 fn prepare_sync<P: ProgressReporter + Clone + 'static>(

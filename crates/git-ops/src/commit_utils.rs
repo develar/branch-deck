@@ -1,3 +1,6 @@
+//! Commits by id from one `log --no-walk --stdin` (`get_commits_info`; `find_commit` takes an abbreviated id too), and
+//! the ids git computes without a process: the empty tree and the id of a blob.
+
 use crate::commit_list::{self, Commit};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;

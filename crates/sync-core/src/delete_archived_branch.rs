@@ -1,3 +1,6 @@
+//! The delete of an archived branch (`<prefix>/archived/…`): one `for-each-ref` for its tip and its worktree, then one
+//! ref transaction with compare-and-swap on that tip; a branch checked out in any worktree is refused.
+
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::ref_transaction::RefTransaction;

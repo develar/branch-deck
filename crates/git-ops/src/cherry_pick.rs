@@ -1,3 +1,7 @@
+//! The cherry-pick of a commit onto a virtual branch as a tree, by `merge-tree --write-tree` in the branch's
+//! `CommitChain`, one process for the whole branch; a conflict is merged again on its own, with the commits, for its
+//! report.
+
 use crate::cache::TreeIdCache;
 use crate::commit_chain::CommitChain;
 use crate::commit_files::is_object_id;

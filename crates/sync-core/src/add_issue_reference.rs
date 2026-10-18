@@ -1,3 +1,6 @@
+//! Add Issue Reference: an issue key into the subjects of commits, `(branch) message` to `(branch) ISSUE-123 message`,
+//! one reword of the checked out branch under the repository lock.
+
 use crate::baseline::detect_baseline_branch;
 use crate::repository_lock::RewriteOptions;
 use crate::reword_commit::keeps_virtual_commit;

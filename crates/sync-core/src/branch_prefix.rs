@@ -1,3 +1,6 @@
+//! The branch prefix the virtual branches are named under: `branchdeck.branchPrefix` with the scope git read it from,
+//! and the order of the repository's own prefix, the app's and the global one (`resolve_branch_prefix`).
+
 use crate::repository_config::ConfigScope;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};

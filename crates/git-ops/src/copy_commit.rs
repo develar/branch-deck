@@ -1,3 +1,7 @@
+//! One commit of a virtual branch in a sync: the copy its mapping note names, reused while it is still the branch's
+//! copy of the same trees on the same parent, else a cherry-pick written in the branch's `CommitChain`; and the commits
+//! of the existing virtual branches from one `git log`.
+
 use crate::cache::TreeIdCache;
 use crate::commit_chain::{ChainCommit, CommitChain};
 use crate::commit_list::Commit;

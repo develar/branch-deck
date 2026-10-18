@@ -1,3 +1,7 @@
+//! The mapping notes of a sync: a note on each original commit names its virtual copy and the trees it was copied from
+//! (`MappingNote`); `read_notes` reads the notes of any ref for many commits with one `log --no-walk --stdin`, and
+//! notes are written with one `fast-import` (`commit_writer.rs`).
+
 use crate::commit_writer::{NewCommit, NotesOfWritten, StoreCommit, WrittenCommits, write_commits_with_notes, write_notes_to_refs};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;

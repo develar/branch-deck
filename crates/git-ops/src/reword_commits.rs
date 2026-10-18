@@ -1,3 +1,7 @@
+//! New messages for commits of the checked out branch (reword, move, add issue reference, regroup) with one
+//! `fast-import` and one ref transaction; the trees stay the same, so the index and the working tree are untouched
+//! (docs/design/git-operations.md, "Reword, move, add issue reference").
+
 use crate::commit_writer::{NewCommit, NewParent, StoreUpdate, complete_line, read_raw_commits};
 use crate::history::History;
 use crate::notes::write_commits_with_mapping_notes;

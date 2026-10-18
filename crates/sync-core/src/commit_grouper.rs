@@ -1,3 +1,6 @@
+//! The group of each commit ahead of the baseline (`CommitGrouper`): its `(prefix)`, else the issue group of its issue
+//! key, else the key itself, else none; a pure function of the subjects and the `GroupingInputs`, no git.
+
 use crate::stack::{StackDeclarations, StackForest, leaf_of, stack_path};
 use crate::store_lines::StoreLines;
 use git_ops::commit_list::Commit;

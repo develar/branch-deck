@@ -1,3 +1,6 @@
+//! The types a sync reports and the app shows (the statuses of branches and commits, conflicts, `BranchError`) and the
+//! names of the branches under the prefix (`{prefix}/virtual/<name>`, `BranchKind`).
+
 use crate::commit_list::Commit;
 use anyhow::ensure;
 use serde::{Deserialize, Serialize};

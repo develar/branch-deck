@@ -1,3 +1,6 @@
+//! The app's move of commits to another branch or out of one, as the smallest regroup (`move_plan.rs`): the issue
+//! groups for a whole issue, the `(prefix)` of the subjects for the rest, one rewrite and one ref transaction for all.
+
 use crate::commit_grouper::parse_subject;
 use crate::move_plan::{move_target, plan_move};
 use crate::regroup::{RegroupOptions, RegroupOutcome, RegroupedCommit, UndoToken, regroup_planned};

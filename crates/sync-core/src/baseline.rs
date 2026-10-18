@@ -1,3 +1,7 @@
+//! The baseline of the checked out branch outside a sync: its upstream, else `master` or `main` of the first remote, or
+//! the local one in a repository without remotes (`detect_baseline_branch`, at most three processes); a sync reads it
+//! with its other refs (`repo_facts.rs`).
+
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashSet;

@@ -1,3 +1,7 @@
+//! The report of a conflicting cherry-pick (`MergeConflictInfo`) and the contents of its view (`ConflictContents`): the
+//! merge with its markers and the analysis of `conflict_analysis.rs`, five processes whatever the number of files and
+//! commits.
+
 use crate::commit_list::Commit;
 use crate::commit_utils::{find_commit, get_commits_info};
 use crate::conflict_analysis::{

@@ -1,3 +1,6 @@
+//! The uncommitted files of the working tree (one `status --porcelain -z`) and, for a file the user expands, its diff
+//! and its contents; read-only.
+
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::conflict_analysis::{FileDiff, FileInfo};
 use serde::{Deserialize, Serialize};

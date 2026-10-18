@@ -1,3 +1,6 @@
+//! The commits ahead of the baseline, oldest first and without merges, with their mapping notes, parsed as one
+//! `git log` streams (`COMMIT_RECORD_FORMAT`): what a sync and every read of the grouping start from.
+
 use crate::commit_utils::COMMIT_RECORD_FORMAT;
 use crate::notes::NoteSource;
 use crate::revs::current_branch;

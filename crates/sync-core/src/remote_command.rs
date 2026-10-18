@@ -1,3 +1,7 @@
+//! The policy of every git that talks to a remote (push, fetch): the user's credential helpers without prompts, an
+//! abort of a stalled HTTP transfer, the C locale for the `--progress` lines (docs/design/git-operations.md, Key
+//! Decision 8).
+
 use crate::transfer_progress::{TransferProgress, TransferProgressReporter};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::{GitCommandExecutor, ProgressStop};

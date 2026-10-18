@@ -1,3 +1,7 @@
+//! The build of one virtual branch of a sync: its commits copied (`git_ops::copy_commit`) with one `merge-tree --stdin`
+//! and one `fast-import`, then its ref moved with compare-and-swap on the tip the sync listed, its remote status
+//! computed and its notes returned for the one notes write of the sync.
+
 use crate::commit_key::CommitKey;
 use crate::missing_commits::CommitOwners;
 use crate::remote_status::{AncestorCommits, KnownTips, StackParent, compute_remote_status_for_branch, compute_remote_status_with_tips};

@@ -1,3 +1,7 @@
+//! The remote status of a virtual branch: the commits to push and those a push would drop, by content, so the baseline
+//! and rebased copies don't count (docs/design/remote-status.md); no git for a branch whose commits did not move since
+//! its last status.
+
 use crate::commit_key::CommitKey;
 use crate::commit_walk::walk_commits;
 use anyhow::Result;
