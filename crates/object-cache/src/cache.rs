@@ -17,6 +17,10 @@
 //! - **Several processes** (the app and parallel `bd` calls) share the environment: LMDB serializes writers through its
 //!   lock file and readers never block. Within a process there is one `Env` per directory (`ENVS`), because LMDB must
 //!   not open the same environment twice in one process.
+//! - **The last handle closes the environment** (`EnvHandle`): on macOS and the BSDs LMDB locks with a System V
+//!   semaphore set per lock file, which only `mdb_env_close` removes, and not an exit. An environment kept open to the
+//!   end of every process left one set per directory, a new one per temporary directory of a test, until the system
+//!   ran out of them (`ENOSPC`, every cache disabled).
 //! - **Each store has its own version, part of its database name** (`commit_diff.v3`). A changed value type bumps the
 //!   version of its store only, so the other stores keep their entries (the merges of `merge_result` are the costly
 //!   ones). Opening drops a store's databases of older versions; newer ones belong to a newer binary that may still
@@ -31,9 +35,10 @@ use heed::{Database, Env, EnvOpenOptions, RwTxn};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use tracing::debug;
 
 /// The key of the entry that names the version of a store whose keys hold a version (`keep_only_version`); no key of
@@ -193,14 +198,38 @@ pub fn cache_dir(git_common_dir: &Path) -> PathBuf {
   git_common_dir.join("branch-deck").join("cache")
 }
 
-/// The environments open in this process, by canonical directory
-static ENVS: OnceLock<Mutex<HashMap<PathBuf, Env>>> = OnceLock::new();
+/// The environments open in this process, by canonical directory; an entry lives while a handle of it does
+static ENVS: OnceLock<Mutex<HashMap<PathBuf, Weak<Env>>>> = OnceLock::new();
+
+fn open_envs() -> MutexGuard<'static, HashMap<PathBuf, Weak<Env>>> {
+  ENVS.get_or_init(Mutex::default).lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// An open environment of `ENVS`. The last handle closes it (`mdb_env_close`, which removes its semaphores when no other
+/// process has it open) while `ENVS` is locked, so an open of the same directory waits until it is closed
+pub(crate) struct EnvHandle(Option<Arc<Env>>);
+
+impl Deref for EnvHandle {
+  type Target = Env;
+
+  fn deref(&self) -> &Env {
+    self.0.as_deref().expect("taken only by drop")
+  }
+}
+
+impl Drop for EnvHandle {
+  fn drop(&mut self) {
+    let envs = open_envs();
+    drop(self.0.take());
+    drop(envs);
+  }
+}
 
 type RawDatabase = Database<Bytes, Bytes>;
 
 struct Inner {
   /// By `Environment`, in the order of `ENVIRONMENTS`
-  envs: [Env; ENVIRONMENTS.len()],
+  envs: [EnvHandle; ENVIRONMENTS.len()],
   databases: [RawDatabase; STORE_COUNT],
 }
 
@@ -357,7 +386,7 @@ impl Inner {
     &self.databases[store.index()]
   }
 
-  const fn env(&self, store: Store) -> &Env {
+  fn env(&self, store: Store) -> &Env {
     &self.envs[store.environment() as usize]
   }
 
@@ -382,9 +411,9 @@ fn open_inner(dir: &Path, config: &CacheConfig) -> Result<Inner, Box<dyn std::er
     }
     envs.push(env);
   }
-  let envs: [Env; ENVIRONMENTS.len()] = envs
+  let envs: [EnvHandle; ENVIRONMENTS.len()] = envs
     .try_into()
-    .map_err(|envs: Vec<Env>| format!("expected {} environments, got {}", ENVIRONMENTS.len(), envs.len()))?;
+    .map_err(|envs: Vec<EnvHandle>| format!("expected {} environments, got {}", ENVIRONMENTS.len(), envs.len()))?;
   let databases = databases
     .into_iter()
     .collect::<Option<Vec<RawDatabase>>>()
@@ -393,22 +422,31 @@ fn open_inner(dir: &Path, config: &CacheConfig) -> Result<Inner, Box<dyn std::er
   Ok(Inner { envs, databases })
 }
 
+/// Whether this process has the environment of `dir` open
+#[cfg(test)]
+pub(crate) fn is_env_open(dir: &Path) -> bool {
+  let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+  open_envs().get(&dir).is_some_and(|env| env.strong_count() > 0)
+}
+
 /// The environment of `dir`, the one of this process if it is open (`ENVS`)
-pub(crate) fn open_env(dir: &Path, map_size: usize) -> Result<Env, Box<dyn std::error::Error>> {
+pub(crate) fn open_env(dir: &Path, map_size: usize) -> Result<EnvHandle, Box<dyn std::error::Error>> {
   std::fs::create_dir_all(dir)?;
   let dir = dir.canonicalize()?;
-  let mut envs = ENVS.get_or_init(Mutex::default).lock().map_err(|e| format!("the environment registry is poisoned: {e}"))?;
-  if let Some(env) = envs.get(&dir) {
-    return Ok(env.clone());
+  let mut envs = open_envs();
+  if let Some(env) = envs.get(&dir).and_then(Weak::upgrade) {
+    return Ok(EnvHandle(Some(env)));
   }
   // a multiple of the 4 KiB and 16 KiB pages of the supported platforms
   let page_size = 16 * 1024;
   let map_size = map_size.div_ceil(page_size).max(1) * page_size;
   // SAFETY: `ENVS` holds the only `Env` of this directory in the process, and the files are only written by LMDB
   #[expect(unsafe_code, reason = "heed opens an LMDB environment through an unsafe call")]
-  let env = unsafe { EnvOpenOptions::new().map_size(map_size).max_dbs(32).open(&dir)? };
-  envs.insert(dir, env.clone());
-  Ok(env)
+  let env = Arc::new(unsafe { EnvOpenOptions::new().map_size(map_size).max_dbs(32).open(&dir)? });
+  // the entries of the environments closed meanwhile go
+  envs.retain(|_, env| env.strong_count() > 0);
+  envs.insert(dir, Arc::downgrade(&env));
+  Ok(EnvHandle(Some(env)))
 }
 
 /// The databases of `stores` in `env`, the environment `environment`, in their order, created if missing; the databases

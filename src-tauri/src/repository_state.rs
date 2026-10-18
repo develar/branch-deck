@@ -56,8 +56,8 @@ impl RepositoryStateCache {
 
     Self {
       cache,
-      // never stale: a repository doesn't move its git directories, and the environment of a directory stays open in
-      // the process anyway
+      // never stale: a repository doesn't move its git directories; an evicted cache closes its environment once no
+      // operation holds it (`EnvHandle`)
       dirs: Cache::new(100),
       object_caches: Cache::new(100),
       github_repositories: Cache::builder().max_capacity(100).time_to_live(GITHUB_REPOSITORY_TTL).build(),

@@ -1,4 +1,4 @@
-use crate::cache::{CacheConfig, DEFAULT_CONFLICT_MAP_SIZE, DEFAULT_MAP_SIZE, DEFAULT_MERGE_MAP_SIZE, ObjectCache, STORES, Store, open_env};
+use crate::cache::{CacheConfig, DEFAULT_CONFLICT_MAP_SIZE, DEFAULT_MAP_SIZE, DEFAULT_MERGE_MAP_SIZE, ObjectCache, STORES, Store, is_env_open, open_env};
 use crate::commit_diff::{FileChange, Hunk};
 use crate::commit_files::{CommitFile, FileStatus};
 use crate::conflict_info::{ConflictKey, MAX_CONFLICT_INFO_BYTES};
@@ -120,6 +120,30 @@ fn with_bumped(dir: &Path, bumped: &[Store]) -> ObjectCache {
     config.versions[store.index()] += 1;
   }
   ObjectCache::open_dir(dir, &config)
+}
+
+/// An environment kept open to the end of the process left its System V semaphore set behind on macOS, one per
+/// temporary directory of a test, until the system had none left
+#[test_log::test]
+fn the_last_handle_closes_the_environment() {
+  let dir = tempfile::tempdir().unwrap();
+  let cache = open(dir.path());
+  let other = open(dir.path());
+  assert!(cache.is_enabled() && other.is_enabled());
+  let (key, merge) = merge();
+  cache.put_merge_results(&[(key.clone(), merge.clone())]);
+  drop(cache);
+  // the other handle keeps it open, the same environment
+  assert!(is_env_open(dir.path()));
+  assert_eq!(other.get_merge_results(std::slice::from_ref(&key)), vec![Some(merge.clone())]);
+  drop(other);
+  assert!(!is_env_open(dir.path()));
+  assert!(!is_env_open(&dir.path().join("merges")));
+
+  // opened again, with what was written
+  let again = open(dir.path());
+  assert!(is_env_open(dir.path()));
+  assert_eq!(again.get_merge_results(std::slice::from_ref(&key)), vec![Some(merge)]);
 }
 
 #[test]
