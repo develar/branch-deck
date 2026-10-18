@@ -14,6 +14,7 @@ import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
+import { useStackBranchAlong } from "@/hooks/usePushButton"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { isForkingStack } from "@/hooks/useStackNextStep"
@@ -35,7 +36,8 @@ import { firstBranchOfEachState, getStackStateChips, summarizeStackState } from 
 import { joinNames } from "@/lib/text"
 import { transferLabel } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
-import { describeOrphanedStackPullRequest, formatWholeStackApprovals, stackReadinessKey } from "@/lib/whole-stack"
+import { describeOrphanedStackPullRequest, formatStackBranchPushLine, formatWholeStackApprovals, stackReadinessKey } from "@/lib/whole-stack"
+import type { StackBranch } from "@/stores/branch-sync"
 import { stackDescendantsIn, stackMainLineIn, useBranch, useBranchPushProgress, useBranchSync, useStackBranch, useStackPush } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { useStackLandedBy } from "@/stores/landed-stacks"
@@ -334,10 +336,12 @@ function StateChip({ chip, branch }: { chip: StackStateChip; branch: string | un
 
 /**
  * The push of the stack, as the compact push of a row: "↑ 41", the commits of Push with Children of the root (the
- * branches of the stack that have work for the remote, parents first, `stackChildrenPushOrder`), in one push; the hover
- * names it and lists what it sends, and the branches that ask first in their rows. Disabled, "↑" with the reason in its
- * hover, while it would push nothing beyond the root (`describePushWithChildrenBlocker`: the stack is on the remote, the
- * root row's push is the push, or the branches with work ask first) and while a Safe Push runs in the stack: a push
+ * branches of the stack that have work for the remote, parents first, `stackChildrenPushOrder`, and the stack branch of
+ * the whole stack while it goes along, `useStackBranchAlong`), in one push; a commit the branches and the stack branch
+ * both send counts once. The hover names it and lists what it sends, and the branches that ask first in their rows.
+ * Disabled, "↑" with the reason in its hover, while it would push nothing beyond the root
+ * (`describePushWithChildrenBlocker`: the stack is on the remote, the root row's push is the push, the branches with work
+ * ask first, or only the stack branch has work and doesn't go along) and while a Safe Push runs in the stack: a push
  * won't land.
  */
 function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary }) {
@@ -346,21 +350,26 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
   // the one push of the stack reports its progress for each of its branches
   const progress = useBranchPushProgress(stackPush?.[0] ?? root)
   const hold = usePushHold(root)
+  const along = useStackBranchAlong(root)
+  const stack = useStackBranch(root)
+  const withStackBranch = along?.kind === "along" && stack !== undefined
   const { pushOrder, askFirst } = summary
   let blocker: string | null = null
   if (current === null) {
     if (summary.rootHeld) {
       blocker = hold === null ? "A Safe Push runs in the stack" : formatPushHoldReason(root, hold)
     } else {
-      blocker = describePushWithChildrenBlocker(root, pushOrder, askFirst)
+      blocker = describePushWithChildrenBlocker(root, pushOrder, askFirst, along)
     }
   }
   let label = "Push with Children"
   if (current !== null) {
     label = transferLabel(`Pushing ${current}`, progress)
   } else if (blocker === null) {
-    label = formatPushWithChildrenLabel(pushOrder)
+    label = formatPushWithChildrenLabel(pushOrder, withStackBranch)
   }
+  // the stack branch holds the commits of the branches: what the remote lacks of both, each once
+  const pushCommits = withStackBranch ? Math.max(summary.pushCommits, stack.remoteStatus?.commitsAhead ?? 0) : summary.pushCommits
   return (
     <Popover>
       <PopoverTrigger
@@ -385,7 +394,7 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
           />
         }
       >
-        <CompactPushLabel isPushing={current !== null} percent={progress?.percent ?? null} count={blocker === null ? summary.pushCommits : 0} />
+        <CompactPushLabel isPushing={current !== null} percent={progress?.percent ?? null} count={blocker === null ? pushCommits : 0} />
       </PopoverTrigger>
       <PopoverContent data-testid="stack-island-push-description" className="w-auto max-w-sm gap-2 p-3 text-sm leading-snug" onClick={event => event.stopPropagation()}>
         {current !== null && <PushProgressDescription subject={current} progress={progress} />}
@@ -398,7 +407,7 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
         {current === null && blocker === null && (
           <>
             <div className="font-medium">{label}</div>
-            <StackPushLines order={pushOrder} />
+            <StackPushLines order={pushOrder} stack={withStackBranch ? stack : null} />
             {askFirst.length > 0 && <div className="text-muted-foreground">{`${formatAskFirst(askFirst)}.`}</div>}
           </>
         )}
@@ -407,10 +416,15 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
   )
 }
 
-/** "Pushes 3 branches, parents first:", a line per push in the words of a push (`formatStackPushLine`) */
-function StackPushLines({ order }: { order: readonly string[] }) {
-  const lines = useBranchSync(useShallow(state => order.flatMap(name => (state.branches[name] === undefined ? [] : [formatStackPushLine(state.branches[name])]))))
-  return <div className="break-words whitespace-pre-line">{`Pushes ${formatBranchCount(lines.length)}, parents first:\n${lines.join("\n")}`}</div>
+/**
+ * "Pushes 3 branches, parents first:", a line per push in the words of a push (`formatStackPushLine`), the stack branch of
+ * the whole stack last (`formatStackBranchPushLine`)
+ */
+function StackPushLines({ order, stack }: { order: readonly string[]; stack: StackBranch | null }) {
+  const branches = useBranchSync(useShallow(state => order.flatMap(name => (state.branches[name] === undefined ? [] : [formatStackPushLine(state.branches[name])]))))
+  const lines = stack === null ? branches : [...branches, formatStackBranchPushLine(stack)]
+  const text = lines.length === 1 ? `Pushes ${lines[0]}` : `Pushes ${formatBranchCount(lines.length)}, parents first:\n${lines.join("\n")}`
+  return <div className="break-words whitespace-pre-line">{text}</div>
 }
 
 /**

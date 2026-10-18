@@ -1,16 +1,18 @@
 import { Fragment } from "react"
 import type { ReactNode } from "react"
 import { toast } from "@/components/ui/toast"
-import type { PatronusRobot } from "@/lib/bindings"
+import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
 import type { Retargeted } from "@/lib/git/new-pull-request"
 import { getPullRequestRetarget, getPullRequestToastAction, getRetargetCommand } from "@/lib/git/new-pull-request"
 import { formatPushMode, openRobot } from "@/lib/patronus"
+import { openPullRequest } from "@/lib/pull-request"
 import type { BranchPush, PushNews } from "@/lib/push-summary"
 import { describePush, describeStackPush } from "@/lib/push-summary"
 import type { ToastActionProps } from "@/lib/toast-message"
 import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
-import type { Branch } from "@/stores/branch-sync"
+import { formatWholeStackBranch } from "@/lib/whole-stack"
+import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { getBranch } from "@/stores/branch-sync"
 
 /**
@@ -104,22 +106,39 @@ export function showPushToast(branchName: string, news: PushNews, restarted?: Pa
   addPushToast(news.title, clauses, action)
 }
 
+/** The stack branch of a whole stack a push of its branches took along (Push with Children of the root) */
+export interface StackBranchPushed {
+  root: string
+  /** The remote status it was pushed against */
+  before: RemoteStatus | null
+  /** The pull request of the whole stack, the action of a toast of the stack branch alone */
+  pullRequest: PullRequest | undefined
+}
+
 /**
  * The one toast of a push of several branches of a stack, "Pushed auth, login and oauth" (Activity has an entry per
  * branch): what the pushes did, a pull request of them that needs a retarget, the robots they restarted; the pull
- * request action is of `startedFrom`, the branch the user pushed the stack from, unless a retarget comes first
+ * request action is of `startedFrom`, the branch the user pushed the stack from, unless a retarget comes first. The
+ * stack branch of the whole stack that went along (`wholeStack`) is "pushed the whole stack branch"; pushed alone, the
+ * toast is its own ("Pushed the whole stack branch of auth"), with the pull request of the whole stack.
  */
-export function showStackPushToast(pushes: readonly PushOutcome[], startedFrom: string): void {
+export function showStackPushToast(pushes: readonly PushOutcome[], startedFrom: string, wholeStack: StackBranchPushed | null = null): void {
   const [first] = pushes
   if (first === undefined) {
+    if (wholeStack !== null) {
+      const news = describePush(formatWholeStackBranch(wholeStack.root), wholeStack.before)
+      const pullRequest = wholeStack.pullRequest
+      const action: ToastActionProps | null = pullRequest === undefined ? null : { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) }
+      addPushToast(news.title, news.description === undefined ? [] : [{ text: news.description }], action)
+    }
     return
   }
-  if (pushes.length === 1) {
+  if (pushes.length === 1 && wholeStack === null) {
     showPushToast(first.name, describePush(first.name, first.before), first.restarted, first.retargeted)
     return
   }
 
-  const news = describeStackPush(pushes)
+  const news = describeStackPush(pushes, wholeStack !== null)
   const clauses: Clause[] = news.description === undefined ? [] : [{ text: news.description }]
   for (const push of pushes) {
     if (push.retargeted !== undefined) {

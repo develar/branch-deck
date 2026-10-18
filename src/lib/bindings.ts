@@ -1951,9 +1951,11 @@ export type PushBranchesOutcome =
 /**
  *  The remote branch of `branch_name` (the first such, parents first) was not where the user saw it, so nothing was
  *  pushed: the push is atomic. Every branch was fetched, and `remote_statuses` show what the remote has now, in the
- *  order of the branches; a push with the `remote_tip` of `branch_name` replaces it
+ *  order of the branches; a push with the `remote_tip` of `branch_name` replaces it. `whole_stack`: the one that moved
+ *  is the stack branch of the whole stack of `branch_name` (`StackPushBranch::whole_stack`), not its virtual branch,
+ *  which may be in the same push (Push with Children of the root)
  */
-{ type: "remoteMoved"; branchName: string; remoteStatuses: RemoteStatusUpdate[] };
+{ type: "remoteMoved"; branchName: string; wholeStack: boolean; remoteStatuses: RemoteStatusUpdate[] };
 
 export type PushBranchesParams = {
 	repositoryPath: string,

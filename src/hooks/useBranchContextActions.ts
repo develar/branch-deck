@@ -58,6 +58,7 @@ import {
   stackChildrenPushOrder,
 } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
+import { describeStackBranchAlong, getStackBranchAlong } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 import {
   branchSyncStore,
@@ -67,6 +68,7 @@ import {
   getBranchTableOrder,
   getIssueGroups,
   getMoveTargets,
+  getStackBranch,
   getStackChildren,
   getStackDescendants,
   isBranchPushing,
@@ -77,7 +79,7 @@ import { getSelectedBranches, requestReveal, selectBranches, setBranchTargetOpen
 import { closeCreatePullRequestDialog, openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
 import { getBranchRobot, getLandingBranchCount, getPatronusGitHubRepository, getPushHold, isPatronusAvailable } from "@/stores/patronus"
-import { getPullRequest } from "@/stores/pull-requests"
+import { getPullRequest, getStackPullRequest } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { getReadinessTarget, getReviewReadiness, recheckReviewReadiness } from "@/stores/review-readiness"
 import { getStackCollapse, toggleStackCollapsed } from "@/stores/stack-collapse"
@@ -571,11 +573,12 @@ function getStackMenuItems(branch: Branch, rewrite: (items: MenuItem[]) => MenuI
 
 /**
  * "Push with Children (3 branches)" of a branch, for its menu and the "⋯" of its stack island: the branch and the
- * branches built on it that have work for the remote, parents first (`stackChildrenPushOrder`), in one push. Every
- * branch with children offers it, also during a sync (the push waits for it and pushes what it leaves); null for a
- * branch without children. Disabled with the reason while a Safe Push holds the branch (`PushHold`: a push of the stack
- * it runs in won't land, and every Safe Push in a stack holds its root), while the stack is being pushed, and while it
- * would push nothing beyond the branch itself (`describePushWithChildrenBlocker`).
+ * branches built on it that have work for the remote, parents first (`stackChildrenPushOrder`), in one push; of the root
+ * of a stack that forks, the stack branch of its whole stack too, while it goes along (`getStackBranchAlong`), counted
+ * and named in the hover. Every branch with children offers it, also during a sync (the push waits for it and pushes
+ * what it leaves); null for a branch without children. Disabled with the reason while a Safe Push holds the branch
+ * (`PushHold`: a push of the stack it runs in won't land, and every Safe Push in a stack holds its root), while the
+ * stack is being pushed, and while it would push nothing beyond the branch itself (`describePushWithChildrenBlocker`).
  */
 export function getPushWithChildrenItem(name: string): MenuItem | null {
   const descendants = getStackDescendants(name)
@@ -587,7 +590,12 @@ export function getPushWithChildrenItem(name: string): MenuItem | null {
   const order = stackChildrenPushOrder(name, descendants, getBranch, isHeld)
   const hold = getPushHold(name)
   const all = hold === null ? order : stackChildrenPushOrder(name, descendants, getBranch)
-  const offers = offersPushWithChildren(name, all)
+  // the pull request of the whole stack follows its branches: its stack branch goes along
+  const stack = getStackBranch(name)
+  const stackPullRequest = getStackPullRequest(name)
+  const along = getStackBranchAlong(name, stack, stackPullRequest)
+  const withStackBranch = along?.kind === "along"
+  const offers = offersPushWithChildren(name, all, along)
   let reason: string | null
   if (hold !== null) {
     reason = formatPushHoldReason(name, hold)
@@ -597,14 +605,15 @@ export function getPushWithChildrenItem(name: string): MenuItem | null {
     // the statuses the sync computes say what is left to push
     reason = "Wait for the sync to finish"
   } else {
-    reason = describePushWithChildrenBlocker(name, order, stackAskFirst(descendants, getBranch, isHeld))
+    reason = describePushWithChildrenBlocker(name, order, stackAskFirst(descendants, getBranch, isHeld), along)
   }
+  const description = reason ?? (withStackBranch && stack !== undefined ? describeStackBranchAlong(stack, stackPullRequest) : null)
   return {
     id: "push-with-children",
-    label: offers ? formatPushWithChildrenLabel(all) : "Push with Children",
+    label: offers ? formatPushWithChildrenLabel(all, withStackBranch) : "Push with Children",
     icon: UploadIcon,
     disabled: reason !== null,
-    ...(reason !== null && { description: reason }),
+    ...(description !== null && { description }),
     onSelect: () => void pushWithChildren(name),
   }
 }

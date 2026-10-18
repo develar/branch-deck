@@ -76,14 +76,27 @@ export function pushOutcome(branchName: string, result: PushResult = {}) {
   }
 }
 
-/** What each branch of a push answers, by branch: a list answers the pushes of a branch in turn, its last result repeating */
+/**
+ * What each branch of a push answers, by branch (the stack branch of the whole stack of a root by `stack:<root>`,
+ * `wholeStackResultKey`): a list answers the pushes of a branch in turn, its last result repeating
+ */
 export type PushResults = Record<string, PushResult | PushResult[]>
+
+/** The key of the results of the stack branch of the whole stack of `root` (`PushRequest.wholeStack`), apart from its root's */
+export function wholeStackResultKey(root: string): string {
+  return `stack:${root}`
+}
+
+function resultKey(request: PushRequest): string {
+  return request.wholeStack === true ? wholeStackResultKey(request.branchName) : request.branchName
+}
 
 /**
  * Answers the pushes in the page (the E2E server has no remote), `push_branch` and the one atomic push of a stack
  * (`push_branches`), with the remote status of each branch after it. A stack push whose result for a branch is
  * `remoteMoved` refuses all of its branches: the outcome names that branch, and every branch answers its result as the
- * status fetched after the refusal (give the others their `unpushedCommits`: nothing of theirs was pushed). `branches`
+ * status fetched after the refusal (give the others their `unpushedCommits`: nothing of theirs was pushed); the stack
+ * branch of a whole stack answers its results by `wholeStackResultKey`. `branches`
  * lists every branch pushed, in order, a stack push one entry per branch; `stackPushes` the stack pushes, each with its
  * branches, parents first.
  */
@@ -91,9 +104,9 @@ async function routePushes(page: Page, results: PushResults): Promise<{ branches
   const branches: PushRequest[] = []
   const stackPushes: PushRequest[][] = []
   const next = (request: PushRequest): PushResult | undefined => {
-    const branchResults = results[request.branchName] ?? {}
+    const branchResults = results[resultKey(request)] ?? {}
     const list = Array.isArray(branchResults) ? branchResults : [branchResults]
-    const pushes = branches.filter(previous => previous.branchName === request.branchName).length
+    const pushes = branches.filter(previous => resultKey(previous) === resultKey(request)).length
     branches.push(request)
     return list[Math.min(pushes, list.length - 1)]
   }
@@ -106,7 +119,7 @@ async function routePushes(page: Page, results: PushResults): Promise<{ branches
   await page.route("**/invoke/push_branches", async route => {
     const request = route.request().postDataJSON() as { branches: PushRequest[] }
     stackPushes.push(request.branches)
-    const answered = request.branches.map(branch => ({ name: branch.branchName, result: next(branch) }))
+    const answered = request.branches.map(branch => ({ name: branch.branchName, wholeStack: branch.wholeStack === true, result: next(branch) }))
     await whilePushing(
       page,
       route.request().headers()["x-progress-channel"],
@@ -114,7 +127,9 @@ async function routePushes(page: Page, results: PushResults): Promise<{ branches
     )
     const remoteStatuses = answered.map(it => pushOutcome(it.name, it.result).remoteStatus)
     const moved = answered.find(it => it.result?.outcome === "remoteMoved")
-    await route.fulfill({ json: moved === undefined ? { type: "pushed", remoteStatuses } : { type: "remoteMoved", branchName: moved.name, remoteStatuses } })
+    await route.fulfill({
+      json: moved === undefined ? { type: "pushed", remoteStatuses } : { type: "remoteMoved", branchName: moved.name, wholeStack: moved.wholeStack, remoteStatuses },
+    })
   })
   return { branches, stackPushes }
 }

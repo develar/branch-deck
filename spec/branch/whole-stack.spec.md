@@ -1,6 +1,6 @@
 ---
 name: Whole Stack
-description: Requirements for the whole stack of stacked branches that fork, as one more virtual branch `{prefix}/stack/<root>` that the sync builds of all their commits in the order of the history, without notes or branch events, remembered by its commits, its state (built, blocked, conflict, stale) and remote status reported per sync, deleted once the stack no longer forks unless it is on the remote, never pushed unless built, and landed in one robot by `bd safe-push --whole-stack` from its own pull request, the robots of the stack and of its branches waiting for each other; in the app the whole stack is an object of its own, "the whole air stack": its robot (polled, told, holding every branch, its branches "Landed with the whole air stack" after its merge until the update, its prompt with the commits of every branch), its pull request (created, opened, closed by content after its merge, one that no longer matches it asked before it is closed), its review and one list of its actions in the island's menu and the root's; and its Safe Push and Dry Run in the app, from the island's header (its slot, its "⋯", S) or the root's menu of a small stack, its popover saying what lands, only its stack branch pushed, its readiness and approval news of its own pull request, "In #12" for a branch without one, a stack branch not built disabling it with the way to land it in pieces.
+description: Requirements for the whole stack of stacked branches that fork, as one more virtual branch `{prefix}/stack/<root>` that the sync builds of all their commits in the order of the history, without notes or branch events, remembered by its commits, its state (built, blocked, conflict, stale) and remote status reported per sync, deleted once the stack no longer forks unless it is on the remote, never pushed unless built, taken along by Push with Children of the root once it is on the remote or its pull request is open, and landed in one robot by `bd safe-push --whole-stack` from its own pull request, the robots of the stack and of its branches waiting for each other; in the app the whole stack is an object of its own, "the whole air stack": its robot (polled, told, holding every branch, its branches "Landed with the whole air stack" after its merge until the update, its prompt with the commits of every branch), its pull request (created, opened, closed by content after its merge, one that no longer matches it asked before it is closed), its review and one list of its actions in the island's menu and the root's; and its Safe Push and Dry Run in the app, from the island's header (its slot, its "⋯", S) or the root's menu of a small stack, its popover saying what lands, only its stack branch pushed, its readiness and approval news of its own pull request, "In #12" for a branch without one, a stack branch not built disabling it with the way to land it in pieces.
 style: plain-1
 targets:
   - ../../crates/sync-core/src/stack_branch.rs
@@ -43,6 +43,10 @@ targets:
   - ../../src/lib/robot-prompt.ts
   - ../../src/lib/robot-prompt-copy.ts
   - ../../src/lib/git/stack-push.ts
+  - ../../src/lib/git/push-toast.tsx
+  - ../../src/lib/stack.ts
+  - ../../src/hooks/useBranchContextActions.ts
+  - ../../src/hooks/usePushButton.ts
   - ../../src/lib/create-pull-request-context.ts
   - ../../src/hooks/useCreatePullRequestContext.ts
   - ../../src/components/branch/CreatePullRequestDialog.tsx
@@ -161,10 +165,13 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 - `bd safe-push <branch> --whole-stack` must land the whole stack of the branch in one robot from its stack branch,
   the only branch it pushes; a straight chain from its last branch; refused unless the stack branch is `built`
   (`conflict`, `stack_not_built`, exit 1), and both ways while a robot of the stack or of a branch of it runs
-  ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)). `bd push <root> --with-children` must take the stack branch
-  along only when the sync built it; `bd robot --whole-stack` must print its robot.
-  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`, `the_whole_stack_of_a_straight_chain_lands_from_its_last_branch`, `a_whole_stack_that_conflicts_is_refused_with_the_conflict`)
-  [@test] ../../crates/bd-cli/src/push_test.rs (`with_children_pushes_the_stack_branch_the_sync_built`)
+  ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)). Push with Children of the root, the app's and `bd push <root>
+  --with-children`, must take the stack branch along after the branches once it is on the remote or its pull request
+  is open, only when the sync built it, so its pull request follows the branches
+  ([Stacked Branches](stacked-branches.spec.md#pull-requests)); `bd robot --whole-stack` must print its robot.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`, `the_whole_stack_of_a_straight_chain_lands_from_its_last_branch`, `a_whole_stack_that_conflicts_is_refused_with_the_conflict`, `push_with_children_takes_the_stack_branch_along_while_its_pull_request_is_open`)
+  [@test] ../../crates/bd-cli/src/push_test.rs (`with_children_takes_the_stack_branch_along_once_it_is_on_the_remote`)
+  [@test] ../../src/lib/git/push.test.ts (`goes along after the branches once it is on the remote, leased on its remote head, in the one toast`, `stays local while it is neither on the remote nor in an open pull request, and while the sync didn't build it`)
   [@test] ../../crates/bd-cli/src/robot_test.rs (`the_robot_of_the_whole_stack_is_found_from_any_branch_of_it`)
 - A robot started on a stack branch must name the root of its stack (`PatronusRobot::stack_root`) and no branch, and
   must belong to no branch, not even by its revision, in `bd` (`find_branch_robot`) as in the app

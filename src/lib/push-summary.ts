@@ -128,9 +128,10 @@ export interface BranchPush {
 
 /**
  * What a push of several branches of a stack did, as one toast says it: "Pushed auth, login and oauth" / "7 commits ·
- * created 2 remote branches · force pushed auth"; a push that dropped remote commits says how many
+ * created 2 remote branches · force pushed auth"; a push that dropped remote commits says how many. `withStackBranch`:
+ * the stack branch of the whole stack went along (Push with Children of the root), "· pushed the whole stack branch"
  */
-export function describeStackPush(pushes: readonly BranchPush[]): PushNews {
+export function describeStackPush(pushes: readonly BranchPush[], withStackBranch = false): PushNews {
   let commits = 0
   let created = 0
   let dropped = 0
@@ -160,6 +161,9 @@ export function describeStackPush(pushes: readonly BranchPush[]): PushNews {
   }
   if (dropped > 0) {
     parts.push(`dropped ${plural(dropped, "remote commit", "remote commits")}`)
+  }
+  if (withStackBranch) {
+    parts.push("pushed the whole stack branch")
   }
   return {
     title: `Pushed ${joinNames(pushes.map(push => push.name))}`,

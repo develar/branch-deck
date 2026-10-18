@@ -433,10 +433,59 @@ fn the_whole_stack_pushes_its_stack_branch() {
   set_branch_of(&local, "prefix/stack/auth", &auth);
   let moved = push_branches(local.git_executor(), &params(None), &mut |_| {}).unwrap();
   assert!(
-    matches!(moved, PushBranchesOutcome::RemoteMoved { ref branch_name, .. } if branch_name == "auth"),
+    matches!(moved, PushBranchesOutcome::RemoteMoved { ref branch_name, whole_stack: true, .. } if branch_name == "auth"),
     "{moved:?}"
   );
   assert_eq!(remote_tip_of(&remote, "prefix/stack/auth"), Some(login));
+}
+
+/// Push with Children of a root takes the stack branch of its whole stack along, after the branches: its virtual
+/// branch and its stack branch both carry the name of the root, so the outcome of a moved stack branch says which one
+/// moved (`whole_stack`), and nothing of the push went
+#[test]
+fn the_stack_branch_goes_with_the_branches_and_a_moved_one_is_named_as_the_stack_branch() {
+  let (remote, local) = local_with_bare_remote();
+  let (auth, login) = stack(&local);
+  set_branch_of(&local, "prefix/stack/auth", &login);
+  let branch = |name: &str, parent: Option<&str>, expected: Option<&str>, whole_stack: bool| StackPushBranch {
+    branch_name: name.to_string(),
+    parent_branch: parent.map(str::to_string),
+    expected_remote: expected.map(str::to_string),
+    tip: None,
+    whole_stack,
+  };
+  let params = |stack_lease: Option<&str>| PushBranchesParams {
+    repository_path: path(&local).to_string(),
+    branch_prefix: "prefix".to_string(),
+    my_email: Some("test@example.com".to_string()),
+    baseline_branch: "origin/master".to_string(),
+    branches: vec![
+      branch("auth", None, None, false),
+      branch("login", Some("auth"), None, false),
+      branch("auth", None, stack_lease, true),
+    ],
+  };
+  // someone pushed the stack branch elsewhere: its lease of no remote branch refuses the whole push
+  let theirs = push_from_elsewhere_to(&remote, "prefix/stack/auth", "Their stack");
+  let PushBranchesOutcome::RemoteMoved {
+    branch_name,
+    whole_stack,
+    remote_statuses,
+  } = push_branches(local.git_executor(), &params(None), &mut |_| {}).unwrap()
+  else {
+    panic!("pushed over the remote stack branch");
+  };
+  assert_eq!((branch_name.as_str(), whole_stack), ("auth", true));
+  assert_eq!((remote_tip_of(&remote, AUTH), remote_tip_of(&remote, LOGIN)), (None, None), "nothing was pushed");
+  assert_eq!(remote_statuses[2].remote_tip.as_deref(), Some(theirs.as_str()));
+
+  // leased on the fetched head, the branches and the stack branch go in one push
+  let statuses = stack_pushed(push_branches(local.git_executor(), &params(Some(&theirs)), &mut |_| {}).unwrap());
+  assert_eq!(
+    (remote_tip_of(&remote, AUTH), remote_tip_of(&remote, LOGIN), remote_tip_of(&remote, "prefix/stack/auth")),
+    (Some(auth), Some(login.clone()), Some(login))
+  );
+  assert_eq!(statuses.len(), 3);
 }
 
 #[test]
@@ -471,10 +520,15 @@ fn a_moved_lease_refuses_every_branch_and_names_it() {
   set_branch_of(&local, AUTH, &more_auth);
   set_branch_of(&local, LOGIN, &more_login);
 
-  let PushBranchesOutcome::RemoteMoved { branch_name, remote_statuses } = push_stack(&local, [Some(&auth), Some(&login)], [None, None]) else {
+  let PushBranchesOutcome::RemoteMoved {
+    branch_name,
+    whole_stack,
+    remote_statuses,
+  } = push_stack(&local, [Some(&auth), Some(&login)], [None, None])
+  else {
     panic!("pushed over someone else's commit");
   };
-  assert_eq!(branch_name, "login");
+  assert_eq!((branch_name.as_str(), whole_stack), ("login", false));
   assert_eq!(
     (remote_tip_of(&remote, AUTH), remote_tip_of(&remote, LOGIN)),
     (Some(auth.clone()), Some(theirs.clone())),

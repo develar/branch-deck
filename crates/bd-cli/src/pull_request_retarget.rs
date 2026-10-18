@@ -14,7 +14,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use sync_core::pull_request_writes::retarget_pull_request;
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests};
-use sync_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState, ReviewerState};
+use sync_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewerState};
 use tokio::runtime::Runtime;
 
 /// An open pull request whose base was a virtual branch, retargeted to the baseline
@@ -127,13 +127,27 @@ pub(crate) fn retarget_pull_requests_of(
   dry_run: bool,
 ) -> Retargets {
   let listed = runtime.block_on(list_pull_requests(github, &context.repository, repository, &context.prefix));
-  match listed.availability {
+  retarget_listed(context, github, runtime, repository, &listed, (names, base), dry_run)
+}
+
+/// `retarget_pull_requests_of` on the pull requests a search of this command already listed (`bd push` lists them under
+/// its lock for the stack branch of a whole stack, `--with-children`)
+pub(crate) fn retarget_listed(
+  context: &RepoContext,
+  github: &GitHubService,
+  runtime: &Runtime,
+  repository: &GitHubRepository,
+  listed: &PullRequestsResult,
+  (names, base): (&[&str], &str),
+  dry_run: bool,
+) -> Retargets {
+  match &listed.availability {
     PullRequestAvailability::Available { .. } => {}
     PullRequestAvailability::SignedOut | PullRequestAvailability::NotGitHub => return Retargets::default(),
     other => {
       return Retargets {
         retargeted: Vec::new(),
-        warnings: vec![format!("the pull requests weren't checked for a base to retarget: {}", availability_error(&other).message)],
+        warnings: vec![format!("the pull requests weren't checked for a base to retarget: {}", availability_error(other).message)],
       };
     }
   }

@@ -204,6 +204,11 @@ describe("pushes of stacked branches", () => {
     expect(offersPushWithChildren("auth", ["auth"])).toBe(false)
     expect(offersPushWithChildren("auth", [])).toBe(false)
     expect(offersPushWithChildren("auth", ["oauth"])).toBe(true)
+    // the stack branch of the whole stack that goes along is one more branch it pushes
+    expect(formatPushWithChildrenLabel(["auth", "oauth"], true)).toBe("Push with Children (3 branches)")
+    expect(formatPushWithChildrenLabel([], true)).toBe("Push with Children (the whole stack branch)")
+    expect(offersPushWithChildren("auth", ["auth"], { kind: "along" })).toBe(true)
+    expect(offersPushWithChildren("auth", [], { kind: "unpublished" })).toBe(false)
   })
 
   it("says why Push with Children pushes nothing beyond the branch: the stack is on the remote, only the branch has work, or the children ask first", () => {
@@ -212,6 +217,18 @@ describe("pushes of stacked branches", () => {
     expect(describePushWithChildrenBlocker("auth", [], [])).toBe("Nothing to push: the stack is on the remote")
     expect(describePushWithChildrenBlocker("auth", ["auth"], [])).toBe("Only auth has commits to push: its own push sends them")
     expect(describePushWithChildrenBlocker("auth", [], ["login"])).toBe("login asks first in its row: the push drops remote commits")
+    // "Nothing to push" only while the stack branch of the whole stack has nothing to push either
+    expect(describePushWithChildrenBlocker("auth", [], [], { kind: "along" })).toBeNull()
+    expect(describePushWithChildrenBlocker("auth", [], [], { kind: "upToDate" })).toBe("Nothing to push: the stack is on the remote")
+    expect(describePushWithChildrenBlocker("auth", [], [], { kind: "unpublished" })).toBe(
+      "The branches of the stack are on the remote. Its stack branch goes there with the pull request or the Safe Push of the whole stack",
+    )
+    expect(describePushWithChildrenBlocker("auth", [], [], { kind: "notBuilt", reason: "The stack branch conflicts at 01234567 in a.kt: the stack lands in pieces" })).toBe(
+      "The branches of the stack are on the remote. The stack branch conflicts at 01234567 in a.kt: the stack lands in pieces",
+    )
+    expect(describePushWithChildrenBlocker("auth", [], [], { kind: "dropsRemote" })).toBe(
+      "The branches of the stack are on the remote. The whole stack branch stays: its push would drop remote commits it lacks",
+    )
     expect(formatAskFirst(["login", "oauth"])).toBe("login and oauth ask first in their rows: the push drops remote commits")
     const dropping = testRemoteStatus({ commitsAhead: 1, commitsBehind: 1, fastForward: false })
     const branches: Record<string, Branch> = {

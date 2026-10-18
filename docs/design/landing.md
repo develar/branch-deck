@@ -155,8 +155,10 @@ beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stac
   and the branches of the stack stay as they are on the remote. `bd safe-push <branch> --whole-stack` does it for any
   branch of the stack ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-safe-push)); a straight chain starts from its
   leaf. A stack branch that is not `Built` refuses it (`conflict` when its own commit conflicts, `stack_not_built`
-  otherwise): the stack then lands in pieces. `bd push <root> --with-children` takes the stack branch along only when
-  the sync built it.
+  otherwise): the stack then lands in pieces. Push with Children of the root (the app's and `bd push <root>
+  --with-children`) takes the stack branch along once it is on the remote or its pull request is open, and only when
+  the sync built it: the pull request of the whole stack follows its branches. A stack branch on no remote and in no
+  pull request is no branch to publish by itself.
 - **Its pull request.** The stack branch has its own pull request into master, by its root
   (`PullRequestsResult::stack_pull_requests`), never a branch's and never retargeted. Its approvals are the ones the
   robot of the whole stack counts, so the readiness of the whole stack asks Patronus about the stack branch

@@ -3,6 +3,7 @@ import { formatBranchCount } from "@/lib/branch"
 import { groupFor } from "@/lib/commit"
 import { dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
 import { joinNames } from "@/lib/text"
+import type { StackBranchAlong } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 
 /** The branch that keeps a blocked branch from being rebuilt (the parent, or the ancestor that can't be built); null if not blocked */
@@ -238,15 +239,23 @@ export function formatPushStackLabel(branchCount: number): string {
 /**
  * "Push with Children (3 branches)", "Push with Children (oauth)" for a push of one child: the branch menu, the
  * description of the push button and the stack header name the action alike. `order` is what it pushes
- * (`stackChildrenPushOrder`).
+ * (`stackChildrenPushOrder`); `withStackBranch`: the stack branch of the whole stack goes along (`StackBranchAlong`),
+ * counted as one more branch, "Push with Children (the whole stack branch)" alone.
  */
-export function formatPushWithChildrenLabel(order: readonly string[]): string {
-  return `Push with Children (${order.length === 1 ? order[0] : formatBranchCount(order.length)})`
+export function formatPushWithChildrenLabel(order: readonly string[], withStackBranch = false): string {
+  const count = order.length + (withStackBranch ? 1 : 0)
+  if (count === 1) {
+    return `Push with Children (${order[0] ?? "the whole stack branch"})`
+  }
+  return `Push with Children (${formatBranchCount(count)})`
 }
 
-/** Push with Children pushes more than the branch itself: a child has work; else the push of the branch is the push */
-export function offersPushWithChildren(name: string, order: readonly string[]): boolean {
-  return order.some(it => it !== name)
+/**
+ * Push with Children pushes more than the branch itself: a child has work, or the stack branch of the whole stack goes
+ * along (`along`); else the push of the branch is the push
+ */
+export function offersPushWithChildren(name: string, order: readonly string[], along: StackBranchAlong | null = null): boolean {
+  return order.some(it => it !== name) || along?.kind === "along"
 }
 
 /**
@@ -269,16 +278,30 @@ export function formatAskFirst(names: readonly string[]): string {
 /**
  * Why Push with Children of `name` has nothing to push beyond the branch itself, as its menu item and the push of the
  * island header say it; null while it does (`offersPushWithChildren`). `order` is what it pushes
- * (`stackChildrenPushOrder`), `askFirst` the children left out because their push drops remote commits (`stackAskFirst`).
+ * (`stackChildrenPushOrder`), `askFirst` the children left out because their push drops remote commits (`stackAskFirst`),
+ * `along` what it does with the stack branch of the whole stack of a root (`getStackBranchAlong`): "Nothing to push"
+ * only while that one has nothing to push either.
  */
-export function describePushWithChildrenBlocker(name: string, order: readonly string[], askFirst: readonly string[]): string | null {
-  if (offersPushWithChildren(name, order)) {
+export function describePushWithChildrenBlocker(name: string, order: readonly string[], askFirst: readonly string[], along: StackBranchAlong | null = null): string | null {
+  if (offersPushWithChildren(name, order, along)) {
     return null
   }
   if (askFirst.length > 0) {
     return formatAskFirst(askFirst)
   }
-  return order.includes(name) ? `Only ${name} has commits to push: its own push sends them` : "Nothing to push: the stack is on the remote"
+  if (order.includes(name)) {
+    return `Only ${name} has commits to push: its own push sends them`
+  }
+  switch (along?.kind) {
+    case "unpublished":
+      return "The branches of the stack are on the remote. Its stack branch goes there with the pull request or the Safe Push of the whole stack"
+    case "notBuilt":
+      return `The branches of the stack are on the remote. ${along.reason}`
+    case "dropsRemote":
+      return "The branches of the stack are on the remote. The whole stack branch stays: its push would drop remote commits it lacks"
+    default:
+      return "Nothing to push: the stack is on the remote"
+  }
 }
 
 /**

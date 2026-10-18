@@ -131,9 +131,15 @@ pub enum PushBranchesOutcome {
   Pushed { remote_statuses: Vec<RemoteStatusUpdate> },
   /// The remote branch of `branch_name` (the first such, parents first) was not where the user saw it, so nothing was
   /// pushed: the push is atomic. Every branch was fetched, and `remote_statuses` show what the remote has now, in the
-  /// order of the branches; a push with the `remote_tip` of `branch_name` replaces it
+  /// order of the branches; a push with the `remote_tip` of `branch_name` replaces it. `whole_stack`: the one that moved
+  /// is the stack branch of the whole stack of `branch_name` (`StackPushBranch::whole_stack`), not its virtual branch,
+  /// which may be in the same push (Push with Children of the root)
   #[serde(rename_all = "camelCase")]
-  RemoteMoved { branch_name: String, remote_statuses: Vec<RemoteStatusUpdate> },
+  RemoteMoved {
+    branch_name: String,
+    whole_stack: bool,
+    remote_statuses: Vec<RemoteStatusUpdate>,
+  },
 }
 
 /// Force-pushes the virtual branches to `origin` in one atomic `git push`, each leased on the remote head the user saw
@@ -199,6 +205,7 @@ pub fn push_branches(git_executor: &GitCommandExecutor, params: &PushBranchesPar
     }),
     LeasedPush::RemoteMoved { moved, remote_statuses } => Ok(PushBranchesOutcome::RemoteMoved {
       branch_name: branches[moved[0]].name.clone(),
+      whole_stack: params.branches[moved[0]].whole_stack,
       remote_statuses,
     }),
     LeasedPush::Refused { summary } => bail!("The remote rejected the push: {summary}"),

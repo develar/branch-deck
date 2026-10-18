@@ -698,11 +698,15 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/push_test.rs (`with_children_pushes_the_branches_stacked_on_the_named_ones`, `with_children_refuses_a_blocked_child`)
 - `--with-children` of a named root of a stack that forks must also push its stack branch
   ([Whole Stack](../branch/whole-stack.spec.md)) in the same atomic push, after the branches, leased on the remote
-  head its remote status compared with, but only when this sync built it (`built`) and the remote lacks it by
-  content: `stacks` lists it as `branches` lists a branch, `name` the root, with the pull request of the whole stack.
-  A stack branch in another state, or pushed to another remote than `origin`, which its remote status compares with,
-  must never be pushed: `stack_warnings` names it. A child named with `--with-children` takes no stack branch.
-  [@test] ../../crates/bd-cli/src/push_test.rs (`with_children_pushes_the_stack_branch_the_sync_built`)
+  head its remote status compared with, as the app's Push with Children does: once it is on the remote or the pull
+  request of the whole stack is open (one GitHub search under the lock, only for a stack branch the remote lacks, its
+  listing reused by the retargets), only when this sync built it (`built`) and the remote lacks it by content:
+  `stacks` lists it as `branches` lists a branch, `name` the root, with the pull request of the whole stack. One on
+  no remote and in no pull request stays local without a warning. Of the others, a stack branch in another state, or
+  pushed to another remote than `origin`, which its remote status compares with, must never be pushed:
+  `stack_warnings` names it. A child named with `--with-children` takes no stack branch.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`with_children_takes_the_stack_branch_along_once_it_is_on_the_remote`)
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`push_with_children_takes_the_stack_branch_along_while_its_pull_request_is_open`)
 - The lease must be the remote head the sync of the same run compared with (`remote.head`), as the app leases on the
   remote head its row showed ([Outgoing Commits](../repository/outgoing.spec.md)): a remote commit the branch has by
   content must go through on the first try, `--force` must drop what the sync counted as `behind` and nothing pushed

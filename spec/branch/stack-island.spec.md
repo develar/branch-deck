@@ -104,16 +104,22 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
 - The push is the compact push of a row: "↑ 41", the commits of "Push with Children (7 branches)" of the root, its
   accessible name, as the root's menu names it: the branches of the stack that have work for the remote, each after
   the branch it is built on (`stackChildrenPushOrder`), the landed ones and the ones a running Safe Push holds left
-  out, so it counts as the "to push" chip does. Its hover names it and lists the pushes ("Pushes 7 branches, parents
-  first:", a line per branch), and the branches whose push drops remote commits, which ask first in their rows. It is
+  out, so it counts as the "to push" chip does; and the stack branch of the whole stack while it goes along, once it
+  is on the remote or its pull request is open ([Stacked Branches](stacked-branches.spec.md#pull-requests)): one more
+  branch ("Push with Children (8 branches)", "Push with Children (the whole stack branch)" alone), a commit it and the
+  branches both send counted once. Its hover names it and lists the pushes ("Pushes 8 branches, parents first:", a
+  line per branch, the stack branch last: "user-name/stack/air · the whole stack branch · 2 commits"), and the
+  branches whose push drops remote commits, which ask first in their rows. It is
   one atomic push of all of them ([Stacked Branches](stacked-branches.spec.md#pull-requests)): while it runs, the spinner
   and the percent, "Pushing 7 branches" its name and the line of git on hover, the one indicator of the stack push
   (also of Push with Children from the root's menu), and every row it pushes shows the same progress on its own push
   button. It stays in its place, disabled ("↑", named "Push with Children") with the reason in its hover, while it
-  would push nothing beyond the root ("Nothing to push: the stack is on the remote", "Only air has commits to push:
-  its own push sends them", the branches that ask first) and while a Safe Push runs in the stack (the reason of the
-  hold, "A Safe Push of runtime is running: it lands air with it").
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header in one push, parents first`, `should say what the stack holds in the header, each state a way to its first branch`)
+  would push nothing beyond the root ("Nothing to push: the stack is on the remote" only while its stack branch has
+  nothing to push either; "The branches of the stack are on the remote. Its stack branch goes there with the pull
+  request or the Safe Push of the whole stack"; "Only air has commits to push: its own push sends them", the branches
+  that ask first) and while a Safe Push runs in the stack (the reason of the hold, "A Safe Push of runtime is running:
+  it lands air with it").
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header in one push, parents first`, `should take the whole stack branch along in the header's push once it is on the remote, and push it alone from the menu`, `should say what the stack holds in the header, each state a way to its first branch`)
 - The Safe Push slot is the Safe Push of the whole stack: one robot lands every branch of it, side branches included
   ([Whole Stack](whole-stack.spec.md#the-safe-push-of-the-whole-stack-in-the-app)). Of a stack that forks it is the
   next step of its stack branch (`WholeStackSlot`, [Next Step](next-step.spec.md#the-whole-stack)): "Safe Push · 7",
@@ -144,8 +150,9 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   [Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)): "Safe Push Whole Stack" and "Dry Run Whole Stack"
   (the popover at the header's slot, disabled with the reasons of the whole stack), "Safe Push deploy" while the stack
   lands in pieces, then "Create Pull Request of the Stack…" or "Open Pull
-  Request #12", "Push with Children (7 branches)" (disabled with the reason while a Safe Push holds the root and while
-  it pushes nothing beyond the root, as the root's menu: [Stacked Branches](stacked-branches.spec.md#pull-requests)),
+  Request #12", "Push with Children (7 branches)" (the stack branch counted while it goes along, disabled with the
+  reason while a Safe Push holds the root and while it pushes nothing beyond the root, as the root's menu:
+  [Stacked Branches](stacked-branches.spec.md#pull-requests)),
   "Review Whole Stack" (the review window of the stack branch; of a straight chain, of its last branch from the root,
   disabled with the reason of the branch menu's, `branchReviewBlocker`: no commits, failed, blocked) and the actions of
   the robot of the whole stack; then "Collapse Stack" / "Expand Stack".

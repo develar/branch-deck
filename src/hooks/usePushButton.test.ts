@@ -224,6 +224,19 @@ describe("getPushButtonState", () => {
     expect(state({}, { unpushedChildren: { names: ["oauth"], pushOrder: ["oauth"] }, landedIn: "origin/master" }).childrenAction).toBeNull()
   })
 
+  it("names the stack branch of the whole stack that Push with Children of a root takes along", () => {
+    const stackBranch = "user/stack/login"
+    expect(state({}, { unpushedChildren: { names: ["oauth"], pushOrder: ["oauth"], stackBranch } }).childrenAction).toMatchObject({
+      description: "oauth is stacked on login and has commits to push. The whole stack branch user/stack/login goes along.",
+      label: "Push with Children (2 branches)",
+    })
+    // the branches on the remote, the stack branch behind them
+    expect(state({}, { unpushedChildren: { names: [], pushOrder: [], stackBranch } }).childrenAction).toMatchObject({
+      description: "The whole stack branch user/stack/login has commits to push.",
+      label: "Push with Children (the whole stack branch)",
+    })
+  })
+
   it("offers no push while a Safe Push holds the branch, and says why", () => {
     const running = { id: "r", status: "running", pushMode: "rebaseAutosquash", branchName: "login" } as PatronusRobot
     const own = state({ commitsAhead: 2 }, { hold: { kind: "own", branch: "login", robot: running }, unpushedChildren: { names: ["oauth"], pushOrder: ["login", "oauth"] } })

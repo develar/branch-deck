@@ -178,11 +178,12 @@ fn with_children_pushes_the_branches_stacked_on_the_named_ones() {
   assert_eq!(statuses, [(&json!("login"), &json!("updated")), (&json!("oauth"), &json!("forced"))]);
 }
 
-/// The root of a stack that forks pushes its stack branch with its children (`{prefix}/stack/<root>`), in the same
-/// atomic push, leased, when this sync built it; one on the remote as it is stays out, and so does one that the remote
-/// pushed to doesn't compare with
+/// The root of a stack that forks takes its stack branch (`{prefix}/stack/<root>`) along with its children, in the same
+/// atomic push, leased, as the app's Push with Children does: once it is on the remote (or its pull request is open,
+/// `safe_push_test`), and only when this sync built it. Before that it is no branch to publish by itself; one on the
+/// remote as it is stays out, and so does one that the remote pushed to doesn't compare with
 #[test_log::test]
-fn with_children_pushes_the_stack_branch_the_sync_built() {
+fn with_children_takes_the_stack_branch_along_once_it_is_on_the_remote() {
   let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"]);
   repo.set_config("branchdeck.stacks", "true").unwrap();
   let stack = format!("{PREFIX}/stack/auth");
@@ -191,15 +192,28 @@ fn with_children_pushes_the_stack_branch_the_sync_built() {
   let (exit_code, output) = run_in(&repo, &["push", "login", "--with-children"]);
   assert_eq!((exit_code, output.get("stacks")), (0, None), "{output}");
 
+  // not on the remote, no pull request: the branches go, the stack branch stays local, nothing to warn about
   let (exit_code, output) = run_in(&repo, &["push", "auth", "--with-children"]);
   assert_eq!(exit_code, 0, "{output}");
   let names: Vec<&Value> = output["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
   assert_eq!(names, [&json!("auth"), &json!("login"), &json!("session")]);
+  assert_eq!((output.get("stacks"), output.get("stack_warnings")), (None, None), "{output}");
+  assert_eq!(remote_tip(&remote, &stack), "");
+
+  // its pull request (or Safe Push) put it on the remote; a new commit of login rebuilds it, and it goes with login
+  git(&repo, &["push", "-q", "origin", &format!("refs/heads/{stack}:refs/heads/{stack}")]);
+  let pushed_before = remote_tip(&remote, &stack);
+  write(&repo, "login-more.txt", "more\n");
+  commit_all(&repo, "(auth/login) More login", 1_700_000_900);
+  let (exit_code, output) = run_in(&repo, &["push", "auth", "--with-children"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(branch(&output, "login")["state"], json!("updated"), "{output}");
   let pushed = &output["stacks"][0];
   let tip = git(&repo, &["rev-parse", &format!("refs/heads/{stack}")]);
+  assert_ne!(tip, pushed_before);
   assert_eq!(
-    (&pushed["name"], &pushed["remote_branch"], &pushed["state"], &pushed["lease_source"], &pushed["commit"]),
-    (&json!("auth"), &json!(stack), &json!("new"), &json!("absent"), &json!(short_id(&tip)))
+    (&pushed["name"], &pushed["remote_branch"], &pushed["lease"], &pushed["lease_source"], &pushed["commit"]),
+    (&json!("auth"), &json!(stack), &json!(short_id(&pushed_before)), &json!("expected"), &json!(short_id(&tip)))
   );
   assert_eq!(
     (&pushed["pull_request"]["head"], &pushed["pull_request"]["base"], &pushed["pull_request"]["title"]),

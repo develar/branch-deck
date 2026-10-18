@@ -25,10 +25,12 @@ import {
   stackPushOrder,
 } from "@/lib/stack"
 import type { UIColor } from "@/lib/ui-types"
+import type { StackBranchAlong } from "@/lib/whole-stack"
+import { getStackBranchAlong } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
-import { getBranch, stackDescendantsIn, useBranchSync } from "@/stores/branch-sync"
+import { getBranch, stackDescendantsIn, useBranchSync, useStackBranch } from "@/stores/branch-sync"
 import { getPushHold, usePushHold, usePushHolds } from "@/stores/patronus"
-import { pullRequestsStore } from "@/stores/pull-requests"
+import { pullRequestsStore, useStackPullRequest } from "@/stores/pull-requests"
 
 export interface PushButtonState {
   text: string
@@ -91,12 +93,17 @@ export interface UnpushedParent {
   buttonStack: readonly Branch[]
 }
 
-/** The branches stacked on a branch that have work for the remote */
+/** The branches stacked on a branch that have work for the remote, and the stack branch of its whole stack */
 export interface UnpushedChildren {
   /** Parents first */
   names: readonly string[]
   /** The branches a Push with Children of the branch pushes, the branch included (`stackChildrenPushOrder`) */
   pushOrder: readonly string[]
+  /**
+   * The stack branch of the whole stack of a root (`{prefix}/stack/<root>`) Push with Children takes along
+   * (`getStackBranchAlong`); null otherwise
+   */
+  stackBranch?: string | null
 }
 
 export interface PushButtonContext {
@@ -137,14 +144,21 @@ function stackPushColor(branch: Branch, stack: readonly Branch[]): UIColor {
   return own !== "neutral" ? own : (stack.map(it => getPushColor(it)).find(color => color !== null && color !== "neutral") ?? own)
 }
 
-/** "oauth and login are stacked on auth and have commits to push.": what a push of the branch alone leaves out */
-function describeUnpushedChildren(branchName: string, names: readonly string[]): string {
+/**
+ * "oauth and login are stacked on auth and have commits to push.": what a push of the branch alone leaves out; "The
+ * whole stack branch user-name/stack/auth goes along." for the stack branch of the whole stack of a root
+ */
+function describeUnpushedChildren(branchName: string, names: readonly string[], stackBranch: string | null): string {
+  const along = stackBranch === null ? null : `The whole stack branch ${stackBranch} goes along.`
   const [first, second] = names
-  if (names.length === 1) {
-    return `${first} is stacked on ${branchName} and has commits to push.`
+  if (names.length === 0) {
+    return `The whole stack branch ${stackBranch ?? ""} has commits to push.`
   }
-  const subject = names.length === 2 ? `${first} and ${second}` : `${first} and ${names.length - 1} more branches`
-  return `${subject} are stacked on ${branchName} and have commits to push.`
+  const children =
+    names.length === 1
+      ? `${first} is stacked on ${branchName} and has commits to push.`
+      : `${names.length === 2 ? `${first} and ${second}` : `${first} and ${names.length - 1} more branches`} are stacked on ${branchName} and have commits to push.`
+  return along === null ? children : `${children} ${along}`
 }
 
 export function getPushButtonState(
@@ -254,9 +268,10 @@ export function getPushButtonState(
   }
   // the children have work while the branch's own push has any or none: the root of a stack pushed already offers them
   if (landedIn === null && unpushedChildren !== null) {
+    const stackBranch = unpushedChildren.stackBranch ?? null
     childrenAction = {
-      description: describeUnpushedChildren(branch.name, unpushedChildren.names),
-      label: formatPushWithChildrenLabel(unpushedChildren.pushOrder),
+      description: describeUnpushedChildren(branch.name, unpushedChildren.names, stackBranch),
+      label: formatPushWithChildrenLabel(unpushedChildren.pushOrder, stackBranch !== null),
       run: () => void pushWithChildren(branch.name),
     }
   }
@@ -358,7 +373,10 @@ export function useUnpushedParent(branch: Branch): UnpushedParent | null {
   }, [parent, stackSize, buttonStack])
 }
 
-/** The branches stacked on a branch, while a push of them has work for the remote */
+/**
+ * The branches stacked on a branch, while a push of them has work for the remote, and of a root the stack branch of its
+ * whole stack while Push with Children takes it along (`useStackBranchAlong`)
+ */
 export function useUnpushedChildren(branchName: string): UnpushedChildren | null {
   const holds = usePushHolds()
   // a string, so the store notifies only when the order changes
@@ -370,8 +388,22 @@ export function useUnpushedChildren(branchName: string): UnpushedChildren | null
       name => holds.has(name),
     ).join("\n"),
   )
+  const along = useStackBranchAlong(branchName)
+  const stackBranch = useBranchSync(state => (along?.kind === "along" ? (state.stackBranches[branchName]?.branchName ?? null) : null))
   return useMemo(() => {
     const pushOrder = order === "" ? [] : order.split("\n")
-    return offersPushWithChildren(branchName, pushOrder) ? { names: pushOrder.filter(name => name !== branchName), pushOrder } : null
-  }, [order, branchName])
+    return offersPushWithChildren(branchName, pushOrder, along) ? { names: pushOrder.filter(name => name !== branchName), pushOrder, stackBranch } : null
+  }, [order, branchName, along, stackBranch])
+}
+
+/**
+ * What Push with Children of `root` does with the stack branch of its whole stack (`getStackBranchAlong`), re-rendering
+ * when it changes; null for a branch that heads no stack that forks
+ */
+export function useStackBranchAlong(root: string): StackBranchAlong | null {
+  const stack = useStackBranch(root)
+  const pullRequest = useStackPullRequest(root)
+  // a string, so a new store state with the same answer renders nothing
+  const along = JSON.stringify(getStackBranchAlong(root, stack, pullRequest))
+  return useMemo(() => JSON.parse(along) as StackBranchAlong | null, [along])
 }

@@ -1735,8 +1735,11 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    baseline does. `--with-children` adds the branches stacked on the named ones, directly or further down
    (by the effective base, or the declared parent of a blocked one), so a blocked child refuses the push as any
    branch that didn't sync; a named root of a stack that forks adds its stack branch after the branches, from the
-   `StackBranchUpdate` of the report (its tip, its remote status and so its lease: no process), only when the sync
-   built it and the remote lacks it, and only to `origin`, which its remote status compares with ("Stack branch").
+   `StackBranchUpdate` of the report (its tip, its remote status and so its lease: no process), as the app's Push
+   with Children does: once it is on the remote or the pull request of the whole stack is open, only when the sync
+   built it and the remote lacks it, and only to `origin`, which its remote status compares with ("Stack branch"). A
+   stack branch the remote lacks costs one GitHub search under the lock (`list_pull_requests`), whose listing the
+   retargets after the push reuse: the search moves, none is added.
    On Space it then reads the user's robots once (best effort: off Space, without a token or
    an answer, nothing is held) and refuses (`robot_running`) a named branch whose Safe Push runs on it or on a branch
    built on it, which lands it, or on the stack branch of its stack; an ancestor such a robot lands stays out of the
@@ -1959,10 +1962,12 @@ lacks, and its pull request showing the parent's commits.
    the stack again at once, leased on the fetched heads, once; else the toast of that branch offers its push over it.
    When every lease held, the remote refused for another reason: an error, as for one branch.
 5. The stack branch of the whole stack (`{prefix}/stack/<root>`) goes the same way, as a branch of `push_branches`
-   with `wholeStack` (no parent, no tip): the start of the Safe Push of the whole stack and the restart of its robot,
-   the creation of its pull request and Request Review on it push it (`pushWholeStack`), only while the sync built it,
-   leased on the remote head of its remote status; the branches of the stack are not pushed with it, and Push with
-   Children of the app doesn't take it along (`bd push --with-children` does).
+   with `wholeStack` (no parent, no tip), leased on the remote head of its remote status, only while the sync built it:
+   alone by the start of the Safe Push of the whole stack and the restart of its robot, the creation of its pull
+   request and Request Review on it (`pushWholeStack`), the branches of the stack left as they are; and after the
+   branches by Push with Children of the root (`getStackBranchAlong`), once it is on the remote or the pull request of
+   the whole stack is open, so that pull request follows its branches, as `bd push <root> --with-children` does. A
+   refusal names it apart from its root's virtual branch (`PushBranchesOutcome::RemoteMoved::whole_stack`).
 
 Code: `crates/sync-core/src/push.rs`, `src-tauri/src/commands/push.rs`, `src/lib/git/stack-push.ts`.
 

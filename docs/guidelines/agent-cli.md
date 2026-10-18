@@ -959,13 +959,16 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
 - `--with-children` pushes the branches stacked on the named ones too, directly or further down, in the same atomic
   push; a blocked or conflicting child refuses it, as a named branch would. A parent taken along brings no children.
   Not with `--expect-remote`. A named root of a stack that forks also takes its stack branch along
-  (`{prefix}/stack/<root>`, [Whole Stack](../../spec/branch/whole-stack.spec.md)), leased on the remote head its
-  remote status compared with, when this sync built it and the remote lacks it: `stacks` lists it as `branches` lists
-  a branch, `name` the root, its `pull_request` the one of the whole stack (the stack branch's own description, else
-  a section per branch: its description, else its commits). A stack branch in any other state than `built` is never
-  pushed, and neither is one to a `--remote` other than `origin`, which its remote status compares with:
-  `stack_warnings` names each one left out. Its remote branch with commits it lacks refuses the push without
-  `--force`, as a branch's does.
+  (`{prefix}/stack/<root>`, [Whole Stack](../../spec/branch/whole-stack.spec.md)), as the app's Push with Children
+  does: once it is on the remote or the pull request of the whole stack is open (bd asks GitHub once for a stack branch
+  the remote lacks), leased on the remote head its remote status compared with, when this sync built it and the
+  remote lacks it: `stacks` lists it as `branches` lists a branch, `name` the root, its `pull_request` the one of the
+  whole stack (the stack branch's own description, else a section per branch: its description, else its commits). One
+  on no remote and in no pull request stays local and needs no word: `bd safe-push --whole-stack` (or its
+  `--create-pull-request`) puts it there. Of one on the remote or in an open pull request, a stack branch in any other
+  state than `built` is never pushed, and neither is one to a `--remote` other than `origin`, which its remote status
+  compares with: `stack_warnings` names each one left out. Its remote branch with commits it lacks refuses the push
+  without `--force`, as a branch's does.
 - `state` is `new`, `updated`, `forced` or `up_to_date`. The lease is the remote head the sync of the same run
   compared with (`remote.head`, `lease_source: expected`), or none without a remote branch (`absent`: it must not
   exist). The push replaces exactly that remote state: a remote commit the branch has by content goes through,

@@ -38,7 +38,7 @@ use patronus::service::PatronusService;
 use patronus::token::{TokenLookup, find_token};
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_core::check::{CheckSession, StackIndependence};
 use sync_core::patronus::{SpaceRepository, target_branch_of};
@@ -563,6 +563,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
         },
         &synced,
         &PushHolds::default(),
+        &HashSet::new(),
       )?;
       output.pushed = pushed.branches;
       let draft = output

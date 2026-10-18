@@ -1,6 +1,8 @@
 import type { PatronusPushMode, PullRequest } from "@/lib/bindings"
 import { formatBranchesAndCommits } from "@/lib/branch"
+import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
+import { dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
 import { joinNames } from "@/lib/text"
 import type { StackBranch } from "@/stores/branch-sync"
 
@@ -99,6 +101,81 @@ export function getStackBranchBlocker(root: string, stack: StackBranch | undefin
     case "Stale":
       return stack.error ?? "The stack branch is not up to date: sync first"
   }
+}
+
+/**
+ * What Push with Children of the root of a stack that forks does with the stack branch of its whole stack
+ * (`getStackBranchAlong`): `along` pushes it in the same atomic push, after the branches, so the pull request of the
+ * whole stack follows them; any other kind leaves it as it is, and says why
+ */
+export type StackBranchAlong =
+  /** Built, on the remote or with its pull request open, its remote lacking commits of it */
+  | { readonly kind: "along" }
+  /** On the remote as it is */
+  | { readonly kind: "upToDate" }
+  /** Neither on the remote nor with an open pull request: the pull request or the Safe Push of the whole stack puts it there */
+  | { readonly kind: "unpublished" }
+  /** Not built by the sync (`getStackBranchBlocker`): never pushed */
+  | { readonly kind: "notBuilt"; readonly reason: string }
+  /** Its remote branch has commits it lacks: a push would drop them, as a child that asks first in its row */
+  | { readonly kind: "dropsRemote" }
+
+/**
+ * Whether Push with Children of `root` takes the stack branch of its whole stack along (`StackBranchAlong`): only one
+ * the sync built, once it is on the remote or its pull request is open (a stack branch is no branch to publish by
+ * itself: its pull request or its Safe Push puts it on the remote), while its remote lacks commits of it and has none
+ * it lacks. `bd push <root> --with-children` follows the same rule. Null for a stack that doesn't fork, which has none.
+ */
+export function getStackBranchAlong(root: string, stack: StackBranch | undefined, pullRequest: PullRequest | undefined): StackBranchAlong | null {
+  if (stack === undefined || stack.members.length === 0) {
+    return null
+  }
+  const remote = stack.remoteStatus
+  if (remote?.exists !== true && pullRequest?.state !== "open") {
+    return { kind: "unpublished" }
+  }
+  const reason = getStackBranchBlocker(root, stack)
+  if (reason !== null) {
+    return { kind: "notBuilt", reason }
+  }
+  // the remote not compared yet, with its pull request open: leased as absent, a remote branch that is there is fetched
+  if (remote === null) {
+    return { kind: "along" }
+  }
+  if (getPushAction({ remoteStatus: remote }) === "upToDate") {
+    return { kind: "upToDate" }
+  }
+  return dropsRemoteCommits(remote) ? { kind: "dropsRemote" } : { kind: "along" }
+}
+
+/**
+ * "user-name/stack/air · the whole stack branch · 2 commits": the stack branch as a line of what a stack push sends, as
+ * `formatStackPushLine` says a branch
+ */
+export function formatStackBranchPushLine(stack: StackBranch): string {
+  const parts = [stack.branchName, "the whole stack branch"]
+  const remote = stack.remoteStatus
+  if (remote !== null && remote.commitsAhead > 0) {
+    parts.push(formatCommitCount(remote.commitsAhead))
+  }
+  if (remote?.exists !== true) {
+    parts.push("creates the remote branch")
+  }
+  return parts.join(" · ")
+}
+
+/**
+ * "Also pushes the whole stack branch user-name/stack/air, the head of #12": what Push with Children of the root adds,
+ * the hover of its menu item
+ */
+export function describeStackBranchAlong(stack: StackBranch, pullRequest: PullRequest | undefined): string {
+  const head = pullRequest?.state === "open" ? `, the head of #${pullRequest.number}` : ""
+  return `Also pushes the whole stack branch ${stack.branchName}${head}`
+}
+
+/** "the whole stack branch of air": the stack branch of the whole stack of a root, as the push of it names it */
+export function formatWholeStackBranch(root: string): string {
+  return `the whole stack branch of ${root}`
 }
 
 /**

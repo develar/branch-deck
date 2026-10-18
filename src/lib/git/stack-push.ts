@@ -13,9 +13,9 @@ import { showRobotToast } from "@/lib/patronus-actions"
 import type { PushUpToStep } from "@/lib/push-up-to"
 import { stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
-import { formatWholeStack, getStackBranchBlocker } from "@/lib/whole-stack"
+import { formatWholeStack, formatWholeStackBranch, getStackBranchAlong, getStackBranchBlocker } from "@/lib/whole-stack"
 import { recordPush } from "@/stores/activity"
-import type { Branch, RemoteStatus } from "@/stores/branch-sync"
+import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import {
   branchSyncStore,
   getBranch,
@@ -33,7 +33,7 @@ import {
   whenSynced,
 } from "@/stores/branch-sync"
 import { getPushHold, getStackPushHold } from "@/stores/patronus"
-import { refreshPullRequests, refreshPullRequestsAfterPushes } from "@/stores/pull-requests"
+import { getStackPullRequest, refreshPullRequests, refreshPullRequestsAfterPushes } from "@/stores/pull-requests"
 import { vcsRequestFactory } from "@/stores/repository"
 
 export interface StackPushOptions {
@@ -47,10 +47,14 @@ export interface StackPushOptions {
   report?: PushReport
 }
 
-/** What a stack push sends: the branches, parents first, and the ones pushed up to a commit (Push Up to Here) */
+/**
+ * What a stack push sends: the branches, parents first, the ones pushed up to a commit (Push Up to Here), and the root
+ * whose stack branch of the whole stack goes along after them (Push with Children of the root, `getStackBranchAlong`)
+ */
 interface StackPushOrder {
   names: readonly string[]
   tips?: ReadonlyMap<string, string>
+  wholeStack?: string | null
 }
 
 /**
@@ -67,10 +71,26 @@ export async function pushStack(branchName: string, options: StackPushOptions = 
 
 /**
  * Push with Children: the branch if it has work for the remote, then the branches stacked on it that have work, parents
- * first, in one atomic push (`pushTogether`)
+ * first, and for the root of a stack that forks the stack branch of its whole stack (`takesStackBranchAlong`), in one
+ * atomic push (`pushTogether`), so the pull request of the whole stack follows its branches
  */
 export async function pushWithChildren(branchName: string): Promise<boolean> {
-  return await pushTogether(branchName, () => ({ names: stackChildrenPushOrder(branchName, getStackDescendants(branchName), getBranch, name => isHeldBy(name, undefined)) }), {})
+  return await pushTogether(
+    branchName,
+    () => ({
+      names: stackChildrenPushOrder(branchName, getStackDescendants(branchName), getBranch, name => isHeldBy(name, undefined)),
+      wholeStack: takesStackBranchAlong(branchName) ? branchName : null,
+    }),
+    {},
+  )
+}
+
+/**
+ * Whether Push with Children of `root` takes the stack branch of its whole stack along now (`getStackBranchAlong`):
+ * never while the robot of the whole stack holds it, a push into its stack branch would fail it
+ */
+export function takesStackBranchAlong(root: string): boolean {
+  return getStackPushHold(root) === null && getStackBranchAlong(root, getStackBranch(root), getStackPullRequest(root))?.kind === "along"
 }
 
 /**
@@ -91,10 +111,11 @@ export async function pushUpTo(steps: readonly PushUpToStep[]): Promise<boolean>
  * that runs is awaited first, so the order is computed on the branches as the sync left them. The holds and the
  * retargets are each branch's own, then the one push runs while every row of it shows one progress, and the row of
  * `startedFrom` names it ("Pushing 7 branches 45%"); one toast says what was pushed (`showStackPushToast`), Activity has an
- * entry per branch. A remote branch that moved since its row showed it refuses the whole push: the branches are
- * fetched, and the push goes again over what the remotes have now, once, when that remote has no commits its branch
- * lacks (`pushesOverMovedRemote`), else its toast says what it has. A second push from the same row while one runs does
- * nothing.
+ * entry per branch. The stack branch of a whole stack the order takes along (`wholeStack`) goes last, leased on the
+ * remote head of its status, only while the sync built it. A remote branch that moved since its row showed it refuses
+ * the whole push: the branches are fetched, and the push goes again over what the remotes have now, once, when that
+ * remote has no commits its branch lacks (`pushesOverMovedRemote`), else its toast says what it has. A second push from
+ * the same row while one runs does nothing.
  * Resolves to whether the branches were pushed; true when nothing is left to push.
  */
 async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, options: StackPushOptions): Promise<boolean> {
@@ -106,8 +127,9 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
   setStackPush(startedFrom, [])
   try {
     const order = await settledOrder(orderOf)
-    if (order.names.length === 0 || !(await checkStackHolds(order.names, options, report))) {
-      return order.names.length === 0
+    const wholeStack = order.wholeStack ?? null
+    if ((order.names.length === 0 && wholeStack === null) || !(await checkStackHolds(order.names, options, report))) {
+      return order.names.length === 0 && wholeStack === null
     }
     // the checks may have waited for Patronus while a sync changed the branches: push them as they are now
     const branches = findBranches(order.names, report)
@@ -125,7 +147,8 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
     }
     setStackPush(startedFrom, order.names)
     let pushed = branches
-    let moved = await sendTogether(pushed, tips, report)
+    let stack = stackBranchAlong(wholeStack)
+    let moved = await sendTogether(pushed, tips, stack, report)
     // nobody's work is lost: the stack goes over what the remotes have now, once, as the push of one branch does; a
     // remote that moves again, or one with commits its branch lacks, is told
     if (moved != null && pushesOverMovedRemote(moved.status)) {
@@ -134,13 +157,18 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
         return false
       }
       pushed = fetched
-      moved = await sendTogether(pushed, tips, report)
+      stack = stackBranchAlong(wholeStack)
+      moved = await sendTogether(pushed, tips, stack, report)
     }
     if (moved === undefined) {
       return false
     }
     if (moved !== null) {
-      await showRemoteMovedToast(moved.name, moved.status, undefined)
+      if (moved.wholeStack) {
+        report(`Cannot push ${formatWholeStackBranch(moved.name)}`, describeMovedStackBranch(moved.status))
+      } else {
+        await showRemoteMovedToast(moved.name, moved.status, undefined)
+      }
       return false
     }
     if (options.announce !== false) {
@@ -149,12 +177,22 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
         before: sentPart(branch.remoteStatus, tips.get(branch.name)),
         retargeted: retargeted.get(branch.name),
       }))
-      showStackPushToast(outcomes, startedFrom)
+      showStackPushToast(outcomes, startedFrom, stack === null ? null : { root: stack.root, before: stack.remoteStatus, pullRequest: getStackPullRequest(stack.root) })
     }
     return true
   } finally {
     setStackPush(startedFrom, null)
   }
+}
+
+/** The stack branch of the whole stack of `root` as the push sends it: only while it still goes along; null otherwise */
+function stackBranchAlong(root: string | null): StackBranch | null {
+  return root !== null && takesStackBranchAlong(root) ? (getStackBranch(root) ?? null) : null
+}
+
+/** Why a stack branch whose remote moved isn't pushed: its remote has commits it lacks, and the next sync rebuilds it */
+function describeMovedStackBranch(status: RemoteStatus): string {
+  return `Its remote branch has ${status.commitsBehind === 1 ? "a commit" : `${status.commitsBehind} commits`} the stack branch lacks: sync, then push again`
 }
 
 /**
@@ -210,16 +248,20 @@ function findBranches(names: readonly string[], report: PushReport): Branch[] | 
 }
 
 /**
- * The one push of the branches (`push_branches`), each leased on the remote head its row shows, while their rows show
- * its progress; their remote statuses are updated from the result. The branch whose remote moved when nothing was
- * pushed, with what its remote has now; null when they were pushed; undefined when the push failed (it said why).
+ * The one push of the branches (`push_branches`), each leased on the remote head its row shows, and the stack branch of
+ * a whole stack after them (`stack`, leased on the remote head of its status), while their rows show its progress; their
+ * remote statuses are updated from the result. The branch whose remote moved when nothing was pushed (`wholeStack`: its
+ * stack branch), with what its remote has now; null when they were pushed; undefined when the push failed (it said why).
  */
 async function sendTogether(
   branches: readonly Branch[],
   tips: ReadonlyMap<string, string>,
+  stack: StackBranch | null,
   report: PushReport,
-): Promise<{ name: string; status: RemoteStatus } | null | undefined> {
+): Promise<{ name: string; wholeStack: boolean; status: RemoteStatus } | null | undefined> {
   const names = branches.map(branch => branch.name)
+  // what an error names: the branches, then the stack branch
+  const subjects = stack === null ? names : [...names, formatWholeStackBranch(stack.root)]
   for (const name of names) {
     setBranchPushing(name, true)
   }
@@ -235,19 +277,22 @@ async function sendTogether(
         branchPrefix: request.branchPrefix,
         myEmail: branches[0]?.myEmail ?? null,
         baselineBranch: branchSyncStore.getState().baselineBranch!,
-        branches: branches.map(branch => ({
-          branchName: branch.name,
-          // a stacked branch's own commits are those after its parent
-          parentBranch: branch.stack?.effectiveBase ?? null,
-          // without a loaded status the branch must not be on the remote: if it is, the push fetches and shows it
-          expectedRemote: branch.remoteStatus?.remoteTip ?? null,
-          tip: tips.get(branch.name) ?? null,
-        })),
+        branches: [
+          ...branches.map(branch => ({
+            branchName: branch.name,
+            // a stacked branch's own commits are those after its parent
+            parentBranch: branch.stack?.effectiveBase ?? null,
+            // without a loaded status the branch must not be on the remote: if it is, the push fetches and shows it
+            expectedRemote: branch.remoteStatus?.remoteTip ?? null,
+            tip: tips.get(branch.name) ?? null,
+          })),
+          ...(stack === null ? [] : [{ branchName: stack.root, wholeStack: true, expectedRemote: stack.remoteStatus?.remoteTip ?? null }]),
+        ],
       },
       progress,
     )
     if (result.status === "error") {
-      report(`Cannot push ${joinNames(names)}`, result.error)
+      report(`Cannot push ${joinNames(subjects)}`, result.error)
       return undefined
     }
     const statuses = result.data.remoteStatuses.map(status => toRemoteStatus(status))
@@ -257,23 +302,36 @@ async function sendTogether(
         setBranchRemoteStatus(branch.name, status)
       }
     })
+    const stackStatus = stack === null ? undefined : statuses[branches.length]
+    if (stack !== null && stackStatus !== undefined) {
+      setStackBranchRemoteStatus(stack.root, stackStatus)
+    }
     if (result.data.type === "remoteMoved") {
-      const index = names.indexOf(result.data.branchName)
+      const { branchName, wholeStack } = result.data
+      const index = wholeStack ? branches.length : names.indexOf(branchName)
       const status = statuses[index]
       if (status === undefined) {
-        report(`Cannot push ${joinNames(names)}`, `The remote branch of ${result.data.branchName} changed: nothing was pushed`)
+        report(`Cannot push ${joinNames(subjects)}`, `The remote branch of ${wholeStack ? formatWholeStackBranch(branchName) : branchName} changed: nothing was pushed`)
         return undefined
       }
-      recordPush(request.repositoryPath, result.data.branchName, branches[index]!.remoteStatus, status)
-      return { name: result.data.branchName, status }
+      if (wholeStack) {
+        recordPush(request.repositoryPath, formatWholeStackBranch(branchName), stack?.remoteStatus ?? null, status)
+      } else {
+        recordPush(request.repositoryPath, branchName, branches[index]!.remoteStatus, status)
+      }
+      return { name: branchName, wholeStack, status }
     }
     for (const branch of branches) {
       recordPush(request.repositoryPath, branch.name, sentPart(branch.remoteStatus, tips.get(branch.name)), null)
     }
+    if (stack !== null) {
+      recordPush(request.repositoryPath, formatWholeStackBranch(stack.root), stack.remoteStatus, null)
+    }
+    // one refresh of the pull requests, the whole stack's too
     void refreshPullRequestsAfterPushes(branches.map(branch => [branch.name, tips.get(branch.name) ?? branch.commits[0]?.hash] as const))
     return null
   } catch (error) {
-    report(`Cannot push ${joinNames(names)}`, error)
+    report(`Cannot push ${joinNames(subjects)}`, error)
     return undefined
   } finally {
     for (const name of names) {
@@ -329,10 +387,7 @@ export async function pushWholeStack(root: string, options: WholeStackPushOption
     return false
   }
   if (moved !== null) {
-    report(
-      `Cannot push ${subject}`,
-      `Its remote branch has ${moved.commitsBehind === 1 ? "a commit" : `${moved.commitsBehind} commits`} the stack branch lacks: sync, then push again`,
-    )
+    report(`Cannot push ${subject}`, describeMovedStackBranch(moved))
     return false
   }
   if (options.restartRobot !== undefined) {
@@ -377,7 +432,7 @@ async function sendStackBranch(root: string, report: PushReport): Promise<Remote
     if (status !== null) {
       setStackBranchRemoteStatus(root, status)
     }
-    recordPush(request.repositoryPath, subject, stack.remoteStatus, result.data.type === "remoteMoved" ? status : null)
+    recordPush(request.repositoryPath, formatWholeStackBranch(root), stack.remoteStatus, result.data.type === "remoteMoved" ? status : null)
     if (result.data.type === "remoteMoved") {
       return status ?? undefined
     }

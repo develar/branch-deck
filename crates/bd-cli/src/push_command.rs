@@ -15,7 +15,7 @@
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorBranch, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
-use crate::pull_request_retarget::{RetargetedPullRequest, retarget_pull_requests_of};
+use crate::pull_request_retarget::{RetargetedPullRequest, retarget_listed, retarget_pull_requests_of};
 use crate::push_hold::{PushHolds, read_push_holds};
 use crate::safe_push_command::github_service;
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncedBranch, lock, sync_locked};
@@ -26,7 +26,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use sync_core::pull_requests::{GitHubRepository, parse_github_repository, resolve_github_repository_with};
+use sync_core::pull_requests::{GitHubRepository, list_pull_requests, parse_github_repository, resolve_github_repository_with};
 use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, leased_push_refs};
 use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent};
@@ -34,6 +34,7 @@ use sync_core::stack_pull_request::{StackMemberText, stack_pull_request_text};
 use sync_core::sync::SyncReport;
 use sync_types::RemoteStatusUpdate;
 use sync_types::patronus::PatronusRobot;
+use sync_types::pull_request::{PullRequestState, PullRequestsResult};
 use sync_types::stack::{StackBranchState, StackBranchUpdate};
 
 #[derive(Debug, Default, clap::Args)]
@@ -179,7 +180,17 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
   let repository_lock = lock(context)?;
   let synced = sync_locked(context)?;
   let holds = read_push_holds(context, environment, &synced);
-  let mut output = push_locked(context, args, &synced, &holds)?;
+  let github = github_service(context, environment);
+  // the stack branch of a whole stack goes along once it is on the remote or its pull request is open: GitHub is asked
+  // (one search, under the lock) only for one the remote lacks, and the listing serves the retargets below too
+  let listed = match github_repository(context, &synced.report)? {
+    Some(repository) if args.with_children && stack_branches_off_the_remote(&synced.report, &args.branches) => {
+      Some(context.runtime()?.block_on(list_pull_requests(&github, &context.repository, &repository, &context.prefix)))
+    }
+    _ => None,
+  };
+  let open_stack_pull_requests = listed.as_ref().map_or_default(open_stack_pull_requests);
+  let mut output = push_locked(context, args, &synced, &holds, &open_stack_pull_requests)?;
   drop(repository_lock);
 
   // GitHub after the lock: the pull requests of the pushed branches go into the baseline
@@ -188,12 +199,34 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
   {
     let names: Vec<&str> = output.branches.iter().map(|branch| branch.name.as_str()).collect();
     let base = base_on_remote(&synced.baseline, &output.remote);
-    let github = github_service(context, environment);
-    let retargets = retarget_pull_requests_of(context, &github, context.runtime()?, &repository, (&names, base), args.dry_run);
+    let runtime = context.runtime()?;
+    let retargets = match &listed {
+      Some(listed) => retarget_listed(context, &github, runtime, &repository, listed, (&names, base), args.dry_run),
+      None => retarget_pull_requests_of(context, &github, runtime, &repository, (&names, base), args.dry_run),
+    };
     output.retargeted = retargets.retargeted;
     output.retarget_warnings = retargets.warnings;
   }
   Ok(output)
+}
+
+/// A named root of a stack that forks whose stack branch the remote lacks (`--with-children` takes it along only once it
+/// is on the remote or its pull request is open, `stack_branches_to_push`)
+fn stack_branches_off_the_remote(report: &SyncReport, named: &[String]) -> bool {
+  report
+    .stack_branches
+    .iter()
+    .any(|stack| !stack.members.is_empty() && named.contains(&stack.root) && !stack.remote.as_ref().is_some_and(|remote| remote.remote_exists))
+}
+
+/// The roots whose pull request of the whole stack is open
+fn open_stack_pull_requests(listed: &PullRequestsResult) -> HashSet<String> {
+  listed
+    .stack_pull_requests
+    .iter()
+    .filter(|(_, pull_request)| pull_request.state == PullRequestState::Open)
+    .map(|(root, _)| root.clone())
+    .collect()
 }
 
 /// The baseline as `remote` names it: `master` of `origin/master`
@@ -205,7 +238,8 @@ fn base_on_remote<'a>(baseline: &'a str, remote: &str) -> &'a str {
 /// it replaces itself and passes no `holds`). A branch a running Safe Push holds (`holds`) is refused, or, with
 /// `--restart-running` and the robot on the branch itself, its robot is canceled before the push and restarted after it;
 /// an ancestor taken along that a robot holds stays as it is, unless that robot is the one restarted.
-pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, holds: &PushHolds) -> Result<PushOutput, CliError> {
+/// `open_stack_pull_requests`: the roots whose pull request of the whole stack is open, for `--with-children`.
+pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, holds: &PushHolds, open_stack_pull_requests: &HashSet<String>) -> Result<PushOutput, CliError> {
   let report = &synced.report;
   let remote = match &args.remote {
     Some(remote) => remote.clone(),
@@ -351,7 +385,7 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
   // the whole stack of a named root goes along with its children: its stack branch, when this sync built it, never a
   // stale one
   let (stacks, stack_warnings) = if args.with_children {
-    stack_branches_to_push(report, &args.branches, &remote)
+    stack_branches_to_push(report, &args.branches, &remote, open_stack_pull_requests)
   } else {
     (Vec::new(), Vec::new())
   };
@@ -510,13 +544,20 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
   })
 }
 
-/// The stack branches of the stacks that fork whose root `--with-children` names, in the order of the sync: the
-/// `built` ones the remote lacks (by content, as the sync's remote status compares), and a warning per one left out. A
-/// stack branch in another state is not the stack's commits, and its remote status is of `origin` only
-fn stack_branches_to_push<'a>(report: &'a SyncReport, named: &[String], remote: &str) -> (Vec<&'a StackBranchUpdate>, Vec<String>) {
+/// The stack branches of the stacks that fork whose root `--with-children` names, in the order of the sync, as the
+/// app's Push with Children takes one along: once it is on the remote (`origin`) or its pull request is open
+/// (`open_stack_pull_requests`, by root), the `built` ones the remote lacks (by content, as the sync's remote status
+/// compares), and a warning per one of them left out. One neither on the remote nor with an open pull request is no
+/// branch to publish by itself: `bd safe-push --whole-stack` and its pull request put it there. A stack branch in
+/// another state is not the stack's commits, and its remote status is of `origin` only
+fn stack_branches_to_push<'a>(report: &'a SyncReport, named: &[String], remote: &str, open_stack_pull_requests: &HashSet<String>) -> (Vec<&'a StackBranchUpdate>, Vec<String>) {
   let mut stacks = Vec::new();
   let mut warnings = Vec::new();
   for stack in report.stack_branches.iter().filter(|stack| !stack.members.is_empty() && named.contains(&stack.root)) {
+    let on_remote = stack.remote.as_ref().is_some_and(|remote| remote.remote_exists);
+    if !on_remote && !open_stack_pull_requests.contains(&stack.root) {
+      continue;
+    }
     if stack.state != StackBranchState::Built || stack.tip.is_none() {
       warnings.push(format!(
         "{} was not pushed: this sync didn't build it ({}; `stacks` of `bd sync` says why)",

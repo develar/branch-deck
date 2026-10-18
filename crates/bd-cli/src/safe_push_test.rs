@@ -102,6 +102,13 @@ fn safe_push(environment: &Environment, args: &[&str]) -> (i32, Value) {
   run_json(environment, &all_args)
 }
 
+/// `bd push` with `args`
+fn bd_push(environment: &Environment, args: &[&str]) -> (i32, Value) {
+  let mut all_args = vec!["--prefix", PREFIX, "push"];
+  all_args.extend_from_slice(args);
+  run_json(environment, &all_args)
+}
+
 /// A robot of the user on the virtual branch `name`, at `revision`
 pub(crate) fn robot(id: &str, status: &str, name: &str, revision: &str) -> Value {
   let mut robot = robot_json(id, status, &format!("refs/heads/test-user/virtual/{name}"), "2026-10-14T09:30:00Z");
@@ -677,11 +684,7 @@ fn a_dangling_reference_refuses_the_safe_push_unless_allowed() {
 #[test_log::test]
 fn push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told() {
   let space = login_on_auth();
-  let push = |args: &[&str]| {
-    let mut all_args = vec!["--prefix", PREFIX, "push"];
-    all_args.extend_from_slice(args);
-    run_json(&space.environment(), &all_args)
-  };
+  let push = |args: &[&str]| bd_push(&space.environment(), args);
 
   space.set_robots(vec![robot("running", "RUNNING", "auth", "0000")]);
   let (exit_code, output) = push(&["auth"]);
@@ -743,11 +746,7 @@ fn push_retargets_a_pull_request_into_a_virtual_branch_to_the_baseline() {
   let (github, url) = fake_github(&space, &pull_requests);
   github.answer("PATCH", "/repos/acme/monorepo/pulls/8", FakeAnswer::ok(json!({"number": 8})));
   let environment = reviewed_on_github(&space, &url);
-  let push = |args: &[&str]| {
-    let mut all_args = vec!["--prefix", PREFIX, "push"];
-    all_args.extend_from_slice(args);
-    run_json(&environment, &all_args)
-  };
+  let push = |args: &[&str]| bd_push(&environment, args);
   let retargeted = json!([{"branch": "login", "number": 8, "url": "https://github.com/acme/monorepo/pull/8", "old_base": AUTH, "new_base": "master", "approved_by": ["alice"]}]);
 
   // a dry run says it: GitHub is only asked
@@ -777,6 +776,39 @@ fn push_retargets_a_pull_request_into_a_virtual_branch_to_the_baseline() {
   );
   let (_, schema) = run_json(&environment, &["schema"]);
   assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
+}
+
+/// `bd push <root> --with-children` takes the stack branch of the whole stack along while its pull request is open,
+/// also before this clone has its remote branch, as the app's Push with Children does: the pull request follows the
+/// branches. GitHub is searched once, under the lock, and the listing serves the retargets after the push too
+#[test_log::test]
+fn push_with_children_takes_the_stack_branch_along_while_its_pull_request_is_open() {
+  let space = forking_stack();
+  let (github, url) = fake_github(&space, &[]);
+  let environment = reviewed_on_github(&space, &url);
+  let push = |args: &[&str]| bd_push(&environment, args);
+  let searches = || github.requests_to("POST", "/graphql").len();
+
+  // no pull request of the whole stack: the branches go, its stack branch stays local
+  let (exit_code, output) = push(&["auth", "--with-children"]);
+  assert_eq!((exit_code, output.get("stacks"), output.get("stack_warnings")), (0, None, None), "{output}");
+  assert_eq!(space.remote_tip(STACK), "");
+  assert_eq!(searches(), 1);
+
+  // its pull request is open: the stack branch goes along, a new remote branch
+  let mut stack_pull_request = pull_request_json(&[]);
+  stack_pull_request["number"] = json!(12);
+  stack_pull_request["headRefName"] = json!(STACK);
+  list_pull_requests(&github, &[stack_pull_request]);
+  let (exit_code, output) = push(&["auth", "--with-children"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let pushed = &output["stacks"][0];
+  assert_eq!(
+    (&pushed["name"], &pushed["remote_branch"], &pushed["state"], &pushed["lease_source"]),
+    (&json!("auth"), &json!(STACK), &json!("new"), &json!("absent"))
+  );
+  assert_eq!(space.remote_tip(STACK), space.local_tip(STACK));
+  assert_eq!(searches(), 2, "one search per push: the stack branch and the retargets");
 }
 
 /// The robot starts from the pull request of the branch, which goes into the target: one into a virtual branch is

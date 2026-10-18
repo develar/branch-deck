@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, it } from "vite-plus/test"
 import { getBranchContextMenuItems, getSafePushBlocker } from "@/hooks/useBranchContextActions"
 import type { MenuItem } from "@/lib/menu"
-import type { Branch, RemoteStatus, SyncedCommit } from "@/stores/branch-sync"
+import type { Branch, RemoteStatus, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { inlineRowActionStore } from "@/stores/inline-row-action"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
@@ -123,7 +123,45 @@ describe("Push with Children in the branch menu", () => {
   }
 
   afterEach(() => {
-    branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, stackPushes: {}, isSyncing: false })
+    branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, stackPushes: {}, isSyncing: false, stackBranches: {} })
+  })
+
+  it("takes the stack branch of the whole stack of a root along once it is on the remote, counted and named, and says why while it doesn't", () => {
+    const stackBranch = (remoteStatus: RemoteStatus): StackBranch => ({
+      root: "auth",
+      branchName: "user/stack/auth",
+      members: ["auth", "login", "session"],
+      commitCount: 3,
+      state: "Built",
+      tip: "stack-tip",
+      blockedBy: null,
+      conflict: null,
+      error: null,
+      remoteStatus,
+    })
+    setBranches(synced("auth", null, pushed), synced("login", "auth", pushed), synced("session", "auth", pushed))
+    branchSyncStore.setState({ stackBranches: { auth: stackBranch(testRemoteStatus({ exists: false, commitsAhead: 3, remoteTip: null })) } })
+    // not on the remote and no pull request: the branches are, and "Nothing to push" would not be true
+    expect(pushWithChildren("auth")).toMatchObject({
+      label: "Push with Children",
+      disabled: true,
+      description: "The branches of the stack are on the remote. Its stack branch goes there with the pull request or the Safe Push of the whole stack",
+    })
+    branchSyncStore.setState({ stackBranches: { auth: stackBranch(testRemoteStatus({ commitsAhead: 1, unpushedCommits: ["c"], remoteTip: "old" })) } })
+    expect(pushWithChildren("auth")).toMatchObject({
+      label: "Push with Children (the whole stack branch)",
+      disabled: false,
+      description: "Also pushes the whole stack branch user/stack/auth",
+    })
+    setBranches(synced("auth", null, pushed), synced("login", "auth", unpushed), synced("session", "auth", pushed))
+    expect(pushWithChildren("auth")).toMatchObject({ label: "Push with Children (2 branches)", disabled: false })
+    // a branch in the middle heads no whole stack
+    setBranches(synced("auth", null, pushed), synced("login", "auth", pushed), synced("oauth", "login", unpushed), synced("session", "auth", pushed))
+    expect(pushWithChildren("login")).toMatchObject({ label: "Push with Children (oauth)" })
+    expect(pushWithChildren("login")?.description).toBeUndefined()
+    branchSyncStore.setState({ stackBranches: { auth: stackBranch(testRemoteStatus({ remoteTip: "tip" })) } })
+    setBranches(synced("auth", null, pushed), synced("login", "auth", pushed), synced("session", "auth", pushed))
+    expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "Nothing to push: the stack is on the remote" })
   })
 
   it("is offered beside the push on every branch with children, disabled with the reason while it would push nothing beyond the branch", () => {

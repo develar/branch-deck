@@ -2,17 +2,22 @@ import { describe, expect, it } from "vite-plus/test"
 import type { PullRequest } from "@/lib/bindings"
 import {
   describeOrphanedStackPullRequest,
+  describeStackBranchAlong,
   describeWholeStackApprovalsForPiece,
   describeWholeStackLanding,
   formatReadinessSubject,
+  formatStackBranchPushLine,
   formatWholeStack,
   formatWholeStackApprovals,
+  formatWholeStackBranch,
   formatWholeStackStart,
+  getStackBranchAlong,
   getStackBranchBlocker,
   stackReadinessKey,
   stackRootOfReadinessKey,
 } from "@/lib/whole-stack"
 import type { StackBranch } from "@/stores/branch-sync"
+import { testRemoteStatus } from "@/stores/test-branch"
 
 function stack(patch: Partial<StackBranch> = {}): StackBranch {
   return {
@@ -66,6 +71,30 @@ describe("the whole stack", () => {
       "The stack branch conflicts at 01234567 in a.kt and b.kt: the stack lands in pieces",
     )
     expect(getStackBranchBlocker("air", stack({ state: "Stale", error: "Not rebuilt: another process moved the ref" }))).toBe("Not rebuilt: another process moved the ref")
+  })
+
+  it("goes along with Push with Children of its root once it is on the remote or its pull request is open, while built, with work its remote lacks", () => {
+    const ahead = testRemoteStatus({ commitsAhead: 2, remoteTip: "old" })
+    const absent = testRemoteStatus({ exists: false, commitsAhead: 4, remoteTip: null })
+    expect(getStackBranchAlong("air", stack({ remoteStatus: ahead }), undefined)).toEqual({ kind: "along" })
+    expect(getStackBranchAlong("air", stack({ remoteStatus: absent }), pullRequest)).toEqual({ kind: "along" })
+    // no branch to publish by itself: its pull request or its Safe Push puts it on the remote
+    expect(getStackBranchAlong("air", stack({ remoteStatus: absent }), undefined)).toEqual({ kind: "unpublished" })
+    expect(getStackBranchAlong("air", stack({ remoteStatus: absent }), { ...pullRequest, state: "closed" })).toEqual({ kind: "unpublished" })
+    expect(getStackBranchAlong("air", stack({ remoteStatus: testRemoteStatus({ remoteTip: "tip" }) }), pullRequest)).toEqual({ kind: "upToDate" })
+    // never one the sync didn't build, nor one whose push drops remote commits it lacks
+    expect(getStackBranchAlong("air", stack({ state: "Stale", error: "Not rebuilt", remoteStatus: ahead }), undefined)).toEqual({ kind: "notBuilt", reason: "Not rebuilt" })
+    expect(getStackBranchAlong("air", stack({ remoteStatus: testRemoteStatus({ commitsAhead: 1, commitsBehind: 1, fastForward: false }) }), undefined)).toEqual({
+      kind: "dropsRemote",
+    })
+    // a stack that doesn't fork has none
+    expect(getStackBranchAlong("air", stack({ members: [], state: "Stale", remoteStatus: ahead }), undefined)).toBeNull()
+    expect(getStackBranchAlong("air", undefined, pullRequest)).toBeNull()
+    expect(formatStackBranchPushLine(stack({ remoteStatus: ahead }))).toBe("user/stack/air · the whole stack branch · 2 commits")
+    expect(formatStackBranchPushLine(stack({ remoteStatus: absent }))).toBe("user/stack/air · the whole stack branch · 4 commits · creates the remote branch")
+    expect(describeStackBranchAlong(stack(), pullRequest)).toBe("Also pushes the whole stack branch user/stack/air, the head of #12")
+    expect(describeStackBranchAlong(stack(), undefined)).toBe("Also pushes the whole stack branch user/stack/air")
+    expect(formatWholeStackBranch("air")).toBe("the whole stack branch of air")
   })
 
   it("has a pull request that no longer matches it once a piece landed the root or the stack no longer forks, an open one only", () => {

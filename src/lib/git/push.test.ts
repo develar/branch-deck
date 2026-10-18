@@ -6,7 +6,7 @@ import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { formatNewPullRequestBlocker, getNewPullRequestUrl, getRetargetCommand } from "@/lib/git/new-pull-request"
 import { pushBranch, pushForAction } from "@/lib/git/push"
 import { pushStack, pushUpTo, pushWithChildren } from "@/lib/git/stack-push"
-import type { Branch, RemoteStatus } from "@/stores/branch-sync"
+import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { createPullRequestDialogStore } from "@/stores/create-pull-request-dialog"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -40,6 +40,10 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
     movedInStack: [] as { branch: string; commitsBehind: number }[],
     /** The branches stacked on a branch, parents first */
     descendants: {} as Record<string, string[]>,
+    /** The stack branches of the whole stacks, by root */
+    stackBranches: {} as Record<string, StackBranch>,
+    /** The pull requests of the whole stacks, by root */
+    stackPullRequests: {} as Record<string, PullRequest>,
     /** Resolves when the running sync ends */
     synced: Promise.resolve(),
     /** The pull requests GitHub lists, by branch */
@@ -94,8 +98,10 @@ vi.mock("@/lib/bindings", () => ({
       }
     },
     /** One push of the branches, "push auth login@<tip>" */
-    pushBranches: async (params: { branches: { branchName: string; expectedRemote: string | null; tip?: string | null }[] }) => {
-      calls.push(`push ${params.branches.map(branch => (branch.tip == null ? branch.branchName : `${branch.branchName}@${branch.tip}`)).join(" ")}`)
+    /** One push of the branches, "push auth login@<tip> stack:auth" (the stack branch of the whole stack of auth) */
+    pushBranches: async (params: { branches: { branchName: string; expectedRemote: string | null; tip?: string | null; wholeStack?: boolean }[] }) => {
+      const nameOf = (branch: { branchName: string; wholeStack?: boolean }) => (branch.wholeStack === true ? `stack:${branch.branchName}` : branch.branchName)
+      calls.push(`push ${params.branches.map(branch => (branch.tip == null ? nameOf(branch) : `${branch.branchName}@${branch.tip}`)).join(" ")}`)
       stores.expectedRemotes.push(...params.branches.map(branch => branch.expectedRemote))
       const moved = stores.movedInStack.shift()
       // refused, the fetched remote of the moved branch is at their commit, the others where the rows showed them
@@ -103,11 +109,18 @@ vi.mock("@/lib/bindings", () => ({
         if (moved === undefined) {
           return { branchName: branch.branchName, remoteExists: true, remoteTip: "tip" }
         }
-        return branch.branchName === moved.branch
+        return nameOf(branch) === moved.branch
           ? { branchName: branch.branchName, remoteExists: true, remoteTip: "theirs", commitsBehind: moved.commitsBehind }
           : { branchName: branch.branchName, remoteExists: branch.expectedRemote !== null, remoteTip: branch.expectedRemote }
       })
-      return { status: "ok", data: moved === undefined ? { type: "pushed", remoteStatuses } : { type: "remoteMoved", branchName: moved.branch, remoteStatuses } }
+      const wholeStack = moved?.branch.startsWith("stack:") === true
+      return {
+        status: "ok",
+        data:
+          moved === undefined
+            ? { type: "pushed", remoteStatuses }
+            : { type: "remoteMoved", branchName: wholeStack ? moved.branch.slice("stack:".length) : moved.branch, wholeStack, remoteStatuses },
+      }
     },
   },
 }))
@@ -115,6 +128,10 @@ vi.mock("@/lib/bindings", () => ({
 vi.mock("@/stores/branch-sync", () => ({
   branchSyncStore: { getState: () => ({ baselineBranch: "origin/master" }) },
   getBranch: (name: string) => stores.branches[name],
+  getStackBranch: (root: string) => stores.stackBranches[root],
+  setStackBranchRemoteStatus: (root: string, status: RemoteStatus) => {
+    stores.stackBranches[root] = { ...stores.stackBranches[root]!, remoteStatus: status }
+  },
   getStackDescendants: (name: string) => stores.descendants[name] ?? [],
   isBranchPushing: () => false,
   whenSynced: () => stores.synced,
@@ -159,6 +176,7 @@ vi.mock("@/stores/patronus", () => ({
     return span === undefined || span.status !== "running" ? null : { kind: "span", branch: span.branchName, robot: span }
   },
   getPatronusGitHubRepository: () => null,
+  getStackPushHold: () => null,
   fetchPatronusRobotStatus: async () => robots.status,
   cancelPatronusRobot: async (robot: PatronusRobot) => {
     calls.push(`cancel ${robot.id}`)
@@ -180,6 +198,7 @@ vi.mock("@/stores/pull-requests", () => ({
   refreshPullRequestsAfterPush: async () => {},
   refreshPullRequestsAfterPushes: async () => {},
   getPullRequest: (name: string) => stores.pullRequests[name],
+  getStackPullRequest: (root: string) => stores.stackPullRequests[root],
   getGitHubRepository: () => ({ owner: "JetBrains", name: "ultimate" }),
   retargetPullRequest: async (name: string, base: string) => {
     calls.push(`retarget ${name} ${base}`)
@@ -249,6 +268,8 @@ beforeEach(() => {
   stores.retargetError = null
   stores.movedInStack = []
   stores.descendants = {}
+  stores.stackBranches = {}
+  stores.stackPullRequests = {}
   stores.synced = Promise.resolve()
   // a root with stacks on: a stack without a parent
   addBranch("auth", null, false)
@@ -559,6 +580,85 @@ describe("pushWithChildren", () => {
     expect(await pushing).toBe(true)
     expect(calls).toEqual(["push login"])
     expect(toasts.map(toast => toast.title)).toEqual(["Pushed login"])
+  })
+
+  describe("the stack branch of the whole stack", () => {
+    /** auth with login and session built on it, a stack that forks; its stack branch built, `remote` its remote status */
+    function forkingStack(remote: RemoteStatus | null): void {
+      robots.running = undefined
+      addBranch("login", "auth", false)
+      addBranch("session", "auth", false)
+      stores.descendants.auth = ["login", "session"]
+      stores.stackBranches.auth = {
+        root: "auth",
+        branchName: "user/stack/auth",
+        members: ["auth", "login", "session"],
+        commitCount: 3,
+        state: "Built",
+        tip: "stack-tip",
+        blockedBy: null,
+        conflict: null,
+        error: null,
+        remoteStatus: remote,
+      }
+    }
+
+    it("goes along after the branches once it is on the remote, leased on its remote head, in the one toast", async () => {
+      forkingStack(testRemoteStatus({ commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old" }))
+      expect(await pushWithChildren("auth")).toBe(true)
+      expect(calls).toEqual(["push auth login session stack:auth"])
+      expect(stores.expectedRemotes).toEqual([null, null, null, "stack-old"])
+      expect(stores.stackBranches.auth!.remoteStatus?.remoteTip).toBe("tip")
+      expect(records).toEqual(["push auth", "push login", "push session", "push the whole stack branch of auth"])
+      expect(toasts.map(toast => [toast.title, text(toast.description)])).toEqual([
+        ["Pushed auth, login and session", "3 commits · created 3 remote branches · pushed the whole stack branch"],
+      ])
+    })
+
+    it("goes along while its pull request is open, though the remote doesn't have it yet", async () => {
+      forkingStack(testRemoteStatus({ exists: false, commitsAhead: 3, remoteTip: null }))
+      stores.stackPullRequests.auth = { number: 12, state: "open", url: "https://github.com/JetBrains/ultimate/pull/12" } as PullRequest
+      expect(await pushWithChildren("auth")).toBe(true)
+      expect(calls).toEqual(["push auth login session stack:auth"])
+      expect(stores.expectedRemotes.at(-1)).toBeNull()
+    })
+
+    it("stays local while it is neither on the remote nor in an open pull request, and while the sync didn't build it", async () => {
+      forkingStack(testRemoteStatus({ exists: false, commitsAhead: 3, remoteTip: null }))
+      stores.stackPullRequests.auth = { number: 12, state: "closed" } as PullRequest
+      expect(await pushWithChildren("auth")).toBe(true)
+      stores.stackBranches.auth = { ...stores.stackBranches.auth!, state: "Conflict", remoteStatus: testRemoteStatus({ commitsAhead: 2, remoteTip: "stack-old" }) }
+      addBranch("login", "auth")
+      expect(await pushWithChildren("auth")).toBe(true)
+      expect(calls).toEqual(["push auth login session", "push login"])
+    })
+
+    it("is pushed alone when the branches are on the remote, with the pull request of the whole stack", async () => {
+      forkingStack(testRemoteStatus({ commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old" }))
+      for (const name of ["auth", "login", "session"]) {
+        stores.branches[name] = { ...stores.branches[name]!, remoteStatus: testRemoteStatus({ remoteTip: "tip" }) }
+      }
+      const pullRequest = { number: 12, state: "open", url: "https://github.com/JetBrains/ultimate/pull/12" } as PullRequest
+      stores.stackPullRequests.auth = pullRequest
+      expect(await pushWithChildren("auth")).toBe(true)
+      expect(calls).toEqual(["push stack:auth"])
+      const [toast] = toasts
+      expect([toast?.title, text(toast?.description), toast?.actionProps?.children]).toEqual(["Pushed the whole stack branch of auth", "2 commits", "Open Pull Request"])
+      toast!.actionProps!.onClick()
+      expect(calls.at(-1)).toBe(`open ${pullRequest.url}`)
+    })
+
+    it("refuses the whole push when its remote moved with commits it lacks, and says so as the stack branch", async () => {
+      forkingStack(testRemoteStatus({ commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old" }))
+      stores.movedInStack = [{ branch: "stack:auth", commitsBehind: 1 }]
+      expect(await pushWithChildren("auth")).toBe(false)
+      expect(stores.stackBranches.auth!.remoteStatus?.remoteTip).toBe("theirs")
+      expect(stores.branches.auth!.remoteStatus?.remoteTip).toBeNull()
+      expect(records).toEqual(["push the whole stack branch of auth"])
+      expect(toasts.map(toast => [toast.title, toast.description])).toEqual([
+        ["Cannot push the whole stack branch of auth", "Its remote branch has a commit the stack branch lacks: sync, then push again"],
+      ])
+    })
   })
 })
 

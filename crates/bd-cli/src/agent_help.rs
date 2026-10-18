@@ -131,8 +131,8 @@ Workflow: the commits into pull requests
    `bd sync` prints the push each branch needs as `push`, ready to run once approved. With stacked branches, `stacks`
    in `bd sync` and `bd status` is the stack branch of each stack that forks, `{prefix}/stack/<root>`: all its commits
    in one branch, for a Safe Push of the whole stack (`state`: `built`, `blocked` by `member`, `conflict`, `stale`);
-   push none that isn't `built`. `bd push <root> --with-children` pushes it in the same atomic push when this sync
-   built it (`stack_warnings` names one left out).
+   push none that isn't `built`. `bd push <root> --with-children` pushes it in the same atomic push once it is on the
+   remote or its pull request is open, when this sync built it (`stack_warnings` names one left out).
 5. Safe Push (Patronus; the repository on Space, the Safe Push CLI logged in once, else `not_logged_in`). First, always,
    `bd safe-push <branch> --check`: it syncs and starts nothing, and prints
    - `profile` (default: the one of the last robot of the branch) and the `profiles` to choose from (--profile
