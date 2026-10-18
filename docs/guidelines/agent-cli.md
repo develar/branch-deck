@@ -88,17 +88,17 @@ An error looks like this:
 | Exit | Meaning | Codes |
 |---|---|---|
 | 0 | ok | |
-| 1 | conflict | `conflict`, `hunk_conflict`, `stack_not_built` |
-| 2 | invalid input | `invalid_arguments`, `hunk_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `round_moved` |
-| 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused` |
+| 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
+| 2 | invalid input | `invalid_arguments`, `hunk_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution` |
+| 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `round_moved`, `locked` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
 "The repository has no commits yet: commit to the main branch, then sync".
 
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.
-`retryable` is true for `head_moved`, `groups_moved`, `stacks_moved`, `locked` and `network_error`: retry when it is
+`retryable` is true for `head_moved`, `groups_moved`, `stacks_moved`, `round_moved`, `locked` and `network_error`: retry when it is
 true, whatever the exit code.
 
 A write whose step after the write failed (the descriptions or the sync of `bd group --sync`, the sync of
@@ -549,7 +549,7 @@ session open prints the open round again, fetches nothing and writes the missing
   and moves no ref.
 - Exit 2 changes nothing: `missing_resolution`, `resolution_outside_conflict` (a line outside the blocks changed, or
   only the line ends, or a byte order mark or UTF-16), `unresolved_markers`, with `paths` and the copies in the message (and the paths changed in the
-  working tree, where bd never reads); `no_session` without a session. `round_moved` (exit 2): another round is open,
+  working tree, where bd never reads); `no_session` without a session. `round_moved` (exit 3): another round is open,
   `bd update` prints it. `empty_resolution` (exit 2): the resolution changes nothing; ask the user, then
   `--allow-empty` keeps an empty commit and `--drop-empty <commit>` drops it (never counted as landed).
   `session_stale` (exit 4): the branch was rewritten or HEAD left it. `unsupported_conflict` (exit 4): binary,
@@ -642,7 +642,7 @@ lock that keeps HEAD's tree, so the index and the working tree stay as they are
 - Into an older commit, the change is added to the trees of `[to, from)`, and `from` keeps its tree, so it holds only
   the rest; into a newer one, it is taken out of the trees of `[from, to)`, and `to` keeps its tree. A hunk applies by
   its line ranges, so a commit between that only shifts the lines takes it; one that changes the same lines, or lacks
-  the file, is `hunk_conflict` (exit 1, `commits` and `paths` name it), and nothing changed.
+  the file, is `hunk_conflict` (exit 4, `commits` and `paths` name it), and nothing changed: bd can't move it.
 - `commits` maps every recreated commit, oldest first. `changed` counts the commits whose changes differ: `from`,
   `to` and the commits between whose diff of the file changed. They get the current user as committer and lose their
   mapping note, so the next sync copies them again; the others keep author, committer and note, and their virtual
@@ -1021,11 +1021,12 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
   what a push would retarget and GitHub is only asked. Without a GitHub repository of the branches or a token, GitHub
   is not asked.
 
-### `bd safe-push <branch> [--whole-stack] [--dry-run] [--profile P] [--check] [--without-approvals] [--create-pull-request] [--cancel-running] [--allow-dangling]`
+### `bd safe-push <branch> [--whole-stack] [--patronus-dry-run] [--profile P] [--check] [--without-approvals] [--create-pull-request [--reviewer LOGIN]… [--no-assign]] [--cancel-running] [--allow-dangling]`
 
 Starts a Patronus robot on the virtual branch, as the Safe Push of the app ([Patronus](../../spec/branch/patronus.spec.md)):
 a Safe Push (Patronus rebases the branch onto the target, runs the checks and pushes it into the target when they
-pass) or, with `--dry-run`, a Dry Run (the checks only). The repository must be on Space (`origin` on
+pass) or, with `--patronus-dry-run`, a Patronus Dry Run (the checks only; it pushes and starts a robot as a Safe Push
+does, so it needs the user's approval too; `--check` is the preview that starts nothing). The repository must be on Space (`origin` on
 `git.jetbrains.team`, else `not_on_space`), and the Space token of the Safe Push CLI must be there: run
 `./safePush.cmd` once, or set `SPACE_TOKEN` (else `not_logged_in`). `SAFEPUSH_PATRONUS_URL` picks another Patronus
 instance, as for the Safe Push CLI.
@@ -1054,8 +1055,8 @@ lands them all. The branches built on it stay; after the merge the next sync bui
   and the robot starts from it (`source` is its virtual branch, no `state`). The approvals count in the pull request
   of the stack branch, the stack's own (`--create-pull-request` opens it, titled by the root, a section per branch in
   its body; never retargeted), the review asks Patronus about the stack branch with that pull request, and a start
-  comments on it. Refused with `conflict` (exit 1, `error.commits` and `error.paths`): a commit of the stack branch
-  conflicts with the commits of the stack before it, though each branch builds; with `stack_not_built` (exit 1): a
+  comments on it. Refused with `stack_conflict` (exit 4, `error.commits` and `error.paths`): a commit of the stack branch
+  conflicts with the commits of the stack before it, though each branch builds; with `stack_not_built` (exit 4): a
   branch of the stack is blocked or failed, or the stack branch is stale; both say to land the stack in pieces
   (`bd safe-push <branch>` lands a branch with what it is built on). A remote stack branch with commits the stack
   lacks is `push_refused` (`bd push <root> --with-children --force` replaces them, after the user approves).

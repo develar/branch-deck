@@ -5,7 +5,7 @@
 //! nothing; bd never stashes
 
 use crate::context::RepoContext;
-use crate::error::{CliError, ErrorCode};
+use crate::error::{CONFLICT_EXIT, CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
 use crate::sync_command::{LandedSummary, is_zero, landed_ids, landed_summary};
 use git_ops::revs::short_id;
@@ -158,7 +158,7 @@ impl UpdateOutput {
   /// 1 for a conflict or an open session, else 0
   pub const fn exit_code(&self) -> i32 {
     let open_session = matches!(self.state, UpdateOutcome::Conflict | UpdateOutcome::Pending) && !self.dry_run;
-    if open_session || self.conflict.is_some() { ErrorCode::Conflict.exit_code() } else { 0 }
+    if open_session || self.conflict.is_some() { CONFLICT_EXIT } else { 0 }
   }
 }
 

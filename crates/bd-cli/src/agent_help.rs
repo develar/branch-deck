@@ -122,11 +122,11 @@ Workflow:
    (`whole_stack.source`; a straight chain has none and starts from its last branch), only that branch is pushed,
    `lands` names every branch of the stack, and its pull request is the stack's own
    (`bd safe-push <branch> --whole-stack --create-pull-request`), where the approvals of the whole stack count.
-   `conflict` (exit 1): the stack branch conflicts though each branch builds (`error.commits`, `error.paths`);
-   `stack_not_built` (exit 1): a branch of it is blocked or failed, or the stack branch is stale: tell the user, and
+   `stack_conflict` (exit 4): the stack branch conflicts though each branch builds (`error.commits`, `error.paths`);
+   `stack_not_built` (exit 4): a branch of it is blocked or failed, or the stack branch is stale: tell the user, and
    land it in pieces. Patronus judges
    the approvals of the pull request: a bot's approval counts for nothing (`not_counted`). Show them to the user; only
-   after the user approves, `bd safe-push <branch>` (--profile <id|name|none>; --dry-run runs the checks without the
+   after the user approves, `bd safe-push <branch>` (--profile <id|name|none>; --patronus-dry-run runs the checks without the
    push into the target and checks no review). It pushes the branch first when `push_needed`, with the parents that
    have commits for the remote (by content: a branch only rebuilt on a newer baseline is not pushed), as `bd push`
    does, then starts the robot:
@@ -174,7 +174,7 @@ own share one branch. `bd fold` (--branch, --expect-head, --dry-run) folds fixup
 A change that landed in the wrong commit: `bd move-hunk <from> <to> <path>` (--hunk <n>, repeatable; --expect-head,
 --dry-run, --sync) moves the changes of the file `path`, or only its hunks numbered as in the patch of `from`, into the
 commit `to`, older or newer; HEAD's tree, the index and the working tree stay, the commits between keep their diff.
-`bd commits <from> --patch` shows the hunks. `hunk_conflict` (exit 1): a commit between changes the same lines, or
+`bd commits <from> --patch` shows the hunks. `hunk_conflict` (exit 4): a commit between changes the same lines, or
 lacks the file; `hunk_not_found` (exit 2). It prints an `undo_token`; the virtual branches change with the next sync.
 
 Rules: never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; move a
@@ -227,7 +227,7 @@ or applies the update (exit 0). --take and --delete resolve a file without an ed
 `bd update --continue --dry-run` checks the resolution; it moves no ref and writes nothing but git objects. Exit 2:
 `unresolved_markers`, `resolution_outside_conflict` (a line outside the blocks changed) or `missing_resolution`, with
 `paths` and the copies in the message: fix those copies and run it again. A refusal changes nothing: the round stays
-open and the copies keep your edits (`edited` in the round). `round_moved` (exit 2):
+open and the copies keep your edits (`edited` in the round). `round_moved` (exit 3):
 another round is open; `bd update` prints it. `empty_resolution` (exit 2): the resolution leaves the commit without
 changes; ask the user, then add --allow-empty (keep an empty commit) or --drop-empty <commit> (drop it).
 At exit 0, `resolutions[]` lists per round the `commit`, its `new_id` (`empty`: kept or dropped) and per file

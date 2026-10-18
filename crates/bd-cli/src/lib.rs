@@ -40,7 +40,7 @@ use crate::check_command::{CheckArgs, check};
 use crate::commits::{CommitsArgs, commits, commits_brief};
 use crate::context::{Environment, RepoContext, RepoOptions};
 use crate::describe::{DescribeArgs, describe};
-use crate::error::{CliError, ErrorCode};
+use crate::error::{CONFLICT_EXIT, CliError, ErrorCode};
 use crate::fold_command::{FoldArgs, fold};
 use crate::install::{InstallArgs, install, skill_command};
 use crate::move_hunk_command::{MoveHunkArgs, MoveHunkOutput, move_hunk};
@@ -123,7 +123,7 @@ enum Command {
   /// changes sit on files it writes. `bd help worktrees`
   Pick(PickArgs),
   /// Move the changes of one file (all of them, or the hunks --hunk names) from one commit into another, both ahead of
-  /// the baseline: one rewrite that keeps HEAD's tree. `hunk_conflict` (exit 1) when a commit between changes the same
+  /// the baseline: one rewrite that keeps HEAD's tree. `hunk_conflict` (exit 4) when a commit between changes the same
   /// lines
   MoveHunk(MoveHunkArgs),
   /// Suggest a grouping of the commits into branches: a plan for `bd group`, checked by a trial sync; exit code 1 when a
@@ -275,7 +275,7 @@ fn print_summary<T: Serialize>(out: &mut dyn Write, result: Result<T, CliError>,
 
 /// The exit code of a conflict when `conflict`, else 0
 const fn conflict_if(conflict: bool) -> i32 {
-  if conflict { ErrorCode::Conflict.exit_code() } else { 0 }
+  if conflict { CONFLICT_EXIT } else { 0 }
 }
 
 fn print<T: Serialize>(out: &mut dyn Write, value: &T) -> Result<(), CliError> {

@@ -3,7 +3,7 @@
 //! descriptions of a plan and, with --sync, the sync
 
 use crate::context::RepoContext;
-use crate::error::{CliError, ErrorBody, ErrorCode};
+use crate::error::{CONFLICT_EXIT, CliError, ErrorBody, ErrorCode};
 use crate::group_plan::{DescriptionChange, changed_descriptions, check_descriptions, parse_group_plan, write_descriptions};
 use crate::output::SchemaVersion;
 use crate::pick_command::undo_pick;
@@ -160,7 +160,7 @@ impl RewriteOutput {
 pub fn after_rewrite_exit_code(error: Option<&ErrorBody>, sync: Option<&SyncOutput>) -> i32 {
   match (error, sync) {
     (Some(error), _) => error.code.exit_code(),
-    (None, Some(sync)) if sync.has_unbuilt() => ErrorCode::Conflict.exit_code(),
+    (None, Some(sync)) if sync.has_unbuilt() => CONFLICT_EXIT,
     _ => 0,
   }
 }

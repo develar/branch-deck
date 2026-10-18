@@ -163,7 +163,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   object, so that the undo token stays. The names must be one vocabulary: a write prints `previous_head` and
   `new_head`, a commit and its copy are `{commit, new_id}`, a state is `state`.
 - The exit code must follow the code: 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network
-  error. `retryable` must be true only where the same command again can succeed: never for `lease_rejected` (a push
+  error. Exit 1 must never be an error object: it is the output of a command that found a conflict (`state:
+  "conflict"`, a branch not built, `ok: false`); a conflict bd refuses to work around is exit 4. `retryable` must be
+  true only where the same command again can succeed: never for `lease_rejected` (a push
   again with `--force` would drop what the remote has now) nor for a stale undo token (`undo_stale`).
 - An empty prefix must fail with `no_branch_prefix`, a path outside a repository with `not_a_repository`, bad arguments
   with `invalid_arguments`, an unknown `--branch` with `unknown_branch`; all exit with 2.
@@ -397,7 +399,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch`)
 - A hunk must apply by its line ranges to the file as each commit between has it, through one
   `merge-tree --write-tree --stdin`: a commit that shifts the lines still takes it; one that changes the same lines, or
-  lacks the file, is `hunk_conflict` (exit 1) with `commits` and `paths`, and nothing is written but git objects.
+  lacks the file, is `hunk_conflict` (exit 4) with `commits` and `paths`, and nothing is written but git objects.
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_commit_between_that_shifts_the_lines_still_applies`, `a_commit_between_that_changes_the_same_lines_conflicts`)
   [@test] ../../crates/git-ops/src/merge_tree_output.rs (`parses_the_merges_of_a_stdin_run`)
 - `from`, `to` and the commits between whose diff of the file changed (`patch-id --stable`) must keep their author
@@ -736,7 +738,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd safe-push`
 
-- `bd safe-push <branch>` must start a Patronus Safe Push of the virtual branch (with `--dry-run` a Dry Run) as the
+- `bd safe-push <branch>` must start a Patronus Safe Push of the virtual branch (with `--patronus-dry-run` a Dry Run: no
+  `--dry-run`, which means "write nothing" for every other command) as the
   app's start does (`startSafePush` after `getSafePushDecision`, [Patronus](../branch/patronus.spec.md)): sync, then push the branch as `bd push <branch>`
   pushes it, under the repository lock, then start the robot on `refs/heads/<prefix>/virtual/<branch>` after the
   lock, never repeated. `--check` must print the same object and push or start nothing, with the `refusals` a start
@@ -822,9 +825,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   run. A straight chain, which has no stack branch, must start from its last branch (`source` its virtual branch).
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`, `the_whole_stack_of_a_straight_chain_lands_from_its_last_branch`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check_of_the_whole_stack`)
-- A stack branch that is not `built` must refuse the start, nothing pushed or started: `conflict` (exit 1) with the
+- A stack branch that is not `built` must refuse the start, nothing pushed or started: `stack_conflict` (exit 4) with the
   commit (`error.commits`) and the files (`error.paths`) when a commit of it conflicts with the commits of the stack
-  before it, `stack_not_built` (exit 1) naming the branch of the stack that is blocked or failed, or why it is stale;
+  before it, `stack_not_built` (exit 4) naming the branch of the stack that is blocked or failed, or why it is stale;
   both say to land it in pieces. `--check` lists the refusal and asks Patronus no review of it. A remote stack branch
   with commits the stack lacks must be `push_refused`, naming `bd push <root> --with-children --force`.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_whole_stack_that_conflicts_is_refused_with_the_conflict`)

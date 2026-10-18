@@ -72,9 +72,10 @@ const COMMENT_CLOCK_SLACK: u32 = 120;
 pub struct SafePushArgs {
   /// The branch the robot runs on
   pub branch: String,
-  /// A Dry Run: the checks without the push into the target; the review is not checked
+  /// Start a Patronus Dry Run: the robot runs the checks without the push into the target; the review is not checked.
+  /// It pushes the branch and starts a robot, as a Safe Push does: only after the user approves
   #[arg(long)]
-  pub dry_run: bool,
+  pub patronus_dry_run: bool,
   /// The merge profile, by id or name; `none` for the default checks. Default: the profile of the last robot of the
   /// branch
   #[arg(long, value_name = "PROFILE")]
@@ -83,11 +84,11 @@ pub struct SafePushArgs {
   #[arg(long)]
   pub check: bool,
   /// Start a Safe Push although the code owners have not approved it: Patronus fails it unless they approve meanwhile
-  #[arg(long, conflicts_with = "dry_run")]
+  #[arg(long, conflicts_with = "patronus_dry_run")]
   pub without_approvals: bool,
   /// Push the branch and open its GitHub pull request, where the code owners approve, assigned to the user; no robot
   /// starts. The Safe Push starts from it then
-  #[arg(long, conflicts_with_all = ["dry_run", "check", "without_approvals", "profile"])]
+  #[arg(long, conflicts_with_all = ["patronus_dry_run", "check", "without_approvals", "profile"])]
   pub create_pull_request: bool,
   /// With `--create-pull-request`: ask this GitHub login to review it (repeatable); `github_login` of the `review`
   /// reviewers of `--check` names the suggested code owners
@@ -445,7 +446,11 @@ enum Subject<'a> {
 }
 
 pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Environment) -> Result<SafePushOutput, CliError> {
-  let mode = if args.dry_run { PatronusPushMode::DryRun } else { PatronusPushMode::RebaseAutosquash };
+  let mode = if args.patronus_dry_run {
+    PatronusPushMode::DryRun
+  } else {
+    PatronusPushMode::RebaseAutosquash
+  };
   let service = patronus_service(environment)?;
   let github = github_service(context, environment);
   let runtime = context.runtime()?;
@@ -508,7 +513,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     if refusal.code == ErrorCode::ApprovalsMissing {
       error.review = output.review.take().map(Box::new);
     }
-    if let (ErrorCode::Conflict, Subject::Stack(update)) = (refusal.code, &subject)
+    if let (ErrorCode::StackConflict, Subject::Stack(update)) = (refusal.code, &subject)
       && let Some(conflict) = &update.conflict
     {
       error.commits = vec![context.short_ids(std::iter::once(conflict.commit.as_str())).get(&conflict.commit).to_string()];
@@ -712,7 +717,7 @@ fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, stack: &'r Stac
   match update.state {
     StackBranchState::Built => {}
     StackBranchState::Conflict => refusals.push(Refusal {
-      code: ErrorCode::Conflict,
+      code: ErrorCode::StackConflict,
       message: stack_conflict_message(context, synced, update),
     }),
     StackBranchState::Blocked | StackBranchState::Stale => refusals.push(Refusal {
@@ -998,7 +1003,7 @@ fn plan(
     stack.tip.is_some()
       && refusals
         .iter()
-        .all(|refusal| refusal.code != ErrorCode::Conflict && refusal.code != ErrorCode::StackNotBuilt)
+        .all(|refusal| refusal.code != ErrorCode::StackConflict && refusal.code != ErrorCode::StackNotBuilt)
   });
   let review = if pushes && reviewable {
     let repository = ReadinessRepository {

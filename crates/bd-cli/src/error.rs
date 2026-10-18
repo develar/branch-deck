@@ -7,6 +7,10 @@ use std::fmt;
 use sync_core::baseline::NoBaseline;
 use sync_core::sync::SyncDeferred;
 
+/// The exit code of a conflict: the output of the command (`state: "conflict"`, a branch not built, `check.ok` false),
+/// never an error object
+pub const CONFLICT_EXIT: i32 = 1;
+
 /// A stable error code. Agents branch on the code and the exit code, never on the message
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -25,14 +29,14 @@ pub enum ErrorCode {
   InvalidPlan,
   /// A commit of the request is not ahead of the baseline
   NotAheadOfBaseline,
-  /// A cherry-pick conflicts; `bd safe-push --whole-stack`: a commit of the stack branch conflicts with the commits of
-  /// the stack before it (`commits`, `paths`), though each branch builds: land the stack in pieces
-  Conflict,
+  /// `bd safe-push --whole-stack`: a commit of the stack branch conflicts with the commits of the stack before it
+  /// (`commits`, `paths`), though each branch builds: nothing was pushed or started; land the stack in pieces
+  StackConflict,
   /// `bd safe-push --whole-stack`: the stack branch is not the build of the stack's commits: a branch of it is blocked or
   /// failed, or the ref is stale (another process moved it); `bd sync` says why. Nothing was pushed or started
   StackNotBuilt,
   /// `bd move-hunk`: the change doesn't apply to a commit between the two, which changes the same lines or lacks the
-  /// file; `commits` and `paths` name it. Nothing was written
+  /// file; `commits` and `paths` name it. Nothing was written: move it by hand, or not at all
   HunkConflict,
   /// `bd move-hunk --hunk` names a hunk the file's patch in the commit doesn't have; `bd commits <id> --patch` numbers
   /// them from 1
@@ -129,10 +133,10 @@ pub enum ErrorCode {
 }
 
 impl ErrorCode {
-  /// 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network error
+  /// 0 ok, 1 conflict (never an error: the output of the command, see `CONFLICT_EXIT`), 2 invalid input, 3 stale
+  /// (retry), 4 refused, 5 git or network error
   pub const fn exit_code(self) -> i32 {
     match self {
-      Self::Conflict | Self::HunkConflict | Self::StackNotBuilt => 1,
       Self::InvalidArguments
       | Self::HunkNotFound
       | Self::NotARepository
@@ -144,14 +148,16 @@ impl ErrorCode {
       | Self::UnresolvedMarkers
       | Self::ResolutionOutsideConflict
       | Self::MissingResolution
-      | Self::EmptyResolution
-      | Self::RoundMoved => 2,
-      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::Locked => 3,
+      | Self::EmptyResolution => 2,
+      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::RoundMoved | Self::Locked => 3,
       Self::NoBaseline
       | Self::OperationInProgress
       | Self::DetachedHead
       | Self::UndoStale
       | Self::LeaseRejected
+      | Self::StackConflict
+      | Self::StackNotBuilt
+      | Self::HunkConflict
       | Self::RangeUnknown
       | Self::SourceOnNewerBaseline
       | Self::UncommittedOverlap

@@ -174,7 +174,7 @@ fn a_dry_run_takes_a_profile_by_name_and_checks_no_review() {
   let space = Space::new(&["(auth) Add auth"]);
   space.fake.review_required.store(true, Ordering::SeqCst);
 
-  let (exit_code, output) = space.run(&["auth", "--dry-run", "--profile", "large scale change"]);
+  let (exit_code, output) = space.run(&["auth", "--patronus-dry-run", "--profile", "large scale change"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!((output["mode"].clone(), output["review"].clone()), (json!("dry_run"), Value::Null));
   assert_eq!(output["profile"]["id"], json!("lsc"));
@@ -182,12 +182,12 @@ fn a_dry_run_takes_a_profile_by_name_and_checks_no_review() {
   assert_eq!((start["mode"].clone(), start["mergeProfileId"].clone()), (json!("DRY_RUN"), json!("lsc")));
   assert_eq!(space.fake.check_calls.load(Ordering::SeqCst), 0);
 
-  let (exit_code, output) = space.run(&["auth", "--dry-run", "--profile", "nightly"]);
+  let (exit_code, output) = space.run(&["auth", "--patronus-dry-run", "--profile", "nightly"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
   assert!(output["error"]["message"].as_str().unwrap().contains("lsc (Large Scale Change)"), "{output}");
 
   // an emergency profile skips all checks: only the app offers it, after a warning
-  let (exit_code, output) = space.run(&["auth", "--dry-run", "--profile", "emergency"]);
+  let (exit_code, output) = space.run(&["auth", "--patronus-dry-run", "--profile", "emergency"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
 }
 
@@ -279,7 +279,7 @@ fn a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_witho
   let message = output["error"]["message"].as_str().unwrap();
   assert!(message.contains("the start would run beside it. Pass --cancel-running"), "{output}");
   // a dry run runs beside it
-  let (exit_code, output) = space.run(&["auth", "--dry-run", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--patronus-dry-run", "--check"]);
   assert_eq!((exit_code, output.get("refusals")), (0, None), "{output}");
   let (exit_code, output) = space.run(&["auth", "--cancel-running"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -332,7 +332,7 @@ fn a_stacked_branch_lands_its_parents_with_it() {
   assert_eq!(space.fake.start_calls.load(Ordering::SeqCst), 1, "one robot");
 
   // a dry run checks the same commits
-  let (exit_code, output) = space.run(&["login", "--dry-run"]);
+  let (exit_code, output) = space.run(&["login", "--patronus-dry-run"]);
   assert_eq!((exit_code, output["lands"].clone()), (0, json!(["auth", "login"])), "{output}");
   assert_eq!(space.last_start()["mode"], json!("DRY_RUN"));
 }
@@ -931,7 +931,7 @@ fn the_whole_stack_lands_in_one_robot_from_its_stack_branch() {
   let (exit_code, output) = space.run(&["auth", "--whole-stack"]);
   assert_error(&output, exit_code, (4, "robot_running"));
   assert_eq!(output["error"]["message"], json!("A Safe Push of login is running: wait until it merges"));
-  let (exit_code, output) = space.run(&["auth", "--whole-stack", "--dry-run"]);
+  let (exit_code, output) = space.run(&["auth", "--whole-stack", "--patronus-dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   // on the remote as it is: nothing to push
   assert_eq!(
@@ -975,11 +975,11 @@ fn a_whole_stack_that_conflicts_is_refused_with_the_conflict() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     (output["whole_stack"]["state"].clone(), output["refusals"][0]["code"].clone(), output["review"].clone()),
-    (json!("conflict"), json!("conflict"), Value::Null),
+    (json!("conflict"), json!("stack_conflict"), Value::Null),
     "a stack branch that is not built has no commits to review"
   );
   let (exit_code, output) = space.run(&["login", "--whole-stack"]);
-  assert_error(&output, exit_code, (1, "conflict"));
+  assert_error(&output, exit_code, (4, "stack_conflict"));
   assert_eq!(
     (output["error"]["commits"].clone(), output["error"]["paths"].clone()),
     (json!([changed]), json!(["config.txt"]))
@@ -1001,7 +1001,7 @@ fn a_whole_stack_that_conflicts_is_refused_with_the_conflict() {
   write(&space.repo, "config.txt", "b");
   commit_all(&space.repo, "(auth) Change config", 1_700_000_600);
   let (exit_code, output) = space.run(&["session", "--whole-stack"]);
-  assert_error(&output, exit_code, (1, "stack_not_built"));
+  assert_error(&output, exit_code, (4, "stack_not_built"));
   assert_eq!(
     output["error"]["message"],
     json!(

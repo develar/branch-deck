@@ -143,7 +143,7 @@ fn a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_ref
   let b = commit_all(&repo, "(b) Change line 10 again", 1_700_000_300);
 
   let (exit_code, output) = run_in(&repo, &["move-hunk", &b, &a, "f.txt"]);
-  assert_error(&output, exit_code, (1, "hunk_conflict"));
+  assert_error(&output, exit_code, (4, "hunk_conflict"));
   assert_eq!((&output["error"]["commits"], &output["error"]["paths"]), (&json!([short_id(&a)]), &json!(["f.txt"])));
   assert_eq!(repo.head(), b);
 

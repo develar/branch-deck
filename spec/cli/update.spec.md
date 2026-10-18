@@ -173,7 +173,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   [@test] ../../crates/git-ops/src/update_resolve_test.rs (`only_text_and_modify_delete_conflicts_are_supported`)
   [@test] ../../crates/git-ops/src/merge_tree_output.rs (`parses_the_tree_the_stages_and_the_messages`, `a_clean_merge_has_only_the_tree`)
 - A second conflicting commit must open a new round with its own directory; the copies of the closed round are
-  removed. `--round <n>` of another round must be `round_moved` (exit 2, not retryable): its message says that
+  removed. `--round <n>` of another round must be `round_moved` (exit 3, retryable: read the open round and retry): its message says that
   `bd update` prints the open round.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_second_conflict_opens_a_second_round_with_its_own_copies`)
 
@@ -306,8 +306,8 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 | Exit | Codes |
 |---|---|
 | 1 | a round is open (`conflict`) or the finish is next (`pending`): an output, not an error |
-| 2 | `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `round_moved`, `invalid_arguments` |
-| 3 | `head_moved`, `locked` (retryable) |
+| 2 | `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `invalid_arguments` |
+| 3 | `head_moved`, `round_moved`, `locked` (retryable) |
 | 4 | `session_stale`, `unsupported_conflict`, `uncommitted_overlap`, `finish_pending` |
 
 - The refusals of a resolution and `unsupported_conflict` must list the files in `paths`.

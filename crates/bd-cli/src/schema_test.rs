@@ -91,7 +91,7 @@ fn schema_lists_every_output() {
     "invalid_arguments",
     "not_a_repository",
     "no_branch_prefix",
-    "conflict",
+    "stack_conflict",
     "head_moved",
     "uncommitted_overlap",
     "unresolved_markers",

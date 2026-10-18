@@ -4,7 +4,7 @@
 //! through the guarded working-tree update; a conflict or local changes in the way change nothing
 
 use crate::context::{Environment, RepoContext};
-use crate::error::{CliError, ErrorCode};
+use crate::error::{CONFLICT_EXIT, CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
 use crate::update_command::{core_error, uncommitted_overlap};
 use git_ops::pick::{FollowState, PickRefusal, PickState};
@@ -74,7 +74,7 @@ pub struct PickOutput {
 impl PickOutput {
   /// 1 for a conflict, else 0
   pub const fn exit_code(&self) -> i32 {
-    if self.conflict.is_some() { ErrorCode::Conflict.exit_code() } else { 0 }
+    if self.conflict.is_some() { CONFLICT_EXIT } else { 0 }
   }
 }
 
