@@ -40,7 +40,7 @@ flowchart TD
     D[diff_scan: one log -p -U0 --raw --no-abbrev] -->|blob ids, hunks| S[symbol_scan]
     R[module_roots: one cat-file of the trees at HEAD] --> S
     S -->|cache misses + Cargo.toml + tsconfig| C[one cat-file --batch of the blobs]
-    C --> P[code_symbols::summarize, one thread per core]
+    C --> P[code_symbols::extract::summarize, one thread per core]
     P -->|not truncated| O[(object cache: blob_summary)]
     O --> S
     S --> G[symbol_dependencies: Order edges, entities]

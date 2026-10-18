@@ -176,7 +176,7 @@ flowchart TB
 ### Implementation Notes
 
 - **Detection Strategies**: 
-  - Merge: `for-each-ref --merged=<baseline>`, then the merge that brought the tip in (see `crates/branch-integration/merge.rs`)
+  - Merge: `for-each-ref --merged=<baseline>`, then the merge that brought the tip in (see `crates/branch-integration/src/merge.rs`)
   - Rebase: one walk of both sides, `log --no-merges --left-right --cherry-mark --source
     --format=%m%x00%S%x00<UPSTREAM_COMMIT_FORMAT> --end-of-options <baseline>...<tip> [^<stack base>] [^<b>]`
     (`rebase::scan_cherry_marks`): the patch ids of both sides are the cost of a cherry-mark walk, so the counts of the
@@ -245,7 +245,7 @@ Key optimizations:
 ## References
 
 - Implementation: `crates/branch-integration/`
-- Cache format: `crates/branch-integration/cache.rs`
+- Cache format: `crates/branch-integration/src/cache.rs`
 - Detection strategies: `merge.rs`, `rebase.rs`, `squash.rs`; the integration commit format: `common.rs`
 - UI: `src/stores/archived-branches.ts` (`newlyArchived`, `clearNewlyArchived`), `src/lib/integration-commit.ts`
 - Tests: `crates/integration-detection-tests/`

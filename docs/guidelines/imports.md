@@ -114,7 +114,7 @@ pub mod pull_requests;
 
 // No re-exports - users import what they need:
 use sync_core::branch_name_suggestion::suggest_branch_names;
-use sync_core::pull_requests::get_pull_requests;
+use sync_core::pull_requests::list_pull_requests;
 ```
 
 ### Error Types

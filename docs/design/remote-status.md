@@ -171,7 +171,8 @@ The cherry-pick algorithm ensures accurate comparison:
 Key components:
 - **Remote status calculation**: `crates/sync-core/src/remote_status.rs`
 - **UI display**: `src/lib/remote-status.ts`
-- **Branch processor**: Uses `BranchProcessingParams` to carry baseline reference
+- **Branch processor**: `BranchSyncContext` carries the baseline branch and `RemoteTips` the baseline commit and the
+  remote tips, read once per sync (`crates/sync-core/src/branch_processor.rs`)
 - **Sync orchestration**: Propagates baseline through entire pipeline
 
 ## UI Display Considerations
