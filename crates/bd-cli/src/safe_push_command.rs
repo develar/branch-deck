@@ -27,6 +27,7 @@ use crate::push_command::{
   unpushed_pull_request_draft,
 };
 use crate::push_hold::{PushHolds, StackRobots};
+use crate::robot_list::list_robots;
 use crate::stack_summary::{WholeStack, WholeStackSummary, whole_stack_of};
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncedBranch, lock, sync_locked};
 use git_ops::branch_names::to_final_branch_name;
@@ -859,7 +860,7 @@ fn plan(
 
   // the stack, root first, and the robots of the user, each matched to its branch (or the whole stack) as the app does;
   // what the merged ones landed of it, by content
-  let user_robots = robots(runtime, service, &space, &context.prefix)?;
+  let user_robots = list_robots(context, service, &space)?;
   let table = LandingTable {
     branches: &synced.report.branches,
     stacks: &synced.report.stack_branches,

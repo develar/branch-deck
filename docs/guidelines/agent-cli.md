@@ -128,7 +128,10 @@ the commits the same way a sync does (`sync_core::grouping`, the first phase of 
 integration detection (except for a stacked parent whose commits left HEAD, below), no update check and no network
 command of git. It runs about eight short git processes, with one `log` for all the commits: HEAD, then the baseline
 and the branches under the prefix in one listing, as a sync reads them, and the push URL of `origin`, which tells
-whether the repository is on Space; on Space it asks Patronus for the user's robots once (`landed_by`, below).
+whether the repository is on Space; on Space it reads the user's robots (`landed_by`, below) from the object cache
+while they hold (a minute while one of them runs, five minutes while none does), else asks Patronus for the robots
+started since and polls the running ones, as the app does; `bd push`, `bd safe-push` and `bd robot` ask fresh and keep
+what they listed.
 
 ```json
 {"schema":1,"repository":"/repo","prefix":"develar","head":{"id":"ff366ae0","branch":"master"},

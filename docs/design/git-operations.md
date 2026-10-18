@@ -1307,7 +1307,7 @@ Code: `crates/git-ops/src/copy_commit.rs`, `crates/sync-core/src/branch_processo
 ranges and the blob ids before and after) from a disk cache before they run git, and run one `log --no-walk=unsorted
 --stdin -z --raw --no-abbrev -p -U0` only for the commits it misses (`--no-abbrev`, not `--abbrev=40`, so a SHA-256
 id stays whole).
-- **Safe without invalidation** (but `review_answer` and `build_result`, below). Keys are object ids (`remote_status`, `stack_branch`: a hash of them), and an object never changes: the changes of a commit against
+- **Safe without invalidation** (but `review_answer`, `patronus_robots` and `build_result`, below). Keys are object ids (`remote_status`, `stack_branch`: a hash of them), and an object never changes: the changes of a commit against
   its first parent with fixed diff options (`-M`, `--no-ext-diff`, `--no-textconv`, and `--diff-algorithm=myers`,
   `--inter-hunk-context=0`, `--indent-heuristic` for where the hunks start and end, so `diff.algorithm` and
   `diff.interHunkContext` change no dependency edge) are the same forever. Entries are only evicted, never stale. Each
@@ -1402,6 +1402,12 @@ id stays whole).
   long it holds (`sync_core::review_readiness`): an answer that evaluated the pull request a day, one without the
   evaluation 2 minutes while approvals are missing, 10 without. Errors are never written; `bd safe-push` always asks
   again and writes the answer for the app.
+- `patronus_robots` (a hash of the Patronus server and token, the Space repository and the branch prefix → the user's
+  robots as last listed and polled, when, and a rejected token or a backoff) keeps what `bd status` would ask Patronus
+  on every call (`crates/bd-cli/src/robot_list.rs`): the reader decides how long it holds, a minute while a robot of it
+  runs, five while none does, then a list of the robots started since and a poll of the running ones are merged into
+  it ("Load on Patronus" in [Patronus](../../spec/branch/patronus.spec.md#load-on-patronus)). `bd push`, `bd
+  safe-push` and `bd robot` list fresh and write it; the app keeps its robots in memory.
 - `build_result` ((key version, a hash of the command, `BD_BRANCH` and the sorted `(path, object id)` pairs of what the
   build extracts: one `("", tree id)` without `--build-paths`) → it passed) is the second: `bd check --build` reads it
   in one transaction before the builds and writes the new passes in one after them, so a build that passed on a tree

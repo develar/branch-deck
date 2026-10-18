@@ -8,10 +8,11 @@
 //!   `conflict_info`, a few that may each hold megabytes of file contents, and the chains of `conflict_chain`, in
 //!   `conflicts/` (`CacheConfig::conflict_map_size`); the other stores (the diffs, lines and summaries of commits and
 //!   blobs) in the cache directory itself. A store moved to another environment is dropped from the old one on open.
-//! - **The two exceptions are `review_answer` and `build_result`**, keyed by a hash of what they decide on. An answer
-//!   of Patronus (the changed paths, the target, the reviews of a pull request), which the target's ownership rules
-//!   can outdate: its value carries when it was fetched, and the reader decides how long it holds
-//!   (`sync_core::review_readiness`). A passed build of `bd check --build` (the command, the branch, the ids of what it
+//! - **The exceptions are `review_answer`, `patronus_robots` and `build_result`**, keyed by a hash of what they decide
+//!   on. An answer of Patronus (the changed paths, the target, the reviews of a pull request; the user's robots of a
+//!   repository), which the target's ownership rules or a robot that starts or finishes can outdate: its value carries
+//!   when it was fetched, and the reader decides how long it holds (`sync_core::review_readiness`, `bd`'s
+//!   `robot_list`). A passed build of `bd check --build` (the command, the branch, the ids of what it
 //!   extracts), which what the build reads outside the tree (a JDK, a toolchain) can outdate: `--rebuild` runs it
 //!   anyway. `remote_status` is keyed by a hash too, of commit ids and the user's email: its value is what walks
 //!   between those commits find, so it holds as long as the commit graph does (a `git replace` of a commit in that
@@ -110,10 +111,11 @@ pub(crate) enum Store {
   BuildResult,
   ConflictChain,
   StackBranch,
+  PatronusRobots,
 }
 
 /// How many stores there are
-const STORE_COUNT: usize = 13;
+const STORE_COUNT: usize = 14;
 
 /// The version each store was checked for by this process (`keep_only_version`), by `Store::index`; 0 before a check
 static CHECKED_VERSIONS: [AtomicU64; STORE_COUNT] = [const { AtomicU64::new(0) }; STORE_COUNT];
@@ -132,6 +134,7 @@ pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::BuildResult,
   Store::ConflictChain,
   Store::StackBranch,
+  Store::PatronusRobots,
 ];
 
 impl Store {
@@ -155,7 +158,8 @@ impl Store {
       | Self::RemoteStatus
       | Self::BuildResult
       | Self::ConflictChain
-      | Self::StackBranch => 1,
+      | Self::StackBranch
+      | Self::PatronusRobots => 1,
     }
   }
 
@@ -164,9 +168,15 @@ impl Store {
       Self::CommitPatch => Environment::Patches,
       Self::MergeResult | Self::CommitTree => Environment::Merges,
       Self::ConflictInfo | Self::ConflictChain => Environment::Conflicts,
-      Self::CommitDiff | Self::CommitFiles | Self::CommitLines | Self::BlobSummary | Self::ReviewAnswer | Self::RemoteStatus | Self::BuildResult | Self::StackBranch => {
-        Environment::Main
-      }
+      Self::CommitDiff
+      | Self::CommitFiles
+      | Self::CommitLines
+      | Self::BlobSummary
+      | Self::ReviewAnswer
+      | Self::RemoteStatus
+      | Self::BuildResult
+      | Self::StackBranch
+      | Self::PatronusRobots => Environment::Main,
     }
   }
 
@@ -190,6 +200,7 @@ impl Store {
       Self::BuildResult => "build_result",
       Self::ConflictChain => "conflict_chain",
       Self::StackBranch => "stack_branch",
+      Self::PatronusRobots => "patronus_robots",
     }
   }
 }

@@ -87,6 +87,7 @@ targets:
   - ../../crates/object-cache/src/commit_lines.rs
   - ../../crates/git-executor/src/git_info.rs
   - ../../crates/bd-cli/src/landed.rs
+  - ../../crates/bd-cli/src/robot_list.rs
   - ../../crates/sync-core/src/robot_landing.rs
 ---
 
@@ -219,9 +220,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   Safe Push it was (the branch itself, a branch built on it, or the root with `whole_stack`), the `robot`, the
   `commits` it landed and `after`, the commits added since, the only work left, decided by content
   (`robot_landings`: the commits the robot tested against the branch's); `--brief` the `branch`, `whole_stack` and the
-  count of `after`. One robots request and the push URL of `origin` (`remote get-url`); off Space, without a token or
-  an answer of Patronus nothing is landed.
+  count of `after`. The push URL of `origin` (`remote get-url`) and the user's robots kept in the object cache while
+  they hold, else one list and one poll ([Patronus](../branch/patronus.spec.md#load-on-patronus)); off Space, without
+  a token or an answer of Patronus nothing is landed.
   [@test] ../../crates/bd-cli/src/landed_test.rs (`status_names_the_branches_a_merged_safe_push_landed_and_what_is_left_of_them`)
+  [@test] ../../crates/bd-cli/src/robot_list_test.rs (`status_asks_patronus_once_while_the_kept_robots_hold`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status`)
 - Each branch must show its `origin` (`prefix`, `issue_group` or `issue`) and, for an issue group, its `issue_keys`;
   the output must list `idle_issue_groups`, the keys of the issue groups that group no commit on this HEAD, and

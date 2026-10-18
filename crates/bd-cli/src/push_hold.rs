@@ -8,7 +8,8 @@
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
 use crate::landed::{LandedBranch, LandingTable, find_landed};
-use crate::safe_push_command::{patronus_service, robots};
+use crate::robot_list::list_robots;
+use crate::safe_push_command::patronus_service;
 use crate::status::stack_ancestors;
 use crate::sync_command::SyncOutput;
 use git_ops::branch_names::to_final_branch_name;
@@ -117,7 +118,7 @@ fn find_holds(context: &RepoContext, environment: &Environment, synced: &SyncOut
     return Ok(PushHolds::default());
   };
   let service = patronus_service(environment)?;
-  let robots = robots(context.runtime()?, &service, &space, &context.prefix)?;
+  let robots = list_robots(context, &service, &space)?;
   let report = &synced.report;
   let table = LandingTable {
     branches: &report.branches,

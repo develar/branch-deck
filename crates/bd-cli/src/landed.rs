@@ -4,10 +4,10 @@
 //! added after them the only work left. Until the update archives them, `bd status` names them (`landed_by`), and `bd
 //! push` and `bd safe-push` refuse one that landed whole (`landed`): a push or a robot would land nothing.
 
-use crate::context::{Environment, RepoContext};
+use crate::context::RepoContext;
 use crate::error::CliError;
 use crate::output::ShortIds;
-use crate::safe_push_command::{RobotSummary, join_names, patronus_service, robot_summary, robots};
+use crate::safe_push_command::{RobotSummary, join_names, robot_summary};
 use crate::status::stack_ancestors;
 use git_ops::branch_names::to_final_branch_name;
 use schemars::JsonSchema;
@@ -98,21 +98,6 @@ impl LandedBySummary {
       after: landed.after.iter().map(|id| short.get(id).to_string()).collect(),
     }
   }
-}
-
-/// The user's robots in the repository, best effort: none without Space, a Space token or an answer of Patronus
-pub fn read_robots(context: &RepoContext, environment: &Environment) -> Vec<PatronusRobot> {
-  let read = || -> Result<Vec<PatronusRobot>, CliError> {
-    let Some(space) = context.space_repository()? else {
-      return Ok(Vec::new());
-    };
-    let service = patronus_service(environment)?;
-    robots(context.runtime()?, &service, &space, &context.prefix)
-  };
-  read().unwrap_or_else(|error| {
-    tracing::debug!(error = %error.message, "no landed branches: Patronus is not available");
-    Vec::new()
-  })
 }
 
 /// A robot that merged into the target: a dry run lands nothing

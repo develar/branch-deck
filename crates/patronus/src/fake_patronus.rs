@@ -49,6 +49,8 @@ pub struct FakePatronus {
   pub pull_request_review: Mutex<Option<serde_json::Value>>,
   /// The robots of the list instead of the two built in
   pub robots: Mutex<Option<Vec<serde_json::Value>>>,
+  /// The robots `fetch-updates` answers instead of the built-in one
+  pub updates: Mutex<Option<Vec<serde_json::Value>>>,
   /// The ids of the canceled robots, in order
   pub canceled: Mutex<Vec<String>>,
   /// By robot id: its answer of `GET /robots/{id}` instead of the built-in one
@@ -215,9 +217,12 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
       post(|State(fake): State<Arc<FakePatronus>>, Json(body): Json<serde_json::Value>| async move {
         fake.update_calls.fetch_add(1, Ordering::SeqCst);
         *fake.last_updates.lock().unwrap() = body;
-        let mut robot = robot_json("newer", "SUCCESS", "refs/patronus/safepushcli/ab12cd34", "2026-10-14T09:30:00Z");
-        robot["options"] = profile_options();
-        fake.answer(serde_json::json!({"robots": [robot]}))
+        let robots = fake.updates.lock().unwrap().clone().unwrap_or_else(|| {
+          let mut robot = robot_json("newer", "SUCCESS", "refs/patronus/safepushcli/ab12cd34", "2026-10-14T09:30:00Z");
+          robot["options"] = profile_options();
+          vec![robot]
+        });
+        fake.answer(serde_json::json!({"robots": robots}))
       }),
     )
     .route(

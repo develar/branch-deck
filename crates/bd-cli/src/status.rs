@@ -1,8 +1,9 @@
 use crate::branch_stats::{BranchInput, BranchStats, branch_stats};
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
-use crate::landed::{LandedBySummary, LandingTable, find_landed, read_robots};
+use crate::landed::{LandedBySummary, LandingTable, find_landed};
 use crate::output::{SchemaVersion, ShortIds};
+use crate::robot_list::read_robots;
 use crate::stack_summary::StackSummary;
 use git_ops::branch_names::to_final_branch_name;
 use schemars::JsonSchema;
@@ -406,7 +407,8 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
   // the brief view prints neither
   let tips = if args.brief { HashMap::new() } else { virtual_tips(context, &grouping) };
   let all_stacks = read_stack_branches(&context.prefix, &grouping, &context.cache());
-  // what merged Safe Pushes landed, until the update archives it: one robots request, by content
+  // what merged Safe Pushes landed, until the update archives it, by content: the robots kept in the object cache while
+  // they hold, else one list and one poll (`robot_list`)
   let landed = if args.unassigned || grouping.branches.is_empty() {
     HashMap::new()
   } else {

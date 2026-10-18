@@ -12,6 +12,8 @@ targets:
   - ../../crates/sync-core/src/review_readiness.rs
   - ../../crates/sync-core/src/robot_landing.rs
   - ../../crates/object-cache/src/review_answer.rs
+  - ../../crates/object-cache/src/patronus_robots.rs
+  - ../../crates/bd-cli/src/robot_list.rs
   - ../../crates/patronus/src/service.rs
   - ../../crates/patronus/src/token.rs
   - ../../crates/sync-core/src/patronus.rs
@@ -208,6 +210,16 @@ reports in it and closes it once merged.
   20 s, actions and merge requests 30 s) and the user agent
   `Branch Deck/<version> (<os>; <arch>)`, so Patronus can tell its load apart. `SAFEPUSH_PATRONUS_URL` (as for the
   CLI) points it at a staging instance.
+- `bd status` (`landed_by`, [Agent CLI](../cli/agent-cli.spec.md#bd-status)) asks Patronus by the same rules,
+  though every call is a process of its own: the user's robots are kept in the `patronus_robots` store of the object
+  cache (`robot_list.rs`), keyed by a hash of the server, the token, the Space repository and the branch prefix. A
+  kept list holds for a minute while a robot of it runs and for five minutes while none does (only a running robot can
+  merge); then one list of the robots started since 2 minutes before the kept list was asked and one poll of the
+  running ones it knows (`fetch-updates`) are merged into it; the first list asks for the last 7 days. A rejected
+  token is not sent again until it changes (another key); after a failure nothing is asked for 1 s, doubled up to 10
+  minutes, reset by the next answer, and the kept robots stay. `bd push`, `bd safe-push` and `bd robot` decide on the
+  robots: they list them fresh and keep the list. `--no-cache` asks every time.
+  [@test] ../../crates/bd-cli/src/robot_list_test.rs (`the_robots_are_kept_while_they_hold_then_the_new_ones_are_listed_and_the_running_ones_polled`, `a_rejected_token_and_a_failure_hold_the_requests_and_keep_the_robots`, `status_asks_patronus_once_while_the_kept_robots_hold`)
 - An answer keeps the robot objects that did not change, so only the chips of changed robots render again; a failed
   answer keeps the robots shown and only changes the availability.
   [@test] ../../src/stores/patronus.test.ts (`keeps the objects of unchanged robots and the record when nothing changed`)

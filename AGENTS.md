@@ -120,7 +120,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   asks the suggested code owners of the groups whose approval is missing on an open pull request
   (`request_pull_request_reviewers`, the per-reviewer 422 fallback shared with the creation).
 - **Patronus**: robot status per branch over the Patronus REST API (`crates/patronus`), polled only while a robot runs
-  (every minute focused, every 5 minutes in the background while a robot pushes); a merge is a toast with Fetch and,
+  (every minute focused, every 5 minutes in the background while a robot pushes; `bd status` keeps them in the object
+  cache by the same rules, `robot_list.rs`); a merge is a toast with Fetch and,
   in the background, an OS notification, and the branches it landed say "Landed with oauth" (its own keeps "Merged"; no
   Safe Push, no push) until the update, after a change below its commit by content (`robot_landings`, the robot's
   tested commits against each branch: "Landed with oauth · 1 commit after it", the new commit the only work left; the

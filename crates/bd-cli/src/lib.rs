@@ -25,6 +25,7 @@ pub mod push_hold;
 pub mod request_review_command;
 pub mod rewrite;
 pub mod robot_command;
+pub mod robot_list;
 pub mod safe_push_command;
 pub mod schema;
 pub mod stack_summary;
@@ -353,6 +354,8 @@ mod request_review_test;
 mod resolve_test;
 #[cfg(test)]
 mod rewrite_test;
+#[cfg(test)]
+mod robot_list_test;
 #[cfg(test)]
 mod robot_test;
 #[cfg(test)]

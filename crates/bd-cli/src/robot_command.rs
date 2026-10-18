@@ -7,7 +7,8 @@
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
-use crate::safe_push_command::{RobotSummary, patronus_error, patronus_service, robot_summary, robots};
+use crate::robot_list::list_robots;
+use crate::safe_push_command::{RobotSummary, patronus_error, patronus_service, robot_summary};
 use crate::stack_summary::{WholeStack, whole_stack_of};
 use crate::status::{read_grouping, stack_ancestors};
 use git_ops::branch_names::to_final_branch_name;
@@ -333,7 +334,7 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
   let robot_id = if let Some(id) = &args.robot {
     id.clone()
   } else {
-    let robots = robots(runtime, &service, &space, &context.prefix)?;
+    let robots = list_robots(context, &service, &space)?;
     let local_tips: HashMap<&str, &str> = grouping.listed.iter().map(|branch| (branch.name.as_str(), branch.tip.as_str())).collect();
     let robot_of = |branch: &str| {
       let full = to_final_branch_name(&context.prefix, branch).ok()?;

@@ -18,7 +18,8 @@ fn sync(space: &Space) {
   assert_eq!(exit_code, 0, "{output}");
 }
 
-fn bd(space: &Space, args: &[&str]) -> (i32, Value) {
+/// `bd --prefix test-user <args>` in the repository of `space`
+pub(crate) fn bd(space: &Space, args: &[&str]) -> (i32, Value) {
   let mut all_args = vec!["--prefix", PREFIX];
   all_args.extend_from_slice(args);
   run_json(&space.environment(), &all_args)
