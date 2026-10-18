@@ -119,18 +119,10 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   const nextStep = getBranchNextStepOf(branch)
   const robotActions = robot === undefined ? [] : getBranchRobotActions(robot, branch, pullRequest)
 
-  // a rewrite waits for a running sync, also of a row that shows its last state meanwhile (a quiet resync)
-  const canModify = branch.commits.length > 0 && !branch.hasError && branch.status !== "Syncing" && !branchSyncStore.getState().isSyncing
-  if (!canModify) {
-    // opening the pull request or the robot changes nothing, nor does canceling the robot
-    const openItems = [openPullRequestItem, ...robotActions.filter(item => item.id === "cancel-robot" || item.id === "open-robot" || item.id === "open-robot-pull-request")].filter(
-      item => item !== null,
-    )
-    if (openItems.length > 0) {
-      groups.push(openItems)
-    }
-    return groups
-  }
+  // a rewrite waits for a running sync, also of a row that shows its last state meanwhile (a quiet resync): the rewrites
+  // stay in the menu, disabled with the reason; the rest rewrites nothing here (a push waits for the sync itself)
+  const rewriteBlocker = getRewriteBlocker(branch)
+  const rewrite = (items: MenuItem[]): MenuItem[] => (rewriteBlocker === null ? items : items.map(item => ({ ...item, disabled: true, description: rewriteBlocker })))
 
   const nameActions: MenuItem[] = [
     {
@@ -152,9 +144,9 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       onSelect: () => (getStackChildren(branch.name).length > 0 ? openInline("ungroup", branch.name) : void moveCommits(branch.commits, null)),
     })
   }
-  groups.push(nameActions)
+  groups.push(rewrite(nameActions))
   if (isStacksEnabled()) {
-    groups.push(getStackMenuItems(branch))
+    groups.push(getStackMenuItems(branch, rewrite))
   }
 
   const commitActions: MenuItem[] = [
@@ -187,7 +179,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       },
     },
   ]
-  groups.push(commitActions)
+  groups.push(rewrite(commitActions))
 
   const reviewBlocker = branchReviewBlocker(branch)
   const historyActions: MenuItem[] = [
@@ -203,16 +195,20 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   ]
   const fixupCount = getListFixups(getAutosquashPlan(), branch.name).count
   if (fixupCount > 0) {
-    historyActions.push({
-      id: "squash-fixups",
-      label: formatSquashFixupsLabel(fixupCount),
-      icon: CombineIcon,
-      onSelect: () => {
-        // the confirmation opens from the button above the commits
-        setExpanded(branch.name, true)
-        openInline("squash-fixups", branch.name)
-      },
-    })
+    historyActions.push(
+      ...rewrite([
+        {
+          id: "squash-fixups",
+          label: formatSquashFixupsLabel(fixupCount),
+          icon: CombineIcon,
+          onSelect: () => {
+            // the confirmation opens from the button above the commits
+            setExpanded(branch.name, true)
+            openInline("squash-fixups", branch.name)
+          },
+        },
+      ]),
+    )
   }
   if (openPullRequestItem !== null) {
     historyActions.push(openPullRequestItem)
@@ -268,6 +264,24 @@ function getPushMenuItem(branch: Branch): MenuItem {
     ...(description !== undefined && { description }),
     onSelect: () => pushOrConfirm(branch.name, "row"),
   }
+}
+
+/**
+ * Why a rewrite of the branch (rename, move, ungroup, restack, amend, unapply, issue reference, squash) can't run now:
+ * it has no commits, it failed to sync, or a sync rebuilds the branches (also a quiet resync of a row that shows its last
+ * state); null when it can
+ */
+function getRewriteBlocker(branch: Branch): string | null {
+  if (branch.commits.length === 0) {
+    return "The branch has no commits"
+  }
+  if (branch.hasError) {
+    return "The branch failed to sync"
+  }
+  if (branch.status === "Syncing" || branchSyncStore.getState().isSyncing) {
+    return "Wait for the sync to finish"
+  }
+  return null
 }
 
 /**
@@ -486,7 +500,7 @@ function getMoveMenuItems(name: string): MenuItem[] {
 const STACK_TARGET_LIMIT = 20
 
 /** "Stack On…" (any other branch that isn't stacked on this one) and "Unstack" */
-function getStackMenuItems(branch: Branch): MenuItem[] {
+function getStackMenuItems(branch: Branch, rewrite: (items: MenuItem[]) => MenuItem[]): MenuItem[] {
   const parent = branch.stack?.declaredParent ?? null
   const descendants = getStackDescendants(branch.name)
   const excluded = new Set([branch.name, ...descendants])
@@ -494,7 +508,8 @@ function getStackMenuItems(branch: Branch): MenuItem[] {
     .getState()
     .branchOrder.filter(name => !excluded.has(name) && name !== parent)
     .slice(0, STACK_TARGET_LIMIT)
-  const items: MenuItem[] = [
+  // a restack is a regroup: it waits for the sync; the fold of the stack and its push don't
+  const items: MenuItem[] = rewrite([
     {
       id: "stack-on",
       label: "Stack On…",
@@ -504,9 +519,9 @@ function getStackMenuItems(branch: Branch): MenuItem[] {
       onSelect: () => {},
       children: targets.map(target => ({ label: target, onSelect: () => void restackBranch(branch.name, target) })),
     },
-  ]
+  ])
   if (parent !== null) {
-    items.push({ id: "unstack", label: `Unstack from ${parent}`, icon: Layers2Icon, onSelect: () => void restackBranch(branch.name, null) })
+    items.push(...rewrite([{ id: "unstack", label: `Unstack from ${parent}`, icon: Layers2Icon, onSelect: () => void restackBranch(branch.name, null) }]))
   }
   // the stack folds into its root, from any of its rows, as ⌥← and ⌥→ do
   const collapse = getStackCollapse(branch.name)

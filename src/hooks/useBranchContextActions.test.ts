@@ -61,6 +61,27 @@ describe("the items of the branch menu", () => {
   })
 })
 
+describe("the branch menu during a sync", () => {
+  afterEach(() => {
+    branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, isSyncing: false })
+  })
+
+  it("keeps every item: the rewrites wait for the sync, disabled with the reason; the rest stays as it is", () => {
+    setBranches(synced("auth", null, unpushed), synced("docs", null, unpushed))
+    const before = menuOf("auth").map(item => item.id)
+    branchSyncStore.setState({ isSyncing: true })
+    const items = menuOf("auth")
+    expect(items.map(item => item.id)).toEqual(before)
+    const rewrites = ["rename", "move-to", "stack-on", "add-issue-reference", "amend-changes", "unapply"]
+    for (const id of rewrites) {
+      expect(items.find(item => item.id === id)).toMatchObject({ disabled: true, description: "Wait for the sync to finish" })
+    }
+    // they rewrite nothing here: Review Changes; a push waits for the sync itself
+    expect(items.find(item => item.id === "review-changes")).toMatchObject({ disabled: false })
+    expect(items.find(item => item.id === "push")).toMatchObject({ disabled: false })
+  })
+})
+
 describe("the push of the branch menu", () => {
   /** The items of the menu of `name` that push the branch, or its ancestors with it */
   function pushItems(name: string): MenuItem[] {

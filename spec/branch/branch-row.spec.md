@@ -421,9 +421,14 @@ under it. The commits of an expanded branch sit on its lane.
   robot of a pull request other than the branch's own).
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
   [@test] ../../src/lib/patronus-actions.test.ts (`cancels a running robot, and opens it in Patronus and the pull request it was started from`)
-- The menu of a branch that can't change (no commits, a conflict or a sync error, a sync running) must offer the copy
-  group, then what changes nothing on the branch: "Open Pull Request", "Cancel Safe Push", "Open in Patronus" and the
-  robot's pull request.
+- The menu of a branch that can't change now (no commits, a sync error, a sync running) keeps every item: the
+  rewrites (Rename…, Move to…, Ungroup, Stack On…, Unstack, Add Issue Reference…, Amend Changes…, Unapply…, Squash
+  Fixups…) are disabled with the reason ("Wait for the sync to finish", "The branch failed to sync", "The branch has no
+  commits", `getRewriteBlocker`); what rewrites nothing on the branch stays as it is: Review Changes, the pull request
+  and its review request, Push (it waits for the sync itself), Safe Push… and Dry Run… (disabled with the reasons of
+  the [next step](next-step.spec.md)), the robot's actions.
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`keeps every item: the rewrites wait for the sync, disabled with the reason; the rest stays as it is`)
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep the actions of the branch menu during a sync, the rewrites disabled with the reason`)
 - An item that opens a form must end with "…"; an item that acts at once must not. An item that doesn't apply now stays,
   disabled, and says why on hover, never in its name ("Add Issue Reference…" with "Every commit of the branch has an
   issue reference"); it is left out only where it never applies (no pull request, no robot). Every item has a stable

@@ -4,7 +4,9 @@ import { captureBranchTableSnapshot, captureContextMenuSnapshot } from "../helpe
 import { findBranchRow, getBranchCells, expandBranch, collapseBranch, verifyBranchState, verifyBranchStatus, getCopyButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { testCopyButton, testContextMenuCopy, readClipboard } from "../helpers/clipboard-helpers"
 import { openContextMenu } from "../helpers/selection-helpers"
+import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
+import { holdCommand } from "../helpers/wait-helpers"
 
 test.describe("Branch Row Layout and Copy Functionality", () => {
   test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
@@ -134,6 +136,27 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await testContextMenuCopy(page, "Copy Branch Name", "test-branch")
     await expect(page.getByRole("menu")).toHaveCount(0)
     await verifyBranchState(branchRow, "closed")
+  })
+
+  test("should keep the actions of the branch menu during a sync, the rewrites disabled with the reason", async ({ page }) => {
+    const branchRow = findBranchRow(page, "test-branch")
+    await waitForBranchSyncComplete(page, "test-branch")
+    // a sync that runs while the menu is open
+    const releaseSync = await holdCommand(page, "sync_branches")
+    const syncButton = page.getByTestId("sync-button")
+    await syncButton.click()
+    await expect(syncButton).toHaveAttribute("aria-busy", "true")
+
+    await openContextMenu(page, branchRow)
+    const rename = page.getByRole("menuitem", { name: "Rename…" })
+    await expect(rename).toBeDisabled()
+    await rename.hover()
+    await expect(page.getByRole("tooltip")).toHaveText("Wait for the sync to finish")
+    // a review rewrites nothing: it opens during the sync
+    await page.getByRole("menuitem", { name: "Review Changes" }).click()
+    await expect.poll(async () => (await getOpenedSubWindows(page)).map(window => window.url)).toEqual([expect.stringMatching(/branch-review/)])
+    releaseSync()
+    await expect(syncButton).not.toHaveAttribute("aria-busy", "true")
   })
 
   test("should verify copy button visual states and icon changes", async ({ page }) => {
