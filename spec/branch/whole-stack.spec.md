@@ -258,11 +258,15 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 - One builder must list the actions of the whole stack (`getWholeStackMenuItems`), which the "⋯" of the stack island
   renders and the root's menu under "Whole Stack ›" (so the root's preview too), for a small stack without an island
   as for an island: "Safe Push Whole Stack" and "Dry Run Whole Stack" ([below](#the-safe-push-of-the-whole-stack-in-the-app)),
-  "Open Pull Request #12" of its pull request, else "Create Pull Request of the Stack…" (disabled
+  "Open Pull Request #12" of its pull request and, while it is open and matches the stack, "Request Review…" of it (the
+  step of the whole stack when it is the one, else `getRequestReviewItem` with the code owners of the readiness of
+  `stack:<root>`; its popover at the header's slot of the island, else at an anchor of the root's slot, also from the
+  root's preview, which closes; its stack branch pushed first), else "Create Pull Request of the Stack…" (disabled
   with the reason while the sync didn't build the stack branch: `getStackBranchBlocker`), Push with Children (the
   island's; the root's menu has it beside its push), "Review Whole Stack" ([Branch Review](branch-review.spec.md#opening))
   and the actions of its robot.
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`, `should review the whole stack in the window of its stack branch, from the island's menu and the root's menu`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should ask for a review of the pull request of a small stack from Whole Stack › of the root's menu, its row's ⋯ and its preview, the popover at the root's row`, `should ask for a review of the pull request of the whole stack from the island's ⋯ and the root's menu, the popover at the header`, `should open Request Review… of the whole stack at the header while its Safe Push runs and the header offers no step`)
 - "Create Pull Request of the Stack…" must open the "Create pull request" dialog of the stack branch into the baseline
   ("Whole air stack → master", "Holds the commits of every branch of the stack: air, bazel, bridge and 4 more: 7
   branches · 14 commits"), its text from `stack_pull_request_text` (`get_new_stack_pull_request`: the descriptions in

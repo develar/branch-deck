@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { CompactPushLabel, PushProgressDescription } from "@/components/branch/BranchPushButton"
-import { NextStepSlot } from "@/components/branch/NextStepSlot"
+import { NextStepSlot, WholeStackRequestReviewAnchor } from "@/components/branch/NextStepSlot"
 import { OrphanedStackPullRequestLine } from "@/components/branch/OrphanedStackPullRequest"
 import { RobotRing } from "@/components/branch/RobotProgress"
 import { LaneNodeDot } from "@/components/branch/StackLanes"
@@ -505,7 +505,12 @@ function StackSafePushSlot({ root, summary }: { root: string; summary: IslandSum
   const leaf = summary.mainLine.at(-1)
   const branch = useBranch(leaf ?? "")
   if (summary.rootHeld || leaf === undefined || branch === undefined) {
-    return <div className="w-40" />
+    // the Request Review… of the whole stack still opens here, from the "⋯"
+    return (
+      <div className="flex w-40 items-center">
+        <WholeStackRequestReviewAnchor root={root} />
+      </div>
+    )
   }
   if (forks) {
     return <WholeStackSlot root={root} leaf={leaf} />

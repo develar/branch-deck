@@ -8,7 +8,7 @@ import { AWAITING_CODE_OWNER, NOT_EVALUATED, NO_REVIEW_NEEDED, availableRobots, 
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer } from "../helpers/pull-request-helpers"
 import { pushOutcome, routeHeldPush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
-import { DEFAULT_CHECKS_ONLY, expectLandedActions, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
+import { DEFAULT_CHECKS_ONLY, expectLandedActions, expectPopoverAtSlot, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents } from "../helpers/sync-helpers"
@@ -76,6 +76,24 @@ async function setupAwaitingCodeOwner(
   const slot = island(page, "air").getByTestId("stack-island-actions").getByTestId("next-step-slot")
   await expect(slot).toHaveAttribute("data-step", "createPullRequest")
   return slot
+}
+
+/**
+ * `template` synced with the pull request #12 of the whole stack of `root` open: its code owner has to approve in it,
+ * and nobody asked him yet (Request Review… is the step of the whole stack)
+ */
+async function setupUnaskedStackPullRequest(
+  setupRepo: (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<void>,
+  template: string,
+  root: string,
+): Promise<void> {
+  const repo = await setupRepo(template, {
+    patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
+    pullRequests: withStackPullRequests(availablePullRequests(), { [root]: stackPullRequest(root, 12) }),
+  })
+  await repo.setReviewAnswers({ answers: { [`stack:${root}`]: AWAITING_CODE_OWNER } })
+  await syncAndWaitForBranches()
 }
 
 /**
@@ -237,12 +255,7 @@ test.describe("Whole stack", () => {
   }) => {
     // the code owner of the whole stack has to approve in #12, and nobody asked him yet
     await stackBranchAheadOfRemote(page, "air")
-    const repo = await setupRepo("stack_island", {
-      patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
-      pullRequests: withStackPullRequests(availablePullRequests(), { air: stackPullRequest("air", 12) }),
-    })
-    await repo.setReviewAnswers({ answers: { "stack:air": AWAITING_CODE_OWNER } })
-    await syncAndWaitForBranches()
+    await setupUnaskedStackPullRequest(setupRepo, syncAndWaitForBranches, "stack_island", "air")
     const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("air"), 45)
     const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["ikorennoy"], refused: [] }))
     const slot = island(page, "air").getByTestId("stack-island-actions").getByTestId("next-step-slot")
@@ -264,6 +277,111 @@ test.describe("Whole stack", () => {
     expect(stackPushes).toEqual([[expect.objectContaining({ branchName: "air", wholeStack: true, expectedRemote: "stack-pushed" })]])
     expect(requests).toEqual([expect.objectContaining({ pullRequestNumber: 12, reviewers: ["ikorennoy"] })])
     await expect(push).not.toHaveAttribute("aria-busy", "true")
+  })
+
+  test("should ask for a review of the pull request of a small stack from Whole Stack › of the root's menu, its row's ⋯ and its preview, the popover at the root's row", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // auth forks, no island: the code owner of the whole stack has to approve in #12, and nobody asked him yet
+    await setupUnaskedStackPullRequest(setupRepo, syncAndWaitForBranches, "stacked_branches", "auth")
+    const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["ikorennoy"], refused: [] }))
+    const popover = page.getByTestId("request-review-popover")
+    const rootSlot = findBranchRow(page, "auth").getByTestId("next-step-slot")
+    const ask = "Waits for the approval of IJPL Code Platform: nobody of it is requested on #12. Ask Ilya Korennoy to review #12"
+
+    // the right-click on the root: "Whole Stack ›" asks the code owner of the whole stack, the popover at the root's row
+    await openWholeStackSubmenu(page, "auth")
+    const item = page.getByRole("menuitem", { name: "Request Review…" })
+    await item.hover()
+    await expect(page.getByRole("tooltip", { name: ask })).toBeVisible()
+    await item.click()
+    await expect(popover).toHaveCount(1)
+    await expect(popover).toContainText("Request a review on #12")
+    await expect(popover.getByTestId("request-review-candidate-ikorennoy")).toBeChecked()
+    await expectPopoverAtSlot(popover, rootSlot)
+    await popover.getByTestId("request-review-submit").click()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #12" })).toBeVisible()
+    expect(requests).toEqual([expect.objectContaining({ pullRequestNumber: 12, reviewers: ["ikorennoy"] })])
+    await expect(popover).toHaveCount(0)
+
+    // "⋯" of the root's row: the same item, the same popover
+    await findBranchRow(page, "auth").getByRole("button", { name: "More actions for auth" }).click()
+    await page.getByRole("menuitem", { name: "Whole Stack" }).click()
+    await page.getByRole("menuitem", { name: "Request Review…" }).click()
+    await expect(popover).toContainText("Request a review on #12")
+    await expectPopoverAtSlot(popover, rootSlot)
+    await page.keyboard.press("Escape")
+    await expect(popover).toHaveCount(0)
+
+    // "⋯" of the root's preview: the preview closes, the popover opens at the root's row
+    const preview = await openBranchPreview(page, "auth")
+    await preview.getByRole("button", { name: "More actions for auth" }).click()
+    await page.getByRole("menuitem", { name: "Whole Stack" }).click()
+    await page.getByRole("menuitem", { name: "Request Review…" }).click()
+    await expect(preview).toHaveCount(0)
+    await expect(popover).toHaveCount(1)
+    await expect(popover).toContainText("Request a review on #12")
+    await expectPopoverAtSlot(popover, rootSlot)
+  })
+
+  test("should ask for a review of the pull request of the whole stack from the island's ⋯ and the root's menu, the popover at the header", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await setupUnaskedStackPullRequest(setupRepo, syncAndWaitForBranches, "stack_island", "air")
+    const popover = page.getByTestId("request-review-popover")
+    const headerSlot = island(page, "air").getByTestId("stack-island-actions").getByTestId("next-step-slot")
+    await expect(headerSlot).toHaveAttribute("data-step", "requestReview")
+
+    // the island's "⋯": the item after its pull request, the popover at the header's slot
+    await openIslandMenu(page, "air")
+    await expect(page.getByRole("menu", { name: "More actions for the air stack" }).getByRole("menuitem")).toHaveText([
+      "Safe Push Whole Stack",
+      "Dry Run Whole Stack",
+      "Open Pull Request #12",
+      "Request Review…",
+      // its pull request is open: the stack branch goes along
+      "Push with Children (8 branches)",
+      "Review Whole Stack",
+      "Collapse Stack",
+    ])
+    await page.getByRole("menuitem", { name: "Request Review…" }).click()
+    await expect(popover).toHaveCount(1)
+    await expect(popover).toContainText("Request a review on #12")
+    await expectPopoverAtSlot(popover, headerSlot)
+    await page.keyboard.press("Escape")
+    await expect(popover).toHaveCount(0)
+
+    // "Whole Stack ›" of the root's menu: the same popover at the header, none at the root's row
+    await openWholeStackSubmenu(page, "air")
+    await page.getByRole("menuitem", { name: "Request Review…" }).click()
+    await expect(popover).toHaveCount(1)
+    await expectPopoverAtSlot(popover, headerSlot)
+  })
+
+  test("should open Request Review… of the whole stack at the header while its Safe Push runs and the header offers no step", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await setupRepo("stack_island", {
+      patronus: { ...availableRobots(wholeStackRobot("air", "whole")), githubRepository: "acme/monorepo" },
+      pullRequests: withStackPullRequests(availablePullRequests(), { air: stackPullRequest("air", 12) }),
+    })
+    await syncAndWaitForBranches()
+    const actions = island(page, "air").getByTestId("stack-island-actions")
+    await expect(island(page, "air").getByTestId("stack-island-landing")).toHaveText("Safe Push of the whole stack lands 7 branches")
+    await expect(actions.getByTestId("next-step-slot")).toHaveCount(0)
+
+    await openIslandMenu(page, "air")
+    await page.getByRole("menuitem", { name: "Request Review…" }).click()
+    const popover = page.getByTestId("request-review-popover")
+    await expect(popover).toHaveCount(1)
+    await expect(popover).toContainText("Request a review on #12")
+    await expectPopoverAtSlot(popover, actions)
   })
 
   test("should say on S why the whole stack can't start without its pull request, and create it from the notice", async ({ page, setupRepo, syncAndWaitForBranches }) => {

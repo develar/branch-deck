@@ -425,7 +425,9 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
 - The surfaces ([Next Step](next-step.spec.md), row 9): the row's slot mounts the popover around its step, or, for
   another step, around an anchor at its end, which "Request Review…" of the branch menu opens
   (`request-review-popover`). The Safe Push popover has no Request Review…: a start whose approvals are missing is
-  refused, and the row's step asks for them.
+  refused, and the row's step asks for them. The pull request of the whole stack has its own, in the actions of the
+  whole stack ([Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)): its popover at the header of the island,
+  else at an anchor of the root's slot (`WholeStackRequestReviewAnchor`).
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should ask the code owner nobody asked yet from Request Review…, then wait for him`, `should open Request Review… from the branch menu, at the row's next step`)
 - The request is `request_pull_request_reviewers` (`POST pulls/<n>/requested_reviewers`, users only, no team), each
   login once: one request, and one per reviewer only when GitHub refuses the list with a 422 (it names nobody), to tell

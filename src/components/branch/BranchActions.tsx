@@ -59,7 +59,7 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
         className="mr-auto group-focus-visible:opacity-100 group-has-focus-visible:opacity-100"
       />
       {canPush && <PushSlot branch={branch} upToDate={upToDate} stackPushInHeader={stackPushInHeader} />}
-      <NextStepSlot branch={branch} />
+      <NextStepSlot branch={branch} wholeStackInHeader={stackPushInHeader} />
       <MoreActionsMenu name={branch.name} disabled={processing} menu={<BranchMenuItems name={branch.name} setExpanded={setExpanded} Items={DropdownMenuItems} />} />
     </RowActions>
   )

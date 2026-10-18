@@ -11,6 +11,7 @@ import type { MenuItem } from "@/lib/menu"
 import { describeStart } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
+import { getRequestReviewItem } from "@/lib/request-review"
 import { describeOrphanedStackPullRequest, describeWholeStackLanding, formatWholeStack, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
 import { branchSyncStore, getBranch, getStackBranch, stackMainLineIn } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
@@ -18,7 +19,8 @@ import { openInline } from "@/stores/inline-row-action"
 import { getStackLandedBy } from "@/stores/landed-stacks"
 import { getStackRobot, isPatronusAvailable } from "@/stores/patronus"
 import { getStackPullRequest } from "@/stores/pull-requests"
-import { getReadinessTarget } from "@/stores/review-readiness"
+import { openRequestReview } from "@/stores/request-review-popover"
+import { getReadinessTarget, getReviewReadiness } from "@/stores/review-readiness"
 
 /** Where the actions of the whole stack render */
 export interface WholeStackMenuOptions {
@@ -39,10 +41,12 @@ export interface WholeStackMenuOptions {
  * the "Whole Stack" submenu of the root's menu, so the root's preview too), in this order:
  * - "Safe Push Whole Stack" and "Dry Run Whole Stack" (`getWholeStackStartItems`), then, in the island while the stack
  *   branch is not built, the Safe Push of the main line (`landInPieces`);
- * - the pull request of the whole stack: "Open Pull Request #12", else "Create Pull Request of the Stack…" (its stack
- *   branch `{prefix}/stack/<root>` into the baseline; disabled with the reason while the sync didn't build it); one that
- *   no longer matches the stack (`describeOrphanedStackPullRequest`) says so and offers "Close Pull Request #12…",
- *   asked in the root's row, never closed by itself;
+ * - the pull request of the whole stack: "Open Pull Request #12" and, while it is open, "Request Review…" of it (the
+ *   code owners of the whole stack, its stack branch pushed first; the popover at the header of the island, else at the
+ *   root's row), else "Create Pull Request of the Stack…" (its stack branch `{prefix}/stack/<root>` into the baseline;
+ *   disabled with the reason while the sync didn't build it); one that no longer matches the stack
+ *   (`describeOrphanedStackPullRequest`) says so and offers "Close Pull Request #12…", asked in the root's row, never
+ *   closed by itself;
  * - Push with Children of the root (`withPush`);
  * - "Review Whole Stack": the review window of the stack branch; of a straight chain, which has none, the review of its
  *   last branch from the root;
@@ -70,6 +74,10 @@ export function getWholeStackMenuItems(root: string, options: WholeStackMenuOpti
       description: orphaned ?? (pullRequest.state === "merged" ? `#${pullRequest.number} is merged` : `The pull request of ${formatWholeStack(root)}`),
       onSelect: () => openPullRequest(pullRequest),
     })
+  }
+  const requestReview = orphaned === null ? getWholeStackRequestReviewItem(root) : null
+  if (requestReview !== null) {
+    items.push(requestReview)
   }
   if (orphaned !== null && pullRequest !== undefined) {
     items.push({
@@ -146,6 +154,22 @@ export function getWholeStackStartItems(root: string, next: StackNextStep | null
       onSelect: () => void requestSafePush(key, { mode: "dryRun", via: "click" }),
     },
   ]
+}
+
+/**
+ * "Request Review…" of the open pull request of the whole stack of `root`: the step of the whole stack when it is the
+ * one (it says whose approval is missing, or that nobody of a group can approve), else the item of
+ * `getRequestReviewItem` with the code owners Patronus suggests for the stack branch (the readiness of its key); its
+ * popover opens at the header of the island, else at the root's row (`openRequestReview` of the key). Null without an
+ * open pull request.
+ */
+function getWholeStackRequestReviewItem(root: string): MenuItem | null {
+  const key = stackReadinessKey(root)
+  const next = getStackNextStepNow(root)
+  if (next?.leaf === null && next.step.kind === "requestReview" && next.step.item !== null) {
+    return next.step.item
+  }
+  return getRequestReviewItem(getStackPullRequest(root), getReviewReadiness(key)?.readiness ?? null, () => openRequestReview(key))
 }
 
 /**

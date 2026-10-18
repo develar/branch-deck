@@ -7,12 +7,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { RequestReviewPopover } from "@/components/branch/RequestReviewPopover"
 import { SafePushButton } from "@/components/branch/SafePushButton"
 import { useBranchNextStep } from "@/hooks/useBranchNextStep"
+import { isForkingStack } from "@/hooks/useStackNextStep"
 import type { PullRequest } from "@/lib/bindings"
 import type { NextStepTone } from "@/lib/branch-next-step"
 import type { MenuItem } from "@/lib/menu"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
-import { usePullRequest } from "@/stores/pull-requests"
+import { useStackBranch } from "@/stores/branch-sync"
+import { usePullRequest, useStackPullRequest } from "@/stores/pull-requests"
 import { setRequestReviewOpen, useRequestReviewOpen } from "@/stores/request-review-popover"
 import { useReviewReadiness } from "@/stores/review-readiness"
 import type { SafePushAsk } from "@/stores/safe-push"
@@ -42,9 +44,11 @@ export interface NextStepSlotProps {
    * robot, its popover at the header's slot, with the hover of the header; the step of the row otherwise
    */
   stackHeader?: { description: string }
+  /** The row of the root of an island: the Request Review… of its whole stack opens at the island's header, not here */
+  wholeStackInHeader?: boolean
 }
 
-export function NextStepSlot({ branch, stackHeader }: NextStepSlotProps) {
+export function NextStepSlot({ branch, stackHeader, wholeStackInHeader = false }: NextStepSlotProps) {
   const step = useBranchNextStep(branch.name)
   const placement = stackHeader === undefined ? "row" : "stack-header"
   const ask = useSafePushAsk(branch.name, placement)
@@ -66,6 +70,8 @@ export function NextStepSlot({ branch, stackHeader }: NextStepSlotProps) {
       <SafePushAskPopover ask={ask} anchor={slotRef} />
       {/* the start of the whole stack of a small stack (no island): from the root's menu, at the root's row */}
       {stackHeader === undefined && <SafePushAskPopover ask={wholeStackAsk} anchor={slotRef} />}
+      {/* and the Request Review… of its pull request, from "Whole Stack ›" of the root's menu */}
+      {stackHeader === undefined && !wholeStackInHeader && <WholeStackRequestReviewAnchor root={branch.name} />}
     </div>
   )
 }
@@ -127,6 +133,21 @@ export function RequestReviewSlot({ owner, pullRequest, step }: { owner: Pick<Br
       </TooltipContent>
     </Tooltip>
   )
+}
+
+/**
+ * The Request Review… popover of the open pull request of the whole stack of `root`, at an anchor of a slot, where no
+ * step of the whole stack shows it: the root's row of a small stack (no island), and the header of an island while a
+ * Safe Push runs in the stack (its slot is empty). "Request Review…" of the whole stack's actions opens it
+ * (`getWholeStackMenuItems`, `openRequestReview` of its key); nothing for a stack that doesn't fork.
+ */
+export function WholeStackRequestReviewAnchor({ root }: { root: string }) {
+  const stack = useStackBranch(root)
+  const pullRequest = useStackPullRequest(root)
+  if (!isForkingStack(stack)) {
+    return null
+  }
+  return <RequestReviewSlot owner={{ name: stackReadinessKey(root), remoteStatus: stack.remoteStatus }} pullRequest={pullRequest} step={null} />
 }
 
 const toneClass: Readonly<Record<NextStepTone, string>> = {
