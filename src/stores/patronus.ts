@@ -6,10 +6,11 @@ import type { KnownRobotStatus, PatronusAvailability, PatronusCommandSubject, Pa
 import { commands } from "@/lib/bindings"
 import { closeLandedPullRequests } from "@/lib/landed-stack"
 import { announce, isWindowFocused, resetOsNotification, setWindowFocus } from "@/lib/os-notification"
-import type { LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
+import type { LandedBy, LandingAncestor, LandingDescendant, PushHold } from "@/lib/patronus"
 import {
   REVIEW_APPROVAL_SUBSYSTEM,
   findBranchRobot,
+  findLandedBy,
   findLandingAncestor,
   findLandingDescendants,
   findLandingMember,
@@ -336,8 +337,63 @@ function landingSpansIn(robots: Readonly<Record<string, PatronusRobot>>, state: 
 }
 
 /**
- * Why the branch offers no push (`PushHold`): a Safe Push runs on it or lands it with a branch built on it; null while
- * it can be pushed
+ * The branch or the whole stack whose merged Safe Push landed this branch with it (`findLandedBy`): until the update
+ * archives the branch, its Status cell says "Landed with oauth", and it offers no Safe Push, Dry Run or push; null for
+ * a branch no merged robot landed besides its own
+ */
+export function useLandedBy(branchName: string): LandedBy | null {
+  const robots = useRepositoryRobots()
+  return useBranchSync(state => (robots === undefined ? null : (landedByIn(robots, state).get(branchName) ?? null)))
+}
+
+/** Non-hook variant of `useLandedBy`, for menus built on open and the next step */
+export function getLandedBy(branchName: string): LandedBy | null {
+  const key = currentKey()
+  const robots = key === null ? undefined : patronusStore.getState().repositories[key]?.robots
+  return robots === undefined ? null : (landedByIn(robots, branchSyncStore.getState()).get(branchName) ?? null)
+}
+
+/**
+ * The branches a Safe Push of the branch lands now: the branch and those it is built on, less the ones a merged Safe
+ * Push landed already (`getLandedBy`): their commits are in the target ("Safe Push · 3"; 1 for a lone one)
+ */
+export function getLandingBranchCount(branchName: string): number {
+  const branches = branchSyncStore.getState().branches
+  return stackAncestors(branchName, name => branches[name]).filter(ancestor => getLandedBy(ancestor.name) === null).length + 1
+}
+
+interface LandedBranches {
+  readonly robots: Readonly<Record<string, PatronusRobot>>
+  readonly branches: BranchSyncState["branches"]
+  readonly stackBranches: BranchSyncState["stackBranches"]
+  readonly landed: ReadonlyMap<string, LandedBy>
+}
+
+/** The last landed branches, computed once per change of the robots or the branches, as the landing spans */
+let lastLandedBranches: LandedBranches | null = null
+
+function landedByIn(robots: Readonly<Record<string, PatronusRobot>>, state: BranchSyncState): ReadonlyMap<string, LandedBy> {
+  const { branches, stackBranches } = state
+  const last = lastLandedBranches
+  if (last !== null && last.robots === robots && last.branches === branches && last.stackBranches === stackBranches) {
+    return last.landed
+  }
+  const landed = findLandedBy(robots, { branchOf: name => branches[name], stackOf: root => stackBranches[root] })
+  // the same object while the same robot landed the branch, so its row doesn't render again on every sync event
+  for (const [name, by] of landed) {
+    const previous = last?.landed.get(name)
+    if (previous !== undefined && previous.branch === by.branch && previous.robot === by.robot && previous.wholeStack === by.wholeStack) {
+      landed.set(name, previous)
+    }
+  }
+  const same = last !== null && last.landed.size === landed.size && [...landed].every(([name, by]) => last.landed.get(name) === by)
+  lastLandedBranches = { robots, branches, stackBranches, landed: same ? last.landed : landed }
+  return lastLandedBranches.landed
+}
+
+/**
+ * Why the branch offers no push (`PushHold`): a Safe Push runs on it or lands it with a branch built on it, or a merged
+ * one landed it; null while it can be pushed
  */
 export function usePushHold(branchName: string): PushHold | null {
   const robots = useRepositoryRobots()
@@ -361,6 +417,7 @@ export function getPushHold(branchName: string): PushHold | null {
 
 interface PushHolds {
   readonly spans: ReadonlyMap<string, LandingDescendant>
+  readonly landed: ReadonlyMap<string, LandedBy>
   readonly branches: BranchSyncState["branches"]
   readonly robots: Readonly<Record<string, PatronusRobot>>
   readonly holds: ReadonlyMap<string, PushHold>
@@ -371,15 +428,17 @@ let lastPushHolds: PushHolds | null = null
 
 function pushHoldsIn(robots: Readonly<Record<string, PatronusRobot>>, state: BranchSyncState): ReadonlyMap<string, PushHold> {
   const spans = landingSpansIn(robots, state)
+  const landed = landedByIn(robots, state)
   const { branches } = state
   const last = lastPushHolds
-  if (last !== null && last.robots === robots && last.branches === branches && last.spans === spans) {
+  if (last !== null && last.robots === robots && last.branches === branches && last.spans === spans && last.landed === landed) {
     return last.holds
   }
   const holds = new Map<string, PushHold>()
   for (const name of state.branchOrder) {
     const branch = branches[name]
-    const hold = findPushHold(name, findBranchRobot(robots, name, branch?.commits[0]?.hash, branch?.remoteStatus?.remoteTip ?? null), spans.get(name))
+    const own = findBranchRobot(robots, name, branch?.commits[0]?.hash, branch?.remoteStatus?.remoteTip ?? null)
+    const hold = findPushHold(name, own, spans.get(name), landed.get(name))
     if (hold === null) {
       continue
     }
@@ -391,7 +450,7 @@ function pushHoldsIn(robots: Readonly<Record<string, PatronusRobot>>, state: Bra
   }
   // the same map while every hold is the same, for `usePushHolds`
   const same = last !== null && last.holds.size === holds.size && [...holds].every(([name, hold]) => last.holds.get(name) === hold)
-  lastPushHolds = { spans, branches, robots, holds: same ? last.holds : holds }
+  lastPushHolds = { spans, landed, branches, robots, holds: same ? last.holds : holds }
   return lastPushHolds.holds
 }
 

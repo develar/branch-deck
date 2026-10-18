@@ -175,7 +175,8 @@ The whole stack is an object of its own in the app, beside its branches, named "
 
 - **Its robot** (`RobotSubject` of `src/lib/patronus.ts`: a branch, or the stack of a root) is no branch's. It is
   polled, told and listed by the whole stack ("Whole air stack merged into master"), it holds every branch of the
-  stack while it runs, and its rows say "lands with the whole air stack". Its restart works on the stack branch and
+  stack while it runs, and its rows say "lands with the whole air stack", after its merge "Landed with the whole air
+  stack" until the update. Its restart works on the stack branch and
   pushes it first while its remote lacks work (`pushWholeStack`, only a built one); its failure prompt lists the commits
   of every branch, matched by identity (the stack branch has no mapping notes).
 - **Its pull request** comes from "Create Pull Request of the Stack…" (the dialog of the stack branch, its text from
@@ -203,7 +204,19 @@ The whole stack is an object of its own in the app, beside its branches, named "
 - **Closing by content.** After a merge, the open pull requests of the branches the robot landed (the ancestors of a
   piece, every branch of the whole stack) are closed, but only those that hold nothing the branch lacks: the head is the
   branch's tip, or the remote branch has no commit the branch lacks. A head compared by hash alone left a pull request
-  of a branch the sync had only rebuilt on a newer baseline open, though all of it landed.
+  of a branch the sync had only rebuilt on a newer baseline open, though all of it landed. Which branches it landed is
+  one function (`findLandedBranches`): a piece's ancestors while the robot ran on a commit its branch has (its tip, the
+  same commits rebuilt, or one the branch built new commits on since: the copies below are the same objects, so the
+  ancestors are as it took them), the whole stack's branches while it ran on the stack branch as it is.
+- **Landed rows until the update.** The merge toast is gone in seconds, and the update that archives the branches may
+  come hours later. Until then the rows of the branches a merged robot landed besides its own say who landed them
+  ("Landed with oauth", "Landed with the whole air stack"), and offer no Safe Push, no Dry Run and no push: their
+  commits are in master, a second robot or a push would land nothing (`findLandedBy`, row 1 of the next step, a
+  `landed` push hold). It is a state of the robots and the branches, not of the merge event, so a robot first seen
+  merged (after a restart, a landing by `bd`) says it too. A branch built on a landed one lands without it ("Safe Push"
+  where it said "Safe Push · 2"). A change below the commit the robot took (an amend of its branch; for the whole
+  stack, any change of a branch of it, which rebuilds the stack branch) makes new copies: the rows can no longer tell,
+  and offer the Safe Push again until a fetch shows what the baseline has ("Landed in origin/master").
 - **A pull request that no longer matches.** The pull request of the whole stack shows the stack as it was. A Safe
   Push of a piece that lands the root, or a stack that no longer forks, leaves it showing a stack that is no more. It
   is never closed by itself, and its stack branch stays: the user may still want its review, or its approvals for

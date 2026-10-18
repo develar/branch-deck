@@ -12,7 +12,7 @@ import { joinNames } from "@/lib/text"
 export type NextStepKind =
   /** The repository is not on Space: no slot */
   | "hidden"
-  /** Row 1: syncing, failed, blocked, held, landed, a robot runs or merged; the Status cell says it */
+  /** Row 1: syncing, failed, blocked, held, landed, a robot runs or merged (also one of another branch that landed it); the Status cell says it */
   | "none"
   /** Rows 2 and 3: "Restart Safe Push" of the failed or canceled robot */
   | "restart"
@@ -103,6 +103,11 @@ export interface NextStepFacts {
   readonly held: boolean
   /** The baseline that has every commit of the branch ("origin/master"); null otherwise */
   readonly landedIn: string | null
+  /**
+   * A merged Safe Push of a branch built on it or of the whole stack landed the branch, before the fetch says so
+   * (`getLandedBy`): the reason, "Landed in master with oauth" (`formatLandedReason`); null otherwise
+   */
+  readonly landedWith: string | null
   /** The robot of the row (`getSafePushSlot`) */
   readonly robot: SafePushSlot
   /** The pull request the robot was started from */
@@ -289,6 +294,9 @@ function startReason(facts: NextStepFacts, startBlocker: string | null): string 
   if (facts.landedIn !== null) {
     return `Landed in ${facts.landedIn}`
   }
+  if (facts.landedWith !== null) {
+    return facts.landedWith
+  }
   if (isMergedByRobot(facts)) {
     return "Merged by Patronus"
   }
@@ -315,6 +323,7 @@ function isSettled(facts: NextStepFacts): boolean {
     facts.blocked ||
     facts.held ||
     facts.landedIn !== null ||
+    facts.landedWith !== null ||
     facts.robot.kind === "running" ||
     facts.robot.kind === "none" ||
     isMergedByRobot(facts) ||

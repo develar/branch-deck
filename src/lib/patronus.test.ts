@@ -9,10 +9,13 @@ import {
   canStartStackRobot,
   describeRobot,
   findBranchRobot,
+  findLandedBy,
   findLandingAncestor,
   findLandingDescendants,
   findLandingMember,
   findStackRobot,
+  formatLandedReason,
+  formatLandedWith,
   formatLandingReason,
   formatRobotSubject,
   findMergedRobots,
@@ -34,7 +37,7 @@ import {
   isStartBlocked,
   needsRobotAttention,
 } from "@/lib/patronus"
-import type { RemoteStatus } from "@/stores/branch-sync"
+import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
 function robot(patch: Partial<PatronusRobot>): PatronusRobot {
@@ -369,6 +372,22 @@ describe("actions", () => {
     expect(findPushHold("IJPL-1", running, { branch: "oauth", robot: oauth })?.kind).toBe("own")
   })
 
+  it("holds the push of a branch a merged Safe Push landed, before a robot of its own", () => {
+    const oauth = robot({ id: "oauth", branchName: "oauth", status: "success", finishTime: 200 })
+    const landed = findPushHold(
+      "auth",
+      robot({ status: "running", branchName: "auth" }),
+      { branch: "login", robot: robot({ id: "login", branchName: "login" }) },
+      { branch: "oauth", robot: oauth },
+    )
+    expect(landed).toEqual({ kind: "landed", branch: "oauth", robot: oauth })
+    expect(formatPushHoldReason("auth", landed!)).toBe("Landed in master with oauth: nothing of it is left to push")
+    const whole = robot({ id: "whole", branchName: null, stackRoot: "air", status: "success" })
+    const member = findPushHold("bazel", undefined, null, { branch: "air", robot: whole, wholeStack: true })
+    expect(member).toEqual({ kind: "landed", branch: "air", robot: whole, wholeStack: true })
+    expect(formatPushHoldReason("bazel", member!)).toBe("Landed in master with the whole air stack: nothing of it is left to push")
+  })
+
   it("blocks a start while a robot runs on the commit the branch is at", () => {
     expect(isStartBlocked(robot({ status: "running" }), "tip", null)).toBe(true)
     expect(isStartBlocked(robot({ status: "running" }), "fixed", null)).toBe(false)
@@ -548,5 +567,61 @@ describe("getRowRobot", () => {
     expect(getRowRobotChip(slotOf({}))).toBeNull()
     // changed since: the robot gives way to the status of the branch as it is
     expect(getRowRobotChip(slotOf({ robot: robot({ status: "failure" }), localTip: "fixed", remote: unpushedOnRobot }))).toBeNull()
+  })
+})
+
+describe("findLandedBy", () => {
+  /** A branch of the stack whose newest commit is `<name>-tip`, older ones `<name>-1`, … */
+  function branch(name: string, parent: string | null, patch: Partial<Branch> = {}): Branch {
+    return testBranch(name, parent, { commits: [{ hash: `${name}-tip` } as Branch["commits"][number]], ...patch })
+  }
+  const auth = branch("auth", null)
+  const login = branch("login", "auth")
+  const oauth = branch("oauth", "login")
+  const session = branch("session", "auth")
+  const stack = { root: "auth", members: ["auth", "login", "oauth", "session"], tip: "stack-tip", remoteStatus: null } as unknown as StackBranch
+
+  function landedBy(robots: PatronusRobot[], branches: Branch[] = [auth, login, oauth, session], stacks: Record<string, StackBranch> = { auth: stack }) {
+    const byName = Object.fromEntries(branches.map(it => [it.name, it]))
+    const landed = findLandedBy(byId(...robots), { branchOf: name => byName[name], stackOf: root => stacks[root] })
+    return Object.fromEntries([...landed].map(([name, by]) => [name, formatLandedWith(by)]))
+  }
+
+  it("knows the ancestors a merged piece carried and every branch a merged whole stack landed, and names who landed them", () => {
+    const piece = robot({ id: "oauth", branchName: "oauth", sourceRevision: "oauth-tip", status: "success", finishTime: 200 })
+    // its own branch is its own robot's: "Merged"
+    expect(landedBy([piece])).toEqual({ auth: "Landed with oauth", login: "Landed with oauth" })
+    const whole = robot({ id: "whole", branchName: null, stackRoot: "auth", sourceRevision: "stack-tip", status: "success", finishTime: 300 })
+    expect(landedBy([whole])).toEqual({
+      auth: "Landed with the whole auth stack",
+      login: "Landed with the whole auth stack",
+      oauth: "Landed with the whole auth stack",
+      session: "Landed with the whole auth stack",
+    })
+    // the first merge landed it
+    expect(landedBy([whole, piece])).toMatchObject({ auth: "Landed with oauth", oauth: "Landed with the whole auth stack" })
+    const [first] = findLandedBy(byId(piece), { branchOf: name => ({ auth, login, oauth })[name], stackOf: () => undefined }).values()
+    expect(formatLandedReason(first!)).toBe("Landed in master with oauth")
+  })
+
+  it("keeps the ancestors landed while the branch has the commit the robot took: rebuilt on a newer baseline, or with new commits on it", () => {
+    const piece = robot({ id: "oauth", branchName: "oauth", sourceRevision: "oauth-pushed", status: "success", finishTime: 200 })
+    // the remote branch is at the robot's commit and has what the branch has: a sync rebuilt the same commits since
+    const rebuilt = branch("oauth", "login", { remoteStatus: testRemoteStatus({ remoteTip: "oauth-pushed" }) })
+    expect(Object.keys(landedBy([piece], [auth, login, rebuilt]))).toEqual(["auth", "login"])
+    // a commit on top of the one the robot took: the copies below it are the ones it landed
+    const grown = branch("oauth", "login", { commits: [{ hash: "oauth-new" }, { hash: "oauth-pushed" }] as unknown as Branch["commits"] })
+    expect(Object.keys(landedBy([piece], [auth, login, grown]))).toEqual(["auth", "login"])
+  })
+
+  it("lands nothing for a dry run, a robot that didn't merge, one of another state of the branch, or of a temporary ref", () => {
+    const merged = { status: "success" as const, finishTime: 200 }
+    expect(landedBy([robot({ id: "dry", branchName: "oauth", sourceRevision: "oauth-tip", pushMode: "dryRun", ...merged })])).toEqual({})
+    expect(landedBy([robot({ id: "running", branchName: "oauth", sourceRevision: "oauth-tip" })])).toEqual({})
+    expect(landedBy([robot({ id: "failed", branchName: "oauth", sourceRevision: "oauth-tip", status: "failure" })])).toEqual({})
+    // an amend since: the robot landed other commits than the table has
+    expect(landedBy([robot({ id: "older", branchName: "oauth", sourceRevision: "oauth-older", ...merged })])).toEqual({})
+    expect(landedBy([robot({ id: "stale", branchName: null, stackRoot: "auth", sourceRevision: "stack-older", ...merged })])).toEqual({})
+    expect(landedBy([robot({ id: "ref", branchName: null, sourceRevision: "oauth-tip", ...merged })])).toEqual({})
   })
 })

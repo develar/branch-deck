@@ -8,6 +8,8 @@ import { useUpstreamName } from "@/hooks/useLandedIn"
 import type { LandedCommit } from "@/lib/bindings"
 import { formatShortHash } from "@/lib/hash"
 import { formatStayLocal, landedChipLabel } from "@/lib/landed"
+import type { LandedBy } from "@/lib/patronus"
+import { formatLandedWith, formatLandingSubject, formatPushMode, openRobot } from "@/lib/patronus"
 import { useBranchLanded, useIncomingLandedCommit } from "@/stores/landed"
 
 /** "abc1234 · Patronus · 2 hours ago" (the hash in the monospace font, the time aging while shown), or "squashed upstream" */
@@ -71,6 +73,43 @@ export function LandedChip({ branchName }: { branchName: string }) {
     >
       <PackageCheckIcon className="size-3.5" />
       {text}
+    </StatusChip>
+  )
+}
+
+/**
+ * `info` "Landed with oauth" ("Landed with the whole air stack") after the status of a branch a merged Safe Push of a
+ * branch built on it or of the whole stack landed (`useLandedBy`), until the fetched baseline has its commits and the
+ * Landed chip shows them; hover says when it merged, a click opens the robot in Patronus
+ */
+export function LandedWithChip({ landed }: { landed: LandedBy }) {
+  const label = formatLandedWith(landed)
+  const { robot } = landed
+  return (
+    <StatusChip
+      label={label}
+      color="info"
+      data={{ "data-testid": "landed-with", "data-landed-by": landed.branch }}
+      onActivate={() => openRobot(robot)}
+      details={
+        <LandedDetails
+          heading="Landed"
+          title={`In ${robot.targetBranch} with the ${formatPushMode(robot.pushMode)} of ${formatLandingSubject(landed)} · the update removes the local copies`}
+        >
+          {robot.finishTime !== null && (
+            <>
+              <dt className="text-muted-foreground">Merged</dt>
+              <dd data-testid="landed-with-time">
+                <RelativeTime time={robot.finishTime * 1000} />
+              </dd>
+            </>
+          )}
+        </LandedDetails>
+      }
+      detailsTestId="landed-with-popover"
+    >
+      <PackageCheckIcon className="size-3.5" />
+      {label}
     </StatusChip>
   )
 }

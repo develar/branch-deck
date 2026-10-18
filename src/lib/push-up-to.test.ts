@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vite-plus/test"
+import type { PushHold } from "@/lib/patronus"
 import { describePushUpTo, pushUpToPlan } from "@/lib/push-up-to"
+import { testRobot } from "@/lib/test-robot"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -27,7 +29,7 @@ function branch(name: string, parent: string | null, count: number, overrides: P
 
 function sources(...branches: Branch[]) {
   const byName = new Map(branches.map(it => [it.name, it]))
-  return { branchOf: (name: string) => byName.get(name), landingOf: () => null }
+  return { branchOf: (name: string) => byName.get(name), holdOf: () => null }
 }
 
 describe("pushUpToPlan", () => {
@@ -66,7 +68,7 @@ describe("pushUpToPlan", () => {
     expect(plan).toEqual({ ok: false, reason: "login was rewritten since its push: it pushes whole." })
   })
 
-  it("stops at an ancestor that can't be pushed or asks first, and at a branch a running Safe Push holds", () => {
+  it("stops at an ancestor that can't be pushed or asks first, at a branch a running Safe Push holds, and at one a merged Safe Push landed", () => {
     const auth = branch("auth", null, 1)
     const login = branch("login", "auth", 2)
     expect(pushUpToPlan("login", "login-1", sources({ ...auth, status: "Blocked", statusText: "blocked by core" }, login))).toEqual({
@@ -77,10 +79,27 @@ describe("pushUpToPlan", () => {
     const dropping = branch("auth", null, 2, {}, 1)
     const behind = { ...dropping, remoteStatus: { ...dropping.remoteStatus!, commitsBehind: 2, fastForward: false } }
     expect(pushUpToPlan("login", "login-1", sources(behind, login))).toEqual({ ok: false, reason: "auth's push drops 2 remote commits: Force Push auth first.", show: "auth" })
-    const landing = { branchOf: sources(auth, login).branchOf, landingOf: (name: string) => (name === "auth" ? "oauth" : null) }
-    expect(pushUpToPlan("login", "login-1", landing)).toEqual({ ok: false, reason: "A Safe Push of oauth lands all of auth.", show: "oauth" })
+    const holding = (name: string, hold: PushHold) => ({ branchOf: sources(auth, login).branchOf, holdOf: (it: string) => (it === name ? hold : null) })
+    const oauth = testRobot("oauth", "oauth")
+    expect(pushUpToPlan("login", "login-1", holding("auth", { kind: "span", branch: "oauth", robot: oauth }))).toEqual({
+      ok: false,
+      reason: "A Safe Push of oauth lands all of auth.",
+      show: "oauth",
+    })
+    const whole = testRobot("whole", null, { stackRoot: "auth" })
+    expect(pushUpToPlan("login", "login-1", holding("auth", { kind: "span", branch: "auth", robot: whole, wholeStack: true }))).toEqual({
+      ok: false,
+      reason: "A Safe Push of the whole auth stack lands all of auth.",
+      show: "auth",
+    })
+    // a merged one landed it: its commits are in the target
+    expect(pushUpToPlan("login", "login-1", holding("auth", { kind: "landed", branch: "oauth", robot: { ...oauth, status: "success" } }))).toEqual({
+      ok: false,
+      reason: "Landed in master with oauth: nothing of auth is left to push.",
+      show: "oauth",
+    })
     // its own Safe Push holds the branch: its restart is the push
-    const own = { branchOf: sources(auth, login).branchOf, landingOf: (name: string) => (name === "login" ? "login" : null) }
+    const own = holding("login", { kind: "own", branch: "login", robot: testRobot("login", "login") })
     expect(pushUpToPlan("login", "login-1", own)).toEqual({
       ok: false,
       reason: "A Safe Push of login is running: wait until it merges, or restart it on the current branch.",

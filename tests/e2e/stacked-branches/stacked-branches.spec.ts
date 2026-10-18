@@ -11,6 +11,7 @@ import { EARLIER_COMMIT, openBranchPreview } from "../helpers/review-status-help
 import {
   DEFAULT_CHECKS_ONLY,
   closeRefusal,
+  expectLandedActions,
   expectPopoverAtSlot,
   openSafePushWithKey,
   openSafePushWithProfile,
@@ -21,7 +22,7 @@ import {
 } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { rewriteNextRemoteStatus, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
+import { emitTauriEvent, rewriteNextRemoteStatus, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
 import { holdCommand, routeCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
 
 const GITHUB_COMPARE = "https://github.com/JetBrains/ultimate/compare"
@@ -935,6 +936,66 @@ test.describe("Stacked branches", () => {
       await openContextMenu(page, findBranchRow(page, "auth"))
       await expect(page.getByRole("menuitem", { name: /^Safe Push S/ })).toHaveAttribute("aria-disabled", "true")
       await expect(page.getByRole("menuitem", { name: "Dry Run" })).not.toHaveAttribute("aria-disabled", "true")
+    })
+
+    test("should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      const repo = await setupRepo("stacked_branches", { patronus: availableRobots() })
+      await syncAndWaitForBranches()
+      await routePush(page, {})
+      await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+      await routeReviewRequirement(page, () => NO_REVIEW_NEEDED)
+      await routeCommandError(page, "get_stack_independence", "The trial build failed")
+      const started = robot("oauth", "oauth-robot", { sourceRevision: null })
+      const starts = await routeCommand(page, "start_patronus_robot", () => started)
+      const authRow = findBranchRow(page, "auth")
+      const loginRow = findBranchRow(page, "login")
+
+      // each branch offers its own Safe Push, with what it is built on
+      await expect(slotSafePush(page, "auth")).toHaveText("Safe Push")
+      await expect(slotSafePush(page, "login")).toHaveText("Safe Push · 2")
+      await expect(slotSafePush(page, "session")).toHaveText("Safe Push · 2")
+      // the Safe Push of oauth lands auth and login with it, in one robot
+      await slotSafePush(page, "oauth").click()
+      await expectPopoverOf(page, "oauth")
+      await page.keyboard.press("Enter")
+      await expect.poll(() => starts.length).toBe(1)
+      await expect(loginRow.getByTestId("landing-span")).toHaveText("lands with oauth")
+
+      // it merged: the branches it landed say so, until the update archives them
+      await repo.setPatronus(availableRobots({ ...started, sourceRevision: "", status: "success", finishTime: 1704142800 }))
+      await emitTauriEvent(page, "tauri://focus")
+      await expect(page.locator("[data-slot=toast]").filter({ hasText: "oauth merged into master" })).toBeVisible()
+      for (const row of [authRow, loginRow]) {
+        await expect(row.getByTestId("landed-with")).toHaveText("Landed with oauth")
+        await expect(row.getByTestId("next-step-slot")).toHaveAttribute("data-step", "none")
+        await expect(row.getByTestId("branch-status")).toHaveText("landed")
+        await expect(row.getByTestId("landing-span")).toHaveCount(0)
+      }
+      // oauth is its robot's: Merged; session, built on auth too, lands only itself now
+      await expect(findBranchRow(page, "oauth").getByTestId("patronus-chip")).toHaveAttribute("data-kind", "merged")
+      await expect(findBranchRow(page, "oauth").getByTestId("landed-with")).toHaveCount(0)
+      await expect(slotSafePush(page, "session")).toHaveText("Safe Push")
+      await expect(findBranchRow(page, "session").getByTestId("landed-with")).toHaveCount(0)
+
+      // its hover says when it merged, a click opens the robot
+      const chip = loginRow.getByTestId("landed-with")
+      await chip.hover()
+      await expect(page.getByTestId("landed-with-popover")).toContainText("In master with the Safe Push of oauth · the update removes the local copies")
+      await chip.click()
+      await expect.poll(() => getOpenedUrls(page)).toContain(started.url)
+      await page.mouse.move(0, 0)
+
+      // no Safe Push, no Dry Run, no push of commits that landed in the menu, each saying why; S says it too
+      const reason = "Landed in master with oauth"
+      await expectLandedActions(page, "login", reason)
+      await expectLandedActions(page, "auth", reason)
+      // the preview names it too, and its Safe Push says why it is disabled
+      const preview = await openBranchPreview(page, "login")
+      await expect(preview.getByTestId("landed-with")).toHaveText("Landed with oauth")
+      const footer = preview.getByTestId("safe-push-button")
+      await expect(footer).toHaveAttribute("aria-disabled", "true")
+      await footer.hover()
+      await expect(page.getByRole("tooltip").filter({ hasText: reason })).toHaveText(reason)
     })
 
     test("should offer to land only a stacked branch that applies alone", async ({ page, setupRepo, syncAndWaitForBranches }) => {

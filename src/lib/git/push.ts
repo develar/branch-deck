@@ -240,7 +240,8 @@ export async function restartAfterPush(robot: PatronusRobot): Promise<PatronusRo
  * won't land, and a push into the robot's own branch makes it fail at the end ("branch was modified"). The rows offer no
  * push then; this refuses one that raced with a start (the IDE, `bd`) or came from a toast. The status is read fresh
  * first (one row on the server), so a robot that finished meanwhile holds nothing. The robot the push restarts or
- * replaces (`restartRobot`, `replacesRobot`) is canceled instead, and the push goes on. Resolves to whether to push.
+ * replaces (`restartRobot`, `replacesRobot`) is canceled instead, and the push goes on. A branch a merged Safe Push
+ * landed (`landed`) is refused without a read: its commits are in the target. Resolves to whether to push.
  */
 export async function checkPushHold(branchName: string, options: PushOptions, report: PushReport): Promise<boolean> {
   const hold = getPushHold(branchName)
@@ -250,7 +251,7 @@ export async function checkPushHold(branchName: string, options: PushOptions, re
   if (hold.robot.id === options.restartRobot?.id || hold.robot.id === options.replacesRobot?.id) {
     return await cancelHoldingRobot(hold.robot, report)
   }
-  const status = await fetchPatronusRobotStatus(hold.robot).catch(() => null)
+  const status = hold.kind === "landed" ? null : await fetchPatronusRobotStatus(hold.robot).catch(() => null)
   if (status !== null && status !== "running") {
     return true
   }

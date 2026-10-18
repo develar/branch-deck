@@ -16,7 +16,7 @@ function usePushUpTo(branchName: string, originalHash: string): { plan: PushUpTo
   // a string, so the store notifies only when the plan changes
   const key = useBranchSync(state => {
     const branchOf = (name: string) => state.branches[name]
-    const plan = pushUpToPlan(branchName, originalHash, { branchOf, landingOf: name => holds.get(name)?.branch ?? null })
+    const plan = pushUpToPlan(branchName, originalHash, { branchOf, holdOf: name => holds.get(name) ?? null })
     if (plan === null) {
       return ""
     }

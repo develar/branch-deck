@@ -236,6 +236,10 @@ describe("getPushButtonState", () => {
     })
     const span = state({ commitsAhead: 2 }, { hold: { kind: "span", branch: "oauth", robot: { ...running, branchName: "oauth" } } })
     expect(span).toMatchObject({ disabled: true, tooltip: "A Safe Push of oauth is running: it lands login with it" })
+    // a merged one landed it: its commits are in the target
+    const merged = { ...running, branchName: "oauth", status: "success", targetBranch: "master" } as PatronusRobot
+    const landed = state({ commitsAhead: 2 }, { hold: { kind: "landed", branch: "oauth", robot: merged } })
+    expect(landed).toMatchObject({ disabled: true, count: 0, tooltip: "Landed in master with oauth: nothing of it is left to push" })
     // a push that runs keeps its progress
     expect(state({ commitsAhead: 2 }, { hold: { kind: "own", branch: "login", robot: running }, isPushing: true }).tooltip).not.toContain("Safe Push")
   })

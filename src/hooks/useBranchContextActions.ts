@@ -54,7 +54,6 @@ import {
   formatBlockedReason,
   formatPushWithChildrenLabel,
   offersPushWithChildren,
-  stackAncestors,
   stackAskFirst,
   stackChildrenPushOrder,
 } from "@/lib/stack"
@@ -77,7 +76,7 @@ import {
 import { getSelectedBranches, requestReveal, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { closeCreatePullRequestDialog, openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { isProcessing, openInline } from "@/stores/inline-row-action"
-import { getBranchRobot, getPatronusGitHubRepository, getPushHold, isPatronusAvailable } from "@/stores/patronus"
+import { getBranchRobot, getLandingBranchCount, getPatronusGitHubRepository, getPushHold, isPatronusAvailable } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { getReadinessTarget, getReviewReadiness, recheckReviewReadiness } from "@/stores/review-readiness"
@@ -348,7 +347,7 @@ function getPatronusStartItems(branch: Branch, nextStep: BranchNextStep): MenuIt
       label: "Dry Run",
       icon: FlaskConicalIcon,
       disabled: nextStep.dryRunBlocker !== null,
-      description: nextStep.dryRunBlocker ?? describeStart("dryRun", branch.name, stackAncestors(branch.name, getBranch).length + 1, getReadinessTarget()),
+      description: nextStep.dryRunBlocker ?? describeStart("dryRun", branch.name, getLandingBranchCount(branch.name), getReadinessTarget()),
       onSelect: () => void requestSafePush(branch.name, { mode: "dryRun", via: "click" }),
     },
     {
@@ -366,7 +365,7 @@ function getPatronusStartItems(branch: Branch, nextStep: BranchNextStep): MenuIt
  * reason of `getSafePushBlocker`
  */
 function getSafePushMenuItem(branch: Branch, nextStep: BranchNextStep = getBranchNextStepOf(branch)): MenuItem {
-  const branchCount = stackAncestors(branch.name, getBranch).length + 1
+  const branchCount = getLandingBranchCount(branch.name)
   const blocker = nextStep.safePushBlocker
   return {
     id: "safe-push",

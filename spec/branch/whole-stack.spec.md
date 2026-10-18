@@ -1,6 +1,6 @@
 ---
 name: Whole Stack
-description: Requirements for the whole stack of stacked branches that fork, as one more virtual branch `{prefix}/stack/<root>` that the sync builds of all their commits in the order of the history, without notes or branch events, remembered by its commits, its state (built, blocked, conflict, stale) and remote status reported per sync, deleted once the stack no longer forks unless it is on the remote, never pushed unless built, and landed in one robot by `bd safe-push --whole-stack` from its own pull request, the robots of the stack and of its branches waiting for each other; in the app the whole stack is an object of its own, "the whole air stack": its robot (polled, told, holding every branch, its prompt with the commits of every branch), its pull request (created, opened, closed by content after its merge, one that no longer matches it asked before it is closed), its review and one list of its actions in the island's menu and the root's; and its Safe Push and Dry Run in the app, from the island's header (its slot, its "⋯", S) or the root's menu of a small stack, its popover saying what lands, only its stack branch pushed, its readiness and approval news of its own pull request, "In #12" for a branch without one, a stack branch not built disabling it with the way to land it in pieces.
+description: Requirements for the whole stack of stacked branches that fork, as one more virtual branch `{prefix}/stack/<root>` that the sync builds of all their commits in the order of the history, without notes or branch events, remembered by its commits, its state (built, blocked, conflict, stale) and remote status reported per sync, deleted once the stack no longer forks unless it is on the remote, never pushed unless built, and landed in one robot by `bd safe-push --whole-stack` from its own pull request, the robots of the stack and of its branches waiting for each other; in the app the whole stack is an object of its own, "the whole air stack": its robot (polled, told, holding every branch, its branches "Landed with the whole air stack" after its merge until the update, its prompt with the commits of every branch), its pull request (created, opened, closed by content after its merge, one that no longer matches it asked before it is closed), its review and one list of its actions in the island's menu and the root's; and its Safe Push and Dry Run in the app, from the island's header (its slot, its "⋯", S) or the root's menu of a small stack, its popover saying what lands, only its stack branch pushed, its readiness and approval news of its own pull request, "In #12" for a branch without one, a stack branch not built disabling it with the way to land it in pieces.
 style: plain-1
 targets:
   - ../../crates/sync-core/src/stack_branch.rs
@@ -51,6 +51,7 @@ targets:
   - ../../src/components/branch/StackIslandCard.tsx
   - ../../src/lib/stack-state.ts
   - ../../src/components/branch/LandingSpanLabel.tsx
+  - ../../src/components/branch/LandedChip.tsx
   - ../../src/components/repository/RobotsIndicator.tsx
   - ../../src/lib/branch-review-window.ts
   - ../../src/hooks/useStackNextStep.ts
@@ -225,6 +226,14 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   tip, or the remote branch has no commit the branch lacks ([Patronus](patronus.spec.md#merged), the same for a piece).
   [@test] ../../src/lib/landed-stack.test.ts (`closes the pull requests of every branch of the stack the robot of the whole stack landed, not the one it started from`)
   [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the branches the whole stack landed`)
+- Until the update archives them, every branch of the stack it landed (under the same conditions, also for a robot
+  first seen merged) must say so in its row, "Landed with the whole air stack" ([Patronus](patronus.spec.md#merged)),
+  and offer no Safe Push, no Dry Run and no push: "Landed in master with the whole air stack"
+  ([Next Step](next-step.spec.md#the-table), row 1); the "to push" counts of the header, the island and the filter chip
+  leave them out.
+  [@test] ../../src/lib/patronus.test.ts (`knows the ancestors a merged piece carried and every branch a merged whole stack landed, and names who landed them`)
+  [@test] ../../src/lib/patronus.test.ts (`holds the push of a branch a merged Safe Push landed, before a robot of its own`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
 - One builder must list the actions of the whole stack (`getWholeStackMenuItems`), which the "⋯" of the stack island
   renders and the root's menu under "Whole Stack ›" (so the root's preview too), for a small stack without an island
   as for an island: "Safe Push Whole Stack" and "Dry Run Whole Stack" ([below](#the-safe-push-of-the-whole-stack-in-the-app)),

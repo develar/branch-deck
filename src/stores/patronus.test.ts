@@ -14,6 +14,8 @@ import {
   POLL_INTERVAL_MS,
   SYNC_REFRESH_GAP_MS,
   getBranchRobot,
+  getLandedBy,
+  getLandingBranchCount,
   getPushHold,
   markRobotFailing,
   mergeRobots,
@@ -259,6 +261,23 @@ describe("holds", () => {
     expect(formatPushHoldReason("bazel", holds[1]!)).toBe("A Safe Push of the whole air stack is running: it lands bazel with it")
     // the robot of the whole stack is no branch's, not even the root's
     expect(getBranchRobot("air")).toBeUndefined()
+  })
+
+  it("holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them", async () => {
+    const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
+    branches.current = { auth: stacked("auth", null), login: stacked("login", "auth"), oauth: stacked("oauth", "login"), sso: stacked("sso", "login") }
+    expect(getLandingBranchCount("sso")).toBe(3)
+    // the robot of oauth merged elsewhere (`bd`, before a restart): the table has oauth as it took it
+    patronus.list = available(robot({ branchName: "oauth", sourceRevision: "oauth-tip", status: "success", finishTime: 200 }))
+    await refreshPatronus("sync")
+    const holds = ["auth", "login", "oauth", "sso"].map(name => getPushHold(name))
+    expect(holds.map(hold => (hold === null ? null : [hold.kind, hold.branch]))).toEqual([["landed", "oauth"], ["landed", "oauth"], null, null])
+    expect(formatPushHoldReason("login", holds[1]!)).toBe("Landed in master with oauth: nothing of it is left to push")
+    expect(getLandedBy("auth")?.branch).toBe("oauth")
+    // sso, built on login too, lands only itself now
+    expect(getLandingBranchCount("sso")).toBe(1)
+    // no toast: no robot was seen running
+    expect(notices.toasts).toEqual([])
   })
 
   it("holds nothing for a dry run of the whole stack", async () => {

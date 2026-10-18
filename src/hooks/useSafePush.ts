@@ -23,7 +23,17 @@ import { showToast } from "@/lib/toast-message"
 import { formatReadinessSubject, formatWholeStack, getStackBranchBlocker, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { branchSyncStore, getBranch, getStackBranch, getStackBranchOf, getStackIslandRoots, stackDescendantsIn, stackMainLineIn } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { getBranchRobot, getPatronusGitHubRepository, getPushHold, getStackPushHold, getStackRobot, isPatronusAvailable, patronusRequest, patronusStore } from "@/stores/patronus"
+import {
+  getBranchRobot,
+  getLandedBy,
+  getPatronusGitHubRepository,
+  getPushHold,
+  getStackPushHold,
+  getStackRobot,
+  isPatronusAvailable,
+  patronusRequest,
+  patronusStore,
+} from "@/stores/patronus"
 import { getPullRequest, getPullRequestAvailability, getStackPullRequest, pullRequestsStore } from "@/stores/pull-requests"
 import type { ReadinessEntry } from "@/stores/review-readiness"
 import { demandReviewReadiness, freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore, useDemandReviewReadiness } from "@/stores/review-readiness"
@@ -52,7 +62,10 @@ export interface SafePushRead {
   readonly facts: SafePushFacts
   readonly decision: SafePushDecision
   readonly start: SafePushStart
-  /** The branches it is built on, root first: its Safe Push lands them with it */
+  /**
+   * The branches it is built on, root first, but those a merged Safe Push landed already (`getLandedBy`): its Safe Push
+   * lands them with it
+   */
   readonly ancestors: readonly string[]
   /** The branches built on it: they stay */
   readonly children: readonly string[]
@@ -264,7 +277,10 @@ export function readSafePush(branchName: string, ask: Omit<SafePushRequest, "pla
   const profile = fromPullRequest === null ? (offered.find(it => it.id === profileId) ?? null) : null
 
   const state = branchSyncStore.getState()
-  const ancestors = stackAncestors(branchName, getBranch).map(it => it.name)
+  // the ancestors a merged Safe Push landed are in the target: the robot lands the others with the branch
+  const ancestors = stackAncestors(branchName, getBranch)
+    .map(it => it.name)
+    .filter(name => getLandedBy(name) === null)
   // a Dry Run counts no approval: the pull request of the whole stack doesn't matter to it
   const stackPullRequest = mode === "rebaseAutosquash" ? openWholeStackPullRequestOf(branchName) : null
   const facts: SafePushFacts = {

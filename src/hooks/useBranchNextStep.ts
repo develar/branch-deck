@@ -11,13 +11,12 @@ import { notifyError } from "@/lib/errors"
 import { isVirtualBranchBase } from "@/lib/git/new-pull-request"
 import { isFullyLanded } from "@/lib/landed"
 import { announce } from "@/lib/os-notification"
-import { canStartRobot, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
+import { canStartRobot, formatLandedReason, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
-import { stackAncestors } from "@/lib/stack"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { formatWholeStack } from "@/lib/whole-stack"
 import { recordApproval, recordRetarget } from "@/stores/activity"
@@ -25,7 +24,18 @@ import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getStackBranchOf } from "@/stores/branch-sync"
 import { inlineRowActionStore, isProcessing } from "@/stores/inline-row-action"
 import { landedStore } from "@/stores/landed"
-import { getBranchRobot, getLandingAncestor, getLandingSpan, getPushHold, isPatronusAvailable, isRobotFailing, isRobotNeedingReview, patronusStore } from "@/stores/patronus"
+import {
+  getBranchRobot,
+  getLandedBy,
+  getLandingAncestor,
+  getLandingBranchCount,
+  getLandingSpan,
+  getPushHold,
+  isPatronusAvailable,
+  isRobotFailing,
+  isRobotNeedingReview,
+  patronusStore,
+} from "@/stores/patronus"
 import { getPullRequest, getPullRequestAvailability, getStackPullRequest, pullRequestsStore, retargetPullRequest } from "@/stores/pull-requests"
 import { getSelectedProject } from "@/stores/repository"
 import { openRequestReview } from "@/stores/request-review-popover"
@@ -126,6 +136,7 @@ function factsOf(branch: Branch, options: StartStepOptions | null = null): NextS
   const restart =
     robot === undefined ? null : (getRobotActions(robot, branch, needsReview, failing).find(it => it.id === "restart-robot" || it.id === "push-and-restart-robot") ?? null)
   const readiness = options === null ? getReviewReadiness(name) : (freshReadiness(getReviewReadiness(name), name) ?? undefined)
+  const landedBy = getLandedBy(name)
   return {
     branchName: name,
     subject: name,
@@ -139,13 +150,15 @@ function factsOf(branch: Branch, options: StartStepOptions | null = null): NextS
     dryRunStartBlocker: dryRun.ok ? null : dryRun.reason,
     held: getPushHold(name) !== null,
     landedIn: getLandedIn(name),
+    landedWith: landedBy === null ? null : formatLandedReason(landedBy),
     robot: slot,
     robotPullRequest: robot?.pullRequest?.number ?? null,
     restart,
     pullRequestsAvailable: getPullRequestAvailability()?.status === "available",
     pullRequest: pullRequestFactOf(branch, target),
     target,
-    landsBranches: stackAncestors(name, getBranch).length + 1,
+    // the ancestors a merged Safe Push landed are in the target: the robot lands the others
+    landsBranches: getLandingBranchCount(name),
     startDescription: null,
     readiness: readiness === undefined ? null : { readiness: readiness.readiness, stale: readiness.stale },
     stackPullRequest: stackPullRequestFactOf(name),

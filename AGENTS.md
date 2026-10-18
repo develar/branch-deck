@@ -119,7 +119,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   (`request_pull_request_reviewers`, the per-reviewer 422 fallback shared with the creation).
 - **Patronus**: robot status per branch over the Patronus REST API (`crates/patronus`), polled only while a robot runs
   (every minute focused, every 5 minutes in the background while a robot pushes); a merge is a toast with Fetch and,
-  in the background, an OS notification; a running robot whose required check failed is "Failing" (Patronus' warning
+  in the background, an OS notification, and the branches it landed besides its own say "Landed with oauth" (no Safe
+  Push, no push) until the update; a running robot whose required check failed is "Failing" (Patronus' warning
   `robot_is_failing`), told once with Cancel Safe Push; Safe Push / Dry Run are actions, not a form (`requestSafePush`,
   `getSafePushDecision`): a click starts at once when there is nothing to say (the code-owner review pre-check, the
   push a step shown in the slot button, a toast with Cancel Safe Push), else a popover at the slot says what lands, the

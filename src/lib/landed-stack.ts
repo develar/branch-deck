@@ -1,10 +1,11 @@
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
-import { getReviewCommitState } from "@/lib/review-commit"
+import type { LandedSource } from "@/lib/patronus"
+import { findLandedBranches } from "@/lib/patronus"
 import { stackAncestors } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import { describeOrphanedStackPullRequest } from "@/lib/whole-stack"
-import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
+import type { Branch } from "@/stores/branch-sync"
 import { getBranch, getStackBranch } from "@/stores/branch-sync"
 import { rememberLandedStackRoot } from "@/stores/landed-stacks"
 import { closePullRequest, getPullRequest, getStackPullRequest } from "@/stores/pull-requests"
@@ -17,18 +18,8 @@ export interface LandedPullRequest {
 }
 
 /** What the landed pull requests are found in: the branches of the table, their pull requests, the stack branches */
-export interface LandingFacts {
-  readonly branchOf: (name: string) => Branch | undefined
+export interface LandingFacts extends LandedSource {
   readonly pullRequestOf: (name: string) => PullRequest | undefined
-  readonly stackOf: (root: string) => StackBranch | undefined
-}
-
-/**
- * The robot took the branch as it is: its tip, or the same commits by content before a sync rebuilt them on a newer
- * baseline (the remote branch at the robot's commit, up to date with the branch, `getReviewCommitState`)
- */
-function tookAsItIs(sourceRevision: string, tip: string | null | undefined, remote: RemoteStatus | null): boolean {
-  return sourceRevision === tip || (tip != null && remote !== null && getReviewCommitState(sourceRevision, tip, remote) === "rebased")
 }
 
 /**
@@ -42,34 +33,15 @@ function holdsNothingMore(pullRequest: PullRequest, branch: Branch): boolean {
 }
 
 /**
- * The open pull requests of the branches a merged robot landed besides its own: of the ancestors of a stacked branch
- * (the branch carries their commits), or of every branch of the stack for the robot of the whole stack (its stack branch
- * carries them all). Only while the robot ran on the branch or the stack branch as it is (`tookAsItIs`), and only a
- * pull request that holds nothing the branch lacks (`holdsNothingMore`): then the merge has every commit of it. The
- * pull request the robot started from is Patronus' to close.
+ * The open pull requests of the branches a merged robot landed besides its own (`findLandedBranches`, the branches the
+ * rows say it landed): of the ancestors of a stacked branch (the branch carries their commits), or of every branch of
+ * the stack for the robot of the whole stack (its stack branch carries them all); only while the robot ran on the branch
+ * or the stack branch as the table has it, and only a pull request that holds nothing the branch lacks
+ * (`holdsNothingMore`): then the merge has every commit of it. The pull request the robot started from is Patronus' to
+ * close.
  */
 export function findLandedPullRequests(robot: PatronusRobot, facts: LandingFacts): LandedPullRequest[] {
-  const source = robot.sourceRevision
-  if (robot.pushMode === "dryRun" || source === null) {
-    return []
-  }
-  let landed: Branch[]
-  if (robot.branchName !== null) {
-    const branch = facts.branchOf(robot.branchName)
-    if (branch === undefined || !tookAsItIs(source, branch.commits[0]?.hash, branch.remoteStatus)) {
-      return []
-    }
-    landed = stackAncestors(robot.branchName, facts.branchOf)
-  } else if (robot.stackRoot != null) {
-    const stack = facts.stackOf(robot.stackRoot)
-    if (stack === undefined || stack.members.length === 0 || !tookAsItIs(source, stack.tip, stack.remoteStatus)) {
-      return []
-    }
-    landed = stack.members.flatMap(name => facts.branchOf(name) ?? [])
-  } else {
-    return []
-  }
-  return landed.flatMap(branch => {
+  return findLandedBranches(robot, facts).flatMap(branch => {
     const pullRequest = facts.pullRequestOf(branch.name)
     const own = pullRequest !== undefined && pullRequest.number === robot.pullRequest?.number
     return pullRequest?.state === "open" && !own && holdsNothingMore(pullRequest, branch) ? [{ branch: branch.name, number: pullRequest.number }] : []

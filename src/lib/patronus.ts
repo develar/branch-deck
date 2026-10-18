@@ -5,10 +5,10 @@ import { formatShortHash } from "@/lib/hash"
 import type { OutgoingState, PushAction } from "@/lib/push-summary"
 import type { ReviewCommitState } from "@/lib/review-commit"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
-import { formatBlockedReason } from "@/lib/stack"
+import { formatBlockedReason, stackAncestors } from "@/lib/stack"
 import type { UIColor } from "@/lib/ui-types"
 import { formatWholeStack, formatWholeStackStart } from "@/lib/whole-stack"
-import type { Branch, RemoteStatus } from "@/stores/branch-sync"
+import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 
 /** What the chip shows of a robot */
 export type PatronusChipKind = "running" | "failed" | "needsReview" | "merged" | "passed" | "canceled" | "unknown"
@@ -451,9 +451,11 @@ export function isHoldingRobot(robot: PatronusRobot): boolean {
  * Why a branch offers no push: a Safe Push runs on it (`own`, the robot of the branch) or on a branch built on it that
  * lands it (`span`, `findLandingDescendants`). A push now won't land: the robot merges the commit it took, and a push
  * into its own branch makes it fail at the end ("branch was modified"). The restart, which pushes first, is the way through.
+ * Or a merged Safe Push of a branch built on it or of the whole stack landed it (`landed`, `findLandedBy`): its commits
+ * are in the target, a push sends nothing that lands, until the update archives the branch.
  */
 export interface PushHold {
-  kind: "own" | "span"
+  kind: "own" | "span" | "landed"
   /** The branch of the robot: the branch itself for `own`; the root of the stack for the robot of the whole stack */
   branch: string
   robot: PatronusRobot
@@ -462,10 +464,20 @@ export interface PushHold {
 }
 
 /**
- * The hold of a branch: its own robot started on the branch (`ownRobot`, `findBranchRobot`) before a span of a branch built on it (`span`,
- * `findLandingDescendants`); null when neither holds (`isHoldingRobot`)
+ * The hold of a branch: a merged Safe Push that landed it (`landed`, `findLandedBy`), then its own robot started on the
+ * branch (`ownRobot`, `findBranchRobot`), then a span of a branch built on it (`span`, `findLandingDescendants`); null
+ * when none holds (`isHoldingRobot`)
  */
-export function findPushHold(branchName: string, ownRobot: PatronusRobot | undefined, span: LandingDescendant | null | undefined): PushHold | null {
+export function findPushHold(
+  branchName: string,
+  ownRobot: PatronusRobot | undefined,
+  span: LandingDescendant | null | undefined,
+  landed: LandedBy | null | undefined = null,
+): PushHold | null {
+  // its commits are in the target for good: nothing a push sends lands
+  if (landed != null) {
+    return { kind: "landed", branch: landed.branch, robot: landed.robot, ...(landed.wholeStack === true && { wholeStack: true }) }
+  }
   // a Safe Push of a temporary ref (the IDE, the CLI) is not on the branch: a push leaves it as it is
   if (ownRobot !== undefined && isHoldingRobot(ownRobot) && isRobotOnBranch(ownRobot, branchName)) {
     return { kind: "own", branch: branchName, robot: ownRobot }
@@ -478,9 +490,13 @@ export function findPushHold(branchName: string, ownRobot: PatronusRobot | undef
 
 /**
  * Why a held branch offers no push: "A Safe Push of auth is running: wait until it merges, or restart it on the current
- * branch", "A Safe Push of oauth is running: it lands auth with it"
+ * branch", "A Safe Push of oauth is running: it lands auth with it", "Landed in master with oauth: nothing of it is left
+ * to push"
  */
 export function formatPushHoldReason(branchName: string, hold: PushHold): string {
+  if (hold.kind === "landed") {
+    return `${formatLandedReason(hold)}: nothing of it is left to push`
+  }
   return hold.kind === "own"
     ? `A ${formatPushMode(hold.robot.pushMode)} of ${branchName} is running: wait until it merges, or restart it on the current branch`
     : formatLandingReason(branchName, hold)
@@ -566,8 +582,8 @@ export interface LandingAncestor {
   wholeStack?: boolean
 }
 
-/** "oauth", "the whole air stack": the branch or the whole stack whose robot lands another one */
-export function formatLandingSubject(landing: LandingAncestor): string {
+/** "oauth", "the whole air stack": the branch or the whole stack whose robot lands another one, or landed it */
+export function formatLandingSubject(landing: { readonly branch: string; readonly wholeStack?: boolean }): string {
   return landing.wholeStack === true ? formatWholeStack(landing.branch) : landing.branch
 }
 
@@ -676,6 +692,97 @@ export function findLandingDescendants(
  */
 export function formatLandingReason(branchName: string, landing: LandingDescendant): string {
   return `A ${formatPushMode(landing.robot.pushMode)} of ${formatLandingSubject(landing)} is running: it lands ${branchName} with it`
+}
+
+/**
+ * A branch a merged Safe Push landed besides the branch it ran on (`findLandedBy`): an ancestor the robot of a branch
+ * built on it carried, or a branch of the stack the robot of the whole stack landed. Its commits are in the target until
+ * the update archives the branch: its row says who landed it, and it offers no Safe Push, Dry Run or push.
+ */
+export interface LandedBy {
+  /** The branch of the robot; for the robot of the whole stack (`wholeStack`) the root of the stack */
+  readonly branch: string
+  readonly robot: PatronusRobot
+  /** The robot of the whole stack of the root `branch` landed it, with every branch of the stack */
+  readonly wholeStack?: boolean
+}
+
+/** "Landed with oauth", "Landed with the whole air stack": the Status cell of a branch a merged Safe Push landed */
+export function formatLandedWith(landed: LandedBy): string {
+  return `Landed with ${formatLandingSubject(landed)}`
+}
+
+/** "Landed in master with oauth": why a branch a merged Safe Push landed starts no Safe Push and no Dry Run */
+export function formatLandedReason(landed: LandedBy): string {
+  return `Landed in ${landed.robot.targetBranch} with ${formatLandingSubject(landed)}`
+}
+
+/** What the branches a merged robot landed are found in: the branches of the table and the stack branches */
+export interface LandedSource {
+  readonly branchOf: (name: string) => Branch | undefined
+  readonly stackOf: (root: string) => StackBranch | undefined
+}
+
+/**
+ * The robot took the branch or the stack branch as it is: its tip, or the same commits by content before a sync rebuilt
+ * them on a newer baseline (the remote branch at the robot's commit, up to date with the branch, `getReviewCommitState`)
+ */
+export function tookAsItIs(sourceRevision: string, tip: string | null | undefined, remote: RemoteStatus | null): boolean {
+  return sourceRevision === tip || (tip != null && remote !== null && getReviewCommitState(sourceRevision, tip, remote) === "rebased")
+}
+
+/**
+ * The robot took a commit the branch has (`tookAsItIs`, or one of its commits the branch built new ones on since): the
+ * copies are the same objects, so what it is built on is as the robot took it
+ */
+function carriesAncestorsOf(sourceRevision: string, branch: Branch): boolean {
+  return tookAsItIs(sourceRevision, branch.commits[0]?.hash, branch.remoteStatus) || branch.commits.some(commit => commit.hash === sourceRevision)
+}
+
+/**
+ * The branches a merged robot landed besides the branch it ran on: the ancestors of a stacked branch (it carries their
+ * commits, `carriesAncestorsOf`: only while it ran on a commit of the branch as the table has it), every branch of the
+ * stack for the robot of the whole stack (its stack branch carries them all, only while it ran on the stack branch as
+ * it is, `tookAsItIs`). None for a dry run, a robot of a temporary ref or one of another state of the branch.
+ */
+export function findLandedBranches(robot: PatronusRobot, source: LandedSource): Branch[] {
+  const revision = robot.sourceRevision
+  if (robot.pushMode === "dryRun" || revision === null) {
+    return []
+  }
+  if (robot.branchName !== null) {
+    const branch = source.branchOf(robot.branchName)
+    return branch !== undefined && carriesAncestorsOf(revision, branch) ? stackAncestors(robot.branchName, source.branchOf) : []
+  }
+  if (robot.stackRoot != null) {
+    const stack = source.stackOf(robot.stackRoot)
+    return stack !== undefined && tookAsItIs(revision, stack.tip, stack.remoteStatus) ? stack.members.flatMap(name => source.branchOf(name) ?? []) : []
+  }
+  return []
+}
+
+/**
+ * The branches merged Safe Pushes landed besides the branches they ran on (`findLandedBranches`), each with the robot
+ * that landed it, the first merge first; a robot first seen merged (after a restart, a `bd` landing) included: the
+ * table has the branches as the robot took them
+ */
+export function findLandedBy(robots: Readonly<Record<string, PatronusRobot>>, source: LandedSource): Map<string, LandedBy> {
+  const merged = Object.values(robots)
+    .filter(robot => robot.status === "success" && isPushingRobot(robot))
+    .sort((a, b) => (a.finishTime ?? 0) - (b.finishTime ?? 0))
+  const landed = new Map<string, LandedBy>()
+  for (const robot of merged) {
+    const subject = robotSubjectOf(robot)
+    if (subject === null) {
+      continue
+    }
+    for (const branch of findLandedBranches(robot, source)) {
+      if (!landed.has(branch.name)) {
+        landed.set(branch.name, subject.kind === "branch" ? { branch: subject.name, robot } : { branch: subject.root, robot, wholeStack: true })
+      }
+    }
+  }
+  return landed
 }
 
 /**

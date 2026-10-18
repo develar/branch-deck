@@ -90,3 +90,28 @@ export async function expectPopoverWithoutReview(page: Page, groups: string): Pr
   await expect(popover.getByTestId("safe-push-review")).toHaveText(`Starts without the approvals of ${groups}: the profile you choose has to skip the code-owner review.`)
   return popover
 }
+
+/**
+ * A branch a merged Safe Push landed (`reason`: "Landed in master with oauth"): its menu disables Safe Push, Dry Run and
+ * Push, each saying why (the push that nothing of it is left to push), and S on the row says it and opens nothing
+ */
+export async function expectLandedActions(page: Page, branchName: string, reason: string): Promise<void> {
+  const row = findBranchRow(page, branchName)
+  await row.click({ button: "right" })
+  for (const [name, expected] of [
+    [/^Safe Push S/, reason],
+    [/^Dry Run/, reason],
+    [/^Push P$/, `${reason}: nothing of it is left to push`],
+  ] as const) {
+    const item = page.getByRole("menuitem", { name })
+    await expect(item).toHaveAttribute("aria-disabled", "true")
+    await item.hover()
+    // the description of the item before may still be fading out
+    await expect(page.getByRole("tooltip").filter({ hasText: expected }).last()).toHaveText(expected)
+  }
+  await page.keyboard.press("Escape")
+  await row.focus()
+  await page.keyboard.press("s")
+  await expect(page.locator("[data-slot=toast]", { hasText: `Safe Push of ${branchName}` }).locator("[data-slot=toast-description]")).toHaveText(reason)
+  await expect(safePushPopover(page)).toHaveCount(0)
+}

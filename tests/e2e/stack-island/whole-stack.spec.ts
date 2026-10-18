@@ -4,10 +4,11 @@ import type { PatronusRobot, PullRequest, PullRequestsResult } from "../../../sr
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
-import { AWAITING_CODE_OWNER, availableRobots, robot } from "../helpers/patronus-helpers"
+import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest } from "../helpers/pull-request-helpers"
 import { routePushBranches } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
+import { DEFAULT_CHECKS_ONLY, expectLandedActions, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextSyncEvents } from "../helpers/sync-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
@@ -271,6 +272,67 @@ test.describe("Whole stack", () => {
     )
     await expect.poll(() => closes.map(close => close.pullRequestNumber as number).sort((a, b) => a - b)).toEqual([4, 5, 6])
     expect(closes[0]!.comment).toContain("the Safe Push of the whole auth stack")
+  })
+
+  test("should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // auth forks: login and oauth on one side, session on the other
+    const repo = await setupRepo("stacked_branches", { patronus: availableRobots() })
+    await syncAndWaitForBranches()
+    const { stackPushes } = await routePushBranches(page, {})
+    await routeCommand(page, "get_patronus_start_options", () => DEFAULT_CHECKS_ONLY)
+    await routeReviewRequirement(page, () => NO_REVIEW_NEEDED)
+    const started = wholeStackRobot("auth", "whole", { sourceRevision: null })
+    const starts = await routeCommand(page, "start_patronus_robot", () => started)
+    const members = ["auth", "login", "oauth", "session"]
+
+    // each branch offers its own Safe Push, with what it is built on
+    for (const [name, label] of [
+      ["auth", "Safe Push"],
+      ["login", "Safe Push · 2"],
+      ["oauth", "Safe Push · 3"],
+      ["session", "Safe Push · 2"],
+    ]) {
+      await expect(slotSafePush(page, name!)).toHaveText(label!)
+    }
+    // the Safe Push of the whole stack lands them all in one robot, from its stack branch
+    await openWholeStackSubmenu(page, "auth")
+    await page.getByRole("menuitem", { name: "Safe Push Whole Stack" }).click()
+    await expect(safePushPopover(page)).toHaveAttribute("aria-label", "Safe Push of the whole auth stack")
+    await popoverStart(page).click()
+    await expect.poll(() => starts.length).toBe(1)
+    expect(stackPushes).toHaveLength(1)
+    await expect(findBranchRow(page, "session").getByTestId("landing-span")).toHaveText("lands with the whole auth stack")
+
+    // it merged: every branch of the stack says so, until the update archives them
+    await repo.setPatronus(availableRobots({ ...started, sourceRevision: "", status: "success", finishTime: 1704142800 }))
+    await emitTauriEvent(page, "tauri://focus")
+    await expect(page.locator("[data-slot=toast]").filter({ hasText: "Whole auth stack merged into master" })).toBeVisible()
+    for (const name of members) {
+      const row = findBranchRow(page, name)
+      await expect(row.getByTestId("landed-with")).toHaveText("Landed with the whole auth stack")
+      await expect(row.getByTestId("next-step-slot")).toHaveAttribute("data-step", "none")
+      await expect(row.getByTestId("branch-status")).toHaveText("landed")
+    }
+    await expect(findBranchRow(page, "docs").getByTestId("landed-with")).toHaveCount(0)
+    await expect(slotSafePush(page, "docs")).toHaveText("Safe Push")
+    // the whole stack has nothing left to start either
+    await openWholeStackSubmenu(page, "auth")
+    await expect(page.getByRole("menuitem", { name: "Safe Push Whole Stack" })).toHaveAttribute("aria-disabled", "true")
+    await page.keyboard.press("Escape")
+    await page.keyboard.press("Escape")
+
+    const chip = findBranchRow(page, "oauth").getByTestId("landed-with")
+    await chip.hover()
+    await expect(page.getByTestId("landed-with-popover")).toContainText("In master with the Safe Push of the whole auth stack · the update removes the local copies")
+    await page.mouse.move(0, 0)
+
+    // a branch of it: no Safe Push, no Dry Run, no push in its menu, each saying why; S says it too
+    await expectLandedActions(page, "oauth", "Landed in master with the whole auth stack")
+    await expectLandedActions(page, "session", "Landed in master with the whole auth stack")
   })
 
   test("should say that the pull request of the whole stack no longer matches it once a piece landed the root, and close it only when asked", async ({

@@ -37,6 +37,9 @@ describe("findLandedPullRequests", () => {
       { branch: "auth", number: 5 },
       { branch: "login", number: 6 },
     ])
+    // a commit on oauth since the robot took its tip: what oauth is built on is as the robot took it
+    const grown = testBranch("oauth", "login", { commits: [{ hash: "oauth-new" }, { hash: "oauth-tip" }] as unknown as Branch["commits"] })
+    expect(findLandedPullRequests(merged, facts([auth, login, grown], pullRequests))).toHaveLength(2)
   })
 
   it("leaves a pull request with a commit the branch lacks, and a robot of another state of the branch", () => {

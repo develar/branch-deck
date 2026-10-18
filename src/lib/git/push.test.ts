@@ -22,6 +22,8 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
     status: "running" as string,
     /** The branches a running Safe Push of a branch built on them lands: branch -> its robot */
     spans: {} as Record<string, PatronusRobot>,
+    /** The branches a merged Safe Push of a branch built on them landed: branch -> its robot */
+    landed: {} as Record<string, PatronusRobot>,
   },
   toasts: [] as { type?: string; title?: string; description?: unknown; actionProps?: { children: string; onClick: () => void } }[],
   stores: {
@@ -146,6 +148,10 @@ vi.mock("@/stores/branch-sync", () => ({
 
 vi.mock("@/stores/patronus", () => ({
   getPushHold: (name: string) => {
+    const landed = robots.landed[name]
+    if (landed !== undefined) {
+      return { kind: "landed", branch: landed.branchName, robot: landed }
+    }
     if (name === "auth" && robots.running !== undefined && robots.running.status === "running") {
       return { kind: "own", branch: "auth", robot: robots.running }
     }
@@ -235,6 +241,7 @@ beforeEach(() => {
   robots.running = { ...RUNNING }
   robots.status = "running"
   robots.spans = {}
+  robots.landed = {}
   stores.branches = {}
   stores.pullRequests = {}
   stores.expectedRemotes = []
@@ -389,6 +396,17 @@ describe("pushBranch into a branch whose Safe Push runs", () => {
     robots.spans.auth = { ...RUNNING, id: "login-run", branchName: "login" }
     expect(await pushBranch("auth")).toBe(false)
     expect(text(toasts[0]!.description)).toContain("A Safe Push of login is running: it lands auth with it")
+  })
+
+  it("refuses a branch a merged Safe Push of a branch built on it landed, without reading its status", async () => {
+    robots.running = undefined
+    addBranch("login", "auth")
+    // a status read would let the push through: the robot finished
+    robots.status = "success"
+    robots.landed.auth = { ...RUNNING, id: "login-run", branchName: "login", status: "success", finishTime: 200 }
+    expect(await pushBranch("auth")).toBe(false)
+    expect(calls).toEqual([])
+    expect(text(toasts[0]!.description)).toContain("Landed in master with login: nothing of it is left to push")
   })
 })
 

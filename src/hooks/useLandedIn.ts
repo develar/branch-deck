@@ -2,6 +2,7 @@ import { useMemo } from "react"
 import { fullyLandedNames, isFullyLanded } from "@/lib/landed"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { useBranchLanded, useLanding } from "@/stores/landed"
+import { useLandedBy } from "@/stores/patronus"
 
 /** The baseline the update brings in, as the remote names it: "origin/master" */
 export function useUpstreamName(): string {
@@ -11,12 +12,17 @@ export function useUpstreamName(): string {
 
 /**
  * The baseline ("origin/master") while the fetched baseline has every commit of the branch and the update is still to
- * come: the update archives the branch, there is nothing to push. Null otherwise.
+ * come: the update archives the branch, there is nothing to push. Before the fetch, the target ("master") of a merged
+ * Safe Push that landed the branch with a branch built on it or with the whole stack (`useLandedBy`). Null otherwise.
  */
 export function useLandedIn(name: string): string | null {
   const landed = useBranchLanded(name)
   const upstream = useUpstreamName()
-  return landed !== null && isFullyLanded(landed.branch, landed.incoming) ? upstream : null
+  const landedBy = useLandedBy(name)
+  if (landed !== null && isFullyLanded(landed.branch, landed.incoming)) {
+    return upstream
+  }
+  return landedBy?.robot.targetBranch ?? null
 }
 
 /** Whether the fetched baseline has every commit of a branch, for the push summary */

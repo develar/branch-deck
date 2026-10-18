@@ -46,6 +46,7 @@ function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
     dryRunStartBlocker: null,
     held: false,
     landedIn: null,
+    landedWith: null,
     robot: { kind: "start" },
     robotPullRequest: null,
     restart: null,
@@ -96,6 +97,17 @@ describe("getBranchNextStep", () => {
     }
     expect(getBranchNextStep(facts({ landedIn: "origin/master" })).dryRunBlocker).toBe("Landed in origin/master")
     expect(getBranchNextStep(facts({ robot: finished("merged") })).dryRunBlocker).toBe("Merged by Patronus")
+  })
+
+  it("row 1: a branch a merged Safe Push of a branch built on it or of the whole stack landed offers nothing, its Safe Push and Dry Run say who landed it", () => {
+    for (const landedWith of ["Landed in master with oauth", "Landed in master with the whole air stack"]) {
+      // its own approvals are missing, its pull request open: all of it landed already
+      const step = getBranchNextStep(withReadiness(missing([group()]), { landedWith }))
+      expect(step).toMatchObject({ kind: "none", item: null, safePushBlocker: landedWith, dryRunBlocker: landedWith, needsReadiness: false })
+      expect(step.notice).toEqual({ title: "Safe Push of wsm-skip-wa-2 can't start", description: landedWith })
+    }
+    // the fetched baseline says it once it has the commits
+    expect(getBranchNextStep(facts({ landedIn: "origin/master", landedWith: "Landed in master with oauth" })).safePushBlocker).toBe("Landed in origin/master")
   })
 
   it("row 1: a merged pull request of other commits (new work under the same name) blocks nothing", () => {

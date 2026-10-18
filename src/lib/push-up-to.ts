@@ -1,4 +1,6 @@
 import { formatCommitCount } from "@/lib/commit"
+import type { PushHold } from "@/lib/patronus"
+import { formatLandedReason, formatLandingSubject } from "@/lib/patronus"
 import { dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
 import { formatForcePushPart } from "@/lib/remote-status"
 import { needsPush, stackAncestors } from "@/lib/stack"
@@ -28,10 +30,10 @@ export type PushUpToPlan = { readonly ok: true; readonly steps: readonly PushUpT
 export interface PushUpToSources {
   readonly branchOf: (name: string) => Branch | undefined
   /**
-   * The branch whose running Safe Push holds `name` (`PushHold`): `name` itself, or a branch built on it that lands it
-   * whole; null while none does
+   * What holds the push of `name` (`PushHold`): its own running Safe Push, a running one of a branch built on it or of
+   * the whole stack that lands it whole, or a merged one that landed it; null while none does
    */
-  readonly landingOf: (name: string) => string | null
+  readonly holdOf: (name: string) => PushHold | null
 }
 
 /**
@@ -42,7 +44,7 @@ export interface PushUpToSources {
  * failed to sync) or asks first (its push drops remote commits), and a branch a running Safe Push lands, stop it.
  * Null for a commit the remote has: it offers nothing.
  */
-export function pushUpToPlan(name: string, originalHash: string, { branchOf, landingOf }: PushUpToSources): PushUpToPlan | null {
+export function pushUpToPlan(name: string, originalHash: string, { branchOf, holdOf }: PushUpToSources): PushUpToPlan | null {
   const branch = branchOf(name)
   const commit = branch?.commits.find(it => it.originalHash === originalHash)
   const remote = branch?.remoteStatus
@@ -53,7 +55,7 @@ export function pushUpToPlan(name: string, originalHash: string, { branchOf, lan
   if (at < 0) {
     return null
   }
-  const own = blocker(branch, landingOf)
+  const own = blocker(branch, holdOf)
   if (own !== null) {
     return own
   }
@@ -62,7 +64,7 @@ export function pushUpToPlan(name: string, originalHash: string, { branchOf, lan
   }
   const steps: PushUpToStep[] = []
   for (const ancestor of stackAncestors(name, branchOf)) {
-    const stop = blocker(ancestor, landingOf)
+    const stop = blocker(ancestor, holdOf)
     if (stop !== null) {
       return stop
     }
@@ -87,20 +89,23 @@ export function pushUpToPlan(name: string, originalHash: string, { branchOf, lan
 
 /**
  * Why the branch can't be pushed in a Push Up to Here: blocked, failed to sync, its own Safe Push running, landed whole
- * by the running Safe Push of a branch built on it
+ * by the running Safe Push of a branch built on it or of the whole stack, or landed by a merged one
  */
-function blocker(branch: Branch, landingOf: (name: string) => string | null): PushUpToRefusal | null {
+function blocker(branch: Branch, holdOf: (name: string) => PushHold | null): PushUpToRefusal | null {
   if (branch.status === "Blocked" || branch.hasError) {
     return { ok: false, reason: `${branch.name} can't be pushed: ${branch.statusText === "" ? "it failed to sync" : branch.statusText}.`, show: branch.name }
   }
-  const landing = landingOf(branch.name)
-  if (landing === branch.name) {
-    return { ok: false, reason: `A Safe Push of ${branch.name} is running: wait until it merges, or restart it on the current branch.`, show: landing }
+  const hold = holdOf(branch.name)
+  switch (hold?.kind) {
+    case undefined:
+      return null
+    case "own":
+      return { ok: false, reason: `A Safe Push of ${branch.name} is running: wait until it merges, or restart it on the current branch.`, show: branch.name }
+    case "span":
+      return { ok: false, reason: `A Safe Push of ${formatLandingSubject(hold)} lands all of ${branch.name}.`, show: hold.branch }
+    case "landed":
+      return { ok: false, reason: `${formatLandedReason(hold)}: nothing of ${branch.name} is left to push.`, show: hold.branch }
   }
-  if (landing !== null) {
-    return { ok: false, reason: `A Safe Push of ${landing} lands all of ${branch.name}.`, show: landing }
-  }
-  return null
 }
 
 /**

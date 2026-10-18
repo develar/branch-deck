@@ -29,6 +29,8 @@ targets:
   - ../../src/components/branch/NextStepSlot.tsx
   - ../../src/components/branch/RobotProgress.tsx
   - ../../src/components/branch/LandingSpanLabel.tsx
+  - ../../src/components/branch/LandedChip.tsx
+  - ../../src/hooks/useLandedIn.ts
   - ../../src/components/branch/StackLanes.tsx
   - ../../src/lib/robot-eta.ts
   - ../../src/stores/robot-history.ts
@@ -637,13 +639,26 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   gets no second comment, a merged one can't be closed), and the toast and Activity say it ("Safe Push · closes the
   pull request of auth: it landed with oauth", "closes the pull requests of 6 branches: they landed with the whole
   stack"). By content: only while the robot ran on the branch (the stack branch) as it is, its tip or the same commits
-  rebuilt on a newer baseline, and only a pull request that holds nothing its branch lacks: its head is the branch's
-  tip, or it is the remote branch and that has no commit the branch lacks (older versions of commits amended here
-  included: their newer versions landed). The pull request the robot started from is Patronus'. A failed close is an
-  error toast "Cannot close pull request #5". A robot first seen merged closes nothing.
+  rebuilt on a newer baseline, or (of a branch) a commit of it the branch built new ones on since: the copies below it
+  are the same objects, so its ancestors are as the robot took them (`findLandedBranches`); and only a pull request
+  that holds nothing its branch lacks: its head is the branch's tip, or it is the remote branch and that has no commit
+  the branch lacks (older versions of commits amended here included: their newer versions landed). The pull request the
+  robot started from is Patronus'. A failed close is an error toast "Cannot close pull request #5". A robot first seen
+  merged closes nothing.
   [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the ancestors a stacked branch landed, and says so`, `closes the pull requests of the branches the whole stack landed`)
   [@test] ../../src/lib/landed-stack.test.ts (`closes the pull requests of the ancestors a merged piece landed, by content`, `leaves a pull request with a commit the branch lacks, and a robot of another state of the branch`)
   [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`closes_a_pull_request_with_a_comment`, `a_closed_pull_request_gets_no_second_comment_and_a_merged_one_is_not_closed`)
+- Until the update archives them, the branches a merged robot landed that way (the same `findLandedBranches`, a robot
+  first seen merged too: `findLandedBy`) say so in their rows, "Landed with oauth", "Landed with the whole air stack"
+  (`LandedWithChip`, `info`, beside the status "landed" and a hollow node in the graph), its hover "In master with the
+  Safe Push of oauth · the update removes the local copies" and when it merged, a click the robot in Patronus; the
+  preview shows it too. They offer no Safe Push and no Dry Run ([Next Step](next-step.spec.md#the-table), row 1:
+  "Landed in master with oauth") and no push ([below](#pushing-into-a-branch-whose-safe-push-runs)); the "to push" counts
+  leave them out. Once the fetched baseline has their commits, the Landed chip takes its place.
+  [@test] ../../src/lib/patronus.test.ts (`knows the ancestors a merged piece carried and every branch a merged whole stack landed, and names who landed them`, `keeps the ancestors landed while the branch has the commit the robot took: rebuilt on a newer baseline, or with new commits on it`, `lands nothing for a dry run, a robot that didn't merge, one of another state of the branch, or of a temporary ref`)
+  [@test] ../../src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
 - A merged robot of a branch that landed the root of a stack whose whole stack has an open pull request leaves that
   pull request matching nothing: the toast says it ("Safe Push · #12 no longer matches the air stack: oauth landed"),
   and the user decides on it ([Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)); nothing closes it.
@@ -921,11 +936,13 @@ explicit choice of the user, offered only where the approvals count in a pull re
   Patronus merges the commit it took at the start, and a push into its own branch fails it at the end ("branch was
   modified"). A dry run and a canceling robot hold nothing. Every Safe Push in a stack holds its root. The Safe Push of
   the whole stack (on its stack branch) holds every branch of the stack: "A Safe Push of the whole air stack is running:
-  it lands auth with it" ([Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)).
-  [@test] ../../src/lib/patronus.test.ts (`holds the push of a branch whose Safe Push runs, or that a running Safe Push of a branch built on it lands; not for a dry run or a cancel`)
+  it lands auth with it" ([Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)). A branch a merged Safe Push
+  landed besides its own branch ([Merged](#merged)) is held too, before any other hold, until the update archives it:
+  "Landed in master with oauth: nothing of it is left to push".
+  [@test] ../../src/lib/patronus.test.ts (`holds the push of a branch whose Safe Push runs, or that a running Safe Push of a branch built on it lands; not for a dry run or a cancel`, `holds the push of a branch a merged Safe Push landed, before a robot of its own`)
   [@test] ../../src/stores/patronus.test.ts (`holds a branch whose Safe Push runs and the ancestors it lands; not for a dry run or a cancel`, `holds every branch the whole-stack Safe Push lands`)
 - A held branch offers no push: the place of the row's push button stays empty, as its Safe Push slot does; its Status
-  cell says why (the robot chip, "lands with oauth"). P does nothing; Push in the menu, the preview footer, the outgoing
+  cell says why (the robot chip, "lands with oauth", "Landed with oauth"). P does nothing; Push in the menu, the preview footer, the outgoing
   overview and the review window is disabled with the reason: "A Safe Push of auth is running: wait until it merges, or
   restart it on the current branch", "A Safe Push of oauth is running: it lands auth with it". The "to push" counts leave it out (the
   header, the stack chip, the island, the filter chip).
@@ -934,8 +951,9 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer no push: it won't land, and the menu says why`)
 - A push that raced with a start (the IDE, `bd`, another window) reads the status of the robot first (`GET
   /robots/{id}/status`, one row): still running, it pushes nothing and says why ("Cannot push auth"); finished meanwhile,
-  it pushes. Nothing asks: no dialog.
-  [@test] ../../src/lib/git/push.test.ts (`refuses the push: it won't land, and the Safe Push would fail at the end`, `pushes when the Safe Push finished meanwhile: the status is read fresh`, `refuses a branch a Safe Push of a branch built on it lands`)
+  it pushes. A branch a merged Safe Push landed is refused without a read: the robot finished, its commits are in the
+  target. Nothing asks: no dialog.
+  [@test] ../../src/lib/git/push.test.ts (`refuses the push: it won't land, and the Safe Push would fail at the end`, `pushes when the Safe Push finished meanwhile: the status is read fresh`, `refuses a branch a Safe Push of a branch built on it lands`, `refuses a branch a merged Safe Push of a branch built on it landed, without reading its status`)
 - The one push into a held branch is a robot action: "Restart Safe Push" of a running robot whose branch
   changed since (the menu, the robot details, the robots indicator; "Cancels the run on 1a2b3c4, pushes auth and starts
   it again on the pushed commit") cancels it, pushes and restarts it on the pushed commit. The restart is the action: its

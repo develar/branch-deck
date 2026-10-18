@@ -10,6 +10,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchIssueBadge, BranchSummary } from "@/components/branch/BranchNameCell"
 import { BranchPreviewActions, BranchPreviewMenu } from "@/components/branch/BranchPreviewActions"
+import { LandedWithChip } from "@/components/branch/LandedChip"
 import { OrphanedStackPullRequestNotice } from "@/components/branch/OrphanedStackPullRequest"
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
@@ -42,7 +43,7 @@ import { statusDotClassName } from "@/lib/ui-types"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { useBranch, useIsBranchPushing } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
-import { useBranchRobot, usePatronusAvailable } from "@/stores/patronus"
+import { useBranchRobot, useLandedBy, usePatronusAvailable } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
 
 export interface BranchPreviewDialogProps {
@@ -230,11 +231,12 @@ function focusBranchRow(name: string | null): boolean {
 
 /**
  * Commit count, latest commit time, the status of the row (with its description on hover), the last push time, the
- * pull request chip and the Patronus chip.
+ * pull request chip, the Patronus chip and the merged Safe Push that landed the branch with another one.
  */
 function BranchPreviewMeta({ branch }: { branch: Branch }) {
   const pullRequest = usePullRequest(branch.name)
   const robot = useBranchRobot(branch.name)
+  const landedBy = useLandedBy(branch.name)
   const landedIn = useLandedIn(branch.name)
   const status = getStatusBadge(branch, landedIn)
   const lastPushTime = branch.remoteStatus?.lastPushTime ?? 0
@@ -262,6 +264,9 @@ function BranchPreviewMeta({ branch }: { branch: Branch }) {
   }
   if (robot) {
     items.push(<PatronusChip branchName={branch.name} />)
+  }
+  if (landedBy !== null) {
+    items.push(<LandedWithChip landed={landedBy} />)
   }
 
   return (

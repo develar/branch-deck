@@ -104,7 +104,7 @@ function getSquashIntoItems(commit: Commit): MenuItem[] {
  * on that have work, root first; disabled with the reason when it can't; nothing for a commit the remote has
  */
 function getPushUpToItems(branchName: string, commit: Commit): MenuItem[] {
-  const plan = pushUpToPlan(branchName, commit.originalHash, { branchOf: getBranch, landingOf: name => getPushHold(name)?.branch ?? null })
+  const plan = pushUpToPlan(branchName, commit.originalHash, { branchOf: getBranch, holdOf: getPushHold })
   if (plan === null) {
     return []
   }

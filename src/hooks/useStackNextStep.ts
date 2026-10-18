@@ -130,6 +130,8 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     dryRunStartBlocker: dryRun.ok ? null : dryRun.reason,
     held: getStackPushHold(root) !== null,
     landedIn,
+    // its own merged robot is its row 1 (`robot`): no other robot lands the whole stack
+    landedWith: null,
     robot: slot,
     robotPullRequest: robot?.pullRequest?.number ?? null,
     restart,

@@ -59,6 +59,8 @@ targets:
   - ../../src/components/branch/BranchSelectionBar.tsx
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/components/branch/BranchRow.tsx
+  - ../../src/components/branch/LandingSpanLabel.tsx
+  - ../../src/components/branch/LandedChip.tsx
   - ../../src/lib/git/push-toast.tsx
   - ../../src/lib/git/new-pull-request.ts
   - ../../src/lib/create-pull-request-context.ts
@@ -350,8 +352,11 @@ menu stacks, unstacks and renames branches.
   popover is open ([Branch Row](branch-row.spec.md#tree)).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
   When a robot of a stacked branch merged, the open pull requests of the ancestors it landed are closed with a comment
-  ([Patronus](patronus.spec.md#merged)). `bd safe-push` lands a stacked branch the same way, with its ancestors in one
-  robot ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
+  ([Patronus](patronus.spec.md#merged)), and until the update archives them their rows say "Landed with oauth" and
+  offer no Safe Push, no Dry Run and no push; a branch built on a landed ancestor lands without it ("Safe Push" where
+  it was "Safe Push · 2"). `bd safe-push` lands a stacked branch the same way, with its ancestors in one robot
+  ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`)
 
 ### Push Up to Here
 
@@ -375,8 +380,9 @@ menu stacks, unstacks and renames branches.
 - It must say why it can't, with a link that shows the branch in the way: an ancestor blocked or failed to sync ("auth
   can't be pushed: blocked by core."), an ancestor whose push drops remote commits ("auth's push drops 2 remote
   commits: Force Push auth first.": it asks first in its own row), a branch a running Safe Push lands ("A Safe Push of
-  oauth lands all of auth."); the menu item is disabled with the reason.
-  [@test] ../../src/lib/push-up-to.test.ts (`stops at an ancestor that can't be pushed or asks first, and at a branch a running Safe Push holds`)
+  oauth lands all of auth.", "A Safe Push of the whole air stack lands all of air."), a branch a merged one landed
+  ("Landed in master with oauth: nothing of auth is left to push."); the menu item is disabled with the reason.
+  [@test] ../../src/lib/push-up-to.test.ts (`stops at an ancestor that can't be pushed or asks first, at a branch a running Safe Push holds, and at one a merged Safe Push landed`)
 
 ### Messages
 
