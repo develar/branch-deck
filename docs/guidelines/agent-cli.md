@@ -1243,25 +1243,6 @@ release-please updates and `src-tauri/tauri.conf.json` names (`"version": "../pa
 the version of the git bd finds (see Invocation), also of one older than 2.54, and `null` without one: never an
 error. The first line of `bd help agent` names the version too.
 
-### `bd help agent`
-
-Prints the agent workflow as plain text (`AGENT_HELP`, about 18 KB): the rules first, then the steps, then the other
-tasks; it only names the resolve session, which `bd help update`
-prints (`UPDATE_HELP`), and the work beside other sessions, which `bd help worktrees` prints (`WORKTREES_HELP`).
-`agent_help_test.rs` keeps the three true. Together they must name every command and, for each command,
-every long option, unless the test lists it in `NOT_IN_AGENT_HELP` (as `status --limit`). An option counts for the
-command named last before it, and it must exist for that command.
-
-### `bd help worktrees`
-
-Prints how agent sessions that share a checkout work beside each other, each committing in a worktree of its own
-(`WORKTREES_HELP`, about 40 lines): the `(branch)` prefix is written when a commit is made, never guessed later; one
-owner rewrites the shared branch (`bd update`, `bd fold`, `bd group`, `bd rename`) and every other session only adds
-commits with `bd pick --from <worktree> --follow`, never a cherry-pick in the shared checkout; the outcomes of a pick
-and what to do with each; `bd pick --dry-run` as the check after a rewrite, never a comparison by date; the protocol
-of the owner (the lock, `operation_in_progress`, the new HEAD told to the others); and the `branch-deck: <operation>`
-reflog lines. The skill sends an agent there when several sessions or worktrees work on one branch.
-
 ### `bd install [--uninstall]`, `bd help skill`
 
 How an agent learns that bd exists. `bd install`, or Help → Install Agent CLI… in the app
@@ -1301,6 +1282,25 @@ a cargo build, needs no `cli`). It is quoted for a POSIX
 shell, or for PowerShell on Windows (`& '<bd.exe>' -C '<repository>'`, single quotes, in which `$` does not expand, `powershell: true`). It writes nothing, so the
 bd of a prompt is always the version of the app that copied it. When the app can't tell its binary (no `bd.exe`), the
 blocked prompt names no command: the user updates in the app.
+
+### `bd help agent`
+
+Prints the agent workflow as plain text (`AGENT_HELP`, about 18 KB): the rules first, then the steps, then the other
+tasks; it only names the resolve session, which `bd help update`
+prints (`UPDATE_HELP`), and the work beside other sessions, which `bd help worktrees` prints (`WORKTREES_HELP`).
+`agent_help_test.rs` keeps the three true. Together they must name every command and, for each command,
+every long option, unless the test lists it in `NOT_IN_AGENT_HELP` (as `status --limit`). An option counts for the
+command named last before it, and it must exist for that command.
+
+### `bd help worktrees`
+
+Prints how agent sessions that share a checkout work beside each other, each committing in a worktree of its own
+(`WORKTREES_HELP`, about 40 lines): the `(branch)` prefix is written when a commit is made, never guessed later; one
+owner rewrites the shared branch (`bd update`, `bd fold`, `bd group`, `bd rename`) and every other session only adds
+commits with `bd pick --from <worktree> --follow`, never a cherry-pick in the shared checkout; the outcomes of a pick
+and what to do with each; `bd pick --dry-run` as the check after a rewrite, never a comparison by date; the protocol
+of the owner (the lock, `operation_in_progress`, the new HEAD told to the others); and the `branch-deck: <operation>`
+reflog lines. The skill sends an agent there when several sessions or worktrees work on one branch.
 
 ## Agent workflow
 

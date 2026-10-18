@@ -122,27 +122,27 @@ enum Command {
   /// `uncommitted_overlap` (exit 4) when local changes sit on files it writes. A conflict starts a resolve session
   /// (exit 1): --continue, --abort, --status
   Update(UpdateArgs),
-  /// Fold the `fixup!`, `squash!` and `amend!` commits into their targets, keeping HEAD's tree
-  Fold(FoldArgs),
   /// Land the commits of another worktree on the branch checked out here (`bd help worktrees`)
   ///
   /// From --from <dir>, or <rev>, <a>..<b>; without a cherry-pick: replayed in memory, a commit the branch has already
   /// left out, the files following; --follow moves that worktree onto the new tip too. A conflict changes nothing
   /// (exit 1); `uncommitted_overlap` (exit 4) when local changes sit on files it writes
   Pick(PickArgs),
+  /// Fold the `fixup!`, `squash!` and `amend!` commits into their targets, keeping HEAD's tree
+  Fold(FoldArgs),
   /// Move the changes of one file from one commit into another, keeping HEAD's tree
   ///
   /// All of its changes, or the hunks --hunk names; both commits ahead of the baseline. `hunk_conflict` (exit 4) when a
   /// commit between changes the same lines
   MoveHunk(MoveHunkArgs),
-  /// Suggest a grouping of the commits into branches, checked by a trial sync
-  ///
-  /// A plan for `bd group`; exit code 1 when a branch of it is not `ok`
-  Suggest(SuggestArgs),
   /// Would the branches build with this plan? A trial sync
   ///
   /// The plan comes from --plan or stdin; exit code 1 when a branch is not `ok`
   Check(CheckArgs),
+  /// Suggest a grouping of the commits into branches, checked by a trial sync
+  ///
+  /// A plan for `bd group`; exit code 1 when a branch of it is not `ok`
+  Suggest(SuggestArgs),
   /// Rebuild the virtual branches, as the app's sync does; exit code 1 when a branch is not built
   Sync,
   /// Sync, then push branches with a lease per ref, parents first, and print a `gh pr create` for each
@@ -326,6 +326,8 @@ mod commits_test;
 mod context_test;
 #[cfg(test)]
 mod describe_test;
+#[cfg(test)]
+mod error_test;
 #[cfg(test)]
 mod fixture_test;
 #[cfg(test)]

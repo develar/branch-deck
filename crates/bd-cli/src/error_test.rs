@@ -1,0 +1,71 @@
+use crate::error::{CONFLICT_EXIT, ErrorCode};
+use crate::fixture_test::{environment, run_json};
+use pretty_assertions::assert_eq;
+
+/// Every code with its exit code and whether the same command again may succeed: 2 invalid input, 3 stale (retry), 4
+/// refused, 5 git or network error. Exit 1 is never an error
+const CODES: &[(ErrorCode, i32, bool)] = &[
+  (ErrorCode::InvalidArguments, 2, false),
+  (ErrorCode::NotARepository, 2, false),
+  (ErrorCode::NoBranchPrefix, 2, false),
+  (ErrorCode::UnknownBranch, 2, false),
+  (ErrorCode::NoBaseline, 4, false),
+  (ErrorCode::InvalidPlan, 2, false),
+  (ErrorCode::NotAheadOfBaseline, 2, false),
+  (ErrorCode::StackConflict, 4, false),
+  (ErrorCode::StackNotBuilt, 4, false),
+  (ErrorCode::HunkConflict, 4, false),
+  (ErrorCode::HunkNotFound, 2, false),
+  (ErrorCode::HeadMoved, 3, true),
+  (ErrorCode::GroupsMoved, 3, true),
+  (ErrorCode::StacksMoved, 3, true),
+  (ErrorCode::LeaseRejected, 4, false),
+  (ErrorCode::Locked, 3, true),
+  (ErrorCode::OperationInProgress, 4, false),
+  (ErrorCode::DetachedHead, 4, false),
+  (ErrorCode::UndoStale, 4, false),
+  (ErrorCode::RangeUnknown, 4, false),
+  (ErrorCode::SourceOnNewerBaseline, 4, false),
+  (ErrorCode::UncommittedOverlap, 4, false),
+  (ErrorCode::NoSession, 2, false),
+  (ErrorCode::RoundMoved, 3, true),
+  (ErrorCode::SessionStale, 4, false),
+  (ErrorCode::UnsupportedConflict, 4, false),
+  (ErrorCode::UnresolvedMarkers, 2, false),
+  (ErrorCode::ResolutionOutsideConflict, 2, false),
+  (ErrorCode::MissingResolution, 2, false),
+  (ErrorCode::EmptyResolution, 2, false),
+  (ErrorCode::FinishPending, 4, false),
+  (ErrorCode::PushRefused, 4, false),
+  (ErrorCode::NoRemote, 4, false),
+  (ErrorCode::InstallRefused, 4, false),
+  (ErrorCode::ApprovalsMissing, 4, false),
+  (ErrorCode::RobotRunning, 4, false),
+  (ErrorCode::DanglingReference, 4, false),
+  (ErrorCode::NotOnSpace, 4, false),
+  (ErrorCode::NotLoggedIn, 4, false),
+  (ErrorCode::PatronusRefused, 4, false),
+  (ErrorCode::NoPullRequest, 4, false),
+  (ErrorCode::NoReviewer, 4, false),
+  (ErrorCode::ReviewRefused, 4, false),
+  (ErrorCode::GitNotFound, 5, false),
+  (ErrorCode::GitError, 5, false),
+  (ErrorCode::NetworkError, 5, true),
+  (ErrorCode::PatronusError, 5, false),
+];
+
+#[test_log::test]
+fn every_error_code_has_the_exit_code_and_the_retry_of_its_class() {
+  for &(code, exit_code, retryable) in CODES {
+    assert_eq!((code.exit_code(), code.retryable()), (exit_code, retryable), "{code:?}");
+    // a retry is for a stale read (exit 3) or the network, never for a refusal
+    assert!(!retryable || exit_code == 3 || code == ErrorCode::NetworkError, "{code:?}");
+    assert_ne!(exit_code, CONFLICT_EXIT, "{code:?}: a conflict is an output, never an error");
+  }
+  // every code is in the table: as many as `bd schema` names
+  let directory = tempfile::tempdir().unwrap();
+  let (_, schema) = run_json(&environment(directory.path()), &["schema"]);
+  let codes = &schema["outputs"]["error"]["$defs"]["ErrorCode"];
+  let count = codes["oneOf"].as_array().or_else(|| codes["enum"].as_array()).map(Vec::len).unwrap();
+  assert_eq!(count, CODES.len());
+}

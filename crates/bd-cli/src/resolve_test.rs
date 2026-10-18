@@ -247,8 +247,9 @@ fn a_second_conflict_opens_a_second_round_with_its_own_copies() {
   assert!(!Path::new(&edit_of(&round1, "shared.txt")).exists(), "the copies of round 1 are gone");
   // the round of the next step
   let (exit_code, stale) = run_in(&clone, &["update", "--continue", "--round", "1"]);
+  // a stale read: `bd update` prints the open round, and the same command for it succeeds
   assert_error(&stale, exit_code, (3, "round_moved"));
-  assert_eq!(stale["error"]["retryable"], json!(false));
+  assert_eq!(stale["error"]["retryable"], json!(true));
 
   std::fs::write(edit_of(&round2, "shared.txt"), "one\ntheirs mine again\nthree\n").unwrap();
   let (exit_code, done) = run_in(&clone, &["update", "--continue", "--round", "2"]);

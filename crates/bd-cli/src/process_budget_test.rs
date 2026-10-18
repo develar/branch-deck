@@ -6,6 +6,7 @@ use crate::check_command::{CheckArgs, check};
 use crate::context::{RepoContext, RepoOptions};
 use crate::fixture_test::{PREFIX, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline};
 use crate::fold_command::{FoldArgs, fold};
+use crate::move_hunk_command::{MoveHunkArgs, move_hunk};
 use crate::pick_command::{PickArgs, pick};
 use crate::push_command::{PushArgs, push};
 use crate::push_test::repo_with_remote;
@@ -282,6 +283,44 @@ fn a_fold() {
       ("var", 1),
     ],
   );
+}
+
+/// `bd move-hunk` of a file change from the newest commit into the oldest, over `between` commits that don't touch the
+/// file: its processes by subcommand
+fn move_hunk_processes(between: usize) -> Vec<(String, u32)> {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let first = commit_subjects(&repo, &["(auth) Add a"])[0].clone();
+  for index in 0..between {
+    commit_subjects(&repo, &[&format!("(other) Add o{index}")]);
+  }
+  // the commit keeps its other file
+  std::fs::write(repo.path().join("f1.txt"), "changed\n").unwrap();
+  std::fs::write(repo.path().join("ui.txt"), "ui\n").unwrap();
+  repo.git(&["add", "f1.txt", "ui.txt"]);
+  repo.git(&["commit", "-q", "-m", "(ui) Change a"]);
+  let last = repo.head();
+  let context = context(&repo);
+  let args = MoveHunkArgs {
+    from: last,
+    to: first,
+    path: "f1.txt".to_string(),
+    ..MoveHunkArgs::default()
+  };
+  move_hunk(&context, &args).unwrap();
+  context
+    .git
+    .process_stats()
+    .unwrap()
+    .by_command()
+    .into_iter()
+    .map(|(subcommand, stats)| (subcommand, stats.count))
+    .collect()
+}
+
+/// `bd move-hunk`: a fixed number of processes, whatever the number of commits between the two
+#[test]
+fn a_move_hunk() {
+  assert_eq!(move_hunk_processes(1), move_hunk_processes(6));
 }
 
 /// `bd pick --from <worktree> --follow`: the lock, the marks of both worktrees, the baseline, the check (the range, one

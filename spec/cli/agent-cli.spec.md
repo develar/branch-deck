@@ -3,6 +3,7 @@ name: Agent CLI
 description: Requirements for bd, the command line a coding agent uses to read the branches and commits Branch Deck sees and to regroup the commits, as JSON with a stable contract.
 style: plain-1
 targets:
+  - ../../crates/bd-cli/src/text_input.rs
   - ../../src-tauri/src/main.rs
   - ../../crates/bd-cli/src/main.rs
   - ../../scripts/build-bd.mjs
@@ -129,11 +130,14 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/status_test.rs (`prefix_from_app_settings`, `prefix_from_git_config`)
   [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`the_specific_prefix_wins`, `a_local_prefix_is_repository_scoped`)
 - Git must come from `BD_GIT`, else `git` on `PATH`, else Homebrew's git, never from a login shell, and be 2.54 or newer.
+  [@test] ../../crates/git-executor/src/git_info.rs (`minimum_version`, `a_missing_explicit_git_is_not_found_with_the_hint`)
 - Logs must go to stderr, and only with `-v` (debug) or `-vv` (trace).
 
 ### Output contract
 
 - stdout must hold exactly one JSON object per run, and every object must have `"schema": 1`.
+  [@test] ../../crates/bd-cli/src/version_test.rs (`version_and_dash_dash_version`)
+  [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
 - The JSON must be ASCII: every other character is a `\uXXXX` escape (a UTF-16 pair above the BMP), so a reader that
   decodes stdout with a legacy code page, as Windows PowerShell 5.1 does, still gets every path and subject.
   [@test] ../../crates/bd-cli/src/describe_test.rs (`a_body_from_windows_powershell_is_read_and_printed_as_ascii`)
@@ -162,11 +166,14 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   A write whose step after the write failed must print its output with that error as `after_error`, never the error
   object, so that the undo token stays. The names must be one vocabulary: a write prints `previous_head` and
   `new_head`, a commit and its copy are `{commit, new_id}`, a state is `state`.
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_token`)
+  [@test] ../../crates/bd-cli/src/schema_test.rs (`outputs_match_schema`)
 - The exit code must follow the code: 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network
   error. Exit 1 must never be an error object: it is the output of a command that found a conflict (`state:
   "conflict"`, a branch not built, `ok: false`); a conflict bd refuses to work around is exit 4. `retryable` must be
   true only where the same command again can succeed: never for `lease_rejected` (a push
   again with `--force` would drop what the remote has now) nor for a stale undo token (`undo_stale`).
+  [@test] ../../crates/bd-cli/src/error_test.rs (`every_error_code_has_the_exit_code_and_the_retry_of_its_class`)
 - An empty prefix must fail with `no_branch_prefix`, a path outside a repository with `not_a_repository`, bad arguments
   with `invalid_arguments`, an unknown `--branch` with `unknown_branch`; all exit with 2.
   [@test] ../../crates/bd-cli/src/status_test.rs (`empty_prefix_is_an_error`, `not_a_repository`, `invalid_arguments`, `status_filters_and_pages`)
@@ -421,6 +428,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`refuses_a_move_that_leaves_a_commit_empty_or_names_no_change`)
   [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_hunk_number_is_the_one_of_bd_commits_patch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`, `a_fix_that_is_the_whole_commit_is_refused_as_a_squash`)
 - It must run a fixed number of git processes, whatever the number of commits between.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_move_hunk`)
 
 ### `bd check`
 
@@ -925,37 +933,6 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   app (the root `package.json`, which `tauri.conf.json` names), and the version of the git bd finds, `null` without one.
   [@test] ../../crates/bd-cli/src/version_test.rs (`version_and_dash_dash_version`)
 
-### `bd help agent`
-
-- It must print the rules first: what needs the user's approval (every push, Safe Push and Patronus Dry Run, review
-  request, `gh pr create` and change of another session's commit), what each exit code asks for (exit 1 never an error
-  object, exit 4 without a rule: stop and show `message`), that `retryable` decides a retry whatever the exit code,
-  the error object with `paths`, `branches` and `review`, `--expect-head`, `previous_head`, `new_head`, the
-  `undo_token` and `after_error`, abbreviated ids compared by prefix, never reorder, squash or drop commits except
-  with `bd fold`, a change moved only with `bd move-hunk`, and only `bd update`, `bd pick` and their undo writing the
-  working tree. Then the workflow in steps (look with `bd suggest`; plan and check with the `result` of each branch;
-  apply with `bd group --sync`; push; Safe Push with `--check` first, `lands`, `alone`, `--whole-stack` and the
-  refusals; review; robot), then the other tasks (`bd update`, `bd pick`, `bd fold`, `bd move-hunk`, `bd install`),
-  each sending a longer story to its own topic. Together with `bd help update` and `bd help worktrees` it must name
-  every command and, per command, every long option except a listed few, and name no command, and no option for a
-  command, that doesn't exist.
-  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
-- Its first line must name the version.
-  [@test] ../../crates/bd-cli/src/version_test.rs (`agent_help_names_the_version`)
-
-### `bd help worktrees`
-
-- It must say how sessions that share a checkout work in worktrees of their own: first the `(branch)` prefix written
-  when a commit is made (`(parent/leaf)` for a stacked branch, a readable name, an issue id never the name, no
-  `fixup!` subject on the shared branch, `bd rename`, `bd suggest` only for commits without a prefix); one owner
-  rewrites the shared branch and every other session only adds commits with `bd pick --from <worktree> --follow`,
-  never with `git cherry-pick`; the outcomes of a pick (`grouped_by: none`, `already_present`, `conflict.next`,
-  `uncommitted_overlap`, `range_unknown`, `source_on_newer_baseline`, `followed.state`, the undo); `bd pick --dry-run`
-  as the check after a rewrite, never a comparison by date; the protocol of the owner; and the `branch-deck:` reflog
-  lines. `bd help worktrees` must print it, and an unknown topic must name it. Together with `bd help agent` and
-  `bd help update` it must name only commands and options that exist.
-  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`every_help_topic_prints_its_text`, `the_worktrees_help_writes_the_prefix_first_and_checks_by_content`, `agent_help_names_every_command_and_option_that_exists`)
-
 ### `bd install`
 
 - `bd install` and Help → Install Agent CLI… must put a `bd` command where an agent finds it: on macOS and Linux a
@@ -991,3 +968,34 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   characters has no `\\?\` prefix.
   [@test] ../../crates/bd-cli/src/install_test.rs (`the_bd_command_is_the_link_to_this_app_or_the_app_with_cli`)
   [@test] ../../src/hooks/useInstallAgentCli.test.ts (`names the skills, and bd as a command when it is on PATH`, `names the full path and the directory to add to PATH when bd is not on it`)
+### `bd help agent`
+
+- It must print the rules first: what needs the user's approval (every push, Safe Push and Patronus Dry Run, review
+  request, `gh pr create` and change of another session's commit), what each exit code asks for (exit 1 never an error
+  object, exit 4 without a rule: stop and show `message`), that `retryable` decides a retry whatever the exit code,
+  the error object with `paths`, `branches` and `review`, `--expect-head`, `previous_head`, `new_head`, the
+  `undo_token` and `after_error`, abbreviated ids compared by prefix, never reorder, squash or drop commits except
+  with `bd fold`, a change moved only with `bd move-hunk`, and only `bd update`, `bd pick` and their undo writing the
+  working tree. Then the workflow in steps (look with `bd suggest`; plan and check with the `result` of each branch;
+  apply with `bd group --sync`; push; Safe Push with `--check` first, `lands`, `alone`, `--whole-stack` and the
+  refusals; review; robot), then the other tasks (`bd update`, `bd pick`, `bd fold`, `bd move-hunk`, `bd install`),
+  each sending a longer story to its own topic. Together with `bd help update` and `bd help worktrees` it must name
+  every command and, per command, every long option except a listed few, and name no command, and no option for a
+  command, that doesn't exist.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
+- Its first line must name the version.
+  [@test] ../../crates/bd-cli/src/version_test.rs (`agent_help_names_the_version`)
+
+### `bd help worktrees`
+
+- It must say how sessions that share a checkout work in worktrees of their own: first the `(branch)` prefix written
+  when a commit is made (`(parent/leaf)` for a stacked branch, a readable name, an issue id never the name, no
+  `fixup!` subject on the shared branch, `bd rename`, `bd suggest` only for commits without a prefix); one owner
+  rewrites the shared branch and every other session only adds commits with `bd pick --from <worktree> --follow`,
+  never with `git cherry-pick`; the outcomes of a pick (`grouped_by: none`, `already_present`, `conflict.next`,
+  `uncommitted_overlap`, `range_unknown`, `source_on_newer_baseline`, `followed.state`, the undo); `bd pick --dry-run`
+  as the check after a rewrite, never a comparison by date; the protocol of the owner; and the `branch-deck:` reflog
+  lines. `bd help worktrees` must print it, and an unknown topic must name it. Together with `bd help agent` and
+  `bd help update` it must name only commands and options that exist.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`every_help_topic_prints_its_text`, `the_worktrees_help_writes_the_prefix_first_and_checks_by_content`, `agent_help_names_every_command_and_option_that_exists`)
+

@@ -182,7 +182,10 @@ impl ErrorCode {
 
   /// Whether running the same command again (after re-reading the state for a stale code) may succeed
   pub const fn retryable(self) -> bool {
-    matches!(self, Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::Locked | Self::NetworkError)
+    matches!(
+      self,
+      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::RoundMoved | Self::Locked | Self::NetworkError
+    )
   }
 }
 

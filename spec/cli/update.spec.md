@@ -311,7 +311,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 | 4 | `session_stale`, `unsupported_conflict`, `uncommitted_overlap`, `finish_pending` |
 
 - The refusals of a resolution and `unsupported_conflict` must list the files in `paths`.
-  [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`markers_an_edit_outside_a_block_and_a_missing_file_are_refused`, `binary_and_file_directory_conflicts_are_refused_and_start_no_session`)
 
 ### `bd help update`
 
