@@ -4,6 +4,7 @@ use super::{common, merge, rebase, strategy::DetectionStrategy};
 use anyhow::{Result, anyhow};
 use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::cat_file_batch::object_types;
 use git_ops::model::{BranchKind, strip_branch_namespace};
 use git_ops::notes::read_notes;
 use git_ops::revs::{is_ancestor, resolve_commit};
@@ -133,19 +134,9 @@ pub fn read_stack_bases(git: &GitCommandExecutor, repo: &str, tips: &[&str]) -> 
       return Ok(bases);
     }
 
-    let mut check = String::with_capacity(bases.len() * 41);
-    for base in bases.values() {
-      check.push_str(base);
-      check.push('\n');
-    }
-    let existing: HashSet<String> = git
-      .cmd(&["cat-file", "--batch-check=%(objectname) %(objecttype)"], repo)
-      .stdin(check.as_bytes())
-      .text()?
-      .lines()
-      .filter_map(|line| line.strip_suffix(" commit"))
-      .map(str::to_string)
-      .collect();
+    let names: Vec<String> = bases.values().cloned().collect();
+    let types = object_types(git, repo, &names)?;
+    let existing: HashSet<&String> = names.iter().zip(types).filter_map(|(base, kind)| (kind == Some("commit")).then_some(base)).collect();
     bases.retain(|_, base| existing.contains(base));
     Ok(bases)
   };

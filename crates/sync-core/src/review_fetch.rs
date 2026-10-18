@@ -8,6 +8,7 @@ use crate::remote_command::execute_remote_command_with_progress_until;
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::{GitCommandExecutor, ProgressStop, StoppedCommand};
+use git_ops::cat_file_batch::object_types;
 use git_ops::commit_files::is_object_id;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::{is_ancestor, merge_base};
@@ -312,19 +313,8 @@ fn is_safe_branch_name(name: &str) -> bool {
 
 /// Whether each of `names` (object ids or ref names) is a local commit, from one `cat-file --batch-check`
 pub(crate) fn present_commits<const N: usize>(git: &GitCommandExecutor, repo: &str, names: [&str; N]) -> Result<[bool; N]> {
-  let input = names.iter().fold(String::new(), |mut input, name| {
-    input.push_str(name);
-    input.push('\n');
-    input
-  });
-  let output = git.cmd(&["cat-file", "--batch-check=%(objecttype)"], repo).stdin(input.as_bytes()).text()?;
-  let mut lines = output.lines();
-  let mut present = [false; N];
-  for slot in &mut present {
-    // `commit`, another type, or `<name> missing` (`ambiguous`)
-    *slot = lines.next().ok_or_else(|| anyhow!("cat-file --batch-check answered fewer lines than asked"))? == "commit";
-  }
-  Ok(present)
+  let types = object_types(git, repo, &names)?;
+  Ok(std::array::from_fn(|index| types[index] == Some("commit")))
 }
 
 /// The commit the review shows and how the fetched `tip` relates to the one the pull request shows: that one when it is
