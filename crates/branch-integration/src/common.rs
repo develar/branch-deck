@@ -1,4 +1,4 @@
-use super::cache::{CachedDetection, deserialize_from_cache};
+use super::detection_notes::{CachedDetection, deserialize_from_cache};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{BranchKind, strip_branch_namespace};
@@ -157,7 +157,7 @@ pub fn branch_data_of(git_executor: &GitCommandExecutor, repo_path: &str, branch
   let mut branch_notes: HashMap<String, CachedDetection> = HashMap::new();
   let commits: Vec<&str> = commit_subjects.keys().map(String::as_str).collect();
   debug!(commits_to_fetch = commits.len(), "Fetching notes for commits");
-  match read_notes(git_executor, repo_path, super::cache::NOTES_REF, &commits) {
+  match read_notes(git_executor, repo_path, super::detection_notes::NOTES_REF, &commits) {
     Ok(notes) => {
       let commit_to_branch: HashMap<&str, &str> = all_branch_commits.iter().map(|(branch, commit)| (commit.as_str(), branch.as_str())).collect();
       for (commit, note) in notes {

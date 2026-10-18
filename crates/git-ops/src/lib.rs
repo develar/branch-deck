@@ -28,7 +28,7 @@
 //! - `copy_commit`: one commit of a virtual branch, reused by its mapping note or cherry-picked
 //! - `cherry_pick`: the tree of a cherry-pick by `merge-tree --write-tree`
 //! - `commit_chain`: `CommitChain`, one `merge-tree --stdin` and one `fast-import` per branch
-//! - `cache`: `TreeIdCache`, the trees and dates a sync reads once, with the merge memo
+//! - `tree_id_cache`: `TreeIdCache`, the trees and dates a sync reads once, with the merge memo
 //! - `merge_tree_output`: the `-z` output of `merge-tree --write-tree`, and one merge of a `--stdin` run
 //! - `merge_memo`: `MergeOutcome` and the `MergeMemo` of merges, commit trees and conflict views
 //! - `merge_conflict`: the report of a conflicting cherry-pick, its markers and its view
@@ -53,7 +53,6 @@ pub mod amend_operations;
 pub mod attributes;
 pub mod branch_description;
 pub mod branch_names;
-pub mod cache;
 pub mod cat_file_batch;
 pub mod cherry_pick;
 pub mod commit_chain;
@@ -82,6 +81,7 @@ pub mod rewrite_guard;
 pub mod rewrite_plan;
 pub mod squash_commits;
 pub mod tree_archive;
+pub mod tree_id_cache;
 pub mod update_branch;
 pub mod update_resolve;
 pub mod worktree_update;

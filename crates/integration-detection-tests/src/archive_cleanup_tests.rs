@@ -8,7 +8,7 @@ use test_log::test;
 #[test(tokio::test)]
 async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
   use crate::test_helpers::{integrated_cache_info, not_integrated_cache_info};
-  use branch_integration::cache::CacheOps;
+  use branch_integration::detection_notes::CacheOps;
   use branch_integration::detector::{DetectConfig, detect_integrated_branches};
   use branch_integration::strategy::DetectionStrategy;
   use sync_core::baseline::detect_baseline_branch;

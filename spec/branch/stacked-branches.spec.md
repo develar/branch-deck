@@ -10,7 +10,7 @@ targets:
   - ../../crates/sync-core/src/autosquash.rs
   - ../../crates/sync-core/src/remote_status.rs
   - ../../crates/branch-integration/src/detector.rs
-  - ../../crates/branch-integration/src/cache.rs
+  - ../../crates/branch-integration/src/detection_notes.rs
   - ../../crates/branch-integration/src/rebase.rs
   - ../../crates/branch-integration/src/merge.rs
   - ../../crates/branch-integration/src/squash.rs
@@ -211,7 +211,7 @@ menu stacks, unstacks and renames branches.
   when the baseline moves ([Integration Detection](../../docs/design/integration-detection.md)).
   [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`an_archived_child_counts_only_its_own_commits_and_is_cached_with_its_orphaned_commits`)
   [@test] ../../crates/integration-detection-tests/src/recheck_tests.rs (`a_not_integrated_note_is_rechecked_when_the_baseline_moves`, `partial_integration_is_tracked_incrementally`, `a_recheck_compares_only_the_baseline_commits_since_the_note`, `a_v1_note_within_retention_is_detected_afresh`, `a_v1_note_beyond_retention_is_reported_as_is`, `a_rewound_baseline_falls_back_to_a_full_detection`, `two_archived_names_with_one_tip_are_rechecked_once`, `a_fast_forwarded_branch_names_its_tip_as_the_integration_commit`)
-  [@test] ../../crates/integration-detection-tests/src/cache_tests.rs (`a_not_integrated_note_records_its_baseline_and_orphaned_commits`, `a_final_result_records_no_baseline`, `a_version_1_note_has_no_check_data`)
+  [@test] ../../crates/integration-detection-tests/src/detection_notes_tests.rs (`a_not_integrated_note_records_its_baseline_and_orphaned_commits`, `a_final_result_records_no_baseline`, `a_version_1_note_has_no_check_data`)
 
 ### Pull requests
 

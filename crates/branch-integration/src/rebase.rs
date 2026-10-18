@@ -1,5 +1,5 @@
-use crate::cache::Recheck;
 use crate::common::{UPSTREAM_COMMIT_FORMAT, oldest_logged_commit, parse_upstream_commit};
+use crate::detection_notes::Recheck;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashSet;

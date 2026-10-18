@@ -318,7 +318,7 @@ fn test_partial_integration_detection_with_rebase_strategy() {
 async fn test_archive_and_cleanup_with_production_path() -> anyhow::Result<()> {
   use super::test_helpers::options_with_strategy;
   use crate::test_helpers::{integrated_cache_info, not_integrated_cache_info};
-  use branch_integration::cache::CacheOps;
+  use branch_integration::detection_notes::CacheOps;
   use sync_core::sync::{SyncOptions, sync_branches};
   use sync_test_utils::TestReporter;
 

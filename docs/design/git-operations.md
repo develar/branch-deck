@@ -110,12 +110,13 @@ written, except by Update Project and the finish of its resolve session (their o
    **A second named exception: the refs `fast-import` moves.** Notes are written in the `fast-import` stream of their
    batch, one notes commit per notes ref, `from <notes ref>^0` when the ref exists (`write_notes_to_refs` and
    `write_commits_with_notes` in `crates/git-ops/src/commit_writer.rs`): the mapping and stack notes of a sync, the
-   mapping notes of a reword and of a move of a hunk, the detection notes (`crates/branch-integration/src/cache.rs`).
-   fast-import moves the notes ref itself when the stream ends, with the reflog message `fast-import`: it reads the ref
-   again, refuses a new tip that does not contain that value ("not updating … new tip … does not contain …", exit
-   code 1, so the operation fails), and moves the ref with that value as the old one. A writer that moved the notes
-   ref meanwhile is therefore never overwritten. The check is a fast-forward, not the exact old value of a
-   transaction: a notes ref moved back to an ancestor of the `from` commit meanwhile would be moved forward again.
+   mapping notes of a reword and of a move of a hunk, the detection notes
+   (`crates/branch-integration/src/detection_notes.rs`). fast-import moves the notes ref itself when the stream ends,
+   with the reflog message `fast-import`: it reads the ref again, refuses a new tip that does not contain that value
+   ("not updating … new tip … does not contain …", exit code 1, so the operation fails), and moves the ref with that
+   value as the old one. A writer that moved the notes ref meanwhile is therefore never overwritten. The check is a
+   fast-forward, not the exact old value of a transaction: a notes ref moved back to an ancestor of the `from` commit
+   meanwhile would be moved forward again.
    The notes of a resolve session are not written this way: their commit is written on a temporary ref
    (`StoreNotes`), and the session's transaction moves `refs/notes/branch-deck/resolve` with CAS. fast-import also
    creates the temporary ref its commits are written on (`refs/branch-deck/tmp/<pid>-<time>-<n>`, a name of its own
@@ -1078,7 +1079,7 @@ Before the copies, a sync with branches takes their descriptions (`bd describe`)
 
 Code: `crates/git-ops/src/copy_commit.rs`, `crates/git-ops/src/cherry_pick.rs`, `crates/git-ops/src/notes.rs`,
 `crates/sync-core/src/branch_processor.rs`. The integration-detection cache writes its notes in one `fast-import` as
-well (`crates/branch-integration/src/cache.rs`).
+well (`crates/branch-integration/src/detection_notes.rs`).
 
 #### Sync inputs check
 
@@ -1441,7 +1442,7 @@ and `--literal-pathspecs` makes `git archive` take each as the same name, never 
 bd itself runs no git process: every one goes through a git-ops or sync-core function.
 
 Code: `crates/sync-core/src/check.rs`, `crates/sync-core/src/cache_memo.rs`, `crates/git-ops/src/cherry_pick.rs`,
-`crates/git-ops/src/cache.rs`, `crates/git-ops/src/tree_archive.rs`, `crates/bd-cli/src/check_command.rs`.
+`crates/git-ops/src/tree_id_cache.rs`, `crates/git-ops/src/tree_archive.rs`, `crates/bd-cli/src/check_command.rs`.
 
 #### Dangling references (check)
 

@@ -1,6 +1,6 @@
 //! Cache-specific unit tests for integration detection
 
-use branch_integration::cache::{DETECTION_CACHE_VERSION, Recheck, deserialize_from_cache, serialize_for_cache};
+use branch_integration::detection_notes::{DETECTION_CACHE_VERSION, Recheck, deserialize_from_cache, serialize_for_cache};
 use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
 use sync_types::upstream_commit::UpstreamCommit;
 use test_log::test;

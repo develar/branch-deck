@@ -7,7 +7,7 @@ mod test_helpers;
 pub mod integration_tests;
 
 #[cfg(test)]
-pub mod cache_tests;
+pub mod detection_notes_tests;
 
 #[cfg(test)]
 pub mod rebase_tests;

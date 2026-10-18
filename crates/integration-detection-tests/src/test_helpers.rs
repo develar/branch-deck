@@ -1,7 +1,7 @@
 //! Test helper functions for integration detection tests
 
 use anyhow::Result;
-use branch_integration::cache::CachedDetection;
+use branch_integration::detection_notes::CachedDetection;
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::time::Instant;
@@ -40,7 +40,7 @@ pub(crate) fn options_with_strategy(strategy: DetectionStrategy) -> SyncOptions 
 
 /// Helper to list all detection notes using `TestRepo` API
 fn list_detection_notes(repo: &TestRepo) -> Vec<String> {
-  repo.list_notes_with_ref(branch_integration::cache::NOTES_REF).unwrap_or_default()
+  repo.list_notes_with_ref(branch_integration::detection_notes::NOTES_REF).unwrap_or_default()
 }
 
 /// Syncs the "user" branches of `repo` with the given detection strategy and returns the reporter with the sync events
@@ -107,11 +107,11 @@ pub(crate) fn detection_note(repo: &TestRepo, commit: &str) -> CachedDetection {
   let note = repo
     .git_executor()
     .execute_command(
-      &["notes", &format!("--ref={}", branch_integration::cache::NOTES_REF), "show", commit],
+      &["notes", &format!("--ref={}", branch_integration::detection_notes::NOTES_REF), "show", commit],
       repo.path().to_str().unwrap(),
     )
     .unwrap_or_else(|e| panic!("no detection note on {commit}: {e}"));
-  branch_integration::cache::deserialize_from_cache(note.trim()).unwrap()
+  branch_integration::detection_notes::deserialize_from_cache(note.trim()).unwrap()
 }
 
 /// Detection cache entry of a fully integrated branch
@@ -412,7 +412,7 @@ pub(crate) fn test_partial_integration_detection_with_strategy(strategy: Detecti
       .to_string();
 
     // Check if cache note exists
-    let notes_ref_arg = format!("--ref={}", branch_integration::cache::NOTES_REF);
+    let notes_ref_arg = format!("--ref={}", branch_integration::detection_notes::NOTES_REF);
     let cache_note = git_executor.execute_command(&["notes", &notes_ref_arg, "show", &branch_tip], local_repo.path().to_str().unwrap());
     assert!(cache_note.is_ok(), "Detection cache should be created for branch");
 

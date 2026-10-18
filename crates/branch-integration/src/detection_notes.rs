@@ -1,3 +1,6 @@
+//! The result of an integration detection as a note on the archived branch's tip (`NOTES_REF`, `CacheOps`), so an
+//! unchanged tip is not detected again, and the stack base notes on the tips of stacked branches (`STACK_NOTES_REF`).
+
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::write_notes;

@@ -1,9 +1,9 @@
-use crate::cache::TreeIdCache;
 use crate::cherry_pick::perform_fast_cherry_pick_with_context;
 use crate::copy_commit::CopyCommitError;
 use crate::merge_conflict::rebuild_merge_conflict;
 use crate::merge_memo::CherryCommits;
 use crate::model::{BranchError, ConflictContents, MergeConflictInfo};
+use crate::tree_id_cache::TreeIdCache;
 use test_utils::git_test_utils::{ConflictScenario, TestRepo};
 
 /// Cherry-picks `cherry_commit` onto `target_commit` with a fresh tree ID cache

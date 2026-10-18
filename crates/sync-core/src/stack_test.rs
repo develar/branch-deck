@@ -2,7 +2,7 @@ use crate::commit_grouper::CommitGrouper;
 use crate::stack::{PendingDetection, StackForest, empty_parent_states, name_suffix, place_branches, read_only_detection};
 use crate::test_commit::commit;
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
-use branch_integration::cache::{CacheOps, CachedDetection, NOTES_REF, Recheck, deserialize_from_cache};
+use branch_integration::detection_notes::{CacheOps, CachedDetection, NOTES_REF, Recheck, deserialize_from_cache};
 use branch_integration::strategy::DetectionStrategy;
 use indexmap::IndexMap;
 use pretty_assertions::assert_eq;

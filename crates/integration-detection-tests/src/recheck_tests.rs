@@ -4,7 +4,7 @@
 
 use super::stack_tests::{land_auth_and_sync_login, stacked_clone};
 use super::test_helpers::{detected_branch_info, detection_note, setup_test_repos, sync_user_branches};
-use branch_integration::cache::{CacheOps, CachedDetection, Recheck};
+use branch_integration::detection_notes::{CacheOps, CachedDetection, Recheck};
 use branch_integration::detector::{DetectConfig, detect_integrated_branches};
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::git_command_executor::GitCommandExecutor;

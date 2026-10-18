@@ -1,4 +1,4 @@
-use super::cache::{CacheOps, CachedDetection, Recheck, STACK_NOTES_REF};
+use super::detection_notes::{CacheOps, CachedDetection, Recheck, STACK_NOTES_REF};
 use super::squash::SquashCheck;
 use super::{common, merge, rebase, strategy::DetectionStrategy};
 use anyhow::{Result, anyhow};

@@ -2,11 +2,11 @@
 //! copy of the same trees on the same parent, else a cherry-pick written in the branch's `CommitChain`; and the commits
 //! of the existing virtual branches from one `git log`.
 
-use crate::cache::TreeIdCache;
 use crate::commit_chain::{ChainCommit, CommitChain};
 use crate::commit_list::Commit;
 use crate::model::{BranchError, BranchSyncStatus, CommitSyncStatus};
 use crate::notes::{MappingNote, NoteSource};
+use crate::tree_id_cache::TreeIdCache;
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::cell::RefCell;

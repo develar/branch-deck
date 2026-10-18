@@ -245,7 +245,7 @@ Key optimizations:
 ## References
 
 - Implementation: `crates/branch-integration/`
-- Cache format: `crates/branch-integration/src/cache.rs`
+- Cache format: `crates/branch-integration/src/detection_notes.rs`
 - Detection strategies: `merge.rs`, `rebase.rs`, `squash.rs`; the integration commit format: `common.rs`
 - UI: `src/stores/archived-branches.ts` (`newlyArchived`, `clearNewlyArchived`), `src/lib/integration-commit.ts`
 - Tests: `crates/integration-detection-tests/`

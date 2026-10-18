@@ -8,7 +8,6 @@ use crate::remote_status::{AncestorCommits, KnownTips, StackParent, compute_remo
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::to_final_branch_name;
-use git_ops::cache::TreeIdCache;
 use git_ops::commit_chain::CommitChain;
 use git_ops::commit_list::Commit;
 use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, VirtualCommit, create_or_update_commit, read_virtual_commits};
@@ -16,6 +15,7 @@ use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus};
 use git_ops::notes::MappingNote;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::{resolve_commit, short_id};
+use git_ops::tree_id_cache::TreeIdCache;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};

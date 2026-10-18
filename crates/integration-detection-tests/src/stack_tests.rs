@@ -1,7 +1,7 @@
 //! Integration detection of archived stacked branches: only the commits after the stack base are the branch's own
 
 use super::test_helpers::{detection_note, setup_test_repos, sync_user_branches};
-use branch_integration::cache::{NOTES_REF, STACK_NOTES_REF};
+use branch_integration::detection_notes::{NOTES_REF, STACK_NOTES_REF};
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;

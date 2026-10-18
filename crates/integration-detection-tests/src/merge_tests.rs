@@ -2,7 +2,7 @@
 
 use super::integration_tests::test_integration_workflow_helper;
 use super::test_helpers::{IntegrationMethod, UpdateMethod, detected_branch_info, setup_test_repos, test_partial_integration_detection_with_strategy};
-use branch_integration::cache::STACK_NOTES_REF;
+use branch_integration::detection_notes::STACK_NOTES_REF;
 use branch_integration::detector::{DetectConfig, detect_integrated_branches};
 use branch_integration::strategy::DetectionStrategy;
 use pretty_assertions::assert_eq;
