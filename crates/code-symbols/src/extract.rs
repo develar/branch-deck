@@ -40,7 +40,7 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 8;
+pub const RULES_VERSION: u32 = 9;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -1548,6 +1548,16 @@ impl<'t> Walk<'t> {
     self.reference(text, line, role, qualifier, None);
   }
 
+  /// A call of a constructor of the type `path` (its last name the type's, those before it its qualifier) on `line`,
+  /// with the shape of the arguments of `call`: `this(…)` and `super(…)` of a constructor, which name no type to give
+  /// the call to (`give_call`)
+  pub(crate) fn emit_constructor_call(&mut self, path: &[&'t str], line: u32, call: Node<'t>) {
+    let Some((name, qualifier)) = path.split_last() else { return };
+    let shape = self.call_shape(call);
+    let qualifier = (!qualifier.is_empty()).then(|| self.ids(qualifier));
+    self.reference(name, line, Role::Call, qualifier, shape);
+  }
+
   pub(crate) fn ids(&mut self, path: &[&'t str]) -> Vec<u32> {
     path.iter().map(|it| self.intern(it)).collect()
   }
@@ -1684,7 +1694,7 @@ impl<'t> Walk<'t> {
   }
 
   /// `[a, b, C]` of a Kotlin user type `a.b.C<T>` (a `Rule::Path`), else the `path_of` the node (a Java type)
-  fn type_path(&self, node: Node<'t>) -> Option<Vec<&'t str>> {
+  pub(crate) fn type_path(&self, node: Node<'t>) -> Option<Vec<&'t str>> {
     if !matches!(self.table.rule(node.kind_id()), Some(Rule::Path)) {
       return self.path_of(node);
     }

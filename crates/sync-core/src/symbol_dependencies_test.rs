@@ -2804,3 +2804,76 @@ fn a_call_of_a_nested_class_that_needs_a_new_parameter_is_an_edge() {
     [(1, 0, vec![link("Inner", Evidence::Qualified), link("Inner", Evidence::Qualified)])]
   );
 }
+
+/// `a.Base` of the baseline, whose primary constructor a commit gives the parameter `name` with a default
+fn base_with_a_new_parameter() -> Range {
+  let base = |parameters: &str| format!("package a\n\nopen class Base({parameters})\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[("src/a/Base.kt", &base("val size: Int"))])
+    .commit(&[("src/a/Base.kt", Some(&base("val size: Int, val name: String = \"\"")))]);
+  range
+}
+
+/// `super(…)` of a constructor calls a constructor of the superclass: the Java one of `extends`, beside an interface,
+/// and the Kotlin one of the only supertype of a class without a primary constructor. One that passes the new
+/// parameter needs its commit, one that leaves it to its default doesn't
+#[test]
+fn a_super_call_that_needs_a_new_constructor_parameter_is_an_edge() {
+  let mut range = base_with_a_new_parameter();
+  range
+    .commit(&[(
+      "src/b/Sub.kt",
+      Some("package b\n\nimport a.Base\n\nclass Sub : Base {\n  constructor(size: Int) : super(size, \"sub\")\n}\n"),
+    )])
+    .commit(&[(
+      "src/b/JavaSub.java",
+      Some("package b;\n\nimport a.Base;\n\nclass JavaSub extends Base implements Runnable {\n  JavaSub() {\n    super(1, \"java\");\n  }\n\n  public void run() {}\n}\n"),
+    )])
+    .commit(&[(
+      "src/b/Old.kt",
+      Some("package b\n\nimport a.Base\n\nclass Old : Base {\n  constructor(size: Int) : super(size)\n}\n"),
+    )]);
+  let base = || vec![link("Base", Evidence::Import)];
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(1, 0, base()), (2, 0, base())]);
+}
+
+/// The summary doesn't tell a class from an interface: beside another supertype `super(…)` may mean either
+#[test]
+fn a_kotlin_super_call_with_two_supertypes_is_no_edge() {
+  let mut range = base_with_a_new_parameter();
+  range
+    .commit(&[(
+      "src/b/Two.kt",
+      Some("package b\n\nimport a.Base\n\nclass Two : Base, Runnable {\n  constructor(size: Int) : super(size, \"two\")\n\n  override fun run() {}\n}\n"),
+    )])
+    .commit(&[(
+      "src/b/One.kt",
+      Some("package b\n\nimport a.Base\n\nclass One : Base {\n  constructor(size: Int) : super(size, \"one\")\n}\n"),
+    )]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(2, 0, vec![link("Base", Evidence::Import)])]);
+}
+
+/// `this(…)` calls a constructor of its own class: one its own commit gives a parameter needs no other commit, one of a
+/// later commit that passes that parameter needs it, and one that leaves it to its default doesn't
+#[test]
+fn a_this_call_is_no_edge_across_its_own_commit() {
+  let lane = |parameters: &str, secondary: &str| format!("package a\n\nclass Lane({parameters}) {{\n{secondary}  fun id() = 1\n}}\n");
+  let added = "  constructor(name: String) : this(name.length, true)\n\n";
+  let mut range = Range::default();
+  range
+    .baseline(&[("src/a/Lane.kt", &lane("val size: Int", ""))])
+    .commit(&[("src/a/Lane.kt", Some(&lane("val size: Int, val flag: Boolean = false", added)))])
+    .commit(&[(
+      "src/a/Lane.kt",
+      Some(&lane("val size: Int, val flag: Boolean = false", &format!("{added}  constructor() : this(0, true)\n\n"))),
+    )])
+    .commit(&[(
+      "src/a/Lane.kt",
+      Some(&lane(
+        "val size: Int, val flag: Boolean = false",
+        &format!("{added}  constructor() : this(0, true)\n\n  constructor(size: Long) : this(size.toInt())\n\n"),
+      )),
+    )]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(1, 0, vec![link("Lane", Evidence::SameFile)])]);
+}

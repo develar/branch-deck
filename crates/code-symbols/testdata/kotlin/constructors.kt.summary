@@ -36,13 +36,15 @@ Type Stamp in - Public TopLevel 88-90 @88 new(date: Date) Container new(date: Da
 @8 :Boolean
 @9 :String
 @13 :Int
-@14 :Int :String ?.length
-@18 :Long ?.toInt()
+@14 Hidden(_) :Int :String ?.length
+@16 Hidden(Number)
+@18 Hidden(_) :Long ?.toInt()
 @19 reset()
 @25 :Inject :Project
 @32 :Int
 @34 :String
 @45 :Int
+@49 Level(Number)
 @52 :String
 @54 :List :String :ToolWindowManagerImpl
 @59 :Int
@@ -56,6 +58,6 @@ Type Stamp in - Public TopLevel 88-90 @88 new(date: Date) Container new(date: Da
 @79 :Suppress
 @80 Base(Number) :Runnable
 @81 Hidden(Text,Number,Number)
-@85 :List ?.first()
+@85 Box(_) :List ?.first()
 @88 :java.util.Date :java :java.util
-@89 java.util.Date(_) :java.sql.Date java :java :java.sql ?.time java.util
+@89 java.util.Date(_) :java.sql.Date Stamp(_) java :java :java.sql ?.time java.util

@@ -75,9 +75,12 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   anonymous function, an object expression, a Java anonymous class or a local declaration inside the declaration around
   it, whose receiver may be what a bare name or `this` means; a Java lambda, an initializer and a getter are not, and
   the constructor invocation of an object expression's supertype and a `new` of an anonymous class are of the code
-  around the object. An annotation (`@Suppress("x")`) must stay a type, and `this(…)` and `super(…)` no reference.
+  around the object. An annotation (`@Suppress("x")`) must stay a type. `this(…)` of a constructor must be a call of the
+  class around it, and `super(…)` one of its superclass: in Java the type of `extends`, in Kotlin the only supertype of
+  the class, named without arguments or a delegate (`: Base`); Java's `super(…)` without `extends` and Kotlin's beside a
+  second supertype must be no reference.
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_call_has_its_argument_shape`, `a_constructor_invocation_of_a_supertype_has_its_argument_shape`)
-  [@test] ../../crates/code-symbols/src/java_test.rs (`a_call_has_its_argument_shape`)
+  [@test] ../../crates/code-symbols/src/java_test.rs (`a_call_has_its_argument_shape`, `a_class_knows_its_constructors`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 - The summary of a Kotlin or Java class (not an interface, an object, a companion, an enum, an annotation, a type alias,
   a Kotlin type the grammar misread, nor a class with a parse error in it, which may have swallowed one) must hold its
@@ -250,18 +253,18 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_call_on_another_receiver_in_the_same_file_is_no_edge`, `a_call_another_receiver_may_take_is_no_edge`, `a_call_an_import_or_a_default_import_may_take_is_no_edge`, `a_call_in_a_java_anonymous_or_nested_class_is_no_edge`, `an_overload_of_a_type_with_supertypes_is_no_edge_for_calls`, `a_constructor_call_that_needs_a_new_parameter_is_an_edge`, `a_kotlin_call_that_a_function_of_its_name_may_take_is_no_edge`)
 - The key of a JVM type must hold the type itself and one entry per constructor (the implicit `()` included), each with
   its origin, as a member's overloads. A type position, an import and any use but a call must mean the type; a call of
-  the type, a Kotlin constructor invocation of a supertype and Java's `new` included, its constructors, or the type too
-  where its file declares an `invoke` of its companion or the range adds a function of its name that accepts the call,
-  judged by the arguments that tell the constructors apart. A call must depend, as
-  one of a member, on the newest commit that every constructor that accepts it needs, told apart by its arguments also
-  for a type with supertypes, which declare none of them: a call that passes a parameter a commit adds, by position or
-  by name, a call that only a constructor a commit adds accepts (a text for an `Int`), and one with arguments that the
-  implicit `()` rejects need that commit, in the file of the type too; a type position, an import, a call that the
-  constructor of the baseline accepts as well (an expression for the old `Int` beside a new `String`), and a call that
-  leaves a new parameter to its default must not. Each constructor's form must be its parameters, its reach and the
-  reach of its type, judged as a member's: a private constructor made `internal` must be what a call from another file
-  of its module needs, a type made public what a use or a call (a qualified one too) needs from another package (Java)
-  or module (Kotlin), and a use that the old reach allowed must not; a Java use must reach an `internal` Kotlin type or
+  the type, a Kotlin constructor invocation of a supertype, Java's `new` and `this(…)` and `super(…)` included, its
+  constructors, or the type too where its file declares an `invoke` of its companion or the range adds a function of its
+  name that accepts the call, judged by the arguments that tell the constructors apart. A call must depend, as one of a
+  member, on the newest commit that every constructor that accepts it needs, told apart by its arguments also for a type
+  with supertypes, which declare none of them: a call that passes a parameter a commit adds, by position or by name, a
+  call that only a constructor a commit adds accepts (a text for an `Int`), and one with arguments that the implicit
+  `()` rejects need that commit, in the file of the type too; a type position, an import, a call that the constructor of
+  the baseline accepts as well (an expression for the old `Int` beside a new `String`), and a call that leaves a new
+  parameter to its default must not. Each constructor's form must be its parameters, its reach and the reach of its
+  type, judged as a member's: a private constructor made `internal` must be what a call from another file of its module
+  needs, a type made public what a use or a call (a qualified one too) needs from another package (Java) or module
+  (Kotlin), and a use that the old reach allowed must not; a Java use must reach an `internal` Kotlin type or
   constructor from any module, and an `internal` constructor a use of a file whose module no build file tells, as its
   type does. A Kotlin call of a bare name falls back from the constructors to the functions of the name, so it must be
   judged by its arguments only where its file declares nothing else of the name and no other import may bring one (a
@@ -274,9 +277,9 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   name (`Outer.Inner(…)`, `new Outer.Inner(…)`) must tell its constructors apart as one of a top-level type. A type the
   range adds must keep the edge of every use that it or one of its constructors accepts, and of a call where the range
   adds a function of its name that accepts it, which no evidence links from another file of the package. A commit of
-  whose sides one knows the constructors of a type and the other doesn't (a parse error in the class) must make no
-  step of its constructors (see the clean sides below).
-  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_constructor_call_that_needs_a_new_parameter_is_an_edge`, `a_supertype_constructor_call_with_a_new_named_argument_is_an_edge`, `a_type_reference_is_no_edge_for_a_new_constructor_parameter`, `a_call_both_constructors_accept_is_no_edge`, `a_java_new_that_only_a_new_constructor_accepts_is_an_edge`, `an_implicit_constructor_takes_no_arguments`, `a_widened_type_is_an_edge_for_a_use_the_old_reach_forbids`, `a_widened_constructor_is_an_edge_for_a_call_the_old_reach_forbids`, `an_internal_constructor_of_no_known_module_takes_a_call`, `a_kotlin_call_that_a_function_of_its_name_may_take_is_no_edge`, `a_call_through_a_wildcard_import_needs_only_the_type`, `a_call_of_a_nested_class_that_needs_a_new_parameter_is_an_edge`, `a_new_type_keeps_its_edges_for_calls_and_type_positions`, `a_call_that_a_function_of_the_name_of_a_new_type_may_take_needs_the_type`, `a_class_with_a_parse_error_in_it_is_no_step_of_its_constructors`)
+  whose sides one knows the constructors of a type and the other doesn't (a parse error in the class) must make no step
+  of its constructors (see the clean sides below).
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_constructor_call_that_needs_a_new_parameter_is_an_edge`, `a_supertype_constructor_call_with_a_new_named_argument_is_an_edge`, `a_type_reference_is_no_edge_for_a_new_constructor_parameter`, `a_call_both_constructors_accept_is_no_edge`, `a_java_new_that_only_a_new_constructor_accepts_is_an_edge`, `an_implicit_constructor_takes_no_arguments`, `a_widened_type_is_an_edge_for_a_use_the_old_reach_forbids`, `a_widened_constructor_is_an_edge_for_a_call_the_old_reach_forbids`, `an_internal_constructor_of_no_known_module_takes_a_call`, `a_kotlin_call_that_a_function_of_its_name_may_take_is_no_edge`, `a_call_through_a_wildcard_import_needs_only_the_type`, `a_call_of_a_nested_class_that_needs_a_new_parameter_is_an_edge`, `a_new_type_keeps_its_edges_for_calls_and_type_positions`, `a_call_that_a_function_of_the_name_of_a_new_type_may_take_needs_the_type`, `a_class_with_a_parse_error_in_it_is_no_step_of_its_constructors`, `a_super_call_that_needs_a_new_constructor_parameter_is_an_edge`, `a_kotlin_super_call_with_two_supertypes_is_no_edge`, `a_this_call_is_no_edge_across_its_own_commit`)
 - A top-level function or property of the name of a type (a factory `fun Foo(): Foo`) must share its key and stay
   only present or absent beside the entries of the type, in the type's file too: a commit that adds or removes it must
   keep the type's entries, one that changes the type must keep its entries, and one that removes the type from its

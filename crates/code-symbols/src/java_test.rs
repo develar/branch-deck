@@ -135,7 +135,11 @@ fn a_call_has_its_argument_shape() {
   // a `new`, of the code around its anonymous class
   let summary = summary_of("java/Constructors.java");
   assert_eq!(refs(&summary, "Base"), ["61 Base(Text,Number)"]);
-  assert_eq!(refs(&summary, "Constructors"), ["64 Constructors(Text){}"], "in an anonymous class");
+  assert_eq!(
+    refs(&summary, "Constructors"),
+    ["5 Constructors(_)", "64 Constructors(Text){}"],
+    "`this(…)`, and in an anonymous class"
+  );
   assert_eq!(refs(&summary, "ArrayList"), ["67 java.util.ArrayList(Number)"]);
   assert_eq!(refs(&summary, "IllegalArgumentException"), ["22 IllegalArgumentException(Text)"]);
 }
@@ -167,6 +171,10 @@ fn a_class_knows_its_constructors() {
   }
   assert_eq!(declarations_of(&summary, "InMethod"), NONE, "a local class declares nothing");
   assert_eq!(declarations_of(&summary, "InInitializer"), NONE);
-  assert_eq!(refs(&summary, "Point"), NONE, "the name of a constructor is no reference");
+  assert_eq!(
+    refs(&summary, "Point"),
+    ["26 Point(_,Number)"],
+    "the name of a constructor is no reference, `this(…)` a call"
+  );
   assert_eq!(refs(&summary, "InMethod"), NONE);
 }

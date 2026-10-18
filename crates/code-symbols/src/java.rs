@@ -118,6 +118,7 @@ const RULES: &[(&str, Rule)] = &[
   ),
   ("generic_type", Rule::Forward(Child::Nth(0))),
   ("object_creation_expression", Rule::Special(new)),
+  ("explicit_constructor_invocation", Rule::Special(constructor_invocation)),
   ("method_reference", Rule::Special(method_reference)),
   ("annotation", ANNOTATION),
   ("marker_annotation", ANNOTATION),
@@ -166,6 +167,7 @@ pub(crate) static SPEC: Spec = Spec {
     "arguments",
     "operator",
     "operand",
+    "constructor",
   ],
   traits,
   binds: |_| true,
@@ -232,6 +234,27 @@ fn new<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
     w.mark_scope(body);
     let supertypes = w.supertype_paths(constructed.as_slice());
     w.push_supertypes(supertypes);
+  }
+  true
+}
+
+/// `this(…)` and `super(…)` of a constructor: a call of a constructor of the class around it, or of its superclass,
+/// the type of `extends` (a class without one calls `Object`'s: no reference); the type is a call of its own here, as
+/// the walk sees no node of its name
+fn constructor_invocation<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
+  let Some(keyword) = w.field(node, "constructor") else { return true };
+  // the class around the constructor: an enum's body has its constructors in a list of its own
+  let class = std::iter::successors(node.parent(), Node::parent).find(|it| ["class_declaration", "enum_declaration", "record_declaration"].iter().any(|kind| w.is(*it, kind)));
+  let Some(class) = class else { return true };
+  let path = if w.is(keyword, "this") {
+    w.field(class, "name").and_then(|it| w.text(it)).map(|it| vec![it])
+  } else if w.is(class, "class_declaration") {
+    w.field(class, "superclass").and_then(|it| it.named_child(0)).and_then(|it| w.path_of(it))
+  } else {
+    None
+  };
+  if let Some(path) = path {
+    w.emit_constructor_call(&path, line_of(keyword), node);
   }
   true
 }

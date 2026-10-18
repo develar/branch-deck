@@ -290,52 +290,58 @@ flowchart TD
     its key.
 
 11. **Decision**: the key of a JVM type holds the type itself and an entry per constructor, the implicit `()` included
-    (`with_constructors`). A call of the type, a Kotlin constructor invocation of a supertype and Java's `new` included,
-    means a constructor; a type position, an import and any other use mean the type itself, whose origin a constructor
-    doesn't change (`takes`). A constructor's form is its parameters, its reach and the reach of its type, which a call
-    needs both of. The arguments tell the constructors apart also of a type with supertypes (`constructors_tell_apart`):
-    of Java's `new` where its file declares nothing else of the name (a nested type of it), and of a Kotlin call of a
-    bare name where its file declares nothing else of the name and no other import (a wildcard beside the import of the
-    type) may bring one (`names_only_its_type`); else the call needs the key, its older forms accepting as a function's.
-    The type itself takes the call too, with its own steps, where its file declares an `invoke` of its companion that
-    accepts the arguments (`invokes`), where it has no constructors (an interface, an object, an enum) and where a parse
-    error in the class makes them unknown. A top-level function or property of the name of a type, a factory beside its
-    class, shares the key as entries of its own kind (`KeyState`), only present or absent per file, also in the file of
-    the type: a commit that adds, changes or removes one of the two kinds keeps the other's entries. A factory takes no
-    type position, and a call only when its parameters accept it, judged by the arguments that tell the constructors
-    apart: a call that a constructor and the factory accept needs what both need, and one that only the factory accepts
-    its commit. The type stands for each factory that the use sees, with the factory's commit (`sees_function`): by an
-    import, its qualified name or its file, or as one of the package in the use's module that its reach lets in; never a
-    private one of another file, one of another module or language, nor any for a Java `new`. A use through a wildcard
-    import needs the type as it came, its oldest step, never a constructor or a form of a type of the baseline. Two
-    constructors that the summary can't tell apart (`Stamp(java.util.Date)` beside `Stamp(java.sql.Date)`,
-    `Box(value: T)` beside `Box(list: List<T>)`) are twins as overloads are, and only the canonical constructor of a
-    record, compact or declared again with its components, replaces the one of its header. A constructor that a later
-    commit on clean sides finds after an unclean one (decision 7) is as old as the type (`oldest_step`). Java sees an
-    `internal` Kotlin type and its constructors from any module, and an `internal` constructor reaches a file or a use
-    of no known module as its type does.
+    (`with_constructors`). A call of the type, a Kotlin constructor invocation of a supertype, Java's `new` and the
+    `this(…)` and `super(…)` of a constructor included, means a constructor; a type position, an import and any other
+    use mean the type itself, whose origin a constructor doesn't change (`takes`). A constructor's form is its
+    parameters, its reach and the reach of its type, which a call needs both of. The arguments tell the constructors
+    apart also of a type with supertypes (`constructors_tell_apart`): of Java's `new` where its file declares nothing
+    else of the name (a nested type of it), and of a Kotlin call of a bare name where its file declares nothing else of
+    the name and no other import (a wildcard beside the import of the type) may bring one (`names_only_its_type`); else
+    the call needs the key, its older forms accepting as a function's. The type itself takes the call too, with its own
+    steps, where its file declares an `invoke` of its companion that accepts the arguments (`invokes`), where it has no
+    constructors (an interface, an object, an enum) and where a parse error in the class makes them unknown. A top-level
+    function or property of the name of a type, a factory beside its class, shares the key as entries of its own kind
+    (`KeyState`), only present or absent per file, also in the file of the type: a commit that adds, changes or removes
+    one of the two kinds keeps the other's entries. A factory takes no type position, and a call only when its
+    parameters accept it, judged by the arguments that tell the constructors apart: a call that a constructor and the
+    factory accept needs what both need, and one that only the factory accepts its commit. The type stands for each
+    factory that the use sees, with the factory's commit (`sees_function`): by an import, its qualified name or its
+    file, or as one of the package in the use's module that its reach lets in; never a private one of another file, one
+    of another module or language, nor any for a Java `new`. A use through a wildcard import needs the type as it came,
+    its oldest step, never a constructor or a form of a type of the baseline. Two constructors that the summary can't
+    tell apart (`Stamp(java.util.Date)` beside `Stamp(java.sql.Date)`, `Box(value: T)` beside `Box(list: List<T>)`) are
+    twins as overloads are, and only the canonical constructor of a record, compact or declared again with its
+    components, replaces the one of its header. A constructor that a later commit on clean sides finds after an unclean
+    one (decision 7) is as old as the type (`oldest_step`). Java sees an `internal` Kotlin type and its constructors
+    from any module, and an `internal` constructor reaches a file or a use of no known module as its type does.
+    `this(…)` calls the class around the constructor; Java's `super(…)` the type of `extends`, none without it; Kotlin's
+    `super(…)` the supertype of a class without a primary constructor only where it is the class's one supertype and is
+    named without arguments or a delegate (`: Base`).
     **Rationale**: a new parameter, a new constructor or an explicit one in place of the implicit `()` is what a call
-    needs that only that form accepts (the test of IJAI-4074,
-    `object : ToolWindowManagerImpl(project, isNewUi = false, isEdtRequired = false, …)`, needs the commit that adds
-    `isEdtRequired`). A Kotlin implicit `()` is public whatever its class, so only the type's reach makes `Lane()` of an
-    `internal class Lane` made public a step. Constructors are not inherited, so no supertype declares more of them,
-    which the overloads of a member can't say. Java's `new` means a constructor of the type its name resolves to, while
-    a Kotlin call of a type falls back from its constructors to the functions of its name (a factory
-    `fun Lane(id: Int, flag: Boolean)`); a constructor invocation of a supertype doesn't, but the summary doesn't tell
-    it from a call. A member of a receiver of the name (a capitalized function, a nested class of a supertype) is left
-    out, as decision 8 leaves out the nested classes of a supertype: a type and a function are rarely named alike but
-    for a factory, which is top-level. The summary ties an `invoke` of the companion to no commit of its own, so the
-    type stands for it. A function of the name in a file of the package that the range doesn't change, which needs no
-    import, and an `invoke` of the companion declared in another file may take such a call too: a limit. No evidence
-    links a factory of another file of the package, so the type stands for one the range adds, which keeps the edge of a
-    call of a new type that no constructor accepts; one that the use can't see (a `private fun Lane(name: String)` of
-    another file, a factory of a fixtures module of the same package) would make a call that a constructor accepts
-    ambiguous. A type of the baseline that the range doesn't change is no entry, so a call that only such a factory
-    accepts is no edge: a limit. A wildcard import brings a type only where no type of its name in the package of the
-    use takes the name first, which another file of that package may declare (`q.Pane` beside `import p.*`). The JVM has
-    an `internal` Kotlin type and its constructors public under their own names, so their `internal` older forms reject
-    no Java use; an `internal` constructor of a file or a use of no known module reaches it as its type does, where an
-    `internal` member wouldn't, since the type takes no call for it.
+    needs that only that form accepts (the test of IJAI-4074, `object : ToolWindowManagerImpl(project, isNewUi = false,
+    isEdtRequired = false, …)`, needs the commit that adds `isEdtRequired`). A Kotlin implicit `()` is public whatever
+    its class, so only the type's reach makes `Lane()` of an `internal class Lane` made public a step. Constructors are
+    not inherited, so no supertype declares more of them, which the overloads of a member can't say. Java's `new` means
+    a constructor of the type its name resolves to, while a Kotlin call of a type falls back from its constructors to
+    the functions of its name (a factory `fun Lane(id: Int, flag: Boolean)`); a constructor invocation of a supertype
+    doesn't, but the summary doesn't tell it from a call. A member of a receiver of the name (a capitalized function, a
+    nested class of a supertype) is left out, as decision 8 leaves out the nested classes of a supertype: a type and a
+    function are rarely named alike but for a factory, which is top-level. The summary ties an `invoke` of the companion
+    to no commit of its own, so the type stands for it. A function of the name in a file of the package that the range
+    doesn't change, which needs no import, and an `invoke` of the companion declared in another file may take such a
+    call too: a limit. No evidence links a factory of another file of the package, so the type stands for one the range
+    adds, which keeps the edge of a call of a new type that no constructor accepts; one that the use can't see (a
+    `private fun Lane(name: String)` of another file, a factory of a fixtures module of the same package) would make a
+    call that a constructor accepts ambiguous. A type of the baseline that the range doesn't change is no entry, so a
+    call that only such a factory accepts is no edge: a limit. A wildcard import brings a type only where no type of its
+    name in the package of the use takes the name first, which another file of that package may declare (`q.Pane` beside
+    `import p.*`). The JVM has an `internal` Kotlin type and its constructors public under their own names, so their
+    `internal` older forms reject no Java use; an `internal` constructor of a file or a use of no known module reaches
+    it as its type does, where an `internal` member wouldn't, since the type takes no call for it. A delegation call
+    names no type: `this` is the class around it, and Java's `extends` names one class among the interfaces, but the
+    summary doesn't tell a Kotlin class from an interface, so beside a second supertype `super(…)` may call either, and
+    with an interface only it calls `Any()`; with one supertype a wrong match only adds the type's commits, which the
+    supertype's own reference in the header already brings.
 
 ### Implementation Notes
 
@@ -345,8 +351,9 @@ flowchart TD
   the constructors of a class (`JvmHooks::constructors` of its header, `Walk::add_constructor` of its body, the implicit
   `()` by `JvmHooks::implicit_constructor` when the walk is done); `Spec::call_shape` of Kotlin and Java: the arguments
   of a call, for the `Shape::Call` on the reference of its callee, `enclosed` by the depth of the stack of supertypes
-  (`Walk::enclosed`), and of a `new` and a Kotlin constructor invocation of a supertype on the type (`Walk::give_call`,
-  before an object expression or an anonymous class pushes its supertypes).
+  (`Walk::enclosed`), of `this(…)` and `super(…)` on the type they call (`Walk::emit_constructor_call`), and of a `new`
+  and a Kotlin constructor invocation of a supertype on the type (`Walk::give_call`, before an object expression or an
+  anonymous class pushes its supertypes).
 - `crates/sync-core/src/symbol_scan.rs`: the mode (`branchdeck.symbols`), the summaries through the cache, the crate
   names and the TypeScript aliases.
 - `crates/sync-core/src/module_roots.rs`: the nearest directory with a build file (Kotlin `internal`, Rust crates,
@@ -547,6 +554,15 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     cache off on that machine (no System V semaphore set was left, a leak a023d008 fixes), so both builds parse all
     2573 blobs, the minimum of 4 interleaved runs is 317 ms read, 612 ms parse, 1372 ms graph, against 156, 597 and
     1990: within the noise.
+  - `this(…)` and `super(…)` as calls of a constructor (decision 11), against the build of the step before: the range
+    adds 11 Kotlin `: this(…)` delegations, no Kotlin `super(…)` and no Java one. 3648 links, one new and none lost;
+    the edges are the same. The new one is right by the lineage of decision 7: `this(coroutineScope, source,
+    legacyInput)` in `AgentHostSettingsStateImpl`, whose own commit 0997e182 adds `legacyInput` to the primary
+    constructor that 95e34960 gave `firstPullRetryDelay`, links to 95e34960, in the edge the lines of that file
+    already make. `bd commits --brief`, `bd check` and `bd suggest` are byte for byte those of the build before; the
+    five repro cases make one edge by symbols each, and on the real pair `bd check` names the same
+    `getButtonManager`. At a load average of 38–57 the wall times say nothing (graph 0.9–10 s for either build); the
+    CPU of `bd commits --brief` is 7.5–8.0 s, against 7.3–7.6 s, both parsing all 2573 blobs.
 
 ### The gate
 

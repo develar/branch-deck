@@ -24,7 +24,9 @@ Value first in Pair Public Instance 82-82 @82
 Type Generic in Constructors Module Static 88-90 @88 Module new(first: _)
 Value first in Generic Public Instance 88-88 @88
 @4 :String
+@5 Constructors(_)
 @22 IllegalArgumentException(Text) x
+@26 Point(_,Number)
 @30 :String
 @31 :String
 @32 this.name
@@ -38,4 +40,4 @@ Value first in Generic Public Instance 88-88 @88
 @77 :java.util.Date :java :java.util
 @79 :java.sql.Date :java :java.sql
 @83 :java.util.List :java :java.util
-@84 ?.get(Number)
+@84 Pair(_) ?.get(Number)

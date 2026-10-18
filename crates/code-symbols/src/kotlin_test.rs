@@ -378,7 +378,7 @@ fn a_constructor_invocation_of_a_supertype_has_its_argument_shape() {
     ["78 Base(Number){}", "80 Base(Number)"],
     "in a lambda, and a one-line object expression"
   );
-  // an annotation is no call; `this(…)` and `super(…)` are no references, their arguments are
+  // an annotation is no call; `this(…)` calls the class, `super(…)` of a class without a supertype nothing
   assert_eq!(refs(&summary, "Suppress"), ["79 :Suppress"]);
   assert_eq!(refs(&summary, "Inject"), ["3 ^javax.inject.Inject", "25 :Inject"]);
   let on_line = |line: u32| {
@@ -386,7 +386,7 @@ fn a_constructor_invocation_of_a_supertype_has_its_argument_shape() {
     texts.sort();
     texts
   };
-  assert_eq!(on_line(14), [":Int", ":String", "?.length"]);
+  assert_eq!(on_line(14), [":Int", ":String", "?.length", "Hidden(_)"]);
   assert_eq!(on_line(34), [":String"]);
   let sub = summary.references_to("ToolWindowManagerImpl").find(|it| it.line == 70).unwrap();
   assert_eq!(

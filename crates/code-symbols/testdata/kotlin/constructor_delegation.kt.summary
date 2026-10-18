@@ -1,0 +1,35 @@
+package com.example.delegation
+import com.example.base.Base @3
+Type Primary in - Public TopLevel 5-9 @5 new(size: Int, name: String =) new(name: String) new()
+Value size in Primary Public Instance 5-5 @5
+Value name in Primary Public Instance 5-5 @5
+Type OnlySecondary in - Public TopLevel 11-15 @11 new(size: Int) new() : Base
+Type Qualified in - Public TopLevel 17-19 @17 new(size: Int) : com.example.base.Base
+Type TwoSupertypes in - Public TopLevel 21-25 @21 new(size: Int) : Base, Runnable
+Function run in TwoSupertypes Public Instance 24-24 @24 () overrides overridable
+Type NoSupertype in - Public TopLevel 27-29 @27 new(size: Int)
+Type Outer in - Public TopLevel 31-35 @31 new()
+Type Nested in Outer Public Static 32-34 @32 new(size: Int) new()
+Value size in Nested Public Instance 32-32 @32
+Type Level in - Public TopLevel 37-41 @37
+Value code in Level Public Instance 37-37 @37
+EnumEntry LOW in Level Public Static 38-38 @38
+Function local in - Public TopLevel 43-47 @43 ()
+@3 ^com.example.base.Base
+@5 :Int :String
+@6 Primary(_,_) :String ?.length
+@8 Primary(size=Number)
+@11 :Base
+@12 Base(_,Text) :Int
+@14 OnlySecondary(Number)
+@17 :com.example.base.Base :com.example.base :com :com.example
+@18 com.example.base.Base(_) :Int
+@21 :Base :Runnable
+@22 :Int
+@24 ~Base.run() ~Runnable.run()
+@28 :Int
+@32 :Int
+@33 Nested(Number)
+@37 :Int
+@40 Level(Number)
+@44 :Int

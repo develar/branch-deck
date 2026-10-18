@@ -128,6 +128,7 @@ const RULES: &[(&str, Rule)] = &[
   ),
   ("anonymous_initializer", SCOPE),
   ("secondary_constructor", Rule::Special(secondary_constructor)),
+  ("constructor_delegation_call", Rule::Special(constructor_delegation)),
   ("getter", Rule::Special(accessor)),
   ("setter", Rule::Special(accessor)),
   ("control_structure_body", SCOPE),
@@ -178,7 +179,7 @@ pub(crate) static SPEC: Spec = Spec {
     "bin_literal",
     "boolean_literal",
   ],
-  tokens: &["interface", "=", "*", "-", "+"],
+  tokens: &["interface", "this", "super", "=", "*", "-", "+"],
   fields: &["receiver"],
   traits,
   binds: |_| true,
@@ -645,6 +646,34 @@ fn secondary_constructor<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   true
 }
 
+/// `this(…)` and `super(…)` after a secondary constructor: a call of a constructor of the class around it, or of its
+/// supertype, the one a class without a primary constructor names without arguments (`: Base`). The summary doesn't
+/// tell a class from an interface, so beside another supertype `super(…)` may mean any: none then, nor for a supertype
+/// with arguments or a delegate, which a class without a primary constructor can't call this way
+fn constructor_delegation<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
+  // the secondary constructor, the class body, the class
+  let class = node
+    .parent()
+    .and_then(|it| it.parent())
+    .and_then(|it| it.parent())
+    .filter(|it| w.is(*it, "class_declaration"));
+  let Some(class) = class else { return true };
+  let path = if w.has_token(node, "this") {
+    w.child(class, Child::Kind(&["type_identifier"])).and_then(|it| w.text(it)).map(|it| vec![it])
+  } else {
+    let mut cursor = class.walk();
+    let specifiers: Vec<Node<'t>> = class.named_children(&mut cursor).filter(|it| w.is(*it, "delegation_specifier")).collect();
+    match specifiers.as_slice() {
+      [only] => w.child(*only, Child::Kind(&["user_type"])).and_then(|it| w.type_path(it)),
+      _ => None,
+    }
+  };
+  if let Some(path) = path {
+    w.emit_constructor_call(&path, line_of(node), node);
+  }
+  true
+}
+
 /// The supertypes of a class, an object, a companion or an object expression, the enum of an enum entry; the type of a
 /// supertype's constructor invocation becomes a call
 fn supertypes<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<Vec<Vec<u32>>> {
@@ -703,12 +732,12 @@ fn delegated_body<'t>(w: &Walk<'t>, specifier: Node<'t>) -> Option<Node<'t>> {
   trailing_lambda(w, delegate)
 }
 
-/// The arguments of a call or of a constructor invocation: those of `value_arguments` in order, a named one
+/// The arguments of a call, a constructor invocation or a constructor delegation call: those of `value_arguments` in order, a named one
 /// (`name = value`) with its name, a spread (`*items`, `name = *items`), and the trailing lambda of a call last;
 /// `foo {} {}` is a call of the call `foo {}`
 fn call_shape<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Option<CallArguments> {
-  // a constructor invocation has its arguments in itself, a call in its suffix
-  let suffix = if w.is(node, "constructor_invocation") {
+  // a constructor invocation and a delegation call have their arguments in themselves, a call in its suffix
+  let suffix = if w.is(node, "constructor_invocation") || w.is(node, "constructor_delegation_call") {
     node
   } else {
     w.child(node, Child::Kind(&["call_suffix"]))?
