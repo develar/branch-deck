@@ -50,7 +50,10 @@ export interface PushButtonState {
    * branch alone when the button pushes the stack, else Push Stack
    */
   action: PushButtonAction | null
-  /** Push with Children, offered after `action`, while branches stacked on this one have work for the remote */
+  /**
+   * Push with Children, offered after `action` while branches stacked on this one have work for the remote, also while
+   * the branch itself is up to date: its own push is disabled then, this one isn't
+   */
   childrenAction: PushButtonAction | null
 }
 
@@ -222,12 +225,13 @@ export function getPushButtonState(
         run: () => void pushStack(branch.name),
       }
     }
-    if (unpushedChildren !== null) {
-      childrenAction = {
-        description: describeUnpushedChildren(branch.name, unpushedChildren.names),
-        label: formatPushWithChildrenLabel(unpushedChildren.pushOrder),
-        run: () => void pushWithChildren(branch.name),
-      }
+  }
+  // the children have work while the branch's own push has any or none: the root of a stack pushed already offers them
+  if (landedIn === null && unpushedChildren !== null) {
+    childrenAction = {
+      description: describeUnpushedChildren(branch.name, unpushedChildren.names),
+      label: formatPushWithChildrenLabel(unpushedChildren.pushOrder),
+      run: () => void pushWithChildren(branch.name),
     }
   }
 
@@ -310,7 +314,7 @@ export function useUnpushedParent(branch: Branch): UnpushedParent | null {
 }
 
 /** The branches stacked on a branch, while a push of them has work for the remote */
-function useUnpushedChildren(branchName: string): UnpushedChildren | null {
+export function useUnpushedChildren(branchName: string): UnpushedChildren | null {
   const holds = usePushHolds()
   // a string, so the store notifies only when the order changes
   const order = useBranchSync(state =>

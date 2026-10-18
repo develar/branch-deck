@@ -45,7 +45,15 @@ import { formatPushHoldReason, SAFE_PUSH_DESCRIPTION } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
-import { buttonStackPushOrder, formatBlockedReason, formatPushWithChildrenLabel, offersPushWithChildren, stackChildrenPushOrder } from "@/lib/stack"
+import {
+  buttonStackPushOrder,
+  describePushWithChildrenBlocker,
+  formatBlockedReason,
+  formatPushWithChildrenLabel,
+  offersPushWithChildren,
+  stackAskFirst,
+  stackChildrenPushOrder,
+} from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import type { Branch } from "@/stores/branch-sync"
 import {
@@ -228,6 +236,11 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   groups.push(historyActions)
 
   const remoteActions: MenuItem[] = [getPushMenuItem(branch)]
+  // the push of the branches stacked on it, beside the push of the branch: offered on every branch with children
+  const pushWithChildrenItem = getPushWithChildrenItem(branch.name)
+  if (pushWithChildrenItem !== null) {
+    remoteActions.push(pushWithChildrenItem)
+  }
   if (isPatronusAvailable()) {
     remoteActions.push(...getPatronusStartItems(branch, nextStep))
   }
@@ -500,7 +513,7 @@ function getMoveMenuItems(name: string): MenuItem[] {
 /** The most branches "Stack On…" lists; the newest come first */
 const STACK_TARGET_LIMIT = 20
 
-/** "Stack On…" (any other branch that isn't stacked on this one) and "Unstack" */
+/** "Stack On…" (any other branch that isn't stacked on this one), "Unstack" and the collapse of the stack */
 function getStackMenuItems(branch: Branch, rewrite: (items: MenuItem[]) => MenuItem[]): MenuItem[] {
   const parent = branch.stack?.declaredParent ?? null
   const descendants = getStackDescendants(branch.name)
@@ -533,32 +546,42 @@ function getStackMenuItems(branch: Branch, rewrite: (items: MenuItem[]) => MenuI
         : { id: "collapse-stack", label: "Collapse Stack", icon: FoldVerticalIcon, kbds: ["alt", "arrowleft"], onSelect: () => void toggleStackCollapsed(branch.name, true) },
     )
   }
-  const children = getPushWithChildrenItem(branch.name)
-  if (children !== null) {
-    items.push(children)
-  }
   return items
 }
 
 /**
- * "Push with Children (3 branches)" of a branch, for its menu and the header of its stack island: the branch and the
- * branches built on it that have work for the remote, parents first (`stackChildrenPushOrder`); null while it would
- * push only the branch itself. Disabled with the reason while a Safe Push holds the branch (`PushHold`): a push of the
- * stack it runs in won't land, and every Safe Push in a stack holds its root.
+ * "Push with Children (3 branches)" of a branch, for its menu and the "⋯" of its stack island: the branch and the
+ * branches built on it that have work for the remote, parents first (`stackChildrenPushOrder`), in one push. Every
+ * branch with children offers it, also during a sync (the push waits for it and pushes what it leaves); null for a
+ * branch without children. Disabled with the reason while a Safe Push holds the branch (`PushHold`: a push of the stack
+ * it runs in won't land, and every Safe Push in a stack holds its root), while the stack is being pushed, and while it
+ * would push nothing beyond the branch itself (`describePushWithChildrenBlocker`).
  */
 export function getPushWithChildrenItem(name: string): MenuItem | null {
-  const isHeld = (it: string): boolean => getPushHold(it) !== null
-  // the children are built on the branch: a push of it alone leaves their remote branches on its old head
-  const order = stackChildrenPushOrder(name, getStackDescendants(name), getBranch, isHeld)
-  const hold = getPushHold(name)
-  const all = hold === null ? order : stackChildrenPushOrder(name, getStackDescendants(name), getBranch)
-  if (!offersPushWithChildren(name, all)) {
+  const descendants = getStackDescendants(name)
+  if (descendants.length === 0) {
     return null
   }
-  const reason = hold === null ? (isStackPushing(name) ? "The stack is being pushed" : null) : formatPushHoldReason(name, hold)
+  const isHeld = (it: string): boolean => getPushHold(it) !== null
+  // the children are built on the branch: a push of it alone leaves their remote branches on its old head
+  const order = stackChildrenPushOrder(name, descendants, getBranch, isHeld)
+  const hold = getPushHold(name)
+  const all = hold === null ? order : stackChildrenPushOrder(name, descendants, getBranch)
+  const offers = offersPushWithChildren(name, all)
+  let reason: string | null
+  if (hold !== null) {
+    reason = formatPushHoldReason(name, hold)
+  } else if (isStackPushing(name)) {
+    reason = "The stack is being pushed"
+  } else if (!offers && branchSyncStore.getState().isSyncing && [name, ...descendants].some(it => getBranch(it)?.remoteStatus == null)) {
+    // the statuses the sync computes say what is left to push
+    reason = "Wait for the sync to finish"
+  } else {
+    reason = describePushWithChildrenBlocker(name, order, stackAskFirst(descendants, getBranch, isHeld))
+  }
   return {
     id: "push-with-children",
-    label: formatPushWithChildrenLabel(hold === null ? order : all),
+    label: offers ? formatPushWithChildrenLabel(all) : "Push with Children",
     icon: UploadIcon,
     disabled: reason !== null,
     ...(reason !== null && { description: reason }),

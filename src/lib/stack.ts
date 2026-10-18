@@ -2,6 +2,7 @@ import type { ParentState } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
 import { groupFor } from "@/lib/commit"
 import { dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
+import { joinNames } from "@/lib/text"
 import type { Branch } from "@/stores/branch-sync"
 
 /** The branch that keeps a blocked branch from being rebuilt (the parent, or the ancestor that can't be built); null if not blocked */
@@ -254,6 +255,38 @@ export function formatPushWithChildrenLabel(order: readonly string[]): string {
 /** Push with Children pushes more than the branch itself: a child has work; else the push of the branch is the push */
 export function offersPushWithChildren(name: string, order: readonly string[]): boolean {
   return order.some(it => it !== name)
+}
+
+/**
+ * The branches of `names` (the ones stacked on a branch) whose push has work but drops remote commits: Push with Children
+ * leaves them out, they ask first in their own rows. A branch a running Safe Push holds (`isHeld`) has nothing to push.
+ */
+export function stackAskFirst(names: readonly string[], branchOf: (name: string) => Branch | undefined, isHeld: (name: string) => boolean = () => false): string[] {
+  return names.filter(name => {
+    const branch = branchOf(name)
+    return branch?.remoteStatus != null && needsPush(branch) && dropsRemoteCommits(branch.remoteStatus) && !isHeld(name)
+  })
+}
+
+/** "login asks first in its row: the push drops remote commits", "login and oauth ask first in their rows: …" */
+export function formatAskFirst(names: readonly string[]): string {
+  const one = names.length === 1
+  return `${joinNames(names)} ${one ? "asks" : "ask"} first in ${one ? "its row" : "their rows"}: the push drops remote commits`
+}
+
+/**
+ * Why Push with Children of `name` has nothing to push beyond the branch itself, as its menu item and the push of the
+ * island header say it; null while it does (`offersPushWithChildren`). `order` is what it pushes
+ * (`stackChildrenPushOrder`), `askFirst` the children left out because their push drops remote commits (`stackAskFirst`).
+ */
+export function describePushWithChildrenBlocker(name: string, order: readonly string[], askFirst: readonly string[]): string | null {
+  if (offersPushWithChildren(name, order)) {
+    return null
+  }
+  if (askFirst.length > 0) {
+    return formatAskFirst(askFirst)
+  }
+  return order.includes(name) ? `Only ${name} has commits to push: its own push sends them` : "Nothing to push: the stack is on the remote"
 }
 
 /**

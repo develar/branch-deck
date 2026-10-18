@@ -298,18 +298,26 @@ menu stacks, unstacks and renames branches.
 - The push button of a branch whose descendants have work for the remote must stay as it is too: it pushes only the
   branch. Its description must offer the children below a rule: "oauth is stacked on login and has commits to push."
   ("oauth and session are …", "session and 2 more branches are … and have commits to push."), then a
-  `Push with Children (4 branches)` button, named as in the branch menu. A branch whose own push is up to date offers
-  it only in the menu. Below the other push of a stacked branch when both apply.
-  [@test] ../../src/hooks/usePushButton.test.ts (`offers Push with Children while branches stacked on it have work for the remote`, `offers the push of the branch alone before Push with Children for a branch in the middle of a stack`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a parent with its children`)
+  `Push with Children (4 branches)` button, named as in the branch menu. A branch whose own push is up to date (the
+  root of a stack pushed before its children) keeps its push button, disabled, with "Everything is pushed." and the
+  children's push in its description, enabled; the root row of an island leaves it to the header. Below the other
+  push of a stacked branch when both apply.
+  [@test] ../../src/hooks/usePushButton.test.ts (`offers Push with Children while branches stacked on it have work for the remote`, `offers the push of the branch alone before Push with Children for a branch in the middle of a stack`, `offers Push with Children while the branch itself is on the remote: its own push is disabled, this one isn't`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a parent with its children`, `should offer Push with Children while a sync runs and when the root is pushed`)
 - "Push with Children" must push the branch if it has work for the remote, then its descendants that have work,
   parents first, in the one atomic push of a stack. A descendant whose push drops remote commits is left out: it asks first in its
-  own row; so is a branch a running Safe Push holds. It is offered only while it pushes more than the branch itself,
-  and names what it pushes: "Push with Children (4 branches)", "Push with Children (oauth)" for one child. While a Safe
-  Push holds the branch it is disabled with the reason: every Safe Push of the stack lands it.
-  [@test] ../../src/lib/stack.test.ts (`pushes the branch and its children that have work for the remote, parents first`, `leaves out the branches a running Safe Push holds, and starts a stack push above them`, `names Push with Children by what it pushes, and offers it only beyond the branch itself`)
-  [@test] ../../src/lib/git/push.test.ts (`starts above the branches a running Safe Push holds`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a parent with its children`)
+  own row; so is a branch a running Safe Push holds. It names what it pushes: "Push with Children (4 branches)", "Push
+  with Children (oauth)" for one child. Every branch with branches stacked on it offers it, in the branch menu beside
+  the push of the branch ([Branch Row](branch-row.spec.md#branch-menu)), also while a sync runs: the push waits for the
+  sync and computes what to push on the branches as it leaves them. It is disabled with the reason, never hidden,
+  while it would push nothing beyond the branch ("Nothing to push: the stack is on the remote", "Only auth has
+  commits to push: its own push sends them", "login asks first in its row: the push drops remote commits"; "Wait for
+  the sync to finish" while the sync computes the remote statuses), while the stack is being pushed ("The stack is being
+  pushed") and while a Safe Push holds the branch: every Safe Push of the stack lands it.
+  [@test] ../../src/lib/stack.test.ts (`pushes the branch and its children that have work for the remote, parents first`, `leaves out the branches a running Safe Push holds, and starts a stack push above them`, `names Push with Children by what it pushes, and offers it only beyond the branch itself`, `says why Push with Children pushes nothing beyond the branch: the stack is on the remote, only the branch has work, or the children ask first`)
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`is offered beside the push on every branch with children, disabled with the reason while it would push nothing beyond the branch`, `is offered while a sync runs and while the root is on the remote: the push waits for the sync`)
+  [@test] ../../src/lib/git/push.test.ts (`starts above the branches a running Safe Push holds`, `waits for the sync, then pushes the children as the sync leaves them`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a parent with its children`, `should offer Push with Children while a sync runs and when the root is pushed`)
 
 - A Safe Push of a stacked branch lands it with the branches it is built on, in one robot, and its form says so
   first: "Lands oauth with auth and login, which it is built on: 3 branches · 12 commits into master."; Enter starts

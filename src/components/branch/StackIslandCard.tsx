@@ -23,11 +23,11 @@ import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { pushWithChildren } from "@/lib/git/stack-push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
-import { formatPushMode } from "@/lib/patronus"
+import { formatPushHoldReason, formatPushMode } from "@/lib/patronus"
 import { dropsRemoteCommits } from "@/lib/push-summary"
 import { formatStackPushLine } from "@/lib/push-up-to"
 import { formatRobotProgress } from "@/lib/robot-eta"
-import { formatPushWithChildrenLabel, needsPush, offersPushWithChildren, stackChildrenPushOrder, stackPushSubject } from "@/lib/stack"
+import { describePushWithChildrenBlocker, formatAskFirst, formatPushWithChildrenLabel, needsPush, stackChildrenPushOrder, stackPushSubject } from "@/lib/stack"
 import type { StackIsland } from "@/lib/stack-collapse"
 import type { StackAttention, StackState, StackStateChip } from "@/lib/stack-state"
 import { firstBranchOfEachState, getStackStateChips, summarizeStackState } from "@/lib/stack-state"
@@ -37,7 +37,7 @@ import { ghostButtonColorClass } from "@/lib/ui-types"
 import { getBranch, stackDescendantsIn, stackMainLineIn, useBranch, useBranchPushProgress, useBranchSync, useStackPush } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { openInline, useStackHeaderInline } from "@/stores/inline-row-action"
-import { isPatronusAvailable, useBranchRobot } from "@/stores/patronus"
+import { isPatronusAvailable, useBranchRobot, usePushHold } from "@/stores/patronus"
 import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
 import { getReadinessTarget } from "@/stores/review-readiness"
 import { toggleStackCollapsed } from "@/stores/stack-collapse"
@@ -282,20 +282,33 @@ function StateChip({ chip, branch }: { chip: StackStateChip; branch: string | un
 
 /**
  * The push of the stack, as the compact push of a row: "↑ 41", the commits of Push with Children of the root (the
- * branches of the stack that have work for the remote, parents first, `stackChildrenPushOrder`); the hover names it and
- * lists what it sends, and the branches that ask first in their rows. Its place stays empty while it would push only the
- * root (the root row's push is that push) and while a Safe Push runs in the stack: a push won't land.
+ * branches of the stack that have work for the remote, parents first, `stackChildrenPushOrder`), in one push; the hover
+ * names it and lists what it sends, and the branches that ask first in their rows. Disabled, "↑" with the reason in its
+ * hover, while it would push nothing beyond the root (`describePushWithChildrenBlocker`: the stack is on the remote, the
+ * root row's push is the push, or the branches with work ask first) and while a Safe Push runs in the stack: a push
+ * won't land.
  */
 function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary }) {
   const stackPush = useStackPush(root)
   const current = stackPush === null ? null : stackPushSubject(root, stackPush)
   // the one push of the stack reports its progress for each of its branches
   const progress = useBranchPushProgress(stackPush?.[0] ?? root)
+  const hold = usePushHold(root)
   const { pushOrder, askFirst } = summary
-  if (current === null && (summary.rootHeld || !offersPushWithChildren(root, pushOrder))) {
-    return <span aria-hidden className="w-16 shrink-0" data-testid="stack-island-push-placeholder" />
+  let blocker: string | null = null
+  if (current === null) {
+    if (summary.rootHeld) {
+      blocker = hold === null ? "A Safe Push runs in the stack" : formatPushHoldReason(root, hold)
+    } else {
+      blocker = describePushWithChildrenBlocker(root, pushOrder, askFirst)
+    }
   }
-  const label = current === null ? formatPushWithChildrenLabel(pushOrder) : transferLabel(`Pushing ${current}`, progress)
+  let label = "Push with Children"
+  if (current !== null) {
+    label = transferLabel(`Pushing ${current}`, progress)
+  } else if (blocker === null) {
+    label = formatPushWithChildrenLabel(pushOrder)
+  }
   return (
     <Popover>
       <PopoverTrigger
@@ -305,8 +318,9 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
           <Button
             size="xs"
             variant="ghost"
-            className={cn("min-w-16 justify-start tabular-nums", ghostButtonColorClass("primary"))}
-            disabled={current !== null}
+            className={cn("min-w-16 justify-start tabular-nums", ghostButtonColorClass(blocker === null ? "primary" : "neutral"), blocker !== null && "aria-disabled:opacity-50")}
+            disabled={current !== null || blocker !== null}
+            // the reason stays reachable on hover while the button is disabled
             focusableWhenDisabled
             aria-busy={current !== null || undefined}
             aria-label={label}
@@ -319,19 +333,22 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
           />
         }
       >
-        <CompactPushLabel isPushing={current !== null} percent={progress?.percent ?? null} count={summary.pushCommits} />
+        <CompactPushLabel isPushing={current !== null} percent={progress?.percent ?? null} count={blocker === null ? summary.pushCommits : 0} />
       </PopoverTrigger>
       <PopoverContent data-testid="stack-island-push-description" className="w-auto max-w-sm gap-2 p-3 text-sm leading-snug" onClick={event => event.stopPropagation()}>
-        {current === null ? (
+        {current !== null && <PushProgressDescription subject={current} progress={progress} />}
+        {current === null && blocker !== null && (
+          <>
+            <div className="font-medium">{label}</div>
+            <div className="break-words">{blocker}</div>
+          </>
+        )}
+        {current === null && blocker === null && (
           <>
             <div className="font-medium">{label}</div>
             <StackPushLines order={pushOrder} />
-            {askFirst.length > 0 && (
-              <div className="text-muted-foreground">{`${joinNames(askFirst)} ${askFirst.length === 1 ? "asks" : "ask"} first in ${askFirst.length === 1 ? "its row" : "their rows"}: the push drops remote commits.`}</div>
-            )}
+            {askFirst.length > 0 && <div className="text-muted-foreground">{`${formatAskFirst(askFirst)}.`}</div>}
           </>
-        ) : (
-          <PushProgressDescription subject={current} progress={progress} />
         )}
       </PopoverContent>
     </Popover>

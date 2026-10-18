@@ -7,12 +7,12 @@ import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { availableRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, pullRequest, routeNewPullRequest } from "../helpers/pull-request-helpers"
-import { confirmForcePush, PUSH_TIME, pushedToast, routePush, routePushBranches } from "../helpers/push-helpers"
+import { confirmForcePush, expectPushedToast, PUSH_TIME, pushedToast, routePush, routePushBranches } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, openBranchPreview } from "../helpers/review-status-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
-import { runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
-import { routeCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
+import { rewriteNextRemoteStatus, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
+import { holdCommand, routeCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
 
 const GITHUB_COMPARE = "https://github.com/JetBrains/ultimate/compare"
 
@@ -497,10 +497,54 @@ test.describe("Stacked branches", () => {
     await alternative.getByRole("button", { name: "Push with Children (4 branches)" }).click()
     // one push of the four, parents first
     await expect.poll(() => stackPushes.map(push => push.map(branch => branch.branchName))).toEqual([["auth", "session", "login", "oauth"]])
-    // every branch is on the remote: the menu offers nothing more to push with auth
+    // every branch is on the remote: the menu keeps it beside the push, disabled with the reason
     await openContextMenu(page, findBranchRow(page, "auth"))
-    await expect(page.getByRole("menuitem", { name: "Stack On…" })).toBeVisible()
-    await expect(page.getByRole("menuitem", { name: /^Push with Children/ })).toHaveCount(0)
+    const item = page.getByRole("menuitem", { name: "Push with Children", exact: true })
+    await expect(item).toHaveAttribute("aria-disabled", "true")
+    await item.hover()
+    await expect(page.getByRole("tooltip").filter({ hasText: "Nothing to push" })).toHaveText("Nothing to push: the stack is on the remote")
+    // the root row has nothing left to push: its push leaves
+    await page.keyboard.press("Escape")
+    await expect(findBranchRow(page, "auth").getByTestId("push-placeholder")).toHaveCount(1)
+  })
+
+  test("should offer Push with Children while a sync runs and when the root is pushed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+    const { stackPushes, pushes } = await routePushBranches(page)
+    const auth = findBranchRow(page, "auth")
+    const button = getPushButton(auth)
+    await button.click()
+    await expectPushedToast(page, "auth", "1 commit · created the remote branch")
+    expect(pushes.map(push => push.branchName)).toEqual(["auth"])
+    // auth is on the remote, its children are not: its push stays, disabled, its description offers them
+    await expect(button).toHaveAccessibleName("Push")
+    await expect(button).toBeDisabled()
+    await button.hover()
+    const alternative = page.getByTestId("push-description").getByTestId("push-alternative")
+    await expect(alternative).toContainText("session and 2 more branches are stacked on auth and have commits to push.")
+    await expect(alternative.getByRole("button", { name: "Push with Children (3 branches)" })).toBeEnabled()
+    await page.keyboard.press("Escape")
+    await expect(alternative).toBeHidden()
+
+    // a sync runs (its statuses of the template's remote replaced by the push's): the menu keeps the item enabled, and
+    // the push waits for the sync
+    await rewriteNextRemoteStatus(page, status =>
+      status.branchName === "auth" ? { ...status, remoteExists: true, remoteTip: "auth-pushed", unpushedCommits: [], myUnpushedCount: 0, fastForward: true } : status,
+    )
+    const releaseSync = await holdCommand(page, "sync_branches")
+    await page.getByTestId("sync-button").click()
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
+    await openContextMenu(page, auth)
+    const item = page.getByRole("menuitem", { name: "Push with Children (3 branches)" })
+    await expect(item).toBeEnabled()
+    await item.click()
+    await expect(button).toHaveAttribute("aria-busy", "true")
+    expect(stackPushes).toEqual([])
+
+    releaseSync()
+    await expect.poll(() => stackPushes.map(push => push.map(branch => branch.branchName))).toEqual([["session", "login", "oauth"]])
+    await expect(page.locator("[data-slot=toast]", { hasText: "Pushed session, login and oauth" })).toBeVisible()
   })
 
   test("should retarget a pull request whose base is not the expected one before the push", async ({ page, setupRepo, syncAndWaitForBranches }) => {

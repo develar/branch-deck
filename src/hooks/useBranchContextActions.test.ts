@@ -113,3 +113,49 @@ describe("the push of the branch menu", () => {
     expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", disabled: true, description: "The stack is being pushed" })])
   })
 })
+
+describe("Push with Children in the branch menu", () => {
+  const pushed = testRemoteStatus({ remoteTip: "tip" })
+  const dropping = testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 1, fastForward: false, unpushedCommits: ["c"], remoteTip: "theirs" })
+
+  function pushWithChildren(name: string): MenuItem | undefined {
+    return menuOf(name).find(item => item.id === "push-with-children")
+  }
+
+  afterEach(() => {
+    branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, stackPushes: {}, isSyncing: false })
+  })
+
+  it("is offered beside the push on every branch with children, disabled with the reason while it would push nothing beyond the branch", () => {
+    setBranches(synced("auth", null, pushed), synced("login", "auth", pushed), synced("docs", null, unpushed))
+    // the remote group: the push of the branch, then the push with its children
+    const items = menuOf("auth")
+    expect(items[items.findIndex(item => item.id === "push") + 1]).toMatchObject({
+      id: "push-with-children",
+      label: "Push with Children",
+      disabled: true,
+      description: "Nothing to push: the stack is on the remote",
+    })
+    // a branch without children has nothing to push with them
+    expect(menuOf("login").some(item => item.id === "push-with-children")).toBe(false)
+    expect(menuOf("docs").some(item => item.id === "push-with-children")).toBe(false)
+
+    setBranches(synced("auth", null, unpushed), synced("login", "auth", pushed))
+    expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "Only auth has commits to push: its own push sends them" })
+    setBranches(synced("auth", null, pushed), synced("login", "auth", dropping))
+    expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "login asks first in its row: the push drops remote commits" })
+    setBranches(synced("auth", null, pushed), synced("login", "auth", unpushed))
+    expect(pushWithChildren("auth")).toMatchObject({ label: "Push with Children (login)", disabled: false })
+    branchSyncStore.setState({ stackPushes: { auth: ["login"] } })
+    expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "The stack is being pushed" })
+  })
+
+  it("is offered while a sync runs and while the root is on the remote: the push waits for the sync", () => {
+    setBranches(synced("auth", null, pushed), synced("login", "auth", unpushed))
+    branchSyncStore.setState({ isSyncing: true })
+    expect(pushWithChildren("auth")).toMatchObject({ label: "Push with Children (login)", disabled: false })
+    // the sync computes what is left to push
+    setBranches(synced("auth", null, pushed), testBranch("login", "auth"))
+    expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "Wait for the sync to finish" })
+  })
+})

@@ -5,6 +5,8 @@ import {
   buttonStackPushOrder,
   describeParentState,
   describePrefixChange,
+  describePushWithChildrenBlocker,
+  formatAskFirst,
   formatMoveUnstackAction,
   formatPushWithChildrenLabel,
   formatStackPushing,
@@ -12,6 +14,7 @@ import {
   passedParentOf,
   pullRequestBaseOf,
   stackAncestors,
+  stackAskFirst,
   stackChildrenPushOrder,
   stackPushOrder,
   stackPushSubject,
@@ -210,6 +213,29 @@ describe("pull request bases of stacked branches", () => {
     expect(offersPushWithChildren("auth", ["auth"])).toBe(false)
     expect(offersPushWithChildren("auth", [])).toBe(false)
     expect(offersPushWithChildren("auth", ["oauth"])).toBe(true)
+  })
+
+  it("says why Push with Children pushes nothing beyond the branch: the stack is on the remote, only the branch has work, or the children ask first", () => {
+    expect(describePushWithChildrenBlocker("auth", ["auth", "login"], [])).toBeNull()
+    expect(describePushWithChildrenBlocker("auth", ["login"], [])).toBeNull()
+    expect(describePushWithChildrenBlocker("auth", [], [])).toBe("Nothing to push: the stack is on the remote")
+    expect(describePushWithChildrenBlocker("auth", ["auth"], [])).toBe("Only auth has commits to push: its own push sends them")
+    expect(describePushWithChildrenBlocker("auth", [], ["login"])).toBe("login asks first in its row: the push drops remote commits")
+    expect(formatAskFirst(["login", "oauth"])).toBe("login and oauth ask first in their rows: the push drops remote commits")
+    const dropping = testRemoteStatus({ commitsAhead: 1, commitsBehind: 1, fastForward: false })
+    const branches: Record<string, Branch> = {
+      login: testBranch("login", "auth", { remoteStatus: dropping }),
+      oauth: testBranch("oauth", "login", { remoteStatus: testRemoteStatus({ commitsAhead: 1 }) }),
+      session: testBranch("session", "auth", { remoteStatus: dropping }),
+    }
+    // a branch a running Safe Push holds has nothing to push
+    expect(
+      stackAskFirst(
+        ["login", "oauth", "session"],
+        name => branches[name],
+        name => name === "session",
+      ),
+    ).toEqual(["login"])
   })
 
   it("names what a stack push sends while it runs: its one push of several branches, or the one branch", () => {

@@ -92,9 +92,11 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   one atomic push of all of them ([Stacked Branches](stacked-branches.spec.md#pull-requests)): while it runs, the spinner
   and the percent, "Pushing 7 branches" its name and the line of git on hover, the one indicator of the stack push
   (also of Push with Children from the root's menu), and every row it pushes shows the same progress on its own push
-  button. Its place stays empty while it would push only the root (the root row's push is the push) and while a Safe
-  Push runs in the stack.
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header in one push, parents first`)
+  button. It stays in its place, disabled ("↑", named "Push with Children") with the reason in its hover, while it
+  would push nothing beyond the root ("Nothing to push: the stack is on the remote", "Only air has commits to push:
+  its own push sends them", the branches that ask first) and while a Safe Push runs in the stack (the reason of the
+  hold, "A Safe Push of runtime is running: it lands air with it").
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header in one push, parents first`, `should say what the stack holds in the header, each state a way to its first branch`)
 - The Safe Push slot is the one of the last branch of the main line (`stackMainLineIn`, lane 0 of the graph): its one
   robot lands the whole line ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). Its hover says whose it
   is, what it lands and which side branches it doesn't: "Safe Push deploy · lands 5 of 7 branches into master ·
@@ -109,11 +111,13 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   not in the header: it is no row.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should open the Safe Push of the main line under the header`)
 - While a Safe Push runs in the stack (each one lands the root: [Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs))
-  the header offers neither the push nor the Safe Push: the landing line and "1 running" say why, as the Status cell of
-  a row whose robot runs. The branches it lands are not to push: "3 to push" counts the others.
+  the header's push is disabled with the reason of the hold and it offers no Safe Push: the landing line and "1
+  running" say why, as the Status cell of a row whose robot runs. The branches it lands are not to push: "3 to push"
+  counts the others.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
 - "⋯" is the menu of the stack ("More actions for the air stack"): "Safe Push deploy…", "Push with Children (7
-  branches)" (disabled with the reason while a Safe Push holds the root, left out while it would push only the root),
+  branches)" (disabled with the reason while a Safe Push holds the root and while it pushes nothing beyond the root, as
+  the root's menu: [Stacked Branches](stacked-branches.spec.md#pull-requests)),
   "Review Changes" of the main line (its review window, the whole stack; disabled with the reason of the branch menu's,
   `branchReviewBlocker` of its last branch: no commits, failed, blocked), and "Collapse Stack" / "Expand Stack".
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should open the Safe Push of the main line under the header`)

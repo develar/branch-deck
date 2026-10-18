@@ -189,7 +189,8 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
               </Button>
             )}
             {push.action !== null && <PushAlternative action={push.action} disabled={disabled} close={close} />}
-            {push.childrenAction !== null && <PushAlternative action={push.childrenAction} disabled={disabled} close={close} />}
+            {/* the children's push goes also while the branch's own push has nothing to send */}
+            {push.childrenAction !== null && <PushAlternative action={push.childrenAction} disabled={isPushing || processing} close={close} />}
           </>
         )}
       </PopoverContent>

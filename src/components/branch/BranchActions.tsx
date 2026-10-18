@@ -7,6 +7,7 @@ import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
 import { getBranchContextMenuItems } from "@/hooks/useBranchContextActions"
+import { useUnpushedChildren } from "@/hooks/usePushButton"
 import type { MenuItemGroups } from "@/lib/menu"
 import { getPushAction } from "@/lib/push-summary"
 import type { Branch } from "@/stores/branch-sync"
@@ -25,8 +26,9 @@ export interface BranchActionsProps {
 /**
  * Actions column of an active branch row: copy the full branch name (on the row hover or focus: every row has it), then,
  * at the end of the cell so they line up across the rows, the compact push ("↑ 3", disabled for a blocked stacked
- * branch; its place stays empty while the remote branch is up to date or a Safe Push holds the branch, `PushHold`, which
- * the status says), the next step on
+ * branch; its place stays empty while the remote branch is up to date, unless a branch stacked on it has work: its
+ * description offers Push with Children then, and while a Safe Push holds the branch, `PushHold`, which the status
+ * says), the next step on
  * Space (`NextStepSlot`: "Safe Push…", a restart, a wait for approvals, one width in every row) and "⋯" with the branch
  * menu. A click in the
  * cell, on a disabled button too, doesn't toggle the row.
@@ -42,7 +44,10 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
   // a running push keeps its button, with its progress, until it finished; a blocked branch says why on its button; a
   // branch a Safe Push holds offers no push, its Status cell says why (the menu, with the reason)
   const idle = !isPushing && stackPush === null
-  const upToDate = idle && ((getPushAction(branch) === "upToDate" && branch.status !== "Blocked") || hold !== null)
+  // the root of a pushed stack keeps its push while a child has work: its description offers Push with Children; the
+  // island header offers it for an island root
+  const childrenToPush = useUnpushedChildren(branch.name) !== null && !stackPushInHeader
+  const upToDate = idle && ((getPushAction(branch) === "upToDate" && branch.status !== "Blocked" && !childrenToPush) || hold !== null)
   return (
     <RowActions>
       <CopyButton

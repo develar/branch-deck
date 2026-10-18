@@ -125,9 +125,15 @@ test.describe("Stack island", () => {
     // one ring for the one running robot, on its chip: the landing line says what it lands
     await expect(states.getByTestId("robot-ring")).toHaveCount(1)
     await expect(air.getByTestId("stack-island-landing").getByTestId("robot-ring")).toHaveCount(0)
-    // a Safe Push runs in the stack: the header offers no push and no Safe Push, as a row of a running branch
-    await expect(air.getByTestId("stack-island-push")).toHaveCount(0)
-    await expect(air.getByTestId("stack-island-push-placeholder")).toHaveCount(1)
+    // a Safe Push runs in the stack: the header's push is disabled with the reason, no Safe Push, as a row of a running
+    // branch
+    const push = air.getByTestId("stack-island-push")
+    await expect(push).toBeDisabled()
+    await expect(push).toHaveAccessibleName("Push with Children")
+    await push.hover()
+    await expect(page.getByTestId("stack-island-push-description")).toContainText("A Safe Push of runtime is running: it lands air with it")
+    await page.mouse.move(0, 0)
+    await expect(page.getByTestId("stack-island-push-description")).toBeHidden()
     await expect(air.getByTestId("stack-island-actions").getByTestId("next-step-slot")).toHaveCount(0)
     // side-fix is built on bazel, which runtime lands: its restart would land bazel a second time
     await expect(findBranchRow(page, "side-fix").getByTestId("next-step")).toBeDisabled()
@@ -157,8 +163,11 @@ test.describe("Stack island", () => {
     release()
     // each branch after the one it is built on
     await expect.poll(() => stackPushes.map(push => push.map(branch => branch.branchName))).toEqual([["air", "bazel", "side-fix", "bridge", "runtime", "deploy", "side-test"]])
-    // everything is on the remote: no push left in the header
-    await expect(island(page, "air").getByTestId("stack-island-push")).toHaveCount(0)
+    // everything is on the remote: the header's push stays, disabled with the reason
+    await expect(push).toBeDisabled()
+    await expect(push).toHaveAccessibleName("Push with Children")
+    await push.hover()
+    await expect(page.getByTestId("stack-island-push-description")).toContainText("Nothing to push: the stack is on the remote")
   })
 
   test("should open the Safe Push of the main line under the header", async ({ page, setupRepo, syncAndWaitForBranches }) => {

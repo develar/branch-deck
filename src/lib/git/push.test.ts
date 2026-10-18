@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { formatNewPullRequestBlocker, getNewPullRequestUrl } from "@/lib/git/new-pull-request"
 import { pushBranch, pushForAction } from "@/lib/git/push"
-import { pushStack, pushUpTo } from "@/lib/git/stack-push"
+import { pushStack, pushUpTo, pushWithChildren } from "@/lib/git/stack-push"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { createPullRequestDialogStore } from "@/stores/create-pull-request-dialog"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
@@ -36,6 +36,10 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
      * all of its branches), and its commits the branch lacks
      */
     movedInStack: [] as { branch: string; commitsBehind: number }[],
+    /** The branches stacked on a branch, parents first */
+    descendants: {} as Record<string, string[]>,
+    /** Resolves when the running sync ends */
+    synced: Promise.resolve(),
     /** The pull requests GitHub lists, by branch */
     pullRequests: {} as Record<string, PullRequest>,
     /** The `expectedRemote` of each push */
@@ -109,9 +113,9 @@ vi.mock("@/lib/bindings", () => ({
 vi.mock("@/stores/branch-sync", () => ({
   branchSyncStore: { getState: () => ({ baselineBranch: "origin/master" }) },
   getBranch: (name: string) => stores.branches[name],
-  getStackDescendants: () => [],
+  getStackDescendants: (name: string) => stores.descendants[name] ?? [],
   isBranchPushing: () => false,
-  whenSynced: async () => {},
+  whenSynced: () => stores.synced,
   whenBranchPushed: async () => {},
   isStackPushing: (name: string) => Object.hasOwn(stores.stackPushes, name),
   setBranchPushing: () => {},
@@ -234,6 +238,8 @@ beforeEach(() => {
   stores.movedRemotes = []
   stores.retargetError = null
   stores.movedInStack = []
+  stores.descendants = {}
+  stores.synced = Promise.resolve()
   // a root with stacks on: a stack without a parent
   addBranch("auth", null, false)
 })
@@ -495,6 +501,26 @@ describe("a push over a remote that moved", () => {
     expect(await pushBranch("auth")).toBe(false)
     expect(calls).toEqual(["push auth"])
     expect(toasts.map(toast => toast.title)).toEqual(["auth changed on the remote"])
+  })
+})
+
+describe("pushWithChildren", () => {
+  it("waits for the sync, then pushes the children as the sync leaves them", async () => {
+    robots.running = undefined
+    stores.branches.auth = { ...stores.branches.auth!, remoteStatus: testRemoteStatus({ remoteTip: "tip" }) }
+    stores.descendants.auth = ["login"]
+    let synced!: () => void
+    stores.synced = new Promise(resolve => (synced = resolve))
+    const pushing = pushWithChildren("auth")
+    // the row shows the push while it waits, and nothing goes out
+    expect(stores.stackPushes).toEqual({ auth: [] })
+    expect(calls).toEqual([])
+    // the sync brings a commit of login for the remote; auth is on the remote as it is
+    addBranch("login", "auth", false)
+    synced()
+    expect(await pushing).toBe(true)
+    expect(calls).toEqual(["push login"])
+    expect(toasts.map(toast => toast.title)).toEqual(["Pushed login"])
   })
 })
 

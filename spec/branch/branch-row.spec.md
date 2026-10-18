@@ -414,9 +414,11 @@ under it. The commits of an expanded branch sit on its lane.
 - The groups must come in this order: copy ("Copy Full Branch Name", "Copy Branch Name", "Copy Pull Request Link" for a
   branch with a pull request, with stacked branches "Copy PR Base" and "Copy Retarget Command"), the name ("Rename…" or
   "Name This Branch…", "Move to…", "Ungroup"), the stack ("Stack On…", "Unstack from …", "Collapse Stack" `⌥←` or
-  "Expand Stack" `⌥→`, "Push with Children (4 branches)"), the commits ("Add Issue Reference…", "Amend Changes…",
+  "Expand Stack" `⌥→`), the commits ("Add Issue Reference…", "Amend Changes…",
   "Unapply…"), the history ("Review Changes", "Squash N Fixups…", "Open Pull Request" or "Create Pull Request…") and the
-  remote: the push of the branch, named as its push button, then where Patronus answers "Safe Push…" and "Dry Run…", then the actions of the branch's robot as
+  remote: the push of the branch, named as its push button, on a branch with branches stacked on it "Push with
+  Children (4 branches)" beside it (disabled with the reason while it pushes nothing beyond the branch:
+  [Stacked Branches](stacked-branches.spec.md#pull-requests)), then where Patronus answers "Safe Push…" and "Dry Run…", then the actions of the branch's robot as
   every surface of the robot lists them (`getRobotActions`, [Patronus](patronus.spec.md#restart-and-cancel): "Restart
   Safe Push" (it pushes first while the remote lacks work), "Cancel Safe Push", "Open in Patronus", and "Open Pull Request #12" for a
   robot of a pull request other than the branch's own).
@@ -426,9 +428,9 @@ under it. The commits of an expanded branch sit on its lane.
   rewrites (Rename…, Move to…, Ungroup, Stack On…, Unstack, Add Issue Reference…, Amend Changes…, Unapply…, Squash
   Fixups…) are disabled with the reason ("Wait for the sync to finish", "The branch failed to sync", "The branch has no
   commits", `getRewriteBlocker`); what rewrites nothing on the branch stays as it is: Review Changes, the pull request
-  and its review request, Push (it waits for the sync itself), Safe Push… and Dry Run… (disabled with the reasons of
-  the [next step](next-step.spec.md)), the robot's actions.
-  [@test] ../../src/hooks/useBranchContextActions.test.ts (`keeps every item: the rewrites wait for the sync, disabled with the reason; the rest stays as it is`)
+  and its review request, Push and Push with Children (they wait for the sync themselves), Safe Push… and Dry Run…
+  (disabled with the reasons of the [next step](next-step.spec.md)), the robot's actions.
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`keeps every item: the rewrites wait for the sync, disabled with the reason; the rest stays as it is`, `is offered while a sync runs and while the root is on the remote: the push waits for the sync`)
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep the actions of the branch menu during a sync, the rewrites disabled with the reason`)
 - An item that opens a form must end with "…"; an item that acts at once must not. An item that doesn't apply now stays,
   disabled, and says why on hover, never in its name ("Add Issue Reference…" with "Every commit of the branch has an

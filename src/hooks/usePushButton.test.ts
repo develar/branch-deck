@@ -188,9 +188,15 @@ describe("getPushButtonState", () => {
     ).toBe("oauth and 2 more branches are stacked on login and have commits to push.")
     // one child: named, "(1 branch)" would say nothing
     expect(state({ commitsAhead: 1 }, { unpushedChildren: { names: ["oauth"], pushOrder: ["oauth"] } }).childrenAction?.label).toBe("Push with Children (oauth)")
-    // an up to date branch offers it only in its menu: its button is disabled
-    expect(state({}, { unpushedChildren: { names: ["oauth"], pushOrder: ["oauth"] } }).childrenAction).toBeNull()
     expect(state({ commitsAhead: 1 }).childrenAction).toBeNull()
+  })
+
+  it("offers Push with Children while the branch itself is on the remote: its own push is disabled, this one isn't", () => {
+    const push = state({}, { unpushedChildren: { names: ["oauth"], pushOrder: ["oauth"] } })
+    expect(push).toMatchObject({ disabled: true, count: 0, tooltip: "Everything is pushed." })
+    expect(push.childrenAction).toMatchObject({ description: "oauth is stacked on login and has commits to push.", label: "Push with Children (oauth)" })
+    // a branch the update archives: nothing of the user's left with it
+    expect(state({}, { unpushedChildren: { names: ["oauth"], pushOrder: ["oauth"] }, landedIn: "origin/master" }).childrenAction).toBeNull()
   })
 
   it("offers no push while a Safe Push holds the branch, and says why", () => {
