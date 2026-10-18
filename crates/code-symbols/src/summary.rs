@@ -96,6 +96,9 @@ pub struct Declaration {
   /// `new Manager(…)` without a body); `None` for a type parameter, a function type, an inferred type of any other
   /// expression, and other declarations and languages
   pub value_type: Option<Vec<u32>>,
+  /// The `value_type` is the type the initializer constructs, a call of its name, which a factory or an `invoke` of its
+  /// companion may answer with another type
+  pub value_constructed: bool,
   /// The constructors of a Kotlin or Java class, never empty: those it declares (a Kotlin primary constructor and the
   /// secondary ones, the canonical constructor of a Java record, declared, compact or not at all, and its others), else
   /// the implicit `()`, public in Kotlin and of the reach of its class in Java, as javac makes it; two of the same
@@ -170,11 +173,15 @@ pub struct Reference {
   /// The type of the receiver of a Kotlin or Java member, as written where it is declared (`value_type`): of a local, a
   /// parameter or a typed lambda parameter of that type whose name is the whole receiver (`m.foo()`, `m?.foo()`,
   /// `m!!.foo()`, whose `qualifier` is then empty), or of a property or field of a class around it named by the
-  /// receiver (`[m]`, `[this, m]`; not in an enclosed reference, not past a nested class that isn't inner, a companion
-  /// or a class with supertypes, and only of the innermost class for `this`). `None` when the name is an operand of a
-  /// Kotlin `is` or `as` (a `when` subject with an `is` branch) or a Java `instanceof` or cast in its scope or
-  /// function: a smart cast may give it another type
+  /// receiver (`[m]`, `[this, m]`; not in an enclosed reference, not past a nested class that isn't inner, a companion,
+  /// a class with supertypes or an extension function or property of another receiver, and only of the innermost class,
+  /// with no extension between, for `this`). A parameter of a primary constructor has its type only in the initializers
+  /// of the class, not in a function or an accessor, and a destructuring declaration none. `None` when the name is an
+  /// operand of a Kotlin `is`, `!is` or `as` (a `when` subject with an `is` branch) or a Java `instanceof` or cast in
+  /// its scope or function: a smart cast may give it another type
   pub receiver_type: Option<Vec<u32>>,
+  /// The `receiver_type` is the type a constructor call gave its local or property (`value_constructed`)
+  pub receiver_constructed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

@@ -21,7 +21,7 @@
 
 // jscpd:ignore-start: every language module implements one `Spec` with the same vocabulary
 use crate::extract::{
-  Binder, CallArguments, Child, DeclRule, Holder, JvmFields, JvmHooks, LINE_COMMENT, Modality, Opens, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, Walk, binder, decl,
+  Binder, CallArguments, Child, DeclRule, Holder, JvmFields, JvmHooks, LINE_COMMENT, Modality, Opens, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, ValueType, Walk, binder, decl,
   function_decl, line_of, type_decl,
 };
 use crate::language::Language;
@@ -144,7 +144,7 @@ const RULES: &[(&str, Rule)] = &[
   ),
   ("object_literal", Rule::Special(object_literal)),
   ("lambda_parameters", Rule::Special(lambda_parameters)),
-  ("check_expression", Rule::Special(smart_cast)),
+  ("check_expression", Rule::Special(type_check)),
   ("as_expression", Rule::Special(smart_cast)),
   ("type_test", Rule::Special(type_test)),
 ];
@@ -184,6 +184,7 @@ pub(crate) static SPEC: Spec = Spec {
     "boolean_literal",
     "postfix_expression",
     "property_delegate",
+    "multi_variable_declaration",
   ],
   tokens: &["interface", "this", "super", "=", "*", "-", "+", "!!"],
   fields: &["receiver"],
@@ -238,7 +239,10 @@ fn accessor<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
     && !w.ancestor(1).is_some_and(|it| w.is(it, "property_declaration"))
   {
     w.extend_declaration(property, node);
-    w.enter_container(Some(property), Holder::Leaf, None);
+    w.enter_accessor(Some(property));
+  } else {
+    // an accessor in its property, or of a local: code all the same
+    w.enter_accessor(None);
   }
   true
 }
@@ -304,6 +308,9 @@ fn class_parameter<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   };
   if !property || w.is_local() {
     w.type_binding(name, node);
+    if !property {
+      w.initializer_binding(name);
+    }
     w.bind_node(name);
     return true;
   }
@@ -671,7 +678,7 @@ fn secondary_constructor<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
 /// nor of a vararg, an array; else the type a property's initializer constructs, a call of a capitalized name
 /// (`Manager(…)`, `a.Manager(…)`), not a delegate (`by lazy { … }`) or any other expression. A call of a capitalized
 /// name may be a factory of another type; `sync_core` skips a type with one beside it in its file
-fn value_type<'t>(w: &Walk<'t>, node: Node<'t>) -> Option<Vec<&'t str>> {
+fn value_type<'t>(w: &Walk<'t>, node: Node<'t>) -> Option<ValueType<'t>> {
   // a vararg is an array of its type
   let vararg = if w.is(node, "parameter") {
     node
@@ -680,7 +687,8 @@ fn value_type<'t>(w: &Walk<'t>, node: Node<'t>) -> Option<Vec<&'t str>> {
   } else {
     modifier_texts(w, node).contains(&"vararg")
   };
-  if vararg {
+  // `val (a, b) = …` destructures
+  if vararg || w.child(node, Child::Kind(&["multi_variable_declaration"])).is_some() {
     return None;
   }
   let declared = if w.is(node, "property_declaration") {
@@ -698,7 +706,7 @@ fn value_type<'t>(w: &Walk<'t>, node: Node<'t>) -> Option<Vec<&'t str>> {
       return None;
     }
     let path = w.type_path(user_type)?;
-    return (!(path.len() == 1 && w.is_bound_text(path[0]))).then_some(path);
+    return (!(path.len() == 1 && w.is_bound_text(path[0]))).then_some((path, false));
   }
   if !w.is(node, "property_declaration") || w.child(node, Child::Kind(&["property_delegate"])).is_some() {
     return None;
@@ -706,7 +714,7 @@ fn value_type<'t>(w: &Walk<'t>, node: Node<'t>) -> Option<Vec<&'t str>> {
   let call = w.child(node, Child::Kind(&["call_expression"]))?;
   let path = w.path_of(call.named_child(0)?)?;
   let capitalized = path.last().is_some_and(|last| last.starts_with(char::is_uppercase));
-  (capitalized && !(path.len() == 1 && w.is_bound_text(path[0]))).then_some(path)
+  (capitalized && !(path.len() == 1 && w.is_bound_text(path[0]))).then_some((path, true))
 }
 
 /// The parameters of a lambda, each with its type when it has one (`{ m: Manager -> … }`)
@@ -721,7 +729,17 @@ fn lambda_parameters<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   true
 }
 
-/// `m is Sub`, `m as Sub`: a smart cast may give the operand another type
+/// `m is Sub` and `m !is Sub`, not `x in range`: a smart cast may give the operand another type
+fn type_check<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
+  if node.named_child(1).is_some_and(|it| TYPES.contains(&it.kind()))
+    && let Some(operand) = node.named_child(0)
+  {
+    w.smart_cast(operand);
+  }
+  true
+}
+
+/// `m as Sub`: a smart cast may give the operand another type
 fn smart_cast<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   if let Some(operand) = node.named_child(0) {
     w.smart_cast(operand);

@@ -40,7 +40,7 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 11;
+pub const RULES_VERSION: u32 = 12;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -200,6 +200,9 @@ pub(crate) struct Spec {
   pub(crate) call_shape: Option<for<'t> fn(&mut Walk<'t>, Node<'t>) -> Option<CallArguments>>,
 }
 
+/// The type of a value as `JvmHooks::value_type` reads it: its path, and whether a constructor call gave it
+pub(crate) type ValueType<'t> = (Vec<&'t str>, bool);
+
 /// The arguments of a call in source order, each with its name if it has one, and whether one spreads an array
 pub(crate) type CallArguments = (Vec<(Option<u32>, Argument)>, bool);
 
@@ -222,8 +225,8 @@ pub(crate) struct JvmHooks {
   pub(crate) implicit_constructor: fn(Reach) -> Reach,
   /// The type of a declaration of a value (a property, a field, a local, a parameter): as written, without type
   /// arguments, else the type its initializer constructs; `None` for a type parameter, a function type and an
-  /// inferred type of any other expression (`Declaration::value_type`)
-  pub(crate) value_type: for<'t> fn(&Walk<'t>, Node<'t>) -> Option<Vec<&'t str>>,
+  /// inferred type of any other expression (`Declaration::value_type`); with whether a constructor call gave it
+  pub(crate) value_type: for<'t> fn(&Walk<'t>, Node<'t>) -> Option<ValueType<'t>>,
   /// The node a receiver of a member names a value by: a name inside a Kotlin `m!!`, else the node itself
   pub(crate) receiver_node: for<'t> fn(&Walk<'t>, Node<'t>) -> Node<'t>,
 }
@@ -247,7 +250,7 @@ pub(crate) struct JvmFields {
   overridable: bool,
   jvm_static: bool,
   supertypes: Vec<Vec<u32>>,
-  value_type: Option<Vec<u32>>,
+  value_type: Option<Typed>,
   constructors: Option<Vec<Constructor>>,
 }
 
@@ -556,6 +559,8 @@ struct Container {
   decl: Option<u32>,
   holder: Holder,
   receiver: Option<u32>,
+  /// A function or an accessor, whose code sees no parameter of a primary constructor
+  code: bool,
   /// The depth of `Walk::supertypes` when it was entered, its own entry included
   supertypes: usize,
 }
@@ -565,10 +570,20 @@ struct Scope {
   body: bool,
 }
 
+/// A type of a value (`JvmHooks::value_type`): its path, and whether a constructor call of the initializer gave it
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Typed {
+  path: Vec<u32>,
+  constructed: bool,
+}
+
 /// A name bound in a scope, with the type it was declared with (`JvmHooks::value_type`)
 struct Binding {
   name: u32,
-  type_path: Option<Vec<u32>>,
+  type_path: Option<Typed>,
+  /// A parameter of a Kotlin primary constructor, which the initializers of the class see but not its functions and
+  /// accessors: the depth of `Walk::containers` it was bound at
+  initializers: Option<usize>,
   /// Unique per binding of the walk, for the smart casts that drop its type
   serial: u32,
 }
@@ -576,7 +591,7 @@ struct Binding {
 /// A member reference whose receiver may have a type (`Reference::receiver_type`), decided when the walk is done
 enum TypedReceiver {
   /// A bound name of this type and binding
-  Bound { reference: usize, serial: u32, type_path: Vec<u32> },
+  Bound { reference: usize, serial: u32, type_path: Typed },
   /// A property or field `[m]` or `[this, m]`, not enclosed
   Property { reference: usize },
 }
@@ -600,14 +615,16 @@ pub(crate) struct Walk<'t> {
   bound_counts: HashMap<u32, u32>,
   serials: u32,
   /// Name node id -> the type its binding gets, set by the language code before the walk binds it
-  binding_types: HashMap<usize, Vec<u32>>,
+  binding_types: HashMap<usize, Typed>,
+  /// Name node ids of the parameters of a Kotlin primary constructor (`Binding::initializers`)
+  initializer_names: HashSet<usize>,
   receivers: Vec<TypedReceiver>,
   /// The bindings, and the (container, name) of properties, that a smart cast may give another type
   cast_bindings: HashSet<u32>,
   cast_names: HashSet<(Option<u32>, u32)>,
   body_scopes: u32,
   /// (frame index, name, type): bindings that become visible when that frame is left
-  pending: Vec<(usize, u32, Option<Vec<u32>>)>,
+  pending: Vec<(usize, u32, Option<Typed>)>,
   containers: Vec<Container>,
   /// The supertypes whose members the declarations at this level override; a class-like node pushes its own, a
   /// function body and a lambda an empty list
@@ -641,6 +658,7 @@ impl<'t> Walk<'t> {
       bound_counts: HashMap::new(),
       serials: 0,
       binding_types: HashMap::new(),
+      initializer_names: HashSet::new(),
       receivers: Vec::new(),
       cast_bindings: HashSet::new(),
       cast_names: HashSet::new(),
@@ -928,6 +946,10 @@ impl<'t> Walk<'t> {
       let id = *self.name_ids.get(self.text(object)?)?;
       if self.is_bound(id) {
         let binding = self.bound.iter().rev().find(|it| it.name == id)?;
+        // a parameter of a primary constructor is no name in a function or an accessor: a property of its name is
+        if binding.initializers.is_some_and(|depth| self.containers.iter().skip(depth).any(|it| it.code)) {
+          return None;
+        }
         return Some(TypedReceiver::Bound {
           reference: 0,
           serial: binding.serial,
@@ -1192,7 +1214,8 @@ impl<'t> Walk<'t> {
       overridable: fields.overridable,
       jvm_static: fields.jvm_static,
       supertypes: fields.supertypes,
-      value_type: fields.value_type,
+      value_constructed: fields.value_type.as_ref().is_some_and(|it| it.constructed),
+      value_type: fields.value_type.map(|it| it.path),
       constructors: fields.constructors,
       start_line: leading.map_or(start, |it| it.min(start)),
       end_line,
@@ -1224,6 +1247,7 @@ impl<'t> Walk<'t> {
       container,
       shape,
       receiver_type: None,
+      receiver_constructed: false,
     });
   }
 
@@ -1310,7 +1334,7 @@ impl<'t> Walk<'t> {
     self.bind_typed(name, None);
   }
 
-  fn bind_typed(&mut self, name: u32, type_path: Option<Vec<u32>>) {
+  fn bind_typed(&mut self, name: u32, type_path: Option<Typed>) {
     if self.scopes.is_empty() {
       return;
     }
@@ -1318,6 +1342,7 @@ impl<'t> Walk<'t> {
     self.bound.push(Binding {
       name,
       type_path,
+      initializers: None,
       serial: self.serials,
     });
     *self.bound_counts.entry(name).or_insert(0) += 1;
@@ -1330,14 +1355,26 @@ impl<'t> Walk<'t> {
   /// Makes the declaration (`None` for a Rust `impl`) the container of what is below the current node
   pub(crate) fn enter_container(&mut self, decl: Option<u32>, holder: Holder, receiver: Option<u32>) {
     let supertypes = self.supertypes.len();
+    let code = decl.and_then(|it| self.declarations.get(it as usize)).is_some_and(|it| it.kind == DeclKind::Function);
     self.containers.push(Container {
       decl,
       holder,
       receiver,
+      code,
       supertypes,
     });
     if let Some(frame) = self.frames.last_mut() {
       frame.container = true;
+    }
+  }
+
+  /// Makes the property `decl` (`None`: the container of the current node) the container of an accessor of it below
+  /// the current node: code, as a function is
+  pub(crate) fn enter_accessor(&mut self, decl: Option<u32>) {
+    let decl = decl.or_else(|| self.container());
+    self.enter_container(decl, Holder::Leaf, None);
+    if let Some(container) = self.containers.last_mut() {
+      container.code = true;
     }
   }
 
@@ -1460,7 +1497,9 @@ impl<'t> Walk<'t> {
   /// The types of the receivers of member references (`Reference::receiver_type`): a bound name's, unless a smart
   /// cast may change it; a property's or a field's of the class around the reference that declares it, the innermost
   /// first, not past a class with a supertype (whose `m` comes first), a nested class that isn't inner or a companion
-  /// (whose code sees no `m` of the class around it), and for `this.m` only of the innermost class
+  /// (whose code sees no `m` of the class around it) or an extension function or property of another receiver (whose
+  /// members come first; `this` is that receiver), and for `this.m` only of the innermost class, with no extension
+  /// between
   fn receiver_types(&mut self) {
     let this = self.name_ids.get("this").copied();
     // (class, name) -> the property or field of that name it declares
@@ -1478,11 +1517,13 @@ impl<'t> Walk<'t> {
       });
     }
     for (index, type_path) in types {
-      self.references[index].receiver_type = type_path;
+      let reference = &mut self.references[index];
+      reference.receiver_constructed = type_path.as_ref().is_some_and(|it| it.constructed);
+      reference.receiver_type = type_path.map(|it| it.path);
     }
   }
 
-  fn property_type(&self, reference: &Reference, this: Option<u32>, properties: &HashMap<(u32, u32), &Declaration>) -> Option<Vec<u32>> {
+  fn property_type(&self, reference: &Reference, this: Option<u32>, properties: &HashMap<(u32, u32), &Declaration>) -> Option<Typed> {
     let (own, name) = match reference.qualifier.as_deref()? {
       [name] => (false, *name),
       [first, name] if Some(*first) == this => (true, *name),
@@ -1493,12 +1534,26 @@ impl<'t> Walk<'t> {
     }
     let at = |index: u32| self.declarations.get(index as usize).map(|declaration| (index, declaration));
     let around = std::iter::successors(reference.container.and_then(at), |(_, declaration)| declaration.container.and_then(at));
-    for (index, class) in around.filter(|(_, declaration)| matches!(declaration.kind, DeclKind::Type | DeclKind::EnumEntry)) {
+    // the receiver of an extension function or property around the use, whose `this` and members come first
+    let mut extension = None;
+    for (index, declaration) in around {
+      if !matches!(declaration.kind, DeclKind::Type | DeclKind::EnumEntry) {
+        if let Some(receiver) = declaration.receiver.filter(|_| extension.is_none()) {
+          extension = Some(receiver);
+        }
+        continue;
+      }
+      if (own && extension.is_some()) || extension.is_some_and(|receiver| receiver != declaration.name) {
+        return None;
+      }
       if let Some(property) = properties.get(&(index, name)) {
-        return property.value_type.clone();
+        return property.value_type.clone().map(|path| Typed {
+          path,
+          constructed: property.value_constructed,
+        });
       }
       // an inherited `m` comes first; the code of a nested class, a companion or an enum entry sees no `m` around it
-      if own || class.kind == DeclKind::EnumEntry || !class.supertypes.is_empty() || (class.member == MemberKind::Static && class.container.is_some()) {
+      if own || declaration.kind == DeclKind::EnumEntry || !declaration.supertypes.is_empty() || (declaration.member == MemberKind::Static && declaration.container.is_some()) {
         return None;
       }
     }
@@ -1682,7 +1737,18 @@ impl<'t> Walk<'t> {
       let id = self.intern(text);
       let type_path = self.binding_types.remove(&node.id());
       self.bind_typed(id, type_path);
+      if self.initializer_names.remove(&node.id())
+        && let Some(binding) = self.bound.last_mut()
+      {
+        binding.initializers = Some(self.containers.len());
+      }
     }
+  }
+
+  /// Marks the name `node` that the walk binds next as a parameter of a Kotlin primary constructor
+  /// (`Binding::initializers`)
+  pub(crate) fn initializer_binding(&mut self, node: Node<'t>) {
+    self.initializer_names.insert(node.id());
   }
 
   /// Gives the name `node` that the walk binds next the type `declaration` was declared with (`JvmHooks::value_type`):
@@ -1694,9 +1760,12 @@ impl<'t> Walk<'t> {
     }
   }
 
-  fn value_type(&mut self, hooks: &JvmHooks, declaration: Node<'t>) -> Option<Vec<u32>> {
-    let path = (hooks.value_type)(self, declaration)?;
-    Some(self.ids(&path))
+  fn value_type(&mut self, hooks: &JvmHooks, declaration: Node<'t>) -> Option<Typed> {
+    let (path, constructed) = (hooks.value_type)(self, declaration)?;
+    Some(Typed {
+      path: self.ids(&path),
+      constructed,
+    })
   }
 
   /// Whether `text` is a name bound around the current node: a local, a parameter, a type parameter

@@ -5,8 +5,8 @@
 
 // jscpd:ignore-start: every language module implements one `Spec` with the same vocabulary
 use crate::extract::{
-  BLOCK_COMMENT, Binder, CallArguments, Child, DeclRule, Holder, IDENTIFIER, JvmFields, JvmHooks, LINE_COMMENT, Modality, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, Walk, binder,
-  decl, function_decl, line_of, type_decl,
+  BLOCK_COMMENT, Binder, CallArguments, Child, DeclRule, Holder, IDENTIFIER, JvmFields, JvmHooks, LINE_COMMENT, Modality, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, ValueType,
+  Walk, binder, decl, function_decl, line_of, type_decl,
 };
 use crate::language::Language;
 use crate::summary::{Argument, Constructor, DeclKind, MemberKind, Parameter, Reach, Role, Signature};
@@ -212,13 +212,14 @@ fn import<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
 /// The type of a field, a local or a parameter (`JvmHooks::value_type`), as written without type arguments
 /// (`java.util.List` of `java.util.List<T>`), not a type parameter, a primitive or an array; of a `var` the type its
 /// initializer constructs, a `new` without a body (an anonymous class is a type of its own)
-fn value_type<'t>(w: &Walk<'t>, node: Node<'t>) -> Option<Vec<&'t str>> {
+fn value_type<'t>(w: &Walk<'t>, node: Node<'t>) -> Option<ValueType<'t>> {
   let declared = if w.is(node, "variable_declarator") {
     w.field(node.parent()?, "type")
   } else {
     w.field(node, "type")
   }?;
-  let path = if w.text(declared) == Some("var") {
+  let constructed = w.text(declared) == Some("var");
+  let path = if constructed {
     let value = w
       .field(node, "value")
       .filter(|it| w.is(*it, "object_creation_expression") && w.child(*it, Child::Kind(&["class_body"])).is_none())?;
@@ -226,7 +227,7 @@ fn value_type<'t>(w: &Walk<'t>, node: Node<'t>) -> Option<Vec<&'t str>> {
   } else {
     w.path_of(declared)?
   };
-  (!(path.len() == 1 && w.is_bound_text(path[0]))).then_some(path)
+  (!(path.len() == 1 && w.is_bound_text(path[0]))).then_some((path, constructed))
 }
 
 /// `m instanceof Sub s`: the pattern binds `s`, and a cast may give `m` another type

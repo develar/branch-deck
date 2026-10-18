@@ -597,12 +597,17 @@ fn resolve_use<'s>(
     _ => None,
   };
   // an extension of the receiver's type that the use sees may take a call its member rejects: no receiver evidence
-  let extension_may_take = receiver_name(use_site.summary, reference).is_some_and(|receiver| {
-    candidates
-      .values()
-      .flat_map(|state| state.entries.iter().chain(&state.present))
-      .any(|entry| sees_extension(use_site, &entry.site, receiver))
-  });
+  let extension_may_take = std::cell::OnceCell::new();
+  let extension_may_take = || {
+    *extension_may_take.get_or_init(|| {
+      receiver_name(use_site.summary, reference).is_some_and(|receiver| {
+        candidates
+          .values()
+          .flat_map(|state| state.entries.iter().chain(&state.present))
+          .any(|entry| sees_extension(use_site, &entry.site, receiver))
+      })
+    })
+  };
   // per entry it may mean, the commits it needs of it (`lineage`)
   let mut alternatives: Vec<BTreeSet<Option<usize>>> = Vec::new();
   let mut first: Option<(&Entry<'_>, Evidence)> = None;
@@ -632,7 +637,7 @@ fn resolve_use<'s>(
         if !takes(reference, constructs, !stand_ins.is_empty(), use_site.summary, constructor_call, site) {
           return None;
         }
-        let evidence = resolve(input, use_site, reference, qualifier.as_deref(), site).filter(|it| *it != Evidence::Receiver || !extension_may_take)?;
+        let evidence = resolve(input, use_site, reference, qualifier.as_deref(), site).filter(|it| *it != Evidence::Receiver || !extension_may_take())?;
         let fits = constructor_reaches(use_site, reference, site) && call.is_none_or(|(arguments, spread)| accepts_call(use_site.summary, arguments, spread, site));
         (fits && (same_file || evidence != Evidence::SameFile)).then_some(evidence)
       };
@@ -1490,13 +1495,23 @@ fn names_another_type(summary: &FileSummary, qualifier: Option<&[String]>, site:
 }
 
 /// Whether a use is on a receiver of a type the summary knows (`Reference::receiver_type`) other than the containers
-/// and the extension receiver of `site`: `migration.awaitMigrated()` on a `LegacySettingsMigration` is no use of an
-/// `awaitMigrated` of the file's own class
+/// and the extension receiver of `site` and a type of the file that extends them: `migration.awaitMigrated()` on a
+/// `LegacySettingsMigration` is no use of an `awaitMigrated` of the file's own class, `s.foo()` on a `Sub : Base` of
+/// the file is one of its `Base.foo`
 fn of_another_receiver(summary: &FileSummary, reference: &Reference, site: &Site<'_>) -> bool {
   let Some(last) = reference.receiver_type.as_deref().and_then(<[u32]>::last).map(|it| summary.name(*it)) else {
     return false;
   };
-  site.containers.last().is_none_or(|container| container != last) && receiver_of(site) != Some(last)
+  let own = |name: &str| site.containers.last().is_some_and(|container| container == name) || receiver_of(site) == Some(name);
+  // a subtype of the file whose one supertype names the member's type is a receiver of that type too
+  let subtype = || {
+    summary.declarations.iter().any(|declaration| {
+      declaration.kind == DeclKind::Type
+        && summary.name(declaration.name) == last
+        && declaration.supertypes.iter().any(|supertype| supertype.last().is_some_and(|it| own(summary.name(*it))))
+    })
+  };
+  !own(last) && !subtype()
 }
 
 /// Whether a use with `qualifier` calls the JVM extension `site` (a declaration with an extension receiver) on anything
@@ -1914,10 +1929,11 @@ fn resolve_jvm(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<
 /// the member as an override's supertype does (`supertype_resolves`). The member must override nothing (the member it
 /// overrides compiles the use without the commit) and not be one every class has (`ROOT_MEMBERS`); a Java one only of
 /// a type without supertypes, which may override without `@Override`. A type whose file declares a function that a
-/// call of its name may mean instead of a constructor (an `invoke` of its companion, a factory of its name) may give
-/// the receiver another type: none. A member of a type with supertypes is judged by its key only (`all_entries`), and
-/// then a function that a Kotlin import may bring (an extension of the name) takes a call the member rejects: none
-/// with such an import or a declaration of the name in the file. A member that the type inherits is no member of it:
+/// call of its name may mean instead of a constructor (an `invoke` of its companion, a factory of its name) may give a
+/// receiver its initializer constructs another type (`Reference::receiver_constructed`): none. A member of a type with
+/// supertypes is judged by its key only (`all_entries`), and then a function that a Kotlin import may bring (an
+/// extension of the name) or an overload of a supertype takes a call the member rejects: none with such an import, a
+/// declaration of the name in the file, or a call that the entry doesn't accept (`accepts_call`). A member that the type inherits is no member of it:
 /// no evidence. A Kotlin extension of the type is no member: an extension on a receiver links only by the rules of a
 /// top-level function
 fn through_receiver(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<&[String]>, site: &Site<'_>) -> bool {
@@ -1929,7 +1945,7 @@ fn through_receiver(use_site: &UseSite<'_>, reference: &Reference, qualifier: Op
     || declaration.overrides
     || ROOT_MEMBERS.contains(&site.name())
     || (site.ctx.language == Language::Java && has_supertypes(site))
-    || constructed_otherwise(site)
+    || (reference.receiver_constructed && constructed_otherwise(site))
   {
     return false;
   }
@@ -1940,8 +1956,13 @@ fn through_receiver(use_site: &UseSite<'_>, reference: &Reference, qualifier: Op
       None => return false,
     },
   };
+  // judged by its key, the call must still fit an entry of it: an overload of a supertype may take one none accepts
   let key_only = inherits_unseen(use_site, site);
-  if key_only && (summary.declares(site.name()) || imports_of_function(summary, site.name()) > 0) {
+  let fits = || match reference.shape.and_then(|shape| summary.shapes.get(shape as usize)) {
+    Some(Shape::Call { arguments, spread, .. }) => accepts_call(summary, arguments, *spread, site),
+    _ => true,
+  };
+  if key_only && (summary.declares(site.name()) || imports_of_function(summary, site.name()) > 0 || !fits()) {
     return false;
   }
   supertype_resolves(use_site, reference, &path, site)

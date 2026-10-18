@@ -381,18 +381,23 @@ flowchart TD
     the type its initializer constructs (a call of a capitalized name, Kotlin's `Manager(…)`, Java's `new Manager(…)`
     without a body, `var` included); and a property or field of a class around the use (`m`, `this.m`, by its
     `Declaration::value_type`), not in an enclosed use, the innermost class first, not past a class with a supertype, a
-    nested class that isn't inner or a companion, and only of the innermost class for `this.m`. A type parameter, a
-    function type, a vararg, a delegate and any other expression give none, and so does a name that its scope or
-    function casts (Kotlin `is`, `as`, a `when` subject with an `is` branch, Java `instanceof` and casts). The type
-    resolves to the member's type as a supertype does (`supertype_resolves`). The bare call or `this.name()` in an
-    extension function, not enclosed, means a member of its extension receiver when nothing else of the file may take
-    the name, no receiver further out has supertypes and the member's type has none (`implicit_receiver`). The member
-    must override nothing and not be one every class has; a Java one only of a type without supertypes; a Kotlin one of
-    a type with supertypes needs only its key, and none then with a declaration of the name in the file or an import
-    that may bring it. A type whose file declares an `invoke` of its companion or a top-level function of its name gives
-    no evidence. An extension of the receiver's type of the name that the use sees (its package, an import of its name,
-    a wildcard import of its package) makes the use no evidence (`sees_extension`). In the file of the member a use on a
-    receiver of another type is no use of it (`of_another_receiver`).
+    nested class that isn't inner, a companion or an extension function or property of another receiver, and only of the
+    innermost class, with no extension between, for `this.m`. A parameter of a primary constructor has its type in the
+    initializers of the class only (`init`, a property initializer), not in a function or an accessor, where its name
+    means a property. A type parameter, a function type, a vararg, a delegate, a destructuring declaration and any other
+    expression give none, and so does a name that its scope or function casts (Kotlin `is`, `!is`, `as`, a `when`
+    subject with an `is` branch, Java `instanceof` and casts; not `in`). The type resolves to the member's type as a
+    supertype does (`supertype_resolves`). The bare call or `this.name()` in an extension function, not enclosed, means
+    a member of its extension receiver when nothing else of the file may take the name, no receiver further out has
+    supertypes and the member's type has none (`implicit_receiver`). The member must override nothing and not be one
+    every class has; a Java one only of a type without supertypes; a Kotlin one of a type with supertypes needs only its
+    key, and none then with a declaration of the name in the file, an import that may bring it, or a call that the
+    entry's parameters reject (an overload of the supertype may take it). A type that a constructor call gave
+    (`Reference::receiver_constructed`) gives no evidence where its file declares an `invoke` of its companion or a
+    top-level function of its name; a declared type keeps it. An extension of the receiver's type of the name that the
+    use sees (its package, an import of its name, a wildcard import of its package) makes the use no evidence
+    (`sees_extension`). In the file of the member a use on a receiver of another type is no use of it
+    (`of_another_receiver`), unless that type is a subtype of the file whose supertype names the member's type.
     **Rationale**: a member call on a value means a member of the value's static type first, and that type is what a
     parameter, a local or a property declares; the round 3 measurement found every use of a changed form on such a
     receiver. Only a compiler infers the type of an expression, and a smart cast narrows a name to a subtype whose
@@ -408,14 +413,18 @@ flowchart TD
     call generously (decision 7), so a member may seem to accept a call that an extension of its type takes
     (`chat.send(claim, key, text)` beside a member `send(text: String, …)` and a
     `fun AirAgentChatInIdeDriver.send(session, key, text)` of the package, false links of the first measurement); an
-    extension in a file the range doesn't change stays a limit, as for a qualified call (decision 9).
+    extension in a file the range doesn't change stays a limit, as for a qualified call (decision 9). Limits: Kotlin
+    narrows a `var` by an assignment and a name by a contract (`requireNotNull`, `check(m is Sub)` in a called function)
+    beyond the casts the summary reads, and a `this is Sub` in an extension function narrows its implicit receiver,
+    which `implicit_receiver` doesn't check.
 
 ### Implementation Notes
 
 - `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules and the grammars' node types);
   `Spec::jvm` of Kotlin and Java (`JvmHooks`, the `JvmFields` of a declaration): the signatures, `overrides`,
-  `overridable` and `jvm_static`, the `value_type` of a property (`JvmHooks::value_type`), the supertypes, and the `Role::Override` references with their `Shape::Override`, and
-  the constructors of a class (`JvmHooks::constructors` of its header, `Walk::add_constructor` of its body, the implicit
+  `overridable` and `jvm_static`, the `value_type` of a property and whether a constructor call gave it
+  (`JvmHooks::value_type`), the supertypes, and the `Role::Override` references with their `Shape::Override`, and the
+  constructors of a class (`JvmHooks::constructors` of its header, `Walk::add_constructor` of its body, the implicit
   `()` by `JvmHooks::implicit_constructor` when the walk is done); `Spec::call_shape` of Kotlin and Java: the arguments
   of a call, for the `Shape::Call` on the reference of its callee, `enclosed` by the depth of the stack of supertypes
   (`Walk::enclosed`), of `this(…)` and `super(…)` on the type they call (`Walk::emit_constructor_call`), and of a `new`
@@ -659,7 +668,10 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     `AirAgentChatInIdeDriver.send(session, key, text)` of the package takes the call; such links are none now
     (`sees_extension`), which took 5 links and 3 symbols-only edges. `bd check` and `bd suggest` are byte for byte those
     of the build before, as is `bd check` on the real pair; the five repro cases make one edge by symbols each. At a
-    load average of 105–115 the CPU of `bd commits --brief` is 8.7 s against 8.4 s, both parsing all 2573 blobs.
+    load average of 105–115 the CPU of `bd commits --brief` is 8.7 s against 8.4 s, both parsing all 2573 blobs. The
+    review's fixes (no property behind an extension receiver, a primary-constructor parameter only in initializers, no
+    destructured type, `in` no cast, a constructed type only for the factory rule, a call no key entry accepts, a
+    same-file subtype) change no link, edge or output of the range.
 
 ### The gate
 

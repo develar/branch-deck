@@ -3286,7 +3286,7 @@ fn a_smart_cast_receiver_is_no_edge() {
       "src/b/Cast.kt",
       Some(&using_manager(
         "b",
-        "fun use(m: Manager) {\n  if (m is Sub) m.fresh()\n}\n\nfun other(m: Manager) = (m as Sub).fresh()",
+        "fun use(m: Manager) {\n  if (m is Sub) m.fresh()\n}\n\nfun other(m: Manager) {\n  m as Sub\n  m.fresh()\n}",
       )),
     )])
     .fresh_use("c/Plain");
@@ -3384,15 +3384,15 @@ fn a_bare_call_in_an_extension_function_is_an_edge() {
   assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(2, "fresh")]);
 }
 
-/// An `invoke` of the companion or a factory of the type's name may make a call of the name another type
+/// An `invoke` of the companion or a factory of the type's name may give a local that a call of the name initializes
+/// another type
 #[test]
 fn a_type_constructed_otherwise_is_no_receiver() {
   let mut range = adding_to_manager("", &format!("{FRESH}\n  companion object {{\n    operator fun invoke(): Any = 1\n  }}\n"));
-  range.fresh_use("b/Use");
-  assert_eq!(edges(&range.graph(&[], &[], &[])), []);
-  let mut range = adding_to_manager("", FRESH);
-  range.fresh_use("b/Use");
-  assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(1, "fresh")]);
+  range
+    .commit(&[("src/b/Built.kt", Some(&using_manager("b", "fun use(): Int {\n  val m = Manager()\n  return m.fresh()\n}")))])
+    .fresh_use("c/Declared");
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(2, "fresh")], "a declared type keeps its edge");
 }
 
 /// In the file of a member, a use on a receiver of another type means that type's member: `migration.awaitMigrated()`
@@ -3433,4 +3433,27 @@ fn a_receiver_call_an_extension_of_its_type_may_take_is_no_edge() {
     .commit(&[("src/c/Star.kt", Some("package c\n\nimport a.Manager\nimport b.*\n\nfun use(m: Manager) = m.fresh()\n"))])
     .fresh_use("d/Plain");
   assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(4, "fresh")]);
+}
+
+/// Judged by its key (a Kotlin type with supertypes), a call must still fit an entry: an overload of the supertype the
+/// range doesn't show may take one none accepts
+#[test]
+fn a_receiver_call_no_entry_accepts_is_no_edge() {
+  let mut range = adding_to_manager(" : Base()", "  fun fresh(id: Int) = id\n");
+  range
+    .commit(&[("src/b/Text.kt", Some(&using_manager("b", "fun use(m: Manager) = m.fresh(\"x\")")))])
+    .commit(&[("src/c/Number.kt", Some(&using_manager("c", "fun use(m: Manager) = m.fresh(1)")))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(2, "fresh")]);
+}
+
+/// In the file of a member, a subtype of its type of the file is a receiver of that type
+#[test]
+fn a_same_file_use_on_a_subtype_of_the_file_is_a_use() {
+  let file = |members: &str, uses: &str| format!("package a\n\nopen class Base {{\n  fun other() = 1\n{members}}}\n\nclass Sub : Base()\n{uses}");
+  let mut range = Range::default();
+  range
+    .baseline(&[("src/a/Base.kt", &file("", ""))])
+    .commit(&[("src/a/Base.kt", Some(&file("  fun foo() = 2\n", "")))])
+    .commit(&[("src/a/Base.kt", Some(&file("  fun foo() = 2\n", "\nfun g(s: Sub) = s.foo()\n")))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(1, 0, vec![link("foo", Evidence::SameFile)])]);
 }

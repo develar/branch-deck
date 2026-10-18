@@ -516,3 +516,40 @@ fn a_smart_cast_drops_the_type() {
   }
   assert_eq!(refs(&summary, "five"), ["13 <Manager>.five()"], "a name of another scope keeps its type");
 }
+
+#[test]
+fn an_extension_receiver_or_a_function_hides_the_type() {
+  let source = b"class C(m0: Manager, val p: Manager) : Base() {
+  val m: Manager = Manager()
+  val early = m0.zero()
+
+  init {
+    m0.one()
+  }
+
+  fun Other.e1() = this.m.two()
+
+  val Other.e2 get() = m.three()
+
+  fun C.e3() = m.four()
+
+  fun g() = m0.five()
+
+  val h get() = m0.six()
+
+  fun k() {
+    val (d) = Manager()
+    d.seven()
+    if (1 in list) p.eight()
+  }
+}
+";
+  let summary = summarize(Language::Kotlin, source);
+  assert_eq!(refs(&summary, "zero"), ["3 <Manager>.zero()"], "a constructor parameter in an initializer");
+  assert_eq!(refs(&summary, "one"), ["6 <Manager>.one()"], "and in `init`");
+  assert_eq!(refs(&summary, "four"), ["13 <Manager>m.four()"], "an extension of the class itself");
+  assert_eq!(refs(&summary, "eight"), ["22 <Manager>p.eight()"], "`in` is no type check");
+  for name in ["two", "three", "five", "six", "seven"] {
+    assert!(!refs(&summary, name)[0].contains('<'), "{name}: {:?}", refs(&summary, name));
+  }
+}

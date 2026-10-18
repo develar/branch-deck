@@ -70,11 +70,12 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   type arguments or the type its initializer constructs (a capitalized Kotlin call, a Java `new` without a body), and on
   a member reference the type of its receiver (`receiver_type`): of a parameter, a local or a typed lambda parameter
   whose name is the whole receiver (`m.foo()`, `m?.foo()`, `m!!.foo()`), or of a property or field `m` or `this.m` of a
-  class around a reference that is not enclosed, not past a class with a supertype, a nested class that isn't inner or a
-  companion. A type parameter, a function type, a vararg, a delegate, an inferred expression, a Java anonymous class and
-  a name that its scope or function casts (Kotlin `is`, `as`, an `is` branch of its `when`, Java `instanceof` and casts)
-  must give none.
-  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_bound_name_carries_its_declared_type`, `a_property_knows_its_type`, `a_smart_cast_drops_the_type`)
+  class around a reference that is not enclosed, not past a class with a supertype, a nested class that isn't inner, a
+  companion or an extension of another receiver; a parameter of a primary constructor only in the initializers of the
+  class; and whether a constructor call gave the type. A type parameter, a function type, a vararg, a delegate, a
+  destructuring declaration, an inferred expression, a Java anonymous class and a name that its scope or function casts
+  (Kotlin `is`, `!is`, `as`, an `is` branch of its `when`, Java `instanceof` and casts; not `in`) must give none.
+  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_bound_name_carries_its_declared_type`, `a_property_knows_its_type`, `a_smart_cast_drops_the_type`, `an_extension_receiver_or_a_function_hides_the_type`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`a_bound_name_carries_its_declared_type`, `a_smart_cast_drops_the_type`, `an_anonymous_class_initializer_has_no_type`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 - The summary of a Kotlin or Java call (not an infix call), Java's `new` and a Kotlin constructor invocation of a
@@ -205,11 +206,13 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   overloads apart as for a qualified call. It must be no use with a receiver of a type parameter, of a type that doesn't
   resolve (a wildcard import, another package without an import), of a smart cast, of a member that overrides one, of a
   member the type inherits, of a property behind a class with supertypes, in a lambda inside an extension function, of a
-  type whose file declares an `invoke` of its companion or a factory of its name, or where an extension of the
-  receiver's type of that name that the file sees may take the call. A local shadows a property with its own type, a
-  member of the receiver's type wins over an extension of its name, and in the file of the member a use on a receiver of
-  another type is no use of it.
-  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_call_on_a_typed_parameter_is_an_edge`, `a_call_on_a_property_of_the_class_is_an_edge`, `a_call_on_a_local_from_a_constructor_is_an_edge`, `a_bare_call_in_an_extension_function_is_an_edge`, `a_receiver_of_a_type_parameter_is_no_edge`, `a_receiver_whose_type_does_not_resolve_is_no_edge`, `a_smart_cast_receiver_is_no_edge`, `an_override_through_a_receiver_is_no_edge`, `an_extension_on_a_receiver_with_a_member_of_the_name_is_no_edge`, `a_shadowing_local_takes_its_own_type`, `a_property_behind_a_supertype_is_no_edge`, `an_inherited_member_through_a_receiver_is_no_edge`, `a_type_constructed_otherwise_is_no_receiver`, `a_same_file_use_on_a_receiver_of_another_type_is_no_use_of_the_file`, `a_receiver_call_an_extension_of_its_type_may_take_is_no_edge`)
+  type that a constructor call gave where its file declares an `invoke` of its companion or a factory of its name (a
+  declared type keeps its edge), of a call that no entry of a member of a type with supertypes accepts, or where an
+  extension of the receiver's type of that name that the file sees may take the call. A local shadows a property with
+  its own type, a member of the receiver's type wins over an extension of its name, and in the file of the member a use
+  on a receiver of another type is no use of it, unless the type is a subtype of the file whose supertype names the
+  member's type.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_call_on_a_typed_parameter_is_an_edge`, `a_call_on_a_property_of_the_class_is_an_edge`, `a_call_on_a_local_from_a_constructor_is_an_edge`, `a_bare_call_in_an_extension_function_is_an_edge`, `a_receiver_of_a_type_parameter_is_no_edge`, `a_receiver_whose_type_does_not_resolve_is_no_edge`, `a_smart_cast_receiver_is_no_edge`, `an_override_through_a_receiver_is_no_edge`, `an_extension_on_a_receiver_with_a_member_of_the_name_is_no_edge`, `a_shadowing_local_takes_its_own_type`, `a_property_behind_a_supertype_is_no_edge`, `an_inherited_member_through_a_receiver_is_no_edge`, `a_type_constructed_otherwise_is_no_receiver`, `a_same_file_use_on_a_receiver_of_another_type_is_no_use_of_the_file`, `a_receiver_call_an_extension_of_its_type_may_take_is_no_edge`, `a_receiver_call_no_entry_accepts_is_no_edge`, `a_same_file_use_on_a_subtype_of_the_file_is_a_use`)
 - The declarations of a key of a JVM type or a member of one must be entries told apart by kind, extension receiver and
   parameter types (with their arrays, a vararg counted), each with its origin: the baseline, or the commit that
   created it or changed its form, one entry removed and one added by a commit being the same entry in a new form. An
