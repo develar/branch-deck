@@ -1955,9 +1955,24 @@ in it) and now:
 | `bd robot`, `bd request-review --check`, `bd group --dry-run` | `a_robot`, `a_request_review_check`, `a_group_dry_run_with_a_description` * | 8, 11, 11 | 8, 11, 11 |
 
 `bd sync` runs the processes of its core and one `rev-parse` for its context (`a_sync_with_the_prefix_of_the_config`).
-On a monorepo clone, `bd -v sync` ran 254 processes for a full sync and 228 for an unchanged one before the audit, and
-173 and 41 after it: the unchanged sync reads every fact once (`RepoFacts`, `ConfigSnapshot`) and asks git nothing for
-a clean branch whose commits, remote and baseline did not move.
+On a clone of a monorepo (217 commits ahead of the baseline in 38 stacked groups, 16 of them conflicting), a release
+`bd` before the audit and after it, the same outputs, the processes `bd -v` counts and the median wall time of three
+runs on a loaded machine (noisy):
+
+| Command | Before | After |
+|---|---|---|
+| `bd sync`, every branch built | 254 processes, 3.5 s | 168, 2.1 s |
+| `bd sync`, nothing changed | 228, 2.3 s | 36, 0.45 s |
+| `bd status` | 11 | 7 |
+| `bd commits`, warm object cache | 13 | 11 |
+| `bd check`, cold / warm object cache | 72 / 53 | 50 / 31 |
+| `bd push --dry-run` of one stacked branch | 245 | 39, 0.58 s (148 right after the object cache was emptied) |
+| `bd push --all --dry-run` | 238 | 37 |
+
+An unchanged sync reads every fact once (`RepoFacts`, `ConfigSnapshot`) and asks git nothing for a clean branch whose
+commits, remote and baseline did not move. Its 36 are about 13 fixed reads, the remote status walks of the 5 branches
+whose remote tip differs from the local one (12 `rev-list`, 5 `reflog`), and the chains of the conflicting branches,
+copied again (3 `merge-tree --stdin`, 3 `fast-import`; see "Follow-ups").
 
 ## Follow-ups
 
