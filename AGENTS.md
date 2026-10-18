@@ -34,6 +34,7 @@ pnpm lint:backend         # Format and lint Rust code (clippy --fix)
 pnpm lint:frontend        # `vp check --fix` (Oxfmt, type-aware Oxlint) + tsc of the React/TypeScript code and the E2E tests
 pnpm lint:cpd             # jscpd copy/paste detection (config in .jscpd.json); fails on any clone
 pnpm prune:target --pool  # Dry run: stale cargo units of this checkout and the free treehouse slots (`--yes` deletes)
+pnpm perf:monorepo pin|measure|summarize|compare  # bd's git processes and times on a pinned large clone (git-operations.md)
 cargo run -p branch-deck -- cli status -C <repo>  # agent CLI, JSON on stdout (docs/guidelines/agent-cli.md)
 ```
 

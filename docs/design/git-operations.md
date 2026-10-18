@@ -2013,6 +2013,34 @@ remote branches of 2026-10-18 (14 of the 38 branches on the remote), an unchange
 (10 `rev-list`, 3 `reflog`; 0.47–0.92 s) and 20 after (the 13 fixed reads, one `reflog` for the push times of all
 branches and the chains of the conflicting branches; 0.14 s), the same output.
 
+### Measuring on a large repository
+
+The process budgets pin a small fixture; what a change saves on a real history is measured with `pnpm perf:monorepo`
+(`scripts/perf/monorepo.mjs`, its header lists the commands) on a clone of a large repository pinned at two commits,
+so two builds of `bd` see the same state:
+
+```bash
+pnpm perf:monorepo pin --source <repo> --head <commit> --base <commit> --prefix <prefix> --stacks --dir <work>
+pnpm perf:monorepo measure --dir <work> --bd <release bd> --out <work>/after --push <branch>
+pnpm perf:monorepo measure --dir <work> --bd <release bd> --out <work>/after-count --push <branch> --count
+pnpm perf:monorepo summarize <work>/after <work>/after-count
+pnpm perf:monorepo compare <work>/before <work>/after
+```
+
+- `pin` makes a shared clone without a working tree (`master` at the head, `origin/master` at the base, the stack
+  parents, issue groups and pushed marks of the source, a push remote whose branches are the clone's remote branches)
+  and keeps its refs and config; `reset` and every full step restore them and delete the object cache.
+- `measure` runs the steps in order, each on the state the one before left: a full sync, an unchanged sync, `status`,
+  `commits` and `check` with a cold and a warm object cache, `push --dry-run` of one branch and of all. Three runs each;
+  the processes are the "git processes" line of `bd -v`, the count of the executor by subcommand, and the wall time is
+  noisy on a loaded machine (`load.txt` keeps the load of each step).
+- `--count` runs each step once with `BD_GIT` set to `scripts/perf/git-count.sh`, which records every git process `bd`
+  starts: it finds the `git version` of the discovery outside the executor's count, and nothing else.
+- `compare` checks that the first run of each step printed the same in two measurements, the path of the binary in the
+  push hints aside: a change of the git layer must not change what `bd` says.
+- Use a release build (`cargo build --release -p bd-cli --bin bd`); build the base commit's `bd` in another checkout
+  or a treehouse slot.
+
 ## Follow-ups
 
 - **Replay conflicts**: `replay` reports a conflict only by its exit code, so the error does not name the commit or
