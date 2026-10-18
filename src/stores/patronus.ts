@@ -587,11 +587,13 @@ async function whenLandedByContent(key: string, robot: PatronusRobot): Promise<v
   }
 }
 
-/** Whether what the merged robot landed in the table shown is told by the content only (`whenLandedByContent`) */
+/**
+ * Whether what the merged robot landed in the table shown is told by the content only (`whenLandedByContent`): the
+ * table as it is now doesn't have the commit it took. One that has it tells at once, also while a sync runs.
+ */
 function isLandedByContent(key: string, robot: PatronusRobot): boolean {
   const repository = patronusStore.getState().repositories[key]
-  const state = branchSyncStore.getState()
-  return key === currentKey() && repository !== undefined && (state.isSyncing || landingRequestOf(robot, landedSourceOf(state, repository.landings)) !== null)
+  return key === currentKey() && repository !== undefined && landingRequestOf(robot, landedSourceOf(branchSyncStore.getState(), repository.landings)) !== null
 }
 
 /**
