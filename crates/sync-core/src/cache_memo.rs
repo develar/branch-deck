@@ -31,7 +31,8 @@ pub(crate) struct CacheMemo {
 /// The `cat-file --batch-check` that asks whether a remembered tree is there, started at the first remembered merge
 enum TreeCheck {
   NotStarted,
-  Running(InteractiveCommand),
+  /// Boxed: with the job object of its git (Windows) the process is over 200 bytes, `large_enum_variant`
+  Running(Box<InteractiveCommand>),
   /// git could not be asked: every remembered tree is merged again
   Failed,
 }
@@ -66,7 +67,7 @@ impl CacheMemo {
         .cmd(&["cat-file", "--batch-check=%(objecttype)"], &self.repository_path)
         .interactive(b'\n')
       {
-        Ok(process) => TreeCheck::Running(process),
+        Ok(process) => TreeCheck::Running(Box::new(process)),
         Err(e) => {
           debug!(error = %e, "cannot check the remembered trees");
           TreeCheck::Failed
