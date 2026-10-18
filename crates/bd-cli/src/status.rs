@@ -2,7 +2,7 @@ use crate::branch_stats::{BranchInput, BranchStats, branch_stats};
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
-use git_ops::model::to_final_branch_name;
+use git_ops::branch_names::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;

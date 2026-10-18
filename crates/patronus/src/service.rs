@@ -4,7 +4,7 @@
 
 use crate::client::{MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, PatronusClient, PatronusError, REVIEW_APPROVAL_CHECK_SKIP_OPTION, RobotDto, RobotUpdateRequest};
 use crate::token::{TokenLookup, TokenStamp};
-use git_ops::model::{BranchKind, strip_branch_namespace};
+use git_ops::branch_names::{BranchKind, strip_branch_namespace};
 use moka::sync::Cache;
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;

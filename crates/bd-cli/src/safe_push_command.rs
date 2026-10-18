@@ -18,7 +18,7 @@ use crate::output::SchemaVersion;
 use crate::push_command::{PullRequestDraft, PushArgs, PushedBranch, github_repository, not_synced_reason, push_locked, unpushed_pull_request_draft};
 use crate::push_hold::{PushHolds, StackRobots};
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncedBranch, lock, sync_locked};
-use git_ops::model::to_final_branch_name;
+use git_ops::branch_names::to_final_branch_name;
 use github::client::{GITHUB_URL, GitHubClient, GitHubError};
 use github::service::{GitHubFailure, GitHubService};
 use github::token::TokenChain;

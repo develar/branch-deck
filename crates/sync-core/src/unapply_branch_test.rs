@@ -1,7 +1,7 @@
 use crate::repository_lock::RewriteOptions;
 use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, unapply_branch_core};
 use anyhow::Result;
-use git_ops::model::to_final_branch_name;
+use git_ops::branch_names::to_final_branch_name;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 

@@ -5,7 +5,7 @@ use crate::repository_lock::RewriteOptions;
 use anyhow::{Result, anyhow};
 use branch_integration::archive::{REF_RENAME_MUTEX, unique_branch_name};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::model::{BranchKind, qualified_branch_name, strip_branch_namespace};
+use git_ops::branch_names::{BranchKind, qualified_branch_name, strip_branch_namespace};
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::{current_branch, ref_exists};
 use git_ops::rewrite_plan::prepare_drop_commits;

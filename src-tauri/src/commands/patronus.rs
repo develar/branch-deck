@@ -4,7 +4,7 @@ use crate::commands::github::{GitHubState, app_user_agent};
 use crate::commands::pull_requests::github_repository;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::model::to_final_branch_name;
+use git_ops::branch_names::to_final_branch_name;
 use git_ops::revs::is_object_id;
 use moka::sync::Cache;
 use patronus::client::{PATRONUS_URL, PatronusClient};

@@ -1,9 +1,9 @@
 use crate::detector::read_stack_bases;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::branch_names::{BranchKind, strip_branch_namespace};
 use git_ops::commit_list::{Commit, parse_single_commit};
 use git_ops::commit_utils::COMMIT_RECORD_FORMAT;
-use git_ops::model::{BranchKind, strip_branch_namespace};
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::{merge_base, resolve_commit};
 use std::collections::{HashMap, HashSet};

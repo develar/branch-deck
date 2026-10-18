@@ -6,7 +6,7 @@ use crate::move_plan::{move_target, plan_move};
 use crate::regroup::{RegroupOptions, RegroupOutcome, RegroupedCommit, UndoToken, regroup_planned};
 use anyhow::{Result, ensure};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::model::sanitize_branch_name;
+use git_ops::branch_names::sanitize_branch_name;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use tracing::{info, instrument};

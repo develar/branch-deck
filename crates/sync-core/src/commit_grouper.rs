@@ -3,8 +3,8 @@
 
 use crate::stack::{StackDeclarations, StackForest, leaf_of, stack_path};
 use crate::store_lines::StoreLines;
+use git_ops::branch_names::sanitize_branch_name;
 use git_ops::commit_list::Commit;
-use git_ops::model::sanitize_branch_name;
 use indexmap::IndexMap;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use sync_utils::issue_pattern::find_issue_number;

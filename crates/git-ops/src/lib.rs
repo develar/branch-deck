@@ -17,7 +17,8 @@
 //! - `ownership`: the code owners of paths by the `OWNERSHIP` files of a tree
 //! - `commit_files`: the changed files of commits, their patches cut as they stream, blob contents for the diff view
 //! - `tree_archive`: the files of a commit's tree as a tar
-//! - `model`: the types of a sync and its conflicts, the branch namespaces under the prefix
+//! - `model`: the types of a sync and its conflicts
+//! - `branch_names`: the names of the branches under the prefix (`{prefix}/virtual/<name>`), the prefix, a valid name
 //!
 //! Writing objects and refs:
 //! - `ref_transaction`: `RefTransaction`, every ref move in one `update-ref --stdin` with compare-and-swap
@@ -51,6 +52,7 @@
 pub mod amend_operations;
 pub mod attributes;
 pub mod branch_description;
+pub mod branch_names;
 pub mod cache;
 pub mod cat_file_batch;
 pub mod cherry_pick;

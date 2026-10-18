@@ -14,7 +14,7 @@ use crate::patronus_review::{ReviewInput, attribute_ownership_paths, read_review
 use crate::pull_requests::GitHubRepository;
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::model::to_final_branch_name;
+use git_ops::branch_names::to_final_branch_name;
 use object_cache::cache::ObjectCache;
 use object_cache::review_answer::ReviewAnswer;
 use patronus::client::GitHubPullRequestDto;

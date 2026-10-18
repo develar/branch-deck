@@ -2,7 +2,7 @@ use super::test_helpers::{detected_branch_info, integrated_branch_names, newly_a
 use branch_integration::archive::get_archived_branch_commits;
 use branch_integration::strategy::DetectionStrategy;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::model::to_final_branch_name;
+use git_ops::branch_names::to_final_branch_name;
 use pretty_assertions::assert_eq;
 use sync_core::sync::{SyncOptions, sync_branches};
 use sync_test_utils::TestReporter;

@@ -9,7 +9,7 @@ use crate::error::{CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
 use crate::safe_push_command::{RobotSummary, patronus_error, patronus_service, robot_summary, robots};
 use crate::status::{read_grouping, stack_ancestors};
-use git_ops::model::to_final_branch_name;
+use git_ops::branch_names::to_final_branch_name;
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::{PROCESS_TIMEOUT, TeamCityCli};
 use schemars::JsonSchema;

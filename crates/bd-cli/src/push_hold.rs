@@ -8,7 +8,7 @@ use crate::error::{CliError, ErrorCode};
 use crate::safe_push_command::{patronus_service, robots};
 use crate::status::stack_ancestors;
 use crate::sync_command::SyncOutput;
-use git_ops::model::to_final_branch_name;
+use git_ops::branch_names::to_final_branch_name;
 use patronus::service::PatronusService;
 use std::collections::HashMap;
 use sync_core::patronus_start::{find_branch_robot, find_landing_descendant, push_mode_name};

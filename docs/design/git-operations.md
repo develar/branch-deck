@@ -1656,8 +1656,8 @@ same keys, so the app keeps nothing of them in its own settings.
   `true` or `false`, never left to an absent key, so a local `false` wins over a global `true`. The read before the
   write refuses a key that the worktree config or the command line (`git -c`, `GIT_CONFIG_*`) sets: they win over
   `.git/config`, so the write would change nothing. A branch prefix is normalized and validated as the app's field does
-  (`git_ops::model::is_valid_branch_prefix`), a GitHub repository is `owner/name` without whitespace; an empty text
-  unsets. The answer is the settings read again, and the main window gets `repository_config_changed`
+  (`git_ops::branch_names::is_valid_branch_prefix`), a GitHub repository is `owner/name` without whitespace; an empty
+  text unsets. The answer is the settings read again, and the main window gets `repository_config_changed`
   (`{repositoryPath, key}`) to sync.
 - **Branch prefix**: the backend's order (`resolve_branch_prefix`, used by `bd`) puts the specific prefix first: the
   repository's own (local or worktree scope), then the app's `globalUserBranchPrefix`, then the global or system one.

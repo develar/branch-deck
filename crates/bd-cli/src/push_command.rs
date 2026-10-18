@@ -16,7 +16,7 @@ use crate::output::SchemaVersion;
 use crate::push_hold::{PushHolds, read_push_holds};
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncState, SyncedBranch, lock, sync_locked};
 use git_ops::branch_description::Description;
-use git_ops::model::to_final_branch_name;
+use git_ops::branch_names::to_final_branch_name;
 use git_ops::revs::{ref_tips, resolve_commit, tips_under};
 use schemars::JsonSchema;
 use serde::Serialize;

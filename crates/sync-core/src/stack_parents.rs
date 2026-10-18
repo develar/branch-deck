@@ -11,8 +11,8 @@ use crate::stack::name_suffix;
 use crate::store_lines::{LineStore, format_store_lines, read_store_files};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::branch_names::{BranchKind, strip_branch_namespace};
 use git_ops::commit_writer::write_store_updates;
-use git_ops::model::{BranchKind, strip_branch_namespace};
 use tracing::{info, instrument, warn};
 
 pub const STACK_PARENTS_REF: &str = "refs/branch-deck/stack-parents";

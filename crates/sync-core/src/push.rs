@@ -6,7 +6,7 @@ use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_f
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Context, Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::model::to_final_branch_name;
+use git_ops::branch_names::to_final_branch_name;
 use serde::{Deserialize, Serialize};
 use sync_types::RemoteStatusUpdate;
 use tracing::{info, instrument};

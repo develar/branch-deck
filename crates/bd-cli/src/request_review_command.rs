@@ -10,7 +10,7 @@ use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
 use crate::safe_push_command::{PersonSummary, Review, UNKNOWN_GITHUB_REPOSITORY, github_error, github_service, patronus_service, readiness_names, review_readiness};
 use crate::status::read_grouping;
-use git_ops::model::to_final_branch_name;
+use git_ops::branch_names::to_final_branch_name;
 use git_ops::revs::resolve_commit;
 use schemars::JsonSchema;
 use serde::Serialize;
