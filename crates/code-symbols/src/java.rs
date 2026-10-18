@@ -417,6 +417,8 @@ fn overrides<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Modality {
     overrides,
     overridable: open && !w.is_local() && !has("final") && !has("private") && !has("static"),
     jvm_static: false,
+    jvm_field: false,
+    jvm_name: false,
     receiver: None,
   }
 }

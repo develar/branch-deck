@@ -1,0 +1,15 @@
+package com.example.facade
+jvm_name Util
+Function helper in - Public TopLevel 4-4 @4 ()
+Constant LIMIT in - Public TopLevel 6-6 @6
+Type Holder in - Public TopLevel 8-14 @8 new()
+Value field in Holder Public Instance 9-9 @9 jvm_field
+Value renamed in Holder Public Instance 10-10 @10 jvm_name
+Value plain in Holder Public Instance 11-11 @11
+Function kotlinName in Holder Public Instance 12-12 @12 () jvm_name
+Value late in Holder Public Instance 13-13 @13 <String>
+@1 :JvmName
+@9 :JvmField
+@10 :JvmName
+@12 :JvmName
+@13 :String

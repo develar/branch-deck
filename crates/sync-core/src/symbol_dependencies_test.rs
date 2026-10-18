@@ -3457,3 +3457,160 @@ fn a_same_file_use_on_a_subtype_of_the_file_is_a_use() {
     .commit(&[("src/a/Base.kt", Some(&file("  fun foo() = 2\n", "\nfun g(s: Sub) = s.foo()\n")))]);
   assert_eq!(edges(&range.graph(&[], &[], &[])), [(1, 0, vec![link("foo", Evidence::SameFile)])]);
 }
+
+/// A Java use of `a.Manager` (Kotlin) in a class `Use`: `body` in a method that has `Manager m`
+fn java_on_manager(package: &str, class: &str, body: &str) -> String {
+  format!("package {package};\n\nimport a.Manager;\n\nclass {class} {{\n  Object use(Manager m) {{\n    return {body};\n  }}\n}}\n")
+}
+
+/// Java calls a Kotlin property by its accessors: `getSize()` of `size`, `setLabel(…)` of a `var label`, `isReady()`
+/// of `isReady`
+#[test]
+fn a_java_accessor_call_of_a_kotlin_property_is_an_edge() {
+  let mut range = adding_to_manager("", "  val size: Int = 1\n  var label: String = \"\"\n  val isReady: Boolean = true\n");
+  range
+    .commit(&[("src/b/Size.java", Some(&java_on_manager("b", "Size", "m.getSize()")))])
+    .commit(&[("src/b/Label.java", Some(&java_on_manager("b", "Label", "m.setLabel(\"x\")")))])
+    .commit(&[("src/b/Ready.java", Some(&java_on_manager("b", "Ready", "m.isReady()")))]);
+  assert_eq!(
+    edges(&range.graph(&[], &[], &[])),
+    [on_receiver(1, "size"), on_receiver(2, "label"), on_receiver(3, "isReady")]
+  );
+}
+
+/// A `@JvmField` or `const` property has no accessors, `@get:JvmName` renames the getter, and a getter takes no
+/// argument
+#[test]
+fn a_java_accessor_call_of_a_property_without_that_accessor_is_no_edge() {
+  let members = "  @JvmField val field: Int = 1\n  @get:JvmName(\"customName\") val renamed: Int = 2\n  val size: Int = 3\n  val plain: Int = 4\n";
+  let mut range = adding_to_manager("", members);
+  range
+    .commit(&[("src/b/Field.java", Some(&java_on_manager("b", "Field", "m.getField()")))])
+    .commit(&[("src/b/Renamed.java", Some(&java_on_manager("b", "Renamed", "m.getRenamed()")))])
+    .commit(&[("src/b/Argument.java", Some(&java_on_manager("b", "Argument", "m.getSize(1)")))])
+    .commit(&[("src/b/Plain.java", Some(&java_on_manager("b", "Plain", "m.getPlain()")))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(4, "plain")]);
+}
+
+/// Kotlin reads a Java getter as a property: `m.count` of `getCount()`, not of a `getCount(int)`
+#[test]
+fn a_kotlin_property_access_of_a_java_getter_is_an_edge() {
+  let manager = |members: &str| format!("package a;\n\npublic class Manager {{\n  public int other() {{ return 1; }}\n{members}}}\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[("src/a/Manager.java", &manager(""))])
+    .commit(&[(
+      "src/a/Manager.java",
+      Some(&manager("  public int getCount() { return 2; }\n  public int getAt(int index) { return index; }\n")),
+    )])
+    .commit(&[("src/b/Count.kt", Some(&using_manager("b", "fun use(m: Manager) = m.count")))])
+    .commit(&[("src/c/At.kt", Some(&using_manager("c", "fun use(m: Manager) = m.at")))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(1, 0, vec![link("getCount", Evidence::Receiver)])]);
+}
+
+/// Java calls a top-level Kotlin function, `const` or `@JvmField` property through the class of its file: imported,
+/// in full, by a static import of its name or of the class
+#[test]
+fn a_java_call_through_the_facade_is_an_edge() {
+  let util = |members: &str| format!("package a\n\nfun other() = 1\n{members}");
+  let java = |package: &str, imports: &str, body: &str| format!("package {package};\n\n{imports}\nclass Use {{\n  Object use() {{ return {body}; }}\n}}\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[("src/a/util.kt", &util(""))])
+    .commit(&[("src/a/util.kt", Some(&util("\nfun helper() = 2\n\nconst val LIMIT = 3\n")))])
+    .commit(&[("src/b/Use.java", Some(&java("b", "import a.UtilKt;\n", "UtilKt.helper()")))])
+    .commit(&[("src/c/Use.java", Some(&java("c", "", "a.UtilKt.helper()")))])
+    .commit(&[("src/d/Use.java", Some(&java("d", "import static a.UtilKt.helper;\n", "helper()")))])
+    .commit(&[("src/e/Use.java", Some(&java("e", "import static a.UtilKt.*;\n", "helper()")))])
+    .commit(&[("src/f/Use.java", Some(&java("f", "import a.UtilKt;\n", "UtilKt.LIMIT")))])
+    .commit(&[("src/g/Use.java", Some(&java("g", "", "UtilKt.helper()")))]);
+  let facade = |from: usize, name: &str| (from, 0, vec![link(name, Evidence::Facade)]);
+  assert_eq!(
+    edges(&range.graph(&[], &[], &[])),
+    [facade(1, "helper"), facade(2, "helper"), facade(3, "helper"), facade(4, "helper"), facade(5, "LIMIT")],
+    "`UtilKt` of another package without an import is none"
+  );
+}
+
+/// `@file:JvmName("Util")` names the class `Util`, so `UtilKt` is none; Kotlin has no such class
+#[test]
+fn a_facade_of_another_name_is_no_edge() {
+  let util = |members: &str| format!("@file:JvmName(\"Util\")\npackage a\n\nfun other() = 1\n{members}");
+  let mut range = Range::default();
+  range
+    .baseline(&[("src/a/util.kt", &util(""))])
+    .commit(&[("src/a/util.kt", Some(&util("\nfun helper() = 2\n")))])
+    .commit(&[(
+      "src/b/Old.java",
+      Some("package b;\n\nimport a.UtilKt;\n\nclass Old {\n  int use() { return UtilKt.helper(); }\n}\n"),
+    )])
+    .commit(&[("src/b/Kotlin.kt", Some("package b\n\nimport a.UtilKt\n\nfun use() = UtilKt.helper()\n"))])
+    .commit(&[(
+      "src/b/Named.java",
+      Some("package b;\n\nimport a.Util;\n\nclass Named {\n  int use() { return Util.helper(); }\n}\n"),
+    )]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(3, 0, vec![link("helper", Evidence::Facade)])]);
+}
+
+/// Java calls an accessor of a property of a companion through the class around it when it is `@JvmStatic`, else
+/// through `Companion`, and one of an object through `INSTANCE`; a `@JvmField` property of a companion is a field of
+/// the class around it
+#[test]
+fn a_java_accessor_of_a_companion_or_object_property_is_an_edge() {
+  let members = "    @JvmStatic val size: Int = 1\n    val count: Int = 2\n    @JvmField val field: Int = 3\n";
+  let registry = |members: &str| format!("package a\n\nobject Registry {{\n  fun other() = 1\n{members}}}\n");
+  let java = |class: &str, import: &str, body: &str| format!("package b;\n\nimport a.{import};\n\nclass {class} {{\n  Object use() {{ return {body}; }}\n}}\n");
+  let mut range = adding_to_owner("companion object", members);
+  range
+    .baseline(&[("src/a/Registry.kt", &registry(""))])
+    .commit(&[("src/a/Registry.kt", Some(&registry("  val name: String = \"\"\n")))])
+    .commit(&[("src/b/Size.java", Some(&java("Size", "Owner", "Owner.getSize()")))])
+    .commit(&[("src/b/Count.java", Some(&java("Count", "Owner", "Owner.Companion.getCount()")))])
+    .commit(&[("src/b/Field.java", Some(&java("Field", "Owner", "Owner.field")))])
+    .commit(&[("src/b/Name.java", Some(&java("Name", "Registry", "Registry.INSTANCE.getName()")))])
+    .commit(&[("src/b/Static.java", Some(&java("Static", "Owner", "Owner.getCount()")))]);
+  assert_eq!(
+    edges(&range.graph(&[], &[], &[])),
+    [
+      qualified(2, "size"),
+      qualified(3, "count"),
+      qualified(4, "field"),
+      (5, 1, vec![link("name", Evidence::Qualified)])
+    ],
+    "`Owner.getCount()` of a property without `@JvmStatic` is none"
+  );
+}
+
+/// A top-level property by its accessor through the class of its file
+#[test]
+fn a_java_accessor_of_a_top_level_property_through_the_facade_is_an_edge() {
+  let util = |members: &str| format!("package a\n\nfun other() = 1\n{members}");
+  let mut range = Range::default();
+  range
+    .baseline(&[("src/a/util.kt", &util(""))])
+    .commit(&[("src/a/util.kt", Some(&util("\nval name: String = \"\"\n")))])
+    .commit(&[(
+      "src/b/Use.java",
+      Some("package b;\n\nimport a.UtilKt;\n\nclass Use {\n  Object use() { return UtilKt.getName(); }\n}\n"),
+    )]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(1, 0, vec![link("name", Evidence::Facade)])]);
+}
+
+/// A real method of the accessor's name, or a Java field of the property's name, takes the use: the JVM clash rules
+#[test]
+fn an_accessor_name_of_a_real_member_is_no_edge() {
+  let java_manager = |members: &str| format!("package a;\n\npublic class Manager {{\n  public int count;\n{members}}}\n");
+  let mut range = adding_to_manager("", "  val size: Int = 1\n  val plain: Int = 2\n");
+  range
+    .baseline(&[("src/a/Clash.kt", "package a\n\nclass Clash {\n  fun getSize(): Int = 0\n}\n")])
+    .commit(&[("src/a/Clash.kt", Some("package a\n\nclass Clash {\n  fun getSize(): Int = 0\n  val size: Int = 1\n}\n"))])
+    .commit(&[(
+      "src/b/Clash.java",
+      Some("package b;\n\nimport a.Clash;\n\nclass UseClash {\n  Object use(Clash c) { return c.getSize(); }\n}\n"),
+    )])
+    .commit(&[("src/b/Plain.java", Some(&java_on_manager("b", "Plain", "m.getPlain()")))])
+    .baseline(&[("src/j/Manager.java", &java_manager(""))])
+    .commit(&[("src/j/Manager.java", Some(&java_manager("  public int getCount() { return count; }\n")))])
+    .commit(&[("src/k/Count.kt", Some("package k\n\nimport j.Manager\n\nfun use(m: Manager) = m.count\n"))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(3, "plain")]);
+}

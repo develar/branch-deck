@@ -48,6 +48,9 @@ pub(crate) fn render(summary: &FileSummary) -> String {
   if let Some(package) = &summary.package {
     let _ = writeln!(out, "package {package}");
   }
+  if let Some(jvm_name) = &summary.jvm_name {
+    let _ = writeln!(out, "jvm_name {jvm_name}");
+  }
   for import in &summary.imports {
     let target = match import.target {
       ImportTarget::Name(id) => summary.name(id).to_string(),
@@ -203,7 +206,9 @@ fn modality_text(declaration: &Declaration) -> String {
   let overrides = if declaration.overrides { " overrides" } else { "" };
   let overridable = if declaration.overridable { " overridable" } else { "" };
   let jvm_static = if declaration.jvm_static { " jvm_static" } else { "" };
-  format!("{overrides}{overridable}{jvm_static}")
+  let jvm_field = if declaration.jvm_field { " jvm_field" } else { "" };
+  let jvm_name = if declaration.jvm_name { " jvm_name" } else { "" };
+  format!("{overrides}{overridable}{jvm_static}{jvm_field}{jvm_name}")
 }
 
 /// `List/Window?` of `[List, Window]` nullable, `int[]` of an array, `_` for any type

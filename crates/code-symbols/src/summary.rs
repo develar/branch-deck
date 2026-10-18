@@ -17,6 +17,9 @@ pub struct FileSummary {
   pub language: Language,
   /// The JVM `package a.b.c`, dotted; `None` in other languages and in the default package
   pub package: Option<String>,
+  /// The name of the JVM class of the top-level declarations of a Kotlin file, `@file:JvmName("Util")`; `None` without
+  /// one, when it is the file's name and `Kt` (`UtilKt` of `util.kt`)
+  pub jvm_name: Option<String>,
   /// The interned names, sorted; every `u32` name below indexes here
   pub names: Vec<String>,
   pub imports: Vec<Import>,
@@ -88,6 +91,11 @@ pub struct Declaration {
   /// A Kotlin function or property annotated `@JvmStatic` (or `@kotlin.jvm.JvmStatic`): Java calls a member of a
   /// companion by the class around it too (`Owner.create()`). Never in Java
   pub jvm_static: bool,
+  /// A Kotlin property annotated `@JvmField`: Java sees a field of its name, and no accessors
+  pub jvm_field: bool,
+  /// A Kotlin function or property annotated `@JvmName`, `@get:JvmName` or `@set:JvmName`: Java names it, or an
+  /// accessor of it, otherwise
+  pub jvm_name: bool,
   /// The direct supertypes of a Kotlin or Java type, as written without type arguments: `[a, Base]` of
   /// `: a.Base<T>()`, `extends a.Base<T>`; a Kotlin function type, which has no path, is an empty one
   pub supertypes: Vec<Vec<u32>>,

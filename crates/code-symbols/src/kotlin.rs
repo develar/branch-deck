@@ -48,6 +48,7 @@ const RULES: &[(&str, Rule)] = &[
   ("this_expression", Rule::Keyword("this")),
   ("super_expression", Rule::Keyword("super")),
   ("package_header", Rule::Special(package)),
+  ("file_annotation", Rule::Special(file_annotation)),
   ("import_header", Rule::Special(import)),
   ("navigation_expression", NAVIGATION),
   // `a.b = c` is no navigation expression
@@ -185,6 +186,7 @@ pub(crate) static SPEC: Spec = Spec {
     "postfix_expression",
     "property_delegate",
     "multi_variable_declaration",
+    "string_content",
   ],
   tokens: &["interface", "this", "super", "=", "*", "-", "+", "!!"],
   fields: &["receiver"],
@@ -209,6 +211,23 @@ pub(crate) static SPEC: Spec = Spec {
   }),
   call_shape: Some(call_shape),
 };
+
+/// `@file:JvmName("Util")` names the JVM class of the top-level declarations
+fn file_annotation<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
+  let invocation = w.child(node, Child::Kind(&["constructor_invocation"]));
+  let annotation = invocation.and_then(|it| w.child(it, Child::Kind(&["user_type"]))).map(|it| segments(w, it));
+  if annotation.is_some_and(|names| names == ["JvmName"] || names == ["kotlin", "jvm", "JvmName"])
+    && let Some(name) = invocation
+      .and_then(|it| w.child(it, Child::Kind(&["value_arguments"])))
+      .and_then(|it| w.child(it, Child::Kind(&["value_argument"])))
+      .and_then(|it| w.child(it, Child::Kind(&["string_literal"])))
+      .and_then(|it| w.child(it, Child::Kind(&["string_content"])))
+      .and_then(|it| w.text(it))
+  {
+    w.set_jvm_name(name.to_string());
+  }
+  true
+}
 
 fn package<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   if let Some(name) = w.child(node, Child::Kind(&["identifier"])) {
@@ -573,6 +592,8 @@ fn overrides<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Modality {
     overrides,
     overridable: member && open && !has("private"),
     jvm_static: annotated(w, node, &["JvmStatic"]),
+    jvm_field: annotated(w, node, &["JvmField"]),
+    jvm_name: annotated(w, node, &["JvmName"]),
     receiver,
   }
 }

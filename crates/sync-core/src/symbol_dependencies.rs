@@ -47,6 +47,8 @@ pub enum Evidence {
   SamePackageType,
   /// A Kotlin `override` or Java `@Override` member of a subtype whose supertype resolves (`resolve_override`)
   Override,
+  /// A Java use of a top-level Kotlin declaration through the class of its file (`UtilKt.helper()`, `through_facade`)
+  Facade,
   /// A call of a member of the supertype in a subclass, by a bare name, `this` or `super` (`inherited`)
   Inherited,
   /// A use of a member on a receiver of its type: a local, a parameter or a property of that type, or the receiver of
@@ -66,6 +68,7 @@ impl Evidence {
       Self::SameModule => "same_module",
       Self::SamePackageType => "same_package_type",
       Self::Override => "override",
+      Self::Facade => "facade",
       Self::Inherited => "inherited",
       Self::Receiver => "receiver",
       Self::RemovesAfter => "removes_after",
@@ -104,6 +107,7 @@ pub struct SymbolGraph {
 }
 
 /// A file of a commit, before or after it, with what resolution needs to know of it, computed once
+#[derive(Clone)]
 struct FileCtx<'a> {
   path: &'a str,
   language: Language,
@@ -115,6 +119,19 @@ struct FileCtx<'a> {
   aliases: Option<&'a TsAliases>,
   /// The path of each import of `summary.imports`, as names
   import_paths: Vec<Vec<String>>,
+  /// A use resolved as the accessor of a property of the other JVM language (`accessor_names`), else `None`
+  accessor: Option<Accessor>,
+}
+
+/// How a use names a property of the other JVM language by its accessor
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Accessor {
+  /// Java's `m.getSize()` of a Kotlin `size`
+  JavaGetter,
+  /// Java's `m.setLabel(text)` of a Kotlin `var label`
+  JavaSetter,
+  /// Kotlin's `m.count` of a Java `getCount()`
+  KotlinProperty,
 }
 
 /// A use is resolved in the context of its file
@@ -270,6 +287,7 @@ impl SymbolInput {
       crate_root,
       aliases: aliases_of(&self.roots, &self.aliases, path),
       import_paths: summary.imports.iter().map(|import| names(summary, &import.path)).collect(),
+      accessor: None,
     }
   }
 }
@@ -506,8 +524,21 @@ pub fn compute_symbol_dependencies(commits: &[CommitDiff], input: &SymbolInput) 
       };
       let (added_lines, _) = changed_lines(change);
       for reference in use_site.summary.references.iter().filter(|reference| in_ranges(&added_lines, reference.line)) {
-        let Some(candidates) = index.get(use_site.summary.name(reference.name)) else { continue };
-        let Some((owner, entry, evidence)) = resolve_use(input, use_site, reference, candidates, position) else {
+        let direct = index
+          .get(use_site.summary.name(reference.name))
+          .and_then(|candidates| resolve_use(input, use_site, reference, candidates, position));
+        // else a property of the other JVM language by its accessor, its key unchanged
+        let found = direct.or_else(|| {
+          accessor_names(use_site, reference).into_iter().find_map(|(name, accessor)| {
+            let candidates = index.get(&name)?;
+            let ctx = FileCtx {
+              accessor: Some(accessor),
+              ..use_site.clone()
+            };
+            resolve_use(input, &ctx, reference, candidates, position)
+          })
+        });
+        let Some((owner, entry, evidence)) = found else {
           continue;
         };
         edges.entry((position, owner)).or_default().push(SymbolLink {
@@ -1449,6 +1480,11 @@ fn resolve_any(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referenc
   if use_site.language.family() != site.ctx.language.family() {
     return None;
   }
+  if let Some(accessor) = use_site.accessor
+    && !accessor_fits(use_site, reference, site, accessor)
+  {
+    return None;
+  }
   // an override is no use by its name and qualifier: its qualifier is a supertype of the class around it, which needs
   // the rules of overriding, in the same file too
   if reference.role == Role::Override {
@@ -1658,7 +1694,7 @@ fn inherited(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<&[
   );
   if !not_enclosed
     || !bare(qualifier)
-    || declaration.kind != DeclKind::Function
+    || (declaration.kind != DeclKind::Function && use_site.accessor.is_none())
     || declaration.member != MemberKind::Instance
     || declaration.overrides
     || declaration.receiver.is_some()
@@ -1667,7 +1703,8 @@ fn inherited(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<&[
   {
     return false;
   }
-  let name = site.name();
+  // the name as the file has it: an accessor's for a property of the other language
+  let name = summary.name(reference.name);
   if summary.declares(name) || imports_of_function(summary, name) > 0 {
     return false;
   }
@@ -1840,7 +1877,8 @@ fn reaches_module(use_site: &UseSite<'_>, site: &Site<'_>, reach: Reach) -> bool
 
 fn resolve_jvm(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<&[String]>, site: &Site<'_>) -> Option<Evidence> {
   let summary = use_site.summary;
-  let name = site.name();
+  // the name an import of it names: the accessor's for a property of the other language
+  let name = if use_site.accessor.is_some() { summary.name(reference.name) } else { site.name() };
   if !reaches_module(use_site, site, site.declaration.reach) {
     return None;
   }
@@ -1859,6 +1897,12 @@ fn resolve_jvm(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<
       .any(|(import, import_path)| import.target == ImportTarget::All && import_path == path)
   };
   match site.declaration.member {
+    // a type is a class of its own name in Java too
+    MemberKind::TopLevel
+      if use_site.language == Language::Java && site.ctx.language == Language::Kotlin && !matches!(site.declaration.kind, DeclKind::Type | DeclKind::TypeAlias) =>
+    {
+      through_facade(use_site, reference, qualifier, site)
+    }
     MemberKind::TopLevel => {
       if qualifier.is_none() && imports_of(&site.ctx.namespace, name) {
         return Some(Evidence::Import);
@@ -1962,7 +2006,8 @@ fn through_receiver(use_site: &UseSite<'_>, reference: &Reference, qualifier: Op
     Some(Shape::Call { arguments, spread, .. }) => accepts_call(summary, arguments, *spread, site),
     _ => true,
   };
-  if key_only && (summary.declares(site.name()) || imports_of_function(summary, site.name()) > 0 || !fits()) {
+  let name = summary.name(reference.name);
+  if key_only && (summary.declares(name) || imports_of_function(summary, name) > 0 || !fits()) {
     return false;
   }
   supertype_resolves(use_site, reference, &path, site)
@@ -1981,7 +2026,8 @@ fn implicit_receiver(use_site: &UseSite<'_>, reference: &Reference, qualifier: O
     Some(Shape::Call { enclosed: false, .. })
   );
   let this = qualifier.is_none_or(|qualifier| matches!(qualifier, [only] if only == "this"));
-  if !not_enclosed || !this || summary.declares(site.name()) || imports_of_function(summary, site.name()) > 0 {
+  let name = summary.name(reference.name);
+  if !not_enclosed || !this || summary.declares(name) || imports_of_function(summary, name) > 0 {
     return None;
   }
   let (_, around) = outward(summary, reference.container).find(|(_, declaration)| declaration.kind == DeclKind::Type || declaration.receiver.is_some())?;
@@ -2008,19 +2054,23 @@ fn receiver_name<'a>(summary: &'a FileSummary, reference: &Reference) -> Option<
 /// a qualifier: of its package, or through an import of its name or a wildcard import of its package. A member of the
 /// type wins over it only for a call the member accepts, which the summary judges generously
 fn sees_extension(use_site: &UseSite<'_>, site: &Site<'_>, receiver: &str) -> bool {
-  let summary = use_site.summary;
   site.ctx.language.family() == Family::Jvm
     && site.declaration.member == MemberKind::TopLevel
     && receiver_of(site) == Some(receiver)
-    && (use_site.namespace == site.ctx.namespace
-      || summary.imports.iter().zip(&use_site.import_paths).any(|(import, path)| {
-        *path == site.ctx.namespace
-          && match import.target {
-            ImportTarget::Name(imported) => summary.name(imported) == site.name(),
-            ImportTarget::All => true,
-            ImportTarget::Default | ImportTarget::Namespace => false,
-          }
-      }))
+    && (use_site.namespace == site.ctx.namespace || imports_from(use_site, &site.ctx.namespace, site.name()))
+}
+
+/// Whether the file of `use_site` imports `name` from `path`, by its name or by a wildcard import of `path`
+fn imports_from(use_site: &UseSite<'_>, path: &[String], name: &str) -> bool {
+  let summary = use_site.summary;
+  summary.imports.iter().zip(&use_site.import_paths).any(|(import, import_path)| {
+    *import_path == path
+      && match import.target {
+        ImportTarget::Name(imported) => summary.name(imported) == name,
+        ImportTarget::All => true,
+        ImportTarget::Default | ImportTarget::Namespace => false,
+      }
+  })
 }
 
 /// Whether the file of the member `site` declares a function that a call of its type's name may mean instead of a
@@ -2063,7 +2113,10 @@ fn static_paths<'s>(use_site: &UseSite<'_>, site: &'s Site<'_>) -> Vec<Vec<&'s s
   let declaration = site.declaration;
   let java = use_site.language == Language::Java;
   let member = matches!(declaration.kind, DeclKind::Function | DeclKind::Value);
-  let on_class = (declaration.kind == DeclKind::Function && declaration.jvm_static) || declaration.kind == DeclKind::Constant;
+  // an accessor of a property is a method of Java, a `@JvmField` one a field
+  let function = declaration.kind == DeclKind::Function || (declaration.kind == DeclKind::Value && use_site.accessor.is_some());
+  let field = declaration.kind == DeclKind::Constant || (declaration.kind == DeclKind::Value && declaration.jvm_field && use_site.accessor.is_none());
+  let on_class = (function && declaration.jvm_static) || field;
   let mut paths = Vec::new();
   match containers.split_last() {
     Some((&"Companion", outer)) if !outer.is_empty() => {
@@ -2076,13 +2129,143 @@ fn static_paths<'s>(use_site: &UseSite<'_>, site: &'s Site<'_>) -> Vec<Vec<&'s s
       if !outer.is_empty() || on_class {
         paths.push(containers.clone());
       }
-      if declaration.kind == DeclKind::Function {
+      if function {
         paths.push([containers.as_slice(), &["INSTANCE"]].concat());
       }
     }
     _ => paths.push(containers),
   }
   paths
+}
+
+/// The names a use may mean a property of the other JVM language by, with how: Java's call of a getter
+/// (`getSize()` of `size`, `getURL()` of `URL` or `uRL`) or a setter (`setLabel(…)` of `label` or `isLabel`), and Kotlin's
+/// property access on a receiver of a Java getter (`m.count` of `getCount()`); `isReady()` and `m.isReady` have the
+/// property's own name, so the direct lookup finds them
+fn accessor_names(use_site: &UseSite<'_>, reference: &Reference) -> Vec<(String, Accessor)> {
+  let name = use_site.summary.name(reference.name);
+  let capitalized = |rest: &str| rest.chars().next().is_some_and(char::is_uppercase);
+  let properties = |rest: &str| {
+    let mut chars = rest.chars();
+    let lowered: String = chars.next().map_or_default(|first| first.to_lowercase().chain(chars).collect());
+    let mut names = vec![lowered];
+    if names[0] != rest {
+      names.push(rest.to_string());
+    }
+    names
+  };
+  match (use_site.language, reference.role) {
+    (Language::Java, Role::Call) => {
+      if let Some(rest) = name.strip_prefix("get").filter(|rest| capitalized(rest)) {
+        properties(rest).into_iter().map(|it| (it, Accessor::JavaGetter)).collect()
+      } else if let Some(rest) = name.strip_prefix("set").filter(|rest| capitalized(rest)) {
+        let mut names: Vec<(String, Accessor)> = properties(rest).into_iter().map(|it| (it, Accessor::JavaSetter)).collect();
+        names.push((format!("is{rest}"), Accessor::JavaSetter));
+        names
+      } else {
+        Vec::new()
+      }
+    }
+    (Language::Kotlin, Role::Value) if reference.qualifier.is_some() && !name.starts_with("is") => {
+      let mut chars = name.chars();
+      let capital: String = chars.next().map_or_default(|first| first.to_uppercase().chain(chars).collect());
+      vec![(format!("get{capital}"), Accessor::KotlinProperty)]
+    }
+    _ => Vec::new(),
+  }
+}
+
+/// Whether the declaration `site` is the property, or the getter, that the accessor use means: a property of Kotlin
+/// that has accessors (not `@JvmField`, `const`, private, nor renamed by `@get:JvmName`), of a class, an object, a
+/// companion or a file, called with no argument as a getter and one as a setter, without a function of the
+/// accessor's name beside it; or an instance method of Java without parameters, of the getter's name, without a field
+/// of the property's name beside it
+fn accessor_fits(use_site: &UseSite<'_>, reference: &Reference, site: &Site<'_>, accessor: Accessor) -> bool {
+  let declaration = site.declaration;
+  let arguments = match reference.shape.and_then(|shape| use_site.summary.shapes.get(shape as usize)) {
+    Some(Shape::Call { arguments, .. }) => Some(arguments.len()),
+    _ => None,
+  };
+  // a declaration of the accessor's name beside it takes the use (the JVM lets a Kotlin property and a function of the
+  // name of its getter be only with `@JvmName`; a Java field of the property's name is what Kotlin reads)
+  let summary = site.ctx.summary;
+  let beside = |kind: DeclKind| {
+    let name = use_site.summary.name(reference.name);
+    summary
+      .declarations
+      .iter()
+      .any(|other| other.kind == kind && other.container == declaration.container && summary.name(other.name) == name)
+  };
+  match accessor {
+    Accessor::JavaGetter | Accessor::JavaSetter => {
+      site.ctx.language == Language::Kotlin
+        && declaration.kind == DeclKind::Value
+        && !declaration.jvm_field
+        && !declaration.jvm_name
+        && !matches!(declaration.reach, Reach::Container | Reach::File)
+        && arguments == Some(usize::from(accessor == Accessor::JavaSetter))
+        && !beside(DeclKind::Function)
+    }
+    Accessor::KotlinProperty => {
+      site.ctx.language == Language::Java
+        && declaration.member == MemberKind::Instance
+        && declaration.kind == DeclKind::Function
+        && declaration.signature.as_ref().is_some_and(|signature| signature.parameters.is_empty())
+        && !beside(DeclKind::Value)
+    }
+  }
+}
+
+/// The evidence that a Java use means the top-level Kotlin declaration `site` through the class of its file: its
+/// `@file:JvmName`, else the file's name with a capital and `Kt` (`UtilKt` of `util.kt`). A function, a `const` or a
+/// `@JvmField` property: `UtilKt.helper()` with the class imported or of the same package, `a.UtilKt.helper()`, or a
+/// bare `helper()` that `import static a.UtilKt.helper` or `import static a.UtilKt.*` brings in where the file shows
+/// nothing that comes first (`import_decides`); a property by its accessors (`UtilKt.getName()`, `accessor_names`)
+fn through_facade(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<&[String]>, site: &Site<'_>) -> Option<Evidence> {
+  let declaration = site.declaration;
+  let accessor = use_site.accessor.is_some();
+  let field = declaration.kind == DeclKind::Value && declaration.jvm_field;
+  if !(declaration.kind == DeclKind::Function || declaration.kind == DeclKind::Constant || (declaration.kind == DeclKind::Value && (field || accessor))) {
+    return None;
+  }
+  let name = if accessor { use_site.summary.name(reference.name) } else { site.name() };
+  let facade = facade_of(site);
+  let mut path = site.ctx.namespace.clone();
+  path.push(facade.clone());
+  let summary = use_site.summary;
+  let Some(qualifier) = qualifier else {
+    let enclosed = matches!(
+      reference.shape.and_then(|shape| summary.shapes.get(shape as usize)),
+      Some(Shape::Call { enclosed: true, .. })
+    );
+    return (imports_from(use_site, &path, name) && import_decides(summary, reference, enclosed)).then_some(Evidence::Facade);
+  };
+  if *qualifier == path {
+    return Some(Evidence::Facade);
+  }
+  let [head] = qualifier else { return None };
+  if *head != facade {
+    return None;
+  }
+  let resolves = match import_binding(use_site, head) {
+    Some((import_path, imported)) => import_path.iter().map(String::as_str).chain([imported]).eq(path.iter().map(String::as_str)),
+    None => use_site.namespace == site.ctx.namespace && !summary.declares(head),
+  };
+  resolves.then_some(Evidence::Facade)
+}
+
+/// The JVM class of the top-level declarations of the Kotlin file of `site`: its `@file:JvmName`, else its name with a
+/// capital, `Kt` for `.kt` and `_` for a character no identifier has (`My_fileKt` of `my-file.kt`)
+fn facade_of(site: &Site<'_>) -> String {
+  if let Some(name) = &site.ctx.summary.jvm_name {
+    return name.clone();
+  }
+  let file = site.ctx.path.rsplit('/').next().unwrap_or(site.ctx.path);
+  let stem = file.strip_suffix(".kt").unwrap_or(file);
+  let mut chars = stem.chars();
+  let capital: String = chars.next().map_or_default(|first| first.to_uppercase().chain(chars).collect());
+  let identifier: String = capital.chars().map(|it| if it.is_alphanumeric() || it == '_' { it } else { '_' }).collect();
+  format!("{identifier}Kt")
 }
 
 /// The name a reference starts with: the first segment of its qualifier, else its own name

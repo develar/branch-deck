@@ -138,6 +138,7 @@ fn resolved(path: &str, summary: &FileSummary) -> Value {
     "path": path,
     "language": format!("{:?}", summary.language),
     "package": summary.package,
+    "jvm_name": summary.jvm_name,
     "imports": summary.imports.iter().map(|it| json!({
       "path": path_of(&it.path),
       "target": match it.target {
@@ -166,6 +167,8 @@ fn resolved(path: &str, summary: &FileSummary) -> Value {
       "overrides": it.overrides,
       "overridable": it.overridable,
       "jvm_static": it.jvm_static,
+      "jvm_field": it.jvm_field,
+      "jvm_name": it.jvm_name,
       "supertypes": it.supertypes.iter().map(|it| path_of(it)).collect::<Vec<_>>(),
       "value_type": it.value_type.as_deref().map(path_of),
       "lines": format!("{}-{} (name {})", it.start_line, it.end_line, it.name_line),

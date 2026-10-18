@@ -1,4 +1,5 @@
 package com.example.shapes
+jvm_name Declarations
 Type Shape in - Public TopLevel 4-8 @5
 Value area in Shape Public Instance 6-6 @6 <Double> overridable
 Function describe in Shape Public Instance 7-7 @7 () overridable

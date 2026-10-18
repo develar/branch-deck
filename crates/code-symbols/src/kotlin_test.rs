@@ -226,7 +226,7 @@ fn a_member_knows_whether_it_is_jvm_static() {
   assert_eq!(modalities(&summary, "make"), ["Companion jvm_static"], "by its full name, on the line above");
   assert_eq!(modalities(&summary, "size"), ["Companion jvm_static"], "a property, after another annotation");
   assert_eq!(modalities(&summary, "plain"), ["Companion"]);
-  assert_eq!(modalities(&summary, "renamed"), ["Companion"], "another annotation");
+  assert_eq!(modalities(&summary, "renamed"), ["Companion jvm_name"], "another annotation");
   assert_eq!(modalities(&summary, "called"), ["Companion jvm_static"], "with parentheses");
 }
 

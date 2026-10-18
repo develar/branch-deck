@@ -40,7 +40,7 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 12;
+pub const RULES_VERSION: u32 = 13;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -62,6 +62,7 @@ pub(crate) fn summarize_with_budget(language: Language, source: &[u8], budget: u
   let mut summary = FileSummary {
     language,
     package: None,
+    jvm_name: None,
     names: Vec::new(),
     imports: Vec::new(),
     declarations: Vec::new(),
@@ -233,22 +234,30 @@ pub(crate) struct JvmHooks {
 
 /// What the modifiers of a member say about overriding
 #[derive(Debug, Clone, Copy, Default)]
+#[expect(clippy::struct_excessive_bools, reason = "independent facts of a declaration")]
 pub(crate) struct Modality {
   pub(crate) overrides: bool,
   pub(crate) overridable: bool,
   /// A Kotlin `@JvmStatic` member
   pub(crate) jvm_static: bool,
+  /// A Kotlin `@JvmField` property
+  pub(crate) jvm_field: bool,
+  /// A Kotlin member that `@JvmName` (also `@get:` or `@set:`) names otherwise for Java
+  pub(crate) jvm_name: bool,
   /// The extension receiver of a Kotlin member, for the shape of its override
   pub(crate) receiver: Option<u32>,
 }
 
 /// The fields of a `Declaration` that `JvmHooks` fills
 #[derive(Debug, Default)]
+#[expect(clippy::struct_excessive_bools, reason = "independent facts of a declaration")]
 pub(crate) struct JvmFields {
   signature: Option<Signature>,
   overrides: bool,
   overridable: bool,
   jvm_static: bool,
+  jvm_field: bool,
+  jvm_name: bool,
   supertypes: Vec<Vec<u32>>,
   value_type: Option<Typed>,
   constructors: Option<Vec<Constructor>>,
@@ -604,6 +613,7 @@ pub(crate) struct Walk<'t> {
   name_ids: HashMap<&'t str, u32>,
   names: Vec<&'t str>,
   package: Option<String>,
+  jvm_name: Option<String>,
   imports: Vec<Import>,
   declarations: Vec<Declaration>,
   references: Vec<Reference>,
@@ -648,6 +658,7 @@ impl<'t> Walk<'t> {
       name_ids: HashMap::new(),
       names: Vec::new(),
       package: None,
+      jvm_name: None,
       imports: Vec::new(),
       declarations: Vec::new(),
       references: Vec::new(),
@@ -1170,6 +1181,8 @@ impl<'t> Walk<'t> {
       overrides: modality.overrides,
       overridable: modality.overridable,
       jvm_static: modality.jvm_static,
+      jvm_field: modality.jvm_field,
+      jvm_name: modality.jvm_name,
       value_type: if kind == DeclKind::Value { self.value_type(hooks, node) } else { None },
       ..JvmFields::default()
     }
@@ -1213,6 +1226,8 @@ impl<'t> Walk<'t> {
       overrides: fields.overrides,
       overridable: fields.overridable,
       jvm_static: fields.jvm_static,
+      jvm_field: fields.jvm_field,
+      jvm_name: fields.jvm_name,
       supertypes: fields.supertypes,
       value_constructed: fields.value_type.as_ref().is_some_and(|it| it.constructed),
       value_type: fields.value_type.map(|it| it.path),
@@ -1487,6 +1502,7 @@ impl<'t> Walk<'t> {
     self.references.dedup();
     summary.names = order.iter().map(|it| self.names[*it as usize].to_string()).collect();
     summary.package = self.package;
+    summary.jvm_name = self.jvm_name;
     summary.imports = self.imports;
     summary.declarations = self.declarations;
     summary.references = self.references;
@@ -1819,6 +1835,10 @@ impl<'t> Walk<'t> {
 
   pub(crate) fn set_package(&mut self, package: String) {
     self.package = Some(package);
+  }
+
+  pub(crate) fn set_jvm_name(&mut self, name: String) {
+    self.jvm_name = Some(name);
   }
 
   pub(crate) fn add_import(&mut self, import: Import) {
