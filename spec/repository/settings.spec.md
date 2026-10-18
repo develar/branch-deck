@@ -237,7 +237,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   ("Set in config.worktree, which overrides .git/config: change it there", "Set by git -c or GIT_CONFIG_*, which
   overrides .git/config"), as the backend refuses the write. An invalid value says why; a
   boolean is invalid exactly when `git config --type=bool` refuses it (` true `, `08`, `1kb`), and `0x10`, `1k` or
-  `-1` are true as git reads them.
+  `-1` are true as git reads them; `0b1` is invalid on every platform, though the git of glibc 2.38+ reads it as true.
   [@test] ../../src/lib/repository-config.test.ts (`names the source only when it is not the default`, `says where the GitHub repository comes from while no config sets it`, `offers the global value, else the default, once the local one is unset`, `can't change a key the worktree config or the command line sets`)
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_fallback_is_the_last_global_or_system_value_parsed`, `a_value_of_the_worktree_config_refuses_the_write`)
   [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`a_boolean_is_what_git_makes_of_it`)

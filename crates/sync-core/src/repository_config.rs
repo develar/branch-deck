@@ -275,7 +275,9 @@ pub fn parse_git_bool(value: Option<&str>) -> Option<bool> {
 }
 
 /// An integer as git's config reads it (`git_parse_int`): `strtoimax` with base 0 (white space before, a sign, `0x`
-/// for hex, `0` for octal), then an optional unit `k`, `m` or `g` (any case, 1024-based), within the range of a C `int`
+/// for hex, `0` for octal), then an optional unit `k`, `m` or `g` (any case, 1024-based), within the range of a C `int`.
+/// C17's base 0, not C23's: `0b` is not a binary prefix, as in the git of macOS and Windows; the git of glibc 2.38+
+/// reads `0b1` as 1, but which libc the user's git has is unknown, so `0b1` is refused everywhere.
 fn parse_git_int(value: &str) -> Option<i64> {
   // C's `isspace`, which has the vertical tab too
   let rest = value.trim_start_matches([' ', '\t', '\n', '\r', '\x0b', '\x0c']);

@@ -1786,7 +1786,8 @@ same keys, so the app keeps nothing of them in its own settings.
   (system, global, local, worktree, command), so the last entry of a key is the effective one; `local_set` says whether
   the local config has one, the setting's `invalid` why its value is not taken (a git boolean as `git config
   --type=bool` reads it: `true`/`yes`/`on`, `false`/`no`/`off` in any case and without white space around, the empty
-  text is false, else an integer of `git_parse_int`: `strtoimax` with base 0, an optional `k`/`m`/`g`, within a C
+  text is false, else an integer of `git_parse_int`: `strtoimax` with base 0 as C17 has it (no C23 `0b`, which only
+  the git of glibc 2.38+ reads; the libc of the user's git is unknown), an optional `k`/`m`/`g`, within a C
   `int`; `parse_git_bool`, tested against git itself). The GitHub repository found without
   `branchdeck.githubRepository` (`detect_github_repository_source`: the push URL of `origin`, then the Space mirror)
   costs one or two more processes, only for this read. Each setting also carries what applies once the local value is

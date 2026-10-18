@@ -22,7 +22,8 @@ fn git_bool(repo: &TestRepo) -> Option<bool> {
 }
 
 /// A boolean is what git makes of it, git itself the oracle: the words in any case, the empty text, git's integers
-/// (base 0 of `strtoimax`, a unit, the range of an `int`) and what it refuses
+/// (base 0 of `strtoimax`, a unit, the range of an `int`) and what it refuses; `0b1` aside, which git answers by its
+/// libc
 #[test]
 fn a_boolean_is_what_git_makes_of_it() {
   let repo = TestRepo::new();
@@ -49,7 +50,6 @@ fn a_boolean_is_what_git_makes_of_it() {
     "-0x1",
     "0x0",
     "0x",
-    "0b1",
     "1k",
     "1K",
     "0k",
@@ -81,6 +81,13 @@ fn a_boolean_is_what_git_makes_of_it() {
     assert_eq!(snapshot.stacks().ok(), expected, "{value:?}");
     assert_eq!(stacks_enabled(repo.git_executor(), repo.path_str()).ok(), expected, "{value:?}");
   }
+
+  // `0b1` is refused on every platform, and git is no oracle for it: git defines `_GNU_SOURCE`, so with glibc 2.38+
+  // its `strtoimax` follows C23 and reads `0b` as binary (true), while the git of macOS and Git for Windows refuse it.
+  // Nobody writes a boolean in binary, and the glibc of the git we run is unknown, so there is one answer, C17's.
+  repo.set_config("branchdeck.stacks", "0b1").unwrap();
+  assert_eq!(snapshot(&repo).stacks().ok(), None);
+  assert_eq!(stacks_enabled(repo.git_executor(), repo.path_str()).ok(), None);
 
   // a key without a value is true
   repo.git(&["config", "--unset-all", "branchdeck.stacks"]);
