@@ -1,7 +1,7 @@
 # Distributed Settings Architecture
 
 **Status:** Implemented  
-**Updated:** 2026-10-11  
+**Updated:** 2026-10-18  
 **Tags:** [settings, zustand, tauri]
 
 ## Problem
@@ -101,7 +101,9 @@ broadcast to all sub-windows.
 - Store factory: `createPersistentStore(key, { schema, isArray, isMainOnly })` in `src/stores/settings/persistent-store.ts`.
   It registers a `StoreRegistration` (`src/stores/settings/sync-utils.ts`), so the sync layer never touches the zustand store directly.
 - Main window: `MainStoreSync` in `src/stores/settings/app-store.ts`. Writes from sub-windows are applied to the local store
-  immediately, then saved in the same non-default form. Changes of unregistered keys only update the raw snapshot.
+  immediately, then saved in the same non-default form. Its writes reach `settings.json` one at a time, in the order they
+  were asked for (`write`): Tauri runs two `set` commands in flight concurrently, so ↓ ↓ ↑ in Settings could leave the
+  middle value on disk; a failed write fails its request and the next one still runs. Changes of unregistered keys only update the raw snapshot.
   Stores with `isMainOnly` are not broadcast and are left out of the sub-window snapshot (`getStoreSnapshot`): the
   Activity log (`src/stores/activity.ts`), which only the main window writes.
 - Sub-windows: `SubWindowStoreSync` in `src/stores/settings/sub-window-app-store.ts`. Request ids include the window label

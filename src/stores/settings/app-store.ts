@@ -65,6 +65,8 @@ class MainStoreSync {
   readonly store = new LazyStore("settings.json")
   private readonly echoTracker = new EchoTracker()
   private handlersInitialized = false
+  // the end of the last write asked for; the next one starts after it (`write`)
+  private lastWrite: Promise<void> = Promise.resolve()
 
   constructor() {
     this.store
@@ -83,8 +85,19 @@ class MainStoreSync {
     })
   }
 
+  /**
+   * Writes to disk in the order the writes were asked for, one at a time: two `set` calls in flight reach the store in
+   * either order (Tauri runs async commands concurrently), and the older value would stay on disk. A failed write is
+   * its caller's error; the next one still runs.
+   */
+  private write(key: string, value: unknown): Promise<void> {
+    const next = this.lastWrite.then(() => this.writeNow(key, value))
+    this.lastWrite = next.catch(() => undefined)
+    return next
+  }
+
   /** Writes to disk and remembers the value, so that the resulting `onChange` is not applied back to the store. */
-  private async write(key: string, value: unknown): Promise<void> {
+  private async writeNow(key: string, value: unknown): Promise<void> {
     this.echoTracker.record(key, stableStringify(value))
     if (value === null || value === undefined) {
       await this.store.delete(key)
