@@ -75,35 +75,38 @@ flowchart TD
    module, a wildcard import or the same package and module for a type, or an override in a subtype whose supertype
    resolves (`override`, decision 8). In the same file a name that a type other than the declaration's own qualifies
    (`Registry.register(id)` in a `register` of the file) means that type's member, not the file's; a type by its
-   capital, the convention of every language here, unless the file declares a value of that name
-   (`DEFAULT.register(id)` of a `val DEFAULT`, an `INSTANCE`, an enum constant). A name in capitals that the file only
-   imports counts as a type (`JBUI`, or a constant): an import doesn't say which it is. A Kotlin extension of the file
-   is a use only by a bare name, `this`, `super` or its receiver's type (`AirAuthoredScope::openGlobalPrompt`), of
-   every key, one the range adds too (`on_unknown_receiver`): a call on a local, an expression or another name
-   (`prompt.openGlobalPrompt()` on a `val prompt = AirComposerInIdeDriver(…)` beside a
-   `fun AirAuthoredScope.openGlobalPrompt()`) is none. A private member is a use only where the compiler lets
-   the file see it (`private_scope`): in Java the whole top-level class, nested classes included, for a qualified use
-   (`Inner.helper()`), but its own type for a bare name, `this.name` or `super.name`, which outside it mean a member of
-   the class around it, an inherited one or a static import; in Kotlin its own type, and the class around a companion
-   for the companion's (`private const val TAG`). A static member is named by the path of its type (`static_paths`):
-   in full (`a.b.Owner.create()`), or from its head, which an import binds (an alias, a nested type:
-   `import a.b.Owner.Factory` and `Factory.create()`) or, without an import of its name, the same package does when the
-   file declares nothing of it. A member of a Kotlin companion without a name of its own is a member of the class
-   around it too (`Owner.create()` beside `Owner.Companion.create()`), from Java only a `@JvmStatic` function or a
-   `const val` (`Owner.create()`, `import static a.b.Owner.create`), and Java calls a function of a Kotlin object
-   through its `INSTANCE` (`Registry.INSTANCE.register()`). A companion with a name of its own is named only by its
-   path (`Owner.Factory.create()` of a `companion object Factory`).
+   capital, the convention of every language here, unless the file declares a value of that name (`DEFAULT.register(id)`
+   of a `val DEFAULT`, an `INSTANCE`, an enum constant). A name in capitals that the file only imports counts as a type
+   (`JBUI`, or a constant): an import doesn't say which it is. A Kotlin extension of the file is a use only by a bare
+   name, `this`, `super` or its receiver's type (`AirAuthoredScope::openGlobalPrompt`), of every key, one the range adds
+   too (`on_unknown_receiver`): a call on a local, an expression or another name (`prompt.openGlobalPrompt()` on a
+   `val prompt = AirComposerInIdeDriver(…)` beside a `fun AirAuthoredScope.openGlobalPrompt()`) is none. A private
+   member is a use only where the compiler lets the file see it (`private_scope`): in Java the whole top-level class,
+   nested classes included, for a qualified use (`Inner.helper()`), but its own type for a bare name, `this.name` or
+   `super.name`, which outside it mean a member of the class around it, an inherited one or a static import; in Kotlin
+   its own type, and the class around a companion for the companion's (`private const val TAG`). A static member is
+   named by the path of its type (`static_paths`): in full (`a.b.Owner.create()`), or from its head, which an import
+   binds (an alias, a nested type: `import a.b.Owner.Factory` and `Factory.create()`) or, without an import of its name,
+   the same package does when the file declares nothing of it. A member of a Kotlin companion without a name of its own
+   is a member of the class around it too (`Owner.create()` beside `Owner.Companion.create()`), from Java only a
+   `@JvmStatic` function or a `const val` (`Owner.create()`, `import static a.b.Owner.create`), and Java calls a
+   function of a Kotlin object through its `INSTANCE` (`Registry.INSTANCE.register()`), by the top-level object itself
+   only a `@JvmStatic` one (`Registry.register()`). A companion with a name of its own is named only by its path
+   (`Owner.Factory.create()` of a `companion object Factory`).
    **Rationale**: a Kotlin call without a qualifier may mean an implicit receiver's member, an extension or a function
    of the package; only a compiler knows. The JVM has the members of a companion as instance methods of its class, and
    on the class around it only a `@JvmStatic` method or a `const` (or `@JvmField`, which the summary doesn't read)
    field, so Java's `Owner.plain()` of any other doesn't compile. The summary doesn't tell a companion with a name of
    its own from a nested object (decision 10), whose members the class around it doesn't have, and a nested type is no
    name of its package: `Nested.create()` in another file of it means a type the file imports or, in Java, inherits. A
-   call of an extension on a value means a member of the value's type first, since a member always wins over an
-   extension, and only a compiler knows that type: the summary drops locals and has no types of expressions. A bare name
-   or `this` keeps the evidence of the file, as for every declaration of it (`with(scope) { openGlobalPrompt() }`,
-   another extension of the receiver). A wrong hard edge costs more than a missed one, which the trial build and
-   `--build` still catch.
+   nested type of the head's name that a class around the use inherits from a supertype
+   (`class B : Base() { fun f() = Owner.create() }` beside a `Base.Owner`) takes the name first, which the file doesn't
+   show: a limit. Java has a property of an object or a companion by its getter, and the summary doesn't read
+   `@JvmField`, so a Java use of a property by its name links to none. A call of an extension on a value means a member
+   of the value's type first, since a member always wins over an extension, and only a compiler knows that type: the
+   summary drops locals and has no types of expressions. A bare name or `this` keeps the evidence of the file, as for
+   every declaration of it (`with(scope) { openGlobalPrompt() }`, another extension of the receiver). A wrong hard edge
+   costs more than a missed one, which the trial build and `--build` still catch.
 
 4. **Decision**: the dangling-reference check subtracts by the tree and adds nothing.
    **Rationale**: its recall comes from matching names in any position (a Kotlin extension call, a Java accessor); the
@@ -553,7 +556,9 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     pair `bd check` names the same `getButtonManager`, byte for byte. At a load average of 35–43, with the object
     cache off on that machine (no System V semaphore set was left, a leak a023d008 fixes), so both builds parse all
     2573 blobs, the minimum of 4 interleaved runs is 317 ms read, 612 ms parse, 1372 ms graph, against 156, 597 and
-    1990: within the noise.
+    1990: within the noise. The review's fixes (a top-level object names a function for Java only when it is
+    `@JvmStatic`, Kotlin names no type nested in a companion by the class around it, `@JvmStatic()`) change no link,
+    edge or output of the range.
   - `this(…)` and `super(…)` as calls of a constructor (decision 11), against the build of the step before: the range
     adds 11 Kotlin `: this(…)` delegations, no Kotlin `super(…)` and no Java one. 3648 links, one new and none lost;
     the edges are the same. The new one is right by the lineage of decision 7: `this(coroutineScope, source,

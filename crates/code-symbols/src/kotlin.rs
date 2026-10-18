@@ -554,7 +554,8 @@ fn overrides<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Modality {
   }
 }
 
-/// Whether an annotation among the modifiers of `node` names `path` (by its last name, or with `kotlin.jvm`)
+/// Whether an annotation among the modifiers of `node` names `path` (by its last name, or with `kotlin.jvm`), with
+/// arguments or without (`@JvmStatic()`)
 fn annotated(w: &Walk<'_>, node: Node<'_>, path: &[&str]) -> bool {
   let Some(modifiers) = w.child(node, Child::Kind(&["modifiers"])) else {
     return false;
@@ -563,7 +564,10 @@ fn annotated(w: &Walk<'_>, node: Node<'_>, path: &[&str]) -> bool {
   modifiers
     .named_children(&mut cursor)
     .filter(|it| w.is(*it, "annotation"))
-    .filter_map(|it| w.child(it, Child::Kind(&["user_type"])))
+    .filter_map(|it| {
+      let invocation = w.child(it, Child::Kind(&["constructor_invocation"])).unwrap_or(it);
+      w.child(invocation, Child::Kind(&["user_type"]))
+    })
     .any(|it| {
       let names = segments(w, it);
       names == path || names.strip_prefix(["kotlin", "jvm"].as_slice()) == Some(path)

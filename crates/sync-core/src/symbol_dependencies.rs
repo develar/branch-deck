@@ -1780,7 +1780,8 @@ fn resolve_jvm(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<
           .collect::<Vec<_>>()
       };
       let Some(qualifier) = qualifier.filter(|_| !site.containers.is_empty()) else {
-        // Java's `import static a.B.member`
+        // an import of the member by one of its paths: Java's `import static a.B.member`, Kotlin's `import a.Obj.member`
+        // and `import a.Owner.Companion.member`
         return (reference.qualifier.is_none() && paths.iter().any(|path| imports_of(&in_namespace(path), name))).then_some(Evidence::Import);
       };
       // `a.b.Owner.member`, or `Owner.member` and `Outer.Nested.member` with the head resolved: by an import that
@@ -1804,29 +1805,40 @@ fn resolve_jvm(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<
 
 /// The containers by which a use from the file of `use_site` may name the type of the static member `site`, the
 /// outermost first: its own (`Owner.Companion.create()`, `Obj.create()`); for a member of a Kotlin companion without a
-/// name of its own the class around it too, from Kotlin always (`Owner.create()`), from Java only for a `@JvmStatic`
-/// function or a `const val` (`Owner.CONSTANT`), which the JVM has on that class; and from Java the `INSTANCE` of a
-/// Kotlin object for a function of it (`Obj.INSTANCE.create()`; Java reads a property through its getter, another
-/// name). The summary doesn't tell a companion with a name of its own (`companion object Factory`) from a nested
-/// object, whose members the class around it doesn't have, so it is named only by its own path
-/// (`Owner.Factory.create()`)
+/// name of its own the class around it too, from Kotlin for a function or a property (`Owner.create()`; a type nested
+/// in the companion is no classifier of the class), from Java only for a `@JvmStatic` function or a `const val`
+/// (`Owner.CONSTANT`), which the JVM has on that class; and from Java the `INSTANCE` of a Kotlin object for a function
+/// of it (`Obj.INSTANCE.create()`; Java reads a property through its getter, another name), which the object itself
+/// names only when it is `@JvmStatic`: a function or property of a top-level object (`Obj.create()`). The summary
+/// doesn't tell a companion with a name of its own (`companion object Factory`) from a nested object, whose members
+/// the class around it doesn't have, so it is named only by its own path (`Owner.Factory.create()`, which Java has
+/// for a companion without `@JvmStatic` too)
 fn static_paths<'s>(use_site: &UseSite<'_>, site: &'s Site<'_>) -> Vec<Vec<&'s str>> {
   let containers: Vec<&str> = site.containers.iter().map(String::as_str).collect();
-  let mut paths = vec![containers.clone()];
   if site.ctx.language != Language::Kotlin {
-    return paths;
+    return vec![containers];
   }
   let declaration = site.declaration;
   let java = use_site.language == Language::Java;
+  let member = matches!(declaration.kind, DeclKind::Function | DeclKind::Value);
+  let on_class = (declaration.kind == DeclKind::Function && declaration.jvm_static) || declaration.kind == DeclKind::Constant;
+  let mut paths = Vec::new();
   match containers.split_last() {
     Some((&"Companion", outer)) if !outer.is_empty() => {
-      let on_owner = (declaration.kind == DeclKind::Function && declaration.jvm_static) || declaration.kind == DeclKind::Constant;
-      if !java || on_owner {
+      paths.push(containers.clone());
+      if (!java && declaration.kind != DeclKind::Type) || (java && on_class) {
         paths.push(outer.to_vec());
       }
     }
-    Some(_) if java && declaration.kind == DeclKind::Function => paths.push([containers.as_slice(), &["INSTANCE"]].concat()),
-    _ => {}
+    Some((_, outer)) if java && member => {
+      if !outer.is_empty() || on_class {
+        paths.push(containers.clone());
+      }
+      if declaration.kind == DeclKind::Function {
+        paths.push([containers.as_slice(), &["INSTANCE"]].concat());
+      }
+    }
+    _ => paths.push(containers),
   }
   paths
 }

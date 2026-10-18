@@ -254,22 +254,36 @@ fn qualified(from: usize, name: &str) -> Edge {
 }
 
 /// A member of a companion without a name of its own is one of the class around it: `Owner.create()` with `Owner`
-/// imported or of the same package, `Owner.Companion.create()` and `a.Owner.create()`
+/// imported (by an alias too) or of the same package, `Owner.Companion.create()` and `a.Owner.create()`, and
+/// `Outer.Inner.build()` of the companion of a nested class with `Outer` imported. A type of the name that the file of
+/// the use declares, or `Owner` of another package without an import, is none
 #[test]
 fn a_companion_member_through_its_owner_is_an_edge() {
+  let shadow = "package a\n\nclass Use {\n  class Owner {\n    companion object {\n      fun create() = 1\n    }\n  }\n";
+  let inner = |members: &str| format!("package a\n\nclass Outer {{\n  class Inner {{\n    companion object {{\n      fun other() = 1\n{members}    }}\n  }}\n}}\n");
   let mut range = adding_to_owner("companion object", CREATE);
   range
+    .baseline(&[("src/a/Shadow.kt", &format!("{shadow}}}\n")), ("src/a/Outer.kt", &inner(""))])
     .commit(&[("src/b/Use.kt", Some("package b\n\nimport a.Owner\n\nfun use() = Owner.create()\n"))])
     .commit(&[(
       "src/a/Same.kt",
       Some("package a\n\nfun same() = Owner.Companion.create()\n\nfun short() = Owner.create()\n"),
     )])
     .commit(&[("src/c/Full.kt", Some("package c\n\nfun full() = a.Owner.create()\n"))])
-    .commit(&[("src/d/Far.kt", Some("package d\n\nfun far() = Owner.create()\n"))]);
+    .commit(&[("src/d/Far.kt", Some("package d\n\nfun far() = Owner.create()\n"))])
+    .commit(&[("src/a/Shadow.kt", Some(&format!("{shadow}\n  fun f() = Owner.create()\n}}\n")))])
+    .commit(&[("src/e/Alias.kt", Some("package e\n\nimport a.Owner as O\n\nfun alias() = O.create()\n"))])
+    .commit(&[("src/a/Outer.kt", Some(&inner("      fun build() = 2\n")))])
+    .commit(&[("src/f/Nested.kt", Some("package f\n\nimport a.Outer\n\nfun nested() = Outer.Inner.build()\n"))]);
   assert_eq!(
     edges(&range.graph(&[], &[], &[])),
-    [qualified(1, "create"), qualified(2, "create"), qualified(3, "create"),],
-    "`Owner` of another package without an import is no evidence"
+    [
+      qualified(1, "create"),
+      qualified(2, "create"),
+      qualified(3, "create"),
+      qualified(6, "create"),
+      (8, 7, vec![link("build", Evidence::Qualified)]),
+    ]
   );
 }
 
@@ -318,21 +332,34 @@ fn a_java_call_of_a_companion_member_needs_jvm_static() {
   );
 }
 
-/// `@JvmStatic` is a form of the member (decision 10): a Java call by the class around the companion needs the commit
-/// that adds it, a Kotlin one the commit that adds the member
+/// `@JvmStatic` is a form of the member (decision 10): a Java call by the class around the companion, or by a
+/// top-level object, needs the commit that adds it; a Kotlin one, or Java's through `INSTANCE`, the commit that adds
+/// the member
 #[test]
 fn a_jvm_static_added_later_is_an_edge_for_a_java_call_through_the_owner() {
+  let registry = |members: &str| format!("package a\n\nobject Registry {{\n  fun other() = 1\n{members}}}\n");
+  let java = |class: &str, call: &str| format!("package b;\n\nimport a.{class};\n\nclass Use{class} {{\n  Object use() {{ return {call}; }}\n}}\n");
   let mut range = adding_to_owner("companion object", CREATE);
   range
+    .baseline(&[("src/a/Registry.kt", &registry(""))])
     .commit(&[("src/a/Owner.kt", Some(&owner("companion object", "    @JvmStatic fun create(): Owner = Owner()\n")))])
+    .commit(&[("src/b/UseOwner.java", Some(&java("Owner", "Owner.create()")))])
+    .commit(&[("src/b/Use.kt", Some("package b\n\nimport a.Owner\n\nfun use() = Owner.create()\n"))])
+    .commit(&[("src/a/Registry.kt", Some(&registry("  fun register() = 2\n")))])
+    .commit(&[("src/a/Registry.kt", Some(&registry("  @JvmStatic fun register() = 2\n")))])
+    .commit(&[("src/b/UseRegistry.java", Some(&java("Registry", "Registry.register()")))])
     .commit(&[(
-      "src/b/Use.java",
-      Some("package b;\n\nimport a.Owner;\n\nclass Use {\n  Object use() { return Owner.create(); }\n}\n"),
-    )])
-    .commit(&[("src/b/Use.kt", Some("package b\n\nimport a.Owner\n\nfun use() = Owner.create()\n"))]);
+      "src/c/UseRegistry.java",
+      Some(&java("Registry", "Registry.INSTANCE.register()").replacen("package b", "package c", 1)),
+    )]);
   assert_eq!(
     edges(&range.graph(&[], &[], &[])),
-    [(2, 1, vec![link("create", Evidence::Qualified)]), qualified(3, "create")]
+    [
+      (2, 1, vec![link("create", Evidence::Qualified)]),
+      qualified(3, "create"),
+      (6, 5, vec![link("register", Evidence::Qualified)]),
+      (7, 4, vec![link("register", Evidence::Qualified)]),
+    ]
   );
 }
 

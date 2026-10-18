@@ -125,14 +125,15 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   another module.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`the_same_package_is_evidence_for_a_type_in_the_same_module_only`)
 - A static member must be used by the path of its type: in full, or from its head, which an import binds (an alias, a
-  nested type: `import a.Owner.Factory` and `Factory.create()`) or, without an import of its name, the same package
-  does when the file declares nothing of that name; a nested type is no name of its package. A member of a Kotlin
-  companion without a name of its own must be used through the class around it too (`Owner.create()`,
-  `Owner.Companion.create()`), from Java only a `@JvmStatic` function or a `const val` (`Owner.create()`,
-  `import static a.Owner.create`), and Java's `Registry.INSTANCE.register()` must be a use of a function of the Kotlin
-  object `Registry`. A companion with a name of its own, which the summary doesn't tell from a nested object, must be
-  used only by its path (`Owner.Factory.create()`), and a member of a nested object never through the class around it.
-  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_companion_member_through_its_owner_is_an_edge`, `a_named_companion_needs_its_name`, `a_java_call_of_a_companion_member_needs_jvm_static`, `a_java_call_through_instance_is_an_edge`, `a_member_of_a_nested_object_through_the_owner_is_no_edge`)
+  nested type: `import a.Owner.Factory` and `Factory.create()`) or, without an import of its name, the same package does
+  when the file declares nothing of that name; a nested type is no name of its package. A member of a Kotlin companion
+  without a name of its own must be used through the class around it too (`Owner.create()`, `Owner.Companion.create()`),
+  from Java only a `@JvmStatic` function or a `const val` (`Owner.create()`, `import static a.Owner.create`), and Java's
+  `Registry.INSTANCE.register()` must be a use of a function of the Kotlin object `Registry`, and the top-level object's
+  `Registry.register()` only of a `@JvmStatic` one. A companion with a name of its own, which the summary doesn't tell
+  from a nested object, must be used only by its path (`Owner.Factory.create()`), and a member of a nested object never
+  through the class around it.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_companion_member_through_its_owner_is_an_edge`, `a_named_companion_needs_its_name`, `a_java_call_of_a_companion_member_needs_jvm_static`, `a_java_call_through_instance_is_an_edge`, `a_member_of_a_nested_object_through_the_owner_is_no_edge`, `a_jvm_static_added_later_is_an_edge_for_a_java_call_through_the_owner`)
 - In the same file, a name that a type other than the containers or the receiver of the file's declaration qualifies
   (`Registry.register(id)` beside a `register` of `Plugin`, Rust `Registry::create()` in the `create` of another `impl`)
   must be no use of that declaration. A type is a name with a capital, unless the file declares a value of that name
