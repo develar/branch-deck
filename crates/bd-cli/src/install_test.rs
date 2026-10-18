@@ -64,6 +64,8 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
   assert!(skill.contains(&format!("bd is `{}`", link.display())), "{skill}");
   assert!(skill.contains(&format!("\nallowed-tools: \"Bash({}:*)\"\n---\n", link.display())), "{skill}");
   assert!(skill.contains("run `bd help agent`"), "{skill}");
+  assert!(skill.contains("run `bd help worktrees` first"), "{skill}");
+  assert!(skill.contains("Write the `(branch)` prefix of a commit's subject when you commit"), "{skill}");
   assert_eq!(std::fs::read_to_string(&skill_files(&home)[1]).unwrap(), skill);
   // `bd help skill` prints the same skill
   let mut out = Vec::new();

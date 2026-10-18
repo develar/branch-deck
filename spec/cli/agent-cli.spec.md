@@ -896,6 +896,19 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Its first line must name the version.
   [@test] ../../crates/bd-cli/src/version_test.rs (`agent_help_names_the_version`)
 
+### `bd help worktrees`
+
+- It must say how sessions that share a checkout work in worktrees of their own: first the `(branch)` prefix written
+  when a commit is made (`(parent/leaf)` for a stacked branch, a readable name, an issue id never the name, no
+  `fixup!` subject on the shared branch, `bd rename`, `bd suggest` only for commits without a prefix); one owner
+  rewrites the shared branch and every other session only adds commits with `bd pick --from <worktree> --follow`,
+  never with `git cherry-pick`; the outcomes of a pick (`grouped_by: none`, `already_present`, `conflict.next`,
+  `uncommitted_overlap`, `range_unknown`, `source_on_newer_baseline`, `followed.state`, the undo); `bd pick --dry-run`
+  as the check after a rewrite, never a comparison by date; the protocol of the owner; and the `branch-deck:` reflog
+  lines. `bd help worktrees` must print it, and an unknown topic must name it. Together with `bd help agent` and
+  `bd help update` it must name only commands and options that exist.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`every_help_topic_prints_its_text`, `the_worktrees_help_writes_the_prefix_first_and_checks_by_content`, `agent_help_names_every_command_and_option_that_exists`)
+
 ### `bd install`
 
 - `bd install` and Help → Install Agent CLI… must put a `bd` command where an agent finds it: on macOS and Linux a
@@ -905,10 +918,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   bd (grouping into branches and pull requests, stacked when they build on each other, and updating onto the baseline
   with its conflicts), its full path, `bd help agent` as the workflow, `bd help update` for an update, and
   `bd safe-push <branch> --check` before a Safe Push, which lands a stacked branch with its parents, and
-  `--whole-stack`, which lands the whole stack; `bd help skill`
-  must print the same text. Its `allowed-tools` must be
+  `--whole-stack`, which lands the whole stack, the landing of a worktree's commits onto a shared branch among its
+  triggers, `bd help worktrees` when several sessions or worktrees work on one branch, and the `(branch)` prefix
+  written when a commit is made; `bd help skill` must print the same text. Its `allowed-tools` must be
   `Bash(<bd>:*)`, `<bd>` as the body names it, so that Claude Code runs every bd command without a permission prompt.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_allows_every_bd_command_as_named`)
+  [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`)
 - It must say whether `bd` on `PATH` is the installed one; `--uninstall` must remove the skills and only its own
   symlink. In the app the toast "Agent CLI installed" says where agents find bd and how to run it, paths under the
   home directory as `~`, with "Copy Path" (the full path of `bd`); a failure is the error toast "Cannot install the

@@ -1241,6 +1241,16 @@ Prints the workflow below as plain text, about 5 KB; it only names the resolve s
 every long option, unless the test lists it in `NOT_IN_AGENT_HELP` (as `status --limit`). An option counts for the
 command named last before it, and it must exist for that command.
 
+### `bd help worktrees`
+
+Prints how agent sessions that share a checkout work beside each other, each committing in a worktree of its own
+(`WORKTREES_HELP`, about 45 lines): the `(branch)` prefix is written when a commit is made, never guessed later; one
+owner rewrites the shared branch (`bd update`, `bd fold`, `bd group`, `bd rename`) and every other session only adds
+commits with `bd pick --from <worktree> --follow`, never a cherry-pick in the shared checkout; the outcomes of a pick
+and what to do with each; `bd pick --dry-run` as the check after a rewrite, never a comparison by date; the protocol
+of the owner (the lock, `operation_in_progress`, the new HEAD told to the others); and the `branch-deck: <operation>`
+reflog lines. The skill sends an agent there when several sessions or worktrees work on one branch.
+
 ### `bd install [--uninstall]`, `bd help skill`
 
 How an agent learns that bd exists. `bd install`, or Help → Install Agent CLI… in the app
@@ -1310,6 +1320,10 @@ To update the branch onto its baseline, run `bd update`. On `uncommitted_overlap
 ask what to do with each file; never stash, reset, check out or commit them. On a conflict, resolve each round in the
 files at `edit` and run `bd update --continue` until it exits with 0, then report each resolution. After a failed build, commit the fix as
 `fixup! <subject>` and run `bd fold`, or `bd undo` the update with its token.
+
+An agent in a worktree of its own lands its commits on the shared branch with `bd pick --from <worktree> --follow`
+(`bd help worktrees`), with the `(branch)` prefix written when it committed; on `state: conflict` it follows
+`conflict.next`, and it checks with `bd pick --dry-run` after the owner rewrote the branch.
 
 The agent never reorders, squashes or drops commits: a plan only moves commits between branches. A change that
 landed in the wrong commit moves with `bd move-hunk`, never with plumbing. The Update Project

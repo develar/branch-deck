@@ -1,5 +1,5 @@
 use crate::Cli;
-use crate::agent_help::{AGENT_HELP, READ_ONLY, UPDATE_HELP, skill_text};
+use crate::agent_help::{AGENT_HELP, READ_ONLY, UPDATE_HELP, WORKTREES_HELP, skill_text};
 use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, write};
 use clap::CommandFactory;
 use std::collections::{BTreeMap, BTreeSet};
@@ -82,8 +82,9 @@ fn named_in(text: &str) -> (BTreeSet<&str>, Vec<(Option<&str>, &str)>) {
 #[test]
 fn agent_help_names_every_command_and_option_that_exists() {
   let (global, commands) = options_of_commands();
-  // `bd help update` holds the options of the session; together the two texts name everything
-  let text = format!("{AGENT_HELP}\n{UPDATE_HELP}");
+  // `bd help update` holds the options of the session, `bd help worktrees` the work beside other sessions; together the
+  // texts name everything
+  let text = format!("{AGENT_HELP}\n{UPDATE_HELP}\n{WORKTREES_HELP}");
   let (named_commands, named) = named_in(&text);
   let is_named = |command: Option<&str>, option: &str| named.iter().any(|&(c, o)| o == option && (command.is_none() || c == command));
 
@@ -104,7 +105,10 @@ fn agent_help_names_every_command_and_option_that_exists() {
       }
     }
   }
-  assert!(missing.is_empty(), "neither in `bd help agent`, `bd help update` nor in NOT_IN_AGENT_HELP: {missing:?}");
+  assert!(
+    missing.is_empty(),
+    "neither in `bd help agent`, `bd help update`, `bd help worktrees` nor in NOT_IN_AGENT_HELP: {missing:?}"
+  );
 
   // every command and option the help names exists, an option for the command it follows
   let stale: Vec<String> = named
@@ -118,7 +122,10 @@ fn agent_help_names_every_command_and_option_that_exists() {
         .map(|command| format!("bd {command}")),
     )
     .collect();
-  assert!(stale.is_empty(), "`bd help agent` or `bd help update` names what doesn't exist: {stale:?}");
+  assert!(
+    stale.is_empty(),
+    "`bd help agent`, `bd help update` or `bd help worktrees` names what doesn't exist: {stale:?}"
+  );
 
   let wrong: Vec<&&str> = NOT_IN_AGENT_HELP
     .iter()
@@ -132,6 +139,32 @@ fn agent_help_names_every_command_and_option_that_exists() {
     })
     .collect();
   assert!(wrong.is_empty(), "NOT_IN_AGENT_HELP lists options that are named or don't exist: {wrong:?}");
+}
+
+/// `bd help <topic>` prints its text; an unknown topic names every topic
+#[test]
+fn every_help_topic_prints_its_text() {
+  let directory = tempfile::tempdir().unwrap();
+  let environment = crate::fixture_test::environment(directory.path());
+  for (topic, text) in [("agent", AGENT_HELP), ("update", UPDATE_HELP), ("worktrees", WORKTREES_HELP)] {
+    let mut out = Vec::new();
+    assert_eq!(crate::run_with(["help", topic].map(std::ffi::OsString::from), &environment, &mut out), 0, "{topic}");
+    assert_eq!(String::from_utf8(out).unwrap(), text, "{topic}");
+  }
+  let (exit_code, output) = crate::fixture_test::run_json(&environment, &["help", "lanes"]);
+  assert_eq!(exit_code, 2, "{output}");
+  assert!(output["error"]["message"].as_str().unwrap().contains("`bd help worktrees`"), "{output}");
+}
+
+/// `bd help worktrees` puts the prefix at commit time first, lands commits only with `bd pick`, and checks by content
+#[test]
+fn the_worktrees_help_writes_the_prefix_first_and_checks_by_content() {
+  let prefix = WORKTREES_HELP.find("Write the prefix when you commit").unwrap();
+  let pick = WORKTREES_HELP.find("`bd pick --from <your worktree> --follow`").unwrap();
+  assert!(prefix < pick, "{WORKTREES_HELP}");
+  for needed in ["never with `git cherry-pick`", "--dry-run", "Never compare by date", "branch-deck: pick"] {
+    assert!(WORKTREES_HELP.contains(needed), "{needed}");
+  }
 }
 
 /// HEAD, the refs, the local config, the index and the working tree status: what a read-only command must not change

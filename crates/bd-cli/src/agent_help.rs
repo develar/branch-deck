@@ -162,8 +162,8 @@ worktree on the checked out branch without a cherry-pick (or `bd pick <rev>`, `<
 replayed in memory under the repository lock, which every worktree shares, the files following; --follow moves that
 worktree onto the new tip. `already_present` lists the commits the branch has already (never an empty commit),
 `picked[].grouped_by` `none` a commit without a prefix; `state: conflict` (exit 1) changes nothing and
-`conflict.next` says what to do; `bd undo pick:…` moves both back. `bd fold` (--branch, --expect-head, --dry-run)
-folds fixup! commits.
+`conflict.next` says what to do; `bd undo pick:…` moves both back. `bd help worktrees` says how sessions in worktrees of their
+own share one branch. `bd fold` (--branch, --expect-head, --dry-run) folds fixup! commits.
 A change that landed in the wrong commit: `bd move-hunk <from> <to> <path>` (--hunk <n>, repeatable; --expect-head,
 --dry-run, --sync) moves the changes of the file `path`, or only its hunks numbered as in the patch of `from`, into the
 commit `to`, older or newer; HEAD's tree, the index and the working tree stay, the commits between keep their diff.
@@ -240,6 +240,49 @@ changes nothing; --materialize writes the missing copies, with --force all of th
 new session into an empty directory outside every worktree, for a sandbox that keeps .git read only.
 ";
 
+/// `bd help worktrees`: how agent sessions that share a checkout work beside each other, each in a worktree of its own
+/// (spec/cli/pick.spec.md); `agent_help_test.rs` checks it with `AGENT_HELP` against the commands and options
+pub const WORKTREES_HELP: &str = "\
+bd help worktrees: several sessions on one branch. Each session commits in a worktree of its own (a lease: a linked
+worktree, often a detached HEAD, sharing the git dir); its work counts once it is on the shared branch of the shared
+checkout. One owner rewrites that branch: `bd update`, `bd fold`, `bd group`, `bd rename`. Every other session only
+adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a reset in the shared checkout.
+
+1. Write the prefix when you commit, never later. A subject is `(branch) <one sentence>`, with stacked branches
+   (`branchdeck.stacks`) `(parent/leaf) <one sentence>`. The branch is a readable name of a few words, never an issue
+   id as the name; an issue id stays in the subject after the prefix, or in the body. A series of commits is a stack
+   root with one leaf per logical group; a change on its own gets a root of its own. One deliberate commit per change:
+   no `fixup!` subject on the shared branch, `bd fold` would fold it into its target. Rename a branch with
+   `bd rename <old> <new>`, which rewrites every prefix, children included. `bd suggest` is for commits that came
+   without a prefix.
+2. Land your commits, with -C <shared checkout>: `bd pick --from <your worktree> --follow`. bd replays them onto the
+   branch in memory, under the repository lock that every worktree shares, so no fold or update runs halfway through
+   it; the files follow, and --follow moves your worktree onto the new tip (its local changes on other paths stay).
+   - `picked[]`: the copies, each with the `group` it lands in; `grouped_by: none` is a commit without a prefix: fix
+     the subject before the owner groups it.
+   - `already_present[]`: commits whose change the branch has already (`on`: its commit with the same patch); never an
+     empty commit. `state: up_to_date`: nothing was left to pick.
+   - `state: conflict` (exit 1): nothing changed. Do what `conflict.next` says: move your worktree onto the branch,
+     make the commit again there, regenerate a generated file, never keep one side of a code hunk; then pick again.
+   - `uncommitted_overlap` (exit 4): local files of the named worktree sit on paths the pick writes; ask the user.
+     `range_unknown` or `source_on_newer_baseline` (exit 4): name the commits (`bd pick <first>^..<last>`), or let the
+     owner update the branch first.
+   - `followed.state` `head_moved` or `blocked`: the branch moved, your worktree did not; the same command again moves
+     only the worktree. A build daemon or a file watcher of the worktree may need a restart after it moved.
+   - `bd undo <undo_token>` moves the branch and your worktree back.
+3. Check that the branch still holds your work after the owner rewrote it: `bd pick --from <your worktree> --dry-run`
+   (`up_to_date`, every commit `already_present`). Never compare by date (a `git log` limited by time): a rewrite can
+   change the dates, and a fold changes the ids; compare subjects without the `(prefix) ` only as a hint, the content
+   decides.
+4. The owner's rewrites take the same lock and refuse while a cherry-pick, rebase, merge or revert is in progress in
+   the shared checkout (`operation_in_progress`). After one, the owner tells the other sessions its new HEAD
+   (`new_head`, `head` of `bd update`); they pick again or check with --dry-run. Nobody squashes, amends or redates
+   another session's commit.
+5. The reflog of the branch tells who moved it: `branch-deck: pick`, `undo pick`, `update project`, `undo update`,
+   `squash fixups` (`bd fold` or the app's Squash Fixups), `reword <n> commits` (`bd group`, `bd rename`), `undo`,
+   `squash <n> commits`, `drop <n> commits`, `amend <id>`, `move hunk`. Any other line came from outside Branch Deck.
+";
+
 /// The skill `bd install` writes and `bd help skill` prints (`SKILL.md`, the Agent Skills format of Claude Code, Codex
 /// and others), naming bd by `command`, its full path. It only says when to use bd and where the workflow is, so it
 /// can't fall out of date with the binary: `bd help agent` is the workflow. `allowed-tools` (Claude Code) lets the agent
@@ -252,10 +295,11 @@ pub fn skill_text(command: &str) -> String {
 ---
 name: branch-deck
 description: Group the commits of a Git branch into virtual branches and pull requests, stacked when they build on \
-each other, with the `bd` command line of Branch Deck, update onto the baseline and resolve conflicts. Use when the user asks to split, group, cluster \
+each other, with the `bd` command line of Branch Deck, update onto the baseline and resolve conflicts, and land commits \
+from one worktree onto the branch of another. Use when the user asks to split, group, cluster \
 or reorganize commits into branches or pull requests, to stack branches, to sync or push virtual branches, to start a \
-Patronus Safe Push or Dry Run of a branch or to fix one that failed, to update a branch onto its baseline or resolve its update conflicts, or \
-mentions Branch Deck.
+Patronus Safe Push or Dry Run of a branch or to fix one that failed, to update a branch onto its baseline or resolve its update conflicts, \
+to move, pick or land commits of a worktree or lease onto a shared branch, or mentions Branch Deck.
 allowed-tools: {allowed_tools}
 ---
 
@@ -270,9 +314,11 @@ virtual branches, pushes them and starts their Patronus Safe Push. Only `bd upda
 guarded update.
 
 Before anything else, run `bd help agent` and follow the workflow it prints: it is the contract of the installed
-version. To update a branch or resolve its update conflicts, run `bd help update` instead.
+version. To update a branch or resolve its update conflicts, run `bd help update` instead. When several sessions or
+worktrees work on one branch, run `bd help worktrees` first.
 
 - Run bd in the repository, or pass `-C <repo>`.
+- Write the `(branch)` prefix of a commit's subject when you commit, a readable name, never an issue id as the name.
 - Every command prints one JSON object on stdout. Branch on `error.code` and the exit code, never on the message;
   `bd schema` prints the JSON Schema of every output, `bd version` the version of bd and git.
 - Never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; move a

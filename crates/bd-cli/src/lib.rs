@@ -35,7 +35,7 @@ pub mod text_input;
 pub mod update_command;
 pub mod version;
 
-use crate::agent_help::{AGENT_HELP, READ_ONLY, UPDATE_HELP, skill_text};
+use crate::agent_help::{AGENT_HELP, READ_ONLY, UPDATE_HELP, WORKTREES_HELP, skill_text};
 use crate::check_command::{CheckArgs, check};
 use crate::commits::{CommitsArgs, commits, commits_brief};
 use crate::context::{Environment, RepoContext, RepoOptions};
@@ -154,8 +154,9 @@ enum Command {
   /// Let coding agents find bd: a `bd` symlink in ~/.local/bin (macOS, Linux) and the skill of `bd help skill` in
   /// ~/.claude/skills and ~/.agents/skills
   Install(InstallArgs),
-  /// `bd help agent`: the agent workflow; `bd help update`: the update and its resolve session; `bd help skill`: the
-  /// skill `bd install` writes; `bd help`: the usage
+  /// `bd help agent`: the agent workflow; `bd help update`: the update and its resolve session; `bd help worktrees`:
+  /// sessions in worktrees of their own on one branch; `bd help skill`: the skill `bd install` writes; `bd help`: the
+  /// usage
   Help { topic: Option<String> },
 }
 
@@ -250,10 +251,11 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Help { topic: None } => write!(out, "{}", Cli::command().render_long_help()).map_err(io_error),
     Command::Help { topic: Some(topic) } if topic == "agent" => out.write_all(AGENT_HELP.as_bytes()).map_err(io_error),
     Command::Help { topic: Some(topic) } if topic == "update" => out.write_all(UPDATE_HELP.as_bytes()).map_err(io_error),
+    Command::Help { topic: Some(topic) } if topic == "worktrees" => out.write_all(WORKTREES_HELP.as_bytes()).map_err(io_error),
     Command::Help { topic: Some(topic) } if topic == "skill" => out.write_all(skill_text(&skill_command(environment)).as_bytes()).map_err(io_error),
     Command::Help { topic: Some(topic) } => Err(CliError::new(
       ErrorCode::InvalidArguments,
-      format!("No help topic {topic:?}; try `bd help agent`, `bd help update` or `bd help skill`"),
+      format!("No help topic {topic:?}; try `bd help agent`, `bd help update`, `bd help worktrees` or `bd help skill`"),
     )),
   };
   match result {
