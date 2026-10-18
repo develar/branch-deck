@@ -175,8 +175,10 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 - A file row must show its name in the colour of its status, where a renamed or copied file came from (relative to
   the directory both paths share), its line counts and the status letter (M, A, D, R, C, T); nothing else takes width
   from the name. Its hover shows the path (`old → new` for a rename) and, in a review, the code owner. Its accessible
-  name is the file name, its description the status and the counts.
+  name is the file name, its description the status and the counts. A deleted file is struck through, its status
+  letter never, in the tree and in the header of its diff.
   [@test] ../../src/lib/file-tree.test.ts (`names a file by its name in its directory`, `names where a renamed file came from, relative to the directory both paths share`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should strike a deleted file through, never its status letter, in the tree and above its diff`)
 - A file must expand to its diff under its row.
 - The tree must be one tab stop (roving focus): ↑/↓ move between the rows and never leave the tree, Home and End go
   to the first and the last row, → opens a row (a directory, a file's diff) or goes to the first child, ← closes it or

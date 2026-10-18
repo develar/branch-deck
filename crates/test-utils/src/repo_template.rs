@@ -20,6 +20,8 @@ pub struct RepoTemplate {
 struct CommitSpec {
   message: String,
   files: Vec<(String, String)>,
+  /// Paths the commit deletes
+  deleted: Vec<String>,
   timestamp: Option<i64>,
 }
 
@@ -67,12 +69,19 @@ impl RepoTemplate {
   }
 
   #[must_use]
-  pub fn commit_with_timestamp(mut self, message: impl Into<String>, files: &[(&str, &str)], timestamp: Option<i64>) -> Self {
+  pub fn commit_with_timestamp(self, message: impl Into<String>, files: &[(&str, &str)], timestamp: Option<i64>) -> Self {
+    self.commit_deleting(message, files, &[], timestamp)
+  }
+
+  /// A commit that writes `files` and deletes the paths of `deleted`
+  #[must_use]
+  pub fn commit_deleting(mut self, message: impl Into<String>, files: &[(&str, &str)], deleted: &[&str], timestamp: Option<i64>) -> Self {
     let files = files.iter().map(|(path, content)| (path.to_string(), content.to_string())).collect();
 
     self.commits.push(CommitSpec {
       message: message.into(),
       files,
+      deleted: deleted.iter().map(ToString::to_string).collect(),
       timestamp,
     });
     self
@@ -113,9 +122,14 @@ impl RepoTemplate {
         }
         fs::write(&full_path, content)?;
       }
+      for file_path in &commit.deleted {
+        fs::remove_file(output_path.join(file_path))?;
+      }
+      // `add` of a deleted path stages its deletion
       git_command()
         .args(["add", "--"])
         .args(commit.files.iter().map(|(file_path, _)| file_path))
+        .args(&commit.deleted)
         .current_dir(output_path)
         .output()?;
 
@@ -414,6 +428,26 @@ pub mod templates {
             "class Reducer {\n  fun reduce(state: Int): Int = state + 1\n}\n",
           ),
         ],
+        Some(1704119400),
+      )
+  }
+
+  /// One commit that deletes a file and changes another, for the status of a deleted file in the tree and the review
+  pub fn commit_deleted() -> RepoTemplate {
+    RepoTemplate::new("commit_deleted")
+      .branch_prefix("user-name")
+      .commit_with_timestamp(
+        "Initial project setup",
+        &[
+          ("src/Mapper.kt", "class Mapper {\n  fun map(row: Row): Model = Model(row)\n}\n"),
+          ("src/LegacyMapper.kt", "class LegacyMapper {\n  fun map(row: Row): Model = Model(row.legacy)\n}\n"),
+        ],
+        Some(1704117600),
+      )
+      .commit_deleting(
+        "(cleanup) drop the legacy mapper",
+        &[("src/Mapper.kt", "class Mapper {\n  fun map(row: Row): Model = Model(row, legacy = false)\n}\n")],
+        &["src/LegacyMapper.kt"],
         Some(1704119400),
       )
   }

@@ -123,6 +123,27 @@ simpleTest.describe("Commit review", () => {
   })
 })
 
+simpleTest("should strike a deleted file through, never its status letter, in the tree and above its diff", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  // the `commit_deleted` template: one commit of `cleanup` deletes src/LegacyMapper.kt and changes src/Mapper.kt
+  await setupRepo("commit_deleted")
+  await syncAndWaitForBranches()
+  await expandBranch(page, findBranchRow(page, "cleanup"))
+  const preview = await openCommitPreview(page, getBranchCommitRow(page, "cleanup", "drop the legacy mapper"))
+
+  const expectStruckName = async (file: Locator) => {
+    await expect(file.getByText("LegacyMapper.kt", { exact: true })).toHaveCSS("text-decoration-line", "line-through")
+    await expect(file.getByText("D", { exact: true })).toHaveCSS("text-decoration-line", "none")
+  }
+  // the tree of the preview, beside a modified file that is not struck through
+  await expectStruckName(preview.getByRole("treeitem", { name: "LegacyMapper.kt" }))
+  await expect(preview.getByRole("treeitem", { name: "Mapper.kt", exact: true }).getByText("Mapper.kt", { exact: true })).toHaveCSS("text-decoration-line", "none")
+
+  // the header of its diff in the review window
+  await page.keyboard.press("d")
+  const window = await showReviewWindow(page, await openedReview(page, 1))
+  await expectStruckName(window.locator("[data-testid=review-file-header][data-path='src/LegacyMapper.kt']"))
+})
+
 testWithIssueLinks("should switch the commit of a review with Alt and the arrows", async ({ page }) => {
   const opened = await reviewPoolSizeCommit(page)
   // the list as it was, the commit of it
