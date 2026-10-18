@@ -1,5 +1,65 @@
 # Changelog
 
+## [0.19.0](https://github.com/develar/branch-deck/compare/v0.18.0...v0.19.0) (2026-10-18)
+
+
+### Features
+
+* **bd:** bd pick lands the commits of another worktree on this branch, --follow moves the worktree along ([8a79d19](https://github.com/develar/branch-deck/commit/8a79d19d1db043a15b5329c937f3a41e6de69c32))
+* **bd:** bd safe-push --whole-stack, with the robots, pull request and readiness of the stack branch ([04da2bc](https://github.com/develar/branch-deck/commit/04da2bc9c0aec41d8ca4a8952119cc57fb334564))
+* **bd:** bd safe-push lands a stacked branch with its parents ([bcb0d25](https://github.com/develar/branch-deck/commit/bcb0d25a02ac83b6c8b6e6de1a81a2e46d029890))
+* **bd:** bd suggest names the commits a plan gives a new stacked path ([8c1372a](https://github.com/develar/branch-deck/commit/8c1372af63e34574b4d601db03194e5e2772340f))
+* **bd:** bd suggest names the commits a plan keeps and moves ([81e34e6](https://github.com/develar/branch-deck/commit/81e34e63fa7078b83695b6d350ca0984fdfae654))
+* **check:** a branch that changes, removes or declares again what its tree uses is a dangling reference ([f6beb6c](https://github.com/develar/branch-deck/commit/f6beb6c88ccb719a723b227127e1fb4ef8c0e5e5))
+* **check:** a build of bd check --build that passed on a tree is not run again ([d6a6845](https://github.com/develar/branch-deck/commit/d6a6845e550a0cb8b30516d496b23cd42d1e2f6d))
+* **flows:** one click picks a merge up, review windows switch the main window, a moved remote that loses nothing is pushed ([695f9ec](https://github.com/develar/branch-deck/commit/695f9ece25edcc895d791ab9cd5650479cf95fa7))
+* **menus:** the preview, the review window and the commit preview offer the row's whole menu ([b402eb9](https://github.com/develar/branch-deck/commit/b402eb960142504f3b7c1e4f07b0c845f4d5f4be))
+* **patronus:** a Safe Push of a branch lands it with what it is built on, in one robot, its form where it was asked ([d489fca](https://github.com/develar/branch-deck/commit/d489fca53bd7dff48e00acdecda81306ccee8601))
+* **patronus:** Safe Push is an action, its popover only when it has something to say ([0a71ea3](https://github.com/develar/branch-deck/commit/0a71ea39f358eef9059ea5cd9fcd5ac348008351))
+* **patronus:** the start, the restart and a review request keep their names; the push is part of them ([7a7ba94](https://github.com/develar/branch-deck/commit/7a7ba94553ea6ed7c8e08189ca7677aeabeb3df4))
+* **pull-request:** Create Pull Request… for any branch without one; its dialog pushes the branch first ([96f315e](https://github.com/develar/branch-deck/commit/96f315ee30ab8cbc312ca84a7c942e0a98cd78b7))
+* **pull-request:** every pull request of a virtual branch goes into the baseline ([5432591](https://github.com/develar/branch-deck/commit/543259131e59b0bb750d803d1ab43808735a109e))
+* **push:** a stack pushes in one atomic push, in the app as in bd ([4ab403c](https://github.com/develar/branch-deck/commit/4ab403cd95b865560af88801c3062dc90be09b7d))
+* **push:** one push for the actions that need the remote, its refusal said in place ([8b09111](https://github.com/develar/branch-deck/commit/8b091116e7e0bfb364fc6629edf7016fc613f07b))
+* **push:** Push with Children is always offered on a stack root ([0a8abdb](https://github.com/develar/branch-deck/commit/0a8abdb83700fdbc14a6c6852242c168b06e57d7))
+* **review:** search the files of a review with /, the preview's Files closed at first, one file header ([01e6b65](https://github.com/develar/branch-deck/commit/01e6b65230e80ffcc9296c25fe06c3602480874d))
+* **stack:** Safe Push Whole Stack from the stack header ([1d00772](https://github.com/develar/branch-deck/commit/1d00772016e1ccd5687ccfa57e48a3fab0d170fd))
+* **stack:** the whole stack as an object in the app: its robot, pull request and menu ([38237b7](https://github.com/develar/branch-deck/commit/38237b7e44e783e9e260344343480027dd809fa8))
+* **symbols:** `this(…)` and `super(…)` of a constructor call a constructor of their type ([6b4130d](https://github.com/develar/branch-deck/commit/6b4130d6c23c616b6273726e3cdd18e2254a4314))
+* **symbols:** a call in a subclass of a member its supertype has is an edge, `inherited` ([7a2d828](https://github.com/develar/branch-deck/commit/7a2d828d311e73309177eb52a72ba6e19f265a08))
+* **symbols:** a use on a receiver of the member's type is an edge, `receiver` ([d13cfc4](https://github.com/develar/branch-deck/commit/d13cfc4ab3eb359348d4ceeb7c724d861546e931))
+* **symbols:** Java and Kotlin name each other's declarations by accessors and the file class, `facade` ([8974d32](https://github.com/develar/branch-deck/commit/8974d32e0dab0cb7e544a7eedcd0d4ab7088e98b))
+* **sync:** a forking stack also builds as one virtual branch {prefix}/stack/&lt;root&gt; ([9062769](https://github.com/develar/branch-deck/commit/9062769b20bd5f904d4a0382b33af0efc5bb6c7f))
+
+
+### Bug Fixes
+
+* **branch-menu:** a sync no longer empties the menu; its rewrites wait, disabled with the reason ([c6707ff](https://github.com/develar/branch-deck/commit/c6707fffef004707960a1fc68592a432a7796795))
+* **check:** a changed declaration is proven only where the summary sees the break ([736cfc5](https://github.com/develar/branch-deck/commit/736cfc53aaadb2841bcd130d0c7d6d291b2f11dc))
+* **check:** bd check --build hands its command to cmd as written on Windows ([59a74fc](https://github.com/develar/branch-deck/commit/59a74fccbd9d48f350c9af5c80bf33423e5666f4))
+* **config:** a 0b1 boolean is refused on every platform, and git is no oracle for it ([cd325bb](https://github.com/develar/branch-deck/commit/cd325bb94aa19f6857431f0cb02e7e141069e3a6))
+* **git:** on Windows a kill of git ends the git that the launcher starts, with its helpers ([105e496](https://github.com/develar/branch-deck/commit/105e4961bf8dd33b40bff7c8abdbbb27e521ac07))
+* **patronus:** the Safe Push form waits for the rules before a push into an approved pull request ([d6f18ed](https://github.com/develar/branch-deck/commit/d6f18eda3591178e72cc9d4f51747e97259b6da4))
+* **preview:** "⋯" of the branch and the commit preview is in the header, before the close button ([ce2462b](https://github.com/develar/branch-deck/commit/ce2462b93d56b10ea7f3016ed2d8b0bcc842820a))
+* **symbols:** a member of a companion is one of the class around it, Java's through `@JvmStatic` and `INSTANCE` ([d0c67f1](https://github.com/develar/branch-deck/commit/d0c67f194eb6d5e184b407f0046ab5895e2ac273))
+* **symbols:** a receiver's type stops at an extension receiver, a constructor parameter only in initializers ([fa8cf18](https://github.com/develar/branch-deck/commit/fa8cf18d0fedda12d76d3189e23a6b7a46ca54df))
+* **symbols:** an inherited call needs a type without supertypes and no receiver further out with one, in Java too ([1c014ad](https://github.com/develar/branch-deck/commit/1c014ad37d121c1ec97c1ed56f682236b4ca8e87))
+* **symbols:** Java names a member of a top-level object by the object only when it is `@JvmStatic` ([c44458e](https://github.com/develar/branch-deck/commit/c44458e828f234c08c449b47f4083194eaca9ef4))
+* **symbols:** Java sees a Kotlin declaration only by the names the JVM gives it ([b968cf2](https://github.com/develar/branch-deck/commit/b968cf269c7f97be0feef2db6de2a2b0b3b262a5))
+* **test-utils:** a fake CLI runs on Windows, as an exe beside its sh script ([6cd12b0](https://github.com/develar/branch-deck/commit/6cd12b04ba4ef93f6b7b853ca98702a0f8b354a4))
+* **test-utils:** a test expects a directory as git prints it, `C:/Users/…` on Windows ([92c87c2](https://github.com/develar/branch-deck/commit/92c87c2f72dfc934569839a39c58a9ef8e396bde))
+* **tests:** a test worktree is named as git names it, `C:/Users/…` on Windows ([134c069](https://github.com/develar/branch-deck/commit/134c0693e6259b924dbd753727b4d3a42b8c42eb))
+* **tests:** on Windows a test needs no Unix tool on PATH ([7430bfe](https://github.com/develar/branch-deck/commit/7430bfe3fdf3a6d74f78a251c15ca0e9d44fc131))
+* **tests:** the fixtures with names Windows forbids pass on Windows ([031a2c8](https://github.com/develar/branch-deck/commit/031a2c8cc10a9c0ec10bb2b9c7f535ac3c0473ba))
+* **windows:** a test names a fake program in git config by a path sh reads back, `/` separators on Windows ([448e49d](https://github.com/develar/branch-deck/commit/448e49dd2152b1aec624b256047c9a840f249729))
+* **windows:** clippy passes on Windows, the tree check boxes its git ([10db6dc](https://github.com/develar/branch-deck/commit/10db6dcd577be7211791c4316c61c78e9581fbbf))
+
+
+### Performance Improvements
+
+* **check:** the branches of a check build in parallel, as a sync builds them ([d61479c](https://github.com/develar/branch-deck/commit/d61479c07667d14b07e5a5f149be7fe43909006d))
+* **sync:** a conflicting branch keeps its copies before the conflict on a ref and takes them from the object cache ([88e5d58](https://github.com/develar/branch-deck/commit/88e5d5804aa965a1594d52dce232939a7b4353df))
+
 ## [0.18.0](https://github.com/develar/branch-deck/compare/v0.17.0...v0.18.0) (2026-10-18)
 
 
