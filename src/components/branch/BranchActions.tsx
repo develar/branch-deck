@@ -10,7 +10,7 @@ import { getBranchContextMenuItems } from "@/hooks/useBranchContextActions"
 import type { MenuItemGroups } from "@/lib/menu"
 import { getPushAction } from "@/lib/push-summary"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranch, useIsBranchPushing, useStackPushCurrent } from "@/stores/branch-sync"
+import { useBranch, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
 import { usePushHold } from "@/stores/patronus"
 import { getFullBranchName } from "@/stores/repository"
@@ -34,14 +34,14 @@ export interface BranchActionsProps {
 export function BranchActions({ branch, setExpanded, stackPushInHeader = false }: BranchActionsProps) {
   const processing = useIsRowProcessing(branch.name)
   const isPushing = useIsBranchPushing(branch.name)
-  const startedStackPush = useStackPushCurrent(branch.name)
+  const startedStackPush = useStackPush(branch.name)
   // one indicator of a stack push: the island header of the stack it pushes, or the row it started from
-  const stackPushCurrent = stackPushInHeader ? null : startedStackPush
+  const stackPush = stackPushInHeader ? null : startedStackPush
   const hold = usePushHold(branch.name)
   const canPush = !branch.hasError && branch.commitCount > 0
   // a running push keeps its button, with its progress, until it finished; a blocked branch says why on its button; a
   // branch a Safe Push holds offers no push, its Status cell says why (the menu, with the reason)
-  const idle = !isPushing && stackPushCurrent === null
+  const idle = !isPushing && stackPush === null
   const upToDate = idle && ((getPushAction(branch) === "upToDate" && branch.status !== "Blocked") || hold !== null)
   return (
     <RowActions>

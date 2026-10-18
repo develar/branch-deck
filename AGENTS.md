@@ -152,7 +152,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   the root, the Safe Push of the main line's last branch, "⋯"; nothing while a Safe Push runs in it), the
   commits on the lanes, oldest first (`spec/branch/stack-island.spec.md`); a side stack collapses into its root (a
   quiet one starts collapsed); Push Up to Here pushes the ancestors whole and the branch up to a commit
-  (`PushBranchParams.tip`, one `rev-list` checks the cut).
+  (`StackPushBranch.tip`, one `rev-list` checks the cut); a push of several branches is one atomic push, all or none
+  (`push_branches`, `src/lib/git/stack-push.ts`), through the leased push of `bd push` (`push_leased`).
 - **Stack parents**: a child -> parent map in `refs/branch-deck/stack-parents` stacks a branch, an issue branch and an
   issue group included, without a rewrite; Stack On, Unstack, `bd restack`/`unstack` and a plan path `parent/leaf`
   write it, a prefix with a parent level still declares one; a sync drops the line of an integrated branch; a trial

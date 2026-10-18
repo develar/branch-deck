@@ -5,7 +5,7 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use sync_core::push::{PushBranchParams, PushOutcome, push_branch};
 use tempfile::TempDir;
-use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, git_command};
+use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, git_command, refuse_every_push};
 
 const AUTH: &str = "test-user/virtual/auth";
 
@@ -294,6 +294,42 @@ fn a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it() {
   let (exit_code, output) = run_in(&repo, &["push", "auth", "--force"]);
   assert_pushed(&output, exit_code, "forced", &other);
   assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
+}
+
+/// The push of a stack is atomic: someone else's commit on the remote branch of `login` refuses `auth` too. bd fetched
+/// both, and `lease_rejected` names `login` alone, with what its remote branch has now
+#[test_log::test]
+fn a_moved_lease_refuses_the_whole_stack_and_names_the_branch_that_moved() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login"]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let (exit_code, output) = run_in(&repo, &["push", "login"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let login = "test-user/virtual/login";
+  let pushed_auth = remote_tip(&remote, AUTH);
+  push_from_elsewhere_to(&remote, login, "Someone else");
+  write(&repo, "more.txt", "more\n");
+  commit_all(&repo, "(auth) Add more", 1_700_000_500);
+
+  let (exit_code, output) = run_in(&repo, &["push", "login"]);
+  assert_error(&output, exit_code, (3, "lease_rejected"));
+  assert_eq!(remote_tip(&remote, AUTH), pushed_auth, "nothing was pushed");
+  let rejected = output["error"]["branches"].as_array().unwrap();
+  let names: Vec<&Value> = rejected.iter().map(|branch| &branch["name"]).collect();
+  assert_eq!(names, [&json!("login")]);
+  assert_eq!(dropped_subjects(&rejected[0]["remote"]), ["Someone else"]);
+}
+
+/// The leases held, yet the remote refused the push (a hook, a protected branch): `push_refused` with what git said,
+/// nothing pushed, not `lease_rejected`
+#[test_log::test]
+fn a_push_the_remote_refuses_with_its_leases_holding_is_push_refused() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
+  refuse_every_push(remote.path());
+
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_error(&output, exit_code, (4, "push_refused"));
+  assert!(output["error"]["message"].as_str().unwrap().contains("the remote refused the push"), "{output}");
+  assert_eq!(remote_tip(&remote, AUTH), "");
 }
 
 /// A remote other than `origin`, which the sync compares with: bd compares with it the same way, so the lease, the

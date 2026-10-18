@@ -1603,9 +1603,9 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    built on it, which lands it; an ancestor such a robot lands stays out of the push. `--restart-running` cancels the
    robot of a named branch over HTTP before the push and restarts it after it, as the app's restart that pushes first does.
 2. One `git push --porcelain --atomic --force-with-lease=refs/heads/<b>:<lease>… <remote> <tip>:refs/heads/<b>…`
-   (`push_lease::push_refs`, shared with the app's push; exit 1, a rejected ref, still prints the porcelain report),
-   the tips those the sync left (`leased_push_refs`, no `for-each-ref`). Atomic: a stack is pushed whole or not at
-   all, and a rejection is `lease_rejected`.
+   through `sync_core::push::push_leased`, the one leased push of the app's push too (below; `push_lease::push_refs`
+   underneath: exit 1, a rejected ref, still prints the porcelain report), the tips those the sync left
+   (`leased_push_refs`, no `for-each-ref`). Atomic: a stack is pushed whole or not at all.
 3. The lease comes from `push_lease`, which the app's push button uses as well (below): the remote head the sync of
    the same run compared with (`remote.head`), a view as fresh as the app's row, or with `--expect-remote <commit>`
    that commit. Step 1 decides whether the push may drop commits; the lease only makes sure it drops nothing the sync
@@ -1615,11 +1615,14 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    the object cache has a status of, and one `reflog` for the push times of all of them),
    so steps 1, 3 and 4 work the same for every remote. A `--remote` that is not one of the remotes the sync listed
    (`git remote`) is `no_remote`: a URL has no remote-tracking refs.
-4. A rejection fetches the rejected branches (`fetch_remote_branches`) and lists them in `lease_rejected` with their
-   new remote status (`head`, `behind`, `dropped_commits`); a branch refused as behind is listed the same way. The
-   agent shows what a push drops and, once the user approves, pushes with `--force --expect-remote <head>`.
+4. A rejection fetches every branch of the push (`fetch_remote_branches`, in `push_leased`), computes their remote
+   statuses (`compute_remote_statuses`) and lists the ones whose fetched head is not their lease in `lease_rejected`
+   (`head`, `behind`, `dropped_commits`); a branch refused as behind is listed the same way. The agent shows what a
+   push drops and, once the user approves, pushes with `--force --expect-remote <head>`. When every lease held, the
+   remote refused for another reason (a hook, a protected branch): `push_refused` with what git said. A dry run that
+   the remote would reject fetches nothing, so it can't tell which lease failed.
 
-Code: `crates/bd-cli/src/push_command.rs`, `crates/sync-core/src/push_lease.rs`,
+Code: `crates/bd-cli/src/push_command.rs`, `crates/sync-core/src/push.rs`, `crates/sync-core/src/push_lease.rs`,
 `crates/sync-core/src/remote_command.rs`.
 
 #### Agent Safe Push (`bd safe-push`)
@@ -1748,17 +1751,19 @@ either one leaves the next push of the other valid. A push replaces exactly the 
   a push replaces them only once the user saw them (a Force Push, `bd push --force`).
 - The push names the tip it read (`<tip>:refs/heads/<branch>`), so it pushes exactly that commit even if the branch
   moves meanwhile.
-- Push Up to Here (`PushBranchParams::tip`, [Stacked Branches](../../spec/branch/stacked-branches.spec.md#push-up-to-here))
+- Push Up to Here (`StackPushBranch::tip`, [Stacked Branches](../../spec/branch/stacked-branches.spec.md#push-up-to-here))
   pushes a prefix of the branch: the refspec names the chosen commit instead of the tip, with the same lease, and the
   commits after it stay unpushed. `check_push_tip` checks it with one `rev-list --first-parent <branch> ^<base>` (the
   parent's branch, or the baseline): a virtual branch is a line of cherry-picked commits, so the order of that list
   says that the commit is one of the branch's own and that the remote head is an older one of them, a fast-forward. A
   commit outside the branch, one the remote already has, or a remote head that is no commit of the line (the branch was
-  rewritten since its push) refuses the push before anything goes out. The ancestors go first, whole, by the app
-  (`pushUpTo`, the order of a Push Stack); `bd push` has no cut.
-- Both push through `push_refs` (`push --porcelain` with the leases and the refspecs, `execute_remote_command_*`,
-  `parse_push_porcelain`); the app's push passes a progress callback (`--progress`, reported to the push button,
-  "Transfer progress" under Update project), `bd push` none (no one to show it to) and `--atomic` for a stack.
+  rewritten since its push) refuses the push before anything goes out. The ancestors go whole in the same atomic push
+  (`pushUpTo`, the order of a Push Stack, "App stack push" below); `bd push` has no cut.
+- Both push through `push_leased` (`crates/sync-core/src/push.rs`) and `push_refs` under it (`push --porcelain` with
+  the leases and the refspecs, `execute_remote_command_*`, `parse_push_porcelain`); the app's push passes a progress
+  callback (`--progress`, reported to the push button, "Transfer progress" under Update project), `bd push` none (no
+  one to show it to). A push of several refs is `--atomic` in both (below); one ref goes without it, which a remote
+  may not support.
 - A rejected ref is `!` in `push --porcelain` (exit 1); the summary is only logged. `fetch_remote_branches` then
   fetches just the rejected branches, `+refs/heads/<b>:refs/remotes/<remote>/<b>` with the flags of the baseline fetch
   (`--porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance`), so the caller shows
@@ -1768,6 +1773,34 @@ either one leaves the next push of the other valid. A push replaces exactly the 
   expected one: the row turns into the push the remote now needs, and a toast offers it (a push that drops the fetched
   commits confirms in the row's push button first, as any such push does). When the fetched head is the
   expected one, the lease held and the remote refused for another reason (a hook, a protected branch): an error.
+  `push_branch` is the stack push of one branch (`push_branches`), so both answer alike.
+
+#### App stack push
+
+Push Stack, Push with Children and Push Up to Here push several branches of a stack, parents first. They go in one
+atomic push (`push_branches`, the Tauri command of `src/lib/git/stack-push.ts`), as `bd push` pushes, never one push
+per branch: a push that stopped at a failure left the stack half pushed, a child on the remote on a parent the remote
+lacks, and its pull request showing the parent's commits.
+
+1. The page waits for a running sync and for a push of one of the branches from another row, then computes the order
+   on the branches as they are (`stackPushOrder`, `stackChildrenPushOrder`, the steps of Push Up to Here). The holds
+   are checked per branch (`checkPushHold`; a held one refuses the whole push, the robot a Safe Push start replaces is
+   canceled once), and an open pull request that needs a retarget is retargeted, as before a push of one branch.
+2. `push_branches` reads the tips of all branches with one `for-each-ref` (`prepare_push_expecting`), each leased on
+   the remote head its row showed, checks a branch pushed up to a commit (`check_push_tip`, one `rev-list`), and
+   pushes them with one `git push --porcelain --atomic --progress` (`push_leased`). The progress of the one push is
+   the progress of each of its branches: every row shows it, the row it started from names it ("Pushing 7 branches
+   45%").
+3. Pushed: one `for-each-ref` reads the local and the remote tips of every branch, one `reflog` their push times
+   (`compute_remote_statuses`); no walk, each remote branch is at its tip. The page updates every row, records an
+   Activity entry per branch, refreshes the pull requests once and shows one toast.
+4. Refused: nothing was pushed. Every branch is fetched, their statuses computed the same way, and the first branch
+   (parents first) whose fetched head is not its lease is named (`PushBranchesOutcome::RemoteMoved`): every row shows
+   what its remote has now. When that remote has no commits its branch lacks (`pushesOverMovedRemote`), the page pushes
+   the stack again at once, leased on the fetched heads, once; else the toast of that branch offers its push over it.
+   When every lease held, the remote refused for another reason: an error, as for one branch.
+
+Code: `crates/sync-core/src/push.rs`, `src-tauri/src/commands/push.rs`, `src/lib/git/stack-push.ts`.
 
 #### Patronus review pre-check
 
@@ -2022,6 +2055,7 @@ before it) and now:
 | Squash two commits | `a_squash` | 18 | 14 |
 | Squash fixups | `a_squash_of_fixups` | 31 | 24 |
 | Update check, Update Project | `an_update_check`, `an_update` | 20, 38 | 20, 38 |
+| App stack push of two branches (`push_branches`; first a push per branch) | `an_atomic_push_of_a_stack` * | 8 | 4 |
 | `bd check`, with `--build` of two paths | `a_check`, `a_check_with_a_build` | 20, 26 | 20, 23 |
 | `bd push --dry-run` | `a_push` | 54 | 25 |
 | `bd safe-push --check` | `a_safe_push_check` * | 57 | 32 |

@@ -280,12 +280,15 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   warning toast stays until the user acts: "login changed on the remote", "3 commits you don't have (by Ann and Bob).
   Nothing was pushed.", with the push the row now offers ("Force Push", "Push", "Create Remote") as its action,
   leased on the fetched head; a push that drops the commits the remote has now confirms first, as below, and it asks
-  before a push into a running Safe Push as any push does ([Patronus](../branch/patronus.spec.md)). A stack push stops
-  at that branch. A remote that moved without commits the branch lacks (deleted, rebuilt older versions, a branch
-  created there with the same commits) loses nothing: the push goes over the fetched head at once, once, and says only
-  that it pushed; the toast is for a remote with someone's commits, or one that moved again.
-  [@test] ../../src/lib/git/push.test.ts (`pushes again over the new remote tip when the remote has no commits the branch lacks: nothing is lost`, `tells a remote with commits the branch lacks, and pushes nothing over it`)
-  [@test] ../../crates/sync-core/src/push_test.rs (`a_remote_that_moved_since_the_status_is_fetched_not_overwritten`, `a_branch_created_on_the_remote_meanwhile_is_fetched_not_overwritten`, `a_branch_deleted_on_the_remote_is_shown_as_not_pushed`)
+  before a push into a running Safe Push as any push does ([Patronus](../branch/patronus.spec.md)). A remote that
+  moved without commits the branch lacks (deleted, rebuilt older versions, a branch created there with the same
+  commits) loses nothing: the push goes over the fetched head at once, once, and says only that it pushed; the toast is
+  for a remote with someone's commits, or one that moved again. A stack push is one atomic push: a branch that moved
+  refuses all of it, nothing of the stack is pushed and every branch of it is fetched; it goes again over the fetched
+  heads at once, once, as the push of one branch does, else the toast is of the branch that moved
+  ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)).
+  [@test] ../../src/lib/git/push.test.ts (`pushes again over the new remote tip when the remote has no commits the branch lacks: nothing is lost`, `tells a remote with commits the branch lacks, and pushes nothing over it`, `pushes all or none: a remote branch that moved refuses the push, and its toast says what that remote has`, `pushes the stack again over the fetched heads when the remote that moved has no commits the branch lacks`)
+  [@test] ../../crates/sync-core/src/push_test.rs (`a_remote_that_moved_since_the_status_is_fetched_not_overwritten`, `a_branch_created_on_the_remote_meanwhile_is_fetched_not_overwritten`, `a_branch_deleted_on_the_remote_is_shown_as_not_pushed`, `a_moved_lease_refuses_every_branch_and_names_it`)
   [@test] ../../src/lib/remote-status.test.ts (`says how many commits the remote has that the branch lacks, and by whom; the action is a force push`, `offers the push the button would show when the remote lacks nothing of the branch`, `offers to create a branch deleted on the remote`, `names the distinct authors in the order of the commits`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show what the remote has when it moved since the status, and force push over it from the toast`)
 - The description of a push that drops remote commits must list them under its text, newest first: subject, author,

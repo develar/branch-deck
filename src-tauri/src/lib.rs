@@ -45,7 +45,7 @@ use commands::pull_requests::{
   close_pull_request, create_pull_request, get_branch_rules, get_new_pull_request, get_pull_request_head, get_pull_requests, request_pull_request_reviewers, retarget_pull_request,
   search_github_users, submit_pull_request_review, wait_for_github_branch,
 };
-use commands::push::push_branch;
+use commands::push::{push_branch, push_branches};
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::repository_config::{get_repository_config, set_repository_config};
 use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, get_range_patch, get_review_requests, prune_review_refs};
@@ -82,6 +82,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
   // aliases only add noise (and type `Channel<T>` arguments with the wrong phase)
   Builder::<tauri::Wry>::new().disable_serde_phases().commands(collect_commands![
     push_branch,
+    push_branches,
     get_pull_requests,
     retarget_pull_request,
     get_new_pull_request,

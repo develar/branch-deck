@@ -446,7 +446,7 @@ reports in it and closes it once merged.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should warn before a push that dismisses the approvals of the pull request`)
 - The push is a step of the start: it has no toast of its own (Activity
   records it), the start's toast is the one toast of the action, and while it runs the button clicked shows it
-  ("Pushing 45%", "Pushing login 45%" for a stack), the one indicator of it: the push button of the row is disabled
+  ("Pushing 45%", "Pushing 2 branches 45%" for the one push of a stack), the one indicator of it: the push button of the row is disabled
   without its spinner and percent. A failed push starts nothing. The push is `pushForAction`, the push of every action
   that needs the remote (the pull request dialog, Request Review): it never drops someone's remote commits for the
   user, and a branch, or an ancestor it pushes, whose remote branch has commits the branch lacks refuses the start: "The

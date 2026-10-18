@@ -197,9 +197,20 @@ let recheckTimer: ReturnType<typeof setTimeout> | undefined
  * asks once more a little later.
  */
 export async function refreshPullRequestsAfterPush(branchName: string, pushedTip: string | undefined): Promise<void> {
+  await refreshPullRequestsAfterPushes([[branchName, pushedTip]])
+}
+
+/**
+ * `refreshPullRequestsAfterPush` of the branches of one push, `[branch, pushed tip]`: one refresh, and one more a
+ * little later if GitHub still reports an old head of any of them
+ */
+export async function refreshPullRequestsAfterPushes(pushed: readonly (readonly [string, string | undefined])[]): Promise<void> {
   await refreshPullRequests("push")
-  const pullRequest = getPullRequest(branchName)
-  if (pullRequest !== undefined && pushedTip !== undefined && pullRequest.headRefOid !== pushedTip) {
+  const stale = pushed.some(([branchName, pushedTip]) => {
+    const pullRequest = getPullRequest(branchName)
+    return pullRequest !== undefined && pushedTip !== undefined && pullRequest.headRefOid !== pushedTip
+  })
+  if (stale) {
     clearTimeout(recheckTimer)
     recheckTimer = setTimeout(() => void refreshPullRequests("push"), PUSH_RECHECK_DELAY_MS)
   }

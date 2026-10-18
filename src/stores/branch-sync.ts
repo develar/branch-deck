@@ -154,10 +154,11 @@ export interface BranchSyncState {
    */
   pushingBranches: Readonly<Record<string, true>>
   /**
-   * The stack pushes in flight: the branch a push of several branches started from (Push Stack, Push with Children) ->
-   * the branch it pushes now. Owned by push, as `pushingBranches`.
+   * The stack pushes in flight: the branch a push of several branches started from (Push Stack, Push with Children,
+   * Push Up to Here) -> the branches it sends in its one `git push`, parents first; empty while it waits for a sync.
+   * Owned by push, as `pushingBranches`.
    */
-  stackPushes: Readonly<Record<string, string>>
+  stackPushes: Readonly<Record<string, readonly string[]>>
   unassignedCommits: Commit[]
   /** The fixup commits and their targets, loaded after a sync that found fixup commits; null without any */
   autosquashPlan: AutosquashPlan | null
@@ -643,8 +644,11 @@ export function useIsBranchPushing(name: string): boolean {
   return useStore(branchSyncStore, state => Object.hasOwn(state.pushingBranches, name))
 }
 
-/** The branch a stack push started from the branch pushes now; null when none runs */
-export function useStackPushCurrent(startedFrom: string): string | null {
+/**
+ * The branches a stack push started from the branch sends, parents first (`stackPushes`; empty while it waits for a
+ * sync); null when none runs
+ */
+export function useStackPush(startedFrom: string): readonly string[] | null {
   return useStore(branchSyncStore, state => state.stackPushes[startedFrom] ?? null)
 }
 
@@ -790,24 +794,30 @@ export function isStackPushing(startedFrom: string): boolean {
   return Object.hasOwn(branchSyncStore.getState().stackPushes, startedFrom)
 }
 
-/** The branch a stack push started from `startedFrom` pushes now; null when it ended */
-export function setStackPushCurrent(startedFrom: string, current: string | null): void {
+/** The branches a stack push started from `startedFrom` sends (`stackPushes`); null when it ended */
+export function setStackPush(startedFrom: string, names: readonly string[] | null): void {
   branchSyncStore.setState(state => {
-    if (current === null) {
+    if (names === null) {
       if (!Object.hasOwn(state.stackPushes, startedFrom)) {
         return state
       }
       const { [startedFrom]: _, ...stackPushes } = state.stackPushes
       return { stackPushes }
     }
-    return { stackPushes: { ...state.stackPushes, [startedFrom]: current } }
+    return { stackPushes: { ...state.stackPushes, [startedFrom]: names } }
   })
 }
 
 /** Records how far the push of the branch is; a message that arrives after the push ended is dropped */
 export function setBranchPushProgress(name: string, progress: TransferProgress): void {
-  if (isBranchPushing(name)) {
-    pushProgressStore.setState({ [name]: progress })
+  setBranchesPushProgress([name], progress)
+}
+
+/** Records how far the one push of the branches is, for each of them in one update; the ones whose push ended drop it */
+export function setBranchesPushProgress(names: readonly string[], progress: TransferProgress): void {
+  const pushing = names.filter(name => isBranchPushing(name))
+  if (pushing.length > 0) {
+    pushProgressStore.setState(Object.fromEntries(pushing.map(name => [name, progress])))
   }
 }
 

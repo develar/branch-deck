@@ -1,10 +1,10 @@
-use crate::push::{PushBranchParams, PushOutcome, push_branch};
+use crate::push::{PushBranchParams, PushBranchesOutcome, PushBranchesParams, PushOutcome, StackPushBranch, push_branch, push_branches};
 use crate::remote_status::compute_remote_status_for_branch;
 use crate::transfer_progress::TransferProgress;
 use pretty_assertions::assert_eq;
 use sync_types::RemoteStatusUpdate;
 use test_log::test;
-use test_utils::git_test_utils::{TestRepo, disable_background_maintenance};
+use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, refuse_every_push};
 
 const BRANCH: &str = "prefix/virtual/feature";
 
@@ -36,30 +36,42 @@ fn rev_parse(repo: &TestRepo, reference: &str) -> Option<String> {
 }
 
 fn remote_tip(remote: &TestRepo) -> Option<String> {
-  rev_parse(remote, &format!("refs/heads/{BRANCH}"))
+  remote_tip_of(remote, BRANCH)
+}
+
+fn remote_tip_of(remote: &TestRepo, branch: &str) -> Option<String> {
+  rev_parse(remote, &format!("refs/heads/{branch}"))
 }
 
 /// Point the virtual branch at `id`, as a sync does
 fn set_branch(local: &TestRepo, id: &str) {
+  set_branch_of(local, BRANCH, id);
+}
+
+fn set_branch_of(local: &TestRepo, branch: &str, id: &str) {
   local
     .git_executor()
-    .execute_command(&["update-ref", &format!("refs/heads/{BRANCH}"), id], path(local))
+    .execute_command(&["update-ref", &format!("refs/heads/{branch}"), id], path(local))
     .unwrap();
 }
 
 /// Someone else commits `subject` onto the remote branch from another clone (creating the branch if it is not there)
 fn push_from_elsewhere(remote: &TestRepo, subject: &str) -> String {
+  push_from_elsewhere_to(remote, BRANCH, subject)
+}
+
+fn push_from_elsewhere_to(remote: &TestRepo, branch: &str, subject: &str) -> String {
   let other = TestRepo::new_empty();
   other.clone_from(remote.path()).unwrap();
-  if remote_tip(remote).is_some() {
-    other.checkout(BRANCH).unwrap();
+  if remote_tip_of(remote, branch).is_some() {
+    other.checkout(branch).unwrap();
   } else {
-    other.checkout_new_branch(BRANCH).unwrap();
+    other.checkout_new_branch(branch).unwrap();
   }
   other.set_config("user.name", "Other").unwrap();
   other.set_config("user.email", "other@example.com").unwrap();
   let id = other.create_commit(subject, &format!("{subject}.txt"), subject);
-  other.push("origin", BRANCH).unwrap();
+  other.push("origin", branch).unwrap();
   id
 }
 
@@ -274,13 +286,7 @@ fn a_branch_deleted_on_the_remote_is_shown_as_not_pushed() {
 fn a_push_the_remote_refuses_for_another_reason_is_an_error() {
   let (remote, local) = local_with_bare_remote();
   let first = first_push(&remote, &local);
-  let hook = remote.path().join("hooks/pre-receive");
-  std::fs::write(&hook, "#!/bin/sh\necho 'protected branch' >&2\nexit 1\n").unwrap();
-  #[cfg(unix)]
-  {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-  }
+  refuse_every_push(remote.path());
   let more = local.create_commit("(feature) More", "more.txt", "more");
   set_branch(&local, &more);
 
@@ -352,4 +358,116 @@ fn a_push_up_to_a_commit_refuses_one_outside_the_branch_and_a_branch_rewritten_s
   let error = push_up_to(&local, Some(&first), &reworded).unwrap_err();
   assert!(error.to_string().contains("rewritten"), "{error:#}");
   assert_eq!(remote_tip(&remote), Some(first));
+}
+
+const AUTH: &str = "prefix/virtual/auth";
+const LOGIN: &str = "prefix/virtual/login";
+
+/// The app's push of a stack: `auth`, then `login` built on it, each leased on its `expected` remote head and pushed
+/// up to its `tip` (Push Up to Here) when one is given
+fn push_stack(local: &TestRepo, expected: [Option<&str>; 2], tips: [Option<&str>; 2]) -> PushBranchesOutcome {
+  let branch = |name: &str, parent: Option<&str>, expected: Option<&str>, tip: Option<&str>| StackPushBranch {
+    branch_name: name.to_string(),
+    parent_branch: parent.map(str::to_string),
+    expected_remote: expected.map(str::to_string),
+    tip: tip.map(str::to_string),
+  };
+  let params = PushBranchesParams {
+    repository_path: path(local).to_string(),
+    branch_prefix: "prefix".to_string(),
+    my_email: Some("test@example.com".to_string()),
+    baseline_branch: "origin/master".to_string(),
+    branches: vec![branch("auth", None, expected[0], tips[0]), branch("login", Some("auth"), expected[1], tips[1])],
+  };
+  push_branches(local.git_executor(), &params, &mut |_| {}).unwrap()
+}
+
+fn stack_pushed(outcome: PushBranchesOutcome) -> Vec<RemoteStatusUpdate> {
+  match outcome {
+    PushBranchesOutcome::Pushed { remote_statuses } => remote_statuses,
+    PushBranchesOutcome::RemoteMoved { branch_name, .. } => panic!("the remote of {branch_name} moved"),
+  }
+}
+
+/// `auth` of one commit and `login` of one commit built on it, as the sync leaves a stack; returns their tips
+fn stack(local: &TestRepo) -> (String, String) {
+  let auth = local.create_commit("(auth) Add auth", "auth.txt", "auth");
+  let login = local.create_commit("(auth/login) Add login", "login.txt", "login");
+  set_branch_of(local, AUTH, &auth);
+  set_branch_of(local, LOGIN, &login);
+  (auth, login)
+}
+
+#[test]
+fn a_stack_pushes_its_branches_in_one_push() {
+  let (remote, local) = local_with_bare_remote();
+  let (auth, login) = stack(&local);
+
+  let statuses = stack_pushed(push_stack(&local, [None, None], [None, None]));
+  assert_eq!((remote_tip_of(&remote, AUTH), remote_tip_of(&remote, LOGIN)), (Some(auth.clone()), Some(login.clone())));
+  let tips: Vec<(&str, Option<&str>)> = statuses.iter().map(|status| (status.branch_name.as_str(), status.remote_tip.as_deref())).collect();
+  assert_eq!(tips, [("auth", Some(auth.as_str())), ("login", Some(login.as_str()))]);
+  assert!(
+    statuses.iter().all(|status| status.unpushed_commits.is_empty() && status.commits_behind == 0),
+    "{statuses:?}"
+  );
+}
+
+/// A stack is pushed whole or not at all: someone else's commit on the remote branch of `login` refuses the push of
+/// `auth` too. Both are fetched, the outcome names `login` and says what each remote branch has now, and the next push
+/// with the fetched head replaces it
+#[test]
+fn a_moved_lease_refuses_every_branch_and_names_it() {
+  let (remote, local) = local_with_bare_remote();
+  let (auth, login) = stack(&local);
+  stack_pushed(push_stack(&local, [None, None], [None, None]));
+  let theirs = push_from_elsewhere_to(&remote, LOGIN, "Their fix");
+  // a commit more in each, `login` rebuilt on the new `auth` as a sync does
+  local.reset_hard(&auth).unwrap();
+  let more_auth = local.create_commit("(auth) More auth", "more-auth.txt", "more");
+  local.create_commit("(auth/login) Add login", "login.txt", "login");
+  let more_login = local.create_commit("(auth/login) More login", "more-login.txt", "more");
+  set_branch_of(&local, AUTH, &more_auth);
+  set_branch_of(&local, LOGIN, &more_login);
+
+  let PushBranchesOutcome::RemoteMoved { branch_name, remote_statuses } = push_stack(&local, [Some(&auth), Some(&login)], [None, None]) else {
+    panic!("pushed over someone else's commit");
+  };
+  assert_eq!(branch_name, "login");
+  assert_eq!(
+    (remote_tip_of(&remote, AUTH), remote_tip_of(&remote, LOGIN)),
+    (Some(auth.clone()), Some(theirs.clone())),
+    "nothing was pushed"
+  );
+  assert_eq!(
+    rev_parse(&local, &format!("refs/remotes/origin/{LOGIN}")),
+    Some(theirs.clone()),
+    "the branches were fetched"
+  );
+  let [auth_status, login_status] = remote_statuses.as_slice() else {
+    panic!("{remote_statuses:?}");
+  };
+  assert_eq!(
+    (auth_status.remote_tip.as_deref(), auth_status.unpushed_commits.as_slice()),
+    (Some(auth.as_str()), [more_auth.clone()].as_slice())
+  );
+  assert_eq!((login_status.remote_tip.as_deref(), login_status.commits_behind), (Some(theirs.as_str()), 1));
+  assert_eq!(dropped_subjects(login_status), ["Their fix"]);
+
+  // the user saw their commit and pushes over it
+  stack_pushed(push_stack(&local, [Some(&auth), Some(&theirs)], [None, None]));
+  assert_eq!((remote_tip_of(&remote, AUTH), remote_tip_of(&remote, LOGIN)), (Some(more_auth), Some(more_login)));
+}
+
+/// Push Up to Here in a stack: `auth` goes whole, `login` up to the commit, in the same push
+#[test]
+fn a_stack_push_up_to_a_commit_pushes_the_branches_below_whole() {
+  let (remote, local) = local_with_bare_remote();
+  let (auth, first_login) = stack(&local);
+  let second_login = local.create_commit("(auth/login) More login", "more-login.txt", "more");
+  set_branch_of(&local, LOGIN, &second_login);
+
+  let statuses = stack_pushed(push_stack(&local, [None, None], [None, Some(&first_login)]));
+  assert_eq!((remote_tip_of(&remote, AUTH), remote_tip_of(&remote, LOGIN)), (Some(auth), Some(first_login)));
+  assert_eq!(statuses[1].unpushed_commits, [second_login]);
 }

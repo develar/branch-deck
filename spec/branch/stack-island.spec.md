@@ -15,6 +15,7 @@ targets:
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/BranchActions.tsx
   - ../../src/components/branch/BranchPushButton.tsx
+  - ../../src/lib/git/stack-push.ts
   - ../../src/components/branch/ActiveBranchExpanded.tsx
   - ../../src/components/commit/StackCommitLines.tsx
   - ../../src/components/commit/CommitList.tsx
@@ -87,12 +88,13 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   accessible name, as the root's menu names it: the branches of the stack that have work for the remote, each after
   the branch it is built on (`stackChildrenPushOrder`), the landed ones and the ones a running Safe Push holds left
   out, so it counts as the "to push" chip does. Its hover names it and lists the pushes ("Pushes 7 branches, parents
-  first:", a line per branch), and the branches whose push drops remote commits, which ask first in their rows; while
-  it runs, the spinner and the percent, "Pushing bazel" on hover, the one indicator of the stack push (also of Push
-  with Children from the root's menu): the root row shows only its own push, the row of the branch it pushes its
-  push. Its place stays empty while it would push only the root (the root row's push is the push) and while a Safe
+  first:", a line per branch), and the branches whose push drops remote commits, which ask first in their rows. It is
+  one atomic push of all of them ([Stacked Branches](stacked-branches.spec.md#pull-requests)): while it runs, the spinner
+  and the percent, "Pushing 7 branches" its name and the line of git on hover, the one indicator of the stack push
+  (also of Push with Children from the root's menu), and every row it pushes shows the same progress on its own push
+  button. Its place stays empty while it would push only the root (the root row's push is the push) and while a Safe
   Push runs in the stack.
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header, parents first`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header in one push, parents first`)
 - The Safe Push slot is the one of the last branch of the main line (`stackMainLineIn`, lane 0 of the graph): its one
   robot lands the whole line ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). Its hover says whose it
   is, what it lands and which side branches it doesn't: "Safe Push deploy · lands 5 of 7 branches into master ·

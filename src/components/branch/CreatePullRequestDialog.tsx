@@ -29,10 +29,11 @@ import { notifyError } from "@/lib/errors"
 import { isMac } from "@/lib/platform"
 import { formatAvailabilityHint, openPullRequest } from "@/lib/pull-request"
 import type { CompareFields } from "@/lib/pull-request"
+import { formatStackPushing } from "@/lib/stack"
 import { showToast } from "@/lib/toast-message"
 import { transferLabel } from "@/lib/transfer-progress"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranchPushProgress, useBranchSync, useIsBranchPushing, useStackPushCurrent } from "@/stores/branch-sync"
+import { useBranchPushProgress, useBranchSync, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { closeCreatePullRequestDialog, useCreatePullRequestBranch, useCreatePullRequestGeneration } from "@/stores/create-pull-request-dialog"
 import { setCreatePullRequestAssignSelf, useAppSettings } from "@/stores/settings/appSettings"
 
@@ -123,15 +124,15 @@ interface FormProps {
   setIsCreating: (isCreating: boolean) => void
 }
 
-/** "Pushing 45%" while the push a creation starts with runs ("Pushing auth 45%" for a parent), else null */
+/** "Pushing 45%" while the push a creation starts with runs ("Pushing 2 branches 45%" with its parents), else null */
 function usePushLabel(branchName: string): string | null {
   const pushing = useIsBranchPushing(branchName)
-  const stackPushCurrent = useStackPushCurrent(branchName)
-  const progress = useBranchPushProgress(stackPushCurrent ?? branchName)
-  if (!pushing && stackPushCurrent === null) {
+  const stackPush = useStackPush(branchName)
+  const progress = useBranchPushProgress(stackPush?.[0] ?? branchName)
+  if (!pushing && stackPush === null) {
     return null
   }
-  return transferLabel(stackPushCurrent === null || stackPushCurrent === branchName ? "Pushing" : `Pushing ${stackPushCurrent}`, progress)
+  return transferLabel(formatStackPushing(branchName, stackPush), progress)
 }
 
 /** The form of the main window's dialog: the context from its stores, the creation by its store, the toast here */

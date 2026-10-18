@@ -467,6 +467,14 @@ pub async fn fetch_baseline(
   .await
 }
 
+/// The app's stack push, on the same core. Most templates name the repository itself as `origin` (`.`), so a test of a
+/// push answers it in the page (`routePushBranches`); the progress stays there too
+pub async fn push_branches(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::push::PushBranchesParams>) -> CommandResult<sync_core::push::PushBranchesOutcome> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("push the branches", move || sync_core::push::push_branches(&git_executor, &params, &mut |_| {})).await
+}
+
 /// The fixture set by `POST /repositories/{id}/pull-requests`; GitHub is never asked in E2E
 pub async fn get_pull_requests(
   State(state): State<Arc<AppState>>,

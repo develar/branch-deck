@@ -65,7 +65,8 @@ flowchart LR
     one computation per structure.
   - `stackDescendantsIn` and `getStackChildren` walk a children index instead of the whole order.
 - **Push progress** has its own store (`pushProgressStore`). Its ticks, every 100 ms, reach only
-  `useBranchPushProgress`, not every selector of the branch store.
+  `useBranchPushProgress`, not every selector of the branch store. The one push of a stack writes the tick of all
+  its branches in one update (`setBranchesPushProgress`).
 - **The robot of a branch:** `findBranchRobot` (`src/lib/patronus.ts`) looks it up in an index. The index holds the
   preferred robot per branch name and per source revision, and is built once per robots record (a `WeakMap`).
 

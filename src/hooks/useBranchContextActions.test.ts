@@ -109,7 +109,7 @@ describe("the push of the branch menu", () => {
 
   it("is disabled with the reason while the stack push runs", () => {
     setBranches(synced("auth", null, unpushed), synced("login", "auth", unpushed))
-    branchSyncStore.setState({ stackPushes: { login: "auth" } })
+    branchSyncStore.setState({ stackPushes: { login: ["auth", "login"] } })
     expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", disabled: true, description: "The stack is being pushed" })])
   })
 })

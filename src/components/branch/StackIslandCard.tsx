@@ -21,20 +21,20 @@ import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { formatBranchCount, formatBranchesAndCommits } from "@/lib/branch"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
-import { pushWithChildren } from "@/lib/git/push"
+import { pushWithChildren } from "@/lib/git/stack-push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { formatPushMode } from "@/lib/patronus"
 import { dropsRemoteCommits } from "@/lib/push-summary"
 import { formatStackPushLine } from "@/lib/push-up-to"
 import { formatRobotProgress } from "@/lib/robot-eta"
-import { formatPushWithChildrenLabel, needsPush, offersPushWithChildren, stackChildrenPushOrder } from "@/lib/stack"
+import { formatPushWithChildrenLabel, needsPush, offersPushWithChildren, stackChildrenPushOrder, stackPushSubject } from "@/lib/stack"
 import type { StackIsland } from "@/lib/stack-collapse"
 import type { StackAttention, StackState, StackStateChip } from "@/lib/stack-state"
 import { firstBranchOfEachState, getStackStateChips, summarizeStackState } from "@/lib/stack-state"
 import { joinNames } from "@/lib/text"
 import { transferLabel } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
-import { getBranch, stackDescendantsIn, stackMainLineIn, useBranch, useBranchPushProgress, useBranchSync, useStackPushCurrent } from "@/stores/branch-sync"
+import { getBranch, stackDescendantsIn, stackMainLineIn, useBranch, useBranchPushProgress, useBranchSync, useStackPush } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { openInline, useStackHeaderInline } from "@/stores/inline-row-action"
 import { isPatronusAvailable, useBranchRobot } from "@/stores/patronus"
@@ -287,8 +287,10 @@ function StateChip({ chip, branch }: { chip: StackStateChip; branch: string | un
  * root (the root row's push is that push) and while a Safe Push runs in the stack: a push won't land.
  */
 function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary }) {
-  const current = useStackPushCurrent(root)
-  const progress = useBranchPushProgress(current ?? root)
+  const stackPush = useStackPush(root)
+  const current = stackPush === null ? null : stackPushSubject(root, stackPush)
+  // the one push of the stack reports its progress for each of its branches
+  const progress = useBranchPushProgress(stackPush?.[0] ?? root)
   const { pushOrder, askFirst } = summary
   if (current === null && (summary.rootHeld || !offersPushWithChildren(root, pushOrder))) {
     return <span aria-hidden className="w-16 shrink-0" data-testid="stack-island-push-placeholder" />
@@ -329,7 +331,7 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
             )}
           </>
         ) : (
-          <PushProgressDescription branchName={current} progress={progress} />
+          <PushProgressDescription subject={current} progress={progress} />
         )}
       </PopoverContent>
     </Popover>

@@ -11,10 +11,11 @@ import type { PushButtonAction } from "@/hooks/usePushButton"
 import { usePushButton } from "@/hooks/usePushButton"
 import type { TransferProgress } from "@/lib/bindings"
 import { pushBranch, pushFromButton } from "@/lib/git/push"
+import { formatStackPushing, stackPushSubject } from "@/lib/stack"
 import { transferAmountNotInLine, transferLabel } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranchPushProgress, useIsBranchPushing, useStackPushCurrent } from "@/stores/branch-sync"
+import { useBranchPushProgress, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { useIsInlinePushing, useIsRowProcessing } from "@/stores/inline-row-action"
 import type { PushConfirmRequest, PushConfirmTarget } from "@/stores/push-confirm"
 import { clearPushConfirm, usePushConfirmRequest } from "@/stores/push-confirm"
@@ -47,20 +48,20 @@ export interface BranchPushButtonProps {
  * ("Everything is pushed.", why it is blocked), with the remote commits a force push drops and the other push of a
  * stacked branch (the branch alone, or Push Stack). A push that drops remote commits asks first: the click opens the
  * description with a destructive Force Push, which pushes. While the push runs, the label has its percent ("Pushing
- * 45%", "Pushing login 45%" for an ancestor of a stack push) and the hover the last progress line of git, with the
- * amount and the rate when that line lacks them.
+ * 45%", "Pushing 3 branches 45%" for the one push of a stack, "Pushing login 45%" for a stack push of another branch)
+ * and the hover the last progress line of git, with the amount and the rate when that line lacks them.
  */
 export function BranchPushButton({ branch, colored = true, hint, confirmTarget, compact = false, shortcut, stackPushInHeader = false }: BranchPushButtonProps) {
-  // a stack push from this row shows the branch it pushes now, unless the island header shows it
-  const startedStackPush = useStackPushCurrent(branch.name)
-  const stackCurrent = stackPushInHeader ? null : startedStackPush
-  const pushingName = stackCurrent ?? branch.name
-  const isPushing = useIsBranchPushing(branch.name) || stackCurrent !== null
+  // a stack push from this row shows what it pushes, unless the island header shows it
+  const startedStackPush = useStackPush(branch.name)
+  const stackPush = stackPushInHeader ? null : startedStackPush
+  const isPushing = useIsBranchPushing(branch.name) || stackPush !== null
   // the form below the row pushes as the first step of its action: the button of that action shows the push, this one
   // is disabled without it
   const formPushes = useIsInlinePushing(branch.name) && compact
   const showsPush = isPushing && !formPushes
-  const progress = useBranchPushProgress(pushingName)
+  // the one push of a stack reports its progress for each of its branches
+  const progress = useBranchPushProgress(stackPush?.[0] ?? branch.name)
   const processing = useIsRowProcessing(branch.name)
   const push = usePushButton(branch, isPushing)
   const request = usePushConfirmRequest(branch.name, confirmTarget)
@@ -78,7 +79,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
     }
   }
   const confirming = push.confirm && !isPushing && (clicked || request !== null)
-  const label = showsPush ? transferLabel(pushingName === branch.name ? "Pushing" : `Pushing ${pushingName}`, progress) : push.text
+  const label = showsPush ? transferLabel(formatStackPushing(branch.name, stackPush), progress) : push.text
 
   const triggerRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -169,7 +170,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
         onClick={event => event.stopPropagation()}
       >
         {isPushing ? (
-          <PushProgressDescription branchName={pushingName} progress={progress} />
+          <PushProgressDescription subject={stackPushSubject(branch.name, stackPush)} progress={progress} />
         ) : (
           <>
             {/* the compact button shows only the count: the description names the push */}
@@ -237,14 +238,14 @@ function PushAlternative({ action, disabled, close }: { action: PushButtonAction
 }
 
 /**
- * The last progress line of git, "Pushing feature-auth…" until git reports a stage, and what was sent so far and how
- * fast when that line doesn't say it
+ * The last progress line of git, "Pushing feature-auth…" ("Pushing 3 branches…") until git reports a stage, and what was
+ * sent so far and how fast when that line doesn't say it
  */
-export function PushProgressDescription({ branchName, progress }: { branchName: string; progress: TransferProgress | null }) {
+export function PushProgressDescription({ subject, progress }: { subject: string; progress: TransferProgress | null }) {
   const amount = transferAmountNotInLine(progress)
   return (
     <div className="flex flex-col gap-0.5" data-testid="push-progress">
-      <span className="break-words">{progress?.line ?? `Pushing ${branchName}…`}</span>
+      <span className="break-words">{progress?.line ?? `Pushing ${subject}…`}</span>
       {amount !== null && <span className="text-muted-foreground tabular-nums">{amount}</span>}
     </div>
   )

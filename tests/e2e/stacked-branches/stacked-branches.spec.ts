@@ -7,7 +7,7 @@ import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { availableRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, pullRequest, routeNewPullRequest } from "../helpers/pull-request-helpers"
-import { pushedToast, routePush } from "../helpers/push-helpers"
+import { confirmForcePush, PUSH_TIME, pushedToast, routePush, routePushBranches } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, openBranchPreview } from "../helpers/review-status-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
@@ -430,6 +430,38 @@ test.describe("Stacked branches", () => {
     await expect.poll(() => readClipboard(page)).toBe("master")
   })
 
+  test("should push a stack in one push, refused whole when a remote branch of it moved", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+    // someone else pushed to login since its row was shown: the remote refuses the one push, nothing of it goes out, and
+    // every branch is fetched: auth and oauth are still not on the remote
+    const theirs = { id: "c0ffee0", subject: "Their fix", author: "Ann", authorTime: PUSH_TIME }
+    const { stackPushes, pushes } = await routePushBranches(page, {
+      auth: { remoteExists: false, unpushedCommits: ["auth-1"] },
+      login: [{ outcome: "remoteMoved", unpushedCommits: ["login-1"], commitsBehind: 1, droppedCommits: [theirs], remoteTip: "theirs" }, {}],
+      oauth: { remoteExists: false, unpushedCommits: ["oauth-1"] },
+    })
+    const oauth = findBranchRow(page, "oauth")
+    await expect(getPushButton(oauth)).toHaveAccessibleName("Push Stack (3 branches)")
+    await getPushButton(oauth).click()
+
+    const toast = page.locator("[data-slot=toast]", { hasText: "login changed on the remote" })
+    await expect(toast.locator("[data-slot=toast-description]")).toHaveText("1 commit you don't have (by Ann). Nothing was pushed.")
+    expect(stackPushes.map(push => push.map(branch => branch.branchName))).toEqual([["auth", "login", "oauth"]])
+    // no toast of a push, and the branches below and above login are still not on the remote
+    await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
+    for (const name of ["auth", "oauth"]) {
+      await expect(findBranchRow(page, name).getByTestId("lane-node")).toHaveAttribute("data-filled", "true")
+    }
+
+    // the toast pushes login alone over what its remote has now, after the row shows the commit the push drops
+    await toast.getByRole("button", { name: "Force Push" }).click()
+    await confirmForcePush(page, "Force Push (1)")
+    await expect.poll(() => pushes.length).toBe(4)
+    expect([pushes[3]!.branchName, pushes[3]!.expectedRemote]).toEqual(["login", "theirs"])
+    expect(stackPushes).toHaveLength(1)
+  })
+
   test("should push a stacked branch alone from the description of its button", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
@@ -452,7 +484,7 @@ test.describe("Stacked branches", () => {
   test("should push a parent with its children", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
-    const pushes = await routePush(page, {})
+    const { stackPushes } = await routePushBranches(page)
 
     // auth alone may go; its description offers its children too
     const button = getPushButton(findBranchRow(page, "auth"))
@@ -463,7 +495,8 @@ test.describe("Stacked branches", () => {
     await expect(alternative).toContainText("session and 2 more branches are stacked on auth and have commits to push.")
 
     await alternative.getByRole("button", { name: "Push with Children (4 branches)" }).click()
-    await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["auth", "session", "login", "oauth"])
+    // one push of the four, parents first
+    await expect.poll(() => stackPushes.map(push => push.map(branch => branch.branchName))).toEqual([["auth", "session", "login", "oauth"]])
     // every branch is on the remote: the menu offers nothing more to push with auth
     await openContextMenu(page, findBranchRow(page, "auth"))
     await expect(page.getByRole("menuitem", { name: "Stack On…" })).toBeVisible()

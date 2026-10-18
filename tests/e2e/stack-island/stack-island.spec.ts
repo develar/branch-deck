@@ -6,7 +6,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow, getStackChip } from "../helpers/branch-helpers"
 import { availableRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
-import { routeHeldPush, routePush } from "../helpers/push-helpers"
+import { routeHeldPush, routePush, routePushBranches } from "../helpers/push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { syncBranches } from "../helpers/sync-helpers"
@@ -139,24 +139,24 @@ test.describe("Stack island", () => {
     await expect(getBranchDetailsRow(page, "side-fix")).toBeVisible()
   })
 
-  test("should push the whole stack from the header, parents first", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should push the whole stack from the header in one push, parents first", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stack_island")
     await syncAndWaitForBranches()
-    const { pushes, release } = await routeHeldPush(page, "bazel", 45)
+    const { stackPushes, release } = await routeHeldPush(page, "bazel", 45)
     // the compact push of a row: the commits it sends, the action its name
     const push = island(page, "air").getByTestId("stack-island-push")
     await expect(push).toHaveAccessibleName("Push with Children (7 branches)")
     await push.hover()
     await expect(page.getByTestId("stack-island-push-description")).toContainText("Pushes 7 branches, parents first:")
     await push.click()
-    // one indicator of the stack push, the header; the row of the branch it pushes shows its own push, the root row
-    // (pushed already) doesn't repeat it
-    await expect(push).toHaveAccessibleName("Pushing bazel 45%")
-    await expect(findBranchRow(page, "bazel").getByTestId("push-button")).toHaveAccessibleName("Pushing 45%")
-    await expect(findBranchRow(page, "air").getByRole("status")).toHaveCount(0)
+    // one push of the 7 branches: the header names it, and every row of it shows the one progress
+    await expect(push).toHaveAccessibleName("Pushing 7 branches 45%")
+    for (const name of ["air", "bazel", "side-test"]) {
+      await expect(findBranchRow(page, name).getByTestId("push-button")).toHaveAccessibleName("Pushing 45%")
+    }
     release()
     // each branch after the one it is built on
-    await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["air", "bazel", "side-fix", "bridge", "runtime", "deploy", "side-test"])
+    await expect.poll(() => stackPushes.map(push => push.map(branch => branch.branchName))).toEqual([["air", "bazel", "side-fix", "bridge", "runtime", "deploy", "side-test"]])
     // everything is on the remote: no push left in the header
     await expect(island(page, "air").getByTestId("stack-island-push")).toHaveCount(0)
   })
@@ -241,7 +241,7 @@ test.describe("Stack island", () => {
   test("should push the stack up to a commit, the branches it is built on first, the rest left to push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stack_island")
     await syncAndWaitForBranches()
-    const pushes = await routePush(page, {})
+    const { stackPushes } = await routePushBranches(page)
     const line = page.locator("[data-testid=branch-commit-lines-row][data-branch-of=bazel] [data-testid=stack-commit-line]").first()
     await expect(line).toContainText("Build the deploy jar, part 1")
     await line.getByTestId("commit-push-mark").click()
@@ -256,10 +256,11 @@ test.describe("Stack island", () => {
     await expect(findBranchRow(page, "bridge").getByTestId("lane-node")).not.toHaveAttribute("data-pushed", "true")
 
     await popover.getByTestId("push-up-to-button").click()
-    await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["air", "bazel"])
-    // air goes whole, bazel up to its first commit
-    expect(pushes[0]!.tip ?? null).toBeNull()
-    expect(pushes[1]!.tip).toMatch(/^[0-9a-f]{40}$/)
+    // one push: air goes whole, bazel up to its first commit
+    await expect.poll(() => stackPushes.map(push => push.map(branch => branch.branchName))).toEqual([["air", "bazel"]])
+    const [air, bazel] = stackPushes[0]!
+    expect(air!.tip ?? null).toBeNull()
+    expect(bazel!.tip).toMatch(/^[0-9a-f]{40}$/)
   })
 
   test("should push up to a commit from its menu in the full list", async ({ page, setupRepo, syncAndWaitForBranches }) => {

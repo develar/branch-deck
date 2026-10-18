@@ -629,11 +629,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   the remote status of the pushed branches against that remote, computed the same way; a `--remote` that is not a
   configured remote must be `no_remote`.
   [@test] ../../crates/bd-cli/src/push_test.rs (`another_remote_is_compared_with_as_origin_is`)
-- A remote branch that is not where the lease expects it must be `lease_rejected` (exit 3) with nothing pushed; bd
-  must fetch the rejected branches and list them in `error.branches` with their remote status as fetched
-  (`head`, `behind`, `dropped_commits`). A branch refused as behind is listed the same way, and `bd sync` prints the
-  same remote status per branch.
-  [@test] ../../crates/bd-cli/src/push_test.rs (`a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`, `force_drops_only_what_the_sync_saw_and_expect_remote_pins_the_lease`)
+- A remote branch that is not where the lease expects it must be `lease_rejected` (exit 3) with nothing pushed, the
+  other branches of the push included (it is atomic); bd must fetch the branches of the push and list the ones whose
+  remote moved in `error.branches` with their remote status as fetched (`head`, `behind`, `dropped_commits`). A
+  branch refused as behind is listed the same way, and `bd sync` prints the same remote status per branch. The app's
+  stack push is the same push (`sync_core::push::push_leased`). A push the remote refuses while every lease holds (a
+  hook, a protected branch) must be `push_refused` with what git said, nothing pushed.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`, `force_drops_only_what_the_sync_saw_and_expect_remote_pins_the_lease`, `a_moved_lease_refuses_the_whole_stack_and_names_the_branch_that_moved`, `a_push_the_remote_refuses_with_its_leases_holding_is_push_refused`)
   [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`)
 - Per branch it must print the pull request base (the parent's remote branch, or the baseline without the remote),
   the head, the `bd describe` title and body, and a ready `gh pr create` command, with `--repo` for a GitHub

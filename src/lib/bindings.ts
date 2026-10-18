@@ -12,6 +12,12 @@ export const commands = {
 	 */
 	pushBranch: (params: PushBranchParams, progress: Channel<TransferProgress>) => typedError<PushOutcome, CommandError>(__TAURI_INVOKE("push_branch", { params, progress })),
 	/**
+	 *  Pushes the branches of a stack to the remote in one atomic push, all of them or none, each replacing its remote
+	 *  branch only as the user saw it, and returns their new remote statuses; a remote branch that moved is named, with the
+	 *  statuses fetched after it. `progress` receives how far the push is.
+	 */
+	pushBranches: (params: PushBranchesParams, progress: Channel<TransferProgress>) => typedError<PushBranchesOutcome, CommandError>(__TAURI_INVOKE("push_branches", { params, progress })),
+	/**
 	 *  The GitHub pull requests of the virtual branches, one GraphQL search; when GitHub can't answer, the availability says
 	 *  why
 	 */
@@ -1899,6 +1905,26 @@ export type PushBranchParams = {
 	tip?: string | null,
 };
 
+/**  What a stack push did */
+export type PushBranchesOutcome = 
+/**  Every branch is at its pushed commit on the remote; their remote statuses, in the order of the branches */
+{ type: "pushed"; remoteStatuses: RemoteStatusUpdate[] } | 
+/**
+ *  The remote branch of `branch_name` (the first such, parents first) was not where the user saw it, so nothing was
+ *  pushed: the push is atomic. Every branch was fetched, and `remote_statuses` show what the remote has now, in the
+ *  order of the branches; a push with the `remote_tip` of `branch_name` replaces it
+ */
+{ type: "remoteMoved"; branchName: string; remoteStatuses: RemoteStatusUpdate[] };
+
+export type PushBranchesParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	myEmail: string | null,
+	baselineBranch: string,
+	/**  Parents first: the order of the refspecs and of the remote statuses of the outcome */
+	branches: StackPushBranch[],
+};
+
 /**  What a push did */
 export type PushOutcome = 
 /**  The remote branch is at the pushed commit */
@@ -2475,6 +2501,23 @@ export type StackProblem =
 ({ LeafCollision: string }) & { ConflictingParents?: never; Cycle?: never; SelfParent?: never; Syntax?: never } | 
 /**  `(a//b)`: the commits whose prefix has an empty level */
 ({ Syntax: string[] }) & { ConflictingParents?: never; Cycle?: never; LeafCollision?: never; SelfParent?: never };
+
+/**  One branch of a stack push (`PushBranchesParams`) */
+export type StackPushBranch = {
+	branchName: string,
+	/**
+	 *  The branch it is built on (`BranchStack::effective_base`): its commits are not counted as unpushed commits of
+	 *  this branch
+	 */
+	parentBranch?: string | null,
+	/**
+	 *  The remote head of the status the user saw (`RemoteStatusUpdate::remote_tip`): the push replaces the remote
+	 *  branch only if it is still there. `None`: the status showed no remote branch, and the branch must not exist
+	 */
+	expectedRemote: string | null,
+	/**  Push Up to Here: the commit to push instead of the tip (`PushBranchParams::tip`) */
+	tip?: string | null,
+};
 
 /**  A use of a name that a commit of an ancestor adds, by a commit of the branch */
 export type StackUse = {

@@ -7,12 +7,14 @@ import {
   describePrefixChange,
   formatMoveUnstackAction,
   formatPushWithChildrenLabel,
+  formatStackPushing,
   offersPushWithChildren,
   passedParentOf,
   pullRequestBaseOf,
   stackAncestors,
   stackChildrenPushOrder,
   stackPushOrder,
+  stackPushSubject,
 } from "@/lib/stack"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
@@ -208,6 +210,17 @@ describe("pull request bases of stacked branches", () => {
     expect(offersPushWithChildren("auth", ["auth"])).toBe(false)
     expect(offersPushWithChildren("auth", [])).toBe(false)
     expect(offersPushWithChildren("auth", ["oauth"])).toBe(true)
+  })
+
+  it("names what a stack push sends while it runs: its one push of several branches, or the one branch", () => {
+    expect(formatStackPushing("oauth", ["auth", "login", "oauth"])).toBe("Pushing 3 branches")
+    expect(formatStackPushing("auth", ["login"])).toBe("Pushing login")
+    expect(formatStackPushing("auth", ["auth"])).toBe("Pushing")
+    // waiting for a sync, or no stack push: the branch's own push
+    expect(formatStackPushing("auth", [])).toBe("Pushing")
+    expect(formatStackPushing("auth", null)).toBe("Pushing")
+    expect(stackPushSubject("auth", ["auth", "login"])).toBe("2 branches")
+    expect(stackPushSubject("auth", [])).toBe("auth")
   })
 })
 

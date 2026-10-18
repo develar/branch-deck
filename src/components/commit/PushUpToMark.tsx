@@ -2,10 +2,10 @@ import { useState } from "react"
 import { ArrowUpIcon, UploadIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { pushUpTo } from "@/lib/git/push"
+import { pushUpTo } from "@/lib/git/stack-push"
 import type { PushUpToPlan } from "@/lib/push-up-to"
 import { describePushUpTo, pushUpToPlan } from "@/lib/push-up-to"
-import { useBranchSync, useStackPushCurrent } from "@/stores/branch-sync"
+import { useBranchSync, useStackPush } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { usePushHolds } from "@/stores/patronus"
 import { showPushUpTo } from "@/stores/stack-view"
@@ -70,7 +70,7 @@ export function PushUpToMark({ branchName, originalHash }: PushUpToMarkProps) {
 
 function PushUpToContent({ branchName, originalHash, onDone }: PushUpToMarkProps & { onDone: () => void }) {
   const pushUp = usePushUpTo(branchName, originalHash)
-  const pushing = useStackPushCurrent(branchName) !== null
+  const pushing = useStackPush(branchName) !== null
   if (pushUp === null) {
     return <p className="text-muted-foreground">The remote has this commit.</p>
   }

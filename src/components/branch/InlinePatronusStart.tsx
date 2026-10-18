@@ -22,18 +22,9 @@ import { announceRobot } from "@/lib/patronus-actions"
 import { describeStackLanding } from "@/lib/patronus-stack"
 import type { StackAlone, StackLanding } from "@/lib/patronus-stack"
 import { getPushAction } from "@/lib/push-summary"
-import { stackAncestors, stackPushOrder } from "@/lib/stack"
+import { formatStackPushing, stackAncestors, stackPushOrder } from "@/lib/stack"
 import { transferLabel } from "@/lib/transfer-progress"
-import {
-  branchSyncStore,
-  getBranch,
-  stackDescendantsIn,
-  useBranchPushProgress,
-  useBranchRemoteStatus,
-  useBranchSync,
-  useBranchTip,
-  useStackPushCurrent,
-} from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, stackDescendantsIn, useBranchPushProgress, useBranchRemoteStatus, useBranchSync, useBranchTip, useStackPush } from "@/stores/branch-sync"
 import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { closeInline, setInlinePushing, useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
 import {
@@ -157,9 +148,9 @@ export function InlinePatronusStart({
   // the action whose first step pushes the branch: its button shows the push ("Pushing 45%"), the row's doesn't
   const [pushingFor, setPushingFor] = useState<"start" | "pushOnly" | null>(null)
   const isPushing = pushingFor !== null
-  const stackPushCurrent = useStackPushCurrent(branchName)
-  const pushProgress = useBranchPushProgress(stackPushCurrent ?? branchName)
-  const pushLabel = transferLabel(stackPushCurrent === null || stackPushCurrent === branchName ? "Pushing" : `Pushing ${stackPushCurrent}`, pushProgress)
+  const stackPush = useStackPush(branchName)
+  const pushProgress = useBranchPushProgress(stackPush?.[0] ?? branchName)
+  const pushLabel = transferLabel(formatStackPushing(branchName, stackPush), pushProgress)
   const ancestors = splitNames(
     useBranchSync(state =>
       stackAncestors(branchName, name => state.branches[name])

@@ -301,26 +301,61 @@ pub fn compute_remote_status_for_branch(
   baseline_branch: &str,
   parent: Option<StackParent<'_>>,
 ) -> Result<RemoteStatusUpdate> {
-  // one process for the tips of both: whether the remote branch exists, its commit and the branch's. The walks below
+  let branch = StatusBranch { local_ref, branch_name, parent };
+  let mut statuses = compute_remote_statuses(git_executor, repository_path, remote, &[branch], my_email, baseline_branch)?;
+  Ok(statuses.remove(0))
+}
+
+/// A branch of `compute_remote_statuses`: its ref (`{prefix}/virtual/{name}`), its name, and the branch it is built on
+#[derive(Clone, Copy)]
+pub struct StatusBranch<'a> {
+  pub local_ref: &'a str,
+  pub branch_name: &'a str,
+  pub parent: Option<StackParent<'a>>,
+}
+
+/// `compute_remote_status_for_branch` of the branches of one operation (a push of a stack, its rejection), in their
+/// order: one `for-each-ref` reads the local and the remote tips of all of them, and one `reflog` the push times of
+/// several (`PushTimes`). The walks run per branch, none for a branch whose remote branch is at its tip, as after its push
+#[instrument(skip(git_executor, branches), fields(remote = %remote, branches = branches.len()))]
+pub fn compute_remote_statuses(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  remote: &str,
+  branches: &[StatusBranch<'_>],
+  my_email: Option<&str>,
+  baseline_branch: &str,
+) -> Result<Vec<RemoteStatusUpdate>> {
+  // one process for the tips of all: whether each remote branch exists, its commit and the branch's. The walks below
   // use these commits, not the ref names, so a fetch or a sync meanwhile can't make the counts disagree with
   // `remote_tip`. A ref name holds no glob character, so each pattern matches its ref only
-  let remote_ref = format!("refs/remotes/{remote}/{local_ref}");
-  let branch_ref = format!("refs/heads/{local_ref}");
-  let tips = git_executor.execute_command_lines(&["for-each-ref", "--format=%(objectname) %(refname)", &remote_ref, &branch_ref], repository_path)?;
+  let remote_refs: Vec<String> = branches.iter().map(|branch| format!("refs/remotes/{remote}/{}", branch.local_ref)).collect();
+  let branch_refs: Vec<String> = branches.iter().map(|branch| format!("refs/heads/{}", branch.local_ref)).collect();
+  let mut args = vec!["for-each-ref", "--format=%(objectname) %(refname)"];
+  args.extend(remote_refs.iter().chain(&branch_refs).map(String::as_str));
+  let tips = git_executor.execute_command_lines(&args, repository_path)?;
   let tip_of = |name: &str| tips.iter().find_map(|line| line.split_once(' ').filter(|(_, refname)| *refname == name).map(|(id, _)| id));
-  let branch = BranchCommits {
-    // without the branch the walks name it, and fail
-    local: tip_of(&branch_ref).unwrap_or(local_ref),
-    baseline: baseline_branch,
-    remote_tip: tip_of(&remote_ref),
-  };
-  let status = compute(git_executor, repository_path, &branch, my_email, parent)?;
-  let last_push_time = if status.remote_tip.is_some() {
-    read_push_time(git_executor, repository_path, &remote_ref)
-  } else {
-    0
-  };
-  Ok(status.into_update(branch_name, last_push_time))
+  // the push times of several branches are one `reflog`; of one, the newest entry of its own
+  let push_times = (branches.len() > 1).then(|| PushTimes::new(remote_refs.clone()));
+  branches
+    .iter()
+    .zip(remote_refs.iter().zip(&branch_refs))
+    .map(|(branch, (remote_ref, branch_ref))| {
+      let commits = BranchCommits {
+        // without the branch the walks name it, and fail
+        local: tip_of(branch_ref).unwrap_or(branch.local_ref),
+        baseline: baseline_branch,
+        remote_tip: tip_of(remote_ref),
+      };
+      let status = compute(git_executor, repository_path, &commits, my_email, branch.parent)?;
+      let last_push_time = match (&status.remote_tip, &push_times) {
+        (None, _) => 0,
+        (Some(_), Some(push_times)) => push_times.of(git_executor, repository_path, remote_ref),
+        (Some(_), None) => read_push_time(git_executor, repository_path, remote_ref),
+      };
+      Ok(status.into_update(branch.branch_name, last_push_time))
+    })
+    .collect()
 }
 
 /// What a status is a function of: the commits and the email. A status computed for them holds as long as they are the

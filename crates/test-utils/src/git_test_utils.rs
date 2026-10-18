@@ -57,6 +57,17 @@ pub fn disable_background_maintenance(repo_path: &Path) {
   }
 }
 
+/// A `pre-receive` hook in the bare repository at `bare_path` that refuses every push, as a protected branch does
+pub fn refuse_every_push(bare_path: &Path) {
+  let hook = bare_path.join("hooks/pre-receive");
+  fs::write(&hook, "#!/bin/sh\necho 'protected branch' >&2\nexit 1\n").unwrap();
+  #[cfg(unix)]
+  {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+  }
+}
+
 /// Git test repository wrapper with helper methods
 pub struct TestRepo {
   dir: TempDir,

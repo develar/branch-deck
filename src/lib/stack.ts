@@ -220,6 +220,23 @@ export function stackChildrenPushOrder(
   return order
 }
 
+/**
+ * What a stack push started from `startedFrom` sends, as the texts of its push name it while it runs (`stackPushes`):
+ * "7 branches" for its one push of several, the one branch it pushes, `startedFrom` while it waits for a sync
+ */
+export function stackPushSubject(startedFrom: string, names: readonly string[] | null): string {
+  if (names === null || names.length === 0) {
+    return startedFrom
+  }
+  return names.length === 1 ? names[0]! : formatBranchCount(names.length)
+}
+
+/** "Pushing", "Pushing login", "Pushing 7 branches": the push of `startedFrom` while its stack push runs (`stackPushSubject`) */
+export function formatStackPushing(startedFrom: string, names: readonly string[] | null): string {
+  const subject = stackPushSubject(startedFrom, names)
+  return subject === startedFrom ? "Pushing" : `Pushing ${subject}`
+}
+
 /** "Push Stack (3 branches)": the push button, its description and the branch menu name the action alike */
 export function formatPushStackLabel(branchCount: number): string {
   return `Push Stack (${formatBranchCount(branchCount)})`

@@ -4,7 +4,8 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { formatNewPullRequestBlocker, getNewPullRequestUrl } from "@/lib/git/new-pull-request"
-import { pushBranch, pushForAction, pushStack } from "@/lib/git/push"
+import { pushBranch, pushForAction } from "@/lib/git/push"
+import { pushStack, pushUpTo } from "@/lib/git/stack-push"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { createPullRequestDialogStore } from "@/stores/create-pull-request-dialog"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
@@ -28,8 +29,13 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
     branches: {} as Record<string, Branch>,
     /** What `gh pr edit` answers: null = it retargets */
     retargetError: null as string | null,
-    /** The stack pushes in flight: the branch a push started from -> the one it pushes */
-    stackPushes: {} as Record<string, string>,
+    /** The stack pushes in flight: the branch a push started from -> the branches it pushes */
+    stackPushes: {} as Record<string, readonly string[]>,
+    /**
+     * What the next stack pushes find instead of pushing, in turn: the branch whose remote branch moved (the push refuses
+     * all of its branches), and its commits the branch lacks
+     */
+    movedInStack: [] as { branch: string; commitsBehind: number }[],
     /** The pull requests GitHub lists, by branch */
     pullRequests: {} as Record<string, PullRequest>,
     /** The `expectedRemote` of each push */
@@ -81,6 +87,22 @@ vi.mock("@/lib/bindings", () => ({
         },
       }
     },
+    /** One push of the branches, "push auth login@<tip>" */
+    pushBranches: async (params: { branches: { branchName: string; expectedRemote: string | null; tip?: string | null }[] }) => {
+      calls.push(`push ${params.branches.map(branch => (branch.tip == null ? branch.branchName : `${branch.branchName}@${branch.tip}`)).join(" ")}`)
+      stores.expectedRemotes.push(...params.branches.map(branch => branch.expectedRemote))
+      const moved = stores.movedInStack.shift()
+      // refused, the fetched remote of the moved branch is at their commit, the others where the rows showed them
+      const remoteStatuses = params.branches.map(branch => {
+        if (moved === undefined) {
+          return { branchName: branch.branchName, remoteExists: true, remoteTip: "tip" }
+        }
+        return branch.branchName === moved.branch
+          ? { branchName: branch.branchName, remoteExists: true, remoteTip: "theirs", commitsBehind: moved.commitsBehind }
+          : { branchName: branch.branchName, remoteExists: branch.expectedRemote !== null, remoteTip: branch.expectedRemote }
+      })
+      return { status: "ok", data: moved === undefined ? { type: "pushed", remoteStatuses } : { type: "remoteMoved", branchName: moved.branch, remoteStatuses } }
+    },
   },
 }))
 
@@ -93,11 +115,12 @@ vi.mock("@/stores/branch-sync", () => ({
   whenBranchPushed: async () => {},
   isStackPushing: (name: string) => Object.hasOwn(stores.stackPushes, name),
   setBranchPushing: () => {},
-  setStackPushCurrent: (startedFrom: string, current: string | null) => {
+  setStackPush: (startedFrom: string, names: readonly string[] | null) => {
     const { [startedFrom]: _, ...others } = stores.stackPushes
-    stores.stackPushes = current === null ? others : { ...others, [startedFrom]: current }
+    stores.stackPushes = names === null ? others : { ...others, [startedFrom]: names }
   },
   setBranchPushProgress: () => {},
+  setBranchesPushProgress: () => {},
   setBranchRemoteStatus: (name: string, status: RemoteStatus) => {
     stores.branches[name] = { ...stores.branches[name]!, remoteStatus: status }
   },
@@ -145,6 +168,7 @@ vi.mock("@/stores/patronus", () => ({
 
 vi.mock("@/stores/pull-requests", () => ({
   refreshPullRequestsAfterPush: async () => {},
+  refreshPullRequestsAfterPushes: async () => {},
   getPullRequest: (name: string) => stores.pullRequests[name],
   getGitHubRepository: () => ({ owner: "JetBrains", name: "ultimate" }),
   retargetPullRequest: async (name: string, base: string) => {
@@ -209,6 +233,7 @@ beforeEach(() => {
   stores.expectedRemotes = []
   stores.movedRemotes = []
   stores.retargetError = null
+  stores.movedInStack = []
   // a root with stacks on: a stack without a parent
   addBranch("auth", null, false)
 })
@@ -363,7 +388,7 @@ describe("a stack push next to a running Safe Push", () => {
     robots.spans.auth = { ...RUNNING, id: "login-run", branchName: "login" }
     await pushStack("oauth")
     // the robot of login holds login itself only in its own row; auth it lands
-    expect(calls).toEqual(["push login", "push oauth"])
+    expect(calls).toEqual(["push login oauth"])
   })
 
   it("cancels the robot the start replaces at the first branch it holds, and pushes its ancestors with it", async () => {
@@ -371,7 +396,8 @@ describe("a stack push next to a running Safe Push", () => {
     robots.spans.auth = run
     robots.spans.login = run
     await pushStack("oauth", { replacesRobot: run, announce: false })
-    expect(calls).toEqual(["cancel oauth-run", "push auth", "push login", "push oauth"])
+    // canceled once, before the one push of the branches it held
+    expect(calls).toEqual(["cancel oauth-run", "push auth login oauth"])
   })
 })
 
@@ -384,7 +410,7 @@ describe("the toast of a stack push", () => {
 
   it("is one toast for the branches, with the pull request of the branch the stack was pushed from", async () => {
     await pushStack("oauth")
-    expect(calls).toEqual(["push auth", "push login", "push oauth"])
+    expect(calls).toEqual(["push auth login oauth"])
     expect(records).toEqual(["push auth", "push login", "push oauth"])
     expect(toasts).toHaveLength(1)
     const toast = toasts[0]!
@@ -399,16 +425,55 @@ describe("the toast of a stack push", () => {
 
   it("pushes nothing more from a row whose stack push runs", async () => {
     const first = pushStack("oauth")
+    expect(stores.stackPushes).toEqual({ oauth: [] })
     expect(await pushStack("oauth")).toBe(false)
     expect(await first).toBe(true)
-    expect(calls).toEqual(["push auth", "push login", "push oauth"])
+    expect(calls).toEqual(["push auth login oauth"])
     expect(stores.stackPushes).toEqual({})
   })
 
   it("says nothing for a stack push that is a step of a Safe Push start", async () => {
     expect(await pushStack("oauth", { announce: false })).toBe(true)
-    expect(calls).toEqual(["push auth", "push login", "push oauth"])
+    expect(calls).toEqual(["push auth login oauth"])
     expect(toasts).toHaveLength(0)
+  })
+
+  it("pushes all or none: a remote branch that moved refuses the push, and its toast says what that remote has", async () => {
+    stores.movedInStack = [{ branch: "login", commitsBehind: 1 }]
+    expect(await pushStack("oauth")).toBe(false)
+    expect(calls).toEqual(["push auth login oauth"])
+    // leased as the rows showed them: none on the remote
+    expect(stores.expectedRemotes).toEqual([null, null, null])
+    // the row of login shows its fetched remote
+    expect(stores.branches.login!.remoteStatus?.remoteTip).toBe("theirs")
+    expect(records).toEqual(["push login"])
+    expect(toasts).toHaveLength(1)
+    const toast = toasts[0]!
+    expect(toast.title).toBe("login changed on the remote")
+    expect(toast.description).toBe("1 commit you don't have. Nothing was pushed.")
+    // the action pushes login over what its remote has now
+    expect(toast.actionProps?.children).toBe("Force Push")
+  })
+
+  it("pushes the stack again over the fetched heads when the remote that moved has no commits the branch lacks", async () => {
+    stores.movedInStack = [{ branch: "login", commitsBehind: 0 }]
+    expect(await pushStack("oauth")).toBe(true)
+    expect(calls).toEqual(["push auth login oauth", "push auth login oauth"])
+    // the second push leases login on the head the refused one fetched
+    expect(stores.expectedRemotes.slice(3)).toEqual([null, "theirs", null])
+    expect(toasts.map(toast => toast.title)).toEqual(["Pushed auth, login and oauth"])
+  })
+
+  it("pushes up to a commit with the branches below it whole, in one push", async () => {
+    expect(
+      await pushUpTo([
+        { name: "auth", sent: 1, total: 1 },
+        { name: "login", sent: 1, total: 1 },
+        { name: "oauth", tip: "c", sent: 1, total: 1 },
+      ]),
+    ).toBe(true)
+    expect(calls).toEqual(["push auth login oauth@c"])
+    expect(toasts.map(toast => toast.title)).toEqual(["Pushed auth, login and oauth"])
   })
 })
 
@@ -454,7 +519,7 @@ describe("pushForAction", () => {
   it("pushes the ancestors with work for the remote first, root first", async () => {
     addBranch("login", "auth", false)
     expect(await pushForAction("login")).toEqual({ pushed: true })
-    expect(calls).toEqual(["push auth", "push login"])
+    expect(calls).toEqual(["push auth login"])
     expect(toasts).toEqual([])
   })
 

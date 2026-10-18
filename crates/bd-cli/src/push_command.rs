@@ -23,9 +23,11 @@ use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use sync_core::pull_requests::{GitHubRepository, parse_github_repository, resolve_github_repository_with};
-use sync_core::push_lease::{PushOptions, fetch_remote_branches, leased_push_refs, push_refs};
-use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent, compute_remote_status_for_branch};
+use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
+use sync_core::push_lease::{PushOptions, PushRef, leased_push_refs};
+use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent};
 use sync_core::sync::SyncReport;
+use sync_types::RemoteStatusUpdate;
 use sync_types::patronus::PatronusRobot;
 
 #[derive(Debug, Default, clap::Args)]
@@ -326,19 +328,49 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
   };
   // the tips the sync left, under the lock: nothing moved them since
   let refs = leased_push_refs(&report.tips, &expected)?;
+  let leased: Vec<LeasedBranch> = candidates
+    .iter()
+    .zip(refs)
+    .map(|(candidate, push)| {
+      Ok(LeasedBranch {
+        name: candidate.synced.name.clone(),
+        push,
+        parent_ref: candidate.parent.as_deref().map(|parent| final_name(context, parent)).transpose()?,
+      })
+    })
+    .collect::<Result<_, CliError>>()?;
+  // the one leased push of the app's push too: atomic, a stack goes whole or not at all
+  let target = PushTarget {
+    repository_path: &context.repository,
+    remote: &remote,
+    baseline: &synced.baseline,
+    my_email: None,
+  };
   let options = PushOptions {
     atomic: true,
     dry_run: args.dry_run,
   };
-  let statuses = push_refs(&context.git, &context.repository, &remote, &refs, options, None).map_err(|e| CliError::new(ErrorCode::NetworkError, format!("{e:#}")))?;
-
-  let rejected: Vec<&Candidate> = candidates
-    .iter()
-    .filter(|candidate| statuses.get(&format!("refs/heads/{}", candidate.full_name)).is_none_or(|status| !status.accepted()))
-    .collect();
-  if !rejected.is_empty() {
-    return Err(lease_rejected(context, &remote, &synced.baseline, &rejected, args.dry_run));
-  }
+  let pushed = push_leased(&context.git, &target, &leased, options, None).map_err(|e| CliError::new(ErrorCode::NetworkError, format!("{e:#}")))?;
+  let statuses = match pushed {
+    LeasedPush::Pushed(statuses) => statuses,
+    LeasedPush::RemoteMoved { moved, remote_statuses } => return Err(lease_rejected(context, &candidates, &moved, &remote_statuses)),
+    LeasedPush::Refused { summary } => {
+      return Err(CliError::new(
+        ErrorCode::PushRefused,
+        format!("Nothing was pushed: the remote refused the push ({summary})"),
+      ));
+    }
+    LeasedPush::WouldReject => {
+      return Err(CliError::new(
+        ErrorCode::LeaseRejected,
+        format!(
+          "The remote would reject {}: a remote branch is not where its lease expects it",
+          candidate_names(&candidates)
+        ),
+      ));
+    }
+  };
+  let refs: Vec<&PushRef> = leased.iter().map(|branch| &branch.push).collect();
 
   let descriptions = report.config.descriptions();
   let repository_option = github_repository_option(context, report)?;
@@ -346,7 +378,7 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
   let branches = candidates
     .iter()
     .zip(&refs)
-    .map(|(candidate, pushed)| {
+    .map(|(candidate, &pushed)| {
       let flag = statuses.get(&format!("refs/heads/{}", candidate.full_name)).map_or(' ', |status| status.flag);
       let base = candidate
         .parent
@@ -504,42 +536,12 @@ fn resolve_expected(context: &RepoContext, rev: &str) -> Result<String, CliError
   })
 }
 
-/// `lease_rejected` for the `rejected` branches: nothing was pushed. The branches are fetched (not on a dry run), and
-/// the error lists what each has now, so the user can see what a push with `--force --expect-remote` would drop
-fn lease_rejected(context: &RepoContext, remote: &str, baseline: &str, rejected: &[&Candidate], dry_run: bool) -> CliError {
-  let names = rejected.iter().map(|candidate| candidate.synced.name.as_str()).collect::<Vec<_>>().join(", ");
-  let full_names: Vec<String> = rejected.iter().map(|candidate| candidate.full_name.clone()).collect();
-  if dry_run {
-    return CliError::new(ErrorCode::LeaseRejected, format!("The remote would reject {names}: it is not where the lease expects it"));
-  }
-  if let Err(e) = fetch_remote_branches(&context.git, &context.repository, remote, &full_names) {
-    return CliError::new(
-      ErrorCode::NetworkError,
-      format!("The remote rejected {names}: it is not where the lease expects it. Nothing was pushed, and fetching it failed: {e:#}"),
-    );
-  }
-
-  let computed: anyhow::Result<Vec<_>> = rejected
-    .iter()
-    .map(|candidate| {
-      let parent_ref = candidate.parent.as_deref().map(|parent| to_final_branch_name(&context.prefix, parent)).transpose()?;
-      compute_remote_status_for_branch(
-        &context.git,
-        &context.repository,
-        remote,
-        &candidate.full_name,
-        &candidate.synced.name,
-        None,
-        baseline,
-        parent_ref.as_deref().map(stack_parent),
-      )
-    })
-    .collect();
-  let remote_statuses = match computed {
-    Ok(computed) => computed,
-    Err(e) => return CliError::from(e),
-  };
-  let short = context.short_ids(remote_statuses.iter().flat_map(RemoteSummary::ids));
+/// `lease_rejected` for the candidates at `moved`, whose remote branch is not where its lease expects it: nothing was
+/// pushed. `push_leased` fetched the branches, and the error lists what each moved one has now (`remote_statuses`, in
+/// the order of the candidates), so the user can see what a push with `--force --expect-remote` would drop
+fn lease_rejected(context: &RepoContext, candidates: &[Candidate], moved: &[usize], remote_statuses: &[RemoteStatusUpdate]) -> CliError {
+  let names = moved.iter().map(|index| candidates[*index].synced.name.as_str()).collect::<Vec<_>>().join(", ");
+  let short = context.short_ids(moved.iter().flat_map(|index| RemoteSummary::ids(&remote_statuses[*index])));
   let mut error = CliError::new(
     ErrorCode::LeaseRejected,
     format!(
@@ -548,15 +550,19 @@ fn lease_rejected(context: &RepoContext, remote: &str, baseline: &str, rejected:
        replace them, push again with --force --expect-remote <remote.head>"
     ),
   );
-  error.branches = rejected
+  error.branches = moved
     .iter()
-    .zip(&remote_statuses)
-    .map(|(candidate, status)| ErrorBranch {
-      name: candidate.synced.name.clone(),
-      remote: RemoteSummary::new(status, candidate.synced.commit_count, &short),
+    .map(|index| ErrorBranch {
+      name: candidates[*index].synced.name.clone(),
+      remote: RemoteSummary::new(&remote_statuses[*index], candidates[*index].synced.commit_count, &short),
     })
     .collect();
   error
+}
+
+/// "auth, login": the branches of a push
+fn candidate_names(candidates: &[Candidate]) -> String {
+  candidates.iter().map(|candidate| candidate.synced.name.as_str()).collect::<Vec<_>>().join(", ")
 }
 
 /// The GitHub repository of the branches (`resolve_github_repository`) from what the sync read and the push URL of

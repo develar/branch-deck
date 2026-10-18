@@ -877,11 +877,14 @@ is right only once they are on the remote. `--alone` pushes only the named branc
 - With `--remote` other than `origin`, which the sync compares with, bd computes the same remote status of each
   pushed branch against that remote's remote-tracking branch, and the refusal, the lease and the errors use it. A
   `--remote` that is not a configured remote is `no_remote`.
-- A remote branch that is not where the lease expects it is `lease_rejected` (exit 3), nothing pushed. bd
-  fetches the rejected branches and lists them in `error.branches` with their remote status as fetched:
+- A remote branch that is not where the lease expects it is `lease_rejected` (exit 3), nothing pushed: the push is
+  atomic, so the other branches of it stay as they are on the remote too. bd fetches the branches of the push and
+  lists the ones that moved in `error.branches` with their remote status as fetched:
   `{"name":"auth","remote":{"exists":true,"unpushed":1,"behind":1,"head":"7c8d9e0f","dropped_commits":[…]}}`.
   Show the `dropped_commits` to the user; only after the user
   approves, `bd push auth --force --expect-remote 7c8d9e0f`.
+- A push the remote refuses while every lease holds (a hook, a protected branch) is `push_refused` with what git
+  said; nothing was pushed. Tell the user: a retry doesn't help.
 - `pull_request.base` is the parent's remote branch, or the baseline without the remote (`master`). With a
   `bd describe` text, `command` takes the title and reads the body from stdin (`--body-file -`); without one it uses
   `--fill`.

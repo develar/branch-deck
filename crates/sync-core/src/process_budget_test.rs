@@ -8,6 +8,7 @@ use crate::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commit
 use crate::check::{CheckSession, check_plan};
 use crate::conflict_contents::{GetConflictContentsParams, read_conflict_contents};
 use crate::pull_request_create::read_new_pull_request;
+use crate::push::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
 use crate::remote_status::forget_statuses;
 use crate::repository_lock::RewriteOptions;
 use crate::squash::{SquashCommitsParams, squash_commits_core};
@@ -21,7 +22,7 @@ use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap};
 use sync_test_utils::TestReporter;
 use sync_types::{RemoteStatusUpdate, SyncEvent};
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, disable_background_maintenance};
 
 const PREFIX: &str = "test";
 
@@ -657,4 +658,47 @@ fn the_text_of_a_new_pull_request() {
   let text = read_new_pull_request(&git, &path(&repo), "origin", "test/virtual/alpha", "master").unwrap();
   assert_eq!(text.title, "alpha");
   assert_processes(&git, &[("config", 1), ("log", 1)]);
+}
+
+/// The app's push of a stack (Push Stack, Push with Children): `alpha` and `beta` built on it, to a bare `origin` that
+/// has neither, in one atomic push. The tips are one `for-each-ref`, the push one `push`, the remote statuses after it
+/// one `for-each-ref` of the local and the remote tips of both and one `reflog` of their push times: no walk, each
+/// remote branch is at its tip
+#[test]
+fn an_atomic_push_of_a_stack() {
+  let remote = tempfile::tempdir().unwrap();
+  let remote_path = remote.path().to_str().unwrap();
+  GitCommandExecutor::new()
+    .execute_command(&["init", "--bare", "-q", "--initial-branch=master", remote_path], remote_path)
+    .unwrap();
+  disable_background_maintenance(remote.path());
+  let repo = TestRepo::new();
+  repo.create_commit("Initial commit", "README.md", "# Test Project\n");
+  repo.git(&["remote", "add", "origin", remote_path]);
+  repo.git(&["push", "-q", "origin", "master"]);
+  let alpha = repo.create_commit("(alpha) Alpha", "alpha.txt", "alpha\n");
+  let beta = repo.create_commit("(alpha/beta) Beta", "beta.txt", "beta\n");
+  repo.git(&["update-ref", "refs/heads/test/virtual/alpha", &alpha]);
+  repo.git(&["update-ref", "refs/heads/test/virtual/beta", &beta]);
+  let branch = |name: &str, parent: Option<&str>| StackPushBranch {
+    branch_name: name.to_string(),
+    parent_branch: parent.map(str::to_string),
+    expected_remote: None,
+    tip: None,
+  };
+  let params = PushBranchesParams {
+    repository_path: path(&repo),
+    branch_prefix: PREFIX.to_string(),
+    my_email: None,
+    baseline_branch: "origin/master".to_string(),
+    branches: vec![branch("alpha", None), branch("beta", Some("alpha"))],
+  };
+
+  let git = counting();
+  let outcome = push_branches(&git, &params, &mut |_| {}).unwrap();
+  assert!(
+    matches!(outcome, PushBranchesOutcome::Pushed { ref remote_statuses } if remote_statuses.len() == 2),
+    "{outcome:?}"
+  );
+  assert_processes(&git, &[("for-each-ref", 2), ("push", 1), ("reflog", 1)]);
 }

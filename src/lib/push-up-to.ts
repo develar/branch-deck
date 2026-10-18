@@ -7,7 +7,7 @@ import type { Branch } from "@/stores/branch-sync"
 /** One push of a Push Up to Here, root first */
 export interface PushUpToStep {
   readonly name: string
-  /** The commit to push instead of the tip (`PushBranchParams.tip`); undefined pushes the whole branch */
+  /** The commit to push instead of the tip (`StackPushBranch.tip`); undefined pushes the whole branch */
   readonly tip?: string
   /** The commits the push sends, of `total` the branch has for the remote */
   readonly sent: number
