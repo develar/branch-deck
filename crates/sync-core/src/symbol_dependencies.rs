@@ -49,6 +49,9 @@ pub enum Evidence {
   Override,
   /// A call of a member of the supertype in a subclass, by a bare name, `this` or `super` (`inherited`)
   Inherited,
+  /// A use of a member on a receiver of its type: a local, a parameter or a property of that type, or the receiver of
+  /// an extension function around a bare call (`through_receiver`)
+  Receiver,
   /// The later commit removes a declaration whose uses the earlier one removed
   RemovesAfter,
 }
@@ -64,6 +67,7 @@ impl Evidence {
       Self::SamePackageType => "same_package_type",
       Self::Override => "override",
       Self::Inherited => "inherited",
+      Self::Receiver => "receiver",
       Self::RemovesAfter => "removes_after",
     }
   }
@@ -592,6 +596,13 @@ fn resolve_use<'s>(
     Some(Shape::Call { arguments, spread, .. }) => Some((arguments.as_slice(), *spread)),
     _ => None,
   };
+  // an extension of the receiver's type that the use sees may take a call its member rejects: no receiver evidence
+  let extension_may_take = receiver_name(use_site.summary, reference).is_some_and(|receiver| {
+    candidates
+      .values()
+      .flat_map(|state| state.entries.iter().chain(&state.present))
+      .any(|entry| sees_extension(use_site, &entry.site, receiver))
+  });
   // per entry it may mean, the commits it needs of it (`lineage`)
   let mut alternatives: Vec<BTreeSet<Option<usize>>> = Vec::new();
   let mut first: Option<(&Entry<'_>, Evidence)> = None;
@@ -621,7 +632,7 @@ fn resolve_use<'s>(
         if !takes(reference, constructs, !stand_ins.is_empty(), use_site.summary, constructor_call, site) {
           return None;
         }
-        let evidence = resolve(input, use_site, reference, qualifier.as_deref(), site)?;
+        let evidence = resolve(input, use_site, reference, qualifier.as_deref(), site).filter(|it| *it != Evidence::Receiver || !extension_may_take)?;
         let fits = constructor_reaches(use_site, reference, site) && call.is_none_or(|(arguments, spread)| accepts_call(use_site.summary, arguments, spread, site));
         (fits && (same_file || evidence != Evidence::SameFile)).then_some(evidence)
       };
@@ -1034,7 +1045,11 @@ fn all_entries(use_site: &UseSite<'_>, site: &Site<'_>) -> bool {
 /// the import that brings it in (`import_decides`) or before the supertype it inherits it from (`inherited`)
 fn calls_tell_apart(use_site: &UseSite<'_>, reference: &Reference, site: &Site<'_>, enclosed: bool) -> bool {
   all_entries(use_site, site)
-    && (reference.qualifier.is_some() || use_site.path == site.ctx.path || import_decides(use_site.summary, reference, enclosed) || inherited(use_site, reference, None, site))
+    && (reference.qualifier.is_some()
+      || use_site.path == site.ctx.path
+      || import_decides(use_site.summary, reference, enclosed)
+      || inherited(use_site, reference, None, site)
+      || through_receiver(use_site, reference, None, site))
 }
 
 /// Whether a bare name that an import brings in (Java's `import static`, a Kotlin import of a member of an object) can
@@ -1437,7 +1452,7 @@ fn resolve_any(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referenc
   if use_site.path == site.ctx.path {
     // the extraction drops locals; a private member is used only in the containers that see it (`private_scope`), and
     // neither a name qualified by another type nor an extension called on anything but `this` is a use of it
-    if names_another_type(use_site.summary, qualifier, site) || on_unknown_receiver(qualifier, site) {
+    if names_another_type(use_site.summary, qualifier, site) || on_unknown_receiver(qualifier, site) || of_another_receiver(use_site.summary, reference, site) {
       return None;
     }
     return match site.declaration.reach {
@@ -1472,6 +1487,16 @@ fn names_another_type(summary: &FileSummary, qualifier: Option<&[String]>, site:
     .iter()
     .any(|declaration| matches!(declaration.kind, DeclKind::Value | DeclKind::Constant | DeclKind::EnumEntry) && summary.name(declaration.name) == last);
   last.starts_with(char::is_uppercase) && !value && last != "Self" && !qualifier.iter().any(own)
+}
+
+/// Whether a use is on a receiver of a type the summary knows (`Reference::receiver_type`) other than the containers
+/// and the extension receiver of `site`: `migration.awaitMigrated()` on a `LegacySettingsMigration` is no use of an
+/// `awaitMigrated` of the file's own class
+fn of_another_receiver(summary: &FileSummary, reference: &Reference, site: &Site<'_>) -> bool {
+  let Some(last) = reference.receiver_type.as_deref().and_then(<[u32]>::last).map(|it| summary.name(*it)) else {
+    return false;
+  };
+  site.containers.last().is_none_or(|container| container != last) && receiver_of(site) != Some(last)
 }
 
 /// Whether a use with `qualifier` calls the JVM extension `site` (a declaration with an extension receiver) on anything
@@ -1860,8 +1885,129 @@ fn resolve_jvm(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<
       };
       paths.iter().any(|path| names(path)).then_some(Evidence::Qualified)
     }
-    MemberKind::Instance => inherited(use_site, reference, qualifier, site).then_some(Evidence::Inherited),
+    MemberKind::Instance => {
+      if inherited(use_site, reference, qualifier, site) {
+        return Some(Evidence::Inherited);
+      }
+      through_receiver(use_site, reference, qualifier, site).then_some(Evidence::Receiver)
+    }
   }
+}
+
+/// Whether a use of the instance member `site` on a receiver means it (`Receiver`): one whose type the summary knows
+/// (`Reference::receiver_type`: a local, a parameter or a property of a declared or constructed type), or the
+/// extension receiver of the function around a bare call (`implicit_receiver`), that type resolving to the type of
+/// the member as an override's supertype does (`supertype_resolves`). The member must override nothing (the member it
+/// overrides compiles the use without the commit) and not be one every class has (`ROOT_MEMBERS`); a Java one only of
+/// a type without supertypes, which may override without `@Override`. A type whose file declares a function that a
+/// call of its name may mean instead of a constructor (an `invoke` of its companion, a factory of its name) may give
+/// the receiver another type: none. A member of a type with supertypes is judged by its key only (`all_entries`), and
+/// then a function that a Kotlin import may bring (an extension of the name) takes a call the member rejects: none
+/// with such an import or a declaration of the name in the file. A member that the type inherits is no member of it:
+/// no evidence. A Kotlin extension of the type is no member: an extension on a receiver links only by the rules of a
+/// top-level function
+fn through_receiver(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<&[String]>, site: &Site<'_>) -> bool {
+  let summary = use_site.summary;
+  let declaration = site.declaration;
+  if !matches!(reference.role, Role::Call | Role::Value)
+    || !matches!(declaration.kind, DeclKind::Function | DeclKind::Value)
+    || declaration.member != MemberKind::Instance
+    || declaration.overrides
+    || ROOT_MEMBERS.contains(&site.name())
+    || (site.ctx.language == Language::Java && has_supertypes(site))
+    || constructed_otherwise(site)
+  {
+    return false;
+  }
+  let path = match &reference.receiver_type {
+    Some(path) => names(summary, path),
+    None => match implicit_receiver(use_site, reference, qualifier, site) {
+      Some(path) => path,
+      None => return false,
+    },
+  };
+  let key_only = inherits_unseen(use_site, site);
+  if key_only && (summary.declares(site.name()) || imports_of_function(summary, site.name()) > 0) {
+    return false;
+  }
+  supertype_resolves(use_site, reference, &path, site)
+}
+
+/// The extension receiver of the function or property around a bare call or `this.name()` (`[Scope]` of a
+/// `fun Scope.body()`, by its last name), the innermost receiver: not in an enclosed call (a lambda's receiver may
+/// take it), not in a member of a class (an inherited call, `inherited`), where nothing else of the file may take the
+/// name (a declaration of it, an import that may bring it), no receiver further out has supertypes (the class around a
+/// member extension, a companion) and the type of the member has none, whose members would take a call its own
+/// overloads reject
+fn implicit_receiver(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<&[String]>, site: &Site<'_>) -> Option<Vec<String>> {
+  let summary = use_site.summary;
+  let not_enclosed = matches!(
+    reference.shape.and_then(|shape| summary.shapes.get(shape as usize)),
+    Some(Shape::Call { enclosed: false, .. })
+  );
+  let this = qualifier.is_none_or(|qualifier| matches!(qualifier, [only] if only == "this"));
+  if !not_enclosed || !this || summary.declares(site.name()) || imports_of_function(summary, site.name()) > 0 {
+    return None;
+  }
+  let (_, around) = outward(summary, reference.container).find(|(_, declaration)| declaration.kind == DeclKind::Type || declaration.receiver.is_some())?;
+  if around.kind == DeclKind::Type || container_of(site).is_some_and(|container| extends(site.ctx.summary, container)) {
+    return None;
+  }
+  if receivers(summary, reference).iter().any(|(_, declaration)| extends(summary, declaration)) {
+    return None;
+  }
+  Some(vec![summary.name(around.receiver?).to_string()])
+}
+
+/// The last name of the type of the receiver of `reference`: its `receiver_type`, else the extension receiver of the
+/// function or property around it
+fn receiver_name<'a>(summary: &'a FileSummary, reference: &Reference) -> Option<&'a str> {
+  if let Some(last) = reference.receiver_type.as_deref().and_then(<[u32]>::last) {
+    return Some(summary.name(*last));
+  }
+  let (_, around) = outward(summary, reference.container).find(|(_, declaration)| declaration.kind == DeclKind::Type || declaration.receiver.is_some())?;
+  around.receiver.map(|receiver| summary.name(receiver))
+}
+
+/// Whether `site` is a JVM extension of the type `receiver` (by its last name) that the file of `use_site` sees without
+/// a qualifier: of its package, or through an import of its name or a wildcard import of its package. A member of the
+/// type wins over it only for a call the member accepts, which the summary judges generously
+fn sees_extension(use_site: &UseSite<'_>, site: &Site<'_>, receiver: &str) -> bool {
+  let summary = use_site.summary;
+  site.ctx.language.family() == Family::Jvm
+    && site.declaration.member == MemberKind::TopLevel
+    && receiver_of(site) == Some(receiver)
+    && (use_site.namespace == site.ctx.namespace
+      || summary.imports.iter().zip(&use_site.import_paths).any(|(import, path)| {
+        *path == site.ctx.namespace
+          && match import.target {
+            ImportTarget::Name(imported) => summary.name(imported) == site.name(),
+            ImportTarget::All => true,
+            ImportTarget::Default | ImportTarget::Namespace => false,
+          }
+      }))
+}
+
+/// Whether the file of the member `site` declares a function that a call of its type's name may mean instead of a
+/// constructor: an `invoke` of a companion of the type, or a top-level function of the type's name (a factory, which
+/// may return another type)
+fn constructed_otherwise(site: &Site<'_>) -> bool {
+  let summary = site.ctx.summary;
+  let Some(index) = site.declaration.container else { return false };
+  let Some(owner) = container_of(site) else { return false };
+  summary.declarations.iter().any(|declaration| {
+    declaration.kind == DeclKind::Function
+      && match declaration.container {
+        None => declaration.name == owner.name,
+        Some(container) => {
+          summary.name(declaration.name) == "invoke"
+            && summary
+              .declarations
+              .get(container as usize)
+              .is_some_and(|companion| summary.name(companion.name) == "Companion" && companion.container == Some(index))
+        }
+      }
+  })
 }
 
 /// The containers by which a use from the file of `use_site` may name the type of the static member `site`, the

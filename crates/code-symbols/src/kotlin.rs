@@ -143,6 +143,10 @@ const RULES: &[(&str, Rule)] = &[
     }),
   ),
   ("object_literal", Rule::Special(object_literal)),
+  ("lambda_parameters", Rule::Special(lambda_parameters)),
+  ("check_expression", Rule::Special(smart_cast)),
+  ("as_expression", Rule::Special(smart_cast)),
+  ("type_test", Rule::Special(type_test)),
 ];
 
 pub(crate) static SPEC: Spec = Spec {
@@ -178,8 +182,10 @@ pub(crate) static SPEC: Spec = Spec {
     "hex_literal",
     "bin_literal",
     "boolean_literal",
+    "postfix_expression",
+    "property_delegate",
   ],
-  tokens: &["interface", "this", "super", "=", "*", "-", "+"],
+  tokens: &["interface", "this", "super", "=", "*", "-", "+", "!!"],
   fields: &["receiver"],
   traits,
   binds: |_| true,
@@ -191,6 +197,14 @@ pub(crate) static SPEC: Spec = Spec {
     primitives: &[],
     constructors,
     implicit_constructor: |_| Reach::Public,
+    value_type,
+    receiver_node: |w, node| {
+      if w.is(node, "postfix_expression") && w.has_token(node, "!!") {
+        node.named_child(0).unwrap_or(node)
+      } else {
+        node
+      }
+    },
   }),
   call_shape: Some(call_shape),
 };
@@ -207,6 +221,7 @@ fn package<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
 fn parameter<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   if let Some(name) = w.child(node, Child::Kind(&["simple_identifier"])) {
     if w.ancestor(1).is_some_and(|it| w.is(it, "function_value_parameters")) {
+      w.type_binding(name, node);
       w.bind_node(name);
     } else {
       w.claim(name);
@@ -288,6 +303,7 @@ fn class_parameter<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
     JvmFields::default()
   };
   if !property || w.is_local() {
+    w.type_binding(name, node);
     w.bind_node(name);
     return true;
   }
@@ -647,6 +663,86 @@ fn secondary_constructor<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
     w.add_constructor(Constructor { signature, reach }, false);
   }
   w.open_scope();
+  true
+}
+
+/// The type of a property, a parameter or a typed lambda parameter (`JvmHooks::value_type`): its user type without type
+/// arguments (`a.Manager` of `a.Manager<T>?`), not a type parameter around it, a function type or another kind of type,
+/// nor of a vararg, an array; else the type a property's initializer constructs, a call of a capitalized name
+/// (`Manager(…)`, `a.Manager(…)`), not a delegate (`by lazy { … }`) or any other expression. A call of a capitalized
+/// name may be a factory of another type; `sync_core` skips a type with one beside it in its file
+fn value_type<'t>(w: &Walk<'t>, node: Node<'t>) -> Option<Vec<&'t str>> {
+  // a vararg is an array of its type
+  let vararg = if w.is(node, "parameter") {
+    node
+      .prev_named_sibling()
+      .is_some_and(|it| w.is(it, "parameter_modifiers") && w.text(it).is_some_and(|text| text.contains("vararg")))
+  } else {
+    modifier_texts(w, node).contains(&"vararg")
+  };
+  if vararg {
+    return None;
+  }
+  let declared = if w.is(node, "property_declaration") {
+    w.child(node, Child::Kind(&["variable_declaration"]))
+  } else {
+    Some(node)
+  };
+  if let Some(type_node) = declared.and_then(|it| w.child(it, Child::Kind(TYPES))) {
+    let user_type = if w.is(type_node, "nullable_type") {
+      w.child(type_node, Child::Kind(&["user_type"]))?
+    } else {
+      type_node
+    };
+    if !w.is(user_type, "user_type") {
+      return None;
+    }
+    let path = w.type_path(user_type)?;
+    return (!(path.len() == 1 && w.is_bound_text(path[0]))).then_some(path);
+  }
+  if !w.is(node, "property_declaration") || w.child(node, Child::Kind(&["property_delegate"])).is_some() {
+    return None;
+  }
+  let call = w.child(node, Child::Kind(&["call_expression"]))?;
+  let path = w.path_of(call.named_child(0)?)?;
+  let capitalized = path.last().is_some_and(|last| last.starts_with(char::is_uppercase));
+  (capitalized && !(path.len() == 1 && w.is_bound_text(path[0]))).then_some(path)
+}
+
+/// The parameters of a lambda, each with its type when it has one (`{ m: Manager -> … }`)
+fn lambda_parameters<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
+  let mut cursor = node.walk();
+  let declarations: Vec<Node<'t>> = node.named_children(&mut cursor).filter(|it| w.is(*it, "variable_declaration")).collect();
+  for declaration in declarations {
+    if let Some(name) = w.child(declaration, Child::Kind(&["simple_identifier"])) {
+      w.type_binding(name, declaration);
+    }
+  }
+  true
+}
+
+/// `m is Sub`, `m as Sub`: a smart cast may give the operand another type
+fn smart_cast<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
+  if let Some(operand) = node.named_child(0) {
+    w.smart_cast(operand);
+  }
+  true
+}
+
+/// `is Sub ->` of a `when` with a subject: a smart cast may give the subject another type
+fn type_test<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
+  let when = std::iter::successors(node.parent(), Node::parent).find(|it| w.is(*it, "when_expression"));
+  if let Some(subject) = when.and_then(|it| w.child(it, Child::Kind(&["when_subject"]))).and_then(|it| it.named_child(0)) {
+    // `when (val m = …)` binds the name it casts
+    let operand = if w.is(subject, "variable_declaration") {
+      w.child(subject, Child::Kind(&["simple_identifier"]))
+    } else {
+      Some(subject)
+    };
+    if let Some(operand) = operand {
+      w.smart_cast(operand);
+    }
+  }
   true
 }
 

@@ -66,6 +66,17 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`an_override_is_a_reference_per_supertype`, `a_signature_has_the_parameter_types`, `a_member_knows_whether_it_overrides_and_can_be_overridden`, `a_member_knows_whether_it_is_jvm_static`, `an_override_in_a_lambda_gets_no_supertype`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`an_override_is_a_reference_per_supertype`, `a_signature_has_the_parameter_types`, `a_member_knows_whether_it_overrides_and_can_be_overridden`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+- The summary of a Kotlin or Java file must hold the type of each property and field (`value_type`), as written without
+  type arguments or the type its initializer constructs (a capitalized Kotlin call, a Java `new` without a body), and on
+  a member reference the type of its receiver (`receiver_type`): of a parameter, a local or a typed lambda parameter
+  whose name is the whole receiver (`m.foo()`, `m?.foo()`, `m!!.foo()`), or of a property or field `m` or `this.m` of a
+  class around a reference that is not enclosed, not past a class with a supertype, a nested class that isn't inner or a
+  companion. A type parameter, a function type, a vararg, a delegate, an inferred expression, a Java anonymous class and
+  a name that its scope or function casts (Kotlin `is`, `as`, an `is` branch of its `when`, Java `instanceof` and casts)
+  must give none.
+  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_bound_name_carries_its_declared_type`, `a_property_knows_its_type`, `a_smart_cast_drops_the_type`)
+  [@test] ../../crates/code-symbols/src/java_test.rs (`a_bound_name_carries_its_declared_type`, `a_smart_cast_drops_the_type`, `an_anonymous_class_initializer_has_no_type`)
+  [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 - The summary of a Kotlin or Java call (not an infix call), Java's `new` and a Kotlin constructor invocation of a
   supertype included, must hold the shape of its arguments on the reference of its callee (the last name of the type of
   `new` and of an invocation, `Base` of `: a.Base(…)`, whose qualifiers are types): in source order, a named one with
@@ -119,8 +130,8 @@ Dependencies](../../docs/design/symbol-dependencies.md).
 - A commit must depend on an older one by symbols when a reference on its added lines means a declaration that commit
   adds, or a form of it that commit gives (see the entries below), with evidence: an import or alias of it, its
   qualified name or `Type.member` with a resolved type, the same file, the same Rust module, a wildcard import of its
-  package or module for a type, a type of the same JVM package in the same module, an override, or a call inherited
-  from the supertype (below).
+  package or module for a type, a type of the same JVM package in the same module, an override, a call inherited
+  from the supertype, or a use on a receiver of its type (below).
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_kotlin_import_of_a_function_another_commit_adds_is_an_edge`, `a_java_member_by_its_class_and_a_static_import_are_edges`, `a_rust_use_of_a_crate_path_and_a_path_of_another_crate_are_edges`, `a_typescript_import_by_a_relative_path_or_an_alias_is_an_edge`)
 - A call of a function of the same package without an import must be no edge, nor a type of the same package in
   another module.
@@ -185,6 +196,18 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   supertypes, of a private member or an `internal` one of another module, or of a member of the supertype's
   supertype.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_bare_call_of_a_member_the_supertype_gets_is_an_edge`, `a_super_call_of_a_new_member_is_an_edge`, `a_bare_call_with_two_supertypes_is_no_edge`, `a_bare_call_in_a_lambda_is_no_edge`, `a_bare_call_the_subclass_declares_is_no_edge`, `a_call_of_an_override_the_supertype_adds_is_no_edge`, `a_java_supertype_with_supertypes_is_no_edge`, `a_private_member_of_the_supertype_is_no_edge`, `a_bare_call_through_a_grandparent_is_no_edge`)
+- A use of an instance function or property that another commit adds on a receiver of its type must be a use of it
+  (evidence `receiver`), in another file: a parameter, a local from a constructor, a property of the class, from Kotlin
+  and Java, or the bare call or `this.name()` in an extension function of the type that nothing else of the file may
+  take, whose type has no supertypes; the type must resolve as a supertype does, and the arguments must tell the
+  overloads apart as for a qualified call. It must be no use with a receiver of a type parameter, of a type that doesn't
+  resolve (a wildcard import, another package without an import), of a smart cast, of a member that overrides one, of a
+  member the type inherits, of a property behind a class with supertypes, in a lambda inside an extension function, of a
+  type whose file declares an `invoke` of its companion or a factory of its name, or where an extension of the
+  receiver's type of that name that the file sees may take the call. A local shadows a property with its own type, a
+  member of the receiver's type wins over an extension of its name, and in the file of the member a use on a receiver of
+  another type is no use of it.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_call_on_a_typed_parameter_is_an_edge`, `a_call_on_a_property_of_the_class_is_an_edge`, `a_call_on_a_local_from_a_constructor_is_an_edge`, `a_bare_call_in_an_extension_function_is_an_edge`, `a_receiver_of_a_type_parameter_is_no_edge`, `a_receiver_whose_type_does_not_resolve_is_no_edge`, `a_smart_cast_receiver_is_no_edge`, `an_override_through_a_receiver_is_no_edge`, `an_extension_on_a_receiver_with_a_member_of_the_name_is_no_edge`, `a_shadowing_local_takes_its_own_type`, `a_property_behind_a_supertype_is_no_edge`, `an_inherited_member_through_a_receiver_is_no_edge`, `a_type_constructed_otherwise_is_no_receiver`, `a_same_file_use_on_a_receiver_of_another_type_is_no_use_of_the_file`, `a_receiver_call_an_extension_of_its_type_may_take_is_no_edge`)
 - The declarations of a key of a JVM type or a member of one must be entries told apart by kind, extension receiver and
   parameter types (with their arrays, a vararg counted), each with its origin: the baseline, or the commit that
   created it or changed its form, one entry removed and one added by a commit being the same entry in a new form. An

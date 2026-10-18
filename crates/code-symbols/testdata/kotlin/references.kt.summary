@@ -1,25 +1,25 @@
 package com.example.refs
 import com.example.shapes.Circle @3
 Type Renderer in - Public TopLevel 5-36 @8 new(canvas: Canvas)
-Value canvas in Renderer Container Instance 8-8 @8
+Value canvas in Renderer Container Instance 8-8 @8 <Canvas>
 Function render in Renderer Public Instance 11-33 @11 (shapes: List/Shape, scale: Int =)
 Value threshold in Renderer Container Instance 35-35 @35
 @3 ^com.example.shapes.Circle
 @8 :Canvas
 @11 DEFAULT_SCALE :Int :List :Shape
-@12 ?.size
-@14 ?.withIndex()
-@15 canvas canvas.draw(_,_)
-@17 canvas ?.forEach(Lambda) canvas.outline(_){}
-@18 ?.area ?.filter(Lambda) ?.map(Lambda) threshold
-@20 canvas canvas.flush(_)
+@12 <List>.size
+@14 <List>.withIndex()
+@15 canvas <Canvas>canvas.draw(_,_)
+@17 canvas <List>.forEach(Lambda) canvas.outline(_){}
+@18 ?.area ?.filter(Lambda) <List>.map(Lambda) threshold
+@20 canvas <Canvas>canvas.flush(_)
 @21 :IOException
 @22 Level Level.WARNING log(_,level=_,tag=_) ?.message
-@24 ?.size
+@24 <List>.size
 @25 println(_)
-@26 canvas canvas.status(count=_,second=_)
-@28 :Renderer canvas draw(_){} canvas.layer(Lambda)
+@26 canvas <Canvas>canvas.status(count=_,second=_)
+@28 :Renderer canvas draw(_){} <Canvas>canvas.layer(Lambda)
 @29 render
 @30 :String String.length
 @31 com.example.util.Logger com com.example com.example.util.Logger.log(Text) com.example.util
-@32 ?.first() ?.last() ?.to()
+@32 <List>.first() <List>.last() ?.to()

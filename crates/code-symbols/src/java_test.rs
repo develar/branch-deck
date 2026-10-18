@@ -1,3 +1,5 @@
+use crate::extract::summarize;
+use crate::language::Language;
 use crate::summary::{DeclKind, ImportTarget, MemberKind, Reach};
 use crate::test_support::{NONE, bare_refs, constructors_of, declaration, declarations_of, modalities, refs, signatures, summary_of, supertypes_of};
 
@@ -59,7 +61,7 @@ fn references() {
   assert_eq!(refs(&summary, "value"), NONE, "an annotation's element name is a label");
   assert_eq!(refs(&summary, "outer"), NONE, "a label");
   assert_eq!(refs(&summary, "var"), NONE);
-  assert_eq!(refs(&summary, "draw"), ["24 canvas.draw(_,_)"]);
+  assert_eq!(refs(&summary, "draw"), ["24 <Canvas>canvas.draw(_,_)"]);
   assert_eq!(refs(&summary, "area"), ["27 Shape.area"]);
   assert_eq!(refs(&summary, "THRESHOLD"), ["27 THRESHOLD"]);
   assert_eq!(refs(&summary, "radius"), ["33 ?.radius()"]);
@@ -121,7 +123,7 @@ fn a_member_knows_whether_it_overrides_and_can_be_overridden() {
 #[test]
 fn a_call_has_its_argument_shape() {
   let summary = summary_of("java/Overrides.java");
-  assert_eq!(refs(&summary, "changed"), ["80 ?.changed(_)"], "a call is an expression");
+  assert_eq!(refs(&summary, "changed"), ["80 <Listener>.changed(_)"], "a call is an expression");
   assert_eq!(refs(&summary, "of"), ["80 List.of(Text,Text)"]);
   // a signed and a hex number; `3L`, a character, a real and `null` are expressions
   assert_eq!(
@@ -177,4 +179,70 @@ fn a_class_knows_its_constructors() {
     "the name of a constructor is no reference, `this(…)` a call"
   );
   assert_eq!(refs(&summary, "InMethod"), NONE);
+}
+
+#[test]
+fn a_bound_name_carries_its_declared_type() {
+  let source = b"class Use<T> {
+  private final Manager manager = new Manager();
+  private java.util.List<Manager> list;
+
+  void f(Manager m, T t, int count) {
+    m.one();
+    var made = new Manager();
+    made.two();
+    Other typed = make();
+    typed.three();
+    t.four();
+    this.manager.five();
+    list.six();
+    java.util.function.Consumer<Manager> c = (Manager x) -> x.seven();
+  }
+}
+";
+  let summary = summarize(Language::Java, source);
+  assert_eq!(refs(&summary, "one"), ["6 <Manager>.one()"]);
+  assert_eq!(refs(&summary, "two"), ["8 <Manager>.two()"], "a `var` of a `new`");
+  assert_eq!(refs(&summary, "three"), ["10 <Other>.three()"]);
+  assert!(refs(&summary, "four")[0].contains("?."), "a type parameter: {:?}", refs(&summary, "four"));
+  assert_eq!(refs(&summary, "five"), ["12 <Manager>this.manager.five()"], "a field");
+  assert_eq!(refs(&summary, "six"), ["13 <java.util.List>list.six()"], "without its type arguments");
+  assert_eq!(refs(&summary, "seven"), ["14 <Manager>.seven()"], "a typed lambda parameter");
+}
+
+#[test]
+fn a_smart_cast_drops_the_type() {
+  let source = b"class Use {
+  void f(Manager m, Manager n, Manager k) {
+    if (m instanceof Sub) m.one();
+    Object o = (Sub) n;
+    n.two();
+    if (k instanceof Sub s) s.three();
+    k.four();
+  }
+
+  void g(Manager m) { m.five(); }
+}
+";
+  let summary = summarize(Language::Java, source);
+  for name in ["one", "two", "four"] {
+    assert!(!refs(&summary, name)[0].contains('<'), "{name}: {:?}", refs(&summary, name));
+  }
+  assert_eq!(refs(&summary, "five"), ["10 <Manager>.five()"]);
+}
+
+#[test]
+fn an_anonymous_class_initializer_has_no_type() {
+  let source = b"class Use {
+  void f() {
+    var r = new Manager() { void extra() {} };
+    r.one();
+    var plain = new Manager();
+    plain.two();
+  }
+}
+";
+  let summary = summarize(Language::Java, source);
+  assert!(refs(&summary, "one")[0].contains("?."), "{:?}", refs(&summary, "one"));
+  assert_eq!(refs(&summary, "two"), ["6 <Manager>.two()"]);
 }

@@ -4,7 +4,7 @@ import java.util.function.* @4
 import java.util.Objects.requireNonNull @5
 import org.junit.Assert.* @6
 Type References in - Public TopLevel 8-54 @12 new()
-Value canvas in References Container Instance 15-15 @15
+Value canvas in References Container Instance 15-15 @15 <Canvas>
 Function render in References Module Instance 17-51 @17 (shapes: List/Shape, scale: int) overridable
 Constant THRESHOLD in References Container Static 53-53 @53
 @3 ^java.util.List
@@ -12,17 +12,17 @@ Constant THRESHOLD in References Container Static 53-53 @53
 @11 :SuppressWarnings
 @15 Canvas() :Canvas
 @17 :List :Shape
-@18 :String ?.size()
+@18 :String <List>.size()
 @23 :Shape
-@24 canvas canvas.draw(_,_)
-@26 canvas ?.forEach(Lambda) canvas.outline(_)
-@27 :Double Shape THRESHOLD Shape.area ?.filter(Lambda) ?.map(_) ?.stream()
-@28 :Output canvas canvas.open() ?.output()
+@24 canvas <Canvas>canvas.draw(_,_)
+@26 canvas <List>.forEach(Lambda) <Canvas>canvas.outline(_)
+@27 :Double Shape THRESHOLD Shape.area ?.filter(Lambda) ?.map(_) <List>.stream()
+@28 :Output canvas <Canvas>canvas.open() ?.output()
 @29 ?.write(_)
 @30 :IOException :RuntimeException
 @31 ?.getMessage() log(_)
-@33 :Circle ?.get(Number) ?.radius()
-@34 canvas canvas.circle(_)
+@33 :Circle <List>.get(Number) ?.radius()
+@34 canvas <Canvas>canvas.circle(_)
 @36 :Object
 @37 Kind Kind.NONE
 @39 requireNonNull(_)

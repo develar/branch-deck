@@ -3,8 +3,8 @@
 //! - **Names are interned**: every `u32` name is an index into `FileSummary::names`, which is sorted, so a summary is
 //!   the same for the same bytes whatever order the walk met the names in, and `name_id` is a binary search.
 //! - **Shapes are interned**: `Reference::shape` indexes into `FileSummary::shapes`, one entry per distinct shape.
-//! - **References are sorted** by name, then line, role, qualifier, container and shape, and exact duplicates are
-//!   dropped: `references_to` is a range.
+//! - **References are sorted** by name, then line, role, qualifier, container, shape and receiver type, and exact
+//!   duplicates are dropped: `references_to` is a range.
 //! - **Lines are 1-based**; a reference's line is the line of its identifier.
 //! - **Postcard**: the object cache stores a summary with postcard, which is not self-describing, so no field may be
 //!   skipped or defaulted (`skip_serializing_if`, `default`); a new field changes `RULES_VERSION`.
@@ -22,7 +22,7 @@ pub struct FileSummary {
   pub imports: Vec<Import>,
   /// In source order; `container` indexes into this list
   pub declarations: Vec<Declaration>,
-  /// Sorted by name, line, role, qualifier, container and shape, without duplicates
+  /// Sorted by name, line, role, qualifier, container, shape and receiver type, without duplicates
   pub references: Vec<Reference>,
   /// The shapes of the references, each once, in the order the walk met them; `Reference::shape` indexes here
   pub shapes: Vec<Shape>,
@@ -91,6 +91,11 @@ pub struct Declaration {
   /// The direct supertypes of a Kotlin or Java type, as written without type arguments: `[a, Base]` of
   /// `: a.Base<T>()`, `extends a.Base<T>`; a Kotlin function type, which has no path, is an empty one
   pub supertypes: Vec<Vec<u32>>,
+  /// The type of a Kotlin property or a Java field, as written without type arguments (`[a, Manager]` of
+  /// `val m: a.Manager<T>?`), else the type its initializer constructs (`val m = Manager(…)`, a capitalized call;
+  /// `new Manager(…)` without a body); `None` for a type parameter, a function type, an inferred type of any other
+  /// expression, and other declarations and languages
+  pub value_type: Option<Vec<u32>>,
   /// The constructors of a Kotlin or Java class, never empty: those it declares (a Kotlin primary constructor and the
   /// secondary ones, the canonical constructor of a Java record, declared, compact or not at all, and its others), else
   /// the implicit `()`, public in Kotlin and of the reach of its class in Java, as javac makes it; two of the same
@@ -162,6 +167,14 @@ pub struct Reference {
   /// What the reference needs of the declaration it means, an index into `FileSummary::shapes`; `None` when it says
   /// nothing more than its name and role
   pub shape: Option<u32>,
+  /// The type of the receiver of a Kotlin or Java member, as written where it is declared (`value_type`): of a local, a
+  /// parameter or a typed lambda parameter of that type whose name is the whole receiver (`m.foo()`, `m?.foo()`,
+  /// `m!!.foo()`, whose `qualifier` is then empty), or of a property or field of a class around it named by the
+  /// receiver (`[m]`, `[this, m]`; not in an enclosed reference, not past a nested class that isn't inner, a companion
+  /// or a class with supertypes, and only of the innermost class for `this`). `None` when the name is an operand of a
+  /// Kotlin `is` or `as` (a `when` subject with an `is` branch) or a Java `instanceof` or cast in its scope or
+  /// function: a smart cast may give it another type
+  pub receiver_type: Option<Vec<u32>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

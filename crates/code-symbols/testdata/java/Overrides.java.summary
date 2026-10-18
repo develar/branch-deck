@@ -55,7 +55,7 @@ Function enclosed in Overrides Module Instance 86-91 @86 () overridable
 @68 :Point ~Comparable.compareTo(Point)
 @77 :String
 @79 :Listener
-@80 List ?.changed(_) List.of(Text,Text)
+@80 List <Listener>.changed(_) List.of(Text,Text)
 @81 select(Text,Number,Number,Number,_,Boolean,_,_,_)
 @82 java.util.Objects java java.util.Objects.requireNonNull(_,Lambda) java.util
 @83 this.fill(_,_)

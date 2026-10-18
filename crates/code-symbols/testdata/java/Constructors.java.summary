@@ -40,4 +40,4 @@ Value first in Generic Public Instance 88-88 @88
 @77 :java.util.Date :java :java.util
 @79 :java.sql.Date :java :java.sql
 @83 :java.util.List :java :java.util
-@84 Pair(_) ?.get(Number)
+@84 Pair(_) <java.util.List>.get(Number)

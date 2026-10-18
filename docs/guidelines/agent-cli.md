@@ -316,12 +316,12 @@ disagree about which commit added a line. Treat an edge as
 The edges by symbols (`crates/sync-core/src/symbol_dependencies.rs`, unless `branchdeck.symbols` is `off`) add those: a
 commit uses a name another commit of the range adds, with evidence that the use means that declaration (an import, a
 qualified name, the same file or Rust module, a type of the same package and module, an override in a subtype whose
-supertype resolves, a call in a subclass of a member its one supertype has), or removes a declaration whose uses another
-commit removed. Of a Kotlin or Java type a declaration is each overload and each constructor, and a new form of one (a
-wider reach, `open`, a default, a new or renamed parameter) counts as added for the uses that only it accepts; a call
-links to the overloads its arguments select. They come from the syntax trees of Kotlin, Java, Rust, TypeScript and
-JavaScript, cached by blob id. Such an edge (`via: "symbols"`) means "this doesn't compile without that", which a stack
-or the order of two Safe Pushes satisfies; it never joins `units`.
+supertype resolves, a call in a subclass of a member its one supertype has, a use on a receiver of the member's type),
+or removes a declaration whose uses another commit removed. Of a Kotlin or Java type a declaration is each overload and
+each constructor, and a new form of one (a wider reach, `open`, a default, a new or renamed parameter) counts as added
+for the uses that only it accepts; a call links to the overloads its arguments select. They come from the syntax trees
+of Kotlin, Java, Rust, TypeScript and JavaScript, cached by blob id. Such an edge (`via: "symbols"`) means "this doesn't
+compile without that", which a stack or the order of two Safe Pushes satisfies; it never joins `units`.
 See [Symbol Dependencies](../design/symbol-dependencies.md).
 
 ### The object cache
@@ -664,8 +664,9 @@ repository lock.
   `{branch, identifier, file, line, used_by, declared_by, declared_in, evidence}`: a commit of a built branch uses a
   name that a commit outside the branch and the branches it is built on adds or gives the form the use needs (an
   overload, a constructor parameter, a wider reach), overrides it (`evidence: "override"`) or calls it as an inherited
-  member (`evidence: "inherited"`), by the edges by symbols. git merges it and the build would fail; stack the branch on
-  `declared_in` or move one of the two. It doesn't count for `ok` or the exit code: names, not a compiler.
+  member (`evidence: "inherited"`) or on a receiver of its type (`evidence: "receiver"`), by the edges by symbols. git
+  merges it and the build would fail; stack the branch on `declared_in` or move one of the two. It doesn't count for
+  `ok` or the exit code: names, not a compiler.
 - `--fix` adds `fix`, the regroup after which the branches that conflict (or have a proven dangling reference) apply
   cleanly, found by trial builds on top of the plan (`sync_core::conflict_fix`, the search of the app's Fix): nothing is
   applied. `fix.components` are independent parts, each `{steps, plan, fixed, unblocked, emptied, orphaned_children,

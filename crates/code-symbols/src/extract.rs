@@ -34,13 +34,13 @@
 use crate::language::Language;
 use crate::summary::{Argument, Constructor, DeclKind, Declaration, FileSummary, Import, ImportTarget, MemberKind, Reach, Reference, Role, Shape, Signature, TypeRef};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
 use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 10;
+pub const RULES_VERSION: u32 = 11;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -220,6 +220,12 @@ pub(crate) struct JvmHooks {
   pub(crate) constructors: for<'t> fn(&mut Walk<'t>, Node<'t>, Reach) -> Vec<Constructor>,
   /// The reach of the implicit `()` of a class that declares no constructor, given the reach of the class
   pub(crate) implicit_constructor: fn(Reach) -> Reach,
+  /// The type of a declaration of a value (a property, a field, a local, a parameter): as written, without type
+  /// arguments, else the type its initializer constructs; `None` for a type parameter, a function type and an
+  /// inferred type of any other expression (`Declaration::value_type`)
+  pub(crate) value_type: for<'t> fn(&Walk<'t>, Node<'t>) -> Option<Vec<&'t str>>,
+  /// The node a receiver of a member names a value by: a name inside a Kotlin `m!!`, else the node itself
+  pub(crate) receiver_node: for<'t> fn(&Walk<'t>, Node<'t>) -> Node<'t>,
 }
 
 /// What the modifiers of a member say about overriding
@@ -241,6 +247,7 @@ pub(crate) struct JvmFields {
   overridable: bool,
   jvm_static: bool,
   supertypes: Vec<Vec<u32>>,
+  value_type: Option<Vec<u32>>,
   constructors: Option<Vec<Constructor>>,
 }
 
@@ -558,6 +565,22 @@ struct Scope {
   body: bool,
 }
 
+/// A name bound in a scope, with the type it was declared with (`JvmHooks::value_type`)
+struct Binding {
+  name: u32,
+  type_path: Option<Vec<u32>>,
+  /// Unique per binding of the walk, for the smart casts that drop its type
+  serial: u32,
+}
+
+/// A member reference whose receiver may have a type (`Reference::receiver_type`), decided when the walk is done
+enum TypedReceiver {
+  /// A bound name of this type and binding
+  Bound { reference: usize, serial: u32, type_path: Vec<u32> },
+  /// A property or field `[m]` or `[this, m]`, not enclosed
+  Property { reference: usize },
+}
+
 /// The state of one walk; the language code reads and writes it through the methods below
 pub(crate) struct Walk<'t> {
   spec: &'static Spec,
@@ -573,11 +596,18 @@ pub(crate) struct Walk<'t> {
   /// (node id, mark, index of the frame that set it)
   marks: Vec<(usize, Mark, usize)>,
   scopes: Vec<Scope>,
-  bound: Vec<u32>,
+  bound: Vec<Binding>,
   bound_counts: HashMap<u32, u32>,
+  serials: u32,
+  /// Name node id -> the type its binding gets, set by the language code before the walk binds it
+  binding_types: HashMap<usize, Vec<u32>>,
+  receivers: Vec<TypedReceiver>,
+  /// The bindings, and the (container, name) of properties, that a smart cast may give another type
+  cast_bindings: HashSet<u32>,
+  cast_names: HashSet<(Option<u32>, u32)>,
   body_scopes: u32,
-  /// (frame index, name): bindings that become visible when that frame is left
-  pending: Vec<(usize, u32)>,
+  /// (frame index, name, type): bindings that become visible when that frame is left
+  pending: Vec<(usize, u32, Option<Vec<u32>>)>,
   containers: Vec<Container>,
   /// The supertypes whose members the declarations at this level override; a class-like node pushes its own, a
   /// function body and a lambda an empty list
@@ -609,6 +639,11 @@ impl<'t> Walk<'t> {
       scopes: Vec::new(),
       bound: Vec::new(),
       bound_counts: HashMap::new(),
+      serials: 0,
+      binding_types: HashMap::new(),
+      receivers: Vec::new(),
+      cast_bindings: HashSet::new(),
+      cast_names: HashSet::new(),
       body_scopes: 0,
       pending: Vec::new(),
       containers: Vec::new(),
@@ -790,12 +825,10 @@ impl<'t> Walk<'t> {
     for _ in 0..frame.scopes {
       self.pop_scope();
     }
-    while let Some(&(at, name)) = self.pending.last() {
-      if at < index {
-        break;
+    while self.pending.last().is_some_and(|(at, ..)| *at >= index) {
+      if let Some((_, name, type_path)) = self.pending.pop() {
+        self.bind_typed(name, type_path);
       }
-      self.pending.pop();
-      self.bind_id(name);
     }
     if frame.container {
       self.containers.pop();
@@ -819,7 +852,8 @@ impl<'t> Walk<'t> {
     if binds {
       let at = self.frames[frame].pattern.unwrap_or(frame);
       let id = self.intern(text);
-      self.pending.push((at, id));
+      let type_path = self.binding_types.remove(&node.id());
+      self.pending.push((at, id, type_path));
       return;
     }
     let (role, shape) = match mark {
@@ -868,7 +902,46 @@ impl<'t> Walk<'t> {
       (_, role) => (role.unwrap_or_else(|| self.default_role(name_node)), None),
     };
     let qualifier = object.map(|object| self.qualifier_of(object));
+    let receiver = object
+      .filter(|_| matches!(role, Role::Call | Role::Value))
+      .and_then(|object| self.typed_receiver(object, qualifier.as_deref()));
+    let before = self.references.len();
     self.reference(text, line_of(name_node), role, qualifier, shape);
+    if let Some(receiver) = receiver.filter(|_| self.references.len() > before) {
+      self.receivers.push(match receiver {
+        TypedReceiver::Bound { serial, type_path, .. } => TypedReceiver::Bound {
+          reference: before,
+          serial,
+          type_path,
+        },
+        TypedReceiver::Property { .. } => TypedReceiver::Property { reference: before },
+      });
+    }
+  }
+
+  /// What the receiver `object` of a member reference may have a type by: a bound name with a declared type, or, not
+  /// enclosed, a property `[m]` or `[this, m]` of the qualifier, decided when the walk is done (`receiver_types`)
+  fn typed_receiver(&self, object: Node<'t>, qualifier: Option<&[u32]>) -> Option<TypedReceiver> {
+    let hooks = self.spec.jvm.as_ref()?;
+    let object = (hooks.receiver_node)(self, object);
+    if self.is_name(object) {
+      let id = *self.name_ids.get(self.text(object)?)?;
+      if self.is_bound(id) {
+        let binding = self.bound.iter().rev().find(|it| it.name == id)?;
+        return Some(TypedReceiver::Bound {
+          reference: 0,
+          serial: binding.serial,
+          type_path: binding.type_path.clone()?,
+        });
+      }
+    }
+    let this = self.name_ids.get("this").copied();
+    let property = match qualifier? {
+      [_] => true,
+      [first, _] => Some(*first) == this,
+      _ => false,
+    };
+    (property && !self.enclosed()).then_some(TypedReceiver::Property { reference: 0 })
   }
 
   /// The interned `Shape::Call` of the arguments of a call node, by the language's `Spec::call_shape`, `enclosed` by
@@ -930,15 +1003,25 @@ impl<'t> Walk<'t> {
     let leading = self.leading_now;
     let mut fields = self.jvm_fields(node, rule);
     if self.body_scopes > 0 {
-      // a local declaration binds its name in the scope around it
+      // a local declaration binds its name in the scope around it, with its type
+      let value_type = fields.value_type.take();
       match rule.pattern.and_then(|it| self.child(node, it)) {
-        Some(pattern) => self.mark(pattern, Mark::Pattern(rule.late.then_some(index))),
+        Some(pattern) => {
+          if let (Some(type_path), [name]) = (value_type, self.pattern_names(pattern).as_slice()) {
+            self.binding_types.insert(name.id(), type_path);
+          }
+          self.mark(pattern, Mark::Pattern(rule.late.then_some(index)));
+        }
         None => {
           if let Some(name) = self.child(node, rule.name).and_then(|it| self.name_node(it)) {
             self.claim(name);
             if let Some(text) = self.text(name) {
               let id = self.intern(text);
-              if rule.late { self.pending.push((index, id)) } else { self.bind_id(id) }
+              if rule.late {
+                self.pending.push((index, id, value_type));
+              } else {
+                self.bind_typed(id, value_type);
+              }
             }
           }
         }
@@ -1065,6 +1148,7 @@ impl<'t> Walk<'t> {
       overrides: modality.overrides,
       overridable: modality.overridable,
       jvm_static: modality.jvm_static,
+      value_type: if kind == DeclKind::Value { self.value_type(hooks, node) } else { None },
       ..JvmFields::default()
     }
   }
@@ -1108,6 +1192,7 @@ impl<'t> Walk<'t> {
       overridable: fields.overridable,
       jvm_static: fields.jvm_static,
       supertypes: fields.supertypes,
+      value_type: fields.value_type,
       constructors: fields.constructors,
       start_line: leading.map_or(start, |it| it.min(start)),
       end_line,
@@ -1138,6 +1223,7 @@ impl<'t> Walk<'t> {
       qualifier,
       container,
       shape,
+      receiver_type: None,
     });
   }
 
@@ -1210,7 +1296,7 @@ impl<'t> Walk<'t> {
     if scope.body {
       self.body_scopes -= 1;
     }
-    for name in self.bound.drain(scope.bound_start..) {
+    for Binding { name, .. } in self.bound.drain(scope.bound_start..) {
       if let Some(count) = self.bound_counts.get_mut(&name) {
         *count -= 1;
         if *count == 0 {
@@ -1221,10 +1307,19 @@ impl<'t> Walk<'t> {
   }
 
   fn bind_id(&mut self, name: u32) {
+    self.bind_typed(name, None);
+  }
+
+  fn bind_typed(&mut self, name: u32, type_path: Option<Vec<u32>>) {
     if self.scopes.is_empty() {
       return;
     }
-    self.bound.push(name);
+    self.serials += 1;
+    self.bound.push(Binding {
+      name,
+      type_path,
+      serial: self.serials,
+    });
     *self.bound_counts.entry(name).or_insert(0) += 1;
   }
 
@@ -1310,6 +1405,7 @@ impl<'t> Walk<'t> {
     self.resolve_impl_members();
     self.publish_exported();
     self.add_implicit_constructors();
+    self.receiver_types();
     let mut order: Vec<u32> = (0..u32::try_from(self.names.len()).unwrap_or(u32::MAX)).collect();
     order.sort_unstable_by_key(|it| self.names[*it as usize]);
     let mut remap = vec![0u32; order.len()];
@@ -1334,6 +1430,7 @@ impl<'t> Walk<'t> {
         map_type(&mut parameter.type_ref);
       }
       declaration.supertypes.iter_mut().flatten().for_each(map);
+      declaration.value_type.iter_mut().flatten().for_each(map);
     }
     for shape in &mut self.shapes {
       match shape {
@@ -1347,6 +1444,7 @@ impl<'t> Walk<'t> {
     for reference in &mut self.references {
       map(&mut reference.name);
       reference.qualifier.iter_mut().flatten().for_each(map);
+      reference.receiver_type.iter_mut().flatten().for_each(map);
     }
     self.references.sort_unstable();
     self.references.dedup();
@@ -1357,6 +1455,54 @@ impl<'t> Walk<'t> {
     summary.references = self.references;
     summary.shapes = self.shapes;
     summary.error_bytes = self.error_bytes;
+  }
+
+  /// The types of the receivers of member references (`Reference::receiver_type`): a bound name's, unless a smart
+  /// cast may change it; a property's or a field's of the class around the reference that declares it, the innermost
+  /// first, not past a class with a supertype (whose `m` comes first), a nested class that isn't inner or a companion
+  /// (whose code sees no `m` of the class around it), and for `this.m` only of the innermost class
+  fn receiver_types(&mut self) {
+    let this = self.name_ids.get("this").copied();
+    // (class, name) -> the property or field of that name it declares
+    let properties: HashMap<(u32, u32), &Declaration> = self
+      .declarations
+      .iter()
+      .filter(|declaration| declaration.kind == DeclKind::Value)
+      .filter_map(|declaration| Some(((declaration.container?, declaration.name), declaration)))
+      .collect();
+    let mut types = Vec::new();
+    for receiver in &self.receivers {
+      types.push(match receiver {
+        TypedReceiver::Bound { reference, serial, type_path } => (*reference, (!self.cast_bindings.contains(serial)).then(|| type_path.clone())),
+        TypedReceiver::Property { reference } => (*reference, self.property_type(&self.references[*reference], this, &properties)),
+      });
+    }
+    for (index, type_path) in types {
+      self.references[index].receiver_type = type_path;
+    }
+  }
+
+  fn property_type(&self, reference: &Reference, this: Option<u32>, properties: &HashMap<(u32, u32), &Declaration>) -> Option<Vec<u32>> {
+    let (own, name) = match reference.qualifier.as_deref()? {
+      [name] => (false, *name),
+      [first, name] if Some(*first) == this => (true, *name),
+      _ => return None,
+    };
+    if self.cast_names.contains(&(reference.container, name)) {
+      return None;
+    }
+    let at = |index: u32| self.declarations.get(index as usize).map(|declaration| (index, declaration));
+    let around = std::iter::successors(reference.container.and_then(at), |(_, declaration)| declaration.container.and_then(at));
+    for (index, class) in around.filter(|(_, declaration)| matches!(declaration.kind, DeclKind::Type | DeclKind::EnumEntry)) {
+      if let Some(property) = properties.get(&(index, name)) {
+        return property.value_type.clone();
+      }
+      // an inherited `m` comes first; the code of a nested class, a companion or an enum entry sees no `m` around it
+      if own || class.kind == DeclKind::EnumEntry || !class.supertypes.is_empty() || (class.member == MemberKind::Static && class.container.is_some()) {
+        return None;
+      }
+    }
+    None
   }
 
   /// A member of a Rust `impl` belongs to the declaration of its type when this file has it
@@ -1533,8 +1679,48 @@ impl<'t> Walk<'t> {
   pub(crate) fn bind_node(&mut self, node: Node<'t>) {
     self.claim(node);
     if let Some(text) = self.text(node) {
-      self.bind_text(text);
+      let id = self.intern(text);
+      let type_path = self.binding_types.remove(&node.id());
+      self.bind_typed(id, type_path);
     }
+  }
+
+  /// Gives the name `node` that the walk binds next the type `declaration` was declared with (`JvmHooks::value_type`):
+  /// a parameter, a typed lambda parameter
+  pub(crate) fn type_binding(&mut self, node: Node<'t>, declaration: Node<'t>) {
+    let Some(hooks) = &self.spec.jvm else { return };
+    if let Some(type_path) = self.value_type(hooks, declaration) {
+      self.binding_types.insert(node.id(), type_path);
+    }
+  }
+
+  fn value_type(&mut self, hooks: &JvmHooks, declaration: Node<'t>) -> Option<Vec<u32>> {
+    let path = (hooks.value_type)(self, declaration)?;
+    Some(self.ids(&path))
+  }
+
+  /// Whether `text` is a name bound around the current node: a local, a parameter, a type parameter
+  pub(crate) fn is_bound_text(&self, text: &str) -> bool {
+    self.name_ids.get(text).is_some_and(|id| self.is_bound(*id))
+  }
+
+  /// The operand of a Kotlin `is` or `as` or a Java `instanceof` or cast: a smart cast may give a name of it, a local
+  /// or a property (`m`, `this.m`), another type in its scope or function, which the walk can't follow
+  pub(crate) fn smart_cast(&mut self, operand: Node<'t>) {
+    let Some(path) = self.path_of(operand) else { return };
+    let name = match path.as_slice() {
+      [name] | ["this", name] => *name,
+      _ => return,
+    };
+    let Some(&id) = self.name_ids.get(name) else { return };
+    if path.len() == 1
+      && let Some(binding) = self.bound.iter().rev().find(|it| it.name == id)
+    {
+      self.cast_bindings.insert(binding.serial);
+      return;
+    }
+    let container = self.container();
+    self.cast_names.insert((container, id));
   }
 
   pub(crate) fn emit(&mut self, node: Node<'t>, role: Role, qualifier: Option<Vec<u32>>) {

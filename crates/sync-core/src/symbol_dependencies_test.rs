@@ -3081,3 +3081,279 @@ fn a_bare_call_through_a_grandparent_is_no_edge() {
     .commit(&[("src/c/Direct.kt", Some(&sub("Base()", "open(1)").replacen("package b", "package c", 1)))]);
   assert_eq!(edges(&range.graph(&[], &[], &[])), [(2, 0, vec![link("open", Evidence::Inherited)])]);
 }
+
+/// `a.Manager` with `members` beside `fun other()`, `: supertypes` when given
+fn receiver_type(supertypes: &str, members: &str) -> String {
+  format!("package a\n\nclass Manager{supertypes} {{\n  fun other() = 1\n{members}}}\n")
+}
+
+/// A range whose first commit adds `members` to `a.Manager` (`receiver_type`) of the baseline
+fn adding_to_manager(supertypes: &str, members: &str) -> Range {
+  let mut range = Range::default();
+  range
+    .baseline(&[("src/a/Manager.kt", &receiver_type(supertypes, ""))])
+    .commit(&[("src/a/Manager.kt", Some(&receiver_type(supertypes, members)))]);
+  range
+}
+
+const FRESH: &str = "  fun fresh() = 2\n";
+
+/// A Kotlin file of `package` with `import a.Manager` and `body`
+fn using_manager(package: &str, body: &str) -> String {
+  format!("package {package}\n\nimport a.Manager\n\n{body}\n")
+}
+
+impl Range {
+  /// A commit of a file `src/<path>.kt` of the package of its directory that calls `fresh()` on a parameter of
+  /// `a.Manager`
+  fn fresh_use(&mut self, path: &str) -> &mut Self {
+    let package = path.split('/').next().unwrap_or_default();
+    let content = using_manager(package, "fun use(m: Manager) = m.fresh()");
+    self.commit(&[(&format!("src/{path}.kt"), Some(&content))])
+  }
+}
+
+/// The edge of a commit to the first one by the use of `name` on a receiver
+fn on_receiver(from: usize, name: &str) -> Edge {
+  (from, 0, vec![link(name, Evidence::Receiver)])
+}
+
+/// A parameter of the member's type is a receiver of that type, from Kotlin (`m?.`, `m!!.` too) and Java; the arguments
+/// select the overload, also beside one of the baseline
+#[test]
+fn a_call_on_a_typed_parameter_is_an_edge() {
+  let mut range = Range::default();
+  let open = "  fun open(id: Int) = id\n";
+  range
+    .baseline(&[("src/a/Manager.kt", &receiver_type("", open))])
+    .commit(&[("src/a/Manager.kt", Some(&receiver_type("", &format!("{open}  fun open(name: String) = name\n{FRESH}"))))])
+    .commit(&[("src/b/Use.kt", Some(&using_manager("b", "fun use(m: Manager?) = m?.fresh() ?: m!!.open(\"x\")")))])
+    .commit(&[(
+      "src/b/Use.java",
+      Some("package b;\n\nimport a.Manager;\n\nclass Use {\n  int use(Manager m) { return m.fresh(); }\n}\n"),
+    )])
+    .commit(&[("src/c/Old.kt", Some(&using_manager("c", "fun old(m: Manager) = m.open(1)")))]);
+  let both = vec![link("fresh", Evidence::Receiver), link("open", Evidence::Receiver)];
+  assert_eq!(
+    edges(&range.graph(&[], &[], &[])),
+    [(1, 0, both), on_receiver(2, "fresh")],
+    "the overload of the baseline takes `open(1)`"
+  );
+}
+
+/// A property of the class, by its name or `this.name`, and a Java field
+#[test]
+fn a_call_on_a_property_of_the_class_is_an_edge() {
+  let mut range = adding_to_manager("", FRESH);
+  range
+    .commit(&[("src/b/Use.kt", Some(&using_manager("b", "class Use(private val m: Manager) {\n  fun use() = m.fresh()\n}")))])
+    .commit(&[(
+      "src/c/Built.kt",
+      Some(&using_manager("c", "class Built {\n  private val m = Manager()\n\n  fun use() = this.m.fresh()\n}")),
+    )])
+    .commit(&[(
+      "src/b/Field.java",
+      Some("package b;\n\nimport a.Manager;\n\nclass Field {\n  private final Manager m = new Manager();\n\n  int use() { return m.fresh(); }\n}\n"),
+    )]);
+  assert_eq!(
+    edges(&range.graph(&[], &[], &[])),
+    [on_receiver(1, "fresh"), on_receiver(2, "fresh"), on_receiver(3, "fresh")]
+  );
+}
+
+/// A local initialized by a constructor, Kotlin's and Java's `var`
+#[test]
+fn a_call_on_a_local_from_a_constructor_is_an_edge() {
+  let mut range = adding_to_manager("", FRESH);
+  range
+    .commit(&[("src/b/Use.kt", Some(&using_manager("b", "fun use(): Int {\n  val m = Manager()\n  return m.fresh()\n}")))])
+    .commit(&[(
+      "src/b/Use.java",
+      Some("package b;\n\nimport a.Manager;\n\nclass Use {\n  int use() {\n    var m = new Manager();\n    return m.fresh();\n  }\n}\n"),
+    )])
+    .commit(&[("src/c/Made.kt", Some(&using_manager("c", "fun use(): Int {\n  val m = make()\n  return m.fresh()\n}")))]);
+  assert_eq!(
+    edges(&range.graph(&[], &[], &[])),
+    [on_receiver(1, "fresh"), on_receiver(2, "fresh")],
+    "the type of `make()` is unknown"
+  );
+}
+
+#[test]
+fn a_receiver_of_a_type_parameter_is_no_edge() {
+  let mut range = adding_to_manager("", FRESH);
+  range
+    .commit(&[("src/b/Generic.kt", Some(&using_manager("b", "fun <Manager> use(m: Manager) = m.fresh()")))])
+    .fresh_use("c/Plain");
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(2, "fresh")]);
+}
+
+/// The type resolves as a supertype does: an import, its full path, the same package and module, never a wildcard
+#[test]
+fn a_receiver_whose_type_does_not_resolve_is_no_edge() {
+  let mut range = adding_to_manager("", FRESH);
+  range
+    .commit(&[("src/b/Far.kt", Some("package b\n\nfun use(m: Manager) = m.fresh()\n"))])
+    .commit(&[("src/c/Star.kt", Some("package c\n\nimport a.*\n\nfun use(m: Manager) = m.fresh()\n"))])
+    .commit(&[("src/d/Full.kt", Some("package d\n\nfun use(m: a.Manager) = m.fresh()\n"))])
+    .commit(&[("src/a/Near.kt", Some("package a\n\nfun use(m: Manager) = m.fresh()\n"))]);
+  assert_eq!(edges(&range.in_modules(&["src"])), [on_receiver(3, "fresh"), on_receiver(4, "fresh")]);
+}
+
+/// `is` and `as` may give the name another type in its scope
+#[test]
+fn a_smart_cast_receiver_is_no_edge() {
+  let mut range = adding_to_manager("", FRESH);
+  range
+    .commit(&[(
+      "src/b/Cast.kt",
+      Some(&using_manager(
+        "b",
+        "fun use(m: Manager) {\n  if (m is Sub) m.fresh()\n}\n\nfun other(m: Manager) = (m as Sub).fresh()",
+      )),
+    )])
+    .fresh_use("c/Plain");
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(2, "fresh")]);
+}
+
+/// An override compiles the use with the member it overrides; a new name of a type with supertypes needs its commit
+#[test]
+fn an_override_through_a_receiver_is_no_edge() {
+  let mut range = adding_to_manager(" : Disposable", &format!("  override fun dispose() {{}}\n{FRESH}"));
+  range
+    .commit(&[("src/b/Dispose.kt", Some(&using_manager("b", "fun use(m: Manager) = m.dispose()")))])
+    .fresh_use("c/Fresh");
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(2, "fresh")]);
+}
+
+/// A member of the receiver's type wins over an extension of its name: `m.prompt()` with a member `prompt` is no use of
+/// a new `fun Manager.prompt(id: Int)` of the package (an import of it would be one)
+#[test]
+fn an_extension_on_a_receiver_with_a_member_of_the_name_is_no_edge() {
+  let mut range = Range::default();
+  range
+    .baseline(&[("src/a/Manager.kt", &receiver_type("", "  fun prompt() = 3\n"))])
+    .commit(&[
+      ("src/a/Prompt.kt", Some("package a\n\nfun Manager.prompt(id: Int) = id\n")),
+      ("src/a/Manager.kt", Some(&receiver_type("", &format!("  fun prompt() = 3\n{FRESH}")))),
+    ])
+    .commit(&[("src/a/Use.kt", Some("package a\n\nfun use(m: Manager) = m.prompt()\n"))])
+    .fresh_use("c/Fresh");
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(2, "fresh")]);
+}
+
+/// A local of the name shadows the property, with its own type
+#[test]
+fn a_shadowing_local_takes_its_own_type() {
+  let other = |members: &str| format!("package a\n\nclass Other {{\n  fun another() = 1\n{members}}}\n");
+  let mut range = adding_to_manager("", FRESH);
+  range
+    .baseline(&[("src/a/Other.kt", &other(""))])
+    .commit(&[("src/a/Other.kt", Some(&other(FRESH)))])
+    .commit(&[(
+      "src/b/Use.kt",
+      Some("package b\n\nimport a.Manager\nimport a.Other\n\nclass Use(val m: Manager) {\n  fun use(): Int {\n    val m = Other()\n    return m.fresh()\n  }\n}\n"),
+    )]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(2, 1, vec![link("fresh", Evidence::Receiver)])]);
+}
+
+/// A class with supertypes between the use and the property may inherit a property of the name, which comes first
+#[test]
+fn a_property_behind_a_supertype_is_no_edge() {
+  let mut range = adding_to_manager("", FRESH);
+  range.commit(&[(
+    "src/b/Use.kt",
+    Some(&using_manager(
+      "b",
+      "class Use(val m: Manager) {\n  inner class Behind : Base() {\n    fun use() = m.fresh()\n  }\n\n  inner class Plain {\n    fun use() = m.fresh()\n  }\n}",
+    )),
+  )]);
+  let found = edges(&range.graph(&[], &[], &[]));
+  assert_eq!(found, [on_receiver(1, "fresh")]);
+  let graph = range.graph(&[], &[], &[]);
+  assert_eq!(
+    graph.edges[0].links.iter().map(|link| link.line).collect::<Vec<_>>(),
+    [11],
+    "the use in `Plain`, not the one in `Behind`"
+  );
+}
+
+/// A member of a supertype of the receiver's type is no member of that type
+#[test]
+fn an_inherited_member_through_a_receiver_is_no_edge() {
+  let mut range = adding_to_base("", FRESH);
+  range
+    .baseline(&[("src/a/Manager.kt", "package a\n\nclass Manager : Base()\n")])
+    .fresh_use("b/Use")
+    .commit(&[("src/c/Base.kt", Some("package c\n\nimport a.Base\n\nfun use(b: Base) = b.fresh()\n"))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(2, "fresh")]);
+}
+
+/// The receiver of an extension function around a bare call or `this.name()`: not in a lambda, nor where the file
+/// declares the name, nor of a type with supertypes
+#[test]
+fn a_bare_call_in_an_extension_function_is_an_edge() {
+  let mut range = adding_to_manager("", FRESH);
+  range
+    .baseline(&[("src/a/Sub.kt", &receiver_type(" : Base()", "").replace("Manager", "Sub"))])
+    .commit(&[("src/a/Sub.kt", Some(&receiver_type(" : Base()", FRESH).replace("Manager", "Sub")))])
+    .commit(&[(
+      "src/b/Body.kt",
+      Some(&using_manager("b", "fun Manager.body() = fresh()\n\nfun Manager.again() = this.fresh()")),
+    )])
+    .commit(&[("src/c/Lambda.kt", Some(&using_manager("c", "fun Manager.body() = run { fresh() }")))])
+    .commit(&[("src/d/Own.kt", Some(&using_manager("d", "fun fresh() = 0\n\nfun Manager.body() = fresh()")))])
+    .commit(&[("src/e/Sub.kt", Some("package e\n\nimport a.Sub\n\nfun Sub.body() = fresh()\n"))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(2, "fresh")]);
+}
+
+/// An `invoke` of the companion or a factory of the type's name may make a call of the name another type
+#[test]
+fn a_type_constructed_otherwise_is_no_receiver() {
+  let mut range = adding_to_manager("", &format!("{FRESH}\n  companion object {{\n    operator fun invoke(): Any = 1\n  }}\n"));
+  range.fresh_use("b/Use");
+  assert_eq!(edges(&range.graph(&[], &[], &[])), []);
+  let mut range = adding_to_manager("", FRESH);
+  range.fresh_use("b/Use");
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(1, "fresh")]);
+}
+
+/// In the file of a member, a use on a receiver of another type means that type's member: `migration.awaitMigrated()`
+/// on a `Migration` is no use of the file's own `awaitMigrated`, but of `Migration`'s
+#[test]
+fn a_same_file_use_on_a_receiver_of_another_type_is_no_use_of_the_file() {
+  let migration = |members: &str| format!("package a\n\nclass Migration {{\n  fun other() = 1\n{members}}}\n");
+  let state = |members: &str| format!("package a\n\nclass State {{\n  private val migration = Migration()\n\n  fun first() = 1\n{members}}}\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[("src/a/Migration.kt", &migration("")), ("src/a/State.kt", &state(""))])
+    .commit(&[("src/a/Migration.kt", Some(&migration("  fun awaitMigrated() = 2\n")))])
+    .commit(&[("src/a/State.kt", Some(&state("\n  fun awaitMigrated() = 3\n")))])
+    .commit(&[(
+      "src/a/State.kt",
+      Some(&state(
+        "\n  fun awaitMigrated() = 3\n\n  fun use() = migration.awaitMigrated()\n\n  fun own() = awaitMigrated()\n",
+      )),
+    )]);
+  assert_eq!(
+    edges(&range.in_modules(&["src"])),
+    [
+      (2, 0, vec![link("awaitMigrated", Evidence::Receiver)]),
+      (2, 1, vec![link("awaitMigrated", Evidence::SameFile)])
+    ]
+  );
+}
+
+/// An extension of the receiver's type that the file sees (its package, an import, a wildcard import) takes a call
+/// the member rejects, which the arguments can't always tell: `chat.send(claim, key, text)` beside a `fun Chat.send(…)`
+/// of the package
+#[test]
+fn a_receiver_call_an_extension_of_its_type_may_take_is_no_edge() {
+  let mut range = adding_to_manager("", FRESH);
+  range
+    .commit(&[("src/b/Ext.kt", Some(&using_manager("b", "fun Manager.fresh(id: Int) = id")))])
+    .fresh_use("b/Use")
+    .commit(&[("src/c/Star.kt", Some("package c\n\nimport a.Manager\nimport b.*\n\nfun use(m: Manager) = m.fresh()\n"))])
+    .fresh_use("d/Plain");
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(4, "fresh")]);
+}

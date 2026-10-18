@@ -73,7 +73,8 @@ const RULES: &[(&str, Rule)] = &[
   ("lambda_expression", Rule::Bind(binder(true, &[Child::Field("parameters")]))),
   ("switch_rule", SCOPE),
   ("switch_block_statement_group", SCOPE),
-  ("instanceof_expression", Rule::Bind(binder(false, &[Child::Field("name")]))),
+  ("instanceof_expression", Rule::Special(instanceof)),
+  ("cast_expression", Rule::Special(cast)),
   ("type_pattern", Rule::Bind(binder(false, &[Child::Kind(&["identifier"])]))),
   ("record_pattern_component", Rule::Bind(binder(false, &[Child::Kind(&["identifier"])]))),
   // `case Point(int x, int y)`: the first child is the type
@@ -168,6 +169,8 @@ pub(crate) static SPEC: Spec = Spec {
     "operator",
     "operand",
     "constructor",
+    "left",
+    "value",
   ],
   traits,
   binds: |_| true,
@@ -180,6 +183,8 @@ pub(crate) static SPEC: Spec = Spec {
     constructors,
     // javac gives the default constructor the access of its class (JLS 8.8.9)
     implicit_constructor: |reach| reach,
+    value_type,
+    receiver_node: |_, node| node,
   }),
   call_shape: Some(call_shape),
 };
@@ -204,6 +209,45 @@ fn import<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   false
 }
 
+/// The type of a field, a local or a parameter (`JvmHooks::value_type`), as written without type arguments
+/// (`java.util.List` of `java.util.List<T>`), not a type parameter, a primitive or an array; of a `var` the type its
+/// initializer constructs, a `new` without a body (an anonymous class is a type of its own)
+fn value_type<'t>(w: &Walk<'t>, node: Node<'t>) -> Option<Vec<&'t str>> {
+  let declared = if w.is(node, "variable_declarator") {
+    w.field(node.parent()?, "type")
+  } else {
+    w.field(node, "type")
+  }?;
+  let path = if w.text(declared) == Some("var") {
+    let value = w
+      .field(node, "value")
+      .filter(|it| w.is(*it, "object_creation_expression") && w.child(*it, Child::Kind(&["class_body"])).is_none())?;
+    w.path_of(w.field(value, "type")?)?
+  } else {
+    w.path_of(declared)?
+  };
+  (!(path.len() == 1 && w.is_bound_text(path[0]))).then_some(path)
+}
+
+/// `m instanceof Sub s`: the pattern binds `s`, and a cast may give `m` another type
+fn instanceof<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
+  if let Some(name) = w.field(node, "name") {
+    w.mark_pattern(name);
+  }
+  if let Some(left) = w.field(node, "left") {
+    w.smart_cast(left);
+  }
+  true
+}
+
+/// `(Sub) m`
+fn cast<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
+  if let Some(value) = w.field(node, "value") {
+    w.smart_cast(value);
+  }
+  true
+}
+
 /// A parameter is local; a record component is a field (and its accessor)
 fn parameter<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   let Some(name) = w.field(node, "name") else { return true };
@@ -218,6 +262,7 @@ fn parameter<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
     };
     w.add_declaration(node, name, &traits, JvmFields::default());
   } else {
+    w.type_binding(name, node);
     w.bind_node(name);
   }
   true

@@ -98,6 +98,9 @@ pub(crate) fn render(summary: &FileSummary) -> String {
         .collect();
       let _ = write!(out, " : {}", supertypes.join(", "));
     }
+    if let Some(value_type) = &declaration.value_type {
+      let _ = write!(out, " <{}>", path_text(summary, value_type));
+    }
     let _ = writeln!(out, "{}{}", modality_text(declaration), if declaration.in_error { " in_error" } else { "" });
   }
   let mut by_line: Vec<&Reference> = summary.references.iter().collect();
@@ -122,15 +125,19 @@ pub(crate) fn render(summary: &FileSummary) -> String {
   out
 }
 
-/// `name`, `a.b.name`, `?.name` (a member of an expression), with `()` for a call (its arguments when it has their
+/// `name`, `a.b.name`, `?.name` (a member of an expression), `<Manager>.name` (of a receiver of that type, `this.` or a
+/// property before it as in its qualifier), with `()` for a call (its arguments when it has their
 /// shape: `paneOf(Text,flag=Boolean,_,Lambda)*{}`, `_` for an expression, `*` after them for a spread, `{}` for an
 /// enclosed call), `:` for a type, `!` for a macro, `^` for an import and `~` for an override
 /// (`~Base.name(Int,List/Window?)`, the receiver of an extension in `[]`)
 pub(crate) fn reference_text(summary: &FileSummary, reference: &Reference) -> String {
+  let path = |segments: &[u32]| segments.iter().map(|it| summary.name(*it)).collect::<Vec<_>>().join(".");
+  let receiver = reference.receiver_type.as_deref().map_or_else(String::new, |it| format!("<{}>", path(it)));
   let qualifier = match &reference.qualifier {
     None => String::new(),
+    Some(segments) if segments.is_empty() && !receiver.is_empty() => format!("{receiver}."),
     Some(segments) if segments.is_empty() => "?.".to_string(),
-    Some(segments) => format!("{}.", segments.iter().map(|it| summary.name(*it)).collect::<Vec<_>>().join(".")),
+    Some(segments) => format!("{receiver}{}.", path(segments)),
   };
   let name = summary.name(reference.name);
   match reference.role {

@@ -2,8 +2,8 @@ package com.example.shapes
 Type Declarations in - Public TopLevel 3-55 @4 new(name: String) : Shape
 Constant MAX in Declarations Public Static 5-5 @5
 Value counter in Declarations Container Static 6-6 @6
-Value name in Declarations Public Instance 7-7 @7
-Value label in Declarations Public Instance 7-7 @7
+Value name in Declarations Public Instance 7-7 @7 <String>
+Value label in Declarations Public Instance 7-7 @7 <String>
 Value area in Declarations Module Instance 8-8 @8
 Function area in Declarations Public Instance 14-15 @15 () overrides overridable
 Function convert in Declarations Container Static 17-19 @17 (value: _)

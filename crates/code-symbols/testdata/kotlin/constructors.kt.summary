@@ -1,11 +1,11 @@
 package com.example.windows
 import javax.inject.Inject @3
 Type ToolWindowManagerImpl in - Public TopLevel 5-11 @5 new(project: Project, isNewUi: Boolean =, isEdtRequired: Boolean =, vararg ids: String[], value: _)
-Value project in ToolWindowManagerImpl Public Instance 6-6 @6
-Value isNewUi in ToolWindowManagerImpl Module Instance 7-7 @7
+Value project in ToolWindowManagerImpl Public Instance 6-6 @6 <Project>
+Value isNewUi in ToolWindowManagerImpl Module Instance 7-7 @7 <Boolean>
 Value ids in ToolWindowManagerImpl Public Instance 9-9 @9
 Type Hidden in - Public TopLevel 13-23 @13 Container new(size: Int) new(name: String, vararg rest: Int[]) Container new() Module new(first: Long, second: Long =)
-Value size in Hidden Public Instance 13-13 @13
+Value size in Hidden Public Instance 13-13 @13 <Int>
 Function reset in Hidden Public Instance 22-22 @22 ()
 Type Injected in - Public TopLevel 25-25 @25 Module new(project: Project)
 Type Implicit in - Public TopLevel 27-27 @27 new()
@@ -16,11 +16,11 @@ Type Registry in - Public TopLevel 39-39 @39
 Type Factory in - Public TopLevel 41-43 @41 new()
 Type Companion in Factory Public Static 42-42 @42
 Type Level in - Public TopLevel 45-50 @45
-Value code in Level Public Instance 45-45 @45
+Value code in Level Public Instance 45-45 @45 <Int>
 EnumEntry LOW in Level Public Static 46-46 @46
 EnumEntry HIGH in Level Public Static 47-47 @47
 Type Marker in - Public TopLevel 52-52 @52
-Value value in Marker Public Instance 52-52 @52
+Value value in Marker Public Instance 52-52 @52 <String>
 TypeAlias Managers in - Public TopLevel 54-54 @54
 Type Outer in - Public TopLevel 56-68 @56 new()
 Function local in Outer Public Instance 63-67 @63 ()
@@ -36,9 +36,9 @@ Type Stamp in - Public TopLevel 88-90 @88 new(date: Date) Container new(date: Da
 @8 :Boolean
 @9 :String
 @13 :Int
-@14 Hidden(_) :Int :String ?.length
+@14 Hidden(_) :Int :String <String>.length
 @16 Hidden(Number)
-@18 Hidden(_) :Long ?.toInt()
+@18 Hidden(_) :Long <Long>.toInt()
 @19 reset()
 @25 :Inject :Project
 @32 :Int
@@ -58,6 +58,6 @@ Type Stamp in - Public TopLevel 88-90 @88 new(date: Date) Container new(date: Da
 @79 :Suppress
 @80 Base(Number) :Runnable
 @81 Hidden(Text,Number,Number)
-@85 Box(_) :List ?.first()
+@85 Box(_) :List <List>.first()
 @88 :java.util.Date :java :java.util
-@89 java.util.Date(_) :java.sql.Date Stamp(_) java :java :java.sql ?.time java.util
+@89 java.util.Date(_) :java.sql.Date Stamp(_) java :java :java.sql <java.sql.Date>.time java.util

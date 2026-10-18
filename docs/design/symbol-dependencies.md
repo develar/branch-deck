@@ -73,7 +73,7 @@ flowchart TD
 
 3. **Decision**: a use links only with evidence: an import or alias, a qualified name, the same file, the same Rust
    module, a wildcard import or the same package and module for a type, an override in a subtype whose supertype
-   resolves (`override`, decision 8), or a call in a subclass of a member its supertype has (`inherited`, decision 12).
+   resolves (`override`, decision 8), a call in a subclass of a member its supertype has (`inherited`, decision 12), or a use on a receiver of the member's type (`receiver`, decision 13).
    In the same file a name that a type other than the declaration's own qualifies (`Registry.register(id)` in a
    `register` of the file) means that type's member, not the file's; a type by its capital, the convention of every
    language here, unless the file declares a value of that name (`DEFAULT.register(id)` of a `val DEFAULT`, an
@@ -370,11 +370,46 @@ flowchart TD
     the supertype's supertype of the name that a Kotlin type with supertypes inherits (an overload of a new name the
     call needs only the key of) stay a limit.
 
+13. **Decision**: a use of an instance member on a receiver of its type is a use of it, `receiver` (`through_receiver`).
+    The summary knows the type of a receiver (`Reference::receiver_type`) that a name is in full (`m.foo()`, `m?.foo()`,
+    `m!!.foo()`): a parameter, a local or a typed lambda parameter by its declared type, without type arguments, else by
+    the type its initializer constructs (a call of a capitalized name, Kotlin's `Manager(…)`, Java's `new Manager(…)`
+    without a body, `var` included); and a property or field of a class around the use (`m`, `this.m`, by its
+    `Declaration::value_type`), not in an enclosed use, the innermost class first, not past a class with a supertype, a
+    nested class that isn't inner or a companion, and only of the innermost class for `this.m`. A type parameter, a
+    function type, a vararg, a delegate and any other expression give none, and so does a name that its scope or
+    function casts (Kotlin `is`, `as`, a `when` subject with an `is` branch, Java `instanceof` and casts). The type
+    resolves to the member's type as a supertype does (`supertype_resolves`). The bare call or `this.name()` in an
+    extension function, not enclosed, means a member of its extension receiver when nothing else of the file may take
+    the name, no receiver further out has supertypes and the member's type has none (`implicit_receiver`). The member
+    must override nothing and not be one every class has; a Java one only of a type without supertypes; a Kotlin one of
+    a type with supertypes needs only its key, and none then with a declaration of the name in the file or an import
+    that may bring it. A type whose file declares an `invoke` of its companion or a top-level function of its name gives
+    no evidence. An extension of the receiver's type of the name that the use sees (its package, an import of its name,
+    a wildcard import of its package) makes the use no evidence (`sees_extension`). In the file of the member a use on a
+    receiver of another type is no use of it (`of_another_receiver`).
+    **Rationale**: a member call on a value means a member of the value's static type first, and that type is what a
+    parameter, a local or a property declares; the round 3 measurement found every use of a changed form on such a
+    receiver. Only a compiler infers the type of an expression, and a smart cast narrows a name to a subtype whose
+    members the range doesn't show, so the summary keeps no type for either; a capitalized call may be a factory of
+    another type, which the file of the type may show (`constructed_otherwise`). A property of the name inherited from a
+    supertype, a nested class or a companion of the class around the use take the name before a property further out. A
+    member the receiver's type inherits is no member of that type on the path the range shows; an override compiles the
+    use with the member it overrides. A Kotlin extension on a typed receiver is not linked by its receiver: a member of
+    the type takes the call first (decision 3), and only a file of the type in the range would show that member. The
+    bare calls in the extension functions of the generated test bodies (`step`, `call` of `AirAuthoredScope`) mean the
+    members of their receiver as a `this.` would. A same-file use whose receiver has another type means that type's
+    member: `migration.awaitMigrated()` beside the class's own `awaitMigrated`. The summary judges the arguments of a
+    call generously (decision 7), so a member may seem to accept a call that an extension of its type takes
+    (`chat.send(claim, key, text)` beside a member `send(text: String, …)` and a
+    `fun AirAgentChatInIdeDriver.send(session, key, text)` of the package, false links of the first measurement); an
+    extension in a file the range doesn't change stays a limit, as for a qualified call (decision 9).
+
 ### Implementation Notes
 
 - `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules and the grammars' node types);
   `Spec::jvm` of Kotlin and Java (`JvmHooks`, the `JvmFields` of a declaration): the signatures, `overrides`,
-  `overridable` and `jvm_static`, the supertypes, and the `Role::Override` references with their `Shape::Override`, and
+  `overridable` and `jvm_static`, the `value_type` of a property (`JvmHooks::value_type`), the supertypes, and the `Role::Override` references with their `Shape::Override`, and
   the constructors of a class (`JvmHooks::constructors` of its header, `Walk::add_constructor` of its body, the implicit
   `()` by `JvmHooks::implicit_constructor` when the walk is done); `Spec::call_shape` of Kotlin and Java: the arguments
   of a call, for the `Shape::Call` on the reference of its callee, `enclosed` by the depth of the stack of supertypes
@@ -395,7 +430,8 @@ flowchart TD
   unclean commit drops in `compute_symbol_dependencies`, `oldest_step` for one it finds again, a use through a wildcard
   import by `Evidence::StarImport`), the functions of the name of a type beside it (`KeyState::present`, which stand in
   for the type in a call the use sees, `sees_function`), the overrides (`resolve_override`, `override_fits`,
-  `has_supertypes`, `supertype_resolves`, `scope_may_shadow`), the inherited calls (`inherited`), the calls
+  `has_supertypes`, `supertype_resolves`, `scope_may_shadow`), the inherited calls (`inherited`), the receivers
+  (`through_receiver`, `implicit_receiver`, `constructed_otherwise`, `of_another_receiver`), the calls
   (`all_entries`, `calls_tell_apart`, `accepts_call`, `fits_literal`, `inherits_unseen`, `import_decides`), the paths of
   a static member (`static_paths`), the same-file rule (`names_another_type`, `on_unknown_receiver`, `private_scope`,
   and `of_baseline` with `means_its_type` for a key of the baseline; `receivers` and `imports_of_function` with
@@ -600,6 +636,23 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     `step`, `scenario` and `call` of `AirAuthoredScope` in the generated bodies, a receiver's member, which decision
     12 doesn't link) or at the top level. No call in a class reaches the supertype, so the range has nothing for the
     rule to link. The five repro cases make one edge by symbols each.
+  - The receivers of a type (decision 13, `receiver`), against the build before: the range has 4015 links, 379 new and
+    12 lost; 1165 edges, 755 by symbols and 305 symbols only (were 1151, 737, 291), 14 new edges, all symbols only, and
+    4 lines-only edges now both. Every link of the 18 new or changed edges was read (19), and a random sample of 76 of
+    the 360 other new links: all right, 95 of 95, a Wilson lower bound of 0.95 for the sample. They are calls on a
+    parameter, a constructed local or a property of their type (`prompt.setDraft(…)` on an `AirComposerInIdeDriver`
+    parameter, `scope.metric(…)` on a property `scope: AirAuthoredScope`, `migration.awaitMigrated()` on a
+    `LegacySettingsMigration`), bare calls in the extension functions of the generated bodies (`step`, `call`, `note`,
+    `agent` of `AirAuthoredScope`, `assertAndCapture` of `AirDynamicSession`), and removals after the removal of uses on
+    such receivers (`scope.step` of `AirJourneyScope`, which 3fbb6f08 removes). The 12 lost were false: same-file uses
+    on a receiver of another type (`ledger.own(…)` on an `AcpOwnershipLedger` beside the file's own `own`,
+    `identity.threadId` beside a `SessionHandle.threadId`), 8 of them now linked to the right declaration
+    (`of_another_receiver`). The first build linked `chat.send(claim, key, text)` to the member `send(text: String, …)`
+    of `AirAgentChatInIdeDriver`, which the arguments seemed to fit, while an extension
+    `AirAgentChatInIdeDriver.send(session, key, text)` of the package takes the call; such links are none now
+    (`sees_extension`), which took 5 links and 3 symbols-only edges. `bd check` and `bd suggest` are byte for byte those
+    of the build before, as is `bd check` on the real pair; the five repro cases make one edge by symbols each. At a
+    load average of 105–115 the CPU of `bd commits --brief` is 8.7 s against 8.4 s, both parsing all 2573 blobs.
 
 ### The gate
 

@@ -1,6 +1,6 @@
 package com.example.misread
 Type Registrar in - Module TopLevel 3-7 @4
-Value state in Registrar Public Instance 5-5 @5 overridable
+Value state in Registrar Public Instance 5-5 @5 <Int> overridable
 Function register in Registrar Public Instance 6-6 @6 (id: String) overridable
 Type Base in - Module TopLevel 9-11 @9
 Function name in Base Public Instance 10-10 @10 () overridable
@@ -11,7 +11,7 @@ Type Companion in Hidden Container Static 18-20 @18
 Constant LIMIT in Companion Public Static 19-19 @19
 Function limit in Hidden Public Instance 22-22 @22 ()
 Type After in - Public TopLevel 25-27 @25 new(registrar: Registrar)
-Value registrar in After Public Instance 25-25 @25
+Value registrar in After Public Instance 25-25 @25 <Registrar>
 Function run in After Public Instance 26-26 @26 ()
 @5 :Int
 @6 :String
@@ -20,4 +20,4 @@ Function run in After Public Instance 26-26 @26 ()
 @16 :Deprecated
 @22 LIMIT
 @25 :Registrar
-@26 registrar.register(Text) registrar
+@26 <Registrar>registrar.register(Text) registrar

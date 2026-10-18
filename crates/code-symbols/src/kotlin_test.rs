@@ -60,7 +60,7 @@ fn references() {
   assert_eq!(refs(&summary, "level"), NONE);
   assert_eq!(refs(&summary, "tag"), NONE);
   assert_eq!(refs(&summary, "Level"), ["22 Level"]);
-  assert_eq!(refs(&summary, "draw"), ["15 canvas.draw(_,_)", "28 draw(_){}"], "in a lambda");
+  assert_eq!(refs(&summary, "draw"), ["15 <Canvas>canvas.draw(_,_)", "28 draw(_){}"], "in a lambda");
   assert_eq!(refs(&summary, "DEFAULT_SCALE"), ["11 DEFAULT_SCALE"]);
   assert_eq!(refs(&summary, "threshold"), ["18 threshold"]);
   assert_eq!(refs(&summary, "render"), ["29 render"]);
@@ -68,7 +68,7 @@ fn references() {
   assert_eq!(refs(&summary, "Renderer"), ["28 :Renderer"]);
   assert_eq!(refs(&summary, "log"), ["22 log(_,level=_,tag=_)", "31 com.example.util.Logger.log(Text)"]);
   assert_eq!(refs(&summary, "to"), ["32 ?.to()"]);
-  assert_eq!(refs(&summary, "size"), ["12 ?.size", "24 ?.size"]);
+  assert_eq!(refs(&summary, "size"), ["12 <List>.size", "24 <List>.size"]);
   let draw = summary.references_to("draw").next().unwrap();
   assert_eq!(draw.role, Role::Call);
   assert_eq!(summary.declarations[draw.container.unwrap() as usize].name, summary.name_id("render").unwrap());
@@ -82,7 +82,7 @@ fn a_word_in_kdoc_is_no_reference() {
   assert_eq!(refs(&summary, "Session"), NONE);
   assert_eq!(refs(&summary, "legacy"), NONE);
   // `$name` and `${expression}` are code
-  assert_eq!(refs(&summary, "turnTracker"), ["10 ?.turnTracker"]);
+  assert_eq!(refs(&summary, "turnTracker"), ["10 <Tracker>.turnTracker"]);
   assert_eq!(refs(&summary, "VERSION"), ["11 VERSION"]);
   assert_eq!(refs(&summary, "number"), ["11 Build.number()"]);
   assert_eq!(refs(&summary, "tracker"), NONE, "a parameter is local");
@@ -142,7 +142,7 @@ fn an_override_is_a_reference_per_supertype() {
   assert_eq!(summary.declarations[in_test.container.unwrap() as usize].name, summary.name_id("createManager").unwrap());
   assert_eq!(
     refs(&summary, "remove"),
-    ["42 ~StripeButtonManager.remove(ToolWindowAnchor,Boolean)", "43 ?.remove(_,_){}"],
+    ["42 ~StripeButtonManager.remove(ToolWindowAnchor,Boolean)", "43 <StripeButtonManager>.remove(_,_){}"],
     "by delegation"
   );
   assert_eq!(refs(&summary, "label"), ["72 label", "72 ~Base.label"], "an `override val` constructor parameter");
@@ -257,7 +257,7 @@ fn a_call_has_its_argument_shape() {
   let summary = summary_of("kotlin/overrides.kt");
   assert_eq!(
     refs(&summary, "convert"),
-    ["136 ?.convert(Number,into=_,Lambda)"],
+    ["136 <ToolWindowManagerImpl>.convert(Number,into=_,Lambda)"],
     "a signed number, a named argument, the trailing lambda last"
   );
   assert_eq!(
@@ -265,9 +265,13 @@ fn a_call_has_its_argument_shape() {
     ["136 mutableListOf(Number,_)", "153 mutableListOf()"],
     "a hex number; a real is an expression"
   );
-  assert_eq!(refs(&summary, "paneButtons"), ["137 ?.paneButtons(Text,Boolean,_,_)"], "`null` and `1L` are expressions");
+  assert_eq!(
+    refs(&summary, "paneButtons"),
+    ["137 <ToolWindowManagerImpl>.paneButtons(Text,Boolean,_,_)"],
+    "`null` and `1L` are expressions"
+  );
   assert_eq!(refs(&summary, "listOf"), ["138 listOf(_,Text)*"], "a spread");
-  assert_eq!(refs(&summary, "stripes"), ["139 ?.stripes(ids=_)*"], "a named spread");
+  assert_eq!(refs(&summary, "stripes"), ["139 <ToolWindowManagerImpl>.stripes(ids=_)*"], "a named spread");
   // in an initializer and a getter the receiver is the class; a lambda, `apply`'s included, an object expression, an
   // anonymous function and a local function may have one of their own
   assert_eq!(
@@ -388,7 +392,7 @@ fn a_constructor_invocation_of_a_supertype_has_its_argument_shape() {
     texts.sort();
     texts
   };
-  assert_eq!(on_line(14), [":Int", ":String", "?.length", "Hidden(_)"]);
+  assert_eq!(on_line(14), [":Int", ":String", "<String>.length", "Hidden(_)"]);
   assert_eq!(on_line(34), [":String"]);
   let sub = summary.references_to("ToolWindowManagerImpl").find(|it| it.line == 70).unwrap();
   assert_eq!(
@@ -400,4 +404,115 @@ fn a_constructor_invocation_of_a_supertype_has_its_argument_shape() {
     summary.declarations[in_function.container.unwrap() as usize].name,
     summary.name_id("createManager").unwrap()
   );
+}
+
+#[test]
+fn a_bound_name_carries_its_declared_type() {
+  let source = b"class Use {
+  fun <T> f(m: a.Manager<String>?, t: T, callback: () -> Unit, vararg rest: Manager) {
+    m!!.one()
+    val local = Manager(1)
+    local.two()
+    val typed: Other = make()
+    typed.three()
+    val made = make()
+    made.four()
+    t.five()
+    callback.six()
+    rest.seven()
+    run { x: Manager -> x.eight() }
+    run { y -> y.nine() }
+    val lazy by lazy { Manager() }
+    lazy.ten()
+  }
+}
+";
+  let summary = summarize(Language::Kotlin, source);
+  assert_eq!(refs(&summary, "one"), ["3 <a.Manager>.one()"], "without its type arguments, through `!!`");
+  assert_eq!(refs(&summary, "two"), ["5 <Manager>.two()"], "the type its initializer constructs");
+  assert_eq!(refs(&summary, "three"), ["7 <Other>.three()"], "a declared type wins");
+  assert_eq!(refs(&summary, "eight"), ["13 <Manager>.eight(){}"], "a typed lambda parameter");
+  for name in ["four", "five", "six", "seven", "nine", "ten"] {
+    assert!(
+      refs(&summary, name)[0].contains("?."),
+      "{name}: an inferred type, a type parameter, a function type, a vararg, an untyped lambda parameter, a delegate: {:?}",
+      refs(&summary, name)
+    );
+  }
+}
+
+#[test]
+fn a_property_knows_its_type() {
+  let source = b"class Use(private val manager: Manager, plain: Plain) {
+  private val built = Manager(1)
+  val typed: Other? = null
+  val first = plain.zero()
+
+  fun f() {
+    manager.one()
+    this.built.two()
+    typed.three()
+    run { manager.four() }
+  }
+
+  inner class Inner {
+    fun g() = manager.five()
+  }
+
+  class Nested {
+    fun h() = manager.six()
+  }
+
+  companion object {
+    fun i() = this.manager.seven()
+  }
+}
+
+class Sub : Base() {
+  val manager = Manager()
+
+  inner class Deep : Other() {
+    fun j() = manager.eight()
+  }
+}
+";
+  let summary = summarize(Language::Kotlin, source);
+  assert_eq!(modalities(&summary, "manager"), ["Use", "Sub"]);
+  assert_eq!(declaration(&summary, "built").value_type.as_ref().map(Vec::len), Some(1));
+  assert_eq!(refs(&summary, "zero"), ["4 <Plain>.zero()"], "a constructor parameter");
+  assert_eq!(refs(&summary, "one"), ["7 <Manager>manager.one()"]);
+  assert_eq!(refs(&summary, "two"), ["8 <Manager>this.built.two()"]);
+  assert_eq!(refs(&summary, "three"), ["9 <Other>typed.three()"]);
+  assert_eq!(refs(&summary, "five"), ["14 <Manager>manager.five()"], "an inner class sees the class around it");
+  for name in ["four", "six", "seven", "eight"] {
+    assert!(
+      !refs(&summary, name)[0].contains('<'),
+      "{name}: enclosed, past a nested class, a companion, a class with supertypes: {:?}",
+      refs(&summary, name)
+    );
+  }
+}
+
+#[test]
+fn a_smart_cast_drops_the_type() {
+  let source = b"class Use(val manager: Manager) {
+  fun f(m: Manager, n: Manager, k: Manager) {
+    if (m is Sub) m.one()
+    val s = n as Sub
+    n.two()
+    when (k) {
+      is Sub -> k.three()
+      else -> {}
+    }
+    if (manager is Sub) manager.four()
+  }
+
+  fun g(m: Manager) = m.five()
+}
+";
+  let summary = summarize(Language::Kotlin, source);
+  for name in ["one", "two", "three", "four"] {
+    assert!(!refs(&summary, name)[0].contains('<'), "{name}: {:?}", refs(&summary, name));
+  }
+  assert_eq!(refs(&summary, "five"), ["13 <Manager>.five()"], "a name of another scope keeps its type");
 }
