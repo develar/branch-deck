@@ -400,10 +400,15 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
 - `getRequestReviewItem` (`src/lib/request-review.ts`) builds the item, id `request-review`, "Request Review…", for
   every surface that offers it (the row's next step, the branch menu, the Safe Push form): there only while the branch
   has an open pull request (else "Create Pull Request…" asks the reviewers); disabled with the reason while the pull
-  request is a draft ("#1078 is a draft: mark it ready for review on GitHub first") and while the remote lacks work of
-  the branch by content ("Push first, so the reviewers see the commits"; one only rebuilt on a newer baseline is up to
-  date, an unknown remote status is no reason). Its hover names whom it asks: "Ask Ilya Korennoy to review #1078".
-  [@test] ../../src/lib/request-review.test.ts (`asks the chosen code owners on the open pull request`, `is disabled with the reason for a draft and while the remote lacks work of the branch`, `is not there without an open pull request`)
+  request is a draft ("#1078 is a draft: mark it ready for review on GitHub first"). Work the remote lacks by content is
+  no reason: the request pushes it first (`pushForAction`, no push toast; one only rebuilt on a newer baseline is up to
+  date, an unknown remote status pushes nothing), so the reviewers see the commits. A push that dismisses the
+  approvals the pull request has (the rules of the repository, `useDismissesStaleReviews`) is said in the popover, a
+  consequence the user decides by Request: "The push of the new commits dismisses the approvals of #1078: the rules of
+  the repository dismiss stale reviews when new commits are pushed." A refused push ("Cannot request a review on
+  #1078" with its reason) asks nobody. Its hover names whom it asks: "Ask Ilya Korennoy to review #1078".
+  [@test] ../../src/lib/request-review.test.ts (`asks the chosen code owners on the open pull request`, `is disabled with the reason for a draft only: work the remote lacks is pushed by the request`, `is not there without an open pull request`)
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should push the commits the remote lacks as the first step of Request Review…`)
 - It opens `RequestReviewPopover`, mounted by the surface around its own trigger (Base UI `render`), with the branch,
   its pull request and its review readiness: "Request a review on #1078" over the title of the pull request; "Code
   owners", a checkbox per suggested code owner with a GitHub login of the groups whose approval is missing (the full name,

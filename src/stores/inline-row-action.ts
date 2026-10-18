@@ -27,7 +27,7 @@ export interface ActiveInline {
   processing: boolean
   processingMessage?: string
   /**
-   * The form pushes the branch as the first step of its action (Push and Start Safe Push, Create Pull Request): the
+   * The form pushes the branch as the first step of its action (a Safe Push start, the push alone of its form): the
    * button of that action shows the push, the push button of the row is disabled without it
    */
   pushing?: boolean

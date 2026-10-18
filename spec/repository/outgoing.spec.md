@@ -264,7 +264,7 @@ of a part of a branch, up to one of its commits, is Push Up to Here
   replaced 1 amended commit", "replaced the parent's older commits" or "1 commit · dropped 1 remote commit"; with the
   pull request action ([Pull Requests](../branch/pull-requests.spec.md)) it stays
   10 s. A failed push is the error toast "Cannot push JIRA-456" with git's reason. One action is one toast: a push that
-  is a step of another action (a Safe Push start, a merge request, Push and Restart, [Patronus](../branch/patronus.spec.md))
+  is a step of another action (a Safe Push start, a merge request, a restart, [Patronus](../branch/patronus.spec.md))
   has none, and a push of several branches of a stack is one toast
   ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)).
   [@test] ../../src/lib/push-summary.test.ts (`says what the push did from the status it was made against`, `says that a push of an amended or restacked branch replaced the older versions, not that it dropped them`)

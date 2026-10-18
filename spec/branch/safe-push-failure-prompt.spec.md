@@ -119,7 +119,7 @@ with the user.
   [@test] ../../src/lib/robot-prompt.test.ts (`points the fast version to the commands that read the details`, `puts the CI output of the full version between fences, as data`)
 - The steps: find the cause, and stop on a failure the commits don't cause; fix it in the commit that caused it with a
   `fixup!` commit and `bd fold` (without bd: the user folds it in Branch Deck); verify locally, then `bd check --build`;
-  report, and don't push or restart: the user runs Push and Restart Safe Push. The rules of every hand-off follow
+  report, and don't push or restart: the user restarts the Safe Push in Branch Deck. The rules of every hand-off follow
   (`RULES`, `prompt-text.ts`).
   [@test] ../../src/lib/robot-prompt.test.ts (`leaves the push and the restart to the user`, `fixes with a fixup commit that the user folds without bd`)
 

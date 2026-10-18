@@ -85,7 +85,7 @@ app already listed; only the open list asks for the details of its running robot
   Change · 18m · ~1h 32m left", [Patronus](../branch/patronus.spec.md#timing))
   and a progress bar below, for a finished one the state in its hue and when it finished ("Safe Push · Failed · 50
   minutes ago"); then the actions of the robot as every surface of it lists them (`getRobotActions`,
-  [Patronus](../branch/patronus.spec.md#restart-and-cancel)): "Restart Safe Push" or "Push and Restart Safe Push",
+  [Patronus](../branch/patronus.spec.md#restart-and-cancel)): "Restart Safe Push" (which pushes first while the branch has work the remote lacks),
   "Cancel Safe Push", "Open in Patronus", "Open Pull Request #7" for a robot of a pull request. They are icon buttons
   named after the robot ("Cancel Safe Push of JIRA-456", "Open Safe Push of JIRA-456 in Patronus") with the name of the
   action as the tooltip; a disabled one adds why.

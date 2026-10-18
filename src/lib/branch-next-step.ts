@@ -105,7 +105,7 @@ export interface NextStepFacts {
   readonly robot: SafePushSlot
   /** The pull request the robot was started from */
   readonly robotPullRequest: number | null
-  /** "Restart Safe Push" or "Push and Restart Safe Push" of the robot (`getRobotActions`); null when it can't restart */
+  /** "Restart Safe Push" of the robot, which pushes first when the remote lacks work (`getRobotActions`); null when it can't restart */
   readonly restart: MenuItem | null
   /** GitHub lists the pull requests of the repository: without it the table never offers one it may have */
   readonly pullRequestsAvailable: boolean

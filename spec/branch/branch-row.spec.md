@@ -417,7 +417,7 @@ under it. The commits of an expanded branch sit on its lane.
   "Unapply…"), the history ("Review Changes", "Squash N Fixups…", "Open Pull Request" or "Create Pull Request…") and the
   remote: the push of the branch, named as its push button, then where Patronus answers "Safe Push…" and "Dry Run…", then the actions of the branch's robot as
   every surface of the robot lists them (`getRobotActions`, [Patronus](patronus.spec.md#restart-and-cancel): "Restart
-  Safe Push" or "Push and Restart Safe Push", "Cancel Safe Push", "Open in Patronus", and "Open Pull Request #12" for a
+  Safe Push" (it pushes first while the remote lacks work), "Cancel Safe Push", "Open in Patronus", and "Open Pull Request #12" for a
   robot of a pull request other than the branch's own).
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
   [@test] ../../src/lib/patronus-actions.test.ts (`cancels a running robot, and opens it in Patronus and the pull request it was started from`)

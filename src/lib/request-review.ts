@@ -71,19 +71,15 @@ export function formatCandidate(candidate: Pick<RequestReviewCandidate, "login" 
 
 /**
  * "Request Review…" of a branch, which opens the popover of its pull request (`open`): disabled with the reason while
- * the pull request is a draft or the branch has work the remote lacks (the reviewers would review old commits); null
- * without an open pull request, where it never applies (Create Pull Request… asks the reviewers then)
+ * the pull request is a draft; work the remote lacks is no reason, the request pushes it first (`pushForAction`), so the
+ * reviewers see the commits. Null without an open pull request, where it never applies (Create Pull Request… asks the
+ * reviewers then).
  */
-export function getRequestReviewItem(
-  branch: Pick<Branch, "remoteStatus">,
-  pullRequest: PullRequest | null | undefined,
-  readiness: ReviewReadiness | null,
-  open: () => void,
-): MenuItem | null {
+export function getRequestReviewItem(pullRequest: PullRequest | null | undefined, readiness: ReviewReadiness | null, open: () => void): MenuItem | null {
   if (pullRequest == null || pullRequest.state !== "open") {
     return null
   }
-  const reason = getRequestReviewBlocker(branch, pullRequest)
+  const reason = getRequestReviewBlocker(pullRequest)
   const chosen = getRequestReviewCandidates(readiness, pullRequest).filter(candidate => candidate.preselected)
   return {
     id: "request-review",
@@ -96,16 +92,14 @@ export function getRequestReviewItem(
 }
 
 /** Why the reviewers of an open pull request can't be asked now; null when they can */
-export function getRequestReviewBlocker(branch: Pick<Branch, "remoteStatus">, pullRequest: PullRequest): string | null {
-  if (pullRequest.isDraft) {
-    return `#${pullRequest.number} is a draft: mark it ready for review on GitHub first`
-  }
+export function getRequestReviewBlocker(pullRequest: PullRequest): string | null {
+  return pullRequest.isDraft ? `#${pullRequest.number} is a draft: mark it ready for review on GitHub first` : null
+}
+
+/** The request pushes the branch first: the remote lacks work of it (an unknown remote status is no push) */
+export function requestReviewPushes(branch: Pick<Branch, "remoteStatus">): boolean {
   const push = getPushAction(branch)
-  // the remote status not loaded yet is no reason
-  if (push !== null && push !== "upToDate") {
-    return "Push first, so the reviewers see the commits"
-  }
-  return null
+  return push !== null && push !== "upToDate"
 }
 
 /**

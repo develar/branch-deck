@@ -130,7 +130,7 @@ describe("buildRobotPrompt", () => {
   })
 
   it("leaves the push and the restart to the user", () => {
-    expect(prompt(report(failure()))).toContain("Don't push, and don't start or restart a Safe Push: I run Push and Restart Safe Push in Branch Deck.")
+    expect(prompt(report(failure()))).toContain("Don't push, and don't start or restart a Safe Push: I restart the Safe Push in Branch Deck.")
   })
 
   it("says a failing robot still runs", () => {

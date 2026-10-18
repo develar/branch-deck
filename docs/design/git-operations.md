@@ -1565,7 +1565,7 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    branch that didn't sync. On Space it then reads the user's robots once (best effort: off Space, without a token or
    an answer, nothing is held) and refuses (`robot_running`) a named branch whose Safe Push runs on it or on a branch
    built on it, which lands it; an ancestor such a robot lands stays out of the push. `--restart-running` cancels the
-   robot of a named branch over HTTP before the push and restarts it after it, as the app's Push and Restart does.
+   robot of a named branch over HTTP before the push and restarts it after it, as the app's restart that pushes first does.
 2. One `git push --porcelain --atomic --force-with-lease=refs/heads/<b>:<lease>… <remote> <tip>:refs/heads/<b>…`
    (`push_lease::push_refs`, shared with the app's push; exit 1, a rejected ref, still prints the porcelain report),
    the tips those the sync left (`leased_push_refs`, no `for-each-ref`). Atomic: a stack is pushed whole or not at

@@ -79,8 +79,12 @@ describe("pushUpToPlan", () => {
     expect(pushUpToPlan("login", "login-1", sources(behind, login))).toEqual({ ok: false, reason: "auth's push drops 2 remote commits: Force Push auth first.", show: "auth" })
     const landing = { branchOf: sources(auth, login).branchOf, landingOf: (name: string) => (name === "auth" ? "oauth" : null) }
     expect(pushUpToPlan("login", "login-1", landing)).toEqual({ ok: false, reason: "A Safe Push of oauth lands all of auth.", show: "oauth" })
-    // its own Safe Push holds the branch: Push and Restart is the push
+    // its own Safe Push holds the branch: its restart is the push
     const own = { branchOf: sources(auth, login).branchOf, landingOf: (name: string) => (name === "login" ? "login" : null) }
-    expect(pushUpToPlan("login", "login-1", own)).toEqual({ ok: false, reason: "A Safe Push of login is running: wait until it merges, or push and restart it.", show: "login" })
+    expect(pushUpToPlan("login", "login-1", own)).toEqual({
+      ok: false,
+      reason: "A Safe Push of login is running: wait until it merges, or restart it on the current branch.",
+      show: "login",
+    })
   })
 })

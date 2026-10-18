@@ -129,10 +129,10 @@ test.describe("Patronus chip", () => {
     let details = preview.getByTestId("branch-preview-patronus")
     await expect(preview.getByTestId("patronus-chip").getByTestId("patronus-outdated-dot")).toBeVisible()
     await expect(details.getByTestId("patronus-outdated")).toHaveText(
-      /^Started on 01234567; the branch has changed since \(now [0-9a-f]{8}\): the result won't cover the newest commits\. Push and Restart Safe Push to test the current branch\.$/,
+      /^Started on 01234567; the branch has changed since \(now [0-9a-f]{8}\): the result won't cover the newest commits\. Restart Safe Push to test the current branch\.$/,
     )
-    await expect(details.getByRole("button", { name: "Push and Restart Safe Push" })).toBeVisible()
-    await expect(details.getByRole("button", { name: "Restart Safe Push", exact: true })).toHaveCount(0)
+    // the branch changed here: the restart pushes first, under the restart's own name
+    await expect(details.getByRole("button", { name: "Restart Safe Push", exact: true })).toHaveAttribute("data-action", "push-and-restart-robot")
     await expect(details.getByTestId("patronus-cancellation-reason")).toHaveText("Canceled by the user")
     await page.keyboard.press("Escape")
     await expect(preview).toHaveCount(0)
@@ -146,8 +146,8 @@ test.describe("Patronus chip", () => {
     preview = await openBranchPreview(page, "feature-api")
     details = preview.getByTestId("branch-preview-patronus")
     await expect(details.getByTestId("patronus-outdated")).toHaveText(/: the result won't cover the newest commits\. Restart Safe Push to test the current branch\.$/)
-    await expect(details.getByRole("button", { name: "Restart Safe Push" })).toBeVisible()
-    await expect(details.getByRole("button", { name: "Push and Restart Safe Push" })).toHaveCount(0)
+    // pushed: a plain restart takes the pushed commit
+    await expect(details.getByRole("button", { name: "Restart Safe Push", exact: true })).toHaveAttribute("data-action", "restart-robot")
   })
 
   test("should say only quietly that a robot started on an earlier build of the same commits", async ({ page }) => {

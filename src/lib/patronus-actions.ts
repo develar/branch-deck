@@ -1,4 +1,4 @@
-import { ClipboardCopyIcon, ClipboardListIcon, ExternalLinkIcon, GitPullRequestIcon, RotateCcwIcon, ShieldOffIcon, UploadIcon } from "lucide-react"
+import { ClipboardCopyIcon, ClipboardListIcon, ExternalLinkIcon, GitPullRequestIcon, RotateCcwIcon, ShieldOffIcon } from "lucide-react"
 import type { PatronusRobot } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { pushBranch } from "@/lib/git/push"
@@ -61,9 +61,10 @@ export function hasRobotFailurePrompt(robot: PatronusRobot, needsReview: boolean
 
 /**
  * The actions of a robot, one list for every surface that shows it (the branch menu, the robot details, the robots
- * indicator), in this order: "Restart Safe Push", or "Push and Restart Safe Push" while the branch has work the remote
- * lacks, also for a running robot, which it cancels first (`getRobotRestartAction`; disabled with the reason while a start is not possible: a blocked branch, a robot that
- * lands an ancestor or the branch, `checkRobotRestart`), "Cancel Safe Push" while it runs,
+ * indicator), in this order: "Restart Safe Push" (it pushes first while the branch has work the remote lacks, also
+ * for a running robot, which it cancels first, `getRobotRestartAction`; disabled with the reason while a start is not
+ * possible: a blocked branch, a robot that lands an ancestor or the branch, `checkRobotRestart`), "Cancel Safe Push"
+ * while it runs,
  * "Copy Prompt for Agent" and "Copy Prompt with CI Details" for a failed or failing robot (`hasRobotFailurePrompt`),
  * "Open in Patronus", and "Open Pull Request #12" for a robot of a pull request. `branch` is the branch of the robot,
  * null when it has no row (archived since it merged): the restart then takes the remote branch as Patronus has it.
@@ -80,21 +81,26 @@ export function getRobotActions(robot: PatronusRobot, branch: Branch | null, nee
   if (restart === "restart") {
     items.push({
       id: "restart-robot",
-      label: formatRobotRestartLabel(restart, robot),
+      label: formatRobotRestartLabel(robot),
       icon: RotateCcwIcon,
       ...(start?.ok === false && { disabled: true, description: start.reason }),
       onSelect: () => void runRobotAction(restartPatronusRobot, robot, `${mode} restarted`, `Cannot restart the ${mode}`),
     })
   } else if (restart === "pushAndRestart" && branch !== null) {
-    // a running robot tests a commit the branch moved past: the push cancels it first, the one push into its branch
+    // a running robot tests a commit the branch moved past: the push cancels it first, the one push into its branch; the
+    // push is part of the restart, its name is the restart's
     const running = robot.status === "running" && robot.sourceRevision !== null
     items.push({
       id: "push-and-restart-robot",
-      label: formatRobotRestartLabel(restart, robot),
-      icon: UploadIcon,
+      label: formatRobotRestartLabel(robot),
+      icon: RotateCcwIcon,
       ...(start?.ok === false
         ? { disabled: true, description: start.reason }
-        : running && { description: `Cancels the run on ${formatShortHash(robot.sourceRevision!)}, pushes ${branch.name} and starts it again on the pushed commit` }),
+        : {
+            description: running
+              ? `Cancels the run on ${formatShortHash(robot.sourceRevision!)}, pushes ${branch.name} and starts it again on the pushed commit`
+              : `Pushes ${branch.name} and starts it again on the pushed commit`,
+          }),
       // the restart takes the commit just pushed, and its toast is the one of the action
       onSelect: () => void pushBranch(branch.name, { restartRobot: robot, announce: false }),
     })

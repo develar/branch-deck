@@ -236,7 +236,7 @@ export function buildRobotPrompt({ repositoryPath, branchPrefix, baselineBranch,
       "Find the cause. If a failure is not caused by these commits (a flaky test, or it fails on the target too), say so and stop.",
       fixup,
       `Verify locally: run the failed tests and build their module, as this repository's AGENTS.md or README says${bd === null ? "" : "; then `bd check --build`"}.`,
-      `Report what you changed and what you ran. Don't push, and don't start or restart a ${mode}: I run Push and Restart ${mode} in Branch Deck.`,
+      `Report what you changed and what you ran. Don't push, and don't start or restart a ${mode}: I restart the ${mode} in Branch Deck.`,
     ])}`,
   )
   sections.push(`Rules:\n${bullets(["Other sessions may work in this tree: never run `git rebase`, `git stash`, `git checkout` or `git reset`.", ...RULES])}`)

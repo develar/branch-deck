@@ -298,14 +298,14 @@ export function canCancelRobot(robot: PatronusRobot): boolean {
 }
 
 /**
- * A running robot of the branch tests a commit the branch moved past: Push and Restart cancels it, pushes and restarts it
+ * A running robot of the branch tests a commit the branch moved past: its restart cancels it, pushes and restarts it
  * on the pushed commit, the one way to push into a branch whose Safe Push runs (`PushHold`)
  */
 function canPushAndRestartRunning(robot: PatronusRobot, branchName: string, needsReview: boolean): boolean {
   return robot.status === "running" && isRobotOnBranch(robot, branchName) && !(needsReview && robot.pullRequest == null)
 }
 
-/** The restart the details offer: Restart, Push and Restart, or none */
+/** The restart the details offer: a restart, one that pushes first, or none */
 export type RobotRestartAction = "restart" | "pushAndRestart" | null
 
 /**
@@ -328,12 +328,12 @@ export function getRobotRestartAction(
 }
 
 /**
- * "Restart Safe Push", "Push and Restart Dry Run": the one name of a restart, in the branch menu, the robot details, the
- * robots indicator and the advice of the details
+ * "Restart Safe Push", "Restart Dry Run": the one name of a restart, in the branch menu, the robot details, the robots
+ * indicator and the advice of the details. A restart that pushes first has the same name: the push is part of it (the
+ * hover says it, and that it cancels a running robot)
  */
-export function formatRobotRestartLabel(action: NonNullable<RobotRestartAction>, robot: PatronusRobot): string {
-  const mode = formatPushMode(robot.pushMode)
-  return action === "restart" ? `Restart ${mode}` : `Push and Restart ${mode}`
+export function formatRobotRestartLabel(robot: PatronusRobot): string {
+  return `Restart ${formatPushMode(robot.pushMode)}`
 }
 
 /**
@@ -351,12 +351,11 @@ export function formatRobotCommitNotice(robot: PatronusRobot, chip: Pick<Patronu
   const now = localTip === undefined || localTip === "" ? "" : ` (now ${formatShortHash(localTip)})`
   const changed = `Started on ${formatShortHash(robot.sourceRevision)}; the branch has changed since${now}: the result won't cover the newest commits.`
   if (action !== null) {
-    return `${changed} ${formatRobotRestartLabel(action, robot)} to test the current branch.`
+    return `${changed} ${formatRobotRestartLabel(robot)} to test the current branch.`
   }
   // canceling, a robot started on the branch can be restarted; one of a temporary ref can't
   if (canCancelRobot(robot) && robot.branchName !== null) {
-    const restart = formatRobotRestartLabel(chip.commit === "changedLocally" ? "pushAndRestart" : "restart", robot)
-    return `${changed} Cancel ${formatPushMode(robot.pushMode)}, then ${restart} to test the current branch.`
+    return `${changed} Cancel ${formatPushMode(robot.pushMode)}, then ${formatRobotRestartLabel(robot)} to test the current branch.`
   }
   return changed
 }
@@ -372,7 +371,7 @@ export function isHoldingRobot(robot: PatronusRobot): boolean {
 /**
  * Why a branch offers no push: a Safe Push runs on it (`own`, the robot of the branch) or on a branch built on it that
  * lands it (`span`, `findLandingDescendants`). A push now won't land: the robot merges the commit it took, and a push
- * into its own branch makes it fail at the end ("branch was modified"). Push and Restart is the way through.
+ * into its own branch makes it fail at the end ("branch was modified"). The restart, which pushes first, is the way through.
  */
 export interface PushHold {
   kind: "own" | "span"
@@ -397,12 +396,12 @@ export function findPushHold(branchName: string, ownRobot: PatronusRobot | undef
 }
 
 /**
- * Why a held branch offers no push: "A Safe Push of auth is running: wait until it merges, or push and restart it",
- * "A Safe Push of oauth is running: it lands auth with it"
+ * Why a held branch offers no push: "A Safe Push of auth is running: wait until it merges, or restart it on the current
+ * branch", "A Safe Push of oauth is running: it lands auth with it"
  */
 export function formatPushHoldReason(branchName: string, hold: PushHold): string {
   return hold.kind === "own"
-    ? `A ${formatPushMode(hold.robot.pushMode)} of ${branchName} is running: wait until it merges, or push and restart it`
+    ? `A ${formatPushMode(hold.robot.pushMode)} of ${branchName} is running: wait until it merges, or restart it on the current branch`
     : formatLandingReason(branchName, hold)
 }
 

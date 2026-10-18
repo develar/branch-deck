@@ -199,7 +199,7 @@ describe("getPushButtonState", () => {
     expect(own).toMatchObject({
       disabled: true,
       count: 0,
-      tooltip: "A Safe Push of login is running: wait until it merges, or push and restart it",
+      tooltip: "A Safe Push of login is running: wait until it merges, or restart it on the current branch",
       action: null,
       childrenAction: null,
     })

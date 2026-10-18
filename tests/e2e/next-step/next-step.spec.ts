@@ -267,6 +267,30 @@ test.describe("Next step", () => {
     await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
   })
 
+  test("should push the commits the remote lacks as the first step of Request Review…", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const unasked = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved")] })
+    // a commit the remote lacks: the reviewers would see the old commits without the push
+    await rewriteNextRemoteStatus(page, status =>
+      status.branchName === BRANCH
+        ? { ...status, remoteExists: true, unpushedCommits: [status.unpushedCommits[0] ?? "new"], myUnpushedCount: 1, commitsBehind: 0, fastForward: true }
+        : status,
+    )
+    await setup(page, setupRepo, syncAndWaitForBranches, UNASKED_CODE_OWNER, [unasked], availableRobots(), { unpushed: true })
+    const pushes = await routePush(page, {})
+    const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["ikorennoy"], refused: [] }))
+    await expect(slot(page)).toHaveAttribute("data-step", "requestReview")
+    const step = slot(page).getByTestId("next-step")
+    await expect(step).toBeEnabled()
+    await step.click()
+    const popover = page.getByTestId("request-review-popover")
+    await popover.getByTestId("request-review-submit").click()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #1078" })).toBeVisible()
+    expect(pushes.map(push => push.branchName)).toEqual([BRANCH])
+    expect(requests).toEqual([expect.objectContaining({ pullRequestNumber: 1078, reviewers: ["ikorennoy"] })])
+    // one action, one toast
+    await expect(pushedToast(page, BRANCH)).toHaveCount(0)
+  })
+
   test("should open Request Review… from the branch menu, at the row's next step", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [AWAITED])
     await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
@@ -371,7 +395,7 @@ test.describe("Next step", () => {
     await slot(page).getByTestId("safe-push-button").click()
     const form = page.getByTestId("patronus-start-form")
     await expect(form.getByTestId("patronus-start-dismisses-approvals")).toBeVisible()
-    const start = form.getByRole("button", { name: "Push and Start Safe Push" })
+    const start = form.getByRole("button", { name: "Start Safe Push", exact: true })
     await expect(start).toHaveAttribute("data-disabled-reason", "The push dismisses the approvals of #1078: push first, then ask for the review again")
     await form.getByTestId("patronus-start-push-only").click()
     await expect.poll(() => pushes.map(push => push.branchName)).toEqual([BRANCH])

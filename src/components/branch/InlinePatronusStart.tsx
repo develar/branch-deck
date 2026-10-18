@@ -22,7 +22,6 @@ import { describeStackStart } from "@/lib/patronus-stack"
 import type { StackLead } from "@/lib/patronus-stack"
 import { getPushAction } from "@/lib/push-summary"
 import { stackAncestors, stackPushOrder } from "@/lib/stack"
-import { joinNames } from "@/lib/text"
 import { transferLabel } from "@/lib/transfer-progress"
 import {
   branchSyncStore,
@@ -339,11 +338,6 @@ export function InlinePatronusStart({
     fromPullRequest === null
       ? robotWork
       : `Comments ${fromPullRequest.command} on pull request #${fromPullRequest.number}: ${robotWork} It reports in the pull request${mode === "dryRun" ? "" : " and closes it once merged"}.`
-  // a dry run doesn't push into the target, but Patronus starts from the remote branch: the branch goes there first
-  const unpushed = startPush.kind === "branch" && startPush.action === "create" ? `${branchName} isn't on the remote yet` : `The remote branch of ${branchName} isn't up to date`
-  const pushNote = pushesStack
-    ? `${joinNames(pushOrder)} have commits the remote lacks: they are pushed first, parents first, then Patronus starts from the remote branch of ${branchName}.`
-    : `${unpushed}: it is pushed first, then Patronus starts from the remote branch.`
   const stackNotes = describeStackStart({
     branchName,
     mode,
@@ -392,7 +386,8 @@ export function InlinePatronusStart({
       canSubmit={canStart}
       submitDisabledReason={submitBlocker}
       loading={processing || pushingFor === "start" || isRegrouping}
-      submitText={pushingFor === "start" ? pushLabel : needsPush ? `${pushesStack ? "Push Stack" : "Push"} and Start ${modeName}` : `Start ${modeName}`}
+      // the push the start needs is part of it (`pushForAction`): its progress shows in the button, not in its name
+      submitText={pushingFor === "start" ? pushLabel : `Start ${modeName}`}
       submitIcon={mode === "dryRun" ? <FlaskConicalIcon data-icon="inline-start" /> : <ShieldCheckIcon data-icon="inline-start" />}
       // a Safe Push of a stacked branch lands its ancestors too: Enter doesn't choose it, the lead is root first
       focusSubmit={stackNotes.lead === null}
@@ -443,7 +438,7 @@ export function InlinePatronusStart({
       {pushHeld !== null && (
         <p className="flex items-start gap-1.5 text-sm text-warning" data-testid="patronus-start-push-held">
           <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
-          {`${formatPushHoldReason(branchName, pushHeld)}. The ${modeName} needs a push of ${branchName} first.`}
+          {`${formatPushHoldReason(branchName, pushHeld)}.`}
         </p>
       )}
       {state.status === "loading" && (
@@ -499,20 +494,10 @@ export function InlinePatronusStart({
         />
       )}
       {checksReview && !approvalsMissing && reviewBlock}
-      {needsPush && (
-        <p className="text-sm text-muted-foreground" data-testid="patronus-start-push-note">
-          {pushNote}
-        </p>
-      )}
-      {startPush.kind === "none" && remoteStatus?.remoteTip !== localTip && (
-        <p className="text-sm text-muted-foreground" data-testid="patronus-start-no-push-note">
-          {`The remote branch of ${branchName} has the same commits, only on another baseline: nothing is pushed, Patronus starts from it.`}
-        </p>
-      )}
       {startPush.kind === "unknown" && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="patronus-start-remote-loading">
           <Spinner className="size-4" />
-          {`Comparing ${branchName} with its remote branch…`}
+          {`Checking ${branchName}…`}
         </p>
       )}
       {dismissesApprovals && fromPullRequest !== null && (

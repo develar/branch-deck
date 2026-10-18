@@ -219,9 +219,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   }
   // the row's step when it is the one (a group nobody of it can approve says so), else the builder's item
   const requestReview =
-    nextStep.kind === "requestReview"
-      ? nextStep.item
-      : getRequestReviewItem(branch, pullRequest, getReviewReadiness(branch.name)?.readiness ?? null, () => openRequestReview(branch.name))
+    nextStep.kind === "requestReview" ? nextStep.item : getRequestReviewItem(pullRequest, getReviewReadiness(branch.name)?.readiness ?? null, () => openRequestReview(branch.name))
   if (requestReview !== null) {
     historyActions.push(requestReview)
   }

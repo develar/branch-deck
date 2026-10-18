@@ -156,7 +156,7 @@ function factsOf(branch: Branch): NextStepFacts {
       },
       retarget: () => void retarget(name),
       createPullRequest: getCreatePullRequestItem(branch),
-      requestReview: getRequestReviewItem(branch, pullRequest, readiness?.readiness ?? null, () => openRequestReview(name)),
+      requestReview: getRequestReviewItem(pullRequest, readiness?.readiness ?? null, () => openRequestReview(name)),
     },
   }
 }

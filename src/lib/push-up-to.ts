@@ -95,7 +95,7 @@ function blocker(branch: Branch, landingOf: (name: string) => string | null): Pu
   }
   const landing = landingOf(branch.name)
   if (landing === branch.name) {
-    return { ok: false, reason: `A Safe Push of ${branch.name} is running: wait until it merges, or push and restart it.`, show: landing }
+    return { ok: false, reason: `A Safe Push of ${branch.name} is running: wait until it merges, or restart it on the current branch.`, show: landing }
   }
   if (landing !== null) {
     return { ok: false, reason: `A Safe Push of ${landing} lands all of ${branch.name}.`, show: landing }

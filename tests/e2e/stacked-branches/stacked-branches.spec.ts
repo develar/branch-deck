@@ -521,11 +521,8 @@ test.describe("Stacked branches", () => {
         "oauth is built on auth and login, which aren't in master yet. Safe Push auth first, then the next: after a merge, the next sync moves the branches built on it onto master.",
       )
       await expect(form.getByTestId("patronus-start-stack-note")).toHaveText("Or start oauth now: the Safe Push lands auth and login with it.")
-      await expect(form.getByTestId("patronus-start-push-note")).toHaveText(
-        "auth, login and oauth have commits the remote lacks: they are pushed first, parents first, then Patronus starts from the remote branch of oauth.",
-      )
-
-      await form.getByRole("button", { name: "Push Stack and Start Safe Push" }).click()
+      // the pushes are part of the start: its button keeps the start's name
+      await form.getByRole("button", { name: "Start Safe Push", exact: true }).click()
       await expect.poll(() => starts.length).toBe(1)
       expect(pushes.map(push => push.branchName)).toEqual(["auth", "login", "oauth"])
       expect(starts[0]).toMatchObject({ branchName: "oauth", mode: "rebaseAutosquash" })
@@ -545,7 +542,7 @@ test.describe("Stacked branches", () => {
       await expect(form).toContainText("Safe Push of auth")
       await expect(form.getByTestId("patronus-start-stack-lead")).toHaveCount(0)
       await expect(form.getByTestId("patronus-start-stack-note")).toHaveText(/^.+ are built on auth: after the merge, the next sync moves them onto master\.$/)
-      await expect(form.getByRole("button", { name: "Push and Start Safe Push" })).toBeVisible()
+      await expect(form.getByRole("button", { name: "Start Safe Push", exact: true })).toBeVisible()
     })
 
     test("should wait for the Safe Push of an ancestor, which lands its commits", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -673,7 +670,7 @@ test.describe("Stacked branches", () => {
       expect((await tree(page)).toSorted()).toEqual(["IJPL-257337@0", "perf-part-2@0"])
       await verifyCommitCount(findBranchRow(page, "perf-part-2"), "2 commits")
       await expect.poll(() => reviewGroups(form)).toEqual(["UI Team"])
-      await expect(form.getByRole("button", { name: "Push and Start Safe Push" })).toBeVisible()
+      await expect(form.getByRole("button", { name: "Start Safe Push", exact: true })).toBeVisible()
     })
   })
 })

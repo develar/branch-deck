@@ -108,8 +108,8 @@ export interface PatronusRobotDetailsProps {
 /**
  * The mode and the state, the name, the target, the profile, the commit and the times, the checks and the problems, a
  * notice when the branch changed since the robot took its commit (a quiet line when it was only rebuilt on a newer
- * baseline), then the actions of the robot as the branch menu names them (`getGatedRobotActions`: "Restart Safe Push", "Push
- * and Restart Safe Push" for a change not pushed yet, "Cancel Safe Push", "Open in Patronus", "Open Pull Request #12").
+ * baseline), then the actions of the robot as the branch menu names them (`getGatedRobotActions`: "Restart Safe Push",
+ * which pushes a change not pushed yet first, "Cancel Safe Push", "Open in Patronus", "Open Pull Request #12").
  * The chip popover and the branch preview show it.
  */
 export function PatronusRobotDetails({ branchName, robot, loadDetails }: PatronusRobotDetailsProps) {
@@ -239,7 +239,10 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
   )
 }
 
-/** An action of the robot as an `outline` button; a disabled one says why on hover */
+/**
+ * An action of the robot as an `outline` button; a disabled one says why on hover. `data-action` names it: a restart
+ * that pushes first has the name of a restart
+ */
 function RobotActionButton({ action }: { action: MenuItem }) {
   const content = (
     <>
@@ -249,7 +252,7 @@ function RobotActionButton({ action }: { action: MenuItem }) {
   )
   if (action.description === undefined) {
     return (
-      <Button variant="outline" size="xs" disabled={action.disabled} onClick={action.onSelect}>
+      <Button variant="outline" size="xs" data-action={action.id} disabled={action.disabled} onClick={action.onSelect}>
         {content}
       </Button>
     )
@@ -259,7 +262,15 @@ function RobotActionButton({ action }: { action: MenuItem }) {
       <TooltipTrigger
         render={
           // the hover says why; Base UI keeps the button focusable, so the dimming is ours
-          <Button variant="outline" size="xs" disabled={action.disabled} focusableWhenDisabled className={cn(action.disabled && "opacity-50")} onClick={action.onSelect} />
+          <Button
+            variant="outline"
+            size="xs"
+            data-action={action.id}
+            disabled={action.disabled}
+            focusableWhenDisabled
+            className={cn(action.disabled && "opacity-50")}
+            onClick={action.onSelect}
+          />
         }
       >
         {content}

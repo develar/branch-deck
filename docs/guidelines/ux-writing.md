@@ -86,8 +86,7 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
 ## Actions
 
 The same object (a branch, a Patronus robot, a pull request) appears in a menu, a popover, a footer and a header list.
-Built by hand in each place, the actions drifted apart: the menu named "Push and Restart Safe Push", the popover "Push
-and Restart"; the branch menu showed `O` and `M`, which worked only in the preview or with a selection; the robots
+Built by hand in each place, the actions drifted apart: the menu named a restart one way, the popover another; the branch menu showed `O` and `M`, which worked only in the preview or with a selection; the robots
 indicator could cancel a robot but not restart it.
 
 - **One builder per object**: the actions of an object come from one function returning `MenuItem`s, each with a
@@ -100,6 +99,13 @@ indicator could cancel a robot but not restart it.
   has the key; a key shown in the menu works on the focused row too.
 - **Disabled with a reason, not hidden**: an action that does not apply now stays in the list, disabled, and says why
   on hover (`description`); it disappears only where it never applies (no pull request, no robot).
+- **A step the app can do is part of the action**: a push an action needs, a wait for the sync, a fetch run inside the
+  action, which keeps its plain name ("Create Pull Request…", "Start Safe Push", "Restart Safe Push", "Request
+  Review…"); its progress shows in the busy button ("Pushing 45%"). Never disable an action with "push first" or "sync
+  and try again", and never narrate the step in a note. Only a consequence a person decides is said, and asked: a push
+  that drops someone's remote commits, one that dismisses approvals, a start that cancels a running robot. The row of
+  an unpushed branch once offered a disabled "Create Pull Request…" ("Push first: a pull request needs the remote
+  branch") beside its own push button.
 - **Never offer an action whose failure is known**: disable it with the reason; a wait is a quiet step that opens its
   object. "Safe Push…" of a branch whose code owner is still asked is disabled with "Waits for the approval of IJPL
   Code Platform: Ilya Korennoy is requested on #1078", and the row shows the wait, not the doomed action
@@ -115,9 +121,9 @@ indicator could cancel a robot but not restart it.
   pointer as Space does; the keys that act (P, S, O, M) need the focused row. Inside a review J/K are the files, N/P
   the changes, ⌥↑/⌥↓ the commits.
 - **One name per action**: "Open Pull Request" (never "Open on GitHub"), "Copy Pull Request Link", "Open in Patronus",
-  "{Action} {mode}" for a robot ("Restart Safe Push", "Push and Restart Safe Push", "Cancel Dry Run"; a bare "Cancel"
+  "{Action} {mode}" for a robot ("Restart Safe Push", also when it pushes first; "Cancel Dry Run"; a bare "Cancel"
   reads like closing the popover), "Safe Push…" for the start. Advice in a sentence names the action as its button
-  does ("Push and Restart Safe Push to test the current branch.").
+  does ("Restart Safe Push to test the current branch.").
 
 ## How to
 

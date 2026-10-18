@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { MissingReviewGroup, Person, PullRequest, Reviewer, ReviewReadiness } from "@/lib/bindings"
-import { formatRefused, formatRequestedToast, getRequestReviewCandidates, getRequestReviewItem } from "@/lib/request-review"
+import { formatRefused, formatRequestedToast, getRequestReviewCandidates, getRequestReviewItem, requestReviewPushes } from "@/lib/request-review"
 import type { RemoteStatus } from "@/stores/branch-sync"
 
 function person(fullName: string | null, login: string | null): Person {
@@ -88,31 +88,30 @@ describe("the Request Review… item", () => {
   const open = () => {}
 
   it("asks the chosen code owners on the open pull request", () => {
-    expect(getRequestReviewItem(remote(), pullRequest(), readiness, open)).toMatchObject({
+    expect(getRequestReviewItem(pullRequest(), readiness, open)).toMatchObject({
       id: "request-review",
       label: "Request Review…",
       disabled: false,
       description: "Ask Ilya Korennoy to review #1078",
     })
-    expect(getRequestReviewItem({ remoteStatus: null }, pullRequest(), null, open)).toMatchObject({ disabled: false, description: "Ask for a review of #1078" })
+    expect(getRequestReviewItem(pullRequest(), null, open)).toMatchObject({ disabled: false, description: "Ask for a review of #1078" })
   })
 
-  it("is disabled with the reason for a draft and while the remote lacks work of the branch", () => {
-    expect(getRequestReviewItem(remote(), pullRequest([], { isDraft: true }), readiness, open)).toMatchObject({
+  it("is disabled with the reason for a draft only: work the remote lacks is pushed by the request", () => {
+    expect(getRequestReviewItem(pullRequest([], { isDraft: true }), readiness, open)).toMatchObject({
       disabled: true,
       description: "#1078 is a draft: mark it ready for review on GitHub first",
     })
-    expect(getRequestReviewItem(remote({ commitsAhead: 1 }), pullRequest(), readiness, open)).toMatchObject({
-      disabled: true,
-      description: "Push first, so the reviewers see the commits",
-    })
-    // only rebuilt on a newer baseline: the remote has the work
-    expect(getRequestReviewItem(remote({ fastForward: false }), pullRequest(), readiness, open)).toMatchObject({ disabled: false })
+    expect(getRequestReviewItem(pullRequest(), readiness, open)).toMatchObject({ disabled: false })
+    expect(requestReviewPushes(remote({ commitsAhead: 1 }))).toBe(true)
+    // only rebuilt on a newer baseline: the remote has the work; an unknown remote status is no push
+    expect(requestReviewPushes(remote({ fastForward: false }))).toBe(false)
+    expect(requestReviewPushes({ remoteStatus: null })).toBe(false)
   })
 
   it("is not there without an open pull request", () => {
-    expect(getRequestReviewItem(remote(), undefined, readiness, open)).toBeNull()
-    expect(getRequestReviewItem(remote(), pullRequest([], { state: "merged" }), readiness, open)).toBeNull()
+    expect(getRequestReviewItem(undefined, readiness, open)).toBeNull()
+    expect(getRequestReviewItem(pullRequest([], { state: "merged" }), readiness, open)).toBeNull()
   })
 })
 

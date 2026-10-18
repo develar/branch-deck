@@ -210,7 +210,7 @@ describe("getBranchNextStep", () => {
     expect(getBranchNextStep(withReadiness({ kind: "approved", groups: [{ name: "IJPL Code Platform", approvedBy: [ilya] }] })).kind).toBe("safePush")
   })
 
-  it("row 9: a missing group with nobody asked: Request Review…, disabled until the commits are pushed", () => {
+  it("row 9: a missing group with nobody asked: Request Review…, disabled only with the item's own reason", () => {
     const readiness = missing([group(), group({ name: "Air Platform", requested: [] })])
     const step = getBranchNextStep(withReadiness(readiness))
     expect(step).toMatchObject({
@@ -222,9 +222,9 @@ describe("getBranchNextStep", () => {
       },
       safePushBlocker: "Waits for the approval of Air Platform: nobody of it is requested on #1078",
     })
-    // `getRequestReviewItem` says why it waits for a push
-    const pushFirst: MenuItem = { ...requestReview, disabled: true, description: "Push first, so the reviewers see the commits" }
-    expect(getBranchNextStep(withReadiness(readiness, { actions: { ...facts().actions, requestReview: pushFirst } })).item).toEqual(pushFirst)
+    // a reason of `getRequestReviewItem` is the step's as it is
+    const unavailable: MenuItem = { ...requestReview, disabled: true, description: "#1078 is a draft: mark it ready for review on GitHub first" }
+    expect(getBranchNextStep(withReadiness(readiness, { actions: { ...facts().actions, requestReview: unavailable } })).item).toEqual(unavailable)
     const noEligible = getBranchNextStep(withReadiness(missing([group({ requested: [] })], { reason: "noEligibleReviewer" })))
     expect(noEligible.item).toMatchObject({ disabled: true, description: "Nobody of IJPL Code Platform can approve these changes" })
   })
@@ -250,11 +250,6 @@ describe("getBranchNextStep", () => {
   it("row 9: a group that needs two approvals and asks one person still needs a request", () => {
     const step = getBranchNextStep(withReadiness(missing([group({ needed: 2 })])))
     expect(step).toMatchObject({ kind: "requestReview", safePushBlocker: "Waits for the approval of IJPL Code Platform: fewer people are requested on #1078 than it needs" })
-  })
-
-  it("rows 8 to 10: the wait shows with work to push; the push slot pushes it", () => {
-    const pushFirst: MenuItem = { ...requestReview, disabled: true, description: "Push first, so the reviewers see the commits" }
-    expect(getBranchNextStep(withReadiness(missing([group()]), { actions: { ...facts().actions, requestReview: pushFirst } })).kind).toBe("awaiting")
   })
 
   it("row 11: Safe Push… for every other readiness, and before the first answer", () => {

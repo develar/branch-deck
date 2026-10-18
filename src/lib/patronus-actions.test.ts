@@ -79,10 +79,10 @@ describe("getRobotActions", () => {
   it("restarts a failed robot, pushing first while the branch has work the remote lacks, and not for a blocked branch", async () => {
     const failed = robot({})
     expect(labels(failed, branch({ remoteStatus: pushedSince }))).toEqual(["Restart Safe Push", ...PROMPTS, "Open in Patronus"])
-    expect(labels(failed, branch({ remoteStatus: unpushed }))).toEqual(["Push and Restart Safe Push", ...PROMPTS, "Open in Patronus"])
-    expect(labels(robot({ pushMode: "dryRun" }), branch({ remoteStatus: unpushed }))).toEqual(["Push and Restart Dry Run", ...PROMPTS, "Open in Patronus"])
+    expect(labels(failed, branch({ remoteStatus: unpushed }))).toEqual(["Restart Safe Push", ...PROMPTS, "Open in Patronus"])
+    expect(labels(robot({ pushMode: "dryRun" }), branch({ remoteStatus: unpushed }))).toEqual(["Restart Dry Run", ...PROMPTS, "Open in Patronus"])
     const blocked = branch({ remoteStatus: unpushed, status: "Blocked", stack: { ...testBranch("IJPL-1", "auth").stack!, blockedBy: { parent: "auth", reason: "Conflict" } } })
-    expect(labels(failed, blocked)[0]).toMatch(/^Push and Restart Safe Push \(disabled: .+\)$/)
+    expect(labels(failed, blocked)[0]).toMatch(/^Restart Safe Push \(disabled: .+\)$/)
 
     const [restart] = getRobotActions(failed, branch({ remoteStatus: pushedSince }))
     restart!.onSelect()

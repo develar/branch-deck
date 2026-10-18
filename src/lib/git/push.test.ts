@@ -303,7 +303,7 @@ describe("pushBranch into a branch whose Safe Push runs", () => {
     expect(await pushBranch("auth")).toBe(false)
     expect(calls).toEqual([])
     expect(toasts.map(toast => toast.title)).toEqual(["Cannot push auth"])
-    expect(text(toasts[0]!.description)).toContain("A Safe Push of auth is running: wait until it merges, or push and restart it")
+    expect(text(toasts[0]!.description)).toContain("A Safe Push of auth is running: wait until it merges, or restart it on the current branch")
   })
 
   it("pushes when the Safe Push finished meanwhile: the status is read fresh", async () => {
@@ -319,7 +319,7 @@ describe("pushBranch into a branch whose Safe Push runs", () => {
     expect(toasts).toEqual([])
   })
 
-  it("cancels, pushes and restarts the running Safe Push for Push and Restart, in the one toast of the restart", async () => {
+  it("cancels, pushes and restarts the running Safe Push for its restart, in the one toast of the restart", async () => {
     expect(await pushBranch("auth", { restartRobot: robots.running, announce: false })).toBe(true)
     expect(calls).toEqual(["cancel old", "push auth", "restart old"])
     expect(toasts.map(toast => toast.title)).toEqual(["Safe Push restarted"])
@@ -331,7 +331,7 @@ describe("pushBranch into a branch whose Safe Push runs", () => {
     expect(calls).toEqual([])
   })
 
-  it("says only the restart for Push and Restart of a finished robot, recorded once", async () => {
+  it("says only the restart for the restart of a finished robot that pushes first, recorded once", async () => {
     robots.running = undefined
     expect(await pushBranch("auth", { restartRobot: { ...RUNNING, status: "failure" }, announce: false })).toBe(true)
     expect(toasts.map(toast => toast.title)).toEqual(["Safe Push restarted"])

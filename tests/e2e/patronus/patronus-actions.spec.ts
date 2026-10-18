@@ -82,10 +82,10 @@ async function recordReplacingStart(page: Page, older: PatronusRobot) {
   return { order, starts }
 }
 
-/** Push and Restart Safe Push of the running robot of JIRA-456, from its menu: the one push into a branch whose Safe Push runs */
+/** Restart Safe Push of the running robot of JIRA-456, from its menu (it pushes first): the one push into a branch whose Safe Push runs */
 async function pushAndRestartFromMenu(page: Page) {
   await findBranchRow(page, "JIRA-456").click({ button: "right" })
-  await page.getByRole("menuitem", { name: "Push and Restart Safe Push" }).click()
+  await page.getByRole("menuitem", { name: "Restart Safe Push", exact: true }).click()
 }
 
 test.describe("Patronus actions", () => {
@@ -96,12 +96,12 @@ test.describe("Patronus actions", () => {
     const starts = await routeCommand(page, "start_patronus_robot", () => robot("JIRA-456", "started-robot", { sourceRevision: null }) satisfies PatronusRobot)
 
     const form = await openSafePush(page)
-    await expect(form.getByTestId("patronus-start-push-note")).toHaveText("JIRA-456 isn't on the remote yet: it is pushed first, then Patronus starts from the remote branch.")
     await form.getByTestId("patronus-profile").click()
     // a profile that allows only dry runs is not offered for a Safe Push
     await expect(page.getByRole("option", { name: "Dry Only" })).toHaveCount(0)
     await page.getByRole("option", { name: "Large Scale Change" }).click()
-    await form.getByRole("button", { name: "Push and Start Safe Push" }).click()
+    // the push is part of the start: the button keeps the start's name
+    await form.getByRole("button", { name: "Start Safe Push", exact: true }).click()
     // the button clicked shows the push, its first step; the push button of the row above doesn't repeat it
     await expect(form.getByRole("button", { name: "Pushing 45%" })).toHaveAttribute("aria-busy", "true")
     const rowPush = getPushButton(findBranchRow(page, "JIRA-456"))
@@ -134,10 +134,6 @@ test.describe("Patronus actions", () => {
 
     const form = await openSafePush(page)
     // Patronus rebases the remote branch itself: a push would only replace it with copies of the same commits
-    await expect(form.getByTestId("patronus-start-no-push-note")).toHaveText(
-      "The remote branch of JIRA-456 has the same commits, only on another baseline: nothing is pushed, Patronus starts from it.",
-    )
-    await expect(form.getByTestId("patronus-start-push-note")).toHaveCount(0)
     await form.getByRole("button", { name: "Start Safe Push", exact: true }).click()
 
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
@@ -222,7 +218,7 @@ test.describe("Patronus actions", () => {
     await openSafePush(page)
     // the form says that its start replaces the running robot (before the start: the form closes once it started)
     await expect(page.getByTestId("patronus-start-replaces")).toHaveText("A Safe Push of JIRA-456 runs on older-co: the start cancels it.")
-    await page.getByTestId("patronus-start-form").getByRole("button", { name: "Push and Start Safe Push" }).click()
+    await page.getByTestId("patronus-start-form").getByRole("button", { name: "Start Safe Push", exact: true }).click()
 
     // and asks nothing more: no restart of the old one
     await expect.poll(() => order).toEqual(["cancel", "push", "start"])
@@ -241,7 +237,6 @@ test.describe("Patronus actions", () => {
 
     const form = await openSafePush(page)
     await expect(form.getByTestId("patronus-start-replaces")).toHaveText("A Safe Push of JIRA-456 runs on older-co: the start cancels it.")
-    await expect(form.getByTestId("patronus-start-no-push-note")).toBeVisible()
     await form.getByRole("button", { name: "Start Safe Push", exact: true }).click()
     // no push: the start cancels the robot itself, and never restarts it
     await expect.poll(() => order).toEqual(["cancel", "start"])
@@ -256,14 +251,12 @@ test.describe("Patronus actions", () => {
 
     const form = await openSafePush(page)
     // nothing is claimed about the remote while it is unknown, and Start waits
-    await expect(form.getByTestId("patronus-start-remote-loading")).toHaveText("Comparing JIRA-456 with its remote branch…")
-    await expect(form.getByTestId("patronus-start-push-note")).toHaveCount(0)
+    await expect(form.getByTestId("patronus-start-remote-loading")).toHaveText("Checking JIRA-456…")
     await expect(form.getByRole("button", { name: "Start Safe Push", exact: true })).toBeDisabled()
 
     await syncFromMenu(page)
     await expect(form.getByTestId("patronus-start-remote-loading")).toHaveCount(0)
-    await expect(form.getByTestId("patronus-start-push-note")).toHaveText("JIRA-456 isn't on the remote yet: it is pushed first, then Patronus starts from the remote branch.")
-    await expect(form.getByRole("button", { name: "Push and Start Safe Push" })).toBeEnabled()
+    await expect(form.getByRole("button", { name: "Start Safe Push", exact: true })).toBeEnabled()
   })
 
   test("should restart a failed robot and cancel a running one from the popover", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -310,8 +303,8 @@ test.describe("Patronus actions", () => {
     await expect(chip(page, "ABC-123")).toHaveCount(0)
     const preview = await openBranchPreview(page, "ABC-123")
     const details = preview.getByTestId("branch-preview-patronus")
-    await expect(details.getByTestId("patronus-outdated")).toContainText("Push and Restart Safe Push to test the current branch.")
-    await details.getByRole("button", { name: "Push and Restart Safe Push" }).click()
+    await expect(details.getByTestId("patronus-outdated")).toContainText("Restart Safe Push to test the current branch.")
+    await details.getByRole("button", { name: "Restart Safe Push", exact: true }).click()
 
     // the restart takes the commit just pushed; it is the action, its toast the one toast
     await expect(page.locator("[data-slot=toast-title]", { hasText: "Safe Push restarted" })).toBeVisible()
@@ -584,7 +577,7 @@ test.describe("Patronus actions", () => {
       await expect(form.getByTestId("patronus-start-explanation")).toContainText("Comments /patronus merge on pull request #7:")
       await expect(form.getByTestId("patronus-start-profile-note")).toBeVisible()
       await expect(form.getByTestId("patronus-profile")).toHaveCount(0)
-      await form.getByRole("button", { name: "Push and Start Safe Push" }).click()
+      await form.getByRole("button", { name: "Start Safe Push", exact: true }).click()
       await skipReplyWait(page, posts, replies)
 
       await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
@@ -607,7 +600,7 @@ test.describe("Patronus actions", () => {
       }))
 
       const form = await openSafePush(page)
-      await form.getByRole("button", { name: "Push and Start Safe Push" }).click()
+      await form.getByRole("button", { name: "Start Safe Push", exact: true }).click()
       await skipReplyWait(page, posts, replies)
       const error = page.locator("[data-slot=toast]", { hasText: "Cannot start the Safe Push" })
       await expect(error).toContainText("A robot is already running for the branch.")
@@ -622,7 +615,7 @@ test.describe("Patronus actions", () => {
       await expect(form.getByTestId("patronus-start-dismisses-approvals")).toHaveText(
         "The push dismisses the approvals of #7: the rules of the repository dismiss stale reviews when new commits are pushed.",
       )
-      await expect(form.getByRole("button", { name: "Push and Start Safe Push" })).toBeEnabled()
+      await expect(form.getByRole("button", { name: "Start Safe Push", exact: true })).toBeEnabled()
       expect(rules).toEqual([expect.objectContaining({ branch: "master" })])
     })
 
@@ -780,7 +773,7 @@ test.describe("Patronus actions", () => {
 
   test.describe("pushing into a branch whose Safe Push runs", () => {
     test.beforeEach(async ({ page, setupRepo, syncAndWaitForBranches }) => {
-      // the robot runs on an older commit: the branch changed since, Push and Restart tests it as it is
+      // the robot runs on an older commit: the branch changed since, Restart (which pushes first) tests it as it is
       await setupRobots(page, setupRepo, syncAndWaitForBranches, OLDER)
     })
 
@@ -799,12 +792,14 @@ test.describe("Patronus actions", () => {
       const push = page.getByRole("menu", { name: "More actions for JIRA-456" }).getByRole("menuitem", { name: "Push P" })
       await expect(push).toBeDisabled()
       await push.hover()
-      await expect(page.getByRole("tooltip").filter({ hasText: "is running" })).toHaveText("A Safe Push of JIRA-456 is running: wait until it merges, or push and restart it")
+      await expect(page.getByRole("tooltip").filter({ hasText: "is running" })).toHaveText(
+        "A Safe Push of JIRA-456 is running: wait until it merges, or restart it on the current branch",
+      )
       await page.keyboard.press("Escape")
       expect(pushes).toHaveLength(0)
     })
 
-    test("should cancel the robot, push and restart it on the pushed commit, from Push and Restart Safe Push", async ({ page }) => {
+    test("should cancel the robot, push and restart it on the pushed commit, from Restart Safe Push", async ({ page }) => {
       const order: string[] = []
       await routeCommand(page, "get_patronus_robot_status", () => "running")
       await routeCommand(page, "cancel_patronus_robot", () => {

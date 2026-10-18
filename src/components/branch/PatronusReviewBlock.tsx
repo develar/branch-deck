@@ -376,11 +376,11 @@ function ReviewActions({
 
 /**
  * "Request Review…" of the open pull request (`getRequestReviewItem`): its popover, or the button disabled with the
- * reason (a draft, work to push)
+ * reason (a draft)
  */
 function RequestReviewAction({ branchName, pullRequest, readiness }: { branchName: string; pullRequest: PullRequest; readiness: ReviewReadiness | null }) {
   const branch = useBranch(branchName)
-  const item = branch === undefined ? null : getRequestReviewItem(branch, pullRequest, readiness, () => {})
+  const item = branch === undefined ? null : getRequestReviewItem(pullRequest, readiness, () => {})
   if (branch === undefined || item === null) {
     return null
   }

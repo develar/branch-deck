@@ -88,7 +88,7 @@ branches it lands; once it finished, its result. The Safe Push slot of the Actio
 Push…", "Restart Safe Push" after a failure, the pull request after a robot that needs the code-owner review.
 From the branch, the user starts a Safe Push or a Dry Run (pushing the branch first), restarts a failed robot on the
 newest commit, cancels a running one, and is offered no push of a branch a running Safe Push lands: it won't land, and
-it would fail the robot; "Push and Restart Safe Push" is the way through. It reads
+it would fail the robot; "Restart Safe Push" is the way through. It reads
 Patronus with the Space token of the Safe Push CLI and keeps the load on Patronus small: one list now and then, and a
 poll of the running robots, every minute while the window is focused, every five minutes in the background while a
 robot that pushes runs. When a robot merged a branch, a toast says so (an OS notification in the background) and
@@ -269,10 +269,9 @@ reports in it and closes it once merged.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the details on hover and open the robot on click`)
 - With the dot, the details say what changed and how to test the branch as it is: "Started on 3264f30f; the branch has
   changed since (now 88de421d): the result won't cover the newest commits. Restart Safe Push to test the current
-  branch.", with "Restart Safe Push". When the remote lacks the change, a restart would test the commit the remote has:
-  "Push and Restart Safe Push to test the current branch.", with "Push and Restart Safe Push"
-  ([below](#restart-and-cancel)). For a running robot of the branch the remote moved past, "Cancel Safe Push, then Restart Safe
-  Push to test the current branch."; one of a branch changed here, "Push and Restart Safe Push to test the current
+  branch.", with "Restart Safe Push". When the remote lacks the change, the restart pushes it first, under the same
+  name ([below](#restart-and-cancel)). For a running robot of the branch the remote moved past, "Cancel Safe Push, then
+  Restart Safe Push to test the current branch."; one of a branch changed here, "Restart Safe Push to test the current
   branch.": its push cancels the robot first. The advice names the action as its button
   does (`formatRobotRestartLabel`). A robot that can't be restarted from here (a Safe Push of a temporary ref, "Needs
   review") gets no advice.
@@ -424,15 +423,13 @@ reports in it and closes it once merged.
   on another remote can't be started.
   [@test] ../../crates/sync-core/src/patronus_test.rs (`the_target_is_the_branch_of_origin_the_baseline_tracks`)
 - A branch whose commits the remote lacks is pushed first, decided by content as the push button decides it
-  (`getStartPush` over `getPushAction`, never by the hash of the tip): "Push and Start Safe Push", and the form says so:
-  "auth isn't on the remote yet: it is pushed first, then Patronus starts from the remote branch." ("The remote branch
-  of auth isn't up to date: …" when the remote branch lacks commits of it, or has older versions of them). A branch
-  whose remote branch has the same commits, only rebuilt since on a newer baseline (every sync onto a newer baseline
-  does it), is not pushed: "Start Safe Push", and the form says "The remote branch of auth has the same commits, only
-  on another baseline: nothing is pushed, Patronus starts from it." Patronus rebases the remote branch itself; a push
-  would replace it with copies of the same commits and move the head of its pull request for nothing. While the remote
-  status of the branch is not loaded, Start waits, disabled, with "Comparing auth with its remote branch…", and the
-  form claims nothing about the remote. A dry run pushes the branch too: only the push into the target is left out.
+  (`getStartPush` over `getPushAction`, never by the hash of the tip). The push is part of the start: the button says
+  "Start Safe Push" (a stack too), and no note narrates the push; while it runs the button shows it ("Pushing 45%"). A
+  branch whose remote branch has the same commits, only rebuilt since on a newer baseline (every sync onto a newer
+  baseline does it), is not pushed: Patronus rebases the remote branch itself; a push would replace it with copies of
+  the same commits and move the head of its pull request for nothing. While the remote status of the branch is not
+  loaded, Start waits, disabled, with "Checking auth…", and the form claims nothing about the remote. A dry run pushes
+  the branch too: only the push into the target is left out.
   [@test] ../../src/lib/patronus.test.ts (`pushes before a start only what the remote lacks by content, and waits for the remote status`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a branch whose remote branch has its commits under other hashes without a push`, `should wait to start until the remote status of the branch is loaded`)
 - A push before the start of a branch with an open pull request into the target that someone approved, in a
@@ -479,9 +476,8 @@ reports in it and closes it once merged.
   ancestors on it counts them and their commits first: "Or start IJAI-4074 now: the Safe Push lands
   21 branches · 140 commits with it: vm-lane-daemon, air-fake-agent, air-lane-document and 18 more." Enter doesn't start it
   (no focus on the submit). Before the start the branches of the stack that have work for the remote are pushed,
-  parents first, as the push button pushes them ("Push Stack and Start Safe Push"; "auth, login and oauth have commits
-  the remote lacks: they are pushed first, parents first, then Patronus starts from the remote branch of oauth."),
-  without a toast of their own. A dry run says "It checks the commits of auth and login too: oauth is built on them.", counted from three
+  parents first, as the push button pushes them, a part of the start ("Start Safe Push", no note of the push), without
+  a toast of their own. A dry run says "It checks the commits of auth and login too: oauth is built on them.", counted from three
   ancestors on: "It checks 21 branches · 140 commits too: vm-lane-daemon, air-fake-agent, air-lane-document and 18 more,
   which IJAI-4074 is built on."
   A Safe Push of a parent says what its merge does: "login and oauth are built on auth: after the merge, the next sync
@@ -663,7 +659,7 @@ reports in it and closes it once merged.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and copy the prompt for an agent from the toast`, `should restart from the toast a Safe Push whose builds never started`)
   [@test] ../../src/stores/patronus.test.ts (`tells once that a robot failed, with Copy Prompt for Agent and the failed checks, once its problems are read`, `tells a robot that failed for missing approvals "needs review", with its pull request`, `tells no second time a robot told failing while it ran`, `tells a robot whose problems never come without them`, `names the profile of a robot started without the approvals whose profile checks them all the same`)
 - The step of a failing or failed toast is decided when it shows and again at the click: a toast stays 10 s, longer in
-  the background. A step on the robot (Cancel, Restart, Push and Restart, Copy Prompt for Agent) whose robot was
+  the background. A step on the robot (Cancel, Restart, Copy Prompt for Agent) whose robot was
   restarted (a newer robot of the branch), finished or canceled since, or that is disabled now, does nothing and says
   why in an `info` toast (a precondition, [UX Writing](../../docs/guidelines/ux-writing.md)): "Safe Push of auth was
   restarted" / "auth → master", "Safe Push of auth merged" / "Cancel Safe Push no longer applies", with "Open in
@@ -856,7 +852,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
 - Cancel is offered for a running robot; the robot is canceling until its checks stopped.
 - One builder lists the actions of a robot (`getRobotActions`), and every surface of the robot renders that list: the
   branch menu, the details (the chip popover, the preview section) and the [robots indicator](../repository/robots-indicator.spec.md).
-  In this order: "Restart Safe Push" or "Push and Restart Safe Push" (below), "Cancel Safe Push", "Open in Patronus",
+  In this order: "Restart Safe Push" or "Restart Safe Push" (below), "Cancel Safe Push", "Open in Patronus",
   and "Open Pull Request #12" for a robot started from a pull request (the branch menu leaves it out when it is the
   branch's own pull request, which its "Open Pull Request" opens). Each names the mode of the robot ("Restart Dry Run");
   a bare "Cancel" in a popover reads like closing it. The menu of a branch that can't change (a conflict, a sync error, a
@@ -872,13 +868,13 @@ explicit choice of the user, offered only where the approvals count in a pull re
   records them in the same words. A failure is "Cannot restart the Safe Push" / "Cannot cancel the Safe Push".
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should restart a failed robot and cancel a running one from the popover`)
 - Patronus restarts on the newest commit of the remote branch. When the branch has work the remote lacks, every surface
-  offers "Push and Restart Safe Push" instead of Restart: the push of the row, then the restart on the pushed commit,
+  offers "Restart Safe Push" instead of Restart: the push of the row, then the restart on the pushed commit,
   also for a running robot, which it cancels first ([below](#pushing-into-a-branch-whose-safe-push-runs)); a passed dry run counts
   the pushed commit as the newer one. It is disabled for a blocked branch, with the reason. The restart is the action:
   its toast "Safe Push restarted" is the one toast, the push has none (Activity records both).
   [@test] ../../src/lib/patronus.test.ts (`names the change and the restart that tests the branch as it is, pushed first when the remote lacks it`)
   [@test] ../../src/lib/patronus-actions.test.ts (`restarts a failed robot, pushing first while the branch has work the remote lacks, and not for a blocked branch`)
-  [@test] ../../src/lib/git/push.test.ts (`says only the restart for Push and Restart of a finished robot, recorded once`)
+  [@test] ../../src/lib/git/push.test.ts (`says only the restart for the restart of a finished robot that pushes first, recorded once`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push and restart a failed robot whose branch changed since, from the branch preview`)
 - A failed action is a toast with what Patronus said; without a token it says "Run ./safePush.cmd once to log in to
   Patronus" and sends nothing.
@@ -895,7 +891,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
 - A held branch offers no push: the place of the row's push button stays empty, as its Safe Push slot does; its Status
   cell says why (the robot chip, "lands with oauth"). P does nothing; Push in the menu, the preview footer, the outgoing
   overview and the review window is disabled with the reason: "A Safe Push of auth is running: wait until it merges, or
-  push and restart it", "A Safe Push of oauth is running: it lands auth with it". The "to push" counts leave it out (the
+  restart it on the current branch", "A Safe Push of oauth is running: it lands auth with it". The "to push" counts leave it out (the
   header, the stack chip, the island, the filter chip).
   [@test] ../../src/hooks/usePushButton.test.ts (`offers no push while a Safe Push holds the branch, and says why`)
   [@test] ../../src/lib/push-summary.test.ts (`skips a branch a running Safe Push holds: its row offers no push`)
@@ -904,25 +900,25 @@ explicit choice of the user, offered only where the approvals count in a pull re
   /robots/{id}/status`, one row): still running, it pushes nothing and says why ("Cannot push auth"); finished meanwhile,
   it pushes. Nothing asks: no dialog.
   [@test] ../../src/lib/git/push.test.ts (`refuses the push: it won't land, and the Safe Push would fail at the end`, `pushes when the Safe Push finished meanwhile: the status is read fresh`, `refuses a branch a Safe Push of a branch built on it lands`)
-- The one push into a held branch is a robot action: "Push and Restart Safe Push" of a running robot whose branch
+- The one push into a held branch is a robot action: "Restart Safe Push" of a running robot whose branch
   changed since (the menu, the robot details, the robots indicator; "Cancels the run on 1a2b3c4, pushes auth and starts
   it again on the pushed commit") cancels it, pushes and restarts it on the pushed commit. The restart is the action: its
   toast "Safe Push restarted" with "Open in Patronus" is the one toast; Activity records the push and the restart. The
-  advice of the details names it: "… Push and Restart Safe Push to test the current branch."
+  advice of the details names it: "… Restart Safe Push to test the current branch."
   [@test] ../../src/lib/patronus.test.ts (`pushes and restarts a running robot of a branch changed since, asks to cancel one the remote moved past, and offers nothing for a robot of a temporary ref`)
   [@test] ../../src/lib/patronus-actions.test.ts (`pushes and restarts a running robot of a branch changed since: it cancels it first`)
-  [@test] ../../src/lib/git/push.test.ts (`cancels, pushes and restarts the running Safe Push for Push and Restart, in the one toast of the restart`, `refuses a restart of another robot: only the robot the push restarts lets it through`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot, push and restart it on the pushed commit, from Push and Restart Safe Push`)
+  [@test] ../../src/lib/git/push.test.ts (`cancels, pushes and restarts the running Safe Push for its restart, in the one toast of the restart`, `refuses a restart of another robot: only the robot the push restarts lets it through`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot, push and restart it on the pushed commit, from Restart Safe Push`)
 - The Safe Push form of a branch whose Safe Push runs on an older commit replaces it: "A Safe Push of auth runs on
   1a2b3c4d: the start cancels it." Its push cancels the robot at the first branch that robot holds (the branch, or an
   ancestor the stack push takes along), never restarts it; the form then starts the one robot of the branch. Without a
-  push (the remote branch has the commits by content) the start cancels it itself. The push before "Create Pull Request…" replaces nothing: it is refused as any push. The Dry Run form of a held branch that
+  push (the remote branch has the commits by content) the start cancels it itself. The push of "Create Pull Request…" replaces nothing: it is refused as any push. The Dry Run form of a held branch that
   needs a push offers no start and says why: a dry run doesn't replace the Safe Push.
   [@test] ../../src/lib/git/push.test.ts (`cancels the running Safe Push for the start that replaces it, and never restarts it`, `cancels the robot the start replaces at the first branch it holds, and pushes its ancestors with it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot for a new Safe Push from the form, and not restart it`, `should cancel the robot it replaces without a push when the remote branch has the commits`)
 - A push that finds its remote branch moved pushes nothing and offers the push over the fetched remote in a toast
   ([Outgoing Commits](../repository/outgoing.spec.md#push)). When it drops the commits the remote has now, the toast's
-  action first opens the confirm of the row's push button. A robot Push and Restart canceled for a push that did not
+  action first opens the confirm of the row's push button. A robot its restart canceled for a push that did not
   happen must stay canceled until the toast's push, which restarts it on the pushed commit; the toast says so ("The Safe
   Push is canceled: the push restarts it."). With nothing left to push it is restarted at once, and the toast says that
   instead ("The Safe Push restarted on it.") with "Open in Patronus".

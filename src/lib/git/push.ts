@@ -39,7 +39,7 @@ export interface PushOptions {
   /** The remote commit the push replaces; by default the `remoteTip` of the branch's remote status, the row's view */
   expectedRemote?: string | null
   /**
-   * The robot of the branch to restart on the pushed commit (Push and Restart, the remote-moved toast); a running one is
+   * The robot of the branch to restart on the pushed commit (a restart that pushes first, the remote-moved toast); a running one is
    * canceled first: the one push into a branch whose Safe Push runs (`PushHold`)
    */
   restartRobot?: PatronusRobot
@@ -71,8 +71,8 @@ type PushReport = (title: string, error: unknown) => void
 
 /**
  * Pushes a virtual branch and updates its remote status from the result, then the pull requests (the pull request of
- * the branch now shows the pushed commit). A branch whose Safe Push runs is not pushed (`checkPushHold`), but by Push
- * and Restart and the start that replaces the robot. Says how it went in a toast (`showPushToast`, unless `announce` is false); errors are reported
+ * the branch now shows the pushed commit). A branch whose Safe Push runs is not pushed (`checkPushHold`), but by its
+ * restart and the start that replaces the robot. Says how it went in a toast (`showPushToast`, unless `announce` is false); errors are reported
  * with a toast. Resolves to whether the push succeeded.
  *
  * The push replaces the remote branch only where the row showed it (`expectedRemote`): a remote that moved since is
@@ -84,7 +84,7 @@ export async function pushBranch(branchName: string, options: PushOptions = {}):
     return false
   }
   if (options.announce === false) {
-    // the action the push is a step of says how it went; a restart is the action of "Push and Restart"
+    // the action the push is a step of says how it went; a restart that pushes first says it
     if (outcome.restarted !== undefined) {
       showRobotToast(`${formatPushMode(outcome.restarted.pushMode)} restarted`, outcome.restarted)
     }

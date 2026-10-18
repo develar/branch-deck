@@ -308,7 +308,7 @@ test.describe("Branch filter", () => {
 
     await focusRow(page, "lint")
     await page.keyboard.press("s")
-    const start = form.getByRole("button", { name: "Push and Start Safe Push" })
+    const start = form.getByRole("button", { name: "Start Safe Push", exact: true })
     await expect(start).toBeFocused()
     await page.keyboard.press("Enter")
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()

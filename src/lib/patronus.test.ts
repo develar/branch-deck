@@ -152,7 +152,7 @@ describe("formatRobotCommitNotice", () => {
     expect(notice(failed, pushedSince)).toBe(`${changed} Restart Safe Push to test the current branch.`)
     // a plain restart would test the commit the remote has
     expect(getRobotRestartAction(failed, "IJPL-1", localTip, unpushed)).toBe("pushAndRestart")
-    expect(notice(failed, unpushed)).toBe(`${changed} Push and Restart Safe Push to test the current branch.`)
+    expect(notice(failed, unpushed)).toBe(`${changed} Restart Safe Push to test the current branch.`)
     // a passed dry run restarts only on a newer pushed commit: the push makes one
     const passed = robot({ status: "success", pushMode: "dryRun", ...started })
     expect(getRobotRestartAction(passed, "IJPL-1", localTip, unpushed)).toBe("pushAndRestart")
@@ -161,9 +161,9 @@ describe("formatRobotCommitNotice", () => {
 
   it("pushes and restarts a running robot of a branch changed since, asks to cancel one the remote moved past, and offers nothing for a robot of a temporary ref", () => {
     const running = robot(started)
-    // Push and Restart cancels the running robot first: the one push into a branch whose Safe Push runs
+    // the restart cancels the running robot first: the one push into a branch whose Safe Push runs
     expect(getRobotRestartAction(running, "IJPL-1", localTip, unpushed)).toBe("pushAndRestart")
-    expect(notice(running, unpushed)).toBe(`${changed} Push and Restart Safe Push to test the current branch.`)
+    expect(notice(running, unpushed)).toBe(`${changed} Restart Safe Push to test the current branch.`)
     expect(getRobotRestartAction(running, "IJPL-1", localTip, unpushed, true)).toBeNull()
     expect(notice(running, pushedSince)).toBe(`${changed} Cancel Safe Push, then Restart Safe Push to test the current branch.`)
     // a restart would test its old commit
@@ -297,7 +297,7 @@ describe("actions", () => {
     expect(isHoldingRobot(robot({ status: "failure" }))).toBe(false)
     const own = findPushHold("IJPL-1", running, null)
     expect(own).toEqual({ kind: "own", branch: "IJPL-1", robot: running })
-    expect(formatPushHoldReason("IJPL-1", own!)).toBe("A Safe Push of IJPL-1 is running: wait until it merges, or push and restart it")
+    expect(formatPushHoldReason("IJPL-1", own!)).toBe("A Safe Push of IJPL-1 is running: wait until it merges, or restart it on the current branch")
     // a Safe Push of a temporary ref is not on the branch: a push leaves it as it is
     expect(findPushHold("IJPL-1", robot({ status: "running", branchName: null }), null)).toBeNull()
     const oauth = robot({ id: "oauth", branchName: "oauth", status: "running" })
