@@ -6,7 +6,7 @@ import {
   describeNewRequests,
   describeRequestActivity,
   findNewRequests,
-  formatCollapsedSummary,
+  formatOldestWaiting,
   formatRequestMeta,
   formatWaiting,
   hasWaitedWorkingDay,
@@ -45,7 +45,7 @@ describe("working-day age", () => {
     expect(formatWaiting({ waitingSince: (now - 3 * 3_600_000) / 1000, reRequested: false }, now)).toBe("waiting 3 hours")
     expect(formatWaiting({ waitingSince: (now - 50 * 3_600_000) / 1000, reRequested: false }, now)).toBe("waiting 2 days")
     expect(formatWaiting({ waitingSince: (now - 3 * 3_600_000) / 1000, reRequested: true }, now)).toBe("re-requested 3 hours ago")
-    expect(formatCollapsedSummary(3, request(1, { waitingSince: (now - 4 * 86_400_000) / 1000 }), now)).toEqual({ count: "3 reviews", age: "oldest waiting 4 days" })
+    expect(formatOldestWaiting(request(1, { waitingSince: (now - 4 * 86_400_000) / 1000 }), now)).toBe("oldest waiting 4 days")
   })
 })
 

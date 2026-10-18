@@ -18,7 +18,7 @@ import { neighbourRow } from "@/lib/branch-row-keys"
 import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
 import { collectReturnedToYou } from "@/lib/outgoing-attention"
 import { formatAvailabilityHint, openPullRequestUrl } from "@/lib/pull-request"
-import { formatCollapsedSummary, hasWaitedWorkingDay, pickVisibleRequests, repositoryOfPullRequestUrl, reviewRequestKey, reviewRequestsSearchUrl } from "@/lib/review-requests"
+import { formatOldestWaiting, hasWaitedWorkingDay, pickVisibleRequests, repositoryOfPullRequestUrl, reviewRequestKey, reviewRequestsSearchUrl } from "@/lib/review-requests"
 import { openSettings } from "@/lib/settings-window"
 import { formatRelativeTime } from "@/lib/time"
 import { useBranchTableRows } from "@/stores/branch-sync"
@@ -75,7 +75,10 @@ export function YourTurnCard() {
   )
 }
 
-/** The title and the count of both kinds; collapsed, "3 reviews · oldest waiting 4 days · 1 returned" instead of it */
+/**
+ * The title and the count of both kinds (GitHub's total of the requests, which may be more than it lists), open or
+ * collapsed, as every island keeps its count; collapsed, "oldest waiting 4 days · 1 returned" after it
+ */
 function YourTurnHeader({ requests, returned }: { requests: readonly ReviewRequest[]; returned: number }) {
   const totalCount = useReviewRequestsTotalCount()
   const oldest = requests[0]
@@ -83,26 +86,20 @@ function YourTurnHeader({ requests, returned }: { requests: readonly ReviewReque
     <div className="flex min-w-0 items-center gap-2" data-testid="your-turn-header">
       <UserCheckIcon className="size-4 shrink-0 text-muted-foreground" />
       <h2 className="shrink-0 text-sm font-semibold text-foreground">Your Turn</h2>
-      <Badge variant="secondary" className="group-data-[state=closed]:hidden" data-testid="your-turn-count">
+      <Badge variant="secondary" data-testid="your-turn-count">
         {(oldest === undefined ? 0 : totalCount) + returned}
       </Badge>
       <span className="hidden min-w-0 truncate text-xs text-muted-foreground group-data-[state=closed]:inline" data-testid="your-turn-summary">
-        {oldest !== undefined && <CollapsedSummary count={totalCount} oldest={oldest} />}
+        {oldest !== undefined && <OldestWaiting oldest={oldest} />}
         {returned > 0 && `${oldest === undefined ? "" : " · "}${returned} returned`}
       </span>
     </div>
   )
 }
 
-function CollapsedSummary({ count, oldest }: { count: number; oldest: ReviewRequest }) {
+function OldestWaiting({ oldest }: { oldest: ReviewRequest }) {
   const now = useNow(RELATIVE_TIME_TICK_MS)
-  const summary = formatCollapsedSummary(count, oldest, now)
-  return (
-    <>
-      {`${summary.count} · `}
-      <span className={cn(hasWaitedWorkingDay(oldest.waitingSince * 1000, now) && "text-warning")}>{summary.age}</span>
-    </>
-  )
+  return <span className={cn(hasWaitedWorkingDay(oldest.waitingSince * 1000, now) && "text-warning")}>{formatOldestWaiting(oldest, now)}</span>
 }
 
 function YourTurnHelpPopover() {
@@ -165,8 +162,8 @@ interface YourTurnBodyProps {
 }
 
 /**
- * The rows (3, then "Show N More"; unread ones always), "50 of 63", the returned pull requests, and while GitHub can't
- * be asked the line that says why
+ * The rows (3, then "Show N More"; unread ones always), "50 of 63" while GitHub has more than it lists, expanded or
+ * not, the returned pull requests, and while GitHub can't be asked the line that says why
  */
 function YourTurnBody({ requests, returned, repositoryPath }: YourTurnBodyProps) {
   const unread = useUnreadReviewRequests()
@@ -174,6 +171,8 @@ function YourTurnBody({ requests, returned, repositoryPath }: YourTurnBodyProps)
   const [expanded, setExpanded] = useState(false)
   const visible = expanded ? requests : pickVisibleRequests(requests, unread)
   const hidden = requests.length - visible.length
+  // GitHub lists the 50 oldest: the count of the header is its total
+  const moreOnGitHub = totalCount > requests.length
   const [focused, setFocused] = useState<number | null>(null)
   const tabStop = visible.some(it => it.number === focused) ? focused : visible[0]?.number
   // once for the list: the row menus block "Approve and Safe Push…" of a pull request into another base, as the review does
@@ -244,12 +243,14 @@ function YourTurnBody({ requests, returned, repositoryPath }: YourTurnBodyProps)
           ))}
         </ul>
       )}
-      {(hidden > 0 || expanded) && (
+      {(hidden > 0 || expanded || moreOnGitHub) && (
         <div className="flex items-center gap-3 px-2 py-1 sm:px-4">
-          <Button variant="ghost" size="xs" className="text-muted-foreground" data-testid="review-requests-show-more" onClick={() => setExpanded(!expanded)}>
-            {expanded ? "Show Less" : `Show ${hidden} More`}
-          </Button>
-          {expanded && totalCount > requests.length && <MoreOnGitHub requests={requests} totalCount={totalCount} />}
+          {(hidden > 0 || expanded) && (
+            <Button variant="ghost" size="xs" className="text-muted-foreground" data-testid="review-requests-show-more" onClick={() => setExpanded(!expanded)}>
+              {expanded ? "Show Less" : `Show ${hidden} More`}
+            </Button>
+          )}
+          {moreOnGitHub && <MoreOnGitHub requests={requests} totalCount={totalCount} />}
         </div>
       )}
       {returned.length > 0 && <ReturnedList returned={returned} />}

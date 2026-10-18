@@ -69,9 +69,9 @@ export function formatWaiting(request: Pick<ReviewRequest, "waitingSince" | "reR
   return request.reRequested ? `re-requested ${formatRelativeTime(since, now)}` : `waiting ${formatDuration(since, now)}`
 }
 
-/** "3 reviews · oldest waiting 4 days": the header of the collapsed card; `oldest` is the first of the sorted requests */
-export function formatCollapsedSummary(count: number, oldest: ReviewRequest, now: number): { count: string; age: string } {
-  return { count: count === 1 ? "1 review" : `${count} reviews`, age: `oldest waiting ${formatDuration(oldest.waitingSince * 1000, now)}` }
+/** "oldest waiting 4 days": after the count in the header of the collapsed card; `oldest` is the first of the sorted requests */
+export function formatOldestWaiting(oldest: Pick<ReviewRequest, "waitingSince">, now: number): string {
+  return `oldest waiting ${formatDuration(oldest.waitingSince * 1000, now)}`
 }
 
 /** A request as the user was asked: a re-request is a new one */

@@ -204,13 +204,13 @@ Safe Push it allows.
   repository it keeps its rows with the hint.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should stay hidden off GitHub, and not ask again on focus`, `should stay hidden while GitHub rejects the token or nothing waits, and show once something does`, `should show the island for a returned pull request alone`)
 - A `CollapsibleCard`, open by default; collapsed per repository (`reviewRequestsCollapsed` of the recent projects).
-  The header: `UserCheckIcon`, "Your Turn", the count (all that wait, and the returned pull requests); collapsed, "5
-  reviews · oldest waiting 2 days · 1 returned" instead of the count ("1 returned" alone), the age in `warning` when
-  old. The help popover after the count says what is shown (direct requests only, then the returned pull requests),
+  The header: `UserCheckIcon`, "Your Turn", the count (all that wait, GitHub's total of the requests, and the returned
+  pull requests), open and collapsed alike, as every island keeps its count; collapsed, "oldest waiting 2 days · 1
+  returned" after it ("1 returned" alone), the age in `warning` when old. The help popover after the count says what is shown (direct requests only, then the returned pull requests),
   how the ages colour, and where from; the "⋯" menu has
   "Refresh" (when GitHub was asked on its hover: "Checked 2 minutes ago"), "Open All on GitHub" (the search of the
   repository, while requests wait) and "Notification Settings…".
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the oldest three first, the rest behind Show More, and say how long each waits`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the oldest three first, the rest behind Show More, and say how long each waits`, `should say 50 of 63 when GitHub has more than it returns, expanded or not, and keep the count in the collapsed header`, `should show the island for a returned pull request alone`)
 - A row, 36 px: the unread dot, the title (`font-medium`), the meta "#101 · carol · 2 files · +12 −3" (muted line
   counts, as in every row; "#830 · agent-bot · requested by dave · …" when someone else than the author asked, as for a pull request a
   bot opened: that one waits for the user; "· → release/253" when the base is not the default branch; hidden below `sm`), a `destructive` dot for failing
@@ -225,8 +225,9 @@ Safe Push it allows.
   only the first entrance of the card slides.
   [@test] ../../src/lib/review-requests.test.ts (`shows the oldest three and every unread request, an unread one in the place of a read one`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should tell a request that comes with a poll in a toast whose Review opens it, unread until opened`)
-- GitHub returns 50: with more, the expanded list says "50 of 63" with "Open All on GitHub".
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should say 50 of 63 when GitHub has more than it returns`)
+- GitHub returns 50: with more, the list says "50 of 63" with "Open All on GitHub", expanded or not, beside "Show N
+  More" when there is one, so the rows add up to the count of the header.
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should say 50 of 63 when GitHub has more than it returns, expanded or not, and keep the count in the collapsed header`)
 - A click reviews the pull request in the review window ([Review window](#review-window)); ⌘-click (Ctrl elsewhere),
   `O` and the button on hover ("Open Pull Request") open it on GitHub. The right-click, the context menu key and
   Shift+F10 open the menu, the actions of the review (`getReviewRequestActions`): Review (↵), Approve…, Request

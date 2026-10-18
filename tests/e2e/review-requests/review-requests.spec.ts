@@ -124,21 +124,46 @@ test.describe("Your Turn card", () => {
     await expect(rows).toHaveCount(5)
     await expect(card.getByTestId("review-requests-show-more")).toHaveText("Show Less")
 
-    // collapsed: the count and the oldest age in the header, per repository
+    // collapsed: the count stays, as on every island, the oldest age after it, per repository
     await card.getByTestId("your-turn-header").click()
-    await expect(card.getByTestId("your-turn-summary")).toHaveText("5 reviews · oldest waiting 2 days")
+    await expect(card.getByTestId("your-turn-summary")).toHaveText("oldest waiting 2 days")
+    await expect(card.getByTestId("your-turn-count")).toHaveText("5")
     await expect(rows).toHaveCount(0)
   })
 
-  test("should say 50 of 63 when GitHub has more than it returns", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD, RECENT, RELEASE, FOURTH], 63) })
+  test("should say 50 of 63 when GitHub has more than it returns, expanded or not, and keep the count in the collapsed header", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD, RECENT, RELEASE, FOURTH], 63) })
     await syncAndWaitForBranches()
     const card = getYourTurnCard(page)
+    const more = card.getByTestId("review-requests-more-on-github")
     await expect(card.getByTestId("your-turn-count")).toHaveText("63")
+    // three rows, the fourth behind Show More: the list says how many of the 63 GitHub lists
+    await expect(card.getByTestId("review-request-row")).toHaveCount(3)
+    await expect(more).toHaveText("4 of 63Open All on GitHub")
     await card.getByTestId("review-requests-show-more").click()
-    await expect(card.getByTestId("review-requests-more-on-github")).toHaveText("4 of 63Open All on GitHub")
+    await expect(card.getByTestId("review-request-row")).toHaveCount(4)
+    await expect(more).toHaveText("4 of 63Open All on GitHub")
     await card.getByRole("button", { name: "Open All on GitHub" }).click()
     expect(await getOpenedUrls(page)).toEqual(["https://github.com/acme/monorepo/pulls?q=is%3Apr%20is%3Aopen%20archived%3Afalse%20draft%3Afalse%20user-review-requested%3A%40me"])
+
+    // collapsed, the header keeps the count of all 63
+    await card.getByTestId("your-turn-header").click()
+    await expect(card.getByTestId("review-request-row")).toHaveCount(0)
+    await expect(card.getByTestId("your-turn-count")).toHaveText("63")
+    await expect(card.getByTestId("your-turn-summary")).toHaveText("oldest waiting 2 days")
+    await card.getByTestId("your-turn-header").click()
+
+    // two listed of 63: no Show More, and the list still says it
+    await repo.setReviewRequests(availableReviewRequests([OLD, RECENT], 63))
+    await page.clock.fastForward("05:01")
+    await emitTauriEvent(page, "tauri://focus")
+    await expect(card.getByTestId("review-request-row")).toHaveCount(2)
+    await expect(card.getByTestId("review-requests-show-more")).toHaveCount(0)
+    await expect(more).toHaveText("2 of 63Open All on GitHub")
   })
 
   test("should move with the arrows, review with Enter and open the menu from the keyboard", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -201,6 +226,7 @@ test.describe("Your Turn card", () => {
     await expect(card.getByTestId("review-request-row")).toHaveCount(0)
     await card.getByTestId("your-turn-header").click()
     await expect(card.getByTestId("your-turn-summary")).toHaveText("1 returned")
+    await expect(card.getByTestId("your-turn-count")).toHaveText("1")
   })
 
   test("should refresh from the menu, and keep the rows when a refresh fails, with the reason in the footer", async ({ page, setupRepo, syncAndWaitForBranches }) => {
