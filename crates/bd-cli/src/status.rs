@@ -26,6 +26,7 @@ pub struct StatusArgs {
   /// Page size: of the branches, or of the commits with --branch or --unassigned
   #[arg(long)]
   pub limit: Option<usize>,
+  /// The first item of the page, counted from 0
   #[arg(long, default_value_t = 0)]
   pub offset: usize,
   /// Per branch: files, lines, top directories, authors, dates, issue keys and a diffstat of the synced branch

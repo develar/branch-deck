@@ -66,6 +66,7 @@ pub struct RenameArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct RestackArgs {
+  /// The branch to stack, by its leaf
   pub branch: String,
   /// The new parent branch
   pub parent: String,
@@ -75,6 +76,7 @@ pub struct RestackArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct UnstackArgs {
+  /// The stacked branch, by its leaf
   pub branch: String,
   #[command(flatten)]
   pub rewrite: RewriteArgs,

@@ -75,20 +75,20 @@ use std::path::PathBuf;
 )]
 struct Cli {
   /// Run in this repository instead of the current directory
-  #[arg(short = 'C', value_name = "REPO", global = true)]
+  #[arg(short = 'C', value_name = "REPO", global = true, help_heading = "Global options")]
   repo: Option<PathBuf>,
   /// The branch prefix; default: `branchdeck.branchPrefix` of this repository's git config, else the app setting, else
   /// the global `branchdeck.branchPrefix`
-  #[arg(long, global = true)]
+  #[arg(long, global = true, help_heading = "Global options")]
   prefix: Option<String>,
   /// Print full commit ids instead of abbreviated ones
-  #[arg(long, global = true)]
+  #[arg(long, global = true, help_heading = "Global options")]
   full_ids: bool,
   /// Neither read nor write the object cache in `$GIT_COMMON_DIR/branch-deck/cache`
-  #[arg(long, global = true)]
+  #[arg(long, global = true, help_heading = "Global options")]
   no_cache: bool,
   /// Log to stderr: -v debug, -vv trace
-  #[arg(short, long, action = ArgAction::Count, global = true)]
+  #[arg(short, long, action = ArgAction::Count, global = true, help_heading = "Global options")]
   verbose: u8,
   #[command(subcommand)]
   command: Command,
@@ -100,51 +100,66 @@ enum Command {
   Status(StatusArgs),
   /// Every commit ahead of the baseline, with dependency edges and file overlap between branches
   Commits(CommitsArgs),
-  /// Move commits between branches by their subject prefixes: one validated rewrite for a whole plan read from stdin,
-  /// then the descriptions it names and, with --sync, a sync
+  /// Move commits between branches by a plan: one rewrite of their subjects
+  ///
+  /// The plan comes from --plan or stdin; one validated rewrite, then the descriptions it names and, with --sync, a
+  /// sync, all under one repository lock
   Group(GroupArgs),
   /// Rename a branch in every commit prefix, its children included
   Rename(RenameArgs),
-  /// Stack a branch on a parent branch (needs `git config branchdeck.stacks true`)
+  /// Stack a branch on a parent branch
+  ///
+  /// Needs `git config branchdeck.stacks true`; writes the stack parents, and rewrites a subject only where its prefix
+  /// declares another parent
   Restack(RestackArgs),
   /// Make a stacked branch a root again
   Unstack(UnstackArgs),
   /// Undo a rewrite, an update or a pick with the `undo_token` it printed
   Undo(UndoArgs),
-  /// Bring the checked out branch onto its baseline, as the app's Update Project: fetch, then a fast-forward or a replay
-  /// of the local commits, and the files follow. `uncommitted_overlap` (exit 4) when local changes sit on files it
-  /// writes. A conflict starts a resolve session (exit 1, `bd help update`): --continue, --abort, --status
+  /// Bring the checked out branch onto its baseline (`bd help update`)
+  ///
+  /// As the app's Update Project: fetch, then a fast-forward or a replay of the local commits, and the files follow.
+  /// `uncommitted_overlap` (exit 4) when local changes sit on files it writes. A conflict starts a resolve session
+  /// (exit 1): --continue, --abort, --status
   Update(UpdateArgs),
-  /// Fold the `fixup!`, `squash!` and `amend!` commits into their targets: one rewrite that keeps HEAD's tree
+  /// Fold the `fixup!`, `squash!` and `amend!` commits into their targets, keeping HEAD's tree
   Fold(FoldArgs),
-  /// Land the commits of another worktree (--from <dir>, or <rev>, <a>..<b>) on the branch checked out here, without a
-  /// cherry-pick: replayed in memory, a commit the branch has already left out, the files following; --follow moves
-  /// that worktree onto the new tip too. A conflict changes nothing (exit 1); `uncommitted_overlap` (exit 4) when local
-  /// changes sit on files it writes. `bd help worktrees`
+  /// Land the commits of another worktree on the branch checked out here (`bd help worktrees`)
+  ///
+  /// From --from <dir>, or <rev>, <a>..<b>; without a cherry-pick: replayed in memory, a commit the branch has already
+  /// left out, the files following; --follow moves that worktree onto the new tip too. A conflict changes nothing
+  /// (exit 1); `uncommitted_overlap` (exit 4) when local changes sit on files it writes
   Pick(PickArgs),
-  /// Move the changes of one file (all of them, or the hunks --hunk names) from one commit into another, both ahead of
-  /// the baseline: one rewrite that keeps HEAD's tree. `hunk_conflict` (exit 4) when a commit between changes the same
-  /// lines
+  /// Move the changes of one file from one commit into another, keeping HEAD's tree
+  ///
+  /// All of its changes, or the hunks --hunk names; both commits ahead of the baseline. `hunk_conflict` (exit 4) when a
+  /// commit between changes the same lines
   MoveHunk(MoveHunkArgs),
-  /// Suggest a grouping of the commits into branches: a plan for `bd group`, checked by a trial sync; exit code 1 when a
-  /// branch of it still conflicts
+  /// Suggest a grouping of the commits into branches, checked by a trial sync
+  ///
+  /// A plan for `bd group`; exit code 1 when a branch of it is not `ok`
   Suggest(SuggestArgs),
-  /// Would the branches build with this plan (stdin or --plan)? A trial sync; exit code 1 when a branch conflicts or is
-  /// blocked
+  /// Would the branches build with this plan? A trial sync
+  ///
+  /// The plan comes from --plan or stdin; exit code 1 when a branch is not `ok`
   Check(CheckArgs),
   /// Rebuild the virtual branches, as the app's sync does; exit code 1 when a branch is not built
   Sync,
   /// Sync, then push branches with a lease per ref, parents first, and print a `gh pr create` for each
   Push(PushArgs),
-  /// Start a Patronus Safe Push or Dry Run of a branch with a merge profile, as the app's Safe Push: the code-owner
-  /// review checked first (`approvals_missing`, exit 4, when approvals are missing), the branch pushed first when the
-  /// remote lacks its commits by content; --check starts nothing
+  /// Start a Patronus Safe Push (or --patronus-dry-run) of a branch; --check starts nothing
+  ///
+  /// As the app's Safe Push, with a merge profile: the code-owner review checked first (`approvals_missing`, exit 4,
+  /// when approvals are missing), the branch pushed first when the remote lacks its commits by content
   SafePush(SafePushArgs),
-  /// Ask GitHub users to review the open pull request of a branch: the code owners Patronus suggests for the groups
-  /// whose approval is missing, or --reviewer <login>; --check asks nobody
+  /// Ask GitHub users to review the open pull request of a branch; --check asks nobody
+  ///
+  /// The code owners Patronus suggests for the groups whose approval is missing, or --reviewer <login>
   RequestReview(RequestReviewArgs),
-  /// The status of the Patronus robot of a branch, the newest one or --robot <id>; when it failed or fails, why
-  /// (--full: the failed builds, tests and log tails) and which commits of the checked-out branch it tested. Read only
+  /// The Patronus robot of a branch and why it failed. Read only
+  ///
+  /// The newest one or --robot <id>; when it failed or fails, why (--full: the failed builds, tests and log tails) and
+  /// which commits of the checked-out branch it tested
   Robot(RobotArgs),
   /// Print or set the pull request title and body of a branch (`branch.<name>.description`)
   Describe(DescribeArgs),
@@ -152,12 +167,15 @@ enum Command {
   Schema,
   /// The version of Branch Deck and of the git it runs, as JSON; also `bd --version`
   Version,
-  /// Let coding agents find bd: a `bd` symlink in ~/.local/bin (macOS, Linux) and the skill of `bd help skill` in
+  /// Let coding agents find bd: the `bd` command and the skill of `bd help skill`
+  ///
+  /// A `bd` symlink in ~/.local/bin (macOS, Linux; on Windows `bd.exe` is next to the app), the skill in
   /// ~/.claude/skills and ~/.agents/skills
   Install(InstallArgs),
-  /// `bd help agent`: the agent workflow; `bd help update`: the update and its resolve session; `bd help worktrees`:
-  /// sessions in worktrees of their own on one branch; `bd help skill`: the skill `bd install` writes; `bd help`: the
-  /// usage
+  /// `bd help agent`, `bd help update`, `bd help worktrees`, `bd help skill`, or the usage
+  ///
+  /// `agent`: the agent workflow; `update`: the update and its resolve session; `worktrees`: sessions in worktrees of
+  /// their own on one branch; `skill`: the skill `bd install` writes
   Help { topic: Option<String> },
 }
 

@@ -11,10 +11,12 @@ together), regroup the commits and sync them. It reads with `status`, `commits`,
 checked grouping with `suggest`, rewrites commit messages with `group`, `rename`, `restack`, `unstack` and `undo`,
 rebuilds the virtual branches with `sync` and keeps their pull request text with `describe`, tries a plan without
 writing refs with `check`, pushes with `push`, asks the code owners to review a pull request with `request-review`,
-starts a Patronus Safe Push with `safe-push` and reads its robot, and why it failed, with `robot`. `group --sync` applies a plan, its pull request texts and a sync in
-one call. `update` brings the checked out branch onto its baseline as the app's Update Project does, and resolves a
-conflict in a resolve session outside the working tree; `fold` folds the fixup commits, and `move-hunk` moves the
-change of a file from one commit into another.
+starts a Patronus Safe Push with `safe-push` and reads its robot, and why it failed, with `robot`. `group --sync`
+applies a plan, its pull request texts and a sync in one call. `update` brings the checked out branch onto its
+baseline as the app's Update Project does, and resolves a conflict in a resolve session outside the working tree;
+`pick` lands the commits of another worktree on the checked out branch; `fold` folds the fixup commits, and
+`move-hunk` moves the change of a file from one commit into another. `install` puts `bd` and its skill where agents
+find them; `help agent`, `help update` and `help worktrees` print the texts an agent follows.
 
 On macOS and Linux it is the `cli` subcommand of the app binary: `branch-deck cli status`. If the binary is symlinked
 as `bd`, the CLI runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or
@@ -76,12 +78,14 @@ An error looks like this:
 {"schema":1,"error":{"code":"no_branch_prefix","message":"No branch prefix: ...","commits":[],"retryable":false}}
 ```
 
-`uncommitted_overlap` also has `paths`, the local files that block an update or its undo; a refused resolution of
-`bd update --continue` has `paths` too, the conflicting files:
+`uncommitted_overlap` also has `paths`, the local files that block an update, a pick or their undo:
 
 ```json
 {"schema":1,"error":{"code":"uncommitted_overlap","message":"…","commits":[],"paths":["src/app.txt"],"retryable":false}}
 ```
+
+A refused resolution of `bd update --continue` has `paths` too, the conflicting files; `lease_rejected` and
+`push_refused` have `branches`, the branches with their remote status.
 
 `approvals_missing` of `bd safe-push` has `review`, the code-owner review the Safe Push lacks (see `bd safe-push`).
 
@@ -519,49 +523,20 @@ session open prints the open round again, fetches nothing and writes the missing
  "next":"/Users/me/.local/bin/bd -C /repo update --continue --round 1"}}
 ```
 
-- The sides are named by content: `edit` is the merge result with zdiff3 markers, the file to edit; `before` the
-  commit's parent; `onto` the new parent (the baseline and the commits replayed so far); `commit` the commit's version;
-  `patch` the whole commit. Edit only the files at `edit`, never the same path in the working tree. Write a copy as
-  UTF-8 without a byte order mark: in Windows PowerShell with `[IO.File]::WriteAllText(<edit>, $text)`, because
-  `Set-Content` and `Out-File` add one or write UTF-16. On Windows the paths have backslashes, and the `\\?\` form
-  from 260 characters on. A change that the
-  commit needs outside the blocks, or in another file, goes into a `fixup! <subject>` commit after the update, folded
-  with `bd fold`.
+What an agent does with a round, each refusal and the finish is `bd help update` (`UPDATE_HELP`, the runtime text);
+the contract is the spec. The mechanics behind it:
+
 - bd finds a block by the labels it wrote after the markers (`marker_labels`, the full ids, followed by `:<path>` for a
   renamed file), at any marker length (`conflict-marker-size`); a `=======` outside the blocks, e.g. under a Markdown
   heading, is text.
-- `blocked_paths` lists local changes on paths the update likely writes, the first 100 (`blocked_paths_omitted`
-  counts the rest): they block the finish, so ask the user about them before you resolve. `next` is the command that
-  continues, with this binary and `-C <repository>`.
 - A round prints its own files only: the rounds resolved so far are in the `resolutions` of the finish and of
   `bd update --status`, not repeated in every round, so a long session stays as small as its open round.
-- `kind` is `content`, `modify_delete` or `rename_delete` (with `renamed_from`; `--take` and `--delete` take either
-  path); a `hint` says how to resolve it. `commit.hint` "likely landed" says the baseline likely has the commit
-  already: take `onto`. `landed_dropped` lists the local commits left out because the baseline has the same patch.
-- A refusal names the round and its commit and changes nothing: the round stays open, and the copies keep your edits;
+- A refusal names the round and its commit and changes nothing: the round stays open, and the copies keep the edits;
   `edited` per file says whether a copy differs from bd's merge result.
-- `bd update --continue [--round N] [--take onto:<path>|commit:<path>]… [--delete <path>]… [--allow-empty |
-  --drop-empty <commit>] [--dry-run]` commits the round: every file needs an edited `edit`, a `--take` or a
-  `--delete`. Exit 1 is the next round; exit 0 is the finish (`state` `rebase`, the `undo_token`,
-  `dropped_by_resolution`, and `resolutions`: per round the `commit`, its `new_id` (`null` when dropped), `empty` (`kept` or
-  `dropped`) and per file `how` with `dropped_upstream_lines` and `dropped_commit_lines`, the lines of a side's change
-  that the result lost, to report to the user). `--dry-run` checks and reports the resolution, `new_id` included,
-  and moves no ref.
-- Exit 2 changes nothing: `missing_resolution`, `resolution_outside_conflict` (a line outside the blocks changed, or
-  only the line ends, or a byte order mark or UTF-16), `unresolved_markers`, with `paths` and the copies in the message (and the paths changed in the
-  working tree, where bd never reads); `no_session` without a session. `round_moved` (exit 3): another round is open,
-  `bd update` prints it. `empty_resolution` (exit 2): the resolution changes nothing; ask the user, then
-  `--allow-empty` keeps an empty commit and `--drop-empty <commit>` drops it (never counted as landed).
-  `session_stale` (exit 4): the branch was rewritten or HEAD left it. `unsupported_conflict` (exit 4): binary,
-  file/directory, rename, mode, symlink or submodule. `uncommitted_overlap` at the finish keeps the session `ready`
-  (`state` `pending`), and a later `--continue` only finishes. `finish_pending` (exit 4): the branch moved but its
-  files did not follow, and bd can't finish; the message says what is left.
-- `bd update --abort [--worktree <id> [--force]]` removes the session and its copies; `--worktree` names another
-  worktree's session, e.g. an orphaned one, and a live one needs `--force`. `bd update --status [--materialize [--force]]` prints this worktree's session and
-  every session of the repository (`orphaned`, `own`), and changes nothing but the copies it is asked to write.
 - The copies live in `branch-deck/resolve/r<n>/{edit,before,onto,commit}/<key>-<basename>` of the worktree's git dir,
   or under `--dir <path>` (absolute, outside every worktree, empty or bd's for this worktree, used by no other
-  session), for a sandbox that keeps `.git` read only.
+  session), for a sandbox that keeps `.git` read only. On Windows the paths have backslashes, and the `\\?\` form
+  from 260 characters on.
 
 ### `bd pick (--from <dir> [--follow] | <rev> | <a>..<b>) [--expect-head <id>] [--dry-run]`
 
@@ -1270,7 +1245,8 @@ error. The first line of `bd help agent` names the version too.
 
 ### `bd help agent`
 
-Prints the agent workflow as plain text (`AGENT_HELP`); it only names the resolve session, which `bd help update`
+Prints the agent workflow as plain text (`AGENT_HELP`, about 18 KB): the rules first, then the steps, then the other
+tasks; it only names the resolve session, which `bd help update`
 prints (`UPDATE_HELP`), and the work beside other sessions, which `bd help worktrees` prints (`WORKTREES_HELP`).
 `agent_help_test.rs` keeps the three true. Together they must name every command and, for each command,
 every long option, unless the test lists it in `NOT_IN_AGENT_HELP` (as `status --limit`). An option counts for the
@@ -1279,7 +1255,7 @@ command named last before it, and it must exist for that command.
 ### `bd help worktrees`
 
 Prints how agent sessions that share a checkout work beside each other, each committing in a worktree of its own
-(`WORKTREES_HELP`, about 45 lines): the `(branch)` prefix is written when a commit is made, never guessed later; one
+(`WORKTREES_HELP`, about 40 lines): the `(branch)` prefix is written when a commit is made, never guessed later; one
 owner rewrites the shared branch (`bd update`, `bd fold`, `bd group`, `bd rename`) and every other session only adds
 commits with `bd pick --from <worktree> --follow`, never a cherry-pick in the shared checkout; the outcomes of a pick
 and what to do with each; `bd pick --dry-run` as the check after a rewrite, never a comparison by date; the protocol
@@ -1299,11 +1275,14 @@ How an agent learns that bd exists. `bd install`, or Help → Install Agent CLI�
   Applications, then install the Agent CLI". On Windows `bd.exe` is next to the app already, and a symlink would need
   developer mode;
 - the skill `branch-deck` (`SKILL.md`, the Agent Skills format) into `~/.claude/skills/branch-deck/` (Claude Code) and
-  `~/.agents/skills/branch-deck/` (Codex and others). Its description tells an agent when to use bd: grouping or
-  splitting commits into branches or pull requests, stacked branches, an update onto the baseline and its conflicts,
-  Branch Deck. Its body names bd by its full path, so it works without `PATH`, and sends the agent to `bd help agent`
-  first, or to `bd help update` for an update; before a Safe Push it asks for `bd safe-push <branch> --check`, as the
-  Safe Push of a stacked branch lands its parents too. The workflow stays in the binary, so the
+  `~/.agents/skills/branch-deck/` (Codex and others). Its description tells an agent when to use bd (`bd help skill`
+  prints it): grouping or splitting commits into branches or pull requests, stacked branches, fixups, a change in the
+  wrong commit, an update or rebase onto the baseline and its conflicts, landing the commits of a worktree onto a
+  shared branch, a Safe Push or Dry Run and why it failed, a review request, Branch Deck. Its body names bd by its full
+  path, so it works without `PATH`, and sends the agent to `bd help agent` first, to `bd help update` for an update,
+  and to `bd help worktrees` when several sessions or worktrees work on one branch; it asks for the `(branch)` prefix
+  when a commit is made, and for `bd safe-push <branch> --check` before a Safe Push, as the Safe Push of a stacked
+  branch lands its parents too. The workflow stays in the binary, so the
   skill can't fall out of date with it. Its `allowed-tools` is `Bash(<bd>:*)`: while the skill is active, Claude Code
   runs every bd command without a permission prompt, also `bd group`, which rewrites the checked out branch, and
   `bd push`. The approval of a push or a Safe Push is the rule of the skill's body, not a prompt.
@@ -1325,45 +1304,14 @@ blocked prompt names no command: the user updates in the app.
 
 ## Agent workflow
 
-1. Run `bd suggest`. It is read only, and its plan is checked already. Read the clusters: `change` and `current_branches` against
-   the branches now, `why` to quote to the user, `weak` to review first, and the `issue_groups` of the plan. For a
-   closer look, run `bd status --brief` and `bd commits --brief`: per commit the group, issue key, fixup target and
-   `areas`, the `units` that must stay together and the `dependencies` `{from, to, via}`. Run `bd commits <id>… --patch`
-   or `bd commits --unassigned` for the commits that are unclear, and `bd status --stats` for the size of each branch.
-2. Edit the plan where the clusters are wrong. `bd suggest` exits with 1 when its own check fails, so edit it then
-   too. After any change of `branches`, `unassign`, `issue_groups` or `ungroup_issues`, run
-   `bd check --plan plan.json` until every branch is `ok`: move the `missing_commits` of a conflict into the branch,
-   or stack the branch on the one that has them.
-3. Add `descriptions` (the pull request title and body) for the branches that have none (`description` in
-   `bd status`); replace one only when the user asks. A stacked branch is named by its leaf. Run
-   `bd group --expect-head <head> --sync --plan plan.json` with the `head` of `bd suggest`. On `head_moved`,
-   `groups_moved` or `locked` (exit 3), read again and retry. On a sync conflict (exit 1), regroup the commits the
-   change needs into the same branch or its parent, and run `bd sync` again. On another exit with `error` and an
-   `undo_token`, the rewrite stands: run `bd sync` again, or undo it. `bd undo` with the printed token reverts the
-   rewrite and the issue groups, not the descriptions; run `bd sync` after it.
-4. Show the result to the user, and run `bd push <branches>` only after the user approves; then the `gh pr create`
-   lines it prints, piping each `body` into its command.
-5. For a Patronus Safe Push, run `bd safe-push <branch> --check` and show the profile and the review to the user;
-   start with `bd safe-push <branch>` only after the user approves. On `approvals_missing`, show `error.review` and
-   open the pull request with `--create-pull-request`; `--without-approvals` and `--cancel-running` only when the user
-   says so. Name `lands` to the user: a stacked branch lands with the branches it is built on, in one robot; `alone`
-   is a second way (`bd unstack`, or a move first), only when the user chooses it.
-   After a failed Safe Push, `bd robot <branch> --full` says why and which local commits it tested: fix and check
-   them locally, then the user pushes and restarts it.
+The workflow is `bd help agent` (`AGENT_HELP` in `crates/bd-cli/src/agent_help.rs`): the rules first (what needs the
+user's approval, what each exit code asks for, when to retry, how to undo), then the steps from `bd suggest` to the
+robot of a Safe Push, then the other tasks (`bd update`, `bd pick`, `bd fold`, `bd move-hunk`). It is the one text an
+agent follows, versioned with the binary and checked by `agent_help_test.rs`; this guide is its reference and does not
+repeat it. `bd help update` and `bd help worktrees` hold the resolve session and the work beside other sessions.
 
-To update the branch onto its baseline, run `bd update`. On `uncommitted_overlap`, show the `paths` to the user and
-ask what to do with each file; never stash, reset, check out or commit them. On a conflict, resolve each round in the
-files at `edit` and run `bd update --continue` until it exits with 0, then report each resolution. After a failed build, commit the fix as
-`fixup! <subject>` and run `bd fold`, or `bd undo` the update with its token.
-
-An agent in a worktree of its own lands its commits on the shared branch with `bd pick --from <worktree> --follow`
-(`bd help worktrees`), with the `(branch)` prefix written when it committed; on `state: conflict` it follows
-`conflict.next`, and it checks with `bd pick --dry-run` after the owner rewrote the branch.
-
-The agent never reorders, squashes or drops commits: a plan only moves commits between branches. A change that
-landed in the wrong commit moves with `bd move-hunk`, never with plumbing. The Update Project
-hand-off prompt (`src/lib/agent-prompt.ts`) states the same rule for an agent that rebases; it also forbids a push,
-which here the agent runs only after the user approves. For an update blocked by uncommitted changes, the prompt
-sends the agent to the user about each file and then to `bd update --no-fetch`, and never to a stash. For a conflict,
-the prompt sends the agent to `bd update --no-fetch` and its resolve session; without a bd command, to the git steps,
-which ask the user about uncommitted changes instead of stashing them.
+The app's Update Project hand-off prompt (`src/lib/agent-prompt.ts`) states the same rules for an agent that rebases:
+no reordered, squashed or dropped commit, no push, no stash. For an update blocked by uncommitted changes it sends the
+agent to the user about each file and then to `bd update --no-fetch`; for a conflict, to `bd update --no-fetch` and
+its resolve session; without a bd command, to the git steps, which ask the user about uncommitted changes instead of
+stashing them.

@@ -927,17 +927,18 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd help agent`
 
-- It must print the agent workflow as text: `bd suggest`, `bd check` only after an edit of the plan, `bd group
-  --sync` with descriptions for the branches that have none, `bd push` after the user approves, and `bd safe-push`
-  with `--check` first, its `lands` and `alone` named to the user, `--whole-stack` for the whole stack in one robot
-  with its refusals (`conflict`, `stack_not_built`), and the start after the user approves, that bd
-  closes no pull request of a parent that landed (the app does when it sees the merge), then `bd robot --full` after a
-  failed Safe Push; one line names
-  `bd update`, `bd pick` and `bd fold` and sends a conflict to `bd help update`, one `bd move-hunk` for a change in the
-  wrong commit, and the rules say that a change moves between commits only with `bd move-hunk`, and only `bd update`,
-  `bd pick` and their undo write the working tree, through the guarded update. Together with `bd help update` it must name every command
-  and, per command, every long option except a listed few, and name no command, and no option for a command, that
-  doesn't exist.
+- It must print the rules first: what needs the user's approval (every push, Safe Push and Patronus Dry Run, review
+  request, `gh pr create` and change of another session's commit), what each exit code asks for (exit 1 never an error
+  object, exit 4 without a rule: stop and show `message`), that `retryable` decides a retry whatever the exit code,
+  the error object with `paths`, `branches` and `review`, `--expect-head`, `previous_head`, `new_head`, the
+  `undo_token` and `after_error`, abbreviated ids compared by prefix, never reorder, squash or drop commits except
+  with `bd fold`, a change moved only with `bd move-hunk`, and only `bd update`, `bd pick` and their undo writing the
+  working tree. Then the workflow in steps (look with `bd suggest`; plan and check with the `result` of each branch;
+  apply with `bd group --sync`; push; Safe Push with `--check` first, `lands`, `alone`, `--whole-stack` and the
+  refusals; review; robot), then the other tasks (`bd update`, `bd pick`, `bd fold`, `bd move-hunk`, `bd install`),
+  each sending a longer story to its own topic. Together with `bd help update` and `bd help worktrees` it must name
+  every command and, per command, every long option except a listed few, and name no command, and no option for a
+  command, that doesn't exist.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
 - Its first line must name the version.
   [@test] ../../crates/bd-cli/src/version_test.rs (`agent_help_names_the_version`)
@@ -962,7 +963,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   (`install_refused`); on Windows `bd.exe` next to the app.
 - It must write the skill `branch-deck` into `~/.claude/skills/` and `~/.agents/skills/`: a description of when to use
   bd (grouping into branches and pull requests, stacked when they build on each other, and updating onto the baseline
-  with its conflicts), its full path, `bd help agent` as the workflow, `bd help update` for an update, and
+  with its conflicts, landing a worktree's commits, fixups, a change in the wrong commit, a review request, why a robot
+  failed), its full path, `bd help agent` as the workflow, `bd help update` for an update, and
   `bd safe-push <branch> --check` before a Safe Push, which lands a stacked branch with its parents, and
   `--whole-stack`, which lands the whole stack, the landing of a worktree's commits onto a shared branch among its
   triggers, `bd help worktrees` when several sessions or worktrees work on one branch, and the `(branch)` prefix
