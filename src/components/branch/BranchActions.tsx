@@ -11,7 +11,7 @@ import { useUnpushedChildren } from "@/hooks/usePushButton"
 import type { MenuItemGroups } from "@/lib/menu"
 import { getPushAction } from "@/lib/push-summary"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranch, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
+import { useBranch, useIsBranchPushing, useIsStackBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
 import { usePushHold } from "@/stores/patronus"
 import { getFullBranchName } from "@/stores/repository"
@@ -37,13 +37,15 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
   const processing = useIsRowProcessing(branch.name)
   const isPushing = useIsBranchPushing(branch.name)
   const startedStackPush = useStackPush(branch.name)
-  // one indicator of a stack push: the island header of the stack it pushes, or the row it started from
+  // one indicator of a stack push: the island header of the stack it pushes, or the row it started from; so is the push
+  // of the stack branch of the whole stack the branch heads
   const stackPush = stackPushInHeader ? null : startedStackPush
+  const stackBranchPush = useIsStackBranchPushing(branch.name) && !stackPushInHeader
   const hold = usePushHold(branch.name)
   const canPush = !branch.hasError && branch.commitCount > 0
   // a running push keeps its button, with its progress, until it finished; a blocked branch says why on its button; a
   // branch a Safe Push holds offers no push, its Status cell says why (the menu, with the reason)
-  const idle = !isPushing && stackPush === null
+  const idle = !isPushing && stackPush === null && !stackBranchPush
   // the root of a pushed stack keeps its push while a child has work: its description offers Push with Children; the
   // island header offers it for an island root
   const childrenToPush = useUnpushedChildren(branch.name) !== null && !stackPushInHeader

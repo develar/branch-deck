@@ -6,7 +6,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
 import { AWAITING_CODE_OWNER, NOT_EVALUATED, NO_REVIEW_NEEDED, availableRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer } from "../helpers/pull-request-helpers"
-import { pushOutcome, routePushBranches } from "../helpers/push-helpers"
+import { pushOutcome, routeHeldPush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { DEFAULT_CHECKS_ONLY, expectLandedActions, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
@@ -40,6 +40,20 @@ function stackPullRequest(root: string, number: number, patch: Partial<PullReque
 
 function withStackPullRequests(result: PullRequestsResult, stacks: Record<string, PullRequest>): PullRequestsResult {
   return { ...result, stackPullRequests: stacks }
+}
+
+/**
+ * The next sync reports the stack branch of `root` on the remote at `stack-pushed`, rebuilt with a commit that remote
+ * lacks: a pull request or a Safe Push put it there
+ */
+async function stackBranchAheadOfRemote(page: Page, root: string): Promise<void> {
+  const remote = pushOutcome(root, { unpushedCommits: ["s1"], remoteTip: "stack-pushed" }).remoteStatus
+  await rewriteNextSyncEvents(page, event => (event.type === "stackBranchUpdate" && event.data.root === root ? { ...event, data: { ...event.data, remote } } : event))
+}
+
+/** The push of the header of the island of `root` (Push with Children, and the push of its stack branch alone) */
+function islandPush(page: Page, root: string): Locator {
+  return island(page, root).getByTestId("stack-island-push")
 }
 
 /** A running Safe Push of the whole stack of `root`, on its stack branch as the sync built it */
@@ -103,7 +117,7 @@ test.describe("Whole stack", () => {
   }) => {
     await setupRepo("stack_island", { patronus: availableRobots(), pullRequests: availablePullRequests() })
     await syncAndWaitForBranches()
-    const { stackPushes } = await routePushBranches(page, {})
+    const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("air"), 45)
     const created = stackPullRequest("air", 12)
     const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(created))
     const dialog = createPullRequestDialog(page)
@@ -139,7 +153,12 @@ test.describe("Whole stack", () => {
     await page.getByRole("menuitem", { name: "Create Pull Request of the Stack…" }).click()
     await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("Whole air stack → master")
     await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("air, with the 6 branches built on it")
-    await dialog.getByTestId("create-pull-request-submit").click()
+    const submit = dialog.getByTestId("create-pull-request-submit")
+    await submit.click()
+    // the push of the stack branch it starts with shows in the button, as the push of a branch does
+    await expect(submit).toContainText("Pushing 45%")
+    expect(creates).toEqual([])
+    release()
     await expect.poll(() => creates.length).toBe(1)
     expect(creates[0]).toMatchObject({ branchName: "air", head: "user-name/stack/air", base: "master", title: "air, with the 6 branches built on it", waitForMirror: true })
     expect(stackPushes).toEqual([[expect.objectContaining({ branchName: "air", wholeStack: true, expectedRemote: null })]])
@@ -172,6 +191,79 @@ test.describe("Whole stack", () => {
     await dialog.getByTestId("create-pull-request-submit").click()
     await expect.poll(() => creates.length).toBe(1)
     expect(creates[0]).toMatchObject({ branchName: "air", head: "user-name/stack/air", reviewers: ["ikorennoy"] })
+  })
+
+  test("should show the push of the stack branch alone in the header's push when the restart of its robot pushes it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the robot of the whole stack failed on the stack branch the remote has; the sync rebuilt it since
+    await stackBranchAheadOfRemote(page, "air")
+    const failed = wholeStackRobot("air", "whole", { status: "failure", sourceRevision: "stack-pushed", finishTime: 1704142800 })
+    await setupRepo("stack_island", { patronus: availableRobots(failed) })
+    await syncAndWaitForBranches()
+    const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("air"), 45)
+    const restarts = await routeCommand(page, "restart_patronus_robot", () => wholeStackRobot("air", "restarted", { sourceRevision: "s1" }))
+    const push = islandPush(page, "air")
+    const rootPush = findBranchRow(page, "air").getByTestId("push-button")
+    await expect(push).toBeEnabled()
+
+    // the restart of its robot in the island's "⋯" pushes the stack branch first: the header's push shows it as the
+    // pushes of the stack, and only there
+    await openIslandMenu(page, "air")
+    const restart = page.getByRole("menuitem", { name: "Restart Safe Push" })
+    await restart.hover()
+    // the tooltip of "⋯" may still be fading out: the item's by its text
+    await expect(page.getByRole("tooltip", { name: "Pushes the whole air stack and starts it again on the pushed commit" })).toBeVisible()
+    await restart.click()
+    await expect(push).toHaveAccessibleName("Pushing the whole stack 45%")
+    await expect(push).toHaveAttribute("aria-busy", "true")
+    await expect(push).toBeDisabled()
+    await push.hover()
+    await expect(page.getByTestId("stack-island-push-description")).toHaveText("Writing objects:  45% (2/4)")
+    await expect(rootPush).toBeVisible()
+    await expect(rootPush).not.toHaveAttribute("aria-busy", "true")
+    await page.mouse.move(0, 0)
+    expect(restarts).toEqual([])
+
+    release()
+    await expect.poll(() => restarts.length).toBe(1)
+    expect(stackPushes).toEqual([[expect.objectContaining({ branchName: "air", wholeStack: true, expectedRemote: "stack-pushed" })]])
+    await expect(page.locator("[data-slot=toast]").filter({ hasText: "Safe Push restarted" })).toBeVisible()
+    await expect(push).not.toHaveAttribute("aria-busy", "true")
+  })
+
+  test("should show the push of the stack branch alone in the header's push when Request Review… of its pull request pushes it", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the code owner of the whole stack has to approve in #12, and nobody asked him yet
+    await stackBranchAheadOfRemote(page, "air")
+    const repo = await setupRepo("stack_island", {
+      patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
+      pullRequests: withStackPullRequests(availablePullRequests(), { air: stackPullRequest("air", 12) }),
+    })
+    await repo.setReviewAnswers({ answers: { "stack:air": AWAITING_CODE_OWNER } })
+    await syncAndWaitForBranches()
+    const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("air"), 45)
+    const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["ikorennoy"], refused: [] }))
+    const slot = island(page, "air").getByTestId("stack-island-actions").getByTestId("next-step-slot")
+    await expect(slot).toHaveAttribute("data-step", "requestReview")
+
+    // the reviewers see the commits: the request pushes the stack branch first, its progress in the header's push
+    await slot.getByTestId("next-step").click()
+    const popover = page.getByTestId("request-review-popover")
+    await expect(popover).toContainText("Request a review on #12")
+    await expect(popover.getByTestId("request-review-candidate-ikorennoy")).toBeChecked()
+    await popover.getByTestId("request-review-submit").click()
+    const push = islandPush(page, "air")
+    await expect(push).toHaveAccessibleName("Pushing the whole stack 45%")
+    await expect(push).toHaveAttribute("aria-busy", "true")
+    expect(requests).toEqual([])
+
+    release()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #12" })).toBeVisible()
+    expect(stackPushes).toEqual([[expect.objectContaining({ branchName: "air", wholeStack: true, expectedRemote: "stack-pushed" })]])
+    expect(requests).toEqual([expect.objectContaining({ pullRequestNumber: 12, reviewers: ["ikorennoy"] })])
+    await expect(push).not.toHaveAttribute("aria-busy", "true")
   })
 
   test("should say on S why the whole stack can't start without its pull request, and create it from the notice", async ({ page, setupRepo, syncAndWaitForBranches }) => {

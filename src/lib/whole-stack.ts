@@ -195,6 +195,13 @@ export function formatWholeStackBranch(root: string): string {
 }
 
 /**
+ * "Pushing the whole stack": the name of the push of the stack branch alone (`pushWholeStack`: a step of the restart of
+ * its robot, of Request Review… and of the creation of its pull request) where the pushes of the stack show, the push of
+ * the island's header and of the root's row of a small stack, with its percent ("Pushing the whole stack 45%")
+ */
+export const STACK_BRANCH_PUSHING = "Pushing the whole stack"
+
+/**
  * Why an open pull request of the whole stack no longer matches it ("#12 no longer matches the air stack: auth
  * landed"), null while it does: a Safe Push of a branch landed the root in a piece (`landedBy`, as the app saw the
  * merge), or the stack branch is kept only for its remote branch (`members` empty: the stack no longer forks). The

@@ -46,7 +46,8 @@ const STEP_CHANGE_GUARD_MS = 700
  * "Safe Push" ("Safe Push · 3" for a stacked branch, which lands with the branches it is built on), the start of the
  * branch's next step (`getBranchNextStep`): a click starts at once when there is nothing to say, else opens the popover
  * at the slot (`requestSafePush`); the hover says what it lands. While a start runs, its step is the label: "Checking…",
- * "Pushing 45%" ("Pushing 2 branches 45%" for a stack), "Starting…". Disabled with the reason on hover as every surface
+ * "Pushing 45%" ("Pushing 2 branches 45%" for a stack; the stack branch of the whole stack "Pushing 45%"), "Starting…":
+ * the one indicator of its push. Disabled with the reason on hover as every surface
  * disables it. Inside the branch preview the preview closes first: the start is the row's. The second click of a
  * double click, and a click on the button that just took the place of another step under the pointer (a poll changed
  * the step), are ignored: they were meant for what was there before.
@@ -58,7 +59,8 @@ export function SafePushButton({ branch, variant = "ghost", shortcut, icon = tru
   const key = wholeStack === undefined ? branch.name : stackReadinessKey(wholeStack)
   const starting = useSafePushStarting(key)
   const stackPush = useStackPush(wholeStack === undefined ? branch.name : "")
-  const pushProgress = useBranchPushProgress(stackPush?.[0] ?? branch.name)
+  // the push of a branch's start reports its progress for each branch of it; the whole stack's under its key
+  const pushProgress = useBranchPushProgress(wholeStack === undefined ? (stackPush?.[0] ?? branch.name) : key)
   // until when a click is ignored: the button took the place of another step under a pointer that stayed (null: not mounted yet)
   const guardUntil = useRef<number | null>(null)
   const item = step?.item?.id === "safe-push" ? step.item : null
@@ -68,9 +70,7 @@ export function SafePushButton({ branch, variant = "ghost", shortcut, icon = tru
     starting === null
       ? (item?.label ?? "Safe Push")
       : starting.step === "pushing"
-        ? wholeStack === undefined
-          ? transferLabel(formatStackPushing(branch.name, stackPush), pushProgress)
-          : transferLabel("Pushing", null)
+        ? transferLabel(wholeStack === undefined ? formatStackPushing(branch.name, stackPush) : "Pushing", pushProgress)
         : starting.step === "checking"
           ? "Checking…"
           : "Starting…"

@@ -5,7 +5,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow, getStackChip } from "../helpers/branch-helpers"
 import { NO_REVIEW_NEEDED, availableRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
-import { pushOutcome, routeHeldPush, routePush, routePushBranches } from "../helpers/push-helpers"
+import { pushOutcome, routeHeldPush, routePush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
 import { DEFAULT_CHECKS_ONLY, closeRefusal, expectPopoverAtSlot, openSafePushWithKey, popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
@@ -238,7 +238,7 @@ test.describe("Stack island", () => {
   test("should land the whole stack in one Safe Push from the header, its popover at the header", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stack_island", { patronus: availableRobots() })
     await syncAndWaitForBranches()
-    const { stackPushes } = await routePushBranches(page, {})
+    const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("air"), 45)
     const { starts, air, headerSlot, popover } = await routeIslandStarts(page)
     const lands = "Lands 7 branches · 14 commits into master in one Safe Push: air, bazel, … side-fix and side-test"
 
@@ -257,8 +257,16 @@ test.describe("Stack island", () => {
     // no branch of the stack is on the remote: none to stay as it is there
     await expect(popover.getByTestId("safe-push-stack-branch")).toHaveText("Pushes only its stack branch user-name/stack/air.")
     await expect(air).toHaveAttribute("data-state", "closed")
-    // Enter: the stack branch alone is pushed, then the robot starts from it
+    // Enter: the stack branch alone is pushed, its progress in the button of the start, the one indicator: the header's
+    // push waits without it; then the robot starts from it
     await page.keyboard.press("Enter")
+    await expect(safePush).toHaveText("Pushing 45%")
+    await expect(safePush).toHaveAttribute("aria-busy", "true")
+    const push = air.getByTestId("stack-island-push")
+    await expect(push).toBeDisabled()
+    await expect(push).not.toHaveAttribute("aria-busy", "true")
+    expect(starts).toEqual([])
+    release()
     await expect.poll(() => starts.length).toBe(1)
     expect(starts[0]).toMatchObject({ branchName: "air", stack: true, mode: "rebaseAutosquash" })
     expect(stackPushes).toEqual([[expect.objectContaining({ branchName: "air", wholeStack: true, expectedRemote: null })]])

@@ -38,14 +38,32 @@ import { firstBranchOfEachState, getStackStateChips, summarizeStackState } from 
 import { joinNames } from "@/lib/text"
 import { transferLabel } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
-import { describeOrphanedStackPullRequest, formatStackBranchPushLine, formatWholeStackApprovals, stackReadinessKey } from "@/lib/whole-stack"
+import {
+  STACK_BRANCH_PUSHING,
+  describeOrphanedStackPullRequest,
+  formatStackBranchPushLine,
+  formatWholeStackApprovals,
+  formatWholeStackBranch,
+  stackReadinessKey,
+} from "@/lib/whole-stack"
 import type { StackBranch } from "@/stores/branch-sync"
-import { stackDescendantsIn, stackMainLineIn, useBranch, useBranchPushProgress, useBranchSync, useStackBranch, useStackPush } from "@/stores/branch-sync"
+import {
+  stackDescendantsIn,
+  stackMainLineIn,
+  useBranch,
+  useBranchPushProgress,
+  useBranchSync,
+  useIsStackBranchPushing,
+  useStackBranch,
+  useStackBranchPushProgress,
+  useStackPush,
+} from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { useStackLandedBy } from "@/stores/landed-stacks"
 import { useBranchRobot, usePushHold, useStackRobot } from "@/stores/patronus"
 import { useRepositoryPullRequestMap, useStackPullRequest } from "@/stores/pull-requests"
 import { getReadinessTarget } from "@/stores/review-readiness"
+import { useSafePushStarting } from "@/stores/safe-push"
 import { toggleStackCollapsed } from "@/stores/stack-collapse"
 
 interface IslandSummary {
@@ -365,20 +383,31 @@ function StateChip({ chip, branch }: { chip: StackStateChip; branch: string | un
  * Disabled, "↑" with the reason in its hover, while it would push nothing beyond the root
  * (`describePushWithChildrenBlocker`: the stack is on the remote, the root row's push is the push, the branches with work
  * ask first, or only the stack branch has work and doesn't go along) and while a Safe Push runs in the stack: a push
- * won't land.
+ * won't land. While a push runs, the spinner and the percent, its name ("Pushing 7 branches 45%"; "Pushing the whole
+ * stack 45%" for the stack branch alone) and the line of git on hover: the one indicator of the pushes of the stack; the
+ * start of the Safe Push of the whole stack shows its push in its own button, this one disabled meanwhile.
  */
 function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary }) {
   const stackPush = useStackPush(root)
   const current = stackPush === null ? null : stackPushSubject(root, stackPush)
+  // the push of the stack branch alone (a step of the restart of its robot, of Request Review…, of the creation of its
+  // pull request) shows here as the stack's pushes do; the Safe Push of the whole stack shows it in its own button, the
+  // step of its start: one indicator
+  const stackBranchPushing = useIsStackBranchPushing(root)
+  const startPushes = useSafePushStarting(stackReadinessKey(root))?.step === "pushing"
+  const alone = stackPush === null && stackBranchPushing && !startPushes
+  const busy = current !== null || alone
   // the one push of the stack reports its progress for each of its branches
-  const progress = useBranchPushProgress(stackPush?.[0] ?? root)
+  const branchProgress = useBranchPushProgress(stackPush?.[0] ?? root)
+  const stackBranchProgress = useStackBranchPushProgress(root)
+  const progress = alone ? stackBranchProgress : branchProgress
   const hold = usePushHold(root)
   const along = useStackBranchAlong(root)
   const stack = useStackBranch(root)
   const withStackBranch = along?.kind === "along" && stack !== undefined
   const { pushOrder, askFirst } = summary
   let blocker: string | null = null
-  if (current === null) {
+  if (!busy) {
     if (summary.rootHeld) {
       blocker = hold === null ? "A Safe Push runs in the stack" : formatPushHoldReason(root, hold)
     } else {
@@ -388,6 +417,8 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
   let label = "Push with Children"
   if (current !== null) {
     label = transferLabel(`Pushing ${current}`, progress)
+  } else if (alone) {
+    label = transferLabel(STACK_BRANCH_PUSHING, progress)
   } else if (blocker === null) {
     label = formatPushWithChildrenLabel(pushOrder, withStackBranch)
   }
@@ -402,11 +433,12 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
           <Button
             size="xs"
             variant="ghost"
-            className={cn("min-w-16 justify-start tabular-nums", ghostButtonColorClass(blocker === null ? "primary" : "neutral"), blocker !== null && "aria-disabled:opacity-50")}
-            disabled={current !== null || blocker !== null}
+            className={cn("min-w-16 justify-start tabular-nums", ghostButtonColorClass(blocker === null ? "primary" : "neutral"), !busy && "aria-disabled:opacity-50")}
+            // a push of the stack branch runs: Push with Children would take it along
+            disabled={busy || blocker !== null || stackBranchPushing}
             // the reason stays reachable on hover while the button is disabled
             focusableWhenDisabled
-            aria-busy={current !== null || undefined}
+            aria-busy={busy || undefined}
             aria-label={label}
             data-testid="stack-island-push"
             onClick={event => {
@@ -417,17 +449,17 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
           />
         }
       >
-        <CompactPushLabel isPushing={current !== null} percent={progress?.percent ?? null} count={blocker === null ? pushCommits : 0} />
+        <CompactPushLabel isPushing={busy} percent={progress?.percent ?? null} count={blocker === null ? pushCommits : 0} />
       </PopoverTrigger>
       <PopoverContent data-testid="stack-island-push-description" className="w-auto max-w-sm gap-2 p-3 text-sm leading-snug" onClick={event => event.stopPropagation()}>
-        {current !== null && <PushProgressDescription subject={current} progress={progress} />}
-        {current === null && blocker !== null && (
+        {busy && <PushProgressDescription subject={current ?? formatWholeStackBranch(root)} progress={progress} />}
+        {!busy && blocker !== null && (
           <>
             <div className="font-medium">{label}</div>
             <div className="break-words">{blocker}</div>
           </>
         )}
-        {current === null && blocker === null && (
+        {!busy && blocker === null && (
           <>
             <div className="font-medium">{label}</div>
             <StackPushLines order={pushOrder} stack={withStackBranch ? stack : null} />

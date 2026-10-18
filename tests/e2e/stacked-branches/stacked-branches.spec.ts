@@ -6,7 +6,7 @@ import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
-import { confirmForcePush, expectPushedToast, PUSH_TIME, pushedToast, pushOutcome, routePush, routePushBranches } from "../helpers/push-helpers"
+import { confirmForcePush, expectPushedToast, PUSH_TIME, pushedToast, pushOutcome, routeHeldPush, routePush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, openBranchPreview } from "../helpers/review-status-helpers"
 import {
   DEFAULT_CHECKS_ONLY,
@@ -765,7 +765,7 @@ test.describe("Stacked branches", () => {
     test("should land a small stack with its side branch from the root's menu, its popover at the root", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       // auth forks: login and oauth on one side, session on the other; one robot of its stack branch lands all four
       await setupStack(page, setupRepo, syncAndWaitForBranches)
-      const { stackPushes } = await routePushBranches(page, {})
+      const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("auth"), 45)
       const starts = await routeCommand(page, "start_patronus_robot", () => ({ status: "error", error: { message: "Patronus is restarting" } }))
       const popover = safePushPopover(page)
       const rootSlot = findBranchRow(page, "auth").getByTestId("next-step-slot")
@@ -776,9 +776,29 @@ test.describe("Stacked branches", () => {
 
       // the root's menu, "Whole Stack ›": its Safe Push says what it lands, its popover opens at the root's row
       await openWholeStack()
-      // Enter: only the stack branch is pushed, then the robot starts from it
-      await startWholeAuthStack(page, page.getByRole("menuitem", { name: "Safe Push Whole Stack" }), starts)
+      const item = page.getByRole("menuitem", { name: "Safe Push Whole Stack" })
+      await item.hover()
+      await expect(page.getByRole("tooltip")).toHaveText(WHOLE_AUTH_STACK)
+      await item.click()
+      await expectWholeAuthStackPopover(page)
+      // Enter: only the stack branch is pushed, its progress on the push of the root's row, where the pushes of a small
+      // stack show; then the robot starts from it
+      await page.keyboard.press("Enter")
+      const rootPush = findBranchRow(page, "auth").getByTestId("push-button")
+      await expect(rootPush).toHaveAccessibleName("Pushing the whole stack 45%")
+      await expect(rootPush).toHaveAttribute("aria-busy", "true")
+      await rootPush.hover()
+      await expect(page.getByTestId("push-description").getByTestId("push-progress")).toHaveText("Writing objects:  45% (2/4)")
+      await page.mouse.move(0, 0)
+      // no branch of the stack is pushed
+      await expect(findBranchRow(page, "login").getByTestId("push-button")).toBeVisible()
+      await expect(findBranchRow(page, "login").getByTestId("push-button")).not.toHaveAttribute("aria-busy", "true")
+      expect(starts).toEqual([])
+      release()
+      await expect.poll(() => starts.length).toBe(1)
+      expect(starts[0]).toMatchObject({ branchName: "auth", stack: true, mode: "rebaseAutosquash" })
       expect(stackPushes).toEqual([[expect.objectContaining({ branchName: "auth", wholeStack: true, expectedRemote: null })]])
+      await expect(rootPush).not.toHaveAttribute("aria-busy", "true")
       await expect(popover).toHaveCount(0)
       await closeRefusal(page)
 

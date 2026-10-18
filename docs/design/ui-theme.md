@@ -307,7 +307,7 @@ The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/
   is `data-status` (`data-status="upToDate"` on Update Project, `data-status="force"` on an outgoing row).
 - **One busy indicator per operation**: the control that started it shows the spinner and the progress (Update
   "Updating 42%" with its bar for all its steps, "Pushing 45%" on the Safe Push of the slot, the island header's push of
-  its stack), the header Sync every sync, also the one an applied update waits for as its last step; the other controls of it are disabled without one, and no text beside them repeats it ("Syncing…" next to
+  its stack, also of its stack branch alone, "Pushing the whole stack 45%"), the header Sync every sync, also the one an applied update waits for as its last step; the other controls of it are disabled without one, and no text beside them repeats it ("Syncing…" next to
   the spinning Sync). A row the operation works on shows its own part (the branch a stack push pushes now, a branch
   the sync rebuilds), never the whole of it again.
 - **`Spinner` has no fixed size**: inside a `Button` it is `data-icon="inline-start"` and the button sizes it, like any

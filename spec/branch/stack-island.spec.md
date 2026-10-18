@@ -119,13 +119,18 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   one atomic push of all of them ([Stacked Branches](stacked-branches.spec.md#pull-requests)): while it runs, the spinner
   and the percent, "Pushing 7 branches" its name and the line of git on hover, the one indicator of the stack push
   (also of Push with Children from the root's menu), and every row it pushes shows the same progress on its own push
-  button. It stays in its place, disabled ("↑", named "Push with Children") with the reason in its hover, while it
+  button. So does the push of the stack branch alone, a step of the restart of its robot, of Request Review… of its
+  pull request and of the creation of its pull request (`pushWholeStack`): "Pushing the whole stack 45%" its name, the
+  line of git on hover ("Pushing the whole stack branch of air…" until git reports), no row of a branch busy; the
+  start of the Safe Push of the whole stack shows its push in its own button instead ("Pushing 45%", below), the
+  header's push disabled meanwhile: one indicator. It stays in its place, disabled ("↑", named "Push with Children") with the reason in its hover, while it
   would push nothing beyond the root ("Nothing to push: the stack is on the remote" only while its stack branch has
   nothing to push either; "The branches of the stack are on the remote. Its stack branch goes there with the pull
   request or the Safe Push of the whole stack"; "Only air has commits to push: its own push sends them", the branches
   that ask first) and while a Safe Push runs in the stack (the reason of the hold, "A Safe Push of runtime is running:
   it lands air with it").
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header in one push, parents first`, `should take the whole stack branch along in the header's push once it is on the remote, and push it alone from the menu`, `should say what the stack holds in the header, each state a way to its first branch`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the push of the stack branch alone in the header's push when the restart of its robot pushes it`, `should show the push of the stack branch alone in the header's push when Request Review… of its pull request pushes it`)
 - The Safe Push slot is the Safe Push of the whole stack: one robot lands every branch of it, side branches included
   ([Whole Stack](whole-stack.spec.md#the-safe-push-of-the-whole-stack-in-the-app)). Of a stack that forks it is the
   next step of its stack branch (`WholeStackSlot`, [Next Step](next-step.spec.md#the-whole-stack)): "Safe Push · 7",
@@ -140,7 +145,7 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   stack stay as they are on the remote.") and, with its pull request open and its approvals needed, "Approvals count
   in #12, the pull request of the whole stack."; Enter pushes the stack branch alone
   (leased, `pushWholeStack`) and starts the robot from it (`stack: true`), the button busy meanwhile ("Checking…",
-  "Pushing", "Starting…"). S on the focused header opens the same popover. Disabled with the reason of the whole stack:
+  "Pushing 45%", "Starting…"), the one indicator of its push: the header's push waits, disabled, without it. S on the focused header opens the same popover. Disabled with the reason of the whole stack:
   its stack branch not built ("The stack branch conflicts at 0caf9066 in config.js: the stack lands in pieces"), a
   robot of a branch of it, its approvals missing in its own pull request. While its stack branch is not built, the stack
   lands in pieces: the "⋯" item "Safe Push deploy" (the last branch of the main line), the action of the notice of S

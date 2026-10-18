@@ -14,8 +14,9 @@ import { pushBranch, pushFromButton } from "@/lib/git/push"
 import { formatStackPushing, stackPushSubject } from "@/lib/stack"
 import { transferAmountNotInLine, transferLabel } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
+import { STACK_BRANCH_PUSHING, formatWholeStackBranch, stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranchPushProgress, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
+import { useBranchPushProgress, useIsBranchPushing, useIsStackBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
 import type { PushConfirmRequest, PushConfirmTarget } from "@/stores/push-confirm"
 import { clearPushConfirm, usePushConfirmRequest } from "@/stores/push-confirm"
@@ -37,8 +38,8 @@ export interface BranchPushButtonProps {
   /** The key that pushes where the button is (P on the focused row of the branch table), after the label of the description */
   shortcut?: string
   /**
-   * The row of an island root: a stack push started from it (Push with Children) shows in the island header, the
-   * button only the push of the branch itself
+   * The row of an island root: a stack push started from it (Push with Children) and a push of the stack branch of its
+   * whole stack show in the island header, the button only the push of the branch itself
    */
   stackPushInHeader?: boolean
 }
@@ -50,21 +51,25 @@ export interface BranchPushButtonProps {
  * stacked branch (the branch alone, or Push Stack), and the pull requests into a virtual branch it retargets to the
  * baseline first. A push that drops remote commits asks first: the click opens the description with a destructive
  * Force Push, which pushes. While the push runs, the label has its percent ("Pushing 45%", "Pushing 3 branches 45%" for
- * the one push of a stack, "Pushing login 45%" for a stack push of another branch) and the hover the last progress line
- * of git, with the amount and the rate when that line lacks them.
+ * the one push of a stack, "Pushing login 45%" for a stack push of another branch; on the root of a small stack
+ * "Pushing the whole stack 45%" for the push of the stack branch of its whole stack alone) and the hover the last
+ * progress line of git, with the amount and the rate when that line lacks them.
  */
 export function BranchPushButton({ branch, colored = true, hint, confirmTarget, compact = false, shortcut, stackPushInHeader = false }: BranchPushButtonProps) {
   // a stack push from this row shows what it pushes, unless the island header shows it
   const startedStackPush = useStackPush(branch.name)
   const stackPush = stackPushInHeader ? null : startedStackPush
-  const isPushing = useIsBranchPushing(branch.name) || stackPush !== null
+  const ownPush = useIsBranchPushing(branch.name) || stackPush !== null
+  // the push of the stack branch of the whole stack the branch heads, alone: where the pushes of a small stack show
+  const stackBranchPush = useIsStackBranchPushing(branch.name) && !stackPushInHeader && !ownPush
+  const isPushing = ownPush || stackBranchPush
   // a Safe Push pushes as the first step of its start: its button in the slot shows the push, this one is disabled
   // without it
   const starting = useSafePushStarting(branch.name)
   const formPushes = starting?.step === "pushing" && compact
   const showsPush = isPushing && !formPushes
-  // the one push of a stack reports its progress for each of its branches
-  const progress = useBranchPushProgress(stackPush?.[0] ?? branch.name)
+  // the one push of a stack reports its progress for each of its branches, the stack branch under its key
+  const progress = useBranchPushProgress(stackBranchPush ? stackReadinessKey(branch.name) : (stackPush?.[0] ?? branch.name))
   const processing = useIsRowProcessing(branch.name)
   const push = usePushButton(branch, isPushing)
   const request = usePushConfirmRequest(branch.name, confirmTarget)
@@ -82,7 +87,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
     }
   }
   const confirming = push.confirm && !isPushing && (clicked || request !== null)
-  const label = showsPush ? transferLabel(formatStackPushing(branch.name, stackPush), progress) : push.text
+  const label = showsPush ? transferLabel(stackBranchPush ? STACK_BRANCH_PUSHING : formatStackPushing(branch.name, stackPush), progress) : push.text
 
   const triggerRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -173,7 +178,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
         onClick={event => event.stopPropagation()}
       >
         {isPushing ? (
-          <PushProgressDescription subject={stackPushSubject(branch.name, stackPush)} progress={progress} />
+          <PushProgressDescription subject={stackBranchPush ? formatWholeStackBranch(branch.name) : stackPushSubject(branch.name, stackPush)} progress={progress} />
         ) : (
           <>
             {/* the compact button shows only the count: the description names the push */}

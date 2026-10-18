@@ -75,6 +75,9 @@ targets:
   - ../../crates/sync-core/src/robot_commits.rs
   - ../../crates/sync-core/src/branch_review.rs
   - ../../src-tauri/src/commands/pull_requests.rs
+  - ../../src/components/branch/BranchPushButton.tsx
+  - ../../src/components/branch/BranchActions.tsx
+  - ../../src/components/branch/CreatePullRequestDialog.tsx
 ---
 
 # Whole Stack
@@ -220,6 +223,16 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 - Its actions are the actions of a robot (`getRobotActions`): the restart works on the stack branch, and pushes it first
   while it has work its remote lacks (`pushWholeStack`, a running robot canceled first), only while the sync built it;
   cancel, the prompts, Patronus, its pull request.
+- A push of the stack branch alone (`pushWholeStack`: the restart, Request Review… of its pull request, the creation of
+  its pull request, the start of its Safe Push) must show where the pushes of the stack show, one indicator: the push of
+  the header of its island ([Stack Island](stack-island.spec.md#header)), else the push button of the root's row of a
+  small stack, "Pushing the whole stack 45%" with the line of git on hover, the branches of the stack not busy; the
+  start of its Safe Push in its own button where it has one (the island's header, "Pushing 45%"), the dialog of its pull
+  request in its Create button ("Pushing 45%"). One push of it at a time: a second waits for the first, and so does
+  Push with Children that takes it along.
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the push of the stack branch alone in the header's push when the restart of its robot pushes it`, `should show the push of the stack branch alone in the header's push when Request Review… of its pull request pushes it`, `should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a small stack with its side branch from the root's menu, its popover at the root`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
   [@test] ../../src/lib/patronus.test.ts (`restarts on its stack branch, pushed first while the stack branch has work the remote lacks`)
 - The prompt for an agent of its failure must name the stack branch and the commits of every branch of the stack, each
   with its branch, by identity (`stack_robot_commit_map`: no mapping notes), a commit of a member the stack branch

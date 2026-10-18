@@ -33,7 +33,7 @@ import { formatStackPushing } from "@/lib/stack"
 import { showToast } from "@/lib/toast-message"
 import { transferLabel } from "@/lib/transfer-progress"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranchPushProgress, useBranchSync, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
+import { useBranchPushProgress, useBranchSync, useIsBranchPushing, useIsStackBranchPushing, useStackBranchPushProgress, useStackPush } from "@/stores/branch-sync"
 import { closeCreatePullRequestDialog, useCreatePullRequestBranch, useCreatePullRequestGeneration, useCreatePullRequestWholeStack } from "@/stores/create-pull-request-dialog"
 import { setCreatePullRequestAssignSelf, useAppSettings } from "@/stores/settings/appSettings"
 
@@ -142,9 +142,16 @@ function MainCreatePullRequestForm({ branch, ...props }: FormProps & { branch: B
   return <MainForm context={context} safePushWithoutReview={() => getSafePushWithoutReviewItem(branch)?.onSelect()} pushLabel={usePushLabel(branch.name)} {...props} />
 }
 
+/** "Pushing 45%" while the push of the stack branch a creation of the whole stack's pull request starts with runs, else null */
+function useStackBranchPushLabel(root: string): string | null {
+  const pushing = useIsStackBranchPushing(root)
+  const progress = useStackBranchPushProgress(root)
+  return pushing ? transferLabel("Pushing", progress) : null
+}
+
 /** The form of the main window's dialog of the whole stack: its stack branch, no Safe Push without review */
 function MainStackPullRequestForm({ root, ...props }: FormProps & { root: string }) {
-  return <MainForm context={useStackPullRequestContext(root)} safePushWithoutReview={() => {}} pushLabel={null} {...props} />
+  return <MainForm context={useStackPullRequestContext(root)} safePushWithoutReview={() => {}} pushLabel={useStackBranchPushLabel(root)} {...props} />
 }
 
 function MainForm({

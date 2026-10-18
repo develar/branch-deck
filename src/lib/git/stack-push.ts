@@ -13,7 +13,7 @@ import { showRobotToast } from "@/lib/patronus-actions"
 import type { PushUpToStep } from "@/lib/push-up-to"
 import { stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
-import { formatWholeStack, formatWholeStackBranch, getStackBranchAlong, getStackBranchBlocker } from "@/lib/whole-stack"
+import { formatWholeStack, formatWholeStackBranch, getStackBranchAlong, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
 import { recordPush } from "@/stores/activity"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import {
@@ -25,6 +25,7 @@ import {
   isStackPushing,
   setBranchesPushProgress,
   setBranchPushing,
+  setBranchPushProgress,
   setBranchRemoteStatus,
   setStackBranchRemoteStatus,
   setStackPush,
@@ -196,14 +197,15 @@ function describeMovedStackBranch(status: RemoteStatus): string {
 }
 
 /**
- * The order once no sync runs and no push of one of its branches from another row: a stack push waits for them and goes
- * on the branches as they leave them
+ * The order once no sync runs and no push of one of its branches from another row, nor of the stack branch it takes
+ * along: a stack push waits for them and goes on the branches as they leave them
  */
 async function settledOrder(orderOf: () => StackPushOrder): Promise<StackPushOrder> {
   while (true) {
     await whenSynced()
     const order = orderOf()
-    const running = order.names.filter(name => isBranchPushing(name))
+    const names = order.wholeStack == null ? order.names : [...order.names, stackReadinessKey(order.wholeStack)]
+    const running = names.filter(name => isBranchPushing(name))
     if (running.length === 0) {
       return order
     }
@@ -249,8 +251,9 @@ function findBranches(names: readonly string[], report: PushReport): Branch[] | 
 
 /**
  * The one push of the branches (`push_branches`), each leased on the remote head its row shows, and the stack branch of
- * a whole stack after them (`stack`, leased on the remote head of its status), while their rows show its progress; their
- * remote statuses are updated from the result. The branch whose remote moved when nothing was pushed (`wholeStack`: its
+ * a whole stack after them (`stack`, leased on the remote head of its status), while their rows show its progress (the
+ * stack branch is pushing too, under its key: a push of it alone waits); their remote statuses are updated from the
+ * result. The branch whose remote moved when nothing was pushed (`wholeStack`: its
  * stack branch), with what its remote has now; null when they were pushed; undefined when the push failed (it said why).
  */
 async function sendTogether(
@@ -262,14 +265,15 @@ async function sendTogether(
   const names = branches.map(branch => branch.name)
   // what an error names: the branches, then the stack branch
   const subjects = stack === null ? names : [...names, formatWholeStackBranch(stack.root)]
-  for (const name of names) {
+  const pushing = stack === null ? names : [...names, stackReadinessKey(stack.root)]
+  for (const name of pushing) {
     setBranchPushing(name, true)
   }
   try {
     const request = vcsRequestFactory.createRequest()
     const progress = new Channel<TransferProgress>()
     progress.onmessage = pushProgress => {
-      setBranchesPushProgress(names, pushProgress)
+      setBranchesPushProgress(pushing, pushProgress)
     }
     const result = await commands.pushBranches(
       {
@@ -334,7 +338,7 @@ async function sendTogether(
     report(`Cannot push ${joinNames(subjects)}`, error)
     return undefined
   } finally {
-    for (const name of names) {
+    for (const name of pushing) {
       setBranchPushing(name, false)
     }
   }
@@ -360,15 +364,23 @@ export interface WholeStackPushOptions {
  * showed, as one more branch of `push_branches` (`wholeStack`): the head of the pull request of the whole stack, the
  * source of its robot. Only a stack branch the sync built (`getStackBranchBlocker`); never while its own Safe Push runs
  * (`getStackPushHold`), unless the push restarts that robot (`restartRobot`, canceled first, restarted on the pushed
- * commit) or a new start replaces it (`replacesRobot`, canceled first). A sync that runs is awaited first. A remote branch that moved is fetched, and the push goes again over it
- * once when it has no commit the stack branch lacks (`pushesOverMovedRemote`). The branches of the stack stay as they
- * are on the remote. No toast: the action it is a step of says it; Activity records the push. Resolves to whether it
- * was pushed.
+ * commit) or a new start replaces it (`replacesRobot`, canceled first). A sync that runs is awaited first, and so is a
+ * push of the stack branch that runs (another action's, or Push with Children that takes it along). A remote branch that
+ * moved is fetched, and the push goes again over it once when it has no commit the stack branch lacks
+ * (`pushesOverMovedRemote`). The branches of the stack stay as they are on the remote. While it runs, the stack branch
+ * is pushing under its key (`stackReadinessKey`), its progress where the pushes of the stack show: the island's header,
+ * the root's row of a small stack, the button of the start it is a step of. No toast: the action it is a step of says
+ * it; Activity records the push. Resolves to whether it was pushed.
  */
 export async function pushWholeStack(root: string, options: WholeStackPushOptions = {}): Promise<boolean> {
   const report = options.report ?? notifyError
   const subject = formatWholeStack(root)
+  const key = stackReadinessKey(root)
   await whenSynced()
+  while (isBranchPushing(key)) {
+    await whenBranchPushed(key)
+    await whenSynced()
+  }
   const hold = getStackPushHold(root)
   if (hold !== null) {
     if (hold.robot.id !== options.restartRobot?.id && hold.robot.id !== options.replacesRobot?.id) {
@@ -401,8 +413,9 @@ export async function pushWholeStack(root: string, options: WholeStackPushOption
 }
 
 /**
- * The one push of the stack branch, leased on the remote head of its status; its remote status is updated from the
- * result. What its remote has now when it moved, null when it was pushed, undefined when the push failed (it said why).
+ * The one push of the stack branch, leased on the remote head of its status, pushing under its key with its progress;
+ * its remote status is updated from the result. What its remote has now when it moved, null when it was pushed,
+ * undefined when the push failed (it said why).
  */
 async function sendStackBranch(root: string, report: PushReport): Promise<RemoteStatus | null | undefined> {
   const subject = formatWholeStack(root)
@@ -412,8 +425,14 @@ async function sendStackBranch(root: string, report: PushReport): Promise<Remote
     report(`Cannot push ${subject}`, blocker ?? "The stack has no stack branch")
     return undefined
   }
+  const key = stackReadinessKey(root)
   const request = vcsRequestFactory.createRequest()
+  setBranchPushing(key, true)
   try {
+    const progress = new Channel<TransferProgress>()
+    progress.onmessage = pushProgress => {
+      setBranchPushProgress(key, pushProgress)
+    }
     const result = await commands.pushBranches(
       {
         repositoryPath: request.repositoryPath,
@@ -422,7 +441,7 @@ async function sendStackBranch(root: string, report: PushReport): Promise<Remote
         baselineBranch: branchSyncStore.getState().baselineBranch!,
         branches: [{ branchName: root, wholeStack: true, expectedRemote: stack.remoteStatus?.remoteTip ?? null }],
       },
-      new Channel<TransferProgress>(),
+      progress,
     )
     if (result.status === "error") {
       report(`Cannot push ${subject}`, result.error)
@@ -441,5 +460,7 @@ async function sendStackBranch(root: string, report: PushReport): Promise<Remote
   } catch (error) {
     report(`Cannot push ${subject}`, error)
     return undefined
+  } finally {
+    setBranchPushing(key, false)
   }
 }

@@ -33,6 +33,7 @@ import type { StackLanes } from "@/lib/stack-lanes"
 import { layoutStack } from "@/lib/stack-lanes"
 import { showToast } from "@/lib/toast-message"
 import { addTiming } from "@/lib/update-progress"
+import { stackReadinessKey } from "@/lib/whole-stack"
 import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNames, updateFromIntegrationInfos } from "@/stores/archived-branches"
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
 import { getLoadingPromise, useSelectedProjectPath, vcsRequestFactory } from "@/stores/repository"
@@ -177,8 +178,9 @@ export interface BranchSyncState {
   branchOrder: string[]
   branches: Record<string, Branch>
   /**
-   * Branches with a push in flight; how far each is lives in `pushProgressStore`, so its ticks don't re-run the
-   * selectors of this store. Owned by push, never touched by sync: a sync rebuilds `branches` and must not reset a
+   * Branches with a push in flight, and the stack branch of the whole stack of a root under its key `stack:<root>`
+   * (`stackReadinessKey`, a name no branch has); how far each is lives in `pushProgressStore`, so its ticks don't re-run
+   * the selectors of this store. Owned by push, never touched by sync: a sync rebuilds `branches` and must not reset a
    * running push.
    */
   pushingBranches: Readonly<Record<string, true>>
@@ -691,6 +693,19 @@ export function useIsBranchPushing(name: string): boolean {
  */
 export function useStackPush(startedFrom: string): readonly string[] | null {
   return useStore(branchSyncStore, state => state.stackPushes[startedFrom] ?? null)
+}
+
+/**
+ * Whether the stack branch of the whole stack of `root` is being pushed: alone (`pushWholeStack`) or after the branches
+ * of a stack push that takes it along (`pushWithChildren`)
+ */
+export function useIsStackBranchPushing(root: string): boolean {
+  return useIsBranchPushing(stackReadinessKey(root))
+}
+
+/** How far the running push of the stack branch of the whole stack of `root` is (`useBranchPushProgress`) */
+export function useStackBranchPushProgress(root: string): TransferProgress | null {
+  return useBranchPushProgress(stackReadinessKey(root))
 }
 
 /** How far the running push of the branch is; null before git reports a stage and when no push runs */
