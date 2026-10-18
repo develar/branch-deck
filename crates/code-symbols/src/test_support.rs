@@ -191,11 +191,12 @@ fn constructor_text(summary: &FileSummary, constructor: &Constructor) -> String 
   format!("{reach}new{}", signature_text(summary, &constructor.signature))
 }
 
-/// ` overrides overridable`, either or nothing
+/// ` overrides overridable jvm_static`, without the words that don't hold
 fn modality_text(declaration: &Declaration) -> String {
   let overrides = if declaration.overrides { " overrides" } else { "" };
   let overridable = if declaration.overridable { " overridable" } else { "" };
-  format!("{overrides}{overridable}")
+  let jvm_static = if declaration.jvm_static { " jvm_static" } else { "" };
+  format!("{overrides}{overridable}{jvm_static}")
 }
 
 /// `List/Window?` of `[List, Window]` nullable, `int[]` of an array, `_` for any type
@@ -245,7 +246,7 @@ pub(crate) fn signatures(summary: &FileSummary, name: &str) -> Vec<String> {
   })
 }
 
-/// The declarations of a name as `container overrides overridable`, without the words that don't hold
+/// The declarations of a name as `container overrides overridable jvm_static`, without the words that don't hold
 pub(crate) fn modalities(summary: &FileSummary, name: &str) -> Vec<String> {
   of_name(summary, name, |declaration, container| format!("{container}{}", modality_text(declaration)))
 }

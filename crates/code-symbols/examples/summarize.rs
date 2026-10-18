@@ -165,6 +165,7 @@ fn resolved(path: &str, summary: &FileSummary) -> Value {
       })).collect::<Vec<_>>()),
       "overrides": it.overrides,
       "overridable": it.overridable,
+      "jvm_static": it.jvm_static,
       "supertypes": it.supertypes.iter().map(|it| path_of(it)).collect::<Vec<_>>(),
       "lines": format!("{}-{} (name {})", it.start_line, it.end_line, it.name_line),
       "in_error": it.in_error,

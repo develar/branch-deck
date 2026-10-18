@@ -19,7 +19,7 @@ internal class Circle(val radius: Double, private val label: String, scale: Int)
 
   companion object {
     const val UNIT = 1.0
-    fun unit(): Circle = Circle(UNIT, "unit", 1)
+    @JvmStatic fun unit(): Circle = Circle(UNIT, "unit", 1)
   }
 
   var counter: Int = 0

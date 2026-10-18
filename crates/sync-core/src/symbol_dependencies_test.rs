@@ -232,6 +232,145 @@ fn a_java_member_by_its_class_and_a_static_import_are_edges() {
   );
 }
 
+/// `a.Owner` with a nested object `holder` (`companion object`, `object Nested`) that declares `fun other()` and `members`
+fn owner(holder: &str, members: &str) -> String {
+  format!("package a\n\nclass Owner {{\n  {holder} {{\n    fun other() = 1\n{members}  }}\n}}\n")
+}
+
+/// A range whose first commit adds `members` to the object `holder` of `a.Owner` (`owner`)
+fn adding_to_owner(holder: &str, members: &str) -> Range {
+  let mut range = Range::default();
+  range
+    .baseline(&[("src/a/Owner.kt", &owner(holder, ""))])
+    .commit(&[("src/a/Owner.kt", Some(&owner(holder, members)))]);
+  range
+}
+
+const CREATE: &str = "    fun create(): Owner = Owner()\n";
+
+/// The edge of a commit to the first one by the qualified use of `name`
+fn qualified(from: usize, name: &str) -> Edge {
+  (from, 0, vec![link(name, Evidence::Qualified)])
+}
+
+/// A member of a companion without a name of its own is one of the class around it: `Owner.create()` with `Owner`
+/// imported or of the same package, `Owner.Companion.create()` and `a.Owner.create()`
+#[test]
+fn a_companion_member_through_its_owner_is_an_edge() {
+  let mut range = adding_to_owner("companion object", CREATE);
+  range
+    .commit(&[("src/b/Use.kt", Some("package b\n\nimport a.Owner\n\nfun use() = Owner.create()\n"))])
+    .commit(&[(
+      "src/a/Same.kt",
+      Some("package a\n\nfun same() = Owner.Companion.create()\n\nfun short() = Owner.create()\n"),
+    )])
+    .commit(&[("src/c/Full.kt", Some("package c\n\nfun full() = a.Owner.create()\n"))])
+    .commit(&[("src/d/Far.kt", Some("package d\n\nfun far() = Owner.create()\n"))]);
+  assert_eq!(
+    edges(&range.graph(&[], &[], &[])),
+    [qualified(1, "create"), qualified(2, "create"), qualified(3, "create"),],
+    "`Owner` of another package without an import is no evidence"
+  );
+}
+
+/// The summary doesn't tell a companion with a name of its own from a nested object: only its path names it
+#[test]
+fn a_named_companion_needs_its_name() {
+  let mut range = adding_to_owner("companion object Factory", CREATE);
+  range
+    .commit(&[("src/b/Use.kt", Some("package b\n\nimport a.Owner\n\nfun use() = Owner.Factory.create()\n"))])
+    .commit(&[("src/c/Nested.kt", Some("package c\n\nimport a.Owner.Factory\n\nfun nested() = Factory.create()\n"))])
+    .commit(&[("src/d/Short.kt", Some("package d\n\nimport a.Owner\n\nfun short() = Owner.create()\n"))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [qualified(1, "create"), qualified(2, "create")]);
+}
+
+/// Java has a member of a companion on the class around it only when it is `@JvmStatic` (or a `const val`), by
+/// `Owner.create()` and `import static a.Owner.create`; `Owner.Companion.plain()` always
+#[test]
+fn a_java_call_of_a_companion_member_needs_jvm_static() {
+  let members = "    @JvmStatic fun create(): Owner = Owner()\n    fun plain() = 2\n    const val LIMIT = 3\n";
+  let mut range = adding_to_owner("companion object", members);
+  range
+    .commit(&[(
+      "src/b/Use.java",
+      Some("package b;\n\nimport a.Owner;\n\nclass Use {\n  Object use() { return Owner.create(); }\n  int limit() { return Owner.LIMIT; }\n}\n"),
+    )])
+    .commit(&[(
+      "src/b/Static.java",
+      Some("package b;\n\nimport static a.Owner.create;\n\nclass Static {\n  Object use() { return create(); }\n}\n"),
+    )])
+    .commit(&[(
+      "src/b/Plain.java",
+      Some("package b;\n\nimport a.Owner;\n\nclass Plain {\n  int use() { return Owner.plain(); }\n}\n"),
+    )])
+    .commit(&[(
+      "src/b/Companion.java",
+      Some("package b;\n\nimport a.Owner;\n\nclass Companion {\n  int use() { return Owner.Companion.plain(); }\n}\n"),
+    )]);
+  assert_eq!(
+    edges(&range.graph(&[], &[], &[])),
+    [
+      (1, 0, vec![link("LIMIT", Evidence::Qualified), link("create", Evidence::Qualified)]),
+      (2, 0, vec![link("create", Evidence::Import)]),
+      qualified(4, "plain"),
+    ],
+    "`Owner.plain()` of a member without `@JvmStatic` is no use of it"
+  );
+}
+
+/// `@JvmStatic` is a form of the member (decision 10): a Java call by the class around the companion needs the commit
+/// that adds it, a Kotlin one the commit that adds the member
+#[test]
+fn a_jvm_static_added_later_is_an_edge_for_a_java_call_through_the_owner() {
+  let mut range = adding_to_owner("companion object", CREATE);
+  range
+    .commit(&[("src/a/Owner.kt", Some(&owner("companion object", "    @JvmStatic fun create(): Owner = Owner()\n")))])
+    .commit(&[(
+      "src/b/Use.java",
+      Some("package b;\n\nimport a.Owner;\n\nclass Use {\n  Object use() { return Owner.create(); }\n}\n"),
+    )])
+    .commit(&[("src/b/Use.kt", Some("package b\n\nimport a.Owner\n\nfun use() = Owner.create()\n"))]);
+  assert_eq!(
+    edges(&range.graph(&[], &[], &[])),
+    [(2, 1, vec![link("create", Evidence::Qualified)]), qualified(3, "create")]
+  );
+}
+
+/// Java calls a member of a Kotlin object through its `INSTANCE`; a companion has none
+#[test]
+fn a_java_call_through_instance_is_an_edge() {
+  let mut range = Range::default();
+  range
+    .baseline(&[
+      ("src/a/Registry.kt", "package a\n\nobject Registry {\n  fun other() = 1\n}\n"),
+      ("src/a/Owner.kt", &owner("companion object", "")),
+    ])
+    .commit(&[
+      ("src/a/Registry.kt", Some("package a\n\nobject Registry {\n  fun other() = 1\n  fun register() = 2\n}\n")),
+      ("src/a/Owner.kt", Some(&owner("companion object", "    fun register() = 2\n"))),
+    ])
+    .commit(&[(
+      "src/b/Use.java",
+      Some("package b;\n\nimport a.Registry;\n\nclass Use {\n  int use() { return Registry.INSTANCE.register(); }\n}\n"),
+    )])
+    .commit(&[(
+      "src/b/Owned.java",
+      Some("package b;\n\nimport a.Owner;\n\nclass Owned {\n  int use() { return Owner.INSTANCE.register(); }\n}\n"),
+    )]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [qualified(1, "register")]);
+}
+
+/// A nested object isn't a companion: `Owner.Nested.create()` is its member, `Owner.create()` none
+#[test]
+fn a_member_of_a_nested_object_through_the_owner_is_no_edge() {
+  let mut range = adding_to_owner("object Nested", "    fun create() = 2\n");
+  range
+    .commit(&[("src/b/Use.kt", Some("package b\n\nimport a.Owner\n\nfun use() = Owner.Nested.create()\n"))])
+    .commit(&[("src/c/Short.kt", Some("package c\n\nimport a.Owner\n\nfun short() = Owner.create()\n"))])
+    .commit(&[("src/a/Same.kt", Some("package a\n\nfun same() = Nested.create()\n"))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [qualified(1, "create")], "a nested type is no name of its package");
+}
+
 #[test]
 fn a_rust_use_of_a_crate_path_and_a_path_of_another_crate_are_edges() {
   let mut range = Range::default();

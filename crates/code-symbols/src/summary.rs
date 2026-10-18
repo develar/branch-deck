@@ -63,6 +63,7 @@ pub enum ImportTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[expect(clippy::struct_excessive_bools, reason = "independent facts of a declaration")]
 pub struct Declaration {
   pub name: u32,
   pub kind: DeclKind,
@@ -84,6 +85,9 @@ pub struct Declaration {
   /// `final`, `private` or `static`, of a class that is not `final` (nor a record), of an enum or of an interface.
   /// Locals are never.
   pub overridable: bool,
+  /// A Kotlin function or property annotated `@JvmStatic` (or `@kotlin.jvm.JvmStatic`): Java calls a member of a
+  /// companion by the class around it too (`Owner.create()`). Never in Java
+  pub jvm_static: bool,
   /// The direct supertypes of a Kotlin or Java type, as written without type arguments: `[a, Base]` of
   /// `: a.Base<T>()`, `extends a.Base<T>`; a Kotlin function type, which has no path, is an empty one
   pub supertypes: Vec<Vec<u32>>,

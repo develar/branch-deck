@@ -85,13 +85,25 @@ flowchart TD
    the file see it (`private_scope`): in Java the whole top-level class, nested classes included, for a qualified use
    (`Inner.helper()`), but its own type for a bare name, `this.name` or `super.name`, which outside it mean a member of
    the class around it, an inherited one or a static import; in Kotlin its own type, and the class around a companion
-   for the companion's (`private const val TAG`).
+   for the companion's (`private const val TAG`). A static member is named by the path of its type (`static_paths`):
+   in full (`a.b.Owner.create()`), or from its head, which an import binds (an alias, a nested type:
+   `import a.b.Owner.Factory` and `Factory.create()`) or, without an import of its name, the same package does when the
+   file declares nothing of it. A member of a Kotlin companion without a name of its own is a member of the class
+   around it too (`Owner.create()` beside `Owner.Companion.create()`), from Java only a `@JvmStatic` function or a
+   `const val` (`Owner.create()`, `import static a.b.Owner.create`), and Java calls a function of a Kotlin object
+   through its `INSTANCE` (`Registry.INSTANCE.register()`). A companion with a name of its own is named only by its
+   path (`Owner.Factory.create()` of a `companion object Factory`).
    **Rationale**: a Kotlin call without a qualifier may mean an implicit receiver's member, an extension or a function
-   of the package; only a compiler knows. A call of an extension on a value means a member of the value's type first,
-   since a member always wins over an extension, and only a compiler knows that type: the summary drops locals and
-   has no types of expressions. A bare name or `this` keeps the evidence of the file, as for every declaration of it
-   (`with(scope) { openGlobalPrompt() }`, another extension of the receiver). A wrong hard edge costs more than a
-   missed one, which the trial build and `--build` still catch.
+   of the package; only a compiler knows. The JVM has the members of a companion as instance methods of its class, and
+   on the class around it only a `@JvmStatic` method or a `const` (or `@JvmField`, which the summary doesn't read)
+   field, so Java's `Owner.plain()` of any other doesn't compile. The summary doesn't tell a companion with a name of
+   its own from a nested object (decision 10), whose members the class around it doesn't have, and a nested type is no
+   name of its package: `Nested.create()` in another file of it means a type the file imports or, in Java, inherits. A
+   call of an extension on a value means a member of the value's type first, since a member always wins over an
+   extension, and only a compiler knows that type: the summary drops locals and has no types of expressions. A bare name
+   or `this` keeps the evidence of the file, as for every declaration of it (`with(scope) { openGlobalPrompt() }`,
+   another extension of the receiver). A wrong hard edge costs more than a missed one, which the trial build and
+   `--build` still catch.
 
 4. **Decision**: the dangling-reference check subtracts by the tree and adds nothing.
    **Rationale**: its recall comes from matching names in any position (a Kotlin extension call, a Java accessor); the
@@ -238,43 +250,44 @@ flowchart TD
    a top-level function of the package in another file for a bare name, or a function of the default imports that the
    list leaves out, so such a call links to a new overload it doesn't need.
 
-10. **Decision**: the form of an entry is the names of its parameters, their defaults and varargs, its reach and
-    whether a subtype may override it (`same_form`); a commit that keeps the identity of an entry and changes its form
-    makes a step of it, with the old form as its predecessor. An older form is judged by the attributes of its form as
-    they were and by the rest as the entry is now (`older_form`): whether it is static and whether it overrides; an
-    older form whose type had supertypes then and has none now, or the other way round, accepts. It is never stricter
-    than the compiler (`Site.older`): a private one reaches the class around a nested Kotlin object or class, and in
-    Java the whole top-level class for a bare name too; an `internal` one reaches a file whose module no build file
-    tells. An older form judges a use only where nothing the range doesn't show may take it instead: a call that its
-    arguments judge (decision 9), an override, an import of a member of a type without a supertype but `Any` or
-    `Object`, which links only when all its entries need one commit, and a use of a value or a type; any other use of
-    a function needs only the key. Top-level functions and properties have no forms.
+10. **Decision**: the form of an entry is the names of its parameters, their defaults and varargs, its reach, whether a
+    subtype may override it and whether it is `@JvmStatic` (`same_form`); a commit that keeps the identity of an entry
+    and changes its form makes a step of it, with the old form as its predecessor. An older form is judged by the
+    attributes of its form as they were and by the rest as the entry is now (`older_form`): whether it is static and
+    whether it overrides; an older form whose type had supertypes then and has none now, or the other way round,
+    accepts. It is never stricter than the compiler (`Site.older`): a private one reaches the class around a nested
+    Kotlin object or class, and in Java the whole top-level class for a bare name too; an `internal` one reaches a file
+    whose module no build file tells. An older form judges a use only where nothing the range doesn't show may take it
+    instead: a call that its arguments judge (decision 9), an override, an import of a member of a type without a
+    supertype but `Any` or `Object`, which links only when all its entries need one commit, and a use of a value or a
+    type; any other use of a function needs only the key. Top-level functions and properties have no forms.
     **Rationale**: a changed form is an addition for the uses that didn't compile before, as the incremental builds of
     IntelliJ count it (`KotlinMeta` of the JPS dependency graph lists visibility, modality, parameter names and defaults
     among what changes the API of a source): `private fun helper()` made `@VisibleForTesting internal` for a test of
     another file, `fun` made `open` for an override, a default for a call that leaves the argument out, a Java array
-    made a vararg for a call that passes the elements, a renamed parameter for a call by its new name; the other uses
-    compile with the older form and need no commit. An older form's rejection is what makes the edge, so it must follow
-    the compiler or be more generous. The summary doesn't tell a companion with a name of its own from a nested object
-    or class, whose private members the class around doesn't see: the current form of such a member is of its own type
-    (decision 3), but an older form reaches the class around it too. A Java older form reaches the whole top-level class
-    for a bare name too, which the current form reaches only by a qualifier, and an `internal` older form a file whose
-    module `module_roots` doesn't know, as the compiler may see one module. The form leaves out what rejects a use that
+    made a vararg for a call that passes the elements, a renamed parameter for a call by its new name, `@JvmStatic` for
+    a Java call of a member of a companion by the class around it (`Owner.create()`); the other uses compile with the
+    older form and need no commit. An older form's rejection is what makes the edge, so it must follow the compiler or
+    be more generous. The summary doesn't tell a companion with a name of its own from a nested object or class, whose
+    private members the class around doesn't see: the current form of such a member is of its own type (decision 3), but
+    an older form reaches the class around it too. A Java older form reaches the whole top-level class for a bare name
+    too, which the current form reaches only by a qualifier, and an `internal` older form a file whose module
+    `module_roots` doesn't know, as the compiler may see one module. The form leaves out what rejects a use that
     compiles all the same: `Outer.Inner` names an inner class as a type, which no qualified use of an instance member
-    resolves, so an inner class made a public nested one is judged by its reach, and an override of an override
-    compiles without the member; an override judges a member by the supertypes of its type, and a Java method may
-    override without `@Override`. A use of a function that its arguments don't judge (a call of a type with a
-    supertype, of a name of `Any`, or of a bare name an import brings in that its file may take first, an import of a
-    member of a type with a supertype) may mean an overload the range doesn't show while the member of its name is
-    private (`Base.helper(id: Any)` takes `Panes.helper("x")`), so only the key decides it. An import of a member of a
-    type without one names all its overloads, the entries, and compiles only when one of them is visible (JLS 7.5.3 for
+    resolves, so an inner class made a public nested one is judged by its reach, and an override of an override compiles
+    without the member; an override judges a member by the supertypes of its type, and a Java method may override
+    without `@Override`. A use of a function that its arguments don't judge (a call of a type with a supertype, of a
+    name of `Any`, or of a bare name an import brings in that its file may take first, an import of a member of a type
+    with a supertype) may mean an overload the range doesn't show while the member of its name is private
+    (`Base.helper(id: Any)` takes `Panes.helper("x")`), so only the key decides it. An import of a member of a type
+    without one names all its overloads, the entries, and compiles only when one of them is visible (JLS 7.5.3 for
     `import static`; Kotlin rejects an import of a private member of an object). A value or a type hides the
     declarations of its name in the supertypes, so the step decides its use. What the range doesn't show stays a limit
     here too: an extension `fun Panes.helper(id: String)` or `val Panes.size` of another file takes the use while the
-    member is private (Kotlin prefers an extension it can see to a member it can't), so the use links to the commit
-    that widens the member. Other files of the package may declare overloads of a top-level function, or a private
-    property of its name (a private one is of its file), that the range doesn't show, so a changed form of one is no
-    addition of its key.
+    member is private (Kotlin prefers an extension it can see to a member it can't), so the use links to the commit that
+    widens the member. Other files of the package may declare overloads of a top-level function, or a private property
+    of its name (a private one is of its file), that the range doesn't show, so a changed form of one is no addition of
+    its key.
 
 11. **Decision**: the key of a JVM type holds the type itself and an entry per constructor, the implicit `()` included
     (`with_constructors`). A call of the type, a Kotlin constructor invocation of a supertype and Java's `new` included,
@@ -327,13 +340,13 @@ flowchart TD
 ### Implementation Notes
 
 - `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules and the grammars' node types);
-  `Spec::jvm` of Kotlin and Java (`JvmHooks`, the `JvmFields` of a declaration): the signatures, `overrides` and
-  `overridable`, the supertypes, and the `Role::Override` references with their `Shape::Override`, and the
-  constructors of a class (`JvmHooks::constructors` of its header, `Walk::add_constructor` of its body, the implicit
-  `()` by `JvmHooks::implicit_constructor` when the walk is done); `Spec::call_shape` of Kotlin and Java: the
-  arguments of a call, for the `Shape::Call` on the reference of its callee, `enclosed` by the depth of the stack of
-  supertypes (`Walk::enclosed`), and of a `new` and a Kotlin constructor invocation of a supertype on the type
-  (`Walk::give_call`, before an object expression or an anonymous class pushes its supertypes).
+  `Spec::jvm` of Kotlin and Java (`JvmHooks`, the `JvmFields` of a declaration): the signatures, `overrides`,
+  `overridable` and `jvm_static`, the supertypes, and the `Role::Override` references with their `Shape::Override`, and
+  the constructors of a class (`JvmHooks::constructors` of its header, `Walk::add_constructor` of its body, the implicit
+  `()` by `JvmHooks::implicit_constructor` when the walk is done); `Spec::call_shape` of Kotlin and Java: the arguments
+  of a call, for the `Shape::Call` on the reference of its callee, `enclosed` by the depth of the stack of supertypes
+  (`Walk::enclosed`), and of a `new` and a Kotlin constructor invocation of a supertype on the type (`Walk::give_call`,
+  before an object expression or an anonymous class pushes its supertypes).
 - `crates/sync-core/src/symbol_scan.rs`: the mode (`branchdeck.symbols`), the summaries through the cache, the crate
   names and the TypeScript aliases.
 - `crates/sync-core/src/module_roots.rs`: the nearest directory with a build file (Kotlin `internal`, Rust crates,
@@ -349,10 +362,10 @@ flowchart TD
   import by `Evidence::StarImport`), the functions of the name of a type beside it (`KeyState::present`, which stand in
   for the type in a call the use sees, `sees_function`), the overrides (`resolve_override`, `override_fits`,
   `has_supertypes`, `scope_may_shadow`), the calls (`all_entries`, `calls_tell_apart`, `accepts_call`, `fits_literal`,
-  `inherits_unseen`, `import_decides`), the same-file rule (`names_another_type`, `on_unknown_receiver`,
-  `private_scope`, and `of_baseline` with `means_its_type` for a key of the baseline; `receivers` and
-  `imports_of_function` with `is_default_function` for both), the removals that need the removal of the uses, the
-  entities each commit changes.
+  `inherits_unseen`, `import_decides`), the paths of a static member (`static_paths`), the same-file rule
+  (`names_another_type`, `on_unknown_receiver`, `private_scope`, and `of_baseline` with `means_its_type` for a key of
+  the baseline; `receivers` and `imports_of_function` with `is_default_function` for both), the removals that need the
+  removal of the uses, the entities each commit changes.
 - `crates/sync-core/src/dangling_references.rs`: `SyntaxMemo` and the subtraction; the name of an `override` member
   is no use (`on_syntax`).
 - `crates/sync-core/src/dependencies.rs`: `with_symbols` merges the edges into the line dependencies (`Dependency::lines`,
@@ -515,10 +528,25 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     `bd suggest` are byte for byte those of the constructors, `--brief` differs only in the two edges; the five repro
     cases make one edge by symbols each; on the real pair `bd check` names the same `getButtonManager`, and on the
     clone `bd commits`, `--brief`, `bd check` and `bd suggest` are byte for byte the baseline's.
-- Round 4, 2026-10-18, the checks of a branch's tree (see Alternatives Considered): a throwaway tree-sitter scan of
-  both sides of 1411 Kotlin and Java file changes on `86be3572..7dfac19d` and 188 on the real pair found 0 overrides
-  and 0 `when` branches outside the commit of their member or entry, and no `is` branch of the 23 new sealed
-  subtypes is outside its commit either.
+- Round 4, 2026-10-18, one bullet per step, each step's release build against the build before it:
+  - The checks of a branch's tree (see Alternatives Considered): a throwaway tree-sitter scan of both sides of 1411
+    Kotlin and Java file changes on `86be3572..7dfac19d` and 188 on the real pair found 0 overrides and 0 `when`
+    branches outside the commit of their member or entry, and no `is` branch of the 23 new sealed subtypes is outside
+    its commit either.
+  - The members of a companion through the class around it, Java's `INSTANCE` and `@JvmStatic` (decision 3,
+    `static_paths`): the IntelliJ range 86be3572..7dfac19d has 3647 links by (from, to, name, file of the use), 15 new
+    and none lost; the edges are the same, 1151 (737 by symbols, 291 symbols only). Each new link was read at its use
+    and its declaration, and each is right: a Kotlin call of a member of a companion through its class, imported or of
+    the same package, which the commit adds: `getInstance` 8 (`AgentHostSettingsApi` on 34a34ec6,
+    `AirAcpControlService` on 40744a15, `AirUiTraceAttachmentQueue` on 0a763208), `file` 2 (`AcpControlLaunchFile`,
+    `AirLaneServicesFile`), the `const val WHEEL_INTERVAL_MS`, and `AirComposerAcpLaunch.complete` 4, whose commit
+    1c4c867a moves the class to the package the uses import. Each is in an edge the import of its class already
+    makes, so `bd commits --brief`, `bd check` and `bd suggest` are byte for byte those of the build before. The range
+    adds no Java use of a companion or an `INSTANCE`. The five repro cases make one edge by symbols each; on the real
+    pair `bd check` names the same `getButtonManager`, byte for byte. At a load average of 35–43, with the object
+    cache off on that machine (no System V semaphore set was left, a leak a023d008 fixes), so both builds parse all
+    2573 blobs, the minimum of 4 interleaved runs is 317 ms read, 612 ms parse, 1372 ms graph, against 156, 597 and
+    1990: within the noise.
 
 ### The gate
 

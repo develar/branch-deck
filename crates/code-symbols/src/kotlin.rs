@@ -535,7 +535,7 @@ fn object_literal<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   true
 }
 
-/// `override`, `open`, `abstract` and `final` of a function or a property, and its extension receiver
+/// `override`, `open`, `abstract`, `final` and `@JvmStatic` of a function or a property, and its extension receiver
 fn overrides<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Modality {
   let modifiers = modifier_texts(w, node);
   let has = |modifier: &str| modifiers.contains(&modifier);
@@ -548,8 +548,25 @@ fn overrides<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Modality {
   Modality {
     overrides,
     overridable: member && open && !has("private"),
+    jvm_static: annotated(w, node, &["JvmStatic"]),
     receiver,
   }
+}
+
+/// Whether an annotation among the modifiers of `node` names `path` (by its last name, or with `kotlin.jvm`)
+fn annotated(w: &Walk<'_>, node: Node<'_>, path: &[&str]) -> bool {
+  let Some(modifiers) = w.child(node, Child::Kind(&["modifiers"])) else {
+    return false;
+  };
+  let mut cursor = modifiers.walk();
+  modifiers
+    .named_children(&mut cursor)
+    .filter(|it| w.is(*it, "annotation"))
+    .filter_map(|it| w.child(it, Child::Kind(&["user_type"])))
+    .any(|it| {
+      let names = segments(w, it);
+      names == path || names.strip_prefix(["kotlin", "jvm"].as_slice()) == Some(path)
+    })
 }
 
 /// The parameters of `function_value_parameters`: a `parameter_modifiers` (`vararg`) before its parameter, `= value`

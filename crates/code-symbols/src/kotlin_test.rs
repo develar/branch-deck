@@ -208,6 +208,27 @@ fn a_member_knows_whether_it_overrides_and_can_be_overridden() {
 }
 
 #[test]
+fn a_member_knows_whether_it_is_jvm_static() {
+  let source = b"class Owner {
+  companion object {
+    @JvmStatic fun create(): Owner = Owner()
+    @kotlin.jvm.JvmStatic
+    internal fun make() = 1
+    @Suppress(\"x\") @JvmStatic val size = 1
+    fun plain() = 2
+    @JvmName(\"other\") fun renamed() = 3
+  }
+}
+";
+  let summary = summarize(Language::Kotlin, source);
+  assert_eq!(modalities(&summary, "create"), ["Companion jvm_static"]);
+  assert_eq!(modalities(&summary, "make"), ["Companion jvm_static"], "by its full name, on the line above");
+  assert_eq!(modalities(&summary, "size"), ["Companion jvm_static"], "a property, after another annotation");
+  assert_eq!(modalities(&summary, "plain"), ["Companion"]);
+  assert_eq!(modalities(&summary, "renamed"), ["Companion"], "another annotation");
+}
+
+#[test]
 fn an_override_in_a_lambda_gets_no_supertype() {
   // the grammar reads a one-line object expression as a call of the literal with a trailing lambda: its override is
   // no member of the class around it

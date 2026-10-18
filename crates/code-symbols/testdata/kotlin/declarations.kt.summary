@@ -12,7 +12,7 @@ Type Inner in Circle Public Instance 17-17 @17 new()
 Type Nested in Circle Public Static 18-18 @18 new()
 Type Companion in Circle Public Static 20-23 @20
 Constant UNIT in Companion Public Static 21-21 @21
-Function unit in Companion Public Static 22-22 @22 ()
+Function unit in Companion Public Static 22-22 @22 () jvm_static
 Value counter in Circle Public Instance 25-29 @25
 Type Registry in - Public TopLevel 32-32 @32 : Shape
 Type Shapes2 in - Public TopLevel 34-36 @34 : Shape
@@ -44,7 +44,7 @@ Function platformName in - Public TopLevel 64-64 @64 ()
 @11 :Double Math Math.PI ~Shape.area radius
 @13 :String ~Shape.describe() label
 @15 Unit
-@22 Circle(_,Text,Number) :Circle UNIT
+@22 Circle(_,Text,Number) :Circle :JvmStatic UNIT
 @25 :Int
 @32 Circle(_,Text,Number) :Shape
 @34 :Shape

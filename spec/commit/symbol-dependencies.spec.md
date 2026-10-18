@@ -55,14 +55,15 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   [@test] ../../crates/code-symbols/src/rust_test.rs (`a_rust_use_binds_the_name`)
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_word_in_kdoc_is_no_reference`, `a_local_val_shadows_and_is_no_reference`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
-- The summary of a Kotlin or Java file must hold the parameter types of each function (the last names of each type,
-  `?`, a default value, `vararg`, the dimensions of an array with a vararg counted as one; a type parameter as any
-  type), whether a member overrides and whether a subtype may override it, and the direct supertypes of each type
-  without type arguments, a Kotlin function type as an empty path. An `override` or `@Override` member must be one
-  `Override` reference per direct supertype of the class around it (an object expression, an anonymous class and the
-  body of an enum entry included), qualified by the path of the supertype, with its kind, receiver and parameter types
-  as its shape; an override in a lambda (a one-line object expression the grammar reads as a call) must have none.
-  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`an_override_is_a_reference_per_supertype`, `a_signature_has_the_parameter_types`, `a_member_knows_whether_it_overrides_and_can_be_overridden`, `an_override_in_a_lambda_gets_no_supertype`)
+- The summary of a Kotlin or Java file must hold the parameter types of each function (the last names of each type, `?`,
+  a default value, `vararg`, the dimensions of an array with a vararg counted as one; a type parameter as any type),
+  whether a member overrides, whether a subtype may override it and whether a Kotlin member is `@JvmStatic`, and the
+  direct supertypes of each type without type arguments, a Kotlin function type as an empty path. An `override` or
+  `@Override` member must be one `Override` reference per direct supertype of the class around it (an object expression,
+  an anonymous class and the body of an enum entry included), qualified by the path of the supertype, with its kind,
+  receiver and parameter types as its shape; an override in a lambda (a one-line object expression the grammar reads as
+  a call) must have none.
+  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`an_override_is_a_reference_per_supertype`, `a_signature_has_the_parameter_types`, `a_member_knows_whether_it_overrides_and_can_be_overridden`, `a_member_knows_whether_it_is_jvm_static`, `an_override_in_a_lambda_gets_no_supertype`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`an_override_is_a_reference_per_supertype`, `a_signature_has_the_parameter_types`, `a_member_knows_whether_it_overrides_and_can_be_overridden`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 - The summary of a Kotlin or Java call (not an infix call), Java's `new` and a Kotlin constructor invocation of a
@@ -120,6 +121,15 @@ Dependencies](../../docs/design/symbol-dependencies.md).
 - A call of a function of the same package without an import must be no edge, nor a type of the same package in
   another module.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`the_same_package_is_evidence_for_a_type_in_the_same_module_only`)
+- A static member must be used by the path of its type: in full, or from its head, which an import binds (an alias, a
+  nested type: `import a.Owner.Factory` and `Factory.create()`) or, without an import of its name, the same package
+  does when the file declares nothing of that name; a nested type is no name of its package. A member of a Kotlin
+  companion without a name of its own must be used through the class around it too (`Owner.create()`,
+  `Owner.Companion.create()`), from Java only a `@JvmStatic` function or a `const val` (`Owner.create()`,
+  `import static a.Owner.create`), and Java's `Registry.INSTANCE.register()` must be a use of a function of the Kotlin
+  object `Registry`. A companion with a name of its own, which the summary doesn't tell from a nested object, must be
+  used only by its path (`Owner.Factory.create()`), and a member of a nested object never through the class around it.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_companion_member_through_its_owner_is_an_edge`, `a_named_companion_needs_its_name`, `a_java_call_of_a_companion_member_needs_jvm_static`, `a_java_call_through_instance_is_an_edge`, `a_member_of_a_nested_object_through_the_owner_is_no_edge`)
 - In the same file, a name that a type other than the containers or the receiver of the file's declaration qualifies
   (`Registry.register(id)` beside a `register` of `Plugin`, Rust `Registry::create()` in the `create` of another `impl`)
   must be no use of that declaration. A type is a name with a capital, unless the file declares a value of that name
@@ -194,32 +204,32 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   that is a known limit, no check rules it out.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_call_of_a_new_overload_that_the_arguments_select_is_an_edge`, `a_call_of_the_old_overload_is_no_edge`, `a_call_the_arguments_cannot_tell_apart_is_no_edge`, `overloads_of_two_commits_and_an_unknown_argument_are_no_edge`, `java_widening_accepts_a_number_for_a_double`, `an_overload_of_a_type_with_supertypes_is_no_edge_for_calls`, `a_call_of_a_name_every_class_has_is_no_edge`, `new_names_keep_their_edges_with_named_arguments_lambda_vararg_and_spread`, `a_bare_name_of_an_import_that_its_file_may_take_first_is_no_edge`, `a_call_needs_the_commit_that_added_the_key_of_its_name`, `the_cases_of_the_report`)
 - A commit that keeps the identity of an entry and changes its form (the names of its parameters, a default value, a
-  vararg, its reach, or whether a subtype may override it) must make a new step of the entry, with the commit for its
-  origin and the old form for its predecessor; a change of its body alone must keep its origin. Each older form must
-  be judged by the attributes of its form, and by the rest (whether it is static, whether it overrides) as the entry
-  is now. A use must depend on the step whose form before rejected it: by its reach from the file of the use (a
-  private member made `internal` and used by `Owner.member` from another file of its module, an `internal` one made
-  public and used through an import from another module, an inner class made a public nested one and named from
-  another package or module), for an override by whether the form was overridable (a member made `open`), and for a
-  call by its parameters (a call that leaves out an argument a new default makes optional, passes the elements of a
-  Java array made a vararg, or names a renamed parameter by its new name). A use that the older form accepted too must
-  not (the `internal` member from its module, a private one in its object, a call that passes the argument or a
-  renamed parameter by position, a call of a member made `open`, the inner class from its package or module, an
-  override of a member that stopped overriding, also in a Java class that dropped its supertype). A step must need
-  the commits back along the forms of its entry too: a call that two overloads of one commit accept, one of them in a
-  form a later commit gave it, must depend on the first, and a call that only the form its own commit gives accepts
-  on the older commit of that entry whose parameter it passes. An older form must be no stricter than the compiler: a
-  private member must reach the whole top-level class in Java, nested classes included, for a bare name too, and in
-  Kotlin the class around a nested object or a companion (one with a name of its own included, which the summary
-  doesn't tell from a nested object); an `internal` one must reach a file whose module no build file tells. An import
-  of a member of a type without a supertype other than `Any` or `Object`, which names all its overloads, must be
-  judged by the reach of each form, as a call by its arguments. A use of a function that tells no overloads apart (a
-  call of a type with a supertype other than `Any` or `Object`, an import of a member of one) must need the key only,
-  as an overload of the supertype may take it while the older form is private; a use of a value or a type must need
-  the step whose reach let it in. A top-level function or property must have no forms, only presence. An extension of
-  another file (`fun Panes.helper()`, `val Panes.size`) may take a use while the member of its name is private; that
-  is a known limit, no check rules it out.
-  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_parameter_added_later_keeps_the_edge_of_a_call_both_forms_accept`, `a_call_that_needs_the_new_parameter_is_an_edge_to_the_commit_that_adds_it`, `a_new_default_or_vararg_is_an_edge_for_a_call_that_needs_it`, `a_renamed_parameter_is_an_edge_for_a_call_by_its_new_name`, `a_changed_body_is_no_new_form`, `a_widened_member_is_an_edge_for_a_use_the_old_reach_forbids`, `a_widened_member_of_a_type_with_supertypes_is_no_edge_for_a_call`, `an_older_form_is_judged_as_static_as_the_entry_is_now`, `an_older_form_is_judged_as_overriding_as_the_entry_is_now`, `a_new_form_needs_the_commit_that_created_its_entry`, `a_use_of_a_form_its_own_commit_gives_needs_the_older_steps_of_the_entry`, `an_older_private_form_reaches_the_top_level_java_class_and_the_class_around_a_nested_kotlin_object`, `an_internal_older_form_reaches_a_file_of_an_unknown_module`, `an_import_of_a_member_of_a_type_without_supertypes_is_judged_by_its_reach`, `a_member_made_open_is_an_edge_for_an_override_only`, `a_changed_form_of_a_top_level_function_or_property_is_no_edge`)
+  vararg, its reach, whether a subtype may override it, or `@JvmStatic`) must make a new step of the entry, with the
+  commit for its origin and the old form for its predecessor; a change of its body alone must keep its origin. Each
+  older form must be judged by the attributes of its form, and by the rest (whether it is static, whether it overrides)
+  as the entry is now. A use must depend on the step whose form before rejected it: by its reach from the file of the
+  use (a private member made `internal` and used by `Owner.member` from another file of its module, an `internal` one
+  made public and used through an import from another module, an inner class made a public nested one and named from
+  another package or module), for an override by whether the form was overridable (a member made `open`), and for a call
+  by its parameters (a call that leaves out an argument a new default makes optional, passes the elements of a Java
+  array made a vararg, or names a renamed parameter by its new name), and for a Java call of a member of a companion by
+  the class around it by `@JvmStatic`. A use that the older form accepted too must not (the `internal` member from its
+  module, a private one in its object, a call that passes the argument or a renamed parameter by position, a call of a
+  member made `open`, the inner class from its package or module, an override of a member that stopped overriding, also
+  in a Java class that dropped its supertype). A step must need the commits back along the forms of its entry too: a
+  call that two overloads of one commit accept, one of them in a form a later commit gave it, must depend on the first,
+  and a call that only the form its own commit gives accepts on the older commit of that entry whose parameter it
+  passes. An older form must be no stricter than the compiler: a private member must reach the whole top-level class in
+  Java, nested classes included, for a bare name too, and in Kotlin the class around a nested object or a companion (one
+  with a name of its own included, which the summary doesn't tell from a nested object); an `internal` one must reach a
+  file whose module no build file tells. An import of a member of a type without a supertype other than `Any` or
+  `Object`, which names all its overloads, must be judged by the reach of each form, as a call by its arguments. A use
+  of a function that tells no overloads apart (a call of a type with a supertype other than `Any` or `Object`, an import
+  of a member of one) must need the key only, as an overload of the supertype may take it while the older form is
+  private; a use of a value or a type must need the step whose reach let it in. A top-level function or property must
+  have no forms, only presence. An extension of another file (`fun Panes.helper()`, `val Panes.size`) may take a use
+  while the member of its name is private; that is a known limit, no check rules it out.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_parameter_added_later_keeps_the_edge_of_a_call_both_forms_accept`, `a_call_that_needs_the_new_parameter_is_an_edge_to_the_commit_that_adds_it`, `a_new_default_or_vararg_is_an_edge_for_a_call_that_needs_it`, `a_renamed_parameter_is_an_edge_for_a_call_by_its_new_name`, `a_changed_body_is_no_new_form`, `a_widened_member_is_an_edge_for_a_use_the_old_reach_forbids`, `a_widened_member_of_a_type_with_supertypes_is_no_edge_for_a_call`, `an_older_form_is_judged_as_static_as_the_entry_is_now`, `an_older_form_is_judged_as_overriding_as_the_entry_is_now`, `a_new_form_needs_the_commit_that_created_its_entry`, `a_use_of_a_form_its_own_commit_gives_needs_the_older_steps_of_the_entry`, `an_older_private_form_reaches_the_top_level_java_class_and_the_class_around_a_nested_kotlin_object`, `an_internal_older_form_reaches_a_file_of_an_unknown_module`, `an_import_of_a_member_of_a_type_without_supertypes_is_judged_by_its_reach`, `a_member_made_open_is_an_edge_for_an_override_only`, `a_changed_form_of_a_top_level_function_or_property_is_no_edge`, `a_jvm_static_added_later_is_an_edge_for_a_java_call_through_the_owner`)
 - In the file of a key that was there before the range, a use must mean it only where it can mean only a member of its
   type: a bare name, `this` or `super` whose innermost type (an enum entry's body counts as one) is that type, in no
   enclosed call (`buildList { add(0, item) }`, `apply { this.add(0, item) }`, an object expression, a Java anonymous

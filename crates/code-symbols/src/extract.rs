@@ -40,7 +40,7 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 7;
+pub const RULES_VERSION: u32 = 8;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -227,6 +227,8 @@ pub(crate) struct JvmHooks {
 pub(crate) struct Modality {
   pub(crate) overrides: bool,
   pub(crate) overridable: bool,
+  /// A Kotlin `@JvmStatic` member
+  pub(crate) jvm_static: bool,
   /// The extension receiver of a Kotlin member, for the shape of its override
   pub(crate) receiver: Option<u32>,
 }
@@ -237,6 +239,7 @@ pub(crate) struct JvmFields {
   signature: Option<Signature>,
   overrides: bool,
   overridable: bool,
+  jvm_static: bool,
   supertypes: Vec<Vec<u32>>,
   constructors: Option<Vec<Constructor>>,
 }
@@ -1061,6 +1064,7 @@ impl<'t> Walk<'t> {
       signature,
       overrides: modality.overrides,
       overridable: modality.overridable,
+      jvm_static: modality.jvm_static,
       ..JvmFields::default()
     }
   }
@@ -1102,6 +1106,7 @@ impl<'t> Walk<'t> {
       signature: fields.signature,
       overrides: fields.overrides,
       overridable: fields.overridable,
+      jvm_static: fields.jvm_static,
       supertypes: fields.supertypes,
       constructors: fields.constructors,
       start_line: leading.map_or(start, |it| it.min(start)),

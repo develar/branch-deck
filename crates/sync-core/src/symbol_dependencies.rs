@@ -911,16 +911,18 @@ fn same_parameters(a: &Site<'_>, b: &Site<'_>, same: impl Fn(&Parameter, &Parame
 }
 
 /// Whether two declarations of one entry (`same_entry`) have the same form: the names of their parameters, which a
-/// named argument needs, their defaults and varargs, which decide how many arguments a call may pass, their reach and
-/// whether a subtype may override them; a constructor's reach is its own and that of its type, which a call needs
-/// both of. Whether a member is static, and whether it overrides, are no form: what they reject (`Owner.member` of an
-/// instance member, an override of an override) may compile all the same
+/// named argument needs, their defaults and varargs, which decide how many arguments a call may pass, their reach,
+/// whether a subtype may override them and whether they are `@JvmStatic`, which a Java call by the class around a
+/// companion needs (`static_paths`); a constructor's reach is its own and that of its type, which a call needs both of.
+/// Whether a member is static, and whether it overrides, are no form: what they reject (`Owner.member` of an instance
+/// member, an override of an override) may compile all the same
 fn same_form(a: &Site<'_>, b: &Site<'_>) -> bool {
   let parameters = same_parameters(a, b, |x, y| {
     (a.ctx.summary.name(x.name), x.optional, x.vararg) == (b.ctx.summary.name(y.name), y.optional, y.vararg)
   });
   let reach = |site: &Site<'_>| (site.declaration.reach, site.constructor.map(|constructor| constructor.reach));
-  parameters && reach(a) == reach(b) && a.declaration.overridable == b.declaration.overridable
+  let modality = |site: &Site<'_>| (site.declaration.overridable, site.declaration.jvm_static);
+  parameters && reach(a) == reach(b) && modality(a) == modality(b)
 }
 
 /// The declaration that an older form `older` of the entry of `current` is judged as: the attributes of its form
@@ -1767,24 +1769,66 @@ fn resolve_jvm(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<
       None
     }
     MemberKind::Static => {
-      let (Some(qualifier), Some(owner)) = (qualifier, site.containers.last()) else {
-        // Java's `import static a.B.member`
-        let mut path = site.ctx.namespace.clone();
-        path.extend(site.containers.iter().cloned());
-        return (reference.qualifier.is_none() && imports_of(&path, name)).then_some(Evidence::Import);
+      let paths = static_paths(use_site, site);
+      let in_namespace = |path: &[&str]| {
+        site
+          .ctx
+          .namespace
+          .iter()
+          .cloned()
+          .chain(path.iter().map(|segment| (*segment).to_string()))
+          .collect::<Vec<_>>()
       };
-      // `Owner.member`, `Owner.Companion.member`, `a.b.Owner.member`
-      let qualifier: Vec<&str> = qualifier.iter().map(String::as_str).filter(|segment| *segment != "Companion").collect();
-      let mut full: Vec<&str> = site.ctx.namespace.iter().map(String::as_str).collect();
-      full.extend(site.containers.iter().map(String::as_str));
-      if qualifier == full {
-        return Some(Evidence::Qualified);
-      }
-      let owner_resolves = imports_of(&site.ctx.namespace, owner) || (use_site.namespace == site.ctx.namespace && !summary.declares(owner));
-      (qualifier == [owner.as_str()] && owner_resolves).then_some(Evidence::Qualified)
+      let Some(qualifier) = qualifier.filter(|_| !site.containers.is_empty()) else {
+        // Java's `import static a.B.member`
+        return (reference.qualifier.is_none() && paths.iter().any(|path| imports_of(&in_namespace(path), name))).then_some(Evidence::Import);
+      };
+      // `a.b.Owner.member`, or `Owner.member` and `Outer.Nested.member` with the head resolved: by an import that
+      // binds it (an alias, a nested type), else by the same package without a declaration of its name in the file
+      let (head, rest) = qualifier.split_first()?;
+      let import = import_binding(use_site, head);
+      let same_package = use_site.namespace == site.ctx.namespace && !summary.declares(head);
+      let names = |path: &[&str]| {
+        let full = || site.ctx.namespace.iter().map(String::as_str).chain(path.iter().copied());
+        qualifier.iter().map(String::as_str).eq(full())
+          || match import {
+            Some((import_path, imported)) => import_path.iter().map(String::as_str).chain([imported]).chain(rest.iter().map(String::as_str)).eq(full()),
+            None => same_package && qualifier.iter().map(String::as_str).eq(path.iter().copied()),
+          }
+      };
+      paths.iter().any(|path| names(path)).then_some(Evidence::Qualified)
     }
     MemberKind::Instance => None,
   }
+}
+
+/// The containers by which a use from the file of `use_site` may name the type of the static member `site`, the
+/// outermost first: its own (`Owner.Companion.create()`, `Obj.create()`); for a member of a Kotlin companion without a
+/// name of its own the class around it too, from Kotlin always (`Owner.create()`), from Java only for a `@JvmStatic`
+/// function or a `const val` (`Owner.CONSTANT`), which the JVM has on that class; and from Java the `INSTANCE` of a
+/// Kotlin object for a function of it (`Obj.INSTANCE.create()`; Java reads a property through its getter, another
+/// name). The summary doesn't tell a companion with a name of its own (`companion object Factory`) from a nested
+/// object, whose members the class around it doesn't have, so it is named only by its own path
+/// (`Owner.Factory.create()`)
+fn static_paths<'s>(use_site: &UseSite<'_>, site: &'s Site<'_>) -> Vec<Vec<&'s str>> {
+  let containers: Vec<&str> = site.containers.iter().map(String::as_str).collect();
+  let mut paths = vec![containers.clone()];
+  if site.ctx.language != Language::Kotlin {
+    return paths;
+  }
+  let declaration = site.declaration;
+  let java = use_site.language == Language::Java;
+  match containers.split_last() {
+    Some((&"Companion", outer)) if !outer.is_empty() => {
+      let on_owner = (declaration.kind == DeclKind::Function && declaration.jvm_static) || declaration.kind == DeclKind::Constant;
+      if !java || on_owner {
+        paths.push(outer.to_vec());
+      }
+    }
+    Some(_) if java && declaration.kind == DeclKind::Function => paths.push([containers.as_slice(), &["INSTANCE"]].concat()),
+    _ => {}
+  }
+  paths
 }
 
 /// The name a reference starts with: the first segment of its qualifier, else its own name
