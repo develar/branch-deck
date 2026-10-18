@@ -120,21 +120,24 @@ fn review_from_tips(git: &GitCommandExecutor, params: &GetBranchReviewParams, ti
   let max_count = format!("--max-count={}", MAX_BRANCH_REVIEW_COMMITS + 1);
   let exclusion = format!("^{}", params.baseline_branch);
   let last_tip = &tips[tips.len() - 1];
-  let output = git.execute_command_raw(
-    &[
-      "log",
-      "-z",
-      "--first-parent",
-      "--no-show-signature",
-      &max_count,
-      LOG_FORMAT,
-      "--end-of-options",
-      &exclusion,
-      last_tip,
-      "--",
-    ],
-    &params.repository_path,
-  )?;
+  let output = git
+    .cmd(
+      &[
+        "log",
+        "-z",
+        "--first-parent",
+        "--no-show-signature",
+        &max_count,
+        LOG_FORMAT,
+        "--end-of-options",
+        &exclusion,
+        last_tip,
+        "--",
+      ],
+      &params.repository_path,
+    )
+    .bytes()?;
+  let output = String::from_utf8_lossy(&output);
   let log = parse_log(&output);
   if log.is_empty() {
     bail!("{last} has no commits the baseline lacks");

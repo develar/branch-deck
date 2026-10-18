@@ -169,7 +169,7 @@ fn index_and_status(test_repo: &TestRepo) -> (String, String) {
   let path = test_repo.path().to_str().unwrap();
   let git = test_repo.git_executor();
   (
-    git.execute_command_raw(&["status", "--porcelain=v2", "-z"], path).unwrap(),
+    String::from_utf8_lossy(&git.cmd(&["status", "--porcelain=v2", "-z"], path).bytes().unwrap()).into_owned(),
     git.execute_command(&["ls-files", "-s"], path).unwrap(),
   )
 }
@@ -199,7 +199,7 @@ fn reword_preserves_committer() {
       ("GIT_COMMITTER_EMAIL", "carl@example.com"),
       ("GIT_COMMITTER_DATE", "1700000500 +0530"),
     ];
-    git.execute_command_with_env(&["commit", "-q", "-m", message], path, &env).unwrap();
+    git.cmd(&["commit", "-q", "-m", message], path).env(&env).text().unwrap();
     test_repo.head()
   };
   let base = commit("Base", "base.rs", "1700000000 +0100");

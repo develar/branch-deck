@@ -343,7 +343,7 @@ fn explain_refusal(git_executor: &GitCommandExecutor, repo_path: &str, state: &S
   if matches!(refusal.kind, RefusalKind::UnresolvedMarkers | RefusalKind::MissingResolution) {
     let mut args = vec!["diff", "--no-ext-diff", "--name-only", "-z", "HEAD", "--"];
     args.extend(refusal.paths.iter().map(String::as_str));
-    if let Ok(output) = git_executor.execute_command_with_env(&args, repo_path, &[("GIT_LITERAL_PATHSPECS", "1")]) {
+    if let Ok(output) = git_executor.cmd(&args, repo_path).env(&[("GIT_LITERAL_PATHSPECS", "1")]).text() {
       refusal.changed_in_working_tree = output.split('\0').filter(|path| !path.is_empty()).map(str::to_string).collect();
     }
   }

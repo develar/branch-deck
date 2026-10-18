@@ -389,7 +389,9 @@ async fn a_copy_keeps_the_timezones_of_the_original() {
   let env = [("GIT_AUTHOR_DATE", "1700000000 +0530"), ("GIT_COMMITTER_DATE", "1700000100 -0700")];
   test_repo
     .git_executor()
-    .execute_command_with_env(&["commit", "-m", "(auth) Add login"], repo_path(&test_repo), &env)
+    .cmd(&["commit", "-m", "(auth) Add login"], repo_path(&test_repo))
+    .env(&env)
+    .text()
     .unwrap();
 
   sync(&test_repo).await;
@@ -417,7 +419,7 @@ fn git(test_repo: &TestRepo, args: &[&str]) -> String {
 }
 
 fn git_with_env(test_repo: &TestRepo, args: &[&str], env: &[(&str, &str)]) -> String {
-  test_repo.git_executor().execute_command_with_env(args, repo_path(test_repo), env).unwrap()
+  test_repo.git_executor().cmd(args, repo_path(test_repo)).env(env).text().unwrap()
 }
 
 /// `commit` again with `tree` on `parent`, with its message and author, as plumbing outside Branch Deck writes it
@@ -437,7 +439,9 @@ fn tree_with(test_repo: &TestRepo, base: &str, file: &str, content: &str) -> Str
   git_with_env(test_repo, &["read-tree", base], &env);
   let blob = test_repo
     .git_executor()
-    .execute_command_with_env_and_stdin(&["hash-object", "-w", "--stdin"], repo_path(test_repo), &[], content)
+    .cmd(&["hash-object", "-w", "--stdin"], repo_path(test_repo))
+    .stdin(content.as_bytes())
+    .text()
     .unwrap();
   git_with_env(test_repo, &["update-index", "--add", "--cacheinfo", &format!("100644,{blob},{file}")], &env);
   let tree = git_with_env(test_repo, &["write-tree"], &env);

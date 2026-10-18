@@ -1,9 +1,9 @@
 use crate::check::{CheckOutcome, check_plan};
 use crate::commit_grouper::{CommitGrouper, GroupingInputs};
 use crate::grouping::group_commits_ahead_of_baseline;
-use crate::issue_groups::{ISSUE_GROUPS, ISSUE_GROUPS_FILE, ISSUE_GROUPS_REF};
+use crate::issue_groups::{ISSUE_GROUPS, ISSUE_GROUPS_REF};
 use crate::regroup::regroup_test;
-use crate::regroup::regroup_test::{commits, entries, groups, other_worktree, path, regroup, repo, sync};
+use crate::regroup::regroup_test::{commits, entries, groups, other_worktree, path, plant_store, regroup, repo, sync};
 use crate::regroup::{RegroupError, RegroupOptions, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
 use crate::repository_lock::DEFAULT_LOCK_TIMEOUT;
 use crate::store_lines::{StoreLineProblem, StoreLines, format_store_lines};
@@ -89,13 +89,7 @@ fn history(repo: &TestRepo) -> usize {
 
 /// Write the store directly, as an older version or another tool would
 fn plant(repo: &TestRepo, text: &str) {
-  let (git, path) = (repo.git_executor(), path(repo));
-  let blob = git.execute_command_with_input(&["hash-object", "-w", "--stdin"], path, text).unwrap();
-  let tree = git
-    .execute_command_with_input(&["mktree"], path, &format!("100644 blob {}\t{ISSUE_GROUPS_FILE}\n", blob.trim()))
-    .unwrap();
-  let commit = git.execute_command(&["commit-tree", tree.trim(), "-m", "planted"], path).unwrap();
-  git.execute_command(&["update-ref", ISSUE_GROUPS_REF, commit.trim()], path).unwrap();
+  plant_store(repo, &ISSUE_GROUPS, text);
 }
 
 fn undo(repo: &TestRepo, token: &UndoToken) -> Result<(), RegroupError> {

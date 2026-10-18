@@ -416,7 +416,10 @@ pub fn empty_parent_states(
       input.push('\n');
     }
     let notes_arg = format!("--notes={NOTES_REF}");
-    let output = git_executor.execute_command_with_input(&["log", "--no-walk", "--stdin", "--format=%H%x1f%s%x1f%N%x1e", &notes_arg], repo_path, &input)?;
+    let output = git_executor
+      .cmd(&["log", "--no-walk", "--stdin", "--format=%H%x1f%s%x1f%N%x1e", &notes_arg], repo_path)
+      .stdin(input.as_bytes())
+      .text()?;
     let mut noted = HashMap::new();
     for record in output.split('\u{1e}') {
       let mut fields = record.trim_start().splitn(3, '\u{1f}');

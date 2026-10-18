@@ -1,4 +1,5 @@
-use crate::uncommitted_changes::parse_git_status_output;
+use crate::uncommitted_changes::{GetUncommittedChangesParams, get_uncommitted_changes, parse_git_status_output};
+use test_utils::git_test_utils::TestRepo;
 
 #[cfg(test)]
 mod tests {
@@ -143,29 +144,25 @@ mod tests {
 
   #[test]
   fn test_integration_with_git_executor() {
-    // Integration test that goes through the full pipeline
-    // This would have caught the trim bug if we had it before
+    // the status of a real repository, read untrimmed: the leading space of an unstaged change survives
+    let repo = TestRepo::new();
+    repo.create_commit("Add pom", "community/pom.xml", "a");
+    std::fs::write(repo.path().join("community/pom.xml"), "b").unwrap();
+    std::fs::write(repo.path().join("new-file.txt"), "new").unwrap();
+    repo.git(&["add", "new-file.txt"]);
 
-    // Create a mock GitCommandExecutor that returns untrimmed output like the fixed version
-    struct MockGitExecutor;
+    let result = get_uncommitted_changes(
+      repo.git_executor(),
+      GetUncommittedChangesParams {
+        repository_path: repo.path_str().to_string(),
+      },
+    )
+    .unwrap();
 
-    impl MockGitExecutor {
-      #[expect(clippy::unused_self, clippy::unnecessary_wraps, reason = "mirrors the GitCommandExecutor method signature")]
-      fn execute_command_raw(&self, _args: &[&str], _repo_path: &str) -> Result<String, String> {
-        // Simulate what git status --porcelain -z actually returns (with leading spaces intact)
-        Ok(" M community/platform/jps-bootstrap/pom.xml\0A  new-file.txt\0".to_string())
-      }
-    }
-
-    // Simulate the parsing logic that our function uses
-    let mock_git = MockGitExecutor;
-    let status_output = mock_git.execute_command_raw(&["status", "--porcelain", "-z"], "/fake/repo").expect("Mock should not fail");
-
-    let files = parse_git_status_output(&status_output);
-
-    // Verify the integration works correctly
+    assert!(result.has_changes);
+    let files = result.files;
     assert_eq!(files.len(), 2);
-    assert_eq!(files[0].file_path, "community/platform/jps-bootstrap/pom.xml");
+    assert_eq!(files[0].file_path, "community/pom.xml");
     assert!(!files[0].staged);
     assert!(files[0].unstaged);
 

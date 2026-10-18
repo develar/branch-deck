@@ -61,7 +61,11 @@ impl CacheMemo {
   fn tree_exists(&self, tree: &str) -> bool {
     let mut check = self.tree_check.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if matches!(*check, TreeCheck::NotStarted) {
-      *check = match self.git_executor.spawn_interactive(&["cat-file", "--batch-check=%(objecttype)"], &self.repository_path) {
+      *check = match self
+        .git_executor
+        .cmd(&["cat-file", "--batch-check=%(objecttype)"], &self.repository_path)
+        .interactive(b'\n')
+      {
         Ok(process) => TreeCheck::Running(process),
         Err(e) => {
           debug!(error = %e, "cannot check the remembered trees");

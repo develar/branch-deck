@@ -1,11 +1,11 @@
 use crate::commit_grouper::{CommitGrouper, GroupingInputs};
 use crate::grouping::group_commits_ahead_of_baseline;
-use crate::regroup::regroup_test::{commits, entries, groups, issue_group_plan, other_worktree, path, plan, regroup, repo, sync};
+use crate::regroup::regroup_test::{commits, entries, groups, issue_group_plan, other_worktree, path, plan, plant_store, regroup, repo, sync};
 use crate::regroup::{RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
 use crate::repository_lock::DEFAULT_LOCK_TIMEOUT;
 use crate::snapshot::read_grouping_inputs;
 use crate::stack::{StackForest, describe_problem, place_branches};
-use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_FILE, STACK_PARENTS_REF, drop_integrated_stack_parents, integrated_children};
+use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_REF, drop_integrated_stack_parents, integrated_children};
 use crate::store_lines::{StoreLines, format_store_lines, read_store_head};
 use crate::test_commit::commit;
 use pretty_assertions::assert_eq;
@@ -26,13 +26,7 @@ fn history(repo: &TestRepo) -> usize {
 
 /// Write the store directly, as another tool would
 fn plant(repo: &TestRepo, text: &str) {
-  let (git, path) = (repo.git_executor(), path(repo));
-  let blob = git.execute_command_with_input(&["hash-object", "-w", "--stdin"], path, text).unwrap();
-  let tree = git
-    .execute_command_with_input(&["mktree"], path, &format!("100644 blob {}\t{STACK_PARENTS_FILE}\n", blob.trim()))
-    .unwrap();
-  let commit = git.execute_command(&["commit-tree", tree.trim(), "-m", "planted"], path).unwrap();
-  git.execute_command(&["update-ref", STACK_PARENTS_REF, commit.trim()], path).unwrap();
+  plant_store(repo, &STACK_PARENTS, text);
 }
 
 /// Add `lines` to the store, as a write of another worktree would
@@ -93,7 +87,7 @@ fn reads_nothing_without_the_file_and_the_written_commit_after_the_transaction()
 
   // a commit of the ref without the file is an empty map
   let git = repo.git_executor();
-  let tree = git.execute_command_with_input(&["mktree"], path(&repo), "").unwrap();
+  let tree = git.cmd(&["mktree"], path(&repo)).stdin(b"").text().unwrap();
   let empty = git.execute_command(&["commit-tree", tree.trim(), "-m", "empty"], path(&repo)).unwrap();
   git.execute_command(&["update-ref", STACK_PARENTS_REF, empty.trim()], path(&repo)).unwrap();
   assert_eq!(stack_parents(&repo).entries, BTreeMap::new());

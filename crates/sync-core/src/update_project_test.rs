@@ -75,12 +75,8 @@ fn write(repo: &TestRepo, file: &str, content: &str) {
 
 /// `git status --porcelain` with untracked files
 fn status(repo: &TestRepo) -> String {
-  repo
-    .git_executor()
-    .execute_command_raw(&["status", "--porcelain", "--untracked-files=all"], path(repo))
-    .unwrap()
-    .trim_end()
-    .to_string()
+  let output = repo.git_executor().cmd(&["status", "--porcelain", "--untracked-files=all"], path(repo)).bytes().unwrap();
+  String::from_utf8_lossy(&output).trim_end().to_string()
 }
 
 const ORIGIN_MASTER: UpstreamRef<'static> = UpstreamRef {
@@ -269,16 +265,14 @@ fn same_line_conflict_reports_files_and_commits_and_changes_nothing() {
   git(&upstream, &["add", "shared.txt"]);
   upstream
     .git_executor()
-    .execute_command_with_env(
-      &["commit", "-q", "-m", "Upstream change"],
-      path(&upstream),
-      &[
-        ("GIT_AUTHOR_NAME", "Dana Lee"),
-        ("GIT_AUTHOR_DATE", "1700000300 +0000"),
-        ("GIT_COMMITTER_NAME", "Patronus"),
-        ("GIT_COMMITTER_DATE", "1700090000 +0000"),
-      ],
-    )
+    .cmd(&["commit", "-q", "-m", "Upstream change"], path(&upstream))
+    .env(&[
+      ("GIT_AUTHOR_NAME", "Dana Lee"),
+      ("GIT_AUTHOR_DATE", "1700000300 +0000"),
+      ("GIT_COMMITTER_NAME", "Patronus"),
+      ("GIT_COMMITTER_DATE", "1700090000 +0000"),
+    ])
+    .text()
     .unwrap();
   let upstream_change = upstream.head();
   let head = clone.head();

@@ -37,7 +37,7 @@ pub fn read_commit_diffs(git: &GitCommandExecutor, repository: &str, ids: &[Stri
   let mut args = vec!["log", "--no-walk=unsorted", "--stdin", "--format=%x1e%H", "-z", "--raw", "--no-abbrev", "-p", "-U0"];
   args.extend(HUNK_OPTIONS);
   args.extend(DIFF_OPTIONS);
-  let output = git.execute_command_with_input_raw(&args, repository, &stdin_ids(ids))?;
+  let output = git.cmd(&args, repository).stdin(stdin_ids(ids).as_bytes()).bytes()?;
   parse_commit_diffs(&output)
 }
 
@@ -75,7 +75,7 @@ pub fn read_commit_patches(git: &GitCommandExecutor, repository: &str, ids: &[St
   args.extend(PATCH_OPTIONS);
   args.extend(HUNK_OPTIONS);
   args.extend(DIFF_OPTIONS);
-  let output = git.execute_command_with_input_raw(&args, repository, &stdin_ids(ids))?;
+  let output = git.cmd(&args, repository).stdin(stdin_ids(ids).as_bytes()).bytes()?;
   let patches = split_records(&output)
     .map(|record| {
       let (id, patch) = record.split_at(record.iter().position(|&b| b == b'\n').unwrap_or(record.len()));

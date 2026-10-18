@@ -182,12 +182,11 @@ pub(crate) fn same_changes(git_executor: &GitCommandExecutor, repository_path: &
     let _ = writeln!(input, "{older}\n{newer}");
     input
   });
-  let patches = git_executor.execute_command_with_input_raw(
-    &["diff-tree", "--stdin", "-p", "-U0", "--no-renames", "--no-ext-diff", "--no-textconv"],
-    repository_path,
-    &input,
-  )?;
-  let ids = git_executor.execute_command_with_input_bytes(&["patch-id", "--stable"], repository_path, &patches)?;
+  let patches = git_executor
+    .cmd(&["diff-tree", "--stdin", "-p", "-U0", "--no-renames", "--no-ext-diff", "--no-textconv"], repository_path)
+    .stdin(input.as_bytes())
+    .bytes()?;
+  let ids = git_executor.cmd(&["patch-id", "--stable"], repository_path).stdin(&patches).bytes()?;
   // `<patch id> <commit>` per commit with changes
   let ids = String::from_utf8_lossy(&ids);
   let patch_of: HashMap<&str, &str> = ids.lines().filter_map(|line| line.split_once(' ').map(|(patch, commit)| (commit, patch))).collect();

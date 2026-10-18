@@ -36,7 +36,7 @@ pub fn execute_remote_command(git_executor: &GitCommandExecutor, args: &[&str], 
 /// `execute_remote_command` for which the given non-zero exit codes are not failures, e.g. 1 for a `push --porcelain`
 /// with rejected refs, whose stdout still reports every ref
 pub fn execute_remote_command_accepting(git_executor: &GitCommandExecutor, args: &[&str], repository_path: &str, ok_exit_codes: &[i32]) -> Result<String> {
-  git_executor.execute_command_accepting_with_env(&remote_args(args), repository_path, &REMOTE_ENV, ok_exit_codes)
+  git_executor.cmd(&remote_args(args), repository_path).env(&REMOTE_ENV).accept(ok_exit_codes).text()
 }
 
 /// `execute_remote_command_accepting` with `--progress` (added after the subcommand): `on_progress` gets how far the
@@ -66,14 +66,14 @@ pub fn execute_remote_command_with_progress_until(
   progress_args.extend([*subcommand, "--progress"]);
   progress_args.extend_from_slice(rest);
   let mut reporter = TransferProgressReporter::new(on_progress);
-  git_executor.execute_command_with_progress_until(
-    &remote_args(&progress_args),
-    repository_path,
-    &REMOTE_ENV,
-    ok_exit_codes,
-    &mut |line| {
-      reporter.on_line(line);
-    },
-    stop,
-  )
+  git_executor
+    .cmd(&remote_args(&progress_args), repository_path)
+    .env(&REMOTE_ENV)
+    .accept(ok_exit_codes)
+    .progress(
+      &mut |line| {
+        reporter.on_line(line);
+      },
+      stop,
+    )
 }

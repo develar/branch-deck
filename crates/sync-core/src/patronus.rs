@@ -115,8 +115,8 @@ fn read_review_log(git_executor: &GitCommandExecutor, repository_path: &str, bas
   let mut args = vec!["log", "-z", "--topo-order", &max_count, REVIEW_COMMIT_FORMAT, "--end-of-options", &exclusion];
   args.extend(tips.iter().map(String::as_str));
   args.push("--");
-  let output = git_executor.execute_command_raw(&args, repository_path)?;
-  Ok(parse_review_commits(&output))
+  let output = git_executor.cmd(&args, repository_path).bytes()?;
+  Ok(parse_review_commits(&String::from_utf8_lossy(&output)))
 }
 
 /// The commits of `commits` (a log of `tips`) that `tip` reaches, in the order of the log; None for too many. With

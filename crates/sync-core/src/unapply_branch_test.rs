@@ -271,12 +271,8 @@ fn test_unapply_drops_the_commits_from_the_current_branch_of_a_clone() -> Result
 
 /// `git status --porcelain` including untracked files, without trimming the leading status column
 fn status(test_repo: &TestRepo) -> String {
-  test_repo
-    .git_executor()
-    .execute_command_raw(&["status", "--porcelain"], test_repo.path().to_str().unwrap())
-    .unwrap()
-    .trim_end()
-    .to_string()
+  let output = test_repo.git_executor().cmd(&["status", "--porcelain"], test_repo.path_str()).bytes().unwrap();
+  String::from_utf8_lossy(&output).trim_end().to_string()
 }
 
 fn refs(test_repo: &TestRepo) -> String {

@@ -140,7 +140,7 @@ fn does_not_read_a_branch_with_too_many_commits() {
     )
     .unwrap();
   }
-  git.execute_command_with_input(&["fast-import", "--quiet"], path, &stream).unwrap();
+  git.cmd(&["fast-import", "--quiet"], path).stdin(stream.as_bytes()).text().unwrap();
   let inputs = read_inputs(&repo, &base, &["refs/heads/long", "refs/heads/long~1"]);
   assert!(inputs[0].is_none());
   assert_eq!(inputs[1].as_ref().map(|input| input.commits.len()), Some(MAX_REVIEW_COMMITS));

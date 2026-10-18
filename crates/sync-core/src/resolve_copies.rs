@@ -322,7 +322,8 @@ pub fn prepare_dir(git_executor: &GitCommandExecutor, repo_path: &str, dir: &Pat
   }
   let common_dir = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-common-dir"], repo_path)?;
   let common_dir = fs::canonicalize(common_dir).unwrap_or_default();
-  let output = git_executor.execute_command_raw(&["worktree", "list", "--porcelain", "-z"], repo_path)?;
+  let output = git_executor.cmd(&["worktree", "list", "--porcelain", "-z"], repo_path).bytes()?;
+  let output = String::from_utf8_lossy(&output);
   for worktree in output.split('\0').filter_map(|field| field.strip_prefix("worktree ")) {
     let Ok(worktree) = fs::canonicalize(worktree) else { continue };
     if canonical.starts_with(&worktree) && !canonical.starts_with(&common_dir) {

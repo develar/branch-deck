@@ -317,7 +317,7 @@ pub(crate) fn present_commits<const N: usize>(git: &GitCommandExecutor, repo: &s
     input.push('\n');
     input
   });
-  let output = git.execute_command_with_input(&["cat-file", "--batch-check=%(objecttype)"], repo, &input)?;
+  let output = git.cmd(&["cat-file", "--batch-check=%(objecttype)"], repo).stdin(input.as_bytes()).text()?;
   let mut lines = output.lines();
   let mut present = [false; N];
   for slot in &mut present {
@@ -354,10 +354,13 @@ fn range_of(git: &GitCommandExecutor, params: &FetchReviewHeadParams, head: Stri
   };
   let range = format!("{base}..{head}");
   // `-z`: a NUL ends each commit, as NULs separate its fields; the message may hold any other byte
-  let log = git.execute_command_raw(
-    &["log", "-z", "--format=%H%x00%s%x00%an%x00%at%x00%B", "--reverse", MAX_COMMITS, "--end-of-options", &range],
-    repo,
-  )?;
+  let log = git
+    .cmd(
+      &["log", "-z", "--format=%H%x00%s%x00%an%x00%at%x00%B", "--reverse", MAX_COMMITS, "--end-of-options", &range],
+      repo,
+    )
+    .bytes()?;
+  let log = String::from_utf8_lossy(&log);
   let mut fields = log.split('\0');
   let mut commits = Vec::new();
   while let (Some(id), Some(subject), Some(author), Some(author_time), Some(message)) = (fields.next(), fields.next(), fields.next(), fields.next(), fields.next()) {

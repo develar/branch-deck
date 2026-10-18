@@ -99,14 +99,15 @@ pub fn get_uncommitted_changes(git_executor: &GitCommandExecutor, params: GetUnc
   let repo_path = params.repository_path;
 
   // Get file status with null termination for robust filename handling
-  // Use execute_command_raw to preserve exact git status formatting (including leading spaces)
+  // Untrimmed, to preserve exact git status formatting (including leading spaces)
   // Note: For large repos, consider using --untracked-files=normal to avoid scanning all untracked files
   let status_output = git_executor
-    .execute_command_raw(&["status", "--porcelain", "-z"], &repo_path)
+    .cmd(&["status", "--porcelain", "-z"], &repo_path)
+    .bytes()
     .map_err(|e| format!("Failed to get repository status: {e}"))?;
 
   // Parse file changes from status (null-terminated)
-  let files = parse_git_status_output(&status_output);
+  let files = parse_git_status_output(&String::from_utf8_lossy(&status_output));
 
   // Check if we found any files
   if files.is_empty() {
@@ -132,7 +133,7 @@ pub fn get_file_content_for_diff(git_executor: &GitCommandExecutor, params: GetF
   // untrimmed, the last line may be a context line of a blank line, a single space
   let pathspec = format!(":(literal){file_path}");
   let diff_output = git_executor
-    .execute_command_raw(
+    .cmd(
       &[
         "diff",
         "HEAD",
@@ -147,7 +148,9 @@ pub fn get_file_content_for_diff(git_executor: &GitCommandExecutor, params: GetF
       ],
       &repo_path,
     )
+    .bytes()
     .map_err(|e| format!("Failed to get diff for file {file_path}: {e}"))?;
+  let diff_output = String::from_utf8_lossy(&diff_output).into_owned();
 
   // the contents are not read: the patch has the changed lines and their context
   Ok(FileDiff {

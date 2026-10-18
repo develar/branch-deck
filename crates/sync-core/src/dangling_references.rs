@@ -391,7 +391,7 @@ pub fn read_commit_lines(git: &GitCommandExecutor, repository_path: &str, ids: &
   ];
   // the lines are cached: which ones a hunk holds, and in which order, must not depend on the user's diff config
   args.extend(HUNK_OPTIONS);
-  let output = git.execute_command_with_input_raw(&args, repository_path, &input)?;
+  let output = git.cmd(&args, repository_path).stdin(input.as_bytes()).bytes()?;
   let read = parse_commit_lines(&output);
   cache.put_commit_lines(read.iter().map(|(id, files)| (id.as_str(), files)));
   lines.extend(read);
@@ -800,7 +800,10 @@ fn diff_trees(git: &GitCommandExecutor, repository_path: &str, pairs: &[(String,
     input
   });
   // full blob ids: `diff-tree` abbreviates only when asked, and `--abbrev=40` would cut a SHA-256 id
-  let output = git.execute_command_with_input_raw(&["diff-tree", "--stdin", "-r", "-z", "--raw", "--no-renames"], repository_path, &input)?;
+  let output = git
+    .cmd(&["diff-tree", "--stdin", "-r", "-z", "--raw", "--no-renames"], repository_path)
+    .stdin(input.as_bytes())
+    .bytes()?;
   let output = String::from_utf8_lossy(&output);
   let mut diffs: HashMap<String, TreeDiff> = HashMap::new();
   let mut fields = output.split('\0');

@@ -1,5 +1,6 @@
 use crate::regroup::{RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, lock_repository};
+use crate::store_lines::LineStore;
 use crate::sync::{SyncOptions, sync_branches};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -30,6 +31,15 @@ pub(crate) fn commits(repo: &TestRepo, subjects: &[&str]) -> Vec<String> {
 
 pub(crate) fn path(repo: &TestRepo) -> &str {
   repo.path().to_str().unwrap()
+}
+
+/// Write the file of `store` directly, as an older version or another tool would: one commit on its ref
+pub(crate) fn plant_store(repo: &TestRepo, store: &LineStore, text: &str) {
+  let (git, path) = (repo.git_executor(), path(repo));
+  let blob = git.cmd(&["hash-object", "-w", "--stdin"], path).stdin(text.as_bytes()).text().unwrap();
+  let tree = git.cmd(&["mktree"], path).stdin(format!("100644 blob {blob}\t{}\n", store.file).as_bytes()).text().unwrap();
+  let commit = git.execute_command(&["commit-tree", &tree, "-m", "planted"], path).unwrap();
+  git.execute_command(&["update-ref", store.store_ref, &commit], path).unwrap();
 }
 
 /// A plan of `branches` (path, commits) and `unassign`

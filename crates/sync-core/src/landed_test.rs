@@ -31,7 +31,7 @@ fn land_as(upstream: &TestRepo, clone: &TestRepo, local: &str, message: &str, fi
     ("GIT_COMMITTER_NAME", "Patronus"),
     ("GIT_COMMITTER_EMAIL", "patronus@example.com"),
   ];
-  upstream.git_executor().execute_command_with_env(&["commit", "-m", message], path(upstream), &env).unwrap();
+  upstream.git_executor().cmd(&["commit", "-m", message], path(upstream)).env(&env).text().unwrap();
   upstream.head()
 }
 

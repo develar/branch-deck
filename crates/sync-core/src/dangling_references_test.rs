@@ -128,7 +128,9 @@ fn the_changed_lines_are_read_by_the_paths_as_stored() {
   let blob = |content: &str| {
     repo
       .git_executor()
-      .execute_command_with_input(&["hash-object", "-w", "--stdin"], repo.path_str(), content)
+      .cmd(&["hash-object", "-w", "--stdin"], repo.path_str())
+      .stdin(content.as_bytes())
+      .text()
       .unwrap()
   };
   let target = blob("target.kt");
