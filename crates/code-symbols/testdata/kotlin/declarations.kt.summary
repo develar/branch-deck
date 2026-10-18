@@ -1,43 +1,43 @@
 package com.example.shapes
 jvm_name Declarations
 Type Shape in - Public TopLevel 4-8 @5
-Value area in Shape Public Instance 6-6 @6 <Double> overridable
-Function describe in Shape Public Instance 7-7 @7 () overridable
+Value area in Shape Public Instance 6-6 @6 <Double> `val area : Double` overridable
+Function describe in Shape Public Instance 7-7 @7 () `fun describe : String` overridable
 Type Circle in - Module TopLevel 10-30 @10 new(radius: Double, label: String, scale: Int) : Shape
-Value radius in Circle Public Instance 10-10 @10 <Double>
-Value label in Circle Container Instance 10-10 @10 <String>
-Value area in Circle Public Instance 11-11 @11 <Double> overrides overridable
-Function describe in Circle Public Instance 13-13 @13 () overrides overridable
-Function helper in Circle Container Instance 15-15 @15 ()
+Value radius in Circle Public Instance 10-10 @10 <Double> `val radius : Double`
+Value label in Circle Container Instance 10-10 @10 <String> `val label : String`
+Value area in Circle Public Instance 11-11 @11 <Double> `val area : Double` overrides overridable
+Function describe in Circle Public Instance 13-13 @13 () `fun describe : String` overrides overridable
+Function helper in Circle Container Instance 15-15 @15 () `fun helper`
 Type Inner in Circle Public Instance 17-17 @17 new()
 Type Nested in Circle Public Static 18-18 @18 new()
 Type Companion in Circle Public Static 20-23 @20
-Constant UNIT in Companion Public Static 21-21 @21
-Function unit in Companion Public Static 22-22 @22 () jvm_static
-Value counter in Circle Public Instance 25-29 @25 <Int> var
+Constant UNIT in Companion Public Static 21-21 @21 `const val UNIT`
+Function unit in Companion Public Static 22-22 @22 () `fun unit : Circle` jvm_static
+Value counter in Circle Public Instance 25-29 @25 <Int> `var counter : Int` var
 Type Registry in - Public TopLevel 32-32 @32 : Shape
 Type Shapes2 in - Public TopLevel 34-36 @34 : Shape
-Function register in Shapes2 Public Static 35-35 @35 (shape: Shape)
+Function register in Shapes2 Public Static 35-35 @35 (shape: Shape) `fun register`
 Type Tiny in - Public TopLevel 38-38 @38
-Value size in Tiny Public Static 38-38 @38
+Value size in Tiny Public Static 38-38 @38 `val size`
 Type Color in - Public TopLevel 40-51 @40
-Value rgb in Color Public Instance 40-40 @40 <Int>
+Value rgb in Color Public Instance 40-40 @40 <Int> `val rgb : Int`
 EnumEntry RED in Color Public Static 41-41 @41
 EnumEntry GREEN in Color Public Static 42-44 @42
-Function hex in Color Public Instance 46-46 @46 ()
+Function hex in Color Public Instance 46-46 @46 () `fun hex : String`
 Type Factory in Color Public Static 48-50 @48
-Function of in Factory Public Static 49-49 @49 (rgb: Int)
+Function of in Factory Public Static 49-49 @49 (rgb: Int) `fun of`
 Type Result in - Public TopLevel 53-53 @53
 Type Ok in - Public TopLevel 54-54 @54 new(value: _) : Result
-Value value in Ok Public Instance 54-54 @54
+Value value in Ok Public Instance 54-54 @54 `val value : T`
 Type Marker in - Public TopLevel 55-55 @55
 TypeAlias Shapes in - Public TopLevel 57-57 @57
-Function topSecret in - File TopLevel 59-59 @59 ()
-Value moduleWide in - Module TopLevel 60-60 @60
-Value shout in - Public TopLevel 61-61 @61 receiver String <String>
-Function orEmpty in - Public TopLevel 62-62 @62 receiver Shape ()
-Function largest in - Public TopLevel 63-63 @63 receiver List ()
-Function platformName in - Public TopLevel 64-64 @64 ()
+Function topSecret in - File TopLevel 59-59 @59 () `fun topSecret`
+Value moduleWide in - Module TopLevel 60-60 @60 `val moduleWide`
+Value shout in - Public TopLevel 61-61 @61 receiver String <String> `val String . shout : String`
+Function orEmpty in - Public TopLevel 62-62 @62 receiver Shape () `fun Shape ? . orEmpty : Shape`
+Function largest in - Public TopLevel 63-63 @63 receiver List () `fun < T : Shape > List < T > . largest : T ?`
+Function platformName in - Public TopLevel 64-64 @64 () `expect fun platformName : String`
 @1 :JvmName
 @6 :Double
 @7 :String

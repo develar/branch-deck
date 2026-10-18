@@ -553,3 +553,22 @@ fn an_extension_receiver_or_a_function_hides_the_type() {
     assert!(!refs(&summary, name)[0].contains('<'), "{name}: {:?}", refs(&summary, name));
   }
 }
+
+/// The header of a function keeps what a use depends on (`suspend`, the receiver, the return type) and leaves out the
+/// body, the parameters the signature holds, annotations and the modifiers the reach or the overriding say
+#[test]
+fn a_header_is_the_form_before_the_body() {
+  let header = |source: &str| {
+    let summary = summarize(Language::Kotlin, source.as_bytes());
+    declaration(&summary, "cleanup").header.clone()
+  };
+  let plain = header("class L {\n  fun cleanup() {\n    a()\n  }\n}\n");
+  assert_eq!(plain.as_deref(), Some("fun cleanup"));
+  assert_eq!(header("class L {\n  fun cleanup() {\n    b()\n  }\n}\n"), plain, "a change of the body");
+  assert_eq!(header("class L {\n  @Synchronized\n  public open fun cleanup(force: Boolean = false) = b()\n}\n"), plain);
+  assert_eq!(header("class L {\n  suspend fun cleanup() {}\n}\n").as_deref(), Some("suspend fun cleanup"));
+  assert_eq!(header("fun <T> String.cleanup(): T? = null\n").as_deref(), Some("fun < T > String . cleanup : T ?"));
+  assert_eq!(header("class L {\n  val cleanup: Int = 1\n}\n").as_deref(), Some("val cleanup : Int"));
+  assert_eq!(header("class L {\n  val cleanup: Int by lazy { 1 }\n}\n").as_deref(), Some("val cleanup : Int"));
+  assert_eq!(header("class cleanup\n"), None, "a type has none");
+}

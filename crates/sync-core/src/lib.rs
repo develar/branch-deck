@@ -53,7 +53,8 @@
 //! The check, trial syncs that write objects only:
 //! - `check`: `CheckSession`, the trial sync of a regroup plan
 //! - `conflict_fix`: the regroup after which the conflicting branches apply cleanly, found by trial builds
-//! - `dangling_references`: the declarations a branch removes while its tree still uses them
+//! - `dangling_references`: the declarations a branch removes while its tree still uses them, and by the summaries
+//!   (`symbol_dependencies::declaration_checks`) those it changes or declares again
 //! - `dangling_fix`: the fix of a mutual dangling reference, offered when a trial build proves it
 //! - `inverted_stack`: a branch that needs a commit of a branch stacked on it, and its fixes
 //! - `missing_declarations`: the names a built branch uses that a commit outside it adds

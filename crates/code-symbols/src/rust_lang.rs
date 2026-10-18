@@ -12,7 +12,7 @@
 
 // jscpd:ignore-start: every language module implements one `Spec` with the same vocabulary
 use crate::extract::{
-  BLOCK_COMMENT, Binder, Child, DeclRule, Holder, IDENTIFIER, LINE_COMMENT, Opens, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, Walk, binder, decl, function_decl, line_of,
+  BLOCK_COMMENT, Binder, Child, DeclRule, Header, Holder, IDENTIFIER, LINE_COMMENT, Opens, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, Walk, binder, decl, function_decl, line_of,
   type_decl,
 };
 use crate::language::Language;
@@ -212,6 +212,13 @@ pub(crate) static SPEC: Spec = Spec {
   hoist: None,
   jvm: None,
   call_shape: None,
+  header: Header {
+    ends: &["block"],
+    end_tokens: &["="],
+    drops: &["visibility_modifier"],
+    drop_tokens: &[";"],
+    parameters: &["parameters"],
+  },
 };
 
 fn extern_crate<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {

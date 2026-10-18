@@ -221,6 +221,29 @@ pub(crate) fn commit_override_of_overload(repo: &TestRepo) -> (String, String) {
   (declares, overrides)
 }
 
+pub(crate) const LEDGER_TEST: &str = "plugins/air/tests/contract/AcpJourneyLifecycleTest.kt";
+
+/// The Safe Push failure of IJAI-4185 (2026-10-17) in `repo` (from `repo_with_baseline`): the baseline gets a ledger and
+/// a test that calls its `cleanup`; `(journey)` deletes the test, then `(suspend)` makes `cleanup` suspend. HEAD
+/// compiles, the tree of `(suspend)` has the call outside a coroutine. Returns `(the commit that deletes the test, the
+/// commit that changes the function)`
+pub(crate) fn commit_changed_declaration(repo: &TestRepo) -> (String, String) {
+  let ledger = |modifier: &str| format!("package bridge\n\nclass AcpOwnershipLedger {{\n  {modifier}fun cleanup() {{\n  }}\n}}\n");
+  write(repo, "plugins/air/tests/bridge/AcpOwnershipLedger.kt", ledger(""));
+  write(
+    repo,
+    LEDGER_TEST,
+    "package contract\n\nimport bridge.AcpOwnershipLedger\n\nclass AcpJourneyLifecycleTest {\n  fun cleans() {\n    val ledger = AcpOwnershipLedger()\n    ledger.cleanup()\n  }\n}\n",
+  );
+  let base = commit_all(repo, "Add the ledger", 1_700_000_050);
+  git(repo, &["update-ref", "refs/remotes/origin/master", &base]);
+  git(repo, &["rm", "-q", "--", LEDGER_TEST]);
+  let deleted_by = commit_all(repo, "(journey) IJAI-4182 The journey support goes with its tests", 1_700_000_100);
+  write(repo, "plugins/air/tests/bridge/AcpOwnershipLedger.kt", ledger("suspend "));
+  let changed_by = commit_all(repo, "(suspend) IJAI-4185 The cleanups may suspend", 1_700_000_200);
+  (deleted_by, changed_by)
+}
+
 /// The Safe Push failure of 2026-10-16 in `repo` (from `repo_with_baseline`): the baseline gets a Java class with a
 /// constant and a Kotlin file that uses it; `(fake-agent)` moves the constant into a new class, and `(lane-document)`
 /// changes the use. Returns `(the commit that moves it, the commit that changes the use)`

@@ -672,7 +672,7 @@ repository lock.
   one that has them.
 - `dangling_reference`: git merges the branch, but its build fails. It removes a declaration (a top-level type or
   function, a static member) that a file of its virtual tree still uses, and a commit outside it, `fixed_by`, changes
-  that use in HEAD. `dangling_references` lists `{identifier, file, line, removed_by, fixed_by, mutual}`: move
+  that use in HEAD. `dangling_references` lists `{kind, identifier, file, line, removed_by, fixed_by, mutual}`: move
   `fixed_by` into the branch or stack the branch on the one that has it; `mutual`, when the change in `fixed_by` uses
   what the branch adds (as in a move of a constant into a new class), means no stack builds both, and `fix` says how
   the change gets into the branch: `{kind: "move_commit", branches}` when `fixed_by` changes only `file` (add
@@ -685,7 +685,16 @@ repository lock.
   Groovy, Scala, Rust, TypeScript, JavaScript, Python, Go): instance members are not searched, and a use through an
   alias or a star import is not seen. The syntax trees of Kotlin, Java, Rust, TypeScript and JavaScript then take away
   a word of a comment or a string, a local of the same name and a name a `use` or an import alias still binds: `via`
-  is `syntax_tree` where they confirmed the uses, `lines` where the lines alone found them. It searches only the paths where the branch's tree and HEAD's differ,
+  is `syntax_tree` where they confirmed the uses, `lines` where the lines alone found them. With `branchdeck.symbols
+  on` the syntax summaries find three more kinds by themselves (`kind`; the lines' are `removed_declaration`):
+  `removed_declaration` of an instance or static member, or an enum entry, used on a receiver of its type, by `this`,
+  an override, an inherited call or its static path (not by a bare name elsewhere); `changed_declaration`, a function,
+  property or constant whose header (`suspend`, the return type, the receiver), parameters or reach the branch changes
+  (`removed_by`), or the constructors of a type, used where the old form fits and no form in the branch's tree does (a
+  parameter with a default takes the old calls; a change of the body is none); `duplicate_declaration`, a type or a
+  Kotlin top-level function the branch adds while its tree declares the key in another file of the package and module
+  (`file`, `line`) that `fixed_by` deletes: a move whose deletion is in another branch. Their possible ones are
+  `possible_changed_declaration` and `possible_duplicate_declaration`. It searches only the paths where the branch's tree and HEAD's differ,
   so it costs a `diff-tree` and a `cat-file`, plus one `log -p -U0` for the commits the cache lacks.
 - `inverted_stack` `{branch, child, fixes}`: the branch conflicts, or has a dangling reference, because it needs a
   commit (`missing_commits`, `fixed_by`) of `child`, a branch stacked on it: no order of the stack builds both. Each
@@ -1123,8 +1132,9 @@ lands them all. The branches built on it stay; after the merge the next sync bui
   it"), or a Safe Push of a branch it is built on runs, whose commits it would land a second time ("A Safe Push of
   auth is running: wait until it merges"). A running Safe Push of an older commit fails once the push changes its
   branch: `--cancel-running` cancels it first (`canceled`); a dry run is not affected.
-- `dangling_reference` (exit 4, nothing pushed): the branch or a branch it is built on removes a declaration that a
-  commit of another branch still changes the use of, as `bd check` reports it (`dangling_references`); the message
+- `dangling_reference` (exit 4, nothing pushed): the branch or a branch it is built on removes, changes or declares
+  again a declaration whose use (or other declaration) a commit of another branch changes, as `bd check` reports it
+  (`dangling_references`, with its `kind`); the message
   names the use, the commits and the fix. `--check` lists it in `refusals`; `--allow-dangling` starts anyway, when
   the user says it is a false alarm. A possible one (`bd check` `warnings`) is in `warnings` and refuses nothing.
 - `patronus_refused`: the target is not protected by Patronus, the pull request is a draft, or Patronus rejected the

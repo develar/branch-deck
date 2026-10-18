@@ -16,9 +16,13 @@
 //!   Patronus merges onto the baseline tip.
 //! - The changed lines of each commit come from one `log -z --raw -p -U0 --no-renames`, by the paths of the raw
 //!   entries, and are cached by commit id (`commit_lines`).
+//! - **By the summaries** (`declaration_checks`, with `branchdeck.symbols on`): an instance or static member a branch
+//!   removes, a form it changes and a declaration it adds again, on the same `diff-tree` and `cat-file` (`TreeSearch`),
+//!   each a reference of its `DanglingKind`.
 
 use crate::check::{BranchCheck, CheckOutcome};
 use crate::diff_scan::{HUNK_OPTIONS, split_records};
+use crate::symbol_dependencies::declaration_checks::{DeclarationFacts, DeclarationSearch, TreeForm, searches_of};
 use anyhow::{Result, anyhow};
 use code_symbols::extract::summarize;
 use code_symbols::language::language_of as symbols_language_of;
@@ -32,15 +36,30 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, LazyLock, Mutex};
 use tracing::{debug, instrument};
 
-/// A use of a name that a branch removes, in its virtual tree but not in HEAD's tree (or on the baseline tip)
+/// What a branch does to the declaration of a dangling reference
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum DanglingKind {
+  /// It removes the declaration
+  Removed,
+  /// It changes the form of the declaration (`declaration_checks`): its header, its parameters, its reach or the
+  /// constructors of its type, and the use may not fit the new form
+  Changed,
+  /// It declares the key again (`declaration_checks`): the use is the other declaration, in a file its tree has and
+  /// HEAD's lacks
+  Duplicate,
+}
+
+/// A use of a name that a branch removes or changes, or a declaration of a name it adds again, in its virtual tree but
+/// not in HEAD's tree (or on the baseline tip)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DanglingReference {
+  pub kind: DanglingKind,
   pub identifier: String,
   /// The path of the use
   pub file: String,
   /// The first line of the use in the tree that has it, 1-based
   pub line: u32,
-  /// The commit of the branch that removes the declaration
+  /// The commit of the branch that removes the declaration, changes it or declares it again
   pub removed_by: String,
   /// The commit outside the branch whose patch removes the use; `None` makes the reference only possible
   pub fixed_by: Option<String>,
@@ -512,6 +531,9 @@ pub struct DanglingInput<'a> {
   pub of: Option<&'a [String]>,
   /// The syntax trees that filter the uses the lines find; `None` with `branchdeck.symbols` off
   pub syntax: Option<&'a SyntaxMemo>,
+  /// The summaries and changes of `commits` for the checks by the declarations (`declaration_checks`); `None` unless
+  /// `branchdeck.symbols` is `on` and a commit changes a source file of a grammar
+  pub declarations: Option<DeclarationFacts<'a>>,
 }
 
 /// One pair of trees that `diff-tree` compares: `(the side with the uses, the other side)`, and per path the blobs
@@ -540,6 +562,8 @@ pub fn find_dangling_references(
     members: HashSet<&'a str>,
     /// The names its commits and its ancestors' declare
     declared: HashSet<String>,
+    /// What its commits remove, change or declare again, searched by the syntax trees
+    declarations: Vec<DeclarationSearch<'a>>,
   }
   let mut built: Vec<Built> = Vec::new();
   let mut packages_needed: Vec<String> = Vec::new();
@@ -574,6 +598,10 @@ pub fn find_dangling_references(
     let mut removed: BTreeMap<(String, String), (Declaration, &str)> = BTreeMap::new();
     let mut own: Vec<&String> = branch.commits.iter().collect();
     own.sort_by_key(|id| position.get(id.as_str()).copied().unwrap_or(usize::MAX));
+    let declarations = input.declarations.map_or_else(Vec::new, |facts| {
+      let own: Vec<&str> = own.iter().map(|id| id.as_str()).collect();
+      searches_of(facts, &own, &members)
+    });
     for id in own {
       for file in input.lines.get(id).into_iter().flatten() {
         let Some(language) = language_of(&file.path) else { continue };
@@ -619,7 +647,7 @@ pub fn find_dangling_references(
         moved,
       });
     }
-    if searches.is_empty() {
+    if searches.is_empty() && declarations.is_empty() {
       continue;
     }
     built.push(Built {
@@ -628,6 +656,7 @@ pub fn find_dangling_references(
       searches,
       members,
       declared: added.into_keys().collect(),
+      declarations,
     });
   }
   if built.is_empty() {
@@ -654,12 +683,27 @@ pub fn find_dangling_references(
   };
   for (branch, (_, diff)) in built.iter().zip(&diffs) {
     for (path, (ours, theirs)) in &diff.paths {
-      if branch.searches.iter().any(|search| search.pattern_for(path).is_some()) {
+      // a declaration search reads a blob whose summary the commits don't have, or one that names it
+      let declarations_want = || {
+        input.declarations.is_some_and(|facts| {
+          let summary = ours.as_ref().and_then(|blob| facts.input.summaries.get(blob)).map(AsRef::as_ref);
+          branch.declarations.iter().any(|search| search.searches(facts.input, path) && search.may_use(summary))
+        })
+      };
+      if branch.searches.iter().any(|search| search.pattern_for(path).is_some()) || declarations_want() {
         ours.iter().chain(theirs).for_each(|blob| want(blob.clone(), &mut names));
       }
     }
     for search in &branch.searches {
       want(format!("{}:{}", branch.head, search.file), &mut names);
+    }
+    if let Some(facts) = input.declarations {
+      for search in &branch.declarations {
+        let name = branch_file(facts, diff, branch.head, search.file);
+        if !facts.input.summaries.contains_key(&name) {
+          want(name, &mut names);
+        }
+      }
     }
   }
   let baseline_diff = baseline.and_then(|_| diffs.last()).map(|(_, diff)| diff).filter(|diff| {
@@ -755,6 +799,7 @@ pub fn find_dangling_references(
           })
         });
         found.push(DanglingReference {
+          kind: DanglingKind::Removed,
           identifier: search.name.clone(),
           file: path.clone(),
           line: u32::try_from(line + 1).unwrap_or(u32::MAX),
@@ -774,6 +819,7 @@ pub fn find_dangling_references(
             continue;
           }
           found.push(DanglingReference {
+            kind: DanglingKind::Removed,
             identifier: search.name.clone(),
             file: path.clone(),
             line: u32::try_from(uses[0].0 + 1).unwrap_or(u32::MAX),
@@ -786,12 +832,201 @@ pub fn find_dangling_references(
         }
       }
     }
+    if let Some(facts) = input.declarations {
+      let context = TreeSearch {
+        facts,
+        input,
+        branch_head: branch.head,
+        members: &branch.members,
+        declared: &branch.declared,
+        diff,
+        text: &text,
+        syntax: &syntax,
+      };
+      for search in &branch.declarations {
+        for reference in context.references(search) {
+          // the line search found it already: a static member by its qualified name
+          if !found.iter().any(|known| known.file == reference.file && known.identifier == reference.identifier) {
+            found.push(reference);
+          }
+        }
+      }
+    }
     if !found.is_empty() {
       found.sort_by(|a, b| (&a.file, a.line, &a.identifier).cmp(&(&b.file, b.line, &b.identifier)));
       result.insert(branch.name.to_string(), found);
     }
   }
   Ok(result)
+}
+
+/// The `cat-file` name of the branch's version of `file`: its blob where the branch's tree differs from HEAD's there,
+/// else HEAD's, the blob the newest commit that changes the file leaves, whose summary the commits have; else
+/// `<head>:<file>`
+fn branch_file(facts: DeclarationFacts<'_>, diff: &TreeDiff, head: &str, file: &str) -> String {
+  let blob = match diff.paths.get(file) {
+    Some((ours, _)) => ours.clone(),
+    None => facts
+      .diffs
+      .iter()
+      .rev()
+      .flat_map(|diff| &diff.files)
+      .find(|change| change.path == file)
+      .and_then(|change| change.new_blob.clone()),
+  };
+  blob.unwrap_or_else(|| format!("{head}:{file}"))
+}
+
+/// What the searches by the declarations of one branch read (`declaration_checks`)
+struct TreeSearch<'s, 'a> {
+  facts: DeclarationFacts<'a>,
+  input: &'s DanglingInput<'a>,
+  branch_head: &'s str,
+  /// The commits in its virtual tree
+  members: &'s HashSet<&'a str>,
+  /// The names its commits and its ancestors' declare, for `mutual`
+  declared: &'s HashSet<String>,
+  diff: &'s TreeDiff,
+  /// The text of a `cat-file` name
+  text: &'s dyn Fn(&str) -> Option<&'s str>,
+  /// The summary of a `cat-file` name, the blob of a path
+  syntax: &'s dyn Fn(&str, &str) -> Option<Arc<FileSummary>>,
+}
+
+impl TreeSearch<'_, '_> {
+  /// The dangling references of `search` in the paths where the branch's tree differs from HEAD's
+  fn references(&self, search: &DeclarationSearch<'_>) -> Vec<DanglingReference> {
+    let symbols = self.facts.input;
+    let Some(current) = self.summary(&branch_file(self.facts, self.diff, self.branch_head, search.file), search.file) else {
+      return Vec::new();
+    };
+    let Some(form) = search.in_tree(symbols, search.file, &current) else {
+      return Vec::new();
+    };
+    let words = search.words();
+    let mut found = Vec::new();
+    // a duplicate: the declarations of its key in the paths where the trees differ, and in its own file
+    let mut declared = if self.diff.paths.contains_key(search.file) {
+      0
+    } else {
+      search.uses(symbols, &form, search.file, &current).len()
+    };
+    for (path, (ours, theirs)) in &self.diff.paths {
+      let Some(ours) = ours.as_deref().filter(|_| search.searches(symbols, path)) else {
+        continue;
+      };
+      // by the names of a summary the commits have, else by the text, before it is parsed
+      let known = symbols.summaries.get(ours);
+      if !search.may_use(known.map(AsRef::as_ref)) {
+        continue;
+      }
+      let Some(ours_text) = (self.text)(ours).filter(|text| known.is_some() || words.iter().any(|word| text.contains(word.as_str()))) else {
+        continue;
+      };
+      let Some(ours_summary) = self.summary(ours, path) else { continue };
+      // both sides by the trees, or the path is not judged
+      let theirs_summary = match theirs.as_deref() {
+        Some(theirs) => match self.summary(theirs, path) {
+          Some(summary) => Some(summary),
+          None => continue,
+        },
+        None => None,
+      };
+      let mut uses = search.uses(symbols, &form, path, &ours_summary);
+      if search.kind == DanglingKind::Changed {
+        // a use the branch's own commits wrote is written against the form they gave the declaration
+        let written: HashSet<&str> = self.written_by_branch(path);
+        let lines: Vec<&str> = ours_text.lines().collect();
+        uses.retain(|line| !lines.get(*line as usize - 1).is_some_and(|text| written.contains(text.trim())));
+      }
+      declared += uses.len();
+      let their_uses = theirs_summary.as_ref().map_or_else(Vec::new, |summary| search.uses(symbols, &form, path, summary));
+      // the file of an added declaration has a second one only when it declares the key twice
+      if uses.len() <= their_uses.len() || (search.kind == DanglingKind::Duplicate && path == search.file && uses.len() < 2) {
+        continue;
+      }
+      let their_lines: HashSet<&str> = theirs.as_deref().and_then(|theirs| (self.text)(theirs)).map_or_default(|text| {
+        let lines: Vec<&str> = text.lines().collect();
+        their_uses.iter().filter_map(|line| lines.get(*line as usize - 1)).map(|line| line.trim()).collect()
+      });
+      let ours_lines: Vec<&str> = ours_text.lines().collect();
+      let line = uses
+        .iter()
+        .copied()
+        .find(|line| ours_lines.get(*line as usize - 1).is_none_or(|text| !their_lines.contains(text.trim())))
+        .unwrap_or(uses[0]);
+      let (fixed_by, needs_branch) = self.fixed_by(search, &form, path);
+      let mutual = needs_branch
+        || fixed_by.is_some_and(|id| {
+          self.input.lines.get(id).into_iter().flatten().filter(|file| file.path == *path).any(|file| {
+            file.added.iter().any(|line| {
+              self
+                .declared
+                .iter()
+                .any(|name| line.contains(name.as_str()) && whole_word(&regex::escape(name)).is_match(line))
+            })
+          })
+        });
+      found.push(DanglingReference {
+        kind: search.kind,
+        identifier: search.name.to_string(),
+        file: path.clone(),
+        line,
+        removed_by: search.commit.to_string(),
+        fixed_by: fixed_by.map(str::to_string),
+        on_baseline: false,
+        mutual,
+        by_syntax: true,
+      });
+    }
+    if search.kind == DanglingKind::Duplicate && declared < 2 {
+      found.clear();
+    }
+    found
+  }
+
+  /// The summary of the blob `id` of `path`: the one of a commit's file when a commit has the blob, which the object
+  /// cache holds, else parsed in the session (`SyntaxMemo`)
+  fn summary(&self, id: &str, path: &str) -> Option<Arc<FileSummary>> {
+    match self.facts.input.summaries.get(id) {
+      Some(summary) => Some(Arc::clone(summary)).filter(|summary| !summary.is_degraded() && !summary.truncated),
+      None => (self.syntax)(id, path),
+    }
+  }
+
+  /// The trimmed lines the commits of the branch's tree add to `path`
+  fn written_by_branch(&self, path: &str) -> HashSet<&str> {
+    self
+      .members
+      .iter()
+      .filter_map(|id| self.input.lines.get(*id))
+      .flatten()
+      .filter(|file| file.path == path)
+      .flat_map(|file| file.added.iter().map(|line| line.trim()))
+      .collect()
+  }
+
+  /// The oldest commit outside the branch's tree whose change of `path` removes uses the search counts, and whether
+  /// that change uses what only the branch's form of the declaration takes
+  fn fixed_by(&self, search: &DeclarationSearch<'_>, form: &TreeForm<'_>, path: &str) -> (Option<&str>, bool) {
+    let symbols = self.facts.input;
+    let summary_of = |blob: Option<&String>| blob.and_then(|blob| symbols.summaries.get(blob)).filter(|summary| !summary.is_degraded());
+    for diff in self.facts.diffs.iter().filter(|diff| !self.members.contains(diff.id.as_str())) {
+      for change in &diff.files {
+        let old_path = change.old_path.as_deref().unwrap_or(&change.path);
+        if old_path != path {
+          continue;
+        }
+        let Some(before) = summary_of(change.old_blob.as_ref()) else { continue };
+        let after = summary_of(change.new_blob.as_ref()).map(|summary| (change.path.as_str(), summary.as_ref()));
+        if search.removes_use(symbols, form, (old_path, before), after) {
+          let needs = after.is_some_and(|after| search.needs_new_form(symbols, form, Some((old_path, before)), after));
+          return (Some(diff.id.as_str()), needs);
+        }
+      }
+    }
+    (None, false)
+  }
 }
 
 /// One `diff-tree --stdin -r -z --raw` for `pairs` of commits `(the side with the uses, the other side)`

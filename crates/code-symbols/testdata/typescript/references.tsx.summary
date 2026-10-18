@@ -1,4 +1,4 @@
-Function Panel in - Public TopLevel 2-29 @3
+Function Panel in - Public TopLevel 2-29 @3 `function Panel ( { title , items = DEFAULT_ITEMS } : PanelProps )`
 @3 DEFAULT_ITEMS :PanelProps
 @4 useState()
 @5 ?.length

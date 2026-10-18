@@ -21,7 +21,7 @@ use std::sync::atomic::AtomicBool;
 use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
 use sync_core::conflict_fix::{ConflictFix, FixBudget, FixStepKind, SearchState};
 use sync_core::dangling_fix::{DanglingFixProver, ProvenFix};
-use sync_core::dangling_references::DanglingReference;
+use sync_core::dangling_references::{DanglingKind, DanglingReference};
 use sync_core::inverted_stack::{InvertedStackFixKind, inverted_stack};
 use sync_core::missing_commits::{changed_files, missing_commits};
 use sync_core::missing_declarations::missing_declarations;
@@ -69,7 +69,8 @@ pub struct CheckOutput {
   /// Parents before their children
   pub branches: Vec<CheckedBranch>,
   pub unassigned_count: usize,
-  /// What may break a build though no commit proves it: `possible_dangling_reference`
+  /// What may break a build though no commit proves it: `possible_dangling_reference`, `possible_changed_declaration`,
+  /// `possible_duplicate_declaration`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub warnings: Vec<CheckWarning>,
   /// With `branchdeck.symbols on`: a commit of a branch uses a name that a commit outside the branch and the branches
@@ -197,16 +198,19 @@ fn fix_output(fix: &ConflictFix, short: &ShortIds) -> CheckFix {
   }
 }
 
-/// A use of a name a branch removes that no commit outside it changes: in its virtual tree with no fix in HEAD, or on
-/// the baseline tip, which got it after the base. The exit code doesn't count it
+/// A use of a name a branch removes or changes, or a second declaration of a name it adds, that no commit outside it
+/// changes: in its virtual tree with no fix in HEAD, or on the baseline tip, which got it after the base. The exit code
+/// doesn't count it
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct CheckWarning {
-  /// `possible_dangling_reference`
+  /// `possible_dangling_reference` (a removed declaration), `possible_changed_declaration`,
+  /// `possible_duplicate_declaration`, as `kind` of a dangling reference says
   pub kind: String,
   pub branch: String,
   pub identifier: String,
   pub file: String,
   pub line: u32,
+  /// The commit of the branch that removes, changes or adds the declaration
   pub removed_by: String,
   /// The use is on the baseline tip, not in the virtual tree
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -218,6 +222,33 @@ pub struct CheckWarning {
 /// How the uses of a dangling reference were found, for `via`
 const fn found_via(reference: &DanglingReference) -> &'static str {
   if reference.by_syntax { "syntax_tree" } else { "lines" }
+}
+
+/// The `kind` of a dangling reference
+pub(crate) const fn kind_name(kind: DanglingKind) -> &'static str {
+  match kind {
+    DanglingKind::Removed => "removed_declaration",
+    DanglingKind::Changed => "changed_declaration",
+    DanglingKind::Duplicate => "duplicate_declaration",
+  }
+}
+
+/// The `kind` of a warning of a dangling reference that no commit proves
+const fn warning_kind(kind: DanglingKind) -> &'static str {
+  match kind {
+    DanglingKind::Removed => "possible_dangling_reference",
+    DanglingKind::Changed => "possible_changed_declaration",
+    DanglingKind::Duplicate => "possible_duplicate_declaration",
+  }
+}
+
+/// What the branch does to the declaration, in a sentence: `removes`, `changes the form of`, `declares again`
+pub(crate) const fn kind_verb(kind: &str) -> &'static str {
+  match kind.as_bytes() {
+    b"changed_declaration" | b"possible_changed_declaration" => "changes the form of",
+    b"duplicate_declaration" | b"possible_duplicate_declaration" => "declares again",
+    _ => "removes",
+  }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -288,16 +319,22 @@ pub struct BuildResult {
   pub cached: bool,
 }
 
-/// A use of a name the branch removes, in its virtual tree, that a commit outside the branch changes in HEAD
+/// A use of a name the branch removes or changes, or a second declaration of a name it adds, in its virtual tree, that a
+/// commit outside the branch changes in HEAD
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct DanglingReferenceSummary {
+  /// `removed_declaration`: the branch removes the declaration; `changed_declaration`: it changes its form (its header,
+  /// such as `suspend` or the return type, its parameters, its reach, the constructors of its type), and the use, which
+  /// the old form takes, may not fit; `duplicate_declaration`: the branch declares the name again, and `file` is the
+  /// other declaration, of the same key, package and module
+  pub kind: &'static str,
   pub identifier: String,
-  /// Where the virtual tree uses it
+  /// Where the virtual tree uses it (declares it, for `duplicate_declaration`)
   pub file: String,
   pub line: u32,
-  /// The commit of the branch that removes the declaration
+  /// The commit of the branch that removes, changes or adds the declaration
   pub removed_by: String,
-  /// The commit outside the branch whose patch changes the use: the branch needs it
+  /// The commit outside the branch whose patch changes the use (removes the other declaration): the branch needs it
   pub fixed_by: String,
   /// The change in `fixed_by` uses what the branch declares: stacking either branch on the other can't help; move the
   /// change of `file` into `removed_by`
@@ -471,7 +508,7 @@ pub(crate) fn possible_dangling_references(report: &CheckReport, short: &ShortId
     .flat_map(|(branch, references)| references.iter().map(move |reference| (branch, reference)))
     .filter(|(_, reference)| !reference.is_confirmed())
     .map(|(branch, reference)| CheckWarning {
-      kind: "possible_dangling_reference".to_string(),
+      kind: warning_kind(reference.kind).to_string(),
       branch: branch.clone(),
       identifier: reference.identifier.clone(),
       file: reference.file.clone(),
@@ -497,6 +534,7 @@ pub(crate) fn confirmed_dangling_references(report: &CheckReport, branch: &Branc
       let fixed_by = reference.fixed_by.as_deref().filter(|_| reference.is_confirmed())?;
       let (removed_by, fixed_by) = (short.get(&reference.removed_by).to_string(), short.get(fixed_by).to_string());
       Some(DanglingReferenceSummary {
+        kind: kind_name(reference.kind),
         fix: if reference.mutual { prove(branch, reference) } else { None },
         identifier: reference.identifier.clone(),
         file: reference.file.clone(),
@@ -692,9 +730,19 @@ pub(crate) fn dangling_reference_message(branch: &str, references: &[(String, Da
     count => format!(" ({} more: bd check)", count - 1),
   };
   let of = if owner == branch { String::new() } else { format!(", which {branch} is built on,") };
+  let (uses, change) = if first.kind == "duplicate_declaration" {
+    ("still declares it too", "removes that declaration")
+  } else {
+    ("still uses it", "changes that use")
+  };
   format!(
-    "{owner}{of} removes {} in {}, and {}:{} still uses it: {} changes that use in another branch, so the build fails. To fix it, {fix}{more}; --allow-dangling starts anyway",
-    first.identifier, first.removed_by, first.file, first.line, first.fixed_by
+    "{owner}{of} {} {} in {}, and {}:{} {uses}: {} {change} in another branch, so the build fails. To fix it, {fix}{more}; --allow-dangling starts anyway",
+    kind_verb(first.kind),
+    first.identifier,
+    first.removed_by,
+    first.file,
+    first.line,
+    first.fixed_by
   )
 }
 

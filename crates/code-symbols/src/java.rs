@@ -5,8 +5,8 @@
 
 // jscpd:ignore-start: every language module implements one `Spec` with the same vocabulary
 use crate::extract::{
-  BLOCK_COMMENT, Binder, CallArguments, Child, DeclRule, Holder, IDENTIFIER, JvmFields, JvmHooks, LINE_COMMENT, Modality, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, ValueType,
-  Walk, binder, decl, function_decl, line_of, type_decl,
+  BLOCK_COMMENT, Binder, CallArguments, Child, DeclRule, Header, Holder, IDENTIFIER, JvmFields, JvmHooks, LINE_COMMENT, Modality, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits,
+  ValueType, Walk, binder, decl, function_decl, line_of, type_decl,
 };
 use crate::language::Language;
 use crate::summary::{Argument, Constructor, DeclKind, MemberKind, Parameter, Reach, Role, Signature};
@@ -187,6 +187,26 @@ pub(crate) static SPEC: Spec = Spec {
     receiver_node: |_, node| node,
   }),
   call_shape: Some(call_shape),
+  header: Header {
+    ends: &["block", "constructor_body"],
+    end_tokens: &["="],
+    drops: &["marker_annotation", "annotation"],
+    drop_tokens: &[
+      "public",
+      "protected",
+      "private",
+      "final",
+      "abstract",
+      "synchronized",
+      "native",
+      "strictfp",
+      "transient",
+      "volatile",
+      "default",
+      ";",
+    ],
+    parameters: &["formal_parameters"],
+  },
 };
 
 fn package<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {

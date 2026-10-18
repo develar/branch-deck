@@ -1,4 +1,8 @@
-use crate::fixture_test::{ACP_HOST, MANAGER_TEST, commit_all, commit_dangling_reference, commit_override_of_overload, git, repo_with_baseline, run_in, with_header, write};
+use crate::check_command::{DanglingReferenceSummary, dangling_reference_message};
+use crate::fixture_test::{
+  ACP_HOST, LEDGER_TEST, MANAGER_TEST, commit_all, commit_changed_declaration, commit_dangling_reference, commit_override_of_overload, git, repo_with_baseline, run_in,
+  with_header, write,
+};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -194,6 +198,7 @@ fn a_branch_that_removes_a_used_declaration_is_dangling_reference() {
       "commit_count": 1,
       "result": "dangling_reference",
       "dangling_references": [{
+        "kind": "removed_declaration",
         "identifier": "CONTROL_URL_ENV",
         "file": ACP_HOST,
         "line": 7,
@@ -211,6 +216,42 @@ fn a_branch_that_removes_a_used_declaration_is_dangling_reference() {
 
   // the fix in the same branch: ok
   let plan = json!({ "branches": { "fake-agent": [removed_by, fixed_by] } });
+  let (exit_code, output) = check(&repo, &plan, &[]);
+  assert_eq!(exit_code, 0, "{output}");
+}
+
+/// A branch that makes a function suspend, whose tree has a call of it that another branch deleted: the old form takes
+/// the call and the new one doesn't, so it is a dangling reference of the kind `changed_declaration`
+#[test_log::test]
+fn a_branch_that_changes_a_used_declaration_is_dangling_reference() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let (deleted_by, changed_by) = commit_changed_declaration(&repo);
+  let (exit_code, output) = run_in(&repo, &["check"]);
+  assert_eq!(exit_code, 1, "{output}");
+  assert_eq!(
+    branch(&output, "suspend"),
+    &json!({
+      "name": "suspend",
+      "built_on": null,
+      "commit_count": 1,
+      "result": "dangling_reference",
+      "dangling_references": [{
+        "kind": "changed_declaration",
+        "identifier": "cleanup",
+        "file": LEDGER_TEST,
+        "line": 8,
+        "removed_by": short_id(&changed_by),
+        "fixed_by": short_id(&deleted_by),
+        "via": "syntax_tree",
+      }],
+    })
+  );
+  assert_eq!(branch(&output, "journey")["result"], json!("ok"), "{output}");
+  let (_, schema) = run_in(&repo, &["schema"]);
+  crate::schema_test::assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], &output, "check");
+
+  // the deletion in the same branch: ok
+  let plan = json!({ "branches": { "suspend": [deleted_by, changed_by] } });
   let (exit_code, output) = check(&repo, &plan, &[]);
   assert_eq!(exit_code, 0, "{output}");
 }
@@ -618,4 +659,34 @@ fn an_override_of_another_branchs_overload_is_a_missing_declaration() {
   );
   let (_, schema) = run_in(&repo, &["schema"]);
   crate::schema_test::assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], &output, "check");
+}
+
+/// The refusal of `bd safe-push` says what the branch does to the declaration: a change of its form, a second
+/// declaration
+#[test]
+fn a_dangling_reference_message_names_the_kind() {
+  let reference = |kind: &'static str| DanglingReferenceSummary {
+    kind,
+    identifier: "cleanup".to_string(),
+    file: LEDGER_TEST.to_string(),
+    line: 8,
+    removed_by: "c372cb86".to_string(),
+    fixed_by: "aa0fb473".to_string(),
+    mutual: false,
+    via: "syntax_tree",
+    fix: None,
+  };
+  let message = |kind| dangling_reference_message("suspend", &[("suspend".to_string(), reference(kind))]);
+  assert_eq!(
+    message("changed_declaration"),
+    format!(
+      "suspend changes the form of cleanup in c372cb86, and {LEDGER_TEST}:8 still uses it: aa0fb473 changes that use in another branch, so the build fails. To fix it, move aa0fb473 into suspend, or stack suspend on its branch; --allow-dangling starts anyway"
+    )
+  );
+  assert_eq!(
+    message("duplicate_declaration"),
+    format!(
+      "suspend declares again cleanup in c372cb86, and {LEDGER_TEST}:8 still declares it too: aa0fb473 removes that declaration in another branch, so the build fails. To fix it, move aa0fb473 into suspend, or stack suspend on its branch; --allow-dangling starts anyway"
+    )
+  );
 }

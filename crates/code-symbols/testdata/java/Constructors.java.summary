@@ -4,25 +4,25 @@ Type Implicit in Constructors Public Static 14-14 @14 new()
 Type PackageImplicit in Constructors Module Static 16-16 @16 Module new()
 Type Hidden in Constructors Container Static 18-18 @18 Container new()
 Type Point in Constructors Module Static 20-28 @20 new(x: int, y: int) Module new(x: int)
-Value x in Point Public Instance 20-20 @20
-Value y in Point Public Instance 20-20 @20
+Value x in Point Public Instance 20-20 @20 `int x`
+Value y in Point Public Instance 20-20 @20 `int y`
 Type Full in Constructors Module Static 30-34 @30 new(name: String)
-Value name in Full Public Instance 30-30 @30
+Value name in Full Public Instance 30-30 @30 `String name`
 Type Plain in Constructors Public Static 36-36 @36 new(size: int)
-Value size in Plain Public Instance 36-36 @36
+Value size in Plain Public Instance 36-36 @36 `int size`
 Type Listener in Constructors Module Static 38-38 @38
 Type Level in Constructors Module Static 40-44 @40
 EnumEntry LOW in Level Public Static 41-41 @41
 EnumEntry HIGH in Level Public Static 41-41 @41
 Type Marker in Constructors Module Static 46-46 @46
-Function local in Constructors Module Instance 48-52 @48 () overridable
-Function create in Constructors Module Instance 60-68 @60 () overridable
+Function local in Constructors Module Instance 48-52 @48 () `void local` overridable
+Function create in Constructors Module Instance 60-68 @60 () `Object create` overridable
 Type Holder in Constructors Module Static 70-74 @70 new(value: _) Container new(values: _)
 Type Stamp in Constructors Module Static 76-80 @76 new(date: Date) Container new(date: Date)
 Type Pair in Constructors Module Static 82-86 @82 Module new(first: _) Module new(all: _)
-Value first in Pair Public Instance 82-82 @82
+Value first in Pair Public Instance 82-82 @82 `A first`
 Type Generic in Constructors Module Static 88-90 @88 Module new(first: _)
-Value first in Generic Public Instance 88-88 @88
+Value first in Generic Public Instance 88-88 @88 `A first`
 @4 :String
 @5 Constructors(_)
 @22 IllegalArgumentException(Text) x

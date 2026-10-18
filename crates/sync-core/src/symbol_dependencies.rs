@@ -30,6 +30,9 @@ use object_cache::commit_diff::FileChange;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
+#[path = "declaration_checks.rs"]
+pub mod declaration_checks;
+
 /// Why a use means a declaration another commit adds
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Evidence {

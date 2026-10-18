@@ -4,9 +4,9 @@ import java.util.function.* @4
 import java.util.Objects.requireNonNull @5
 import org.junit.Assert.* @6
 Type References in - Public TopLevel 8-54 @12 new()
-Value canvas in References Container Instance 15-15 @15 <Canvas>
-Function render in References Module Instance 17-51 @17 (shapes: List/Shape, scale: int) overridable
-Constant THRESHOLD in References Container Static 53-53 @53
+Value canvas in References Container Instance 15-15 @15 <Canvas> `Canvas canvas`
+Function render in References Module Instance 17-51 @17 (shapes: List/Shape, scale: int) `void render` overridable
+Constant THRESHOLD in References Container Static 53-53 @53 `static double THRESHOLD`
 @3 ^java.util.List
 @5 ^java.util.Objects.requireNonNull
 @11 :SuppressWarnings

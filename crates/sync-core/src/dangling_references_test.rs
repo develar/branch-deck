@@ -1,5 +1,5 @@
 use crate::check::{CheckOutcome, CheckReport, check_plan};
-use crate::dangling_references::{DanglingReference, read_commit_lines};
+use crate::dangling_references::{DanglingKind, DanglingReference, read_commit_lines};
 use object_cache::cache::ObjectCache;
 use object_cache::commit_lines::FileLines;
 use pretty_assertions::assert_eq;
@@ -81,6 +81,7 @@ fn the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch() {
   assert_eq!(
     report.dangling.get("fake-agent").cloned().unwrap_or_default(),
     [DanglingReference {
+      kind: DanglingKind::Removed,
       identifier: "CONTROL_URL_ENV".to_string(),
       file: HOST.to_string(),
       line: 7,
@@ -254,6 +255,7 @@ fn a_removed_top_level_function_is_searched_by_its_name() {
   assert_eq!(
     dangling.get("cleanup").cloned().unwrap_or_default(),
     [DanglingReference {
+      kind: DanglingKind::Removed,
       identifier: "controlUrl".to_string(),
       file: "src/flow/Start.kt".to_string(),
       line: 3,

@@ -5,7 +5,7 @@ use crate::test_support::{check_golden, declaration, fixture, render, summary_of
 
 /// The value for the grammars and rules of this build. A change of `RULES_VERSION` or of a grammar version changes it:
 /// replace it with the value the failure prints.
-const EXTRACTOR_VERSION: u32 = 1_637_417_500;
+const EXTRACTOR_VERSION: u32 = 1_686_074_693;
 
 #[test]
 fn every_spec_kind_exists_in_its_grammar() {
@@ -19,11 +19,12 @@ fn every_spec_kind_exists_in_its_grammar() {
       .map(|it| it.0)
       .chain(rule_kinds)
       .chain(spec.kinds.iter().copied())
-      .chain(spec.binding_names.iter().copied());
+      .chain(spec.binding_names.iter().copied())
+      .chain(spec.header.ends.iter().chain(spec.header.drops).chain(spec.header.parameters).copied());
     for kind in kinds {
       assert_ne!(grammar.id_for_node_kind(kind, true), 0, "{language:?}: no named node kind {kind}");
     }
-    for token in spec.tokens {
+    for token in spec.tokens.iter().chain(spec.header.end_tokens).chain(spec.header.drop_tokens) {
       assert_ne!(grammar.id_for_node_kind(token, false), 0, "{language:?}: no token {token}");
     }
     for field in rule_fields.iter().chain(spec.fields) {

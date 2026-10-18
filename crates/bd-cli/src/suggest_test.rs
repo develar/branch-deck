@@ -1,5 +1,7 @@
 use crate::clustering::{Cluster, ClusterInput, Clustering, CommitFeatures, FileLines, Placement, Restack};
-use crate::fixture_test::{ACP_HOST, commit_all, commit_dangling_reference, commit_override_of_overload, git, numbered_lines, repo_with_baseline, run_in, write};
+use crate::fixture_test::{
+  ACP_HOST, commit_all, commit_changed_declaration, commit_dangling_reference, commit_override_of_overload, git, numbered_lines, repo_with_baseline, run_in, write,
+};
 use crate::suggest::{SuggestPlan, kept_and_moved, name_words, plan_of};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
@@ -599,6 +601,18 @@ fn a_dangling_reference_stacks_the_branch_on_its_fix() {
   assert_eq!(output["ok"], json!(false), "{output}");
 
   suggest_checked_and_stable(&repo, &json!({ "branches": { "flow/cleanup": [] }, "unassign": [] }));
+}
+
+/// The Safe Push of IJAI-4185: the branch that makes a function suspend stacks on the one that deleted its call
+#[test_log::test]
+fn a_changed_declaration_stacks_the_branch_on_its_fix() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  commit_changed_declaration(&repo);
+  let (_, output) = run_in(&repo, &["check"]);
+  assert_eq!(output["ok"], json!(false), "{output}");
+
+  suggest_checked_and_stable(&repo, &json!({ "branches": { "journey/suspend": [] }, "unassign": [] }));
 }
 
 /// The incident: the fix uses the class the branch adds, so no stack builds both; the suggestion says to move it. The

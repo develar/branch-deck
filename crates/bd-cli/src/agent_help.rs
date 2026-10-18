@@ -52,9 +52,11 @@ Workflow:
    rewrite and a commit that needs a prefix gets the bare `(leaf)`; `unstack` makes branches roots. Fixups follow their targets; a commit
    goes with, or stacks on, the commits it depends on. After any change of `branches`, `unassign`, `issue_groups` or
    `ungroup_issues`: `bd check --plan plan.json`. Per branch `ok`, `conflict` {commit, subject, files,
-   missing_commits}, `dangling_reference` (git merges it, the build fails: `dangling_references` {identifier, file,
-   line, removed_by, fixed_by, mutual}: the branch removes a declaration its tree still uses, and `fixed_by` of another
-   branch changes that use), `blocked_by` or `problems`. Exit 1 until every branch is ok: move the missing commits (or
+   missing_commits}, `dangling_reference` (git merges it, the build fails: `dangling_references` {kind, identifier, file,
+   line, removed_by, fixed_by, mutual}: the branch removes (`removed_declaration`) or changes (`changed_declaration`,
+   e.g. made `suspend`) a declaration its tree still uses, or declares one its tree has in another file
+   (`duplicate_declaration`), and `fixed_by` of another branch changes that use or deletes that file), `blocked_by` or
+   `problems`. Exit 1 until every branch is ok: move the missing commits (or
    `fixed_by`) into the branch, or stack it on the branch that has them; `mutual`: the change in `fixed_by` needs the
    branch too, so `fix` moves it into the branch: `move_commit` (its `branches` into the plan) or `move_hunk` (a ready
    `bd move-hunk` `command`, after the user approves), each proven by a trial build; no `fix`: none builds, ask
@@ -62,8 +64,8 @@ Workflow:
    fix (`move_to_child`, `swap`) is `branches`/`unstack` to add to the plan, checked by a trial build; `reason` when
    none builds. `bd check --fix` also finds the regroup that fixes them, by trial builds: each
    `fix.components[].plan` is a whole plan for `bd group`, and its `steps` say what moves where; show them to the user
-   before applying one. `warnings` lists a `possible_dangling_reference` that no commit
-   proves: tell the user. `missing_declarations` {branch, identifier, file, used_by, declared_by, declared_in}
+   before applying one. `warnings` lists a `possible_dangling_reference` (or
+   `possible_changed_declaration`, `possible_duplicate_declaration`) that no commit proves: tell the user. `missing_declarations` {branch, identifier, file, used_by, declared_by, declared_in}
    (unless `git config branchdeck.symbols` is `report` or `off`) names a use whose declaration is outside the
    branch's tree: stack the branch on `declared_in`, or move one of the two. `bd check --build '<command>'` (--build-paths <pathspec>...) also runs a build in a
    temporary copy of each tree (`build_failed`); slow on a large repository, but a build that passed on the same

@@ -1,18 +1,18 @@
 package com.example.misread
 Type Registrar in - Module TopLevel 3-7 @4
-Value state in Registrar Public Instance 5-5 @5 <Int> overridable
-Function register in Registrar Public Instance 6-6 @6 (id: String) overridable
+Value state in Registrar Public Instance 5-5 @5 <Int> `val state : Int` overridable
+Function register in Registrar Public Instance 6-6 @6 (id: String) `fun register` overridable
 Type Base in - Module TopLevel 9-11 @9
-Function name in Base Public Instance 10-10 @10 () overridable
+Function name in Base Public Instance 10-10 @10 () `fun name : String` overridable
 Type Tiny in - Public TopLevel 13-13 @13
-Value size in Tiny Public Static 13-13 @13
+Value size in Tiny Public Static 13-13 @13 `val size`
 Type Hidden in - File TopLevel 15-23 @17
 Type Companion in Hidden Container Static 18-20 @18
-Constant LIMIT in Companion Public Static 19-19 @19
-Function limit in Hidden Public Instance 22-22 @22 ()
+Constant LIMIT in Companion Public Static 19-19 @19 `const val LIMIT`
+Function limit in Hidden Public Instance 22-22 @22 () `fun limit`
 Type After in - Public TopLevel 25-27 @25 new(registrar: Registrar)
-Value registrar in After Public Instance 25-25 @25 <Registrar>
-Function run in After Public Instance 26-26 @26 ()
+Value registrar in After Public Instance 25-25 @25 <Registrar> `val registrar : Registrar`
+Function run in After Public Instance 26-26 @26 () `fun run`
 @5 :Int
 @6 :String
 @10 :String

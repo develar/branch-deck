@@ -14,7 +14,7 @@ Binding lane in - Public TopLevel 4-4 @4
 Binding HashMap in - File TopLevel 5-5 @5
 Binding Entry in - File TopLevel 5-5 @5
 Binding heap in - File TopLevel 8-8 @8
-Function owner_of in - Public TopLevel 10-15 @10
+Function owner_of in - Public TopLevel 10-15 @10 `fn owner_of ( lanes : & HashMap < Id , Lane > ) -> Option < ControlOwner >`
 @3 ^avl_wire.program.lane.ControlOwner
 @4 ^crate.lane.Lane ^crate.lane.LaneId ^crate.lane
 @5 ^std.collections.hash_map.Entry ^std.collections.HashMap

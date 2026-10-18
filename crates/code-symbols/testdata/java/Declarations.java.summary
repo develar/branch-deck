@@ -1,28 +1,28 @@
 package com.example.shapes
 Type Declarations in - Public TopLevel 3-55 @4 new(name: String) : Shape
-Constant MAX in Declarations Public Static 5-5 @5
-Value counter in Declarations Container Static 6-6 @6
-Value name in Declarations Public Instance 7-7 @7 <String>
-Value label in Declarations Public Instance 7-7 @7 <String>
-Value area in Declarations Module Instance 8-8 @8
-Function area in Declarations Public Instance 14-15 @15 () overrides overridable
-Function convert in Declarations Container Static 17-19 @17 (value: _)
-Function packageMethod in Declarations Module Instance 21-23 @21 () overridable
+Constant MAX in Declarations Public Static 5-5 @5 `static int MAX`
+Value counter in Declarations Container Static 6-6 @6 `static int counter`
+Value name in Declarations Public Instance 7-7 @7 <String> `String name`
+Value label in Declarations Public Instance 7-7 @7 <String> `String label`
+Value area in Declarations Module Instance 8-8 @8 `double area`
+Function area in Declarations Public Instance 14-15 @15 () `double area` overrides overridable
+Function convert in Declarations Container Static 17-19 @17 (value: _) `static < R > R convert`
+Function packageMethod in Declarations Module Instance 21-23 @21 () `int packageMethod` overridable
 Type Visitor in Declarations Public Static 25-30 @25
-Constant DEPTH in Visitor Public Static 26-26 @26
-Function visit in Visitor Public Instance 27-27 @27 (shape: Shape) overridable
-Function leave in Visitor Public Instance 28-28 @28 () overridable
-Function empty in Visitor Public Static 29-29 @29 ()
+Constant DEPTH in Visitor Public Static 26-26 @26 `int DEPTH`
+Function visit in Visitor Public Instance 27-27 @27 (shape: Shape) `void visit` overridable
+Function leave in Visitor Public Instance 28-28 @28 () `void leave` overridable
+Function empty in Visitor Public Static 29-29 @29 () `static Visitor empty`
 Type Kind in Declarations Public Static 32-40 @32
 EnumEntry ROUND in Kind Public Static 33-33 @33
 EnumEntry SQUARE in Kind Public Static 33-36 @33
-Function label in Kind Public Instance 39-39 @39 () overridable
+Function label in Kind Public Instance 39-39 @39 () `String label` overridable
 Type Point in Declarations Public Static 42-47 @42 new(x: int, y: int)
-Value x in Point Public Instance 42-42 @42
-Value y in Point Public Instance 42-42 @42
-Function origin in Point Module Static 46-46 @46 ()
+Value x in Point Public Instance 42-42 @42 `int x`
+Value y in Point Public Instance 42-42 @42 `int y`
+Function origin in Point Module Static 46-46 @46 () `static Point origin`
 Type Marker in Declarations Public Static 49-51 @49
-Function value in Marker Public Instance 50-50 @50 ()
+Function value in Marker Public Instance 50-50 @50 () `String value ( ) " "`
 Type Nested in Declarations Module Static 53-53 @53 Module new()
 Type Inner in Declarations Module Instance 54-54 @54 Module new()
 Type PackagePrivate in - Module TopLevel 57-57 @57 Module new()

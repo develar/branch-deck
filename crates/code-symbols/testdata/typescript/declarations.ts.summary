@@ -1,37 +1,37 @@
 Type Shape in - Public TopLevel 1-5 @2
-Function area in Shape Public Instance 3-3 @3
-Value name in Shape Public Instance 4-4 @4
+Function area in Shape Public Instance 3-3 @3 `area ( ) : number`
+Value name in Shape Public Instance 4-4 @4 `readonly name : string`
 TypeAlias Props in - Public TopLevel 7-7 @7
-Value onClick in Props Public Instance 7-7 @7
-Value label in Props Public Instance 7-7 @7
+Value onClick in Props Public Instance 7-7 @7 `onClick : ( ) => void`
+Value label in Props Public Instance 7-7 @7 `label : string`
 TypeAlias Internal in - File TopLevel 8-8 @8
 Type Base in - Public TopLevel 10-13 @10
-Function area in Base Public Instance 11-11 @11
-Value name in Base Public Instance 12-12 @12
+Function area in Base Public Instance 11-11 @11 `abstract area ( ) : number`
+Value name in Base Public Instance 12-12 @12 `readonly name`
 Type Circle in - Public TopLevel 15-32 @15
-Value unit in Circle Public Static 16-16 @16
-Value secret in Circle Container Instance 17-17 @17
-Value #hidden in Circle Container Instance 18-18 @18
-Value guarded in Circle Public Instance 19-19 @19
-Value radius in Circle Container Instance 21-21 @21
-Value label in Circle Public Instance 21-21 @21
-Function area in Circle Public Instance 25-27 @25
-Value diameter in Circle Public Instance 29-31 @29
+Value unit in Circle Public Static 16-16 @16 `static unit`
+Value secret in Circle Container Instance 17-17 @17 `secret`
+Value #hidden in Circle Container Instance 18-18 @18 `#hidden`
+Value guarded in Circle Public Instance 19-19 @19 `guarded`
+Value radius in Circle Container Instance 21-21 @21 `readonly radius : number`
+Value label in Circle Public Instance 21-21 @21 `label : string`
+Function area in Circle Public Instance 25-27 @25 `area ( ) : number`
+Value diameter in Circle Public Instance 29-31 @29 `get diameter ( )`
 Type Kind in - Public TopLevel 34-37 @34
 EnumEntry Round in Kind Public Static 35-35 @35
 EnumEntry Square in Kind Public Static 36-36 @36
 Module Geometry in - Public TopLevel 39-42 @39
-Constant ORIGIN in Geometry Public TopLevel 40-40 @40
-Value hidden in Geometry Container TopLevel 41-41 @41
+Constant ORIGIN in Geometry Public TopLevel 40-40 @40 `const ORIGIN`
+Value hidden in Geometry Container TopLevel 41-41 @41 `const hidden`
 Module shapes-extra in - File TopLevel 44-46 @44
-Function extra in shapes-extra Public TopLevel 45-45 @45
-Function makeCircle in - Public TopLevel 48-50 @48
-Constant MAX_SIZE in - Public TopLevel 52-52 @52
-Function createShape in - Public TopLevel 53-53 @53
-Value counter in - File TopLevel 54-54 @54
-Value first in - File TopLevel 55-55 @55
-Value renamed in - File TopLevel 55-55 @55
-Function helper in - Public TopLevel 56-56 @56
+Function extra in shapes-extra Public TopLevel 45-45 @45 `function extra ( ) : void`
+Function makeCircle in - Public TopLevel 48-50 @48 `function makeCircle ( radius : number ) : Circle`
+Constant MAX_SIZE in - Public TopLevel 52-52 @52 `const MAX_SIZE`
+Function createShape in - Public TopLevel 53-53 @53 `const createShape`
+Value counter in - File TopLevel 54-54 @54 `let counter`
+Value first in - File TopLevel 55-55 @55 `const { first , second : renamed }`
+Value renamed in - File TopLevel 55-55 @55 `const { first , second : renamed }`
+Function helper in - Public TopLevel 56-56 @56 `function helper ( )`
 Binding count in - Public TopLevel 57-57 @57
 @8 :Partial :Props
 @10 :Shape

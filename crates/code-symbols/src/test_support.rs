@@ -104,6 +104,9 @@ pub(crate) fn render(summary: &FileSummary) -> String {
     if let Some(value_type) = &declaration.value_type {
       let _ = write!(out, " <{}>", path_text(summary, value_type));
     }
+    if let Some(header) = &declaration.header {
+      let _ = write!(out, " `{header}`");
+    }
     let _ = writeln!(out, "{}{}", modality_text(declaration), if declaration.in_error { " in_error" } else { "" });
   }
   let mut by_line: Vec<&Reference> = summary.references.iter().collect();

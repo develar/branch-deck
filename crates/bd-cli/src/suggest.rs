@@ -4,7 +4,7 @@
 //! commits it needs and clusters again. It writes git objects and the cache only (docs/guidelines/agent-cli.md)
 
 use crate::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
-use crate::check_command::{CheckedBranch, checked_branches, possible_dangling_references};
+use crate::check_command::{CheckedBranch, checked_branches, kind_verb, possible_dangling_references};
 use crate::clustering::{
   Cluster, ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, MAX_REPAIR_ROUNDS, Placement, Restack, Warning,
   anonymize, cluster_change, cluster_with_repair, is_issue_only, leaf_of_path, name_clusters, place_clusters, stacked_without_need, subject_words, why,
@@ -146,8 +146,9 @@ pub struct SuggestCheck {
 pub struct SuggestWarning {
   /// `anchor_dependency`: a commit of one prefix depends on a commit of another, and prefixes stay apart (with stacked
   /// branches only in a cycle, which no stack builds); `unresolved_conflict`: a branch still conflicts (or has a
-  /// dangling reference) after the repair; `possible_dangling_reference`: a use of a name a branch removes that no commit
-  /// here changes; `symbol_dependency` (`branchdeck.symbols on`): a branch uses a name another branch adds and the plan
+  /// dangling reference) after the repair; `possible_dangling_reference`, `possible_changed_declaration`,
+  /// `possible_duplicate_declaration`: a use of a name a branch removes or changes, or a second declaration of a name it
+  /// adds, that no commit here changes; `symbol_dependency` (`branchdeck.symbols on`): a branch uses a name another branch adds and the plan
   /// doesn't build it on that branch
   pub kind: String,
   pub branches: Vec<String>,
@@ -178,13 +179,15 @@ impl Reading {
     let snapshot = session.snapshot();
     let ids: Vec<String> = snapshot.commits.iter().map(|commit| commit.id.clone()).collect();
     let diffs = read_linked_diffs(context, &ids, false, false)?;
-    let symbols = if session.symbol_mode() == SymbolMode::On {
+    let (session, symbols) = if session.symbol_mode() == SymbolMode::On {
       let input = read_symbol_input(&context.git, &context.repository, &context.cache(), diffs.linked())?;
-      Some(compute_symbol_dependencies(diffs.linked(), &input))
+      let symbols = compute_symbol_dependencies(diffs.linked(), &input);
+      // the checks of the repair read the same summaries
+      (session.with_symbol_input(input), Some(symbols))
     } else {
-      None
+      (session, None)
     };
-    let input = cluster_input(snapshot, &diffs, symbols.as_ref());
+    let input = cluster_input(session.snapshot(), &diffs, symbols.as_ref());
     Ok(Self { session, diffs, input, symbols })
   }
 }
@@ -345,12 +348,14 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
   }
   warnings.extend(possible_dangling_references(&report, &short).into_iter().map(|warning| SuggestWarning {
     message: format!(
-      "{}:{} uses {}, which {} of {} removes{}; no commit here changes the use, so it may not compile",
+      "{}:{} {} {}, which {} of {} {}{}; no commit here changes it, so it may not compile",
       warning.file,
       warning.line,
+      if warning.kind == "possible_duplicate_declaration" { "declares" } else { "uses" },
       warning.identifier,
       warning.removed_by,
       warning.branch,
+      kind_verb(&warning.kind),
       if warning.on_baseline { ", and the baseline got the use after the base" } else { "" }
     ),
     kind: warning.kind,

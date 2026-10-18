@@ -12,6 +12,7 @@ targets:
   - ../../crates/sync-core/src/symbol_dependencies.rs
   - ../../crates/sync-core/src/module_roots.rs
   - ../../crates/sync-core/src/dangling_references.rs
+  - ../../crates/sync-core/src/declaration_checks.rs
   - ../../crates/object-cache/src/blob_summary.rs
   - ../../crates/git-ops/src/object_texts.rs
   - ../../crates/sync-core/src/diff_scan.rs
@@ -107,6 +108,14 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   to the class around it.
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_class_knows_its_constructors`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`a_class_knows_its_constructors`)
+  [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+- A function, a property, a field or a constant must carry its header: the tokens before its body or initializer,
+  without comments, annotations, the modifiers that the reach and the overriding say or that no use depends on
+  (Kotlin `inline`, `lateinit`, Java `final`, `synchronized`), and the parameters a signature holds; a change of the
+  body alone must keep it, `suspend`, a receiver or a return type must change it; Java takes the type of a field from
+  the declaration around its declarator. A type has none.
+  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_header_is_the_form_before_the_body`)
+  [@test] ../../crates/code-symbols/src/java_test.rs (`a_header_is_the_form_before_the_body`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 - The dangling-reference check must take the name of an `override` member for no use: it declares one.
   [@test] ../../crates/sync-core/src/dangling_references_test.rs (`an_override_line_is_no_use`)

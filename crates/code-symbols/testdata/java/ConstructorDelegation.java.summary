@@ -1,16 +1,16 @@
 package com.example.delegation
 import com.example.base.Base @3
 Type ConstructorDelegation in - Public TopLevel 5-51 @5 new(size: int) Module new() : Base, Runnable
-Function run in ConstructorDelegation Public Instance 14-14 @14 () overridable
+Function run in ConstructorDelegation Public Instance 14-14 @14 () `void run` overridable
 Type Qualified in ConstructorDelegation Module Static 16-20 @16 Module new() : com.example.base.Base
 Type OnlyInterfaces in ConstructorDelegation Module Static 22-28 @22 Module new() : Runnable
-Function run in OnlyInterfaces Public Instance 27-27 @27 () overridable
+Function run in OnlyInterfaces Public Instance 27-27 @27 () `void run` overridable
 Type Inner in ConstructorDelegation Module Instance 30-34 @30 Module new(outer: Outer) : Outer.Nested
 Type Level in ConstructorDelegation Module Static 36-44 @36
 EnumEntry LOW in Level Public Static 37-37 @37
 Type Point in ConstructorDelegation Module Static 46-50 @46 Module new(x: int, y: int) Module new(x: int)
-Value x in Point Public Instance 46-46 @46
-Value y in Point Public Instance 46-46 @46
+Value x in Point Public Instance 46-46 @46 `int x`
+Value y in Point Public Instance 46-46 @46 `int y`
 @3 ^com.example.base.Base
 @5 :Base :Runnable
 @7 Base(_,Text)

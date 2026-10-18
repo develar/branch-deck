@@ -7,7 +7,9 @@
 //! - **JSX**: a capitalized element name is a `Type` reference; a lowercase one is an HTML tag.
 
 // jscpd:ignore-start: every language module implements one `Spec` with the same vocabulary
-use crate::extract::{Child, DeclRule, Holder, IDENTIFIER, JvmFields, Opens, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, Walk, binder, decl, function_decl, line_of, type_decl};
+use crate::extract::{
+  Child, DeclRule, Header, Holder, IDENTIFIER, JvmFields, Opens, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, Walk, binder, decl, function_decl, line_of, type_decl,
+};
 use crate::language::Language;
 use crate::summary::{DeclKind, Import, ImportTarget, MemberKind, Reach, Role};
 use tree_sitter::Node;
@@ -175,6 +177,13 @@ pub(crate) static SPEC: Spec = Spec {
   hoist: Some(hoist),
   jvm: None,
   call_shape: None,
+  header: Header {
+    ends: &["statement_block"],
+    end_tokens: &["="],
+    drops: &["decorator", "accessibility_modifier", "override_modifier"],
+    drop_tokens: &[";"],
+    parameters: &["formal_parameters"],
+  },
 };
 
 /// A namespace body holds members, any other block is a scope

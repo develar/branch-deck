@@ -21,8 +21,8 @@
 
 // jscpd:ignore-start: every language module implements one `Spec` with the same vocabulary
 use crate::extract::{
-  Binder, CallArguments, Child, DeclRule, Holder, JvmFields, JvmHooks, LINE_COMMENT, Modality, Opens, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, ValueType, Walk, binder, decl,
-  function_decl, line_of, type_decl,
+  Binder, CallArguments, Child, DeclRule, Header, Holder, JvmFields, JvmHooks, LINE_COMMENT, Modality, Opens, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, ValueType, Walk, binder,
+  decl, function_decl, line_of, type_decl,
 };
 use crate::language::Language;
 use crate::summary::{Argument, Constructor, DeclKind, MemberKind, Parameter, Reach, Role, Signature};
@@ -210,6 +210,13 @@ pub(crate) static SPEC: Spec = Spec {
     },
   }),
   call_shape: Some(call_shape),
+  header: Header {
+    ends: &["function_body", "property_delegate", "getter", "setter"],
+    end_tokens: &["="],
+    drops: &["annotation", "visibility_modifier", "inheritance_modifier", "member_modifier"],
+    drop_tokens: &["inline", "tailrec", "external", ";"],
+    parameters: &["function_value_parameters"],
+  },
 };
 
 /// `@file:JvmName("Util")` names the JVM class of the top-level declarations

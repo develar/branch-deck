@@ -246,3 +246,22 @@ fn an_anonymous_class_initializer_has_no_type() {
   assert!(refs(&summary, "one")[0].contains("?."), "{:?}", refs(&summary, "one"));
   assert_eq!(refs(&summary, "two"), ["6 <Manager>.two()"]);
 }
+
+/// The header of a Java method keeps `static`, the return type and `throws`, and of a field its type, from the
+/// declaration around its declarator
+#[test]
+fn a_header_is_the_form_before_the_body() {
+  let header = |source: &str| {
+    let summary = summarize(Language::Java, source.as_bytes());
+    declaration(&summary, "cleanup").header.clone()
+  };
+  assert_eq!(
+    header("class L {\n  @Override public final void cleanup(int a) { a(); }\n}\n").as_deref(),
+    Some("void cleanup")
+  );
+  assert_eq!(
+    header("class L {\n  static void cleanup() throws IOException {}\n}\n").as_deref(),
+    Some("static void cleanup throws IOException")
+  );
+  assert_eq!(header("class L {\n  private final int other, cleanup = 1;\n}\n").as_deref(), Some("int cleanup"));
+}

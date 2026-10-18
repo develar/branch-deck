@@ -40,7 +40,7 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 14;
+pub const RULES_VERSION: u32 = 15;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -196,9 +196,26 @@ pub(crate) struct Spec {
   pub(crate) hoist: Option<for<'t> fn(&mut Walk<'t>, Node<'t>)>,
   /// The hooks of a JVM language (Kotlin, Java): signatures, overriding, supertypes and constructors
   pub(crate) jvm: Option<JvmHooks>,
+  /// What the header of a function or a value is (`Declaration::header`)
+  pub(crate) header: Header,
   /// The arguments of a call node (a `Rule::Call`, a `Rule::Member` of the role `Call`, a call of `Walk::give_call`),
   /// for the `Shape::Call` of the reference of its callee; `None` when it says nothing of them
   pub(crate) call_shape: Option<for<'t> fn(&mut Walk<'t>, Node<'t>) -> Option<CallArguments>>,
+}
+
+/// The node kinds that end and shorten the header of a function or a value (`Declaration::header`); a token is matched by
+/// its text, a named node by its kind
+pub(crate) struct Header {
+  /// Named kinds that end it: a body, a delegate, an accessor
+  pub(crate) ends: &'static [&'static str],
+  /// Tokens that end it outside a parameter list: the `=` of an initializer
+  pub(crate) end_tokens: &'static [&'static str],
+  /// Named kinds left out with all below them: annotations, and the modifiers that the reach or the overriding say
+  pub(crate) drops: &'static [&'static str],
+  /// Tokens left out: modifiers no use depends on
+  pub(crate) drop_tokens: &'static [&'static str],
+  /// The kinds of a parameter list: left out where `signature` holds the parameters, else kept, `=` included
+  pub(crate) parameters: &'static [&'static str],
 }
 
 /// The type of a value as `JvmHooks::value_type` reads it: its path, and whether a constructor call gave it
@@ -1223,6 +1240,7 @@ impl<'t> Walk<'t> {
     let name = self.intern(name);
     let start = row_line(node.start_position().row);
     let end_line = end_line_of(node);
+    let has_signature = fields.signature.is_some();
     let declaration = Declaration {
       name,
       kind: traits.kind,
@@ -1242,6 +1260,7 @@ impl<'t> Walk<'t> {
       value_constructed: fields.value_type.as_ref().is_some_and(|it| it.constructed),
       value_type: fields.value_type.map(|it| it.path),
       constructors: fields.constructors,
+      header: matches!(traits.kind, DeclKind::Function | DeclKind::Value | DeclKind::Constant).then(|| self.header(node, has_signature)),
       start_line: leading.map_or(start, |it| it.min(start)),
       end_line,
       name_line: line_of(name_node),
@@ -1253,6 +1272,61 @@ impl<'t> Walk<'t> {
       self.frames[parent].last_decl = Some(id);
     }
     id
+  }
+
+  /// The header of the function or value `node` (`Declaration::header`): the tokens of its node before its body or
+  /// initializer, after those of a `Rule::Wrapper` around it before its first declarator (Java's `int a, b;`, the
+  /// `const` of TypeScript), without what `Spec::header` drops; without the parameter list when `has_signature`
+  fn header(&self, node: Node<'t>, has_signature: bool) -> String {
+    let mut tokens: Vec<&'t str> = Vec::new();
+    if let Some(parent) = node.parent().filter(|it| matches!(self.table.rule(it.kind_id()), Some(Rule::Wrapper))) {
+      let mut cursor = parent.walk();
+      let first = parent
+        .named_children(&mut cursor)
+        .find(|it| it.kind_id() == node.kind_id())
+        .map_or_else(|| node.id(), |it| it.id());
+      let mut cursor = parent.walk();
+      for child in parent.children(&mut cursor).take_while(|it| it.id() != first) {
+        if self.header_tokens(child, has_signature, false, &mut tokens).is_break() {
+          break;
+        }
+      }
+    }
+    let _ = self.header_tokens(node, has_signature, false, &mut tokens);
+    tokens.join(" ")
+  }
+
+  /// The header tokens of `node` and below, `Break` at the end of the header
+  fn header_tokens(&self, node: Node<'t>, has_signature: bool, in_parameters: bool, tokens: &mut Vec<&'t str>) -> ControlFlow<()> {
+    let header = &self.spec.header;
+    let kind = node.kind();
+    if node.is_named() {
+      if header.ends.contains(&kind) {
+        return ControlFlow::Break(());
+      }
+      if header.drops.contains(&kind) || matches!(self.table.rule(node.kind_id()), Some(Rule::Comment)) {
+        return ControlFlow::Continue(());
+      }
+    } else if header.end_tokens.contains(&kind) && !in_parameters {
+      return ControlFlow::Break(());
+    }
+    let parameters = header.parameters.contains(&kind);
+    if parameters && has_signature {
+      return ControlFlow::Continue(());
+    }
+    if node.child_count() == 0 {
+      if (node.is_named() || !header.drop_tokens.contains(&kind))
+        && let Some(text) = self.text(node).filter(|it| !it.is_empty())
+      {
+        tokens.push(text);
+      }
+      return ControlFlow::Continue(());
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+      self.header_tokens(child, has_signature, in_parameters || parameters, tokens)?;
+    }
+    ControlFlow::Continue(())
   }
 
   fn reference(&mut self, name: &'t str, line: u32, role: Role, qualifier: Option<Vec<u32>>, shape: Option<u32>) {

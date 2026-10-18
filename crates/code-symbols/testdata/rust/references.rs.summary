@@ -1,5 +1,5 @@
-Function render in - Public TopLevel 1-29 @2
-Constant THRESHOLD in - File TopLevel 31-31 @31
+Function render in - Public TopLevel 1-29 @2 `fn render ( shapes : & [ Shape ] , scale : u32 ) -> Result < ( ) , Error >`
+Constant THRESHOLD in - File TopLevel 31-31 @31 `const THRESHOLD : f64`
 @2 :Error :Result :Shape
 @5 format! ?.len
 @6 ?.len()

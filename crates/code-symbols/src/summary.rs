@@ -119,6 +119,14 @@ pub struct Declaration {
   /// for an interface, an object, a companion, an enum, an annotation, a type alias, a Kotlin type the grammar misread
   /// and a class with a parse error in it: a call of one chooses no constructor, or the summary doesn't know them
   pub constructors: Option<Vec<Constructor>>,
+  /// The header of a function, a property, a field or a constant: its tokens before the body or the initializer, one
+  /// space apart, without comments, annotations, the modifiers that `reach`, `overridable` and `overrides` say or that
+  /// no use depends on (Kotlin `inline`, `lateinit`; Java `final`, `synchronized`), and the parameters that `signature`
+  /// holds: `suspend fun cleanup` of `suspend fun cleanup() {`, `fun <T> String . trim2 : T ?` of
+  /// `fun <T> String.trim2(): T? =`. A change of it alone (`suspend`, the return type, the receiver, the type
+  /// parameters, Java's `static` or `throws`) is one no summary judges a use by; a change of the body keeps it. `None`
+  /// for other declarations
+  pub header: Option<String>,
   /// The first line, with the doc comments and attributes directly above
   pub start_line: u32,
   pub end_line: u32,

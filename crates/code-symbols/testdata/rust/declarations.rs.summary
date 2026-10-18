@@ -1,39 +1,39 @@
 import std.fmt @3
 Binding fmt in - File TopLevel 3-3 @3
 Type Circle in - Public TopLevel 5-11 @7
-Value radius in Circle Public Instance 8-8 @8
-Value label in Circle File Instance 9-9 @9
-Value scale in Circle Module Instance 10-10 @10
+Value radius in Circle Public Instance 8-8 @8 `radius : f64`
+Value label in Circle File Instance 9-9 @9 `label : String`
+Value scale in Circle Module Instance 10-10 @10 `scale : u32`
 Type Pair in - Module TopLevel 13-13 @13
 Type Kind in - Public TopLevel 15-19 @15
 EnumEntry Round in Kind Public Static 16-16 @16
 EnumEntry Polygon in Kind Public Static 17-17 @17
 EnumEntry Custom in Kind Public Static 18-18 @18
-Value sides in Custom Public Instance 18-18 @18
+Value sides in Custom Public Instance 18-18 @18 `sides : u8`
 Type Bits in - Public TopLevel 21-24 @21
-Value int in Bits File Instance 22-22 @22
-Value float in Bits File Instance 23-23 @23
+Value int in Bits File Instance 22-22 @22 `int : u32`
+Value float in Bits File Instance 23-23 @23 `float : f32`
 Type Shape in - Public TopLevel 26-33 @26
 TypeAlias Unit in Shape Public Static 27-27 @27
-Constant SIDES in Shape Public Static 28-28 @28
-Function area in Shape Public Instance 29-29 @29
-Function name in Shape Public Static 30-32 @30
+Constant SIDES in Shape Public Static 28-28 @28 `const SIDES : u32`
+Function area in Shape Public Instance 29-29 @29 `fn area ( & self ) -> f64`
+Function name in Shape Public Static 30-32 @30 `fn name ( ) -> & ' static str`
 TypeAlias Shapes in - Public TopLevel 35-35 @35
-Constant MAX in - Public TopLevel 36-36 @36
-Value COUNTER in - File TopLevel 37-37 @37
-Function parent_only in - Parent TopLevel 39-39 @39
-Function private_helper in - File TopLevel 40-40 @40
+Constant MAX in - Public TopLevel 36-36 @36 `const MAX : usize`
+Value COUNTER in - File TopLevel 37-37 @37 `static mut COUNTER : u32`
+Function parent_only in - Parent TopLevel 39-39 @39 `fn parent_only ( )`
+Function private_helper in - File TopLevel 40-40 @40 `fn private_helper ( )`
 Macro square in - File TopLevel 42-46 @42
 Module geometry in - File TopLevel 48-53 @48
-Function distance in geometry Public TopLevel 49-51 @49
-Function hidden in geometry Container TopLevel 52-52 @52
-Function new in Circle Public Static 56-58 @56 receiver Circle
-Function grow in Circle File Instance 60-62 @60 receiver Circle
-Constant UNIT in Circle File Static 64-64 @64 receiver Circle
+Function distance in geometry Public TopLevel 49-51 @49 `fn distance ( ) -> f64`
+Function hidden in geometry Container TopLevel 52-52 @52 `fn hidden ( )`
+Function new in Circle Public Static 56-58 @56 receiver Circle `fn new ( radius : f64 ) -> Self`
+Function grow in Circle File Instance 60-62 @60 receiver Circle `fn grow ( & mut self )`
+Constant UNIT in Circle File Static 64-64 @64 receiver Circle `const UNIT : f64`
 TypeAlias Unit in Circle Public Static 68-68 @68 receiver Circle
-Constant SIDES in Circle Public Static 69-69 @69 receiver Circle
-Function area in Circle Public Instance 71-73 @71 receiver Circle
-Function fmt in Kind Public Instance 77-79 @77 receiver Kind
+Constant SIDES in Circle Public Static 69-69 @69 receiver Circle `const SIDES : u32`
+Function area in Circle Public Instance 71-73 @71 receiver Circle `fn area ( & self ) -> f64`
+Function fmt in Kind Public Instance 77-79 @77 receiver Kind `fn fmt ( & self , f : & mut fmt :: Formatter < ' _ > ) -> fmt :: Result`
 @3 ^std.fmt
 @6 :Clone :Debug
 @9 :String

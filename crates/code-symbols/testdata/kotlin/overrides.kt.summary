@@ -2,65 +2,65 @@ package com.example.windows
 import com.example.ui.ToolWindow @3
 import kotlinx.coroutines.CoroutineScope @4
 Type ToolWindowManagerImpl in - Public TopLevel 6-37 @6 new(project: Project, isNewUi: Boolean, isEdtRequired: Boolean, coroutineScope: CoroutineScope) : ToolWindowManagerEx, Disposable
-Value project in ToolWindowManagerImpl Public Instance 7-7 @7 <Project>
-Value isNewUi in ToolWindowManagerImpl Module Instance 8-8 @8 <Boolean>
-Value isEdtRequired in ToolWindowManagerImpl Container Instance 9-9 @9 <Boolean>
-Value coroutineScope in ToolWindowManagerImpl Module Instance 10-10 @10 <CoroutineScope>
+Value project in ToolWindowManagerImpl Public Instance 7-7 @7 <Project> `val project : Project`
+Value isNewUi in ToolWindowManagerImpl Module Instance 8-8 @8 <Boolean> `val isNewUi : Boolean`
+Value isEdtRequired in ToolWindowManagerImpl Container Instance 9-9 @9 <Boolean> `val isEdtRequired : Boolean`
+Value coroutineScope in ToolWindowManagerImpl Module Instance 10-10 @10 <CoroutineScope> `val coroutineScope : CoroutineScope`
 Type Companion in ToolWindowManagerImpl Public Static 12-24 @12
-Function registerLocalToolWindowForTest in Companion Public Static 13-23 @13 (project: Project, buttonManager: ToolWindowButtonManager)
-Function getButtonManager in ToolWindowManagerImpl Module Instance 26-27 @27 (toolWindow: ToolWindow) overridable
-Function getButtonManager in ToolWindowManagerImpl Module Instance 29-30 @30 (paneId: String) overridable
-Function dispose in ToolWindowManagerImpl Public Instance 32-32 @32 () overrides overridable
-Function getToolWindowPane in ToolWindowManagerImpl Container Instance 34-34 @34 (paneId: String)
-Function convert in ToolWindowManagerImpl Public Instance 36-36 @36 (value: _, into: _, onDone: ToolWindow/Unit)
+Function registerLocalToolWindowForTest in Companion Public Static 13-23 @13 (project: Project, buttonManager: ToolWindowButtonManager) `fun registerLocalToolWindowForTest : ToolWindowManagerImpl`
+Function getButtonManager in ToolWindowManagerImpl Module Instance 26-27 @27 (toolWindow: ToolWindow) `fun getButtonManager : ToolWindowButtonManager` overridable
+Function getButtonManager in ToolWindowManagerImpl Module Instance 29-30 @30 (paneId: String) `fun getButtonManager : ToolWindowButtonManager` overridable
+Function dispose in ToolWindowManagerImpl Public Instance 32-32 @32 () `fun dispose` overrides overridable
+Function getToolWindowPane in ToolWindowManagerImpl Container Instance 34-34 @34 (paneId: String) `fun getToolWindowPane : ToolWindowPane`
+Function convert in ToolWindowManagerImpl Public Instance 36-36 @36 (value: _, into: _, onDone: ToolWindow/Unit) `fun < T > convert`
 Type ToolWindowUnregisterTest in - Module TopLevel 39-56 @39 new()
-Function unregister in ToolWindowUnregisterTest Public Instance 40-46 @40 (entry: ToolWindowEntry, button: StripeButtonManager)
-Function createManager in ToolWindowUnregisterTest Container Instance 48-55 @48 (project: Project, buttonManager: ToolWindowButtonManager)
+Function unregister in ToolWindowUnregisterTest Public Instance 40-46 @40 (entry: ToolWindowEntry, button: StripeButtonManager) `fun unregister`
+Function createManager in ToolWindowUnregisterTest Container Instance 48-55 @48 (project: Project, buttonManager: ToolWindowButtonManager) `fun createManager : ToolWindowManagerImpl`
 Type Base in - Public TopLevel 58-70 @58 new(label: String)
-Value label in Base Public Instance 58-58 @58 <String> overridable
-Function accept in Base Public Instance 59-59 @59 (value: _, vararg tags: String[]) overridable
-Function describe in Base Public Instance 61-61 @61 (prefix: String =, suffix: String? =) overridable
-Value size in Base Public Instance 63-63 @63 <Int> overridable
-Function fixed in Base Public Instance 65-65 @65 ()
-Function hidden in Base Container Instance 67-67 @67 ()
-Function decorate in Base Public Instance 69-69 @69 receiver String (times: Int) overridable
+Value label in Base Public Instance 58-58 @58 <String> `val label : String` overridable
+Function accept in Base Public Instance 59-59 @59 (value: _, vararg tags: String[]) `fun accept` overridable
+Function describe in Base Public Instance 61-61 @61 (prefix: String =, suffix: String? =) `fun describe : String` overridable
+Value size in Base Public Instance 63-63 @63 <Int> `val size : Int` overridable
+Function fixed in Base Public Instance 65-65 @65 () `fun fixed`
+Function hidden in Base Container Instance 67-67 @67 () `fun hidden`
+Function decorate in Base Public Instance 69-69 @69 receiver String (times: Int) `fun String . decorate : String` overridable
 Type Sub in - Public TopLevel 72-89 @72 new(label: String, extra: Int) : Base
-Value label in Sub Public Instance 72-72 @72 <String> overrides overridable
-Value extra in Sub Public Instance 72-72 @72 <Int>
-Function accept in Sub Public Instance 73-73 @73 (value: String, vararg tags: String[]) overrides overridable
-Function describe in Sub Public Instance 75-80 @75 (prefix: String, suffix: String?) overrides
-Value size in Sub Public Instance 82-82 @82 <Int> overrides overridable
-Function decorate in Sub Public Instance 84-84 @84 receiver String (times: Int) overrides overridable
+Value label in Sub Public Instance 72-72 @72 <String> `val label : String` overrides overridable
+Value extra in Sub Public Instance 72-72 @72 <Int> `val extra : Int`
+Function accept in Sub Public Instance 73-73 @73 (value: String, vararg tags: String[]) `fun accept` overrides overridable
+Function describe in Sub Public Instance 75-80 @75 (prefix: String, suffix: String?) `fun describe : String` overrides
+Value size in Sub Public Instance 82-82 @82 <Int> `val size : Int` overrides overridable
+Function decorate in Sub Public Instance 84-84 @84 receiver String (times: Int) `fun String . decorate : String` overrides overridable
 Type Nested in Sub Public Static 86-88 @86 new()
-Function toString in Nested Public Instance 87-87 @87 () overrides overridable
+Function toString in Nested Public Instance 87-87 @87 () `fun toString : String` overrides overridable
 Type Level in - Public TopLevel 91-98 @91 : Weighted
-Value code in Level Public Instance 91-91 @91 <Int>
+Value code in Level Public Instance 91-91 @91 <Int> `val code : Int`
 EnumEntry LOW in Level Public Static 92-94 @92
 EnumEntry HIGH in Level Public Static 95-95 @95
-Function weight in Level Public Instance 97-97 @97 () overridable
+Function weight in Level Public Instance 97-97 @97 () `fun weight : Int` overridable
 Type Listener in - Public TopLevel 100-104 @100
-Function changed in Listener Public Instance 101-101 @101 (paths: List/String) overridable
-Function log in Listener Container Instance 103-103 @103 ()
+Function changed in Listener Public Instance 101-101 @101 (paths: List/String) `fun changed` overridable
+Function log in Listener Container Instance 103-103 @103 () `fun log`
 Type Registry in - Public TopLevel 106-110 @106 : Listener
-Function changed in Registry Public Static 107-107 @107 (paths: List/String) overrides
-Function reset in Registry Public Static 109-109 @109 ()
-Value quiet in - Public TopLevel 112-112 @112
+Function changed in Registry Public Static 107-107 @107 (paths: List/String) `fun changed` overrides
+Function reset in Registry Public Static 109-109 @109 () `fun reset`
+Value quiet in - Public TopLevel 112-112 @112 `val quiet`
 Type Delegating in - Public TopLevel 114-118 @114 new(listener: Listener) : Listener
-Function localSized in - Public TopLevel 120-123 @120 ()
+Function localSized in - Public TopLevel 120-123 @120 () `fun localSized : Sized`
 Type Factory in - Public TopLevel 125-129 @125 new()
 Type Companion in Factory Public Static 126-128 @126 : Creator
-Function create in Companion Public Static 127-127 @127 () overrides
+Function create in Companion Public Static 127-127 @127 () `fun create : Factory` overrides
 Type Handler in - Public TopLevel 131-133 @131 new() : Weighted, _
-Function invoke in Handler Public Instance 132-132 @132 (event: Event) overrides overridable
-Function useManager in - Public TopLevel 135-140 @135 (manager: ToolWindowManagerImpl, ids: Array/String)
+Function invoke in Handler Public Instance 132-132 @132 (event: Event) `fun invoke` overrides overridable
+Function useManager in - Public TopLevel 135-140 @135 (manager: ToolWindowManagerImpl, ids: Array/String) `fun useManager`
 Type Lanes in - Public TopLevel 142-166 @142 new()
-Value first in Lanes Public Instance 147-147 @147 <Int>
-Function add in Lanes Public Instance 149-149 @149 (index: Int, item: String)
-Function build in Lanes Public Instance 151-151 @151 ()
-Function model in Lanes Public Instance 153-153 @153 ()
-Function anonymous in Lanes Public Instance 155-159 @155 ()
-Function literal in Lanes Public Instance 161-161 @161 ()
-Function local in Lanes Public Instance 163-165 @163 ()
+Value first in Lanes Public Instance 147-147 @147 <Int> `val first : Int`
+Function add in Lanes Public Instance 149-149 @149 (index: Int, item: String) `fun add : Int`
+Function build in Lanes Public Instance 151-151 @151 () `fun build : List < String >`
+Function model in Lanes Public Instance 153-153 @153 () `fun model`
+Function anonymous in Lanes Public Instance 155-159 @155 () `fun anonymous`
+Function literal in Lanes Public Instance 161-161 @161 () `fun literal`
+Function local in Lanes Public Instance 163-165 @163 () `fun local`
 @3 ^com.example.ui.ToolWindow
 @4 ^kotlinx.coroutines.CoroutineScope
 @7 :Project

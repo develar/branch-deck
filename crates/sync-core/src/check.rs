@@ -21,9 +21,11 @@ use crate::regroup::{RegroupError, RegroupOutcome, RegroupPlan, plan_in_memory};
 use crate::snapshot::Snapshot;
 use crate::stack::{PendingDetection, empty_parent_states, place_branches, read_only_detection};
 use crate::stack::{StackForest, describe_problem};
+use crate::symbol_dependencies::declaration_checks::DeclarationFacts;
 use crate::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
-use crate::symbol_scan::{SymbolMode, read_symbol_input, read_symbol_mode};
+use crate::symbol_scan::{SymbolInput, SymbolMode, read_symbol_input, read_symbol_mode};
 use crate::sync::{SyncReport, seeded_tree_cache};
+use code_symbols::language::language_of as symbols_language_of;
 use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{BranchKind, strip_branch_namespace};
@@ -211,7 +213,10 @@ pub struct CheckSession {
   symbols: SymbolMode,
   /// The syntax trees of the blobs the dangling-reference checks read, shared with the sessions of `with_rewrite`
   syntax: Arc<SyntaxMemo>,
-  /// The dependencies by symbols of the commits ahead of the baseline, read by the first that asks, with
+  /// The summaries of the files the commits ahead of the baseline change, with the module structure above them, read by
+  /// the first that asks, with `branchdeck.symbols on`
+  symbol_input: OnceLock<Result<Option<SymbolInput>, String>>,
+  /// The dependencies by symbols of the commits ahead of the baseline, computed by the first that asks, with
   /// `branchdeck.symbols on`
   symbol_graph: OnceLock<Result<Option<SymbolGraph>, String>>,
   /// The changes of the commits ahead of the baseline, read by the first that asks
@@ -321,6 +326,7 @@ impl CheckSession {
       dangling_input: OnceLock::new(),
       symbols,
       syntax: Arc::default(),
+      symbol_input: OnceLock::new(),
       symbol_graph: OnceLock::new(),
       commit_diffs: OnceLock::new(),
       line_graph: OnceLock::new(),
@@ -389,6 +395,7 @@ impl CheckSession {
       dangling_input: OnceLock::new(),
       symbols: self.symbols,
       syntax: Arc::clone(&self.syntax),
+      symbol_input: OnceLock::new(),
       symbol_graph: OnceLock::new(),
       commit_diffs: OnceLock::new(),
       line_graph: OnceLock::new(),
@@ -404,22 +411,47 @@ impl CheckSession {
     self.symbols
   }
 
-  /// The dependencies by symbols of the commits ahead of the baseline (positions of `snapshot().commits`), `None` unless
-  /// `branchdeck.symbols` is `on`: what decides by them reads them here, once per session
-  pub fn symbol_graph(&self) -> Result<Option<&SymbolGraph>, RegroupError> {
+  /// The session with the summaries a caller read already for the changes of the same commits (`bd suggest`), so that
+  /// its checks and `symbol_graph` don't read them again; ignored unless `branchdeck.symbols` is `on`
+  #[must_use]
+  pub fn with_symbol_input(self, input: SymbolInput) -> Self {
+    if self.symbols == SymbolMode::On {
+      let _ = self.symbol_input.set(Ok(Some(input)));
+    }
+    self
+  }
+
+  /// The summaries of the files the commits ahead of the baseline change, `None` unless `branchdeck.symbols` is `on`,
+  /// read once per session
+  pub fn symbol_input(&self) -> Result<Option<&SymbolInput>, RegroupError> {
     if self.symbols != SymbolMode::On {
       return Ok(None);
     }
     self
-      .symbol_graph
+      .symbol_input
       .get_or_init(|| {
         let diffs = self.commit_diffs().map_err(|e| format!("{e:#}"))?;
         let input = read_symbol_input(&self.git_executor, &self.repository_path, &self.cache, diffs).map_err(|e| format!("{e:#}"))?;
-        Ok(Some(compute_symbol_dependencies(diffs, &input)))
+        Ok(Some(input))
       })
       .as_ref()
       .map(Option::as_ref)
       .map_err(|e| RegroupError::Other(anyhow::anyhow!("{e}")))
+  }
+
+  /// The dependencies by symbols of the commits ahead of the baseline (positions of `snapshot().commits`), `None` unless
+  /// `branchdeck.symbols` is `on`: what decides by them reads them here, once per session
+  pub fn symbol_graph(&self) -> Result<Option<&SymbolGraph>, RegroupError> {
+    let Some(input) = self.symbol_input()? else { return Ok(None) };
+    let diffs = self.commit_diffs()?;
+    Ok(
+      self
+        .symbol_graph
+        .get_or_init(|| Ok(Some(compute_symbol_dependencies(diffs, input))))
+        .as_ref()
+        .ok()
+        .and_then(Option::as_ref),
+    )
   }
 
   /// `plan` for the session of `with_rewrite(commits, …)`: its commit ids, abbreviated ones too, name the new commits
@@ -706,6 +738,15 @@ impl CheckSession {
   fn dangling_references(&self, head: &str, base: Option<&str>, checks: &[BranchCheck], of: Option<&[String]>) -> Result<BTreeMap<String, Vec<DanglingReference>>, RegroupError> {
     let commits: Vec<String> = self.snapshot.commits.iter().map(|commit| commit.id.clone()).collect();
     let (lines, baseline_tip) = self.dangling_facts()?;
+    // the summaries only where a commit changes a source file of a grammar
+    let sources = lines.values().flatten().any(|file| symbols_language_of(&file.path).is_some());
+    let declarations = match if sources { self.symbol_input()? } else { None } {
+      Some(input) => Some(DeclarationFacts {
+        input,
+        diffs: self.commit_diffs()?,
+      }),
+      None => None,
+    };
     let input = DanglingInput {
       head,
       base,
@@ -714,6 +755,7 @@ impl CheckSession {
       lines,
       of,
       syntax: (self.symbols != SymbolMode::Off).then_some(&*self.syntax),
+      declarations,
     };
     find_dangling_references(&self.git_executor, &self.repository_path, &input, checks).map_err(RegroupError::from)
   }

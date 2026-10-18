@@ -33,7 +33,9 @@ around it may bring a receiver of its own. A summary depends only on the bytes o
 
 Two consumers use the summaries. The dangling-reference check keeps finding candidate lines and only subtracts the
 ones the tree places in a comment, a string or a local scope, the name of an `override` member, and the names an
-import still binds. `symbol_dependencies` adds edges of a new class, `Order`, to the line dependencies: a commit uses a
+import still binds; beside it, the checks of a branch's tree (decision 15) find by the summaries alone the uses of an
+instance member a branch removes, the uses a branch's change of a form may break (`suspend`, a new parameter, a
+narrower reach) and a declaration a branch adds that its tree already has. `symbol_dependencies` adds edges of a new class, `Order`, to the line dependencies: a commit uses a
 declaration another commit of the range adds or gives a new form, with evidence that the use means it. Of a Kotlin or
 Java type a declaration is each overload and each constructor, so an override, a call that its arguments select and a
 use that only a new form accepts (a wider reach, `open`, a default, a new or renamed parameter, a type made public)
@@ -56,6 +58,8 @@ flowchart TD
     G --> F[conflict fix, stack independence]
     G --> U[bd suggest: Order edges, entity features]
     S2[check session: blobs of the trials] --> M[SyntaxMemo, memory only] --> X[dangling references: subtraction]
+    S --> T[declaration checks: removed members, changed forms, duplicates]
+    M --> T
 ```
 
 ### Key Decisions
@@ -110,9 +114,12 @@ flowchart TD
    every declaration of it (`with(scope) { openGlobalPrompt() }`, another extension of the receiver). A wrong hard edge
    costs more than a missed one, which the trial build and `--build` still catch.
 
-4. **Decision**: the dangling-reference check subtracts by the tree and adds nothing.
+4. **Decision**: the line search of the dangling-reference check subtracts by the tree and adds nothing; what the lines
+   can't find (an instance member, a changed form, a second declaration) the checks of decision 15 find by the trees
+   alone, with the evidence of the edges.
    **Rationale**: its recall comes from matching names in any position (a Kotlin extension call, a Java accessor); the
-   tree is good at saying what is not a use (a comment, a string, a local), and bad at saying everything that is.
+   tree is good at saying what is not a use (a comment, a string, a local), and bad at saying everything that is. A name
+   that is everywhere (`cleanup` of an instance member) has no candidate lines worth reading, only uses that resolve.
 
 5. **Decision**: a table-driven walk of the tree, not tree-sitter queries.
    **Rationale**: shadowing needs a walk of the scopes anyway, the shipped `tags.scm` files are too thin, and a test
@@ -448,6 +455,41 @@ flowchart TD
     has no accessor of that name: such a use is of something else. Limits: a renamed accessor by its new name, and a
     Kotlin write `m.name = v` of a Java setter, which the summary doesn't tell from a read, are not linked.
 
+15. **Decision**: the checks of a branch's tree by the summaries (`declaration_checks.rs`) report what the branch
+    removes, changes or declares again, with the oracle of the dangling-reference check: HEAD compiles, and the
+    branch's tree differs from it only in the paths of the other branches' commits. A use there that HEAD's tree lacks
+    may not compile, and `fixed_by` is the commit outside the branch, older or newer, whose change of the path removes
+    it; a proven one is a dangling reference of its own `kind`, repaired by the same edge in `bd suggest`. Three kinds,
+    each counted per path like the lines (more such uses in the branch's tree than in HEAD's):
+    - `removed`: an instance or static member of a JVM type, or an enum entry, that a commit removes with all its
+      overloads and that no commit of the tree declares again, used where a use resolves to it (a receiver of its type,
+      `this`, an override, an inherited call, its static path; in its own file only inside its type). The lines search
+      the top-level declarations, and a use by a bare name of an instance member is no evidence.
+    - `changed`: a function, a property or a constant whose header (`Declaration::header`: `suspend`, `async`,
+      `unsafe`, the return type, the receiver, the type parameters, Java's `static` or `throws`), parameters, reach,
+      modality, `@JvmStatic`, `@JvmField` or `@JvmName` a commit changes, or a type whose constructors it changes, its
+      name kept. A use counts where the old form takes it (it resolves, and its call fits, `accepts_call`) and no
+      declaration of the key in the branch's tree does: one of the same header that the use resolves to by the same
+      rules and whose parameters accept its call, a constructor for a call of a type. A use the branch's own commits
+      wrote is written against the new form, and an import compiles with any.
+    - `duplicate`: a JVM type, or a Kotlin top-level function or property (its parameter types told apart), that a
+      commit adds while the branch's tree has a second declaration of the key in another file of the same package and
+      module, or twice in one file, that HEAD's tree lacks: a move whose deletion is in another branch.
+    **Rationale**: the Safe Push of IJAI-4185 failed on `ledger.cleanup()` in a test that HEAD no longer has, because
+    a commit of another branch deleted it, while the branch made `cleanup` suspend: no line dependency, no edge (the
+    form of decision 10 has no `suspend`, and `removes_after` needs the whole key gone), no dangling reference (only a
+    removed declaration was searched, and no instance member). The header leaves out what no use depends on (the body,
+    annotations, comments, `inline`, `final`, `synchronized`) and what the summary judges itself (the reach, the
+    overriding, the parameters of a signature), so a change of only those is judged by the rules that decide a use
+    (`resolve`, `accepts_call`): a widened reach or a new parameter with a default takes every old use. What the header
+    still holds no summary judges: a `suspend` function needs a coroutine, a narrower return type or nullability a
+    use the summary has no types for. The resolution of decision 13 makes an instance member searchable at all: `cleanup`
+    by its name alone is everywhere. A wrong report costs a repair edge, so `accepts_call` errs toward fitting, and an
+    old form that rejects a use counts it nowhere (the summary misjudges it). Limits: a change of a parameter's type
+    that an argument other than a literal doesn't show (`foo(x)`) fits; a type's header (`abstract`, `sealed`, its
+    supertypes) is not compared; a use on the baseline after the base is not searched; Rust and TypeScript have no
+    duplicates (a `#[cfg]` pair and the overload signatures of TypeScript declare a name twice on purpose).
+
 ### Implementation Notes
 
 - `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules and the grammars' node types);
@@ -484,7 +526,13 @@ flowchart TD
   the baseline; `receivers` and `imports_of_function` with `is_default_function` for both), the removals that need the
   removal of the uses, the entities each commit changes.
 - `crates/sync-core/src/dangling_references.rs`: `SyntaxMemo` and the subtraction; the name of an `override` member
-  is no use (`on_syntax`).
+  is no use (`on_syntax`); `DanglingKind`, and `TreeSearch`, which runs the declaration searches on the same
+  `diff-tree` and `cat-file` (`branch_file`, the summaries of the commits' blobs before `SyntaxMemo`, `fixed_by`).
+- `crates/sync-core/src/declaration_checks.rs`, a child module of `symbol_dependencies` (decision 15):
+  `searches_of` (the declarations on the changed lines of a branch's commits, `changed_form`, `constructor_forms`,
+  `push_duplicates`), `DeclarationSearch::in_tree`, `uses` (`resolved`, `fits`, `calls`), `removes_use` and
+  `needs_new_form` for `fixed_by` and `mutual`; `crates/code-symbols/src/extract.rs`: `Walk::header` by
+  `Spec::header` of each language.
 - `crates/sync-core/src/dependencies.rs`: `with_symbols` merges the edges into the line dependencies (`Dependency::lines`,
   `symbols`) for `bd commits`.
 - `crates/sync-core/src/check.rs`: `CheckSession::symbol_graph`, read once per session with `on`, for the conflict fix
@@ -504,7 +552,7 @@ flowchart TD
 - **The entities two commits change as features of P** (the functions and types around their hunks): Why not: in the
   IDF-weighted Jaccard of `bd suggest` a shared function adds 0.1–0.2 to P, short of the threshold, and commits of
   one function already share its file. `bd commits --symbol-stats` still counts the pairs (`entity_pairs`).
-- **Checks of a branch's tree beside the dangling-reference check** (`unimplemented_member`, `non_exhaustive_when`):
+- **More checks of a branch's tree beside those of decision 15** (`unimplemented_member`, `non_exhaustive_when`):
   the branch's tree has a class that doesn't override an abstract member of its one supertype while HEAD does, or a
   `when` over an enum without `else` that lacks a branch HEAD has for an entry the tree declares. The oracle is the
   dangling check's: HEAD builds, the branch's tree is compared with HEAD, and `bd suggest` repairs it with the same
@@ -705,6 +753,20 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     review's fixes (no property behind an extension receiver, a primary-constructor parameter only in initializers, no
     destructured type, `in` no cast, a constructed type only for the factory rule, a call no key entry accepts, a
     same-file subtype) change no link, edge or output of the range.
+  - The checks of a branch's tree by the summaries (decision 15), against master: on the real case (idea-1 at
+    1b037aff, 33 commits, IJAI-4185 not stacked on IJAI-4182) `bd check` reports the one `changed_declaration`
+    `cleanup` at `AcpJourneyLifecycleTest.kt:199`, `removed_by` c372cb86, `fixed_by` aa0fb473, and nothing else, where
+    master says ok; `bd suggest` stacks IJAI-4185 on IJAI-4182 (`IJAI-4182/IJAI-4185`) with `check.ok`. On
+    `86be3572..7dfac19d` `bd check` of the current grouping, of it with every branch unstacked, and of the plan of
+    `bd suggest` (37 branches built) report nothing new, and the plan of `bd suggest` is the master's; on the real
+    pair `f0596b09` `bd check` is byte for byte the master's. The first build reported 4 false duplicates in
+    air-lane-document: a declaration added in a file that another branch deletes later (`userModeDefaults`,
+    `AirLaneJourneySuiteDocument`), which the tree declares once; a duplicate needs two declarations now. The CPU of
+    `bd suggest` on the range was +5–6 s (10.5 → 16 s) until the searches took the declarations on the changed lines
+    only, looked uses up by name (`references_to`), read the summaries of the commits' blobs before parsing a tree's,
+    and read a blob only where its summary names a search (or is unknown) and, for a duplicate, in its module; then
+    10.3–11.0 s against 10.4–10.9 s, and `bd check` 9.3–10.2 s against 8.9–9.1 s, at a load average of 40–60. The
+    processes are the same: the searches run on the `diff-tree` and the `cat-file` of the check.
   - The accessors and the facade (decision 14, `facade`), against the build before: no link, edge or output changes, as
     on the real pair, and the five repro cases make one edge by symbols each. The range adds 249 lines of Java, two of
     them a call of an accessor or a facade: `variable.getKey()` of a `Map.Entry` and

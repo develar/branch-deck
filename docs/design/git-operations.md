@@ -1657,6 +1657,19 @@ a check, `find_dangling_references` looks for such uses without a compiler:
    such lines than it adds; `mutual` when its added lines name a declaration the branch adds. Without `fixed_by`, and
    for the baseline, the reference is only possible: a warning.
 
+6. With `branchdeck.symbols on` and a commit that changes a source file of a grammar, the same `diff-tree` and
+   `cat-file` also serve the checks by the declarations (`declaration_checks.rs`, decision 15 of
+   [Symbol Dependencies](symbol-dependencies.md)): an instance or static member a branch's commit removes, a function,
+   property or constant whose header, parameters or reach it changes or a type whose constructors it changes, and a
+   JVM type or Kotlin top-level function it adds while the tree has the key in another file of its package and module.
+   The declarations come from the summaries of the commits' files (`CheckSession::symbol_input`, read once per
+   session, or handed over by `bd suggest`), only those on the changed lines. A use counts where it resolves to the
+   declaration as an edge would and, for a change, fits the old form but no form in the branch's tree; `fixed_by` is
+   the commit outside the tree whose change of the path removes such uses (or the other declaration). A blob is read
+   only where its summary names a search or is unknown (a merge of a trial), and the summary of a blob a commit has
+   comes from the session, so only those of new blobs are parsed. The `kind` of the reference says which:
+   `removed_declaration`, `changed_declaration`, `duplicate_declaration`.
+
 `bd check` reports a proven one as `dangling_reference`, `bd suggest` turns it into a repair edge (the removing commit
 needs `fixed_by`) unless it is mutual, and `bd safe-push` refuses it (`--allow-dangling`). The sync doesn't run it.
 
@@ -1667,8 +1680,8 @@ with the commit moved, or the history after a trial move of the hunk (see "Move 
 proven dangling reference and breaks no branch that built. A hunk move costs the rewrite of the commits above the older of the
 two plus a check of every branch, so at most two are tried per check; `bd suggest` only names the move.
 
-Code: `crates/sync-core/src/dangling_references.rs`, `crates/sync-core/src/dangling_fix.rs`,
-`crates/git-ops/src/object_texts.rs`, `crates/object-cache/src/commit_lines.rs`.
+Code: `crates/sync-core/src/dangling_references.rs`, `crates/sync-core/src/declaration_checks.rs`,
+`crates/sync-core/src/dangling_fix.rs`, `crates/git-ops/src/object_texts.rs`, `crates/object-cache/src/commit_lines.rs`.
 
 #### Conflict fix (check)
 

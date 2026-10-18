@@ -1,10 +1,10 @@
 package com.example.broken
 Type Valid in - Public TopLevel 3-5 @3 new()
-Function ok in Valid Public Instance 4-4 @4 ()
+Function ok in Valid Public Instance 4-4 @4 () `fun ok`
 Type Broken in - Public TopLevel 7-11 @7
-Function first in Broken Public Instance 8-8 @8 ()
-Function second in Broken Public Instance 10-10 @10 ()
+Function first in Broken Public Instance 8-8 @8 () `fun first`
+Function second in Broken Public Instance 10-10 @10 () `fun second`
 Type Callback in - Public TopLevel 13-13 @13
-Function call in Callback Public Instance 13-13 @13 () overridable in_error
+Function call in Callback Public Instance 13-13 @13 () `fun call` overridable in_error
 @10 first()
 error_bytes 45

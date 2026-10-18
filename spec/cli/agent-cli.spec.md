@@ -77,6 +77,7 @@ targets:
   - ../../crates/git-ops/src/notes.rs
   - ../../crates/git-ops/src/copy_commit.rs
   - ../../crates/sync-core/src/dangling_references.rs
+  - ../../crates/sync-core/src/declaration_checks.rs
   - ../../crates/sync-core/src/dangling_fix.rs
   - ../../crates/sync-core/src/inverted_stack.rs
   - ../../crates/sync-core/src/missing_declarations.rs
@@ -442,7 +443,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   symbols), an override of it included, with the evidence; it must not change `ok` or the exit code.
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration`, `an_override_of_another_branchs_overload_is_a_missing_declaration`)
 - A built branch that removes a declaration its virtual tree still uses where HEAD's tree doesn't must be
-  `dangling_reference` (exit 1) with `{identifier, file, line, removed_by, fixed_by, mutual}`, when a commit outside
+  `dangling_reference` (exit 1) with `{kind, identifier, file, line, removed_by, fixed_by, mutual}`, when a commit outside
   the branch and its ancestors changes the use (`fixed_by`); `mutual` when that change uses what the branch declares,
   with a `fix` only when a trial build of the plan with it proves it (the branch builds without a proven dangling
   reference, no branch that built breaks): the move of `fixed_by` into the branch when it changes only that file, else
@@ -458,6 +459,20 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   trees differ may be read.
   [@test] ../../crates/sync-core/src/dangling_references_test.rs (`the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch`, `a_use_changed_by_the_branch_itself_is_not_dangling`, `a_declaration_changed_in_place_is_not_dangling`, `a_reformatted_use_is_not_dangling`, `a_private_declaration_is_not_searched_outside_its_file`, `a_removed_top_level_function_is_searched_by_its_name`, `a_use_landed_on_the_baseline_is_a_possible_reference`, `a_member_moved_with_its_class_is_not_dangling`, `a_top_level_function_moved_within_its_package_is_not_dangling`, `a_private_declaration_moved_elsewhere_is_not_dangling`, `a_name_re_exported_by_a_use_is_not_removed`, `a_word_in_kdoc_is_no_use`, `an_override_line_is_no_use`, `a_local_val_shadows_a_private_member_of_another_class`)
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_branch_that_removes_a_used_declaration_is_dangling_reference`, `a_possible_dangling_reference_is_a_warning_and_exit_0`)
+- With `branchdeck.symbols on`, a dangling reference must also be found by the syntax summaries alone, with its `kind`
+  (`removed_declaration` for the line search above): `removed_declaration` for an instance or static member of a JVM
+  type or an enum entry that a commit of the branch removes with all its overloads, where a use resolves to it (a
+  receiver of its type, `this`, an override, an inherited call, its static path); `changed_declaration` for a function,
+  property or constant whose header (`suspend`, the return type, the receiver), parameters or reach a commit of the
+  branch changes, or a type whose constructors it changes, where the old form takes a use and no declaration of the key
+  in the branch's tree does; `duplicate_declaration` for a JVM type or Kotlin top-level function a commit of the branch
+  adds while the branch's tree, but not HEAD's, declares the key in another file of the same package and module. A
+  change of the body alone, a use the new form takes (a parameter with a default), a call on a receiver of another
+  type, a bare call of a name in another class, a use the branch's own commits wrote, a declaration of another package
+  and a single declaration in a file another branch deletes must not count. A possible one is a warning of the kind
+  `possible_changed_declaration` or `possible_duplicate_declaration`.
+  [@test] ../../crates/sync-core/src/declaration_checks_test.rs (`a_function_made_suspend_dangles_where_another_branch_removed_its_call`, `a_change_of_the_body_alone_changes_no_form`, `a_new_parameter_dangles_only_where_the_call_does_not_fit_it`, `a_call_on_a_receiver_of_another_type_is_no_use`, `a_use_the_branch_writes_fits_its_form`, `a_removed_instance_member_dangles_where_its_receiver_calls_it`, `a_type_declared_again_in_the_same_package_is_a_duplicate`, `a_type_of_the_same_name_in_another_package_is_no_duplicate`, `a_declaration_another_branch_deletes_is_no_duplicate`)
+  [@test] ../../crates/bd-cli/src/check_test.rs (`a_branch_that_changes_a_used_declaration_is_dangling_reference`)
 - A branch whose conflict or dangling reference needs a commit of a branch stacked on it, at any depth, must have
   `inverted_stack {branch, child, fixes}` and keep its `result`; the fixes (`move_to_child`, `swap`) must be plan
   parts for `bd group` that a trial build of the plan with them passes for both branches, and no `swap` for a mutual
@@ -552,8 +567,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/clustering_test.rs (`golden_monorepo_branch`)
 - A proven dangling reference must be repaired like a conflict, the removing commit needing `fixed_by` (with stacked
   branches it stacks on its branch); a mutual one must not be stacked but named in an `unresolved_conflict` warning
-  that says to move the change into `removed_by`. A possible one is a `possible_dangling_reference` warning.
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_dangling_reference_stacks_the_branch_on_its_fix`, `a_mutual_dangling_reference_suggests_moving_the_change`)
+  that says to move the change into `removed_by`. A possible one is a `possible_dangling_reference` warning (or
+  `possible_changed_declaration`, `possible_duplicate_declaration`).
+  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_dangling_reference_stacks_the_branch_on_its_fix`, `a_mutual_dangling_reference_suggests_moving_the_change`, `a_changed_declaration_stacks_the_branch_on_its_fix`)
 - A conflict of the check must join the hard unit of the conflicting commit to the units of the commits it needs by
   its lines that its branch and the branches it is built on lack, by the conflicting files only when the lines name
   none, also inside an issue group, and cluster again, at most 5 times, never joining two prefixes; the exit code must be 1 when a branch
@@ -773,6 +789,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   with `dangling_reference` (exit 4), nothing pushed, naming the use, `fixed_by` and the fix; `--check` must list it
   in `refusals`, `--allow-dangling` must start anyway, and the possible ones are `warnings`.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_dangling_reference_refuses_the_safe_push_unless_allowed`)
+  [@test] ../../crates/bd-cli/src/check_test.rs (`a_dangling_reference_message_names_the_kind`)
 - A Safe Push of a stacked branch must land it with every branch it is built on, in one robot, as the app's start does
   ([Landing](../../docs/design/landing.md)): no refusal and no flag, the parents with commits for the remote pushed
   first, the robot started on the branch's own virtual branch, which carries their commits. `lands` must name what the
