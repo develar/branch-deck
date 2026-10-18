@@ -68,6 +68,24 @@ pub fn refuse_every_push(bare_path: &Path) {
   }
 }
 
+/// The directory `path` as git prints it (`rev-parse --show-toplevel`, `%(worktreepath)`): canonical, because git
+/// resolves symlinks (the temporary directory `/var/…` of macOS is `/private/var/…`), and on Windows in git's form
+/// (`windows_git_form`), not the verbatim `\\?\C:\…` that `canonicalize` gives
+pub fn git_canonical_path(path: &Path) -> String {
+  let canonical = fs::canonicalize(path).unwrap_or_else(|e| panic!("cannot canonicalize {}: {e}", path.display()));
+  let text = canonical.to_str().unwrap_or_else(|| panic!("not UTF-8: {}", canonical.display()));
+  if cfg!(windows) { windows_git_form(text) } else { text.to_string() }
+}
+
+/// A Windows path as Git for Windows prints it: without the verbatim prefix (`\\?\C:\…` is `C:/…`,
+/// `\\?\UNC\server\…` is `//server/…`) and with `/`
+fn windows_git_form(text: &str) -> String {
+  let plain = text
+    .strip_prefix(r"\\?\UNC\")
+    .map_or_else(|| text.strip_prefix(r"\\?\").unwrap_or(text).to_string(), |share| format!(r"\\{share}"));
+  plain.replace('\\', "/")
+}
+
 /// Git test repository wrapper with helper methods
 pub struct TestRepo {
   dir: TempDir,
@@ -678,3 +696,7 @@ pub fn setup_deletion_conflict(repo: &TestRepo) -> ConflictScenario {
     .with_cherry_changes(vec![("delete_me.txt", "modified content")], "Cherry modifies file")
     .build()
 }
+
+#[cfg(test)]
+#[path = "git_test_utils_test.rs"]
+mod git_test_utils_test;

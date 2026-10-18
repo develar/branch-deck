@@ -4,7 +4,7 @@ use crate::revs::{
 };
 use std::collections::HashMap;
 use test_log::test;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, git_canonical_path};
 
 /// An id of no object
 const MISSING: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -141,7 +141,8 @@ fn the_dirs_of_a_worktree_and_none_outside_one() {
   let repo = TestRepo::new();
   repo.create_commit("first", "a.txt", "a\n");
   let (git, path) = (repo.git_executor(), repo.path_str());
-  let top_level = repo.path().canonicalize().unwrap().to_str().unwrap().to_string();
+  // git names the directories by their canonical path, `C:/Users/…` on Windows
+  let top_level = git_canonical_path(repo.path());
   let common = format!("{top_level}/.git");
   std::fs::create_dir_all(repo.path().join("sub dir")).unwrap();
   let expected = RepositoryDirs {

@@ -2,7 +2,7 @@ use crate::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use test_log::test;
-use test_utils::git_test_utils::TestRepo;
+use test_utils::git_test_utils::{TestRepo, git_canonical_path};
 
 const ARCHIVED: &str = "test-user/archived/2026-10-17/feature";
 
@@ -56,10 +56,11 @@ fn refuses_a_branch_checked_out_in_a_worktree() {
 
   let error = delete(&GitCommandExecutor::new(), &repo, ARCHIVED).expect_err("a checked out branch is not deleted");
 
-  let worktree = std::fs::canonicalize(&worktree).unwrap();
+  // the worktree as git names it, `C:/Users/…` on Windows
+  let worktree = git_canonical_path(&worktree);
   assert_eq!(
     error.to_string(),
-    format!("The branch is checked out at {}: switch that worktree to another branch first", worktree.display())
+    format!("The branch is checked out at {worktree}: switch that worktree to another branch first")
   );
   assert!(repo.branch_exists(ARCHIVED));
 }
