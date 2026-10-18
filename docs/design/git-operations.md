@@ -1460,7 +1460,13 @@ Code: `crates/sync-core/src/review_fetch.rs`, `crates/sync-core/src/remote_comma
 
 1. The plan is applied in memory and validated as a regroup dry run, and the branches are placed as a stacked sync
    places them (`place_branches`).
-2. Each branch is built with the sync's `build_branch`, parents first, a child on its parent's new head. It writes
+2. Each branch is built with the sync's `build_branch`, a child on its parent's new head, in parallel as a sync builds
+   them (`run_builds`, up to `max_parallel_git_processes` threads): a root at once on the base, a child as soon as its
+   parent has its head, a branch on a failed parent blocked without a build; the outcomes are those of a check one by
+   one, in stack order. The base's date is read once before the builds, as in a sync. On the monorepo pin a cold check
+   ran its 18 chains one after another (about 2.7 s of git at a low load) and now overlaps them, the same 49 processes
+   and output (a cold `bd check` 7.0 → 5.4 s at the best of four runs, on a loaded machine; the rest is the symbols
+   of the commits, in process). It writes
    commit objects (the chain's `merge-tree` and `fast-import`) and nothing else: no ref transaction, no notes, no remote status, no
    repository lock. The commits of the existing copies a build may reuse are read as a sync reads them, by one `log`
    for all branches (`ExistingCommits`), not one per branch, and once per session, not once per check.

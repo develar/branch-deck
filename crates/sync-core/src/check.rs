@@ -1,5 +1,6 @@
 //! A trial sync of a regroup plan: the plan is applied in memory, the branches are placed as a stacked sync places them
-//! and built in dependency order with `build_branch`, which writes commit objects only. No ref, note, remote status,
+//! and built with `build_branch`, which writes commit objects only, in parallel as a sync builds them: a branch as soon
+//! as the one it is built on has its head (`run_builds`). No ref, note, remote status,
 //! HEAD or working tree changes, and no repository lock. Merges and commit trees go through the object cache, so trying
 //! variants of a plan repeats no `merge-tree`.
 //!
@@ -23,6 +24,7 @@ use crate::stack::{StackForest, describe_problem};
 use crate::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
 use crate::symbol_scan::{SymbolMode, read_symbol_input, read_symbol_mode};
 use crate::sync::{SyncReport, seeded_tree_cache};
+use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{BranchKind, strip_branch_namespace};
 use git_ops::commit_list::Commit;
@@ -32,8 +34,9 @@ use git_ops::tree_id_cache::TreeIdCache;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_lines::FileLines;
 use serde::Serialize;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use sync_types::stack::{BlockReason, ParentState, StackProblem};
 use sync_types::{ProgressReporter, SyncEvent};
 use tracing::instrument;
@@ -516,8 +519,10 @@ impl CheckSession {
       owners: CommitOwners::default(),
     };
 
+    // the branches to check in stack order, a parent before its children
+    let mut planned: Vec<Planned> = Vec::with_capacity(order.len());
     let mut checks: Vec<BranchCheck> = Vec::with_capacity(order.len());
-    let mut built_on_base = false;
+    let mut jobs: Vec<(usize, &[Commit])> = Vec::with_capacity(order.len());
     for (branch_idx, name) in order.iter().enumerate() {
       let Some(commits) = branches.get(name) else { continue };
       if built.as_ref().is_some_and(|built| !built.contains(name)) {
@@ -525,47 +530,49 @@ impl CheckSession {
       }
       let placement = placements.as_ref().and_then(|placements| placements.get(name));
       let built_on = placement.and_then(|stack| stack.effective_base.clone());
-      let parent_outcome = built_on
-        .as_ref()
-        .and_then(|parent| checks.iter().find(|check| &check.name == parent))
-        .map(|check| &check.outcome);
-      let outcome = if let Some(stack) = placement.filter(|stack| !stack.problems.is_empty()) {
-        CheckOutcome::Problems(stack.problems.clone())
-      } else if let Some(block) = placement.and_then(|stack| stack.blocked_by.as_ref()) {
-        CheckOutcome::Blocked {
+      let immediate = if let Some(stack) = placement.filter(|stack| !stack.problems.is_empty()) {
+        Some(CheckOutcome::Problems(stack.problems.clone()))
+      } else {
+        placement.and_then(|stack| stack.blocked_by.as_ref()).map(|block| CheckOutcome::Blocked {
           parent: block.parent.clone(),
           reason: block.reason,
-        }
-      } else {
-        match (parent_outcome, &built_on) {
-          (Some(CheckOutcome::Ok { head }), Some(_)) => build(&context, &progress, name, commits, branch_idx, head, true),
-          (Some(outcome), Some(parent)) => CheckOutcome::Blocked {
-            parent: parent.clone(),
-            reason: match outcome {
-              CheckOutcome::Conflict { .. } => BlockReason::Conflict,
-              CheckOutcome::Blocked { .. } => BlockReason::Blocked,
-              _ => BlockReason::Error,
-            },
-          },
-          _ => match &base {
-            Some(base) => {
-              built_on_base = true;
-              build(&context, &progress, name, commits, branch_idx, base, false)
-            }
-            None => CheckOutcome::Error {
-              message: "The oldest commit ahead of the baseline has no parent".to_string(),
-            },
-          },
-        }
+        })
       };
+      planned.push(Planned {
+        name: name.clone(),
+        // a parent that is not checked here (no commits) leaves the branch on the base
+        parent: built_on.as_ref().and_then(|parent| planned.iter().position(|planned| &planned.name == parent)),
+        immediate,
+      });
+      jobs.push((branch_idx, commits.as_slice()));
       checks.push(BranchCheck {
         name: name.clone(),
         commits: commits.iter().map(|commit| commit.id.clone()).collect(),
         declared_parent: placement.and_then(|stack| stack.declared_parent.clone()),
         built_on,
-        outcome,
+        outcome: CheckOutcome::Error { message: String::new() },
       });
     }
+    // every branch built on the base copies its first commit with the base's date: one read before the parallel
+    // builds, not one per build (none when an earlier check of the session learned it); a failed read is the error of
+    // each build that reads it again
+    if let Some(base) = &base
+      && planned.iter().any(|branch| branch.parent.is_none() && branch.immediate.is_none())
+    {
+      let _ = context.tree_id_cache.get_committer_timestamp(git_executor, repository_path, base);
+    }
+    let built_on_base = AtomicBool::new(false);
+    let outcomes = run_builds(&planned, base.as_deref(), ProcessPermits::for_operation().capacity(), |index, base_commit, on_parent| {
+      if !on_parent {
+        built_on_base.store(true, Ordering::Relaxed);
+      }
+      let (branch_idx, commits) = jobs[index];
+      build(&context, &progress, &planned[index].name, commits, branch_idx, base_commit, on_parent)
+    });
+    for (check, outcome) in checks.iter_mut().zip(outcomes) {
+      check.outcome = outcome;
+    }
+    let built_on_base = built_on_base.into_inner();
     // before the dangling references, so that a parallel `bd` reuses the merges at once
     memo.flush();
     if let Some(base) = base.as_deref().filter(|_| built_on_base) {
@@ -854,6 +861,130 @@ fn apply_message(commit: &mut Commit, message: &str) {
   message.clone_into(&mut commit.message);
 }
 
+/// A branch of a check as `run_builds` schedules it
+pub(crate) struct Planned {
+  pub name: String,
+  /// The index of the branch it is built on, when that one is checked too; else it is built on the base
+  pub parent: Option<usize>,
+  /// Its outcome without a build: the branch can't be placed in its stack
+  pub immediate: Option<CheckOutcome>,
+}
+
+/// What `run_builds` knows while the branches build
+struct Schedule {
+  outcomes: Vec<Option<CheckOutcome>>,
+  /// `(branch, the commit it is built on, whether that is its parent's head)`
+  ready: VecDeque<(usize, String, bool)>,
+  running: usize,
+}
+
+impl Schedule {
+  /// The children of `index` now that its outcome is known: on the head of a branch that builds they are ready, a
+  /// failed branch blocks them, and their own children in turn
+  fn release(&mut self, index: usize, planned: &[Planned], children: &[Vec<usize>]) {
+    for &child in &children[index] {
+      if self.outcomes[child].is_some() {
+        continue;
+      }
+      match &self.outcomes[index] {
+        Some(CheckOutcome::Ok { head }) => self.ready.push_back((child, head.clone(), true)),
+        Some(outcome) => {
+          let reason = match outcome {
+            CheckOutcome::Conflict { .. } => BlockReason::Conflict,
+            CheckOutcome::Blocked { .. } => BlockReason::Blocked,
+            _ => BlockReason::Error,
+          };
+          self.outcomes[child] = Some(CheckOutcome::Blocked {
+            parent: planned[index].name.clone(),
+            reason,
+          });
+          self.release(child, planned, children);
+        }
+        None => {}
+      }
+    }
+  }
+}
+
+/// The outcome of each of `planned` (a parent before its children): the branches build on `threads` threads, each as
+/// soon as the branch it is built on has its head, the roots on `base`. `build(index, base commit, on parent)` builds
+/// one; a branch placed with a problem is not built, and a failed branch blocks the branches built on it, as a check
+/// one by one decides
+pub(crate) fn run_builds(planned: &[Planned], base: Option<&str>, threads: usize, build: impl Fn(usize, &str, bool) -> CheckOutcome + Sync) -> Vec<CheckOutcome> {
+  let mut children = vec![Vec::new(); planned.len()];
+  for (index, branch) in planned.iter().enumerate() {
+    if let Some(parent) = branch.parent {
+      children[parent].push(index);
+    }
+  }
+  let mut schedule = Schedule {
+    outcomes: planned.iter().map(|branch| branch.immediate.clone()).collect(),
+    ready: VecDeque::new(),
+    running: 0,
+  };
+  for index in 0..planned.len() {
+    if schedule.outcomes[index].is_some() {
+      schedule.release(index, planned, &children);
+    }
+  }
+  for (index, branch) in planned.iter().enumerate() {
+    if schedule.outcomes[index].is_some() || branch.parent.is_some() {
+      continue;
+    }
+    if let Some(base) = base {
+      schedule.ready.push_back((index, base.to_string(), false));
+    } else {
+      schedule.outcomes[index] = Some(CheckOutcome::Error {
+        message: "The oldest commit ahead of the baseline has no parent".to_string(),
+      });
+      schedule.release(index, planned, &children);
+    }
+  }
+
+  let state = Mutex::new(schedule);
+  let woken = Condvar::new();
+  let lock = || state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+  std::thread::scope(|scope| {
+    for _ in 0..threads.clamp(1, planned.len().max(1)) {
+      scope.spawn(|| {
+        loop {
+          let job = {
+            let mut schedule = lock();
+            loop {
+              if let Some(job) = schedule.ready.pop_front() {
+                schedule.running += 1;
+                break Some(job);
+              }
+              if schedule.running == 0 {
+                break None;
+              }
+              schedule = woken.wait(schedule).unwrap_or_else(std::sync::PoisonError::into_inner);
+            }
+          };
+          let Some((index, base_commit, on_parent)) = job else {
+            woken.notify_all();
+            return;
+          };
+          let outcome = build(index, &base_commit, on_parent);
+          let mut schedule = lock();
+          schedule.running -= 1;
+          schedule.outcomes[index] = Some(outcome);
+          schedule.release(index, planned, &children);
+          drop(schedule);
+          woken.notify_all();
+        }
+      });
+    }
+  });
+  state
+    .into_inner()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .outcomes
+    .into_iter()
+    .map(|outcome| outcome.unwrap_or_else(|| CheckOutcome::Error { message: "Not built".to_string() }))
+    .collect()
+}
+
 /// Build one branch on `base_commit`, objects only. `on_parent`: `base_commit` is the parent's head, as in a sync; it only
 /// drives the stack note and the remote status of `finish_branch`, which a check never runs
 fn build(
@@ -865,7 +996,6 @@ fn build(
   base_commit: &str,
   on_parent: bool,
 ) -> CheckOutcome {
-  progress.clear();
   let job = BranchJob {
     branch_name: name.to_string(),
     commits: commits.to_vec(),
@@ -883,19 +1013,13 @@ fn build(
   }
 }
 
-/// Keeps the commit errors of the branch being built; the other events of a build are not needed
+/// Keeps the commit errors of the branches of a check, each built once; the other events of a build are not needed
 #[derive(Clone, Default)]
 struct CollectingReporter {
   errors: Arc<Mutex<Vec<(String, String, BranchError)>>>,
 }
 
 impl CollectingReporter {
-  fn clear(&self) {
-    if let Ok(mut errors) = self.errors.lock() {
-      errors.clear();
-    }
-  }
-
   fn commit_error(&self, branch: &str) -> Option<CheckOutcome> {
     let errors = self.errors.lock().ok()?;
     let (_, commit, error) = errors.iter().find(|(name, _, _)| name == branch)?;

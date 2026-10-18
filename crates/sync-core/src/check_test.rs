@@ -1,11 +1,13 @@
 use crate::cache_memo::CacheMemo;
-use crate::check::{CheckOutcome, CheckReport, CheckSession, StackCommit, StackIndependence, StackUse, check_plan, stack_independence};
+use crate::check::{CheckOutcome, CheckReport, CheckSession, Planned, StackCommit, StackIndependence, StackUse, check_plan, run_builds, stack_independence};
 use crate::regroup::regroup_test;
 use crate::regroup::{RegroupError, RegroupPlan};
 use git_ops::merge_memo::{MergeMemo, MergeOutcome, MergeTrees};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use object_cache::merge_result::{MergeKey, MergeResult};
 use pretty_assertions::assert_eq;
+use std::sync::{Mutex, mpsc};
+use std::time::Duration;
 use sync_types::stack::BlockReason;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -425,4 +427,110 @@ fn check_does_not_reuse_a_stale_copy() {
   };
   assert_ne!(rebuilt, head);
   assert_eq!(git(&["show", &format!("{rebuilt}:shared.txt")]), "one\nmoved hunk");
+}
+
+/// Branches `a` (root), `b` on `a`, `c` (root), `d` on `b`, `e` (root, placed with a problem) and `f` on `e`
+fn planned() -> Vec<Planned> {
+  let branch = |name: &str, parent: Option<usize>| Planned {
+    name: name.to_string(),
+    parent,
+    immediate: None,
+  };
+  vec![
+    branch("a", None),
+    branch("b", Some(0)),
+    branch("c", None),
+    branch("d", Some(1)),
+    Planned {
+      immediate: Some(CheckOutcome::Problems(Vec::new())),
+      ..branch("e", None)
+    },
+    branch("f", Some(4)),
+  ]
+}
+
+/// The branches of a check build at the same time when they don't wait for each other: the two roots each wait for the
+/// other to start, which a build one by one never does
+#[test]
+fn independent_branches_build_at_the_same_time() {
+  let (started_a, wait_a) = mpsc::channel::<()>();
+  let (started_c, wait_c) = mpsc::channel::<()>();
+  let (started_a, started_c) = (Mutex::new(started_a), Mutex::new(started_c));
+  let (wait_a, wait_c) = (Mutex::new(wait_a), Mutex::new(wait_c));
+  let outcomes = run_builds(&planned(), Some("base"), 4, |index, base, _| {
+    let both_started = match index {
+      0 => {
+        started_a.lock().unwrap().send(()).unwrap();
+        wait_c.lock().unwrap().recv_timeout(Duration::from_secs(10)).is_ok()
+      }
+      2 => {
+        started_c.lock().unwrap().send(()).unwrap();
+        wait_a.lock().unwrap().recv_timeout(Duration::from_secs(10)).is_ok()
+      }
+      _ => true,
+    };
+    if both_started {
+      CheckOutcome::Ok { head: format!("{base}+{index}") }
+    } else {
+      CheckOutcome::Error {
+        message: "built alone".to_string(),
+      }
+    }
+  });
+  assert_eq!(outcomes[0], CheckOutcome::Ok { head: "base+0".to_string() });
+  assert_eq!(outcomes[2], CheckOutcome::Ok { head: "base+2".to_string() });
+}
+
+/// A branch builds on the head of its parent, a root on the base; a branch on a conflicting parent is blocked by the
+/// conflict, one on a blocked branch is blocked in turn, and one on a branch placed with a problem is blocked by an
+/// error, as a check one by one decides
+#[test]
+fn a_branch_waits_for_its_parent_and_is_blocked_by_its_failure() {
+  let built = run_builds(&planned(), Some("base"), 4, |index, base, on_parent| CheckOutcome::Ok {
+    head: format!("{base}+{index}{}", if on_parent { "^" } else { "" }),
+  });
+  assert_eq!(
+    built,
+    [
+      CheckOutcome::Ok { head: "base+0".to_string() },
+      CheckOutcome::Ok { head: "base+0+1^".to_string() },
+      CheckOutcome::Ok { head: "base+2".to_string() },
+      CheckOutcome::Ok { head: "base+0+1^+3^".to_string() },
+      CheckOutcome::Problems(Vec::new()),
+      CheckOutcome::Blocked {
+        parent: "e".to_string(),
+        reason: BlockReason::Error,
+      },
+    ]
+  );
+
+  let conflict = CheckOutcome::Conflict {
+    commit: "x".to_string(),
+    files: vec!["file.txt".to_string()],
+  };
+  let failed = run_builds(&planned(), Some("base"), 1, |index, base, _| match index {
+    0 => conflict.clone(),
+    _ => CheckOutcome::Ok { head: format!("{base}+{index}") },
+  });
+  assert_eq!(failed[0], conflict);
+  assert_eq!(
+    failed[1],
+    CheckOutcome::Blocked {
+      parent: "a".to_string(),
+      reason: BlockReason::Conflict,
+    }
+  );
+  assert_eq!(
+    failed[3],
+    CheckOutcome::Blocked {
+      parent: "b".to_string(),
+      reason: BlockReason::Blocked,
+    }
+  );
+
+  let without_base = run_builds(&planned(), None, 2, |_, _, _| CheckOutcome::Ok { head: String::new() });
+  assert!(
+    matches!(&without_base[0], CheckOutcome::Error { message } if message.contains("no parent")),
+    "{without_base:?}"
+  );
 }

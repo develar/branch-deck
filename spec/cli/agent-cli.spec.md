@@ -401,6 +401,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   one, parents first, writing git objects and the cache only: refs, notes, config and HEAD must not change.
   [@test] ../../crates/sync-core/src/check_test.rs (`a_commit_moved_away_from_its_dependency_conflicts`, `stacking_resolves_the_conflict`, `the_current_grouping_and_a_clean_plan_build`, `an_invalid_plan_is_refused`)
   [@test] ../../crates/bd-cli/src/check_test.rs (`the_current_grouping_and_invalid_plans`)
+- The branches must build at the same time as a sync builds them: a branch as soon as the one it is built on has its
+  head, the others at once, with the outcomes of a build one by one (a child on its parent's head, blocked by a failed
+  parent) and no more git processes.
+  [@test] ../../crates/sync-core/src/check_test.rs (`independent_branches_build_at_the_same_time`, `a_branch_waits_for_its_parent_and_is_blocked_by_its_failure`)
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_check`, `a_check_of_synced_branches`)
 - Per branch it must print `ok`, a light conflict (commit, subject, files and the older commits outside the branch
   and its ancestors that change those files), `blocked_by`, `problems` or `error`, and the branch it would be built
   on; the exit code must be 1 unless every branch is `ok`.
