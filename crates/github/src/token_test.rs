@@ -2,7 +2,7 @@ use crate::token::{GhSource, Token, TokenChain, TokenSources, read_gh_token, rea
 use pretty_assertions::assert_eq;
 use std::time::Duration;
 use sync_types::pull_request::TokenSource;
-use test_utils::fake_executable::fake_executable;
+use test_utils::fake_executable::{fake_executable, shell_path};
 use test_utils::git_test_utils::TestRepo;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -17,13 +17,13 @@ fn repo_with_helper(script: &str) -> (TestRepo, tempfile::TempDir) {
   let repo = TestRepo::new();
   let dir = tempfile::tempdir().unwrap();
   let helper = fake_executable(dir.path(), "helper", script);
-  let askpass = fake_executable(dir.path(), "askpass", &format!("touch '{}'", dir.path().join("asked").display()));
-  repo.set_config("core.askPass", askpass.to_str().unwrap()).unwrap();
+  let askpass = fake_executable(dir.path(), "askpass", &format!("touch '{}'", shell_path(&dir.path().join("asked"))));
+  repo.set_config("core.askPass", &shell_path(&askpass)).unwrap();
   let path = repo.path().to_str().unwrap();
   repo.git_executor().execute_command(&["config", "--add", "credential.helper", ""], path).unwrap();
   repo
     .git_executor()
-    .execute_command(&["config", "--add", "credential.helper", helper.to_str().unwrap()], path)
+    .execute_command(&["config", "--add", "credential.helper", &shell_path(&helper)], path)
     .unwrap();
   (repo, dir)
 }

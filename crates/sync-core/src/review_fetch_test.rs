@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use sync_types::review_request::{FetchReviewHeadParams, ReviewHeadState, ReviewRange, ReviewSource};
 use test_log::test;
-use test_utils::fake_executable::fake_executable;
+use test_utils::fake_executable::{fake_executable, shell_path};
 use test_utils::git_test_utils::TestRepo;
 
 const GITHUB_URL: &str = "https://github.com/acme/monorepo.git";
@@ -273,7 +273,7 @@ fn refused_github_credentials_are_told_how_to_fix() {
     "ssh",
     "echo \"fatal: could not read Username for 'https://github.com': terminal prompts disabled\" >&2\nexit 128",
   );
-  fixture.local.set_config("core.sshCommand", ssh.to_str().unwrap()).unwrap();
+  fixture.local.set_config("core.sshCommand", &shell_path(&ssh)).unwrap();
   fixture.redirect_github("ssh://git@github.example/acme/monorepo.git");
   let params = FetchReviewHeadParams {
     is_cross_repository: true,
@@ -292,7 +292,7 @@ fn hanging_fixture() -> (Fixture, tempfile::TempDir) {
   let fixture = fixture();
   let dir = tempfile::tempdir().unwrap();
   let ssh = fake_executable(dir.path(), "ssh", "exec sleep 30");
-  fixture.local.set_config("core.sshCommand", ssh.to_str().unwrap()).unwrap();
+  fixture.local.set_config("core.sshCommand", &shell_path(&ssh)).unwrap();
   git(&fixture.local, &["remote", "set-url", "origin", "ssh://git@git.example.com/team/monorepo.git"]);
   (fixture, dir)
 }

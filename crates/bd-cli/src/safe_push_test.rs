@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tempfile::TempDir;
-use test_utils::fake_executable::fake_executable;
+use test_utils::fake_executable::{fake_executable, shell_path};
 use test_utils::git_test_utils::{TestRepo, git_command};
 use tokio::runtime::Runtime;
 
@@ -39,10 +39,10 @@ impl Space {
       "ssh",
       &format!(
         "for last; do :; done\ncase \"$last\" in\n  *receive-pack*) exec git receive-pack '{0}' ;;\n  *) exec git upload-pack '{0}' ;;\nesac",
-        remote.path().display()
+        shell_path(remote.path())
       ),
     );
-    git(&repo, &["config", "core.sshCommand", ssh.to_str().unwrap()]);
+    git(&repo, &["config", "core.sshCommand", &shell_path(&ssh)]);
     git(&repo, &["remote", "set-url", "origin", "ssh://git@git.jetbrains.team/ij/ultimate.git"]);
 
     let token = home.path().join(".patronus/code.jetbrains.team-identity-token.json");
