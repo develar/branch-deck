@@ -8,16 +8,16 @@ import { ChevronRightIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
+import { FilePathLabel } from "@/components/files/FilePathLabel"
 import { CopyButton } from "@/components/shared/CopyButton"
 import type { CommitFile, CommitPatch } from "@/lib/bindings"
-import { getFileStatusLetter, getFileStatusTextClass } from "@/lib/commit-files"
+import { formatCommitFilePath } from "@/lib/commit-files"
 import { getChangeTargets } from "@/lib/diff/change-targets"
 import type { ChangeTarget } from "@/lib/diff/change-targets"
 import { getCommitFileDiffs, loadCommitFileContents } from "@/lib/diff/commit-patch"
 import type { CommitFileDiff } from "@/lib/diff/commit-patch"
 import { BASE_DIFF_OPTIONS, getDiffWorkerPool } from "@/lib/diff/diff-engine"
 import { FIRST_SCREEN_FILES, getNotice, startsCollapsed } from "@/lib/diff/review-diffs"
-import { formatTreeFileLabel } from "@/lib/file-tree"
 import type { ConflictDiffViewMode } from "@/stores/settings/diff-view-settings"
 
 /** The height of a file header: `h-9` of `ReviewFileHeader`, the metric the virtualizer lays out with */
@@ -269,8 +269,7 @@ interface ReviewFileHeaderProps {
 function ReviewFileHeader({ entry, pending = false, owner, collapsed, onToggle }: ReviewFileHeaderProps) {
   const { file } = entry
   const notice = pending ? null : getNotice(entry)
-  const label = formatTreeFileLabel(file)
-  const directory = file.path.slice(0, file.path.length - label.name.length)
+  const name = file.path.slice(file.path.lastIndexOf("/") + 1)
   return (
     <FileContextMenu
       target={() => ({ kind: "file", path: file.path })}
@@ -280,25 +279,20 @@ function ReviewFileHeader({ entry, pending = false, owner, collapsed, onToggle }
       <Button
         variant="ghost"
         size="icon-xs"
-        aria-label={collapsed ? `Expand ${label.name}` : `Collapse ${label.name}`}
+        aria-label={collapsed ? `Expand ${name}` : `Collapse ${name}`}
         aria-expanded={!collapsed}
         disabled={pending || notice !== null}
         onClick={() => onToggle(file.path)}
       >
         <ChevronRightIcon className={cn("transition-transform duration-150", !collapsed && "rotate-90")} />
       </Button>
-      <span aria-hidden className={cn("w-3 shrink-0 text-center font-mono text-xs no-underline", getFileStatusTextClass(file.status))}>
-        {getFileStatusLetter(file.status)}
-      </span>
-      <span className="flex min-w-0 items-baseline truncate" title={file.oldPath === null ? file.path : `${file.oldPath} → ${file.path}`}>
-        <span className="truncate text-muted-foreground">{directory}</span>
-        <span className="shrink-0 font-medium">{label.name}</span>
-        {label.from !== null && <span className="ml-1.5 shrink-0 text-xs text-muted-foreground">{`← ${label.from}`}</span>}
+      <span className="flex min-w-0" title={formatCommitFilePath(file)}>
+        <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} emphasis />
       </span>
       <CopyButton
         text={() => file.path}
         tooltip="Copy path"
-        label={`Copy path of ${label.name}`}
+        label={`Copy path of ${name}`}
         className="duration-200 ease-out group-hover/header:opacity-100 group-hover/header:delay-300"
       />
       <span className="ml-auto flex shrink-0 items-center gap-3 text-xs">

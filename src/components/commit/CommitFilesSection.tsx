@@ -4,6 +4,7 @@ import { FileTree } from "@/components/files/FileTree"
 import { Callout } from "@/components/shared/Callout"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { LoadingLine } from "@/components/shared/LoadingLine"
+import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { CommitFile, CommitFiles } from "@/lib/bindings"
 import { buildFileTree, getInitiallyCollapsed, toggleInSet } from "@/lib/file-tree"
 import { getFilesOfCommit, loadFilesOfCommit, useFilesOfCommit } from "@/stores/commit-files"
@@ -35,9 +36,7 @@ export function CommitFilesSection({ commitId, onReviewFile }: CommitFilesSectio
     <section aria-labelledby={titleId} data-testid="commit-files" className="flex flex-col gap-3 border-t border-border pt-5">
       <div className="flex items-center justify-between gap-2">
         {/* not a heading: the subject is the one heading of the preview */}
-        <div id={titleId} className="text-sm font-medium">
-          Files
-        </div>
+        <SectionLabel id={titleId} title="Files" />
         {commitFiles !== undefined && commitFiles.files.length > 0 && <DiffViewToggle />}
       </div>
       {commitFiles === undefined ? (

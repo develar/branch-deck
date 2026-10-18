@@ -127,7 +127,7 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
 - The rows of the island must be the rows of the branch table: the stack graph, the Status cell, the Actions cell, the
   menu; a table of its own without the column heads, with a lane column as wide as its stack.
 - Each branch must show its commits below its row while the row is not expanded, a line each on its lane
-  (`StackCommitLines`): subject, short hash, age; the push arrow on a commit the remote lacks (`unpushedCommits`), a
+  (`StackCommitLines`): subject, short hash, the short time of the commit ("Today 2:32 PM", "Oct 3"); the push arrow on a commit the remote lacks (`unpushedCommits`), a
   muted subject for one the remote has. A click on the row expands the full commit list in its place. A click on the
   arrow opens Push Up to Here of the commit: what goes out, in what order, and the push
   ([Stacked Branches](stacked-branches.spec.md#push-up-to-here)).

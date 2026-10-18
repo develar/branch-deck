@@ -172,6 +172,12 @@
   line-height: 1;
 }
 
+/* the initials in a 20px avatar circle (the asker of a review request): a glyph inside a shape, below the type scale */
+@utility bd-avatar-initials {
+  font-size: 0.625rem;
+  line-height: 1;
+}
+
 @theme {
   /*
    * The type scale, one role per step (docs/design/ui-theme.md, "Type sizes"): text-xs 12/16 meta, text-sm the UI text,
@@ -365,7 +371,7 @@ diffs-container {
   --diffs-font-family: --theme(--font-mono);
   --diffs-header-font-family: --theme(--font-sans);
   --diffs-font-features: "calt" 0;
-  --diffs-font-size: 12px;
+  --diffs-font-size: 13px;
   /* the line height Pierre's virtualizer measures with */
   --diffs-line-height: 20px;
   --diffs-tab-size: 4;

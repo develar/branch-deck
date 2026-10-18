@@ -93,7 +93,8 @@ where a dialog would cover it.
   to the front, where the review is.
   [@test] ../../src/lib/commit-review-window.test.ts (`keeps its review for an open of the commit it shows, and starts over for another commit, list or file`)
 - The window shows the commits of the list above its files (the commits of a range review, without a scope), the
-  subject, meta line and message of the commit above its diffs, the footer "Commit 2 / 3 · File 1 / 1" and
+  commit above its diffs as the branch preview heads one (`CommitHeading`: the subject `text-md font-medium`, the meta
+  line with the committer time on hover and the coloured line counts, the reading body, three lines until Show More), the footer "Commit 2 / 3 · File 1 / 1" and
   `Esc Close`. Its title bar names the list and the commit ("session › 11346cdf", `listLabel` of the window data: the
   branch, or "Unassigned") and ends with the Unified/Split toggle. Nothing is edited there.
 - ⌥↑/⌥↓ (Alt+↑/↓) must show the previous or next commit of the list.
@@ -120,7 +121,7 @@ where a dialog would cover it.
   the files stay where they are, with their focus.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
 - The right pane must show the diffs of all files in the order of the tree, in one virtualized view, each under a
-  sticky header with its status letter, its directory muted and its name, where a rename came from, its owner, its
+  sticky header with its status letter, its name, where a rename came from and its directory muted, its owner, its
   line counts, a copy button and the menu of the file ([Commit Files](commit-files.spec.md#the-actions-on-a-file)).
   The commit a range shows is above them.
 - A file chosen in the tree must scroll its header to the top. As the diffs scroll, the file whose header is at the
@@ -157,12 +158,12 @@ where a dialog would cover it.
 
 - The island of the review fills the window below its title bar; the panes scroll on their own. A 1px `bg-border`
   divider separates them.
-- The sidebar has the commits above a `border-b`, then the header of the files ("5 files" in muted `text-xs`, at least
-  `h-10`), then the tree with the rows of the Files section. The selected row is `bg-primary/15`; a file row has no
+- The sidebar has the commits above a `border-b`, then the header of the files ("Files 5", a muted `text-xs font-medium`
+  `SectionLabel`, at least `h-10`), then the tree with the rows of the Files section. The selected row is `bg-primary/15`; a file row has no
   chevron, its name keeps the indent.
 - A file header is `h-9` on `bg-card` with a `border-b`: a ghost `icon-xs` chevron (disabled without lines to show),
-  the status letter in `font-mono text-xs` in the status colour, the directory muted and the name `font-medium`, the
-  copy button on hover, then on the right the notice and the owner muted and the coloured counts in `text-xs`.
+  the file as every list of changed files names it (`FilePathLabel`: the status letter in `font-mono text-xs` in the
+  status colour, the name `font-medium` in the status colour, the directory muted after it), the copy button on hover, then on the right the notice and the owner muted and the coloured counts in `text-xs`.
 - The review window ([Title Bar](../repository/title-bar.spec.md)) names the list and the commit in its title bar
   ("session › 11346cdf"), the toggle at its other end; the native title stays "Review 11346cdf <subject>".
 - The footer shows "File 3 / 12" on the left, "Commit 2 / 3 · File 3 / 12" in a list of several commits, and on the

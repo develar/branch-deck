@@ -2090,6 +2090,8 @@ export type ReviewCommit = {
 	author: string,
 	/**  Unix seconds */
 	authorTime: number,
+	/**  Unix seconds; the time popover of the commit names it when it differs from `author_time` */
+	committerTime: number,
 };
 
 export type ReviewDecision = "approved" | "changesRequested" | "reviewRequired";

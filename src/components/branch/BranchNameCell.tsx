@@ -117,7 +117,7 @@ export function BranchIssueBadge({ issueKey }: { issueKey: string }) {
 export function BranchSummary({ summary: { prefix, text }, className }: { summary: SubjectParts; className?: string }) {
   return (
     <span className={cn("truncate text-xs text-muted-foreground", className)} data-testid="branch-summary">
-      {prefix != null && <span className="font-mono text-muted-foreground/70">{`${prefix} `}</span>}
+      {prefix != null && <span className="font-mono">{`${prefix} `}</span>}
       <LinkedText text={text} />
     </span>
   )

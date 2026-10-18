@@ -69,8 +69,8 @@ simpleTest.describe("Commit review", () => {
     await expect(position).toHaveText("File 1 / 5")
     await expect(selectedFile(window)).toHaveAttribute("aria-label", "RowMapper.kt")
     await expect(code).toContainText("SessionRowMapper")
-    // the header of a file names its directory and itself
-    await expect(code.getByTestId("review-file-header").first()).toContainText("plugins/air/backend/session/catalog/src/RowMapper.kt")
+    // the header of a file names itself, then its directory, as every list of changed files does
+    await expect(code.getByTestId("review-file-header").first()).toContainText("RowMapper.ktplugins/air/backend/session/catalog/src")
 
     await code.locator("[aria-label='Changes of the commit']").focus()
     await page.keyboard.press("j")

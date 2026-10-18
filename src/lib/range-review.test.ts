@@ -4,7 +4,7 @@ import type { BranchReviewSegment, ReviewCommit } from "@/lib/bindings"
 import { SINCE_REVIEW, isSingleCommit, keepCommit, pullRequestItems, rangePosition, segmentItems, shownKey } from "@/lib/range-review"
 
 function commit(id: string, subject: string, authorTime = 1): ReviewCommit {
-  return { id, subject, message: subject, author: "Test User", authorTime }
+  return { id, subject, message: subject, author: "Test User", authorTime, committerTime: authorTime }
 }
 
 function segment(name: string, commits: ReviewCommit[]): BranchReviewSegment {

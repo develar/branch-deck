@@ -128,7 +128,7 @@ function LandedCommitRow({ commit, compact }: { commit: LandedCommit; compact: b
         <span className="shrink-0 text-muted-foreground">squashed upstream</span>
       ) : (
         <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
-          <span className="font-mono text-foreground" data-testid="landed-upstream-hash">
+          <span className="font-mono" data-testid="landed-upstream-hash">
             {formatShortHash(upstream.id)}
           </span>
           <CopyButton text={() => upstream.id} tooltip="Copy the baseline commit" />

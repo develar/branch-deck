@@ -536,7 +536,7 @@ under it. The commits of an expanded branch sit on its lane.
 - An expanded row fades its commits in (150ms, opacity only).
 - The folder button is a ghost `icon-xs` button in `text-muted-foreground`, `text-foreground` while expanded: it
   repeats on every row, so it carries no accent. The name is `text-sm font-medium`, the summary
-  `text-xs text-muted-foreground`, the prefix of a subject `font-mono text-muted-foreground/70`.
+  `text-xs text-muted-foreground`, the prefix of a subject `font-mono`, muted as the summary.
 - The family guide and the commit rail of a table without stacks are neutral `border-l border-border` lines
   (`bd-family-guide`, `bd-family-rule` and `--bd-family-step` in `src/index.css`); with stacks the guide is a `w-px
   bg-border` line over the cell.

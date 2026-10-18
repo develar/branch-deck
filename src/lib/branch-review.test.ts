@@ -5,7 +5,7 @@ import { testBranch } from "@/stores/test-branch"
 import type { BranchReviewWindowData } from "@/types/sub-window"
 
 function segment(name: string, base: string, head: string): BranchReviewSegment {
-  return { name, base, head, commits: [{ id: head, subject: name, message: name, author: "Test User", authorTime: 1 }] }
+  return { name, base, head, commits: [{ id: head, subject: name, message: name, author: "Test User", authorTime: 1, committerTime: 1 }] }
 }
 
 const segments = [segment("auth", "b0", "a1"), segment("login", "a1", "l1"), segment("ui", "l1", "u1")]

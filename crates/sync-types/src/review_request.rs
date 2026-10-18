@@ -131,6 +131,24 @@ pub struct ReviewCommit {
   pub author: String,
   /// Unix seconds
   pub author_time: u32,
+  /// Unix seconds; the time popover of the commit names it when it differs from `author_time`
+  pub committer_time: u32,
+}
+
+impl ReviewCommit {
+  /// A commit from the text fields of a `log -z`: the times in unix seconds (0 when unreadable), the message without its
+  /// trailing newlines
+  #[must_use]
+  pub fn from_log_fields(id: &str, subject: &str, author: &str, author_time: &str, committer_time: &str, message: &str) -> Self {
+    Self {
+      id: id.to_string(),
+      subject: subject.to_string(),
+      message: message.trim_end_matches('\n').to_string(),
+      author: author.to_string(),
+      author_time: author_time.parse().unwrap_or(0),
+      committer_time: committer_time.parse().unwrap_or(0),
+    }
+  }
 }
 
 /// What the review of a pull request diffs: `base..head`, as GitHub's "Files changed"

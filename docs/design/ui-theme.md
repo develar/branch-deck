@@ -113,9 +113,10 @@ on `:host`:
 - the background is `--card`, in both the light and the dark variable: our tokens already switch with the scheme;
 - added, deleted and modified lines are `--success`, `--destructive` and `--primary`, line numbers `--muted-foreground`,
   the separators the `--bd-tint` of the foreground;
-- the code is JetBrains Mono at 12px without ligatures, 20px lines (the height Pierre's virtualizer measures with). The
-  font comes from `--theme(--font-mono)`: Tailwind does not emit `--font-mono` as a variable (`@theme inline`), so
-  `var(--font-mono)` would be empty.
+- the code is JetBrains Mono at 13px without ligatures, 20px lines (the height Pierre's virtualizer measures with): the
+  size of the IntelliJ editor and of the UI text beside it (the header of a file, the hunk separators in Inter), at the
+  cost of about 8% of the columns of a split view. The font comes from `--theme(--font-mono)`: Tailwind does not emit
+  `--font-mono` as a variable (`@theme inline`), so `var(--font-mono)` would be empty.
 
 The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/diff/islands-themes.ts`.
 
@@ -243,14 +244,16 @@ The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/
   - `text-md` (14/22px): reading text, the commit bodies of the commit and branch previews (`CommitMessageBody
     size="reading"`), at most `max-w-prose` wide (65ch, about 80 characters). 13px suits a row label, not paragraphs
     a user reads;
-  - `text-base` (16/24px): dialog titles, also the subject in the commit preview header and the branch name in the
-    branch preview header; a commit subject above its body in the branch preview is `text-md`, never smaller than its
-    body. Island titles are `text-sm font-semibold` (`SectionCardHeader`). The one exception is the Welcome card title,
+  - `text-base` (16/24px): dialog titles, also the subject in the commit preview header, the branch name in the
+    branch preview header and the title of a pull request in its review (`font-medium`, as the subject of a commit
+    preview); a commit as the heading of what follows it (`CommitHeading`: a commit of the branch preview, the commit
+    above its diffs in a review) is `text-md`, never smaller than its body. Island titles are `text-sm font-semibold` (`SectionCardHeader`). The one exception is the Welcome card title,
     `text-base font-semibold`: it greets once, above an otherwise empty window, so it is the size of a dialog title,
     never `text-lg`.
   - A custom step takes a t-shirt name (`text-md`): `cn` (tailwind-merge) merges any other `text-*` class as a colour
     and drops it next to `text-foreground` (`src/lib/type-scale.test.ts`). A size outside the scale is a `bd-` utility
-    (`bd-window-control-glyph`, the 10px Windows caption glyph).
+    (`bd-window-control-glyph`, the 10px Windows caption glyph; `bd-avatar-initials`, the initials in a 20px avatar
+    circle).
 - **Fonts**: Inter for text, JetBrains Mono for `font-mono` (hashes, paths, code), with `calt` off so `->` stays two
   characters; `body` is `antialiased`. JetBrains Mono, not the system `ui-monospace`: it is the same on every platform,
   matches Inter's metrics (SF Mono is 4% lower and exists only on macOS), and is the font of the IntelliJ editor the
@@ -313,10 +316,37 @@ The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/
 - **Type hierarchy**: weight marks titles and names, never content, so the names stand out in a long list:
   - `font-semibold`: a card title (`SectionCardHeader`, the Landed header);
   - `font-medium`: a name, the identity of a row (the branch name in `BranchNameCell`, an issue key, a landed
-    branch), and a commit subject only where it is a title (the commit preview header, a commit of the branch preview);
+    branch), the name of a file above its diff, and a commit subject only where it is a title (the commit preview
+    header, `CommitHeading`);
   - regular `text-foreground`: content, the commit subject of every list (`CommitSubject` in `CommitHeader`), as the
     IntelliJ Git log shows subjects;
   - `text-xs text-muted-foreground`: meta (the commit meta line, the subject next to a branch name, column headers).
+- **Two text colours**: `text-foreground` for text (a commit body too) and `text-muted-foreground` for what is secondary
+  (meta, directories, hashes, section labels, a label inside a message); no opacity steps between them
+  (`text-foreground/85`). Islands has one secondary grey (`text-secondary`, #73767C); ours is its `text-muted`
+  (#5F6269 light, #9FA2A8 dark), which keeps a 12px line readable on the dark card.
+- **One look per role** in the commit and review windows (the previews, the reviews of a commit, a branch and a pull
+  request, the conflict windows, the uncommitted changes):
+  - a changed file is a `FilePathLabel`: the status letter, the name in the colour of its status, "← old" of a rename,
+    then the directory muted in the same size, cut at its start, as IntelliJ lists a change; the header of a file above
+    its diff adds `font-medium`, a tree row leaves the directory to the rows above and puts the letter in the slot of a
+    folder icon;
+  - the status colours are the VCS colours of IntelliJ: added `success`, deleted muted and struck through, the rest
+    `primary`, the one use of `primary` that is neither an action nor a selection; a file says its status once (no badge
+    beside the letter);
+  - a commit as the heading of what follows it is a `CommitHeading` (above); a state with a commit in it ("“X” does not
+    apply cleanly onto master", `ConflictCommitContext`) is a title of a state, `text-sm font-medium` as an
+    `AlertTitle`;
+  - the head of a section inside an island ("Files 4", "Commits 4", a branch of a stack in the commit column) is a
+    `SectionLabel`, muted `text-xs font-medium` with its count, as `PopoverSectionTitle`;
+  - line counts are coloured (`text-success`, `text-destructive`) for one file wherever it is listed and for a commit
+    or a pull request where it is the heading (the preview headers, `CommitHeading`, the chips of a pull request); a
+    row of a list and a sum (a directory, a section) keeps them muted;
+  - the time of a commit is absolute: the meta line says it with the committer time on hover (`TimeWithPopover`), a
+    one-line list (the commits of a pull request, the stack island) says it short (`formatCompactTimestamp`: "Today
+    2:32 PM", "Yesterday", "Oct 3"); only the age of an event is relative ("waiting 2 days", "landed 2 hours ago");
+  - a hash is `font-mono` and muted, in a window title too (`WindowTitle` part `{ text, mono: true }`);
+  - every sub-window title is a `WindowTitle` in `text-sm`, the last part in the foreground ("Your Turn › 2 of 5").
 - **Spacing**:
   - islands are 8px apart and 8px from the window edges, as the 6px Islands gap on the spacing scale: `gap-2` in
     `BranchCreator` and `WindowPage`, a full-width `Container` with `px-2` (`pb-2` under the toolbar of the main

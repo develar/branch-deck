@@ -1,5 +1,4 @@
 import type { CommitFile, CommitFiles, FileStatus } from "@/lib/bindings"
-import type { UIColor } from "@/lib/ui-types"
 
 /**
  * What a review diffs: one commit (against its first parent), or the range `base..head` of a pull request, as GitHub's
@@ -49,22 +48,11 @@ export function getChangedPaths(list: readonly CommitFiles[]): string[] {
   return [...new Set(list.flatMap(files => files.files.map(file => file.path)))]
 }
 
-/** The badge colour of a file status, the same in the uncommitted changes and in a commit */
-export function getFileStatusColor(status: string): UIColor {
-  switch (status) {
-    case "added":
-      return "success"
-    case "modified":
-      return "info"
-    case "deleted":
-      return "error"
-    case "renamed":
-    case "copied":
-    case "typeChanged":
-      return "neutral"
-    default:
-      return "info"
-  }
+const FILE_STATUSES: ReadonlySet<string> = new Set<FileStatus>(["added", "modified", "deleted", "renamed", "copied", "typeChanged"])
+
+/** The status of an uncommitted file (`git status` says it as a word): a status the tree knows, "modified" otherwise */
+export function parseFileStatus(status: string): FileStatus {
+  return FILE_STATUSES.has(status) ? (status as FileStatus) : "modified"
 }
 
 /** The letter of a file status in the file tree, as git prints it in `--name-status` */
@@ -85,7 +73,10 @@ export function getFileStatusLetter(status: FileStatus): string {
   }
 }
 
-/** The colour of a file name in the file tree, as IntelliJ colours a change: added green, deleted struck through, the rest blue */
+/**
+ * The colour of a changed file wherever it is named (`FilePathLabel`), as IntelliJ colours a change: added green, deleted
+ * muted and struck through, the rest blue
+ */
 export function getFileStatusTextClass(status: FileStatus): string {
   switch (status) {
     case "added":

@@ -2,10 +2,11 @@ import { useState } from "react"
 import type { KeyboardEvent, ReactNode } from "react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
+import { CommitHeading } from "@/components/commit/CommitHeading"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
-import { CommitMetadata } from "@/components/commit/CommitMetadata"
 import { CommitReview } from "@/components/commit/CommitReview"
-import { CommitSubject } from "@/components/commit/CommitSubject"
+import { SectionLabel } from "@/components/shared/SectionLabel"
+import { useCommitFileStats } from "@/hooks/useCommitFiles"
 import type { ReviewCommit } from "@/lib/bindings"
 import { hasCommitMessageBody } from "@/lib/commit"
 import type { DiffSubject } from "@/lib/commit-files"
@@ -155,9 +156,9 @@ function ColumnItem({ item, selected, onSelect }: { item: RangeReviewItem; selec
   return (
     <>
       {item.group !== undefined && (
-        <p role="presentation" className="truncate px-2 pt-2 text-xs text-muted-foreground">
-          {item.group}
-        </p>
+        <div role="presentation" className="px-2 pt-2">
+          <SectionLabel title={item.group} />
+        </div>
       )}
       {item.divider !== undefined && (
         <div role="presentation" className="flex items-center gap-2 px-2 pt-1 text-xs text-muted-foreground" data-testid="range-review-divider">
@@ -181,24 +182,25 @@ function optionId(key: string): string {
   return `review-commit-${key}`
 }
 
-/** The shown commit above its diffs: the subject, the meta line and the message, three lines until Show More */
+/** The shown commit above its diffs, as the branch preview heads a commit (`CommitHeading`); the message three lines until Show More */
 function ReviewCommitHeader({ commit }: { commit: ReviewCommit }) {
   const [expanded, setExpanded] = useState(false)
+  const fileStats = useCommitFileStats(commit.id)
   const hasBody = hasCommitMessageBody(commit.subject, commit.message)
   return (
-    <div className="flex shrink-0 flex-col gap-1 border-b border-border px-4 py-2" data-testid="range-review-commit-header">
-      <CommitSubject subject={commit.subject} clamp={false} className="font-medium" />
-      <CommitMetadata hash={commit.id} author={commit.author} authorTime={commit.authorTime} />
-      {hasBody && (
-        <div className="flex flex-col items-start gap-1">
-          <div className={cn("max-h-[50vh] overflow-y-auto", !expanded && "line-clamp-3 overflow-hidden")}>
-            <CommitMessageBody message={commit.message} />
+    <div className="shrink-0 border-b border-border px-4 py-3" data-testid="range-review-commit-header">
+      <CommitHeading subject={commit.subject} hash={commit.id} author={commit.author} authorTime={commit.authorTime} committerTime={commit.committerTime} fileStats={fileStats}>
+        {hasBody && (
+          <div className="flex flex-col items-start gap-1">
+            <div className={cn("max-h-[50vh] overflow-y-auto", !expanded && "line-clamp-3 overflow-hidden")}>
+              <CommitMessageBody message={commit.message} size="reading" />
+            </div>
+            <Button variant="link" size="xs" className="h-auto px-0" onClick={() => setExpanded(!expanded)}>
+              {expanded ? "Show Less" : "Show More"}
+            </Button>
           </div>
-          <Button variant="link" size="xs" className="h-auto px-0" onClick={() => setExpanded(!expanded)}>
-            {expanded ? "Show Less" : "Show More"}
-          </Button>
-        </div>
-      )}
+        )}
+      </CommitHeading>
     </div>
   )
 }

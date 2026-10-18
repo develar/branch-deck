@@ -345,21 +345,32 @@ fn range_of(git: &GitCommandExecutor, params: &FetchReviewHeadParams, head: Stri
   // `-z`: a NUL ends each commit, as NULs separate its fields; the message may hold any other byte
   let log = git
     .cmd(
-      &["log", "-z", "--format=%H%x00%s%x00%an%x00%at%x00%B", "--reverse", MAX_COMMITS, "--end-of-options", &range],
+      &[
+        "log",
+        "-z",
+        "--format=%H%x00%s%x00%an%x00%at%x00%ct%x00%B",
+        "--reverse",
+        MAX_COMMITS,
+        "--end-of-options",
+        &range,
+      ],
       repo,
     )
     .bytes()?;
   let log = String::from_utf8_lossy(&log);
   let mut fields = log.split('\0');
   let mut commits = Vec::new();
-  while let (Some(id), Some(subject), Some(author), Some(author_time), Some(message)) = (fields.next(), fields.next(), fields.next(), fields.next(), fields.next()) {
-    commits.push(ReviewCommit {
-      id: id.trim_start_matches('\n').to_string(),
-      subject: subject.to_string(),
-      message: message.trim_end_matches('\n').to_string(),
-      author: author.to_string(),
-      author_time: author_time.parse().unwrap_or(0),
-    });
+  while let (Some(id), Some(subject), Some(author), Some(author_time), Some(committer_time), Some(message)) =
+    (fields.next(), fields.next(), fields.next(), fields.next(), fields.next(), fields.next())
+  {
+    commits.push(ReviewCommit::from_log_fields(
+      id.trim_start_matches('\n'),
+      subject,
+      author,
+      author_time,
+      committer_time,
+      message,
+    ));
   }
   Ok(ReviewRange {
     base,

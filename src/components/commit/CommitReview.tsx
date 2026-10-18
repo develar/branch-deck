@@ -7,9 +7,10 @@ import type { CommitReviewCodeHandle } from "@/components/diff/CommitReviewCode"
 import { FileTree } from "@/components/files/FileTree"
 import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
+import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { CommitFile, CommitPatch } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
-import { diffSubjectId, formatFileCount, parseDiffSubjectId } from "@/lib/commit-files"
+import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import { getDiffWorkerPool } from "@/lib/diff/diff-engine"
 import { prepareFirstDiffs } from "@/lib/diff/review-diffs"
 import { buildFileTree, flattenTreeFiles, getInitiallyCollapsed, revealInTree, toggleInSet } from "@/lib/file-tree"
@@ -352,7 +353,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
               className="flex min-h-10 shrink-0 flex-wrap items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground"
               data-testid="review-files-header"
             >
-              {filesHeader ?? (loaded !== null && formatFileCount(loaded.files.length))}
+              {filesHeader ?? (loaded !== null && <SectionLabel title="Files" count={loaded.files.length} className="flex-1" />)}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
               {loaded !== null && (

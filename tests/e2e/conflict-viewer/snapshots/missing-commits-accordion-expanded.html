@@ -107,7 +107,7 @@
                               <p class="font-medium text-info">
                                 Fix in 2 steps
                               </p>
-                              <ul class="flex list-disc flex-col gap-1 pl-5 text-foreground/85 marker:text-muted-foreground">
+                              <ul class="flex list-disc flex-col gap-1 pl-5 marker:text-muted-foreground">
                                 <li data-testid="fix-step">
                                   Move the unassigned “Add UserService” to feature-auth
                                 </li>
@@ -153,8 +153,17 @@
                             <div class="flex flex-col gap-2" data-orientation="vertical">
                               <div class="overflow-hidden rounded-lg border border-border" data-index="0" data-open="" data-orientation="vertical" data-testid="file-diff">
                                 <h3 class="group/file-header relative flex items-center gap-1 px-3 py-2 transition-colors hover:bg-muted/50 select-none" data-index="0" data-open="" data-orientation="vertical" data-slot="context-menu-trigger">
-                                  <button aria-controls="base-ui-[ID]" aria-expanded="true" class="min-w-0 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground outline-none after:absolute after:inset-0 focus-visible:after:ring-3 focus-visible:after:ring-ring/30 focus-visible:after:ring-inset" data-index="0" data-orientation="vertical" data-panel-open="" id="base-ui-[ID]" tabindex="0" type="button">
-                                    src/main/kotlin/com/example/service/UserService.kt
+                                  <button aria-controls="base-ui-[ID]" aria-expanded="true" aria-label="src/main/kotlin/com/example/service/UserService.kt" class="flex min-w-0 cursor-pointer text-left text-sm outline-none after:absolute after:inset-0 focus-visible:after:ring-3 focus-visible:after:ring-ring/30 focus-visible:after:ring-inset" data-index="0" data-orientation="vertical" data-panel-open="" id="base-ui-[ID]" tabindex="0" type="button">
+                                    <span class="flex min-w-0 items-baseline gap-1.5">
+                                      <span class="min-w-0 truncate">
+                                        UserService.kt
+                                      </span>
+                                      <span class="min-w-0 shrink-[10] truncate text-muted-foreground" dir="rtl">
+                                        <bdi dir="ltr">
+                                          src/main/kotlin/com/example/service
+                                        </bdi>
+                                      </span>
+                                    </span>
                                   </button>
                                   <div class="copy-button transition-opacity opacity-0 group-hover:opacity-100 has-focus-visible:opacity-100 relative z-10 duration-200 ease-out group-hover/file-header:opacity-100 group-hover/file-header:delay-300 focus-within:opacity-100">
                                     <button aria-label="Copy file name to clipboard" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
@@ -227,7 +236,7 @@
                                         <div class="flex min-w-0 flex-col gap-0.5">
                                           <div class="flex items-center gap-2">
                                             <span class="line-clamp-2 text-sm text-pretty text-foreground">
-                                              <span class="font-mono text-xs font-normal text-muted-foreground" data-slot="commit-subject-prefix">
+                                              <span class="font-mono font-normal text-muted-foreground" data-slot="commit-subject-prefix">
                                                 feature-auth
                                               </span>
                                               <span>
@@ -268,8 +277,17 @@
                                       <div class="flex flex-col gap-2" data-orientation="vertical">
                                         <div class="overflow-hidden rounded-lg border border-border" data-index="0" data-open="" data-orientation="vertical" data-testid="file-diff">
                                           <h3 class="group/file-header relative flex items-center gap-1 px-3 py-2 transition-colors hover:bg-muted/50 select-none" data-index="0" data-open="" data-orientation="vertical" data-slot="context-menu-trigger">
-                                            <button aria-controls="base-ui-[ID]" aria-expanded="true" class="min-w-0 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground outline-none after:absolute after:inset-0 focus-visible:after:ring-3 focus-visible:after:ring-ring/30 focus-visible:after:ring-inset" data-index="0" data-orientation="vertical" data-panel-open="" id="base-ui-[ID]" tabindex="0" type="button">
-                                              src/main/kotlin/com/example/service/UserService.kt
+                                            <button aria-controls="base-ui-[ID]" aria-expanded="true" aria-label="src/main/kotlin/com/example/service/UserService.kt" class="flex min-w-0 cursor-pointer text-left text-sm outline-none after:absolute after:inset-0 focus-visible:after:ring-3 focus-visible:after:ring-ring/30 focus-visible:after:ring-inset" data-index="0" data-orientation="vertical" data-panel-open="" id="base-ui-[ID]" tabindex="0" type="button">
+                                              <span class="flex min-w-0 items-baseline gap-1.5">
+                                                <span class="min-w-0 truncate">
+                                                  UserService.kt
+                                                </span>
+                                                <span class="min-w-0 shrink-[10] truncate text-muted-foreground" dir="rtl">
+                                                  <bdi dir="ltr">
+                                                    src/main/kotlin/com/example/service
+                                                  </bdi>
+                                                </span>
+                                              </span>
                                             </button>
                                             <div class="copy-button transition-opacity opacity-0 group-hover:opacity-100 has-focus-visible:opacity-100 relative z-10 duration-200 ease-out group-hover/file-header:opacity-100 group-hover/file-header:delay-300 focus-within:opacity-100">
                                               <button aria-label="Copy file name to clipboard" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
@@ -341,8 +359,17 @@
                                       <div class="flex flex-col gap-2" data-orientation="vertical">
                                         <div class="overflow-hidden rounded-lg border border-border" data-closed="" data-hidden="" data-index="0" data-orientation="vertical" data-testid="file-diff">
                                           <h3 class="group/file-header relative flex items-center gap-1 px-3 py-2 transition-colors hover:bg-muted/50 select-none" data-closed="" data-hidden="" data-index="0" data-orientation="vertical" data-slot="context-menu-trigger">
-                                            <button aria-expanded="false" class="min-w-0 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground outline-none after:absolute after:inset-0 focus-visible:after:ring-3 focus-visible:after:ring-ring/30 focus-visible:after:ring-inset" data-hidden="" data-index="0" data-orientation="vertical" id="base-ui-[ID]" tabindex="0" type="button">
-                                              src/main/kotlin/com/example/service/UserService.kt
+                                            <button aria-expanded="false" aria-label="src/main/kotlin/com/example/service/UserService.kt" class="flex min-w-0 cursor-pointer text-left text-sm outline-none after:absolute after:inset-0 focus-visible:after:ring-3 focus-visible:after:ring-ring/30 focus-visible:after:ring-inset" data-hidden="" data-index="0" data-orientation="vertical" id="base-ui-[ID]" tabindex="0" type="button">
+                                              <span class="flex min-w-0 items-baseline gap-1.5">
+                                                <span class="min-w-0 truncate">
+                                                  UserService.kt
+                                                </span>
+                                                <span class="min-w-0 shrink-[10] truncate text-muted-foreground" dir="rtl">
+                                                  <bdi dir="ltr">
+                                                    src/main/kotlin/com/example/service
+                                                  </bdi>
+                                                </span>
+                                              </span>
                                             </button>
                                             <div class="copy-button transition-opacity opacity-0 group-hover:opacity-100 has-focus-visible:opacity-100 relative z-10 duration-200 ease-out group-hover/file-header:opacity-100 group-hover/file-header:delay-300 focus-within:opacity-100">
                                               <button aria-label="Copy file name to clipboard" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">

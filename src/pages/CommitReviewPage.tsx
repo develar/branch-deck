@@ -50,7 +50,7 @@ function CommitReviewWindow({ data }: { data: CommitReviewWindowData }) {
       data-testid="commit-review-window"
       body="fill"
       readyByContent
-      title={<WindowTitle parts={[...(data.listLabel === null ? [] : [data.listLabel]), ...(commit === undefined ? [] : [formatShortHash(commit.id)])]} />}
+      title={<WindowTitle parts={[...(data.listLabel === null ? [] : [data.listLabel]), ...(commit === undefined ? [] : [{ text: formatShortHash(commit.id), mono: true }])]} />}
       titleEnd={<DiffViewToggle />}
       footer={
         <PreviewDialogFooter

@@ -106,7 +106,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, reposi
         </span>
         <span className="hidden shrink-0 items-center gap-1 text-xs text-muted-foreground sm:flex" data-testid="review-request-meta">
           {`${formatRequestMeta(request)} · ${files} · `}
-          <LineCounts additions={request.additions} deletions={request.deletions} colored />
+          <LineCounts additions={request.additions} deletions={request.deletions} colored={false} />
           {!request.baseIsDefault && ` · → ${request.baseRefName}`}
         </span>
         {request.checksState === "failing" && <StatusChipDot color="error" testId="review-request-checks-failing" />}

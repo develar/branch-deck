@@ -199,8 +199,10 @@ test.describe("Conflict Viewer Feature", () => {
       await waitForConflictViewer(page, bugFixDetails)
 
       // Find the file accordion button of a missing commit (the conflicting files above list the same file)
-      const fileAccordion = bugFixDetails.getByTestId("missing-commits").locator("button:has-text('src/main/kotlin/com/example/service/UserService.kt')").first()
+      const fileAccordion = bugFixDetails.getByTestId("missing-commits").getByRole("button", { name: USER_SERVICE }).first()
       await expect(fileAccordion).toBeVisible()
+      // the conflicting file above opens with its diff: the snapshot waits for it, not for the time it takes
+      await expect(bugFixDetails.getByTestId("conflicting-files").getByTestId("file-diff").first()).toContainText(COMMIT_CHANGE)
 
       // Capture initial state (accordion collapsed) - capture the entire details row
       await captureHtmlSnapshot(bugFixDetails, "missing-commits-accordion-collapsed")

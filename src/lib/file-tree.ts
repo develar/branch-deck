@@ -178,7 +178,7 @@ export function revealInTree(collapsed: ReadonlySet<string>, key: string): Reado
  * The name of a file row: its name, and for a rename or a copy where it came from, relative to the directory both
  * paths share (`Old.kt` in the same directory, `api/Old.kt` from a sibling directory)
  */
-export function formatTreeFileLabel(file: CommitFile): { name: string; from: string | null } {
+export function formatTreeFileLabel(file: Pick<CommitFile, "path" | "oldPath">): { name: string; from: string | null } {
   const name = file.path.slice(file.path.lastIndexOf("/") + 1)
   if (file.oldPath === null) {
     return { name, from: null }

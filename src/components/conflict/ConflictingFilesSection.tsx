@@ -34,7 +34,7 @@ export function ConflictingFilesSection({ files, contents, labels }: Conflicting
         return (
           <AccordionPrimitive.Item key={`${index}-${file.file}`} value={`file-${index}`} className="overflow-hidden rounded-lg border border-border" data-testid="file-diff">
             <CollapsibleFileHeader
-              fileName={file.file}
+              path={file.file}
               actions={
                 <Badge variant="outline" className="tabular-nums" data-testid="file-conflict-count">
                   {count === 0 ? "modify/delete" : count === 1 ? "1 conflict" : `${count} conflicts`}

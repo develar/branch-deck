@@ -237,24 +237,26 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 
 - The counts follow the time: `a1b2c3d · 2 hours ago · 3 files · +42 −7`, with the `·` separator of the meta line.
 - The counts are `tabular-nums`. The minus is `−` (U+2212), not a hyphen.
-- In a row, the line counts are muted like the rest of the meta line. In the header of the commit preview, `+42` is
-  `text-success` and `−7` is `text-destructive`.
+- In a row, the line counts are muted like the rest of the meta line. Where the commit is a heading (the header of the
+  commit preview, a commit of the branch preview, the commit above its diffs in a review), `+42` is `text-success` and
+  `−7` is `text-destructive`.
 
 ### Files section
 
-- A `border-border` rule above the section separates it from the message. The section title "Files" is
-  `text-sm font-medium`, with the `Unified`/`Split` toggle on its right.
+- A `border-border` rule above the section separates it from the message. The section label "Files" is muted
+  `text-xs font-medium` (`SectionLabel`), with the `Unified`/`Split` toggle on its right.
 - The tree rows are `h-6 rounded-md text-sm`, `hover:bg-muted`, indented by 0.75rem per level, a `ring-2 ring-ring/50`
   inset on the focused row. A row starts with a `ChevronRightIcon` (`size-3.5` muted, turned down when open). A 1px
   `border` guide per level runs under the chevron of each parent, on the rows only (not on a diff under a row).
 - A directory shows `FolderIcon` (`FolderOpenIcon` when open, `size-4` muted), its name (truncated, the full path in
   its title) and its counts muted in `text-xs`.
-- A file shows its name in its status colour, IntelliJ's: added `text-success`, deleted muted and struck through, the
-  others `text-primary`. A rename adds `← api/Old.kt` muted in `text-xs`, which gives way first. On the right: the
-  coloured `+/−` counts in `text-xs` and the status letter in `font-mono text-xs` in the status colour. A long name is
-  cut with "…" only once nothing else gives way; the counts never wrap or shrink. A zero count is not coloured.
+- A file shows its status letter in `font-mono text-xs` in the status colour, where a directory has its folder icon,
+  then its name in its status colour, IntelliJ's: added `text-success`, deleted muted and struck through (the letter
+  never), the others `text-primary` (`FilePathLabel`). A rename adds `← api/Old.kt` muted, which gives way first. On
+  the right: the coloured `+/−` counts in `text-xs`. A long name is cut with "…" only once nothing else gives way; the
+  counts never wrap or shrink. A zero count is not coloured.
 - The diff of an expanded file is a `rounded-lg border` panel under its row, at the row's indent.
-- The diff is JetBrains Mono at 12px on the `card` background, added lines `success`, deleted `destructive`, a bar in
+- The diff is JetBrains Mono at 13px on the `card` background, added lines `success`, deleted `destructive`, a bar in
   the gutter, the changed words a stronger tint ([UI Theme](../../docs/design/ui-theme.md) "Diffs").
 - Loading: an inline spinner and "Loading files…" in muted `text-sm`; a file's diff shows "Loading diff…". A failed
   read of the patch is a destructive callout "Cannot read the changes of the commit" in the panel.

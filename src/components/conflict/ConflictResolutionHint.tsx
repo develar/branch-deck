@@ -13,7 +13,7 @@ export interface CollapsibleHintProps {
 export function CollapsibleHint({ icon, title, children }: CollapsibleHintProps) {
   return (
     <Collapsible className="text-sm text-muted-foreground">
-      <CollapsibleTrigger className="group flex items-center gap-1.5 rounded-sm font-medium text-foreground/80 outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30">
+      <CollapsibleTrigger className="group flex items-center gap-1.5 rounded-sm font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30">
         <ChevronRightIcon className="size-4 transition-transform group-data-[panel-open]:rotate-90" />
         {icon}
         {title}
@@ -39,6 +39,7 @@ export function ConflictResolutionHint() {
   )
 }
 
+/** A list of steps in the colour of the text around it (a muted hint, a callout) */
 export function HintList({ children }: { children: ReactNode }) {
-  return <ul className="flex list-disc flex-col gap-1 pl-5 text-foreground/85 marker:text-muted-foreground">{children}</ul>
+  return <ul className="flex list-disc flex-col gap-1 pl-5 marker:text-muted-foreground">{children}</ul>
 }

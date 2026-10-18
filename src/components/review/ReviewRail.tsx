@@ -1,15 +1,16 @@
-import type { ReactNode } from "react"
 import { cn } from "cn"
 import { Spinner } from "@/components/ui/spinner"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { CommitSubjectLine } from "@/components/commit/CommitSubject"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
-import { RelativeTime } from "@/components/shared/RelativeTime"
+import { FilePathLabel } from "@/components/files/FilePathLabel"
+import { LoadingLine } from "@/components/shared/LoadingLine"
+import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { CommitFile, CommitFiles, ReviewCommit, ReviewRequest, TransferProgress } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
-import { getFileStatusLetter, getFileStatusTextClass } from "@/lib/commit-files"
 import { isCopyPathKey } from "@/lib/file-actions"
 import { formatShortHash } from "@/lib/hash"
+import { formatCompactTimestamp } from "@/lib/time"
 
 export interface ReviewRailProps {
   request: ReviewRequest
@@ -40,27 +41,16 @@ export function ReviewRail({ request, files, commits, progress, onOpenFile, onOp
   return (
     <aside className="flex min-w-0 flex-col gap-5">
       <section className="flex flex-col gap-1" aria-label="Files" data-testid="review-files">
-        <RailHeading title="Files" count={files?.files.length ?? request.changedFiles}>
-          {files !== undefined && <LineCounts additions={files.additions} deletions={files.deletions} colored />}
-        </RailHeading>
-        {files === undefined ? <Spinner className="m-2 size-4 text-muted-foreground" /> : <FileRows files={files.files} onOpen={onOpenFile} />}
+        <SectionLabel title="Files" count={files?.files.length ?? request.changedFiles} className="px-2">
+          {files !== undefined && <LineCounts additions={files.additions} deletions={files.deletions} colored={false} />}
+        </SectionLabel>
+        {files === undefined ? <LoadingLine className="px-2">Loading files…</LoadingLine> : <FileRows files={files.files} onOpen={onOpenFile} />}
       </section>
       <section className="flex flex-col gap-1" aria-label="Commits" data-testid="review-commits">
-        <RailHeading title="Commits" count={commits.length} />
+        <SectionLabel title="Commits" count={commits.length} className="px-2" />
         <CommitRows commits={commits} onOpen={onOpenCommit} />
       </section>
     </aside>
-  )
-}
-
-/** "Files 4 … +12 −3": the name, the count, and on the right what `children` sum up */
-function RailHeading({ title, count, children }: { title: string; count: number; children?: ReactNode }) {
-  return (
-    <h3 className="flex items-center gap-1.5 px-2 text-xs font-medium text-muted-foreground">
-      {title}
-      <span className="tabular-nums">{count}</span>
-      {children !== undefined && <span className="ml-auto font-normal">{children}</span>}
-    </h3>
   )
 }
 
@@ -88,51 +78,36 @@ function FileRows({ files, onOpen }: { files: readonly CommitFile[]; onOpen: (pa
   }
   return (
     <ul className="flex flex-col">
-      {files.map(file => {
-        const slash = file.path.lastIndexOf("/")
-        const name = file.path.slice(slash + 1)
-        const directory = slash === -1 ? "" : file.path.slice(0, slash)
-        return (
-          <li key={file.path}>
-            <FileContextMenu
-              target={() => ({ kind: "file", path: file.path })}
-              copyKey
-              render={
-                <button
-                  type="button"
-                  title={file.path}
-                  data-testid="review-file"
-                  className={RAIL_ROW_CLASS}
-                  onClick={() => onOpen(file.path)}
-                  onKeyDown={event => {
-                    if (isCopyPathKey(event)) {
-                      event.preventDefault()
-                      void copyText(file.path)
-                    }
-                  }}
-                />
-              }
-            >
-              <span aria-hidden className={cn("w-3 shrink-0 text-center font-mono text-xs", getFileStatusTextClass(file.status), "no-underline")}>
-                {getFileStatusLetter(file.status)}
+      {files.map(file => (
+        <li key={file.path}>
+          <FileContextMenu
+            target={() => ({ kind: "file", path: file.path })}
+            copyKey
+            render={
+              <button
+                type="button"
+                title={file.path}
+                data-testid="review-file"
+                className={RAIL_ROW_CLASS}
+                onClick={() => onOpen(file.path)}
+                onKeyDown={event => {
+                  if (isCopyPathKey(event)) {
+                    event.preventDefault()
+                    void copyText(file.path)
+                  }
+                }}
+              />
+            }
+          >
+            <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} className="flex-1" />
+            {!file.binary && (
+              <span className="shrink-0 text-xs text-muted-foreground">
+                <LineCounts additions={file.additions} deletions={file.deletions} colored />
               </span>
-              <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-                <span className={cn("min-w-0 truncate", getFileStatusTextClass(file.status))}>{name}</span>
-                {directory !== "" && (
-                  <span className="min-w-0 shrink-[10] truncate text-xs text-muted-foreground" dir="rtl">
-                    {directory}
-                  </span>
-                )}
-              </span>
-              {!file.binary && (
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  <LineCounts additions={file.additions} deletions={file.deletions} colored />
-                </span>
-              )}
-            </FileContextMenu>
-          </li>
-        )
-      })}
+            )}
+          </FileContextMenu>
+        </li>
+      ))}
     </ul>
   )
 }
@@ -147,13 +122,13 @@ function CommitRows({ commits, onOpen }: { commits: readonly ReviewCommit[]; onO
       {commits.toReversed().map(commit => (
         <li key={commit.id}>
           <button type="button" data-testid="review-commit" className={cn(RAIL_ROW_CLASS, "flex-col items-stretch gap-0.5 py-1.5")} onClick={() => onOpen(commit.id)}>
-            <span className="flex min-w-0">
+            <span className="flex min-w-0" data-testid="review-commit-subject">
               <CommitSubjectLine subject={commit.subject} />
             </span>
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <span className="min-w-0 truncate">{commit.author}</span>
               <span aria-hidden>·</span>
-              <RelativeTime time={commit.authorTime * 1000} />
+              <span className="tabular-nums">{formatCompactTimestamp(commit.authorTime)}</span>
               <span className="ml-auto shrink-0 font-mono">{formatShortHash(commit.id)}</span>
             </span>
           </button>

@@ -40,8 +40,8 @@ The arrows step through the branches of the table, P pushes the shown branch and
 
 ## Non-goals
 
-- The preview does not show a diff or a file list. The meta line of each commit counts its files and lines, as in a
-  commit row ([Commit Files](../commit/commit-files.spec.md)); D and the footer's "Review Changes" open the review
+- The preview does not show a diff or a file list. The meta line of each commit counts its files and lines, coloured
+  as in the commit preview: the commit is a heading there (`CommitHeading`) ([Commit Files](../commit/commit-files.spec.md)); D and the footer's "Review Changes" open the review
   window of the branch and close the preview once it opened ([Branch Review](branch-review.spec.md)).
 - The preview does not edit the commit messages; the commit preview does.
 - The preview does not resolve a merge conflict; the expanded row shows the conflict viewer.

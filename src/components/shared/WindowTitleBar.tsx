@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { Fragment, useEffect } from "react"
 import type { ComponentProps, ReactNode } from "react"
 import { cn } from "cn"
 import { WindowControls } from "@/components/repository/WindowControls"
@@ -66,15 +66,27 @@ export function WindowTitleBar({ children, end, className, style, ...props }: Wi
   )
 }
 
+/** A part of a window title; `mono` for a commit hash, set in the monospace font as everywhere else */
+export type WindowTitlePart = string | { readonly text: string; readonly mono?: boolean; readonly testId?: string }
+
 /** "ui › Conflicting files": the parts of the place a window shows, the last one in the foreground */
-export function WindowTitle({ parts, className }: { parts: readonly string[]; className?: string }) {
+export function WindowTitle({ parts, className }: { parts: readonly WindowTitlePart[]; className?: string }) {
   return (
     <h1 className={cn("flex min-w-0 items-center gap-1.5 text-sm font-normal", className)} data-testid="window-title">
       {parts.map((part, index) => (
-        <span key={index} className={cn("truncate", index === parts.length - 1 ? "shrink-0 font-medium text-foreground" : "text-muted-foreground")}>
-          {index > 0 && <span className="mr-1.5 text-muted-foreground">›</span>}
-          {part}
-        </span>
+        <Fragment key={index}>
+          {index > 0 && <span className="shrink-0 text-muted-foreground">›</span>}
+          <span
+            className={cn(
+              "truncate",
+              index === parts.length - 1 ? "shrink-0 font-medium text-foreground" : "text-muted-foreground",
+              typeof part !== "string" && part.mono === true && "font-mono",
+            )}
+            data-testid={typeof part === "string" ? undefined : part.testId}
+          >
+            {typeof part === "string" ? part : part.text}
+          </span>
+        </Fragment>
       ))}
     </h1>
   )

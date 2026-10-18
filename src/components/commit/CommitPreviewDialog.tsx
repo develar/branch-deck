@@ -264,7 +264,7 @@ export function CommitPreviewDialog({
               isEditing ? (
                 <PrefixChangeHint before={commit.message} after={draft} action="Saving" />
               ) : (
-                <span data-testid="commit-preview-position">{`${currentIndex + 1} / ${commits.length}`}</span>
+                <span className="tabular-nums" data-testid="commit-preview-position">{`${currentIndex + 1} / ${commits.length}`}</span>
               )
             }
           >

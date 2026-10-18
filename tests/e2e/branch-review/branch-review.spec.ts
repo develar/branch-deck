@@ -178,7 +178,7 @@ test.describe("Branch review window", () => {
     // the owners by the OWNERSHIP files of the baseline, the most files first, above the files they filter
     await expect.poll(() => ownerChips(page)).toEqual(["All4", "Auth Team1", "Design1", "Monorepo1", "UI Team1"])
     await expect(page.getByTestId("review-sidebar").getByTestId("branch-review-owners")).toBeVisible()
-    await expect(page.getByTestId("review-file-header").filter({ hasText: "ui/login.css" }).getByTestId("review-file-owner")).toHaveText("Design")
+    await expect(page.locator("[data-testid=review-file-header][data-path='ui/login.css']").getByTestId("review-file-owner")).toHaveText("Design")
 
     await page.getByTestId("branch-review-owner").filter({ hasText: "UI Team" }).click()
     await expect.poll(() => reviewedPaths(page)).toEqual(["ui/login.js"])
@@ -245,7 +245,7 @@ test.describe("Branch review window", () => {
     // all files: one owner has them all, so nothing filters; the header of the files names the owner
     await page.getByTestId("branch-review-owner").filter({ hasText: "All" }).click()
     await expect(page.getByTestId("branch-review-owners")).toHaveCount(0)
-    await expect(page.getByTestId("branch-review-files")).toHaveText("1 file · Auth Team")
+    await expect(page.getByTestId("branch-review-files")).toHaveText("Files1Auth Team")
     await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js"])
   })
 

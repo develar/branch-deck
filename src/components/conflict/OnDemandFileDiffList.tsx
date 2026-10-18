@@ -4,7 +4,7 @@ import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion"
 import { CollapsibleFileHeader } from "@/components/conflict/CollapsibleFileHeader"
 import { DiffLoadState } from "@/components/conflict/DiffLoadState"
 import { LazyFileDiffView } from "@/components/diff/LazyDiffViews"
-import type { FileDiff } from "@/lib/bindings"
+import type { FileDiff, FileStatus } from "@/lib/bindings"
 import type { CommandResult } from "@/lib/command"
 import { invokeCommand } from "@/lib/command"
 import type { ConflictDiffViewMode } from "@/stores/settings/diff-view-settings"
@@ -13,10 +13,10 @@ import type { ConflictDiffViewMode } from "@/stores/settings/diff-view-settings"
 export interface OnDemandFile {
   /** The path after the change: the key of its diff, and what the copy button copies */
   path: string
-  /** The header text; the path by default (`old → new` for a rename) */
-  label?: string
-  /** Before the chevron: the status badge, the line counts; must not be interactive */
-  actions: ReactNode
+  /** The status of the file: its letter and the colour of its name */
+  status?: FileStatus
+  /** Before the chevron: the line counts; must not be interactive */
+  actions?: ReactNode
   /** Shown instead of a diff, which is not loaded (a binary file) */
   notice?: string
 }
@@ -79,7 +79,7 @@ export function OnDemandFileDiffList({ files, keyPrefix, diffViewMode = "unified
         const state = diffStates.get(file.path)
         return (
           <AccordionPrimitive.Item key={`${keyPrefix}-${index}`} value={`item-${index}`} className="overflow-hidden rounded-lg border border-border">
-            <CollapsibleFileHeader fileName={file.path} label={file.label} actions={file.actions} />
+            <CollapsibleFileHeader path={file.path} status={file.status} actions={file.actions} />
             <AccordionPrimitive.Panel className="border-t border-border">
               {file.notice !== undefined && <p className="p-4 text-sm text-muted-foreground">{file.notice}</p>}
               {(state?.kind === "loading" || state?.kind === "error") && <DiffLoadState loading="Loading file content…" error={state.kind === "error" ? state.message : null} />}

@@ -10,9 +10,9 @@ import { RangeReview } from "@/components/review/RangeReview"
 import { ActionButton } from "@/components/shared/ActionButton"
 import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
+import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { BranchReviewAction, BranchReviewModel } from "@/hooks/useBranchReview"
 import { branchGoneReason } from "@/lib/branch-review"
-import { formatFileCount } from "@/lib/commit-files"
 import { filterEmptyText, filterPaths, reviewFilterChips, sameFilter, soleOwner } from "@/lib/review-owners"
 import type { ReviewFilter, ReviewFilterChip } from "@/lib/review-owners"
 import { markSubWindowContentReady } from "@/lib/sub-window"
@@ -60,9 +60,10 @@ function BranchReviewFilesHeader({ model }: { model: BranchReviewModel }) {
   }
   const owner = soleOwner(loaded.files, loaded.owners)
   return (
-    <span data-testid="branch-review-files">
-      {formatFileCount(loaded.files.length)}
-      {owner !== null && ` · ${owner}`}
+    <span data-testid="branch-review-files" className="flex min-w-0 flex-1">
+      <SectionLabel title="Files" count={loaded.files.length} className="flex-1">
+        {owner ?? undefined}
+      </SectionLabel>
     </span>
   )
 }

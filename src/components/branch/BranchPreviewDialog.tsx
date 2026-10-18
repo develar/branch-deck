@@ -13,9 +13,8 @@ import { BranchPreviewActions, BranchPreviewMenu } from "@/components/branch/Bra
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
+import { CommitHeading } from "@/components/commit/CommitHeading"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
-import { CommitMetadata } from "@/components/commit/CommitMetadata"
-import { CommitSubject } from "@/components/commit/CommitSubject"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { ConflictFixPanel } from "@/components/conflict/ConflictFixPanel"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
@@ -327,15 +326,18 @@ function BranchPreviewCommit({ commit }: { commit: SyncedCommit }) {
   const hash = getCommitHash(commit)
   const fileStats = useCommitFileStats(hash)
   return (
-    <li data-testid="branch-preview-commit" className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0">
-      <div className="flex flex-col gap-1">
-        <div className="flex items-start gap-2">
-          <CommitSubject subject={subject} clamp={false} className="text-md font-medium" />
-          {commit.error?.MergeConflict != null && <Badge variant="destructive">Merge conflict</Badge>}
-        </div>
-        <CommitMetadata hash={hash} newHash={commit.hash} authorTime={commit.authorTime} committerTime={commit.committerTime} fileStats={fileStats} />
-      </div>
-      {hasCommitMessageBody(subject, commit.message) && <CommitMessageBody message={commit.message} size="reading" />}
+    <li data-testid="branch-preview-commit" className="py-4 first:pt-0 last:pb-0">
+      <CommitHeading
+        subject={subject}
+        badge={commit.error?.MergeConflict != null && <Badge variant="destructive">Merge conflict</Badge>}
+        hash={hash}
+        newHash={commit.hash}
+        authorTime={commit.authorTime}
+        committerTime={commit.committerTime}
+        fileStats={fileStats}
+      >
+        {hasCommitMessageBody(subject, commit.message) && <CommitMessageBody message={commit.message} size="reading" />}
+      </CommitHeading>
     </li>
   )
 }

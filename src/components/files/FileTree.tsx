@@ -4,11 +4,12 @@ import { cn } from "cn"
 import { ChevronRightIcon, FolderIcon, FolderOpenIcon } from "lucide-react"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
+import { FilePathLabel } from "@/components/files/FilePathLabel"
 import type { CommitFile } from "@/lib/bindings"
 import { copyText } from "@/lib/clipboard"
-import { formatCommitFilePath, formatFileCount, formatFileStatus, getFileStatusLetter, getFileStatusTextClass } from "@/lib/commit-files"
+import { formatCommitFilePath, formatFileCount, formatFileStatus } from "@/lib/commit-files"
 import { isCopyPathKey } from "@/lib/file-actions"
-import { fileActionTarget, formatTreeFileLabel, getVisibleRows } from "@/lib/file-tree"
+import { fileActionTarget, getVisibleRows } from "@/lib/file-tree"
 import type { FileTreeDirectory, FileTreeFile, FileTreeNode } from "@/lib/file-tree"
 
 interface FileTreeBaseProps {
@@ -308,23 +309,18 @@ function DirectoryRowContent({ node, isOpen }: { node: FileTreeDirectory; isOpen
 
 function FileRowContent({ node, owner }: { node: FileTreeFile; owner: string | undefined }) {
   const { file } = node
-  const label = formatTreeFileLabel(file)
   const path = formatCommitFilePath(file)
   return (
     <>
-      {/* the name first: everything beside it keeps its width, the old name of a rename gives way first */}
-      <span className="flex min-w-0 flex-1 items-baseline gap-1.5" title={owner === undefined ? path : `${path}\nOwned by ${owner}`}>
-        <span className={cn("min-w-0 truncate", getFileStatusTextClass(file.status))}>{label.name}</span>
-        {label.from !== null && <span className="min-w-0 shrink-[10] truncate text-xs text-muted-foreground">{`← ${label.from}`}</span>}
+      {/* the letter where a directory has its folder icon, so the names align; the name keeps its width, the old name of a rename gives way first */}
+      <span className="flex min-w-0 flex-1" title={owner === undefined ? path : `${path}\nOwned by ${owner}`}>
+        <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} directory={false} letterSlot="icon" />
       </span>
       {(file.additions > 0 || file.deletions > 0) && (
         <span className="shrink-0 text-xs">
           <LineCounts data-testid="file-line-counts" additions={file.additions} deletions={file.deletions} colored />
         </span>
       )}
-      <span aria-hidden className={cn("w-3 shrink-0 text-center font-mono text-xs", getFileStatusTextClass(file.status), "no-underline")}>
-        {getFileStatusLetter(file.status)}
-      </span>
     </>
   )
 }

@@ -1,4 +1,3 @@
-import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
 import { OnDemandFileDiffList } from "@/components/conflict/OnDemandFileDiffList"
 import type { OnDemandFile } from "@/components/conflict/OnDemandFileDiffList"
@@ -7,8 +6,7 @@ import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { NestedPanel } from "@/components/shared/NestedPanel"
 import { commands } from "@/lib/bindings"
 import type { UncommittedChangesResult, UncommittedFileChange } from "@/lib/bindings"
-import { getFileStatusColor } from "@/lib/commit-files"
-import { subtleBadgeVariant } from "@/lib/ui-types"
+import { parseFileStatus } from "@/lib/commit-files"
 import { vcsRequestFactory } from "@/stores/repository"
 import { useConflictViewerSettings } from "@/stores/settings/diff-view-settings"
 
@@ -57,10 +55,7 @@ export function UncommittedChangesCard({ diffData, loading, error }: Uncommitted
 }
 
 function toDiffListFiles(files: readonly UncommittedFileChange[]): OnDemandFile[] {
-  return files.map(file => ({
-    path: file.filePath,
-    actions: <Badge variant={subtleBadgeVariant(getFileStatusColor(file.status))}>{file.status}</Badge>,
-  }))
+  return files.map(file => ({ path: file.filePath, status: parseFileStatus(file.status) }))
 }
 
 /** The diff of a file against HEAD, from the working tree */

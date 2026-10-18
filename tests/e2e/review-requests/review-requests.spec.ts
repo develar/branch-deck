@@ -328,7 +328,7 @@ test.describe("Review window", () => {
     // the rail lists the commits newest first, as the column of the changes
     const commits = review.getByTestId("review-commit")
     await expect(commits.first()).toBeVisible()
-    const subjects = await commits.locator("span.truncate").allTextContents()
+    const subjects = await commits.getByTestId("review-commit-subject").allTextContents()
     await commits.first().click()
     const changes = review.getByTestId("commit-review")
     await expect(changes).toBeVisible()

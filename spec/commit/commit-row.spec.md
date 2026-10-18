@@ -371,9 +371,9 @@ The commit hash popover shows the same header and body.
 ### Message body
 
 - The body is at most `max-w-prose` (65ch, about 80 characters) wide.
-- The body text is `text-foreground/85` with the `ss04` font feature: the 14/22px reading text (`text-md`,
+- The body text is `text-foreground` with the `ss04` font feature: the 14/22px reading text (`text-md`,
   `size="reading"`) in the preview, the 13/20px UI text (`text-sm`) in the hash popover.
-- A section label is a small `font-medium text-foreground/70` heading above its blocks.
+- A section label is a small `font-medium text-muted-foreground` heading above its blocks.
 - Sections have a 16px gap. Blocks in a section have an 8px gap.
 - Lists have a 20px indent and muted markers.
 - Preformatted text uses `font-mono` one step below the body (`text-sm` in the preview, `text-xs` in the hash popover)

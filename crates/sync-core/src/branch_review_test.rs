@@ -50,6 +50,7 @@ fn splits_a_stack_at_the_heads_of_the_parents() {
   assert_eq!(button.message, "(ui) button\n\nThe button submits the form.\nIt has \u{1e} and no other NUL.");
   assert_eq!(button.author, "Test User");
   assert!(button.author_time > 0);
+  assert!(button.committer_time > 0);
   assert_eq!(review.segments[1].commits[1].message, "(ui) form");
 }
 

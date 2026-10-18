@@ -26,7 +26,7 @@ export function FileDiffList({ files, diffs, pending, keyPrefix, diffViewMode = 
         const diff = diffs?.[index]
         return (
           <AccordionPrimitive.Item key={`${keyPrefix}-${index}`} value={`item-${index}`} className="overflow-hidden rounded-lg border border-border" data-testid="file-diff">
-            <CollapsibleFileHeader fileName={file} />
+            <CollapsibleFileHeader path={file} />
             <AccordionPrimitive.Panel className="border-t border-border">
               {/* mounted only while the item is open */}
               {diff === undefined ? pending : <LazyFileDiffView diff={diff} diffViewMode={diffViewMode} withContents={withContents} />}

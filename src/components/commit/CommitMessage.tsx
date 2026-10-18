@@ -60,14 +60,14 @@ export function CommitMessageBody({ message, size = "compact" }: { message: stri
     <div
       data-testid="commit-message-body"
       // ss04: distinct I, l and 1 in identifiers, without ss02's slashed zero in prose numbers
-      className={cn("flex max-w-prose cursor-text flex-col gap-4 pb-1 [font-feature-settings:'ss04'] text-foreground/85 select-text", bodySizeClasses[size].text)}
+      className={cn("flex max-w-prose cursor-text flex-col gap-4 pb-1 [font-feature-settings:'ss04'] text-foreground select-text", bodySizeClasses[size].text)}
       onClick={event => event.stopPropagation()}
     >
       {/* sections of the same message never reorder, so the index is a stable key */}
       {sections.map((section, index) => (
         <div key={index} className="flex flex-col gap-1">
           {section.label != null && (
-            <div data-slot="commit-section-label" className="font-medium text-foreground/70">
+            <div data-slot="commit-section-label" className="font-medium text-muted-foreground">
               {section.label}
             </div>
           )}

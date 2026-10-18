@@ -111,6 +111,7 @@ fn fetches_the_pull_ref_from_a_github_origin() {
   assert_eq!(range.commits[0].message, "Add login\n\nThe form and its body\nover two lines");
   assert_eq!(range.commits[1].author, "Test User");
   assert!(range.commits[1].author_time > 0);
+  assert!(range.commits[1].committer_time > 0);
   // the base was local: only the head ref is written
   assert_eq!(fixture.refs("refs/branch-deck/review/"), [format!("refs/branch-deck/review/7/head {}", fixture.head)]);
   assert!(progress > 0);

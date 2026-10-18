@@ -13,6 +13,7 @@ import { ActionButton } from "@/components/shared/ActionButton"
 import { CopyButton } from "@/components/shared/CopyButton"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
+import { WindowTitle } from "@/components/shared/WindowTitleBar"
 import type { ReviewRequest } from "@/lib/bindings"
 import { formatFileCount } from "@/lib/commit-files"
 import type { MenuItem } from "@/lib/menu"
@@ -31,16 +32,13 @@ export interface ReviewToolbarProps {
   reviewing: boolean
 }
 
-/** ↑ ↓ and "2 of 5 · Your Turn": where the request is in the list, the start of the title bar of the review window */
+/** ↑ ↓ and "Your Turn › 2 of 5": where the request is in the list, the start of the title bar of the review window */
 export function ReviewNavigation({ index, count, onPrevious, onNext }: Pick<ReviewToolbarProps, "index" | "count" | "onPrevious" | "onNext">) {
   return (
-    <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground" data-testid="review-navigation">
+    <div className="flex min-w-0 items-center gap-2" data-testid="review-navigation">
       <NavigationButton label="Previous request" keyHint="↑" icon={<ChevronUpIcon />} onClick={onPrevious} testId="review-previous" />
       <NavigationButton label="Next request" keyHint="↓" icon={<ChevronDownIcon />} onClick={onNext} testId="review-next" />
-      <span className="truncate tabular-nums">
-        {index === -1 ? "Your Turn" : <span data-testid="review-dialog-position">{`${index + 1} of ${count}`}</span>}
-        {index !== -1 && " · Your Turn"}
-      </span>
+      <WindowTitle parts={index === -1 ? ["Your Turn"] : ["Your Turn", { text: `${index + 1} of ${count}`, testId: "review-dialog-position" }]} className="tabular-nums" />
     </div>
   )
 }
@@ -117,7 +115,7 @@ export function ReviewHeader({ request, submitted, compact, onOpenOnGitHub, chil
   return (
     <div className="flex min-w-0 flex-col gap-2">
       {!compact && <AskedBy request={request} />}
-      <h1 className="min-w-0 text-lg leading-7 font-semibold text-foreground select-text">{request.title}</h1>
+      <h2 className="min-w-0 text-base leading-6 font-medium text-pretty text-foreground select-text">{request.title}</h2>
       {!compact && <RequestChips request={request} submitted={submitted} onOpenOnGitHub={onOpenOnGitHub} />}
       {children}
     </div>
@@ -150,7 +148,7 @@ function Avatar({ login }: { login: string | null }) {
     .map(part => part[0]!.toUpperCase())
     .join("")
   return (
-    <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[0.625rem] font-semibold text-primary">
+    <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 bd-avatar-initials font-semibold text-primary">
       {initials === "" ? "?" : initials}
     </span>
   )

@@ -5,8 +5,8 @@ import { commitReviewWindowKey } from "@/lib/commit-review-window"
 
 function data(overrides: Partial<CommitReviewWindowData>): CommitReviewWindowData {
   const commits = [
-    { id: "a1", subject: "first", message: "first", author: "A", authorTime: 0 },
-    { id: "b2", subject: "second", message: "second", author: "A", authorTime: 0 },
+    { id: "a1", subject: "first", message: "first", author: "A", authorTime: 0, committerTime: 0 },
+    { id: "b2", subject: "second", message: "second", author: "A", authorTime: 0, committerTime: 0 },
   ]
   return { repositoryPath: "/repo", commits, listLabel: "session", index: 0, path: null, openedAt: 1, ...overrides }
 }

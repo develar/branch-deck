@@ -215,7 +215,14 @@ export function groupFor(
   return stacks ? stored(group) : group
 }
 
-/** A commit of a list as a review shows it: its id (the original hash), subject, message, author and time */
+/** A commit of a list as a review shows it: its id (the original hash), subject, message, author and times */
 export function toReviewCommit(commit: CommitUnion): ReviewCommit {
-  return { id: getCommitHash(commit), subject: getCommitSubject(commit), message: commit.message, author: commit.author, authorTime: commit.authorTime }
+  return {
+    id: getCommitHash(commit),
+    subject: getCommitSubject(commit),
+    message: commit.message,
+    author: commit.author,
+    authorTime: commit.authorTime,
+    committerTime: commit.committerTime,
+  }
 }

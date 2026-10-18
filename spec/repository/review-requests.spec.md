@@ -205,8 +205,8 @@ Safe Push it allows.
   "Refresh" (when GitHub was asked on its hover: "Checked 2 minutes ago"), "Open All on GitHub" (the search of the
   repository, while requests wait) and "Notification Settings…".
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the oldest three first, the rest behind Show More, and say how long each waits`)
-- A row, 36 px: the unread dot, the title (`font-medium`), the meta "#101 · carol · 2 files · +12 −3" (coloured line
-  counts; "#830 · agent-bot · requested by dave · …" when someone else than the author asked, as for a pull request a
+- A row, 36 px: the unread dot, the title (`font-medium`), the meta "#101 · carol · 2 files · +12 −3" (muted line
+  counts, as in every row; "#830 · agent-bot · requested by dave · …" when someone else than the author asked, as for a pull request a
   bot opened: that one waits for the user; "· → release/253" when the base is not the default branch; hidden below `sm`), a `destructive` dot for failing
   and a `warning` dot for running checks, and "waiting 2 days" or "re-requested 3 hours ago". The age is muted, `warning`
   after one working day (Saturdays and Sundays don't count); never `destructive`. The age is a leaf on the shared clock.
@@ -262,22 +262,23 @@ Safe Push it allows.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
   [@test] ../../src/lib/pull-request-review.test.ts (`keeps its review for a plain open of the request it shows, and starts over for another request or an intent`)
 - The window opens at once with what the search returned. Its title bar ([Title Bar](title-bar.spec.md)): ↑ ↓ (in the
-  tooltips) and "2 of 5 · Your Turn" on the left; the Unified/Split toggle while the changes show, GitHub (`O`) and "⋯"
+  tooltips) and the window title "Your Turn › 2 of 5" on the left; the Unified/Split toggle while the changes show, GitHub (`O`) and "⋯"
   (Copy Pull Request Link, Copy Branch Name) on the right (`ActionButton`s: in a title bar narrower than 48rem only
   their icons). Then, in one island:
   - who asks and for how long: an initials avatar, "dave asks for your review of carol's pull request" (the author named
     when someone else asked) · "waiting 2 days" (`warning` when old, the clock leaf of the card);
-  - the title (`text-lg font-semibold`), then the chips: `#101` (opens GitHub), `master ← alice/feature` (copies the
+  - the title (`text-base font-medium`, as the subject of a commit preview), then the chips: `#101` (opens GitHub), `master ← alice/feature` (copies the
     branch), "2 files +12 −3", "● checks failing" (`StatusChipDot`: `destructive`, `warning` running, `success` passed),
     GitHub's decision ("approved", "changes requested"), and "approved by you" / "changes requested by you".
   ↑/↓ show the previous or next request; the window tells the main window (`shown`: the request is read, its refs stay).
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`, `should review a commit of the pull request in the changes, step through the commits, and show the next request with ↓`)
 - Below them the tabs Overview and Changes (`D`, with the file count) on the left and the decisions on the right
   ([Reviews](#reviews)). The overview, in an island of its own, has the description (as a commit body) beside a rail:
-  the files of the range (status letter, name, directory, `+a −d`; the name first, the directory giving way; a click
+  "Files 4" with the muted sum of the line counts, then the files of the range (status letter, name, directory,
+  `+a −d`; the name first, the directory giving way, as every list of changed files names a file; a click
   reviews all changes at that file, the right click and ⌘C copy its path, [Commit Files](../commit/commit-files.spec.md#the-actions-on-a-file))
-  and its commits, newest first as in the list of commits of the changes (subject, author, age, hash; a click reviews
-  the changes at that commit). Below `md` the rail goes under the description. The key hints below the islands: ↑↓
+  and "Commits 4", newest first as in the list of commits of the changes (subject, author, the short time of the commit
+  "Today 2:32 PM", hash; a click reviews the changes at that commit). Below `md` the rail goes under the description. The key hints below the islands: ↑↓
   Previous/next, Esc Close; Space scrolls.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
 - The fetch (`fetch_review_head`) is the window's: it starts when the window shows the request: "Fetching #101 from

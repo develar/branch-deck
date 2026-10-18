@@ -55,7 +55,7 @@ pub struct BranchReviewSegment {
 }
 
 /// `-z`: a NUL ends each commit, as NULs separate its fields; the message may hold any other byte
-const LOG_FORMAT: &str = "--format=%H%x00%P%x00%an%x00%at%x00%s%x00%B";
+const LOG_FORMAT: &str = "--format=%H%x00%P%x00%an%x00%at%x00%ct%x00%s%x00%B";
 
 #[instrument(skip(git), fields(chain = ?params.chain))]
 pub fn get_branch_review(git: &GitCommandExecutor, params: &GetBranchReviewParams) -> Result<BranchReview> {
@@ -216,8 +216,8 @@ struct LogCommit {
 fn parse_log(output: &str) -> Vec<LogCommit> {
   let mut fields = output.split('\0');
   let mut log = Vec::new();
-  while let (Some(id), Some(parents), Some(author), Some(author_time), Some(subject), Some(message)) =
-    (fields.next(), fields.next(), fields.next(), fields.next(), fields.next(), fields.next())
+  while let (Some(id), Some(parents), Some(author), Some(author_time), Some(committer_time), Some(subject), Some(message)) =
+    (fields.next(), fields.next(), fields.next(), fields.next(), fields.next(), fields.next(), fields.next())
   {
     // the NUL that ends a commit is followed by the newline git puts between commits
     let id = id.trim_start_matches('\n');
@@ -225,13 +225,7 @@ fn parse_log(output: &str) -> Vec<LogCommit> {
       break;
     }
     log.push(LogCommit {
-      commit: ReviewCommit {
-        id: id.to_string(),
-        subject: subject.to_string(),
-        message: message.trim_end_matches('\n').to_string(),
-        author: author.to_string(),
-        author_time: author_time.parse().unwrap_or(0),
-      },
+      commit: ReviewCommit::from_log_fields(id, subject, author, author_time, committer_time, message),
       first_parent: parents.split_whitespace().next().map(str::to_string),
     });
   }

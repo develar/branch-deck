@@ -218,8 +218,8 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   where the user is on the left and holds the view and the actions on the right; the native title stays set
   (`useWindowTitle`) for the Window menu, Mission Control and screen readers.
   - `branch-review`: the stack bar; Unified/Split and the actions on the branch ([Branch Review](../branch/branch-review.spec.md)).
-  - `commit-review`: "session › 11346cdf", the list and the commit; Unified/Split ([Commit Review](../commit/commit-review.spec.md)).
-  - `pull-request-review`: the toolbar of the review, ↑ ↓ and "2 of 5 · Your Turn"; Unified/Split while the changes
+  - `commit-review`: "session › 11346cdf", the list and the commit (the hash in `font-mono`); Unified/Split ([Commit Review](../commit/commit-review.spec.md)).
+  - `pull-request-review`: the toolbar of the review, ↑ ↓ and "Your Turn › 2 of 5"; Unified/Split while the changes
     show, GitHub and "⋯" ([Review Requests](review-requests.spec.md#review-window)).
   - `conflicting-files`, `missing-commits`: "bug-fix › Conflicting files", the islands scrolling under the row.
   - `settings`: "Settings", the sidebar of its pages and the page ([Settings](settings.spec.md)).
