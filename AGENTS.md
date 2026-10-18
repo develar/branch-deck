@@ -104,8 +104,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
 - **Outgoing and PR status**: header push overview, GitHub PR state through the GitHub API (`crates/github`; the token of
   `GH_TOKEN`, `gh auth token`, the app's sign-in or `git credential fill`, no `gh` process otherwise), also for a checkout mirrored to GitHub
   (the mirror of `.space/repository-settings.json`, or `branchdeck.githubRepository`); a PR Patronus closed with the label `merged` is merged (`spec/repository/outgoing.spec.md`,
-  `spec/branch/pull-requests.spec.md`). "Create Pull Request…" is a dialog that creates the PR through the API
-  (`sync_core::pull_request_create`, shared with `bd`): its text from `bd describe` or the pushed commits, the code
+  `spec/branch/pull-requests.spec.md`). "Create Pull Request…" is a dialog that creates the PR into the baseline
+  through the API (`sync_core::pull_request_create`, shared with `bd`): its text from `bd describe` or the pushed commits, the code
   owners Patronus suggests (`githubUsername` of the pre-check) and a search of the repository's users as reviewers,
   the user as assignee; "Continue on GitHub" opens GitHub's form with the text. "Request Review…" (`bd request-review`)
   asks the suggested code owners of the groups whose approval is missing on an open pull request
@@ -145,8 +145,9 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   and the keyboard; the smallest regroup (`move_plan.rs`): a whole issue by the issue groups, a part by the prefix; a
   dry run previews it, `undo_regroup` undoes it in one transaction (`spec/branch/move-commits.spec.md`).
 - **Stacked branches** (opt-in, `branchdeck.stacks`): `(parent/child)` builds the child on its parent, dependency-driven
-  sync, blocked children; the push button (and `bd push`) pushes the parents with work first, a push retargets the PR
-  onto its base (`PATCH pulls/<n>`); the root row heads its stack ("22 branches", collapses with ⌥←, per repository), the
+  sync, blocked children; the push button (and `bd push`) pushes the parents with work first; every PR goes into the
+  baseline with what it lands, and a push (also `bd push`, `bd safe-push`) retargets an open one from a virtual branch
+  (`PATCH pulls/<n>`, `isVirtualBranchBase`, [Landing](docs/design/landing.md)); the root row heads its stack ("22 branches", collapses with ⌥←, per repository), the
   hovered branch lights its path to the root (`stack-view.ts`) (`spec/branch/stacked-branches.spec.md`); a stack of 5+
   branches or 40+ commits is an island below the table: a header that says what it holds, with the Actions cell of a row for the stack (↑ Push with Children of
   the root, the Safe Push of the main line's last branch, "⋯"; nothing while a Safe Push runs in it), the

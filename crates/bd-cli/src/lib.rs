@@ -17,6 +17,7 @@ pub mod install;
 pub mod move_hunk_command;
 pub mod numstat;
 pub mod output;
+pub mod pull_request_retarget;
 pub mod push_command;
 pub mod push_hold;
 pub mod request_review_command;

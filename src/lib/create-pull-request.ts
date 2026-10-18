@@ -1,4 +1,6 @@
 import type { CreatedPullRequest, GitHubUser, PatronusReviewRequirement } from "@/lib/bindings"
+import { formatBranchesAndCommits } from "@/lib/branch"
+import { joinNames } from "@/lib/text"
 import type { ToastMessage } from "@/lib/toast-message"
 
 /** A code owner Patronus suggests for the review of the branch, by group */
@@ -62,12 +64,30 @@ export function joinLogins(logins: readonly string[]): string {
   return logins.length <= 1 ? (logins[0] ?? "") : `${logins.slice(0, -1).join(", ")} and ${logins.at(-1)}`
 }
 
+/** The branches a pull request holds the commits of beside its own branch (`CreatePullRequestContext.includes`) */
+export interface PullRequestIncludes {
+  /** Root first */
+  readonly ancestors: readonly string[]
+  /** Of the branch and its ancestors */
+  readonly commitCount: number
+}
+
+/**
+ * What the pull request of a stacked branch holds beside its own commits, under the title of the dialog: "Includes the
+ * commits of auth and login, which oauth is built on: 3 branches · 12 commits". It goes into the baseline as every
+ * pull request does, so it holds what the Safe Push of the branch lands.
+ */
+export function formatPullRequestIncludes(branchName: string, includes: PullRequestIncludes): string {
+  const count = formatBranchesAndCommits(includes.ancestors.length + 1, includes.commitCount)
+  return `Includes the commits of ${joinNames(includes.ancestors)}, which ${branchName} is built on: ${count}`
+}
+
 /**
  * The toast of a creation: "Created pull request #123" / "feature-auth → master · review requested from alice ·
  * assigned to you", a warning naming what GitHub refused; "feature-auth already has pull request #7" for one that
  * existed, which got nothing of the dialog
  */
-export function formatCreatedToast(branchName: string, baseName: string, viewerLogin: string | null, result: CreatedPullRequest): Omit<ToastMessage, "action"> {
+export function formatCreatedToast(branchName: string, base: string, viewerLogin: string | null, result: CreatedPullRequest): Omit<ToastMessage, "action"> {
   const { pullRequest } = result
   if (!result.created) {
     return {
@@ -76,7 +96,7 @@ export function formatCreatedToast(branchName: string, baseName: string, viewerL
       description: "The title, the reviewers and the assignee weren't applied to it",
     }
   }
-  const parts = [`${branchName} → ${baseName}`]
+  const parts = [`${branchName} → ${base}`]
   const requested = pullRequest.reviewers.filter(reviewer => reviewer.requested).map(reviewer => reviewer.login)
   if (requested.length > 0) {
     parts.push(`review requested from ${joinLogins(requested)}`)

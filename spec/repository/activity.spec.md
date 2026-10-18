@@ -1,6 +1,6 @@
 ---
 name: Activity
-description: Requirements for the log of what Branch Deck did in a repository (pushes, updates, landed reports, Patronus robots, history rewrites, errors) and the review requests it told about, opened from the header, with the Undo of a rewrite while its toast's lasts.
+description: Requirements for the log of what Branch Deck did in a repository (pushes, updates, landed reports, Patronus robots, pull request retargets, history rewrites, errors) and the review requests it told about, opened from the header, with the Undo of a rewrite while its toast's lasts.
 style: plain-1
 targets:
   - ../../src/stores/activity.ts
@@ -13,6 +13,7 @@ targets:
   - ../../src/lib/errors.ts
   - ../../src/lib/landed.ts
   - ../../src/lib/git/push.ts
+  - ../../src/lib/git/new-pull-request.ts
   - ../../src/lib/patronus-actions.ts
   - ../../src/lib/push-summary.ts
   - ../../src/stores/patronus.ts
@@ -86,6 +87,12 @@ name shows its row, a landed entry has the report of the island, a rewrite has i
 - An approval of the user's pull request that made a branch ready ([Review Requests](review-requests.spec.md#approval-news)):
   "Ilya Korennoy approved auth" / "#1078 · IJPL Code Platform", kind `review`, with "Open Pull Request".
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should tell the approval that arrives with a poll, with Safe Push… of the branch first`)
+- A pull request the app retargeted from a virtual branch to the baseline ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)):
+  before a push, "Retargeted #802 to master" / "login · it went into auth"; by the next step, the words of its toast
+  ("Retargeted #7 to master" / "auth · its approvals count for a Safe Push now"); kind `review`, with "Open Pull
+  Request".
+  [@test] ../../src/lib/git/push.test.ts (`retargets a pull request into a virtual branch to the baseline before the push, and Activity records it`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request into a parent's branch to master before the push`)
 - A history rewrite with an Undo toast (squash, fixups, move, ungroup, rename, stack, unstack), and every error toast
   (`notifyError`, with its reason).
   [@test] ../../src/stores/activity.test.ts (`records the errors the user was told about`)

@@ -7,6 +7,7 @@ import type { PatronusRobot } from "@/lib/bindings"
 import type { BranchNextStep, NextStepFacts, NextStepPullRequest } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
 import { notifyError } from "@/lib/errors"
+import { isVirtualBranchBase } from "@/lib/git/new-pull-request"
 import { isFullyLanded } from "@/lib/landed"
 import { announce } from "@/lib/os-notification"
 import { canStartRobot, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
@@ -16,7 +17,7 @@ import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
-import { recordApproval } from "@/stores/activity"
+import { recordApproval, recordRetarget } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
@@ -24,7 +25,7 @@ import { inlineRowActionStore, isProcessing, openInline } from "@/stores/inline-
 import { landedStore } from "@/stores/landed"
 import { getBranchRobot, getLandingAncestor, getLandingSpan, getPushHold, isPatronusAvailable, isRobotFailing, isRobotNeedingReview, patronusStore } from "@/stores/patronus"
 import { getPullRequest, getPullRequestAvailability, pullRequestsStore, retargetPullRequest } from "@/stores/pull-requests"
-import { getFullBranchName, getSelectedProject } from "@/stores/repository"
+import { getSelectedProject } from "@/stores/repository"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { getReadinessTarget, getReviewReadiness, reviewReadinessStore, useShowReviewReadiness } from "@/stores/review-readiness"
 import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
@@ -61,23 +62,14 @@ function pullRequestFactOf(branch: Branch, target: string): NextStepPullRequest 
     base: pullRequest.baseRefName ?? "",
     intoTarget: isPullRequestIntoTarget(pullRequest, target),
     mergedCurrent,
-    baseIsFormerParent: isFormerParent(pullRequest.baseRefName ?? ""),
+    baseIsVirtualBranch: isVirtualBranchBase(pullRequest.baseRefName ?? ""),
   }
 }
 
 /**
- * A base that is the virtual branch of a parent no longer in the table (it landed, was archived or deleted): the
- * pushed name `{prefix}/virtual/{name}` of no active branch
- */
-function isFormerParent(base: string): boolean {
-  const namespace = getFullBranchName("")
-  return base.startsWith(namespace) && base.length > namespace.length && getBranch(base.slice(namespace.length)) === undefined
-}
-
-/**
- * Retargets the open pull request of the branch to the target of Patronus, as a pull request names it ("master"), and
- * says so: the step of row 5, the menu, and the Safe Push form of a branch whose pull request merges into a virtual
- * branch, the old base of a stacked branch
+ * Retargets the open pull request of the branch to the target of Patronus, as a pull request names it ("master"), as
+ * every pull request of a virtual branch goes, and says so (Activity too): the step of row 5, the menu, and the Safe
+ * Push form of a branch whose pull request merges into a virtual branch
  */
 export async function retargetToTarget(branchName: string): Promise<void> {
   const pullRequest = getPullRequest(branchName)
@@ -91,11 +83,10 @@ export async function retargetToTarget(branchName: string): Promise<void> {
     notifyError(`Cannot retarget pull request #${pullRequest.number}`, error)
     return
   }
-  showToast({
-    title: `Retargeted #${pullRequest.number} to ${base}`,
-    description: `${branchName} · its approvals count for a Safe Push now`,
-    action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) },
-  })
+  const title = `Retargeted #${pullRequest.number} to ${base}`
+  const description = `${branchName} · its approvals count for a Safe Push now`
+  recordRetarget(title, description, pullRequest.url)
+  showToast({ title, description, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
 }
 
 /** The Safe Push form below the row of the branch: the row is shown first, also in a collapsed stack or island */

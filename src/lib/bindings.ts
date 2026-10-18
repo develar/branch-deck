@@ -1824,8 +1824,8 @@ export type PullRequest = {
 	/**  The full branch name on the remote, e.g. `user/virtual/feature-auth` */
 	headRefName: string,
 	/**
-	 *  The branch the pull request merges into, e.g. `master` or the parent of a stacked branch `user/virtual/auth`;
-	 *  empty if unknown
+	 *  The branch the pull request merges into, e.g. `master`; an old one may go into a virtual branch
+	 *  `user/virtual/auth` (a parent's), which a push retargets to the baseline; empty if unknown
 	 */
 	baseRefName?: string,
 	/**  The commit the pull request shows; differs from the local branch tip until the branch is pushed */

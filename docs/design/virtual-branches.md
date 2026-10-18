@@ -151,7 +151,8 @@ differ in case, empty levels) and a parents-first order. `place_branches` decide
 parent, on the nearest active ancestor of a parent without commits, on the baseline, or nowhere (`blocked_by`: a parent
 with a problem, a conflict, a failure or a block). A parent without commits never blocks: the local history is linear
 on the baseline, so the child's commits can be picked onto the branch below like those of any flat branch, and
-`pr_base_changed` tells the UI and the push toast that the pull request base is not the declared parent. Restacking a
+`pr_base_changed` tells the UI (the row's "on master" and the alert of the expanded row) that the branch is not built
+on its declared parent; its pull request goes into the baseline as every one ([Landing](landing.md)). Restacking a
 branch is the user's (Unstack). How the parent stands (`Integrated`, `Unapplied`, `Missing`) is a label: integrated
 by the detection note of its branch. When that branch is still its virtual branch, which this sync archives, and has
 no note that holds for the current baseline, `empty_parent_states` detects it first (`detect_pending_branches`) and

@@ -44,6 +44,7 @@ targets:
   - ../../crates/bd-cli/src/clustering.rs
   - ../../crates/sync-utils/src/issue_pattern.rs
   - ../../crates/bd-cli/src/push_command.rs
+  - ../../crates/bd-cli/src/pull_request_retarget.rs
   - ../../crates/sync-core/src/remote_command.rs
   - ../../crates/sync-core/src/push_lease.rs
   - ../../crates/sync-core/src/push.rs
@@ -623,13 +624,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - A stacked branch must take the branches it is built on along, parents first, in the same atomic push, when they
   have commits for the remote, as the app's push button does ([Stacked Branches](../branch/stacked-branches.spec.md));
   one on the remote as it is stays out, and one taken along brings no children with `--with-children`. `--alone`
-  (named branches only) and `--expect-remote` (the lease of one branch) push only the named branches.
-  [@test] ../../crates/bd-cli/src/push_test.rs (`parents_go_first_and_a_child_alone_needs_its_parent_on_the_remote`, `a_parent_goes_along_only_with_commits_for_the_remote_and_brings_no_children`)
-- It must refuse (`push_refused`, exit 4, nothing pushed) a branch that didn't sync, one behind its remote branch
-  without `--force` (a parent taken along too, with `--alone` as the way out), and with `--alone` a stacked branch
-  whose parent is neither on the remote nor pushed with it. Older versions of commits amended or restacked here are
-  not behind: such a branch pushes without `--force`, and a parent with only them is taken along.
-  [@test] ../../crates/bd-cli/src/push_test.rs (`parents_go_first_and_a_child_alone_needs_its_parent_on_the_remote`, `all_needs_yes_and_unsynced_branches_are_refused`, `amended_and_restacked_commits_push_without_force`, `a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`)
+  (named branches only) and `--expect-remote` (the lease of one branch) push only the named branches: a stacked branch
+  carries the commits of the branches it is built on, its pull request into the baseline includes them either way.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`parents_go_first_and_a_child_alone_carries_its_parents_commits`, `a_parent_goes_along_only_with_commits_for_the_remote_and_brings_no_children`)
+- It must refuse (`push_refused`, exit 4, nothing pushed) a branch that didn't sync, and one behind its remote branch
+  without `--force` (a parent taken along too, with `--alone` as the way out). Older versions of commits amended or
+  restacked here are not behind: such a branch pushes without `--force`, and a parent with only them is taken along.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`all_needs_yes_and_unsynced_branches_are_refused`, `amended_and_restacked_commits_push_without_force`, `a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`)
 - `--with-children` must add the branches stacked on the named ones, directly or further down, parents first, to the
   same atomic push, as the app's Push with Children does ([Stacked Branches](../branch/stacked-branches.spec.md)); a
   blocked child must refuse the push as a named branch that didn't sync does. It must need named branches and must
@@ -653,15 +654,23 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   hook, a protected branch) must be `push_refused` with what git said, nothing pushed.
   [@test] ../../crates/bd-cli/src/push_test.rs (`a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`, `force_drops_only_what_the_sync_saw_and_expect_remote_pins_the_lease`, `a_moved_lease_refuses_the_whole_stack_and_names_the_branch_that_moved`, `a_push_the_remote_refuses_with_its_leases_holding_is_push_refused`)
   [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`)
-- Per branch it must print the pull request base (the parent's remote branch, or the baseline without the remote),
-  the head, the `bd describe` title and body, and a ready `gh pr create` command, with `--repo` for a GitHub
-  repository `origin` doesn't push to (a mirror).
-  [@test] ../../crates/bd-cli/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `parents_go_first_and_a_child_alone_needs_its_parent_on_the_remote`, `the_pull_request_command_names_a_github_mirror`)
+- Per branch it must print the pull request base, the baseline without the remote (`master`) for every branch, stacked
+  or not ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)), the head, the `bd describe` title and
+  body, and a ready `gh pr create` command, with `--repo` for a GitHub repository `origin` doesn't push to (a mirror).
+  [@test] ../../crates/bd-cli/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `parents_go_first_and_a_child_alone_carries_its_parents_commits`, `with_children_pushes_the_branches_stacked_on_the_named_ones`, `the_pull_request_command_names_a_github_mirror`)
+- After the push, with the lock released, it must retarget the open pull request of each pushed branch whose base is a
+  virtual branch of the user (`{prefix}/virtual/…`) to the baseline, as the app's push does (one search of the pull
+  requests, one `PATCH pulls/<n>` each): `retargeted` lists them (`branch`, `number`, `url`, `from`, `to`, and
+  `approved_by`, whose approvals GitHub may dismiss). A pull request into another base (a release branch) stays. A
+  retarget GitHub refuses, or a listing that fails for another reason than a missing token, is a `retarget_warnings`
+  line, with the `gh pr edit` that retargets it; the push stands. `--dry-run` lists the retargets a push would make
+  and changes nothing on GitHub. Without a GitHub repository of the branches or a token, GitHub is not asked.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`push_retargets_a_pull_request_into_a_virtual_branch_to_the_baseline`)
 - On Space, with the Safe Push CLI logged in, it must hold the branches the app holds
   ([Patronus](../branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)): a named branch whose Safe Push
   runs on it, or on a branch built on it that lands it, is `robot_running` (exit 4, nothing pushed), with the robot's
-  page; an ancestor taken along that a Safe Push lands stays as the robot took it, so a child that needs it on the
-  remote is `push_refused`. A canceling robot and a dry run hold nothing. `--restart-running` cancels the Safe Push of
+  page; an ancestor taken along that a Safe Push lands stays as the robot took it, and its child is pushed alone,
+  carrying its commits. A canceling robot and a dry run hold nothing. `--restart-running` cancels the Safe Push of
   a named branch, pushes it with the ancestors that robot lands, and restarts it on the pushed commit (`restarted`).
   One robots request after the sync; off Space, without a token or an answer of Patronus nothing is held. `bd
   safe-push` pushes without the check: it cancels the robot it replaces itself.
@@ -708,8 +717,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `--reviewer <login>` logins asked (the author left out; a reviewer GitHub refuses is in `pull_request.warnings`), as
   the app's dialog creates it ([Pull Requests](../branch/pull-requests.spec.md#creating-a-pull-request)), without a
   start, and must be `invalid_arguments` without a GitHub repository of the branches; a pull request that already
-  exists is found instead and left as it is, with a warning. The `review` reviewers carry their `github_login` when
-  Patronus names it, for `--reviewer`.
+  exists is found instead and left as it is, with a warning, whatever its base: one into a virtual branch is retargeted
+  to the target (`retargeted`), one into another base is taken with a warning that Patronus merges it there. The
+  `review` reviewers carry their `github_login` when Patronus names it, for `--reviewer`.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_pull_request_it_opens_asks_the_suggested_code_owner_by_the_github_login_patronus_names`, `a_pull_request_that_already_exists_is_found_instead`) The token is the first of `GH_TOKEN`
   (`GITHUB_TOKEN`), `gh auth token`, the app's sign-in (its token file) and the git credentials of github.com ([Pull
   Requests](../branch/pull-requests.spec.md#the-token)); without one GitHub accepts, `not_logged_in`. Patronus judges
@@ -720,7 +730,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   approver; without any approval, `approvals_missing` must name the pull request.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`patronus_judges_the_approvals_of_the_pull_request`)
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_from_it`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`)
-  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_pull_request_that_already_exists_is_found_instead`, `a_pull_request_without_a_github_token_is_not_logged_in`)
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_pull_request_that_already_exists_is_found_instead`, `a_pull_request_without_a_github_token_is_not_logged_in`, `create_pull_request_takes_the_open_pull_request_of_the_branch_whatever_its_base`)
 - A robot on the last commit of the branch, or a Safe Push that lands it with a branch of its stack, must refuse the
   start with `robot_running`, in the words of the app; a running Safe Push of an older commit, which the push fails,
   too, unless `--cancel-running` cancels it first.
@@ -740,6 +750,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Branches reviewed on GitHub with an open pull request into the target must start from a `/patronus` comment on it,
   waiting up to a minute for the answer, and must refuse `--profile` there; no Space merge request is looked up.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_branch_with_an_open_pull_request_starts_from_a_comment`)
+- An open pull request of the branch, or of a branch its push takes along, whose base is a virtual branch of the user
+  must be retargeted to the target before anything is pushed or canceled, and the robot then starts from the
+  branch's: `retargeted` lists them as `bd push` does, `--check` the ones a start would retarget. A retarget of the
+  branch's own pull request that GitHub refuses fails the start with nothing pushed or started; one of a branch taken
+  along is a `retarget_warnings` line. One into another base (a release branch) stays, and the start goes through
+  the API.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_pull_requests_of_the_branch_and_of_the_parents_it_pushes_go_into_the_target_before_the_start`)
 - Without the Space token of the Safe Push CLI it must be `not_logged_in`, and outside Space `not_on_space`, before a
   request to Patronus.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`without_a_token_or_space_nothing_runs`)

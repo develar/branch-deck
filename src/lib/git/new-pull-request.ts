@@ -3,21 +3,23 @@ import type { PullRequest } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import type { CompareFields, GitHubRepository } from "@/lib/pull-request"
 import { getCompareUrl, openPullRequest } from "@/lib/pull-request"
-import { pullRequestBaseOf } from "@/lib/stack"
+import { baselineOnRemote } from "@/lib/stack"
 import type { ToastActionProps } from "@/lib/toast-message"
+import { recordRetarget } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch } from "@/stores/branch-sync"
+import { branchSyncStore } from "@/stores/branch-sync"
 import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { getPatronusGitHubRepository } from "@/stores/patronus"
 import { getGitHubRepository, getPullRequest, retargetPullRequest } from "@/stores/pull-requests"
 import { getFullBranchName } from "@/stores/repository"
 
 /**
- * The pull request base of a branch, as `gh` and GitHub take it: the parent's pushed branch, or the baseline as the
- * remote names it, also while the parent isn't on the remote (`pullRequestBaseOf`)
+ * The base of every pull request of a virtual branch, stacked or not: the baseline as the remote names it (`master`).
+ * The pull request holds everything the Safe Push of the branch lands, the commits of the branches it is built on too,
+ * so its approvals are the ones Patronus counts ([Landing](docs/design/landing.md)).
  */
-export function getPullRequestBase(branch: Branch): string {
-  return pullRequestBaseOf(branch, branchSyncStore.getState().baselineBranch ?? "", getFullBranchName, getBranch)
+export function getPullRequestBase(): string {
+  return baselineOnRemote(branchSyncStore.getState().baselineBranch ?? "")
 }
 
 /**
@@ -30,55 +32,113 @@ function ghRepositoryOption(): string {
 }
 
 /**
- * The open pull request of a branch whose base is not the one it should have (`getPullRequestBase`), e.g. after its
- * parent was integrated or pushed, or the branch was restacked, with that base; null if there is nothing to retarget
+ * A base that is a virtual branch of the user (`{prefix}/virtual/…`): the base of a pull request opened into a parent's
+ * branch, before every pull request went into the baseline. Patronus merges a pull request into its base, so its
+ * approvals never count; a release branch or another base of the user's choice isn't one.
  */
-function getPullRequestRetarget(branch: Branch): { pullRequest: PullRequest; base: string } | null {
-  const pullRequest = getPullRequest(branch.name)
-  if (pullRequest === undefined || pullRequest.state !== "open" || !pullRequest.baseRefName) {
-    return null
-  }
-  const base = getPullRequestBase(branch)
-  return pullRequest.baseRefName === base ? null : { pullRequest, base }
+export function isVirtualBranchBase(base: string): boolean {
+  const namespace = getFullBranchName("")
+  return base.length > namespace.length && base.startsWith(namespace)
+}
+
+/** The open pull request of a branch whose base is a virtual branch, and the base it goes into instead */
+export interface PullRequestRetarget {
+  readonly pullRequest: PullRequest
+  /** The virtual branch it goes into, by its short name: `auth` of `user/virtual/auth` */
+  readonly from: string
+  /** The baseline as the remote names it (`getPullRequestBase`) */
+  readonly base: string
 }
 
 /**
- * The `gh` command that retargets the open pull request of a branch whose base is not the one it should have
+ * The open pull request of a branch whose base is a virtual branch (`isVirtualBranchBase`), e.g. its parent's or the one
+ * of a parent that landed, with the base it goes into instead; null if there is nothing to retarget. A pull request into
+ * a release branch is left as it is: that base may be meant.
+ */
+export function getPullRequestRetarget(branchName: string): PullRequestRetarget | null {
+  const pullRequest = getPullRequest(branchName)
+  const current = pullRequest?.baseRefName ?? ""
+  if (pullRequest === undefined || pullRequest.state !== "open" || !isVirtualBranchBase(current)) {
+    return null
+  }
+  return { pullRequest, from: current.slice(getFullBranchName("").length), base: getPullRequestBase() }
+}
+
+/**
+ * The `gh` command that retargets the open pull request of a branch whose base is a virtual branch
  * (`getPullRequestRetarget`); null if there is nothing to retarget. A push retargets it first (`retargetBeforePush`):
  * the command is for a retarget that failed, and for the branch menu before a push.
  */
 export function getRetargetCommand(branch: Branch): string | null {
-  const retarget = getPullRequestRetarget(branch)
+  const retarget = getPullRequestRetarget(branch.name)
   return retarget === null ? null : `gh pr edit ${retarget.pullRequest.number}${ghRepositoryOption()} --base ${retarget.base}`
+}
+
+/** A pull request the push of a branch retargets first (`getPushRetargets`), as the push description says it */
+export interface PushRetarget {
+  readonly branchName: string
+  readonly number: number
+  /** The baseline as the remote names it */
+  readonly base: string
+  /** Someone approved it: GitHub may dismiss the approvals of a pull request whose base changes */
+  readonly approved: boolean
+}
+
+/** The open pull requests into a virtual branch that a push of `branchNames` retargets first (`retargetBeforePush`) */
+export function getPushRetargets(branchNames: readonly string[]): PushRetarget[] {
+  return branchNames.flatMap(branchName => {
+    const retarget = getPullRequestRetarget(branchName)
+    if (retarget === null) {
+      return []
+    }
+    const { number, reviewers } = retarget.pullRequest
+    return [{ branchName, number, base: retarget.base, approved: reviewers.some(reviewer => reviewer.state === "approved") }]
+  })
+}
+
+/**
+ * What the description of a push says before it retargets pull requests (`getPushRetargets`): "Retargets #8 to master:
+ * GitHub may dismiss its approvals." for one with approvals, a line per pull request, each named by its branch when the
+ * push sends several (`ofBranches`); null without a retarget
+ */
+export function describePushRetargets(retargets: readonly PushRetarget[], ofBranches: boolean): { text: string; warning: boolean } | null {
+  if (retargets.length === 0) {
+    return null
+  }
+  const lines = retargets.map(
+    retarget =>
+      `Retargets #${retarget.number}${ofBranches ? ` of ${retarget.branchName}` : ""} to ${retarget.base}${retarget.approved ? ": GitHub may dismiss its approvals" : ""}.`,
+  )
+  return { text: lines.join("\n"), warning: retargets.some(retarget => retarget.approved) }
 }
 
 /** A pull request a push retargeted first */
 export interface Retargeted {
   number: number
-  /** The short name for a toast: the parent's virtual branch name, or the baseline as the remote names it */
+  /** The baseline as the remote names it */
   base: string
 }
 
 /**
- * Retargets the open pull request of a branch to its base before the branch is pushed: pushed onto another base
- * (a parent that merged, was pushed for the first time, or a restack), a pull request into the old one would show the
- * wrong commits, all of the baseline since. Null when there was nothing to retarget, or the retarget failed (an error
- * toast said why; the push still runs, its toast offers the command).
+ * Retargets the open pull request of a branch whose base is a virtual branch to the baseline before the branch is
+ * pushed (`getPullRequestRetarget`): the pull request then shows what the Safe Push of the branch lands, and its
+ * approvals count. Activity records it. Null when there was nothing to retarget, or the retarget failed (an error toast
+ * said why; the push still runs, its toast offers the command).
  */
 export async function retargetBeforePush(branch: Branch): Promise<Retargeted | null> {
-  const retarget = getPullRequestRetarget(branch)
+  const retarget = getPullRequestRetarget(branch.name)
   if (retarget === null) {
     return null
   }
-  const number = retarget.pullRequest.number
+  const { pullRequest, base } = retarget
   try {
-    await retargetPullRequest(branch.name, retarget.base)
+    await retargetPullRequest(branch.name, base)
   } catch (error) {
-    notifyError(`Cannot retarget pull request #${number}`, error)
+    notifyError(`Cannot retarget pull request #${pullRequest.number}`, error)
     return null
   }
-  const parent = branch.stack?.effectiveBase ?? null
-  return { number, base: parent !== null && retarget.base === getFullBranchName(parent) ? parent : retarget.base }
+  recordRetarget(`Retargeted #${pullRequest.number} to ${base}`, `${branch.name} · it went into ${retarget.from}`, pullRequest.url)
+  return { number: pullRequest.number, base }
 }
 
 /**
@@ -121,7 +181,7 @@ export function formatNewPullRequestBlocker(branchName: string, live: PullReques
 }
 
 /**
- * The GitHub form of a new pull request of the pushed branch into its base (`getPullRequestBase`), with `fields`
+ * The GitHub form of a new pull request of the pushed branch into the baseline (`getPullRequestBase`), with `fields`
  * filled in: "Continue on GitHub" of the dialog; null when the branch can't get one (`canCreatePullRequest`)
  */
 export function getNewPullRequestUrl(branch: Branch, fields?: CompareFields): string | null {
@@ -129,7 +189,7 @@ export function getNewPullRequestUrl(branch: Branch, fields?: CompareFields): st
   if (repository === null || !canCreatePullRequest(branch)) {
     return null
   }
-  return getCompareUrl(repository, getPullRequestBase(branch), getFullBranchName(branch.name), fields)
+  return getCompareUrl(repository, getPullRequestBase(), getFullBranchName(branch.name), fields)
 }
 
 /** Opens the GitHub form of a new pull request in the browser; GitHub creates nothing until it is submitted */

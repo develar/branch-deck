@@ -300,7 +300,7 @@ fn review_full_name(review: &Review, login: &str) -> Option<String> {
 }
 
 /// Why the pull requests of the branches can't be read: `not_logged_in` without a token GitHub accepts
-fn availability_error(availability: &PullRequestAvailability) -> CliError {
+pub(crate) fn availability_error(availability: &PullRequestAvailability) -> CliError {
   match availability {
     PullRequestAvailability::SignedOut => CliError::new(ErrorCode::NotLoggedIn, SIGNED_OUT_MESSAGE),
     PullRequestAvailability::NotAuthenticated { source } => CliError::new(ErrorCode::NotLoggedIn, format!("GitHub rejected the token from {}", source.label())),

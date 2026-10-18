@@ -85,21 +85,13 @@ export function describePrefixChange(
   return { text: `${action} moves the commit to the branch ${to.branch}${onParent}`, warning: true }
 }
 
-/** The branch name a remote knows the baseline by: `origin/master` is `master` there */
+/**
+ * The branch name a remote knows the baseline by: `origin/master` is `master` there. Every pull request of a virtual
+ * branch goes into it (`getPullRequestBase`).
+ */
 export function baselineOnRemote(baselineBranch: string): string {
   const slash = baselineBranch.indexOf("/")
   return slash === -1 ? baselineBranch : baselineBranch.slice(slash + 1)
-}
-
-/**
- * The base of the pull request of a branch: the full branch name of the branch it is built on, or the baseline. A
- * parent that isn't on the remote can't be a base: until it is pushed, the pull request targets the baseline and
- * includes the parent's commits. `fullName` turns a virtual branch name into the pushed one, `branchOf` looks a branch up.
- */
-export function pullRequestBaseOf(branch: Branch, baselineBranch: string, fullName: (name: string) => string, branchOf: (name: string) => Branch | undefined): string {
-  const base = branch.stack?.effectiveBase ?? null
-  // a parent whose remote status isn't loaded yet keeps the base
-  return base === null || branchOf(base)?.remoteStatus?.exists === false ? baselineOnRemote(baselineBranch) : fullName(base)
 }
 
 /**

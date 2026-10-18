@@ -37,7 +37,7 @@ import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { inTableOrder } from "@/lib/branch-selection"
 import { copyText } from "@/lib/clipboard"
-import { CREATE_PULL_REQUEST_LABEL, canCreatePullRequest, getPullRequestBase, getRetargetCommand } from "@/lib/git/new-pull-request"
+import { CREATE_PULL_REQUEST_LABEL, canCreatePullRequest, getRetargetCommand } from "@/lib/git/new-pull-request"
 import { pushOrConfirm } from "@/lib/git/push"
 import { pushWithChildren } from "@/lib/git/stack-push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
@@ -83,8 +83,8 @@ import { getStackCollapse, toggleStackCollapsed } from "@/stores/stack-collapse"
 const MAX_MENU_TARGETS = 8
 
 /**
- * Context menu of an active branch row: copy actions (the names, the pull request link, the pull request base, the
- * retarget command), then rename (name an issue branch; an issue group is renamed without a rewrite), move to another
+ * Context menu of an active branch row: copy actions (the names, the pull request link, the retarget command of a pull
+ * request into a virtual branch), then rename (name an issue branch; an issue group is renamed without a rewrite), move to another
  * branch (with the other selected branches, if the row is selected) and ungroup, then commit actions (issue reference,
  * amend, unapply), then history (review the changes, squash fixups, open or create the pull request), then the remote
  * (push, Safe Push, Dry Run, the actions of the branch's robot, `getGatedRobotActions`). An item that opens a form ends with
@@ -97,17 +97,10 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   if (pullRequest !== undefined) {
     groups[0]!.push({ id: "copy-pull-request-link", label: "Copy Pull Request Link", icon: LinkIcon, onSelect: () => void copyText(pullRequest.url) })
   }
-  if (isStacksEnabled()) {
-    groups[0]!.push({
-      id: "copy-pull-request-base",
-      label: "Copy PR Base",
-      icon: CopyIcon,
-      onSelect: () => void copyText(getPullRequestBase(branch)),
-    })
-    const retargetCommand = getRetargetCommand(branch)
-    if (retargetCommand !== null) {
-      groups[0]!.push({ id: "copy-retarget-command", label: "Copy Retarget Command", icon: CopyIcon, onSelect: () => void copyText(retargetCommand) })
-    }
+  // an open pull request into a virtual branch: the push retargets it to the baseline, the command does it by hand
+  const retargetCommand = getRetargetCommand(branch)
+  if (retargetCommand !== null) {
+    groups[0]!.push({ id: "copy-retarget-command", label: "Copy Retarget Command", icon: CopyIcon, onSelect: () => void copyText(retargetCommand) })
   }
 
   const openPullRequestItem: MenuItem | null = pullRequest === undefined ? null : openPullRequestItemOf(pullRequest)
@@ -228,7 +221,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   if (requestReview !== null) {
     historyActions.push(requestReview)
   }
-  // a pull request into another base: the step retargets one of a former parent, the menu always offers it
+  // a pull request into another base: the step retargets one into a virtual branch, the menu always offers it
   if (nextStep.retarget !== null) {
     historyActions.push(nextStep.retarget)
   }

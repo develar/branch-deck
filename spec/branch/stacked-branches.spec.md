@@ -60,6 +60,9 @@ targets:
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/lib/git/push-toast.tsx
   - ../../src/lib/git/new-pull-request.ts
+  - ../../src/lib/create-pull-request-context.ts
+  - ../../src/components/branch/CreatePullRequestDialog.tsx
+  - ../../crates/bd-cli/src/pull_request_retarget.rs
   - ../../crates/sync-core/src/pull_request_writes.rs
 ---
 
@@ -71,8 +74,9 @@ Date: 2026-10-15
 ## Summary
 
 A commit `(auth/login) Add form` belongs to the branch `login`, and `login` stacks on `auth`. Its virtual branch is
-built on the new head of `auth`'s virtual branch, so a pull request for `login` contains only its own commits on top
-of `auth`. Deeper prefixes declare the ancestry (`(auth/login/oauth)`), and a bare `(login)` joins `login` wherever
+built on the new head of `auth`'s virtual branch. Its pull request goes into the baseline, as every pull request of a
+virtual branch, and holds `auth`'s commits with its own: what its Safe Push lands ([Landing](../../docs/design/landing.md)).
+Deeper prefixes declare the ancestry (`(auth/login/oauth)`), and a bare `(login)` joins `login` wherever
 its parent is declared. A branch whose prefixes declare no parent, an issue branch and an issue group too, takes its
 stack parent from `refs/branch-deck/stack-parents` ([Stack Parents](stack-parents.spec.md)): Stack On, Unstack and
 `bd group` with a path write it there, without a history rewrite. A parent without commits (landed, unapplied, mistyped) is passed: the child is built on the
@@ -82,17 +86,20 @@ menu stacks, unstacks and renames branches.
 
 ## Goals
 
-- Review a feature in dependent steps, each a branch with its own commits.
+- Land a feature into master in dependent pieces, each a branch with its own commits on the ones it is built on.
 - Keep linear development on the main branch: the prefixes and the stack parents are the stack state.
 - The history decides where a branch is built: a parent without commits (landed, unapplied, mistyped) doesn't stop its
-  children; the base change is visible in the row, the alert and the push toast; only the user restacks a branch
-  (Unstack).
+  children; the base change is visible in the row and the alert; only the user restacks a branch (Unstack).
 
 ## Non-goals
 
-- Pull requests of a whole stack at once: "Create Pull Request…" creates the pull request of one branch into its base
-  ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)). Branch Deck retargets an open pull request and
-  closes the ones a Safe Push landed ([Pull requests](#pull-requests)).
+- A pull request into a parent's branch (stacked pull requests that show only the branch's own commits): Patronus
+  merges a pull request into its base and counts only the approvals of the pull request that started it, so such a
+  pull request can never land ([Landing](../../docs/design/landing.md#alternatives-considered)). Every pull request of a
+  virtual branch goes into the baseline; an open one into a virtual branch is retargeted ([Pull requests](#pull-requests)).
+- Pull requests of a whole stack at once: "Create Pull Request…" creates the pull request of one branch
+  ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)). Branch Deck closes the pull requests a Safe Push
+  landed ([Pull requests](#pull-requests)).
 
 ## Requirements
 
@@ -217,34 +224,41 @@ menu stacks, unstacks and renames branches.
 
 ### Pull requests
 
-- The pull request base of a stacked branch must be its parent's pushed branch; of a root, the baseline as the remote
-  names it (`master`). A parent that isn't on the remote (its remote status says so; one not loaded yet stays the
-  base) can't be a base: until it is pushed the base is the baseline, and the pull request includes the parent's
-  commits; once it is pushed, the retarget below is offered. "Copy PR Base" in the branch menu must copy it, and
-  "Create Pull Request…" creates the pull request with it as the base ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)).
-  [@test] ../../src/lib/stack.test.ts (`targets the parent's branch, or the baseline on the remote`, `targets the baseline while the parent isn't on the remote`)
+- The pull request of every virtual branch, stacked or not, must go into the baseline as the remote names it
+  (`master`, `getPullRequestBase`): a stacked branch's holds the commits of the branches it is built on with its own,
+  what its Safe Push lands, so its approvals are the ones Patronus counts ([Landing](../../docs/design/landing.md)).
+  "Create Pull Request…" creates it into the baseline ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)),
+  and its dialog says what it holds ("Includes the commits of auth and login, which oauth is built on: 3 branches · 12
+  commits"); `bd push` prints its `gh pr create` with `--base master` ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
+  [@test] ../../src/lib/stack.test.ts (`is the baseline as the remote names it for every branch, stacked or not`)
+  [@test] ../../src/lib/create-pull-request-context.test.ts (`creates the pull request of a stacked branch into the baseline, with the commits of the branches it is built on`, `includes nothing more for a branch built on the baseline`)
   [@test] ../../src/lib/pull-request.test.ts (`opens the pull request form of the pushed branch into its base`)
 - After a push, the toast is the push toast of any branch ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)):
-  it says what the push did and offers "Create Pull Request…" (into the base) or "Open Pull Request". A stacked branch's
-  toast also names the base ("Pushed oauth" / "1 commit · created the remote branch · pull request base: login"); a
-  root's names none, with stacked branches on, every branch has a stack, and a root's base is the baseline as for any
-  branch.
-  [@test] ../../src/lib/git/push.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `names the parent of a stacked branch and creates its pull request into the parent's branch`, `creates the pull request of a stacked branch into the baseline while its parent isn't on the remote`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and name the pull request base`)
-- An open pull request whose base (`baseRefName`) is not the expected one, e.g. after its parent was integrated or
-  pushed for the first time, or the branch was restacked, must be retargeted to it (`PATCH pulls/<n>` with the new
-  `base`, as `gh pr edit … --base …`) right
-  before a push of its branch: pushed onto another base, a pull request into the old one shows the wrong commits, all
-  of the baseline since. The push toast says so ("1 commit · created the remote branch · retargeted pull request
-  #802 to master"). A failed retarget is a "Cannot retarget pull request #802" error and the push still runs; its
-  toast then says "retarget it" with "Copy gh pr edit". "Copy Retarget Command" in the copy group of the branch menu
-  copies the command before a push.
-  [@test] ../../src/lib/git/push.test.ts (`retargets a pull request with another base before the push`, `pushes and copies the command that retargets a pull request when the retarget fails`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request whose base is not the expected one before the push`)
+  it says what the push did and offers "Create Pull Request…" (into the baseline) or "Open Pull Request". It names no
+  base: every branch has the same.
+  [@test] ../../src/lib/git/push.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `creates the pull request of a stacked branch into the baseline, its parent on the remote or not`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`)
+- An open pull request whose base (`baseRefName`) is a virtual branch of the user (`{prefix}/virtual/…`,
+  `isVirtualBranchBase`: the branch of its parent, opened when pull requests went into the parent's branch, or of a
+  parent that landed) must be retargeted to the baseline (`PATCH pulls/<n>` with the new `base`, as
+  `gh pr edit … --base …`) right before a push of its branch, each branch of a stack push too. Its approvals don't
+  count until then, and Patronus would merge it into that branch. A pull request into another base (a release branch)
+  is left as it is: that base may be meant ([Next Step](next-step.spec.md), row 5′). Before the push, the description
+  of the push button says each retarget ("Retargets #8 to master." per pull request, "Retargets #8 of login to master."
+  for a stack push), and in `warning` for one with approvals: "Retargets #8 to master: GitHub may dismiss its
+  approvals." The push toast says it after ("1 commit · created the remote branch · retargeted pull request #802 to
+  master"), and Activity records each: "Retargeted #802 to master" / "login · it went into auth", with "Open Pull
+  Request" ([Activity](../repository/activity.spec.md)). A failed retarget is a "Cannot retarget pull request #802"
+  error and the push still runs; its toast then says "the pull request goes into auth: retarget it to master" with
+  "Copy gh pr edit". "Copy Retarget Command" in the copy group of the branch menu copies the command before a push.
+  `bd push` and `bd safe-push` retarget the same way ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
+  [@test] ../../src/lib/git/push.test.ts (`retargets a pull request into a virtual branch to the baseline before the push, and Activity records it`, `leaves a pull request into a release branch: that base may be meant`, `pushes and copies the command that retargets a pull request when the retarget fails`, `names each pull request into a virtual branch the pushes retargeted to the baseline`)
+  [@test] ../../src/hooks/usePushButton.test.ts (`says which pull requests into a virtual branch the push retargets first, and warns when GitHub may dismiss approvals`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request into a parent's branch to master before the push`)
   [@test] ../../crates/sync-core/src/pull_request_writes_test.rs (`retargets_a_pull_request_of_the_repository_of_the_branches`, `a_failure_says_what_github_said`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`lists_pull_requests_of_the_push_remote_repository`)
 - The push button of a branch whose ancestors have work for the remote must push the stack (`buttonStackPushOrder`):
-  the pull request of the branch is right only once they are on the remote. The compact button counts the commits the
+  the remote branches of its ancestors, and their pull requests, stay what the branch is built on. The compact button counts the commits the
   pushes send ("↑ 3"), in the strongest colour of them; its name is `Push Stack (3 branches)`, and so is the
   push of the branch menu, the same push ([Branch Row](branch-row.spec.md#branch-menu)). The push starts above the nearest ancestor a running Safe Push holds ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)):
   its push won't land; its description lists the pushes, "Pushes 3 branches, parents first:"
@@ -252,17 +266,17 @@ menu stacks, unstacks and renames branches.
   push says what it replaces or drops in the words of the push alone ([Outgoing Commits](../repository/outgoing.spec.md#push)):
   "auth · 1 commit · force push, replaces 1 commit amended here", "login · force push, replaces the older versions of
   auth's commits", "session · 1 commit · force push, drops 1 remote commit". Below a rule, "login isn't on the remote
-  yet. Pushing oauth alone works; a pull request includes login's commits until login is pushed." ("login has commits
-  the remote lacks. … includes them until login is pushed." for a parent on the remote, the nearest ancestor with
-  work) and a `Push oauth Only` button. Preview `P` pushes as the button does. While the stack push runs, the button
-  names it ("Pushing 3 branches 45%"), the rows of the branches it pushes show the same progress on their own push
-  buttons, and a second click does nothing. The row doesn't name the parent: the stack graph shows it, and the
-  description of the button explains Push Stack.
+  yet. Pushing oauth alone works: its pull request includes login's commits either way." ("login has commits the
+  remote lacks. Pushing oauth alone works: its pull request includes them either way, and the remote branch of login
+  stays as it is." for a parent on the remote, the nearest ancestor with work) and a `Push oauth Only` button. Preview
+  `P` pushes as the button does. While the stack push runs, the button names it ("Pushing 3 branches 45%"), the rows of
+  the branches it pushes show the same progress on their own push buttons, and a second click does nothing. The row
+  doesn't name the parent: the stack graph shows it, and the description of the button explains Push Stack.
   [@test] ../../src/hooks/usePushButton.test.ts (`pushes the stack while an ancestor has work for the remote, and offers the push of the branch alone`, `says what each force push of a stack push replaces, as the push of the branch alone does`, `takes the colour of an ancestor when none of the branch's commits are the user's`)
   [@test] ../../src/lib/remote-status.test.ts (`names it in the line of a stack push in the same words, or the remote commits the push drops`)
   [@test] ../../src/lib/git/push.test.ts (`pushes nothing more from a row whose stack push runs`)
   [@test] ../../src/lib/stack.test.ts (`names what a stack push sends while it runs: its one push of several branches, or the one branch`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and name the pull request base`, `should push a stacked branch alone from the description of its button`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`, `should push a stacked branch alone from the description of its button`)
 - The button pushes the branch alone, and its description offers `Push Stack (3 branches)` instead, while the branch's own push drops remote commits (it asks first, Force Push) and while the stack above
   the nearest ancestor whose push drops remote commits has only the branch: that ancestor asks first in its own row,
   and a stack pushed around it would leave a stale branch in the middle.
@@ -281,20 +295,21 @@ menu stacks, unstacks and renames branches.
   nobody's work is lost: the push goes again over the fetched heads at once, once, as the push of one branch does
   ([Outgoing Commits](../repository/outgoing.spec.md#push)); else its toast says what that one has now ("login changed
   on the remote", "… Nothing was pushed.") and offers its push over it. A branch a running Safe Push holds refuses the
-  push with the reason. A pull request that needs a retarget is retargeted before the push, as for one branch.
+  push with the reason. A pull request into a virtual branch is retargeted before the push, as for one branch.
   [@test] ../../src/lib/git/push.test.ts (`pushes all or none: a remote branch that moved refuses the push, and its toast says what that remote has`, `pushes the stack again over the fetched heads when the remote that moved has no commits the branch lacks`, `pushes up to a commit with the branches below it whole, in one push`, `cancels the robot the start replaces at the first branch it holds, and pushes its ancestors with it`)
   [@test] ../../crates/sync-core/src/push_test.rs (`a_stack_pushes_its_branches_in_one_push`, `a_moved_lease_refuses_every_branch_and_names_it`, `a_stack_push_up_to_a_commit_pushes_the_branches_below_whole`)
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`an_atomic_push_of_a_stack`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header in one push, parents first`, `should push the stack up to a commit, the branches it is built on first, the rest left to push`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack in one push, refused whole when a remote branch of it moved`, `should push a parent with its children`)
 - A push of several branches, "Push Stack" or "Push with Children", is one toast: "Pushed auth, login and oauth" (more
-  than three: "Pushed auth, login, oauth and 2 more") / "3 commits · created 2 remote branches · force pushed auth", the
-  pull request of a pushed branch that needs a retarget, the robots the pushes restarted. The action is the pull
-  request action of the branch the user pushed from ("Create Pull Request…" into its base, or "Open Pull Request"),
+  than three: "Pushed auth, login, oauth and 2 more") / "3 commits · created 2 remote branches · force pushed auth",
+  each pull request the push retargeted ("retargeted pull request #802 of auth to master") and one whose retarget
+  failed, the robots the pushes restarted. The action is the pull request action of the branch the user pushed from
+  ("Create Pull Request…" into the baseline, or "Open Pull Request"),
   unless a retarget comes first. Activity has an entry per branch. A push of one branch is its own push toast.
-  [@test] ../../src/lib/git/push.test.ts (`is one toast for the branches, with the pull request of the branch the stack was pushed from`)
+  [@test] ../../src/lib/git/push.test.ts (`is one toast for the branches, with the pull request of the branch the stack was pushed from`, `names each pull request into a virtual branch the pushes retargeted to the baseline`)
   [@test] ../../src/lib/push-summary.test.ts (`says what the pushes of a stack did together`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and name the pull request base`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`)
 - The push button of a branch whose descendants have work for the remote must stay as it is too: it pushes only the
   branch. Its description must offer the children below a rule: "oauth is stacked on login and has commits to push."
   ("oauth and session are …", "session and 2 more branches are … and have commits to push."), then a
@@ -454,10 +469,10 @@ menu stacks, unstacks and renames branches.
 - A branch built elsewhere because its declared parent has no commits (`prBaseChanged`) must say so in the third
   column of its Status cell: a muted "on master" (or the ancestor it is built on) with the reason as its tooltip ("login
   landed · oauth is built on master"; "login has no commits", "login is unapplied"). Its push button is enabled.
-  Expanded, an alert says "Built on master: login landed. The pull request base is master." (`info` for a landed
-  parent, `warning` for one without commits, likely a typo, neutral for an unapplied one) with an
-  "Unstack from login" link: the undoable change of the branch menu, the only restack, by the user. The
-  push toast offers the retarget of an open pull request ([Pull requests](#pull-requests)).
+  Expanded, an alert says "Built on master: login landed." (`info` for a landed parent, `warning` for one without
+  commits, likely a typo, neutral for an unapplied one) with an "Unstack from login" link: the undoable change of the
+  branch menu, the only restack, by the user. It names no pull request base: every pull request goes into the baseline,
+  and the push retargets an open one into the branch of login ([Pull requests](#pull-requests)).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should build a child on the baseline once its parent has no commits, and unstack it`)
   [@test] ../../src/lib/stack.test.ts (`says why the branch isn't built on its parent`, `is passed only when the branch is built elsewhere`)
 - A blocked branch must show a muted `blocked by <parent>` status after a `warning` dot with the reason as its tooltip,

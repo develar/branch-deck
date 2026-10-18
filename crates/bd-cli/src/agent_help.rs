@@ -81,11 +81,13 @@ Workflow:
    `groups:<id>..<id>`, `stacks:<id>..<id>`, joined by `+`); the descriptions stay, and the virtual branches change only with the next `bd sync`.
 4. Show the result to the user. Only after the user approves: `bd push <branch>...` (or --all --yes; add
    --with-children for the branches stacked on them): it syncs, takes the branches a stacked branch is built on along
-   when they have commits for the remote (--alone does not), pushes parents first with a lease per ref, and prints a
-   ready `gh pr create` per branch (pipe its `body` into it); name every branch of `branches` to the user.
-   `push_refused` (exit 4): a branch didn't sync, is behind its remote branch (`remote.behind`; older versions of
-   commits amended or restacked here, `remote.amended` and `remote.restacked`, push without --force), or, with
-   --alone, its parent isn't on the remote. `robot_running` (exit 4): a Safe Push runs on the branch, or on a branch
+   when they have commits for the remote (--alone does not: a branch carries their commits), pushes parents first with
+   a lease per ref, and prints a ready `gh pr create` per branch, into the baseline as every pull request (pipe its
+   `body` into it); name every branch of `branches` to the user. An open pull request of a pushed branch into a
+   virtual branch (a parent's) is retargeted to the baseline: name `retargeted` to the user, with `approved_by` (GitHub
+   may dismiss those approvals); `retarget_warnings` says what GitHub refused.
+   `push_refused` (exit 4): a branch didn't sync, or is behind its remote branch (`remote.behind`; older versions of
+   commits amended or restacked here, `remote.amended` and `remote.restacked`, push without --force). `robot_running` (exit 4): a Safe Push runs on the branch, or on a branch
    built on it that lands it: a push won't land, and it fails the Safe Push at the end; a branch taken along that a
    Safe Push lands stays as the robot took it. Wait until it merges, or, only after the user approves,
    `bd push <branch> --restart-running` cancels it, pushes and restarts it on the pushed commit (`restarted`).
@@ -107,7 +109,8 @@ Workflow:
    the target and checks no review). It pushes the branch first when `push_needed` (by content: a branch only rebuilt
    on a newer baseline is not pushed), as `bd push` does, then starts the robot:
    `robot.url` is its page; a branch with an open pull request into the target starts from a `/patronus` comment
-   there, where its approvals count (`started_via`). `approvals_missing` (exit 4): nothing was pushed or started,
+   there, where its approvals count (`started_via`); one into a virtual branch is retargeted to the target first
+   (`retargeted`, also those of the parents it pushes). `approvals_missing` (exit 4): nothing was pushed or started,
    `error.review` names who has to approve which files: show it. The approvals count in the GitHub pull request of
    the branch: `bd safe-push <branch> --create-pull-request` pushes the branch and opens it, assigned to the user
    (--no-assign leaves it unassigned); `--reviewer <login>` (repeatable) asks a reviewer: the `github_login` of the

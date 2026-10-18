@@ -131,7 +131,7 @@ async function pushOne(branchName: string, options: PushOptions): Promise<PushOu
   if (branch === undefined || isBranchPushing(branchName)) {
     return null
   }
-  // pushed onto another base, its pull request into the old one would show the wrong commits
+  // a pull request into a virtual branch goes into the baseline first, with what it lands
   const retargeted = (await retargetBeforePush(branch)) ?? undefined
   let before = branch.remoteStatus
   let pushed = await pushWithProgress(branch, options, report)

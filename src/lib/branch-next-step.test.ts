@@ -26,7 +26,7 @@ function missing(groups: MissingReviewGroup[], patch: Partial<Extract<ReviewRead
   return { kind: "missing", groups, notCounted: [junie], reason: "approvalsMissing", ...patch }
 }
 
-const openPullRequest: NextStepPullRequest = { number: 1078, state: "open", isDraft: false, base: "master", intoTarget: true, mergedCurrent: false, baseIsFormerParent: false }
+const openPullRequest: NextStepPullRequest = { number: 1078, state: "open", isDraft: false, base: "master", intoTarget: true, mergedCurrent: false, baseIsVirtualBranch: false }
 
 const restart: MenuItem = { id: "restart-robot", label: "Restart Safe Push", onSelect: () => {} }
 const createPullRequest: MenuItem = { id: "create-pull-request", label: "Create Pull Request…", onSelect: () => {} }
@@ -155,11 +155,15 @@ describe("getBranchNextStep", () => {
     })
   })
 
-  it("row 5: retargets an open pull request into the branch of a former parent, whose approvals don't count", () => {
-    const step = getBranchNextStep(facts({ pullRequest: { ...openPullRequest, base: "user/virtual/auth", intoTarget: false, baseIsFormerParent: true } }))
+  it("row 5: retargets an open pull request into a virtual branch, of its parent or of one that landed, whose approvals don't count", () => {
+    const step = getBranchNextStep(facts({ pullRequest: { ...openPullRequest, base: "user/virtual/auth", intoTarget: false, baseIsVirtualBranch: true } }))
     expect(step).toMatchObject({
       kind: "retarget",
-      item: { label: "Retarget #1078 to master" },
+      item: {
+        label: "Retarget #1078 to master",
+        description:
+          "Approvals in #1078 don't count: its base is user/virtual/auth, a virtual branch. Changes the base of #1078 from user/virtual/auth to master on GitHub: Patronus merges a pull request into its base",
+      },
       safePushBlocker: "Approvals in #1078 don't count: its base is user/virtual/auth",
       dryRunBlocker: null,
       needsReadiness: false,

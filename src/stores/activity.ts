@@ -271,14 +271,22 @@ export function recordReview(repositoryPath: string, title: string, request: Rev
   recordActivity({ repositoryPath, kind: "review", title, description: request.title, details: { type: "pullRequest", url: request.url } })
 }
 
-/** A pull request the app created: "Created pull request #123" / the reviewers and the assignee, with it on GitHub */
 /** An approval of the user's pull request made a branch ready: the words of its toast (`describeApprovalNews`) */
 export function recordApproval(repositoryPath: string, title: string, description: string, url: string): void {
   recordActivity({ repositoryPath, kind: "review", title, description, details: { type: "pullRequest", url } })
 }
 
+/** A pull request the app created: "Created pull request #123" / the reviewers and the assignee, with it on GitHub */
 export function recordPullRequestCreated(title: string, description: string, url: string, warning: boolean): void {
   recordActivity({ kind: "review", title, description, ...(warning && { warning }), details: { type: "pullRequest", url } })
+}
+
+/**
+ * A pull request the app retargeted from a virtual branch to the baseline: "Retargeted #8 to master" / "login · it went
+ * into auth", with it on GitHub
+ */
+export function recordRetarget(title: string, description: string, url: string): void {
+  recordActivity({ kind: "review", title, description, details: { type: "pullRequest", url } })
 }
 
 // every error the user was told about (`notifyError`); errors.ts can't import the store, which imports errors.ts

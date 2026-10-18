@@ -74,8 +74,8 @@ pub enum ErrorCode {
   EmptyResolution,
   /// The branch of a resolve session moved, but the files did not follow and bd can't finish it: show the user
   FinishPending,
-  /// A branch can't be pushed: not synced, behind its remote branch without --force, or its parent is not on the remote;
-  /// or the remote refused the push with every lease holding (a hook, a protected branch). Nothing was pushed
+  /// A branch can't be pushed: not synced, or behind its remote branch without --force; or the remote refused the push
+  /// with every lease holding (a hook, a protected branch). Nothing was pushed
   PushRefused,
   /// No remote to push to
   NoRemote,

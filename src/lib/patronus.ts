@@ -623,7 +623,7 @@ export function getBypassProfiles(options: PatronusStartOptions, mode: PatronusP
  * "Patronus starts it from pull request #760" or the Space alternative: a branch with an open pull request in the GitHub
  * repository the branches are mirrored to starts from it (a `/patronus` comment), a draft only for a dry run. null =
  * the start goes through the Patronus API: also for a pull request into another base than the target of Patronus
- * (`isPullRequestIntoTarget`), the pull request of a stacked branch into its parent's branch.
+ * (`isPullRequestIntoTarget`), a release branch, or a virtual branch until the push or the next step retargets it.
  */
 export function getPullRequestStart(
   githubRepository: string | null,

@@ -125,8 +125,8 @@ function BlockedAlert({ branch }: { branch: Branch }) {
 
 /**
  * Where a stacked branch is built while its declared parent has no commits, and why: "Built on master: air-misc
- * landed. The pull request base is master." The tone follows the parent: `info` landed (in the baseline), `warning` no
- * commits (likely a typo), neutral unapplied. The only fix that rewrites prefixes is the user's: Unstack.
+ * landed." The tone follows the parent: `info` landed (in the baseline), `warning` no commits (likely a typo), neutral
+ * unapplied. The only fix that rewrites prefixes is the user's: Unstack.
  */
 function PassedParentAlert({ branch }: { branch: Branch }) {
   const baseline = useBaselineOnRemote()
@@ -141,7 +141,7 @@ function PassedParentAlert({ branch }: { branch: Branch }) {
     <Alert variant={variant} data-testid="branch-base-changed">
       {passed.state === "Missing" ? <TriangleAlertIcon /> : <InfoIcon />}
       <AlertDescription className="flex flex-wrap items-center gap-x-2">
-        <span>{`Built on ${base}: ${describeParentState(passed.parent, passed.state)}. The pull request base is ${base}.`}</span>
+        <span>{`Built on ${base}: ${describeParentState(passed.parent, passed.state)}.`}</span>
         <Button variant="link" size="xs" className={cn("h-auto px-0", linkTone)} onClick={() => void restackBranch(branch.name, null)}>
           <Layers2Icon data-icon="inline-start" />
           {`Unstack from ${passed.parent}`}

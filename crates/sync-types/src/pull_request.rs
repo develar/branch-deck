@@ -16,8 +16,8 @@ pub struct PullRequest {
   pub review_decision: Option<ReviewDecision>,
   /// The full branch name on the remote, e.g. `user/virtual/feature-auth`
   pub head_ref_name: String,
-  /// The branch the pull request merges into, e.g. `master` or the parent of a stacked branch `user/virtual/auth`;
-  /// empty if unknown
+  /// The branch the pull request merges into, e.g. `master`; an old one may go into a virtual branch
+  /// `user/virtual/auth` (a parent's), which a push retargets to the baseline; empty if unknown
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub base_ref_name: String,

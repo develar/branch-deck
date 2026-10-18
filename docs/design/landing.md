@@ -79,6 +79,37 @@ This document is a draft while the model is implemented. The specs are the contr
   the screen, an island header, the preview, the review window), and for a hidden one whose answer waits for an
   approval, so its approval is still news.
 
+### Every pull request goes into master
+
+The base of every pull request of a virtual branch is the baseline as the remote names it: `getPullRequestBase` of
+`src/lib/git/new-pull-request.ts` (no branch to ask: it is the same for all), `pull_request.base` of `bd push` and the
+`--create-pull-request` of `bd safe-push`. A stacked branch's pull request holds the commits of the branches it is
+built on, which `Create pull request` says under its title ("Includes the commits of auth and login, which oauth is
+built on: 3 branches · 12 commits", `formatPullRequestIncludes`), and its `--fill` text lists them too. A child pushed
+alone (`Push oauth Only`, `bd push --alone`, a parent a running Safe Push holds) carries them: nothing waits for a parent
+to be on the remote.
+
+Pull requests opened into a parent's branch before this model, or of a parent that landed, still exist. A base under
+`{prefix}/virtual/` (`isVirtualBranchBase`, `strip_branch_namespace` in `bd`) is never a choice, so it is retargeted
+to the baseline (`PATCH pulls/<n>`, `retarget_pull_request`):
+
+- the app, right before the push of the branch (`retargetBeforePush`, each branch of a stack push), and from the next
+  step, row 5 "Retarget #7 to master", for any virtual base, the current parent's included
+  ([Next Step](../../spec/branch/next-step.spec.md));
+- `bd push`, after the push and the lock, for the pushed branches; `bd safe-push` before its push, for the branch and
+  the parents its push takes along, and a refused retarget of the branch's own pull request stops the start: Patronus
+  would merge it into the old base. `--create-pull-request` takes the open pull request of the branch whatever its base
+  ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-push)).
+
+Any other base (a release branch) may be meant: the push leaves it, the next step only opens the pull request (row
+5′), and the menu keeps "Retarget #7 to master". The stack branch `{prefix}/stack/<root>` (below) is not under
+`virtual/`, so no retarget touches a pull request of it or into it.
+
+A retarget widens the diff of the pull request to what its Safe Push lands, so it may ask more code owners, and GitHub
+may dismiss approvals. The push description says it before ("Retargets #8 to master: GitHub may dismiss its
+approvals."), the push toast and Activity name each retarget after ("Retargeted #8 to master" / "login · it went into
+auth"), and `bd` lists them as `retargeted` with `approved_by`, for the agent to tell the user.
+
 ### The stack branch
 
 The whole stack of a stack that forks is one more virtual branch, `{prefix}/stack/<root>`, which every sync builds
@@ -121,5 +152,7 @@ beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stac
 - [Virtual Branches](virtual-branches.md)
 - [Git Operations](git-operations.md)
 - [Stacked Branches](../../spec/branch/stacked-branches.spec.md)
+- [Pull Requests](../../spec/branch/pull-requests.spec.md)
 - [Patronus](../../spec/branch/patronus.spec.md)
 - [Whole Stack](../../spec/branch/whole-stack.spec.md)
+- [Agent CLI](../../spec/cli/agent-cli.spec.md)

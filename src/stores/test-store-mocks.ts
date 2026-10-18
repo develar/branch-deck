@@ -22,6 +22,7 @@ export const activityMock = {
   recordActivity: () => null,
   recordLanded: () => {},
   recordPush: () => {},
+  recordRetarget: () => {},
   recordReviewRequest: () => {},
   recordRewrite: (_title: string, undo: () => Promise<void>) => () => void undo(),
   recordRobot: () => {},

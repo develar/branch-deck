@@ -532,7 +532,7 @@ reports in it and closes it once merged.
 - Patronus merges a pull request into its base: a pull request into another base than the target is never commented
   on (`isPullRequestIntoTarget`), and such a branch starts through the API. Every pull request of a virtual branch goes
   into the target ([Pull Requests](pull-requests.spec.md)); an old one of a stacked branch into its parent's branch
-  (`{prefix}/virtual/…`) is retargeted. The Safe Push form says it while one is open: "Approvals in #8 don't count: it
+  (`{prefix}/virtual/…`) is retargeted, by a push of the branch too ([Stacked Branches](stacked-branches.spec.md#pull-requests)). The Safe Push form says it while one is open: "Approvals in #8 don't count: it
   merges into user/virtual/login, and Patronus merges a pull request into its base." with "Retarget #8 to master"
   (`retargetToTarget`, the step of row 5 too: [Next Step](next-step.spec.md#the-table)); once GitHub took it, the form
   starts from its comment, and its approvals count.

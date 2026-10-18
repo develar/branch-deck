@@ -32,6 +32,7 @@ targets:
   - ../../src/lib/git/new-pull-request.ts
   - ../../src/lib/git/push-toast.tsx
   - ../../src/lib/create-pull-request.ts
+  - ../../src/lib/create-pull-request-context.ts
   - ../../src/stores/create-pull-request-dialog.ts
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../src/components/branch/BranchPreviewActions.tsx
@@ -62,8 +63,8 @@ Patronus suggests, and whom the user finds) and assigns it to the user; "Request
 pull request. The branches may be pushed to Space, which mirrors them to GitHub: the committed Space settings name the
 GitHub repository then. The app writes to GitHub in six places only: the creation of a pull request with its assignee
 and reviewers (below), the review request of an open pull request (below), the `/patronus merge` comment
-Patronus merges a pull request from ([Patronus](patronus.spec.md#pull-requests)), the retarget of a stacked branch's
-pull request before its push, the close of the pull requests a Safe Push of a stacked branch landed
+Patronus merges a pull request from ([Patronus](patronus.spec.md#pull-requests)), the retarget of a pull request into a
+virtual branch to the baseline (before a push of its branch, or the next step's "Retarget #7 to master"), the close of the pull requests a Safe Push of a stacked branch landed
 ([Stacked Branches](stacked-branches.spec.md#pull-requests)), and the review the user submits
 ([Review Requests](../repository/review-requests.spec.md)).
 
@@ -280,13 +281,16 @@ pull request before its push, the close of the pull requests a Safe Push of a st
 ### Creating a pull request
 
 - "Create Pull Request…" opens the dialog "Create pull request" of the branch (`CreatePullRequestDialog` in the main
-  window, loaded on the first open; the review window has its own): the title "Create pull request", the line "feature-auth → master" (the base by
-  its short name: the parent's virtual branch name, or the baseline as the remote names it), Title, Description,
-  Reviewers, "Assign to me", and the footer "Esc Cancel", "Continue on GitHub", "Create Pull Request ⌘↵". The base is
-  the pull request base of the branch ([Stacked Branches](stacked-branches.spec.md#pull-requests): its parent's pushed
-  branch, else the baseline as the remote names it, `master`, also while the parent isn't on the remote).
+  window, loaded on the first open; the review window has its own): the title "Create pull request", the line
+  "feature-auth → master", Title, Description, Reviewers, "Assign to me", and the footer "Esc Cancel", "Continue on
+  GitHub", "Create Pull Request ⌘↵". The base is the baseline as the remote names it (`master`) for every branch,
+  stacked or not ([Stacked Branches](stacked-branches.spec.md#pull-requests)): a pull request holds what the Safe Push
+  of its branch lands. A stacked branch's dialog says so under the line: "Includes the commits of auth and login, which
+  oauth is built on: 3 branches · 12 commits" (`formatPullRequestIncludes`; more than three branches below it are
+  "auth, login, core and 1 more").
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and name the pull request base`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`)
+  [@test] ../../src/lib/create-pull-request-context.test.ts (`creates the pull request of a stacked branch into the baseline, with the commits of the branches it is built on`, `includes nothing more for a branch built on the baseline`)
 - "Create Pull Request…" is offered to any branch without a live pull request, on the remote or not (`canCreatePullRequest`
   asks only the GitHub repository and the pull request): the push is the creation's first step, never a step the user
   takes or reads about. Opening the dialog pushes nothing; Create (and "Continue on GitHub") pushes what the push
@@ -371,9 +375,9 @@ pull request before its push, the close of the pull requests a Safe Push of a st
 - The toast of a push ("Pushed feature-auth", [Outgoing Commits](../repository/outgoing.spec.md#push)) of any branch,
   stacked or not, with stacked branches on or off, has the action "Create Pull Request…" under the same conditions as
   the menu, else "Open Pull Request" when the branch has a pull request, and stays 10 s; off GitHub it has no action.
-  The toast reads the branch after the push: the push that created the remote branch offers its pull request. A
-  stacked branch's toast also names the base, and a pull request with another base gets "Copy gh pr edit" instead
-  ([Stacked Branches](stacked-branches.spec.md#pull-requests)). A push that is a step of another action has no toast
+  The toast reads the branch after the push: the push that created the remote branch offers its pull request. It names
+  no base, every branch has the same; an open pull request into a virtual branch whose retarget failed gets "Copy gh
+  pr edit" instead ([Stacked Branches](stacked-branches.spec.md#pull-requests)). A push that is a step of another action has no toast
   ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)).
   [@test] ../../src/lib/git/push.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `opens the pull request the branch has`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`, `should open the pull request of a pushed branch from the push toast`)

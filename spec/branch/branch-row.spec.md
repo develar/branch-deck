@@ -170,7 +170,7 @@ under it. The commits of an expanded branch sit on its lane.
   only with remote commits its push drops ([Push colours](../repository/outgoing.spec.md#push-colours)).
   [@test] ../../src/hooks/useStatusBadge.test.ts (`takes the colour of the status and is filled while the branch has work for the remote`, `is a filled node in the push colour for an amended or restacked branch: its push replaces older versions`, `takes the colour of a robot that failed on the branch as it is, filled, unless the status says more`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should name in the chip of a collapsed stack only the robots that failed on its branches as they are`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`, `should push a stack parents first and name the pull request base`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`, `should push a stack parents first and create each pull request into master`)
 - The node of a branch whose robot runs must have the rotating ring of its robot around it. The lines of a
   landing span, from the root of the stack down to the branch whose running Safe Push lands the branches it is built
   on, must be drawn in the colour of the robot: the line down from each branch of the span, the lanes passing the side
@@ -277,8 +277,8 @@ under it. The commits of an expanded branch sit on its lane.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
 - A stacked branch whose declared parent has no commits is not blocked but built elsewhere ("Base changed"): the muted
   "on master" in the third column of the Status cell, the reason in its tooltip ("login landed · oauth is built on
-  master"), an enabled push button, and, expanded, an alert "Built on master: login landed. The pull request base is
-  master." with "Unstack from login" ([Stacked Branches](stacked-branches.spec.md#ui)).
+  master"), an enabled push button, and, expanded, an alert "Built on master: login landed." with "Unstack from login"
+  ([Stacked Branches](stacked-branches.spec.md#ui)).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should build a child on the baseline once its parent has no commits, and unstack it`)
 
 ### Actions cell
@@ -412,7 +412,7 @@ under it. The commits of an expanded branch sit on its lane.
 ### Branch menu
 
 - The groups must come in this order: copy ("Copy Full Branch Name", "Copy Branch Name", "Copy Pull Request Link" for a
-  branch with a pull request, with stacked branches "Copy PR Base" and "Copy Retarget Command"), the name ("Rename…" or
+  branch with a pull request, "Copy Retarget Command" for an open one into a virtual branch), the name ("Rename…" or
   "Name This Branch…", "Move to…", "Ungroup"), the stack ("Stack On…", "Unstack from …", "Collapse Stack" `⌥←` or
   "Expand Stack" `⌥→`), the commits ("Add Issue Reference…", "Amend Changes…",
   "Unapply…"), the history ("Review Changes", "Squash N Fixups…", "Open Pull Request" or "Create Pull Request…") and the
@@ -453,7 +453,7 @@ under it. The commits of an expanded branch sit on its lane.
   failed or a blocked one.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request from the branch context menu`)
   [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should open Move to… for the focused row with M, without a selection`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request whose base is not the expected one before the push`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request into a parent's branch to master before the push`)
 
 ### Inline forms
 

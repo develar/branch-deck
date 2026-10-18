@@ -3,7 +3,7 @@ import type { ReactNode } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
-import { formatNewPullRequestBlocker, getNewPullRequestUrl } from "@/lib/git/new-pull-request"
+import { formatNewPullRequestBlocker, getNewPullRequestUrl, getRetargetCommand } from "@/lib/git/new-pull-request"
 import { pushBranch, pushForAction } from "@/lib/git/push"
 import { pushStack, pushUpTo, pushWithChildren } from "@/lib/git/stack-push"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
@@ -191,6 +191,9 @@ vi.mock("@/stores/activity", async () => ({
   recordRobot: (title: string) => {
     records.push(title)
   },
+  recordRetarget: (title: string, description: string) => {
+    records.push(`${title}: ${description}`)
+  },
 }))
 vi.mock("@/stores/repository", () => ({
   vcsRequestFactory: { createRequest: () => ({ repositoryPath: "/repo", branchPrefix: "user" }) },
@@ -278,53 +281,59 @@ describe("the toast of a push", () => {
     expect(toasts.at(-1)!.actionProps?.children).toBe("Create Pull Request…")
   })
 
-  it("names the parent of a stacked branch and creates its pull request into the parent's branch", async () => {
+  it("creates the pull request of a stacked branch into the baseline, its parent on the remote or not", async () => {
     addBranch("auth", null)
     addBranch("login", "auth", false)
     expect(await pushBranch("login")).toBe(true)
     const toast = toasts.at(-1)!
-    expect(text(toast.description)).toBe("1 commit · created the remote branch · pull request base: auth")
+    // every pull request goes into the baseline: the toast names no base
+    expect(text(toast.description)).toBe("1 commit · created the remote branch")
     expect(toast.actionProps?.children).toBe("Create Pull Request…")
     toast.actionProps!.onClick()
     expect(createPullRequestDialogStore.getState().branchName).toBe("login")
-    // "Continue on GitHub" of the dialog opens the form into the same base
-    expect(getNewPullRequestUrl(stores.branches.login!)).toBe(`${COMPARE}/user/virtual/auth...user/virtual/login?expand=1`)
-  })
-
-  it("creates the pull request of a stacked branch into the baseline while its parent isn't on the remote", async () => {
-    addBranch("login", "auth", false)
-    expect(await pushBranch("login")).toBe(true)
-    const toast = toasts.at(-1)!
-    expect(text(toast.description)).toBe("1 commit · created the remote branch · pull request base: master")
-    toast.actionProps!.onClick()
-    expect(createPullRequestDialogStore.getState().branchName).toBe("login")
-    // "Continue on GitHub" of the dialog opens the form into the same base
+    // "Continue on GitHub" of the dialog opens the form into the same base, with the commits of auth
     expect(getNewPullRequestUrl(stores.branches.login!)).toBe(`${COMPARE}/master...user/virtual/login?expand=1`)
+
+    addBranch("oauth", "login", false)
+    stores.branches.login = { ...stores.branches.login!, remoteStatus: testRemoteStatus({ exists: false }) }
+    expect(getNewPullRequestUrl(stores.branches.oauth!)).toBe(`${COMPARE}/master...user/virtual/oauth?expand=1`)
   })
 
-  it("retargets a pull request with another base before the push", async () => {
+  it("retargets a pull request into a virtual branch to the baseline before the push, and Activity records it", async () => {
     addBranch("auth", null)
     addBranch("login", "auth")
-    stores.pullRequests.login = { number: 8, state: "open", baseRefName: "master" } as PullRequest
+    stores.pullRequests.login = { number: 8, state: "open", baseRefName: "user/virtual/auth", url: "https://github.com/JetBrains/ultimate/pull/8" } as PullRequest
     expect(await pushBranch("login")).toBe(true)
-    expect(calls.slice(0, 2)).toEqual(["retarget login user/virtual/auth", "push login"])
+    expect(calls.slice(0, 2)).toEqual(["retarget login master", "push login"])
     const toast = toasts.at(-1)!
-    expect(text(toast.description)).toBe("1 commit · retargeted pull request #8 to auth")
+    expect(text(toast.description)).toBe("1 commit · retargeted pull request #8 to master")
     expect(toast.actionProps?.children).toBe("Open Pull Request")
+    expect(records).toEqual(["Retargeted #8 to master: login · it went into auth", "push login"])
+  })
+
+  it("leaves a pull request into a release branch: that base may be meant", async () => {
+    addBranch("login", "auth")
+    stores.pullRequests.login = { number: 8, state: "open", baseRefName: "release-252", url: "https://github.com/JetBrains/ultimate/pull/8" } as PullRequest
+    expect(await pushBranch("login")).toBe(true)
+    expect(calls).toEqual(["push login"])
+    const toast = toasts.at(-1)!
+    expect(text(toast.description)).toBe("1 commit")
+    expect(toast.actionProps?.children).toBe("Open Pull Request")
+    expect(getRetargetCommand(stores.branches.login!)).toBeNull()
   })
 
   it("pushes and copies the command that retargets a pull request when the retarget fails", async () => {
     addBranch("auth", null)
     addBranch("login", "auth")
-    stores.pullRequests.login = { number: 8, state: "open", baseRefName: "master" } as PullRequest
+    stores.pullRequests.login = { number: 8, state: "open", baseRefName: "user/virtual/auth" } as PullRequest
     stores.retargetError = "HTTP 403"
     expect(await pushBranch("login")).toBe(true)
     expect(toasts.some(toast => toast.title === "Cannot retarget pull request #8")).toBe(true)
     const toast = toasts.at(-1)!
-    expect(text(toast.description)).toBe("1 commit · the pull request targets another base: retarget it to auth")
+    expect(text(toast.description)).toBe("1 commit · the pull request goes into auth: retarget it to master")
     expect(toast.actionProps?.children).toBe("Copy gh pr edit")
     toast.actionProps!.onClick()
-    await vi.waitFor(() => expect(calls).toContain("copy gh pr edit 8 --base user/virtual/auth"))
+    await vi.waitFor(() => expect(calls).toContain("copy gh pr edit 8 --base master"))
   })
 
   it("says nothing for a push that is a step of another action, and Activity records it", async () => {
@@ -425,8 +434,19 @@ describe("the toast of a stack push", () => {
     expect(toast.actionProps?.children).toBe("Create Pull Request…")
     toast.actionProps!.onClick()
     expect(createPullRequestDialogStore.getState().branchName).toBe("oauth")
-    // "Continue on GitHub" of the dialog opens the form into the same base
-    expect(getNewPullRequestUrl(stores.branches.oauth!)).toBe(`${COMPARE}/user/virtual/login...user/virtual/oauth?expand=1`)
+    // "Continue on GitHub" of the dialog opens the form into the baseline, with the commits of auth and login
+    expect(getNewPullRequestUrl(stores.branches.oauth!)).toBe(`${COMPARE}/master...user/virtual/oauth?expand=1`)
+  })
+
+  it("names each pull request into a virtual branch the pushes retargeted to the baseline", async () => {
+    stores.pullRequests.auth = { number: 802, state: "open", baseRefName: "user/virtual/core", url: "https://github.com/JetBrains/ultimate/pull/802" } as PullRequest
+    stores.pullRequests.login = { number: 801, state: "open", baseRefName: "user/virtual/auth", url: "https://github.com/JetBrains/ultimate/pull/801" } as PullRequest
+    await pushStack("oauth")
+    // each branch's retarget first, then the one push of the stack
+    expect(calls).toEqual(["retarget auth master", "retarget login master", "push auth login oauth"])
+    expect(text(toasts[0]!.description)).toBe(
+      "3 commits · created 3 remote branches · retargeted pull request #802 of auth to master · retargeted pull request #801 of login to master",
+    )
   })
 
   it("pushes nothing more from a row whose stack push runs", async () => {

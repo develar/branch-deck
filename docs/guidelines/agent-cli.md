@@ -143,8 +143,8 @@ branches under the prefix in one listing, as a sync reads them.
 - With stacked branches on (`git config branchdeck.stacks true`), each branch is placed as a sync places it:
   - `parent`, the parent its commits declare, and `parent_state`: `active` (it has commits), `integrated` (its branch
     is integrated), `unapplied` or `missing`. A parent without commits, in any of these states, doesn't block: the
-    branch goes on the nearest active ancestor or the baseline and has `pr_base_changed: true` (its pull request base
-    is not the declared parent). A parent whose commits left HEAD since the last sync is detected now, as the next
+    branch goes on the nearest active ancestor or the baseline and has `pr_base_changed: true` (it is not built on the
+    declared parent; its pull request goes into the baseline as every one). A parent whose commits left HEAD since the last sync is detected now, as the next
     sync detects it, without writing the detection note;
   - `effective_base`, the branch it is built on (omitted for the baseline), or `blocked_by` `{parent, reason}` when the
     parent can't be built: `error` (a stack problem or a failed build), `conflict` or `blocked`;
@@ -876,27 +876,32 @@ rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress
 ### `bd push <branch>… [--with-children] [--alone] | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run] [--restart-running]`
 
 Syncs, then pushes the branches in one atomic `git push --porcelain` with a lease per ref, parents first, under the
-repository lock (see "Agent push" in [Git Operations](../design/git-operations.md)). A stacked branch takes the
-branches it is built on along when they have commits for the remote, as the app's push button does: its pull request
-is right only once they are on the remote. `--alone` pushes only the named branches; `--expect-remote` does too.
+repository lock (see "Agent push" in [Git Operations](../design/git-operations.md)). Every pull request of a virtual
+branch goes into the baseline, a stacked branch's with the commits of the branches it is built on
+([Landing](../design/landing.md)). A stacked branch takes those branches along when they have commits for the remote,
+as the app's push button does, so their remote branches stay what it is built on. `--alone` pushes only the named
+branches, which carry their parents' commits; `--expect-remote` does too. After the push bd retargets the open pull
+requests of the pushed branches whose base is a virtual branch to the baseline (`retargeted`).
 
 ```json
 {"schema":1,…,"remote":"origin","dry_run":false,
  "branches":[{"name":"auth","remote_branch":"develar/virtual/auth","commit":"1b2c3d4e","status":"new",
    "lease":null,"lease_source":"absent",
    "pull_request":{"base":"master","head":"develar/virtual/auth","title":"Add login","body":"The login form.",
-     "command":"gh pr create --base master --head develar/virtual/auth --assignee @me --title 'Add login' --body-file -"}}]}
+     "command":"gh pr create --base master --head develar/virtual/auth --assignee @me --title 'Add login' --body-file -"}}],
+ "retargeted":[{"branch":"login","number":8,"url":"https://github.com/acme/monorepo/pull/8","from":"develar/virtual/auth",
+   "to":"master","approved_by":["alice"]}]}
 ```
 
-- Refused with `push_refused` (exit 4), nothing pushed: a branch that didn't sync, one whose remote branch has commits
-  it lacks (`behind`) without `--force` (also a parent taken along: `--alone` leaves it), and with `--alone` a stacked
-  branch whose parent isn't on the remote or pushed with it. `amended` and `restacked` need no `--force`: the push
+- Refused with `push_refused` (exit 4), nothing pushed: a branch that didn't sync, and one whose remote branch has
+  commits it lacks (`behind`) without `--force` (also a parent taken along: `--alone` leaves it). `amended` and
+  `restacked` need no `--force`: the push
   replaces older versions of commits the branch has, and a parent with only them goes along. `--all` needs `--yes`. A
   branch refused as behind is in `error.branches` with its remote status, as below.
 - Refused with `robot_running` (exit 4), nothing pushed: on Space, a named branch whose Safe Push runs, on it or on a
   branch built on it that lands it ("A Safe Push of oauth is running: it lands auth with it"): a push won't land, and
   a push into the robot's branch fails it at the end. An ancestor taken along that a Safe Push lands stays as the robot
-  took it. Tell the user; only after the user approves, `bd push auth --restart-running` cancels the Safe Push of
+  took it, and its child goes alone, with its commits. Tell the user; only after the user approves, `bd push auth --restart-running` cancels the Safe Push of
   `auth`, pushes and restarts it on the pushed commit (`"restarted":[{"branch":"auth","url":…}]`). One robots request
   after the sync; off Space or without the Safe Push CLI's token nothing is held. A dry run or a canceling robot holds
   nothing.
@@ -919,9 +924,18 @@ is right only once they are on the remote. `--alone` pushes only the named branc
   approves, `bd push auth --force --expect-remote 7c8d9e0f`.
 - A push the remote refuses while every lease holds (a hook, a protected branch) is `push_refused` with what git
   said; nothing was pushed. Tell the user: a retry doesn't help.
-- `pull_request.base` is the parent's remote branch, or the baseline without the remote (`master`). With a
-  `bd describe` text, `command` takes the title and reads the body from stdin (`--body-file -`); without one it uses
-  `--fill`.
+- `pull_request.base` is the baseline without the remote (`master`), for every branch. With a `bd describe` text,
+  `command` takes the title and reads the body from stdin (`--body-file -`); without one it uses `--fill`, which for a
+  stacked branch lists the commits of the branches it is built on too.
+- `retargeted`: after the push, with the lock released, the open pull requests of the pushed branches whose base is a
+  virtual branch of the user (`<prefix>/virtual/…`: a parent's branch, opened when pull requests went there) go into
+  the baseline (one search of the pull requests, one `PATCH pulls/<n>` each), as the app's push retargets them. Each
+  has `branch`, `number`, `url`, `from` (the old base), `to` and `approved_by`: GitHub may dismiss the approvals of a
+  pull request whose base changes, so name them to the user. A pull request into another base (a release branch)
+  stays. A retarget GitHub refuses, or a listing that fails for another reason than a missing token, is a
+  `retarget_warnings` line with the `gh pr edit` that does it; the push stands. With `--dry-run`, `retargeted` lists
+  what a push would retarget and GitHub is only asked. Without a GitHub repository of the branches or a token, GitHub
+  is not asked.
 
 ### `bd safe-push <branch> [--dry-run] [--profile P] [--check] [--without-approvals] [--create-pull-request] [--cancel-running] [--land-stack] [--allow-dangling]`
 
@@ -955,12 +969,14 @@ instance, as for the Safe Push CLI.
   `groups` with their `reviewers` (`suggested`, `available`) and `paths` (`branch_wide` for all files).
 - The approvals count in the GitHub pull request of the branch (Space merge requests are deprecated; one found open,
   `review.merge_request`, still counts for a start through the API). `--create-pull-request` pushes the branch and
-  opens its pull request through the GitHub API, as the `gh pr create` that `bd push` prints would (into the parent's
-  branch or the target, with the `bd describe` text, else filled as `--fill`), assigned to the user (`--no-assign`
+  opens its pull request through the GitHub API, as the `gh pr create` that `bd push` prints would (into the target,
+  with the `bd describe` text, else filled as `--fill`), assigned to the user (`--no-assign`
   leaves it unassigned), with `--reviewer <login>` (repeatable) asked to review it: the `github_login` of the
   suggested `review.groups[].reviewers`, once the user chose them. `pull_request` has `created: true`, `reviewers`
-  and `assignees` as GitHub took them and `warnings` for what it refused; or the open one, also one that already
-  existed, left as it is (a warning says so); no robot starts. The GitHub token is the first of `GH_TOKEN`
+  and `assignees` as GitHub took them and `warnings` for what it refused; or the open one of the branch, whatever its
+  base, also one that already existed, left as it is (a warning says so): one into a virtual branch is retargeted to
+  the target first (`retargeted`), one into another base is taken with a warning that Patronus merges it there; no
+  robot starts. The GitHub token is the first of `GH_TOKEN`
   (`GITHUB_TOKEN`), `gh auth token`, the app's GitHub sign-in (Settings) and the git credentials of github.com;
   without one GitHub accepts it is `not_logged_in`. The
   GitHub repository is the mirror of the Space settings or `branchdeck.githubRepository`; without one it is
@@ -976,7 +992,11 @@ instance, as for the Safe Push CLI.
   lock with the sync and the checks; the start runs after the lock. A start is never repeated.
 - A start through the API (`started_via: api`) starts the robot on `refs/heads/<prefix>/virtual/<branch>`, kept
   after the merge. Branches reviewed on GitHub (the mirror of the Space settings, or `branchdeck.githubRepository`)
-  with an open pull request into the target start from it (`started_via: pull_request`): bd posts
+  with an open pull request into the target start from it (`started_via: pull_request`). One into a virtual branch, of
+  the branch or of a branch its push takes along, is retargeted to the target first, before anything is pushed
+  (`retargeted`, as `bd push` lists them; `--check` lists the ones a start would retarget): a refused retarget of the
+  branch's own fails the start, nothing pushed or started; one of a branch taken along is a `retarget_warnings` line.
+  One into another base starts through the API. For a start from the pull request bd posts
   `/patronus merge --keep-source-branch` (`/patronus dry-run`) through the GitHub API, waits up to a minute for the answer of
   Patronus, and finds the robot, so the approvals of the pull request count (`review.counts_in: pull_request`). A
   comment can't choose a profile: `--profile` is `invalid_arguments` there. `pull_request.reply` is `pending` when

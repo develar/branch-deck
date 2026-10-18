@@ -1654,13 +1654,14 @@ nothing the sync read again: the stack (`GroupedBranchInfo::stack`, `StackForest
 the remote tips of `origin`, the remotes and the descriptions come from its `SyncReport`. Besides the push it reads
 only the push URL of `origin`, once per command (`RepoContext::origin_url`: the Space repository of the holds, the
 GitHub repository and the `--repo` of `gh pr create`), and the committed Space settings when neither
-`branchdeck.githubRepository` nor that URL names the GitHub repository (one `cat-file`):
+`branchdeck.githubRepository` nor that URL names the GitHub repository (one `cat-file`, once per command,
+`RepoContext::github_repository`):
 
-1. It refuses (`push_refused`) before talking to the remote: a branch that didn't sync (error, conflict, blocked), a
-   branch whose remote branch has commits it lacks unless `--force`, and a stacked branch whose parent is neither on
-   the remote nor pushed with it. Branches go parents first. A stacked branch takes the branches it is built on (the
-   effective base chain) along when the sync counted commits of theirs the remote lacks; `--alone` and
-   `--expect-remote` don't. `--with-children` adds the branches stacked on the named ones, directly or further down
+1. It refuses (`push_refused`) before talking to the remote: a branch that didn't sync (error, conflict, blocked), and a
+   branch whose remote branch has commits it lacks unless `--force`. Branches go parents first. A stacked branch takes
+   the branches it is built on (the effective base chain) along when the sync counted commits of theirs the remote
+   lacks; `--alone` and `--expect-remote` don't, and the branch carries their commits, as its pull request into the
+   baseline does. `--with-children` adds the branches stacked on the named ones, directly or further down
    (by the effective base, or the declared parent of a blocked one), so a blocked child refuses the push as any
    branch that didn't sync. On Space it then reads the user's robots once (best effort: off Space, without a token or
    an answer, nothing is held) and refuses (`robot_running`) a named branch whose Safe Push runs on it or on a branch
@@ -1685,6 +1686,9 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    push drops and, once the user approves, pushes with `--force --expect-remote <head>`. When every lease held, the
    remote refused for another reason (a hook, a protected branch): `push_refused` with what git said. A dry run that
    the remote would reject fetches nothing, so it can't tell which lease failed.
+5. After the push, with the lock released, the open pull requests of the pushed branches whose base is a virtual
+   branch (`{prefix}/virtual/…`) are retargeted to the baseline over HTTP (`pull_request_retarget.rs`: one search of
+   the pull requests, one `PATCH pulls/<n>` each), as the app's push does; no git process.
 
 Code: `crates/bd-cli/src/push_command.rs`, `crates/sync-core/src/push.rs`, `crates/sync-core/src/push_lease.rs`,
 `crates/sync-core/src/remote_command.rs`.

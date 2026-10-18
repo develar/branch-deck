@@ -5,8 +5,10 @@
 //! lacks commits of (by content, as the sync's remote status compares) is pushed first, parents first, as `bd push`
 //! pushes it; one only rebuilt on a newer baseline is not: the robot takes the remote branch. The start is never repeated. With `--check` nothing is pushed or
 //! started: the profiles, the review and what stands in the way, for the user to approve. The approvals count in the
-//! GitHub pull request of the branch (Space merge requests are deprecated): `--create-pull-request` opens it, and the
-//! Safe Push then starts from it with a `/patronus` comment.
+//! GitHub pull request of the branch (Space merge requests are deprecated): `--create-pull-request` opens it, into the
+//! target as every pull request of a virtual branch (or takes the open one of the branch, whatever its base), and the
+//! Safe Push then starts from it with a `/patronus` comment. An open pull request of the branch, or of a branch the push
+//! takes along, whose base is a virtual branch is retargeted to the target first (`pull_request_retarget`).
 //!
 //! The sync, the checks before the push and the push run under the repository lock; the start, which can wait up to a
 //! minute for the answer to a pull request comment, after it.
@@ -15,6 +17,7 @@ use crate::check_command::{CheckWarning, dangling_reference_message, dangling_re
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
+use crate::pull_request_retarget::{RetargetedPullRequest, is_virtual_branch_base, refusal_warning, retarget_one, virtual_base_retargets};
 use crate::push_command::{PullRequestDraft, PushArgs, PushedBranch, github_repository, not_synced_reason, push_locked, unpushed_pull_request_draft};
 use crate::push_hold::{PushHolds, StackRobots};
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncedBranch, lock, sync_locked};
@@ -28,7 +31,7 @@ use patronus::service::PatronusService;
 use patronus::token::{TokenLookup, find_token};
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_core::check::{CheckSession, StackIndependence};
 use sync_core::patronus::{SpaceRepository, target_branch_of};
@@ -139,6 +142,14 @@ pub struct SafePushOutput {
   /// `--create-pull-request`, the one it opened (or found open)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub pull_request: Option<PullRequestStart>,
+  /// The open pull requests of the branch and of the branches its push takes along whose base was a virtual branch,
+  /// retargeted to the target before the push (with `--check`: the ones a start would retarget). Name them to the user,
+  /// and the `approved_by` of each
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub retargeted: Vec<RetargetedPullRequest>,
+  /// A retarget of a pull request of a branch taken along that GitHub refused, with the `gh pr edit` that does it
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub retarget_warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -293,7 +304,14 @@ struct Plan {
   profiles: Vec<PatronusProfile>,
   profile: Option<PatronusProfile>,
   review: Option<Review>,
+  /// The open pull request of the branch the robot starts from: into the target, or into a virtual branch (retargeted
+  /// first, `retargets`)
   pull_request: Option<PullRequest>,
+  /// The open pull request of the branch into another base (a release branch): left as it is, the start goes through
+  /// the API, and `--create-pull-request` takes it instead of opening a second one
+  other_base_pull_request: Option<PullRequest>,
+  /// The open pull requests into a virtual branch of the branch and of the branches its push takes along
+  retargets: Vec<RetargetedPullRequest>,
   push_needed: bool,
   refusals: Vec<Refusal>,
   warnings: Vec<CheckWarning>,
@@ -338,9 +356,12 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
       assignees: Vec::new(),
       warnings: Vec::new(),
     }),
+    retargeted: Vec::new(),
+    retarget_warnings: Vec::new(),
   };
   if args.check {
     output.refusals = plan.refusals;
+    output.retargeted = plan.retargets;
     return Ok(output);
   }
   if let Some(refusal) = plan.refusals.first().cloned() {
@@ -351,6 +372,24 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     return Err(error);
   }
 
+  // the pull requests go into the target before anything is pushed or canceled: the one the robot starts from must,
+  // one of a branch taken along that GitHub refuses is a warning
+  if let Some(repository) = &plan.github {
+    for retarget in &plan.retargets {
+      match retarget_one(context, &github, runtime, repository, retarget) {
+        Ok(()) => output.retargeted.push(retarget.clone()),
+        Err(error) if retarget.branch == args.branch => {
+          let mut error = github_write_error(error);
+          error.message = format!(
+            "Nothing was pushed or started: cannot retarget pull request #{} of {} from {} to {}: {}",
+            retarget.number, retarget.branch, retarget.from, retarget.to, error.message
+          );
+          return Err(error);
+        }
+        Err(error) => output.retarget_warnings.push(refusal_warning(retarget, repository, error)),
+      }
+    }
+  }
   if let Some(robot) = &plan.risky_robot {
     let canceled = runtime.block_on(service.cancel(&context.prefix, &robot.id)).map_err(patronus_error)?;
     output.canceled = Some(robot_summary(context, &canceled));
@@ -383,7 +422,11 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
 
   if args.create_pull_request {
     if output.pull_request.is_none() {
-      output.pull_request = Some(create_pull_request(context, args, &github, runtime, &plan, &remote, &draft)?);
+      // one open pull request per branch: the one into another base is the branch's, GitHub would open a second one
+      output.pull_request = Some(match &plan.other_base_pull_request {
+        Some(existing) => other_base_pull_request_start(existing, &plan.target),
+        None => create_pull_request(context, args, &github, runtime, &plan, &remote, &draft)?,
+      });
     }
     return Ok(output);
   }
@@ -545,10 +588,21 @@ fn plan(
   }
   let profiles: Vec<PatronusProfile> = options.profiles.into_iter().filter(|profile| allows_push_mode(profile, mode)).collect();
 
-  let pull_request = match &github {
-    Some(repository) => open_pull_request(context, github_service, runtime, repository, name, &target),
-    None => None,
+  // the open pull requests of the branch and of the ancestors its push takes along: one into a virtual branch goes into
+  // the target as every pull request of a virtual branch, one into another base may be meant
+  let pull_requests = match &github {
+    Some(repository) => open_pull_requests(context, github_service, runtime, repository),
+    None => BTreeMap::new(),
   };
+  let (pull_request, other_base_pull_request) = match pull_requests.get(name).filter(|pull_request| pull_request.state == PullRequestState::Open) {
+    Some(open) if open.base_ref_name.is_empty() || open.base_ref_name == target || is_virtual_branch_base(&open.base_ref_name, &context.prefix) => (Some(open.clone()), None),
+    other => (None, other.cloned()),
+  };
+  let pushed_along = ancestors
+    .iter()
+    .map(String::as_str)
+    .filter(|ancestor| synced_by_name.get(ancestor).is_none_or(|branch| needs_push(branch.remote.as_ref())));
+  let retargets = virtual_base_retargets(&pull_requests, pushed_along.chain(std::iter::once(name)), &context.prefix, &target);
   let profile = match args.profile.as_deref() {
     Some(profile) if pull_request.is_some() && !profile.eq_ignore_ascii_case("none") => {
       return Err(CliError::new(
@@ -635,6 +689,8 @@ fn plan(
     profile,
     review,
     pull_request,
+    other_base_pull_request,
+    retargets,
     push_needed,
     refusals,
     warnings,
@@ -696,20 +752,34 @@ fn needs_push(remote: Option<&RemoteSummary>) -> bool {
   remote.is_none_or(|remote| !remote.exists || remote.unpushed > 0 || remote.behind > 0 || remote.amended > 0 || remote.restacked > 0)
 }
 
-/// The open pull request of the branch into the target, which a Safe Push starts from (the approvals of a pull request
-/// count only for a robot its comment started); one into another base (a stacked branch into its parent's branch)
-/// starts through the API, as Patronus would merge it there. Without a GitHub token or an answer of GitHub, through the
-/// API too.
-fn open_pull_request(context: &RepoContext, github: &GitHubService, runtime: &Runtime, repository: &GitHubRepository, name: &str, target: &str) -> Option<PullRequest> {
+/// The pull requests of the branches, by virtual branch name (one search). A Safe Push starts from the open one of the
+/// branch into the target (the approvals of a pull request count only for a robot its comment started), or into a
+/// virtual branch once it is retargeted; one into another base starts through the API, as Patronus would merge it
+/// there. Without a GitHub token or an answer of GitHub, through the API too.
+fn open_pull_requests(context: &RepoContext, github: &GitHubService, runtime: &Runtime, repository: &GitHubRepository) -> BTreeMap<String, PullRequest> {
   let result = runtime.block_on(list_pull_requests(github, &context.repository, repository, &context.prefix));
-  let pull_request = result
-    .pull_requests
-    .get(name)
-    .filter(|pull_request| pull_request.state == PullRequestState::Open && (pull_request.base_ref_name.is_empty() || pull_request.base_ref_name == target));
-  if pull_request.is_none() {
-    tracing::debug!(availability = ?result.availability, "no open pull request of the branch into the target");
+  if result.pull_requests.is_empty() {
+    tracing::debug!(availability = ?result.availability, "no pull requests of the branches");
   }
-  pull_request.cloned()
+  result.pull_requests
+}
+
+/// `--create-pull-request` of a branch whose open pull request goes into another base than the target: it is taken as
+/// it is, and the warning says where Patronus would merge it
+fn other_base_pull_request_start(existing: &PullRequest, target: &str) -> PullRequestStart {
+  PullRequestStart {
+    number: existing.number,
+    url: existing.url.clone(),
+    created: false,
+    comment_url: None,
+    reply: None,
+    reviewers: Vec::new(),
+    assignees: Vec::new(),
+    warnings: vec![format!(
+      "pull request #{} already existed and goes into {}: Patronus merges a pull request into its base, so its approvals count only for a Safe Push into {}; retarget it to {target} on GitHub (`gh pr edit {} --base {target}`) for a Safe Push into {target}",
+      existing.number, existing.base_ref_name, existing.base_ref_name, existing.number
+    )],
+  }
 }
 
 /// The GitHub service of `bd`: the token of `GH_TOKEN`/`GITHUB_TOKEN`, `gh auth token` or the git credentials
@@ -841,10 +911,10 @@ fn github_approvers(requirement: &PatronusReviewRequirement, pull_request: &Pull
     .collect()
 }
 
-/// Opens the pull request of the pushed branch, as the `gh pr create` that `bd push` prints: into its parent's branch
-/// or the target, with the `bd describe` text, else filled from the commits as `--fill` does (one commit: its subject
-/// and body; several: the branch name and their subjects), assigned to the user and with the `--reviewer` logins asked.
-/// A pull request that already exists is found instead and left as it is.
+/// Opens the pull request of the pushed branch, as the `gh pr create` that `bd push` prints: into the target, a stacked
+/// branch's with the commits of the branches it is built on, with the `bd describe` text, else filled from the commits
+/// as `--fill` does (one commit: its subject and body; several: the branch name and their subjects), assigned to the
+/// user and with the `--reviewer` logins asked. A pull request that already exists is found instead and left as it is.
 fn create_pull_request(
   context: &RepoContext,
   args: &SafePushArgs,

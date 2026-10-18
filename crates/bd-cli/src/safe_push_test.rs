@@ -675,10 +675,12 @@ fn push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told() {
   assert!(output["error"]["message"].as_str().unwrap().contains("--restart-running"), "{output}");
   assert_eq!(space.remote_tip(AUTH), "");
 
-  // login is built on auth: its push starts above it, auth stays as the robot took it
+  // login is built on auth: its push starts above it, auth stays as the robot took it, and login carries its commits
   let (exit_code, output) = push(&["login"]);
-  assert_error(&output, exit_code, (4, "push_refused"));
-  assert!(output["error"]["message"].as_str().unwrap().contains("its parent auth is not on the remote"), "{output}");
+  assert_eq!(exit_code, 0, "{output}");
+  let names: Vec<&Value> = output["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
+  assert_eq!(names, [&json!("login")]);
+  assert_eq!(space.remote_tip(AUTH), "");
 
   let (exit_code, output) = push(&["auth", "--restart-running"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -691,4 +693,159 @@ fn push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told() {
   space.set_robots(vec![robot("canceling", "CANCELING", "login", "0000")]);
   let (exit_code, output) = push(&["login"]);
   assert_eq!(exit_code, 0, "{output}");
+}
+
+/// The open pull request #`number` of `name` into `base`, approved by `approvers`
+fn pull_request_of(name: &str, number: u32, base: &str, approvers: &[&str]) -> Value {
+  let mut pull_request = pull_request_json(approvers);
+  pull_request["number"] = json!(number);
+  pull_request["url"] = json!(format!("https://github.com/acme/monorepo/pull/{number}"));
+  pull_request["headRefName"] = json!(format!("{PREFIX}/virtual/{name}"));
+  pull_request["baseRefName"] = json!(base);
+  pull_request
+}
+
+/// The `PATCH` bodies GitHub got, by pull request number
+fn retargets_sent(github: &FakeGitHub) -> Vec<(String, Value)> {
+  github
+    .requests()
+    .into_iter()
+    .filter(|request| request.method == "PATCH")
+    .map(|request| (request.path.clone(), request.json()))
+    .collect()
+}
+
+/// Every pull request of a virtual branch goes into the baseline: the open one of a pushed branch whose base is a
+/// virtual branch (its parent's) is retargeted after the push; one into master or a release branch is left as it is
+#[test_log::test]
+fn push_retargets_a_pull_request_into_a_virtual_branch_to_the_baseline() {
+  let space = Space::new(&["(auth) Add auth", "(auth/login) Add login", "(docs) Add docs"]);
+  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  let pull_requests = [
+    pull_request_of("auth", 7, "master", &[]),
+    pull_request_of("login", 8, AUTH, &["alice"]),
+    pull_request_of("docs", 9, "release-252", &[]),
+  ];
+  let (github, url) = fake_github(&space, &pull_requests);
+  github.answer("PATCH", "/repos/acme/monorepo/pulls/8", FakeAnswer::ok(json!({"number": 8})));
+  let environment = reviewed_on_github(&space, &url);
+  let push = |args: &[&str]| {
+    let mut all_args = vec!["--prefix", PREFIX, "push"];
+    all_args.extend_from_slice(args);
+    run_json(&environment, &all_args)
+  };
+  let retargeted = json!([{"branch": "login", "number": 8, "url": "https://github.com/acme/monorepo/pull/8", "from": AUTH, "to": "master", "approved_by": ["alice"]}]);
+
+  // a dry run says it: GitHub is only asked
+  let (exit_code, output) = push(&["login", "docs", "--dry-run"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["retargeted"], retargeted);
+  assert_eq!(retargets_sent(&github), []);
+
+  let (exit_code, output) = push(&["login", "docs"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["retargeted"], retargeted);
+  assert_eq!(retargets_sent(&github), [("/repos/acme/monorepo/pulls/8".to_string(), json!({"base": "master"}))]);
+
+  // GitHub refuses it: the push is done, the warning says how to retarget it
+  github.answer(
+    "PATCH",
+    "/repos/acme/monorepo/pulls/8",
+    FakeAnswer::status(403, json!({"message": "Resource not accessible by integration"})),
+  );
+  let (exit_code, output) = push(&["login"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output.get("retargeted"), None);
+  let warning = output["retarget_warnings"][0].as_str().unwrap();
+  assert!(
+    warning.starts_with("cannot retarget pull request #8 of login to master: ") && warning.ends_with("; `gh pr edit 8 --repo acme/monorepo --base master` retargets it"),
+    "{output}"
+  );
+  let (_, schema) = run_json(&environment, &["schema"]);
+  assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
+}
+
+/// The robot starts from the pull request of the branch, which goes into the target: one into a virtual branch is
+/// retargeted before anything is pushed, as are those of the branches its push takes along
+#[test_log::test]
+fn the_pull_requests_of_the_branch_and_of_the_parents_it_pushes_go_into_the_target_before_the_start() {
+  let space = Space::new(&["(auth) Add auth", "(auth/login) Add login"]);
+  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  // auth's goes into the branch it was stacked on before, login's into auth's; the comment is answered on #7
+  let (github, url) = fake_github(
+    &space,
+    &[pull_request_of("auth", 6, "test-user/virtual/core", &[]), pull_request_of("login", 7, AUTH, &["alice"])],
+  );
+  github.answer("PATCH", "/repos/acme/monorepo/pulls/6", FakeAnswer::ok(json!({"number": 6})));
+  github.answer("PATCH", "/repos/acme/monorepo/pulls/7", FakeAnswer::ok(json!({"number": 7})));
+  let environment = reviewed_on_github(&space, &url);
+  let retargeted = json!([
+    {"branch": "auth", "number": 6, "url": "https://github.com/acme/monorepo/pull/6", "from": "test-user/virtual/core", "to": "master"},
+    {"branch": "login", "number": 7, "url": "https://github.com/acme/monorepo/pull/7", "from": AUTH, "to": "master", "approved_by": ["alice"]},
+  ]);
+
+  let (exit_code, output) = safe_push(&environment, &["login", "--land-stack", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((&output["retargeted"], &output["pull_request"]["number"]), (&retargeted, &json!(7)));
+  assert_eq!(retargets_sent(&github), []);
+  let (_, schema) = run_json(&environment, &["schema"]);
+  assert_covered(&schema["outputs"]["safe_push"], &schema["outputs"]["safe_push"], &output, "safe_push");
+
+  let (exit_code, output) = safe_push(&environment, &["login", "--land-stack"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((&output["retargeted"], &output["started_via"]), (&retargeted, &json!("pull_request")));
+  assert_eq!(
+    retargets_sent(&github),
+    [
+      ("/repos/acme/monorepo/pulls/6".to_string(), json!({"base": "master"})),
+      ("/repos/acme/monorepo/pulls/7".to_string(), json!({"base": "master"})),
+    ]
+  );
+  assert_eq!(
+    github.requests_to("POST", "/repos/acme/monorepo/issues/7/comments")[0].json(),
+    json!({"body": "/patronus merge --keep-source-branch"})
+  );
+
+  // GitHub refuses the retarget of the pull request the robot starts from: nothing is pushed or started
+  github.answer(
+    "PATCH",
+    "/repos/acme/monorepo/pulls/7",
+    FakeAnswer::status(403, json!({"message": "Resource not accessible by integration"})),
+  );
+  write(&space.repo, "form.txt", "form\n");
+  commit_all(&space.repo, "(auth/login) Add the form", 1_700_000_900);
+  let pushed = space.remote_tip("test-user/virtual/login");
+  let (exit_code, output) = safe_push(&environment, &["login", "--land-stack"]);
+  assert_error(&output, exit_code, (5, "network_error"));
+  assert!(
+    output["error"]["message"]
+      .as_str()
+      .unwrap()
+      .starts_with(&format!("Nothing was pushed or started: cannot retarget pull request #7 of login from {AUTH} to master: ")),
+    "{output}"
+  );
+  assert_eq!(space.remote_tip("test-user/virtual/login"), pushed);
+}
+
+/// One open pull request per branch: `--create-pull-request` takes the one the branch has, whatever its base, and
+/// retargets one into a virtual branch to the target
+#[test_log::test]
+fn create_pull_request_takes_the_open_pull_request_of_the_branch_whatever_its_base() {
+  let (_space, github, environment) = needs_review_on_github();
+  list_pull_requests(&github, &[pull_request_of("auth", 7, "release-252", &[])]);
+  let output = create_pull_request(&environment);
+  let warning = output["pull_request"]["warnings"][0].as_str().unwrap();
+  assert!(warning.starts_with("pull request #7 already existed and goes into release-252: "), "{output}");
+  assert_eq!(output["pull_request"]["number"], json!(7));
+  assert_eq!((output["pull_request"].get("created"), output.get("retargeted")), (None, None));
+
+  list_pull_requests(&github, &[pull_request_of("auth", 7, "test-user/virtual/core", &[])]);
+  github.answer("PATCH", "/repos/acme/monorepo/pulls/7", FakeAnswer::ok(json!({"number": 7})));
+  let output = create_pull_request(&environment);
+  assert_eq!(
+    output["pull_request"],
+    json!({"number": 7, "url": "https://github.com/acme/monorepo/pull/7", "comment_url": null, "reply": null})
+  );
+  assert_eq!(output["retargeted"][0]["from"], json!("test-user/virtual/core"));
+  assert!(github.requests_to("POST", "/repos/acme/monorepo/pulls").is_empty());
 }

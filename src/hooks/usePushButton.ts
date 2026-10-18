@@ -1,7 +1,10 @@
 import { useMemo } from "react"
+import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import type { DroppedCommit } from "@/lib/bindings"
+import type { PushRetarget } from "@/lib/git/new-pull-request"
+import { describePushRetargets, getPushRetargets } from "@/lib/git/new-pull-request"
 import { pushBranch } from "@/lib/git/push"
 import { pushStack, pushWithChildren } from "@/lib/git/stack-push"
 import { landedBranchDescription } from "@/lib/landed"
@@ -25,6 +28,7 @@ import type { UIColor } from "@/lib/ui-types"
 import type { Branch } from "@/stores/branch-sync"
 import { getBranch, stackDescendantsIn, useBranchSync } from "@/stores/branch-sync"
 import { getPushHold, usePushHold, usePushHolds } from "@/stores/patronus"
+import { pullRequestsStore } from "@/stores/pull-requests"
 
 export interface PushButtonState {
   text: string
@@ -55,6 +59,11 @@ export interface PushButtonState {
    * the branch itself is up to date: its own push is disabled then, this one isn't
    */
   childrenAction: PushButtonAction | null
+  /**
+   * The open pull requests into a virtual branch the push retargets to the baseline first (`describePushRetargets`):
+   * "Retargets #8 to master: GitHub may dismiss its approvals."; `warning` when one has approvals. Null without one.
+   */
+  retarget: { text: string; warning: boolean } | null
 }
 
 export interface PushButtonAction {
@@ -92,7 +101,7 @@ export interface UnpushedChildren {
 
 export interface PushButtonContext {
   isPushing?: boolean
-  /** The pull request of the branch shows the parent's commits until the parent is pushed */
+  /** An ancestor has work for the remote: the button pushes the stack, or offers it */
   unpushedParent?: UnpushedParent | null
   /** A push of the branch alone leaves them as they are */
   unpushedChildren?: UnpushedChildren | null
@@ -100,14 +109,21 @@ export interface PushButtonContext {
   landedIn?: string | null
   /** A Safe Push runs on the branch or lands it (`PushHold`): a push won't land, the button is disabled with the reason */
   hold?: PushHold | null
+  /** The pull requests into a virtual branch the push retargets first: of the branch, or of each branch of its stack push */
+  retargets?: readonly PushRetarget[]
 }
 
-/** "login isn't on the remote yet. Pushing oauth alone works; …": the choice between a push of the branch and of the stack */
+/**
+ * "login isn't on the remote yet. Pushing oauth alone works: its pull request includes login's commits either way.":
+ * the choice between a push of the branch and of the stack. The pull request of the branch goes into the baseline with
+ * the commits of the branches it is built on, so the push of the branch alone leaves only their own remote branches as
+ * they are.
+ */
 function describeUnpushedParent(branchName: string, parent: UnpushedParent): string {
-  const alone = `Pushing ${branchName} alone works; a pull request includes`
+  const alone = `Pushing ${branchName} alone works: its pull request includes`
   return parent.onRemote
-    ? `${parent.name} has commits the remote lacks. ${alone} them until ${parent.name} is pushed.`
-    : `${parent.name} isn't on the remote yet. ${alone} ${parent.name}'s commits until ${parent.name} is pushed.`
+    ? `${parent.name} has commits the remote lacks. ${alone} them either way, and the remote branch of ${parent.name} stays as it is.`
+    : `${parent.name} isn't on the remote yet. ${alone} ${parent.name}'s commits either way.`
 }
 
 /** One line per branch a stack push sends, root first, in the words of a push (`formatStackPushLine`) */
@@ -133,7 +149,7 @@ function describeUnpushedChildren(branchName: string, names: readonly string[]):
 
 export function getPushButtonState(
   branch: Branch,
-  { isPushing = false, unpushedParent = null, unpushedChildren = null, landedIn = null, hold = null }: PushButtonContext = {},
+  { isPushing = false, unpushedParent = null, unpushedChildren = null, landedIn = null, hold = null, retargets = [] }: PushButtonContext = {},
 ): PushButtonState {
   // a blocked stacked branch keeps its last build, which lacks its parent's state: pushing it would mislead
   if (branch.status === "Blocked") {
@@ -148,6 +164,7 @@ export function getPushButtonState(
       pushesStack: false,
       action: null,
       childrenAction: null,
+      retarget: null,
     }
   }
   // a push won't land while the Safe Push runs; a running push keeps its progress until it finished
@@ -163,6 +180,7 @@ export function getPushButtonState(
       pushesStack: false,
       action: null,
       childrenAction: null,
+      retarget: null,
     }
   }
   const remoteStatus = branch.remoteStatus
@@ -200,6 +218,7 @@ export function getPushButtonState(
   let childrenAction: PushButtonAction | null = null
   let color = getPushColor(branch) ?? "primary"
   let pushesStack = false
+  let retarget: PushButtonState["retarget"] = null
   if (landedIn !== null) {
     // the update archives the branch: a push is still possible, but there is nothing of the user's left to send
     tooltip = landedBranchDescription(landedIn)
@@ -207,7 +226,8 @@ export function getPushButtonState(
   } else if (pushAction !== "upToDate") {
     const stack = unpushedParent?.buttonStack ?? []
     if (unpushedParent !== null && stack.length > 1) {
-      // the pull request of the branch is right only once its parents are on the remote: the button pushes them too
+      // the remote branches of its parents, and their pull requests, stay what the branch is built on: the button
+      // pushes them too
       pushesStack = true
       count = stack.reduce((sum, it) => sum + (it.remoteStatus?.commitsAhead ?? 0), 0)
       text = formatPushStackLabel(stack.length)
@@ -225,6 +245,12 @@ export function getPushButtonState(
         run: () => void pushStack(branch.name),
       }
     }
+    // the pull requests of the branches this push sends
+    const pushed = new Set(pushesStack ? stack.map(it => it.name) : [branch.name])
+    retarget = describePushRetargets(
+      retargets.filter(it => pushed.has(it.branchName)),
+      pushesStack,
+    )
   }
   // the children have work while the branch's own push has any or none: the root of a stack pushed already offers them
   if (landedIn === null && unpushedChildren !== null) {
@@ -247,6 +273,7 @@ export function getPushButtonState(
     pushesStack,
     action,
     childrenAction,
+    retarget,
   }
 }
 
@@ -265,10 +292,26 @@ export function usePushButton(branch: Branch, isPushing: boolean): PushButtonSta
   const unpushedChildren = useUnpushedChildren(branch.name)
   const landedIn = useLandedIn(branch.name)
   const hold = usePushHold(branch.name)
+  const retargets = usePushRetargets(retargetCandidates(branch.name, unpushedParent))
   return useMemo(
-    () => getPushButtonState(branch, { isPushing, unpushedParent, unpushedChildren, landedIn, hold }),
-    [branch, isPushing, unpushedParent, unpushedChildren, landedIn, hold],
+    () => getPushButtonState(branch, { isPushing, unpushedParent, unpushedChildren, landedIn, hold, retargets }),
+    [branch, isPushing, unpushedParent, unpushedChildren, landedIn, hold, retargets],
   )
+}
+
+/** The branches whose pull requests the push button may retarget: those of its stack push, root first, else the branch */
+function retargetCandidates(branchName: string, unpushedParent: UnpushedParent | null): string[] {
+  const stack = (unpushedParent?.buttonStack ?? []).map(it => it.name)
+  return stack.includes(branchName) ? stack : [...stack, branchName]
+}
+
+/** The pull requests into a virtual branch a push of `names` retargets first (`getPushRetargets`), from the stores */
+function usePushRetargets(names: readonly string[]): readonly PushRetarget[] {
+  // the base they go into is the baseline: a new one renders again, and the selector below reads it
+  useBranchSync(state => state.baselineBranch)
+  // a string, so the store notifies only when a retarget changes
+  const retargets = useStore(pullRequestsStore, () => JSON.stringify(getPushRetargets(names)))
+  return useMemo(() => JSON.parse(retargets) as PushRetarget[], [retargets])
 }
 
 /**
@@ -278,7 +321,9 @@ export function usePushButton(branch: Branch, isPushing: boolean): PushButtonSta
  */
 export function getPushButtonNow(branch: Branch, isPushing: boolean): PushButtonState {
   const isHeld = (name: string): boolean => getPushHold(name) !== null
-  return getPushButtonState(branch, { isPushing, unpushedParent: getUnpushedParent(branch.name, getBranch, isHeld), hold: getPushHold(branch.name) })
+  const unpushedParent = getUnpushedParent(branch.name, getBranch, isHeld)
+  const retargets = getPushRetargets(retargetCandidates(branch.name, unpushedParent))
+  return getPushButtonState(branch, { isPushing, unpushedParent, hold: getPushHold(branch.name), retargets })
 }
 
 /** `useUnpushedParent` outside a component: the nearest ancestor with work for the remote, and the stack pushes */

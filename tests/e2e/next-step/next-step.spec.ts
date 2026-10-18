@@ -77,6 +77,26 @@ async function openSafePushForm(page: Page, status: string) {
   return form
 }
 
+/** JIRA-456 with its open pull request #7 into `base`, a virtual branch: the step retargets it; the retargets it sends */
+async function setupRetarget(
+  page: Page,
+  setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<unknown>,
+  base: string,
+): Promise<Record<string, unknown>[]> {
+  await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [pullRequest(BRANCH, 7, { baseRefName: base })])
+  const retargets = await routeCommand(page, "retarget_pull_request", () => null)
+  await expect(slot(page)).toHaveAttribute("data-step", "retarget")
+  return retargets
+}
+
+/** Pull request `number` went into master, the toast said so, and the step of `stepSlot` is the Safe Push that counts its approvals now */
+async function expectRetargeted(page: Page, retargets: Record<string, unknown>[], number = 7, stepSlot = slot(page)) {
+  await expect.poll(() => retargets).toEqual([expect.objectContaining({ pullRequestNumber: number, base: "master" })])
+  await expect(page.locator("[data-slot=toast]", { hasText: `Retargeted #${number} to master` })).toBeVisible()
+  await expect(stepSlot).toHaveAttribute("data-step", "safePush")
+}
+
 async function openMenu(page: Page) {
   await findBranchRow(page, BRANCH).click({ button: "right" })
   return page.getByRole("menu")
@@ -330,19 +350,47 @@ test.describe("Next step", () => {
 
   test("should retarget a pull request into the branch of a parent that landed, whose approvals don't count", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the base is the branch of a parent that is no branch of the table any more
-    await setup(page, setupRepo, syncAndWaitForBranches, NO_REVIEW_NEEDED, [pullRequest(BRANCH, 7, { baseRefName: "user-name/virtual/landed-parent" })])
-    const retargets = await routeCommand(page, "retarget_pull_request", () => null)
-    await expect(slot(page)).toHaveAttribute("data-step", "retarget")
+    const retargets = await setupRetarget(page, setupRepo, syncAndWaitForBranches, "user-name/virtual/landed-parent")
     const menu = await openMenu(page)
     await menu.getByRole("menuitem", { name: "Safe Push…" }).hover()
     await expect(page.getByRole("tooltip", { name: "Approvals" })).toHaveText("Approvals in #7 don't count: its base is user-name/virtual/landed-parent")
     await page.keyboard.press("Escape")
 
     await slot(page).getByRole("button", { name: "Retarget #7 to master" }).click()
-    await expect.poll(() => retargets).toEqual([expect.objectContaining({ pullRequestNumber: 7, base: "master" })])
-    await expect(page.locator("[data-slot=toast]", { hasText: "Retargeted #7 to master" })).toBeVisible()
-    // into the target now: the start from it counts its approvals
-    await expect(slot(page)).toHaveAttribute("data-step", "safePush")
+    await expectRetargeted(page, retargets)
+  })
+
+  test("should retarget a pull request into the virtual branch of a branch in the table, as a parent's, whose approvals don't count", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the base is the branch of another branch of the table: every pull request of a virtual branch goes into master
+    const retargets = await setupRetarget(page, setupRepo, syncAndWaitForBranches, "user-name/virtual/feature-auth")
+    await slot(page).getByRole("button", { name: "Retarget #7 to master" }).hover()
+    await expect(page.getByTestId("next-step-hover")).toContainText("Approvals in #7 don't count: its base is user-name/virtual/feature-auth, a virtual branch.")
+    // the menu offers the same retarget
+    const menu = await openMenu(page)
+    await menu.getByRole("menuitem", { name: "Retarget #7 to master" }).click()
+    await expectRetargeted(page, retargets)
+  })
+
+  test("should retarget the pull request of a stacked branch into its parent's branch from its slot, whose approvals don't count", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // an older Branch Deck opened #8 of oauth into the branch of login, its parent: every pull request goes into master
+    const own = pullRequest("oauth", 8, { baseRefName: "user-name/virtual/login" })
+    const repo = await setupRepo("stacked_branches", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests(own) })
+    await repo.setReviewAnswers({ answers: { oauth: NO_REVIEW_NEEDED } })
+    await syncAndWaitForBranches()
+    const retargets = await routeCommand(page, "retarget_pull_request", () => null)
+
+    const oauthSlot = findBranchRow(page, "oauth").getByTestId("next-step-slot")
+    await expect(oauthSlot).toHaveAttribute("data-step", "retarget")
+    await oauthSlot.getByRole("button", { name: "Retarget #8 to master" }).click()
+    await expectRetargeted(page, retargets, 8, oauthSlot)
   })
 
   test("should open a pull request into another base that may be meant, and keep its retarget in the menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {

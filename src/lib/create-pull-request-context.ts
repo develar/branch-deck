@@ -1,13 +1,14 @@
 import type { ReviewRequirementState } from "@/hooks/usePatronusReviewRequirement"
 import type { CreatedPullRequest, PullRequest, PullRequestAvailability } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
+import type { PullRequestIncludes } from "@/lib/create-pull-request"
 import { formatCreatedToast } from "@/lib/create-pull-request"
 import { formatNewPullRequestBlocker, getBranchesGitHubRepository, getPullRequestBase, openNewPullRequest } from "@/lib/git/new-pull-request"
 import { pushForAction } from "@/lib/git/push"
 import type { MenuItem } from "@/lib/menu"
 import type { CompareFields, GitHubRepository } from "@/lib/pull-request"
 import { getCompareUrl } from "@/lib/pull-request"
-import { needsPush, stackPushOrder } from "@/lib/stack"
+import { needsPush, stackAncestors, stackPushOrder } from "@/lib/stack"
 import type { ToastMessage } from "@/lib/toast-message"
 import { recordPullRequestCreated } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
@@ -26,12 +27,15 @@ export interface CreatePullRequestContext {
   readonly branchName: string
   /** The remote branch, as GitHub takes it */
   readonly head: string
-  /** The base as GitHub takes it: the parent's pushed branch, or the baseline as the remote names it */
+  /** The base: the baseline as the remote names it (`master`), for every branch, stacked or not */
   readonly base: string
   /** The branch, or an ancestor, has commits the remote lacks: Create and "Continue on GitHub" push them first */
   readonly pushNeeded: boolean
-  /** The base for the title line: the parent's virtual name, never its ref */
-  readonly baseName: string
+  /**
+   * A stacked branch: the branches it is built on, root first, whose commits the pull request holds with its own, and
+   * the commits of them all; null for a branch built on the baseline
+   */
+  readonly includes: PullRequestIncludes | null
   /** Why neither GitHub's form nor the creation can open the pull request now (`formatNewPullRequestBlocker`) */
   readonly newPullRequestBlocker: string | null
   /** The live pull request of the branch (open or merged), one that appeared meanwhile */
@@ -58,18 +62,17 @@ export interface CreatePullRequestFacts {
 
 export function toCreatePullRequestContext(branch: Branch, facts: CreatePullRequestFacts): CreatePullRequestContext {
   const head = getFullBranchName(branch.name)
-  const base = getPullRequestBase(branch)
   const pushNeeded = needsPush(branch) || stackPushOrder(branch.name, getBranch, { stopAtConfirm: true, isHeld: name => getPushHold(name) !== null }).length > 1
-  const parent = branch.stack?.effectiveBase ?? null
+  const ancestors = stackAncestors(branch.name, getBranch)
   const existing = facts.pullRequest !== undefined && facts.pullRequest.state !== "closed" ? facts.pullRequest : null
   const withoutReview = facts.withoutReview
   return {
     repositoryPath: facts.repositoryPath,
     branchName: branch.name,
     head,
-    base,
+    base: getPullRequestBase(),
     pushNeeded,
-    baseName: parent !== null && base === getFullBranchName(parent) ? parent : base,
+    includes: ancestors.length === 0 ? null : { ancestors: ancestors.map(it => it.name), commitCount: ancestors.reduce((sum, it) => sum + it.commitCount, branch.commitCount) },
     newPullRequestBlocker: formatNewPullRequestBlocker(branch.name, existing),
     existing,
     availability: facts.availability,
@@ -90,20 +93,15 @@ export interface CreatePullRequestInput {
   readonly viewerLogin: string | null
 }
 
-/**
- * The push the creation starts with (`pushForAction`), then the base as it is after it (`getPullRequestBase`). Throws
- * why nothing was pushed.
- */
-async function pushForPullRequest(context: CreatePullRequestContext): Promise<string> {
+/** The push the creation starts with (`pushForAction`). Throws why nothing was pushed. */
+async function pushForPullRequest(context: CreatePullRequestContext): Promise<void> {
   if (!context.pushNeeded) {
-    return context.base
+    return
   }
   const pushed = await pushForAction(context.branchName)
   if (!pushed.pushed) {
     throw new Error(pushed.reason)
   }
-  const branch = getBranch(context.branchName)
-  return branch === undefined ? context.base : getPullRequestBase(branch)
 }
 
 /**
@@ -116,11 +114,11 @@ export async function submitPullRequest(
   context: CreatePullRequestContext,
   input: CreatePullRequestInput,
 ): Promise<{ toast: Omit<ToastMessage, "action">; pullRequest: PullRequest }> {
-  const base = await pushForPullRequest(context)
+  await pushForPullRequest(context)
   const request = {
     branchName: context.branchName,
     head: context.head,
-    base,
+    base: context.base,
     title: input.title,
     body: input.body,
     reviewers: [...input.reviewers],
@@ -128,7 +126,7 @@ export async function submitPullRequest(
     waitForMirror: context.pushNeeded,
   }
   const result: CreatedPullRequest = await createPullRequest(request)
-  const toast = formatCreatedToast(context.branchName, context.baseName, input.viewerLogin, result)
+  const toast = formatCreatedToast(context.branchName, context.base, input.viewerLogin, result)
   if (result.created) {
     recordPullRequestCreated(toast.title, toast.description ?? "", result.pullRequest.url, toast.type === "warning")
   }
@@ -141,7 +139,7 @@ export async function submitPullRequest(
  * window only. Throws why nothing was pushed, or that GitHub still doesn't have the branch.
  */
 export async function continueOnGitHub(context: CreatePullRequestContext, fields: CompareFields): Promise<void> {
-  const base = await pushForPullRequest(context)
+  await pushForPullRequest(context)
   if (context.repository === null || context.newPullRequestBlocker !== null) {
     throw new Error(context.newPullRequestBlocker ?? "The GitHub repository of the branches is unknown")
   }
@@ -154,5 +152,5 @@ export async function continueOnGitHub(context: CreatePullRequestContext, fields
       throw new Error(`GitHub doesn't have ${context.head} yet: a mirror copies a pushed branch a moment later; try again`)
     }
   }
-  openNewPullRequest(getCompareUrl(context.repository, base, context.head, fields))
+  openNewPullRequest(getCompareUrl(context.repository, context.base, context.head, fields))
 }

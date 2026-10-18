@@ -129,13 +129,15 @@ describe("getPushButtonState", () => {
       tooltip: "Pushes 2 branches, parents first:\nlogin · 2 commits · creates the remote branch\noauth · 1 commit · creates the remote branch",
     })
     expect(push.action).toMatchObject({
-      description: "login isn't on the remote yet. Pushing oauth alone works; a pull request includes login's commits until login is pushed.",
+      description: "login isn't on the remote yet. Pushing oauth alone works: its pull request includes login's commits either way.",
       label: "Push oauth Only",
     })
     const rebased = login({ commitsAhead: 1, myCommitsAhead: 1, fastForward: false })
     const onRemote = stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 2, buttonStack: [rebased, oauth] } })
     expect(onRemote.tooltip).toBe("Pushes 2 branches, parents first:\nlogin · 1 commit · force push\noauth · 1 commit · creates the remote branch")
-    expect(onRemote.action?.description).toBe("login has commits the remote lacks. Pushing oauth alone works; a pull request includes them until login is pushed.")
+    expect(onRemote.action?.description).toBe(
+      "login has commits the remote lacks. Pushing oauth alone works: its pull request includes them either way, and the remote branch of login stays as it is.",
+    )
     expect(stacked({}).action).toBeNull()
     expect(stacked({}).pushesStack).toBe(false)
   })
@@ -168,11 +170,34 @@ describe("getPushButtonState", () => {
     const push = stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 2, buttonStack: [] } }, dropping)
     expect(push).toMatchObject({ text: "Force Push (1)", confirm: true, pushesStack: false })
     expect(push.action).toMatchObject({
-      description: "login has commits the remote lacks. Pushing oauth alone works; a pull request includes them until login is pushed.",
+      description: "login has commits the remote lacks. Pushing oauth alone works: its pull request includes them either way, and the remote branch of login stays as it is.",
       label: "Push Stack (2 branches)",
     })
     // login asks first in its own row: nothing above it to push with oauth
     expect(stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 2, buttonStack: [] } })).toMatchObject({ text: "Create Remote (1)", pushesStack: false })
+  })
+
+  it("says which pull requests into a virtual branch the push retargets first, and warns when GitHub may dismiss approvals", () => {
+    const retarget = { branchName: "login", number: 8, base: "master", approved: true }
+    expect(state({ commitsAhead: 1, myCommitsAhead: 1 }, { retargets: [retarget] }).retarget).toEqual({
+      text: "Retargets #8 to master: GitHub may dismiss its approvals.",
+      warning: true,
+    })
+    expect(state({ commitsAhead: 1, myCommitsAhead: 1 }, { retargets: [{ ...retarget, approved: false }] }).retarget).toEqual({ text: "Retargets #8 to master.", warning: false })
+    // nothing to push: nothing is retargeted
+    expect(state({}, { retargets: [retarget] }).retarget).toBeNull()
+
+    // a stack push names the branch of each, and only of the branches it pushes
+    const parent = login({ exists: false, commitsAhead: 2, myCommitsAhead: 2 })
+    const retargets = [
+      { branchName: "login", number: 801, base: "master", approved: false },
+      { branchName: "oauth", number: 802, base: "master", approved: true },
+    ]
+    expect(stacked({ unpushedParent: { name: "login", onRemote: false, stackSize: 2, buttonStack: [parent, oauth] }, retargets }).retarget).toEqual({
+      text: "Retargets #801 of login to master.\nRetargets #802 of oauth to master: GitHub may dismiss its approvals.",
+      warning: true,
+    })
+    expect(stacked({ retargets }).retarget).toEqual({ text: "Retargets #802 to master: GitHub may dismiss its approvals.", warning: true })
   })
 
   it("offers Push with Children while branches stacked on it have work for the remote", () => {

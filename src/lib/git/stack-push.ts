@@ -110,7 +110,7 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
       return false
     }
     const tips = order.tips ?? new Map<string, string>()
-    // pushed onto another base, a pull request into the old one would show the wrong commits
+    // a pull request into a virtual branch goes into the baseline first, with what it lands
     const retargeted = new Map<string, Retargeted>()
     for (const branch of branches) {
       const it = await retargetBeforePush(branch)

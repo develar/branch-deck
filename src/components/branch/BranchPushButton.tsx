@@ -46,10 +46,11 @@ export interface BranchPushButtonProps {
  * Push button of an active branch ("Push (2)", "Create Remote", "Force Push (1)", "Push Stack (3)" for a stacked branch
  * whose ancestors have work for the remote); the full description is shown on hover, also while the button is disabled
  * ("Everything is pushed.", why it is blocked), with the remote commits a force push drops and the other push of a
- * stacked branch (the branch alone, or Push Stack). A push that drops remote commits asks first: the click opens the
- * description with a destructive Force Push, which pushes. While the push runs, the label has its percent ("Pushing
- * 45%", "Pushing 3 branches 45%" for the one push of a stack, "Pushing login 45%" for a stack push of another branch)
- * and the hover the last progress line of git, with the amount and the rate when that line lacks them.
+ * stacked branch (the branch alone, or Push Stack), and the pull requests into a virtual branch it retargets to the
+ * baseline first. A push that drops remote commits asks first: the click opens the description with a destructive
+ * Force Push, which pushes. While the push runs, the label has its percent ("Pushing 45%", "Pushing 3 branches 45%" for
+ * the one push of a stack, "Pushing login 45%" for a stack push of another branch) and the hover the last progress line
+ * of git, with the amount and the rate when that line lacks them.
  */
 export function BranchPushButton({ branch, colored = true, hint, confirmTarget, compact = false, shortcut, stackPushInHeader = false }: BranchPushButtonProps) {
   // a stack push from this row shows what it pushes, unless the island header shows it
@@ -182,6 +183,11 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
             )}
             <div className="break-words whitespace-pre-line">{push.tooltip}</div>
             {push.dropped !== null && <DroppedCommitList dropped={push.dropped} />}
+            {push.retarget !== null && (
+              <div data-testid="push-retarget" className={cn("break-words whitespace-pre-line", push.retarget.warning && "text-warning")}>
+                {push.retarget.text}
+              </div>
+            )}
             {confirming && (
               <Button variant="destructive" size="xs" className="self-start" data-testid="push-confirm" disabled={disabled} onClick={confirmPush}>
                 <UploadIcon data-icon="inline-start" />

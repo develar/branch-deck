@@ -1,7 +1,9 @@
 //! `bd push`: sync, then push the virtual branches in one atomic `git push --porcelain` with an explicit lease per ref,
-//! parents first, and print a ready `gh pr create` per branch. A stacked branch takes the branches it is built on that
-//! have commits for the remote along, as the app's push button does: its pull request is right only once they are on
-//! the remote.
+//! parents first, and print a ready `gh pr create` per branch, into the baseline: every pull request of a virtual
+//! branch goes there, a stacked branch's with the commits of the branches it is built on. A stacked branch takes those
+//! branches along when they have commits for the remote, as the app's push button does, so their remote branches stay
+//! what it is built on; `--alone` pushes it without them. After the push, an open pull request of a pushed branch whose
+//! base is a virtual branch is retargeted to the baseline (`pull_request_retarget`).
 //!
 //! The lease is the one the app's push button uses too (`sync_core::push_lease`): the remote head the sync in the same
 //! process compared with (`remote.head`), or the one `--expect-remote` names. The push replaces exactly that remote
@@ -13,7 +15,9 @@
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorBranch, ErrorCode};
 use crate::output::SchemaVersion;
+use crate::pull_request_retarget::{RetargetedPullRequest, retarget_pull_requests_of};
 use crate::push_hold::{PushHolds, read_push_holds};
+use crate::safe_push_command::github_service;
 use crate::sync_command::{RemoteSummary, SyncOutput, SyncState, SyncedBranch, lock, sync_locked};
 use git_ops::branch_description::Description;
 use git_ops::branch_names::to_final_branch_name;
@@ -44,7 +48,8 @@ pub struct PushArgs {
   /// Push the branches stacked on the named ones too, directly or further down
   #[arg(long, requires = "branches", conflicts_with = "expect_remote")]
   pub with_children: bool,
-  /// Push only the named branches, not the branches they are built on; a parent must be on the remote then
+  /// Push only the named branches, not the branches they are built on: a branch carries their commits, its pull request
+  /// into the baseline includes them either way
   #[arg(long, requires = "branches")]
   pub alone: bool,
   /// Push branches the remote has commits for that they don't (behind > 0): the push drops the commits the sync
@@ -80,6 +85,14 @@ pub struct PushOutput {
   /// The Safe Pushes `--restart-running` canceled before the push and restarted on the pushed commit
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub restarted: Vec<RestartedRobot>,
+  /// The open pull requests of the pushed branches whose base was a virtual branch, retargeted to the baseline after the
+  /// push (with `--dry-run`: the ones a push would retarget). Name them to the user, and the `approved_by` of each
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub retargeted: Vec<RetargetedPullRequest>,
+  /// A retarget GitHub refused after the push, with the `gh pr edit` that does it, or why GitHub couldn't list the pull
+  /// requests
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub retarget_warnings: Vec<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -107,7 +120,8 @@ pub struct PushedBranch {
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct PullRequestDraft {
-  /// The remote branch the pull request merges into: the parent's, or the baseline without the remote
+  /// The remote branch the pull request merges into: the baseline without the remote (`master`), for every branch; a
+  /// stacked branch's includes the commits of the branches it is built on
   pub base: String,
   pub head: String,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -142,10 +156,29 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
     ));
   }
 
-  let _lock = lock(context)?;
+  let repository_lock = lock(context)?;
   let synced = sync_locked(context)?;
   let holds = read_push_holds(context, environment, &synced);
-  push_locked(context, args, &synced, &holds)
+  let mut output = push_locked(context, args, &synced, &holds)?;
+  drop(repository_lock);
+
+  // GitHub after the lock: the pull requests of the pushed branches go into the baseline
+  if let Some(repository) = github_repository(context, &synced.report)?
+    && !output.branches.is_empty()
+  {
+    let names: Vec<&str> = output.branches.iter().map(|branch| branch.name.as_str()).collect();
+    let base = base_on_remote(&synced.baseline, &output.remote);
+    let github = github_service(context, environment);
+    let retargets = retarget_pull_requests_of(context, &github, context.runtime()?, &repository, (&names, base), args.dry_run);
+    output.retargeted = retargets.retargeted;
+    output.retarget_warnings = retargets.warnings;
+  }
+  Ok(output)
+}
+
+/// The baseline as `remote` names it: `master` of `origin/master`
+fn base_on_remote<'a>(baseline: &'a str, remote: &str) -> &'a str {
+  baseline.strip_prefix(remote).and_then(|rest| rest.strip_prefix('/')).unwrap_or(baseline)
 }
 
 /// `bd push` for a caller that holds the repository lock and synced under it (`bd safe-push`, which cancels the robot
@@ -166,7 +199,8 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
   if !report.remotes.contains(&remote) {
     return Err(CliError::new(ErrorCode::NoRemote, format!("No remote named {remote:?}: `git remote` lists them")));
   }
-  let base_branch = synced.baseline.strip_prefix(&format!("{remote}/")).unwrap_or(&synced.baseline).to_string();
+  // the base of every pull request
+  let base_branch = base_on_remote(&synced.baseline, &remote).to_string();
 
   // the stack as the sync placed it, parents first
   let placement = |name: &str| synced.placement(name);
@@ -237,8 +271,6 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
   let mut candidates = Vec::with_capacity(selected.len());
   let mut refusals = Vec::new();
   let mut held = Vec::new();
-  // the branches left as the robot took them: they don't go with their children
-  let mut left_held: HashSet<&str> = HashSet::new();
   let mut behind = Vec::new();
   for name in &selected {
     let Some(branch) = synced.branches.iter().find(|branch| branch.name == *name) else {
@@ -248,11 +280,10 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
       && !restarted.iter().any(|robot| robot.id == hold.robot.id)
     {
       // a branch taken along that a Safe Push lands is on the remote as the robot took it: the push of the stack starts
-      // above it, as the app's does
+      // above it, as the app's does, and a child carries its commits
       if !implicit.contains(*name) {
         held.push(hold.reason(name));
       }
-      left_held.insert(*name);
       continue;
     }
     if let Some(reason) = not_synced_reason(branch) {
@@ -289,12 +320,6 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
         name: (*name).to_string(),
         remote: remote_state.clone(),
       });
-    }
-    if let (Some(parent), Some(parent_ref)) = (&parent, &parent_ref)
-      && !on_remote.contains_key(parent_ref)
-      && (!selected.contains(&parent.as_str()) || left_held.contains(parent.as_str()))
-    {
-      refusals.push(format!("{name}: its parent {parent} is not on the remote; push {parent} first or with it"));
     }
     candidates.push(Candidate {
       synced: branch,
@@ -380,11 +405,6 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
     .zip(&refs)
     .map(|(candidate, &pushed)| {
       let flag = statuses.get(&format!("refs/heads/{}", candidate.full_name)).map_or(' ', |status| status.flag);
-      let base = candidate
-        .parent
-        .as_ref()
-        .and_then(|parent| to_final_branch_name(&context.prefix, parent).ok())
-        .unwrap_or_else(|| base_branch.clone());
       PushedBranch {
         name: candidate.synced.name.clone(),
         remote_branch: candidate.full_name.clone(),
@@ -398,7 +418,7 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
         .to_string(),
         lease: pushed.lease.as_deref().map(|lease| short.get(lease).to_string()),
         lease_source: pushed.source.as_str().to_string(),
-        pull_request: pull_request_draft(descriptions, &repository_option, base, &candidate.full_name),
+        pull_request: pull_request_draft(descriptions, &repository_option, base_branch.clone(), &candidate.full_name),
       }
     })
     .collect();
@@ -422,11 +442,14 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
     dry_run: args.dry_run,
     branches,
     restarted: restarted_robots,
+    retargeted: Vec::new(),
+    retarget_warnings: Vec::new(),
   })
 }
 
-/// The pull request of the remote branch `head` into `base` (the parent's branch, or the baseline without the remote),
-/// as the printed `gh pr create` opens it: with the `bd describe` text, else filled from the commits
+/// The pull request of the remote branch `head` into `base` (the baseline without the remote), as the printed
+/// `gh pr create` opens it: with the `bd describe` text, else filled from the commits (a stacked branch's with the
+/// commits of the branches it is built on)
 fn pull_request_draft(descriptions: &HashMap<String, Description>, repository_option: &str, base: String, head: &str) -> PullRequestDraft {
   let description = descriptions.get(&format!("refs/heads/{head}"));
   let command = match description {
@@ -458,14 +481,13 @@ pub(crate) fn unpushed_pull_request_draft(context: &RepoContext, synced: &SyncOu
     .baseline
     .split_once('/')
     .ok_or_else(|| CliError::new(ErrorCode::NoRemote, format!("The baseline {} is local: pass --remote", synced.baseline)))?;
-  let base = synced
-    .placement(name)
-    .and_then(|stack| stack.effective_base.as_deref())
-    .map(|parent| final_name(context, parent))
-    .transpose()?
-    .unwrap_or_else(|| base_branch.to_string());
   let report = &synced.report;
-  let draft = pull_request_draft(report.config.descriptions(), &github_repository_option(context, report)?, base, &final_name(context, name)?);
+  let draft = pull_request_draft(
+    report.config.descriptions(),
+    &github_repository_option(context, report)?,
+    base_branch.to_string(),
+    &final_name(context, name)?,
+  );
   Ok((remote.to_string(), draft))
 }
 
@@ -566,14 +588,16 @@ fn candidate_names(candidates: &[Candidate]) -> String {
 }
 
 /// The GitHub repository of the branches (`resolve_github_repository`) from what the sync read and the push URL of
-/// `origin`: a git process only for the Space mirror
+/// `origin`: a git process only for the Space mirror, once per command (`RepoContext::github_repository`)
 pub(crate) fn github_repository(context: &RepoContext, report: &SyncReport) -> Result<Option<GitHubRepository>, CliError> {
-  Ok(resolve_github_repository_with(
-    &context.git,
-    &context.repository,
-    report.config.github_repository(),
-    context.origin_url()?,
-  )?)
+  context.github_repository(|| {
+    Ok(resolve_github_repository_with(
+      &context.git,
+      &context.repository,
+      report.config.github_repository(),
+      context.origin_url()?,
+    )?)
+  })
 }
 
 /// ` --repo owner/name` when the GitHub repository of the branches is not the one `origin` pushes to (a mirror:

@@ -104,28 +104,34 @@ fn the_pull_request_command_names_a_github_mirror() {
   );
 }
 
+/// Every pull request goes into the baseline: a stacked branch's holds the commits of the branches it is built on, so
+/// pushed alone it carries them
 #[test_log::test]
-fn parents_go_first_and_a_child_alone_needs_its_parent_on_the_remote() {
+fn parents_go_first_and_a_child_alone_carries_its_parents_commits() {
   let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login"]);
   repo.set_config("branchdeck.stacks", "true").unwrap();
-
-  let (exit_code, output) = run_in(&repo, &["push", "login", "--alone"]);
-  assert_error(&output, exit_code, (4, "push_refused"));
-  assert!(output["error"]["message"].as_str().unwrap().contains("parent auth is not on the remote"), "{output}");
-  assert_eq!(remote_tip(&remote, "test-user/virtual/login"), "");
   let (exit_code, output) = run_in(&repo, &["push", "--alone"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
 
-  // the branch it is built on goes along, first
-  let (exit_code, output) = run_in(&repo, &["push", "login"]);
+  let (exit_code, output) = run_in(&repo, &["push", "login", "--alone"]);
   assert_eq!(exit_code, 0, "{output}");
   let names: Vec<&Value> = output["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
-  assert_eq!(names, [&json!("auth"), &json!("login")]);
-  assert_eq!(branch(&output, "login")["pull_request"]["base"], json!(AUTH));
+  assert_eq!(names, [&json!("login")]);
+  assert_eq!(remote_tip(&remote, AUTH), "");
+  // the remote branch of login has the commit of auth under its own
+  let login = remote_tip(&remote, "test-user/virtual/login");
+  assert_eq!(git(&repo, &["log", "--format=%s", &format!("origin/master..{login}")]), "Add login\nAdd auth");
   assert_eq!(
     branch(&output, "login")["pull_request"]["command"],
-    json!(format!("gh pr create --base {AUTH} --head test-user/virtual/login --assignee @me --fill"))
+    json!("gh pr create --base master --head test-user/virtual/login --assignee @me --fill")
   );
+
+  // the branch it is built on goes along, first, and its pull request goes into the baseline too
+  let (exit_code, output) = run_in(&repo, &["push", "login"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let statuses: Vec<(&Value, &Value)> = output["branches"].as_array().unwrap().iter().map(|branch| (&branch["name"], &branch["status"])).collect();
+  assert_eq!(statuses, [(&json!("auth"), &json!("new")), (&json!("login"), &json!("up_to_date"))]);
+  assert_eq!(branch(&output, "auth")["pull_request"]["base"], json!("master"));
 }
 
 #[test_log::test]
@@ -158,7 +164,10 @@ fn with_children_pushes_the_branches_stacked_on_the_named_ones() {
   let names: Vec<&Value> = output["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
   assert_eq!(names, [&json!("auth"), &json!("login"), &json!("oauth")]);
   assert_eq!(remote_tip(&remote, "test-user/virtual/docs"), "");
-  assert_eq!(branch(&output, "oauth")["pull_request"]["base"], json!("test-user/virtual/login"));
+  // every pull request goes into the baseline, with the commits of the branches it is built on
+  for name in ["auth", "login", "oauth"] {
+    assert_eq!(branch(&output, name)["pull_request"]["base"], json!("master"), "{name}");
+  }
 
   // a new commit of login rebuilds oauth on it: the push replaces oauth's remote copy
   write(&repo, "form.txt", "form\n");

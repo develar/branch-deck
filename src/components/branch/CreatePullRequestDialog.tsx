@@ -21,7 +21,7 @@ import type { ReviewRequirementState } from "@/hooks/usePatronusReviewRequiremen
 import { useReviewerSearch } from "@/hooks/useReviewerSearch"
 import type { GitHubUser, NewPullRequest } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { isLogin, preselectedReviewers, suggestedReviewers } from "@/lib/create-pull-request"
+import { formatPullRequestIncludes, isLogin, preselectedReviewers, suggestedReviewers } from "@/lib/create-pull-request"
 import type { SuggestedReviewer } from "@/lib/create-pull-request"
 import { continueOnGitHub, submitPullRequest } from "@/lib/create-pull-request-context"
 import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/create-pull-request-context"
@@ -184,7 +184,7 @@ export function CreatePullRequestForm({
   /** The progress of the push the creation starts with, where the window knows it (the main window) */
   pushLabel?: string | null
 }) {
-  const { repositoryPath, branchName, head, base, baseName } = context
+  const { repositoryPath, branchName, head, base, includes } = context
 
   const [text, setText] = useState<TextState>({ status: "loading" })
   const [title, setTitle] = useState("")
@@ -306,8 +306,13 @@ export function CreatePullRequestForm({
       <PreviewDialogHeader>
         <DialogTitle className="leading-5">Create pull request</DialogTitle>
         <p data-testid="create-pull-request-base" className="truncate text-xs text-muted-foreground">
-          {`${branchName} → ${baseName}`}
+          {`${branchName} → ${base}`}
         </p>
+        {includes !== null && (
+          <p data-testid="create-pull-request-includes" className="text-xs text-muted-foreground">
+            {formatPullRequestIncludes(branchName, includes)}
+          </p>
+        )}
       </PreviewDialogHeader>
 
       <PreviewDialogBody>

@@ -112,12 +112,13 @@ publisher: choose More info → Run anyway.
   Undo ([conflict fix](spec/branch/conflict-fix.spec.md)).
 - **Stacked branches** (`git config branchdeck.stacks true`): `(auth/login)` builds `login` on top of `auth`. The table
   draws a stack as one line, as Sapling and jj do, headed by its root ("22 branches", which collapses the stack), and
-  hovering a branch lights the path down to it, what its push sends; a push sends the parents first and points each
-  pull request at its parent ([spec](spec/branch/stacked-branches.spec.md)). Stack On and Unstack store the parent in
+  hovering a branch lights the path down to it, what its push sends; a push sends the parents first, and each pull
+  request goes into master with what it lands, the commits of the branches below it
+  ([spec](spec/branch/stacked-branches.spec.md)). Stack On and Unstack store the parent in
   `refs/branch-deck/stack-parents`, not in the subjects, so stacking an issue branch on another one rewrites no commit
   ([stack parents](spec/branch/stack-parents.spec.md)).
 - **Push and pull requests**: what each branch has to push, and which pushes would drop remote commits; the pull
-  request, its review state and checks from GitHub; Create Pull Request with the base set and the suggested code owners
+  request, its review state and checks from GitHub; Create Pull Request into master with the suggested code owners
   asked to review. Each row shows its next step, such as the review it waits for, and never offers a push that is
   known to fail
   ([outgoing](spec/repository/outgoing.spec.md), [pull requests](spec/branch/pull-requests.spec.md), [next step](spec/branch/next-step.spec.md)).

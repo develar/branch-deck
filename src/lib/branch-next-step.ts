@@ -18,7 +18,7 @@ export type NextStepKind =
   | "restart"
   /** A robot that failed for approvals, while nobody can tell yet whether they count: its pull request */
   | "pullRequest"
-  /** Row 5: the open pull request merges into the branch of a former parent (landed, gone): "Retarget #7 to master" */
+  /** Row 5: the open pull request merges into a virtual branch (a parent's, landed or not): "Retarget #7 to master" */
   | "retarget"
   /** Row 5: the open pull request merges into another base on purpose maybe (a release branch): a quiet step that opens it */
   | "otherBase"
@@ -56,10 +56,11 @@ export interface NextStepPullRequest {
   /** Merged with the commits the branch has (not new work under the same name since) */
   readonly mergedCurrent: boolean
   /**
-   * Its base is the branch of a former parent: a virtual branch of the user that is no branch of the table any more
-   * (it landed, was archived or deleted), so the retarget to the target is what the stack would have done
+   * Its base is a virtual branch of the user (`isVirtualBranchBase`): a parent's branch, of a parent in the table or of
+   * one that landed or is gone. Every pull request of a virtual branch goes into the target, so the retarget is what
+   * the branch needs, never a choice
    */
-  readonly baseIsFormerParent: boolean
+  readonly baseIsVirtualBranch: boolean
 }
 
 export interface NextStepActions {
@@ -383,9 +384,9 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
       onSelect: facts.actions.retarget,
     }
     const notice = rowNotice(general, `Approvals in #${open.number} of ${facts.subject} don't count`, `Its base is ${open.base}, not ${facts.target}`)
-    // the base of a parent that landed or is gone: the retarget is what the stack would have done
-    if (open.baseIsFormerParent) {
-      return step("retarget", { ...retarget, description: `${reason}, a branch that is gone. ${retarget.description}` }, general ?? reason, dryRunBlocker, { retarget, ...notice })
+    // a parent's branch: every pull request of a virtual branch goes into the target, with what it lands
+    if (open.baseIsVirtualBranch) {
+      return step("retarget", { ...retarget, description: `${reason}, a virtual branch. ${retarget.description}` }, general ?? reason, dryRunBlocker, { retarget, ...notice })
     }
     // another base may be meant (a release branch): the step opens the pull request, the retarget is in the menu
     const item = { ...quietItem(facts, "Open Pull Request", `${reason}. Open Pull Request #${open.number}`, GitPullRequestArrowIcon), id: "open-pull-request-other-base" }

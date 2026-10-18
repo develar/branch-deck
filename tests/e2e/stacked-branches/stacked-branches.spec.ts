@@ -6,7 +6,7 @@ import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, g
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { availableRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
-import { availablePullRequests, createPullRequestDialog, getOpenedUrls, pullRequest, routeNewPullRequest } from "../helpers/pull-request-helpers"
+import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { confirmForcePush, expectPushedToast, PUSH_TIME, pushedToast, routePush, routePushBranches } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, openBranchPreview } from "../helpers/review-status-helpers"
 import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
@@ -345,7 +345,9 @@ test.describe("Stacked branches", () => {
     await expect(getPushButton(oauth)).toBeEnabled()
     await expandBranch(page, oauth)
     const alert = getBranchDetailsRow(page, "oauth").getByTestId("branch-base-changed")
-    await expect(alert).toContainText("Built on master: login has no commits. The pull request base is master.")
+    await expect(alert).toContainText("Built on master: login has no commits.")
+    // every pull request goes into master: the alert names no base
+    await expect(alert).not.toContainText("pull request")
 
     // the user rewrites the prefixes, never the sync
     await runAndWaitForSync(page, () => alert.getByRole("button", { name: "Unstack from login" }).click())
@@ -374,7 +376,7 @@ test.describe("Stacked branches", () => {
     await expect(findBranchRow(page, "guide")).toHaveAttribute("data-state", "open")
   })
 
-  test("should push a stack parents first and name the pull request base", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should push a stack parents first and create each pull request into master", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // on GitHub, no pull request yet
     await setupRepo("stacked_branches", { pullRequests: availablePullRequests() })
     await syncAndWaitForBranches()
@@ -400,7 +402,7 @@ test.describe("Stacked branches", () => {
       "Pushes 3 branches, parents first: auth · 1 commit · creates the remote branch login · 1 commit · creates the remote branch oauth · 1 commit · creates the remote branch",
     )
     const alternative = description.getByTestId("push-alternative")
-    await expect(alternative).toContainText("login isn't on the remote yet. Pushing oauth alone works; a pull request includes login's commits until login is pushed.")
+    await expect(alternative).toContainText("login isn't on the remote yet. Pushing oauth alone works: its pull request includes login's commits either way.")
     await expect(alternative.getByRole("button", { name: "Push oauth Only" })).toBeVisible()
 
     await button.click()
@@ -410,24 +412,31 @@ test.describe("Stacked branches", () => {
     for (const name of ["auth", "login", "oauth"]) {
       await expect(findBranchRow(page, name).getByTestId("lane-node")).toHaveAttribute("data-filled", "false")
     }
-    // one toast for the stack, as Activity has an entry per branch; it creates the pull request of oauth into login
+    // one toast for the stack, as Activity has an entry per branch; it creates the pull request of oauth
     const toast = page.locator("[data-slot=toast]", { hasText: "Pushed auth, login and oauth" })
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText("3 commits · created 3 remote branches")
     await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
     const texts = await routeNewPullRequest(page)
     await toast.getByRole("button", { name: "Create Pull Request…" }).click()
+    // into master, with the commits of the branches oauth is built on: what its Safe Push lands
     const dialog = createPullRequestDialog(page)
-    await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("oauth → login")
-    expect(texts).toEqual([expect.objectContaining({ head: "user-name/virtual/oauth", base: "user-name/virtual/login" })])
+    await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("oauth → master")
+    await expect(dialog.getByTestId("create-pull-request-includes")).toHaveText("Includes the commits of auth and login, which oauth is built on: 3 branches · 3 commits")
+    expect(texts).toEqual([expect.objectContaining({ head: "user-name/virtual/oauth", base: "master" })])
     // GitHub's form, as "Continue on GitHub" opens it, takes the same base
     await dialog.getByTestId("create-pull-request-on-github").click()
-    await expect
-      .poll(() => getOpenedUrls(page))
-      .toEqual([`${GITHUB_COMPARE}/user-name/virtual/login...user-name/virtual/oauth?expand=1&title=Add+auth&body=-+**Add+login**&assignees=user-name`])
+    await expect.poll(() => getOpenedUrls(page)).toEqual([`${GITHUB_COMPARE}/master...user-name/virtual/oauth?expand=1&title=Add+auth&body=-+**Add+login**&assignees=user-name`])
+    await expect(dialog).toHaveCount(0)
 
+    // the root's pull request goes into master too, and holds only its own commits
+    const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(pullRequest("auth", 900)))
     await openContextMenu(page, findBranchRow(page, "auth"))
-    await clickContextMenuItem(page, "Copy PR Base")
-    await expect.poll(() => readClipboard(page)).toBe("master")
+    await clickContextMenuItem(page, "Create Pull Request…")
+    await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("auth → master")
+    await expect(dialog.getByTestId("create-pull-request-includes")).toHaveCount(0)
+    await dialog.getByTestId("create-pull-request-submit").click()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Created pull request #900" }).locator("[data-slot=toast-description]")).toHaveText("auth → master · assigned to you")
+    expect(creates).toEqual([expect.objectContaining({ branchName: "auth", head: "user-name/virtual/auth", base: "master" })])
   })
 
   test("should push a stack in one push, refused whole when a remote branch of it moved", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -547,31 +556,55 @@ test.describe("Stacked branches", () => {
     await expect(page.locator("[data-slot=toast]", { hasText: "Pushed session, login and oauth" })).toBeVisible()
   })
 
-  test("should retarget a pull request whose base is not the expected one before the push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    // the pull request of auth targets the branch it was stacked on before; the one of login targets master
-    const pullRequests = availablePullRequests(pullRequest("auth", 802, { baseRefName: "user-name/virtual/core" }), pullRequest("login", 801, { baseRefName: "master" }))
+  test("should retarget a pull request into a parent's branch to master before the push", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // auth's pull request goes into the branch it was stacked on before, login's into its parent's (approved), session's
+    // into a release branch
+    const pullRequests = availablePullRequests(
+      pullRequest("auth", 802, { baseRefName: "user-name/virtual/core" }),
+      pullRequest("login", 801, { baseRefName: "user-name/virtual/auth", reviewers: [reviewer("alice", "approved")] }),
+      pullRequest("session", 803, { baseRefName: "release-252" }),
+    )
     await setupRepo("stacked_branches", { pullRequests })
     await syncAndWaitForBranches()
     const pushes = await routePush(page, {})
     const retargets = await routeCommand(page, "retarget_pull_request", () => null)
-
-    // auth isn't on the remote: master is the right base of login until auth is pushed, GitHub has no auth to target
-    await openContextMenu(page, findBranchRow(page, "login"))
-    await expect(page.getByRole("menuitem", { name: "Copy PR Base" })).toBeVisible()
-    await expect(page.getByRole("menuitem", { name: "Copy Retarget Command" })).toHaveCount(0)
-    await page.keyboard.press("Escape")
+    // GitHub listed them: the menu is built of what the rows show
+    await expect(findBranchRow(page, "auth").getByTestId("pull-request-chip")).toHaveText("#802")
+    await expect(page.getByTestId("pull-request-chip")).toHaveCount(3)
 
     await openContextMenu(page, findBranchRow(page, "auth"))
     await clickContextMenuItem(page, "Copy Retarget Command")
     await expect.poll(() => readClipboard(page)).toBe("gh pr edit 802 --base master")
 
-    // the push retargets it first: pushed onto master, a pull request into core would show the wrong commits
-    await getPushButton(findBranchRow(page, "auth")).click()
-    const toast = page.locator("[data-slot=toast]", { hasText: "Pushed auth" })
-    await expect(toast.locator("[data-slot=toast-description]")).toHaveText("1 commit · created the remote branch · retargeted pull request #802 to master")
-    expect(retargets).toEqual([expect.objectContaining({ pullRequestNumber: 802, base: "master" })])
-    expect(pushes.map(push => push.branchName)).toEqual(["auth"])
-    await expect(toast.getByRole("button", { name: "Open Pull Request" })).toBeVisible()
+    // the description says it first, and that GitHub may dismiss the approvals of login's
+    const button = getPushButton(findBranchRow(page, "login"))
+    await expect(button).toHaveAccessibleName("Push Stack (2 branches)")
+    await button.hover()
+    await expect(page.getByTestId("push-description").getByTestId("push-retarget")).toHaveText(
+      "Retargets #802 of auth to master. Retargets #801 of login to master: GitHub may dismiss its approvals.",
+    )
+    // the push retargets them first: every pull request of a virtual branch goes into master, with what it lands
+    await button.click()
+    const toast = page.locator("[data-slot=toast]", { hasText: "Pushed auth and login" })
+    await expect(toast.locator("[data-slot=toast-description]")).toHaveText(
+      "2 commits · created 2 remote branches · retargeted pull request #802 of auth to master · retargeted pull request #801 of login to master",
+    )
+    expect(retargets).toEqual([expect.objectContaining({ pullRequestNumber: 802, base: "master" }), expect.objectContaining({ pullRequestNumber: 801, base: "master" })])
+    expect(pushes.map(push => push.branchName)).toEqual(["auth", "login"])
+    // Activity names each retarget, with its pull request
+    await page.getByTestId("activity-button").click()
+    const retargeted = page.getByTestId("activity-entry").filter({ hasText: "Retargeted #801 to master" })
+    await expect(retargeted.getByTestId("activity-description")).toHaveText("login · it went into auth")
+
+    // a pull request into a release branch is left as it is: that base may be meant
+    await page.keyboard.press("Escape")
+    await openContextMenu(page, findBranchRow(page, "session"))
+    await expect(page.getByRole("menuitem", { name: "Copy Branch Name" })).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: "Copy Retarget Command" })).toHaveCount(0)
+    await page.keyboard.press("Escape")
+    await getPushButton(findBranchRow(page, "session")).click()
+    await expect(pushedToast(page, "session").locator("[data-slot=toast-description]")).toHaveText("1 commit · created the remote branch")
+    expect(retargets).toHaveLength(2)
   })
 
   test.describe("Safe Push", () => {
