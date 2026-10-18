@@ -1953,9 +1953,10 @@ lacks, and its pull request showing the parent's commits.
    the stack again at once, leased on the fetched heads, once; else the toast of that branch offers its push over it.
    When every lease held, the remote refused for another reason: an error, as for one branch.
 5. The stack branch of the whole stack (`{prefix}/stack/<root>`) goes the same way, as a branch of `push_branches`
-   with `wholeStack` (no parent, no tip): the restart of the robot of the whole stack and the creation of its pull
-   request push it (`pushWholeStack`), only while the sync built it, leased on the remote head of its remote status;
-   the branches of the stack are not pushed with it.
+   with `wholeStack` (no parent, no tip): the start of the Safe Push of the whole stack and the restart of its robot,
+   the creation of its pull request and Request Review on it push it (`pushWholeStack`), only while the sync built it,
+   leased on the remote head of its remote status; the branches of the stack are not pushed with it, and Push with
+   Children of the app doesn't take it along (`bd push --with-children` does).
 
 Code: `crates/sync-core/src/push.rs`, `src-tauri/src/commands/push.rs`, `src/lib/git/stack-push.ts`.
 

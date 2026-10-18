@@ -5,8 +5,7 @@ The work of one local branch (the master of a large repository) is done when it 
 monorepo it gets there through Patronus Safe Push. Branch Deck cuts that work into virtual branches, optionally
 stacked, only so that it can land in pieces: a piece is a branch and what it is built on, landed in one robot; a whole
 stack lands in one robot too; every pull request goes into master, holding what its Safe Push lands. Judge every
-feature by what it lands into master and in how many robots ([Landing Work into Master](docs/design/landing.md), a
-draft while the model is implemented).
+feature by what it lands into master and in how many robots ([Landing Work into Master](docs/design/landing.md)).
 
 Desktop Git branch management tool using React 19 + Vite + Tauri v2. Use `pnpm` only: the version is `packageManager`
 in `package.json`, Node.js is `.node-version`; CI reads both through `voidzero-dev/setup-vp`.
@@ -216,11 +215,12 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   flat names would clash; the branch prefix order is the specific one first, the repository's own, the app's, the
   global git one, in the app as in `bd` (`spec/repository/settings.spec.md`).
 - **Branch Review**: Review Changes (D; on a row, its menu, the preview, the code-owner block) reviews a branch in the
-  `branch-review` sub-window, the only review of a branch (`BranchReview`): the stack as segments (own part,
-  Shift+click to extend, Whole Stack = what Patronus checks; `get_branch_review`, one `for-each-ref` + one `log`), its
-  commits, the commit review of the range, owners by the `OWNERSHIP` files of the baseline (`ownership.rs`, one
-  `cat-file --batch`) as labels and filter chips, the files of each reviewer group (`paths` from Patronus when it sends
-  them, else by owner name), opened from "Review Changes" of the Safe Push popover too (`spec/branch/branch-review.spec.md`).
+  `branch-review` sub-window, the only review of a branch (`BranchReview`): the stack as segments (own part, Shift+click
+  to extend, From Root = what its Safe Push lands and Patronus checks; Review Whole Stack the stack branch;
+  `get_branch_review`, one `for-each-ref` + one `log`), its commits, the commit review of the range, owners by the
+  `OWNERSHIP` files of the baseline (`ownership.rs`, one `cat-file --batch`) as labels and filter chips, the files of
+  each reviewer group (`paths` from Patronus when it sends them, else by owner name), opened from "Review Changes" of
+  the Safe Push popover too (`spec/branch/branch-review.spec.md`).
 - **Symbol dependencies**: tree-sitter summaries of the files the commits change (`crates/code-symbols`: Kotlin, Java,
   Rust, TypeScript and JavaScript), cached by blob id; `bd commits` names the edges by symbols (`via`, the class
   `Order`: never joins `units`), an override of a member, the overload or constructor form a call's arguments select
@@ -366,13 +366,14 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   when one changes; a failed move fails no sync (listed again, a ref already where it should be counts as moved).
 - **Stack branches** (`{prefix}/stack/<root>`, `crates/sync-core/src/stack_branch.rs`): only a sync writes them, for a
   stack that forks: its members' original commits in history order on the base of the sync, in one `CommitChain`,
-  without mapping notes (an original's note names the copy of its own branch) and without branch events; moved with
-  CAS on the tip the sync listed, and only when every member was built; deleted in one CAS transaction once the stack
-  stops forking, never while it has a remote branch or a worktree has it checked out. A stack branch the sync did not
-  rebuild (any state but `Built`) keeps its tip and is never pushed; a `Built` one only by `bd safe-push --whole-stack`
-  (alone) and `bd push <root> --with-children`, leased on the remote head of its remote status. Its build is
-  remembered by a hash of the base and the original ids (`StackBuilds`, the object cache's `stack_branch`), never by
-  `CommitKey`, which an amend keeps.
+  without mapping notes (an original's note names the copy of its own branch) and without branch events; moved with CAS
+  on the tip the sync listed, and only when every member was built; deleted in one CAS transaction once the stack stops
+  forking, never while it has a remote branch or a worktree has it checked out. A stack branch the sync did not rebuild
+  (any state but `Built`) keeps its tip and is never pushed; a `Built` one alone by the Safe Push of the whole stack,
+  its restart, the creation of its pull request and Request Review (`bd safe-push --whole-stack`, the app's
+  `pushWholeStack`), and with the branches by `bd push <root> --with-children`, leased on the remote head of its remote
+  status. Its build is remembered by a hash of the base and the original ids (`StackBuilds`, the object cache's
+  `stack_branch`), never by `CommitKey`, which an amend keeps.
 - **Repository lock**: every rewrite of the checked-out branch takes it in its core, before it reads anything: the
   regroup (`regroup.rs`) and the move of a hunk through their options, and the app's squash and its undo, squash
   fixups (also `bd fold`), amend, unapply, reword and add issue reference through `RewriteOptions` (`held_lock`,

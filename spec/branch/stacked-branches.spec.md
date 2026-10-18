@@ -98,9 +98,10 @@ menu stacks, unstacks and renames branches.
   merges a pull request into its base and counts only the approvals of the pull request that started it, so such a
   pull request can never land ([Landing](../../docs/design/landing.md#alternatives-considered)). Every pull request of a
   virtual branch goes into the baseline; an open one into a virtual branch is retargeted ([Pull requests](#pull-requests)).
-- Pull requests of a whole stack at once: "Create Pull Request…" creates the pull request of one branch
-  ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)). Branch Deck closes the pull requests a Safe Push
-  landed ([Pull requests](#pull-requests)).
+- The pull requests of every branch of a stack at once: "Create Pull Request…" creates the pull request of one branch
+  ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)). A stack that forks has one more, of its whole
+  stack ([Whole Stack](whole-stack.spec.md)). Branch Deck closes the pull requests a Safe Push landed
+  ([Pull requests](#pull-requests)).
 
 ## Requirements
 
