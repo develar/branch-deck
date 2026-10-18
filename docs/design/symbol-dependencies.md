@@ -374,6 +374,15 @@ flowchart TD
 - **The entities two commits change as features of P** (the functions and types around their hunks): Why not: in the
   IDF-weighted Jaccard of `bd suggest` a shared function adds 0.1–0.2 to P, short of the threshold, and commits of
   one function already share its file. `bd commits --symbol-stats` still counts the pairs (`entity_pairs`).
+- **Checks of a branch's tree beside the dangling-reference check** (`unimplemented_member`, `non_exhaustive_when`):
+  the branch's tree has a class that doesn't override an abstract member of its one supertype while HEAD does, or a
+  `when` over an enum without `else` that lacks a branch HEAD has for an entry the tree declares. The oracle is the
+  dangling check's: HEAD builds, the branch's tree is compared with HEAD, and `bd suggest` repairs it with the same
+  edge.
+  Why not now: on `86be3572..7dfac19d` 13 commits add 50 abstract members and 8 commits add 15 enum entries; on the
+  real pair `f0596b09` 4 commits add 5 members and 4 commits add 7 entries. Every override and every `when` branch
+  is in the commit of its member or entry, so neither check fires on a branch of the current grouping or of the
+  plan of `bd suggest`.
 
 ## Measurements
 
@@ -506,6 +515,10 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     `bd suggest` are byte for byte those of the constructors, `--brief` differs only in the two edges; the five repro
     cases make one edge by symbols each; on the real pair `bd check` names the same `getButtonManager`, and on the
     clone `bd commits`, `--brief`, `bd check` and `bd suggest` are byte for byte the baseline's.
+- Round 4, 2026-10-18, the checks of a branch's tree (see Alternatives Considered): a throwaway tree-sitter scan of
+  both sides of 1411 Kotlin and Java file changes on `86be3572..7dfac19d` and 188 on the real pair found 0 overrides
+  and 0 `when` branches outside the commit of their member or entry, and no `is` branch of the 23 new sealed
+  subtypes is outside its commit either.
 
 ### The gate
 
