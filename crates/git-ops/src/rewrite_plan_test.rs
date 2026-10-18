@@ -1,6 +1,7 @@
 use super::copy_commit::CopyCommitError;
 use super::history::History;
 use super::ref_transaction::RefTransaction;
+use super::revs::resolve_tree_id;
 use super::rewrite_plan::{PlanChecks, PlanStep, PreparedRewrite, Replacement, RewritePlan, drop_commits_from_head, prepare_plan};
 use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, stage_file, status, write_file};
 use anyhow::Result;
@@ -46,7 +47,7 @@ fn assert_squash_refused(repo: &TestRepo, target: &str, folded: &[&str], expecte
 }
 
 fn tree(repo: &TestRepo, rev: &str) -> Result<String> {
-  repo.git_executor().resolve_tree_id(repo_path(repo), rev)
+  resolve_tree_id(repo.git_executor(), repo_path(repo), rev)
 }
 
 #[test]

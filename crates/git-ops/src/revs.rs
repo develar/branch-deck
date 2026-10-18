@@ -103,11 +103,30 @@ pub fn is_object_id(id: &str) -> bool {
   matches!(id.len(), 40 | 64) && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-/// The full id of the commit `rev` names (a ref, a short id, `HEAD~1`, a tag of a commit), `None` when it names none:
-/// one `rev-parse --verify --quiet`, `--end-of-options` so a `rev` never reads as an option
+/// The full id of the commit `rev` names (a ref, a short id, `HEAD~1`, a tag of a commit), `None` when it names none
 pub fn resolve_commit(git_executor: &GitCommandExecutor, repo_path: &str, rev: &str) -> Result<Option<String>> {
-  let (id, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{rev}^{{commit}}")], repo_path)?;
+  peel(git_executor, repo_path, rev, "commit")
+}
+
+/// The full id of the tree `rev` names (a commit, a ref, `HEAD~1`, a tree), an error when it names none. No cache: a
+/// caller caches by its own rules (`TreeIdCache`)
+pub fn resolve_tree_id(git_executor: &GitCommandExecutor, repo_path: &str, rev: &str) -> Result<String> {
+  peel(git_executor, repo_path, rev, "tree")?.ok_or_else(|| anyhow!("{rev} names no tree"))
+}
+
+/// The full id of the object of `kind` (`commit`, `tree`) that `rev` names, `None` when it names none: one
+/// `rev-parse --verify --quiet`, `--end-of-options` so a `rev` never reads as an option
+fn peel(git_executor: &GitCommandExecutor, repo_path: &str, rev: &str, kind: &str) -> Result<Option<String>> {
+  let (id, exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", "--end-of-options", &format!("{rev}^{{{kind}}}")], repo_path)?;
   Ok((exit_code == 0).then_some(id))
+}
+
+/// Whether a fully qualified ref (`refs/heads/main`) exists: one `show-ref --verify --quiet`, a failure never logged
+pub fn ref_exists(git_executor: &GitCommandExecutor, repo_path: &str, full_ref: &str) -> bool {
+  git_executor
+    .cmd(&["show-ref", "--verify", "--quiet", full_ref], repo_path)
+    .status()
+    .is_ok_and(|output| output.code == 0)
 }
 
 /// Full ref -> tip of the refs under each of `namespaces` (`refs/heads/<prefix>/`, `refs/remotes/origin/<prefix>/`),

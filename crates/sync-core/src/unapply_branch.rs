@@ -7,7 +7,7 @@ use branch_integration::archive::{REF_RENAME_MUTEX, unique_branch_name};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::{BranchKind, qualified_branch_name, strip_branch_namespace};
 use git_ops::ref_transaction::RefTransaction;
-use git_ops::revs::current_branch;
+use git_ops::revs::{current_branch, ref_exists};
 use git_ops::rewrite_plan::prepare_drop_commits;
 use serde::{Deserialize, Serialize};
 use std::sync::PoisonError;
@@ -59,7 +59,7 @@ pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBra
 
   let _lock = options.lock(git_executor, &repository_path)?;
   // Verify branch exists
-  if !git_executor.ref_exists(&repository_path, &format!("refs/heads/{branch_name}")) {
+  if !ref_exists(git_executor, &repository_path, &format!("refs/heads/{branch_name}")) {
     return Err(anyhow!("Virtual branch does not exist: {branch_name}"));
   }
 

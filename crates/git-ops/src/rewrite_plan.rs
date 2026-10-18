@@ -12,7 +12,7 @@ use crate::merge_memo::MergeOutcome;
 use crate::model::BranchError;
 use crate::ref_transaction::RefTransaction;
 use crate::replay::replay_onto;
-use crate::revs::short_id;
+use crate::revs::{resolve_tree_id, short_id};
 use crate::rewrite_guard::{IndexUpdate, RewriteTarget};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -412,7 +412,7 @@ impl PlanWriter<'_> {
     if let Some(tree) = self.history.tree_of(id).or_else(|| self.trees.get(id).map(String::as_str)) {
       return Ok(tree.to_string());
     }
-    let tree = self.git_executor.resolve_tree_id(self.repo_path, id)?;
+    let tree = resolve_tree_id(self.git_executor, self.repo_path, id)?;
     self.trees.insert(id.to_string(), tree.clone());
     Ok(tree)
   }

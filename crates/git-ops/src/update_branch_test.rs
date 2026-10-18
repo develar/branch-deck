@@ -1,4 +1,5 @@
 use crate::paths::changed_paths;
+use crate::revs::ref_exists;
 use crate::update_branch::{
   CheckPurpose, PENDING_UPDATE_PREFIX, UpstreamRef, check_update, finish_pending_update, index_left_behind, no_landed_candidates, previous_upstream_tips,
 };
@@ -101,7 +102,7 @@ fn finishing_an_interrupted_update_whose_files_followed_reads_the_worktree_once(
 
   let git = GitCommandExecutor::new().with_process_stats("test");
   assert_eq!(finish_pending_update(&git, repo.path_str()).unwrap(), Some((from, to)));
-  assert!(!repo.git_executor().ref_exists(repo.path_str(), &mark));
+  assert!(!ref_exists(repo.git_executor(), repo.path_str(), &mark));
   let by_command = git.process_stats().unwrap().by_command();
   // the worktree, the mark, the guard's operation markers, HEAD and the branch's previous value
   assert_eq!(by_command.get("rev-parse").map(|stats| stats.count), Some(5), "{by_command:#?}");

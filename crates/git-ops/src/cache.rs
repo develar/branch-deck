@@ -3,6 +3,7 @@
 
 use crate::copy_commit::CopyCommitError;
 use crate::merge_memo::MergeMemo;
+use crate::revs::resolve_tree_id;
 use anyhow::Result;
 use dashmap::DashMap;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -75,9 +76,7 @@ impl TreeIdCache {
 
     // Cache miss - fetch from git
     debug!("cache miss for commit {}", commit_id);
-    let tree_id = git_executor
-      .resolve_tree_id(repo_path, commit_id)
-      .map_err(|e| CopyCommitError::Other(anyhow::anyhow!("Failed to get tree ID for {commit_id}: {e}")))?;
+    let tree_id = resolve_tree_id(git_executor, repo_path, commit_id).map_err(|e| CopyCommitError::Other(anyhow::anyhow!("Failed to get tree ID for {commit_id}: {e}")))?;
 
     // Store in cache (minimal locking) only for stable keys; a short id is not a key across operations
     if cacheable {

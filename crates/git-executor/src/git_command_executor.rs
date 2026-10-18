@@ -164,22 +164,6 @@ impl GitCommandExecutor {
     let output = self.cmd(args, repository_path).status()?;
     Ok(if output.code == 0 { (output.into_text(), 0) } else { (output.stderr, output.code) })
   }
-
-  /// Check whether a fully qualified ref (e.g. `refs/heads/main`) exists. Never logs a failure.
-  pub fn ref_exists(&self, repository_path: &str, full_ref: &str) -> bool {
-    self
-      .cmd(&["show-ref", "--verify", "--quiet", full_ref], repository_path)
-      .status()
-      .is_ok_and(|output| output.code == 0)
-  }
-
-  /// Resolve the tree object ID for a given revision (commit, ref, or symbolic like HEAD).
-  /// This does not cache; callers can cache based on their own rules if needed.
-  #[instrument(skip(self))]
-  pub fn resolve_tree_id(&self, repository_path: &str, rev: &str) -> Result<String> {
-    let tree_ref = format!("{rev}^{{tree}}");
-    self.execute_command(&["rev-parse", "--verify", "--end-of-options", &tree_ref], repository_path)
-  }
 }
 
 /// A git invocation of `GitCommandExecutor::cmd`: options first, then one finisher that runs it

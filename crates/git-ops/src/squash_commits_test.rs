@@ -1,6 +1,7 @@
 use super::copy_commit::CopyCommitError;
 use super::history::History;
 use super::ref_transaction::RefTransaction;
+use super::revs::resolve_tree_id;
 use super::rewrite_plan::PreparedRewrite;
 use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, stage_file, worktree_snapshot, write_file};
 use super::squash_commits::{SquashGroup, SquashMessage, prepare_squash, restore_branch_head};
@@ -90,13 +91,13 @@ fn keeps_the_commit_in_between_of_another_branch() -> Result<()> {
   let target = repo.create_commit("(auth) Add login", "login.txt", "1\n");
   repo.create_commit("(docs) Document", "docs.md", "docs");
   let folded = repo.create_commit("(auth) Fix login", "login.txt", "2\n");
-  let head_tree = repo.git_executor().resolve_tree_id(repo_path(&repo), "HEAD")?;
+  let head_tree = resolve_tree_id(repo.git_executor(), repo_path(&repo), "HEAD")?;
 
   squash(&repo, &target, &[&folded], "(auth) Add login\n")?;
 
   assert_eq!(subjects(&repo)?, "(docs) Document\n(auth) Add login\nBase");
   assert_eq!(show(&repo, "HEAD~1", "login.txt")?, "2");
-  assert_eq!(repo.git_executor().resolve_tree_id(repo_path(&repo), "HEAD")?, head_tree);
+  assert_eq!(resolve_tree_id(repo.git_executor(), repo_path(&repo), "HEAD")?, head_tree);
   assert_no_temp_refs(&repo)
 }
 
@@ -141,7 +142,7 @@ fn target_message_keeps_the_bytes_and_the_encoding() -> Result<()> {
   repo.set_config("i18n.commitEncoding", "ISO-8859-1").map_err(anyhow::Error::msg)?;
   // "Caf\xe9" in Latin-1, written as is
   let message = b"Caf\xe9\n";
-  let tree = repo.git_executor().resolve_tree_id(repo_path(&repo), "HEAD")?;
+  let tree = resolve_tree_id(repo.git_executor(), repo_path(&repo), "HEAD")?;
   let head = repo.head();
   let target = repo
     .git_executor()

@@ -71,28 +71,3 @@ fn test_large_stdin_and_stdout_do_not_deadlock() {
     .unwrap();
   assert_eq!(output.lines().count(), 50_000);
 }
-
-#[test]
-fn test_probes_report_missing_refs() {
-  let repo = TestRepo::new();
-  repo.create_commit("Commit", "file.txt", "content");
-  let repo_path = repo.path().to_str().unwrap();
-  let git_executor = GitCommandExecutor::new();
-
-  let current_ref = git_executor.execute_command(&["symbolic-ref", "HEAD"], repo_path).unwrap();
-  assert!(git_executor.ref_exists(repo_path, &current_ref));
-  assert!(!git_executor.ref_exists(repo_path, "refs/heads/missing"));
-}
-
-/// A revision that reads as an option is no tree: `rev-parse` echoed `--all^{tree}` as the tree id
-#[test]
-fn the_tree_of_an_option_is_an_error() {
-  let repo = TestRepo::new();
-  let commit = repo.create_commit("First commit", "file1.txt", "content1");
-  let git_executor = GitCommandExecutor::new();
-  let tree = git_executor.resolve_tree_id(repo.path_str(), &commit).unwrap();
-  assert_eq!(tree, repo.rev_parse(&format!("{commit}^{{tree}}")).unwrap());
-  for rev in ["--all", "--git-dir"] {
-    assert!(git_executor.resolve_tree_id(repo.path_str(), rev).is_err(), "{rev}");
-  }
-}

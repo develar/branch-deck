@@ -288,6 +288,7 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   protocol is `git.cmd(&args, repo)` with `.env`, `.stdin`, `.accept`, `.timeout` and one finisher (`.text`, `.bytes`,
   `.lines`, `.output`, `.status`, `.stream`, `.progress`, `.interactive`), all on one spawn core; the only shorthands are
   `execute_command` (`.text`), `execute_command_lines` (`.lines`) and `execute_command_with_status` (`.status` as text).
+  The executor knows no git beyond that: a rev or ref fact (`resolve_tree_id`, `ref_exists`) is a git-ops function.
 - **Scan tests** (`crates/git-executor/src/git_usage_scan_test.rs`, on the sources as `source_scan_test.rs` reads them
   for the worktree safety scan too): git starts only in `GitCommandExecutor` (and `git_info.rs`'s discovery); bd-cli
   and src-tauri start no git of their own; no `--no-pager`, no
@@ -426,7 +427,7 @@ headers of `crates/git-ops/src/lib.rs` and `crates/sync-core/src/lib.rs` map the
 | `read_blob_bytes`, `read_texts`, `read_trees` | `git_ops::object_texts` | blob bytes or texts and tree entries of many names |
 | `History::read_to`, `read_ahead_of`, `check_rewrite` | `git_ops::history` | the first-parent history a rewrite works on, never the whole one, and its guards |
 | `check_rewrite_range`, `ensure_no_operation_in_progress`, `IndexUpdate`, `HeadMoved` | `git_ops::rewrite_guard` | the guards of a range not read; the user's index after a rewrite |
-| `short_id`, `is_object_id`, `current_branch`, `checked_out_branch`, `read_head`, `resolve_commit`, `is_ancestor`, `merge_base`, `fork_point`, `ref_tips`, `tips_under`, `current_worktree`, `repository_dirs` | `git_ops::revs` | rev, branch and worktree facts; a full id; `merge-base` exit 1 is "no", any other an error |
+| `short_id`, `is_object_id`, `current_branch`, `checked_out_branch`, `read_head`, `resolve_commit`, `resolve_tree_id`, `ref_exists`, `is_ancestor`, `merge_base`, `fork_point`, `ref_tips`, `tips_under`, `current_worktree`, `repository_dirs` | `git_ops::revs` | rev, branch and worktree facts; a full id; `merge-base` exit 1 is "no", any other an error |
 | `changed_paths`, `commits_touching` | `git_ops::paths` | the paths two trees differ in, as bytes; the commits that change some paths |
 | `replay_range`, `replay_range_with_env`, `merge_trees` | `git_ops::replay` | `git replay` of a range, a merge of three trees, objects only |
 | `read_notes`, `notes_ref`, `write_commit_notes` | `git_ops::notes` | the notes of many commits from one `log --no-walk --stdin`; the mapping notes |

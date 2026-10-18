@@ -6,6 +6,7 @@
 
 use crate::cat_file_batch::{BatchEntry, NO_LIMIT, for_each_object};
 use crate::ref_transaction::RefTransaction;
+use crate::revs::ref_exists;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
@@ -364,7 +365,7 @@ pub fn write_commits_with_notes(
       return Err(anyhow!("note for commit {index} of a batch of {}", commits.len()));
     }
     let targets = notes.notes.iter().map(|(index, content)| (format!(":{}", index + 1), content.as_str()));
-    let from = git_executor.ref_exists(repo_path, notes.notes_ref).then(|| format!("{}^0", notes.notes_ref));
+    let from = ref_exists(git_executor, repo_path, notes.notes_ref).then(|| format!("{}^0", notes.notes_ref));
     push_notes_commit(&mut stream, notes.notes_ref, None, from.as_deref(), committer, targets);
   }
   let store_temp_refs: Vec<String> = (0..stores.len()).map(|index| format!("{temp_ref}-store-{index}")).collect();
@@ -635,7 +636,7 @@ pub fn write_notes_to_refs(git_executor: &GitCommandExecutor, repo_path: &str, r
   let committer = current_committer(git_executor, repo_path)?;
   let mut stream = Vec::with_capacity(refs.iter().map(|(_, notes)| notes.len() * 128).sum());
   for (notes_ref, notes) in refs.iter().filter(|(_, notes)| !notes.is_empty()) {
-    let from = git_executor.ref_exists(repo_path, notes_ref).then(|| format!("{notes_ref}^0"));
+    let from = ref_exists(git_executor, repo_path, notes_ref).then(|| format!("{notes_ref}^0"));
     push_notes_commit(
       &mut stream,
       notes_ref,

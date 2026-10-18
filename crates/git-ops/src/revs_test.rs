@@ -1,5 +1,6 @@
 use crate::revs::{
-  DetachedHead, RepositoryDirs, checked_out_branch, current_branch, fork_point, is_ancestor, merge_base, read_head, ref_tips, repository_dirs, resolve_commit, tips_under,
+  DetachedHead, RepositoryDirs, checked_out_branch, current_branch, fork_point, is_ancestor, merge_base, read_head, ref_exists, ref_tips, repository_dirs, resolve_commit,
+  resolve_tree_id, tips_under,
 };
 use std::collections::HashMap;
 use test_log::test;
@@ -70,6 +71,32 @@ fn a_commit_resolves_by_any_name_and_a_non_commit_to_none() {
   for rev in ["HEAD^{tree}", MISSING, "--all"] {
     assert_eq!(resolve_commit(git, path, rev).unwrap(), None, "{rev}");
   }
+}
+
+/// A revision that reads as an option is no tree: `rev-parse` echoed `--all^{tree}` as the tree id
+#[test]
+fn a_tree_resolves_by_any_name_and_an_option_is_an_error() {
+  let repo = TestRepo::new();
+  let (git, path) = (repo.git_executor(), repo.path_str());
+  let commit = repo.create_commit("first", "a.txt", "a\n");
+  let tree = repo.rev_parse(&format!("{commit}^{{tree}}")).unwrap();
+  for rev in [commit.as_str(), "HEAD", tree.as_str()] {
+    assert_eq!(resolve_tree_id(git, path, rev).unwrap(), tree, "{rev}");
+  }
+  for rev in ["--all", "--git-dir", MISSING] {
+    let error = resolve_tree_id(git, path, rev).unwrap_err();
+    assert!(format!("{error:#}").contains("names no tree"), "{rev}: {error:#}");
+  }
+}
+
+#[test]
+fn a_ref_exists_by_its_full_name() {
+  let repo = TestRepo::new();
+  let (git, path) = (repo.git_executor(), repo.path_str());
+  repo.create_commit("first", "a.txt", "a\n");
+  assert!(ref_exists(git, path, "refs/heads/master"));
+  assert!(!ref_exists(git, path, "master"));
+  assert!(!ref_exists(git, path, "refs/heads/missing"));
 }
 
 #[test]

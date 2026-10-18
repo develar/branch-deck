@@ -8,7 +8,7 @@ use crate::history::History;
 use crate::model::BranchError;
 use crate::ref_transaction::RefTransaction;
 use crate::replay::{merge_trees, replay_onto};
-use crate::revs::short_id;
+use crate::revs::{resolve_tree_id, short_id};
 use crate::rewrite_guard::{IndexUpdate, stage_worktree_files};
 use crate::rewrite_plan::{PreparedRewrite, check_target};
 use anyhow::anyhow;
@@ -127,7 +127,7 @@ pub fn prepare_amend(git_executor: &GitCommandExecutor, repo_path: &str, params:
       }
     }
     // the replayed history must end with exactly the working-tree versions of the files, nothing else changed
-    if git_executor.resolve_tree_id(repo_path, &prepared.new_head)? != worktree_tree {
+    if resolve_tree_id(git_executor, repo_path, &prepared.new_head)? != worktree_tree {
       prepared.discard(git_executor, repo_path);
       return Err(CopyCommitError::BranchError(BranchError::Generic(format!(
         "Amending commit {} would change later commits differently than the working tree; amend into a later commit instead",

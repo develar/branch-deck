@@ -247,7 +247,9 @@ process however the run ends: a handler error, a stop or a `Break`. Text is deco
 only when it is not UTF-8; stderr is read as bytes and decoded lossily, the interactive one too. Three shorthands
 stay for the common one-liners: `execute_command` is `.text()`, `execute_command_lines` is `.lines()` and
 `execute_command_with_status` is `.status()` as text (trimmed stdout on success, trimmed stderr otherwise, and the
-code); every other call is the builder.
+code); every other call is the builder. Besides its construction (`new`, `with_info`, `get_info`) and the process
+counts (`with_process_stats`, `process_stats`), that is all the executor offers: it knows no git command, and what a
+command means (a commit or a tree by name, whether a ref exists) is a function of `git_ops::revs`.
 
 ### Operations
 
