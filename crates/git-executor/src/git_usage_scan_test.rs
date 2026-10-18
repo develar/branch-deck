@@ -2,7 +2,7 @@
 //! safety scan (`source_scan_test.rs`). A failure names the place and what to do instead. Each rule allows a file only
 //! with its reason and exact number of hits, so a new hit and a stale exemption both fail.
 
-use crate::source_scan_test::{ArgList, Source, argument_lists, production_sources};
+use crate::source_scan_test::{ArgList, Source, argument_lists, line_at, production_sources};
 
 /// A file a rule allows, with its number of hits and why
 struct Exemption {
@@ -43,6 +43,27 @@ fn code_lines_with(source: &Source, needle: &str) -> Vec<usize> {
   source.code_lines().filter(|(_, line)| line.contains(needle)).map(|(number, _)| number).collect()
 }
 
+/// The lines of `source` that start a process whose program may be git: a `Command::new` (std or tokio) whose argument
+/// names git (`"git"`, `git_path`, `&git_info.path`, but not `github`), or any `Command::new` of a file that reads the
+/// discovered git (`GitInfo`, `.get_info()`)
+fn git_spawn_lines(source: &Source) -> Vec<usize> {
+  const SPAWN: &str = "Command::new(";
+  let reads_git_info = source.code_lines().any(|(_, line)| line.contains("GitInfo") || line.contains(".get_info()"));
+  let mut lines = Vec::new();
+  for (index, _) in source.text.match_indices(SPAWN) {
+    let line_start = source.text[..index].rfind('\n').map_or(0, |end| end + 1);
+    if source.text[line_start..index].trim_start().starts_with("//") {
+      continue;
+    }
+    let argument = &source.text[index + SPAWN.len()..];
+    let argument = &argument[..argument.find(')').unwrap_or(argument.len())];
+    if reads_git_info || argument.split(|c: char| !c.is_ascii_alphanumeric()).any(|word| word.eq_ignore_ascii_case("git")) {
+      lines.push(line_at(&source.text, index));
+    }
+  }
+  lines
+}
+
 /// Whether the code that ends with `before` passes what follows straight to an executor call (`git.cmd(&`,
 /// `git.execute_command(&`), not to a helper
 fn is_executor_argument(before: &str) -> bool {
@@ -68,6 +89,28 @@ fn bd_and_the_app_run_no_git_of_their_own() {
       lines.extend(code_lines_with(source, ".cmd("));
       lines
     },
+  );
+}
+
+#[test]
+fn git_starts_only_in_the_executor() {
+  check(
+    "git is started outside GitCommandExecutor",
+    "run git with git.cmd(&args, repo) or a shorthand of GitCommandExecutor, in a git-ops function: only its spawn core \
+     gives git the base config and environment, a null stdin, the timeouts and the process stats",
+    &[
+      Exemption {
+        path: "crates/git-executor/src/git_command_executor.rs",
+        hits: 1,
+        reason: "the spawn core of every git call (`GitCommandExecutor::command`)",
+      },
+      Exemption {
+        path: "crates/git-executor/src/git_info.rs",
+        hits: 2,
+        reason: "the discovery: `git version` of a candidate, and the login shell's `which git`",
+      },
+    ],
+    git_spawn_lines,
   );
 }
 
@@ -179,6 +222,22 @@ fn network_commands_run_through_remote_command() {
       })
     },
   );
+}
+
+#[test]
+fn a_git_spawn_is_told_from_another_process() {
+  let lines = |text: &str| {
+    git_spawn_lines(&Source {
+      path: String::new(),
+      text: text.to_string(),
+    })
+  };
+  assert_eq!(lines("let a = Command::new(\"git\");\nlet b = std::process::Command::new(\n  &git_info.path,\n);"), [1, 2]);
+  assert_eq!(
+    lines("let gh = Command::new(github_cli); let sh = Command::new(\"sh\");\n/// Command::new(\"git\")"),
+    Vec::<usize>::new()
+  );
+  assert_eq!(lines("let info = executor.get_info()?;\nlet c = tokio::process::Command::new(&info.path);"), [2]);
 }
 
 #[test]

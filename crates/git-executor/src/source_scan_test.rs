@@ -152,13 +152,18 @@ pub(crate) fn argument_lists(source: &str) -> Vec<ArgList<'_>> {
     let args: Vec<Arg<'_>> = elements.into_iter().filter_map(arg).collect();
     if matches!(args.first(), Some(Arg::Literal(_))) {
       lists.push(ArgList {
-        line: source[..index].bytes().filter(|&b| b == b'\n').count() + 1,
+        line: line_at(source, index),
         before: &source[..index],
         args,
       });
     }
   }
   lists
+}
+
+/// The 1-based line of the byte at `offset` of `text`
+pub(crate) fn line_at(text: &str, offset: usize) -> usize {
+  text[..offset].bytes().filter(|&b| b == b'\n').count() + 1
 }
 
 /// `text` without its leading whitespace and comments
