@@ -35,6 +35,7 @@ const requestReview: MenuItem = { id: "request-review", label: "Request Review�
 function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
   return {
     branchName: "wsm-skip-wa-2",
+    subject: "wsm-skip-wa-2",
     patronusAvailable: true,
     syncing: false,
     hasError: false,
@@ -51,11 +52,9 @@ function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
     pullRequestsAvailable: true,
     pullRequest: openPullRequest,
     target: "master",
-    stackRoot: null,
     readiness: null,
     actions: {
       openSafePush: vi.fn(),
-      openRootSafePush: vi.fn(),
       openPullRequest: vi.fn(),
       retarget: vi.fn(),
       createPullRequest,
@@ -125,14 +124,34 @@ describe("getBranchNextStep", () => {
     expect(getBranchNextStep(facts({ robot: finished("needsReview"), pullRequest: null }))).toMatchObject({ kind: "pullRequest", item: createPullRequest })
   })
 
-  it("row 4: a stacked branch lands root first, Safe Push… as the root", () => {
-    const step = getBranchNextStep(facts({ stackRoot: { name: "auth", blocker: null } }))
-    expect(step).toMatchObject({ kind: "stackRoot", item: { label: "Safe Push auth…", disabled: false }, safePushBlocker: null, needsReadiness: false })
-    const waiting = getBranchNextStep(facts({ stackRoot: { name: "auth", blocker: "Waits for the approval of IJPL Code Platform: Ilya Korennoy is requested on #7" } }))
-    expect(waiting).toMatchObject({
-      kind: "stackRoot",
-      item: { disabled: true, description: "Waits for the approval of IJPL Code Platform: Ilya Korennoy is requested on #7" },
-      safePushBlocker: "Waits for the approval of IJPL Code Platform: Ilya Korennoy is requested on #7",
+  it("a stacked branch takes the steps of its own pull request into master", () => {
+    // oauth is built on auth and login: its Safe Push lands them with it, its approvals count in its own pull request
+    const oauth: Partial<NextStepFacts> = { branchName: "oauth", subject: "oauth", pullRequest: { ...openPullRequest, number: 8 } }
+    expect(getBranchNextStep(withReadiness(missing([group()]), oauth))).toMatchObject({
+      kind: "awaiting",
+      needsReadiness: true,
+      safePushBlocker: "Waits for the approval of IJPL Code Platform: Ilya Korennoy is requested on #8",
+      notice: { title: "Safe Push of oauth waits for Ilya Korennoy", description: "IJPL Code Platform · requested on #8" },
+    })
+    const approved = withReadiness({ kind: "approved", groups: [] }, oauth)
+    const step = getBranchNextStep(approved)
+    expect(step).toMatchObject({ kind: "safePush", item: { id: "safe-push", label: "Safe Push…", disabled: false }, safePushBlocker: null })
+    // its own form, below its row
+    step.item?.onSelect()
+    expect(approved.actions.openSafePush).toHaveBeenCalledOnce()
+  })
+
+  it("a stacked branch waits for the reasons of its ancestors", () => {
+    // a parent that failed to build blocks it: row 1, the Status cell says it
+    const blocked = "Blocked by login: fix it first, then sync"
+    expect(getBranchNextStep(facts({ blocked: true, startBlocker: blocked }))).toMatchObject({ kind: "none", item: null, safePushBlocker: blocked })
+    // a Safe Push of an ancestor lands its commits: the start waits for its merge, whatever the approvals
+    const landing = "A Safe Push of login is running: wait until it merges"
+    expect(getBranchNextStep(facts({ startBlocker: landing }))).toMatchObject({ kind: "safePush", item: { disabled: true, description: landing }, safePushBlocker: landing })
+    expect(getBranchNextStep(withReadiness(missing([group()]), { startBlocker: landing }))).toMatchObject({
+      kind: "awaiting",
+      safePushBlocker: landing,
+      notice: { title: "Safe Push of wsm-skip-wa-2 can't start", description: landing },
     })
   })
 

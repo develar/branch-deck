@@ -16,9 +16,9 @@ import { useReviewReadiness } from "@/stores/review-readiness"
  * The next step of a branch row, after the push button, one fixed width in every row, so the push buttons and "⋯" line
  * up down the table: the step of the first row of the [Next Step](../../../spec/branch/next-step.spec.md) table that
  * matches (`getBranchNextStep`), the same that disables "Safe Push…" everywhere else:
- * - "Safe Push…"; "Restart Safe Push" after a failed or canceled robot of the branch as it is; "Safe Push ‹root›…" of a
- *   stacked branch; "Retarget #7 to master" of a pull request into another base; "Create Pull Request…" or "Request
- *   Review…" where the approvals that count are missing;
+ * - "Safe Push…", which opens the form below the row (a stacked branch's too: it lands what it is built on with it);
+ *   "Restart Safe Push" after a failed or canceled robot of the branch as it is; "Retarget #7 to master" of a pull
+ *   request into another base; "Create Pull Request…" or "Request Review…" where the approvals that count are missing;
  * - a quiet step, the state as its label, which opens the pull request it waits in: "Awaiting Ilya Korennoy" (or
  *   "Awaiting 2 Reviews"), "Changes Requested" in `destructive`, "Draft";
  * - nothing while the Status cell says why: a sync, a failed sync, a blocked branch, a robot that runs or merged, a
@@ -28,8 +28,8 @@ import { useReviewReadiness } from "@/stores/review-readiness"
 export interface NextStepSlotProps {
   branch: Branch
   /**
-   * The header of a stack island: the Safe Push of the last branch of its main line, whose form leads root first, with
-   * the hover of the header; the step of the branch otherwise
+   * The header of a stack island: the step of the last branch of its main line, whose Safe Push lands the line in one
+   * robot, its form under the header (`onOpen`), with the hover of the header; the step of the row otherwise
    */
   stackHeader?: { description: string; onOpen: () => void }
 }
@@ -39,11 +39,9 @@ export function NextStepSlot({ branch, stackHeader }: NextStepSlotProps) {
   if (step === null || step.kind === "hidden") {
     return null
   }
-  const header = stackHeader !== undefined && step.kind === "stackRoot"
-  const item = header ? null : step.item
+  const item = step.item
   return (
     <div className="flex w-40 items-center" data-testid="next-step-slot" data-step={step.kind} data-stack-path="landing">
-      {header && <SafePushButton branch={branch} description={stackHeader.description} onOpen={stackHeader.onOpen} />}
       {item !== null &&
         (item.id === "safe-push" ? (
           <SafePushButton branch={branch} shortcut={stackHeader === undefined ? "S" : undefined} description={stackHeader?.description} onOpen={stackHeader?.onOpen} />

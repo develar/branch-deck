@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { FileDiffIcon, FoldVerticalIcon, ShieldCheckIcon, UnfoldVerticalIcon } from "lucide-react"
@@ -10,6 +11,7 @@ import { NextStepSlot } from "@/components/branch/NextStepSlot"
 import { RobotRing } from "@/components/branch/RobotProgress"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
+import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
 import { getPushWithChildrenItem, getSafePushBlocker } from "@/hooks/useBranchContextActions"
@@ -34,10 +36,13 @@ import { transferLabel } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
 import { getBranch, stackDescendantsIn, stackMainLineIn, useBranch, useBranchPushProgress, useBranchSync, useStackPushCurrent } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { openInline } from "@/stores/inline-row-action"
+import { openInline, useStackHeaderInline } from "@/stores/inline-row-action"
 import { isPatronusAvailable, useBranchRobot } from "@/stores/patronus"
 import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
+import { getReadinessTarget } from "@/stores/review-readiness"
 import { toggleStackCollapsed } from "@/stores/stack-collapse"
+
+const InlinePatronusStart = lazy(() => import("@/components/branch/InlinePatronusStart").then(it => ({ default: it.InlinePatronusStart })))
 
 interface IslandSummary {
   branchCount: number
@@ -122,8 +127,8 @@ export interface StackIslandCardProps {
  * says what it holds, each state a link to its first branch ("1 failed", "23 to push"), its pull requests and what a
  * running Safe Push lands, then the actions of a branch row for the whole stack: the push ("↑ 41", Push with Children of
  * the root), the Safe Push of the main line (its last branch) and "⋯"; none of the two while a Safe Push runs in the
- * stack. Then the rows of the stack with their commits on the lanes. It collapses into its header (`collapsedStacks`,
- * as a stack of the table into its root).
+ * stack. The form of that Safe Push opens under the header, collapsed or not. Then the rows of the stack with their
+ * commits on the lanes. It collapses into its header (`collapsedStacks`, as a stack of the table into its root).
  */
 export function StackIslandCard({ island, filtered, landing, children }: StackIslandCardProps) {
   const { root } = island
@@ -144,6 +149,7 @@ export function StackIslandCard({ island, filtered, landing, children }: StackIs
         }
       }}
       header={<IslandHeader root={root} summary={summary} landing={landing} />}
+      below={<StackHeaderForm leaf={summary.mainLine.at(-1)} />}
       actions={
         <>
           <IslandStateChips summary={summary} />
@@ -337,9 +343,20 @@ function StackPushLines({ order }: { order: readonly string[] }) {
 }
 
 /**
+ * "Safe Push deploy · lands 5 of 7 branches into master · side-fix and side-test stay: not on the main line": whose
+ * Safe Push it is, what its one robot lands, and the side branches it doesn't land
+ */
+function describeStackSafePush(leaf: string, mainLine: readonly string[], members: readonly string[]): string {
+  const rest = members.filter(name => !mainLine.includes(name))
+  const count = rest.length === 0 ? formatBranchCount(mainLine.length) : `${mainLine.length} of ${formatBranchCount(members.length)}`
+  const lands = `Safe Push ${leaf} · lands ${count} into ${getReadinessTarget()}`
+  return rest.length === 0 ? lands : `${lands} · ${joinNames(rest)} ${rest.length === 1 ? "stays" : "stay"}: not on the main line`
+}
+
+/**
  * The Safe Push of the stack: the Safe Push slot of the last branch of its main line (`stackMainLineIn`), whose one robot
- * lands the whole line; its form leads root first. The hover says whose it is and what it lands, and which side branches
- * follow after the merge. Empty while a Safe Push runs in the stack: the landing line and "1 running" say it.
+ * lands the whole line; its form opens under the header (`openStackSafePush`). The hover says whose it is, what it
+ * lands and which side branches stay. Empty while a Safe Push runs in the stack: the landing line and "1 running" say it.
  */
 function StackSafePushSlot({ summary }: { summary: IslandSummary }) {
   const leaf = summary.mainLine.at(-1)
@@ -347,16 +364,41 @@ function StackSafePushSlot({ summary }: { summary: IslandSummary }) {
   if (summary.rootHeld || leaf === undefined || branch === undefined) {
     return <div className="w-40" />
   }
-  const lands = summary.mainLine.length
-  const rest = summary.members.filter(name => !summary.mainLine.includes(name))
-  const description = `Safe Push ${leaf} · lands ${lands} of ${formatBranchCount(summary.branchCount)}${rest.length === 0 ? "" : ` · ${joinNames(rest.slice(0, 3))}${rest.length > 3 ? ` and ${rest.length - 3} more` : ""} follow after the merge`}`
+  const description = describeStackSafePush(leaf, summary.mainLine, summary.members)
   return <NextStepSlot branch={branch} stackHeader={{ description, onOpen: () => openStackSafePush(leaf) }} />
 }
 
-/** The Safe Push form of the last branch of the main line: the island shows its row first, also from a collapsed one */
+/**
+ * The Safe Push form of the last branch of the main line, under the header of the island (`stack-header`): it shows
+ * there also while the island is collapsed, so nothing expands and nothing scrolls to the end of the line
+ */
 function openStackSafePush(leaf: string): void {
-  requestReveal({ branchName: leaf, commitIds: [] })
-  openInline("safe-push", leaf)
+  openInline("safe-push", leaf, { placement: "stack-header" })
+}
+
+/**
+ * The form `openStackSafePush` opened, the one of the last branch of the main line (its key, processing and holds are
+ * the branch's); nothing otherwise. Its own border below gives way to the divider of the card.
+ */
+function StackHeaderForm({ leaf }: { leaf: string | undefined }) {
+  const activeInline = useStackHeaderInline(leaf)
+  if (leaf === undefined || activeInline?.type !== "safe-push") {
+    return null
+  }
+  return (
+    <div className="relative" data-testid="stack-island-form">
+      {activeInline.processing && <InlineRowProgressBar />}
+      <Suspense fallback={null}>
+        <InlinePatronusStart
+          key={`safe-push:${leaf}:${activeInline.bypassReview === true ? "bypass" : ""}`}
+          branchName={leaf}
+          mode="rebaseAutosquash"
+          bypassReview={activeInline.bypassReview === true}
+          className="border-b-0"
+        />
+      </Suspense>
+    </div>
+  )
 }
 
 /**
@@ -375,7 +417,7 @@ function getStackIslandMenuItems(root: string, mainLine: readonly string[], coll
       label: `Safe Push ${leaf}…`,
       icon: ShieldCheckIcon,
       disabled: blocker !== null,
-      description: blocker ?? `Lands ${formatBranchCount(mainLine.length)}, root first`,
+      description: blocker ?? `Lands the main line, ${formatBranchCount(mainLine.length)}, into ${getReadinessTarget()} in one Safe Push`,
       onSelect: () => openStackSafePush(leaf),
     })
   }

@@ -7,7 +7,6 @@ import type { PatronusRobot } from "@/lib/bindings"
 import type { BranchNextStep, NextStepFacts, NextStepPullRequest } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
 import { notifyError } from "@/lib/errors"
-import { getPullRequestBase } from "@/lib/git/new-pull-request"
 import { isFullyLanded } from "@/lib/landed"
 import { announce } from "@/lib/os-notification"
 import { canStartRobot, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
@@ -16,7 +15,6 @@ import { getRobotActions } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
-import { stackAncestors } from "@/lib/stack"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { recordApproval } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
@@ -28,7 +26,7 @@ import { getBranchRobot, getLandingAncestor, getLandingSpan, getPushHold, isPatr
 import { getPullRequest, getPullRequestAvailability, pullRequestsStore, retargetPullRequest } from "@/stores/pull-requests"
 import { getFullBranchName, getSelectedProject } from "@/stores/repository"
 import { openRequestReview } from "@/stores/request-review-popover"
-import { getReadinessTarget, getReviewReadiness, reviewReadinessStore } from "@/stores/review-readiness"
+import { getReadinessTarget, getReviewReadiness, reviewReadinessStore, useShowReviewReadiness } from "@/stores/review-readiness"
 import { repositorySettingsStore } from "@/stores/settings/repositorySettings"
 
 /**
@@ -76,14 +74,17 @@ function isFormerParent(base: string): boolean {
   return base.startsWith(namespace) && base.length > namespace.length && getBranch(base.slice(namespace.length)) === undefined
 }
 
-/** Retargets the open pull request of the branch to its base, the target, and says so */
-async function retarget(branchName: string): Promise<void> {
-  const branch = getBranch(branchName)
+/**
+ * Retargets the open pull request of the branch to the target of Patronus, as a pull request names it ("master"), and
+ * says so: the step of row 5, the menu, and the Safe Push form of a branch whose pull request merges into a virtual
+ * branch, the old base of a stacked branch
+ */
+export async function retargetToTarget(branchName: string): Promise<void> {
   const pullRequest = getPullRequest(branchName)
-  if (branch === undefined || pullRequest === undefined) {
+  if (getBranch(branchName) === undefined || pullRequest === undefined) {
     return
   }
-  const base = getPullRequestBase(branch)
+  const base = getReadinessTarget()
   try {
     await retargetPullRequest(branchName, base)
   } catch (error) {
@@ -97,7 +98,7 @@ async function retarget(branchName: string): Promise<void> {
   })
 }
 
-/** The Safe Push form of the root of a stack: the island shows its row first, also from a collapsed one */
+/** The Safe Push form below the row of the branch: the row is shown first, also in a collapsed stack or island */
 function openSafePushOf(name: string): void {
   requestReveal({ branchName: name, commitIds: [] })
   openInline("safe-push", name)
@@ -118,10 +119,10 @@ function factsOf(branch: Branch): NextStepFacts {
   const pullRequest = getPullRequest(name)
   const restart =
     robot === undefined ? null : (getRobotActions(robot, branch, needsReview, failing).find(it => it.id === "restart-robot" || it.id === "push-and-restart-robot") ?? null)
-  const root = stackAncestors(name, getBranch)[0]
   const readiness = getReviewReadiness(name)
   return {
     branchName: name,
+    subject: name,
     patronusAvailable: available,
     syncing: branch.status === "Syncing",
     hasError: branch.hasError,
@@ -138,23 +139,16 @@ function factsOf(branch: Branch): NextStepFacts {
     pullRequestsAvailable: getPullRequestAvailability()?.status === "available",
     pullRequest: pullRequestFactOf(branch, target),
     target,
-    // the root has no root: one level
-    stackRoot: root === undefined ? null : { name: root.name, blocker: getBranchNextStepNow(root.name)?.safePushBlocker ?? null },
     readiness: readiness === undefined ? null : { readiness: readiness.readiness, stale: readiness.stale },
     actions: {
       openSafePush: () => openInline("safe-push", name),
-      openRootSafePush: () => {
-        if (root !== undefined) {
-          openSafePushOf(root.name)
-        }
-      },
       openPullRequest: () => {
         const current = getPullRequest(name) ?? pullRequest
         if (current !== undefined) {
           openPullRequest(current)
         }
       },
-      retarget: () => void retarget(name),
+      retarget: () => void retargetToTarget(name),
       createPullRequest: getCreatePullRequestItem(branch),
       requestReview: getRequestReviewItem(pullRequest, readiness?.readiness ?? null, () => openRequestReview(name)),
     },
@@ -227,9 +221,12 @@ const shownSteps = new Map<string, { sources: readonly unknown[]; key: string; s
 
 /**
  * The next step of the branch, re-rendering when it changes: it depends on the branches, the robots, the pull
- * requests, the readiness, the landed commits and the inline action of the row, so each of their stores is watched
+ * requests, the readiness, the landed commits and the inline action of the row, so each of their stores is watched.
+ * The component shows the step: the readiness store asks for the readiness of the branch while it does
+ * (`useShowReviewReadiness`), never for a row a collapse hides.
  */
 export function useBranchNextStep(name: string): BranchNextStep | null {
+  useShowReviewReadiness(name)
   const select = () => getBranchNextStepNow(name)
   useStore(branchSyncStore, select)
   useStore(patronusStore, select)
@@ -239,7 +236,7 @@ export function useBranchNextStep(name: string): BranchNextStep | null {
   return useStore(inlineRowActionStore, select)
 }
 
-/** The branches of `order` whose next step depends on their readiness: the store asks Patronus for them */
+/** The branches of `order` (the shown ones, `askedOrder`) whose next step depends on their readiness: the store asks Patronus for them */
 export function branchesNeedingReadiness(order: readonly string[]): string[] {
   return order.filter(name => getBranchNextStepNow(name)?.needsReadiness === true)
 }

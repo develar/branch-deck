@@ -16,7 +16,7 @@ import { createWindowLink } from "@/lib/sub-window-link"
 import { branchSyncStore, getBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { getEffectiveBranchPrefix, getSelectedProject } from "@/stores/repository"
-import { demandReviewReadiness } from "@/stores/review-readiness"
+import { demandReviewReadiness, showReviewReadiness } from "@/stores/review-readiness"
 import type {
   BranchReviewFeedback,
   BranchReviewGroup,
@@ -58,11 +58,28 @@ function closeDialog(): void {
   dialog = null
 }
 
+/** Ends the readiness of the branches the window shows the actions of (`showReviewReadiness`), its chain; null while closed */
+let hideChain: (() => void) | null = null
+
+function showChain(chain: readonly string[]): void {
+  releaseChain()
+  const hides = chain.map(name => showReviewReadiness(name))
+  hideChain = () => hides.forEach(hide => hide())
+}
+
+function releaseChain(): void {
+  hideChain?.()
+  hideChain = null
+}
+
 /** The open review window: the repository and the chain it shows */
 const link = createWindowLink<{ repositoryPath: string; chain: readonly string[] }, BranchReviewWindowState>({
   label: BRANCH_REVIEW_WINDOW,
   buildState: shown => buildState(shown.repositoryPath, shown.chain),
-  onClose: closeDialog,
+  onClose: () => {
+    closeDialog()
+    releaseChain()
+  },
 })
 
 /** What a review of a branch reads: its chain from the root of its stack, the reviewer groups of the code-owner check */
@@ -132,6 +149,8 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
   // the window starts over: no dialog is open in it
   closeDialog()
   link.setShown(shown)
+  // its Safe Push of each branch reads the next step, as a row does
+  showChain(chain)
   const data: BranchReviewWindowData = {
     ...source,
     chain: [...chain],
@@ -143,6 +162,10 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
   return link.open(shown, { url: "/branch-review", title: `Review ${branchName}`, data }).then(
     () => true,
     (error: unknown) => {
+      // the link forgets a window that failed to open: nothing shows its chain
+      if (link.shown() === null) {
+        releaseChain()
+      }
       notifyError(`Cannot open the review of ${branchName}`, error)
       return false
     },

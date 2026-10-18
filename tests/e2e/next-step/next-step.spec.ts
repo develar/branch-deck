@@ -139,6 +139,30 @@ test.describe("Next step", () => {
     await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
   })
 
+  test("should wait for the code owner a stacked branch's own pull request asks, not for its root", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // oauth is built on auth and login; its pull request goes into master, its Safe Push lands the three of them
+    const own = pullRequest("oauth", 8, { reviewers: [reviewer("junie-jetbrains", "approved"), reviewer("ikorennoy", "requested")] })
+    const repo = await setupRepo("stacked_branches", { patronus: { ...availableRobots(), githubRepository: "acme/monorepo" }, pullRequests: availablePullRequests(own) })
+    await repo.setReviewAnswers({ answers: { oauth: AWAITING_CODE_OWNER } })
+    await syncAndWaitForBranches()
+
+    const row = findBranchRow(page, "oauth")
+    const oauthSlot = row.getByTestId("next-step-slot")
+    await expect(oauthSlot).toHaveAttribute("data-step", "awaiting")
+    await expect(oauthSlot.getByTestId("next-step")).toHaveText("Awaiting Ilya Korennoy")
+    await oauthSlot.getByTestId("next-step").hover()
+    await expect(page.getByTestId("next-step-hover")).toHaveText("Awaiting Ilya Korennoy · IJPL Code Platform\nOpen Pull Request #8O")
+    // Patronus is asked for the stacked branch itself, its start the comment on #8
+    expect((await repo.getReviewReadinessCalls()).some(call => call.branches.includes("oauth"))).toBe(true)
+    // S says why, naming the branch, and opens no form
+    await row.focus()
+    await page.keyboard.press("s")
+    const toast = page.locator("[data-slot=toast]", { hasText: "Safe Push of oauth waits for Ilya Korennoy" })
+    await expect(toast).toHaveAttribute("data-type", "info")
+    await expect(toast).toContainText("IJPL Code Platform · requested on #8")
+    await expect(page.getByTestId("patronus-start-form")).toHaveCount(0)
+  })
+
   test("should offer Safe Push… once the code owner approved, and name whose approval counts", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const approved = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved"), reviewer("ikorennoy", "approved")] })
     await setup(page, setupRepo, syncAndWaitForBranches, APPROVED_BY_CODE_OWNER, [approved])
@@ -547,6 +571,8 @@ test.describe("Next step", () => {
       await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(failed))
       await routeCommand(page, "get_patronus_start_options", () => ({ ...OPTIONS, profiles: [{ ...LSC, skipsReview: true }], defaultProfileId: "lsc" }))
       const starts = await routeCommand(page, "start_patronus_robot", () => robot(BRANCH, "started-robot", { sourceRevision: null }))
+      // the menu is built when it opens: Patronus has answered with the failed robot first
+      await expect(findBranchRow(page, BRANCH).getByTestId("patronus-chip")).toBeVisible()
 
       const menu = await openMenu(page)
       await menu.getByRole("menuitem", { name: "Safe Push…" }).click()

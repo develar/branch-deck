@@ -18,8 +18,6 @@ export type NextStepKind =
   | "restart"
   /** A robot that failed for approvals, while nobody can tell yet whether they count: its pull request */
   | "pullRequest"
-  /** Row 4: a stacked branch lands root first, "Safe Push ‹root›…" */
-  | "stackRoot"
   /** Row 5: the open pull request merges into the branch of a former parent (landed, gone): "Retarget #7 to master" */
   | "retarget"
   /** Row 5: the open pull request merges into another base on purpose maybe (a release branch): a quiet step that opens it */
@@ -67,8 +65,6 @@ export interface NextStepPullRequest {
 export interface NextStepActions {
   /** The Safe Push form below the row */
   readonly openSafePush: () => void
-  /** The Safe Push form of the root of the stack */
-  readonly openRootSafePush: () => void
   readonly openPullRequest: () => void
   /** Retargets the pull request to `NextStepFacts.target` */
   readonly retarget: () => void
@@ -84,6 +80,8 @@ export interface NextStepActions {
 /** What decides the next step of a branch; built from the stores by `getBranchNextStepNow`, plain data for the tests */
 export interface NextStepFacts {
   readonly branchName: string
+  /** What the texts call the object of the Safe Push ("Safe Push of auth waits for Ilya Korennoy"): the branch's name */
+  readonly subject: string
   /** Patronus answers for the repository: it is on Space */
   readonly patronusAvailable: boolean
   readonly syncing: boolean
@@ -93,7 +91,10 @@ export interface NextStepFacts {
   readonly processing: boolean
   /** A stacked branch whose parent failed to build (`Blocked`) */
   readonly blocked: boolean
-  /** Why a start is not possible by the robots (`canStartRobot`: blocked, a robot on this commit, one that lands it) */
+  /**
+   * Why a start is not possible by the robots (`canStartRobot`: blocked, a robot on this commit, one that lands it or an
+   * ancestor of it: a stacked branch lands with what it is built on)
+   */
   readonly startBlocker: string | null
   /** The same for a dry run, which may run while a robot lands an ancestor */
   readonly dryRunStartBlocker: string | null
@@ -112,8 +113,6 @@ export interface NextStepFacts {
   readonly pullRequest: NextStepPullRequest | null
   /** The branch Patronus pushes into, as a pull request names its base ("master") */
   readonly target: string
-  /** The root of the stack of a stacked branch, whose Safe Push lands first, with why it can't start now */
-  readonly stackRoot: { readonly name: string; readonly blocker: string | null } | null
   /** null until asked */
   readonly readiness: ReadinessFact | null
   readonly actions: NextStepActions
@@ -243,7 +242,7 @@ function withNotice(facts: NextStepFacts, result: BranchNextStep): BranchNextSte
   if (reason === null) {
     return result.notice === null ? result : { ...result, notice: null }
   }
-  return result.notice === null ? { ...result, notice: { title: `Safe Push of ${facts.branchName} can't start`, description: reason } } : result
+  return result.notice === null ? { ...result, notice: { title: `Safe Push of ${facts.subject} can't start`, description: reason } } : result
 }
 
 /** The notice of a row's own reason; a reason of the branch (a sync, a robot) outranks it */
@@ -373,26 +372,6 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
     }
   }
 
-  // row 4: the root lands first, its Safe Push gates the stack
-  if (facts.stackRoot !== null) {
-    const root = facts.stackRoot
-    const item: MenuItem = {
-      id: "safe-push-root",
-      label: `Safe Push ${root.name}…`,
-      icon: ShieldCheckIcon,
-      disabled: root.blocker !== null,
-      description: root.blocker ?? `${facts.branchName} is built on ${root.name}: its Safe Push lands first`,
-      onSelect: facts.actions.openRootSafePush,
-    }
-    return step(
-      "stackRoot",
-      item,
-      general ?? root.blocker,
-      dryRunBlocker,
-      root.blocker === null ? {} : rowNotice(general, `Safe Push of ${facts.branchName} waits for ${root.name}`, root.blocker),
-    )
-  }
-
   // row 5: Patronus merges a pull request into its base, so a start from it would not land in the target
   if (open !== null && !open.intoTarget) {
     const reason = `Approvals in #${open.number} don't count: its base is ${open.base}`
@@ -403,7 +382,7 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
       description: `Changes the base of #${open.number} from ${open.base} to ${facts.target} on GitHub: Patronus merges a pull request into its base`,
       onSelect: facts.actions.retarget,
     }
-    const notice = rowNotice(general, `Approvals in #${open.number} of ${facts.branchName} don't count`, `Its base is ${open.base}, not ${facts.target}`)
+    const notice = rowNotice(general, `Approvals in #${open.number} of ${facts.subject} don't count`, `Its base is ${open.base}, not ${facts.target}`)
     // the base of a parent that landed or is gone: the retarget is what the stack would have done
     if (open.baseIsFormerParent) {
       return step("retarget", { ...retarget, description: `${reason}, a branch that is gone. ${retarget.description}` }, general ?? reason, dryRunBlocker, { retarget, ...notice })
@@ -418,7 +397,7 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
     const item = { ...quietItem(facts, "Draft", `${reason}. Open Pull Request #${open.number}`, FileTextIcon), id: "open-pull-request-draft" }
     return step("draft", item, general ?? reason, dryRunBlocker, {
       tone: "quiet",
-      ...rowNotice(general, `#${open.number} of ${facts.branchName} is a draft`, "Patronus merges it once it is ready for review"),
+      ...rowNotice(general, `#${open.number} of ${facts.subject} is a draft`, "Patronus merges it once it is ready for review"),
     })
   }
 
@@ -442,7 +421,7 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
     return step("createPullRequest", { ...item, description: item.disabled === true ? item.description : reason }, general ?? reason, dryRunBlocker, {
       needsReadiness: asks,
       withoutReview: { blocker: general },
-      ...rowNotice(general, `Safe Push of ${facts.branchName} needs a pull request`, `Code owners must approve in it: ${groupNames(groups)}`),
+      ...rowNotice(general, `Safe Push of ${facts.subject} needs a pull request`, `Code owners must approve in it: ${groupNames(groups)}`),
     })
   }
   // row 8: only the changes requested by a member of a group still short of approvals block, as Patronus decides
@@ -456,7 +435,7 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
       {
         tone: "destructive",
         needsReadiness: asks,
-        ...rowNotice(general, `Safe Push of ${facts.branchName} waits for changes`, `${reason}`),
+        ...rowNotice(general, `Safe Push of ${facts.subject} waits for changes`, `${reason}`),
       },
     )
   }
@@ -475,7 +454,7 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
     const asked = short.length === 0 ? groups : short
     return step("requestReview", item, general ?? reason, dryRunBlocker, {
       needsReadiness: asks,
-      ...rowNotice(general, `Safe Push of ${facts.branchName} waits for a review request`, `${groupNames(asked)} · nobody is requested on #${open.number}`),
+      ...rowNotice(general, `Safe Push of ${facts.subject} waits for a review request`, `${groupNames(asked)} · nobody is requested on #${open.number}`),
     })
   }
   // row 10
@@ -486,6 +465,6 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
   return step("awaiting", quietItem(facts, formatAwaitingLabel(people), hover, ClockIcon), general ?? reason, dryRunBlocker, {
     tone: "quiet",
     needsReadiness: asks,
-    ...rowNotice(general, `Safe Push of ${facts.branchName} waits for ${waitsFor}`, `${groupNames(groups)} · requested on #${open.number}`),
+    ...rowNotice(general, `Safe Push of ${facts.subject} waits for ${waitsFor}`, `${groupNames(groups)} · requested on #${open.number}`),
   })
 }

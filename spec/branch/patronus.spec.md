@@ -236,7 +236,7 @@ reports in it and closes it once merged.
     once Patronus says they count in the pull request it was started from, else "Open Pull Request" (or "Create Pull
     Request…") while nobody can tell yet, or the wait for the approvals;
   - the wait for the approvals that count: "Awaiting Ilya Korennoy", "Changes Requested", "Request Review…",
-    "Create Pull Request…"; "Draft", "Retarget #7 to master", "Safe Push ‹root›…" of a stacked branch;
+    "Create Pull Request…"; "Draft", "Retarget #7 to master"; a stacked branch's by its own pull request;
   - nothing while a robot runs (Cancel is in "⋯", the details and the robots indicator), after a merge, for a landed
     branch and a branch a Safe Push holds.
   Nothing hovers in: the state stays in the Status cell where the eye reads it, the step stays the step. A repository
@@ -468,52 +468,47 @@ reports in it and closes it once merged.
   handles the start.
   [@test] ../../crates/patronus/src/actions_test.rs (`a_failed_start_is_never_repeated`)
 - A stacked branch carries the commits of the branches it is built on ([Stacked Branches](stacked-branches.spec.md)): a
-  child can't land without them, and its Safe Push lands them too. The form of a Safe Push of a branch built on
-  branches that aren't in the target yet leads root first, above the profiles: "oauth is built on auth and login,
-  which aren't in master yet. Safe Push auth first, then the next: after a merge, the next sync moves the branches
-  built on it onto master." with a `Safe Push auth…` button (the form of the root-most ancestor). Its own start is the
-  explicit alternative, muted: "Or start oauth now: the Safe Push lands auth and login with it." From three
-  ancestors on it counts them and their commits first: "Or start IJAI-4074 now: the Safe Push lands
-  21 branches · 140 commits with it: vm-lane-daemon, air-fake-agent, air-lane-document and 18 more." Enter doesn't start it
-  (no focus on the submit). Before the start the branches of the stack that have work for the remote are pushed,
-  parents first, as the push button pushes them, a part of the start ("Start Safe Push", no note of the push), without
-  a toast of their own. A dry run says "It checks the commits of auth and login too: oauth is built on them.", counted from three
-  ancestors on: "It checks 21 branches · 140 commits too: vm-lane-daemon, air-fake-agent, air-lane-document and 18 more,
-  which IJAI-4074 is built on."
-  A Safe Push of a parent says what its merge does: "login and oauth are built on auth: after the merge, the next sync
-  moves them onto master; their pull requests are retargeted to master when they are pushed." (the clause about the
-  pull requests only while one of them has an open one).
-  [@test] ../../src/lib/patronus-stack.test.ts (`leads a Safe Push of a stacked branch root first, and says that its own start lands the ancestors`, `says that a dry run checks the ancestors' commits too`, `says what the merge of a parent does to the branches built on it`, `counts the branches and the commits a Safe Push lands with the branch, from three ancestors on`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should lead a stacked branch root first, and land the stack in one Safe Push when told to`, `should open the Safe Push of the root from the lead, and say what its merge does to its children`)
+  child can't land without them, so its Safe Push lands it with every branch it is built on that isn't in the target
+  yet, in one robot ([Landing](../../docs/design/landing.md)). The form says so first, plain, above the profiles:
+  "Lands oauth with auth and login, which it is built on: 3 branches · 12 commits into master."; from three ancestors
+  on the names are cut: "Lands IJAI-4074 with vm-lane-daemon, air-fake-agent, air-lane-document and 18 more, which it
+  is built on: 22 branches · 152 commits into master." Start is the one start of the form, and Enter starts it (the
+  submit has the focus). Before the start the branches of the stack that have work for the remote are pushed, parents
+  first, as the push button pushes them, a part of the start ("Start Safe Push", no note of the push), without a toast
+  of their own. A dry run says "Checks oauth with auth and login, which it is built on: 3 branches · 12 commits."
+  The branches built on the branch stay, muted: "oauth and device are built on login: they stay, and after the merge
+  the next sync builds them on master." (also for a root: "login and oauth are built on auth: …"). Every surface opens
+  the form of the branch itself, below its own row: its slot, "⋯", S, the preview footer and the review window; the
+  header of a stack island opens the form of the last branch of its main line under the header ([Stack
+  Island](stack-island.spec.md#header)). The stack graph highlights the path it lands while the form is open.
+  [@test] ../../src/lib/patronus-stack.test.ts (`lands a stacked branch with what it is built on, in one robot, counted`, `names three ancestors and counts the rest, the size of what lands first`, `says that a dry run checks the commits of the ancestors too, and nothing of the children`, `says that the branches built on it stay, and what the next sync after the merge does to them`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should say in the Safe Push form of a branch in the middle what lands and what stays`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should open the Safe Push of the main line under the header`)
 - A stored stack parent can stay after the branch stopped needing it ([Stack Parents](stack-parents.spec.md#a-stacked-branch-that-builds-alone)).
   So the form of a Safe Push of a stacked branch asks the trial build of the branch alone (`get_stack_independence`)
-  when it opens, and again when the local tip of the branch changes. While it runs, the lead says "Checking whether
-  perf-part-2 builds alone…". Its answer changes the lead:
-  - The branch builds alone and uses no name its parent adds: "perf-part-2 applies on the baseline without
-    IJPL-257337 and uses no name it adds. Not checked by a compiler." The trial build is on the base the sync builds
-    on, not on the newest target, so the words name the baseline. The first button is "Unstack from IJPL-257337";
-    `Safe Push IJPL-257337…` follows as a link. The unstack waits for its sync. Then the form shows itself again,
-    without a lead and with the review of the branch alone, and the user presses Start: the form never starts a Safe
+  when it opens, and again when the local tip of the branch changes. While it runs, a muted line says "Checking
+  whether perf-part-2 builds alone…". Its answer is the second way, muted below the landing, never the lead:
+  - The branch builds alone and uses no name its parent adds: "To land perf-part-2 alone: it applies on the baseline
+    without IJPL-257337 and uses no name it adds. Not checked by a compiler." with "Unstack from IJPL-257337". The
+    trial build is on the base the sync builds on, not on the newest target, so the words name the baseline. The
+    unstack waits for its sync. Then the form shows itself again, of the branch alone (a root now: no landing line),
+    with its review, and the user presses Start, which lands and pushes only the branch: the form never starts a Safe
     Push after an unstack. With `branchdeck.symbols` `report` or `off` the names are not read, and the sentence ends
     ". Compile dependencies are not checked."
-  - The branch builds alone but uses a name its parent adds (`uses`): "\"Cache the parsed icon\" uses parsedIcon,
-    which \"Parse the icon off the EDT\" of IJPL-257337 adds. perf-part-2 applies on the baseline without
-    IJPL-257337, but needs it to compile. Found by names, not by a compiler." The first button is
-    `Safe Push IJPL-257337…`; "Unstack from IJPL-257337" follows as a link: names found the use, so the unstack is
-    offered, never decided.
-  - The branch needs commits that can move: "\"Cache the parsed icon\" changes lines that \"Parse the icon off the
-    EDT\" of IJPL-257337 adds. perf-part-2 may build without IJPL-257337 once it is here." (with more commits, "2
-    commits of IJPL-257337 add"). The first button is "Move 1 Commit Here", a move into the branch; then the check
-    runs again. The count holds the fixups that move with their target. The check reads HEAD, and the branch list
-    lags until the next sync: while the list misses one of the commits, the lead is the one of commits that can't
-    move.
-  - The needed commits can't move, because another branch needs them too: the root-first lead, then the line that
-    names them. Without a needed commit, the line names the conflict: "Without IJPL-257337, \"Cache the parsed
-    icon\" conflicts in AppUIUtil.kt."
-  - The check fails or runs: the root-first lead as before.
+  - The branch builds alone but uses a name its parent adds (`uses`), a warning: "\"Cache the parsed icon\" uses
+    parsedIcon, which \"Parse the icon off the EDT\" of IJPL-257337 adds. perf-part-2 applies on the baseline
+    without IJPL-257337, but needs it to compile. Found by names, not by a compiler." "Unstack from IJPL-257337"
+    follows as a link: names found the use, so the unstack is offered, never decided.
+  - The branch needs commits that can move: "To land perf-part-2 alone, move what it needs here: \"Cache the parsed
+    icon\" changes lines that \"Parse the icon off the EDT\" of IJPL-257337 adds." (with more commits, "2 commits of
+    IJPL-257337 add") with "Move 1 Commit Here", a move into the branch; then the check runs again. The count holds the
+    fixups that move with their target. The check reads HEAD, and the branch list lags until the next sync: while the
+    list misses one of the commits, it is as if they can't move.
+  - The needed commits can't move (another branch needs them too), a conflict without a needed commit, a failed or a
+    running check: no way alone; the landing stays the only one.
   The form offers each of them and decides none: the stack parents don't say why a branch is stacked.
-  [@test] ../../src/lib/patronus-stack.test.ts (`offers the unstack first when the branch applies on the baseline without its parent`, `leads root first when the branch applies alone but uses a name its parent adds, the unstack after it`, `offers to move the commits it needs when no other branch needs them`, `leads root first and names the needed commit when a move would make another branch need this one`, `leads root first while the check runs or after it failed`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer the move of the commit a stacked branch needs, then its unstack, and review the branch alone`, `should lead root first when a stacked branch applies alone but uses a name its parent adds, the unstack after it`)
+  [@test] ../../src/lib/patronus-stack.test.ts (`offers the unstack when the branch applies on the baseline without its parent, after the landing`, `warns that a branch that applies alone uses a name its parent adds, the unstack still offered`, `offers to move the commits it needs when no other branch needs them`, `offers no way alone when the needed commits can't move, nor while the check runs or after it failed`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer to land only a stacked branch that applies alone`, `should offer the move of the commit a stacked branch needs to land it alone, then its unstack, and review the branch alone`, `should warn that a stacked branch that applies alone uses a name its parent adds, the unstack still offered`)
 
 ### Pull requests
 
@@ -534,13 +529,16 @@ reports in it and closes it once merged.
   [@test] ../../crates/sync-core/src/patronus_command_test.rs (`a_merge_keeps_the_source_branch_and_a_dry_run_is_plain`, `a_merge_of_a_reviewed_pull_request_deletes_its_branch`)
   [@test] ../../crates/sync-core/src/patronus_command_test.rs (`posts_the_command_as_a_regular_comment_of_the_pull_request`)
   [@test] ../../src/lib/patronus.test.ts (`starts from the open pull request of a branch reviewed on GitHub, a draft only for a dry run`)
-- Patronus merges a pull request into its base: a pull request into another base than the target, the one of a
-  stacked branch into its parent's branch, is never commented on (`isPullRequestIntoTarget`). Such a branch starts
-  through the API, and the form says that the approvals of the pull request don't count: "The approvals of pull
-  request #8 don't count: it compares oauth with login, and Patronus merges a pull request into its base." Root
-  first, the child's pull request is retargeted to the target once its parent merged, and then starts from its comment.
+- Patronus merges a pull request into its base: a pull request into another base than the target is never commented
+  on (`isPullRequestIntoTarget`), and such a branch starts through the API. Every pull request of a virtual branch goes
+  into the target ([Pull Requests](pull-requests.spec.md)); an old one of a stacked branch into its parent's branch
+  (`{prefix}/virtual/…`) is retargeted. The Safe Push form says it while one is open: "Approvals in #8 don't count: it
+  merges into user/virtual/login, and Patronus merges a pull request into its base." with "Retarget #8 to master"
+  (`retargetToTarget`, the step of row 5 too: [Next Step](next-step.spec.md#the-table)); once GitHub took it, the form
+  starts from its comment, and its approvals count.
   [@test] ../../src/lib/patronus.test.ts (`never comments on a pull request into another base than the target: Patronus would merge it there`)
-  [@test] ../../src/lib/patronus-stack.test.ts (`leads a Safe Push of a stacked branch root first, and says that its own start lands the ancestors`)
+  [@test] ../../src/lib/patronus-stack.test.ts (`offers the retarget of a pull request into a virtual branch, whose approvals don't count`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer the retarget of a pull request into the parent's branch in the form, whose approvals don't count`)
 - The form says it: "Comments /patronus merge on pull request #7: Patronus rebases auth onto master, runs the checks
   and pushes it into master when they pass. It reports in the pull request and closes it once merged." A comment can't
   choose a merge profile: instead of the profiles the form says "A pull request comment starts the default checks of
@@ -755,7 +753,7 @@ reports in it and closes it once merged.
 - The form asks the review again when the local tip of the branch changes: after an unstack the review lists the files
   of the branch alone, no longer those of its former parents. Until the new answer arrives the review is loading: the
   form shows no group and no merge request of the old commits.
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer the move of the commit a stacked branch needs, then its unstack, and review the branch alone`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer the move of the commit a stacked branch needs to land it alone, then its unstack, and review the branch alone`)
 - The UI must name the system the approvals count in, and a review button the system it creates or opens in.
   [@test] ../../src/lib/patronus.test.ts (`names the group and the available reviewers Patronus suggests`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should name the missing approvals and the GitHub pull request they count in, and start with a merge request found open`)

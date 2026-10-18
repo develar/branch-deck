@@ -294,10 +294,13 @@ menu stacks, unstacks and renames branches.
   [@test] ../../src/lib/git/push.test.ts (`starts above the branches a running Safe Push holds`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a parent with its children`)
 
-- A Safe Push of a stacked branch lands the branches it is built on with it, and a Safe Push of a parent moves its
-  children onto the target: the Safe Push form says both and leads root first ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)).
-  A branch that builds alone gets "Unstack from <parent>" first instead, and a branch that needs commits it can take
-  gets "Move 1 Commit Here" first.
+- A Safe Push of a stacked branch lands it with the branches it is built on, in one robot, and its form says so
+  first: "Lands oauth with auth and login, which it is built on: 3 branches · 12 commits into master."; Enter starts
+  it ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). The branches built on it stay, and the form
+  says that the next sync after the merge builds them on the target. Its slot, "⋯", S, the preview and the review
+  window open the branch's own form, below its own row, never the root's. Landing the branch alone is the second way:
+  "Unstack from <parent>" for a branch that builds alone, "Move 1 Commit Here" for one that needs commits it can take.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should offer to land only a stacked branch that applies alone`)
   While it runs, the branches it lands say "lands with oauth" in their Status cell and offer no push and no Safe Push of their
   own; the lines of the graph from the root down to it are in the colour of the robot, its node has the ring of the
   robot. Before the start, the same path is highlighted while the pointer is on the Safe Push slot and while the form

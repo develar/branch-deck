@@ -11,6 +11,8 @@ export interface InlineFormProps {
   /** Muted, below the title */
   description?: ReactNode
   dataTestId?: string
+  /** Of the form and its progress row, after their own: a place that draws its own border below drops theirs */
+  className?: string
   contentClassName?: string
   children: ReactNode
 
@@ -52,6 +54,7 @@ export function InlineForm({
   title,
   description,
   dataTestId,
+  className,
   contentClassName = "flex max-w-3xl flex-col gap-4",
   children,
   showActions = true,
@@ -175,7 +178,7 @@ export function InlineForm({
       {processing ? (
         <div
           key="progress"
-          className="animate-in border-b border-border bg-muted/50 bd-padding-content py-3 duration-200 fade-in-0 slide-in-from-top-1"
+          className={cn("animate-in border-b border-border bg-muted/50 bd-padding-content py-3 duration-200 fade-in-0 slide-in-from-top-1", className)}
           data-testid={dataTestId ? `${dataTestId}-progress` : undefined}
         >
           {heading}
@@ -185,7 +188,7 @@ export function InlineForm({
           </div>
         </div>
       ) : (
-        <div key="form" className="border-b border-border bg-muted/50 bd-padding-content" data-testid={dataTestId}>
+        <div key="form" className={cn("border-b border-border bg-muted/50 bd-padding-content", className)} data-testid={dataTestId}>
           <div className={contentClassName}>
             {heading}
             {children}

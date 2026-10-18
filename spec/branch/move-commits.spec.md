@@ -213,7 +213,7 @@ Renaming and ungrouping a branch are moves of all its commits.
   alone now gives the toast a second action: "Unstack from IJPL-257337" for the target, which the toast names, and
   "Unstack a from r" for a source branch. The move never unstacks a branch by itself.
   [@test] ../../src/lib/stack.test.ts (`names the branch it unstacks unless it is the target the toast names`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer the move of the commit a stacked branch needs, then its unstack, and review the branch alone`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer the move of the commit a stacked branch needs to land it alone, then its unstack, and review the branch alone`)
 - The target branch must expand and scroll into view, with the moved commits selected.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should split commits out of an issue branch into a new branch nested under the issue`)
 

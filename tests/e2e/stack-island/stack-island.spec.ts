@@ -1,19 +1,38 @@
 // @spec spec/branch/stack-island.spec.md
 import type { Locator, Page } from "@playwright/test"
+import type { PatronusReviewRequirement, PatronusStartOptions } from "../../../src/lib/bindings"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow, getStackChip } from "../helpers/branch-helpers"
-import { availableRobots, robot } from "../helpers/patronus-helpers"
+import { availableRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { routeHeldPush, routePush } from "../helpers/push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { syncBranches } from "../helpers/sync-helpers"
-import { waitForStorePersistence } from "../helpers/wait-helpers"
+import { routeCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
 
 /** The island of the stack on `root` */
 function island(page: Page, root: string): Locator {
   return page.locator(`[data-testid="stack-island"][data-stack-root="${root}"]`)
+}
+
+const START_OPTIONS: PatronusStartOptions = { targetBranch: "master", supported: true, profiles: [], emergencyProfiles: [], defaultProfileId: null }
+const NO_REVIEW: PatronusReviewRequirement = { required: false, mergeRequest: null, groups: [], skipped: false }
+
+/** Closes the sticky error toast of a start Patronus refused */
+async function closeRefusal(page: Page): Promise<void> {
+  const refused = page.locator("[data-slot=toast]", { hasText: "Cannot start the Safe Push" })
+  // Base UI hides the close button from the accessibility tree
+  await refused.locator("[data-slot=toast-close]").click()
+  await expect(refused).toHaveCount(0)
+}
+
+/** The rows the path to the root is drawn through (`stack-path-lanes`) */
+async function pathRows(page: Page): Promise<string[]> {
+  return page
+    .getByTestId("branch-row")
+    .evaluateAll(rows => rows.filter(row => row.querySelector("[data-testid=stack-path-lanes]") !== null).map(row => row.getAttribute("data-branch-name") ?? ""))
 }
 
 /** The branch rows of a table or an island, in display order */
@@ -142,29 +161,77 @@ test.describe("Stack island", () => {
     await expect(island(page, "air").getByTestId("stack-island-push")).toHaveCount(0)
   })
 
-  test("should open the Safe Push of the main line from the header, and offer the stack actions in its menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should open the Safe Push of the main line under the header", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stack_island", { patronus: availableRobots() })
     await syncAndWaitForBranches()
+    const pushes = await routePush(page, {})
+    await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+    await routeReviewRequirement(page, () => NO_REVIEW)
+    await routeCommandError(page, "get_stack_independence", "The trial build failed")
+    // the start reaches Patronus and is refused: no robot holds the next start
+    const starts = await routeCommand(page, "start_patronus_robot", () => ({ status: "error", error: { message: "Patronus is restarting" } }))
     const air = island(page, "air")
-    // collapsed, the start shows the row of deploy, the end of the main line, with its form
+    const headerForm = air.getByTestId("stack-island-form").getByTestId("patronus-start-form")
+
+    // collapsed: the form of deploy, the end of the main line, opens under the header; the island stays collapsed
     await air.getByTestId("stack-island-root").click()
     await expect(air).toHaveAttribute("data-state", "closed")
     const safePush = air.getByTestId("stack-island-actions").getByTestId("safe-push-button")
     await safePush.hover()
-    await expect(page.getByRole("tooltip")).toContainText("Safe Push deploy · lands 5 of 7 branches · side-fix and side-test follow after the merge")
+    await expect(page.getByRole("tooltip")).toHaveText("Safe Push deploy · lands 5 of 7 branches into master · side-fix and side-test stay: not on the main line")
     await safePush.click()
-    await expect(air).toHaveAttribute("data-state", "open")
-    await expect(page.getByTestId("patronus-start-form")).toContainText("Safe Push of deploy")
-    await page.keyboard.press("Escape")
+    await expect(headerForm).toContainText("Safe Push of deploy")
+    await expect(headerForm.getByTestId("patronus-start-lands")).toHaveText(
+      "Lands deploy with air, bazel, bridge and 1 more, which it is built on: 5 branches · 10 commits into master.",
+    )
+    await expect(air).toHaveAttribute("data-state", "closed")
+    await expect(page.getByTestId("patronus-start-form")).toHaveCount(1)
+    // Enter starts the Safe Push of deploy, the main line pushed first, root first
+    await expect(headerForm.getByRole("button", { name: "Start Safe Push", exact: true })).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect.poll(() => starts.length).toBe(1)
+    expect(starts[0]).toMatchObject({ branchName: "deploy", mode: "rebaseAutosquash" })
+    expect(pushes.map(push => push.branchName)).toEqual(["air", "bazel", "bridge", "runtime", "deploy"])
+    await expect(headerForm).toHaveCount(0)
+    await closeRefusal(page)
 
+    // expanded: still under the header, not below the row of deploy at the end of the line; "⋯" opens the same form
+    await air.getByTestId("stack-island-root").click()
+    await expect(air).toHaveAttribute("data-state", "open")
     await air.getByRole("button", { name: "More actions for the air stack" }).click()
     await expect(page.getByRole("menu", { name: "More actions for the air stack" }).getByRole("menuitem")).toHaveText([
       "Safe Push deploy…",
-      "Push with Children (7 branches)",
+      "Push with Children (2 branches)",
       "Review Changes",
       "Collapse Stack",
     ])
+    await page.getByRole("menuitem", { name: "Safe Push deploy…" }).click()
+    await expect(headerForm).toContainText("Safe Push of deploy")
+    await expect(page.locator('tr[data-branch-of="deploy"]').getByTestId("patronus-start-form")).toHaveCount(0)
+    // the path it lands is drawn while the form is open
+    await page.mouse.move(0, 0)
+    await expect.poll(() => pathRows(page)).toEqual(expect.arrayContaining(["air", "bazel", "bridge", "runtime", "deploy"]))
+    // a collapse of the island keeps the form under the header
+    await air.getByTestId("stack-island-root").click()
+    await expect(air).toHaveAttribute("data-state", "closed")
+    await expect(headerForm).toContainText("Safe Push of deploy")
+    await headerForm.getByRole("button", { name: "Start Safe Push", exact: true }).click()
+    await expect.poll(() => starts.length).toBe(2)
+    expect(starts[1]).toMatchObject({ branchName: "deploy", mode: "rebaseAutosquash" })
+    await expect(headerForm).toHaveCount(0)
+    await closeRefusal(page)
+    await air.getByTestId("stack-island-root").click()
+    await expect(air).toHaveAttribute("data-state", "open")
+
+    // the row of deploy keeps its own form below it
+    await findBranchRow(page, "deploy").focus()
+    await page.keyboard.press("s")
+    await expect(page.locator('tr[data-branch-of="deploy"]').getByTestId("patronus-start-form")).toContainText("Safe Push of deploy")
+    await expect(air.getByTestId("stack-island-form")).toHaveCount(0)
+    await page.keyboard.press("Escape")
+
     // Review Changes: the review window of the main line's last branch, the whole stack
+    await air.getByRole("button", { name: "More actions for the air stack" }).click()
     await page.getByRole("menuitem", { name: "Review Changes" }).click()
     await expect.poll(async () => (await getOpenedSubWindows<BranchReviewWindowData>(page)).length).toBe(1)
     const [opened] = await getOpenedSubWindows<BranchReviewWindowData>(page)

@@ -39,7 +39,7 @@ import {
   useRevealRequest,
 } from "@/stores/commit-move"
 import type { InlineActionType } from "@/stores/inline-row-action"
-import { closeInline, portalTargetIdFor, useActiveInlineForRow } from "@/stores/inline-row-action"
+import { closeInline, placementOf, portalTargetIdFor, useActiveInlineForRow } from "@/stores/inline-row-action"
 import { useBranchRobot } from "@/stores/patronus"
 import { getShownBranchTableOrder, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
 
@@ -271,7 +271,8 @@ export const BranchRow = memo(function BranchRow({
         </td>
       </BranchContextMenuRow>
 
-      {activeInline !== null && inlineFormTypes.has(activeInline.type) && (
+      {/* the Safe Push of an island renders under its header: the row keeps only its processing */}
+      {activeInline !== null && inlineFormTypes.has(activeInline.type) && placementOf(activeInline) === "row" && (
         <tr className={blockDropClass} data-branch-of={name} {...below} {...dropTarget.dropProps}>
           <td id={portalTargetIdFor(name)} colSpan={columnCount} className={cn("relative overflow-hidden p-0", insetClass)}>
             {gutter}

@@ -1,18 +1,17 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { StackCommit, StackIndependence } from "@/lib/bindings"
-import type { StackStart } from "@/lib/patronus-stack"
-import { describeStackStart } from "@/lib/patronus-stack"
+import type { StackLandingInput } from "@/lib/patronus-stack"
+import { describeStackLanding } from "@/lib/patronus-stack"
 
-function start(patch: Partial<StackStart>) {
-  return describeStackStart({
+function landing(patch: Partial<StackLandingInput>) {
+  return describeStackLanding({
     branchName: "oauth",
     mode: "rebaseAutosquash",
     target: "master",
     ancestors: [],
-    ancestorCommitCount: 0,
+    commitCount: 1,
     children: [],
-    pullRequest: null,
-    childrenHavePullRequests: false,
+    virtualBase: null,
     independence: null,
     ...patch,
   })
@@ -20,107 +19,107 @@ function start(patch: Partial<StackStart>) {
 
 const CHILD: StackCommit = { id: "c1", subject: "Cache the parsed icon", branch: "perf-part-2" }
 const PARSED: StackCommit = { id: "p1", subject: "Parse the icon off the EDT", branch: "IJPL-257337" }
-const ROOT_FIRST =
-  "perf-part-2 is built on IJPL-257337, which isn't in master yet. Safe Push IJPL-257337 first, then perf-part-2: after a merge, the next sync moves the branches built on it onto master."
 
-describe("describeStackStart", () => {
-  it("leads a Safe Push of a stacked branch root first, and says that its own start lands the ancestors", () => {
-    expect(start({ ancestors: ["login"] })).toEqual({
-      lead: {
-        text: "oauth is built on login, which isn't in master yet. Safe Push login first, then oauth: after a merge, the next sync moves the branches built on it onto master.",
-        root: "login",
-        action: { kind: "safePushRoot" },
-      },
-      note: "Or start oauth now: the Safe Push lands login with it.",
+describe("describeStackLanding", () => {
+  it("lands a stacked branch with what it is built on, in one robot, counted", () => {
+    expect(landing({ ancestors: ["auth", "login"], commitCount: 12 })).toEqual({
+      lands: "Lands oauth with auth and login, which it is built on: 3 branches · 12 commits into master.",
+      children: null,
+      alone: null,
+      retarget: null,
     })
-    expect(start({ ancestors: ["auth", "login"], pullRequest: 8 })).toEqual({
-      lead: {
-        text: "oauth is built on auth and login, which aren't in master yet. Safe Push auth first, then the next: after a merge, the next sync moves the branches built on it onto master.",
-        root: "auth",
-        action: { kind: "safePushRoot" },
-      },
-      note: "Or start oauth now: the Safe Push lands auth and login with it. The approvals of pull request #8 don't count: it compares oauth with login, and Patronus merges a pull request into its base.",
-    })
+    expect(landing({ ancestors: ["login"], commitCount: 2 }).lands).toBe("Lands oauth with login, which it is built on: 2 branches · 2 commits into master.")
+    // a lone branch lands alone: nothing to say
+    expect(landing({})).toEqual({ lands: null, children: null, alone: null, retarget: null })
   })
 
-  it("counts the branches and the commits a Safe Push lands with the branch, from three ancestors on", () => {
+  it("names three ancestors and counts the rest, the size of what lands first", () => {
     const ancestors = ["vm-lane-daemon", "air-fake-agent", "air-lane-document", "IJAI-3885"]
-    expect(start({ branchName: "IJAI-4074", ancestors, ancestorCommitCount: 40 }).note).toBe(
-      "Or start IJAI-4074 now: the Safe Push lands 4 branches · 40 commits with it: vm-lane-daemon, air-fake-agent, air-lane-document and 1 more.",
-    )
-    expect(start({ branchName: "IJAI-4074", mode: "dryRun", ancestors, ancestorCommitCount: 40 }).note).toBe(
-      "It checks 4 branches · 40 commits too: vm-lane-daemon, air-fake-agent, air-lane-document and 1 more, which IJAI-4074 is built on.",
+    expect(landing({ branchName: "IJAI-4074", ancestors, commitCount: 42 }).lands).toBe(
+      "Lands IJAI-4074 with vm-lane-daemon, air-fake-agent, air-lane-document and 1 more, which it is built on: 5 branches · 42 commits into master.",
     )
   })
 
-  it("says that a dry run checks the ancestors' commits too", () => {
-    expect(start({ mode: "dryRun", ancestors: ["auth", "login"] })).toEqual({ lead: null, note: "It checks the commits of auth and login too: oauth is built on them." })
-    expect(start({ mode: "dryRun", children: ["device"] })).toEqual({ lead: null, note: null })
+  it("says that a dry run checks the commits of the ancestors too, and nothing of the children", () => {
+    expect(landing({ mode: "dryRun", ancestors: ["auth", "login"], commitCount: 3, children: ["device"] })).toEqual({
+      lands: "Checks oauth with auth and login, which it is built on: 3 branches · 3 commits.",
+      children: null,
+      alone: null,
+      retarget: null,
+    })
+    expect(landing({ mode: "dryRun", children: ["device"] })).toEqual({ lands: null, children: null, alone: null, retarget: null })
   })
 
-  it("says what the merge of a parent does to the branches built on it", () => {
-    expect(start({ branchName: "auth", children: ["login"] }).note).toBe("login is built on auth: after the merge, the next sync moves them onto master.")
-    expect(start({ branchName: "auth", children: ["login", "oauth"], childrenHavePullRequests: true }).note).toBe(
-      "login and oauth are built on auth: after the merge, the next sync moves them onto master; their pull requests are retargeted to master when they are pushed.",
-    )
-    expect(start({ branchName: "auth" })).toEqual({ lead: null, note: null })
+  it("says that the branches built on it stay, and what the next sync after the merge does to them", () => {
+    expect(landing({ branchName: "auth", children: ["login"] }).children).toBe("login is built on auth: it stays, and after the merge the next sync builds it on master.")
+    // a branch in the middle: what lands, and what stays
+    expect(landing({ branchName: "login", ancestors: ["auth"], commitCount: 2, children: ["oauth", "device"] })).toMatchObject({
+      lands: "Lands login with auth, which it is built on: 2 branches · 2 commits into master.",
+      children: "oauth and device are built on login: they stay, and after the merge the next sync builds them on master.",
+    })
   })
 
-  describe("with the trial build of the branch alone", () => {
-    const stacked = { branchName: "perf-part-2", ancestors: ["IJPL-257337"] }
+  it("offers the retarget of a pull request into a virtual branch, whose approvals don't count", () => {
+    expect(landing({ ancestors: ["login"], virtualBase: { number: 8, base: "user/virtual/login" } }).retarget).toEqual({
+      number: 8,
+      text: "Approvals in #8 don't count: it merges into user/virtual/login, and Patronus merges a pull request into its base.",
+      label: "Retarget #8 to master",
+    })
+  })
 
-    it("offers the unstack first when the branch applies on the baseline without its parent", () => {
-      expect(start({ ...stacked, independence: { kind: "builds", parent: "IJPL-257337", uses: [], symbols: false } }).lead).toEqual({
-        text: "perf-part-2 applies on the baseline without IJPL-257337. Compile dependencies are not checked.",
-        root: "IJPL-257337",
-        action: { kind: "unstack", parent: "IJPL-257337" },
+  describe("with the trial build of the branch alone, the second way", () => {
+    const stacked = { branchName: "perf-part-2", ancestors: ["IJPL-257337"], commitCount: 3 }
+
+    it("offers the unstack when the branch applies on the baseline without its parent, after the landing", () => {
+      const result = landing({ ...stacked, independence: { kind: "builds", parent: "IJPL-257337", uses: [], symbols: false } })
+      expect(result.lands).toBe("Lands perf-part-2 with IJPL-257337, which it is built on: 2 branches · 3 commits into master.")
+      expect(result.alone).toEqual({
+        kind: "unstack",
+        parent: "IJPL-257337",
+        text: "To land perf-part-2 alone: it applies on the baseline without IJPL-257337. Compile dependencies are not checked.",
+        warning: false,
       })
       // with the symbols on, no name of the parent is used either
-      expect(start({ ...stacked, independence: { kind: "builds", parent: "IJPL-257337", uses: [], symbols: true } }).lead?.text).toBe(
-        "perf-part-2 applies on the baseline without IJPL-257337 and uses no name it adds. Not checked by a compiler.",
-      )
+      expect(landing({ ...stacked, independence: { kind: "builds", parent: "IJPL-257337", uses: [], symbols: true } }).alone).toMatchObject({
+        text: "To land perf-part-2 alone: it applies on the baseline without IJPL-257337 and uses no name it adds. Not checked by a compiler.",
+      })
     })
 
-    it("leads root first when the branch applies alone but uses a name its parent adds, the unstack after it", () => {
+    it("warns that a branch that applies alone uses a name its parent adds, the unstack still offered", () => {
       const uses = [{ commit: CHILD, name: "parsedIcon", declaredBy: PARSED }]
-      expect(start({ ...stacked, independence: { kind: "builds", parent: "IJPL-257337", uses, symbols: true } }).lead).toEqual({
+      expect(landing({ ...stacked, independence: { kind: "builds", parent: "IJPL-257337", uses, symbols: true } }).alone).toEqual({
+        kind: "unstack",
+        parent: "IJPL-257337",
         text: '"Cache the parsed icon" uses parsedIcon, which "Parse the icon off the EDT" of IJPL-257337 adds. perf-part-2 applies on the baseline without IJPL-257337, but needs it to compile. Found by names, not by a compiler.',
-        root: "IJPL-257337",
-        action: { kind: "safePushRoot", unstack: "IJPL-257337" },
+        warning: true,
       })
       const more = [...uses, { commit: CHILD, name: "iconCache", declaredBy: PARSED }]
-      expect(start({ ...stacked, independence: { kind: "builds", parent: "IJPL-257337", uses: more, symbols: true } }).lead?.text).toMatch(
+      expect(landing({ ...stacked, independence: { kind: "builds", parent: "IJPL-257337", uses: more, symbols: true } }).alone?.text).toMatch(
         /^"Cache the parsed icon" uses parsedIcon and 1 more name, which/,
       )
     })
 
     it("offers to move the commits it needs when no other branch needs them", () => {
       const independence: StackIndependence = { kind: "needs", parent: "IJPL-257337", childCommit: CHILD, files: ["AppUIUtil.kt"], parentCommits: [PARSED], movable: true }
-      expect(start({ ...stacked, independence }).lead).toEqual({
-        text: '"Cache the parsed icon" changes lines that "Parse the icon off the EDT" of IJPL-257337 adds. perf-part-2 may build without IJPL-257337 once it is here.',
-        root: "IJPL-257337",
-        action: { kind: "move", commits: [PARSED], label: "Move 1 Commit Here" },
+      expect(landing({ ...stacked, independence }).alone).toEqual({
+        kind: "move",
+        commits: [PARSED],
+        label: "Move 1 Commit Here",
+        text: 'To land perf-part-2 alone, move what it needs here: "Cache the parsed icon" changes lines that "Parse the icon off the EDT" of IJPL-257337 adds.',
       })
       const two = { ...independence, parentCommits: [PARSED, { ...PARSED, id: "p0", subject: "Load icons" }] }
-      expect(start({ ...stacked, independence: two }).lead?.action).toMatchObject({ kind: "move", label: "Move 2 Commits Here" })
-      expect(start({ ...stacked, independence: two }).lead?.text).toMatch(/^"Cache the parsed icon" changes lines that 2 commits of IJPL-257337 add\./)
+      expect(landing({ ...stacked, independence: two }).alone).toMatchObject({ kind: "move", label: "Move 2 Commits Here" })
+      expect(landing({ ...stacked, independence: two }).alone?.text).toMatch(/move what it needs here: "Cache the parsed icon" changes lines that 2 commits of IJPL-257337 add\.$/)
     })
 
-    it("leads root first and names the needed commit when a move would make another branch need this one", () => {
+    it("offers no way alone when the needed commits can't move, nor while the check runs or after it failed", () => {
       const independence: StackIndependence = { kind: "needs", parent: "IJPL-257337", childCommit: CHILD, files: ["AppUIUtil.kt"], parentCommits: [PARSED], movable: false }
-      expect(start({ ...stacked, independence }).lead).toEqual({
-        text: `${ROOT_FIRST} "Cache the parsed icon" changes lines that "Parse the icon off the EDT" of IJPL-257337 adds.`,
-        root: "IJPL-257337",
-        action: { kind: "safePushRoot" },
-      })
-      // no commit of the parent explains the conflict: its files
-      expect(start({ ...stacked, independence: { ...independence, parentCommits: [] } }).lead?.text).toBe(
-        `${ROOT_FIRST} Without IJPL-257337, "Cache the parsed icon" conflicts in AppUIUtil.kt.`,
-      )
-    })
-
-    it("leads root first while the check runs or after it failed", () => {
-      expect(start({ ...stacked, independence: null }).lead).toEqual({ text: ROOT_FIRST, root: "IJPL-257337", action: { kind: "safePushRoot" } })
+      expect(landing({ ...stacked, independence }).alone).toBeNull()
+      // a conflict without a needed commit
+      expect(landing({ ...stacked, independence: { ...independence, parentCommits: [], movable: true } }).alone).toBeNull()
+      expect(landing({ ...stacked, independence: null }).alone).toBeNull()
+      // the landing stays the lead
+      expect(landing({ ...stacked, independence }).lands).toBe("Lands perf-part-2 with IJPL-257337, which it is built on: 2 branches · 3 commits into master.")
     })
   })
 })

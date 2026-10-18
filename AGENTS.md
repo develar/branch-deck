@@ -116,13 +116,15 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   `robot_is_failing`), told once with Cancel Safe Push; Safe Push / Dry Run start with the code-owner review pre-check, restart, cancel, and a
   no push of a branch a running Safe Push lands (`PushHold`; the row's push place stays empty, Push and Restart
   Safe Push cancels, pushes and restarts; `bd push` refuses it as `robot_running`, `--restart-running`); a branch with a GitHub PR starts from it with a `/patronus merge`
-  comment, so the PR's approvals count (`spec/branch/patronus.spec.md`); a stacked branch's Safe Push leads
-  root first and closes the PRs of the ancestors it landed. One model decides the next step of a branch
-  (`getBranchNextStep`, `src/lib/branch-next-step.ts`, the table of `spec/branch/next-step.spec.md`), rendered by the
-  slot, "⋯", S, the preview, the review window, the stack header and the form's Start: approvals are counted only by
-  Patronus, the app asks it in the background (`src/stores/review-readiness.ts`, the one reader) and never offers a
-  Safe Push it would fail ("Awaiting Ilya Korennoy" opens the PR). `bd safe-push` starts one from the agent
-  CLI with a merge profile; missing code-owner approvals refuse it (`approvals_missing`) unless `--without-approvals`
+  comment, so the PR's approvals count (`spec/branch/patronus.spec.md`); a stacked branch's Safe Push lands it with
+  what it is built on in one robot, its form below its own row (the island header's under the header, `placement`),
+  landing it alone (unstack, move) the second way, and closes the PRs of the ancestors it landed. One model decides
+  the next step of a branch (`getBranchNextStep`, `src/lib/branch-next-step.ts`, the table of
+  `spec/branch/next-step.spec.md`), rendered by the slot, "⋯", S, the preview, the review window, the stack header and
+  the form's Start: approvals are counted only by Patronus, the app asks it in the background for the branches a
+  surface shows (`src/stores/review-readiness.ts`, the one reader) and never offers a Safe Push it would fail
+  ("Awaiting Ilya Korennoy" opens the PR). `bd safe-push` starts one from the agent CLI with a merge profile;
+  missing code-owner approvals refuse it (`approvals_missing`) unless `--without-approvals`
   (Patronus judges the approvals of the pull request the robot starts from: the pre-check sends it, the readiness
   `sync_core::review_readiness` is shared with the app, its answer kept in the object cache by paths and reviews); `--create-pull-request`
   opens the GitHub pull request the approvals count in, assigned to the user, `--reviewer <login>` asked (no Space merge request: deprecated). A failed robot's toast copies
@@ -202,8 +204,8 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   `Order`: never joins `units`), an override of a member, the overload or constructor form a call's arguments select
   and a member's changed form included (Kotlin, Java), and the dangling-reference check subtracts comments, strings,
   locals, still-bound names and override lines; with `branchdeck.symbols on` (the default; `report`, `off`) they also
-  order and stack branches in `bd suggest`, the conflict fix, `missing_declarations` of `bd check` and the Safe Push
-  lead (`spec/commit/symbol-dependencies.spec.md`).
+  order and stack branches in `bd suggest`, the conflict fix, `missing_declarations` of `bd check` and the unstack
+  warning of the Safe Push form (`spec/commit/symbol-dependencies.spec.md`).
 - **Zoom**: View → Zoom In / Zoom Out / Actual Size, our own (WKWebView has no zoom keys), 67–150%, one saved level
   for all windows (`appSettings.zoom`), the toolbar not zoomed, the minimum window wider above 125%
   (`spec/repository/zoom.spec.md`).

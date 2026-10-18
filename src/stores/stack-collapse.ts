@@ -8,7 +8,7 @@ import type { BranchTablesLayout, TableCollapse } from "@/lib/stack-collapse"
 import { getBranchFilter, getShownBranches } from "@/stores/branch-filter"
 import type { BranchSyncState, BranchTableRow } from "@/stores/branch-sync"
 import { branchSyncStore, getBranchTableRows, getStackIslandRoots, stackDescendantsIn, useBranchSync, useStackIslandRoots, useVisibleBranchTableRows } from "@/stores/branch-sync"
-import { closeInline, inlineRowActionStore } from "@/stores/inline-row-action"
+import { closeInline, inlineRowActionStore, placementOf } from "@/stores/inline-row-action"
 import { getRecentProjects, setCollapsedStacks, useRecentProjects } from "@/stores/settings/repositorySettings"
 
 const NONE: readonly string[] = []
@@ -41,7 +41,8 @@ function writeCollapsed(roots: readonly string[]): void {
 
 /**
  * Collapses the stack of `name` (any branch of it) into its root, or expands it; returns the root, null for a branch
- * outside a stack or under a filter. An inline form of a branch the collapse hides closes.
+ * outside a stack or under a filter. An inline form of a branch the collapse hides closes; the form under the header of
+ * an island stays, the header shows it while collapsed.
  */
 export function setStackCollapsed(name: string, collapsed: boolean): string | null {
   const rows = getBranchTableRows(null)
@@ -50,8 +51,8 @@ export function setStackCollapsed(name: string, collapsed: boolean): string | nu
     return null
   }
   if (collapsed) {
-    const open = inlineRowActionStore.getState().activeInline?.branchName
-    if (open !== undefined && open !== root && stackMembers(rows, root).includes(open)) {
+    const active = inlineRowActionStore.getState().activeInline
+    if (active !== null && placementOf(active) === "row" && active.branchName !== root && stackMembers(rows, root).includes(active.branchName)) {
       closeInline()
     }
   }

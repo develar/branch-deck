@@ -86,7 +86,7 @@ actions on the branch: Open Pull Request, Safe Push… and Push, which the main 
   not; the Safe Push form stays in the main window. It is disabled, with the reason, for a branch without commits,
   one that failed to sync and a blocked one (its virtual branch is not built on its parent).
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should open the review of a branch in its window from its row, its menu and its preview`)
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should open the Safe Push of the main line from the header, and offer the stack actions in its menu`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should open the Safe Push of the main line under the header`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should list the files of each group and review them in the window beside the form`)
   [@test] ../../src/lib/branch-review.test.ts (`allows a synced branch with commits`)
 - The window is one sub-window (`branch-review`, titled "Review <branch>", [Title Bar](../repository/title-bar.spec.md)

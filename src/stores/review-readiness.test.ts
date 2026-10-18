@@ -9,6 +9,7 @@ import {
   recheckReviewReadiness,
   resetReviewReadiness,
   scheduleReadinessScan,
+  showReviewReadiness,
   watchReviewReadiness,
 } from "@/stores/review-readiness"
 
@@ -103,6 +104,16 @@ async function settle(): Promise<void> {
   await vi.runAllTimersAsync()
 }
 
+/** The watch, with every branch shown as a row of the screen shows it */
+function watchShown(...args: Parameters<typeof watchReviewReadiness>): () => void {
+  const hides = Object.keys(state.tips).map(name => showReviewReadiness(name))
+  const unwatchReadiness = watchReviewReadiness(...args)
+  return () => {
+    unwatchReadiness()
+    hides.forEach(hide => hide())
+  }
+}
+
 const missing: ReviewReadiness = { kind: "missing", groups: [], notCounted: [], reason: "approvalsMissing" }
 
 let unwatch: () => void = () => {}
@@ -128,7 +139,7 @@ describe("review readiness", () => {
   it("asks for the wanted branches in one batch, with the start the robot would take", async () => {
     state.tips = { auth: "a1", login: "l1" }
     state.pullRequests = { login: pullRequest(7, [{ login: "ilya", state: "requested", requested: true }]) }
-    unwatch = watchReviewReadiness(order => order)
+    unwatch = watchShown(order => order)
     await settle()
     expect(state.calls).toHaveLength(1)
     expect(state.calls[0]!.branches).toEqual([
@@ -140,7 +151,7 @@ describe("review readiness", () => {
   })
 
   it("asks nothing again while the input stays: another sync, the same reviews", async () => {
-    unwatch = watchReviewReadiness(order => order)
+    unwatch = watchShown(order => order)
     await settle()
     ;(stores.branchSync as StoreApi<{ baselineBranch: string }>).setState({ baselineBranch: "origin/master" })
     scheduleReadinessScan()
@@ -151,7 +162,7 @@ describe("review readiness", () => {
   it("keeps the answer of the old input, stale, while a new review loads: the row doesn't flicker", async () => {
     state.readiness = missing
     state.pullRequests = { auth: pullRequest(7) }
-    unwatch = watchReviewReadiness(order => order)
+    unwatch = watchShown(order => order)
     await settle()
     state.hold = true
     state.readiness = { kind: "approved", groups: [] }
@@ -169,7 +180,7 @@ describe("review readiness", () => {
   it("keeps one batch in flight, of at most READINESS_BATCH_SIZE branches", async () => {
     state.tips = Object.fromEntries(Array.from({ length: READINESS_BATCH_SIZE + 2 }, (_, index) => [`b${index}`, `t${index}`]))
     state.hold = true
-    unwatch = watchReviewReadiness(order => order)
+    unwatch = watchShown(order => order)
     await vi.advanceTimersByTimeAsync(0)
     scheduleReadinessScan()
     await vi.advanceTimersByTimeAsync(0)
@@ -182,7 +193,7 @@ describe("review readiness", () => {
   })
 
   it("asks again with recheck after the pull requests from GitHub, the answer stale meanwhile", async () => {
-    unwatch = watchReviewReadiness(order => order)
+    unwatch = watchShown(order => order)
     await settle()
     const recheck = recheckReviewReadiness("auth")
     expect(getReviewReadiness("auth")?.stale).toBe(true)
@@ -202,7 +213,7 @@ describe("review readiness", () => {
     }
     state.pullRequests = { auth: pullRequest(7, [{ login: "ilya", state: "requested", requested: true }]) }
     const told: string[] = []
-    unwatch = watchReviewReadiness(
+    unwatch = watchShown(
       order => order,
       news => told.push(`${news.branchName} #${news.pullRequest}`),
     )
@@ -221,7 +232,7 @@ describe("review readiness", () => {
 
   it("drops the recheck of a branch without a tip: the other branches are asked", async () => {
     state.tips = { auth: "a1", login: "l1" }
-    unwatch = watchReviewReadiness(order => order)
+    unwatch = watchShown(order => order)
     await settle()
     const recheck = recheckReviewReadiness("gone")
     await recheck
@@ -233,7 +244,7 @@ describe("review readiness", () => {
 
   it("is not fresh for an input the branch moved past while another batch is in flight", async () => {
     state.tips = { auth: "a1", login: "l1" }
-    unwatch = watchReviewReadiness(order => order)
+    unwatch = watchShown(order => order)
     await settle()
     // login is asked again and held; auth moves meanwhile
     state.hold = true
@@ -253,8 +264,41 @@ describe("review readiness", () => {
 
   it("asks only the branches whose next step depends on the readiness", async () => {
     state.tips = { auth: "a1", login: "l1" }
-    unwatch = watchReviewReadiness(order => order.filter(name => name === "login"))
+    unwatch = watchShown(order => order.filter(name => name === "login"))
     await settle()
     expect(state.calls.map(call => call.branches.map(branch => branch.branchName))).toEqual([["login"]])
+  })
+
+  it("asks only the branches a surface shows, and keeps asking the hidden ones that wait for an approval", async () => {
+    state.tips = { auth: "a1", login: "l1", oauth: "o1" }
+    state.pullRequests = { login: pullRequest(8, [{ login: "ilya", state: "requested", requested: true }]) }
+    state.readiness = missing
+    unwatch = watchReviewReadiness(order => order)
+    // the rows of auth and login are on the screen; oauth is in a collapsed stack
+    const hideAuth = showReviewReadiness("auth")
+    const hideLogin = showReviewReadiness("login")
+    await settle()
+    expect(state.calls.map(call => call.branches.map(branch => branch.branchName))).toEqual([["auth", "login"]])
+    // the stack collapses: auth, without a pull request, is asked no more; login waits for Ilya in #8
+    hideAuth()
+    hideLogin()
+    state.tips = { auth: "a2", login: "l1", oauth: "o1" }
+    state.pullRequests = { login: pullRequest(8, [{ login: "ilya", state: "approved", requested: false }]) }
+    scheduleReadinessScan()
+    await settle()
+    expect(state.calls.map(call => call.branches.map(branch => branch.branchName))).toEqual([["auth", "login"], ["login"]])
+    // shown again (the stack expands, the preview of oauth): asked for what changed meanwhile, the old answer stale till then
+    expect(getReviewReadiness("auth")).toMatchObject({ tip: "a1", stale: false })
+    state.hold = true
+    const hideOauth = showReviewReadiness("oauth")
+    const hideAgain = showReviewReadiness("auth")
+    await vi.advanceTimersByTimeAsync(0)
+    expect(getReviewReadiness("auth")?.stale).toBe(true)
+    state.hold = false
+    state.pending!()
+    await settle()
+    expect(state.calls.at(-1)!.branches.map(branch => branch.branchName)).toEqual(["auth", "oauth"])
+    hideOauth()
+    hideAgain()
   })
 })

@@ -12,6 +12,11 @@ export interface CollapsibleCardProps {
   help?: ReactNode
   /** Controls at the end of the header row, outside the toggle button */
   actions?: ReactNode
+  /**
+   * Right below the header row, outside the body, so it shows while the card is collapsed too: a form the header
+   * opened (the Safe Push of a stack island); nothing when it renders nothing
+   */
+  below?: ReactNode
   children: ReactNode
   defaultOpen?: boolean
   /** Controlled: the open state, kept by the caller (e.g. per repository); `defaultOpen` is ignored then */
@@ -25,9 +30,9 @@ export interface CollapsibleCardProps {
 }
 
 /**
- * `Card` whose header toggles the body. The body is rendered only while open. The header row is one toggle button, the
- * leading chevron and the header in it; its `::after` covers the row below the help and the actions, so the whole row
- * toggles while they stay clickable, with one tab stop.
+ * `Card` whose header toggles the body. The body is rendered only while open; `below` the header always. The header
+ * row is one toggle button, the leading chevron and the header in it; its `::after` covers the row below the help and
+ * the actions, so the whole row toggles while they stay clickable, with one tab stop.
  * `data-state="open|closed"` is set explicitly on the root and the body (Base UI emits `data-open`/`data-closed`).
  * Inside the header, `group-data-[state=open]:` targets the open state.
  */
@@ -35,6 +40,7 @@ export function CollapsibleCard({
   header,
   help,
   actions,
+  below,
   children,
   defaultOpen = false,
   open: controlledOpen,
@@ -54,7 +60,8 @@ export function CollapsibleCard({
       data-state={state}
       data-testid={testId}
       data-stack-root={stackRoot}
-      render={<Card className={cn("gap-0 py-0", open && "divide-y divide-border", className)} />}
+      // a divider between the header, what is below it and the body; collapsed without `below`, the header is alone
+      render={<Card className={cn("gap-0 py-0", (open || below !== undefined) && "divide-y divide-border", className)} />}
     >
       <div className="relative isolate flex items-center gap-3 px-4 py-2.5 sm:px-6">
         <CollapsibleTrigger
@@ -69,6 +76,7 @@ export function CollapsibleCard({
         {help}
         {actions !== undefined && <div className="ml-auto flex shrink-0 items-center gap-3">{actions}</div>}
       </div>
+      {below}
 
       {open && (
         <CollapsibleContent data-state={state} className="animate-in overflow-x-auto duration-150 fade-in-0">

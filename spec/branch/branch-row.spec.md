@@ -316,10 +316,11 @@ under it. The commits of an expanded branch sit on its lane.
   (it opens the Safe Push form below the row, [Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)); the step
   after a robot ("Restart Safe Push"); a quiet wait that opens the pull request it waits in ("Awaiting Ilya Korennoy",
   "Changes Requested", "Draft"); the action that helps ("Create Pull Request…", "Request Review…", "Retarget #7 to
-  master", "Safe Push ‹root›…"); nothing while a robot runs, after a merge, for a landed or held branch
-  ([Patronus](patronus.spec.md#robot-of-a-row)). The product lands through Safe Push, so it is the one labelled action
-  and not only behind the right-click; every other "Safe Push…" (the menu, S, the preview, the review) is disabled with
-  the reason of the step. The robot itself is in the Status cell. Nothing in the slot changes on the row hover.
+  master"); a stacked branch's own step, its form below its own row; nothing while a robot runs, after a merge, for a
+  landed or held branch ([Patronus](patronus.spec.md#robot-of-a-row)). The product lands through Safe Push, so it is
+  the one labelled action and not only behind the right-click; every other "Safe Push…" (the menu, S, the preview,
+  the review) is disabled with the reason of the step. The robot itself is in the Status cell. Nothing in the slot
+  changes on the row hover.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push form from the row button and from the "⋯" menu, and say why a start is not possible`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`, `should restart a failed robot from its row, the state staying in the Status cell`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner the pull request asks, never offer a Safe Push that fails, and say why on S`)

@@ -106,13 +106,19 @@ function reviewsOf(pullRequest: PullRequest | undefined, branch: ReviewReadiness
 
 /** The branches a surface needs the readiness of now (the Safe Push form, the "Create pull request" dialog), with a count each */
 const demanded = new Map<string, number>()
+/**
+ * The branches whose next step a surface shows now (`showReviewReadiness`), with a count each: a row on the screen (not
+ * one a collapsed stack, side stack or island hides: it isn't rendered), the header of an island, the preview, the
+ * review window. Asked only while their step depends on the readiness (`wantedOf`).
+ */
+const shown = new Map<string, number>()
 /** The branches whose next answer asks Patronus again (`recheck`), by `recheckKey`: of each repository its own */
 const rechecks = new Set<string>()
 
 function recheckKey(repository: string, branchName: string): string {
   return `${repository}\n${branchName}`
 }
-/** The branches whose next step depends on the readiness (`needsReadiness`), in table order; set by the watch */
+/** Of the shown branches (`askedOrder`), those whose next step depends on the readiness (`needsReadiness`); set by the watch */
 let wantedOf: () => readonly string[] = () => []
 /** Told when the approvals of a branch arrived (`findApprovalNews`), once each; set by the watch of the main window */
 let approvalListener: (news: ApprovalNews) => void = () => {}
@@ -140,9 +146,21 @@ function isDue(repository: string, entry: ReadinessEntry | undefined, input: Rea
 }
 
 /**
+ * The branches the watch may ask, in table order: the shown ones, and those whose last answer waits for an approval in
+ * their pull request while nothing shows them (a collapsed stack): a new review of it asks again, so its approval is
+ * news. A hidden branch is asked once it shows; its answer is kept meanwhile, marked stale when it shows with another
+ * input.
+ */
+function askedOrder(key: string): string[] {
+  const entries = reviewReadinessStore.getState().repositories[key] ?? NO_ENTRIES
+  return getBranchTableOrder().filter(name => shown.has(name) || (entries[name]?.readiness.kind === "missing" && entries[name].pullRequest !== null))
+}
+
+/**
  * Asks for the next batch, if none is in flight: the rechecks first (one call with `recheck`), then the branches a
- * surface demands, then those the table needs in table order, up to `READINESS_BATCH_SIZE`. An entry whose input
- * changed is marked stale at once, so no surface acts on it while its answer loads. Repeats until nothing is due.
+ * surface demands, then the shown ones whose step needs it, in table order (`askedOrder`), up to
+ * `READINESS_BATCH_SIZE`. An entry whose input changed is marked stale at once, so no surface acts on it while its
+ * answer loads. Repeats until nothing is due.
  */
 function scan(): void {
   scanTimer = undefined
@@ -270,7 +288,25 @@ export function useDemandReviewReadiness(branchName: string, enabled: boolean): 
 
 /** Asks for the readiness of the branch until the returned function is called: what the hook does, outside React */
 export function demandReviewReadiness(branchName: string): () => void {
-  demanded.set(branchName, (demanded.get(branchName) ?? 0) + 1)
+  return countIn(demanded, branchName)
+}
+
+/**
+ * A surface shows the next step of the branch until the returned function is called (a row, an island header, the
+ * preview, the review window): the watch asks for its readiness while its step depends on it
+ */
+export function showReviewReadiness(branchName: string): () => void {
+  return countIn(shown, branchName)
+}
+
+/** `showReviewReadiness` while the component shows the step of `branchName`; nothing for an empty name */
+export function useShowReviewReadiness(branchName: string): void {
+  useEffect(() => (branchName === "" ? undefined : showReviewReadiness(branchName)), [branchName])
+}
+
+/** Counts `branchName` in `counts` and asks soon, until the returned function is called (once) */
+function countIn(counts: Map<string, number>, branchName: string): () => void {
+  counts.set(branchName, (counts.get(branchName) ?? 0) + 1)
   scheduleReadinessScan()
   let released = false
   return () => {
@@ -278,11 +314,11 @@ export function demandReviewReadiness(branchName: string): () => void {
       return
     }
     released = true
-    const count = (demanded.get(branchName) ?? 1) - 1
+    const count = (counts.get(branchName) ?? 1) - 1
     if (count === 0) {
-      demanded.delete(branchName)
+      counts.delete(branchName)
     } else {
-      demanded.set(branchName, count)
+      counts.set(branchName, count)
     }
   }
 }
@@ -304,11 +340,15 @@ export async function recheckReviewReadiness(branchName: string): Promise<void> 
 
 /**
  * Keeps the readiness of the branches current while the main window shows them: on every change of the branches, the
- * pull requests and the robots, the branches whose next step depends on it (`wanted`, in table order) are asked for
- * what changed; `onApproval` is told when the approvals of a branch arrived (once each). Returns the unsubscribe.
+ * pull requests and the robots, and when a surface shows another branch, the shown branches whose next step depends on
+ * it (`wanted` of `askedOrder`, in table order) are asked for what changed; `onApproval` is told when the approvals of a
+ * branch arrived (once each). Returns the unsubscribe.
  */
 export function watchReviewReadiness(wanted: (order: readonly string[]) => readonly string[], onApproval: (news: ApprovalNews) => void = () => {}): () => void {
-  wantedOf = () => wanted(getBranchTableOrder())
+  wantedOf = () => {
+    const key = currentKey()
+    return key === null ? [] : wanted(askedOrder(key))
+  }
   approvalListener = onApproval
   const unsubscribes = [branchSyncStore, pullRequestsStore, patronusStore].map(store => store.subscribe(() => scheduleReadinessScan()))
   scheduleReadinessScan()
@@ -327,6 +367,7 @@ export function hasAwaitingRow(isAwaiting: (name: string) => boolean): boolean {
 /** Forgets every answer and request (tests) */
 export function resetReviewReadiness(): void {
   demanded.clear()
+  shown.clear()
   rechecks.clear()
   inFlight = false
   clearTimeout(scanTimer)

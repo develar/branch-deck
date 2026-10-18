@@ -51,11 +51,43 @@ This document is a draft while the model is implemented. The specs are the contr
   - *Rationale:* a robot takes hours. Landing root first means one robot per branch. Each landing also rebuilds the
     children on master and force-pushes them, which dismisses their approvals.
 
+- **The branch alone is a second way, never the lead.** A stacked branch whose trial build applies without its parent
+  can be unstacked and land alone; the form offers it below the landing.
+  - *Rationale:* the trial build checks lines and names, not a compiler, and a stored stack parent doesn't say why the
+    branch was stacked. Landing what it is built on is always right; landing it alone is right only when the user
+    says so.
+
+### A piece: a branch and what it is built on
+
+- **Next step.** A stacked branch has no row of its own in the [Next Step](../../spec/branch/next-step.spec.md) table
+  (row 4, "Safe Push ‹root›…", is removed). It takes the rows of its own pull request into master: its approvals, its
+  draft, its wait. The reasons of its ancestors come through the rows that already hold them: a parent that doesn't
+  build blocks it, a Safe Push that lands the branch holds it, and a robot that lands an ancestor is the reason of
+  `canStartRobot` that disables its start.
+- **The form.** `describeStackLanding` (`src/lib/patronus-stack.ts`) words what the one robot lands, first and plain:
+  "Lands oauth with auth and login, which it is built on: 3 branches · 12 commits into master." Start is the only start
+  of the form, and Enter starts it. The ancestors with work for the remote are pushed first, a step of the start. The
+  branches built on it stay; the next sync after the merge builds them on master. The trial build of the branch alone
+  (`get_stack_independence`) gives the second way: the unstack, a warning when the branch uses a name of its stack,
+  or the move of the commits it needs. An old pull request into a virtual branch offers its retarget to master.
+- **Where it opens.** Every surface of a branch (its slot, "⋯", S, the preview, the review window) opens the branch's
+  own form below its own row. The header of a stack island opens the form of the last branch of its main line right
+  under the header (`InlinePlacement` `stack-header`), also while the island is collapsed; its key, processing and
+  holds stay the branch's.
+- **The readiness.** A stacked branch is asked for its readiness now, for its own pull request. To keep the load on
+  Patronus as it was, the readiness store asks only for the branches a surface shows (`showReviewReadiness`: a row on
+  the screen, an island header, the preview, the review window), and for a hidden one whose answer waits for an
+  approval, so its approval is still news.
+
 ## Alternatives Considered
 
 - **Stacked pull requests into the parent's branch.** Each pull request shows only its own commits.
   - *Why not:* Patronus doesn't count their approvals and can't start from them, so every landing goes through the API
     without approvals, or waits for retargets after each parent lands.
+- **Root first: the Safe Push of a child leads to the Safe Push of its root.** Each branch lands after the one it is
+  built on, its own start a muted alternative.
+  - *Why not:* one robot per branch, hours each, and each landing rebuilds the children on master and force-pushes
+    them, which dismisses their approvals. The form of a child led away from the branch the user asked for.
 
 ## References
 
