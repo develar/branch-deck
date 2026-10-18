@@ -419,6 +419,8 @@ fn overrides<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Modality {
     jvm_static: false,
     jvm_field: false,
     jvm_name: false,
+    lateinit: false,
+    setter: None,
     receiver: None,
   }
 }

@@ -208,7 +208,13 @@ fn modality_text(declaration: &Declaration) -> String {
   let jvm_static = if declaration.jvm_static { " jvm_static" } else { "" };
   let jvm_field = if declaration.jvm_field { " jvm_field" } else { "" };
   let jvm_name = if declaration.jvm_name { " jvm_name" } else { "" };
-  format!("{overrides}{overridable}{jvm_static}{jvm_field}{jvm_name}")
+  let lateinit = if declaration.lateinit { " lateinit" } else { "" };
+  let setter = match declaration.setter {
+    None => String::new(),
+    Some(reach) if reach == declaration.reach => " var".to_string(),
+    Some(reach) => format!(" var({reach:?} set)"),
+  };
+  format!("{overrides}{overridable}{jvm_static}{jvm_field}{jvm_name}{lateinit}{setter}")
 }
 
 /// `List/Window?` of `[List, Window]` nullable, `int[]` of an array, `_` for any type

@@ -57,12 +57,13 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 - The summary of a Kotlin or Java file must hold the parameter types of each function (the last names of each type, `?`,
   a default value, `vararg`, the dimensions of an array with a vararg counted as one; a type parameter as any type),
-  whether a member overrides, whether a subtype may override it and whether a Kotlin member is `@JvmStatic`, `@JvmField`
-  or renamed by `@JvmName` (also `@get:` and `@set:`), the `@file:JvmName` of a Kotlin file, and the direct supertypes
-  of each type without type arguments, a Kotlin function type as an empty path. An `override` or `@Override` member must
-  be one `Override` reference per direct supertype of the class around it (an object expression, an anonymous class and
-  the body of an enum entry included), qualified by the path of the supertype, with its kind, receiver and parameter
-  types as its shape; an override in a lambda (a one-line object expression the grammar reads as a call) must have none.
+  whether a member overrides, whether a subtype may override it and whether a Kotlin member is `@JvmStatic`,
+  `@JvmField`, `lateinit`, renamed by `@JvmName` (also `@get:` and `@set:`) or `@JvmSynthetic`, the reach of the setter
+  of a `var` (`private set`), the `@file:JvmName` of a Kotlin file, and the direct supertypes of each type without type
+  arguments, a Kotlin function type as an empty path. An `override` or `@Override` member must be one `Override`
+  reference per direct supertype of the class around it (an object expression, an anonymous class and the body of an
+  enum entry included), qualified by the path of the supertype, with its kind, receiver and parameter types as its
+  shape; an override in a lambda (a one-line object expression the grammar reads as a call) must have none.
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`an_override_is_a_reference_per_supertype`, `a_signature_has_the_parameter_types`, `a_member_knows_whether_it_overrides_and_can_be_overridden`, `a_member_knows_whether_it_is_jvm_static`, `an_override_in_a_lambda_gets_no_supertype`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`an_override_is_a_reference_per_supertype`, `a_signature_has_the_parameter_types`, `a_member_knows_whether_it_overrides_and_can_be_overridden`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
@@ -221,12 +222,15 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   file must be one (evidence `facade`): `UtilKt.helper()` with the class imported or of its package,
   `a.UtilKt.helper()`, `import static a.UtilKt.helper` or `a.UtilKt.*` and a bare `helper()`, the class being the file's
   `@file:JvmName` if it has one. A `@JvmField` property of a companion must be a field of the class around it
-  (`Owner.field`). No accessor of a `@JvmField`, `const` or `@get:JvmName` property, nor one beside a function of the
-  accessor's name, no Kotlin read of a Java getter beside a field of the property's name, no `Owner.getCount()` of a
-  property without `@JvmStatic`, a getter called with an argument, a Kotlin access of a Java method with parameters,
-  `UtilKt` beside a `@file:JvmName("Util")`, a Kotlin use of `UtilKt` or `UtilKt` of another package without an import
-  must be a use.
-  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_java_accessor_call_of_a_kotlin_property_is_an_edge`, `a_java_accessor_call_of_a_property_without_that_accessor_is_no_edge`, `a_kotlin_property_access_of_a_java_getter_is_an_edge`, `a_java_call_through_the_facade_is_an_edge`, `a_facade_of_another_name_is_no_edge`, `a_java_accessor_of_a_companion_or_object_property_is_an_edge`, `a_java_accessor_of_a_top_level_property_through_the_facade_is_an_edge`, `an_accessor_name_of_a_real_member_is_no_edge`)
+  (`Owner.field`). No accessor of a `@JvmField`, `const` or `@get:JvmName` property, of an `internal` member, of an
+  extension property, nor one beside a function of the accessor's name, no setter of a `val` or a `private set`, no
+  `getIsReady()` of an `isReady`, no Java use of a `@JvmName` or `@JvmSynthetic` declaration by its Kotlin name, no Java
+  field read of a property without `@JvmField` or `lateinit`, no `Owner.Companion.field` of a `@JvmField`, no facade of
+  a script, no Kotlin read of a Java getter beside a field of the property's name, no `Owner.getCount()` of a property
+  without `@JvmStatic`, a getter called with an argument, a Kotlin access of a Java method with parameters, `UtilKt`
+  beside a `@file:JvmName("Util")`, a Kotlin use of `UtilKt` or `UtilKt` of another package without an import must be a
+  use.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_java_accessor_call_of_a_kotlin_property_is_an_edge`, `a_java_accessor_call_of_a_property_without_that_accessor_is_no_edge`, `a_kotlin_property_access_of_a_java_getter_is_an_edge`, `a_java_call_through_the_facade_is_an_edge`, `a_facade_of_another_name_is_no_edge`, `a_java_accessor_of_a_companion_or_object_property_is_an_edge`, `a_java_accessor_of_a_top_level_property_through_the_facade_is_an_edge`, `an_accessor_name_of_a_real_member_is_no_edge`, `a_java_use_of_a_renamed_or_synthetic_kotlin_declaration_is_no_edge`, `a_boolean_property_has_its_own_accessor_names`, `a_java_setter_of_a_property_without_a_visible_setter_is_no_edge`, `a_java_field_read_needs_a_field_of_the_property`, `a_facade_of_a_file_named_with_a_digit_or_a_script`)
 - The declarations of a key of a JVM type or a member of one must be entries told apart by kind, extension receiver and
   parameter types (with their arrays, a vararg counted), each with its origin: the baseline, or the commit that
   created it or changed its form, one entry removed and one added by a commit being the same entry in a new form. An

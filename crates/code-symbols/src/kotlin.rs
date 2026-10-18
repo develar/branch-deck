@@ -254,14 +254,20 @@ fn parameter<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
 fn accessor<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   w.open_scope();
   w.bind_text("field");
-  if let Some(property) = w.previous_declaration().filter(|it| w.declaration_kind(*it) == Some(DeclKind::Value))
-    && !w.ancestor(1).is_some_and(|it| w.is(it, "property_declaration"))
-  {
+  let sibling = w.previous_declaration().filter(|it| w.declaration_kind(*it) == Some(DeclKind::Value));
+  let property = if let Some(property) = sibling.filter(|_| !w.ancestor(1).is_some_and(|it| w.is(it, "property_declaration"))) {
     w.extend_declaration(property, node);
     w.enter_accessor(Some(property));
+    Some(property)
   } else {
     // an accessor in its property, or of a local: code all the same
     w.enter_accessor(None);
+    w.current_container()
+  };
+  // `private set` narrows the setter of a `var`
+  let modifiers = modifier_texts(w, node);
+  if let Some(property) = property.filter(|_| w.is(node, "setter") && (modifiers.contains(&"private") || modifiers.contains(&"internal") || modifiers.contains(&"protected"))) {
+    w.set_setter_reach(property, reach(&modifiers, true));
   }
   true
 }
@@ -593,7 +599,12 @@ fn overrides<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Modality {
     overridable: member && open && !has("private"),
     jvm_static: annotated(w, node, &["JvmStatic"]),
     jvm_field: annotated(w, node, &["JvmField"]),
-    jvm_name: annotated(w, node, &["JvmName"]),
+    jvm_name: annotated(w, node, &["JvmName"]) || annotated(w, node, &["JvmSynthetic"]),
+    lateinit: has("lateinit"),
+    setter: w
+      .child(node, Child::Kind(&["binding_pattern_kind"]))
+      .filter(|it| w.text(*it) == Some("var"))
+      .map(|_| reach(&modifiers, holder.is_some())),
     receiver,
   }
 }

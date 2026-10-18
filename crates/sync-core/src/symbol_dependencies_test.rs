@@ -3568,7 +3568,8 @@ fn a_java_accessor_of_a_companion_or_object_property_is_an_edge() {
     .commit(&[("src/b/Count.java", Some(&java("Count", "Owner", "Owner.Companion.getCount()")))])
     .commit(&[("src/b/Field.java", Some(&java("Field", "Owner", "Owner.field")))])
     .commit(&[("src/b/Name.java", Some(&java("Name", "Registry", "Registry.INSTANCE.getName()")))])
-    .commit(&[("src/b/Static.java", Some(&java("Static", "Owner", "Owner.getCount()")))]);
+    .commit(&[("src/b/Static.java", Some(&java("Static", "Owner", "Owner.getCount()")))])
+    .commit(&[("src/b/CompanionField.java", Some(&java("CompanionField", "Owner", "Owner.Companion.field")))]);
   assert_eq!(
     edges(&range.graph(&[], &[], &[])),
     [
@@ -3577,7 +3578,7 @@ fn a_java_accessor_of_a_companion_or_object_property_is_an_edge() {
       qualified(4, "field"),
       (5, 1, vec![link("name", Evidence::Qualified)])
     ],
-    "`Owner.getCount()` of a property without `@JvmStatic` is none"
+    "`Owner.getCount()` of a property without `@JvmStatic` and `Owner.Companion.field` of a `@JvmField` are none"
   );
 }
 
@@ -3613,4 +3614,100 @@ fn an_accessor_name_of_a_real_member_is_no_edge() {
     .commit(&[("src/j/Manager.java", Some(&java_manager("  public int getCount() { return count; }\n")))])
     .commit(&[("src/k/Count.kt", Some("package k\n\nimport j.Manager\n\nfun use(m: Manager) = m.count\n"))]);
   assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(3, "plain")]);
+}
+
+/// Java names a declaration that `@JvmName` renames by its new name and can't name a `@JvmSynthetic` one: a Java call
+/// by the Kotlin name means another declaration (`filter(ints)` of the overload of the baseline)
+#[test]
+fn a_java_use_of_a_renamed_or_synthetic_kotlin_declaration_is_no_edge() {
+  let util = |members: &str| format!("package a\n\nfun filter(l: List<Int>) = l\n{members}");
+  let java = |class: &str, body: &str| format!("package b;\n\nimport a.UtilKt;\n\nclass {class} {{\n  Object use(java.util.List<Integer> ints) {{ return {body}; }}\n}}\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[("src/a/util.kt", &util(""))])
+    .commit(&[(
+      "src/a/util.kt",
+      Some(&util(
+        "\n@JvmName(\"filterStrings\")\nfun filter(l: List<String>) = l\n\n@JvmSynthetic\nfun hidden() = 1\n\nfun plain() = 2\n",
+      )),
+    )])
+    .commit(&[("src/b/Filter.java", Some(&java("Filter", "UtilKt.filter(ints)")))])
+    .commit(&[("src/b/Hidden.java", Some(&java("Hidden", "UtilKt.hidden()")))])
+    .commit(&[("src/b/Plain.java", Some(&java("Plain", "UtilKt.plain()")))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(3, 0, vec![link("plain", Evidence::Facade)])]);
+}
+
+/// A property `isReady` has the accessors `isReady()` and `setReady(…)`, never `getIsReady()`; `isReady(1)` and an
+/// `internal` one (a mangled name for Java) are none either
+#[test]
+fn a_boolean_property_has_its_own_accessor_names() {
+  let mut range = adding_to_manager("", "  var isReady: Boolean = true\n  internal val isSecret: Boolean = true\n");
+  range
+    .commit(&[("src/b/Get.java", Some(&java_on_manager("b", "Get", "m.getIsReady()")))])
+    .commit(&[("src/b/Argument.java", Some(&java_on_manager("b", "Argument", "m.isReady(1)")))])
+    .commit(&[("src/b/Secret.java", Some(&java_on_manager("b", "Secret", "m.isSecret()")))])
+    .commit(&[("src/b/Ready.java", Some(&java_on_manager("b", "Ready", "m.isReady()")))])
+    .commit(&[("src/b/Set.java", Some(&java_on_manager("b", "Set", "m.setReady(false)")))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(4, "isReady"), on_receiver(5, "isReady")]);
+}
+
+/// A setter needs a `var` whose setter Java sees: not of a `val`, nor a `private set`, nor an `internal` member's
+#[test]
+fn a_java_setter_of_a_property_without_a_visible_setter_is_no_edge() {
+  let members = "  val fixed: Int = 1\n  var hidden: Int = 2\n    private set\n  internal var secret: Int = 3\n  var open: Int = 4\n";
+  let mut range = adding_to_manager("", members);
+  range
+    .commit(&[("src/b/Fixed.java", Some(&java_on_manager("b", "Fixed", "m.setFixed(1)")))])
+    .commit(&[("src/b/Hidden.java", Some(&java_on_manager("b", "Hidden", "m.setHidden(1)")))])
+    .commit(&[("src/b/Secret.java", Some(&java_on_manager("b", "Secret", "m.setSecret(1)")))])
+    .commit(&[("src/b/Open.java", Some(&java_on_manager("b", "Open", "m.setOpen(1)")))]);
+  assert_eq!(edges(&range.in_modules(&["src"])), [on_receiver(4, "open")]);
+}
+
+/// Java reads a Kotlin property as a field only where it has one (`@JvmField`, `lateinit`); an `internal` top-level
+/// property keeps its accessor's name; a Kotlin `m.issue` is the Java `getIssue()`
+#[test]
+fn a_java_field_read_needs_a_field_of_the_property() {
+  let members = "  val size: Int = 1\n  @JvmField val field: Int = 2\n  lateinit var late: String\n";
+  let mut range = adding_to_manager("", members);
+  range
+    .commit(&[("src/b/Size.java", Some(&java_on_manager("b", "Size", "m.size")))])
+    .commit(&[("src/b/Field.java", Some(&java_on_manager("b", "Field", "m.field")))])
+    .commit(&[("src/b/Late.java", Some(&java_on_manager("b", "Late", "m.late")))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [on_receiver(2, "field"), on_receiver(3, "late")]);
+  let util = |members: &str| format!("package a\n\nfun other() = 1\n{members}");
+  let java_manager = |members: &str| format!("package j;\n\npublic class Issues {{\n  public int other() {{ return 1; }}\n{members}}}\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[("src/a/util.kt", &util("")), ("src/j/Issues.java", &java_manager(""))])
+    .commit(&[
+      ("src/a/util.kt", Some(&util("\ninternal val config: Int = 1\n"))),
+      ("src/j/Issues.java", Some(&java_manager("  public int getIssue() { return 2; }\n"))),
+    ])
+    .commit(&[(
+      "src/b/Config.java",
+      Some("package b;\n\nimport a.UtilKt;\n\nclass Config {\n  Object use() { return UtilKt.getConfig(); }\n}\n"),
+    )])
+    .commit(&[("src/k/Issue.kt", Some("package k\n\nimport j.Issues\n\nfun use(i: Issues) = i.issue\n"))]);
+  assert_eq!(
+    edges(&range.in_modules(&["src"])),
+    [(1, 0, vec![link("config", Evidence::Facade)]), (2, 0, vec![link("getIssue", Evidence::Receiver)])]
+  );
+}
+
+/// The class of a file whose name starts with a digit starts with `_`; a script has none
+#[test]
+fn a_facade_of_a_file_named_with_a_digit_or_a_script() {
+  let mut range = Range::default();
+  range
+    .baseline(&[("src/a/1util.kt", "package a\n\nfun other() = 1\n"), ("src/a/build.kts", "package a\n\nfun other() = 1\n")])
+    .commit(&[
+      ("src/a/1util.kt", Some("package a\n\nfun other() = 1\n\nfun first() = 2\n")),
+      ("src/a/build.kts", Some("package a\n\nfun other() = 1\n\nfun script() = 2\n")),
+    ])
+    .commit(&[(
+      "src/b/Use.java",
+      Some("package b;\n\nimport a._1utilKt;\nimport a.BuildKt;\n\nclass Use {\n  Object use() { return _1utilKt.first() + BuildKt.script(); }\n}\n"),
+    )]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(1, 0, vec![link("first", Evidence::Facade)])]);
 }

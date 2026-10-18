@@ -427,15 +427,20 @@ flowchart TD
     use of a top-level Kotlin function, `const` or `@JvmField` property through the class of its file is `facade`
     (`through_facade`): `UtilKt.helper()` with the class imported or of the package, `a.UtilKt.helper()`, or a bare
     `helper()` that `import static a.UtilKt.helper` or `a.UtilKt.*` brings in where the file shows nothing that comes
-    first (`import_decides`). The class is the file's `@file:JvmName`, else its name with a capital and `Kt`
-    (`facade_of`). The keys stay the declarations' own: a use looks its accessor names up (`accessor_names`) only when
-    its own name finds nothing, and an accessor matches only a property that has it (`accessor_fits`): not a `@JvmField`
-    or `const` one, which Java sees as a field of its name (of the class around a companion), nor one that
-    `@get:JvmName` or `@set:JvmName` renames, nor a private one, nor one beside a function of the accessor's name; a
-    getter with no argument, a setter with one; on the Kotlin side a Java instance method without parameters beside no
-    field of the property's name, which Kotlin reads first. The `is` names are the property's own (`isReady()` of
-    `isReady`, `setReady(…)` of it), as Kotlin names only a property that starts with `is` and a capital so; a
-    `@JvmMultifileClass` file shares the facade its `@file:JvmName` names.
+    first (`import_decides`). The class is the file's `@file:JvmName`, else its name with a capital and `Kt`, and `_`
+    before a digit (`_1utilKt` of `1util.kt`); a script (`.kts`) has none (`facade_of`). The keys stay the declarations'
+    own: a use looks its accessor names up (`accessor_names`) only when its own name finds nothing, and an accessor
+    matches only a property that has it (`accessor_fits`): not an extension property, a `@JvmField` or `const` one,
+    which Java sees as a field of its name (of the class around a companion only), nor one that `@get:JvmName` or
+    `@set:JvmName` renames, nor a private one or an `internal` member, whose accessors Java names by a mangled name (an
+    `internal` top-level one keeps its name), nor one beside a function of the accessor's name; a getter with no
+    argument, a setter with one of a `var` whose setter Java sees (not `private set`); on the Kotlin side a Java
+    instance method without parameters beside no field of the property's name, which Kotlin reads first. The `is` names
+    are the property's own (`isReady()` of `isReady`, `setReady(…)` of it, never `getIsReady()`), as Kotlin names only a
+    property that starts with `is` and a capital so (`issue` has `getIssue()`), and a direct Java call of a Kotlin
+    property by its own name passes the same checks of a getter (`java_sees`). A Java use of a declaration that
+    `@JvmName` renames, or that `@JvmSynthetic` hides, is none, and Java reads a Kotlin property as a field only where
+    it has one (`@JvmField`, `lateinit`); a `@JvmMultifileClass` file shares the facade its `@file:JvmName` names.
     **Rationale**: Java sees a Kotlin property only through its accessors and a top-level declaration only through the
     class of its file, and Kotlin sees a Java getter as a property, so without these names a Java use of Kotlin code
     links to nothing. The name of an accessor is the property's with a capital and `get`, `set` (`is` for a property
@@ -447,14 +452,15 @@ flowchart TD
 
 - `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules and the grammars' node types);
   `Spec::jvm` of Kotlin and Java (`JvmHooks`, the `JvmFields` of a declaration): the signatures, `overrides`,
-  `overridable`, `jvm_static`, `jvm_field` and `jvm_name`, the `@file:JvmName` (`FileSummary::jvm_name`), the
-  `value_type` of a property and whether a constructor call gave it (`JvmHooks::value_type`), the supertypes, and the
-  `Role::Override` references with their `Shape::Override`, and the constructors of a class (`JvmHooks::constructors` of
-  its header, `Walk::add_constructor` of its body, the implicit `()` by `JvmHooks::implicit_constructor` when the walk
-  is done); `Spec::call_shape` of Kotlin and Java: the arguments of a call, for the `Shape::Call` on the reference of
-  its callee, `enclosed` by the depth of the stack of supertypes (`Walk::enclosed`), of `this(…)` and `super(…)` on the
-  type they call (`Walk::emit_constructor_call`), and of a `new` and a Kotlin constructor invocation of a supertype on
-  the type (`Walk::give_call`, before an object expression or an anonymous class pushes its supertypes).
+  `overridable`, `jvm_static`, `jvm_field`, `jvm_name`, `lateinit` and the `setter` of a `var`, the `@file:JvmName`
+  (`FileSummary::jvm_name`), the `value_type` of a property and whether a constructor call gave it
+  (`JvmHooks::value_type`), the supertypes, and the `Role::Override` references with their `Shape::Override`, and the
+  constructors of a class (`JvmHooks::constructors` of its header, `Walk::add_constructor` of its body, the implicit
+  `()` by `JvmHooks::implicit_constructor` when the walk is done); `Spec::call_shape` of Kotlin and Java: the arguments
+  of a call, for the `Shape::Call` on the reference of its callee, `enclosed` by the depth of the stack of supertypes
+  (`Walk::enclosed`), of `this(…)` and `super(…)` on the type they call (`Walk::emit_constructor_call`), and of a `new`
+  and a Kotlin constructor invocation of a supertype on the type (`Walk::give_call`, before an object expression or an
+  anonymous class pushes its supertypes).
 - `crates/sync-core/src/symbol_scan.rs`: the mode (`branchdeck.symbols`), the summaries through the cache, the crate
   names and the TypeScript aliases.
 - `crates/sync-core/src/module_roots.rs`: the nearest directory with a build file (Kotlin `internal`, Rust crates,
@@ -470,12 +476,13 @@ flowchart TD
   import by `Evidence::StarImport`), the functions of the name of a type beside it (`KeyState::present`, which stand in
   for the type in a call the use sees, `sees_function`), the overrides (`resolve_override`, `override_fits`,
   `has_supertypes`, `supertype_resolves`, `scope_may_shadow`, `nested_shadows`), the inherited calls (`inherited`), the
-  accessors and the facade of the other JVM language (`accessor_names`, `accessor_fits`, `through_facade`, `facade_of`),
-  the receivers (`through_receiver`, `implicit_receiver`, `constructed_otherwise`, `of_another_receiver`), the calls
-  (`all_entries`, `calls_tell_apart`, `accepts_call`, `fits_literal`, `inherits_unseen`, `import_decides`), the paths of
-  a static member (`static_paths`), the same-file rule (`names_another_type`, `on_unknown_receiver`, `private_scope`,
-  and `of_baseline` with `means_its_type` for a key of the baseline; `receivers` and `imports_of_function` with
-  `is_default_function` for both), the removals that need the removal of the uses, the entities each commit changes.
+  accessors and the facade of the other JVM language (`accessor_names`, `accessor_fits`, `java_sees`, `boolean_name`,
+  `through_facade`, `facade_of`), the receivers (`through_receiver`, `implicit_receiver`, `constructed_otherwise`,
+  `of_another_receiver`), the calls (`all_entries`, `calls_tell_apart`, `accepts_call`, `fits_literal`,
+  `inherits_unseen`, `import_decides`), the paths of a static member (`static_paths`), the same-file rule
+  (`names_another_type`, `on_unknown_receiver`, `private_scope`, and `of_baseline` with `means_its_type` for a key of
+  the baseline; `receivers` and `imports_of_function` with `is_default_function` for both), the removals that need the
+  removal of the uses, the entities each commit changes.
 - `crates/sync-core/src/dangling_references.rs`: `SyntaxMemo` and the subtraction; the name of an `override` member
   is no use (`on_syntax`).
 - `crates/sync-core/src/dependencies.rs`: `with_symbols` merges the edges into the line dependencies (`Dependency::lines`,
@@ -702,7 +709,10 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     on the real pair, and the five repro cases make one edge by symbols each. The range adds 249 lines of Java, two of
     them a call of an accessor or a facade: `variable.getKey()` of a `Map.Entry` and
     `PluginInfoDetectorKt.getPluginInfoByDescriptor(plugin)`, a top-level function of a file the range doesn't change,
-    so neither has a declaration of the range to mean.
+    so neither has a declaration of the range to mean. The review's fixes (no Java use of a `@JvmName` or
+    `@JvmSynthetic` declaration, no `getIsReady()`, a setter only of a `var` with a visible setter, no accessor of an
+    `internal` member, a Java field read only of `@JvmField` and `lateinit`, the checks of a getter for a direct call,
+    `_` before a digit and no facade of a script) change no link, edge or output of the range.
 
 ### The gate
 

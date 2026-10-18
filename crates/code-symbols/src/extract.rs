@@ -40,7 +40,7 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 13;
+pub const RULES_VERSION: u32 = 14;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -242,8 +242,12 @@ pub(crate) struct Modality {
   pub(crate) jvm_static: bool,
   /// A Kotlin `@JvmField` property
   pub(crate) jvm_field: bool,
-  /// A Kotlin member that `@JvmName` (also `@get:` or `@set:`) names otherwise for Java
+  /// A Kotlin member that `@JvmName` (also `@get:` or `@set:`) names otherwise for Java, or `@JvmSynthetic` hides
   pub(crate) jvm_name: bool,
+  /// A Kotlin `lateinit` property
+  pub(crate) lateinit: bool,
+  /// The reach of the setter of a Kotlin `var`
+  pub(crate) setter: Option<Reach>,
   /// The extension receiver of a Kotlin member, for the shape of its override
   pub(crate) receiver: Option<u32>,
 }
@@ -258,6 +262,8 @@ pub(crate) struct JvmFields {
   jvm_static: bool,
   jvm_field: bool,
   jvm_name: bool,
+  lateinit: bool,
+  setter: Option<Reach>,
   supertypes: Vec<Vec<u32>>,
   value_type: Option<Typed>,
   constructors: Option<Vec<Constructor>>,
@@ -1183,6 +1189,8 @@ impl<'t> Walk<'t> {
       jvm_static: modality.jvm_static,
       jvm_field: modality.jvm_field,
       jvm_name: modality.jvm_name,
+      lateinit: modality.lateinit,
+      setter: modality.setter,
       value_type: if kind == DeclKind::Value { self.value_type(hooks, node) } else { None },
       ..JvmFields::default()
     }
@@ -1228,6 +1236,8 @@ impl<'t> Walk<'t> {
       jvm_static: fields.jvm_static,
       jvm_field: fields.jvm_field,
       jvm_name: fields.jvm_name,
+      lateinit: fields.lateinit,
+      setter: fields.setter,
       supertypes: fields.supertypes,
       value_constructed: fields.value_type.as_ref().is_some_and(|it| it.constructed),
       value_type: fields.value_type.map(|it| it.path),
@@ -1391,6 +1401,11 @@ impl<'t> Walk<'t> {
     if let Some(container) = self.containers.last_mut() {
       container.code = true;
     }
+  }
+
+  /// The innermost declaration around the current node
+  pub(crate) fn current_container(&self) -> Option<u32> {
+    self.container()
   }
 
   fn container(&self) -> Option<u32> {
@@ -1835,6 +1850,15 @@ impl<'t> Walk<'t> {
 
   pub(crate) fn set_package(&mut self, package: String) {
     self.package = Some(package);
+  }
+
+  /// The reach of the setter of the property `decl` that an accessor of it narrows (`private set`)
+  pub(crate) fn set_setter_reach(&mut self, decl: u32, reach: Reach) {
+    if let Some(declaration) = self.declarations.get_mut(decl as usize)
+      && declaration.setter.is_some()
+    {
+      declaration.setter = Some(reach);
+    }
   }
 
   pub(crate) fn set_jvm_name(&mut self, name: String) {

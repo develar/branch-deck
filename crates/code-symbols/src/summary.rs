@@ -93,9 +93,14 @@ pub struct Declaration {
   pub jvm_static: bool,
   /// A Kotlin property annotated `@JvmField`: Java sees a field of its name, and no accessors
   pub jvm_field: bool,
-  /// A Kotlin function or property annotated `@JvmName`, `@get:JvmName` or `@set:JvmName`: Java names it, or an
-  /// accessor of it, otherwise
+  /// A Kotlin function or property annotated `@JvmName`, `@get:JvmName` or `@set:JvmName`, which Java names (or an
+  /// accessor of it) otherwise, or `@JvmSynthetic`, which Java can't name
   pub jvm_name: bool,
+  /// A Kotlin `lateinit var`: Java sees a field of its name too
+  pub lateinit: bool,
+  /// The reach of the setter of a Kotlin `var` (`private set` makes it `Container`); `None` for a `val` and other
+  /// declarations
+  pub setter: Option<Reach>,
   /// The direct supertypes of a Kotlin or Java type, as written without type arguments: `[a, Base]` of
   /// `: a.Base<T>()`, `extends a.Base<T>`; a Kotlin function type, which has no path, is an empty one
   pub supertypes: Vec<Vec<u32>>,

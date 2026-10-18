@@ -665,9 +665,9 @@ repository lock.
   `{branch, identifier, file, line, used_by, declared_by, declared_in, evidence}`: a commit of a built branch uses a
   name that a commit outside the branch and the branches it is built on adds or gives the form the use needs (an
   overload, a constructor parameter, a wider reach), overrides it (`evidence: "override"`) or calls it as an inherited
-  member (`evidence: "inherited"`) on a receiver of its type (`evidence: "receiver"`) or through the class of its Kotlin
-  file (`evidence: "facade"`), by the edges by symbols. git merges it and the build would fail; stack the branch on
-  `declared_in` or move one of the two. It doesn't count for `ok` or the exit code: names, not a compiler.
+  member (`evidence: "inherited"`), on a receiver of its type (`evidence: "receiver"`) or through the class of its
+  Kotlin file (`evidence: "facade"`), by the edges by symbols. git merges it and the build would fail; stack the branch
+  on `declared_in` or move one of the two. It doesn't count for `ok` or the exit code: names, not a compiler.
 - `--fix` adds `fix`, the regroup after which the branches that conflict (or have a proven dangling reference) apply
   cleanly, found by trial builds on top of the plan (`sync_core::conflict_fix`, the search of the app's Fix): nothing is
   applied. `fix.components` are independent parts, each `{steps, plan, fixed, unblocked, emptied, orphaned_children,

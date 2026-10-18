@@ -14,7 +14,7 @@ Type Nested in Circle Public Static 18-18 @18 new()
 Type Companion in Circle Public Static 20-23 @20
 Constant UNIT in Companion Public Static 21-21 @21
 Function unit in Companion Public Static 22-22 @22 () jvm_static
-Value counter in Circle Public Instance 25-29 @25 <Int>
+Value counter in Circle Public Instance 25-29 @25 <Int> var
 Type Registry in - Public TopLevel 32-32 @32 : Shape
 Type Shapes2 in - Public TopLevel 34-36 @34 : Shape
 Function register in Shapes2 Public Static 35-35 @35 (shape: Shape)

@@ -11,4 +11,10 @@ class Holder {
   val plain = 3
   @JvmName("javaName") fun kotlinName() = 4
   lateinit var late: String
+  var mutable = 5
+  var hidden = 6
+    private set
+  @JvmSynthetic fun synthetic() = 7
 }
+
+class Params(var a: Int, val b: Int)

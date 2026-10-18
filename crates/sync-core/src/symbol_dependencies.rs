@@ -1485,6 +1485,9 @@ fn resolve_any(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referenc
   {
     return None;
   }
+  if use_site.accessor.is_none() && use_site.language == Language::Java && site.ctx.language == Language::Kotlin && !java_sees(use_site, reference, site) {
+    return None;
+  }
   // an override is no use by its name and qualifier: its qualifier is a supertype of the class around it, which needs
   // the rules of overriding, in the same file too
   if reference.role == Role::Override {
@@ -2120,7 +2123,10 @@ fn static_paths<'s>(use_site: &UseSite<'_>, site: &'s Site<'_>) -> Vec<Vec<&'s s
   let mut paths = Vec::new();
   match containers.split_last() {
     Some((&"Companion", outer)) if !outer.is_empty() => {
-      paths.push(containers.clone());
+      // a `@JvmField` of a companion is a field of the class around it only, not of `Companion`
+      if !(java && field && declaration.kind == DeclKind::Value) {
+        paths.push(containers.clone());
+      }
       if (!java && declaration.kind != DeclKind::Type) || (java && on_class) {
         paths.push(outer.to_vec());
       }
@@ -2156,17 +2162,18 @@ fn accessor_names(use_site: &UseSite<'_>, reference: &Reference) -> Vec<(String,
   };
   match (use_site.language, reference.role) {
     (Language::Java, Role::Call) => {
+      // the accessors of a property `isReady` are `isReady()` and `setReady(…)`, never `getIsReady()`
       if let Some(rest) = name.strip_prefix("get").filter(|rest| capitalized(rest)) {
-        properties(rest).into_iter().map(|it| (it, Accessor::JavaGetter)).collect()
+        properties(rest).into_iter().filter(|it| !boolean_name(it)).map(|it| (it, Accessor::JavaGetter)).collect()
       } else if let Some(rest) = name.strip_prefix("set").filter(|rest| capitalized(rest)) {
-        let mut names: Vec<(String, Accessor)> = properties(rest).into_iter().map(|it| (it, Accessor::JavaSetter)).collect();
+        let mut names: Vec<(String, Accessor)> = properties(rest).into_iter().filter(|it| !boolean_name(it)).map(|it| (it, Accessor::JavaSetter)).collect();
         names.push((format!("is{rest}"), Accessor::JavaSetter));
         names
       } else {
         Vec::new()
       }
     }
-    (Language::Kotlin, Role::Value) if reference.qualifier.is_some() && !name.starts_with("is") => {
+    (Language::Kotlin, Role::Value) if reference.qualifier.is_some() && !boolean_name(name) => {
       let mut chars = name.chars();
       let capital: String = chars.next().map_or_default(|first| first.to_uppercase().chain(chars).collect());
       vec![(format!("get{capital}"), Accessor::KotlinProperty)]
@@ -2196,14 +2203,19 @@ fn accessor_fits(use_site: &UseSite<'_>, reference: &Reference, site: &Site<'_>,
       .iter()
       .any(|other| other.kind == kind && other.container == declaration.container && summary.name(other.name) == name)
   };
+  // Java names an accessor of an `internal` member by a mangled name (`getSecret$module`), not of a top-level one
+  let reaches = |reach: Reach| !matches!(reach, Reach::Container | Reach::File) && (reach != Reach::Module || declaration.member == MemberKind::TopLevel);
   match accessor {
     Accessor::JavaGetter | Accessor::JavaSetter => {
+      let setter = accessor == Accessor::JavaSetter;
       site.ctx.language == Language::Kotlin
         && declaration.kind == DeclKind::Value
+        && declaration.receiver.is_none()
         && !declaration.jvm_field
         && !declaration.jvm_name
-        && !matches!(declaration.reach, Reach::Container | Reach::File)
-        && arguments == Some(usize::from(accessor == Accessor::JavaSetter))
+        && reaches(declaration.reach)
+        && (!setter || declaration.setter.is_some_and(reaches))
+        && arguments == Some(usize::from(setter))
         && !beside(DeclKind::Function)
     }
     Accessor::KotlinProperty => {
@@ -2216,6 +2228,30 @@ fn accessor_fits(use_site: &UseSite<'_>, reference: &Reference, site: &Site<'_>,
   }
 }
 
+/// Whether a Java use by its own name may mean the Kotlin declaration `site`: not one `@JvmName` renames or
+/// `@JvmSynthetic` hides; a property only by a getter of its name (`isReady()` of `isReady`, `accessor_fits`) or, where
+/// Java sees a field of it (`@JvmField`, `lateinit`), as a value
+fn java_sees(use_site: &UseSite<'_>, reference: &Reference, site: &Site<'_>) -> bool {
+  let declaration = site.declaration;
+  if declaration.jvm_name {
+    return false;
+  }
+  if declaration.kind != DeclKind::Value {
+    return true;
+  }
+  match reference.role {
+    Role::Call => accessor_fits(use_site, reference, site, Accessor::JavaGetter),
+    Role::Value => declaration.jvm_field || declaration.lateinit,
+    _ => true,
+  }
+}
+
+/// Whether `name` is one Kotlin gives a boolean property its own accessors by: `is` and a capital (`isReady`, not
+/// `issue`)
+fn boolean_name(name: &str) -> bool {
+  name.strip_prefix("is").is_some_and(|rest| rest.starts_with(char::is_uppercase))
+}
+
 /// The evidence that a Java use means the top-level Kotlin declaration `site` through the class of its file: its
 /// `@file:JvmName`, else the file's name with a capital and `Kt` (`UtilKt` of `util.kt`). A function, a `const` or a
 /// `@JvmField` property: `UtilKt.helper()` with the class imported or of the same package, `a.UtilKt.helper()`, or a
@@ -2224,6 +2260,10 @@ fn accessor_fits(use_site: &UseSite<'_>, reference: &Reference, site: &Site<'_>,
 fn through_facade(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<&[String]>, site: &Site<'_>) -> Option<Evidence> {
   let declaration = site.declaration;
   let accessor = use_site.accessor.is_some();
+  // a script has no class of its file
+  if std::path::Path::new(site.ctx.path).extension().is_some_and(|it| it.eq_ignore_ascii_case("kts")) {
+    return None;
+  }
   let field = declaration.kind == DeclKind::Value && declaration.jvm_field;
   if !(declaration.kind == DeclKind::Function || declaration.kind == DeclKind::Constant || (declaration.kind == DeclKind::Value && (field || accessor))) {
     return None;
@@ -2265,7 +2305,9 @@ fn facade_of(site: &Site<'_>) -> String {
   let mut chars = stem.chars();
   let capital: String = chars.next().map_or_default(|first| first.to_uppercase().chain(chars).collect());
   let identifier: String = capital.chars().map(|it| if it.is_alphanumeric() || it == '_' { it } else { '_' }).collect();
-  format!("{identifier}Kt")
+  // an identifier starts with no digit
+  let prefix = if identifier.starts_with(|it: char| it.is_ascii_digit()) { "_" } else { "" };
+  format!("{prefix}{identifier}Kt")
 }
 
 /// The name a reference starts with: the first segment of its qualifier, else its own name

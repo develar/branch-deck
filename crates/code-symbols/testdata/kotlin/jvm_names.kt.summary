@@ -2,14 +2,22 @@ package com.example.facade
 jvm_name Util
 Function helper in - Public TopLevel 4-4 @4 ()
 Constant LIMIT in - Public TopLevel 6-6 @6
-Type Holder in - Public TopLevel 8-14 @8 new()
+Type Holder in - Public TopLevel 8-18 @8 new()
 Value field in Holder Public Instance 9-9 @9 jvm_field
 Value renamed in Holder Public Instance 10-10 @10 jvm_name
 Value plain in Holder Public Instance 11-11 @11
 Function kotlinName in Holder Public Instance 12-12 @12 () jvm_name
-Value late in Holder Public Instance 13-13 @13 <String>
+Value late in Holder Public Instance 13-13 @13 <String> lateinit var
+Value mutable in Holder Public Instance 14-14 @14 var
+Value hidden in Holder Public Instance 15-16 @15 var(Container set)
+Function synthetic in Holder Public Instance 17-17 @17 () jvm_name
+Type Params in - Public TopLevel 20-20 @20 new(a: Int, b: Int)
+Value a in Params Public Instance 20-20 @20 <Int> var
+Value b in Params Public Instance 20-20 @20 <Int>
 @1 :JvmName
 @9 :JvmField
 @10 :JvmName
 @12 :JvmName
 @13 :String
+@17 :JvmSynthetic
+@20 :Int

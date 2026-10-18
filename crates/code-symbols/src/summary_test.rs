@@ -5,7 +5,7 @@ use crate::test_support::{check_golden, declaration, fixture, render, summary_of
 
 /// The value for the grammars and rules of this build. A change of `RULES_VERSION` or of a grammar version changes it:
 /// replace it with the value the failure prints.
-const EXTRACTOR_VERSION: u32 = 829_900_847;
+const EXTRACTOR_VERSION: u32 = 1_637_417_500;
 
 #[test]
 fn every_spec_kind_exists_in_its_grammar() {
