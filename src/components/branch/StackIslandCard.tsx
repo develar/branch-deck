@@ -16,7 +16,7 @@ import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
 import { useStackLandingNode } from "@/hooks/useLandingNode"
-import { useStackBranchAlong } from "@/hooks/usePushButton"
+import { useStackBranchAlong, useStackBranchPushAlone } from "@/hooks/usePushButton"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { isForkingStack } from "@/hooks/useStackNextStep"
@@ -63,7 +63,6 @@ import { useStackLandedBy } from "@/stores/landed-stacks"
 import { useBranchRobot, useLandedWithChildrenReason, usePushHold, useStackRobot } from "@/stores/patronus"
 import { useRepositoryPullRequestMap, useStackPullRequest } from "@/stores/pull-requests"
 import { getReadinessTarget } from "@/stores/review-readiness"
-import { useSafePushStarting } from "@/stores/safe-push"
 import { toggleStackCollapsed } from "@/stores/stack-collapse"
 
 interface IslandSummary {
@@ -396,10 +395,10 @@ function StackPushSlot({ root, summary }: { root: string; summary: IslandSummary
   const current = stackPush === null ? null : stackPushSubject(root, stackPush)
   // the push of the stack branch alone (a step of the restart of its robot, of Request Review…, of the creation of its
   // pull request) shows here as the stack's pushes do; the Safe Push of the whole stack shows it in its own button, the
-  // step of its start: one indicator
+  // step of its start: one indicator, decided where the root's push button decides it
   const stackBranchPushing = useIsStackBranchPushing(root)
-  const startPushes = useSafePushStarting(stackReadinessKey(root))?.step === "pushing"
-  const alone = stackPush === null && stackBranchPushing && !startPushes
+  const pushAlone = useStackBranchPushAlone(root)
+  const alone = stackPush === null && pushAlone
   const busy = current !== null || alone
   // the one push of the stack reports its progress for each of its branches
   const branchProgress = useBranchPushProgress(stackPush?.[0] ?? root)

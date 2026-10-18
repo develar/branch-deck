@@ -235,7 +235,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   the header of its island ([Stack Island](stack-island.spec.md#header)), else the push button of the root's row of a
   small stack, "Pushing the whole stack 45%" with the line of git on hover, the branches of the stack not busy; the
   start of its Safe Push in its own button (the island's header, the root's slot of a small stack, "Pushing 45%"), the
-  dialog of its pull request in its Create button ("Pushing 45%"). One push of it at a time: a second request while one
+  dialog of its pull request in its Create button ("Pushing 45%"); one hook decides which (`useStackBranchPushAlone`). One push of it at a time: a second request while one
   runs (another action's, or Push with Children that takes it along) joins it, no push of its own, one indicator; a
   failed push of it alone is said once and fails the request that joined too; then the request pushes only what the
   remote still lacks (what a sync rebuilt since; the stack branch alone after a Push with Children that failed for a

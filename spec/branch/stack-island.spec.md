@@ -9,6 +9,7 @@ targets:
   - ../../src/lib/stack-state.ts
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/components/branch/StackIslandCard.tsx
+  - ../../src/hooks/usePushButton.ts
   - ../../src/hooks/useWholeStackActions.ts
   - ../../src/components/branch/OrphanedStackPullRequest.tsx
   - ../../src/components/branch/NextStepSlot.tsx
@@ -123,7 +124,8 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   pull request and of the creation of its pull request (`pushWholeStack`): "Pushing the whole stack 45%" its name, the
   line of git on hover ("Pushing the whole stack branch of air…" until git reports), no row of a branch busy; the
   start of the Safe Push of the whole stack shows its push in its own button instead ("Pushing 45%", below), the
-  header's push disabled meanwhile: one indicator. It stays in its place, disabled ("↑", named "Push with Children") with the reason in its hover, while it
+  header's push disabled meanwhile: one indicator, decided once for the header's push and the root's push button
+  (`useStackBranchPushAlone`). It stays in its place, disabled ("↑", named "Push with Children") with the reason in its hover, while it
   would push nothing beyond the root ("Nothing to push: the stack is on the remote" only while its stack branch has
   nothing to push either; "The branches of the stack are on the remote. Its stack branch goes there with the pull
   request or the Safe Push of the whole stack"; "Only air has commits to push: its own push sends them", the branches
