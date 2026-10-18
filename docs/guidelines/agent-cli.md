@@ -650,11 +650,11 @@ repository lock.
   branches (`sync_core::inverted_stack`; bd only shortens the ids and words the `reason`): `move_to_child` moves the branch's commits that need the child into it, `swap` stacks the branch on the
   child (`unstack` the child, `"child/branch": []`); no `swap` when the child's change uses what the branch adds
   (`mutual`). With no fix that builds, `fixes` is empty and `reason` says why. The `result` stays.
-- `--build COMMAND` runs a shell command (`sh -c`, `cmd /C` on Windows) in the tree of each `ok` branch, extracted with
-  `git archive` into a temporary directory outside every working tree (`BD_BRANCH`, `BD_COMMIT` set), and removes it
-  afterwards; `build` is `{exit_code, output}` (the last 50 lines of a failure), and a failure is `build_failed`.
-  `--build-paths` extracts only those paths (files or directories, names, not patterns): the whole tree of a large
-  repository is gigabytes per branch.
+- `--build COMMAND` runs a shell command (`sh -c`, on Windows `cmd /D /S /C "COMMAND"`, the command line as written)
+  in the tree of each `ok` branch, extracted with `git archive` into a temporary directory outside every working tree
+  (`BD_BRANCH`, `BD_COMMIT` set), and removes it afterwards; `build` is `{exit_code, output}` (the last 50 lines of a
+  failure), and a failure is `build_failed`. `--build-paths` extracts only those paths (files or directories, names,
+  not patterns): the whole tree of a large repository is gigabytes per branch.
 - A build that passed is not run again on the same command, branch and extracted objects (the tree, or with
   `--build-paths` the object of each path the tree has; one `cat-file --batch-check` reads their ids): `build` is
   `{exit_code: 0, cached: true}`, also after a regroup that wrote new commits of the same tree, since `BD_COMMIT` is not

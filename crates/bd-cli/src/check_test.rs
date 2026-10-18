@@ -308,8 +308,13 @@ fn a_possible_dangling_reference_is_a_warning_and_exit_0() {
 #[test_log::test]
 fn check_build_runs_the_command_on_each_branch_tree() {
   let (repo, _) = repo();
-  // each tree has its own files: `(a)` has shared.txt, `(c)` doesn't
-  let (exit_code, output) = run_in(&repo, &["check", "--build", "test -f shared.txt && echo \"$BD_BRANCH\""]);
+  // each tree has its own files: `(a)` has shared.txt, `(c)` doesn't; each command in the syntax of the shell bd runs
+  let shared = if cfg!(windows) {
+    "if exist shared.txt (echo %BD_BRANCH%) else (exit 1)"
+  } else {
+    "test -f shared.txt && echo \"$BD_BRANCH\""
+  };
+  let (exit_code, output) = run_in(&repo, &["check", "--build", shared]);
   assert_eq!(exit_code, 1, "{output}");
   let results: Vec<(&Value, &Value, &Value)> = output["branches"]
     .as_array()
@@ -321,13 +326,15 @@ fn check_build_runs_the_command_on_each_branch_tree() {
   assert_eq!(output["ok"], json!(false));
 
   // --build-paths extracts only those paths, and the output of a failure is kept
-  let (exit_code, output) = run_in(&repo, &["check", "--build", "ls; exit 3", "--build-paths", "other.txt"]);
+  let list = if cfg!(windows) { "dir /b & exit 3" } else { "ls; exit 3" };
+  let (exit_code, output) = run_in(&repo, &["check", "--build", list, "--build-paths", "other.txt"]);
   assert_eq!(exit_code, 1, "{output}");
   let c = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("c")).unwrap();
   assert_eq!(c["build"], json!({ "exit_code": 3, "output": "other.txt" }));
 }
 
-/// A file outside the trees that a build command appends a line to per run (`sh` and `cmd` alike): the runs are its lines
+/// A file outside the trees that a build command appends a line to per run (`sh` and `cmd` alike): the runs are its lines.
+/// Its quoted path also checks that cmd gets the command line as written, with its quotes
 struct BuildRuns {
   _dir: tempfile::TempDir,
   path: std::path::PathBuf,

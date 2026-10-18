@@ -455,8 +455,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_parent_that_needs_its_child_is_an_inverted_stack`, `a_mutual_dangling_reference_of_a_stack_is_an_inverted_stack_without_a_swap`, `an_inverted_stack_that_no_fix_builds_says_why`)
 - `--build <command>` must run the command in the tree of each `ok` branch, extracted outside every working tree
   (`--build-paths`: only those paths, names, never patterns), and make a failure `build_failed` with its exit code and
-  the end of its output; without it nothing runs.
-  [@test] ../../crates/bd-cli/src/check_test.rs (`check_build_runs_the_command_on_each_branch_tree`)
+  the end of its output; without it nothing runs. The command must reach the shell as written: `sh -c`, on Windows
+  cmd with its quotes kept (a quoted path).
+  [@test] ../../crates/bd-cli/src/check_test.rs (`check_build_runs_the_command_on_each_branch_tree`, `a_build_that_passed_on_a_tree_is_not_run_again`)
   [@test] ../../crates/git-ops/src/tree_archive_test.rs (`a_path_is_a_name`)
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
 - A build that passed must not run again on the same command, branch and extracted objects (the tree, or the object of

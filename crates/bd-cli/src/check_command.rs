@@ -778,15 +778,7 @@ fn build_tree(context: &RepoContext, branch: &str, head: &str, command: &str, pa
     std::fs::remove_file(&archive_path).map_err(|e| io_error("remove the archive", e))?;
   }
 
-  let mut shell = if cfg!(windows) {
-    let mut shell = std::process::Command::new("cmd");
-    shell.arg("/C").arg(command);
-    shell
-  } else {
-    let mut shell = std::process::Command::new("sh");
-    shell.arg("-c").arg(command);
-    shell
-  };
+  let mut shell = shell(command);
   shell
     .current_dir(&tree)
     .env("BD_BRANCH", branch)
@@ -813,6 +805,24 @@ fn build_tree(context: &RepoContext, branch: &str, head: &str, command: &str, pa
     lines[lines.len().saturating_sub(BUILD_OUTPUT_LINES)..].join("\n")
   });
   Ok(BuildResult { exit_code, output, cached: false })
+}
+
+/// `sh -c <command>`
+#[cfg(not(windows))]
+fn shell(command: &str) -> std::process::Command {
+  let mut shell = std::process::Command::new("sh");
+  shell.arg("-c").arg(command);
+  shell
+}
+
+/// `cmd /D /S /C "<command>"`, the command line passed as written: `Command::arg` quotes an argument for the MSVC
+/// runtime (inner `"` as `\"`), which cmd does not read, so a quoted path broke the command. `/S` strips only the outer
+/// quotes, also from a command that starts with a quoted program; `/D` skips the `AutoRun` commands of the registry
+#[cfg(windows)]
+fn shell(command: &str) -> std::process::Command {
+  let mut shell = std::process::Command::new("cmd");
+  std::os::windows::process::CommandExt::raw_arg(&mut shell, format!("/D /S /C \"{command}\""));
+  shell
 }
 
 /// The output of an inverted stack (`sync_core::inverted_stack`): short ids, the kinds of the fixes, and without one why
