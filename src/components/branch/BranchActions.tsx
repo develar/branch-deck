@@ -7,11 +7,11 @@ import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
 import { getBranchContextMenuItems } from "@/hooks/useBranchContextActions"
-import { useUnpushedChildren } from "@/hooks/usePushButton"
+import { useStackBranchPushAlone, useUnpushedChildren } from "@/hooks/usePushButton"
 import type { MenuItemGroups } from "@/lib/menu"
 import { getPushAction } from "@/lib/push-summary"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranch, useIsBranchPushing, useIsStackBranchPushing, useStackPush } from "@/stores/branch-sync"
+import { useBranch, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
 import { usePushHold } from "@/stores/patronus"
 import { getFullBranchName } from "@/stores/repository"
@@ -38,9 +38,9 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
   const isPushing = useIsBranchPushing(branch.name)
   const startedStackPush = useStackPush(branch.name)
   // one indicator of a stack push: the island header of the stack it pushes, or the row it started from; so is the push
-  // of the stack branch of the whole stack the branch heads
+  // of the stack branch of the whole stack the branch heads, unless the start of its Safe Push shows it in the slot
   const stackPush = stackPushInHeader ? null : startedStackPush
-  const stackBranchPush = useIsStackBranchPushing(branch.name) && !stackPushInHeader
+  const stackBranchPush = useStackBranchPushAlone(branch.name) && !stackPushInHeader
   const hold = usePushHold(branch.name)
   const canPush = !branch.hasError && branch.commitCount > 0
   // a running push keeps its button, with its progress, until it finished; a blocked branch says why on its button; a

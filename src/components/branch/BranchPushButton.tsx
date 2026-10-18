@@ -8,7 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Spinner } from "@/components/ui/spinner"
 import { DroppedCommitList } from "@/components/branch/DroppedCommitList"
 import type { PushButtonAction } from "@/hooks/usePushButton"
-import { usePushButton } from "@/hooks/usePushButton"
+import { usePushButton, useStackBranchPushAlone } from "@/hooks/usePushButton"
 import type { TransferProgress } from "@/lib/bindings"
 import { pushBranch, pushFromButton } from "@/lib/git/push"
 import { formatStackPushing, stackPushSubject } from "@/lib/stack"
@@ -16,7 +16,7 @@ import { transferAmountNotInLine, transferLabel } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
 import { STACK_BRANCH_PUSHING, formatWholeStackBranch, stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranchPushProgress, useIsBranchPushing, useIsStackBranchPushing, useStackPush } from "@/stores/branch-sync"
+import { useBranchPushProgress, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
 import type { PushConfirmRequest, PushConfirmTarget } from "@/stores/push-confirm"
 import { clearPushConfirm, usePushConfirmRequest } from "@/stores/push-confirm"
@@ -52,7 +52,8 @@ export interface BranchPushButtonProps {
  * baseline first. A push that drops remote commits asks first: the click opens the description with a destructive
  * Force Push, which pushes. While the push runs, the label has its percent ("Pushing 45%", "Pushing 3 branches 45%" for
  * the one push of a stack, "Pushing login 45%" for a stack push of another branch; on the root of a small stack
- * "Pushing the whole stack 45%" for the push of the stack branch of its whole stack alone) and the hover the last
+ * "Pushing the whole stack 45%" for the push of the stack branch of its whole stack alone, unless the start of its Safe
+ * Push pushes it, which its button in the slot shows) and the hover the last
  * progress line of git, with the amount and the rate when that line lacks them.
  */
 export function BranchPushButton({ branch, colored = true, hint, confirmTarget, compact = false, shortcut, stackPushInHeader = false }: BranchPushButtonProps) {
@@ -60,8 +61,9 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
   const startedStackPush = useStackPush(branch.name)
   const stackPush = stackPushInHeader ? null : startedStackPush
   const ownPush = useIsBranchPushing(branch.name) || stackPush !== null
-  // the push of the stack branch of the whole stack the branch heads, alone: where the pushes of a small stack show
-  const stackBranchPush = useIsStackBranchPushing(branch.name) && !stackPushInHeader && !ownPush
+  // the push of the stack branch of the whole stack the branch heads, alone: where the pushes of a small stack show (the
+  // start of its Safe Push shows its push in the slot)
+  const stackBranchPush = useStackBranchPushAlone(branch.name) && !stackPushInHeader && !ownPush
   const isPushing = ownPush || stackBranchPush
   // a Safe Push pushes as the first step of its start: its button in the slot shows the push, this one is disabled
   // without it

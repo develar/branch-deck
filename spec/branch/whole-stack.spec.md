@@ -228,8 +228,8 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   its pull request, the start of its Safe Push) must show where the pushes of the stack show, one indicator: the push of
   the header of its island ([Stack Island](stack-island.spec.md#header)), else the push button of the root's row of a
   small stack, "Pushing the whole stack 45%" with the line of git on hover, the branches of the stack not busy; the
-  start of its Safe Push in its own button where it has one (the island's header, "Pushing 45%"), the dialog of its pull
-  request in its Create button ("Pushing 45%"). One push of it at a time: a second waits for the first, and so does
+  start of its Safe Push in its own button (the island's header, the root's slot of a small stack, "Pushing 45%"), the
+  dialog of its pull request in its Create button ("Pushing 45%"). One push of it at a time: a second waits for the first, and so does
   Push with Children that takes it along.
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the push of the stack branch alone in the header's push when the restart of its robot pushes it`, `should show the push of the stack branch alone in the header's push when Request Review… of its pull request pushes it`, `should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a small stack with its side branch from the root's menu, its popover at the root`)
@@ -315,6 +315,10 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   from "Whole Stack ›" of the root's menu, and from the Safe Push popover of the root and of any branch of a stack that
   forks ("Land the whole stack: Safe Push Whole Stack", [Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)),
   the popover at the header of the root's island, else at the root's row (a small stack, `getWholeStackStartItems`).
+  Its steps must show where its popover opens, as the start of a branch shows them in its slot: "Checking…" while the
+  facts load, "Pushing 45%", "Starting…", in the button of the header's slot, else in the root's slot of a small stack,
+  in place of the root's own step while the start runs (`NextStepSlot`); the push button of the root's row stays the
+  root's own meanwhile (`useStackBranchPushAlone`).
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a small stack with its side branch from the root's menu, its popover at the root`, `should offer the whole stack in the Safe Push popover of its root and of its branches, which opens its own popover`)
 - After merged Safe Pushes landed branches of it (a piece that landed its main line, `getLandedBy`), it must land only

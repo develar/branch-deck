@@ -768,6 +768,9 @@ test.describe("Stacked branches", () => {
       await setupStack(page, setupRepo, syncAndWaitForBranches)
       const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("auth"), 45)
       const starts = await routeCommand(page, "start_patronus_robot", () => ({ status: "error", error: { message: "Patronus is restarting" } }))
+      // the facts the start decides on, and the start itself, wait: what the slot shows meanwhile
+      const releaseOptions = await holdCommand(page, "get_patronus_start_options")
+      const releaseStart = await holdCommand(page, "start_patronus_robot")
       const popover = safePushPopover(page)
       const rootSlot = findBranchRow(page, "auth").getByTestId("next-step-slot")
       const openWholeStack = async () => {
@@ -775,31 +778,40 @@ test.describe("Stacked branches", () => {
         await page.getByRole("menuitem", { name: "Whole Stack" }).click()
       }
 
-      // the root's menu, "Whole Stack ›": its Safe Push says what it lands, its popover opens at the root's row
+      // the root's menu, "Whole Stack ›": its Safe Push says what it lands; its steps show where it was asked, in the
+      // root's slot, as in the header of an island: the facts first, then its popover at the root's row
       await openWholeStack()
       const item = page.getByRole("menuitem", { name: "Safe Push Whole Stack" })
       await item.hover()
       await expect(page.getByRole("tooltip")).toHaveText(WHOLE_AUTH_STACK)
       await item.click()
+      const start = rootSlot.getByTestId("safe-push-button")
+      await expect(start).toHaveText("Checking…")
+      await expect(start).toHaveAttribute("aria-busy", "true")
+      releaseOptions()
       await expectWholeAuthStackPopover(page)
-      // Enter: only the stack branch is pushed, its progress on the push of the root's row, where the pushes of a small
-      // stack show; then the robot starts from it
+      // Enter: only the stack branch is pushed, its progress in the button of the start, the one indicator: the push of
+      // the root's row is the root's own; then the robot starts from it
       await page.keyboard.press("Enter")
+      await expect(start).toHaveText("Pushing 45%")
+      await expect(start).toHaveAttribute("aria-busy", "true")
       const rootPush = findBranchRow(page, "auth").getByTestId("push-button")
-      await expect(rootPush).toHaveAccessibleName("Pushing the whole stack 45%")
-      await expect(rootPush).toHaveAttribute("aria-busy", "true")
-      await rootPush.hover()
-      await expect(page.getByTestId("push-description").getByTestId("push-progress")).toHaveText("Writing objects:  45% (2/4)")
-      await page.mouse.move(0, 0)
+      await expect(rootPush).toBeVisible()
+      await expect(rootPush).not.toHaveAttribute("aria-busy", "true")
+      await expect(rootPush).not.toHaveAccessibleName(/^Pushing/)
       // no branch of the stack is pushed
       await expect(findBranchRow(page, "login").getByTestId("push-button")).toBeVisible()
       await expect(findBranchRow(page, "login").getByTestId("push-button")).not.toHaveAttribute("aria-busy", "true")
-      expect(starts).toEqual([])
       release()
+      await expect(start).toHaveText("Starting…")
+      expect(starts).toEqual([])
+      releaseStart()
       await expect.poll(() => starts.length).toBe(1)
       expect(starts[0]).toMatchObject({ branchName: "auth", stack: true, mode: "rebaseAutosquash" })
       expect(stackPushes).toEqual([[expect.objectContaining({ branchName: "auth", wholeStack: true, expectedRemote: null })]])
-      await expect(rootPush).not.toHaveAttribute("aria-busy", "true")
+      // the root's own step again
+      await expect(start).toHaveText("Safe Push")
+      await expect(start).not.toHaveAttribute("aria-busy", "true")
       await expect(popover).toHaveCount(0)
       await closeRefusal(page)
 

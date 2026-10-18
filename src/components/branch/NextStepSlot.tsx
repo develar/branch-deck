@@ -18,7 +18,7 @@ import { usePullRequest, useStackPullRequest } from "@/stores/pull-requests"
 import { setRequestReviewOpen, useRequestReviewOpen } from "@/stores/request-review-popover"
 import { useReviewReadiness } from "@/stores/review-readiness"
 import type { SafePushAsk } from "@/stores/safe-push"
-import { useSafePushAsk } from "@/stores/safe-push"
+import { useSafePushAsk, useSafePushStarting } from "@/stores/safe-push"
 
 const SafePushPopover = lazy(() => import("@/components/branch/SafePushPopover").then(it => ({ default: it.SafePushPopover })))
 
@@ -34,7 +34,8 @@ const SafePushPopover = lazy(() => import("@/components/branch/SafePushPopover")
  * - a quiet step, the state as its label, which opens the pull request it waits in: "Awaiting Ilya Korennoy" (or
  *   "Awaiting 2 Reviews"), "Changes Requested" in `destructive`, "Draft";
  * - nothing while the Status cell says why: a sync, a failed sync, a blocked branch, a robot that runs or merged, a
- *   Safe Push that lands the branch (`PushHold`), a branch that landed.
+ *   Safe Push that lands the branch (`PushHold`), a branch that landed;
+ * - on the root of a small stack, while the start of its whole stack runs, the steps of that start.
  * Nothing in a repository that is not on Space, but the anchors of Request Review…, which asks GitHub
  * (`RequestReviewAnchors`).
  */
@@ -54,21 +55,29 @@ export function NextStepSlot({ branch, stackHeader, wholeStackInHeader = false }
   const placement = stackHeader === undefined ? "row" : "stack-header"
   const ask = useSafePushAsk(branch.name, placement)
   const wholeStackAsk = useSafePushAsk(stackReadinessKey(branch.name), "row")
+  // the start of the whole stack of a small stack runs: its steps show here, where it was asked, as the header of an
+  // island shows them ("Checking…", "Pushing 45%", "Starting…"), in place of the root's own step
+  const startsWholeStack = useSafePushStarting(stackHeader === undefined && !wholeStackInHeader ? stackReadinessKey(branch.name) : "") !== null
   const slotRef = useRef<HTMLDivElement>(null)
   if (step === null || step.kind === "hidden") {
     // no step where Patronus doesn't answer; Request Review… of an open pull request asks GitHub, from the menus
     return stackHeader === undefined ? <RequestReviewAnchors branch={branch} wholeStack={!wholeStackInHeader} /> : null
   }
   const item = step.item
+  const requestReview = !startsWholeStack && step.kind === "requestReview" && item?.disabled !== true ? item : null
   return (
     <div ref={slotRef} className="flex w-40 items-center" data-testid="next-step-slot" data-step={step.kind} data-stack-path="landing">
-      {item !== null &&
+      {startsWholeStack ? (
+        <SafePushButton branch={branch} wholeStack={branch.name} placement="row" />
+      ) : (
+        item !== null &&
         (item.id === "safe-push" ? (
           <SafePushButton branch={branch} shortcut={stackHeader === undefined ? "S" : undefined} description={stackHeader?.description} placement={placement} />
-        ) : step.kind === "requestReview" && item.disabled !== true ? null : (
+        ) : requestReview !== null ? null : (
           <StepButton action={item} tone={step.tone} showKeys={stackHeader === undefined} />
-        ))}
-      {stackHeader === undefined && <RequestReview branch={branch} step={step.kind === "requestReview" && item?.disabled !== true ? item : null} />}
+        ))
+      )}
+      {stackHeader === undefined && <RequestReview branch={branch} step={requestReview} />}
       <SafePushAskPopover ask={ask} anchor={slotRef} />
       {/* the start of the whole stack of a small stack (no island): from the root's menu, at the root's row */}
       {stackHeader === undefined && <SafePushAskPopover ask={wholeStackAsk} anchor={slotRef} />}

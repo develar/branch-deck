@@ -26,11 +26,12 @@ import {
 } from "@/lib/stack"
 import type { UIColor } from "@/lib/ui-types"
 import type { StackBranchAlong } from "@/lib/whole-stack"
-import { getStackBranchAlong } from "@/lib/whole-stack"
+import { getStackBranchAlong, stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
-import { getBranch, stackDescendantsIn, useBranchSync, useStackBranch } from "@/stores/branch-sync"
+import { getBranch, stackDescendantsIn, useBranchSync, useIsStackBranchPushing, useStackBranch } from "@/stores/branch-sync"
 import { getPushHold, usePushHold, usePushHolds } from "@/stores/patronus"
 import { pullRequestsStore, useStackPullRequest } from "@/stores/pull-requests"
+import { useSafePushStarting } from "@/stores/safe-push"
 
 export interface PushButtonState {
   text: string
@@ -406,4 +407,15 @@ export function useStackBranchAlong(root: string): StackBranchAlong | null {
   // a string, so a new store state with the same answer renders nothing
   const along = JSON.stringify(getStackBranchAlong(root, stack, pullRequest))
   return useMemo(() => JSON.parse(along) as StackBranchAlong | null, [along])
+}
+
+/**
+ * The stack branch of the whole stack of `root` is being pushed, and not as the push step of the start of its Safe
+ * Push, which shows the push in its own button ("Pushing 45%", the header's slot of an island, the root's slot of a
+ * small stack): the pushes of the stack show it then (the island's header push, the root's push button), one indicator
+ */
+export function useStackBranchPushAlone(root: string): boolean {
+  const pushing = useIsStackBranchPushing(root)
+  const startPushes = useSafePushStarting(stackReadinessKey(root))?.step === "pushing"
+  return pushing && !startPushes
 }
