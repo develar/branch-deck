@@ -2904,3 +2904,180 @@ fn a_this_call_is_no_edge_across_its_own_commit() {
     )]);
   assert_eq!(edges(&range.graph(&[], &[], &[])), [(1, 0, vec![link("Lane", Evidence::SameFile)])]);
 }
+
+/// `a.Base` with `members` beside `fun other()`, open, `: supertypes` when given
+fn base(supertypes: &str, members: &str) -> String {
+  format!("package a\n\nopen class Base{supertypes} {{\n  fun other() = 1\n{members}}}\n")
+}
+
+/// A range whose first commit adds `members` to `a.Base` (`base`) of the baseline
+fn adding_to_base(supertypes: &str, members: &str) -> Range {
+  let mut range = Range::default();
+  range
+    .baseline(&[("src/a/Base.kt", &base(supertypes, ""))])
+    .commit(&[("src/a/Base.kt", Some(&base(supertypes, members)))]);
+  range
+}
+
+/// `b.Sub : <supertypes>` with `import a.Base` and a function whose body is `body`
+fn sub(supertypes: &str, body: &str) -> String {
+  format!("package b\n\nimport a.Base\n\nclass Sub : {supertypes} {{\n  fun use() {{\n    {body}\n  }}\n}}\n")
+}
+
+const OPEN: &str = "  open fun open(id: Int) = id\n";
+
+/// A subclass calls a member it gets from its one supertype by a bare name or `this`: that commit's, by the supertype
+/// through an import, its full path or the same package and module, from Kotlin and Java
+#[test]
+fn a_bare_call_of_a_member_the_supertype_gets_is_an_edge() {
+  let mut range = adding_to_base("", OPEN);
+  range
+    .commit(&[("src/b/Sub.kt", Some(&sub("Base()", "open(1)")))])
+    .commit(&[("src/c/This.kt", Some(&sub("Base()", "this.open(2)").replacen("package b", "package c", 1)))])
+    .commit(&[("src/d/Full.kt", Some("package d\n\nclass Full : a.Base() {\n  fun use() = open(3)\n}\n"))])
+    .commit(&[("src/a/Same.kt", Some("package a\n\nclass Same : Base() {\n  fun use() = open(4)\n}\n"))])
+    .commit(&[(
+      "src/b/JavaSub.java",
+      Some("package b;\n\nimport a.Base;\n\nclass JavaSub extends Base {\n  int use() { return open(5); }\n}\n"),
+    )]);
+  let inherited = |from: usize| (from, 0, vec![link("open", Evidence::Inherited)]);
+  assert_eq!(edges(&range.in_modules(&["src"])), [inherited(1), inherited(2), inherited(3), inherited(4), inherited(5)]);
+}
+
+/// `super.name()` means the member of the supertype too; a call of an overload the arguments select needs the commit
+/// of that overload, also beside one of the baseline
+#[test]
+fn a_super_call_of_a_new_member_is_an_edge() {
+  let mut range = Range::default();
+  range
+    .baseline(&[("src/a/Base.kt", &base("", OPEN))])
+    .commit(&[("src/a/Base.kt", Some(&base("", &format!("{OPEN}  open fun open(name: String) = name\n"))))])
+    .commit(&[("src/b/Sub.kt", Some(&sub("Base()", "super.open(\"x\")")))])
+    .commit(&[("src/c/Bare.kt", Some(&sub("Base()", "open(\"y\")").replacen("package b", "package c", 1)))])
+    .commit(&[("src/d/Old.kt", Some(&sub("Base()", "open(1)").replacen("package b", "package d", 1)))]);
+  let inherited = |from: usize| (from, 0, vec![link("open", Evidence::Inherited)]);
+  assert_eq!(
+    edges(&range.graph(&[], &[], &[])),
+    [inherited(1), inherited(2)],
+    "the overload of the baseline takes `open(1)`"
+  );
+}
+
+/// With two supertypes the member may come from either; a Java class implementing an interface besides is one too
+#[test]
+fn a_bare_call_with_two_supertypes_is_no_edge() {
+  let mut range = adding_to_base("", OPEN);
+  range
+    .commit(&[(
+      "src/b/Sub.kt",
+      Some(&sub("Base(), Runnable", "open(1)").replacen("  fun use()", "  override fun run() {}\n\n  fun use()", 1)),
+    )])
+    .commit(&[(
+      "src/b/JavaSub.java",
+      Some("package b;\n\nimport a.Base;\n\nclass JavaSub extends Base implements Runnable {\n  int use() { return open(1); }\n\n  public void run() {}\n}\n"),
+    )])
+    .commit(&[("src/c/One.kt", Some(&sub("Base()", "open(1)").replacen("package b", "package c", 1)))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(3, 0, vec![link("open", Evidence::Inherited)])]);
+}
+
+/// A lambda (and an object expression, a local declaration) may have a receiver of its own; a member extension's
+/// receiver comes first
+#[test]
+fn a_bare_call_in_a_lambda_is_no_edge() {
+  let mut range = adding_to_base("", OPEN);
+  range
+    .commit(&[("src/b/Sub.kt", Some(&sub("Base()", "run { open(1) }")))])
+    .commit(&[(
+      "src/c/Extension.kt",
+      Some("package c\n\nimport a.Base\n\nclass Sub : Base() {\n  fun String.use() = open(1)\n}\n"),
+    )])
+    .commit(&[("src/d/Plain.kt", Some(&sub("Base()", "open(1)").replacen("package b", "package d", 1)))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(3, 0, vec![link("open", Evidence::Inherited)])]);
+}
+
+/// A declaration of the name in the file (a member of the subclass, a function of the file) or an import that may bring
+/// it takes the call, or took it before the member came
+#[test]
+fn a_bare_call_the_subclass_declares_is_no_edge() {
+  let mut range = adding_to_base("", OPEN);
+  range
+    .commit(&[(
+      "src/b/Own.kt",
+      Some("package b\n\nimport a.Base\n\nclass Own : Base() {\n  fun open(name: String) = name\n\n  fun use() = open(1)\n}\n"),
+    )])
+    .commit(&[(
+      "src/c/TopLevel.kt",
+      Some("package c\n\nimport a.Base\n\nfun open(id: Int) = id\n\nclass Sub : Base() {\n  fun use() = open(1)\n}\n"),
+    )])
+    .commit(&[(
+      "src/d/Imported.kt",
+      Some("package d\n\nimport a.Base\nimport q.open\n\nclass Sub : Base() {\n  fun use() = open(1)\n}\n"),
+    )])
+    .commit(&[(
+      "src/e/Static.java",
+      Some("package e;\n\nimport a.Base;\nimport static q.Util.open;\n\nclass Static extends Base {\n  int use() { return open(1); }\n}\n"),
+    )])
+    .commit(&[("src/f/Plain.kt", Some(&sub("Base()", "open(1)").replacen("package b", "package f", 1)))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(5, 0, vec![link("open", Evidence::Inherited)])]);
+}
+
+/// A member that overrides one of the supertype's own supertype compiles the call without its commit (`Base :
+/// Disposable` adds `override fun dispose()`), and so does a member of a Kotlin type with supertypes of a name it had
+#[test]
+fn a_call_of_an_override_the_supertype_adds_is_no_edge() {
+  let mut range = adding_to_base(" : Disposable", "  override fun dispose() {}\n\n  fun fresh() = 2\n");
+  range
+    .commit(&[("src/b/Sub.kt", Some(&sub("Base()", "dispose()")))])
+    .commit(&[("src/c/Fresh.kt", Some(&sub("Base()", "fresh()").replacen("package b", "package c", 1)))]);
+  assert_eq!(
+    edges(&range.graph(&[], &[], &[])),
+    [(2, 0, vec![link("fresh", Evidence::Inherited)])],
+    "a new name of a type with supertypes needs its commit"
+  );
+}
+
+/// A Java method of a class with supertypes may override one without `@Override`, which then compiles the call
+#[test]
+fn a_java_supertype_with_supertypes_is_no_edge() {
+  let java_base = |extends: &str, members: &str| format!("package a;\n\npublic class JavaBase{extends} {{\n  public void other() {{}}\n{members}}}\n");
+  let use_of = |class: &str| format!("package b;\n\nimport a.{class};\n\nclass Use{class} extends {class} {{\n  void use() {{ fresh(); }}\n}}\n");
+  let mut range = Range::default();
+  range
+    .baseline(&[
+      ("src/a/JavaBase.java", &java_base(" extends Root", "")),
+      ("src/a/Plain.java", &java_base("", "").replace("JavaBase", "Plain")),
+    ])
+    .commit(&[
+      ("src/a/JavaBase.java", Some(&java_base(" extends Root", "  public void fresh() {}\n"))),
+      ("src/a/Plain.java", Some(&java_base("", "  public void fresh() {}\n").replace("JavaBase", "Plain"))),
+    ])
+    .commit(&[("src/b/UseJavaBase.java", Some(&use_of("JavaBase")))])
+    .commit(&[("src/b/UsePlain.java", Some(&use_of("Plain")))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(2, 0, vec![link("fresh", Evidence::Inherited)])]);
+}
+
+/// A private member is no member of the subclass; an `internal` one only of the same module
+#[test]
+fn a_private_member_of_the_supertype_is_no_edge() {
+  let mut range = adding_to_base("", "  private fun hidden() = 2\n\n  internal fun inside() = 3\n");
+  range
+    .commit(&[("air/src/b/Sub.kt", Some(&sub("Base()", "hidden()")))])
+    .commit(&[("other/src/c/Far.kt", Some(&sub("Base()", "inside()").replacen("package b", "package c", 1)))])
+    .commit(&[("src/d/Near.kt", Some(&sub("Base()", "inside()").replacen("package b", "package d", 1)))]);
+  let (src, air, other) = ([file("BUILD.bazel")], [file("BUILD.bazel")], [file("BUILD.bazel")]);
+  assert_eq!(
+    edges(&range.graph(&[("src", &src), ("air", &air), ("other", &other)], &[], &[])),
+    [(3, 0, vec![link("inside", Evidence::Inherited)])]
+  );
+}
+
+/// The member of the supertype's supertype is no member the class names: `Sub : Mid`, `Mid : Base`
+#[test]
+fn a_bare_call_through_a_grandparent_is_no_edge() {
+  let mut range = adding_to_base("", OPEN);
+  range
+    .baseline(&[("src/a/Mid.kt", "package a\n\nopen class Mid : Base()\n")])
+    .commit(&[("src/b/Sub.kt", Some("package b\n\nimport a.Mid\n\nclass Sub : Mid() {\n  fun use() = open(1)\n}\n"))])
+    .commit(&[("src/c/Direct.kt", Some(&sub("Base()", "open(1)").replacen("package b", "package c", 1)))]);
+  assert_eq!(edges(&range.graph(&[], &[], &[])), [(2, 0, vec![link("open", Evidence::Inherited)])]);
+}

@@ -119,7 +119,8 @@ Dependencies](../../docs/design/symbol-dependencies.md).
 - A commit must depend on an older one by symbols when a reference on its added lines means a declaration that commit
   adds, or a form of it that commit gives (see the entries below), with evidence: an import or alias of it, its
   qualified name or `Type.member` with a resolved type, the same file, the same Rust module, a wildcard import of its
-  package or module for a type, or a type of the same JVM package in the same module.
+  package or module for a type, a type of the same JVM package in the same module, an override, or a call inherited
+  from the supertype (below).
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_kotlin_import_of_a_function_another_commit_adds_is_an_edge`, `a_java_member_by_its_class_and_a_static_import_are_edges`, `a_rust_use_of_a_crate_path_and_a_path_of_another_crate_are_edges`, `a_typescript_import_by_a_relative_path_or_an_alias_is_an_edge`)
 - A call of a function of the same package without an import must be no edge, nor a type of the same package in
   another module.
@@ -175,6 +176,15 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   default type, and a name each file reaches by the same wildcard import, count as unknown. Elsewhere a type parameter
   fits any type.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`an_override_of_an_override_is_no_edge`, `an_override_of_a_member_of_any_is_no_edge`, `an_override_with_two_supertypes_is_no_edge`, `a_java_method_of_a_class_with_supertypes_is_no_edge_for_an_override`, `an_override_in_another_module_of_an_internal_member_is_no_edge`, `an_override_of_another_receiver_or_kind_is_no_edge`, `an_override_of_a_supertype_a_scope_may_shadow_is_no_edge`, `an_override_of_a_member_of_a_type_with_supertypes_needs_its_exact_form`, `an_exact_form_needs_one_package_for_a_type_name_neither_file_binds`)
+- A call in a subclass, by a bare name, `this.name` or `super.name`, of an instance function that another commit adds
+  to the class's one supertype (`Any` and `Object` aside) must be a use of it (evidence `inherited`), in another file,
+  when the supertype resolves as an override's does, from Kotlin and Java; the arguments must tell the overloads apart
+  where the member's type has no supertypes (a new overload beside one of the baseline). It must be no use with two
+  supertypes, in a lambda or a member extension, where the file declares the name or an import may bring it, of a
+  member that overrides one (`override fun dispose()` of a `Base : Disposable`), of a Java method of a class with
+  supertypes, of a private member or an `internal` one of another module, or of a member of the supertype's
+  supertype.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_bare_call_of_a_member_the_supertype_gets_is_an_edge`, `a_super_call_of_a_new_member_is_an_edge`, `a_bare_call_with_two_supertypes_is_no_edge`, `a_bare_call_in_a_lambda_is_no_edge`, `a_bare_call_the_subclass_declares_is_no_edge`, `a_call_of_an_override_the_supertype_adds_is_no_edge`, `a_java_supertype_with_supertypes_is_no_edge`, `a_private_member_of_the_supertype_is_no_edge`, `a_bare_call_through_a_grandparent_is_no_edge`)
 - The declarations of a key of a JVM type or a member of one must be entries told apart by kind, extension receiver and
   parameter types (with their arrays, a vararg counted), each with its origin: the baseline, or the commit that
   created it or changed its form, one entry removed and one added by a commit being the same entry in a new form. An

@@ -47,6 +47,8 @@ pub enum Evidence {
   SamePackageType,
   /// A Kotlin `override` or Java `@Override` member of a subtype whose supertype resolves (`resolve_override`)
   Override,
+  /// A call of a member of the supertype in a subclass, by a bare name, `this` or `super` (`inherited`)
+  Inherited,
   /// The later commit removes a declaration whose uses the earlier one removed
   RemovesAfter,
 }
@@ -61,6 +63,7 @@ impl Evidence {
       Self::SameModule => "same_module",
       Self::SamePackageType => "same_package_type",
       Self::Override => "override",
+      Self::Inherited => "inherited",
       Self::RemovesAfter => "removes_after",
     }
   }
@@ -1027,10 +1030,11 @@ fn all_entries(use_site: &UseSite<'_>, site: &Site<'_>) -> bool {
 }
 
 /// Whether the arguments of a call may tell the overloads of the member `site` apart: only where all of them are its
-/// entries (`all_entries`), and of a bare name of another file, which an import brings in, only where its file shows
-/// nothing that comes before the import (`import_decides`)
+/// entries (`all_entries`), and of a bare name of another file only where its file shows nothing that comes before
+/// the import that brings it in (`import_decides`) or before the supertype it inherits it from (`inherited`)
 fn calls_tell_apart(use_site: &UseSite<'_>, reference: &Reference, site: &Site<'_>, enclosed: bool) -> bool {
-  all_entries(use_site, site) && (reference.qualifier.is_some() || use_site.path == site.ctx.path || import_decides(use_site.summary, reference, enclosed))
+  all_entries(use_site, site)
+    && (reference.qualifier.is_some() || use_site.path == site.ctx.path || import_decides(use_site.summary, reference, enclosed) || inherited(use_site, reference, None, site))
 }
 
 /// Whether a bare name that an import brings in (Java's `import static`, a Kotlin import of a member of an object) can
@@ -1526,11 +1530,9 @@ const ROOT_MEMBERS: [&str; 5] = ["equals", "hashCode", "toString", "clone", "fin
 /// The evidence that an `Override` reference overrides the member `site`. The member must be one a subtype overrides
 /// (an instance function or property, `overridable`, of the same receiver and parameter types, `override_fits`), not
 /// one every class has (`ROOT_MEMBERS`), and must override nothing itself, else the supertype's supertype has it
-/// already; its type must be the one the reference's supertype path names: the same file, the full path, an import (an
-/// alias, a nested type), or the same package in the same module without a type of that name in the file, never a
-/// wildcard import, and no type of the name that a scope around the override may mean instead (`scope_may_shadow`). No
-/// evidence in a class with several supertypes, whose member may come from any, nor for an override of a Java method
-/// whose class has supertypes: that method may itself override one without `@Override`
+/// already; its type must be the one the reference's supertype path names (`supertype_resolves`). No evidence in a
+/// class with several supertypes, whose member may come from any, nor for an override of a Java method whose class has
+/// supertypes: that method may itself override one without `@Override`
 fn resolve_override(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<&[String]>, site: &Site<'_>) -> Option<Evidence> {
   let summary = use_site.summary;
   let declaration = site.declaration;
@@ -1561,25 +1563,81 @@ fn resolve_override(use_site: &UseSite<'_>, reference: &Reference, qualifier: Op
     return None;
   }
 
-  let path = qualifier?;
-  let (head, rest) = path.split_first()?;
+  supertype_resolves(use_site, reference, qualifier?, site).then_some(Evidence::Override)
+}
+
+/// Whether the supertype `path` of a class around `reference` names the type that declares the member `site`: the
+/// same file, the full path, an import (an alias, a nested type), or the same package in the same module without a
+/// type of that name in the file, never a wildcard import, and no type of the name that a scope around the reference
+/// may mean instead (`scope_may_shadow`)
+fn supertype_resolves(use_site: &UseSite<'_>, reference: &Reference, path: &[String], site: &Site<'_>) -> bool {
+  let Some((head, rest)) = path.split_first() else { return false };
   let full = site.ctx.namespace.iter().chain(&site.containers).map(String::as_str);
   // the head through an import: `import p.Manager as M`, `import p.Outer.Inner`
   if let Some((import_path, imported)) = import_binding(use_site, head) {
     let resolved = import_path.iter().map(String::as_str).chain([imported]).chain(rest.iter().map(String::as_str));
-    return resolved.eq(full).then_some(Evidence::Override);
+    return resolved.eq(full);
   }
   if !site.ctx.namespace.is_empty() && path.iter().map(String::as_str).eq(full) {
-    return Some(Evidence::Override);
+    return true;
   }
   if path != site.containers.as_slice() || scope_may_shadow(use_site, reference, head, path) {
-    return None;
+    return false;
   }
   if use_site.path == site.ctx.path {
-    return Some(Evidence::Override);
+    return true;
   }
   let same_module = use_site.module_root.is_some() && use_site.module_root == site.ctx.module_root;
-  (same_module && use_site.namespace == site.ctx.namespace && !summary.declares(head)).then_some(Evidence::Override)
+  same_module && use_site.namespace == site.ctx.namespace && !use_site.summary.declares(head)
+}
+
+/// Whether a call in a subclass means the member `site` of its supertype, which the subclass inherits (`Inherited`): a
+/// call (not enclosed: a lambda, an object expression or a local declaration has a receiver of its own) by a bare name,
+/// `this.name` or `super.name`, in a class whose one supertype (`Any` and `Object` aside) resolves to the type of the
+/// member (`supertype_resolves`), not inside a member extension, whose receiver comes first. Nothing else of the file
+/// may take the name: no declaration of it (a member of the class, of a class or companion around it, a function of the
+/// file) and no import that may bring it (`imports_of_function`; Java's inherited method shadows a static import, but
+/// the call compiled with the import before the member came), and in Kotlin, which falls back to the receivers further
+/// out when the members of the class reject a call, none of those with a supertype of its own. The member must be an
+/// instance function that overrides nothing (the member it overrides compiles the call without the commit) and not one
+/// every class has (`ROOT_MEMBERS`); a Java one only of a type without supertypes, as a method may override without
+/// `@Override`. A member of a supertype of the supertype resolves to no path of the class: no evidence
+fn inherited(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<&[String]>, site: &Site<'_>) -> bool {
+  let summary = use_site.summary;
+  let declaration = site.declaration;
+  let not_enclosed = matches!(
+    reference.shape.and_then(|shape| summary.shapes.get(shape as usize)),
+    Some(Shape::Call { enclosed: false, .. })
+  );
+  if !not_enclosed
+    || !bare(qualifier)
+    || declaration.kind != DeclKind::Function
+    || declaration.member != MemberKind::Instance
+    || declaration.overrides
+    || ROOT_MEMBERS.contains(&site.name())
+    || (site.ctx.language == Language::Java && has_supertypes(site))
+  {
+    return false;
+  }
+  let name = site.name();
+  if summary.declares(name) || imports_of_function(summary, name) > 0 {
+    return false;
+  }
+  // the innermost type around the call, unless an extension receiver comes first
+  let Some((index, class)) = outward(summary, reference.container).find(|(_, declaration)| declaration.kind == DeclKind::Type || declaration.receiver.is_some()) else {
+    return false;
+  };
+  if class.kind != DeclKind::Type {
+    return false;
+  }
+  let [supertype] = class.supertypes.as_slice() else { return false };
+  if !extends(summary, class) || !supertype_resolves(use_site, reference, &names(summary, supertype), site) {
+    return false;
+  }
+  summary.language != Language::Kotlin
+    || !receivers(summary, reference)
+      .iter()
+      .any(|(receiver, declaration)| *receiver != index && extends(summary, declaration))
 }
 
 /// Whether the parameter types of an override fit those of the member `site`. Where the member's type has no
@@ -1684,10 +1742,11 @@ fn import_binding<'c>(ctx: &'c FileCtx<'_>, name: &str) -> Option<(&'c [String],
   })
 }
 
-/// Whether a type named `head` other than the one of the supertype path of an override may be what it means: one
-/// nested in a declaration around the override (`Outer.Base` for a class inside `Outer`), or a member type that a Java
-/// class around the overriding class inherits, which the file doesn't show. Kotlin also reaches the nested classes of
-/// a supertype by their names; that is left out, since an object expression in a class with supertypes is everywhere
+/// Whether a type named `head` other than the one of the supertype path of an override or an inherited call may be what
+/// it means: one nested in a declaration around the reference (`Outer.Base` for a class inside `Outer`), or a member
+/// type that a Java class around the overriding or calling class inherits, which the file doesn't show. Kotlin also
+/// reaches the nested classes of a supertype by their names; that is left out, since an object expression in a class
+/// with supertypes is everywhere
 fn scope_may_shadow(use_site: &UseSite<'_>, reference: &Reference, head: &str, path: &[String]) -> bool {
   let summary = use_site.summary;
   // the declarations around the override, the innermost first
@@ -1697,10 +1756,12 @@ fn scope_may_shadow(use_site: &UseSite<'_>, reference: &Reference, head: &str, p
       && summary.name(declaration.name) == head
       && declaration.container.is_some_and(|container| around.iter().any(|(index, _)| *index == container))
   });
-  // the overriding class itself, whose supertypes name the path, is no class around it
+  // the class of the override or the call itself, the innermost one, whose supertypes name the path, is no class
+  // around it
+  let class = around.iter().position(|(_, declaration)| declaration.kind == DeclKind::Type);
   let inherited = use_site.language == Language::Java
     && around.iter().enumerate().any(|(depth, (_, declaration))| {
-      let owner = depth == 0 && declaration.supertypes.iter().any(|supertype| names(summary, supertype) == path);
+      let owner = Some(depth) == class && declaration.supertypes.iter().any(|supertype| names(summary, supertype) == path);
       !owner && !declaration.supertypes.is_empty()
     });
   nested || inherited
@@ -1799,7 +1860,7 @@ fn resolve_jvm(use_site: &UseSite<'_>, reference: &Reference, qualifier: Option<
       };
       paths.iter().any(|path| names(path)).then_some(Evidence::Qualified)
     }
-    MemberKind::Instance => None,
+    MemberKind::Instance => inherited(use_site, reference, qualifier, site).then_some(Evidence::Inherited),
   }
 }
 
