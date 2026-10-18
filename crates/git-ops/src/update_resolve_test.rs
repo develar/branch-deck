@@ -14,8 +14,13 @@ const MISSING: &str = "0123456789abcdef0123456789abcdef01234567";
 
 #[test]
 fn tree_paths_that_could_leave_a_directory_are_invalid() {
-  for path in ["a.txt", "dir/a.txt", ".github/x", "a..b", "...", "x.gitignore", "git~2", ".gitx"] {
+  for path in ["a.txt", "dir/a.txt", ".github/x", "a..b", "x.gitignore", "git~2", ".gitx"] {
     assert!(is_valid_tree_path(path), "{path}");
+  }
+  // a name Windows can't hold: a tree made on Linux or macOS has it, and there it names a file; on Windows the file
+  // system would read it as another one (`x.` is `x`, `nul` a device, `..\secret` a way out)
+  for path in ["...", "x.", "x ", "a:b", "c:/abs", "nul", "dir/con.txt", "q\"uote", "a*b", "tab\there", "..\\secret"] {
+    assert_eq!(is_valid_tree_path(path), !cfg!(windows), "{path:?}");
   }
   for path in [
     "",

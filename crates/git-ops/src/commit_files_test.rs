@@ -34,7 +34,8 @@ fn file(path: &str, status: FileStatus, additions: u32, deletions: u32) -> Commi
 }
 
 /// A root commit with `a.txt` (3 lines) and `b.txt`, then a commit that renames `a.txt` to `c.txt` and adds a line,
-/// deletes `b.txt`, adds a binary file and a file whose name has a space, a tab and a non-ASCII letter
+/// deletes `b.txt`, adds a binary file and a file whose name has a space, a tab and a non-ASCII letter. That file is
+/// in the index only: Windows has no file name with a tab
 fn repo_with_all_statuses() -> (TestRepo, String, String) {
   let repo = TestRepo::new();
   let root = repo.create_commit_with_files("Initial", &[("a.txt", "one\ntwo\nthree\n"), ("b.txt", "gone\n")]);
@@ -42,11 +43,8 @@ fn repo_with_all_statuses() -> (TestRepo, String, String) {
   std::fs::write(repo.path().join("c.txt"), "one\ntwo\nthree\nfour\n").unwrap();
   run(&repo, &["rm", "-q", "b.txt"]);
   std::fs::write(repo.path().join("bin.dat"), [0u8, 1, 2, 0, 255]).unwrap();
-  std::fs::create_dir_all(repo.path().join("dir name")).unwrap();
-  std::fs::write(repo.path().join("dir name/ü\tx.txt"), "q\n").unwrap();
   run(&repo, &["add", "-A"]);
-  run(&repo, &["commit", "-q", "-m", "Change everything"]);
-  let second = repo.head();
+  let second = repo.create_commit_in_index("Change everything", &[("dir name/ü\tx.txt", "q\n")]);
   (repo, root, second)
 }
 
@@ -154,9 +152,8 @@ fn range(base: &str, head: &str) -> DiffSubject {
 /// `repo_with_all_statuses`, then a commit that adds a line to the renamed `c.txt`
 fn repo_with_a_range() -> (TestRepo, String, String) {
   let (repo, root, _) = repo_with_all_statuses();
-  std::fs::write(repo.path().join("c.txt"), "one\ntwo\nthree\nfour\nfive\n").unwrap();
-  run(&repo, &["commit", "-q", "-a", "-m", "Add five"]);
-  let head = repo.head();
+  // `c.txt` alone: `commit -a` would also stage the deletion of the file that is in the index only
+  let head = repo.create_commit("Add five", "c.txt", "one\ntwo\nthree\nfour\nfive\n");
   (repo, root, head)
 }
 

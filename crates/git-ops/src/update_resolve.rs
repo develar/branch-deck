@@ -1505,8 +1505,9 @@ pub(crate) fn conflict_files(merge: &MergeTreeOutput) -> Result<Vec<ConflictFile
 
 /// A tree path that is safe to name a file by: no empty, `.` or `..` component, no `.git` or a name the file system
 /// takes for it (`GIT~1`, `.git.`, `.g\u{200c}it`, as `core.protectNTFS` and `core.protectHFS`), no NUL; on Windows also
-/// no `\`, no drive prefix and no device name (`CON`). The copies use only the last component, but the path also goes
-/// into the state tree and the output
+/// no name Windows can't hold: no `\`, no drive prefix, no device name (`CON`), none of `<>:"|?*` or a control
+/// character, no trailing dot or space. The copies use only the last component, but the path also goes into the state
+/// tree and the output
 pub fn is_valid_tree_path(path: &str) -> bool {
   let options = gix_validate::path::component::Options {
     protect_windows: cfg!(windows),

@@ -288,9 +288,17 @@ impl TestRepo {
     self.head()
   }
 
-  /// Creates a commit of files written to the index only, never to the working tree, so that a name the file system
-  /// refuses (`*`, `:`, `"` or a newline on Windows) can be committed
+  /// Commits the index with `files` added to it, written to the index only, never to the working tree, so that a name
+  /// the file system refuses (`*`, `:`, `"`, a tab or a newline on Windows) can be committed
   pub fn create_commit_in_index(&self, message: &str, files: &[(&str, &str)]) -> String {
+    if cfg!(windows) {
+      // Git for Windows refuses such a name in the index ("Invalid path": `core.protectNTFS`, on by default), while a
+      // commit made on Linux has it. Off in this repository's own config, not only for the two commands below: a later
+      // checkout or merge of the fixture rebuilds the index and checks every name in it again (it keeps the entry and
+      // never writes the file), and so does a git of the code under test that writes an index. Never in `new`: off, it
+      // also lifts git's checks of the NTFS aliases of `.git` that the other tests keep
+      self.git(&["config", "core.protectNTFS", "false"]);
+    }
     for (filename, content) in files {
       let blob = self
         .git_executor
