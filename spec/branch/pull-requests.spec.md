@@ -373,6 +373,13 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   "#7 is closed") still opens the closed one, beside it in the menu, the preview and the review window alike.
   [@test] ../../src/lib/git/push.test.ts (`offers a new pull request when the branch has only a closed one`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`, `should open the pull request of a pushed branch from the push toast`)
+- Once nothing of the branch is left to land, as its [next step](next-step.spec.md#the-table) says (`landed`, row 1:
+  every commit in the fetched baseline, a merged Safe Push landed all of it, its own robot merged it), "Create Pull
+  Request…" stays in the menu, the footer of the preview and the title bar of the review window, disabled with that
+  reason ("Landed in master with oauth", "Merged by Patronus"): a pull request of commits that are in the target has
+  nothing to review. A branch with commits after the landed ones offers it, for them.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should disable Create Pull Request… of a branch a merged Safe Push landed, in its menu, its preview and its review window: nothing of it is left to review`)
+  [@test] ../../src/lib/branch-next-step.test.ts (`says why nothing of a branch is left to land, what disables its Create Pull Request…, also behind another reason of its start`)
 - The toast of a push ("Pushed feature-auth", [Outgoing Commits](../repository/outgoing.spec.md#push)) of any branch,
   stacked or not, with stacked branches on or off, has the action "Create Pull Request…" under the same conditions as
   the menu, else "Open Pull Request" when the branch has a pull request, and stays 10 s; off GitHub it has no action.

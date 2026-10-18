@@ -26,7 +26,7 @@ import {
   WandSparklesIcon,
 } from "lucide-react"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
-import { getBranchNextStepOf, getGatedRobotActions } from "@/hooks/useBranchNextStep"
+import { getBranchNextStepNow, getBranchNextStepOf, getGatedRobotActions } from "@/hooks/useBranchNextStep"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { canPushNow, getPushButtonNow } from "@/hooks/usePushButton"
@@ -492,11 +492,22 @@ export function getSafePushWithoutReviewItem(branch: Branch, nextStep: BranchNex
   }
 }
 
-/** "Create Pull Request…" of a branch without a live pull request, on GitHub, pushed or not (the dialog pushes it); null otherwise */
-export function getCreatePullRequestItem(branch: Branch): MenuItem | null {
-  return canCreatePullRequest(branch)
-    ? { id: "create-pull-request", label: CREATE_PULL_REQUEST_LABEL, icon: GitPullRequestCreateIcon, onSelect: () => openCreatePullRequestDialog(branch.name) }
-    : null
+/**
+ * "Create Pull Request…" of a branch without a live pull request, on GitHub, pushed or not (the dialog pushes it); null
+ * otherwise. Disabled with the reason once nothing of it is left to land (`landed`, the next step's `landed`: "Landed in
+ * master with oauth"): a pull request of commits that are in the target has nothing to review.
+ */
+export function getCreatePullRequestItem(branch: Branch, landed: string | null = getBranchNextStepNow(branch.name)?.landed ?? null): MenuItem | null {
+  if (!canCreatePullRequest(branch)) {
+    return null
+  }
+  return {
+    id: "create-pull-request",
+    label: CREATE_PULL_REQUEST_LABEL,
+    icon: GitPullRequestCreateIcon,
+    ...(landed !== null && { disabled: true, description: landed }),
+    onSelect: () => openCreatePullRequestDialog(branch.name),
+  }
 }
 
 /**

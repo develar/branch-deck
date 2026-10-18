@@ -1342,6 +1342,65 @@ test.describe("Stacked branches", () => {
       expect(restarts).toEqual([])
     })
 
+    test("should disable Create Pull Request… of a branch a merged Safe Push landed, in its menu, its preview and its review window: nothing of it is left to review", async ({
+      page,
+      setupRepo,
+      syncAndWaitForBranches,
+    }) => {
+      // on GitHub, no pull request yet; the Safe Push of oauth runs, which lands auth and login with it
+      const running = robot("oauth", "oauth-robot")
+      const repo = await setupRepo("stacked_branches", { patronus: availableRobots(running), pullRequests: availablePullRequests() })
+      await syncAndWaitForBranches()
+      const authRow = findBranchRow(page, "auth")
+      await expect(authRow.getByTestId("landing-span")).toHaveText("lands with oauth")
+      // auth has work to review while it runs
+      await authRow.click({ button: "right" })
+      await expect(page.getByRole("menuitem", { name: "Create Pull Request…" })).not.toHaveAttribute("aria-disabled", "true")
+      await page.keyboard.press("Escape")
+      await expect(page.getByRole("menu")).toHaveCount(0)
+
+      // it merged: auth and login are in master, oauth is its robot's; session, built on auth, has its own work
+      await mergeRunningRobot(page, repo, running)
+      await expect(authRow.getByTestId("landed-with")).toHaveText("Landed with oauth")
+      for (const [name, reason] of [
+        ["auth", "Landed in master with oauth"],
+        ["login", "Landed in master with oauth"],
+        ["oauth", "Merged by Patronus"],
+      ] as const) {
+        await findBranchRow(page, name).click({ button: "right" })
+        await expectDisabledItems(page, [["Create Pull Request…", reason]])
+        await page.keyboard.press("Escape")
+        await expect(page.getByRole("menu")).toHaveCount(0)
+      }
+      // the footer of the preview says it too, and its click opens no dialog
+      let preview = await openBranchPreview(page, "auth")
+      const create = preview.getByRole("button", { name: "Create Pull Request…" })
+      await expect(create).toHaveAttribute("aria-disabled", "true")
+      await create.hover()
+      await expect(page.getByRole("tooltip").filter({ hasText: "Landed in master with oauth" })).toHaveText("Landed in master with oauth")
+      await create.click({ force: true })
+      await expect(preview).toBeVisible()
+      await expect(createPullRequestDialog(page)).toHaveCount(0)
+      await page.keyboard.press("Escape")
+      await expect(preview).toHaveCount(0)
+      // and the title bar of its review window
+      const count = (await getOpenedSubWindows(page)).length
+      await openContextMenu(page, authRow)
+      await clickContextMenuItem(page, "Review Changes")
+      await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count + 1)
+      const reviewPage = await openLinkedSubWindow(page, (await getOpenedSubWindows(page))[count]!)
+      const reviewCreate = reviewPage.getByTestId("branch-review-actions").getByRole("button", { name: "Create Pull Request…" })
+      await expect(reviewCreate).toHaveAttribute("aria-disabled", "true")
+      await reviewCreate.hover()
+      await expect(reviewPage.getByRole("tooltip").filter({ hasText: "Landed in master with oauth" })).toHaveText("Landed in master with oauth")
+      await page.bringToFront()
+
+      // session lands without auth: its pull request opens from the same footer
+      preview = await openBranchPreview(page, "session")
+      await preview.getByRole("button", { name: "Create Pull Request…" }).click()
+      await expect(createPullRequestDialog(page)).toBeVisible()
+    })
+
     test("should offer to land only a stacked branch that applies alone", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const pushes = await setupStack(page, setupRepo, syncAndWaitForBranches)
       const starts = await routeCommand(page, "start_patronus_robot", () => robot("oauth", "oauth-robot", { sourceRevision: null }))

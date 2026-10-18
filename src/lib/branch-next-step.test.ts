@@ -46,7 +46,25 @@ describe("getBranchNextStep", () => {
 
   it("row 1: a merged pull request of other commits (new work under the same name) blocks nothing", () => {
     const step = getBranchNextStep(facts({ pullRequest: { ...openPullRequest, state: "merged", mergedCurrent: false } }))
-    expect(step).toMatchObject({ kind: "safePush", safePushBlocker: null })
+    expect(step).toMatchObject({ kind: "safePush", safePushBlocker: null, landed: null })
+  })
+
+  it("says why nothing of a branch is left to land, what disables its Create Pull Request…, also behind another reason of its start", () => {
+    const cases: [Partial<NextStepFacts>, string | null][] = [
+      [{ landedIn: "origin/master", landedWith: "Landed in master with oauth" }, "Landed in origin/master"],
+      [{ landedWith: "Landed in master with oauth" }, "Landed in master with oauth"],
+      [{ robot: finished("merged") }, "Merged by Patronus"],
+      [{ pullRequest: { ...openPullRequest, state: "merged", mergedCurrent: true } }, "Pull request #1078 is merged"],
+      // a sync or a block says why the start waits; the branch landed all the same
+      [{ syncing: true, landedWith: "Landed in master with oauth" }, "Landed in master with oauth"],
+      [{ patronusAvailable: false, robot: { kind: "none" }, landedIn: "origin/master" }, "Landed in origin/master"],
+      // work is left: a failed robot, commits after the landed ones
+      [{ robot: finished("failed") }, null],
+      [{}, null],
+    ]
+    for (const [patch, landed] of cases) {
+      expect(getBranchNextStep(facts(patch)).landed, JSON.stringify(patch)).toBe(landed)
+    }
   })
 
   it("row 2: restarts a failed or canceled robot, or offers Safe Push… where Patronus can't restart it", () => {

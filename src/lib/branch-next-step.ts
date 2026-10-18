@@ -176,6 +176,11 @@ export interface BranchNextStep {
    * pull request, with why it can't start now (the reasons of the branch, never the approvals); null elsewhere
    */
   readonly withoutReview: { readonly blocker: string | null } | null
+  /**
+   * Why nothing of it is left to land or review (`formatLandedState`, row 1): "Landed in origin/master", "Landed in
+   * master with oauth", "Merged by Patronus"; what disables "Create Pull Request…" of a branch. Null while work is left
+   */
+  readonly landed: string | null
 }
 
 /** "Ilya Korennoy", the login without a full name */
@@ -268,7 +273,7 @@ function formatNoEligibleReviewer(groups: readonly MissingReviewGroup[]): string
 }
 
 function step(kind: NextStepKind, item: MenuItem | null, safePushBlocker: string | null, dryRunBlocker: string | null, extra: Partial<BranchNextStep> = {}): BranchNextStep {
-  return { kind, item, tone: "default", safePushBlocker, dryRunBlocker, needsReadiness: false, notice: null, retarget: null, withoutReview: null, ...extra }
+  return { kind, item, tone: "default", safePushBlocker, dryRunBlocker, needsReadiness: false, notice: null, retarget: null, withoutReview: null, landed: null, ...extra }
 }
 
 /** The notice of a blocker no row words itself: "Safe Push of auth can't start" with the reason */
@@ -299,6 +304,23 @@ function startReason(facts: NextStepFacts, startBlocker: string | null): string 
   if (startBlocker !== null) {
     return startBlocker
   }
+  const landed = formatLandedState(facts)
+  if (landed !== null) {
+    return landed
+  }
+  if (facts.processing) {
+    return "Wait for the action on the branch to finish"
+  }
+  return null
+}
+
+/**
+ * Why nothing of the branch is left to land (row 1): every commit of it is in the baseline by the fetch ("Landed in
+ * origin/master"), a merged Safe Push landed all of it ("Landed in master with oauth"), its own robot merged it ("Merged
+ * by Patronus"), its pull request merged with its commits; null while work is left. Its start says it as the reason,
+ * and "Create Pull Request…" as why there is nothing to review.
+ */
+export function formatLandedState(facts: Pick<NextStepFacts, "landedIn" | "landedWith" | "robot" | "pullRequest">): string | null {
   if (facts.landedIn !== null) {
     return `Landed in ${facts.landedIn}`
   }
@@ -311,13 +333,10 @@ function startReason(facts: NextStepFacts, startBlocker: string | null): string 
   if (facts.pullRequest?.state === "merged" && facts.pullRequest.mergedCurrent) {
     return `Pull request #${facts.pullRequest.number} is merged`
   }
-  if (facts.processing) {
-    return "Wait for the action on the branch to finish"
-  }
   return null
 }
 
-function isMergedByRobot(facts: NextStepFacts): boolean {
+function isMergedByRobot(facts: Pick<NextStepFacts, "robot">): boolean {
   return facts.robot.kind === "finished" && facts.robot.chip.kind === "merged"
 }
 
@@ -357,10 +376,16 @@ function quietItem(facts: NextStepFacts, label: string, description: string, ico
 }
 
 /**
- * The next step of a branch: the first row of the table that matches (see `NextStepKind`). Pure: the facts carry the
- * actions, so every surface renders the same items.
+ * The next step of a branch: the first row of the table that matches (see `NextStepKind`), and why nothing of it is left
+ * to land (`landed`). Pure: the facts carry the actions, so every surface renders the same items.
  */
 export function getBranchNextStep(facts: NextStepFacts): BranchNextStep {
+  const result = decideNextStep(facts)
+  const landed = formatLandedState(facts)
+  return landed === null ? result : { ...result, landed }
+}
+
+function decideNextStep(facts: NextStepFacts): BranchNextStep {
   // a dry run pushes nothing into the target: approvals, a landing ancestor and a draft don't hold it back
   const dryRunBlocker = startReason(facts, facts.dryRunStartBlocker)
   const general = startReason(facts, facts.startBlocker)

@@ -6,7 +6,7 @@ import type { ApprovalNews } from "@/lib/approval-news"
 import { describeApprovalNews } from "@/lib/approval-news"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import type { BranchNextStep, NextStepFacts, NextStepPullRequest, StackPullRequestFact } from "@/lib/branch-next-step"
-import { getBranchNextStep } from "@/lib/branch-next-step"
+import { formatLandedState, getBranchNextStep } from "@/lib/branch-next-step"
 import { notifyError } from "@/lib/errors"
 import { isVirtualBranchBase } from "@/lib/git/new-pull-request"
 import { isFullyLanded } from "@/lib/landed"
@@ -149,6 +149,10 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
   const restart =
     robot === undefined ? null : (getRobotActions(robot, branch, needsReview, failing).find(it => it.id === "restart-robot" || it.id === "push-and-restart-robot") ?? null)
   const readiness = options === null ? getReviewReadiness(name) : (freshReadiness(getReviewReadiness(name), name) ?? undefined)
+  const landedIn = getLandedIn(name)
+  // all of it landed; one with commits after the landed ones has them to land
+  const landedWith = isLandedWhole(landedBy) ? formatLandedReason(landedBy) : null
+  const pullRequestFact = pullRequestFactOf(branch, target)
   return {
     branchName: name,
     subject: name,
@@ -161,14 +165,13 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
     startBlocker: start.ok ? null : start.reason,
     dryRunStartBlocker: dryRun.ok ? null : dryRun.reason,
     held: getPushHold(name) !== null,
-    landedIn: getLandedIn(name),
-    // all of it landed; one with commits after the landed ones has them to land
-    landedWith: isLandedWhole(landedBy) ? formatLandedReason(landedBy) : null,
+    landedIn,
+    landedWith,
     robot: slot,
     robotPullRequest: robot?.pullRequest?.number ?? null,
     restart,
     pullRequestsAvailable: getPullRequestAvailability()?.status === "available",
-    pullRequest: pullRequestFactOf(branch, target),
+    pullRequest: pullRequestFact,
     target,
     // the ancestors a merged Safe Push landed are in the target: the robot lands the others
     landsBranches: getLandingBranchCount(name),
@@ -184,7 +187,8 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
         }
       },
       retarget: () => void retargetToTarget(name),
-      createPullRequest: getCreatePullRequestItem(branch),
+      // nothing of a branch that landed is left to review: the step decides it, so the item reads its facts here
+      createPullRequest: getCreatePullRequestItem(branch, formatLandedState({ landedIn, landedWith, robot: slot, pullRequest: pullRequestFact })),
       requestReview: getRequestReviewItem(pullRequest, readiness?.readiness ?? null, () => openRequestReview(name)),
     },
   }
@@ -242,6 +246,7 @@ function stepKey(step: BranchNextStep | null, name: string): string {
     step.safePushBlocker,
     step.dryRunBlocker,
     step.needsReadiness,
+    step.landed,
     item?.id,
     item?.label,
     item?.disabled,

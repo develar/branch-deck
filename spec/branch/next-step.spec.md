@@ -117,6 +117,11 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`, `asks what a merged robot landed by content once a change below its commit gave the branches new copies, once per state of them`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
+- The step says why nothing of the branch is left to land (`BranchNextStep.landed`, `formatLandedState`), also while
+  another reason of row 1 (a sync) disables its start: "Landed in origin/master", "Landed in master with oauth",
+  "Merged by Patronus", "Pull request #7 is merged". "Create Pull Request…" of the branch reads it: disabled with that
+  reason, nothing is left to review ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)).
+  [@test] ../../src/lib/branch-next-step.test.ts (`says why nothing of a branch is left to land, what disables its Create Pull Request…, also behind another reason of its start`)
 - A landed branch with commits added after the landed ones is not settled: those commits are the only work left of
   it, its Status cell says so ("Landed with oauth · 1 commit after it", of the robot's own branch "Landed · 1 commit
   after it"; its hover "1 commit added since, not in master yet"), and it takes the rows of a branch with work: its
