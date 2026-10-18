@@ -111,6 +111,24 @@ async function setupUnaskedStackPullRequest(
 }
 
 /**
+ * stack_island whose robot of the whole stack failed on the stack branch the remote has, rebuilt by the sync since: its
+ * restart pushes the stack branch first, held at 45% until `release`; `restarts` are the restarts that reached Patronus
+ */
+async function setupFailedWholeStackRobot(
+  page: Page,
+  setupRepo: (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<void>,
+): Promise<{ stackPushes: PushRequest[][]; release: () => void; restarts: Record<string, unknown>[] }> {
+  await stackBranchAheadOfRemote(page, "air")
+  const failed = wholeStackRobot("air", "whole", { status: "failure", sourceRevision: "stack-pushed", finishTime: 1704142800 })
+  await setupRepo("stack_island", { patronus: availableRobots(failed) })
+  await syncAndWaitForBranches()
+  const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("air"), 45)
+  const restarts = await routeCommand(page, "restart_patronus_robot", () => wholeStackRobot("air", "restarted", { sourceRevision: "s1" }))
+  return { stackPushes, release, restarts }
+}
+
+/**
  * stack_island reviewed on GitHub, air and bazel on the remote, the pull request #12 of the whole stack open (approved by
  * alice), Patronus answering `answer` for the stack branch (null: no code-owner review needed): the popover of the
  * Safe Push of the whole stack, opened by S on the header
@@ -226,13 +244,7 @@ test.describe("Whole stack", () => {
   })
 
   test("should show the push of the stack branch alone in the header's push when the restart of its robot pushes it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    // the robot of the whole stack failed on the stack branch the remote has; the sync rebuilt it since
-    await stackBranchAheadOfRemote(page, "air")
-    const failed = wholeStackRobot("air", "whole", { status: "failure", sourceRevision: "stack-pushed", finishTime: 1704142800 })
-    await setupRepo("stack_island", { patronus: availableRobots(failed) })
-    await syncAndWaitForBranches()
-    const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("air"), 45)
-    const restarts = await routeCommand(page, "restart_patronus_robot", () => wholeStackRobot("air", "restarted", { sourceRevision: "s1" }))
+    const { stackPushes, release, restarts } = await setupFailedWholeStackRobot(page, setupRepo, syncAndWaitForBranches)
     const push = islandPush(page, "air")
     const rootPush = findBranchRow(page, "air").getByTestId("push-button")
     await expect(push).toBeEnabled()
@@ -260,6 +272,33 @@ test.describe("Whole stack", () => {
     expect(stackPushes).toEqual([[expect.objectContaining({ branchName: "air", wholeStack: true, expectedRemote: "stack-pushed" })]])
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Safe Push restarted" })).toBeVisible()
     await expect(push).not.toHaveAttribute("aria-busy", "true")
+  })
+
+  test("should join a second request of the push of the stack branch alone while one runs: one push, one restart, one toast", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const { stackPushes, release, restarts } = await setupFailedWholeStackRobot(page, setupRepo, syncAndWaitForBranches)
+    const push = islandPush(page, "air")
+    const restartFromMenu = async () => {
+      await openIslandMenu(page, "air")
+      await page.getByRole("menuitem", { name: "Restart Safe Push" }).click()
+    }
+
+    // the restart pushes the stack branch first; asked again while that push runs, it joins it
+    await restartFromMenu()
+    await expect(push).toHaveAccessibleName("Pushing the whole stack 45%")
+    await restartFromMenu()
+    await expect(push).toHaveAccessibleName("Pushing the whole stack 45%")
+    release()
+    await expect.poll(() => restarts.length).toBe(1)
+    await expect(page.locator("[data-slot=toast]").filter({ hasText: "Safe Push restarted" })).toHaveCount(1)
+    await expect(push).not.toHaveAttribute("aria-busy", "true")
+    expect(stackPushes).toEqual([[expect.objectContaining({ branchName: "air", wholeStack: true, expectedRemote: "stack-pushed" })]])
+    expect(restarts).toHaveLength(1)
+    // no error of a second push or restart either
+    await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
   })
 
   test("should show the push of the stack branch alone in the header's push when Request Review… of its pull request pushes it", async ({

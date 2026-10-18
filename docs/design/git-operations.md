@@ -1968,7 +1968,9 @@ lacks, and its pull request showing the parent's commits.
    request and Request Review on it (`pushWholeStack`), the branches of the stack left as they are; and after the
    branches by Push with Children of the root (`getStackBranchAlong`), once it is on the remote or the pull request of
    the whole stack is open, so that pull request follows its branches, as `bd push <root> --with-children` does. A
-   refusal names it apart from its root's virtual branch (`PushBranchesOutcome::RemoteMoved::whole_stack`).
+   refusal names it apart from its root's virtual branch (`PushBranchesOutcome::RemoteMoved::whole_stack`). One push
+   of it runs at a time: a second request while one runs joins it (`runningStackBranchPushes`) and then pushes only
+   what the remote still lacks, so no `push_branches` goes for a stack branch its remote already has.
 
 Code: `crates/sync-core/src/push.rs`, `src-tauri/src/commands/push.rs`, `src/lib/git/stack-push.ts`.
 

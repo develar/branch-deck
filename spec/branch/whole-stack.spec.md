@@ -229,9 +229,16 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   the header of its island ([Stack Island](stack-island.spec.md#header)), else the push button of the root's row of a
   small stack, "Pushing the whole stack 45%" with the line of git on hover, the branches of the stack not busy; the
   start of its Safe Push in its own button (the island's header, the root's slot of a small stack, "Pushing 45%"), the
-  dialog of its pull request in its Create button ("Pushing 45%"). One push of it at a time: a second waits for the first, and so does
-  Push with Children that takes it along.
+  dialog of its pull request in its Create button ("Pushing 45%"). One push of it at a time: a second request while one
+  runs (another action's, or Push with Children that takes it along) joins it, no push of its own, one indicator; a
+  failed push of it alone is said once and fails the request that joined too; then the request pushes only what the
+  remote still lacks (what a sync rebuilt since; the stack branch alone after a Push with Children that failed for a
+  branch), nothing when the remote has it all. A second restart of the same robot is the same request: one push, one
+  restart, one toast. Push with Children waits for a push of it alone and takes it along only while the remote still
+  lacks it.
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the push of the stack branch alone in the header's push when the restart of its robot pushes it`, `should show the push of the stack branch alone in the header's push when Request Review… of its pull request pushes it`, `should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should join a second request of the push of the stack branch alone while one runs: one push, one restart, one toast`)
+  [@test] ../../src/lib/git/push.test.ts (`joins a push of the stack branch that runs: one push, both done, Activity records it once`, `says a failed push once: the request that joined it fails with it`, `pushes what a sync rebuilt while the push it joined ran`, `is one request for a second restart of the same robot: one push, one restart, one toast`, `restarts after the push it joined, and pushes nothing of its own: the remote has the stack branch`, `leaves the stack branch to a push of it alone that runs: Push with Children waits, then sends only the branches`, `joins Push with Children that takes the stack branch along, and pushes it alone after one that failed`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a small stack with its side branch from the root's menu, its popover at the root`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
   [@test] ../../src/lib/patronus.test.ts (`restarts on its stack branch, pushed first while the stack branch has work the remote lacks`)

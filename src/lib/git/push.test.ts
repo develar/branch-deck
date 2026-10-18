@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { formatNewPullRequestBlocker, getNewPullRequestUrl, getRetargetCommand } from "@/lib/git/new-pull-request"
 import { pushBranch, pushForAction } from "@/lib/git/push"
-import { pushStack, pushUpTo, pushWithChildren } from "@/lib/git/stack-push"
+import { pushStack, pushUpTo, pushWholeStack, pushWithChildren } from "@/lib/git/stack-push"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { createPullRequestDialogStore } from "@/stores/create-pull-request-dialog"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
@@ -24,6 +24,8 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
     spans: {} as Record<string, PatronusRobot>,
     /** The branches a merged Safe Push of a branch built on them landed: branch -> its robot */
     landed: {} as Record<string, PatronusRobot>,
+    /** The running Safe Push of the whole stack of `auth`, which holds the push of its stack branch */
+    stack: undefined as PatronusRobot | undefined,
   },
   toasts: [] as { type?: string; title?: string; description?: unknown; actionProps?: { children: string; onClick: () => void } }[],
   stores: {
@@ -52,6 +54,10 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
     expectedRemotes: [] as (string | null)[],
     /** What the next pushes find on the remote instead of pushing (`remoteMoved`), in turn: its commits behind, its tip */
     movedRemotes: [] as { commitsBehind: number; remoteTip: string }[],
+    /** The stack pushes wait for it, once they are asked: what a second request sees while a push runs */
+    pushGate: Promise.resolve(),
+    /** Why the next stack push fails, as the backend says it; null: it pushes */
+    pushError: null as string | null,
     whileAsking: () => {},
   },
 }))
@@ -103,6 +109,12 @@ vi.mock("@/lib/bindings", () => ({
       const nameOf = (branch: { branchName: string; wholeStack?: boolean }) => (branch.wholeStack === true ? `stack:${branch.branchName}` : branch.branchName)
       calls.push(`push ${params.branches.map(branch => (branch.tip == null ? nameOf(branch) : `${branch.branchName}@${branch.tip}`)).join(" ")}`)
       stores.expectedRemotes.push(...params.branches.map(branch => branch.expectedRemote))
+      await stores.pushGate
+      const error = stores.pushError
+      if (error !== null) {
+        stores.pushError = null
+        return { status: "error", error }
+      }
       const moved = stores.movedInStack.shift()
       // refused, the fetched remote of the moved branch is at their commit, the others where the rows showed them
       const remoteStatuses = params.branches.map(branch => {
@@ -176,12 +188,13 @@ vi.mock("@/stores/patronus", () => ({
     return span === undefined || span.status !== "running" ? null : { kind: "span", branch: span.branchName, robot: span }
   },
   getPatronusGitHubRepository: () => null,
-  getStackPushHold: () => null,
+  getStackPushHold: (root: string) =>
+    root === "auth" && robots.stack !== undefined && robots.stack.status === "running" ? { kind: "own", branch: "auth", robot: robots.stack, wholeStack: true } : null,
   fetchPatronusRobotStatus: async () => robots.status,
   cancelPatronusRobot: async (robot: PatronusRobot) => {
     calls.push(`cancel ${robot.id}`)
     // the store has it canceling: it holds nothing
-    for (const held of [robots.running, ...Object.values(robots.spans)]) {
+    for (const held of [robots.running, robots.stack, ...Object.values(robots.spans)]) {
       if (held?.id === robot.id) {
         held.status = "canceling"
       }
@@ -195,6 +208,7 @@ vi.mock("@/stores/patronus", () => ({
 }))
 
 vi.mock("@/stores/pull-requests", () => ({
+  refreshPullRequests: async () => {},
   refreshPullRequestsAfterPush: async () => {},
   refreshPullRequestsAfterPushes: async () => {},
   getPullRequest: (name: string) => stores.pullRequests[name],
@@ -261,6 +275,7 @@ beforeEach(() => {
   robots.status = "running"
   robots.spans = {}
   robots.landed = {}
+  robots.stack = undefined
   stores.branches = {}
   stores.pullRequests = {}
   stores.expectedRemotes = []
@@ -271,6 +286,8 @@ beforeEach(() => {
   stores.stackBranches = {}
   stores.stackPullRequests = {}
   stores.synced = Promise.resolve()
+  stores.pushGate = Promise.resolve()
+  stores.pushError = null
   // a root with stacks on: a stack without a parent
   addBranch("auth", null, false)
 })
@@ -563,6 +580,141 @@ describe("a push over a remote that moved", () => {
   })
 })
 
+/** auth with login and session built on it, a stack that forks; its stack branch built, `remote` its remote status */
+function forkingStack(remote: RemoteStatus | null): void {
+  robots.running = undefined
+  addBranch("login", "auth", false)
+  addBranch("session", "auth", false)
+  stores.descendants.auth = ["login", "session"]
+  stores.stackBranches.auth = {
+    root: "auth",
+    branchName: "user/stack/auth",
+    members: ["auth", "login", "session"],
+    commitCount: 3,
+    state: "Built",
+    tip: "stack-tip",
+    blockedBy: null,
+    conflict: null,
+    error: null,
+    remoteStatus: remote,
+  }
+}
+
+/** Holds the stack pushes asked from now on until the returned function lets them go */
+function holdPushes(): () => void {
+  let release!: () => void
+  stores.pushGate = new Promise(resolve => (release = resolve))
+  return release
+}
+
+/** The stack branch of auth has two commits its remote lacks */
+const STACK_AHEAD = { commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old" }
+
+/** A failed Safe Push of the whole stack of auth, which "Restart Safe Push" pushes first and restarts */
+const STACK_ROBOT: PatronusRobot = { ...RUNNING, id: "whole", name: "Safe Push of the whole auth stack", branchName: null, stackRoot: "auth" }
+
+describe("pushWholeStack", () => {
+  it("joins a push of the stack branch that runs: one push, both done, Activity records it once", async () => {
+    forkingStack(testRemoteStatus(STACK_AHEAD))
+    const release = holdPushes()
+    const first = pushWholeStack("auth")
+    const second = pushWholeStack("auth")
+    release()
+    expect(await Promise.all([first, second])).toEqual([true, true])
+    expect(calls).toEqual(["push stack:auth"])
+    expect(records).toEqual(["push the whole stack branch of auth"])
+  })
+
+  it("says a failed push once: the request that joined it fails with it", async () => {
+    forkingStack(testRemoteStatus(STACK_AHEAD))
+    const release = holdPushes()
+    stores.pushError = "Connection reset"
+    const reports: string[] = []
+    const first = pushWholeStack("auth", { report: (title, error) => reports.push(`first: ${title}: ${String(error)}`) })
+    const second = pushWholeStack("auth", { report: (title, error) => reports.push(`second: ${title}: ${String(error)}`) })
+    release()
+    expect(await Promise.all([first, second])).toEqual([false, false])
+    expect(calls).toEqual(["push stack:auth"])
+    expect(reports).toEqual(["first: Cannot push the whole auth stack: Connection reset"])
+  })
+
+  it("pushes what a sync rebuilt while the push it joined ran", async () => {
+    forkingStack(testRemoteStatus(STACK_AHEAD))
+    const release = holdPushes()
+    const first = pushWholeStack("auth")
+    let synced!: () => void
+    stores.synced = new Promise(resolve => (synced = resolve))
+    const second = pushWholeStack("auth")
+    release()
+    expect(await first).toBe(true)
+    // the sync rebuilt the stack branch with a commit the remote lacks
+    stores.stackBranches.auth = { ...stores.stackBranches.auth!, remoteStatus: testRemoteStatus({ ...STACK_AHEAD, remoteTip: "tip" }) }
+    synced()
+    expect(await second).toBe(true)
+    expect(calls).toEqual(["push stack:auth", "push stack:auth"])
+  })
+
+  it("is one request for a second restart of the same robot: one push, one restart, one toast", async () => {
+    forkingStack(testRemoteStatus(STACK_AHEAD))
+    robots.stack = { ...STACK_ROBOT }
+    const release = holdPushes()
+    const first = pushWholeStack("auth", { restartRobot: STACK_ROBOT })
+    const second = pushWholeStack("auth", { restartRobot: STACK_ROBOT })
+    release()
+    expect(await Promise.all([first, second])).toEqual([true, true])
+    expect(calls).toEqual(["cancel whole", "push stack:auth", "restart whole"])
+    expect(toasts.map(toast => toast.title)).toEqual(["Safe Push restarted"])
+  })
+
+  it("restarts after the push it joined, and pushes nothing of its own: the remote has the stack branch", async () => {
+    forkingStack(testRemoteStatus(STACK_AHEAD))
+    robots.stack = { ...STACK_ROBOT, status: "failure" }
+    const release = holdPushes()
+    // Request Review… of its pull request pushes it, then Restart Safe Push of its failed robot is asked
+    const request = pushWholeStack("auth")
+    const restart = pushWholeStack("auth", { restartRobot: STACK_ROBOT })
+    release()
+    expect(await Promise.all([request, restart])).toEqual([true, true])
+    expect(calls).toEqual(["push stack:auth", "restart whole"])
+    expect(toasts.map(toast => toast.title)).toEqual(["Safe Push restarted"])
+  })
+
+  it("leaves the stack branch to a push of it alone that runs: Push with Children waits, then sends only the branches", async () => {
+    forkingStack(testRemoteStatus(STACK_AHEAD))
+    const release = holdPushes()
+    const alone = pushWholeStack("auth")
+    const withChildren = pushWithChildren("auth")
+    release()
+    expect(await Promise.all([alone, withChildren])).toEqual([true, true])
+    expect(calls).toEqual(["push stack:auth", "push auth login session"])
+  })
+
+  it("joins Push with Children that takes the stack branch along, and pushes it alone after one that failed", async () => {
+    forkingStack(testRemoteStatus(STACK_AHEAD))
+    let release = holdPushes()
+    let withChildren = pushWithChildren("auth")
+    // the request of the stack branch alone comes while the push of all of them runs
+    await vi.waitFor(() => expect(calls).toHaveLength(1))
+    let alone = pushWholeStack("auth")
+    release()
+    expect(await Promise.all([withChildren, alone])).toEqual([true, true])
+    expect(calls).toEqual(["push auth login session stack:auth"])
+
+    // a push of all of them that fails leaves the stack branch to the request of it alone
+    calls.length = 0
+    forkingStack(testRemoteStatus(STACK_AHEAD))
+    stores.pushError = "Connection reset"
+    release = holdPushes()
+    withChildren = pushWithChildren("auth")
+    await vi.waitFor(() => expect(calls).toHaveLength(1))
+    alone = pushWholeStack("auth")
+    release()
+    expect(await Promise.all([withChildren, alone])).toEqual([false, true])
+    // auth is on the remote since the first push
+    expect(calls).toEqual(["push login session stack:auth", "push stack:auth"])
+  })
+})
+
 describe("pushWithChildren", () => {
   it("waits for the sync, then pushes the children as the sync leaves them", async () => {
     robots.running = undefined
@@ -583,26 +735,6 @@ describe("pushWithChildren", () => {
   })
 
   describe("the stack branch of the whole stack", () => {
-    /** auth with login and session built on it, a stack that forks; its stack branch built, `remote` its remote status */
-    function forkingStack(remote: RemoteStatus | null): void {
-      robots.running = undefined
-      addBranch("login", "auth", false)
-      addBranch("session", "auth", false)
-      stores.descendants.auth = ["login", "session"]
-      stores.stackBranches.auth = {
-        root: "auth",
-        branchName: "user/stack/auth",
-        members: ["auth", "login", "session"],
-        commitCount: 3,
-        state: "Built",
-        tip: "stack-tip",
-        blockedBy: null,
-        conflict: null,
-        error: null,
-        remoteStatus: remote,
-      }
-    }
-
     it("goes along after the branches once it is on the remote, leased on its remote head, in the one toast", async () => {
       forkingStack(testRemoteStatus({ commitsAhead: 2, unpushedCommits: ["a", "b"], remoteTip: "stack-old" }))
       expect(await pushWithChildren("auth")).toBe(true)

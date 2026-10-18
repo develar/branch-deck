@@ -10,6 +10,7 @@ import type { PushOutcome } from "@/lib/git/push-toast"
 import { showStackPushToast } from "@/lib/git/push-toast"
 import { formatPushMode } from "@/lib/patronus"
 import { showRobotToast } from "@/lib/patronus-actions"
+import { getPushAction } from "@/lib/push-summary"
 import type { PushUpToStep } from "@/lib/push-up-to"
 import { stackChildrenPushOrder, stackPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
@@ -126,9 +127,14 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
   const report = options.report ?? notifyError
   // the row shows the push while it waits for a sync, and a second click does nothing
   setStackPush(startedFrom, [])
+  // a push of the stack branch alone asked meanwhile (Request Review…, a restart) waits for this one, which may take it
+  let settleStackBranch: (() => void) | null = null
   try {
     const order = await settledOrder(orderOf)
     const wholeStack = order.wholeStack ?? null
+    if (wholeStack !== null) {
+      settleStackBranch = joinableStackBranchPush(wholeStack)
+    }
     if ((order.names.length === 0 && wholeStack === null) || !(await checkStackHolds(order.names, options, report))) {
       return order.names.length === 0 && wholeStack === null
     }
@@ -182,6 +188,7 @@ async function pushTogether(startedFrom: string, orderOf: () => StackPushOrder, 
     }
     return true
   } finally {
+    settleStackBranch?.()
     setStackPush(startedFrom, null)
   }
 }
@@ -198,7 +205,8 @@ function describeMovedStackBranch(status: RemoteStatus): string {
 
 /**
  * The order once no sync runs and no push of one of its branches from another row, nor of the stack branch it takes
- * along: a stack push waits for them and goes on the branches as they leave them
+ * along (a request of it alone, its restart included): a stack push waits for them and goes on the branches as they
+ * leave them, the stack branch along only while its remote still lacks it
  */
 async function settledOrder(orderOf: () => StackPushOrder): Promise<StackPushOrder> {
   while (true) {
@@ -206,10 +214,11 @@ async function settledOrder(orderOf: () => StackPushOrder): Promise<StackPushOrd
     const order = orderOf()
     const names = order.wholeStack == null ? order.names : [...order.names, stackReadinessKey(order.wholeStack)]
     const running = names.filter(name => isBranchPushing(name))
-    if (running.length === 0) {
+    const stackPush = order.wholeStack == null ? undefined : runningStackBranchPushes.get(order.wholeStack)
+    if (running.length === 0 && stackPush === undefined) {
       return order
     }
-    await Promise.all(running.map(name => whenBranchPushed(name)))
+    await Promise.all([...running.map(name => whenBranchPushed(name)), stackPush?.done])
   }
 }
 
@@ -360,36 +369,118 @@ export interface WholeStackPushOptions {
 }
 
 /**
+ * A push of the stack branch of a whole stack that runs (`pushWholeStack`, or Push with Children that takes it along):
+ * what a second request joins instead of pushing it again
+ */
+interface StackBranchPush {
+  /**
+   * Resolves when its push is over: false when the push of the stack branch alone failed (it said why, and the request
+   * that joined fails with it), true otherwise; the request that joined then pushes what the remote still lacks
+   */
+  readonly pushed: Promise<boolean>
+  /** The robot it restarts after its push (`restartRobot`): a second restart of that robot is the same request */
+  readonly restarts: string | null
+  /** The whole request: its push, then its restart */
+  readonly done: Promise<boolean>
+}
+
+/** The push of the stack branch of each root that runs, the last one asked (it joins the one before) */
+const runningStackBranchPushes = new Map<string, StackBranchPush>()
+
+/** Makes `push` the push of the stack branch of `root` a second request joins, until it is done */
+function trackStackBranchPush(root: string, push: StackBranchPush): void {
+  runningStackBranchPushes.set(root, push)
+  const forget = () => {
+    if (runningStackBranchPushes.get(root) === push) {
+      runningStackBranchPushes.delete(root)
+    }
+  }
+  void push.done.then(forget, forget)
+}
+
+/**
+ * The push of Push with Children that takes the stack branch of `root` along, for a request of it alone to join: it
+ * waits for the push, then pushes what the remote still lacks (nothing once the push took it; the stack branch alone
+ * when the push of all of them failed for a branch). The returned function ends it.
+ */
+function joinableStackBranchPush(root: string): () => void {
+  let settle!: (pushed: boolean) => void
+  const pushed = new Promise<boolean>(resolve => (settle = resolve))
+  trackStackBranchPush(root, { pushed, restarts: null, done: pushed })
+  return () => settle(true)
+}
+
+/**
  * Pushes the stack branch of the whole stack of `root` (`{prefix}/stack/<root>`), leased on the remote head its status
  * showed, as one more branch of `push_branches` (`wholeStack`): the head of the pull request of the whole stack, the
  * source of its robot. Only a stack branch the sync built (`getStackBranchBlocker`); never while its own Safe Push runs
  * (`getStackPushHold`), unless the push restarts that robot (`restartRobot`, canceled first, restarted on the pushed
- * commit) or a new start replaces it (`replacesRobot`, canceled first). A sync that runs is awaited first, and so is a
- * push of the stack branch that runs (another action's, or Push with Children that takes it along). A remote branch that
- * moved is fetched, and the push goes again over it once when it has no commit the stack branch lacks
+ * commit) or a new start replaces it (`replacesRobot`, canceled first). A sync that runs is awaited first. A request
+ * while a push of the stack branch runs (another action's, or Push with Children that takes it along) joins it: no push
+ * of its own, one indicator; a failed push of it alone is said once, by the request that pushed, and fails the one that
+ * joined too; then it pushes only what the remote still lacks (what a sync rebuilt since; the stack branch alone after a
+ * Push with Children that failed for a branch), and nothing when the remote has it all. A second restart of the same
+ * robot is the same request: one push, one restart, one toast. A remote branch
+ * that moved is fetched, and the push goes again over it once when it has no commit the stack branch lacks
  * (`pushesOverMovedRemote`). The branches of the stack stay as they are on the remote. While it runs, the stack branch
  * is pushing under its key (`stackReadinessKey`), its progress where the pushes of the stack show: the island's header,
  * the root's row of a small stack, the button of the start it is a step of. No toast: the action it is a step of says
- * it; Activity records the push. Resolves to whether it was pushed.
+ * it; Activity records the push. Resolves to whether the stack branch is on the remote.
  */
-export async function pushWholeStack(root: string, options: WholeStackPushOptions = {}): Promise<boolean> {
+export function pushWholeStack(root: string, options: WholeStackPushOptions = {}): Promise<boolean> {
+  const running = runningStackBranchPushes.get(root)
+  const restarts = options.restartRobot?.id ?? null
+  if (running !== undefined && restarts !== null && running.restarts === restarts) {
+    return running.done
+  }
+  const pushed = sendWholeStack(root, running?.pushed ?? null, options)
+  const done = pushed.then(async isPushed => {
+    if (isPushed && options.restartRobot !== undefined) {
+      const restarted = await restartAfterPush(options.restartRobot)
+      // the restart is the action: its toast is the one toast, Activity has the push and the restart
+      if (restarted !== undefined) {
+        showRobotToast(`${formatPushMode(restarted.pushMode)} restarted`, restarted)
+      }
+    }
+    return isPushed
+  })
+  trackStackBranchPush(root, { pushed, restarts, done })
+  return done
+}
+
+/**
+ * The push of `pushWholeStack`: after the push it joins (`joined`), the sync and a push of Push with Children, what the
+ * remote still lacks of the stack branch, the robot it restarts or replaces canceled first. Resolves to whether the
+ * stack branch is on the remote.
+ */
+async function sendWholeStack(root: string, joined: Promise<boolean> | null, options: WholeStackPushOptions): Promise<boolean> {
   const report = options.report ?? notifyError
   const subject = formatWholeStack(root)
   const key = stackReadinessKey(root)
+  // a failed push of the stack branch alone was said by the request that pushed: one toast
+  if (joined !== null && !(await joined)) {
+    return false
+  }
   await whenSynced()
   while (isBranchPushing(key)) {
     await whenBranchPushed(key)
     await whenSynced()
   }
+  // a push that ran meanwhile left nothing to send, unless a sync rebuilt the stack branch since
+  const upToDate = getPushAction({ remoteStatus: getStackBranch(root)?.remoteStatus ?? null }) === "upToDate"
   const hold = getStackPushHold(root)
   if (hold !== null) {
-    if (hold.robot.id !== options.restartRobot?.id && hold.robot.id !== options.replacesRobot?.id) {
+    if (hold.robot.id === options.restartRobot?.id || hold.robot.id === options.replacesRobot?.id) {
+      if (!(await cancelHoldingRobot(hold.robot, report))) {
+        return false
+      }
+    } else if (!upToDate) {
       report(`Cannot push ${subject}`, `A ${formatPushMode(hold.robot.pushMode)} of ${subject} is running: wait until it merges, or restart it on the current stack`)
       return false
     }
-    if (!(await cancelHoldingRobot(hold.robot, report))) {
-      return false
-    }
+  }
+  if (upToDate) {
+    return true
   }
   let moved = await sendStackBranch(root, report)
   if (moved !== null && moved !== undefined && pushesOverMovedRemote(moved)) {
@@ -401,13 +492,6 @@ export async function pushWholeStack(root: string, options: WholeStackPushOption
   if (moved !== null) {
     report(`Cannot push ${subject}`, describeMovedStackBranch(moved))
     return false
-  }
-  if (options.restartRobot !== undefined) {
-    const restarted = await restartAfterPush(options.restartRobot)
-    // the restart is the action: its toast is the one toast, Activity has the push and the restart
-    if (restarted !== undefined) {
-      showRobotToast(`${formatPushMode(restarted.pushMode)} restarted`, restarted)
-    }
   }
   return true
 }
