@@ -373,15 +373,21 @@ fn a_pick() {
   );
 }
 
+/// The environment of bd in `repo` with the lease pool in a temporary home, which lives as long as the guard
+fn lease_environment(repo: &TestRepo) -> (tempfile::TempDir, crate::context::Environment) {
+  let home = tempfile::tempdir().unwrap();
+  let mut environment = environment(repo.path());
+  environment.home = Some(home.path().to_path_buf());
+  (home, environment)
+}
+
 /// `bd lease get` of a free slot and its `bd lease return`: the repository, the source HEAD and the pool config, one
 /// `status` and one `checkout` of the slot; the return reads the unlanded commits, the `status` and HEAD. No `status`
 /// of another slot, no full checkout
 #[test]
 fn a_lease_get_and_return() {
   let repo = repo_with_branches();
-  let home = tempfile::tempdir().unwrap();
-  let mut environment = environment(repo.path());
-  environment.home = Some(home.path().to_path_buf());
+  let (_home, environment) = lease_environment(&repo);
   let context = LeaseContext::resolve(&environment, None).unwrap();
   let added = lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
   let slot = std::path::PathBuf::from(&added.path);
@@ -394,6 +400,31 @@ fn a_lease_get_and_return() {
   let context = LeaseContext::resolve(&environment, Some(&slot)).unwrap();
   lease_return(&context, &LeaseReturnArgs::default()).unwrap();
   assert_git_processes(&context.git, &[("log", 1), ("rev-parse", 2), ("status", 1)]);
+}
+
+/// `bd lease get` of a new slot by an APFS clone of the source (macOS): the repository, the source HEAD and the pool
+/// config, `worktree prune` and `worktree add --no-checkout`, the refresh of the copied index, one `checkout` of the
+/// diff, `clean -fd` and one `status`
+#[cfg(target_os = "macos")]
+#[test]
+fn a_lease_get_of_a_new_slot_by_a_clone() {
+  let repo = repo_with_branches();
+  let (_home, environment) = lease_environment(&repo);
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  let got = lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
+  assert!(matches!(got.created_by, Some(crate::lease_command::CreatedByOutput::Clone)), "{got:?}");
+  assert_git_processes(
+    &context.git,
+    &[
+      ("checkout", 1),
+      ("clean", 1),
+      ("config", 1),
+      ("rev-parse", 2),
+      ("status", 1),
+      ("update-index", 1),
+      ("worktree", 2),
+    ],
+  );
 }
 
 /// `bd safe-push auth --check` on Space: the sync, then what the start is decided on, nothing pushed. The target, the

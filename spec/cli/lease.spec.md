@@ -61,12 +61,23 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-cli/src/lease_test.rs (`a_busy_free_slot_is_skipped`, `adopt_adds_clean_linked_worktrees_and_refuses_the_rest`)
 - A free slot with local changes (one `status --porcelain=v1 --untracked-files=normal`, the repository's own
   `core.fsmonitor` applies) must be skipped (`skipped`, `reason: "dirty"`, `paths`), stay free, and be marked dirty;
-  later gets must try a dirty slot after the clean ones. With no free slot left, the get must add a new slot with
-  `git worktree add --detach` (`reused: false`), after a `git worktree prune`.
+  later gets must try a dirty slot after the clean ones. With no free slot left, the get must add a new slot
+  (`reused: false`).
   [@test] ../../crates/bd-cli/src/lease_test.rs (`a_dirty_free_slot_is_skipped_and_a_new_slot_is_added`)
 - The checkout of a reused slot and the `worktree add` of a new one must run with `-c checkout.workers=0` (one
   worker per core), unless the repository config sets `checkout.workers`.
   [@test] ../../crates/bd-cli/src/lease_test.rs (`every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_sets_it`)
+- On macOS a new slot must be an APFS clone (`created_by: "clone"`, `cloned_from`) of a template: a free slot of this
+  repository that the get passed over, marked `templating` while it is cloned, else the source checkout. The clone
+  must get the `.git` file of a `worktree add --no-checkout`, the template's index refreshed with
+  `core.checkStat=minimal`, then `checkout --force` to the source HEAD, `clean -fd` and a clean `status`: the
+  template's local changes, staged files and untracked files never reach the lease, its ignored files do. The
+  template must be free again afterwards, and the source unchanged.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`a_new_slot_is_a_clone_of_the_source_without_its_local_work`, `a_new_slot_is_a_clone_of_a_free_slot`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_get_of_a_new_slot_by_a_clone`)
+- A clone that fails (another volume, no APFS, a file it can't read, not macOS) must leave nothing behind and fall
+  back to `git worktree add` (`created_by: "checkout"`).
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`a_clone_that_fails_falls_back_to_a_checkout`)
 - A new slot must be `<pool>/<n>/<repository name>`, so the leaf directory keeps the name of the repository. The pool
   directory is `~/.branch-deck/pool/<repository name>-<8 hex digits of the SHA-256 of the canonical common dir>`, or
   `branchdeck.leasePool` of the git config.
@@ -114,7 +125,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 ### Status
 
 - `bd lease status` must list every slot from the state alone, with its `path`, `state` (`free`, `preparing`,
-  `ready`, `abandoned`), `dirty`, `missing` and `lease`; it must run no `git status`. `--processes` must add the
+  `ready`, `templating`, `abandoned`), `dirty`, `missing` and `lease`; it must run no `git status`. `--processes` must add the
   processes in each slot. It writes nothing.
   [@test] ../../crates/bd-cli/src/lease_test.rs (`the_status_reads_the_state_without_a_git_status`)
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
@@ -138,7 +149,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - The outputs must match `bd schema` (`lease_get`, `lease_return`, `lease_status`, `lease_adopt`).
   [@test] ../../crates/bd-cli/src/lease_test.rs (`lease_outputs_match_the_schema`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
-- The slot writes (`checkout` twice, `reset`, `clean`) must stay in `crates/git-ops/src/lease_slot.rs`, with their
+- The slot writes (`checkout` twice, `reset`, `clean` twice) must stay in `crates/git-ops/src/lease_slot.rs`, with their
   exact counts in the worktree safety scan.
   [@test] ../../crates/git-executor/src/worktree_safety_test.rs (`production_code_never_writes_the_working_tree`)
 
@@ -149,6 +160,10 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   the process scan.
 
 ## Open Questions / Risks
+
+- A clone copies what the template has at that moment: an ignored file that the template writes during the clone can
+  be copied half written, and the checkout and the clean keep ignored files. A free slot is the preferred template
+  for this reason; the source checkout, where the user and the IDE write, is the last one.
 
 - On Windows the scan of the processes is not available: a slot with a shell in it can be leased, and a `preparing`
   lease of a get that died there stays until its record is edited. A lock file per lease would work on every platform.

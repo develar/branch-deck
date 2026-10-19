@@ -215,8 +215,36 @@ fn gits_of<'a>(gits: &'a [Vec<String>], subcommand: &str) -> Vec<&'a Vec<String>
     .collect()
 }
 
-/// The checkout of a new slot and of a reused one run with `checkout.workers=0`, one worker per core, unless the
-/// repository sets `checkout.workers` itself
+/// An ignored file in the source checkout that nobody can read: `clonefile(2)` of the source fails with `EACCES`, and
+/// the get checks out instead. Readable again when the guard drops, so the temporary directory goes
+#[cfg(unix)]
+struct UnreadableFile(PathBuf);
+
+#[cfg(unix)]
+impl UnreadableFile {
+  fn new(repo: &TestRepo) -> Self {
+    use std::os::unix::fs::PermissionsExt;
+    let info = repo.path().join(".git/info");
+    std::fs::create_dir_all(&info).unwrap();
+    std::fs::write(info.join("exclude"), "/unreadable.bin\n").unwrap();
+    let path = repo.path().join("unreadable.bin");
+    std::fs::write(&path, "secret").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    Self(path)
+  }
+}
+
+#[cfg(unix)]
+impl Drop for UnreadableFile {
+  fn drop(&mut self) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o644));
+  }
+}
+
+/// The checkouts of the pool (a reused slot, a cloned one, a `worktree add`) run with `checkout.workers=0`, one worker
+/// per core, unless the repository sets `checkout.workers` itself
+#[cfg(unix)]
 #[test_log::test]
 fn every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_sets_it() {
   let fixture = Fixture::new();
@@ -224,19 +252,29 @@ fn every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_
   let _env = test_utils::env_vars::EnvVars::set(&[("GIT_TRACE2_EVENT", &trace)]);
   let parallel = |argv: &&Vec<String>| argv.windows(2).any(|pair| pair[0] == "-c" && pair[1] == "checkout.workers=0");
 
-  let path = path_of(&fixture.get(&[]));
+  // a new slot by `worktree add`: the clone of the source fails on a file it can't read
+  let unreadable = UnreadableFile::new(&fixture.repo);
+  let added = fixture.get(&[]);
+  drop(unreadable);
+  assert_eq!(added["created_by"], json!("checkout"), "{added}");
   let gits = started_gits(&trace);
   assert!(
     gits_of(&gits, "worktree").iter().any(|argv| argv.contains(&"add".to_string()) && parallel(argv)),
     "{gits:?}"
   );
+  // a reused slot, then a new one by a clone of the source
+  let path = path_of(&added);
   fixture.give_back(&path);
   fixture.repo.create_commit("Add c", "c.txt", "c\n");
   started_gits(&trace);
   fixture.get(&[]);
+  let cloned = fixture.get(&[]);
+  if cfg!(target_os = "macos") {
+    assert_eq!(cloned["created_by"], json!("clone"), "{cloned}");
+  }
   let gits = started_gits(&trace);
   let checkouts = gits_of(&gits, "checkout");
-  assert!(!checkouts.is_empty() && checkouts.iter().all(parallel), "{gits:?}");
+  assert!(checkouts.len() >= 2 && checkouts.iter().all(parallel), "{gits:?}");
 
   fixture.give_back(&path);
   fixture.repo.set_config("checkout.workers", "2").unwrap();
@@ -246,6 +284,115 @@ fn every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_
   let gits = started_gits(&trace);
   let checkouts = gits_of(&gits, "checkout");
   assert!(!checkouts.is_empty() && !checkouts.iter().any(parallel), "{gits:?}");
+}
+
+/// The entries of the pool directory of `got`, without the slot names: what a clone may leave behind
+fn pool_entries(got: &Value) -> Vec<String> {
+  let mut entries: Vec<String> = std::fs::read_dir(got["pool"].as_str().unwrap())
+    .unwrap()
+    .flatten()
+    .flat_map(|number| {
+      std::fs::read_dir(number.path())
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+    })
+    .collect();
+  entries.sort();
+  entries
+}
+
+/// A source with an ignored build output, a change of a tracked file, a staged new file and an untracked file
+#[cfg(target_os = "macos")]
+fn source_with_local_work(fixture: &Fixture) {
+  let repo = &fixture.repo;
+  repo.create_commit("Ignore the build", ".gitignore", "/build/\n");
+  std::fs::create_dir_all(repo.path().join("build")).unwrap();
+  std::fs::write(repo.path().join("build/out.txt"), "warm\n").unwrap();
+  std::fs::write(repo.path().join("a.txt"), "peer edit\n").unwrap();
+  std::fs::write(repo.path().join("staged.txt"), "staged\n").unwrap();
+  git(repo, &["add", "staged.txt"]);
+  std::fs::write(repo.path().join("peer.txt"), "untracked\n").unwrap();
+}
+
+/// With no free slot, a new slot is an APFS clone of the source checkout: its HEAD's files, its ignored build outputs
+/// (the warm cache), never its local changes, staged files or untracked files; the source keeps all of them
+#[cfg(target_os = "macos")]
+#[test_log::test]
+fn a_new_slot_is_a_clone_of_the_source_without_its_local_work() {
+  let fixture = Fixture::new();
+  source_with_local_work(&fixture);
+  let got = fixture.get(&[]);
+  let path = path_of(&got);
+  assert_eq!(
+    (&got["created_by"], &got["cloned_from"], &got["reused"]),
+    (&json!("clone"), &json!(git(&fixture.repo, &["rev-parse", "--show-toplevel"])), &json!(false))
+  );
+  let slot = Path::new(&path);
+  assert_eq!(std::fs::read_to_string(slot.join("a.txt")).unwrap(), "a\n");
+  assert_eq!(std::fs::read_to_string(slot.join("build/out.txt")).unwrap(), "warm\n");
+  assert!(!slot.join("staged.txt").exists() && !slot.join("peer.txt").exists());
+  assert_eq!(slot_git(&path, &["status", "--porcelain", "--untracked-files=all"]), "");
+  assert_eq!(slot_git(&path, &["rev-parse", "HEAD"]), fixture.repo.head());
+  // a linked worktree of the repository, its `.git` a file
+  assert!(slot.join(".git").is_file());
+  assert_eq!(
+    slot_git(&path, &["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+    git(&fixture.repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"])
+  );
+  assert_eq!(pool_entries(&got), [fixture.repo.path().file_name().unwrap().to_string_lossy()]);
+  // the source as it was
+  assert_eq!(std::fs::read_to_string(fixture.repo.path().join("a.txt")).unwrap(), "peer edit\n");
+  // the output is trimmed: the first line loses its leading space
+  assert_eq!(git(&fixture.repo, &["status", "--porcelain"]), "M a.txt\nA  staged.txt\n?? peer.txt");
+  fixture.give_back(&path);
+}
+
+/// A free slot the get passed over (here a dirty one) is the template of the new slot: marked `templating` for the
+/// clone, free again afterwards; the new slot is at the source HEAD, without the template's untracked file and with
+/// its ignored files
+#[cfg(target_os = "macos")]
+#[test_log::test]
+fn a_new_slot_is_a_clone_of_a_free_slot() {
+  let fixture = Fixture::new();
+  fixture.repo.create_commit("Ignore the build", ".gitignore", "/build/\n");
+  let template = path_of(&fixture.get(&[]));
+  fixture.give_back(&template);
+  std::fs::create_dir_all(Path::new(&template).join("build")).unwrap();
+  std::fs::write(Path::new(&template).join("build/cache.txt"), "warm\n").unwrap();
+  std::fs::write(Path::new(&template).join("left.txt"), "left\n").unwrap();
+  fixture.repo.create_commit("Add c", "c.txt", "c\n");
+
+  let got = fixture.get(&[]);
+  let path = path_of(&got);
+  assert_ne!(path, template);
+  assert_eq!((&got["created_by"], &got["cloned_from"]), (&json!("clone"), &json!(template)), "{got}");
+  let slot = Path::new(&path);
+  assert_eq!(std::fs::read_to_string(slot.join("c.txt")).unwrap(), "c\n");
+  assert_eq!(std::fs::read_to_string(slot.join("build/cache.txt")).unwrap(), "warm\n");
+  assert!(!slot.join("left.txt").exists());
+  assert_eq!(slot_git(&path, &["status", "--porcelain"]), "");
+  // the template is free again, still dirty, its files as they were
+  let status = fixture.status();
+  assert_eq!(states(&status), [(template.clone(), "free".to_string()), (path, "ready".to_string())]);
+  assert_eq!(status["slots"][0]["dirty"], json!(true));
+  assert!(Path::new(&template).join("left.txt").exists());
+}
+
+/// A clone that `clonefile(2)` refuses (here a file it can't read) leaves nothing behind, and the get checks out instead
+#[cfg(unix)]
+#[test_log::test]
+fn a_clone_that_fails_falls_back_to_a_checkout() {
+  let fixture = Fixture::new();
+  let unreadable = UnreadableFile::new(&fixture.repo);
+  let got = fixture.get(&[]);
+  drop(unreadable);
+  assert_eq!((&got["created_by"], got.get("cloned_from")), (&json!("checkout"), None), "{got}");
+  assert_eq!(pool_entries(&got), [fixture.repo.path().file_name().unwrap().to_string_lossy()]);
+  let path = path_of(&got);
+  assert_eq!(slot_git(&path, &["status", "--porcelain"]), "");
+  assert_eq!(std::fs::read_to_string(Path::new(&path).join("b.txt")).unwrap(), "b\n");
 }
 
 /// Concurrent gets reserve their slots under the pool lock: never one slot twice, whether reused or new

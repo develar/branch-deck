@@ -97,6 +97,7 @@
 //! The lease pool:
 //! - `lease`: the slots agent sessions lease (`bd lease`), their state and lock in `$GIT_COMMON_DIR/branch-deck/`
 //! - `process_scan`: the processes whose working directory is inside a slot
+//! - `clone_dir`: a directory tree by one APFS clone, the new slot of a get on macOS
 //!
 //! The rest:
 //! - `branch_review`: the stack and the commits of a branch review
@@ -117,6 +118,7 @@ pub mod branch_review;
 pub mod branch_rules;
 mod cache_memo;
 pub mod check;
+pub mod clone_dir;
 pub mod commit_grouper;
 pub mod commit_ids;
 pub mod commit_key;

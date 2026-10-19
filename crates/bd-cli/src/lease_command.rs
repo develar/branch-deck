@@ -15,7 +15,8 @@ use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_core::lease::{
-  Adopted, LeaseGetParams, LeaseRefusal, LeaseReturnParams, SkipReason, SlotState, canonical_path, lease_adopt_core, lease_get_core, lease_return_core, lease_status_core, pool_dir,
+  Adopted, CreatedBy, LeaseGetParams, LeaseRefusal, LeaseReturnParams, SkipReason, SlotState, canonical_path, lease_adopt_core, lease_get_core, lease_return_core,
+  lease_status_core, pool_dir,
 };
 use sync_core::repository_lock::RepositoryLocked;
 use sync_utils::list_cut::kept;
@@ -127,8 +128,15 @@ pub struct LeaseGetOutput {
   pub branch: Option<String>,
   /// Unix seconds
   pub leased_at: u64,
-  /// A free slot was moved (only the diff written); false: a new slot was added (a full checkout)
+  /// A free slot was moved (only the diff written); false: a new slot was added
   pub reused: bool,
+  /// How the new slot was added: `clone` (an APFS clone of a free slot or of the source, then the diff checked out) or
+  /// `checkout` (a full checkout); omitted for a reused slot
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub created_by: Option<CreatedByOutput>,
+  /// The free slot or the source checkout that the new slot was cloned from
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub cloned_from: Option<String>,
   /// The ignored files and directories copied from the source by `.worktreeinclude`; the return removes them
   pub seeded: Vec<String>,
   /// The free slots passed over
@@ -136,6 +144,13 @@ pub struct LeaseGetOutput {
   pub skipped: Vec<SkippedOutput>,
   /// Whether the processes were checked; false where bd can't see them (Windows)
   pub processes_checked: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CreatedByOutput {
+  Clone,
+  Checkout,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -204,6 +219,11 @@ pub fn lease_get(context: &LeaseContext, environment: &Environment, args: &Lease
     branch: lease.branch.clone(),
     leased_at: lease.leased_at,
     reused: lease.reused,
+    created_by: got.created_by.map(|created_by| match created_by {
+      CreatedBy::Clone => CreatedByOutput::Clone,
+      CreatedBy::Checkout => CreatedByOutput::Checkout,
+    }),
+    cloned_from: got.cloned_from.clone(),
     seeded: lease.seeded.clone(),
     skipped: got
       .skipped
@@ -318,8 +338,8 @@ pub struct SlotOutput {
   /// The worktree id; empty while a new slot is being added
   pub slot: String,
   pub path: String,
-  /// `free`, `preparing` (a get moves it), `ready` (leased), or `abandoned` (a get died while preparing it: the next
-  /// get takes it as free)
+  /// `free`, `preparing` (a get moves it), `ready` (leased), `templating` (a get clones it into a new slot), or
+  /// `abandoned` (a get died while preparing or cloning it: the next get takes it as free)
   pub state: SlotStateOutput,
   /// A get found local changes in the free slot: later gets try it last
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -340,6 +360,7 @@ pub enum SlotStateOutput {
   Free,
   Preparing,
   Ready,
+  Templating,
   Abandoned,
 }
 
@@ -377,6 +398,7 @@ pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &Le
           SlotState::Free => SlotStateOutput::Free,
           SlotState::Preparing => SlotStateOutput::Preparing,
           SlotState::Ready => SlotStateOutput::Ready,
+          SlotState::Templating => SlotStateOutput::Templating,
           SlotState::Abandoned => SlotStateOutput::Abandoned,
         },
         dirty: status.slot.dirty,

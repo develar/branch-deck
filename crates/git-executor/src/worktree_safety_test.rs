@@ -31,12 +31,12 @@ const DENIED_SUBCOMMANDS: [&str; 14] = [
 const WORKTREE_WRITE_EXEMPTIONS: [(&str, usize); 1] = [("crates/git-ops/src/worktree_update.rs", 2)];
 
 /// The file of the lease pool that writes a slot, pool property (docs/design/git-operations.md, "Lease"), with the number of
-/// argument lists of each subcommand: the checkout of a get (detached, or on a new branch), and the discard of a return
-/// that the agent confirmed
+/// argument lists of each subcommand: the checkout of a get (detached, or on a new branch), the clean of a cloned slot,
+/// and the discard of a return that the agent confirmed
 const SLOT_WRITE_EXEMPTIONS: [(&str, &str, usize); 3] = [
   ("crates/git-ops/src/lease_slot.rs", "checkout", 2),
   ("crates/git-ops/src/lease_slot.rs", "reset", 1),
-  ("crates/git-ops/src/lease_slot.rs", "clean", 1),
+  ("crates/git-ops/src/lease_slot.rs", "clean", 2),
 ];
 
 /// A git argument list that writes the working tree

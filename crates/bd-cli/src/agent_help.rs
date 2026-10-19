@@ -292,7 +292,7 @@ adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a 
 0. Lease your worktree: `bd lease get --holder <your name>` in the shared checkout (or -C <shared checkout>). It
    prints `path`, a worktree of the pool at the HEAD of the shared checkout, detached, and `lease_id`; work and commit
    only there, never `git worktree add`. A free slot is moved to that HEAD (`reused`: only the diff is written); with
-   none free the pool adds one, a full checkout. --branch <name> (-b) creates a branch there. `skipped` names free slots with
+   none free the pool adds one (`created_by`: `clone`, an APFS clone on macOS, or `checkout`). --branch <name> (-b) creates a branch there. `skipped` names free slots with
    local changes (`dirty`) or processes in them (`busy`). `seeded`: ignored local files that `.worktreeinclude` names,
    copied from the shared checkout.
 

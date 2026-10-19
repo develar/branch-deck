@@ -1076,8 +1076,10 @@ the state is read and written, never across a git that writes a slot.
    marked dirty and skipped, and the next one is reserved. A clean one gets `checkout --force --detach <source HEAD>`
    (or `-b <branch>`), which writes only the paths that differ. `--force` is safe after the clean status: on a
    case-insensitive file system `status` does not see a case-only rename, and a plain checkout then refuses.
-3. No free slot: `worktree prune`, best effort, then `worktree add --detach <pool>/<n>/<repository name> <source
-   HEAD>`, the only full checkout. The leaf keeps the name of the repository, which tools derive identity from.
+3. No free slot: a new slot at `<pool>/<n>/<repository name>`. The leaf keeps the name of the repository, which tools
+   derive identity from. On macOS it is an APFS clone of a template (below); elsewhere, or when the clone fails,
+   `worktree prune`, best effort, then `worktree add --detach <path> <source HEAD>`, a full checkout. The output says
+   which: `created_by` `clone` or `checkout`.
 
 Both checkouts run with `-c checkout.workers=0`, one worker per core, unless the repository config sets
 `checkout.workers` (one `config --get-regexp` reads it with `branchdeck.leasePool`): git's default of one worker
@@ -1087,6 +1089,29 @@ checked out 43,891 files of idea-1 in 12.2 s, 18 workers in 4.2 s.
    `check-ignore -z --stdin` in the source keeps only the ignored ones.
 5. Under the lock again the lease becomes `ready`, with the seeded paths. A failure after step 1 gives the slot back
    (free, or dropped when it was never added), and the error says so.
+
+A new slot by a clone (`add_cloned_slot`, `crates/sync-core/src/clone_dir.rs`). Measured on idea-1 (1,387,212 index
+entries): one `clonefile(2)` of a whole slot took 40 s, the refresh of the copied index 14 s, and a checkout of the
+same tree takes several minutes.
+
+1. The template is a free slot of this repository that the get passed over (dirty or busy, one without a process
+   first), marked `templating` under the pool lock, so no get takes it during the clone. Without one it is the source
+   checkout. A free slot is the better template: an ignored file that the template writes during the clone can be
+   copied half written, and the source is where the user works.
+2. `clonefile(2)` of the template's top level to `<path>.cloning`, then the marker is released. The destination must
+   not exist and must be on the same volume; any error (`EXDEV`, `ENOTSUP`, `EACCES` of a file it can't read) removes
+   what is left and falls back to `worktree add`.
+3. `worktree add --no-checkout --detach <path> <source HEAD>` writes only `<path>/.git` and the admin directory. That
+   `.git` file replaces the cloned `.git` (the whole git directory of a main checkout: 0.2 s for the 2,079 files of
+   idea-1's), the empty `<path>` goes, and `<path>.cloning` becomes `<path>`.
+4. The template's `index` is copied into the admin directory and refreshed with `update-index -q --refresh` under
+   `core.checkStat=minimal`, `core.trustctime=false` and `core.fsmonitor=false`. A clone keeps the mtime and the size
+   of every file, but its inodes and ctimes are new: the default check rehashes every file (288 s on idea-1, against 14
+   s). The refresh writes the new stat data, so every later git runs with the default check.
+5. `checkout --force --detach <source HEAD>` (parallel, as above) writes the diff from the template's index, `clean -fd`
+   removes the untracked files of the template, and one `status` must find nothing. The template's changes, staged
+   files and untracked files never reach the lease; its ignored files stay as the warm cache. The seed runs as for
+   any get, so the return removes the seeded files also when the source template carried them.
 
 Return: one process scan, then `log HEAD --not --branches --tags --remotes <leased commit>` (not `--all`, which holds
 the HEAD of every worktree; the leased commit keeps out what the slot started with, which a rewrite of master may have

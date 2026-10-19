@@ -4,14 +4,15 @@
 //! pool has a lock of its own (`leases.lock`), held only while the state is read and written, never across a git that
 //! writes a slot: two gets never wait for each other's checkouts, and no get waits for an update.
 
+use crate::clone_dir::clone_directory;
 use crate::process_scan::{ProcessInfo, ProcessScan, is_running, process_started};
 use crate::repository_lock::{RepositoryLock, lock_file};
 use crate::resolve_copies::display_path;
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{
-  LeaseConfig, UnlandedCommit, add_slot, checkout_slot, detach_slot_head, discard_slot_changes, ignored_paths, is_valid_branch_name, lease_config, linked_worktree, slot_changes,
-  unlanded_commits,
+  CheckoutWorkers, LeaseConfig, UnlandedCommit, add_slot, checkout_slot, clean_cloned_slot, detach_slot_head, discard_slot_changes, ignored_paths, is_valid_branch_name,
+  lease_config, linked_worktree, refresh_cloned_index, register_slot, slot_changes, unlanded_commits,
 };
 use git_ops::revs::{RepositoryDirs, read_head, ref_exists, resolve_commit};
 use serde::{Deserialize, Serialize};
@@ -85,12 +86,14 @@ pub enum LeaseState {
   Preparing,
   /// The slot is at `source_head`, seeded, the holder's
   Ready,
+  /// A free slot that a get clones into a new slot: no get takes it until the clone ends
+  Templating,
 }
 
 impl Lease {
-  /// Whether the lease is `preparing` and its process is gone: the next get takes the slot as free
+  /// Whether the lease is `preparing` or `templating` and its process is gone: the next get takes the slot as free
   pub fn is_abandoned(&self) -> bool {
-    self.state == LeaseState::Preparing && !is_running(self.pid, self.process_started)
+    self.state != LeaseState::Ready && !is_running(self.pid, self.process_started)
   }
 }
 
@@ -99,7 +102,7 @@ impl Lease {
 pub enum LeaseRefusal {
   #[error("{0} holds no lease of this repository's pool")]
   NoLease(String),
-  #[error("The lease of {path} is being prepared by the process {pid}")]
+  #[error("The slot {path} is being prepared or cloned by the process {pid}")]
   Preparing { path: String, pid: u32 },
   #[error("The lease of {path} is {actual}, not {expected}")]
   LeaseMismatch { path: String, expected: String, actual: String },
@@ -245,11 +248,24 @@ pub struct LeaseGetParams<'a> {
   pub lock_timeout: Duration,
 }
 
+/// How a get added a new slot
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreatedBy {
+  /// An APFS clone of a template (`clone_dir`), then the checkout of the diff
+  Clone,
+  /// `git worktree add`: a full checkout
+  Checkout,
+}
+
 /// What a get leased
 #[derive(Debug, Clone)]
 pub struct LeaseGot {
   /// The slot with its `ready` lease
   pub slot: Slot,
+  /// How a new slot was added; `None` for a reused one
+  pub created_by: Option<CreatedBy>,
+  /// The free slot or the source checkout a new slot was cloned from
+  pub cloned_from: Option<String>,
   pub pool_dir: PathBuf,
   pub skipped: Vec<SkippedSlot>,
   /// Whether the processes were checked (`ProcessScan::Unavailable` on Windows)
@@ -258,15 +274,22 @@ pub struct LeaseGot {
 
 /// The slot a get reserved under the pool lock
 enum Reserved {
-  Free { path: String, name: String },
-  New { path: PathBuf },
+  Free {
+    path: String,
+    name: String,
+  },
+  /// A new slot at `path`; `template` is a free slot marked `templating` for its clone
+  New {
+    path: PathBuf,
+    template: Option<String>,
+  },
 }
 
 /// Lease a slot at the HEAD of the source. Under the pool lock: a free slot of this repository (a linked worktree of the
 /// same common dir, no process in it, clean slots before dirty ones), its lease recorded as `preparing`. Then, without
 /// the lock: one `status` (a dirty slot is marked, skipped, and the next one tried), `checkout --force` to the source
-/// HEAD (only the diff is written), the seed. No free slot: `worktree add`, the only full checkout. A failure after the
-/// lease was recorded gives the slot back
+/// HEAD (only the diff is written), the seed. No free slot: a clone of a template (`add_cloned_slot`), else
+/// `worktree add`, the only full checkout. A failure after the lease was recorded gives the slot back
 #[instrument(skip_all, fields(source = %params.source.top_level))]
 pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> Result<LeaseGot> {
   let source = &params.source.top_level;
@@ -305,6 +328,8 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
 
   let mut skipped = Vec::new();
   let mut tried = HashSet::new();
+  let mut created_by = None;
+  let mut cloned_from = None;
   loop {
     let reserved = pool.update(params.lock_timeout, |store| {
       Ok(reserve(store, &git_common_dir, &pool_dir, &scan, &mut tried, &mut skipped, &lease))
@@ -332,19 +357,44 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
           .map_err(|error| give_back(&pool, params.lock_timeout, &path, &lease.id, false, error))?;
         (path, true)
       }
-      Reserved::New { path } => {
+      Reserved::New { path, template } => {
         let text = display_path(&path);
+        let template_dir = template.clone().unwrap_or_else(|| source.clone());
+        let release_template = || {
+          if let Some(template) = &template {
+            release_marker(&pool, params.lock_timeout, template, &template_marker(&lease.id));
+          }
+        };
+        let request = NewSlot {
+          path: &path,
+          source: params.source,
+          template: &template_dir,
+          commit: &source_head,
+          branch: params.branch.as_deref(),
+          workers: config.workers,
+        };
         let added = path
           .parent()
           .map_or(Ok(()), std::fs::create_dir_all)
-          .map_err(anyhow::Error::from)
-          .and_then(|()| add_slot(git_executor, source, &path, &source_head, params.branch.as_deref(), config.workers));
-        if let Err(error) = added {
-          // the number directory, when the add left it empty
-          if let Some(parent) = path.parent() {
-            let _ = std::fs::remove_dir(parent);
+          .map_err(|error| Added::NotRegistered(error.into()))
+          .and_then(|()| add_new_slot(git_executor, &request, &release_template));
+        // a clone that failed early releases the template itself; this one is for any later error
+        release_template();
+        match added {
+          Ok(how) => {
+            created_by = Some(how);
+            if how == CreatedBy::Clone {
+              cloned_from = Some(template_dir);
+            }
           }
-          return Err(give_back(&pool, params.lock_timeout, &text, &lease.id, true, error));
+          Err(Added::NotRegistered(error)) => {
+            // the number directory, when the add left it empty
+            if let Some(parent) = path.parent() {
+              let _ = std::fs::remove_dir(parent);
+            }
+            return Err(give_back(&pool, params.lock_timeout, &text, &lease.id, true, error));
+          }
+          Err(Added::Registered(error)) => return Err(give_back(&pool, params.lock_timeout, &text, &lease.id, false, error)),
         }
         (text, false)
       }
@@ -364,6 +414,8 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
     })?;
     return Ok(LeaseGot {
       slot,
+      created_by,
+      cloned_from,
       pool_dir,
       skipped,
       process_scan: scan.is_available(),
@@ -412,6 +464,7 @@ fn reserve(
       };
     }
   }
+  let template = CLONE_AVAILABLE.then(|| mark_template(store, git_common_dir, scan, lease)).flatten();
   let leaf = repository_name(git_common_dir);
   let path = (1..=u32::MAX)
     .map(|number| pool_dir.join(number.to_string()))
@@ -423,7 +476,164 @@ fn reserve(
     dirty: false,
     lease: Some(lease.clone()),
   });
-  Reserved::New { path }
+  Reserved::New { path, template }
+}
+
+/// Whether a new slot can be a clone: APFS `clonefile(2)` is macOS only
+const CLONE_AVAILABLE: bool = cfg!(target_os = "macos");
+
+/// The id of the `templating` marker of the free slot that the get of `lease_id` clones
+fn template_marker(lease_id: &str) -> String {
+  format!("{lease_id}-template")
+}
+
+/// Under the pool lock: mark a free slot of this repository `templating` for the clone of a new slot, one without a
+/// process in it first; `None` without one, and the source checkout is the template. The free slots left here are the
+/// ones the get passed over (dirty or busy): the checkout and the clean of the clone make them right
+fn mark_template(store: &mut LeaseStore, git_common_dir: &Path, scan: &ProcessScan, lease: &Lease) -> Option<String> {
+  let candidates: Vec<usize> = (0..store.slots.len())
+    .filter(|&index| store.slots[index].lease.is_none() && is_worktree_of(Path::new(&store.slots[index].path), git_common_dir))
+    .collect();
+  let index = candidates
+    .iter()
+    .copied()
+    .find(|&index| scan.inside(Path::new(&store.slots[index].path)).is_empty())
+    .or_else(|| candidates.first().copied())?;
+  let slot = &mut store.slots[index];
+  slot.lease = Some(Lease {
+    id: template_marker(&lease.id),
+    holder: format!("template of {}", lease.id),
+    state: LeaseState::Templating,
+    branch: None,
+    seeded: Vec::new(),
+    ..lease.clone()
+  });
+  Some(slot.path.clone())
+}
+
+/// Free the template `path` of its marker `marker_id`, best effort: an abandoned marker is freed by the next get
+fn release_marker(pool: &Pool, timeout: Duration, path: &str, marker_id: &str) {
+  let released = pool.update(timeout, |store| {
+    if let Some(slot) = leased_slot(store, path, marker_id) {
+      slot.lease = None;
+    }
+    Ok(())
+  });
+  if let Err(error) = released {
+    warn!(template = %path, error = %error, "cannot release the template");
+  }
+}
+
+/// A new slot to add
+struct NewSlot<'a> {
+  path: &'a Path,
+  source: &'a RepositoryDirs,
+  /// A free slot or the source checkout
+  template: &'a str,
+  commit: &'a str,
+  branch: Option<&'a str>,
+  workers: CheckoutWorkers,
+}
+
+/// Why a new slot failed
+enum Added {
+  /// Nothing was registered: the slot leaves the state
+  NotRegistered(anyhow::Error),
+  /// git knows the worktree: the slot stays as a free one, and the next get checks it
+  Registered(anyhow::Error),
+}
+
+/// Add the new slot of `request`: a clone of its template when the volume clones (`add_cloned_slot`), else `worktree
+/// add` with the parallel checkout
+fn add_new_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, release_template: &dyn Fn()) -> Result<CreatedBy, Added> {
+  if CLONE_AVAILABLE {
+    match add_cloned_slot(git_executor, request, release_template) {
+      Ok(()) => return Ok(CreatedBy::Clone),
+      Err(Cloned::Unavailable(error)) => debug!(template = %request.template, error = %error, "no clone, checking out instead"),
+      Err(Cloned::Failed(error)) => return Err(error),
+    }
+  }
+  add_slot(git_executor, &request.source.top_level, request.path, request.commit, request.branch, request.workers).map_err(Added::NotRegistered)?;
+  Ok(CreatedBy::Checkout)
+}
+
+/// Why a clone failed
+enum Cloned {
+  /// `clonefile(2)` refused (another volume, no APFS, an unreadable file): check out instead
+  Unavailable(std::io::Error),
+  Failed(Added),
+}
+
+/// A new slot as an APFS clone of `request.template`, then the diff to `request.commit`:
+/// 1. `clonefile(2)` of the template to `<path>.cloning`, then the template is released;
+/// 2. `worktree add --no-checkout`, its `.git` file moved over the cloned `.git` (a directory when the template is a
+///    main checkout), `<path>.cloning` renamed to `<path>`;
+/// 3. the template's index copied in and refreshed (`refresh_cloned_index`);
+/// 4. `checkout --force` to the commit, `clean -fd`, one `status`: the changes and the untracked files of the
+///    template never reach the lease, and its ignored files stay as the warm cache
+fn add_cloned_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, release_template: &dyn Fn()) -> Result<(), Cloned> {
+  let path = request.path;
+  let cloning = PathBuf::from(format!("{}.cloning", path.display()));
+  let started = std::time::Instant::now();
+  let cloned = clone_directory(Path::new(request.template), &cloning);
+  release_template();
+  if let Err(error) = cloned {
+    let _ = std::fs::remove_dir_all(&cloning);
+    return Err(Cloned::Unavailable(error));
+  }
+  debug!(template = %request.template, elapsed_ms = started.elapsed().as_millis(), "cloned the template");
+  let failed = |error: anyhow::Error| {
+    let _ = std::fs::remove_dir_all(&cloning);
+    Cloned::Failed(Added::NotRegistered(error))
+  };
+  register_slot(git_executor, &request.source.top_level, path, request.commit).map_err(failed)?;
+  let registered = |error: anyhow::Error| Cloned::Failed(Added::Registered(error));
+  swap_git_link(path, &cloning).map_err(|error| {
+    let _ = std::fs::remove_dir_all(&cloning);
+    registered(error)
+  })?;
+  let slot = display_path(path);
+  let worktree = linked_worktree(path).ok_or_else(|| registered(anyhow!("{slot} is not a linked worktree after its clone")))?;
+  let template_git_dir = if request.template == request.source.top_level {
+    PathBuf::from(&request.source.git_dir)
+  } else {
+    linked_worktree(Path::new(request.template)).map_or_else(|| PathBuf::from(&request.source.git_dir), |template| template.git_dir)
+  };
+  // without the index of the template the checkout writes every file: slow, still right
+  match std::fs::copy(template_git_dir.join("index"), worktree.git_dir.join("index")) {
+    Ok(_) => refresh_cloned_index(git_executor, &slot).map_err(registered)?,
+    Err(error) => warn!(template = %request.template, error = %error, "no index of the template to copy"),
+  }
+  debug!(elapsed_ms = started.elapsed().as_millis(), "refreshed the index of the clone");
+  checkout_slot(git_executor, &slot, request.commit, request.branch, request.workers).map_err(registered)?;
+  clean_cloned_slot(git_executor, &slot).map_err(registered)?;
+  let changes = slot_changes(git_executor, &slot).map_err(registered)?;
+  if !changes.is_empty() {
+    return Err(registered(anyhow!(
+      "The clone of {} kept {} local change(s), e.g. {}",
+      request.template,
+      changes.len(),
+      changes[0]
+    )));
+  }
+  debug!(elapsed_ms = started.elapsed().as_millis(), "checked out the clone");
+  Ok(())
+}
+
+/// Give the clone at `cloning` the `.git` file that `worktree add --no-checkout` wrote at `path`, then move the clone to
+/// `path`. The cloned `.git` of the template goes first: a file of a linked worktree, or the whole git directory of a
+/// main checkout (its packs are clones too, so the removal is cheap: 0.2 s for the 2,079 files of idea-1)
+fn swap_git_link(path: &Path, cloning: &Path) -> Result<()> {
+  let cloned_git = cloning.join(".git");
+  match cloned_git.symlink_metadata() {
+    Ok(metadata) if metadata.is_dir() => std::fs::remove_dir_all(&cloned_git)?,
+    Ok(_) => std::fs::remove_file(&cloned_git)?,
+    Err(_) => {}
+  }
+  std::fs::rename(path.join(".git"), &cloned_git).with_context(|| format!("Cannot move the .git file of {}", path.display()))?;
+  std::fs::remove_dir(path).with_context(|| format!("Cannot remove the empty {}", path.display()))?;
+  std::fs::rename(cloning, path).with_context(|| format!("Cannot move the clone to {}", path.display()))?;
+  Ok(())
 }
 
 /// Whether `dir` is the top level of a linked worktree whose common dir is `git_common_dir` (canonical)
@@ -680,7 +890,7 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
       actual: lease.id,
     });
   }
-  if lease.state == LeaseState::Preparing && !lease.is_abandoned() {
+  if lease.state != LeaseState::Ready && !lease.is_abandoned() {
     bail!(LeaseRefusal::Preparing { path, pid: lease.pid });
   }
   let scan = ProcessScan::scan();
@@ -726,7 +936,9 @@ pub enum SlotState {
   Free,
   Preparing,
   Ready,
-  /// A `preparing` lease whose get is gone: the next get takes the slot as free
+  /// A free slot that a get clones into a new one
+  Templating,
+  /// A `preparing` or `templating` lease whose get is gone: the next get takes the slot as free
   Abandoned,
 }
 
@@ -753,6 +965,7 @@ pub fn lease_status_core(git_common_dir: &Path, processes: bool) -> Result<(Vec<
         None => SlotState::Free,
         Some(lease) if lease.is_abandoned() => SlotState::Abandoned,
         Some(lease) if lease.state == LeaseState::Preparing => SlotState::Preparing,
+        Some(lease) if lease.state == LeaseState::Templating => SlotState::Templating,
         Some(_) => SlotState::Ready,
       };
       let missing = !Path::new(&slot.path).is_dir();

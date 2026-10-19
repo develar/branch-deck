@@ -650,7 +650,8 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
 - `bd lease get` leases a free slot at the exact HEAD of `-C`, detached (`-b <branch>` creates the branch there):
   one `status` of the slot, then `checkout --force`, only the diff written (`reused: true`). A free slot with local
   changes is skipped and marked dirty, one with a process in it is skipped as busy (`skipped`). No free slot: a new
-  one, `<pool>/<n>/<repository name>` (`reused: false`). The pool is `~/.branch-deck/pool/<name>-<hash>`, or
+  one, `<pool>/<n>/<repository name>` (`reused: false`): on macOS an APFS clone of a free slot or of the source, then
+  the diff checked out (`created_by: "clone"`, `cloned_from`), else a full checkout (`created_by: "checkout"`). The pool is `~/.branch-deck/pool/<name>-<hash>`, or
   `git config branchdeck.leasePool <dir>`. The ignored files `.worktreeinclude` names are copied in (`seeded`).
 - `bd lease return [--workspace <dir>] [--lease-id <id>] [--confirm-preserved]` frees the slot of `--workspace`, `-C`
   or the current directory: the seeded paths go, a branch is detached (`detached_branch`; it stays), the slot stays at
@@ -658,8 +659,8 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   ancestors in it), `unlanded_commits` (`commits` that no branch, tag or remote branch holds: land them with
   `bd pick --from <dir> --follow`), `dirty_worktree` (`paths`). `--confirm-preserved` gives the commits up
   (`given_up`) and discards the changes (`discarded`) with `reset --hard` and `clean -fd`.
-- `bd lease status [--processes]` lists the slots from the state alone: `state` `free`, `preparing`, `ready` or
-  `abandoned` (a get died while preparing it), `dirty`, `missing`, `lease`; no `git status`. `--processes` adds the
+- `bd lease status [--processes]` lists the slots from the state alone: `state` `free`, `preparing`, `ready`,
+  `templating` (a get clones it into a new slot) or `abandoned` (a get died while preparing or cloning it), `dirty`, `missing`, `lease`; no `git status`. `--processes` adds the
   processes in each slot.
 - `bd lease adopt <dir>...` adds clean linked worktrees of this repository as free slots where they are (`adopted`),
   and lists the refused ones with their code (`refused`: `not_a_slot`, `slot_in_pool`, `slot_busy`,

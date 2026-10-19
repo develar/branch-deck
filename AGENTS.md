@@ -107,7 +107,7 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   (`already_present`), both worktrees moved under the repository lock through the guarded update, `bd undo pick:`
   (`spec/cli/pick.spec.md`).
 - **Lease pool**: `bd lease get` leases a worktree of a pool at the HEAD of a checkout, a free slot moved there (only the
-  diff written) or a new one; `bd lease return` frees it once its commits landed, refused while it has unlanded commits,
+  diff written) or a new one (on macOS an APFS clone of a free slot or of the source, then the diff); `bd lease return` frees it once its commits landed, refused while it has unlanded commits,
   local changes or a process in it; the state in `$GIT_COMMON_DIR/branch-deck/leases.json` is the authority, no
   ancestry check, `bd lease status` reads only it (`spec/cli/lease.spec.md`).
 - **Landed commits**: what of the user's work the baseline has, before and after an update (also one made elsewhere),

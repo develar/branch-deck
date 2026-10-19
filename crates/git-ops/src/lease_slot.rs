@@ -1,8 +1,9 @@
 //! The git of a lease slot (`bd lease`, spec/cli/lease.spec.md): a linked worktree of the repository that a pool owns.
 //! A slot is pool property, not the user's checkout, so its working tree is written here, and only here, by name:
-//! `checkout --force` moves a clean slot to the commit of a get, `reset --hard` and `clean -fd` discard the changes of a
-//! return the agent confirmed. The worktree safety scan exempts exactly these argument lists in this file
-//! (`worktree_safety_test.rs`, "Lease" in docs/design/git-operations.md).
+//! `checkout --force` moves a clean slot to the commit of a get, `clean -fd` clears the untracked files a cloned slot
+//! got from its template, `reset --hard` and `clean -fd` discard the changes of a return the agent confirmed. The
+//! worktree safety scan exempts exactly these argument lists in this file (`worktree_safety_test.rs`, "Lease" in
+//! docs/design/git-operations.md).
 
 use crate::ref_transaction::RefTransaction;
 use crate::revs::{is_object_id, read_head};
@@ -17,6 +18,8 @@ pub struct LinkedWorktree {
   pub id: String,
   /// `$GIT_COMMON_DIR`, canonical
   pub git_common_dir: PathBuf,
+  /// `$GIT_DIR` of the worktree, its admin directory, canonical: its `index` lives there
+  pub git_dir: PathBuf,
 }
 
 /// The linked worktree whose top level is `dir`, without a git process: `dir/.git` is a file `gitdir: <admin dir>`, the
@@ -40,6 +43,7 @@ pub fn linked_worktree(dir: &Path) -> Option<LinkedWorktree> {
   Some(LinkedWorktree {
     id: admin.file_name()?.to_string_lossy().into_owned(),
     git_common_dir,
+    git_dir: admin,
   })
 }
 
@@ -99,6 +103,48 @@ pub fn add_slot(git_executor: &GitCommandExecutor, repository: &str, path: &Path
     None => [workers.config(), &["worktree", "add", "--quiet", "--detach", path, commit]].concat(),
   };
   git_executor.execute_command(&args, repository)?;
+  Ok(())
+}
+
+/// A new slot registered at `path` without its files: `worktree add --no-checkout --detach`, which writes only `path/.git`
+/// and the admin directory. The files come from a clone of a template (`lease`). `worktree prune` first, as `add_slot`
+pub fn register_slot(git_executor: &GitCommandExecutor, repository: &str, path: &Path, commit: &str) -> Result<()> {
+  let _ = git_executor.cmd(&["worktree", "prune"], repository).status();
+  let path = path.to_str().ok_or_else(|| anyhow!("The slot path is not UTF-8: {}", path.display()))?;
+  git_executor.execute_command(&["worktree", "add", "--quiet", "--no-checkout", "--detach", path, commit], repository)?;
+  Ok(())
+}
+
+/// Bring the stat data of the index that `slot` got from its template up to the cloned files: `update-index -q
+/// --refresh` with `core.checkStat=minimal`, `core.trustctime=false` and `core.fsmonitor=false`. A clone keeps the mtime
+/// and the size of each file, but its inodes and ctimes are new: the default check would hash every file again. The
+/// refresh writes the new stat data, so later commands run with the default check; without `core.fsmonitor` the index
+/// also loses the fsmonitor bits of the template
+pub fn refresh_cloned_index(git_executor: &GitCommandExecutor, slot: &str) -> Result<()> {
+  git_executor
+    .cmd(
+      &[
+        "-c",
+        "core.checkStat=minimal",
+        "-c",
+        "core.trustctime=false",
+        "-c",
+        "core.fsmonitor=false",
+        "update-index",
+        "-q",
+        "--refresh",
+      ],
+      slot,
+    )
+    .accept(&[1])
+    .output()?;
+  Ok(())
+}
+
+/// Remove the untracked files of `slot` that a clone brought from its template, not the ignored ones (the warm build
+/// outputs): `clean -fd`
+pub fn clean_cloned_slot(git_executor: &GitCommandExecutor, slot: &str) -> Result<()> {
+  git_executor.execute_command(&["clean", "-fd", "--quiet"], slot)?;
   Ok(())
 }
 
