@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { StatusChipDot } from "@/components/branch/StatusChip"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { WaitingAge } from "@/components/repository/ReviewRequestRow"
+import { ReviewSidebarToggle } from "@/components/review/ReviewSidebarToggle"
 import { ActionButton } from "@/components/shared/ActionButton"
 import { CopyButton } from "@/components/shared/CopyButton"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
@@ -48,6 +49,7 @@ export function ReviewNavigation({ index, count, onPrevious, onNext }: Pick<Revi
 export function ReviewToolbarActions({ request, actions, reviewing }: Pick<ReviewToolbarProps, "request" | "actions" | "reviewing">) {
   return (
     <>
+      {reviewing && <ReviewSidebarToggle />}
       {reviewing && <DiffViewToggle />}
       <MenuItemAction item={actions.openPullRequest} label="GitHub" data-testid="review-open-pull-request" />
       <DropdownMenu>

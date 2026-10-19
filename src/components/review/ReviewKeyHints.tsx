@@ -34,6 +34,7 @@ export function ReviewKeyHints({ commits, escape }: ReviewKeyHintsProps) {
       >
         Changes
       </KeyHint>
+      <KeyHint keys={<Kbd>F</Kbd>}>Sidebar</KeyHint>
       {commits && (
         <KeyHint
           keys={

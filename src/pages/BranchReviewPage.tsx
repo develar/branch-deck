@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card"
 import { BranchReviewActions, BranchReviewBar, BranchReviewBody, BranchReviewGone } from "@/components/review/BranchReview"
 import type { BranchReviewMoves } from "@/components/review/BranchReview"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
+import { ReviewSidebarToggle } from "@/components/review/ReviewSidebarToggle"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
@@ -130,6 +131,7 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
       titleEnd={
         loaded !== null && (
           <>
+            <ReviewSidebarToggle />
             <DiffViewToggle />
             <div className="flex items-center gap-1" data-testid="branch-review-actions">
               <BranchReviewActions actions={actions.items} branchName={loaded.target} onRun={actions.run} />

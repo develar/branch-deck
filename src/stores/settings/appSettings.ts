@@ -25,6 +25,8 @@ const AppSettingsSchema = z.object({
   systemTitleBar: z.boolean().default(false),
   // "Assign to me" of the "Create pull request" dialog, as the user left it last
   createPullRequestAssignSelf: z.boolean().default(true),
+  // the sidebar of a review (the commits and the files) beside the diffs; F and its button hide it, never the window
+  reviewSidebar: z.boolean().default(true),
 })
 
 export type AppSettings = z.infer<typeof AppSettingsSchema>
@@ -33,6 +35,10 @@ export const appSettingsStore = createPersistentStore("appSettings", { schema: A
 
 export function useAppSettings<T>(selector: (state: AppSettings) => T): T {
   return useStore(appSettingsStore, selector)
+}
+
+export function setReviewSidebar(reviewSidebar: boolean): void {
+  appSettingsStore.setState({ reviewSidebar })
 }
 
 export function setAutoSyncOnFocus(autoSyncOnFocus: boolean): void {

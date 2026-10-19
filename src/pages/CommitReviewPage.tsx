@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Card } from "@/components/ui/card"
 import { RangeReview } from "@/components/review/RangeReview"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
+import { ReviewSidebarToggle } from "@/components/review/ReviewSidebarToggle"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { PreviewDialogFooter } from "@/components/shared/PreviewDialogFrame"
 import { WindowPage } from "@/components/shared/WindowPage"
@@ -51,7 +52,12 @@ function CommitReviewWindow({ data }: { data: CommitReviewWindowData }) {
       body="fill"
       readyByContent
       title={<WindowTitle parts={[...(data.listLabel === null ? [] : [data.listLabel]), ...(commit === undefined ? [] : [{ text: formatShortHash(commit.id), mono: true }])]} />}
-      titleEnd={<DiffViewToggle />}
+      titleEnd={
+        <>
+          <ReviewSidebarToggle />
+          <DiffViewToggle />
+        </>
+      }
       footer={
         <PreviewDialogFooter
           className="border-t-0 px-1 py-0"

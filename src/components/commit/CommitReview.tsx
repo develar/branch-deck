@@ -23,6 +23,7 @@ import type { ReviewPosition } from "@/lib/review-position"
 import { markSubWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import { loadFileDiffs, useFileDiffs } from "@/stores/file-diffs"
+import { setReviewSidebar, useAppSettings } from "@/stores/settings/appSettings"
 import { useDiffViewMode, useDiffWhitespacePolicy } from "@/stores/settings/diff-view-settings"
 
 // the highlight worker starts with the page of a review, beside the reads of its files and diffs, not after them
@@ -305,8 +306,11 @@ function searchedSelection(previous: TreeSelection, filterText: string, nodes: R
   return { key: previous.key, filterText, collapsed: selectedPath === null ? collapsed : revealInTree(collapsed, selectedPath), selectedPath }
 }
 
-// the sidebar takes 30% until the divider is dragged; never narrower than the names need
-const initialLayout = { sidebar: 30, code: 70 }
+/**
+ * The width of the sidebar until its divider is dragged: what the names of a tree need, not a share of the window, so
+ * a maximized window gives the diffs the rest (IntelliJ's commit tree is about as wide)
+ */
+const SIDEBAR_WIDTH = "19rem"
 
 /**
  * The sidebar beside the diffs, in every state of the review: the parts of the sidebar (the commits, the header of the
@@ -314,6 +318,7 @@ const initialLayout = { sidebar: 30, code: 70 }
  */
 function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTop, filesHeader, codeTop, search }: ReviewLayoutProps) {
   const diffViewMode = useDiffViewMode()
+  const sidebarShown = useAppSettings(state => state.reviewSidebar)
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "review-sidebar", storage: localStorage, onlySaveAfterUserInteractions: true })
   const loadedFiles = loaded?.files
   const nodes = useMemo(() => (loadedFiles === undefined ? [] : buildFileTree(loadedFiles)), [loadedFiles])
@@ -392,6 +397,10 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
         }
         break
       }
+      case "KeyF":
+        // the sidebar, as F shows the files of a preview
+        setReviewSidebar(!sidebarShown)
+        break
       case "KeyN":
       case "KeyP": {
         const path = code.current?.moveChange(event.code === "KeyN" ? 1 : -1)
@@ -408,57 +417,59 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
 
   return (
     <div className="h-full min-h-0" onKeyDown={handleKeyDown}>
-      <ResizablePanelGroup orientation="horizontal" defaultLayout={defaultLayout ?? initialLayout} onLayoutChanged={onLayoutChanged}>
-        <ResizablePanel id="sidebar" minSize="16rem" maxSize="50">
-          <div className="flex h-full flex-col" data-testid="review-sidebar">
-            {sidebarTop !== undefined && (
-              // what the user works in here keeps the focus when the diffs of the next subject mount
-              <div data-review-keeps-focus="" className="flex max-h-[40%] min-h-0 shrink-0 flex-col border-b border-border">
-                {sidebarTop}
-              </div>
-            )}
-            {search !== null && (
-              // the diffs that mount for what is typed leave the focus in the field
-              <div data-review-keeps-focus="" className="shrink-0 px-2 pt-2">
-                <SearchField
-                  value={search.text}
-                  onValueChange={search.onTextChange}
-                  label="Filter files"
-                  className="w-full"
-                  onLeave={() => (code.current ?? tree.current?.closest<HTMLElement>("[data-review-root]"))?.focus()}
-                  onArrowDown={() => tree.current?.querySelector<HTMLElement>("[role=treeitem][tabindex='0']")?.focus()}
-                />
-              </div>
-            )}
-            <div
-              data-review-keeps-focus=""
-              className="flex min-h-10 shrink-0 flex-wrap items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground"
-              data-testid="review-files-header"
-            >
-              {filesHeader !== undefined
-                ? filesHeader(loaded === null ? null : { shown: loaded.files.length, total: loaded.totalCount })
-                : loaded !== null && (
-                    <SectionLabel title="Files" count={loaded.files.length} of={loaded.files.length === loaded.totalCount ? undefined : loaded.totalCount} className="flex-1" />
-                  )}
-            </div>
-            <div ref={tree} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-              {loaded !== null && (
-                <FileTree
-                  key={loaded.key}
-                  mode="navigate"
-                  nodes={nodes}
-                  aria-label="Changed files"
-                  collapsed={collapsed}
-                  onToggleDirectory={toggleDirectory}
-                  selectedKey={selectedPath}
-                  onSelectFile={selectInTree}
-                  fileOwners={fileOwners}
-                />
+      <ResizablePanelGroup orientation="horizontal" defaultLayout={sidebarShown ? defaultLayout : undefined} onLayoutChanged={onLayoutChanged}>
+        {sidebarShown && (
+          <ResizablePanel id="sidebar" defaultSize={SIDEBAR_WIDTH} minSize="16rem" maxSize="50">
+            <div className="flex h-full flex-col" data-testid="review-sidebar">
+              {sidebarTop !== undefined && (
+                // what the user works in here keeps the focus when the diffs of the next subject mount
+                <div data-review-keeps-focus="" className="flex max-h-[40%] min-h-0 shrink-0 flex-col border-b border-border">
+                  {sidebarTop}
+                </div>
               )}
+              {search !== null && (
+                // the diffs that mount for what is typed leave the focus in the field
+                <div data-review-keeps-focus="" className="shrink-0 px-2 pt-2">
+                  <SearchField
+                    value={search.text}
+                    onValueChange={search.onTextChange}
+                    label="Filter files"
+                    className="w-full"
+                    onLeave={() => (code.current ?? tree.current?.closest<HTMLElement>("[data-review-root]"))?.focus()}
+                    onArrowDown={() => tree.current?.querySelector<HTMLElement>("[role=treeitem][tabindex='0']")?.focus()}
+                  />
+                </div>
+              )}
+              <div
+                data-review-keeps-focus=""
+                className="flex min-h-10 shrink-0 flex-wrap items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground"
+                data-testid="review-files-header"
+              >
+                {filesHeader !== undefined
+                  ? filesHeader(loaded === null ? null : { shown: loaded.files.length, total: loaded.totalCount })
+                  : loaded !== null && (
+                      <SectionLabel title="Files" count={loaded.files.length} of={loaded.files.length === loaded.totalCount ? undefined : loaded.totalCount} className="flex-1" />
+                    )}
+              </div>
+              <div ref={tree} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+                {loaded !== null && (
+                  <FileTree
+                    key={loaded.key}
+                    mode="navigate"
+                    nodes={nodes}
+                    aria-label="Changed files"
+                    collapsed={collapsed}
+                    onToggleDirectory={toggleDirectory}
+                    selectedKey={selectedPath}
+                    onSelectFile={selectInTree}
+                    fileOwners={fileOwners}
+                  />
+                )}
+              </div>
             </div>
-          </div>
-        </ResizablePanel>
-        <ResizableHandle />
+          </ResizablePanel>
+        )}
+        {sidebarShown && <ResizableHandle />}
         <ResizablePanel id="code" minSize="40">
           <div className="flex h-full flex-col">
             {codeTop}

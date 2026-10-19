@@ -7,7 +7,7 @@ import { findBranchRow, expandBranch, getBranchCommitRow, getUnassignedCommitRow
 import { chooseWhitespace, getCommitPreview, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
 import { getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import type { OpenedSubWindow } from "../helpers/sub-window-helpers"
-import { holdCommand } from "../helpers/wait-helpers"
+import { holdCommand, waitForStorePersistence } from "../helpers/wait-helpers"
 
 // the `commit_tree` template: one commit of the `session` branch, five files in nested directories
 const SUBJECT = "a prompt that waits for its turn keeps the session row running"
@@ -126,6 +126,31 @@ simpleTest.describe("Commit review", () => {
     // the view of the diffs is in the title bar of the window
     await window.getByRole("button", { name: "Unified" }).click()
     await expect(window.getByRole("button", { name: "Unified" })).toHaveAttribute("aria-pressed", "true")
+  })
+
+  simpleTest("should give the sidebar the width of its names, and hide and show it with F and its button, the choice kept", async ({ page }) => {
+    await page.setViewportSize({ width: 2000, height: 1000 })
+    await openTreePreview(page)
+    await page.keyboard.press("d")
+    const window = await showReviewWindow(page, await openedReview(page, 1))
+    const sidebar = window.getByTestId("review-sidebar")
+    const toggle = window.getByTestId("review-sidebar-toggle")
+    // 19rem in a maximized window, not a share of it
+    await expect.poll(async () => Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(304)
+    await expect(window.getByTestId("branch-review-footer")).toContainText("FSidebar")
+    await expect(toggle).toHaveAttribute("aria-pressed", "true")
+
+    await window.locator("[aria-label='Changes of the commit']").focus()
+    await page.keyboard.press("f")
+    await expect(sidebar).toHaveCount(0)
+    await expect(toggle).toHaveAttribute("aria-pressed", "false")
+    await waitForStorePersistence(page, "appSettings", settings => (settings as { reviewSidebar?: boolean } | undefined)?.reviewSidebar === false)
+    // the choice stays for the next review: no window brings the sidebar back by itself
+    await page.reload()
+    await expect(page.getByTestId("branch-review").getByTestId("review-sidebar-toggle")).toHaveAttribute("aria-pressed", "false")
+    await expect(page.getByTestId("review-sidebar")).toHaveCount(0)
+    await page.getByTestId("review-sidebar-toggle").click()
+    await expect(page.getByTestId("review-sidebar")).toBeVisible()
   })
 
   simpleTest("should copy the lines of a selection of the diffs from the model, one side in Split, without the line numbers", async ({ page }) => {
