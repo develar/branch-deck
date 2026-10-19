@@ -830,13 +830,14 @@ function getHighlightClientOrNull() {
 /**
  * The diffs take the focus, so the arrows, PageUp and PageDown scroll them: from the review, from what holds it or
  * from the body, and from anything of its dialog, but not from what the user works in beside the diffs (the commits,
- * the owner chips: `data-review-keeps-focus`), which keeps its keys
+ * the owner chips: `data-review-keeps-focus`), which keeps its keys, nor from the trigger of an open popup (the "⋯" of
+ * the commit heading): its menu closes when the focus leaves it
  */
 function takeFocus(element: HTMLElement): void {
   const active = document.activeElement
   const root = element.closest("[data-review-root]")
   const dialog = element.closest("[role=dialog]")
-  const keeps = active?.closest("[data-review-keeps-focus]") != null
+  const keeps = active?.closest("[data-review-keeps-focus]") != null || active?.getAttribute("aria-expanded") === "true"
   if (
     active === null ||
     active === document.body ||
