@@ -335,8 +335,11 @@ page of the same blob costs only its own lines.
 
 **One theme of roles.** The metadata holds an index into the colour map of the theme. The worker uses one synthetic
 theme in which each colour is a role: keyword, string, escape, number, comment, declaration, field, annotation, tag,
-attribute, and the default foreground. Font styles (bold, italic) are bits of the metadata. `islands-themes.ts` keeps
-its map from scopes to roles. The colours of the IntelliJ Light and Dark schemes move to CSS variables in
+attribute, and the default foreground. Font styles (bold, italic) are bits of the metadata. A style is the role in its
+low 6 bits (`ROLE_MASK`) and the font style above them (`FONT_STYLE_SHIFT`). `islands-themes.ts` keeps its map from
+scopes to roles, IntelliJ's view of what is coloured: a call (`meta.function-call`, `meta.method-call`,
+`meta.function.call`), a package, an import and a class used as a type in Java are plain text, a Rust attribute is an
+annotation. The colours of the IntelliJ Light and Dark schemes move to CSS variables in
 `src/index.css` (`--syntax-keyword` and the others). So one tokenization serves both themes, and a theme switch
 changes only CSS. Pierre highlights each token for both themes.
 

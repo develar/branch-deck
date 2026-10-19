@@ -36,7 +36,7 @@ export type HighlightAnswer =
   /** The blob has no grammar, or its grammar failed: it stays plain text */
   | { type: "failed"; blobId: string; reason: string }
 
-/** The bits of the role in a style */
-export const ROLE_MASK = 0xf
+/** The bits of the role in a style: 63 roles, room for the roles of the tree-sitter highlighting of the backend */
+export const ROLE_MASK = 0x3f
 /** The font style bits of a style, shifted: italic 1, bold 2, underline 4, strikethrough 8 */
-export const FONT_STYLE_SHIFT = 4
+export const FONT_STYLE_SHIFT = 6

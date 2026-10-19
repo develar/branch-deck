@@ -79,6 +79,49 @@ describe("HighlightEngine", () => {
     expect(["const", "50"].map(needle => styleAt(pageOf("ts"), 0, typescript.indexOf(needle)))).toEqual(["keyword", "number"])
   })
 
+  it("leaves a Java or Rust call, a package, an import and a class used as a type plain, as IntelliJ does", async () => {
+    const { engine, answers } = engineOf()
+    const java = [
+      "package com.example.app;",
+      "import java.util.List;",
+      "class A {",
+      "  void run(List<String> names, int count) { var x = Factory.create(names); @Override String s; }",
+      "}",
+    ]
+    const rust = ["#[derive(Debug)]", "fn f(path: &str) { path.take(1).clone(); }"]
+    engine.handle({ type: "text", blobId: "java", language: "java", text: java.join("\n") })
+    engine.handle({ type: "text", blobId: "rust", language: "rust", text: rust.join("\n") })
+    engine.handle({
+      type: "tokens",
+      view: "v",
+      wants: [
+        { blobId: "java", pages: [0], priority: 0 },
+        { blobId: "rust", pages: [0], priority: 0 },
+      ],
+    })
+    await engine.idle()
+    const pageOf = (blobId: string) => pages(answers).find(page => page.blobId === blobId)!
+    const javaAt = (line: number, needle: string) => styleAt(pageOf("java"), line, java[line]!.indexOf(needle))
+    const rustAt = (line: number, needle: string) => styleAt(pageOf("rust"), line, rust[line]!.indexOf(needle))
+    expect([javaAt(0, "package"), javaAt(0, "example"), javaAt(1, "import"), javaAt(1, "util")]).toEqual(["keyword", "foreground", "keyword", "foreground"])
+    expect([javaAt(3, "void"), javaAt(3, "run"), javaAt(3, "List"), javaAt(3, "int"), javaAt(3, "var"), javaAt(3, "create"), javaAt(3, "Override")]).toEqual([
+      "keyword",
+      "functionDeclaration",
+      "foreground",
+      "keyword",
+      "keyword",
+      "foreground",
+      "annotation",
+    ])
+    expect([rustAt(0, "#"), rustAt(0, "Debug"), rustAt(1, "f("), rustAt(1, "take"), rustAt(1, "clone")]).toEqual([
+      "annotation",
+      "annotation",
+      "functionDeclaration",
+      "foreground",
+      "foreground",
+    ])
+  })
+
   it("reads the front matter of a Markdown file as YAML and a fenced block by its language, never as emphasis", async () => {
     const { engine, answers } = engineOf()
     const lines = ["---", "allowed-tools: Bash(a:*), Bash(b:*), Bash(c:*)", "---", "", "```java", "class A {}", "```", "an *emphasis*"]

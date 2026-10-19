@@ -32,8 +32,25 @@ function tokenColors(palette: EditorPalette): ThemeRegistration["tokenColors"] {
     // operators and accessors are plain text in IntelliJ
     { scope: ["keyword.operator", "punctuation"], settings: { foreground: palette.foreground } },
     { scope: ["entity.name.function", "support.function"], settings: { foreground: palette.functionDeclaration } },
-    // IntelliJ colours a declaration, not a call
-    { scope: ["entity.name.function.call", "meta.function-call entity.name.function", "meta.function-call support.function"], settings: { foreground: palette.foreground } },
+    // IntelliJ colours a declaration, not a call: the scopes of a call in the TypeScript, Java and Rust grammars
+    {
+      scope: [
+        "entity.name.function.call",
+        "meta.function-call entity.name.function",
+        "meta.function-call support.function",
+        "meta.method-call entity.name.function",
+        "meta.method-call support.function",
+        "meta.function.call entity.name.function",
+        "meta.function.call support.function",
+      ],
+      settings: { foreground: palette.foreground },
+    },
+    // a package, an import and a class used as a type are plain text in IntelliJ; a primitive (`storage.type.primitive`)
+    // and `var` (`storage.type.local`) stay keywords
+    {
+      scope: ["storage.modifier.package", "storage.modifier.import", "storage.type.java", "storage.type.generic.java", "storage.type.object.array.java"],
+      settings: { foreground: palette.foreground },
+    },
     {
       scope: [
         "variable.other.property",
@@ -54,6 +71,8 @@ function tokenColors(palette: EditorPalette): ThemeRegistration["tokenColors"] {
         "meta.decorator",
         "entity.name.function.decorator",
         "punctuation.decorator",
+        "meta.attribute.rust",
+        "meta.attribute.rust punctuation",
       ],
       settings: { foreground: palette.annotation },
     },
