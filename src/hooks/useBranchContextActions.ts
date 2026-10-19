@@ -25,8 +25,9 @@ import {
   UploadIcon,
   WandSparklesIcon,
 } from "lucide-react"
+import { useStore } from "zustand"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
-import { getBranchNextStepNow, getBranchNextStepOf, getGatedRobotActions } from "@/hooks/useBranchNextStep"
+import { getBranchNextStepNow, getBranchNextStepOf, getGatedRobotActions, nextStepSources, useNextStepStores } from "@/hooks/useBranchNextStep"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { canPushNow, getPushButtonNow } from "@/hooks/usePushButton"
@@ -76,11 +77,11 @@ import {
   isStackPushing,
   isStacksEnabled,
 } from "@/stores/branch-sync"
-import { getSelectedBranches, requestReveal, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
+import { commitMoveStore, getSelectedBranches, requestReveal, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { closeCreatePullRequestDialog, openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { openInline } from "@/stores/inline-row-action"
 import type { Operations } from "@/stores/operations"
-import { branchSubject, isObjectBusy, operationItem } from "@/stores/operations"
+import { branchSubject, getOperations, isObjectBusy, operationItem } from "@/stores/operations"
 import {
   getBranchRobot,
   getLandedWithChildrenReason,
@@ -683,6 +684,35 @@ export function getPushWithChildrenItem(name: string): MenuItem | null {
     ...(description !== null && { description }),
     onSelect: () => void pushWithChildren(name),
   }
+}
+
+/** By branch: the menu built last, and the store states it was built from (`getBranchMenuNow`) */
+const shownMenus = new Map<string, { sources: readonly unknown[]; groups: MenuItemGroups }>()
+
+/**
+ * The menu of the branch as the stores are now (`getBranchContextMenuItems`), one object while the stores it reads stay:
+ * the selector of `useBranchMenu`. A builder called in a component would be memoized by the compiler on its arguments,
+ * so a menu that stays mounted (reopened while it fades out) would show its first state.
+ */
+export function getBranchMenuNow(name: string, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups | null {
+  const branch = getBranch(name)
+  if (branch === undefined) {
+    return null
+  }
+  const sources = [...nextStepSources(), commitMoveStore.getState(), setExpanded]
+  const shown = shownMenus.get(name)
+  if (shown !== undefined && shown.sources.length === sources.length && shown.sources.every((source, index) => source === sources[index])) {
+    return shown.groups
+  }
+  const groups = getBranchContextMenuItems(branch, setExpanded, getOperations())
+  shownMenus.set(name, { sources, groups })
+  return groups
+}
+
+/** The menu of the branch, rendered again when a store it reads changes (the operations among them); null without the branch */
+export function useBranchMenu(name: string, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups | null {
+  useStore(commitMoveStore, () => getBranchMenuNow(name, setExpanded))
+  return useNextStepStores(() => getBranchMenuNow(name, setExpanded))
 }
 
 /** "Unstack from ‹parent›" of a stacked branch, as a menu item: its menu, and the notice of a parent it was built past */

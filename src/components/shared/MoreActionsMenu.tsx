@@ -24,20 +24,30 @@ export interface MoreActionsMenuProps {
  * under a button, so its actions are found without knowing the right-click.
  */
 export function MoreActionsMenu({ name, menu, disabled = false, busy = null }: MoreActionsMenuProps) {
+  if (busy !== null) {
+    // no menu while it runs; the hover says what runs (Base UI keeps a disabled button hoverable here, the dimming is off)
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={`More actions for ${name}`} aria-busy disabled focusableWhenDisabled />}
+        >
+          <Spinner />
+        </TooltipTrigger>
+        <TooltipContent>{`${busy}…`}</TooltipContent>
+      </Tooltip>
+    )
+  }
   return (
     <DropdownMenu>
       <Tooltip>
         <TooltipTrigger
           render={
-            <DropdownMenuTrigger
-              disabled={disabled || busy !== null}
-              render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={`More actions for ${name}`} aria-busy={busy !== null || undefined} />}
-            />
+            <DropdownMenuTrigger disabled={disabled} render={<Button variant="ghost" size="icon-xs" className="text-muted-foreground" aria-label={`More actions for ${name}`} />} />
           }
         >
-          {busy === null ? <EllipsisIcon /> : <Spinner />}
+          <EllipsisIcon />
         </TooltipTrigger>
-        <TooltipContent>{busy === null ? "More actions" : `${busy}…`}</TooltipContent>
+        <TooltipContent>More actions</TooltipContent>
       </Tooltip>
       {/*
         as wide as its items, as the right-click menu; the inline form opened from the menu takes the focus. The popup

@@ -76,10 +76,11 @@ backend lock orders them and the sync chain reads the result again. Only the men
 A builder marks its items with `operationItem(running, item, key)`: the running action's item is `running` and
 disabled, an item that must wait is disabled with the busy state as its `description`, an item disabled for its own
 reason keeps it. The rewrites of the branch menu go through `rewriteItem` (the sync blocker first), the commit menus
-through the same call. A surface that renders a builder subscribes to the registry and passes its snapshot
-(`useOperations`, `getBranchContextMenuItems(branch, setExpanded, operations)`): a store read inside a builder that the
-React Compiler memoizes would show a stale menu ([Rendering Performance](rendering-performance.md)). Callers outside
-React (the review window's bridge) pass `getOperations()`.
+through the same call. A surface that renders a builder reads it through a selector cached by the states of the stores it reads, the
+registry among them (`useBranchMenu`), or subscribes to the registry and passes its snapshot (`useOperations`): a store
+read inside a builder that the React Compiler memoizes would show a stale menu
+([Rendering Performance](rendering-performance.md)). Callers outside React (the keys, the review window's bridge) pass
+`getOperations()`. A disabled submenu (Stack On ›, Move to Existing ›) is an item that says why on hover.
 
 `MenuItem.onSelect` takes a `SelectContext`: `{ surface }` of the button that started it, `FROM_MENU` (`surface:
 null`) for a menu, a key or a toast. The action passes it to its operation.

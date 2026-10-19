@@ -36,6 +36,8 @@ async function expectRewritesWaitAndUnstackOnce(page: Page, restack: { calls: re
   await openContextMenu(page, findBranchRow(page, "docs"))
   await expectDisabledItems(page, [
     [/^Move to…/, "Unstacking oauth…"],
+    // a submenu waits as an item that says why
+    [/^Stack On…/, "Unstacking oauth…"],
     ["Unapply…", "Unstacking oauth…"],
   ])
   await page.keyboard.press("Escape")
@@ -443,6 +445,9 @@ test.describe("Stacked branches", () => {
     const more = findBranchRow(page, "oauth").getByRole("button", { name: "More actions for oauth" })
     await expect(more).toHaveAttribute("aria-busy", "true")
     await expect(more).toBeDisabled()
+    await more.hover()
+    // the tooltip of the menu item the click closed may still fade out
+    await expect(page.locator("[data-slot=tooltip-content][data-open]", { hasText: "Unstacking oauth…" })).toBeVisible()
     // a key runs the item it is the hint of: M on another row says why it waits, and opens no form
     await findBranchRow(page, "docs").focus()
     await page.keyboard.press("m")

@@ -1,6 +1,7 @@
 import { Fragment } from "react"
 import type { ComponentType, ReactNode } from "react"
 import { cn } from "cn"
+import { ChevronRightIcon } from "lucide-react"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -50,7 +51,8 @@ function MenuEntry({ item, components }: { item: MenuItem; components: MenuCompo
       </CheckboxItem>
     )
   }
-  if (item.children !== undefined) {
+  // a disabled submenu opens nothing: an item that says why on hover, as any disabled item
+  if (item.children !== undefined && item.disabled !== true) {
     return (
       <Sub>
         {/* the generated context menu trigger has no gap between the icon and the label, unlike the items */}
@@ -72,6 +74,7 @@ function MenuEntry({ item, components }: { item: MenuItem; components: MenuCompo
     <>
       {item.running === true ? <Spinner /> : item.icon && <item.icon />}
       <span className="truncate">{item.label}</span>
+      {item.children !== undefined && <ChevronRightIcon className="ml-auto" />}
       {item.kbds && item.kbds.length > 0 && (
         <Shortcut>
           <KbdGroup>

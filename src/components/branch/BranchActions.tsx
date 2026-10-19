@@ -6,13 +6,13 @@ import { CopyButton } from "@/components/shared/CopyButton"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
-import { getBranchContextMenuItems } from "@/hooks/useBranchContextActions"
+import { useBranchMenu } from "@/hooks/useBranchContextActions"
 import { useStackBranchPushAlone, useUnpushedChildren } from "@/hooks/usePushButton"
 import type { MenuItemGroups } from "@/lib/menu"
 import { getPushAction } from "@/lib/push-summary"
 import type { Branch } from "@/stores/branch-sync"
-import { useBranch, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
-import { branchSubject, useObjectBusy, useOperations, useUnclaimedBusy } from "@/stores/operations"
+import { useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
+import { branchSubject, useObjectBusy, useUnclaimedBusy } from "@/stores/operations"
 import { usePushHold } from "@/stores/patronus"
 import { getFullBranchName } from "@/stores/repository"
 
@@ -132,11 +132,7 @@ export interface BranchMenuItemsProps {
  * menu is open, so the items are computed lazily from the current branch state.
  */
 export function BranchMenuItems({ name, setExpanded, Items }: BranchMenuItemsProps) {
-  const branch = useBranch(name)
-  // an open menu follows the actions that start and end: a running one says so, the rewrites wait for it
-  const operations = useOperations()
-  if (branch === undefined) {
-    return null
-  }
-  return <Items groups={getBranchContextMenuItems(branch, setExpanded, operations)} />
+  // an open menu follows every store it reads: the operations that start and end, the pull requests, the robots
+  const groups = useBranchMenu(name, setExpanded)
+  return groups === null ? null : <Items groups={groups} />
 }
