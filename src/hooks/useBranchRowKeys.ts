@@ -11,7 +11,7 @@ import { openPullRequest } from "@/lib/pull-request"
 import type { BranchTableRow } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getBranchTableOrder, isBranchPushing, isStackPushing } from "@/stores/branch-sync"
 import { selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
-import { isProcessing } from "@/stores/inline-row-action"
+import { isObjectBusy } from "@/stores/operations"
 import { getBranchRobot, getPushHold } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 import { expandStackOf, getCollapsedSideStacks, isStackIsland, sideStackToCollapse, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
@@ -49,7 +49,7 @@ export interface BranchRowKeys {
 function pushRow(name: string): void {
   const branch = getBranch(name)
   const isPushing = isBranchPushing(name) || isStackPushing(name)
-  if (branch !== undefined && canPushNow(branch, { isPushing, processing: isProcessing(name) })) {
+  if (branch !== undefined && canPushNow(branch, { isPushing, processing: isObjectBusy(name) })) {
     pushOrConfirm(name, "row")
   }
 }

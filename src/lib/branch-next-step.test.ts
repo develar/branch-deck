@@ -4,6 +4,7 @@ import type { ReviewReadiness } from "@/lib/bindings"
 import type { NextStepFacts } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
 import type { MenuItem } from "@/lib/menu"
+import { FROM_MENU } from "@/lib/menu"
 import { alice, chip, createPullRequest, facts, finished, group, ilya, missing, openPullRequest, requestReview, restart, withReadiness } from "@/lib/test-next-step-facts"
 
 describe("getBranchNextStep", () => {
@@ -104,7 +105,7 @@ describe("getBranchNextStep", () => {
     const step = getBranchNextStep(approved)
     expect(step).toMatchObject({ kind: "safePush", item: { id: "safe-push", label: "Safe Push", disabled: false }, safePushBlocker: null })
     // its own form, below its row
-    step.item?.onSelect()
+    step.item?.onSelect(FROM_MENU)
     expect(approved.actions.openSafePush).toHaveBeenCalledOnce()
   })
 
@@ -160,7 +161,7 @@ describe("getBranchNextStep", () => {
       safePushBlocker: "#1078 is a draft: Patronus merges it once it is ready for review",
       dryRunBlocker: null,
     })
-    step.item!.onSelect()
+    step.item!.onSelect(FROM_MENU)
     expect(actions.openPullRequest).toHaveBeenCalled()
   })
 
@@ -208,7 +209,7 @@ describe("getBranchNextStep", () => {
         description: "Code owners must approve in it: IJPL Code Platform · Approvals in #12, the pull request of the whole air stack, count for its Safe Push only",
       },
     })
-    step.item?.onSelect()
+    step.item?.onSelect(FROM_MENU)
     expect(open).toHaveBeenCalledOnce()
     // a branch with a pull request of its own waits in it, as any branch
     const own = getBranchNextStep(withReadiness(missing([group()]), { stackPullRequest: { number: 12, subject: "the whole air stack", open } }))

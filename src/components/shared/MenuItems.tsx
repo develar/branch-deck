@@ -2,8 +2,9 @@ import { Fragment } from "react"
 import type { ComponentType, ReactNode } from "react"
 import { cn } from "cn"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
+import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { kbdLabel } from "@/lib/menu"
+import { FROM_MENU, kbdLabel } from "@/lib/menu"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 
 /**
@@ -44,7 +45,7 @@ function MenuEntry({ item, components }: { item: MenuItem; components: MenuCompo
   if (item.checked !== undefined && CheckboxItem !== undefined) {
     return (
       // closes as the other items and a native checkbox item do
-      <CheckboxItem checked={item.checked} disabled={item.disabled} closeOnClick onCheckedChange={item.onSelect}>
+      <CheckboxItem checked={item.checked} disabled={item.disabled} closeOnClick onCheckedChange={() => item.onSelect(FROM_MENU)}>
         <span className="truncate">{item.label}</span>
       </CheckboxItem>
     )
@@ -66,9 +67,10 @@ function MenuEntry({ item, components }: { item: MenuItem; components: MenuCompo
     )
   }
 
+  // a running action has the spinner in place of its icon
   const content = (
     <>
-      {item.icon && <item.icon />}
+      {item.running === true ? <Spinner /> : item.icon && <item.icon />}
       <span className="truncate">{item.label}</span>
       {item.kbds && item.kbds.length > 0 && (
         <Shortcut>
@@ -83,7 +85,7 @@ function MenuEntry({ item, components }: { item: MenuItem; components: MenuCompo
   )
   if (item.description === undefined) {
     return (
-      <Item disabled={item.disabled} variant={item.color ?? "default"} onClick={item.onSelect}>
+      <Item disabled={item.disabled} variant={item.color ?? "default"} onClick={() => item.onSelect(FROM_MENU)}>
         {content}
       </Item>
     )
@@ -104,7 +106,7 @@ function MenuEntry({ item, components }: { item: MenuItem; components: MenuCompo
             variant={item.color ?? "default"}
             // a disabled item says why on hover: it keeps the pointer (Base UI ignores the click)
             className={cn(item.disabled && "data-disabled:pointer-events-auto")}
-            onClick={item.onSelect}
+            onClick={() => item.onSelect(FROM_MENU)}
           />
         }
       >

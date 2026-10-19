@@ -4,11 +4,11 @@ import { Callout } from "@/components/shared/Callout"
 import { InlineForm } from "@/components/shared/InlineForm"
 import { unapplyBranch } from "@/hooks/useUnapplyBranch"
 import { getStackChildren, useBranch } from "@/stores/branch-sync"
-import { closeInline, useIsRowProcessing } from "@/stores/inline-row-action"
+import { closeInline, useInlineProcessing } from "@/stores/inline-row-action"
 
 export function InlineUnapplyConfirm({ branchName }: { branchName: string }) {
   const branch = useBranch(branchName)
-  const processing = useIsRowProcessing(branchName)
+  const processing = useInlineProcessing(branchName) !== null
   const commitCount = branch?.commits.length ?? 0
   const canUnapply = branch !== undefined && commitCount > 0 && !processing
   const children = getStackChildren(branchName)

@@ -751,6 +751,13 @@ export function getBranch(name: string): Branch | undefined {
   return branchSyncStore.getState().branches[name]
 }
 
+/** The names of the branches that hold the commits (by their original ids), as the last sync knows them */
+export function getBranchesOfCommits(originalIds: readonly string[]): string[] {
+  return Object.values(branchSyncStore.getState().branches)
+    .filter(branch => originalIds.some(id => branch.commitIndex[id] !== undefined))
+    .map(branch => branch.name)
+}
+
 /** The stack branch of the stack rooted at `root`; undefined for a stack that doesn't fork or before a sync reported it */
 export function useStackBranch(root: string): StackBranch | undefined {
   return useStore(branchSyncStore, state => state.stackBranches[root])

@@ -1,6 +1,15 @@
 import type { LucideIcon } from "lucide-react"
 import { modifierKey } from "@/lib/platform"
 
+/** Where an item was chosen: a surface that stays shows the spinner of the action it starts (`useIndicatorClaim`) */
+export interface SelectContext {
+  /** The key of the button that started it; null for a menu, a key or a toast, whose row shows the spinner */
+  readonly surface: string | null
+}
+
+/** The context of a choice in a menu, by a key or in a toast */
+export const FROM_MENU: SelectContext = { surface: null }
+
 /** Menu item; rendered by `MenuItems` in a context menu (`ContextMenuItems`) or a button's menu (`DropdownMenuItems`). */
 export interface MenuItem {
   /**
@@ -18,8 +27,10 @@ export interface MenuItem {
   description?: string
   /** A checkbox item ("Auto-sync on Focus"): `onSelect` toggles it */
   checked?: boolean
+  /** The action runs (`operationItem`): disabled, with the spinner where it was started */
+  running?: boolean
   /** Not called for an item with `children` */
-  onSelect: () => void
+  onSelect: (context: SelectContext) => void
   /** Makes the item a submenu */
   children?: MenuItem[]
 }
@@ -59,9 +70,9 @@ export function toPreviewMenu(groups: MenuItemGroups, close: (() => void) | null
       kbds,
       onSelect: keepsPreview
         ? item.onSelect
-        : () => {
+        : context => {
             close?.()
-            item.onSelect()
+            item.onSelect(context)
           },
       ...(item.children !== undefined && { children: item.children.map(inPreview) }),
     }

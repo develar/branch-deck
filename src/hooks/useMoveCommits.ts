@@ -2,64 +2,79 @@ import { toast } from "@/components/ui/toast"
 import { offerUnstackAfterMove, undoRegroup } from "@/hooks/useStackActions"
 import type { Commit, MoveCommitsResult } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { invokeCommand, showUndoToast } from "@/lib/command"
+import { showUndoToast } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
-import { notifyError } from "@/lib/errors"
 import { capitalize, countMoved, describeMove } from "@/lib/move-summary"
-import { branchSyncStore, syncBranches } from "@/stores/branch-sync"
+import { runRewrite } from "@/lib/rewrite"
+import { branchSyncStore, getBranchesOfCommits } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
+import { branchSubject } from "@/stores/operations"
 import { getSelectedProject } from "@/stores/repository"
+
+export interface MoveOptions {
+  /** The action, as the id of its item: "move-to" by default, "ungroup", "remove-prefix" */
+  id?: string
+  /** The busy state, "Moving 3 commits to auth" by default */
+  label?: string
+  /** The surface that started it and shows its spinner (`SelectContext.surface`) */
+  surface?: string | null
+}
 
 /**
  * Moves commits to `targetBranch` (an existing or a new branch), or back (`null`: out of their prefix branch or out of
  * the issue group of their key), with the smallest change (`move_commits_to_branch`): a whole issue goes by the issue
- * groups, without a rewrite, the other commits by their `(branch)` prefix. Then syncs, reveals the moved commits in the
- * target branch and offers an undo of the whole move; when a stacked branch of the move builds alone afterwards, the
- * toast also offers its unstack. Resolves (before the sync ends) to false, after an error toast, if the commits could
- * not be moved.
+ * groups, without a rewrite, the other commits by their `(branch)` prefix. One rewrite (`runRewrite`): the move, the
+ * sync, then the toast with an undo of the whole move and the moved commits revealed in the target branch; when a
+ * stacked branch of the move builds alone afterwards, the toast also offers its unstack. Resolves after the sync, to
+ * false, after an error toast, if the commits could not be moved.
  */
-export async function moveCommits(commits: readonly Commit[], targetBranch: string | null): Promise<boolean> {
-  const stacked = stackedBranchesOfMove(commits, targetBranch)
-  const result = await invokeCommand(() =>
-    commands.moveCommitsToBranch({
-      repositoryPath: getSelectedProject()?.path ?? "",
-      commitIds: commits.map(commit => commit.originalHash),
-      targetBranch,
-    }),
+export async function moveCommits(commits: readonly Commit[], targetBranch: string | null, options: MoveOptions = {}): Promise<boolean> {
+  const sources = getBranchesOfCommits(commits.map(commit => commit.originalHash))
+  const stacked = stackedBranchesOfMove(sources, targetBranch)
+  const objects = [...new Set([...sources, ...(targetBranch === null ? [] : [targetBranch])])]
+  const commitCount = formatCommitCount(commits.length)
+  const result = await runRewrite(
+    {
+      id: options.id ?? "move-to",
+      subject: branchSubject(sources[0] ?? targetBranch ?? ""),
+      objects,
+      label: options.label ?? (targetBranch === null ? `Moving ${commitCount} back` : `Moving ${commitCount} to ${targetBranch}`),
+      surface: options.surface,
+    },
+    targetBranch === null ? "Cannot move the commits back" : `Cannot move the commits to ${targetBranch}`,
+    () =>
+      commands.moveCommitsToBranch({
+        repositoryPath: getSelectedProject()?.path ?? "",
+        commitIds: commits.map(commit => commit.originalHash),
+        targetBranch,
+      }),
+    moved => {
+      const count = countMoved(moved)
+      if (count === 0) {
+        return { sync: false, after: () => toast.add({ type: "info", title: targetBranch === null ? "Nothing to move back" : `Already in ${moved.target ?? targetBranch}` }) }
+      }
+      const target = moved.target ?? null
+      requestReveal(target === null ? null : { branchName: target, commitIds: movedIds(moved) })
+      const description = describeMove(moved, target, true)
+      return {
+        sync: true,
+        after: () => {
+          const toastId = showUndoToast(
+            moveTitle(moved, target, count),
+            () => undoRegroup(moved.undoToken, "Cannot undo the move", "Undoing the move"),
+            description === undefined ? undefined : capitalize(description),
+          )
+          void offerUnstackAfterMove(toastId, stacked, target)
+        },
+      }
+    },
   )
-  if (result.status !== "ok") {
-    notifyError(targetBranch === null ? "Cannot move the commits back" : `Cannot move the commits to ${targetBranch}`, result.error)
-    return false
-  }
-
-  const moved = result.data
-  const count = countMoved(moved)
-  if (count === 0) {
-    toast.add({ type: "info", title: targetBranch === null ? "Nothing to move back" : `Already in ${moved.target ?? targetBranch}` })
-    return true
-  }
-
-  const target = moved.target ?? null
-  requestReveal(target === null ? null : { branchName: target, commitIds: movedIds(moved) })
-  const description = describeMove(moved, target, true)
-  const toastId = showUndoToast(
-    moveTitle(moved, target, count),
-    () => undoRegroup(moved.undoToken, "Cannot undo the move"),
-    description === undefined ? undefined : capitalize(description),
-  )
-  // the form closes when the commits moved; the lists follow when the sync is done
-  void syncBranches({ autoScroll: false, autoExpand: false })
-  // after the toast: the move stays as fast as before
-  void offerUnstackAfterMove(toastId, stacked, target)
-  return true
+  return result !== null
 }
 
 /** The target and the source branches of a move that are stacked, as the last sync knows them: the target first */
-function stackedBranchesOfMove(commits: readonly Commit[], targetBranch: string | null): string[] {
+function stackedBranchesOfMove(sources: readonly string[], targetBranch: string | null): string[] {
   const { branches } = branchSyncStore.getState()
-  const sources = Object.values(branches)
-    .filter(branch => commits.some(commit => branch.commitIndex[commit.originalHash] !== undefined))
-    .map(branch => branch.name)
   const names = [...new Set([...(targetBranch === null ? [] : [targetBranch]), ...sources])]
   return names.filter(name => (branches[name]?.stack?.declaredParent ?? null) !== null)
 }

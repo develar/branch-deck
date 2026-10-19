@@ -14,6 +14,7 @@ import { formatCommitCount } from "@/lib/commit"
 import type { LandingNode } from "@/lib/landing-node"
 import type { LandingOverview, LandingUnit } from "@/lib/landing-overview"
 import { formatLandingTitle, urgentKindOf } from "@/lib/landing-overview"
+import { FROM_MENU } from "@/lib/menu"
 import type { RobotOverviewEntry } from "@/lib/robot-overview"
 import { requestReveal } from "@/stores/commit-move"
 import { useShowReviewReadiness } from "@/stores/review-readiness"
@@ -240,7 +241,7 @@ function LandingRow({ name, node, subject = { kind: "branch", name }, size, step
                 onClose()
                 // the step runs at the row: its popovers (Safe Push, Request Review…) open at its slot
                 requestReveal({ branchName: stepOwner, commitIds: [] })
-                item.onSelect()
+                item.onSelect(FROM_MENU)
               },
             }}
             tone={step!.tone}

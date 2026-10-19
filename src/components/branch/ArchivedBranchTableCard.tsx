@@ -25,7 +25,8 @@ import { getSimpleBranchName } from "@/lib/branch"
 import type { MenuItemGroups } from "@/lib/menu"
 import { deleteArchivedBranch, useArchivedBranch, useArchivedBranchOrder, useIsNewlyArchived, useNotMergedArchivedCount } from "@/stores/archived-branches"
 import { syncBranches } from "@/stores/branch-sync"
-import { closeInline, isProcessing, openInline, portalTargetIdFor, useActiveInlineForRow, withRowProcessing } from "@/stores/inline-row-action"
+import { closeInline, inlineSurface, openInline, portalTargetIdFor, useActiveInlineForRow, withRowProcessing } from "@/stores/inline-row-action"
+import { useSurfaceBusy } from "@/stores/operations"
 
 const InlineDeleteConfirmationInput = lazy(() => import("@/components/branch/InlineDeleteConfirmationInput").then(it => ({ default: it.InlineDeleteConfirmationInput })))
 
@@ -98,11 +99,12 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
   const branch = useArchivedBranch(name)
   const isNew = useIsNewlyArchived(name)
   const activeInline = useActiveInlineForRow(name)
+  // the delete runs from the form below the row
+  const processing = useSurfaceBusy(inlineSurface(name)) !== null
   if (branch === undefined) {
     return null
   }
 
-  const processing = activeInline?.processing === true
   const toggle = () => onToggleExpanded(name)
 
   return (
@@ -185,18 +187,14 @@ function getArchivedContextMenuItems(name: string): MenuItemGroups {
 }
 
 async function confirmDelete(branchName: string): Promise<void> {
-  if (isProcessing(branchName)) {
-    return
-  }
-
   const deleted = await withRowProcessing(
     branchName,
+    { id: "delete-archived", kind: "remote", label: `Deleting ${getSimpleBranchName(branchName)}` },
     async () => {
       await deleteArchivedBranch(branchName)
       return true
     },
     {
-      processingMessage: `Deleting ${getSimpleBranchName(branchName)}…`,
       success: () => ({ title: `Deleted the archived branch ${getSimpleBranchName(branchName)}` }),
       errorTitle: () => `Cannot delete the archived branch ${getSimpleBranchName(branchName)}`,
       // the typed name stays

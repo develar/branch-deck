@@ -2,10 +2,11 @@ import { lazy, Suspense } from "react"
 import { CombineIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { useListFixups } from "@/hooks/useSquashFixups"
+import { squashFixupsSurface, useListFixups } from "@/hooks/useSquashFixups"
 import { formatSquashFixupsLabel } from "@/lib/autosquash"
 import { UNASSIGNED_SOURCE } from "@/stores/commit-move"
 import { closeInline, openInline, useActiveInlineForRow } from "@/stores/inline-row-action"
+import { useSurfaceBusy } from "@/stores/operations"
 
 const loadSquashFixupsPopover = () => import("@/components/commit/SquashFixupsPopover")
 const SquashFixupsPopover = lazy(() => loadSquashFixupsPopover().then(it => ({ default: it.SquashFixupsPopover })))
@@ -19,6 +20,7 @@ export function SquashFixupsButton({ branch }: { branch: string | null }) {
   const key = branch ?? UNASSIGNED_SOURCE
   const activeInline = useActiveInlineForRow(key)
   const open = activeInline?.type === "squash-fixups"
+  const squashing = useSurfaceBusy(squashFixupsSurface(key)) !== null
   if (count === 0) {
     return null
   }
@@ -31,7 +33,7 @@ export function SquashFixupsButton({ branch }: { branch: string | null }) {
           openInline("squash-fixups", key)
         }
         // nothing closes it while the squash runs (as the squash dialog): the squash closes it
-        else if (open && !activeInline.processing) {
+        else if (open && !squashing) {
           closeInline()
         }
       }}

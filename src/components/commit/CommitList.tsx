@@ -14,7 +14,7 @@ import { beginCommitDrag } from "@/hooks/useCommitDrag"
 import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
 import { commitReviewBlocker, getCommitReviewMenuItems } from "@/hooks/useCommitReviewActions"
 import { usePreviewHotkeys } from "@/hooks/usePreviewHotkeys"
-import { getRewordMenuItem, rewordCommit } from "@/hooks/useRewordCommit"
+import { getRewordMenuItem, REWORD_SURFACE, rewordCommit } from "@/hooks/useRewordCommit"
 import type { RowSelection } from "@/hooks/useRowSelection"
 import { describeFixupTarget, getFixupTarget } from "@/lib/autosquash"
 import { reviewBranchCommit } from "@/lib/branch-review-window"
@@ -164,9 +164,14 @@ export function CommitList<T extends CommitUnion>({
     setIsPreviewLoaded(true)
   }, [])
   const saveMessage = (commit: CommitUnion, message: string) =>
-    rewordCommit(commit, message, newCommitId => {
-      setPreview({ hash: getCommitHash(commit), nextHash: newCommitId })
-    })
+    rewordCommit(
+      commit,
+      message,
+      newCommitId => {
+        setPreview({ hash: getCommitHash(commit), nextHash: newCommitId })
+      },
+      REWORD_SURFACE,
+    )
   const tableRef = useRef<HTMLTableElement>(null)
   // the commit the preview showed last (↑/↓ stepped): its close focuses the list, and the keys of a row (Space, D) act on
   // that commit while the pointer is on no row, until a click of a row

@@ -12,7 +12,7 @@ import type { MenuItemGroups } from "@/lib/menu"
 import { getPushAction } from "@/lib/push-summary"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranch, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
-import { useIsRowProcessing } from "@/stores/inline-row-action"
+import { branchSubject, useObjectBusy, useOperations, useUnclaimedBusy } from "@/stores/operations"
 import { usePushHold } from "@/stores/patronus"
 import { getFullBranchName } from "@/stores/repository"
 
@@ -34,7 +34,9 @@ export interface BranchActionsProps {
  * cell, on a disabled button too, doesn't toggle the row.
  */
 export function BranchActions({ branch, setExpanded, stackPushInHeader = false }: BranchActionsProps) {
-  const processing = useIsRowProcessing(branch.name)
+  const processing = useObjectBusy(branch.name) !== null
+  // an action of the row started from its menu, a key or a toast shows its spinner on "⋯"
+  const unclaimedBusy = useUnclaimedBusy(branchSubject(branch.name))
   const isPushing = useIsBranchPushing(branch.name)
   const startedStackPush = useStackPush(branch.name)
   // one indicator of a stack push: the island header of the stack it pushes, or the row it started from; so is the push
@@ -60,7 +62,12 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
       />
       {canPush && <PushSlot branch={branch} upToDate={upToDate} stackPushInHeader={stackPushInHeader} />}
       <NextStepSlot branch={branch} wholeStackInHeader={stackPushInHeader} />
-      <MoreActionsMenu name={branch.name} disabled={processing} menu={<BranchMenuItems name={branch.name} setExpanded={setExpanded} Items={DropdownMenuItems} />} />
+      <MoreActionsMenu
+        name={branch.name}
+        disabled={processing}
+        busy={unclaimedBusy}
+        menu={<BranchMenuItems name={branch.name} setExpanded={setExpanded} Items={DropdownMenuItems} />}
+      />
     </RowActions>
   )
 }
@@ -126,8 +133,10 @@ export interface BranchMenuItemsProps {
  */
 export function BranchMenuItems({ name, setExpanded, Items }: BranchMenuItemsProps) {
   const branch = useBranch(name)
+  // an open menu follows the actions that start and end: a running one says so, the rewrites wait for it
+  const operations = useOperations()
   if (branch === undefined) {
     return null
   }
-  return <Items groups={getBranchContextMenuItems(branch, setExpanded)} />
+  return <Items groups={getBranchContextMenuItems(branch, setExpanded, operations)} />
 }

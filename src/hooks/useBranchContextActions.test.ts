@@ -6,19 +6,21 @@ import { getBranchContextMenuItems, getSafePushBlocker } from "@/hooks/useBranch
 import type { MenuItem } from "@/lib/menu"
 import type { Branch, RemoteStatus, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { branchSyncStore } from "@/stores/branch-sync"
-import { inlineRowActionStore } from "@/stores/inline-row-action"
+import { operationsStore } from "@/stores/operations"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
 describe("getSafePushBlocker", () => {
   afterEach(() => {
-    inlineRowActionStore.setState({ activeInline: null })
+    operationsStore.setState({ running: [] })
   })
 
   it("says why a branch can't start a Safe Push, in the words of every surface that offers it", () => {
     expect(getSafePushBlocker(testBranch("login", null))).toBeNull()
     expect(getSafePushBlocker(testBranch("login", null, { hasError: true }))).toBe("The branch failed to sync")
     expect(getSafePushBlocker(testBranch("login", null, { commitCount: 0 }))).toBe("No commits to push")
-    inlineRowActionStore.setState({ activeInline: { type: "rename", branchName: "login", processing: true } })
+    operationsStore.setState({
+      running: [{ key: 1, id: "rename", subject: "branch:login", objects: ["login"], kind: "rewrite", label: "Renaming login to auth", repositoryPath: "", surface: null }],
+    })
     expect(getSafePushBlocker(testBranch("login", null))).toBe("Wait for the action on the branch to finish")
   })
 })
@@ -36,7 +38,7 @@ function setBranches(...branches: Branch[]): void {
 }
 
 function menuOf(name: string): MenuItem[] {
-  return getBranchContextMenuItems(branchSyncStore.getState().branches[name]!, () => {}).flat()
+  return getBranchContextMenuItems(branchSyncStore.getState().branches[name]!, () => {}, operationsStore.getState().running).flat()
 }
 
 describe("the items of the branch menu", () => {

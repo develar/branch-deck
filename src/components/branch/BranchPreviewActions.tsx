@@ -13,10 +13,12 @@ import { getCreatePullRequestItem } from "@/hooks/useBranchContextActions"
 import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { ClosePreviewContext } from "@/hooks/useClosePreview"
 import type { MenuItemGroups } from "@/lib/menu"
+import { FROM_MENU } from "@/lib/menu"
 import { toPreviewMenu } from "@/lib/menu"
 import { openPullRequest } from "@/lib/pull-request"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
+import { branchSubject, useUnclaimedBusy } from "@/stores/operations"
 import { usePatronusAvailable } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
 
@@ -58,7 +60,7 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
                 className={cn(createItem.disabled === true && "opacity-50")}
                 onClick={() => {
                   closePreview?.()
-                  createItem.onSelect()
+                  createItem.onSelect(FROM_MENU)
                 }}
               />
             }
@@ -80,7 +82,9 @@ export function BranchPreviewActions({ branch }: { branch: Branch }) {
  * expanded form offers what the compact one does; the footer keeps the keyed actions
  */
 export function BranchPreviewMenu({ name }: { name: string }) {
-  return <MoreActionsMenu name={name} menu={<BranchMenuItems name={name} setExpanded={expandRow} Items={PreviewMenuItems} />} />
+  // an action started from this menu shows its spinner here, as on the row's "⋯"
+  const busy = useUnclaimedBusy(branchSubject(name))
+  return <MoreActionsMenu name={name} busy={busy} menu={<BranchMenuItems name={name} setExpanded={expandRow} Items={PreviewMenuItems} />} />
 }
 
 /** The keys the preview handles itself (`BranchPreviewDialog`): only their hints are shown in its menu */

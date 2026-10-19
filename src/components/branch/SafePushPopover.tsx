@@ -31,6 +31,7 @@ import { openBranchReviewWindow, openWholeStackReviewWindow, toReviewGroups } fr
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
+import { FROM_MENU } from "@/lib/menu"
 import { formatPushMode, formatReviewerGroup, formatReviewerGroupFiles } from "@/lib/patronus"
 import { openMergeRequest } from "@/lib/patronus-merge-request"
 import type { StackAlone } from "@/lib/patronus-stack"
@@ -47,6 +48,7 @@ import {
   stackRootOfReadinessKey,
 } from "@/lib/whole-stack"
 import { getBranch, useBranchSync, wholeStackRootIn } from "@/stores/branch-sync"
+import { useIndicatorClaim, useObjectBusy } from "@/stores/operations"
 import { usePullRequest, useStackPullRequest } from "@/stores/pull-requests"
 import type { SafePushAsk, SafePushMode, SafePushPlacement } from "@/stores/safe-push"
 import { closeSafePushPopover } from "@/stores/safe-push"
@@ -99,7 +101,10 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
   const branchPullRequest = usePullRequest(branchName)
   const stackPullRequest = useStackPullRequest(root ?? "")
   const pullRequest = root === null ? branchPullRequest : stackPullRequest
-  const [isRegrouping, setRegrouping] = useState(false)
+  // the unstack and the move it offers run from here (its status line shows them); any operation on the branch holds the start
+  const surface = `safe-push-popover:${branchName}`
+  useIndicatorClaim(surface)
+  const busy = useObjectBusy(branchName)
   const startRef = useRef<HTMLButtonElement>(null)
   const popupRef = useRef<HTMLDivElement>(null)
 
@@ -113,7 +118,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
   }, [branchName, root])
 
   const decision = read?.decision ?? { kind: "wait" as const, what: `Reading ${subject}…` }
-  const canStart = (decision.kind === "start" || decision.kind === "confirm") && !isRegrouping
+  const canStart = (decision.kind === "start" || decision.kind === "confirm") && busy === null
   // a start enabled later (its facts loaded): Enter starts it, unless the user moved to a control of the popover; after
   // the frame in which Base UI moves the focus into the popup, which it does after the first effects
   const canStartRef = useRef(canStart)
@@ -150,20 +155,15 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
     close()
     void requestSafePush(branchName, { mode: "dryRun", via: "click", placement: ask.placement })
   }
-  /** The unstack, awaited with its sync: the popover reads the branch alone then, with its review; no start */
-  const unstack = async () => {
-    setRegrouping(true)
-    await restackBranch(branchName, null, { awaitSync: true })
-    setRegrouping(false)
-  }
+  /** The unstack, with its sync: the popover reads the branch alone then, with its review; no start */
+  const unstack = () => void restackBranch(branchName, null, { surface })
   /** The move of the needed commits into the branch, then the check again */
-  const moveHere = async (commits: readonly StackCommit[]) => {
-    setRegrouping(true)
-    if (await moveCommits(syncedCommits(commits), branchName)) {
-      independence.recheck()
-    }
-    setRegrouping(false)
-  }
+  const moveHere = (commits: readonly StackCommit[]) =>
+    void moveCommits(syncedCommits(commits), branchName, { surface }).then(moved => {
+      if (moved) {
+        independence.recheck()
+      }
+    })
 
   const target = read?.facts.target ?? ""
   const landing =
@@ -214,9 +214,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
           {title}
         </h2>
         {read !== null && <Lines read={read} landing={landing} pullRequest={pullRequest} onProfile={setChosenProfile} />}
-        {landing?.alone != null && read !== null && (
-          <AloneOption alone={landing.alone} disabled={isRegrouping} onUnstack={() => void unstack()} onMove={commitsToMove => void moveHere(commitsToMove)} />
-        )}
+        {landing?.alone != null && read !== null && <AloneOption alone={landing.alone} disabled={busy !== null} onUnstack={unstack} onMove={moveHere} />}
         {wholeStackItem !== undefined && wholeStackRoot !== null && <WholeStackOption root={wholeStackRoot} item={wholeStackItem} mode={mode} onSelect={close} />}
         {independence.state.status === "loading" && (
           <p className="flex items-center gap-2 text-muted-foreground" data-testid="safe-push-alone-checking">
@@ -225,7 +223,7 @@ export function SafePushPopover({ ask, anchor }: { ask: SafePushAsk; anchor: Ref
           </p>
         )}
         <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
-          <Status read={read} isRegrouping={isRegrouping} placement={ask.placement} onPiece={close} />
+          <Status read={read} busy={busy} placement={ask.placement} onPiece={close} />
           {mode === "rebaseAutosquash" && (
             <Button size="xs" variant="ghost" onClick={dryRun} data-testid="safe-push-dry-run">
               <FlaskConicalIcon data-icon="inline-start" />
@@ -526,13 +524,14 @@ function ReviewChanges({ branchName, requirement }: { branchName: string; requir
 }
 
 /** What the start waits for, why it can't start (the push alone where it helps), or nothing: left of the buttons */
-function Status({ read, isRegrouping, placement, onPiece }: { read: SafePushRead | null; isRegrouping: boolean; placement: SafePushPlacement; onPiece: () => void }) {
+function Status({ read, busy, placement, onPiece }: { read: SafePushRead | null; busy: string | null; placement: SafePushPlacement; onPiece: () => void }) {
   const decision = read?.decision ?? null
-  if (isRegrouping) {
+  // an operation on the branch: the unstack or the move started here ("Unstacking auth…"), or one started before
+  if (busy !== null) {
     return (
-      <p className="mr-auto flex items-center gap-2 text-muted-foreground" data-testid="safe-push-status">
+      <p className="mr-auto flex items-center gap-2 text-muted-foreground" data-testid="safe-push-status" aria-busy>
         <Spinner className="size-4" />
-        Regrouping…
+        {`${busy}…`}
       </p>
     )
   }
@@ -582,7 +581,7 @@ function WholeStackOption({ root, item, mode, onSelect }: { root: string; item: 
       data-testid="safe-push-whole-stack"
       onClick={() => {
         onSelect()
-        item.onSelect()
+        item.onSelect(FROM_MENU)
       }}
     >
       {mode === "dryRun" ? <FlaskConicalIcon data-icon="inline-start" /> : <ShieldCheckIcon data-icon="inline-start" />}

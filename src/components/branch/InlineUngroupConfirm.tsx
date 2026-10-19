@@ -4,12 +4,12 @@ import { Callout } from "@/components/shared/Callout"
 import { InlineForm } from "@/components/shared/InlineForm"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { getStackChildren, useBranch } from "@/stores/branch-sync"
-import { closeInline, useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
+import { closeInline, inlineSurface, useInlineProcessing, withRowProgress } from "@/stores/inline-row-action"
 
 /** Confirms ungrouping a branch that other branches stack on: they keep naming it as their parent and go on the baseline */
 export function InlineUngroupConfirm({ branchName }: { branchName: string }) {
   const branch = useBranch(branchName)
-  const processing = useIsRowProcessing(branchName)
+  const processing = useInlineProcessing(branchName) !== null
   const children = getStackChildren(branchName)
 
   return (
@@ -24,7 +24,9 @@ export function InlineUngroupConfirm({ branchName }: { branchName: string }) {
       onCancel={closeInline}
       onSubmit={() => {
         if (branch !== undefined) {
-          void withRowProgress(branchName, () => moveCommits(branch.commits, null), { processingMessage: `Ungrouping ${branchName}…`, keepFormOnFailure: true })
+          void withRowProgress(branchName, () => moveCommits(branch.commits, null, { id: "ungroup", label: `Ungrouping ${branchName}`, surface: inlineSurface(branchName) }), {
+            keepFormOnFailure: true,
+          })
         }
       }}
     >

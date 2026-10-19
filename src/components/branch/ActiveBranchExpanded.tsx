@@ -1,21 +1,23 @@
 import { useMemo } from "react"
 import type { CSSProperties, ReactNode } from "react"
 import { cn } from "cn"
-import { InfoIcon, Layers2Icon, TriangleAlertIcon } from "lucide-react"
+import { InfoIcon, TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { FamilyGuide, LanesBelow } from "@/components/branch/StackLanes"
 import { CommitSelectionActions, MovableCommitList } from "@/components/commit/MovableCommitList"
 import { SquashFixupsButton } from "@/components/commit/SquashFixupsButton"
+import { MenuItemButton } from "@/components/shared/MenuItemButton"
 import { useBaselineOnRemote } from "@/hooks/useBaselineOnRemote"
+import { getBranchUnstackItem } from "@/hooks/useBranchContextActions"
 import { hasSelectionActions, useCommitMoveList } from "@/hooks/useCommitMoveList"
 import { useListFixups } from "@/hooks/useSquashFixups"
-import { restackBranch } from "@/hooks/useStackActions"
 import { blockingBranchOf, describeParentState, passedParentOf } from "@/lib/stack"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { laneContentInsetClass } from "@/lib/stack-lanes"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
+import { useOperations } from "@/stores/operations"
 
 export interface ActiveBranchExpandedProps {
   branch: Branch
@@ -107,12 +109,15 @@ function BlockedAlert({ branch }: { branch: Branch }) {
 /**
  * Where a stacked branch is built while its declared parent has no commits, and why: "Built on master: air-misc
  * landed." The tone follows the parent: `info` landed (in the baseline), `warning` no commits (likely a typo), neutral
- * unapplied. The only fix that rewrites prefixes is the user's: Unstack.
+ * unapplied. The only fix that rewrites prefixes is the user's: Unstack, the item of the branch's menu
+ * (`getBranchUnstackItem`), its spinner here while it runs.
  */
 function PassedParentAlert({ branch }: { branch: Branch }) {
   const baseline = useBaselineOnRemote()
+  const operations = useOperations()
   const passed = passedParentOf(branch)
-  if (passed === null) {
+  const unstack = getBranchUnstackItem(branch, operations)
+  if (passed === null || unstack === null) {
     return null
   }
   const base = branch.stack?.effectiveBase ?? baseline
@@ -123,10 +128,7 @@ function PassedParentAlert({ branch }: { branch: Branch }) {
       {passed.state === "Missing" ? <TriangleAlertIcon /> : <InfoIcon />}
       <AlertDescription className="flex flex-wrap items-center gap-x-2">
         <span>{`Built on ${base}: ${describeParentState(passed.parent, passed.state)}.`}</span>
-        <Button variant="link" size="xs" className={cn("h-auto px-0", linkTone)} onClick={() => void restackBranch(branch.name, null)}>
-          <Layers2Icon data-icon="inline-start" />
-          {`Unstack from ${passed.parent}`}
-        </Button>
+        <MenuItemButton item={unstack} variant="link" surface={`unstack-alert:${branch.name}`} className={cn("h-auto px-0", linkTone)} data-testid="unstack-from-parent" />
       </AlertDescription>
     </Alert>
   )

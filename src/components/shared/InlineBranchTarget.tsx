@@ -15,6 +15,7 @@ import { formatCommitCount, groupFor } from "@/lib/commit"
 import { countMoved, describeMove, formatKeys } from "@/lib/move-summary"
 import { useBranchSync, useMoveTargets, useStackParents, useStacksEnabled } from "@/stores/branch-sync"
 import type { Branch } from "@/stores/branch-sync"
+import { useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
 import { useSelectedProjectPath } from "@/stores/repository"
 
 /** Existing branches offered as chips */
@@ -36,11 +37,16 @@ export interface InlineBranchTargetProps {
  * A dry run of the move says what it does: the issues that go there by their key, without a rewrite, and the commits
  * that get the prefix; a source branch already pushed keeps its remote branch.
  */
+/** The surface of the move this form starts */
+const MOVE_TARGET_SURFACE = "move-target"
+
 export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel, onSuccess }: InlineBranchTargetProps) {
   const repositoryPath = useSelectedProjectPath() ?? ""
   const sourceBranch = sourceBranches.length === 1 ? sourceBranches[0]! : null
   const targets = useMoveTargets(sourceBranch, MAX_TARGET_CHIPS)
-  const [isMoving, setIsMoving] = useState(false)
+  // the move runs from here: the form shows its progress until its sync shows the commits moved
+  useIndicatorClaim(MOVE_TARGET_SURFACE)
+  const isMoving = useSurfaceBusy(MOVE_TARGET_SURFACE) !== null
 
   const [branchName, setBranchName] = useState("")
   const stacks = useStacksEnabled()
@@ -90,9 +96,7 @@ export function InlineBranchTarget({ commits, sourceBranches, isActive, onCancel
   }
 
   const submit = async () => {
-    setIsMoving(true)
-    const success = await moveCommits(commits, sanitizedBranchName)
-    setIsMoving(false)
+    const success = await moveCommits(commits, sanitizedBranchName, { surface: MOVE_TARGET_SURFACE })
     if (success) {
       setBranchName("")
       onSuccess()

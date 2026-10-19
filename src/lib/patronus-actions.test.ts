@@ -1,6 +1,7 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot } from "@/lib/bindings"
+import { FROM_MENU } from "@/lib/menu"
 import { getRobotActions } from "@/lib/patronus-actions"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
@@ -118,9 +119,9 @@ describe("getRobotActions", () => {
     expect(labels(failed, blocked)[0]).toMatch(/^Restart Safe Push \(disabled: .+\)$/)
 
     const [restart] = getRobotActions(failed, branch({ remoteStatus: pushedSince }))
-    restart!.onSelect()
+    restart!.onSelect(FROM_MENU)
     const [pushAndRestart] = getRobotActions(failed, branch({ remoteStatus: unpushed }))
-    pushAndRestart!.onSelect()
+    pushAndRestart!.onSelect(FROM_MENU)
     // the restart takes the commit just pushed, and its toast is the one of the action
     await vi.waitFor(() => expect(calls).toEqual(["restart r1", "push IJPL-1, restart r1, announce false"]))
   })
@@ -130,7 +131,7 @@ describe("getRobotActions", () => {
     const actions = getRobotActions(running, branch({ remoteStatus: unpushed }))
     expect(actions.map(it => it.id)).toEqual(["push-and-restart-robot", "cancel-robot", "open-robot"])
     expect(actions[0]!.description).toMatch(/^Cancels the run on .+, pushes IJPL-1 and starts it again on the pushed commit$/)
-    actions[0]!.onSelect()
+    actions[0]!.onSelect(FROM_MENU)
     await vi.waitFor(() => expect(calls).toEqual(["push IJPL-1, restart r1, announce false"]))
   })
 
@@ -159,7 +160,7 @@ describe("getRobotActions", () => {
     stacks.set("air", airStack(testRemoteStatus({ remoteTip: "stack-tip", unpushedCommits: ["s1"], commitsAhead: 1, myCommitsAhead: 1 })))
     const [pushAndRestart] = getRobotActions(whole, null)
     expect(pushAndRestart!.id).toBe("push-and-restart-robot")
-    pushAndRestart!.onSelect()
+    pushAndRestart!.onSelect(FROM_MENU)
     await vi.waitFor(() => expect(calls).toEqual(["push the whole air stack, restart whole"]))
 
     // the Safe Pushes of deploy and side-test landed all of it: nothing of it is left to restart, with or without a push
@@ -180,7 +181,7 @@ describe("getRobotActions", () => {
       ["open-robot-pull-request", "Open Pull Request #12"],
     ])
     for (const action of actions) {
-      action.onSelect()
+      action.onSelect(FROM_MENU)
     }
     await vi.waitFor(() => expect(calls).toEqual(["cancel r1"]))
     expect(vi.mocked(openUrl).mock.calls.map(([url]) => url)).toEqual(["https://patronus/robot/r1", "https://github.com/acme/monorepo/pull/12"])

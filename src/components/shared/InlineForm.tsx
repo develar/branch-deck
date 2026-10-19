@@ -4,7 +4,8 @@ import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { useInlineRowAction } from "@/stores/inline-row-action"
+import { inlineSurface, useInlineProcessing, useInlineRowAction } from "@/stores/inline-row-action"
+import { useIndicatorClaim } from "@/stores/operations"
 
 export interface InlineFormProps {
   title: string
@@ -71,8 +72,12 @@ export function InlineForm({
   autoFocusRef,
   focusSubmit = false,
 }: InlineFormProps) {
-  const processing = useInlineRowAction(state => state.activeInline?.processing === true)
-  const processingMessage = useInlineRowAction(state => (state.activeInline?.processing ? state.activeInline.processingMessage : undefined))
+  // the form shows the operation it started in place of itself (`withRowProcessing`, `withRowProgress`)
+  const rowKey = useInlineRowAction(state => state.activeInline?.branchName ?? "")
+  useIndicatorClaim(rowKey === "" ? undefined : inlineSurface(rowKey))
+  const busy = useInlineProcessing(rowKey)
+  const processing = busy !== null
+  const processingMessage = busy === null ? undefined : `${busy}…`
 
   const containerRef = useRef<HTMLDivElement>(null)
   const submitRef = useRef<HTMLButtonElement>(null)

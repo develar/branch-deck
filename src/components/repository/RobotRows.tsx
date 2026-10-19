@@ -9,6 +9,7 @@ import { usePatronusRobotDetails } from "@/hooks/usePatronusRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import type { PatronusRobot } from "@/lib/bindings"
 import { formatFailedChecks } from "@/lib/check-counts"
+import { FROM_MENU } from "@/lib/menu"
 import { formatPushMode, openRobot, robotRingColor } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { patronusChipIcons } from "@/lib/patronus-icons"
@@ -201,7 +202,7 @@ function IconAction({ action, label }: { action: RobotAction; label: string }) {
             focusableWhenDisabled
             className={cn("text-muted-foreground", action.disabled && "opacity-50")}
             aria-label={label}
-            onClick={action.onSelect}
+            onClick={() => action.onSelect(FROM_MENU)}
           />
         }
       >

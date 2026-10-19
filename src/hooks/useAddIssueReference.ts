@@ -7,8 +7,8 @@ import { withRowProcessing } from "@/stores/inline-row-action"
 import { getSelectedProject } from "@/stores/repository"
 
 /**
- * Prefixes the branch commits with the issue reference while the inline form shows its progress, then re-syncs. A
- * failure keeps the form with the typed reference.
+ * Prefixes the branch commits with the issue reference, then re-syncs, while the inline form shows its progress: one
+ * operation. A failure keeps the form with the typed reference.
  */
 export async function addIssueReference(issueReference: string, branch: Branch): Promise<void> {
   const commits = branch.commits.map(commit => ({ hash: commit.originalHash, message: commit.message }))
@@ -18,8 +18,9 @@ export async function addIssueReference(issueReference: string, branch: Branch):
     return
   }
 
-  const data = await withRowProcessing(
+  await withRowProcessing(
     branch.name,
+    { id: "add-issue-reference", kind: "rewrite", label: `Adding ${issueReference} to ${branch.name}` },
     async () => {
       const result = await commands.addIssueReferenceToCommits({
         repositoryPath: getSelectedProject()?.path ?? "",
@@ -30,10 +31,11 @@ export async function addIssueReference(issueReference: string, branch: Branch):
       if (result.status !== "ok") {
         throw new Error(result.error.message)
       }
+      // refresh without auto-expand or auto-scroll
+      await syncBranches({ autoScroll: false, autoExpand: false })
       return result.data
     },
     {
-      processingMessage: `Adding ${issueReference} to ${branch.name}…`,
       success: ({ updatedCount, skippedCount }) => {
         if (updatedCount === 0) {
           return { type: "info", title: `Nothing to add to ${branch.name}`, description: "Every commit has an issue reference already." }
@@ -45,9 +47,4 @@ export async function addIssueReference(issueReference: string, branch: Branch):
       keepFormOnError: true,
     },
   )
-
-  if (data) {
-    // refresh without auto-expand or auto-scroll
-    void syncBranches({ autoScroll: false, autoExpand: false })
-  }
 }

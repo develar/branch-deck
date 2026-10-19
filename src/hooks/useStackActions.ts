@@ -4,63 +4,68 @@ import { commands } from "@/lib/bindings"
 import { invokeCommand, showUndoToast } from "@/lib/command"
 import type { CommandResult } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
-import { notifyError } from "@/lib/errors"
 import { countMoved } from "@/lib/move-summary"
+import { runRewrite } from "@/lib/rewrite"
+import type { RewriteSpec } from "@/lib/rewrite"
 import { formatMoveUnstackAction } from "@/lib/stack"
-import { syncBranches } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
+import { branchSubject } from "@/stores/operations"
 import { getEffectiveBranchPrefix, getSelectedProject } from "@/stores/repository"
 import { forgetCollapsedStack, renameCollapsedStack } from "@/stores/stack-collapse"
 
 export interface StackOperationOptions {
-  /** Resolve after the sync, so that the caller sees the branches as the operation left them; else before it */
-  awaitSync?: boolean
+  /** The surface that started it and shows its spinner (`SelectContext.surface`) */
+  surface?: string | null
+  /** The busy state, when the form that starts it says more ("Naming the branch auth") */
+  label?: string
 }
 
 /**
- * Runs a regroup of a stack operation, then offers an undo (of the messages, the issue groups and the stack
- * parents, in one transaction), syncs and reveals `revealBranch`
+ * Runs a regroup of a stack operation as one rewrite (`runRewrite`): the command, the sync, then the toast with an undo
+ * (of the messages, the issue groups and the stack parents, in one transaction); reveals `revealBranch`
  */
 async function runStackOperation(
+  spec: RewriteSpec,
   operation: () => Promise<CommandResult<MoveCommitsResult>>,
   failureTitle: string,
   /** `suffix` is " (3 commits)", or empty when no commit moved */
   successTitle: (suffix: string) => string,
   revealBranch: string,
-  options: StackOperationOptions = {},
 ): Promise<boolean> {
-  const result = await invokeCommand(operation)
-  if (result.status !== "ok") {
-    notifyError(failureTitle, result.error)
-    return false
-  }
-  const { undoToken } = result.data
-  if (undoToken == null) {
-    toast.add({ type: "info", title: "Nothing to change" })
-    return true
-  }
-  requestReveal({ branchName: revealBranch, commitIds: [] })
-  // a change of the stack parents alone moves no commit
-  const moved = countMoved(result.data)
-  showUndoToast(successTitle(moved === 0 ? "" : ` (${formatCommitCount(moved)})`), () => undoRegroup(undoToken, "Cannot undo the change"))
-  const sync = syncBranches({ autoScroll: false, autoExpand: false })
-  if (options.awaitSync === true) {
-    await sync
-  }
-  return true
+  const result = await runRewrite(spec, failureTitle, operation, data => {
+    const { undoToken } = data
+    if (undoToken == null) {
+      return { sync: false, after: () => toast.add({ type: "info", title: "Nothing to change" }) }
+    }
+    requestReveal({ branchName: revealBranch, commitIds: [] })
+    // a change of the stack parents alone moves no commit
+    const moved = countMoved(data)
+    return {
+      sync: true,
+      after: () => showUndoToast(successTitle(moved === 0 ? "" : ` (${formatCommitCount(moved)})`), () => undoRegroup(undoToken, "Cannot undo the change", "Undoing the change")),
+    }
+  })
+  return result !== null
 }
 
 /**
  * Stacks `branchName` on `parent`, or makes it a root (`null`), in the stack parents; only the commits whose prefix
- * declares another parent are rewritten
+ * declares another parent are rewritten. Resolves after the sync, so that the caller sees the branches as the
+ * operation left them.
  */
 export async function restackBranch(branchName: string, parent: string | null, options: StackOperationOptions = {}): Promise<boolean> {
   const done = await runStackOperation(
+    {
+      id: parent === null ? "unstack" : "stack-on",
+      subject: branchSubject(branchName),
+      objects: [branchName],
+      label: parent === null ? `Unstacking ${branchName}` : `Stacking ${branchName} on ${parent}`,
+      surface: options.surface,
+    },
     () => commands.restackBranch({ repositoryPath: getSelectedProject()?.path ?? "", branchName, parent }),
     parent === null ? `Cannot unstack ${branchName}` : `Cannot stack ${branchName} on ${parent}`,
     suffix => (parent === null ? `Unstacked ${branchName}${suffix}` : `Stacked ${branchName} on ${parent}${suffix}`),
     branchName,
-    options,
   )
   // a collapsed root stacked on another branch heads no stack of its own anymore
   if (done && parent !== null) {
@@ -70,8 +75,9 @@ export async function restackBranch(branchName: string, parent: string | null, o
 }
 
 /** Renames a branch together with its name in the prefixes of the branches stacked on it */
-export async function renameBranch(branchName: string, newName: string): Promise<boolean> {
+export async function renameBranch(branchName: string, newName: string, options: StackOperationOptions = {}): Promise<boolean> {
   const done = await runStackOperation(
+    { id: "rename", subject: branchSubject(branchName), objects: [branchName], label: options.label ?? `Renaming ${branchName} to ${newName}`, surface: options.surface },
     () => commands.renameBranch({ repositoryPath: getSelectedProject()?.path ?? "", branchName, newName }),
     `Cannot rename ${branchName}`,
     suffix => `Renamed ${branchName} to ${newName}${suffix}`,
@@ -84,18 +90,23 @@ export async function renameBranch(branchName: string, newName: string): Promise
   return done
 }
 
-/** Moves back what a move, a rename or a restack wrote, HEAD and the issue groups in one transaction, then syncs */
-export async function undoRegroup(token: string | null | undefined, failureTitle: string): Promise<void> {
+/**
+ * Moves back what a move, a rename or a restack wrote, HEAD and the issue groups in one transaction, then syncs; a
+ * rewrite of its own (`label`: "Undoing the move")
+ */
+export async function undoRegroup(token: string | null | undefined, failureTitle: string, label: string): Promise<void> {
   if (token == null) {
     return
   }
-  const result = await invokeCommand(() => commands.undoRegroup({ repositoryPath: getSelectedProject()?.path ?? "", token }))
-  if (result.status !== "ok") {
-    notifyError(failureTitle, result.error)
-    return
-  }
-  requestReveal(null)
-  await syncBranches({ autoScroll: false, autoExpand: false })
+  await runRewrite(
+    { id: "undo", subject: `undo:${token}`, objects: [], label },
+    failureTitle,
+    () => commands.undoRegroup({ repositoryPath: getSelectedProject()?.path ?? "", token }),
+    () => {
+      requestReveal(null)
+      return { sync: true }
+    },
+  )
 }
 
 /**

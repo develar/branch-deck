@@ -92,7 +92,9 @@ flowchart LR
    **Rationale**: memoization saves the render, not the selector, which runs on every store update. Selectors return a
    primitive, a joined string, or an interned record. The selected project is read by field
    (`useSelectedProjectPath`, `useSelectedProjectField`); `useSelectedProject` re-renders on every change of the
-   metadata.
+   metadata. A builder of menu items that a component renders takes the store state it marks as a parameter, read with
+   `useStore` by the component (the running operations, `useOperations`, [Running Operations](operations.md)): a
+   `getState()` inside it would be memoized on the builder's other arguments and show a stale menu.
 
 4. **Decision**: a batch of about 16 ms, by `setTimeout`, not `requestAnimationFrame`.
    **Rationale**: no animation frames run in a hidden window, and the sync's own end flushes anyway. Within a sync, a

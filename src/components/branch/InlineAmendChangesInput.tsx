@@ -3,11 +3,11 @@ import { UncommittedChangesCard } from "@/components/branch/UncommittedChangesCa
 import { InlineForm } from "@/components/shared/InlineForm"
 import { useAmendChanges } from "@/hooks/useAmendChanges"
 import { useBranch } from "@/stores/branch-sync"
-import { closeInline, useIsRowProcessing } from "@/stores/inline-row-action"
+import { closeInline, useInlineProcessing } from "@/stores/inline-row-action"
 
 export function InlineAmendChangesInput({ branchName }: { branchName: string }) {
   const branch = useBranch(branchName)
-  const processing = useIsRowProcessing(branchName)
+  const processing = useInlineProcessing(branchName) !== null
   const { diffData, diffLoading, diffError, amendChanges } = useAmendChanges()
 
   const canAmend = !diffLoading && !diffError && diffData?.hasChanges === true && !processing

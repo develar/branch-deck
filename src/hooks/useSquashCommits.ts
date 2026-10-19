@@ -1,41 +1,47 @@
 import type { Commit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { invokeCommand, showUndoToast } from "@/lib/command"
+import { showUndoToast } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
-import { notifyError } from "@/lib/errors"
-import { syncBranches } from "@/stores/branch-sync"
+import { runRewrite } from "@/lib/rewrite"
+import { getBranchesOfCommits } from "@/stores/branch-sync"
+import { branchSubject } from "@/stores/operations"
 import { getSelectedProject } from "@/stores/repository"
 
 /**
- * Squashes the commits into the oldest of them with `message`, then syncs and offers an undo. Resolves (before the
- * sync ends) to false, after an error toast, if the commits could not be squashed; nothing changed then.
+ * Squashes the commits into the oldest of them with `message`, as one rewrite (`runRewrite`): the squash, the sync, then
+ * the toast with an undo. Resolves after the sync, to false, after an error toast, if the commits could not be
+ * squashed; nothing changed then.
  */
-export async function squashCommits(commits: readonly Commit[], message: string): Promise<boolean> {
+export async function squashCommits(commits: readonly Commit[], message: string, surface: string | null = null): Promise<boolean> {
   const repositoryPath = getSelectedProject()?.path ?? ""
-  const result = await invokeCommand(() =>
-    commands.squashCommits({
-      repositoryPath,
-      commitIds: commits.map(commit => commit.originalHash),
-      message,
+  const branchName = getBranchesOfCommits(commits.map(commit => commit.originalHash))[0] ?? null
+  const result = await runRewrite(
+    {
+      id: "squash",
+      subject: branchSubject(branchName ?? ""),
+      objects: branchName === null ? [] : [branchName],
+      label: `Squashing ${formatCommitCount(commits.length)}`,
+      surface,
+    },
+    "Cannot squash the commits",
+    () => commands.squashCommits({ repositoryPath, commitIds: commits.map(commit => commit.originalHash), message }),
+    ({ newHead, previousHead, squashedCount }) => ({
+      sync: true,
+      after: () => showUndoToast(`Squashed ${formatCommitCount(squashedCount)}`, () => undoSquash(repositoryPath, newHead, previousHead, "Cannot undo the squash")),
     }),
   )
-  if (result.status !== "ok") {
-    notifyError("Cannot squash the commits", result.error)
-    return false
-  }
-
-  const { newHead, previousHead, squashedCount } = result.data
-  showUndoToast(`Squashed ${formatCommitCount(squashedCount)}`, () => undoSquash(repositoryPath, newHead, previousHead))
-  void syncBranches({ autoScroll: false, autoExpand: false })
-  return true
+  return result !== null
 }
 
-/** Moves the branch back to the commit before the squash: the squash kept the files, so nothing else changes. */
-export async function undoSquash(repositoryPath: string, expectedHead: string, previousHead: string): Promise<void> {
-  const result = await invokeCommand(() => commands.restoreBranchHead({ repositoryPath, expectedHead, previousHead }))
-  if (result.status !== "ok") {
-    notifyError("Cannot undo the squash", result.error)
-    return
-  }
-  await syncBranches({ autoScroll: false, autoExpand: false })
+/**
+ * Moves the branch back to the commit before the squash: the squash kept the files, so nothing else changes. A rewrite
+ * of its own, then the sync.
+ */
+export async function undoSquash(repositoryPath: string, expectedHead: string, previousHead: string, failureTitle: string): Promise<void> {
+  await runRewrite(
+    { id: "undo", subject: `undo:${expectedHead}`, objects: [], label: "Undoing the squash", repositoryPath },
+    failureTitle,
+    () => commands.restoreBranchHead({ repositoryPath, expectedHead, previousHead }),
+    () => ({ sync: true }),
+  )
 }

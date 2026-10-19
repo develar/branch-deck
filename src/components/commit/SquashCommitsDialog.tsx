@@ -16,6 +16,7 @@ import { formatShortHash } from "@/lib/hash"
 import { isMac } from "@/lib/platform"
 import { buildSquashMessage, countPushedCommits } from "@/lib/squash-message"
 import { useBranchSync } from "@/stores/branch-sync"
+import { useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
 
 export interface SquashCommitsDialogProps {
   /** The commits to squash in list order, newest first; null while closed */
@@ -38,6 +39,9 @@ function oldestFirst(commits: readonly Commit[]): Commit[] {
  *
  * Keep it mounted while closed (see `PreviewDialogFrame`).
  */
+/** The surface of the squash this dialog starts */
+const SQUASH_SURFACE = "squash-dialog"
+
 export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }: SquashCommitsDialogProps) {
   const open = commits !== null
   // the last commits stay while the closing animation runs; new commits start with a new message
@@ -51,7 +55,8 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
   const shown = shownCommits === null ? [] : oldestFirst(shownCommits)
   const target = shown[0]
 
-  const [isSquashing, setIsSquashing] = useState(false)
+  useIndicatorClaim(SQUASH_SURFACE)
+  const isSquashing = useSurfaceBusy(SQUASH_SURFACE) !== null
   const isSyncing = useBranchSync(state => state.isSyncing)
   const remoteStatus = useBranchSync(state => (branchName === null ? null : state.branches[branchName]?.remoteStatus))
   const pushedCount = countPushedCommits(shown, remoteStatus)
@@ -64,9 +69,7 @@ export function SquashCommitsDialog({ commits, branchName, onClose, onSquashed }
     if (!canSquash) {
       return
     }
-    setIsSquashing(true)
-    // `.finally`, not try/finally: React Compiler cannot compile a try without a catch
-    const squashed = await squashCommits(shown, draft).finally(() => setIsSquashing(false))
+    const squashed = await squashCommits(shown, draft, SQUASH_SURFACE)
     if (squashed) {
       onSquashed()
     }

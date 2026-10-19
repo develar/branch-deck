@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { PopoverDescription, PopoverTitle } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
 import { LinkedText } from "@/components/commit/LinkedText"
-import { squashFixups } from "@/hooks/useSquashFixups"
+import { squashFixups, squashFixupsSurface } from "@/hooks/useSquashFixups"
 import { formatFixupCount, getAutosquashScope, getDisplaySubject, getFixupMarker, getListFixups } from "@/lib/autosquash"
 import type { ListFixups } from "@/lib/autosquash"
 import type { AutosquashPlan, PlannedGroup } from "@/lib/bindings"
@@ -13,7 +13,8 @@ import { invokeCommand } from "@/lib/command"
 import { parseSubject } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
 import { UNASSIGNED_SOURCE } from "@/stores/commit-move"
-import { useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
+import { withRowProgress } from "@/stores/inline-row-action"
+import { useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
 import { getSelectedProject } from "@/stores/repository"
 
 export interface SquashFixupsPopoverProps {
@@ -25,12 +26,15 @@ export interface SquashFixupsPopoverProps {
 /**
  * Confirmation of squashing the fixups of a list: each target with the fixups folded into it, then the fixups without a
  * target, which stay. The plan is read again when it opens, and the squash is refused if the branch moved since.
- * The squash runs as the processing of the row's inline action (the popover stays open meanwhile), then closes it.
+ * The squash runs as an operation of the list started here (the popover stays open with its spinner meanwhile), then
+ * closes it.
  */
 export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProps) {
   const [plan, setPlan] = useState<AutosquashPlan | null>(null)
   const key = branch ?? UNASSIGNED_SOURCE
-  const isSquashing = useIsRowProcessing(key)
+  const surface = squashFixupsSurface(key)
+  useIndicatorClaim(surface)
+  const isSquashing = useSurfaceBusy(surface) !== null
   useEffect(() => {
     let cancelled = false
     void invokeCommand(() => commands.getAutosquashPlan({ repositoryPath: getSelectedProject()?.path ?? "" })).then(result => {
@@ -60,7 +64,7 @@ export function SquashFixupsPopover({ branch, onClose }: SquashFixupsPopoverProp
 
   const fixups: ListFixups = getListFixups(plan, branch)
   // closes the popover after a failure too: the plan it shows is stale
-  const squash = () => void withRowProgress(key, () => squashFixups(getAutosquashScope(branch), plan.head))
+  const squash = () => void withRowProgress(key, () => squashFixups(getAutosquashScope(branch), plan.head, { list: key, surface }))
   return (
     <>
       <div className="flex flex-col gap-1">

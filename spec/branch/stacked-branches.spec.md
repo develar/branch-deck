@@ -527,9 +527,10 @@ menu stacks, unstacks and renames branches.
   landed · oauth is built on master"; "login has no commits", "login is unapplied"). Its push button is enabled.
   Expanded, an alert says "Built on master: login landed." (`info` for a landed parent, `warning` for one without
   commits, likely a typo, neutral for an unapplied one) with an "Unstack from login" link: the undoable change of the
-  branch menu, the only restack, by the user. It names no pull request base: every pull request goes into the baseline,
+  branch menu, its very item, the only restack, by the user. While it runs, the link is disabled with a spinner and
+  says "Unstacking oauth…"; a second click runs nothing. It names no pull request base: every pull request goes into the baseline,
   and the push retargets an open one into the branch of login ([Pull requests](#pull-requests)).
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should build a child on the baseline once its parent has no commits, and unstack it`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should build a child on the baseline once its parent has no commits, and unstack it`, `should unstack once from the alert, its spinner on the button until the sync shows the branch`)
   [@test] ../../src/lib/stack.test.ts (`says why the branch isn't built on its parent`, `is passed only when the branch is built elsewhere`)
 - A blocked branch must show a muted `blocked by <parent>` status after a `warning` dot with the reason as its tooltip,
   a disabled push button (in the row and the preview), no share in the outgoing counts, and,

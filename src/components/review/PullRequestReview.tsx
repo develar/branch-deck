@@ -18,6 +18,7 @@ import type { ReviewRange, ReviewRequest } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
+import { FROM_MENU } from "@/lib/menu"
 import { handlePreviewNavigationKey, hasKeyModifier, isTypingTarget } from "@/lib/preview-keys"
 import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, pullRequestItems, rangePosition, shownKey } from "@/lib/range-review"
 import type { ReviewPosition } from "@/lib/review-position"
@@ -247,7 +248,7 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
     if (action !== undefined) {
       event.preventDefault()
       if (action.disabled !== true) {
-        action.onSelect()
+        action.onSelect(FROM_MENU)
       }
       return
     }

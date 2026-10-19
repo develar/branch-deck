@@ -13,7 +13,8 @@ import { branchesOfFix, componentFixing, describeFixGrouping, describeFixResult,
 import { buildConflictPrompt } from "@/lib/conflict-fix-prompt"
 import { formatMissingCommitsTitle } from "@/lib/merge-conflict"
 import type { MissingCommitOwners } from "@/lib/merge-conflict"
-import { applyConflictFix, requestConflictFix, useConflictFix, useSubjectOf } from "@/stores/conflict-fix"
+import { APPLY_FIX_SURFACE, applyConflictFix, conflictFixOperation, requestConflictFix, useConflictFix, useSubjectOf } from "@/stores/conflict-fix"
+import { useIndicatorClaim, useOperationBlocker, useSurfaceBusy } from "@/stores/operations"
 import { usePushHolds } from "@/stores/patronus"
 import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
 import { useSelectedProject } from "@/stores/repository"
@@ -31,7 +32,7 @@ export interface ConflictFixPanelProps {
  * with Undo. Without a fix, the prompt that hands the conflict to a coding agent.
  */
 export function ConflictFixPanel(props: ConflictFixPanelProps) {
-  const { status, fix, error, applying } = useConflictFix(true)
+  const { status, fix, error } = useConflictFix(true)
   const component = fix === null ? undefined : componentFixing(fix.components, props.branchName)
 
   if (status === "error") {
@@ -59,7 +60,7 @@ export function ConflictFixPanel(props: ConflictFixPanelProps) {
       </FixCallout>
     )
   }
-  return <FixSteps component={component} applying={applying} />
+  return <FixSteps component={component} />
 }
 
 function FixCallout({ title, state, children }: { title: string; state: "searching" | "found" | "none" | "error"; children?: ReactNode }) {
@@ -86,12 +87,16 @@ function FixCallout({ title, state, children }: { title: string; state: "searchi
   )
 }
 
-function FixSteps({ component, applying }: { component: FixComponent; applying: boolean }) {
+function FixSteps({ component }: { component: FixComponent }) {
   const holds = usePushHolds()
   const subjectOf = useSubjectOf()
   const pullRequests = useRepositoryPullRequestMap()
+  useIndicatorClaim(APPLY_FIX_SURFACE)
+  const applying = useSurfaceBusy(APPLY_FIX_SURFACE) !== null
+  // another rewrite of the repository runs: the fix waits for it
+  const waitsFor = useOperationBlocker(conflictFixOperation(component))
   const held = branchesOfFix(component).find(branch => holds.has(branch))
-  const reason = held === undefined ? null : `A Safe Push of ${held} is running`
+  const reason = held === undefined ? waitsFor : `A Safe Push of ${held} is running`
   const steps = component.steps.map(step => describeFixStep(step, subjectOf))
   const grouping = describeFixGrouping(component)
   const result = describeFixResult(component, branch => pullRequests[branch]?.state === "open")

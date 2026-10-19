@@ -29,7 +29,10 @@ class AmendConflictError extends Error {
   }
 }
 
-/** Amends the uncommitted changes to the tip commit of the branch, then re-syncs. A conflict opens the inline conflict viewer. */
+/**
+ * Amends the uncommitted changes to the tip commit of the branch, then re-syncs: one operation. A conflict opens the
+ * inline conflict viewer.
+ */
 export async function amendChanges(branch: Branch, diffData: UncommittedChangesResult | null): Promise<void> {
   // the tip commit is the first one (newest, after .rev() in the backend)
   const tipCommit = branch.commits[0]
@@ -45,8 +48,9 @@ export async function amendChanges(branch: Branch, diffData: UncommittedChangesR
   }
 
   const files = diffData.files.map(file => file.filePath)
-  const data = await withRowProcessing(
+  await withRowProcessing(
     branch.name,
+    { id: "amend-changes", kind: "rewrite", label: `Amending changes to ${branch.name}` },
     async () => {
       const result = await commands.amendUncommittedToBranch({
         repositoryPath: getSelectedProject()?.path ?? "",
@@ -64,10 +68,10 @@ export async function amendChanges(branch: Branch, diffData: UncommittedChangesR
         }
         throw new Error(branchError.Generic)
       }
+      await syncBranches({ autoScroll: false, autoExpand: false })
       return result.data.data
     },
     {
-      processingMessage: `Amending changes to ${branch.name}…`,
       // the description is the amended commit
       success: () => ({ title: `Amended ${formatFileCount(files.length)} into ${branch.name}`, description: tipCommit.strippedSubject }),
       errorTitle: error => {
@@ -80,10 +84,6 @@ export async function amendChanges(branch: Branch, diffData: UncommittedChangesR
       },
     },
   )
-
-  if (data) {
-    await syncBranches({ autoScroll: false, autoExpand: false })
-  }
 }
 
 /** Uncommitted changes (loaded once on mount) and the amend action using them. */

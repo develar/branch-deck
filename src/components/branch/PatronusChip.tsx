@@ -15,6 +15,7 @@ import type { PatronusRobot } from "@/lib/bindings"
 import { formatCheckCounts } from "@/lib/check-counts"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
+import { FROM_MENU } from "@/lib/menu"
 import type { PatronusChipState } from "@/lib/patronus"
 import { formatPushMode, formatRobotCommitNotice, getPatronusChipState, getRobotRestartAction, isFailingChip, openRobot, robotRingColor } from "@/lib/patronus"
 import { patronusChipIcons } from "@/lib/patronus-icons"
@@ -272,7 +273,7 @@ export function RobotActionButton({ action }: { action: MenuItem }) {
   )
   if (action.description === undefined) {
     return (
-      <Button variant="outline" size="xs" data-action={action.id} disabled={action.disabled} onClick={action.onSelect}>
+      <Button variant="outline" size="xs" data-action={action.id} disabled={action.disabled} onClick={() => action.onSelect(FROM_MENU)}>
         {content}
       </Button>
     )
@@ -289,7 +290,7 @@ export function RobotActionButton({ action }: { action: MenuItem }) {
             disabled={action.disabled}
             focusableWhenDisabled
             className={cn(action.disabled && "opacity-50")}
-            onClick={action.onSelect}
+            onClick={() => action.onSelect(FROM_MENU)}
           />
         }
       >

@@ -20,7 +20,7 @@ import { STACK_BRANCH_PUSHING, formatWholeStackBranch, stackReadinessKey } from 
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchPushProgress, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { useIsRowProcessing } from "@/stores/inline-row-action"
+import { useObjectBusy } from "@/stores/operations"
 import { usePushHold } from "@/stores/patronus"
 import type { PushConfirmRequest, PushConfirmTarget } from "@/stores/push-confirm"
 import { clearPushConfirm, usePushConfirmRequest } from "@/stores/push-confirm"
@@ -76,7 +76,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
   const showsPush = isPushing && !formPushes
   // the one push of a stack reports its progress for each of its branches, the stack branch under its key
   const progress = useBranchPushProgress(stackBranchPush ? stackReadinessKey(branch.name) : (stackPush?.[0] ?? branch.name))
-  const processing = useIsRowProcessing(branch.name)
+  const processing = useObjectBusy(branch.name) !== null
   const push = usePushButton(branch, isPushing)
   const request = usePushConfirmRequest(branch.name, confirmTarget)
   const disabled = push.disabled || processing || starting !== null

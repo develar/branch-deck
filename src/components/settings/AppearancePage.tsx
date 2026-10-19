@@ -8,7 +8,7 @@ import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { zoomMenuItems } from "@/lib/main-menu"
-import { kbdLabel } from "@/lib/menu"
+import { FROM_MENU, kbdLabel } from "@/lib/menu"
 import type { MenuItem } from "@/lib/menu"
 import { isMac } from "@/lib/platform"
 import { titleBar } from "@/lib/title-bar"
@@ -59,7 +59,14 @@ function ZoomButton({ item }: { item: MenuItem }) {
   return (
     <Tooltip>
       <TooltipTrigger
-        render={<Button variant="outline" size={Icon === undefined ? "sm" : "icon-sm"} aria-label={Icon === undefined ? undefined : item.label} onClick={item.onSelect} />}
+        render={
+          <Button
+            variant="outline"
+            size={Icon === undefined ? "sm" : "icon-sm"}
+            aria-label={Icon === undefined ? undefined : item.label}
+            onClick={() => item.onSelect(FROM_MENU)}
+          />
+        }
       >
         {Icon === undefined ? item.label : <Icon />}
       </TooltipTrigger>

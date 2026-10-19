@@ -32,6 +32,24 @@ export async function holdCommand(page: Page, command: string): Promise<() => vo
   return release
 }
 
+/**
+ * `holdCommand` that records the parameters of each call: a test of an action that must run once (a double click, a
+ * second surface) counts what reached the backend
+ */
+export async function holdCommandCalls(page: Page, command: string): Promise<{ calls: Record<string, unknown>[]; release: () => void }> {
+  const calls: Record<string, unknown>[] = []
+  let release!: () => void
+  const held = new Promise<void>(resolve => {
+    release = resolve
+  })
+  await page.route(`**/invoke/${command}`, async route => {
+    calls.push(route.request().postDataJSON() as Record<string, unknown>)
+    await held
+    await route.fallback()
+  })
+  return { calls, release }
+}
+
 /** Answers a command in the page instead of the test server, and records the parameters of each call */
 export async function routeCommand(page: Page, command: string, answer: (params: Record<string, unknown>) => unknown): Promise<Record<string, unknown>[]> {
   const calls: Record<string, unknown>[] = []

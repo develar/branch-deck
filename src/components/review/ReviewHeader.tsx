@@ -17,6 +17,7 @@ import { WindowTitle } from "@/components/shared/WindowTitleBar"
 import type { ReviewRequest } from "@/lib/bindings"
 import { formatFileCount } from "@/lib/commit-files"
 import type { MenuItem } from "@/lib/menu"
+import { FROM_MENU } from "@/lib/menu"
 import type { ReviewRequestActions } from "@/lib/review-request-actions"
 import type { SubmittedReview } from "@/stores/review-requests"
 
@@ -91,7 +92,7 @@ function MenuItemAction({ item, label, "data-testid": testId }: { item: MenuItem
       keyHint={item.kbds?.at(-1)}
       disabled={item.disabled === true}
       description={item.disabled === true ? (item.description ?? item.label) : item.label}
-      onClick={item.onSelect}
+      onClick={() => item.onSelect(FROM_MENU)}
       data-testid={testId}
     />
   )

@@ -10,6 +10,7 @@ import { getBranchNextStep } from "@/lib/branch-next-step"
 import { notifyError } from "@/lib/errors"
 import { pushForAction } from "@/lib/git/push"
 import { pushWholeStack } from "@/lib/git/stack-push"
+import { FROM_MENU } from "@/lib/menu"
 import type { BypassProfiles, PullRequestStart } from "@/lib/patronus"
 import {
   allowsPushMode,
@@ -529,7 +530,7 @@ function tellNotice(branchName: string, step: BranchNextStep, notice: { readonly
   } else if (pullRequest !== undefined && step.tone !== "default") {
     action = { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) }
   } else if (step.tone === "default" && item !== null && item.disabled !== true) {
-    action = { children: item.label, onClick: () => item.onSelect() }
+    action = { children: item.label, onClick: () => item.onSelect(FROM_MENU) }
   } else {
     // nothing to take: a robot that runs on it or lands it holds the start back, the notice opens it
     action = refusalObjectAction(branchName, "robot")

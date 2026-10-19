@@ -22,8 +22,8 @@ import { formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
 import { recordApproval, recordRetarget } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getStackBranchOf, useBranchSync } from "@/stores/branch-sync"
-import { inlineRowActionStore, isProcessing } from "@/stores/inline-row-action"
 import { landedStore } from "@/stores/landed"
+import { isObjectBusy, operationsStore } from "@/stores/operations"
 import {
   getBranchRobot,
   getLandedBy,
@@ -160,7 +160,7 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
     syncing: branch.status === "Syncing",
     hasError: branch.hasError,
     commitCount: branch.commitCount,
-    processing: isProcessing(name) || (options === null && getSafePushStarting(name) !== null),
+    processing: isObjectBusy(name) || (options === null && getSafePushStarting(name) !== null),
     blocked: branch.status === "Blocked",
     startBlocker: start.ok ? null : start.reason,
     dryRunStartBlocker: dryRun.ok ? null : dryRun.reason,
@@ -222,7 +222,7 @@ export function nextStepSources(): readonly unknown[] {
     pullRequestsStore.getState(),
     reviewReadinessStore.getState(),
     landedStore.getState(),
-    inlineRowActionStore.getState(),
+    operationsStore.getState(),
     safePushStore.getState(),
     repositorySettingsStore.getState(),
   ]
@@ -262,7 +262,7 @@ const shownSteps = new Map<string, { sources: readonly unknown[]; key: string; s
 
 /**
  * The next step of the branch, re-rendering when it changes: it depends on the branches, the robots, the pull
- * requests, the readiness, the landed commits and the inline action of the row, so each of their stores is watched.
+ * requests, the readiness, the landed commits and the operations on the row, so each of their stores is watched.
  * The component shows the step: the readiness store asks for the readiness of the branch while it does
  * (`useShowReviewReadiness`), never for a row a collapse hides; of the root of a stack that forks, the readiness of its
  * whole stack too (`stackReadinessKey`), whose Safe Push its menu and its popover offer, with or without an island.
@@ -282,7 +282,7 @@ export function useNextStepStores<T>(select: () => T): T {
   useStore(reviewReadinessStore, select)
   useStore(landedStore, select)
   useStore(safePushStore, select)
-  return useStore(inlineRowActionStore, select)
+  return useStore(operationsStore, select)
 }
 
 /** Whether a row waits for an approval (Awaiting): a focus asks GitHub for the pull requests at once then */

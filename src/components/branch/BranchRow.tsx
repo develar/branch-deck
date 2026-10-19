@@ -39,7 +39,8 @@ import {
   useRevealRequest,
 } from "@/stores/commit-move"
 import type { InlineActionType } from "@/stores/inline-row-action"
-import { closeInline, portalTargetIdFor, useActiveInlineForRow } from "@/stores/inline-row-action"
+import { closeInline, portalTargetIdFor, useActiveInlineForRow, useInlineProcessing } from "@/stores/inline-row-action"
+import { useObjectBusy } from "@/stores/operations"
 import { useBranchRobot } from "@/stores/patronus"
 import { getShownBranchTableOrder, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
 
@@ -121,6 +122,9 @@ export const BranchRow = memo(function BranchRow({
   const dropTarget = useCommitDropTarget(name, drag => void moveCommits(drag.commits, name))
   const selected = useIsBranchSelected(name)
   const isSyncing = useBranchSync(state => state.isSyncing)
+  // an operation works on the branch: the row takes no other action meanwhile; the form below it shows its own
+  const processing = useObjectBusy(name) !== null
+  const formProcessing = useInlineProcessing(name) !== null
 
   // commits just moved here: show them (the commit list selects them); a request without commits is done here
   const reveal = useRevealRequest(name)
@@ -141,7 +145,6 @@ export const BranchRow = memo(function BranchRow({
     return null
   }
 
-  const processing = activeInline?.processing === true
   const toggle = () => onToggleExpanded(name)
   // Cmd/Ctrl-click and Shift-click select branches; a plain click expands the row and clears the selection
   const onRowClick = (event: MouseEvent) => {
@@ -272,7 +275,7 @@ export const BranchRow = memo(function BranchRow({
         <tr className={blockDropClass} data-branch-of={name} {...below} {...dropTarget.dropProps}>
           <td id={portalTargetIdFor(name)} colSpan={columnCount} className={cn("relative overflow-hidden p-0", insetClass)}>
             {gutter}
-            {processing && <InlineRowProgressBar className="right-0 left-(--bd-row-inset) w-auto" />}
+            {formProcessing && <InlineRowProgressBar className="right-0 left-(--bd-row-inset) w-auto" />}
             <Suspense fallback={null}>
               {activeInline.type === "issue-reference" && <InlineIssueReferenceInput key={`issue-reference:${name}`} branchName={name} />}
               {activeInline.type === "rename" && <InlineRenameBranchInput key={`rename:${name}`} branchName={name} />}

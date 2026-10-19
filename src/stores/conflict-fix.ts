@@ -6,12 +6,14 @@ import type { Commit, ConflictFix, FixComponent } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand, showUndoToast } from "@/lib/command"
 import { getCommitSubject, getSubjectLine, parseSubject } from "@/lib/commit"
-import { componentFixing, describeFixStep, fixTitle } from "@/lib/conflict-fix"
+import { branchesOfFix, componentFixing, describeFixStep, fixTitle } from "@/lib/conflict-fix"
 import type { SubjectOf } from "@/lib/conflict-fix"
-import { getErrorDetails, notifyError } from "@/lib/errors"
-import { branchSyncStore, syncBranches, useBranchSync } from "@/stores/branch-sync"
+import { getErrorDetails } from "@/lib/errors"
+import { runRewrite } from "@/lib/rewrite"
+import { branchSyncStore, useBranchSync } from "@/stores/branch-sync"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
+import type { OperationKey } from "@/stores/operations"
 
 /** The search of the fix of the conflicts of the last sync (spec/branch/conflict-fix.spec.md) */
 export interface ConflictFixState {
@@ -20,11 +22,17 @@ export interface ConflictFixState {
   status: "idle" | "searching" | "done" | "error"
   fix: ConflictFix | null
   error: string | null
-  /** A component is being applied */
-  applying: boolean
 }
 
-export const conflictFixStore = createStore<ConflictFixState>(() => ({ key: null, status: "idle", fix: null, error: null, applying: false }))
+export const conflictFixStore = createStore<ConflictFixState>(() => ({ key: null, status: "idle", fix: null, error: null }))
+
+/** The surface of Apply Fix: it shows the spinner of the fix it applies */
+export const APPLY_FIX_SURFACE = "apply-conflict-fix"
+
+/** The operation of applying `component`: a rewrite of the branches it moves commits of or to */
+export function conflictFixOperation(component: FixComponent): OperationKey {
+  return { id: "apply-conflict-fix", subject: "conflict-fix", objects: branchesOfFix(component), kind: "rewrite" }
+}
 
 /** The repository, the prefix and the inputs of the last sync: a fix found for other ones is stale */
 function fixKey(): string | null {
@@ -69,7 +77,7 @@ export async function requestConflictFix(force = false): Promise<void> {
 export function useConflictFix(enabled: boolean): ConflictFixState {
   const state = useStore(
     conflictFixStore,
-    useShallow(store => ({ key: store.key, status: store.status, fix: store.fix, error: store.error, applying: store.applying })),
+    useShallow(store => ({ key: store.key, status: store.status, fix: store.fix, error: store.error })),
   )
   const syncedFingerprint = useStore(branchSyncStore, store => (store.isSyncing ? null : (store.syncedInputs?.fingerprint ?? null)))
   useEffect(() => {
@@ -113,8 +121,9 @@ export function fixStepsFor(branch: string | undefined): string[] | undefined {
 }
 
 /**
- * Applies a component of the fix: one regroup with Undo in the toast and in Activity, then a sync that shows the first
- * branch the fix fills. A fix the repository moved away from is looked for again, without an error.
+ * Applies a component of the fix: one regroup as one rewrite (`runRewrite`), then the sync that shows the first branch
+ * the fix fills, then the toast with Undo, also in Activity. A fix the repository moved away from is looked for again,
+ * without an error.
  */
 export async function applyConflictFix(component: FixComponent): Promise<void> {
   const { fix } = conflictFixStore.getState()
@@ -122,31 +131,29 @@ export async function applyConflictFix(component: FixComponent): Promise<void> {
   if (fix === null || syncedInputs === null) {
     return
   }
-  conflictFixStore.setState({ applying: true })
-  const result = await invokeCommand(() => commands.applyConflictFix({ repositoryPath: syncedInputs.repositoryPath, fingerprint: fix.fingerprint, plan: component.plan }))
-  conflictFixStore.setState({ applying: false })
-  if (result.status !== "ok") {
-    notifyError("Cannot apply the fix", result.error)
-    return
-  }
-  if (result.data.kind === "stale") {
-    void requestConflictFix(true)
-    return
-  }
-  const applied = result.data.result
-  const subjectOf = subjectOfCommit()
-  const description = component.steps.map(step => describeFixStep(step, subjectOf)).join("; ")
-  showUndoToast(fixTitle(component), () => undoRegroup(applied.undoToken, "Cannot undo the fix"), description)
-  const first = component.steps[0]
-  const moved = new Set(component.steps.flatMap(step => step.commits))
-  requestReveal(
-    first === undefined
-      ? null
-      : {
-          branchName: first.kind === "restack" ? first.fixes : first.to,
-          commitIds: applied.commits.filter(commit => moved.has(commit.oldId)).map(commit => commit.newId),
-        },
+  await runRewrite(
+    { ...conflictFixOperation(component), label: "Applying the fix", surface: APPLY_FIX_SURFACE, repositoryPath: syncedInputs.repositoryPath },
+    "Cannot apply the fix",
+    () => commands.applyConflictFix({ repositoryPath: syncedInputs.repositoryPath, fingerprint: fix.fingerprint, plan: component.plan }),
+    data => {
+      if (data.kind === "stale") {
+        return { sync: false, after: () => void requestConflictFix(true) }
+      }
+      const applied = data.result
+      const subjectOf = subjectOfCommit()
+      const description = component.steps.map(step => describeFixStep(step, subjectOf)).join("; ")
+      const first = component.steps[0]
+      const moved = new Set(component.steps.flatMap(step => step.commits))
+      requestReveal(
+        first === undefined
+          ? null
+          : {
+              branchName: first.kind === "restack" ? first.fixes : first.to,
+              commitIds: applied.commits.filter(commit => moved.has(commit.oldId)).map(commit => commit.newId),
+            },
+      )
+      conflictFixStore.setState({ key: null, status: "idle", fix: null })
+      return { sync: true, after: () => showUndoToast(fixTitle(component), () => undoRegroup(applied.undoToken, "Cannot undo the fix", "Undoing the fix"), description) }
+    },
   )
-  conflictFixStore.setState({ key: null, status: "idle", fix: null })
-  void syncBranches({ autoScroll: false, autoExpand: false })
 }

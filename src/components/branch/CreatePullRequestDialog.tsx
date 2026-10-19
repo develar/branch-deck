@@ -26,6 +26,7 @@ import type { SuggestedReviewer } from "@/lib/create-pull-request"
 import { continueOnGitHub, submitPullRequest } from "@/lib/create-pull-request-context"
 import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/create-pull-request-context"
 import { notifyError } from "@/lib/errors"
+import { FROM_MENU } from "@/lib/menu"
 import { isMac } from "@/lib/platform"
 import { formatAvailabilityHint, openPullRequest } from "@/lib/pull-request"
 import type { CompareFields } from "@/lib/pull-request"
@@ -139,7 +140,7 @@ function usePushLabel(branchName: string): string | null {
 /** The form of the main window's dialog: the context from its stores, the creation by its store, the toast here */
 function MainCreatePullRequestForm({ branch, ...props }: FormProps & { branch: Branch }) {
   const context = useCreatePullRequestContext(branch)
-  return <MainForm context={context} safePushWithoutReview={() => getSafePushWithoutReviewItem(branch)?.onSelect()} pushLabel={usePushLabel(branch.name)} {...props} />
+  return <MainForm context={context} safePushWithoutReview={() => getSafePushWithoutReviewItem(branch)?.onSelect(FROM_MENU)} pushLabel={usePushLabel(branch.name)} {...props} />
 }
 
 /** "Pushing 45%" while the push of the stack branch a creation of the whole stack's pull request starts with runs, else null */

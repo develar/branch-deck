@@ -43,7 +43,7 @@ import { copyText } from "@/lib/clipboard"
 import { CREATE_PULL_REQUEST_LABEL, canCreatePullRequest, getRetargetCommand } from "@/lib/git/new-pull-request"
 import { pushOrConfirm } from "@/lib/git/push"
 import { pushWithChildren } from "@/lib/git/stack-push"
-import type { MenuItem, MenuItemGroups } from "@/lib/menu"
+import type { MenuItem, MenuItemGroups, SelectContext } from "@/lib/menu"
 import { describeStart, formatPushHoldReason, formatStartLabel, getPullRequestStart } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
@@ -78,7 +78,9 @@ import {
 } from "@/stores/branch-sync"
 import { getSelectedBranches, requestReveal, selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { closeCreatePullRequestDialog, openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
-import { isProcessing, openInline } from "@/stores/inline-row-action"
+import { openInline } from "@/stores/inline-row-action"
+import type { Operations } from "@/stores/operations"
+import { branchSubject, isObjectBusy, operationItem } from "@/stores/operations"
 import {
   getBranchRobot,
   getLandedWithChildrenReason,
@@ -105,7 +107,7 @@ const MAX_MENU_TARGETS = 8
  * "…"; an item shows its key only where the focused row has it (`useBranchRowKeys`, `BranchTableCard`). The right-click
  * on the row and the "⋯" of its Actions cell show it.
  */
-export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups {
+export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: string, expanded: boolean) => void, operations: Operations): MenuItemGroups {
   const groups: MenuItemGroups = [getBranchCopyMenuItems(branch.name)]
   const pullRequest = getPullRequest(branch.name)
   if (pullRequest !== undefined) {
@@ -135,10 +137,11 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   const nextStep = getBranchNextStepOf(branch)
   const robotActions = robot === undefined ? [] : getBranchRobotActions(robot, branch, pullRequest)
 
-  // a rewrite waits for a running sync, also of a row that shows its last state meanwhile (a quiet resync): the rewrites
-  // stay in the menu, disabled with the reason; the rest rewrites nothing here (a push waits for the sync itself)
+  // a rewrite waits for a running sync, also of a row that shows its last state meanwhile (a quiet resync), and for a
+  // rewrite that runs (`operationItem`): the rewrites stay in the menu, disabled with the reason, the running one says
+  // so; the rest rewrites nothing here (a push waits for the sync itself)
   const rewriteBlocker = getRewriteBlocker(branch)
-  const rewrite = (items: MenuItem[]): MenuItem[] => (rewriteBlocker === null ? items : items.map(item => ({ ...item, disabled: true, description: rewriteBlocker })))
+  const rewrite = (items: MenuItem[]): MenuItem[] => items.map(item => rewriteItem(branch, item, operations, rewriteBlocker))
 
   const nameActions: MenuItem[] = [
     {
@@ -157,7 +160,10 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       label: ungroupLabel === "Remove Prefix" || ungroupLabel === "Move Back" ? "Ungroup" : `Ungroup: ${ungroupLabel}`,
       icon: UngroupIcon,
       // the branches stacked on it keep naming it as their parent and are built below it: confirm with them listed
-      onSelect: () => (getStackChildren(branch.name).length > 0 ? openInline("ungroup", branch.name) : void moveCommits(branch.commits, null)),
+      onSelect: context =>
+        getStackChildren(branch.name).length > 0
+          ? openInline("ungroup", branch.name)
+          : void moveCommits(branch.commits, null, { id: "ungroup", label: `Ungrouping ${branch.name}`, surface: context.surface }),
     })
   }
   groups.push(rewrite(nameActions))
@@ -268,7 +274,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
 function getPushMenuItems(branch: Branch): MenuItem[] {
   const stackPushing = isStackPushing(branch.name)
   const isPushing = isBranchPushing(branch.name) || stackPushing
-  const processing = isProcessing(branch.name)
+  const processing = isObjectBusy(branch.name)
   const enabled = canPushNow(branch, { isPushing, processing })
   const button = getPushButtonNow(branch, isPushing)
   let description: string | undefined
@@ -302,6 +308,17 @@ function getPushMenuItems(branch: Branch): MenuItem[] {
       onSelect: other.run,
     },
   ]
+}
+
+/**
+ * A rewrite of the branch as the sync and the operations leave it: disabled with the reason of `getRewriteBlocker`, else
+ * running or waiting for another rewrite (`operationItem`, the item's `id` names its operation)
+ */
+function rewriteItem(branch: Branch, item: MenuItem, operations: Operations, blocker: string | null = getRewriteBlocker(branch)): MenuItem {
+  if (blocker !== null) {
+    return { ...item, disabled: true, description: blocker }
+  }
+  return operationItem(operations, item, { id: item.id ?? item.label, subject: branchSubject(branch.name), objects: [branch.name], kind: "rewrite" })
 }
 
 /**
@@ -554,7 +571,11 @@ function getMoveMenuItems(name: string): MenuItem[] {
       icon: GitBranchIcon,
       onSelect: () => {},
       children: [
-        ...targets.map(target => ({ label: target, icon: GitBranchIcon, onSelect: () => void moveCommits(getBranchCommits(names), target) })),
+        ...targets.map(target => ({
+          label: target,
+          icon: GitBranchIcon,
+          onSelect: (context: SelectContext) => void moveCommits(getBranchCommits(names), target, { id: "move-to-existing", surface: context.surface }),
+        })),
         { label: "New Branch…", icon: GitBranchPlusIcon, onSelect: openTarget },
       ],
     })
@@ -588,11 +609,11 @@ function getStackMenuItems(branch: Branch, rewrite: (items: MenuItem[]) => MenuI
       disabled: targets.length === 0,
       ...(targets.length === 0 && { description: "No other branch to stack on" }),
       onSelect: () => {},
-      children: targets.map(target => ({ label: target, onSelect: () => void restackBranch(branch.name, target) })),
+      children: targets.map(target => ({ label: target, onSelect: (context: SelectContext) => void restackBranch(branch.name, target, { surface: context.surface }) })),
     },
   ])
   if (parent !== null) {
-    items.push(...rewrite([{ id: "unstack", label: `Unstack from ${parent}`, icon: Layers2Icon, onSelect: () => void restackBranch(branch.name, null) }]))
+    items.push(...rewrite([getUnstackItem(branch.name, parent)]))
   }
   // the stack folds into its root, from any of its rows, as ⌥← and ⌥→ do
   const collapse = getStackCollapse(branch.name)
@@ -664,8 +685,19 @@ export function getPushWithChildrenItem(name: string): MenuItem | null {
   }
 }
 
-export function useBranchContextActions(setExpanded: (name: string, expanded: boolean) => void) {
-  return {
-    getContextMenuItems: (branch: Branch) => getBranchContextMenuItems(branch, setExpanded),
+/** "Unstack from ‹parent›" of a stacked branch, as a menu item: its menu, and the notice of a parent it was built past */
+function getUnstackItem(name: string, parent: string): MenuItem {
+  return { id: "unstack", label: `Unstack from ${parent}`, icon: Layers2Icon, onSelect: context => void restackBranch(name, null, { surface: context.surface }) }
+}
+
+/**
+ * "Unstack from ‹parent›" of a stacked branch as the operations leave it (`operationItem`: running, or waiting for
+ * another rewrite, or for the sync), for a surface beside the menu; null for a branch that is not stacked
+ */
+export function getBranchUnstackItem(branch: Branch, operations: Operations): MenuItem | null {
+  const parent = branch.stack?.declaredParent ?? null
+  if (parent === null) {
+    return null
   }
+  return rewriteItem(branch, getUnstackItem(branch.name, parent), operations)
 }

@@ -50,7 +50,8 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
 
 - **Every error goes through `notifyError(title, error)`** (`src/lib/errors.ts`): the toast is sticky, the error is
   logged to the backend log and recorded in Activity. Never a hand-made `toast.add({ type: "error" })`;
-  `withRowProcessing` takes an `errorTitle` and calls `notifyError` itself.
+  `withRowProcessing` and `runRewrite` take an `errorTitle` and call `notifyError` themselves. The same error while its
+  toast is open updates that toast, never a second copy.
 - **The title is "Cannot <verb> <object>"**: "Cannot push feature-ui", "Cannot start the Safe Push", "Cannot copy to the
   clipboard". One failure verb: not "Failed to …", "… Failed", "Can't …", "Couldn't …".
 - **The description is the reason**, the `message` of the error (`getErrorDetails`), never prefixed with "Error:".
@@ -118,6 +119,12 @@ indicator could cancel a robot but not restart it.
   (`LandingNodeHover`). The node of a branch once said "Safe Push failed on IJAI-4184 as it is: fix it or restart it"
   in a tooltip, nothing of it clickable. A text inside a button (the toggle of an island header) is no place for a
   link: the button that opens its object stands beside it.
+- **An action runs once**: while it runs ([Running Operations](../design/operations.md)), its item is running on every
+  surface (disabled, a spinner in a menu), a second start joins it, and the actions that must wait for it (every other
+  rewrite of the repository) are disabled with its busy state as the reason: "Unstacking tool-events…". The spinner is
+  where it was started: the button that stays (the notice's "Unstack from air", a form, a dialog), else the "⋯" of the
+  object's row. Three clicks on an Unstack that nothing disabled once ran three unstacks, two of them failing with
+  "tool-events is not stacked".
 - **Disabled with a reason, not hidden**: an action that does not apply now stays in the list, disabled, and says why
   on hover (`description`); it disappears only where it never applies (no pull request, no robot).
 - **A step the app can do is part of the action**: a push an action needs, a wait for the sync, a fetch run inside the
@@ -155,8 +162,10 @@ indicator could cancel a robot but not restart it.
   (`type: "info"` for a precondition), or `toast.add` from `@/components/ui/toast` for a custom one (a loading toast, a
   custom body).
 - A history rewrite with an Undo: `showUndoToast(title, undo)` from `src/lib/command.ts`.
-- An inline form's action: `withRowProcessing(key, fn, { success, errorTitle })` or `withRowProgress` when the action
-  toasts itself (`src/stores/inline-row-action.ts`).
+- A rewrite (a regroup, a squash, a reword, an undo): `runRewrite(spec, failureTitle, command, applied)` from
+  `src/lib/rewrite.ts`, its toast with Undo after the sync.
+- An inline form's action: `withRowProcessing(key, operation, fn, { success, errorTitle })` or `withRowProgress` when
+  the action is an operation that toasts itself (`src/stores/inline-row-action.ts`).
 - A toast that Activity records takes its words from the function the entry uses: `describePush`
   (`src/lib/push-summary.ts`), `describeRobot` (`src/lib/patronus.ts`, through `announceRobot` in
   `src/lib/patronus-actions.ts`), `appliedUpdateToast` (`src/lib/landed.ts`).

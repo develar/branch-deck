@@ -6,7 +6,7 @@ import { syncBranches } from "@/stores/branch-sync"
 import { withRowProcessing } from "@/stores/inline-row-action"
 import { vcsRequestFactory } from "@/stores/repository"
 
-/** Removes the branch commits from HEAD and moves the branch to the unapplied state, then re-syncs. */
+/** Removes the branch commits from HEAD and moves the branch to the unapplied state, then re-syncs: one operation. */
 export async function unapplyBranch(branch: Branch): Promise<void> {
   if (branch.commits.length === 0) {
     // nothing to do: not an error
@@ -15,8 +15,9 @@ export async function unapplyBranch(branch: Branch): Promise<void> {
   }
 
   const originalCommitIds = branch.commits.map(commit => commit.originalHash)
-  const data = await withRowProcessing(
+  await withRowProcessing(
     branch.name,
+    { id: "unapply", kind: "rewrite", label: `Unapplying ${branch.name}` },
     async () => {
       const vcsRequest = vcsRequestFactory.createRequest()
       const result = await commands.unapplyBranch({
@@ -28,10 +29,10 @@ export async function unapplyBranch(branch: Branch): Promise<void> {
       if (result.status !== "ok") {
         throw new Error(result.error.message)
       }
+      await syncBranches({ autoScroll: false, autoExpand: false })
       return result.data
     },
     {
-      processingMessage: `Unapplying ${branch.name}…`,
       success: data => ({
         title: `Unapplied ${branch.name}`,
         description: `Removed ${formatCommitCount(data.commitsRemoved.length)} from HEAD · kept in ${data.unappliedBranchName}`,
@@ -39,8 +40,4 @@ export async function unapplyBranch(branch: Branch): Promise<void> {
       errorTitle: () => `Cannot unapply ${branch.name}`,
     },
   )
-
-  if (data) {
-    await syncBranches({ autoScroll: false, autoExpand: false })
-  }
 }

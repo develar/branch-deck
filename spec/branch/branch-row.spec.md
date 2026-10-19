@@ -13,6 +13,10 @@ targets:
   - ../../src/components/shared/InlineForm.tsx
   - ../../src/components/shared/InlineInputDialog.tsx
   - ../../src/stores/inline-row-action.ts
+  - ../../src/stores/operations.ts
+  - ../../src/lib/rewrite.ts
+  - ../../src/components/shared/MoreActionsMenu.tsx
+  - ../../src/components/shared/MenuItemButton.tsx
   - ../../src/components/branch/BranchNameCell.tsx
   - ../../src/components/branch/IssueFamilyRow.tsx
   - ../../src/components/branch/StackLanes.tsx
@@ -477,6 +481,20 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   Profile… and Dry Run (disabled with the reasons of the [next step](next-step.spec.md)), the robot's actions.
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`keeps every item: the rewrites wait for the sync, disabled with the reason; the rest stays as it is`, `is offered while a sync runs and while the root is on the remote: the push waits for the sync`)
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should keep the actions of the branch menu during a sync, the rewrites disabled with the reason`)
+- An action of the menu must run once ([Running Operations](../../docs/design/operations.md)): while it runs, until the
+  sync that shows its result ends, its item is running (disabled, a spinner in place of its icon) on every surface, a
+  second start joins it (a double click runs one `restack_branch`), and every other rewrite of the repository, in every
+  branch and commit menu, is disabled with its busy state as the reason: "Unstacking oauth…". A rewrite that must wait
+  says so in an info toast titled as its failure; its success toast with Undo comes after the sync.
+  [@test] ../../src/stores/operations.test.ts (`runs a second start of the same action once: it joins the running one and resolves with it`, `lets a rewrite wait for any rewrite of the repository, never for a remote action`, `lets a remote action wait for one of the same object or of a branch it works on`, `ends the operation when its action fails`, `marks the item of the running action running, the items that wait for it disabled with its busy state`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`, `should show an unstack started from the menu on the row's ⋯ and let the other rewrites wait for it`)
+- An action started from the menu, a key or a toast must show its spinner on the "⋯" of its row (`aria-busy`, its
+  hover the busy state); one started from a button that stays (the notice's "Unstack from login", a form, a dialog,
+  the Safe Push popover) shows it there, and "⋯" is only disabled. Every row the operation works on is busy meanwhile:
+  no right-click menu, "⋯" disabled, no drag, no push.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`, `should show an unstack started from the menu on the row's ⋯ and let the other rewrites wait for it`)
+- The same error toast must not stack: an error with the title and the description of an open error toast updates
+  it in place; Activity records each.
 - An item that opens a form must end with "…"; an item that acts at once must not: "Safe Push" and "Dry Run" start at
   once and open their popover only when they have something to say, "Safe Push With Profile…" always opens it. An item that doesn't apply now stays,
   disabled, and says why on hover, never in its name ("Add Issue Reference…" with "Every commit of the branch has an
@@ -511,7 +529,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/issue-reference.spec.ts (`should focus input when opened`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should build a child on the baseline once its parent has no commits, and unstack it`)
 - While its action runs, the form must be a progress row that says what runs ("Adding ABC-123 to auth…"), and close
-  when the action is done. A failure of a form with an input (rename, issue reference, the archived delete) must show
+  when the action is done, after the sync that shows its result. A failure of a form with an input (rename, issue reference, the archived delete) must show
   the form again with the typed text, focused; the error is a toast.
   [@test] ../../tests/e2e/issue-reference.spec.ts (`should add issue reference to branch via context menu`, `should keep the typed reference when adding it fails`)
 - Adding an issue reference rewords the branch's commits under the repository lock: while another Branch Deck
@@ -631,7 +649,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   start of the branch runs, "Safe Push" shows its step with a spinner instead of the shield, `aria-busy`, not dimmed:
   "Checking…", "Pushing 45%", "Starting…".
 - "⋯" is a ghost `icon-xs` button with the `EllipsisIcon`, muted, named "More actions for feature-auth", with the
-  tooltip "More actions". Its menu is the shadcn `DropdownMenu` (Base UI Menu), `align="end"`, as wide as its items
+  tooltip "More actions"; while an action of the row started from a menu, a key or a toast runs, a `Spinner` in place
+  of the icon, `aria-busy`, the tooltip its busy state ("Unstacking oauth…"). Its menu is the shadcn `DropdownMenu` (Base UI Menu), `align="end"`, as wide as its items
   (`w-auto min-w-36`, as the context menu); one renderer, `MenuItems` with the primitives of either menu, draws both.
 - The cell is a `flex items-center gap-2` (`RowActions`); the copy button has `mr-auto`.
 

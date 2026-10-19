@@ -4,7 +4,7 @@ import { InlineInputDialog } from "@/components/shared/InlineInputDialog"
 import { useBranchNameValidation } from "@/hooks/useBranchNameValidation"
 import { renameBranch } from "@/hooks/useStackActions"
 import { getStackDescendants, useBranch, useStacksEnabled } from "@/stores/branch-sync"
-import { closeInline, withRowProgress } from "@/stores/inline-row-action"
+import { closeInline, inlineSurface, withRowProgress } from "@/stores/inline-row-action"
 
 /**
  * Renames a branch (`rename_branch`): a prefix branch in the prefixes of its commits; an issue branch and an issue
@@ -48,12 +48,12 @@ export function InlineRenameBranchInput({ branchName }: { branchName: string }) 
       helpText={helpText}
       onSubmit={() => {
         const target = sanitizedBranchName
-        let processingMessage = isIssueBranch ? `Naming the branch ${target}…` : `Renaming ${branchName} to ${target}…`
+        let label = isIssueBranch ? `Naming the branch ${target}` : `Renaming ${branchName} to ${target}`
         if (existing) {
-          processingMessage = `Moving the commits of ${branchName} to ${target}…`
+          label = `Moving the commits of ${branchName} to ${target}`
         }
         // a failure keeps the form with the typed name
-        void withRowProgress(branchName, () => renameBranch(branchName, target), { processingMessage, keepFormOnFailure: true })
+        void withRowProgress(branchName, () => renameBranch(branchName, target, { label, surface: inlineSurface(branchName) }), { keepFormOnFailure: true })
       }}
       onCancel={closeInline}
     />

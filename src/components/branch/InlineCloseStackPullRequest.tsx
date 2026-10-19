@@ -6,8 +6,9 @@ import { showToast } from "@/lib/toast-message"
 import { describeOrphanedStackPullRequest } from "@/lib/whole-stack"
 import { recordPullRequestClosed } from "@/stores/activity"
 import { useStackBranch } from "@/stores/branch-sync"
-import { closeInline, useIsRowProcessing, withRowProgress } from "@/stores/inline-row-action"
+import { closeInline, inlineSurface, useInlineProcessing, withRowProgress } from "@/stores/inline-row-action"
 import { useStackLandedBy } from "@/stores/landed-stacks"
+import { runOperation } from "@/stores/operations"
 import { closeStackPullRequest, useStackPullRequest } from "@/stores/pull-requests"
 import { getFullStackBranchName } from "@/stores/repository"
 
@@ -19,7 +20,7 @@ import { getFullStackBranchName } from "@/stores/repository"
 export function InlineCloseStackPullRequest({ root }: { root: string }) {
   const pullRequest = useStackPullRequest(root)
   const reason = describeOrphanedStackPullRequest(root, pullRequest, useStackBranch(root), useStackLandedBy(root))
-  const processing = useIsRowProcessing(root)
+  const processing = useInlineProcessing(root) !== null
   const number = pullRequest?.number
   return (
     <InlineForm
@@ -37,23 +38,28 @@ export function InlineCloseStackPullRequest({ root }: { root: string }) {
         if (reason === null || pullRequest === undefined) {
           return
         }
-        void withRowProgress(
-          root,
-          () =>
-            closeStackPullRequest(root, `Closed in Branch Deck: ${reason}.`).then(
-              () => {
-                const title = `Closed pull request #${pullRequest.number}`
-                showToast({ title, description: reason, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
-                recordPullRequestClosed(title, reason, pullRequest.url)
-                return true
-              },
-              (error: unknown) => {
-                notifyError(`Cannot close pull request #${pullRequest.number}`, error)
-                return false
-              },
-            ),
-          { processingMessage: `Closing pull request #${pullRequest.number}…`, keepFormOnFailure: true },
-        )
+        const close = () =>
+          closeStackPullRequest(root, `Closed in Branch Deck: ${reason}.`).then(
+            () => {
+              const title = `Closed pull request #${pullRequest.number}`
+              showToast({ title, description: reason, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
+              recordPullRequestClosed(title, reason, pullRequest.url)
+              return true
+            },
+            (error: unknown) => {
+              notifyError(`Cannot close pull request #${pullRequest.number}`, error)
+              return false
+            },
+          )
+        const operation = {
+          id: "close-stack-pull-request",
+          kind: "remote",
+          subject: `pr:${pullRequest.number}`,
+          objects: [root],
+          label: `Closing pull request #${pullRequest.number}`,
+          surface: inlineSurface(root),
+        } as const
+        void withRowProgress(root, () => runOperation(operation, close).then(done => done === true), { keepFormOnFailure: true })
       }}
     >
       {null}

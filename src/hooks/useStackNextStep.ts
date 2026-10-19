@@ -18,7 +18,7 @@ import { describeWholeStackLanding, formatWholeStack, getStackBranchBlocker, sta
 import type { StackBranch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getStackBranch, stackMainLineIn, useBranchSync } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
-import { isProcessing } from "@/stores/inline-row-action"
+import { isObjectBusy } from "@/stores/operations"
 import {
   getLandedBy,
   getStackLandedReason,
@@ -195,7 +195,7 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     hasError: false,
     commitCount: stack.commitCount,
     // its own running start is no reason against the start it runs
-    processing: isProcessing(key) || (options === null && getSafePushStarting(key) !== null),
+    processing: isObjectBusy(key) || (options === null && getSafePushStarting(key) !== null),
     blocked: false,
     startBlocker: start.ok ? null : start.reason,
     dryRunStartBlocker: dryRun.ok ? null : dryRun.reason,

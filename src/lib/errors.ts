@@ -34,12 +34,15 @@ export function recordError(title: string, error: unknown): string {
 
 /**
  * Logs the error, shows a sticky error toast and records it in Activity. Usable outside React. `action` opens the object
- * the error names ("Open in Patronus" of the robot that refused the push).
+ * the error names ("Open in Patronus" of the robot that refused the push). The same error again while its toast is open
+ * (a poll, two surfaces) updates that toast instead of stacking a copy; Activity records each.
  */
 export function notifyError(title: string, error: unknown, action?: ToastActionProps): void {
   const description = recordError(title, error)
 
   toast.add({
+    // Base UI updates the open toast of the same id in place
+    id: `error:${title}\n${description}`,
     type: "error",
     title,
     description,

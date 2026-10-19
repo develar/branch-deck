@@ -16,6 +16,7 @@ import { describePushUpTo, pushUpToPlan } from "@/lib/push-up-to"
 import { getAutosquashPlan, getBranch, getIssueGroups, getMoveTargets } from "@/stores/branch-sync"
 import { claimSelection, requestCommitForm, requestReveal, startCommitDrag, UNASSIGNED_SOURCE, useCommitFormRequest, useCommitMove, useRevealRequest } from "@/stores/commit-move"
 import type { CommitFormRequest } from "@/stores/commit-move"
+import { branchSubject, getOperations, operationItem } from "@/stores/operations"
 import { getLandedBy, getPushHold } from "@/stores/patronus"
 
 /** Branches listed in the "Move to" submenu */
@@ -152,7 +153,7 @@ export function getCommitMenuGroups<T extends Commit>(sourceBranch: string | nul
       icon: GitBranchIcon,
       onSelect: () => {},
       children: [
-        ...targets.map(name => ({ label: name, icon: GitBranchIcon, onSelect: () => void moveCommits(menuCommits, name) })),
+        ...targets.map(name => ({ label: name, icon: GitBranchIcon, onSelect: () => void moveCommits(menuCommits, name, { id: "move-to-existing" }) })),
         { label: "New Branch…", icon: GitBranchPlusIcon, onSelect: () => forms.openTarget(menuCommits) },
       ],
     })
@@ -165,7 +166,12 @@ export function getCommitMenuGroups<T extends Commit>(sourceBranch: string | nul
     ? [{ id: "squash", label: `Squash ${menuCommits.length} Commits…`, icon: CombineIcon, kbds: ["s"], onSelect: () => forms.openSquash(menuCommits) }]
     : getSquashIntoItems(menuCommits[0]!)
   const pushItems = isMultiple || sourceBranch === null ? [] : getPushUpToItems(sourceBranch, menuCommits[0]!)
-  return [moveItems, squashItems, pushItems, getCommitCopyMenuItems(menuCommits)]
+  // a rewrite waits for a rewrite that runs; the running one says so (`operationItem`), read when the menu opens
+  const operations = getOperations()
+  const sourceKey = sourceBranch ?? UNASSIGNED_SOURCE
+  const rewrite = (items: MenuItem[]): MenuItem[] =>
+    items.map(item => operationItem(operations, item, { id: item.id ?? item.label, subject: branchSubject(sourceKey), objects: [sourceKey], kind: "rewrite" }))
+  return [rewrite(moveItems), rewrite(squashItems), pushItems, getCommitCopyMenuItems(menuCommits)]
 }
 
 export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = false, sourceBranch }: CommitMoveListOptions<T>): CommitMoveList<T> {
@@ -237,7 +243,7 @@ export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = fal
   const closeSquash = useCallback(() => setSquashCommits(null), [])
 
   const removePrefixFrom = (targetCommits: readonly T[]) => {
-    void moveCommits(targetCommits, null).then(success => {
+    void moveCommits(targetCommits, null, { id: "remove-prefix" }).then(success => {
       if (success) {
         clearSelection()
       }

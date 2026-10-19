@@ -1,9 +1,12 @@
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
+import { toast } from "@/components/ui/toast"
 import type { MergeConflictInfo } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import type { ToastMessage } from "@/lib/toast-message"
 import { showToast } from "@/lib/toast-message"
+import type { OperationKind } from "@/stores/operations"
+import { branchSubject, runOperation, useSurfaceBusy } from "@/stores/operations"
 
 export type InlineActionType =
   | "issue-reference"
@@ -21,8 +24,15 @@ export interface ActiveInline {
   branchName: string
   /** For the amend-conflict type */
   conflictInfo?: MergeConflictInfo
-  processing: boolean
-  processingMessage?: string
+}
+
+/** The operation an inline form runs (`runOperation`); its row is its object, its form the surface that shows it */
+export interface RowOperation {
+  /** The id of the item that opened the form ("unapply") */
+  id: string
+  kind: OperationKind
+  /** The busy state the form shows in place of itself, without the ellipsis: "Unapplying feature-auth" */
+  label: string
 }
 
 export interface RowProcessingOptions<T> {
@@ -32,13 +42,11 @@ export interface RowProcessingOptions<T> {
    * for an error shown otherwise (the amend conflict opens its viewer below the row)
    */
   errorTitle: (error: unknown) => string | null
-  processingMessage?: string
   /** An error shows the form again with its input, instead of closing it */
   keepFormOnError?: boolean
 }
 
 export interface RowProgressOptions {
-  processingMessage?: string
   /** A failure shows the form again with its input, instead of closing it */
   keepFormOnFailure?: boolean
 }
@@ -61,19 +69,17 @@ export function useActiveInlineForRow(branchName: string): ActiveInline | null {
   return useStore(inlineRowActionStore, state => (state.activeInline?.branchName === branchName ? state.activeInline : null))
 }
 
-export function useIsRowProcessing(key: string): boolean {
-  return useStore(inlineRowActionStore, state => isProcessingIn(state, key))
+/** The surface of the inline form of a row: it shows the operation it started in place of itself */
+export function inlineSurface(key: string): string {
+  return `inline:${key}`
+}
+
+/** The busy state of the operation the inline form of the row started ("Unapplying feature-auth"), null while none runs */
+export function useInlineProcessing(key: string): string | null {
+  return useSurfaceBusy(inlineSurface(key))
 }
 
 // ---- queries ----
-
-function isProcessingIn(state: InlineRowActionState, key: string): boolean {
-  return state.activeInline?.branchName === key && state.activeInline.processing
-}
-
-export function isProcessing(key: string): boolean {
-  return isProcessingIn(inlineRowActionStore.getState(), key)
-}
 
 export function isActive(type: InlineActionType, branchName: string): boolean {
   const activeInline = inlineRowActionStore.getState().activeInline
@@ -152,7 +158,7 @@ export function openInline(type: InlineActionType, branchName: string, options: 
     return
   }
   rememberFocusOrigin(branchName)
-  inlineRowActionStore.setState({ activeInline: { type, branchName, conflictInfo: options.conflictInfo, processing: false } })
+  inlineRowActionStore.setState({ activeInline: { type, branchName, conflictInfo: options.conflictInfo } })
 }
 
 export function closeInline(): void {
@@ -170,59 +176,57 @@ function closeInlineOf(key: string): void {
   }
 }
 
-/** The progress row of the row's inline form (`processing`), or the form again */
-function setRowProcessing(key: string, processing: boolean, processingMessage?: string): void {
-  const activeInline = inlineRowActionStore.getState().activeInline
-  if (activeInline?.branchName === key) {
-    inlineRowActionStore.setState({ activeInline: { ...activeInline, processing, processingMessage } })
-  }
-}
+type Outcome<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: unknown }
 
 /**
- * Runs `fn` while the row's inline form shows its progress state, reports the outcome with a toast (an error through
- * `notifyError`: sticky, logged, in Activity) and closes the form (after an error too, unless `keepFormOnError`).
- * Resolves to the value of `fn`, or `undefined` if it failed.
+ * Runs `fn` as the operation of the row (`runOperation`), while the row's inline form shows its progress state, reports
+ * the outcome with a toast (an error through `notifyError`: sticky, logged, in Activity) and closes the form (after an
+ * error too, unless `keepFormOnError`). `fn` includes the sync that shows its result: the form shows the progress until
+ * then. Resolves to the value of `fn`, or `undefined` if it failed or had to wait for another operation (said in a
+ * toast, the form kept).
  */
-export async function withRowProcessing<T>(key: string, fn: () => Promise<T>, options: RowProcessingOptions<T>): Promise<T | undefined> {
-  setRowProcessing(key, true, options.processingMessage)
-
-  let value: T
-  try {
-    value = await fn()
-  } catch (error) {
-    if (options.keepFormOnError === true) {
-      setRowProcessing(key, false)
-    } else {
+export async function withRowProcessing<T>(key: string, operation: RowOperation, fn: () => Promise<T>, options: RowProcessingOptions<T>): Promise<T | undefined> {
+  const outcome = await runOperation<Outcome<T>>(
+    { ...operation, subject: branchSubject(key), objects: [key], surface: inlineSurface(key) },
+    () =>
+      fn().then(
+        value => ({ ok: true, value }),
+        (error: unknown) => ({ ok: false, error }),
+      ),
+    reason => toast.add({ type: "info", title: options.errorTitle(reason) ?? operation.label, description: reason }),
+  )
+  if (outcome === undefined) {
+    return undefined
+  }
+  if (!outcome.ok) {
+    if (options.keepFormOnError !== true) {
       // the error handler may open another inline (e.g. the amend conflict viewer), so close first
       closeInlineOf(key)
     }
-    const errorTitle = options.errorTitle(error)
+    const errorTitle = options.errorTitle(outcome.error)
     if (errorTitle !== null) {
-      notifyError(errorTitle, error)
+      notifyError(errorTitle, outcome.error)
     }
     return undefined
   }
 
   closeInlineOf(key)
-  showToast(options.success(value))
-  return value
+  showToast(options.success(outcome.value))
+  return outcome.value
 }
 
 /**
- * Runs `fn`, which tells its outcome itself (a toast with Undo, an error toast), while the row's inline form shows its
- * progress state. Resolves to the result of `fn`: true closes the form; false closes it too, or shows it again with its
- * input (`keepFormOnFailure`).
+ * Runs `fn`, an operation that tells its outcome itself (`runRewrite`: a toast with Undo, an error toast) and is started
+ * from the form (`inlineSurface(key)`), so that the form shows its progress state. Resolves to the result of `fn`: true
+ * closes the form; false closes it too, or shows it again with its input (`keepFormOnFailure`).
  */
 export async function withRowProgress(key: string, fn: () => Promise<boolean>, options: RowProgressOptions = {}): Promise<boolean> {
-  setRowProcessing(key, true, options.processingMessage)
   let done = false
   try {
     done = await fn()
   } finally {
     if (done || options.keepFormOnFailure !== true) {
       closeInlineOf(key)
-    } else {
-      setRowProcessing(key, false)
     }
   }
   return done

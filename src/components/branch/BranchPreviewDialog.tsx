@@ -44,7 +44,7 @@ import { formatTimestamp } from "@/lib/time"
 import { statusDotClassName } from "@/lib/ui-types"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { useBranch, useIsBranchPushing } from "@/stores/branch-sync"
-import { useIsRowProcessing } from "@/stores/inline-row-action"
+import { useObjectBusy } from "@/stores/operations"
 import { useBranchRobot, useLandedBy, usePatronusAvailable } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
 
@@ -82,7 +82,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
   const index = currentName === null ? -1 : names.indexOf(currentName)
 
   const isPushing = useIsBranchPushing(currentName ?? "")
-  const processing = useIsRowProcessing(currentName ?? "")
+  const processing = useObjectBusy(currentName ?? "") !== null
   const canPush = branch !== undefined && canPushNow(branch, { isPushing, processing })
   const pullRequest = usePullRequest(currentName ?? "")
   const summary = branch === undefined ? null : getBranchSummary(branch.summary, branch.descriptionTitle)

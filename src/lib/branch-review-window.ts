@@ -17,6 +17,7 @@ import { continueOnGitHub, submitPullRequest } from "@/lib/create-pull-request-c
 import { logError, notifyError, recordError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
+import { FROM_MENU } from "@/lib/menu"
 import { showRepository } from "@/lib/show-repository"
 import { stackAncestors } from "@/lib/stack"
 import { createWindowLink } from "@/lib/sub-window-link"
@@ -26,6 +27,7 @@ import { branchSyncStore, getBranch, getStackBranch, getStackDescendants, stackM
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { requestCommitForm, requestReveal } from "@/stores/commit-move"
 import type { CommitFormRequest, RevealRequest } from "@/stores/commit-move"
+import { getOperations } from "@/stores/operations"
 import { getStackPullRequest } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject } from "@/stores/repository"
 import { demandReviewReadiness, showReviewReadiness } from "@/stores/review-readiness"
@@ -395,7 +397,7 @@ function buildState(repositoryPath: string, chain: readonly string[]): BranchRev
     const branch = getBranch(name)
     if (branch !== undefined) {
       items[name] = getBranchReviewItems(branch).map(toReviewItem)
-      menus[name] = getBranchContextMenuItems(branch, revealRow)
+      menus[name] = getBranchContextMenuItems(branch, revealRow, getOperations())
         .map(group => group.filter(item => item.id !== undefined && item.children === undefined).map(toMenuItem))
         .filter(group => group.length > 0)
       for (const commit of branch.commits) {
@@ -590,7 +592,7 @@ function runItem(item: MenuItem, reveal: RevealRequest, refuse: (reason: unknown
     .setFocus()
     .catch((error: unknown) => logError("Cannot focus the main window", error))
   requestReveal(reveal)
-  item.onSelect()
+  item.onSelect(FROM_MENU)
   return true
 }
 
@@ -663,7 +665,7 @@ function findMenuItem(branchName: string, id: string): MenuItem | undefined {
   const branch = getBranch(branchName)
   return branch === undefined
     ? undefined
-    : getBranchContextMenuItems(branch, revealRow)
+    : getBranchContextMenuItems(branch, revealRow, getOperations())
         .flat()
         .find(item => item.id === id && item.children === undefined)
 }

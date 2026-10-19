@@ -17,6 +17,7 @@ import { PRIMARY_KBD_CLASS_NAME } from "@/components/shared/MenuItemButton"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
 import { useCommitFileStats } from "@/hooks/useCommitFiles"
+import { REWORD_SURFACE } from "@/hooks/useRewordCommit"
 import type { CommitUnion } from "@/lib/commit"
 import { getCommitFileCount, getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
@@ -26,6 +27,7 @@ import { isMac } from "@/lib/platform"
 import { handlePreviewItemSwitchKey, handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { useBranchSync } from "@/stores/branch-sync"
 import { toggleCommitFilesSection, useIsCommitFilesSectionOpen } from "@/stores/commit-files"
+import { useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
 
 export interface CommitPreviewDialogProps {
   commits: readonly CommitUnion[]
@@ -89,7 +91,9 @@ export function CommitPreviewDialog({
   const [editedHash, setEditedHash] = useState<string | null>(null)
   const isEditing = open && editedHash === hash
   const [draft, setDraft] = useState("")
-  const [isSaving, setIsSaving] = useState(false)
+  // the reword runs from the editor: its Save shows the progress until the sync shows the new commit
+  useIndicatorClaim(REWORD_SURFACE)
+  const isSaving = useSurfaceBusy(REWORD_SURFACE) !== null
   const isSyncing = useBranchSync(state => state.isSyncing)
   const canEdit = onSaveMessage !== undefined && commit !== undefined && !isSyncing
   const fileStats = useCommitFileStats(hash)
@@ -129,9 +133,7 @@ export function CommitPreviewDialog({
     if (commit === undefined || onSaveMessage === undefined || isSaving || isSyncing) {
       return
     }
-    setIsSaving(true)
-    // `.finally`, not try/finally: React Compiler cannot compile a try without a catch
-    const saved = await onSaveMessage(commit, draft).finally(() => setIsSaving(false))
+    const saved = await onSaveMessage(commit, draft)
     if (saved) {
       endEdit()
     }

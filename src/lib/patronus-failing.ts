@@ -5,6 +5,7 @@ import type { PatronusRobot, RobotFailureKind } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { formatFailedCheckNames } from "@/lib/check-counts"
 import type { MenuItem } from "@/lib/menu"
+import { FROM_MENU } from "@/lib/menu"
 import { announce } from "@/lib/os-notification"
 import { describeRobot, findFailedRobots, formatPushMode, formatRobotSubject, openRobot } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
@@ -241,7 +242,7 @@ function showRobotToast(
               : () => {
                   toast.close(id)
                   // decided when the toast showed: a restart, a cancel or a finish since leaves nothing to do
-                  stepAtClick(step)?.onSelect()
+                  stepAtClick(step)?.onSelect(FROM_MENU)
                 },
         },
       }),

@@ -11,6 +11,7 @@ import { isForkingStack } from "@/hooks/useStackNextStep"
 import type { PullRequest } from "@/lib/bindings"
 import type { NextStepTone } from "@/lib/branch-next-step"
 import type { MenuItem } from "@/lib/menu"
+import { FROM_MENU } from "@/lib/menu"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 import { useStackBranch } from "@/stores/branch-sync"
@@ -206,7 +207,7 @@ const toneClass: Readonly<Record<NextStepTone, string>> = {
  */
 export function StepButton({ action, tone, showKeys }: { action: MenuItem; tone: NextStepTone; showKeys: boolean }) {
   const isDisabled = action.disabled === true
-  const button = stepButton(action, tone, action.onSelect)
+  const button = stepButton(action, tone, () => action.onSelect(FROM_MENU))
   const keys = isDisabled || !showKeys ? [] : (action.kbds ?? [])
   if (action.description === undefined && keys.length === 0) {
     return button

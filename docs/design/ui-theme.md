@@ -230,8 +230,9 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
     delete `destructive`;
   - a confirmation without an input passes `focusSubmit`, so Enter confirms;
   - the action runs through `withRowProcessing` (it toasts the outcome, an error through `notifyError` with its
-    `errorTitle`) or `withRowProgress` (the action toasts, e.g. with Undo) in `src/stores/inline-row-action.ts`: the
-    progress row while it runs, the form again with its input after a failure of a form with an input
+    `errorTitle`) or `withRowProgress` (the action toasts, e.g. with Undo) in `src/stores/inline-row-action.ts`, as an
+    operation the form started (`inlineSurface`, [Running Operations](operations.md)): the progress row with its busy
+    state while it runs, the form again with its input after a failure of a form with an input
     (`keepFormOnError`, `keepFormOnFailure`);
   - closing gives the focus back to the opener, or to the row (`BranchContextMenuRow` is focusable).
 - **Type sizes** come from the scale in `src/index.css`, one role per step. No arbitrary sizes (`text-[13px]`,
@@ -306,7 +307,9 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
 - **One busy indicator per operation**: the control that started it shows the spinner and the progress (Update
   "Updating 42%" with its bar for all its steps, "Pushing 45%" on the Safe Push of the slot, the island header's push of
   its stack, also of its stack branch alone, "Pushing the whole stack 45%"), the header Sync every sync, also the one an applied update waits for as its last step; the other controls of it are disabled without one, and no text beside them repeats it ("Syncing…" next to
-  the spinning Sync). A row the operation works on shows its own part (the branch a stack push pushes now, a branch
+  the spinning Sync). An action started from a menu, a key or a toast has no control left: the "⋯" of its object's row
+  shows the spinner, its hover the busy state ("Unstacking tool-events…"); a button that started one and stays shows it
+  in place of its icon, with the busy state as its label (`MenuItemButton surface`). A row the operation works on shows its own part (the branch a stack push pushes now, a branch
   the sync rebuilds), never the whole of it again.
 - **`Spinner` has no fixed size**: inside a `Button` it is `data-icon="inline-start"` and the button sizes it, like any
   icon; a standalone spinner passes `size-4` (`size-3` in `text-xs`). Never `LoaderCircleIcon animate-spin`.
