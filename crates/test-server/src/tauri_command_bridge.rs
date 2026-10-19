@@ -19,7 +19,7 @@ use sync_core::branch_prefix::GitBranchPrefix;
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
 use sync_core::repository_config::{
   ConfigScope, RepositoryConfig, RepositoryConfigChange, WriteScope, detect_github_repository, read_config_entries, repository_config_from_entries, with_stacks_off_clashes,
-  write_repository_config,
+  write_global_config, write_repository_config,
 };
 use sync_core::repository_lock::RewriteOptions;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
@@ -182,24 +182,28 @@ pub async fn get_branch_prefix_from_git_config(State(state): State<Arc<AppState>
   .await
 }
 
-/// The production read with the local entries only: the user's global config never shows, so the tests are
-/// deterministic
-fn read_local_repository_config(git_executor: &git_executor::git_command_executor::GitCommandExecutor, repository_path: &str) -> anyhow::Result<RepositoryConfig> {
+/// The git of the config commands of a test repository: its global config is the repository's own file
+/// (`AppState::global_config_of`), never the one of the developer, for a read and for a write
+fn config_git(state: &AppState, repository_path: &str) -> Result<git_executor::git_command_executor::GitCommandExecutor, CommandFailure> {
+  let repository = repository_by_path(state, repository_path)?;
+  let global_config = state.global_config_of(&repository.id);
+  Ok(state.git_executor.with_env("GIT_CONFIG_GLOBAL", &global_config.to_string_lossy()))
+}
+
+/// The production read without the system config, its global config the repository's own file (`config_git`), so the
+/// tests are deterministic
+fn read_test_repository_config(git_executor: &git_executor::git_command_executor::GitCommandExecutor, repository_path: &str) -> anyhow::Result<RepositoryConfig> {
   let entries: Vec<_> = read_config_entries(git_executor, repository_path)?
     .into_iter()
-    .filter(|entry| entry.scope == ConfigScope::Local)
+    .filter(|entry| matches!(entry.scope, ConfigScope::Local | ConfigScope::Global))
     .collect();
   let config = repository_config_from_entries(&entries, detect_github_repository(git_executor, repository_path)?);
   Ok(with_stacks_off_clashes(git_executor, repository_path, config))
 }
 
 pub async fn get_repository_config(State(state): State<Arc<AppState>>, Json(request): Json<GetBranchPrefixRequest>) -> CommandResult<RepositoryConfig> {
-  ensure_repository_exists(&state, &request.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  run_command("read the repository settings", move || {
-    read_local_repository_config(&git_executor, &request.repository_path)
-  })
-  .await
+  let git_executor = config_git(&state, &request.repository_path)?;
+  run_command("read the repository settings", move || read_test_repository_config(&git_executor, &request.repository_path)).await
 }
 
 #[derive(Deserialize)]
@@ -211,15 +215,16 @@ pub struct SetRepositoryConfigRequest {
   scope: WriteScope,
 }
 
-/// The production write of the local config; the answer is the local read of `get_repository_config`. A write of the
-/// global config is refused: it would change the config of the developer who runs the tests
+/// The production write; a write of the global config goes to the repository's own file (`config_git`), as the
+/// developer's must not change. The answer is the read of `get_repository_config`
 pub async fn set_repository_config(State(state): State<Arc<AppState>>, Json(request): Json<SetRepositoryConfigRequest>) -> CommandResult<RepositoryConfig> {
-  ensure_repository_exists(&state, &request.repository_path)?;
-  let git_executor = state.git_executor.clone();
+  let git_executor = config_git(&state, &request.repository_path)?;
   run_command("change the repository settings", move || {
-    anyhow::ensure!(request.scope == WriteScope::Local, "The test server writes no global config");
-    write_repository_config(&git_executor, &request.repository_path, &request.change)?;
-    read_local_repository_config(&git_executor, &request.repository_path)
+    match request.scope {
+      WriteScope::Local => write_repository_config(&git_executor, &request.repository_path, &request.change)?,
+      WriteScope::Global => write_global_config(&git_executor, &request.change)?,
+    }
+    read_test_repository_config(&git_executor, &request.repository_path)
   })
   .await
 }

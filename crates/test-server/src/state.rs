@@ -17,6 +17,15 @@ pub struct AppState {
   pub templates_dir: PathBuf,
 }
 
+impl AppState {
+  /// The global git config of a test repository, beside its directory: `GIT_CONFIG_GLOBAL` of its config reads and
+  /// writes (`set_repository_config` with `scope: global`), so no test reads or writes the config of the developer,
+  /// and two tests that run at once never share one. Deleted with the repository
+  pub fn global_config_of(&self, repository_id: &str) -> PathBuf {
+    self.test_root_dir.path().join(format!("{repository_id}.gitconfig"))
+  }
+}
+
 pub struct TestRepository {
   pub id: String,
   pub path: String,

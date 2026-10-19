@@ -316,9 +316,11 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   (`store` of `__e2eSubWindows`, the `storeCache` of the open). `expectSettingsOpened` checks the last open and that it
   is the only new one; `reopenLinkedSubWindow` hands a later open to the shown window, as the backend does.
 - `tests/e2e/settings/repository-settings.spec.ts`: the test server reads and writes the local config of the test
-  repository only, and the mock sends `repository_config_changed` to the main window's page after a write
-  (`set_repository_config` of `tauri-mocks.ts`). The mock's store reports no change, so the main window broadcasts no
-  recent projects: a test that switches the repository hands them to the window (`store-snapshot-update`).
+  repository and a global config of its own (`GIT_CONFIG_GLOBAL`, `AppState::global_config_of`), never the
+  developer's or the system config; the sync of the repository does not read that global file. The mock sends
+  `repository_config_changed` to the main window's page after a write (`set_repository_config` of `tauri-mocks.ts`).
+  The mock's store reports no change, so the main window broadcasts no recent projects: a test that switches the
+  repository hands them to the window (`store-snapshot-update`).
 - By hand: `pnpm tauri dev`; ⌘, from the menu, from a review window and again with the window open (it comes to the
   front); every page at 100% and 150% without scrolling; closing the main window closes Settings; Repository: stacks
   on syncs the main window, a prefix of the repository renames its branches, `git config --worktree` disables a row.

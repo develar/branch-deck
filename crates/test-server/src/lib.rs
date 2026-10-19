@@ -26,6 +26,9 @@ pub mod tauri_command_bridge;
 mod commit_files_test;
 
 #[cfg(test)]
+mod repository_config_test;
+
+#[cfg(test)]
 mod repository_lifecycle_test;
 
 #[cfg(test)]
@@ -718,6 +721,13 @@ pub async fn delete_repository(axum::extract::Path(id): axum::extract::Path<Stri
   let no_commands = tokio::time::timeout(DELETE_WAIT, Arc::clone(&repo.in_flight).write_owned()).await;
   if no_commands.is_err() {
     tracing::warn!(id, "Commands for the test repository still run after {DELETE_WAIT:?}; deleting it anyway");
+  }
+
+  let global_config = state.global_config_of(&id);
+  if let Err(e) = std::fs::remove_file(&global_config)
+    && e.kind() != std::io::ErrorKind::NotFound
+  {
+    tracing::warn!("Failed to remove the global config {}: {}", global_config.display(), e);
   }
 
   let directory = PathBuf::from(&repo.path);
