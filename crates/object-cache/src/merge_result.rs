@@ -13,7 +13,7 @@ pub struct MergeKey {
 }
 
 impl MergeKey {
-  fn bytes(&self) -> Vec<u8> {
+  pub(crate) fn bytes(&self) -> Vec<u8> {
     [self.base_tree.as_str(), self.commit_tree.as_str(), self.target_tree.as_str()].join("\0").into_bytes()
   }
 }

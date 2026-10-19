@@ -5,6 +5,7 @@ use crate::stack::stacks_enabled;
 use crate::symbol_scan::{SymbolMode, read_symbol_mode};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::{Description, read_descriptions};
+use git_ops::word_resolve::ResolveMode;
 use pretty_assertions::assert_eq;
 use test_utils::git_test_utils::TestRepo;
 
@@ -158,4 +159,18 @@ fn one_read_of_the_settings_and_the_descriptions() {
     snapshot(&repo).symbol_mode().unwrap_err().to_string(),
     "branchdeck.symbols is not off, report or on: sometimes"
   );
+}
+
+/// The resolve by words is on when unset, off for a false of any scope, and a value git refuses is an error
+#[test]
+fn the_resolve_by_words_is_on_unless_the_config_turns_it_off() {
+  let repo = TestRepo::new();
+  assert_eq!(snapshot(&repo).resolve_mode().unwrap(), ResolveMode::On);
+  assert!(snapshot(&repo).settings().resolve_by_words.value);
+  repo.set_config("branchdeck.resolveByWords", "false").unwrap();
+  assert_eq!(snapshot(&repo).resolve_mode().unwrap(), ResolveMode::Off);
+  let setting = snapshot(&repo).settings().resolve_by_words;
+  assert_eq!((setting.value, setting.local_set, setting.fallback_value), (false, true, true));
+  repo.set_config("branchdeck.resolveByWords", "maybe").unwrap();
+  snapshot(&repo).resolve_mode().unwrap_err();
 }

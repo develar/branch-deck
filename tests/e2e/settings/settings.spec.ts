@@ -28,6 +28,7 @@ const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
     fallbackValue: null,
     fallbackScope: null,
   },
+  resolveByWords: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
   detectedGithubRepository: { fullName: "acme/app", source: "spaceMirror" },
   stacksOffClashes: [
     { branch: "auth/login", beside: "auth" },

@@ -20,6 +20,7 @@ pub mod patronus_robots;
 pub mod remote_status;
 pub mod review_answer;
 pub mod stack_branch;
+pub mod word_resolution;
 
 #[cfg(test)]
 mod cache_test;

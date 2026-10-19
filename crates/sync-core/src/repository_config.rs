@@ -1,6 +1,6 @@
 //! The `branchdeck.*` git config of a repository that Settings → Repository shows and writes: stacked branches, the
-//! symbol mode, the GitHub repository and the branch prefix. One `git config --get-regexp` reads all four with their
-//! scopes; a write goes to the local config (`.git/config`, shared by the linked worktrees) only, and `bd` reads the same
+//! symbol mode, the GitHub repository, the branch prefix and the resolve by words. One `git config --get-regexp` reads
+//! all five with their scopes; a write goes to the local config (`.git/config`, shared by the linked worktrees) only, and `bd` reads the same
 //! keys.
 
 use crate::baseline::detect_baseline_branch;
@@ -19,8 +19,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use tracing::{instrument, warn};
 
-/// The four keys, lowercase as `--get-regexp` prints them; the regexp matches the canonical (lowercase) names
-const CONFIG_KEYS_REGEXP: &str = r"^branchdeck\.(stacks|symbols|githubrepository|branchprefix)$";
+/// The five keys, lowercase as `--get-regexp` prints them; the regexp matches the canonical (lowercase) names
+const CONFIG_KEYS_REGEXP: &str = r"^branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords)$";
+
+/// Whether a sync resolves the conflicts of git by words (`git_ops::word_resolve`), a git boolean, on when unset
+pub const RESOLVE_BY_WORDS_CONFIG_KEY: &str = "branchdeck.resolveByWords";
 
 /// The config file an entry comes from, in git's order: a later scope wins over an earlier one
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -113,6 +116,8 @@ pub struct RepositoryConfig {
   pub github_repository: ConfigSetting<Option<String>>,
   /// `branchdeck.branchPrefix`, normalized as the branches are named
   pub branch_prefix: ConfigSetting<Option<String>>,
+  /// `branchdeck.resolveByWords`, on by default
+  pub resolve_by_words: ConfigSetting<bool>,
   /// The repository of `origin` or of the Space mirror, which applies when `github_repository` is not set
   pub detected_github_repository: Option<DetectedGitHubRepository>,
   /// With stacked branches on, the flat branches that turning them off would name beside a branch git cannot keep them
@@ -141,6 +146,7 @@ pub enum RepositoryConfigKey {
   Symbols,
   GithubRepository,
   BranchPrefix,
+  ResolveByWords,
 }
 
 impl RepositoryConfigKey {
@@ -151,11 +157,12 @@ impl RepositoryConfigKey {
       Self::Symbols => SYMBOLS_CONFIG_KEY,
       Self::GithubRepository => GITHUB_REPOSITORY_CONFIG,
       Self::BranchPrefix => BRANCH_PREFIX_CONFIG_KEY,
+      Self::ResolveByWords => RESOLVE_BY_WORDS_CONFIG_KEY,
     }
   }
 
   fn of_entry_key(key: &str) -> Option<Self> {
-    [Self::Stacks, Self::Symbols, Self::GithubRepository, Self::BranchPrefix]
+    [Self::Stacks, Self::Symbols, Self::GithubRepository, Self::BranchPrefix, Self::ResolveByWords]
       .into_iter()
       .find(|candidate| candidate.config_key().eq_ignore_ascii_case(key))
   }
@@ -170,6 +177,7 @@ pub enum RepositoryConfigChange {
   Symbols(Option<SymbolMode>),
   GithubRepository(Option<String>),
   BranchPrefix(Option<String>),
+  ResolveByWords(Option<bool>),
 }
 
 impl RepositoryConfigChange {
@@ -179,13 +187,14 @@ impl RepositoryConfigChange {
       Self::Symbols(_) => RepositoryConfigKey::Symbols,
       Self::GithubRepository(_) => RepositoryConfigKey::GithubRepository,
       Self::BranchPrefix(_) => RepositoryConfigKey::BranchPrefix,
+      Self::ResolveByWords(_) => RepositoryConfigKey::ResolveByWords,
     }
   }
 
   /// The value to write, validated as the reader takes it; None to unset. An empty text unsets too
   fn config_value(&self) -> Result<Option<String>> {
     Ok(match self {
-      Self::Stacks(value) => value.map(|value| value.to_string()),
+      Self::Stacks(value) | Self::ResolveByWords(value) => value.map(|value| value.to_string()),
       Self::Symbols(value) => value.map(|mode| symbol_mode_name(mode).to_string()),
       Self::GithubRepository(value) => match value.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
         None => None,
@@ -223,7 +232,7 @@ fn validate_branch_prefix(value: &str) -> Result<&str, String> {
   Ok(value)
 }
 
-/// The four keys with their scopes, in git's order, from one `git config -z --show-scope --get-regexp`; the global
+/// The five keys with their scopes, in git's order, from one `git config -z --show-scope --get-regexp`; the global
 /// config alone for an empty `repository_path`
 #[instrument(skip(git))]
 pub fn read_config_entries(git: &GitCommandExecutor, repository_path: &str) -> Result<Vec<ConfigEntry>> {
@@ -313,10 +322,7 @@ fn parse_git_int(value: &str) -> Option<i64> {
 /// The settings the entries resolve to (the last entry of a key wins), with the detected GitHub repository
 pub fn repository_config_from_entries(entries: &[ConfigEntry], detected_github_repository: Option<DetectedGitHubRepository>) -> RepositoryConfig {
   RepositoryConfig {
-    stacks: resolve_setting(entries, RepositoryConfigKey::Stacks, false, |value| match parse_git_bool(value) {
-      Some(enabled) => (enabled, None),
-      None => (false, Some(format!("{} is not a boolean (true or false)", value.unwrap_or_default()))),
-    }),
+    stacks: resolve_setting(entries, RepositoryConfigKey::Stacks, false, |value| bool_setting(value, false)),
     symbols: resolve_setting(entries, RepositoryConfigKey::Symbols, SymbolMode::default(), |value| {
       match SymbolMode::parse(value.unwrap_or_default()) {
         Some(mode) => (mode, None),
@@ -329,8 +335,17 @@ pub fn repository_config_from_entries(entries: &[ConfigEntry], detected_github_r
     branch_prefix: resolve_setting(entries, RepositoryConfigKey::BranchPrefix, None, |value| {
       text_setting(value.map(normalize_branch_prefix), validate_branch_prefix)
     }),
+    resolve_by_words: resolve_setting(entries, RepositoryConfigKey::ResolveByWords, true, |value| bool_setting(value, true)),
     detected_github_repository,
     stacks_off_clashes: Vec::new(),
+  }
+}
+
+/// A git boolean, `default` for what git refuses, with the reason
+fn bool_setting(value: Option<&str>, default: bool) -> (bool, Option<String>) {
+  match parse_git_bool(value) {
+    Some(enabled) => (enabled, None),
+    None => (default, Some(format!("{} is not a boolean (true or false)", value.unwrap_or_default()))),
   }
 }
 

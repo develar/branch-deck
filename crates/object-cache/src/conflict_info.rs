@@ -1,5 +1,5 @@
-//! `conflict_info`: (version, commit, its parent, the commit it is applied onto) -> the conflict view a sync reports of
-//! that cherry-pick (`git_ops::model::MergeConflictInfo`), opaque here. Its analysis reads only those commits and what
+//! `conflict_info`: (version, resolve mode, commit, its parent, the commit it is applied onto) -> the conflict view a sync
+//! reports of that cherry-pick (`git_ops::model::MergeConflictInfo`), opaque here. Its analysis reads only those commits and what
 //! they reach, so a sync of an unchanged conflicting branch runs no git for its conflict. In the conflict environment
 //! (`Environment::Conflicts`), beside the chains of `conflict_chain`. The version of the view is part of each key, and
 //! the first write of a process with another version clears the store, as for `blob_summary`; a view above
@@ -12,19 +12,22 @@ use tracing::debug;
 /// The largest conflict view kept, encoded: a view is a few kilobytes, so only a pathological one is left out
 pub const MAX_CONFLICT_INFO_BYTES: usize = 64 << 20;
 
-/// The full ids of a cherry-pick
+/// The full ids of a cherry-pick, and the resolve mode of the sync (`git_ops::word_resolve::ResolveMode::key`): a
+/// conflict that a sync with the resolve off reports may resolve with it on
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ConflictKey {
+  pub resolve: u32,
   pub commit: String,
   pub parent: String,
   pub target: String,
 }
 
 impl ConflictKey {
-  /// The version, big-endian, then the three ids, NUL-separated
+  /// The version and the resolve mode, big-endian, then the three ids, NUL-separated
   fn bytes(&self, version: u32) -> Vec<u8> {
     [
       version.to_be_bytes().as_slice(),
+      self.resolve.to_be_bytes().as_slice(),
       self.commit.as_bytes(),
       b"\0",
       self.parent.as_bytes(),

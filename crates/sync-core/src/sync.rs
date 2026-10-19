@@ -35,6 +35,7 @@ use git_ops::notes::write_commit_notes_with;
 use git_ops::revs::current_branch;
 use git_ops::rewrite_guard::find_operation_in_progress;
 use git_ops::tree_id_cache::TreeIdCache;
+use git_ops::word_resolve::ResolveMode;
 use indexmap::IndexMap;
 use object_cache::cache::ObjectCache;
 use std::cmp::Reverse;
@@ -269,6 +270,8 @@ struct PreparedSync {
   first_parent_id: Option<String>,
   /// The trees of the commits the commit list read, and the tree and the date of `first_parent_id`
   tree_id_cache: TreeIdCache,
+  /// Whether the copies resolve the conflicts of git by words (`branchdeck.resolveByWords`)
+  resolve: ResolveMode,
   /// The remote tips and the baseline commit for the remote statuses; `None` without branches
   remote_tips: Option<RemoteTips>,
   /// With stacked branches on, where each branch goes
@@ -313,7 +316,8 @@ pub fn check_sync_guards(git_executor: &GitCommandExecutor, repository_path: &st
 /// and then `BranchesGrouped` (also when empty, so the UI drops stale branches) before any per-branch event can exist.
 /// The update check runs beside it and the rest of the sync, from the moment the baseline is known: its
 /// `BaselineStatus` can come at any point of the event stream.
-/// `tree_id_cache` is empty; the phase seeds it with the trees of the commit list and the date of the base
+/// The phase makes the tree cache, with the conflict views of `object_cache` for the resolve mode of the config, and seeds
+/// it with the trees of the commit list and the date of the base
 #[expect(clippy::too_many_arguments, reason = "the inputs of the first phase of a sync")]
 fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   git_executor: &GitCommandExecutor,
@@ -323,7 +327,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   config: Option<ConfigSnapshot>,
   detection_strategy: DetectionStrategy,
   archive_retention_days: u64,
-  tree_id_cache: TreeIdCache,
+  object_cache: &ObjectCache,
   progress: &P,
 ) -> Result<PreparedSync> {
   // before any event: a deferred sync reports nothing
@@ -351,6 +355,13 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     None => ConfigSnapshot::read(git_executor, repository_path)?,
   };
   let grouping = read_grouping_inputs_with(git_executor, repository_path, config.stacks()?)?;
+  let resolve = config.resolve_mode()?;
+  // the conflict views of the unchanged branches come from the object cache, the new ones go there
+  let tree_id_cache = if object_cache.is_enabled() {
+    TreeIdCache::with_merge_memo(Arc::new(ConflictMemo::new(object_cache.clone(), resolve)))
+  } else {
+    TreeIdCache::new()
+  };
   // on the blocking pool of the runtime this phase runs on
   let update_check = tokio::runtime::Handle::current().spawn_blocking({
     let git_executor = git_executor.clone();
@@ -479,6 +490,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     branch_emails,
     first_parent_id,
     tree_id_cache,
+    resolve,
     remote_tips,
     stacks,
     idle_stack_parents,
@@ -840,12 +852,6 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   let git_executor = &git_executor.with_process_stats("sync");
   // the builds and the detection run beside each other, within one limit
   let permits = ProcessPermits::for_operation();
-  // the conflict views of the unchanged branches come from the object cache, the new ones go there
-  let tree_id_cache = if object_cache.is_enabled() {
-    TreeIdCache::with_merge_memo(Arc::new(ConflictMemo::new(object_cache.clone())))
-  } else {
-    TreeIdCache::new()
-  };
   let task = SyncTask {
     git_executor: git_executor.clone(),
     repository_path: repository_path.to_string(),
@@ -861,24 +867,28 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     branch_emails,
     first_parent_id,
     tree_id_cache,
+    resolve,
     remote_tips,
     stacks,
     idle_stack_parents,
     stack_branches,
     update_check,
   } = task
-    .spawn(move |git_executor, repository_path, branch_prefix, progress| {
-      prepare_sync(
-        git_executor,
-        repository_path,
-        branch_prefix,
-        issue_config,
-        config,
-        detection_strategy,
-        archive_retention_days,
-        tree_id_cache,
-        progress,
-      )
+    .spawn({
+      let object_cache = object_cache.clone();
+      move |git_executor, repository_path, branch_prefix, progress| {
+        prepare_sync(
+          git_executor,
+          repository_path,
+          branch_prefix,
+          issue_config,
+          config,
+          detection_strategy,
+          archive_retention_days,
+          &object_cache,
+          progress,
+        )
+      }
     })
     .await
     .map_err(|e| anyhow!("Sync preparation task failed: {e}"))??;
@@ -980,7 +990,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       existing_commits: Some(Arc::new(ExistingCommits::new(&parent_commit_hash, existing_tips.values().cloned()))),
       existing_tips,
       remote_statuses: context_statuses,
-      conflict_chains: object_cache.is_enabled().then(|| ChainMemo::new(object_cache)),
+      conflict_chains: object_cache.is_enabled().then(|| ChainMemo::new(object_cache, resolve)),
       conflict_tips,
       ancestor_keys: ancestor_keys(&branches, stacks.as_ref()),
       verify_mapping_notes,

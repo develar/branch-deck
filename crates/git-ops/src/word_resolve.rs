@@ -38,6 +38,25 @@ pub const RESOLVE_VERSION: u32 = 1;
 /// The attribute that names the merge driver of a path (`gitattributes`, "Performing a three-way merge")
 const MERGE_ATTRIBUTE: &str = "merge";
 
+/// Whether the copies of a sync resolve the conflicts of git by words (`branchdeck.resolveByWords`, on by default)
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum ResolveMode {
+  Off,
+  #[default]
+  On,
+}
+
+impl ResolveMode {
+  /// What a remembered conflict view or chain of copies keeps in its key: 0 off, else `RESOLVE_VERSION`, so that none
+  /// remembered under another mode is taken
+  pub const fn key(self) -> u32 {
+    match self {
+      Self::Off => 0,
+      Self::On => RESOLVE_VERSION,
+    }
+  }
+}
+
 /// A cherry-pick that its words resolve
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WordResolution {

@@ -7,6 +7,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::interactive_command::InteractiveCommand;
 use git_ops::merge_memo::{CONFLICT_INFO_VERSION, CherryCommits, MergeMemo, MergeOutcome, MergeTrees};
 use git_ops::model::MergeConflictInfo;
+use git_ops::word_resolve::ResolveMode;
 use object_cache::cache::ObjectCache;
 use object_cache::conflict_info::ConflictKey;
 use object_cache::merge_result::{MergeKey, MergeResult};
@@ -153,15 +154,21 @@ impl MergeMemo for CacheMemo {
 /// The conflict views of a sync in the object cache (`conflict_info`), shared by the app and `bd`: an unchanged
 /// conflicting branch runs neither the merge nor the analysis of its conflict again. Merges and commit trees are not
 /// remembered. What the sync learns waits in `pending` and is written in one transaction when the memo drops, after
-/// the branches are built
+/// the branches are built. The views are those of the sync's resolve mode: a conflict that a sync without the resolve
+/// reports may resolve with it
 pub(crate) struct ConflictMemo {
   cache: ObjectCache,
+  resolve: ResolveMode,
   pending: Mutex<HashMap<ConflictKey, MergeConflictInfo>>,
 }
 
 impl ConflictMemo {
-  pub(crate) fn new(cache: ObjectCache) -> Self {
-    Self { cache, pending: Mutex::default() }
+  pub(crate) fn new(cache: ObjectCache, resolve: ResolveMode) -> Self {
+    Self {
+      cache,
+      resolve,
+      pending: Mutex::default(),
+    }
   }
 
   fn pending(&self) -> std::sync::MutexGuard<'_, HashMap<ConflictKey, MergeConflictInfo>> {
@@ -177,8 +184,9 @@ impl Drop for ConflictMemo {
   }
 }
 
-pub(crate) fn conflict_key(commits: CherryCommits<'_>) -> ConflictKey {
+pub(crate) fn conflict_key(commits: CherryCommits<'_>, resolve: ResolveMode) -> ConflictKey {
   ConflictKey {
+    resolve: resolve.key(),
     commit: commits.commit.to_string(),
     parent: commits.parent.to_string(),
     target: commits.target.to_string(),
@@ -188,7 +196,7 @@ pub(crate) fn conflict_key(commits: CherryCommits<'_>) -> ConflictKey {
 /// Remembers no merge and no commit tree (the defaults of `MergeMemo`)
 impl MergeMemo for ConflictMemo {
   fn conflict(&self, commits: CherryCommits<'_>) -> Option<MergeConflictInfo> {
-    let key = conflict_key(commits);
+    let key = conflict_key(commits, self.resolve);
     if let Some(info) = self.pending().get(&key) {
       return Some(info.clone());
     }
@@ -196,6 +204,6 @@ impl MergeMemo for ConflictMemo {
   }
 
   fn remember_conflict(&self, commits: CherryCommits<'_>, info: &MergeConflictInfo) {
-    self.pending().insert(conflict_key(commits), info.clone());
+    self.pending().insert(conflict_key(commits, self.resolve), info.clone());
   }
 }

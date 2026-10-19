@@ -2260,6 +2260,8 @@ export type RepositoryConfig = {
 	githubRepository: ConfigSetting<string | null>,
 	/**  `branchdeck.branchPrefix`, normalized as the branches are named */
 	branchPrefix: ConfigSetting<string | null>,
+	/**  `branchdeck.resolveByWords`, on by default */
+	resolveByWords: ConfigSetting<boolean>,
 	/**  The repository of `origin` or of the Space mirror, which applies when `github_repository` is not set */
 	detectedGithubRepository: DetectedGitHubRepository | null,
 	/**
@@ -2270,7 +2272,7 @@ export type RepositoryConfig = {
 };
 
 /**  A write of one key to the local config; `None` unsets it there (the global value or the default applies again) */
-export type RepositoryConfigChange = { key: "stacks"; value: boolean | null } | { key: "symbols"; value: SymbolMode | null } | { key: "githubRepository"; value: string | null } | { key: "branchPrefix"; value: string | null };
+export type RepositoryConfigChange = { key: "stacks"; value: boolean | null } | { key: "symbols"; value: SymbolMode | null } | { key: "githubRepository"; value: string | null } | { key: "branchPrefix"; value: string | null } | { key: "resolveByWords"; value: boolean | null };
 
 export type RequestPullRequestReviewersParams = {
 	repositoryPath: string,

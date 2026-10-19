@@ -6,6 +6,7 @@ use crate::file_diff::DiffKey;
 use crate::file_merge::FileMergeKey;
 use crate::merge_result::{MergeKey, MergeResult};
 use crate::review_answer::ReviewAnswer;
+use crate::word_resolution::WordResolutionResult;
 use heed::types::{Bytes, DecodeIgnore};
 #[cfg(target_os = "macos")]
 use std::collections::HashMap;
@@ -420,6 +421,28 @@ fn file_merges_are_read_by_their_three_blobs() {
   assert_eq!(cache.get_file_merges::<u32>(2, &[merge]), [None]);
 }
 
+#[test_log::test]
+fn word_resolutions_are_read_by_their_trees_and_version() {
+  let dir = tempfile::tempdir().unwrap();
+  let cache = open(dir.path());
+  let (key, _) = merge();
+  let resolved = WordResolutionResult::Resolved {
+    tree: "resolved".to_string(),
+    files: vec![("a.txt".to_string(), 2)],
+  };
+  let other = MergeKey {
+    target_tree: "other".to_string(),
+    ..key.clone()
+  };
+  cache.put_word_resolutions(1, &[(key.clone(), resolved.clone()), (other.clone(), WordResolutionResult::NotResolved)]);
+  assert_eq!(
+    cache.get_word_resolutions(1, &[key.clone(), other]),
+    [Some(resolved), Some(WordResolutionResult::NotResolved)]
+  );
+  // another resolve gives other results: none of the old one is read
+  assert_eq!(cache.get_word_resolutions(2, &[key]), [None]);
+}
+
 /// A cache in `dir` opened with `config`, which holds one merge: the entry a full environment of another store must keep
 fn cache_with_a_merge(dir: &Path, config: &CacheConfig) -> (ObjectCache, MergeKey, MergeResult) {
   let cache = ObjectCache::open_dir(dir, config);
@@ -510,7 +533,7 @@ fn the_merges_of_the_main_environment_are_dropped() {
   assert!(!names.iter().any(|name| name.starts_with("merge_result") || name.starts_with("commit_tree")), "{names:?}");
   assert!(names.iter().any(|name| name.starts_with("commit_diff")), "{names:?}");
   let merges = open_env(&dir.path().join("merges"), DEFAULT_MERGE_MAP_SIZE).unwrap();
-  assert_eq!(database_names(&merges), ["commit_tree.v1", "merge_result.v1"]);
+  assert_eq!(database_names(&merges), ["commit_tree.v1", "merge_result.v1", "word_resolution.v1"]);
 }
 
 /// A retired store (`commit_patch`, the patches of the old diff views) is dropped from its environment on open
@@ -548,6 +571,7 @@ fn conflict_views_are_read_by_their_version_and_big_views_are_not_kept() {
   let dir = tempfile::tempdir().unwrap();
   let cache = open(dir.path());
   let key = |commit: &str| ConflictKey {
+    resolve: 1,
     commit: commit.to_string(),
     parent: "p".to_string(),
     target: "t".to_string(),
@@ -562,6 +586,12 @@ fn conflict_views_are_read_by_their_version_and_big_views_are_not_kept() {
     ..key("c1")
   };
   assert_eq!(cache.get_conflict_info::<Vec<String>>(1, &other_target), None);
+  let resolve_off = ConflictKey { resolve: 0, ..key("c1") };
+  assert_eq!(
+    cache.get_conflict_info::<Vec<String>>(1, &resolve_off),
+    None,
+    "a view of another resolve mode is never read"
+  );
 
   let big = vec!["x".repeat(MAX_CONFLICT_INFO_BYTES)];
   cache.put_conflict_infos(1, &[(key("big"), &big), (key("c3"), &view)]);
@@ -604,6 +634,7 @@ fn a_full_conflict_store_keeps_the_merges() {
   );
   let view = "x".repeat(100 * 1024);
   let conflict = |index: usize| ConflictKey {
+    resolve: 1,
     commit: id("c", index),
     parent: "p".to_string(),
     target: "t".to_string(),

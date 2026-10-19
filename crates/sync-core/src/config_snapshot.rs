@@ -5,18 +5,19 @@
 use crate::branch_prefix::GitBranchPrefix;
 use crate::pull_requests::GitHubRepository;
 use crate::remote_url::split_owner_and_name;
-use crate::repository_config::{ConfigEntry, RepositoryConfig, parse_config_entries, repository_config_from_entries};
+use crate::repository_config::{ConfigEntry, RESOLVE_BY_WORDS_CONFIG_KEY, RepositoryConfig, parse_config_entries, repository_config_from_entries};
 use crate::stack::STACKS_CONFIG_KEY;
 use crate::symbol_scan::{SYMBOLS_CONFIG_KEY, SymbolMode};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::Description;
+use git_ops::word_resolve::ResolveMode;
 use std::collections::HashMap;
 use tracing::instrument;
 
-/// The four `branchdeck.*` keys of `repository_config` and every `branch.<name>.description`, as `--get-regexp`
+/// The five `branchdeck.*` keys of `repository_config` and every `branch.<name>.description`, as `--get-regexp`
 /// matches them: the section and the key lowercase, the branch name as it is
-const SNAPSHOT_REGEXP: &str = r"^(branchdeck\.(stacks|symbols|githubrepository|branchprefix)|branch\..+\.description)$";
+const SNAPSHOT_REGEXP: &str = r"^(branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords)|branch\..+\.description)$";
 
 /// The keys of one `git config -z --show-scope --get-regexp`, in git's order (a later entry wins)
 #[derive(Debug, Clone, Default)]
@@ -66,6 +67,16 @@ impl ConfigSnapshot {
     match stacks.invalid {
       None => Ok(stacks.value),
       Some(_) => Err(anyhow!("{STACKS_CONFIG_KEY} is not a boolean (true or false)")),
+    }
+  }
+
+  /// `branchdeck.resolveByWords`, a git boolean, on when unset; an error for a value git would refuse
+  pub fn resolve_mode(&self) -> Result<ResolveMode> {
+    let setting = self.settings().resolve_by_words;
+    match setting.invalid {
+      None if setting.value => Ok(ResolveMode::On),
+      None => Ok(ResolveMode::Off),
+      Some(_) => Err(anyhow!("{RESOLVE_BY_WORDS_CONFIG_KEY} is not a boolean (true or false)")),
     }
   }
 

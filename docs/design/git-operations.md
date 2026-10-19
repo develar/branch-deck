@@ -1350,8 +1350,9 @@ under `Default` (`file_diffs::blocks`).
   id in `merge_result`, and a check would build a branch from it.
 - **Never in the way.** The map size caps each environment; a full map clears the stores of that environment and the
   write is retried. What is bulky and cheap to read again never evicts what is costly: the diffs and merges of
-  `file_diff` and `file_merge` in `cache/patches/` (512 MiB); the merges of `merge_result` and the trees of `commit_tree` in `cache/merges/`
-  (256 MiB: about 250 and 130 bytes an entry, the merges and trees of some 700,000 commit copies); the conflict views
+  `file_diff` and `file_merge` in `cache/patches/` (512 MiB); the merges of `merge_result`, the trees of `commit_tree`
+  and the resolves of `word_resolution` in `cache/merges/` (256 MiB: about 250 and 130 bytes an entry, the merges and
+  trees of some 700,000 commit copies); the conflict views
   of `conflict_info` and the chains of `conflict_chain` in `cache/conflicts/` (512 MiB; a view is a few kilobytes,
   one above 64 MiB encoded is not kept), so the diffs, lines and summaries of the
   main environment (`cache/`, 1 GiB) and the conflict views never clear the merges a check costs most to learn again. A
@@ -1371,7 +1372,11 @@ under `Default` (`file_diffs::blocks`).
   one `cat-file --batch-check=%(objecttype)` per check, started at the first such hit, answers `tree` for it; a
   missing tree, or a failure to ask, is a miss, and the merge runs again and overwrites the entry. A conflict names
   only paths and needs no check.
-- `conflict_info` ((view version, commit, its parent, the commit it is applied onto), full ids → the conflict view,
+- `word_resolution` ((resolve version, base, commit, target) trees → the tree with the resolved files and git's
+  conflicts in each, or that the cherry-pick does not resolve; see "Resolve by words") holds what the resolve by words
+  gave. `merge_result` keeps what git gives, whatever the setting, and only a sync or a check with the resolve on reads
+  this store. `RESOLVE_VERSION` (`word_resolve.rs`) is part of the key, and its first write clears the store.
+- `conflict_info` ((view version, resolve mode, commit, its parent, the commit it is applied onto), full ids → the conflict view,
   `MergeConflictInfo`) is written and read by the sync of the app and of `bd` through the `ConflictMemo` of its tree
   cache (`crates/sync-core/src/cache_memo.rs`, `SyncOptions::object_cache`). The view of a conflict reads only those
   commits and what they reach, so it is the same at every sync of the unchanged branch, whose copies are
@@ -1382,9 +1387,11 @@ under `Default` (`file_diffs::blocks`).
   view whose analysis fell back (a failed divergence walk, list of missing commits or read of the merged files) is not
   remembered. The views wait in memory and are written in one transaction when the sync's tree cache drops. `CONFLICT_INFO_VERSION`
   (`merge_memo.rs`) is part of the key: a change of `MergeConflictInfo` or of `build_merge_conflict_info` bumps it,
-  and its first write clears the store. A check reports light conflicts and reads none; `--no-cache` analyses every
+  and its first write clears the store. So is the resolve mode of the sync (`ResolveMode::key`: 0 off, else
+  `RESOLVE_VERSION`): a conflict that a sync with the resolve off remembers may resolve with it on, and the cherry-pick
+  takes a remembered view before it merges. A check reports light conflicts and reads none; `--no-cache` analyses every
   conflict.
-- `conflict_chain` ((chain version, a hash of the branch's full name and its base) → the originals before the conflict
+- `conflict_chain` ((chain version, a hash of the branch's full name, its base and the resolve mode) → the originals before the conflict
   and their copies with their trees) is written and read by the sync through `ChainMemo`
   (`crates/sync-core/src/conflict_chain.rs`), in the conflict environment beside the views: a conflicting branch whose
   originals still start with those commits takes the copies instead of merging and writing them again (see "A
@@ -1916,11 +1923,12 @@ It reads nothing of the working tree and writes nothing; the worktree safety sca
 
 #### Repository settings
 
-Settings → Repository shows and writes four keys of the repository's git config (`crates/sync-core/src/repository_config.rs`):
-`branchdeck.stacks`, `branchdeck.symbols`, `branchdeck.githubRepository` and `branchdeck.branchPrefix`. `bd` reads the
-same keys, so the app keeps nothing of them in its own settings.
+Settings → Repository shows and writes five keys of the repository's git config (`crates/sync-core/src/repository_config.rs`):
+`branchdeck.stacks`, `branchdeck.symbols`, `branchdeck.githubRepository`, `branchdeck.branchPrefix` and
+`branchdeck.resolveByWords` (a git boolean, on when unset: whether a sync resolves a conflict of git by words, see
+"Resolve by words"). `bd` reads the same keys, so the app keeps nothing of them in its own settings.
 
-- **Read**: one `git config -z --show-scope --get-regexp '^branchdeck\.(stacks|symbols|githubrepository|branchprefix)$'`
+- **Read**: one `git config -z --show-scope --get-regexp '^branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords)$'`
   (exit 1: none is set), `--global` in `.` without a repository. `-z` separates the entries with NUL, and the key from
   its value with a newline; a key without `=` (an implicit `true`) has no newline. Git prints the scopes in its order
   (system, global, local, worktree, command), so the last entry of a key is the effective one; `local_set` says whether
@@ -1940,9 +1948,9 @@ same keys, so the app keeps nothing of them in its own settings.
   (`turning_stacks_off_fails_the_sync_on_the_flat_child`); the page refuses the switch with those names
   (`stacks_off_clashes`). A failed grouping (no baseline yet) is no clash: the sync then says what fails.
 - **One read per operation** (`ConfigSnapshot`, `crates/sync-core/src/config_snapshot.rs`): one
-  `git config -z --show-scope --get-regexp` of the four keys and every `branch.<name>.description` (the branch name
+  `git config -z --show-scope --get-regexp` of the five keys and every `branch.<name>.description` (the branch name
   keeps its case, which `--get-regexp` keeps for a subsection), with the accessors `stacks`, `symbol_mode`,
-  `branch_prefix`, `github_repository` and `descriptions`. A sync reads it once for the stack setting and the
+  `resolve_mode`, `branch_prefix`, `github_repository` and `descriptions`. A sync reads it once for the stack setting and the
   description titles, or takes the one its caller read (`SyncOptions::config`): `bd` reads it once per command
   (`RepoContext::config`), for the branch prefix and then for its sync, `bd push` and `bd request-review` (the report
   carries it), and again after a wait for the repository lock, when another process may have changed it.

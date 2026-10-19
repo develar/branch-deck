@@ -3,8 +3,9 @@
 //! - **Keys are object ids**, so an entry never becomes stale: it is only evicted. The cap is the map size; a write that
 //!   hits `MDB_MAP_FULL` clears every database of its environment and is retried once.
 //! - **Four environments**, so that what is bulky never evicts what is small and costly: the diffs and merges of
-//!   `file_diff` and `file_merge` in `patches/` (`CacheConfig::patch_map_size`); the merges of `merge_result` and the trees of `commit_tree`, small
-//!   entries a check costs most to learn again, in `merges/` (`CacheConfig::merge_map_size`); the conflict views of
+//!   `file_diff` and `file_merge` in `patches/` (`CacheConfig::patch_map_size`); the merges of `merge_result`, the trees of
+//!   `commit_tree` and the resolves of `word_resolution`, small entries a check costs most to learn again, in `merges/`
+//!   (`CacheConfig::merge_map_size`); the conflict views of
 //!   `conflict_info`, a few that may each hold megabytes of file contents, and the chains of `conflict_chain`, in
 //!   `conflicts/` (`CacheConfig::conflict_map_size`); the other stores (the diffs, lines and summaries of commits and
 //!   blobs) in the cache directory itself. A store moved to another environment is dropped from the old one on open,
@@ -114,10 +115,11 @@ pub(crate) enum Store {
   PatronusRobots,
   FileDiff,
   FileMerge,
+  WordResolution,
 }
 
 /// How many stores there are
-const STORE_COUNT: usize = 15;
+const STORE_COUNT: usize = 16;
 
 /// The stores that no binary writes any more: `commit_patch`, the patches of the old diff views (now `file_diff`)
 const RETIRED_STORES: [&str; 1] = ["commit_patch"];
@@ -141,6 +143,7 @@ pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::PatronusRobots,
   Store::FileDiff,
   Store::FileMerge,
+  Store::WordResolution,
 ];
 
 impl Store {
@@ -157,7 +160,7 @@ impl Store {
       // counts from the blocks of the diff views (`file_diffs::blocks`)
       Self::CommitLines | Self::CommitDiff => 4,
       // a new extractor needs no bump: its version is part of each key (`blob_summary`, `conflict_info`,
-      // `remote_status`, `build_result`, `conflict_chain`, `stack_branch`)
+      // `remote_status`, `build_result`, `conflict_chain`, `stack_branch`, `word_resolution`)
       Self::CommitTree
       | Self::MergeResult
       | Self::BlobSummary
@@ -169,14 +172,15 @@ impl Store {
       | Self::StackBranch
       | Self::PatronusRobots
       | Self::FileDiff
-      | Self::FileMerge => 1,
+      | Self::FileMerge
+      | Self::WordResolution => 1,
     }
   }
 
   pub(crate) const fn environment(self) -> Environment {
     match self {
       Self::FileDiff | Self::FileMerge => Environment::Patches,
-      Self::MergeResult | Self::CommitTree => Environment::Merges,
+      Self::MergeResult | Self::CommitTree | Self::WordResolution => Environment::Merges,
       Self::ConflictInfo | Self::ConflictChain => Environment::Conflicts,
       Self::CommitDiff
       | Self::CommitFiles
@@ -212,6 +216,7 @@ impl Store {
       Self::PatronusRobots => "patronus_robots",
       Self::FileDiff => "file_diff",
       Self::FileMerge => "file_merge",
+      Self::WordResolution => "word_resolution",
     }
   }
 }
@@ -222,7 +227,7 @@ pub struct CacheConfig {
   pub map_size: usize,
   /// The map size of the patch environment (`file_diff`, `file_merge`)
   pub patch_map_size: usize,
-  /// The map size of the merge environment (`merge_result`, `commit_tree`)
+  /// The map size of the merge environment (`merge_result`, `commit_tree`, `word_resolution`)
   pub merge_map_size: usize,
   /// The map size of the conflict environment (`conflict_info`)
   pub conflict_map_size: usize,

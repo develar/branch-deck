@@ -9,6 +9,7 @@ use git_ops::commit_list::Commit;
 use git_ops::merge_memo::CONFLICT_CHAIN_VERSION;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::ref_tips;
+use git_ops::word_resolve::ResolveMode;
 use object_cache::cache::ObjectCache;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -50,20 +51,25 @@ impl ConflictChain {
 }
 
 /// The chains of one sync in the object cache: read by each branch, the new ones written in one transaction when the
-/// memo drops
+/// memo drops. The chains are those of the sync's resolve mode, whose copies differ
 pub(crate) struct ChainMemo {
   cache: ObjectCache,
+  resolve: ResolveMode,
   pending: Mutex<Vec<([u8; 32], ConflictChain)>>,
 }
 
 impl ChainMemo {
-  pub(crate) fn new(cache: ObjectCache) -> Self {
-    Self { cache, pending: Mutex::default() }
+  pub(crate) fn new(cache: ObjectCache, resolve: ResolveMode) -> Self {
+    Self {
+      cache,
+      resolve,
+      pending: Mutex::default(),
+    }
   }
 
   /// The chain the branch `full_branch_name` had on `base` when it last conflicted
   pub(crate) fn get(&self, full_branch_name: &str, base: &str) -> Option<ConflictChain> {
-    self.cache.get_conflict_chain(CONFLICT_CHAIN_VERSION, &chain_key(full_branch_name, base))
+    self.cache.get_conflict_chain(CONFLICT_CHAIN_VERSION, &chain_key(full_branch_name, base, self.resolve))
   }
 
   pub(crate) fn remember(&self, full_branch_name: &str, base: &str, chain: ConflictChain) {
@@ -71,7 +77,7 @@ impl ChainMemo {
       .pending
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner)
-      .push((chain_key(full_branch_name, base), chain));
+      .push((chain_key(full_branch_name, base, self.resolve), chain));
   }
 }
 
@@ -82,14 +88,15 @@ impl Drop for ChainMemo {
   }
 }
 
-/// The key of a chain: the branch and the commit it is built on; the originals are part of the value, so a commit added
-/// after the conflict still finds it
-fn chain_key(full_branch_name: &str, base: &str) -> [u8; 32] {
+/// The key of a chain: the branch, the commit it is built on and the resolve mode; the originals are part of the value, so
+/// a commit added after the conflict still finds it
+fn chain_key(full_branch_name: &str, base: &str, resolve: ResolveMode) -> [u8; 32] {
   let mut hasher = Sha256::new();
   for field in ["conflict_chain", full_branch_name, base] {
     hasher.update(field.as_bytes());
     hasher.update([0]);
   }
+  hasher.update(resolve.key().to_be_bytes());
   hasher.finalize().into()
 }
 

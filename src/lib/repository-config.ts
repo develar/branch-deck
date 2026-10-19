@@ -21,6 +21,7 @@ export const CONFIG_KEYS: Record<RepositoryConfigKey, string> = {
   symbols: "branchdeck.symbols",
   githubRepository: "branchdeck.githubRepository",
   branchPrefix: "branchdeck.branchPrefix",
+  resolveByWords: "branchdeck.resolveByWords",
 }
 
 /** The last part of the path: the name the user knows the repository by */
@@ -193,5 +194,7 @@ export function writeErrorTitle(change: RepositoryConfigChange, fallbackStacks: 
       return `Cannot change the GitHub repository of ${name}`
     case "branchPrefix":
       return `Cannot change the branch prefix of ${name}`
+    case "resolveByWords":
+      return `Cannot change how ${name} resolves conflicts by words`
   }
 }
