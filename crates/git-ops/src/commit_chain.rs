@@ -9,10 +9,13 @@
 //!
 //! The commits of the writer are readable by other git processes only after `flush`. The chain flushes before a
 //! conflict is analysed and at `finish`, before the branch's head goes to the branches built on it. The writer's
-//! commits stay on no ref (`reset` without `from` before `done`): the sync's ref transaction makes them reachable, as
-//! it did the commits of `commit-tree`.
+//! commits stay on no ref: the sync's ref transaction makes them reachable, as it did the commits of `commit-tree`.
+//! Each chain writes on a temporary ref of its own (`unique_temp_ref`): the branches of a sync build in parallel, and
+//! the app's sync, `bd sync` and the trial builds of `bd check` run at the same time. A `checkpoint` (a resolve by
+//! words) writes the ref to disk, so the end of such a writer deletes it (`reset` from the null id); without a
+//! checkpoint the ref only ever lived in the memory of `fast-import` (`reset` without `from`).
 
-use crate::commit_writer::{complete_line, quote_path};
+use crate::commit_writer::{complete_line, quote_path, unique_temp_ref};
 use crate::merge_memo::MergeOutcome;
 use crate::merge_tree_output::parse_batch_merge;
 use crate::word_resolve::WordResolution;
@@ -25,9 +28,6 @@ use tracing::{debug, instrument, warn};
 
 /// How long a merge or a commit of the chain may take: a merge of a large tree takes seconds, never minutes
 const REPLY_TIMEOUT: Duration = Duration::from_mins(10);
-
-/// The ref the writer's commits are written on; it is reset before `done`, so git never writes it
-const WRITER_REF: &str = "refs/branch-deck/tmp/chain";
 
 /// A commit to write: what `commit-tree` gets from its arguments and the `GIT_AUTHOR_*` and `GIT_COMMITTER_*`
 /// variables
@@ -55,8 +55,13 @@ pub struct CommitChain {
   repo_path: String,
   merger: Option<InteractiveCommand>,
   writer: Option<InteractiveCommand>,
+  /// The temporary ref the commits of the running writer are written on
+  writer_ref: String,
   /// The commits of the running writer by id, with their marks: a commit of the same stream is a parent by its mark
   marks: HashMap<String, usize>,
+  /// The length of an object id, once a `checkpoint` of the running writer wrote its ref to disk: the end of the writer
+  /// deletes the ref with the null id of that length
+  checkpointed: Option<usize>,
 }
 
 impl CommitChain {
@@ -66,7 +71,9 @@ impl CommitChain {
       repo_path: repo_path.to_string(),
       merger: None,
       writer: None,
+      writer_ref: unique_temp_ref(),
       marks: HashMap::new(),
+      checkpointed: None,
     }
   }
 
@@ -101,7 +108,7 @@ impl CommitChain {
     let message = complete_line(commit.message);
 
     let mut stream = Vec::with_capacity(256 + message.len());
-    stream.extend_from_slice(format!("commit {WRITER_REF}\nmark :{mark}\nauthor {author}\ncommitter {committer}\ndata {}\n", message.len()).as_bytes());
+    stream.extend_from_slice(format!("commit {}\nmark :{mark}\nauthor {author}\ncommitter {committer}\ndata {}\n", self.writer_ref, message.len()).as_bytes());
     stream.extend_from_slice(&message);
     // the tree of the merge, whose files with the markers the resolved files replace
     let base_tree = commit.resolution.map_or(commit.tree, |resolution| resolution.merge_tree.as_str());
@@ -125,7 +132,8 @@ impl CommitChain {
         self
           .git_executor
           .cmd(&["fast-import", "--quiet", "--done", "--date-format=raw"], &self.repo_path)
-          .interactive(b'\n')?,
+          .interactive(b'\n')
+          .map_err(|e| e.context(format!("fast-import of {}", self.writer_ref)))?,
       ),
     };
     writer.send_bytes(&stream)?;
@@ -140,7 +148,9 @@ impl CommitChain {
         bail!("fast-import built the tree {listed:?} for a resolve by words of the tree {}", commit.tree);
       }
       // the next merge of the chain, another process, reads the tree: the objects so far go to a pack it finds. The
-      // commands run in order, so the answer to `progress` comes once the pack is written
+      // commands run in order, so the answer to `progress` comes once the pack is written. The checkpoint also writes
+      // the ref, which `flush` deletes
+      self.checkpointed = Some(id.len());
       writer.send("checkpoint\nprogress checkpointed\n")?;
       let progress = writer.read_line(REPLY_TIMEOUT)?;
       if progress != "progress checkpointed" {
@@ -157,9 +167,12 @@ impl CommitChain {
     let Some(mut writer) = self.writer.take() else {
       return Ok(());
     };
-    debug!("ending the commit writer of the chain");
-    writer.send(&format!("reset {WRITER_REF}\n\ndone"))?;
-    writer.finish()
+    debug!(writer_ref = %self.writer_ref, "ending the commit writer of the chain");
+    let delete = self.checkpointed.take().map_or_else(String::new, |id_len| format!("from {}\n", "0".repeat(id_len)));
+    let ended = writer.send(&format!("reset {}\n{delete}\ndone", self.writer_ref)).and_then(|()| writer.finish());
+    // the next writer of the chain gets a fresh ref: a failed end may leave this one behind (the sync sweeps it)
+    let writer_ref = std::mem::replace(&mut self.writer_ref, unique_temp_ref());
+    ended.map_err(|e| e.context(format!("fast-import of {writer_ref}")))
   }
 
   /// Flush the commits and end both processes

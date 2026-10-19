@@ -369,7 +369,10 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   message; related refs (unapply rename, temp refs) go into the same transaction. The named exception is a notes ref
   that `fast-import` writes (`write_notes_to_refs`, `write_commits_with_notes`): it moves the ref itself
   (`from <ref>^0`) and refuses a tip that does not contain the ref's value at its end, so a concurrent writer fails the
-  run instead of being overwritten; the resolve notes move in the session's transaction. A move that the files follow (an
+  run instead of being overwritten; the resolve notes move in the session's transaction. The second is the temporary ref
+  of a sync chain's commit writer (`commit_chain.rs`): one per writer (`unique_temp_ref`), deleted in its own
+  `fast-import` stream after a `checkpoint` wrote it (`reset` from the null id); a sync deletes stale temporary refs
+  that its listing found (`is_stale_temp_ref`). A move that the files follow (an
   update and its undo) updates `HEAD` itself (deref) and commits only if `symbolic-ref HEAD`, read while git holds the
   locks after `prepare`, is still the checked branch (`RefTransaction::commit_while`, else `BranchSwitched`); git
   refuses `symref-verify HEAD` next to either form of the update. The finish of a resolve session moves the session

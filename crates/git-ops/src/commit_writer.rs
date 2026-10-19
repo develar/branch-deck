@@ -246,35 +246,60 @@ pub(crate) fn discard_temp_refs(git_executor: &GitCommandExecutor, repo_path: &s
 }
 
 /// The prefix of the temporary refs: `<prefix><pid>-<nanos since the epoch>-<counter>`, a `-notes` suffix for notes
-const TEMP_REF_PREFIX: &str = "refs/branch-deck/tmp/";
+pub const TEMP_REF_PREFIX: &str = "refs/branch-deck/tmp/";
 
-/// Delete the temporary refs written more than `older_than` ago, with one `for-each-ref` and at most one `update-ref`:
-/// the leftovers of a process killed before its transaction deleted them, which keep their objects alive. Runs under
-/// the repository lock; a failure is only logged
+/// Temporary refs older than this belong to a process that is gone
+pub const STALE_TEMP_REF_AGE: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// Whether the temporary ref `name` (a full ref under `TEMP_REF_PREFIX`) was written more than `older_than` ago: the
+/// leftover of a process killed before it deleted the ref, which keeps its objects alive. A name without the time of
+/// `unique_temp_ref` is the shared `refs/branch-deck/tmp/chain` of Branch Deck 0.21 and earlier, a leftover too
+pub fn is_stale_temp_ref(name: &str, older_than: std::time::Duration) -> bool {
+  let Some(rest) = name.strip_prefix(TEMP_REF_PREFIX) else {
+    return false;
+  };
+  let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+  rest
+    .split('-')
+    .nth(1)
+    .and_then(|nanos| nanos.parse::<u128>().ok())
+    .is_none_or(|written_at| now.saturating_sub(written_at) > older_than.as_nanos())
+}
+
+/// Delete the temporary refs written more than `older_than` ago (`is_stale_temp_ref`), with one `for-each-ref` and at
+/// most one `update-ref`. Runs under the repository lock; a failure is only logged
 pub fn sweep_stale_temp_refs(git_executor: &GitCommandExecutor, repo_path: &str, older_than: std::time::Duration) {
-  let result = (|| {
-    let refs = git_executor.execute_command_lines(&["for-each-ref", "--format=%(refname) %(objectname)", TEMP_REF_PREFIX], repo_path)?;
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let mut transaction = RefTransaction::new();
-    for line in &refs {
-      let Some((name, id)) = line.split_once(' ') else { continue };
-      let written_at = name
-        .strip_prefix(TEMP_REF_PREFIX)
-        .and_then(|rest| rest.split('-').nth(1))
-        .and_then(|nanos| nanos.parse::<u128>().ok());
-      if written_at.is_some_and(|written_at| now.saturating_sub(written_at) > older_than.as_nanos()) {
-        transaction.delete(name, Some(id));
-      }
+  match git_executor.execute_command_lines(&["for-each-ref", "--format=%(refname) %(objectname)", TEMP_REF_PREFIX], repo_path) {
+    Ok(refs) => {
+      let stale: Vec<(&str, &str)> = refs
+        .iter()
+        .filter_map(|line| line.split_once(' '))
+        .filter(|(name, _)| is_stale_temp_ref(name, older_than))
+        .collect();
+      delete_stale_temp_refs(git_executor, repo_path, &stale);
     }
-    transaction.commit(git_executor, repo_path, "sweep temporary refs")
-  })();
-  if let Err(e) = result {
-    tracing::warn!(error = %format!("{e:#}"), "failed to sweep stale temporary refs");
+    Err(e) => tracing::warn!(error = %format!("{e:#}"), "failed to sweep stale temporary refs"),
+  }
+}
+
+/// Delete the stale temporary refs `stale` (`(ref, tip)`, `is_stale_temp_ref`) in one CAS transaction, none for an
+/// empty list; a failure is only logged: a ref that moved meanwhile is not stale
+pub fn delete_stale_temp_refs(git_executor: &GitCommandExecutor, repo_path: &str, stale: &[(impl AsRef<str>, impl AsRef<str>)]) {
+  if stale.is_empty() {
+    return;
+  }
+  let mut transaction = RefTransaction::new();
+  for (name, id) in stale {
+    transaction.delete(name.as_ref(), Some(id.as_ref()));
+  }
+  match transaction.commit(git_executor, repo_path, "sweep temporary refs") {
+    Ok(()) => tracing::debug!(count = stale.len(), "deleted stale temporary refs"),
+    Err(e) => tracing::warn!(error = %format!("{e:#}"), "failed to sweep stale temporary refs"),
   }
 }
 
 /// A ref name no other operation of this or another Branch Deck process uses
-fn unique_temp_ref() -> String {
+pub(crate) fn unique_temp_ref() -> String {
   static COUNTER: AtomicU32 = AtomicU32::new(0);
   let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
   format!("{TEMP_REF_PREFIX}{}-{nanos}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed))

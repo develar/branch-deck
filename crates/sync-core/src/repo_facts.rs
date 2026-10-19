@@ -9,6 +9,7 @@ use crate::update_project::{BaselineUpstream, KnownBaseline, TrackedUpstream, ba
 use anyhow::{Result, bail};
 use branch_integration::common::{LISTED_BRANCH_ATOMS, ListedBranch};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_writer::{STALE_TEMP_REF_AGE, TEMP_REF_PREFIX, is_stale_temp_ref};
 use git_ops::revs::resolve_commit;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -39,6 +40,8 @@ pub(crate) struct RepoFacts {
   pub remote_tips: HashMap<String, String>,
   /// Ref -> tip of the refs that keep the copies of the conflicting branches (`conflict_chain`)
   pub conflict_tips: HashMap<String, String>,
+  /// `(ref, tip)` of the temporary refs that processes gone left behind (`is_stale_temp_ref`), which the sync deletes
+  pub stale_temp_refs: Vec<(String, String)>,
 }
 
 impl RepoFacts {
@@ -77,13 +80,15 @@ pub(crate) struct BaselineListing {
   pub remote_tips: HashMap<String, String>,
   /// Ref -> tip of the refs that keep the copies of the conflicting branches, when asked for (`conflict_chain`)
   pub conflict_tips: HashMap<String, String>,
+  /// `(ref, tip)` of the stale temporary refs, when asked for (`is_stale_temp_ref`)
+  pub stale_temp_refs: Vec<(String, String)>,
 }
 
 /// The baseline of the checked out `branch` (`None` for a detached HEAD, which tracks nothing) and the branches under
 /// `branch_prefix`, local and on `origin`: `remote` and one `for-each-ref` of the branch, the baseline candidates and the
-/// two namespaces, and with `conflict_refs` the refs of the conflicting branches. An upstream the listing lacks (not a
-/// candidate) costs one `rev-parse` more
-pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path: &str, branch: Option<&str>, branch_prefix: &str, conflict_refs: bool) -> Result<BaselineListing> {
+/// two namespaces, and with `sync_refs` the refs of the conflicting branches and the temporary refs. An upstream the
+/// listing lacks (not a candidate) costs one `rev-parse` more
+pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path: &str, branch: Option<&str>, branch_prefix: &str, sync_refs: bool) -> Result<BaselineListing> {
   let remotes: Vec<String> = git_executor
     .execute_command_lines(&["remote"], repo_path)?
     .into_iter()
@@ -103,8 +108,8 @@ pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path
   args.extend(current_ref.as_deref());
   args.extend([local_prefix.as_str(), remote_prefix.as_str()]);
   args.extend(candidates.iter().map(|(full_ref, _)| full_ref.as_str()));
-  if conflict_refs {
-    args.push(CONFLICT_REFS);
+  if sync_refs {
+    args.extend([CONFLICT_REFS, TEMP_REF_PREFIX]);
   }
   let lines = git_executor.execute_command_lines(&args, repo_path)?;
 
@@ -114,6 +119,7 @@ pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path
   let mut branches = Vec::new();
   let mut remote_tips = HashMap::new();
   let mut conflict_tips = HashMap::new();
+  let mut stale_temp_refs = Vec::new();
   for line in &lines {
     let mut fields = line.splitn(6, '\0');
     let (Some(name), Some(upstream), Some(remote), Some(remote_ref), Some(upstream_short), Some(rest)) =
@@ -135,6 +141,8 @@ pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path
       remote_tips.insert(full_name.to_string(), tip.to_string());
     } else if name.starts_with(CONFLICT_REFS) {
       conflict_tips.insert(name.to_string(), tip.to_string());
+    } else if is_stale_temp_ref(name, STALE_TEMP_REF_AGE) {
+      stale_temp_refs.push((name.to_string(), tip.to_string()));
     }
   }
 
@@ -161,6 +169,7 @@ pub(crate) fn read_baseline_listing(git_executor: &GitCommandExecutor, repo_path
     branches,
     remote_tips,
     conflict_tips,
+    stale_temp_refs,
   })
 }
 
@@ -176,6 +185,7 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
     branches,
     remote_tips,
     conflict_tips,
+    stale_temp_refs,
   } = read_baseline_listing(git_executor, repo_path, Some(branch), branch_prefix, true)?;
   let baseline_rev = format!("{baseline_ref}^{{commit}}");
   let (output, exit_code) = git_executor.execute_command_with_status(
@@ -213,6 +223,7 @@ pub(crate) fn read_repo_facts(git_executor: &GitCommandExecutor, repo_path: &str
     branches,
     remote_tips,
     conflict_tips,
+    stale_temp_refs,
   })
 }
 

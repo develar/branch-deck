@@ -261,3 +261,29 @@ async fn a_check_resolves_as_the_sync_does() {
   repo.set_config("branchdeck.resolveByWords", "false").unwrap();
   assert_eq!(checked_beta(&repo, &cache), None, "with the resolve off, beta conflicts");
 }
+
+#[tokio::test]
+async fn a_resolved_copy_leaves_no_temporary_ref_for_the_next_sync() {
+  let repo = repo_with_a_word_conflict();
+  sync_events(&repo).await;
+  // the checkpoint of the resolve wrote the ref of the writer to disk; the end of the writer deletes it
+  assert_eq!(repo.git(&["for-each-ref", "refs/branch-deck/tmp/"]), "");
+}
+
+#[tokio::test]
+async fn the_shared_chain_ref_of_an_interrupted_older_sync_blocks_no_sync_and_is_deleted() {
+  let repo = repo_with_a_word_conflict();
+  // Branch Deck 0.21 wrote every chain on this one ref and left it behind after a resolve by words
+  let unrelated = repo.rev_parse("refs/remotes/origin/master").unwrap();
+  repo.git(&["update-ref", "refs/branch-deck/tmp/chain", &unrelated]);
+  let young = format!(
+    "refs/branch-deck/tmp/1-{}-0",
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+  );
+  repo.git(&["update-ref", &young, &unrelated]);
+  let events = sync_events(&repo).await;
+  assert!(!has_conflict(&events));
+  assert_eq!(beta_copies(&events), vec![(CommitSyncStatus::Created, Some(resolved_call(&repo)))]);
+  // the ref of a running writer of another process stays
+  assert_eq!(repo.git(&["for-each-ref", "--format=%(refname)", "refs/branch-deck/tmp/"]), young);
+}

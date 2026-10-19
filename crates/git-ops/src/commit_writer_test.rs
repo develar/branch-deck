@@ -54,3 +54,14 @@ fn temporary_refs_are_deleted_with_compare_and_swap() {
   transaction.commit(git, path, "test").unwrap();
   assert_eq!(temp_refs(), 0);
 }
+
+#[test]
+fn a_temporary_ref_is_stale_after_its_age_or_without_a_time() {
+  use crate::commit_writer::{STALE_TEMP_REF_AGE, is_stale_temp_ref, unique_temp_ref};
+  assert!(!is_stale_temp_ref(&unique_temp_ref(), STALE_TEMP_REF_AGE));
+  assert!(is_stale_temp_ref("refs/branch-deck/tmp/42-1000-0", STALE_TEMP_REF_AGE));
+  assert!(is_stale_temp_ref("refs/branch-deck/tmp/42-1000-0-notes", STALE_TEMP_REF_AGE));
+  // the shared ref of the commit chains up to 0.21
+  assert!(is_stale_temp_ref("refs/branch-deck/tmp/chain", STALE_TEMP_REF_AGE));
+  assert!(!is_stale_temp_ref("refs/branch-deck/conflict/abc", STALE_TEMP_REF_AGE));
+}

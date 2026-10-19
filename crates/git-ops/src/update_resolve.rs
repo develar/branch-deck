@@ -7,8 +7,8 @@
 
 use crate::cat_file_batch::{BatchEntry, NO_LIMIT, read_objects};
 use crate::commit_writer::{
-  EditedCommit, NewParent, RawCommit, StoreCommit, StoreEntry, StoreNotes, TreeEdit, WrittenEdit, WrittenStore, current_committer, discard_temp_refs, parse_raw_commit,
-  sweep_stale_temp_refs, write_edited_commit, write_store_commits,
+  EditedCommit, NewParent, RawCommit, STALE_TEMP_REF_AGE, StoreCommit, StoreEntry, StoreNotes, TreeEdit, WrittenEdit, WrittenStore, current_committer, discard_temp_refs,
+  parse_raw_commit, sweep_stale_temp_refs, write_edited_commit, write_store_commits,
 };
 use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::paths::{ChangedPath, changed_paths, commits_touching};
@@ -48,8 +48,6 @@ const MAX_UPSTREAM_COMMITS_PER_FILE: usize = 10;
 /// The longest basename a copy keeps (in bytes, the extension included), below `NAME_MAX` (255) with the key and the
 /// name of the temporary file
 const MAX_COPY_BASENAME: usize = 100;
-/// Temporary refs older than this belong to a process that is gone
-pub const STALE_TEMP_REF_AGE: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// Where a session is
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

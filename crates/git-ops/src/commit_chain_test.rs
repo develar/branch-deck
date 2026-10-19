@@ -1,5 +1,6 @@
 use crate::commit_chain::{ChainCommit, CommitChain};
 use crate::merge_memo::MergeOutcome;
+use crate::word_resolve::{ResolvedFile, WordResolution};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -129,4 +130,45 @@ fn a_chain_dropped_on_an_error_ends_its_writer_cleanly() {
     .filter(|entry| entry.as_ref().unwrap().file_name().to_string_lossy().starts_with("fast_import_crash"))
     .count();
   assert_eq!(crash_reports, 0);
+}
+
+#[test]
+fn chains_that_checkpoint_at_the_same_time_leave_no_temporary_ref() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit("base", "a.txt", "a\n");
+  let other = repo.create_commit("other", "b.txt", "b\n");
+  let resolved = repo.create_commit("resolved", "a.txt", "resolved\n");
+  let tree = |rev: &str| repo.git(&["rev-parse", &format!("{rev}^{{tree}}")]);
+  // a resolve by words of the tree of `base` into the tree of `resolved`: its commit checkpoints, which writes the
+  // ref of the writer to disk
+  let resolution = WordResolution {
+    tree: tree(&resolved),
+    merge_tree: tree(&other),
+    files: vec![ResolvedFile {
+      path: "a.txt".to_string(),
+      mode: "100644".to_string(),
+      conflicts: 1,
+      blob: repo.git(&["rev-parse", &format!("{resolved}:a.txt")]),
+      content: b"resolved\n".to_vec(),
+    }],
+  };
+  let resolved_tree = tree(&resolved);
+  // two branches of a sync build in parallel; with a shared ref the second checkpoint refused a tip without the first
+  let mut first = CommitChain::new(repo.git_executor(), repo.path_str());
+  let mut second = CommitChain::new(repo.git_executor(), repo.path_str());
+  first
+    .write_commit(&ChainCommit {
+      resolution: Some(&resolution),
+      ..commit(&resolved_tree, &base, "resolved")
+    })
+    .unwrap();
+  second
+    .write_commit(&ChainCommit {
+      resolution: Some(&resolution),
+      ..commit(&resolved_tree, &other, "resolved")
+    })
+    .unwrap();
+  first.finish().unwrap();
+  second.finish().unwrap();
+  assert_eq!(repo.git(&["for-each-ref", "refs/branch-deck/tmp/"]), "");
 }

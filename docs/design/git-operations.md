@@ -135,8 +135,21 @@ written, except by Update Project and the finish of its resolve session (their o
    (`StoreNotes`), and the session's transaction moves `refs/notes/branch-deck/resolve` with CAS. fast-import also
    creates the temporary ref its commits are written on (`refs/branch-deck/tmp/<pid>-<time>-<n>`, a name of its own
    per run), which the operation's transaction deletes with CAS on the commit written last on it (`delete_temp_refs`
-   of `WrittenCommits` and `WrittenStore`, `delete_temp_ref` of `WrittenEdit`); the commit writer of a sync chain
-   (`commit_chain.rs`) resets its ref before `done`, so that ref never reaches the disk.
+   of `WrittenCommits` and `WrittenStore`, `delete_temp_ref` of `WrittenEdit`).
+
+   **A third named exception: the ref of a sync chain's commit writer** (`commit_chain.rs`). Each writer gets a
+   temporary ref of its own (`unique_temp_ref`), because the branches of a sync build in parallel and the app's sync,
+   `bd sync` and the trial builds of `bd check` run at the same time without a common lock. The ref reaches the disk
+   only through the `checkpoint` of a resolve by words; then the end of the writer deletes it in its own stream
+   (`reset <ref>` `from` the null id), else `reset` without `from` drops it from the memory of `fast-import`. Nothing
+   reads its value, so there is no CAS. Up to 0.21 every chain wrote `refs/branch-deck/tmp/chain` and a checkpoint left
+   it behind: the next checkpoint of another branch failed with "not updating … does not contain …".
+
+   **The sweep of temporary refs.** A temporary ref left by a killed process keeps its objects alive. A sync lists
+   `refs/branch-deck/tmp/` in the `for-each-ref` of its facts (`read_baseline_listing`) and deletes in one CAS
+   transaction the ones older than an hour by the time in their name, and any name without a time (the old shared
+   `chain`), so the delete costs a process only when there are some (`is_stale_temp_ref`, `delete_stale_temp_refs`).
+   A resolve session sweeps the same way at its start (`sweep_stale_temp_refs`).
 
    **Ref moves that the files follow** (an update and its undo, `move_branch_and_files`) update `HEAD` (deref), not
    `refs/heads/<b>`, so git moves the branch HEAD points at, the one whose files the guarded update writes. That must

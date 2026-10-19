@@ -30,6 +30,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::Description;
 use git_ops::branch_names::{BranchKind, strip_branch_namespace, to_final_branch_name};
 use git_ops::commit_list::{Commit, get_commit_list_with_handler};
+use git_ops::commit_writer::delete_stale_temp_refs;
 use git_ops::model::{BranchError, BranchSyncStatus};
 use git_ops::notes::write_commit_notes_with;
 use git_ops::revs::current_branch;
@@ -348,6 +349,9 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   // the baseline (the upstream, origin/master, origin/main, or local master/main) with its commit, HEAD and the
   // branches under the prefix, once for every step below
   let facts = read_repo_facts(git_executor, repository_path, &current_branch, branch_prefix)?;
+  // the temporary refs of a process killed in a write (and the shared ref of Branch Deck 0.21 and earlier) keep their
+  // objects alive; the listing found them, so the delete costs a process only when there are some
+  delete_stale_temp_refs(git_executor, repository_path, &facts.stale_temp_refs);
   let baseline_branch = facts.baseline.clone();
   // the stack setting and the descriptions, then the issue groups; the update check groups the landed commits with them
   let config = match config {
