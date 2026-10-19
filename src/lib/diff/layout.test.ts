@@ -121,4 +121,18 @@ describe("DiffLayout of file cards", () => {
     const anchor = layout.anchorAt(layout.rowTop(2, 5) + 3)!
     expect(layout.scrollTopOf(anchor)).toBe(layout.rowTop(2, 5) + 3)
   })
+
+  it("sticks a header below the space above the first card, so a file at the top keeps that space over its card", () => {
+    const rows = buildFileRows(ONE_CHANGE, "unified", [EXPANDED, EXPANDED])
+    const layout = new DiffLayout([file("a", rows), file("b", rows)], CARDS)
+    expect(layout.stickyTop).toBe(10)
+    // the first file at the top is the top of the document; another one has the gap above its card in view
+    expect([layout.fileTop(0), layout.fileTop(1)]).toEqual([0, layout.offsets[1]! - 10])
+    // the file at the top is the one under the stuck header: the second once its header has the place of the first
+    expect(layout.fileAtTop(layout.fileTop(1) - 30)).toBe(0)
+    expect(layout.fileAtTop(layout.fileTop(1))).toBe(1)
+    // without cards a header sticks at the top
+    const plain = new DiffLayout([file("a", rows), file("b", rows)], { rowHeight: 20, headerHeight: 36 })
+    expect([plain.stickyTop, plain.fileTop(1)]).toEqual([0, plain.offsets[1]])
+  })
 })

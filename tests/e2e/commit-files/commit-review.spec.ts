@@ -17,6 +17,20 @@ async function openTreePreview(page: Page): Promise<Locator> {
   return await openCommitPreview(page, getBranchCommitRow(page, "session", SUBJECT))
 }
 
+/**
+ * The pixels from the top of the diffs to the header of the file `name`, and whether a row of the diffs shows in the
+ * gap above it (the point 5 px below the top of the diffs, in the middle)
+ */
+async function headerPlace(review: Locator, name: string): Promise<{ header: number; rowInGap: boolean }> {
+  return review.getByTestId("diff-view").evaluate((view, fileName) => {
+    const box = view.getBoundingClientRect()
+    const section = view.querySelector(`[data-testid=diff-view-file][data-path$="/${fileName}"]`)!
+    const header = section.querySelector("[data-testid=review-file-header]")!.getBoundingClientRect()
+    const inGap = document.elementFromPoint(box.left + box.width / 2, box.top + 5)
+    return { header: Math.round(header.top - box.top), rowInGap: inGap?.closest(".dv-row") != null }
+  }, name)
+}
+
 function selectedFile(review: Locator): Locator {
   return review.getByRole("tree", { name: "Changed files" }).locator("[role=treeitem][aria-selected=true]")
 }
@@ -102,10 +116,19 @@ simpleTest.describe("Commit review", () => {
     await expect(code).toContainText("val field10 = 10")
     await expect(code.getByRole("button", { name: "Expand all unchanged lines of RowMapper.kt" })).toHaveCount(0)
 
+    // a window low enough for the second file to reach the top
+    const viewport = page.viewportSize()!
+    await page.setViewportSize({ width: viewport.width, height: 420 })
     await code.locator("[aria-label='Changes of the commit']").focus()
     await page.keyboard.press("j")
     await expect(position).toHaveText("File 2 / 5")
     await expect(selectedFile(window)).toHaveAttribute("aria-label", "RowMapperTest.kt")
+    // the card at the top keeps the gap above it that the first card has
+    await expect.poll(() => headerPlace(window, "RowMapperTest.kt")).toEqual({ header: 10, rowInGap: false })
+    // its header stuck while its rows scroll under it: the same gap, never the rows above it
+    await window.getByTestId("diff-view").evaluate(view => view.scrollBy(0, 120))
+    await expect.poll(() => headerPlace(window, "RowMapperTest.kt")).toEqual({ header: 10, rowInGap: false })
+    await page.setViewportSize(viewport)
     await page.keyboard.press("k")
     await expect(position).toHaveText("File 1 / 5")
 

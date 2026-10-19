@@ -377,8 +377,8 @@ export function DiffView({
       return
     }
     reveal.current = null
-    const top = layout.rowTop(hit.file, rowOfLine(rows, hit.side, hit.line)) - headerHeight - (scroller.current?.clientHeight ?? 0) / 3
-    painter.scrollTo(Math.max(top, layout.offsets[hit.file]!))
+    const top = layout.rowTop(hit.file, rowOfLine(rows, hit.side, hit.line)) - layout.stickyTop - headerHeight - (scroller.current?.clientHeight ?? 0) / 3
+    painter.scrollTo(Math.max(top, layout.fileTop(hit.file)))
   }, [find.current, hits, layout, painter, headerHeight])
 
   // the find reads the texts of every file it searches
@@ -529,7 +529,7 @@ export function DiffView({
   const scrollToInitialFile = useEffectEvent(() => {
     const index = initialPath === null ? -1 : layout.indexOf(initialPath)
     if (index > 0) {
-      painter.scrollTo(layout.offsets[index]!)
+      painter.scrollTo(layout.fileTop(index))
     }
   })
 
@@ -556,8 +556,8 @@ export function DiffView({
   }, [prepared, first, last])
 
   const scrollToChange = (file: number, row: number) => {
-    const top = layout.rowTop(file, row) - headerHeight - 4 * metrics.rowHeight
-    painter.scrollTo(Math.max(top, layout.offsets[file]!))
+    const top = layout.rowTop(file, row) - layout.stickyTop - headerHeight - 4 * metrics.rowHeight
+    painter.scrollTo(Math.max(top, layout.fileTop(file)))
   }
 
   useImperativeHandle(ref, () => ({
@@ -566,7 +566,7 @@ export function DiffView({
       if (index >= 0) {
         changeCursor.current = { path, index: -1 }
         visiblePath.current = path
-        painter.scrollTo(layout.offsets[index]!)
+        painter.scrollTo(layout.fileTop(index))
       }
     },
     moveChange: direction => {

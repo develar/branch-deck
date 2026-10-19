@@ -101,6 +101,24 @@ export class DiffLayout {
     return (this.visualLines(file, row + 1) - this.visualLines(file, row)) * this.metrics.rowHeight
   }
 
+  /**
+   * Where a file header sticks below the top of the view: the space above the first card, so a card at the top keeps
+   * the space it has at the top of the document (`.dv-card > .dv-header` in diff-view.css)
+   */
+  get stickyTop(): number {
+    return this.metrics.cards?.padding ?? 0
+  }
+
+  /** The `scrollTop` that shows a file at the top: its card in its place, the space above the cards over it */
+  fileTop(file: number): number {
+    return Math.max(this.offsets[file]! - this.stickyTop, 0)
+  }
+
+  /** The file whose header is at the top of a view scrolled to `scrollTop`: the one under the middle of a stuck header */
+  fileAtTop(scrollTop: number): number {
+    return this.fileAt(scrollTop + this.stickyTop + this.metrics.headerHeight / 2)
+  }
+
   /** The file at `y`: the last one whose top is at or above it */
   fileAt(y: number): number {
     let low = 0

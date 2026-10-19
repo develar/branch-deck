@@ -66,16 +66,22 @@
  * The sticky header is the top of its card: it lies over the top and the side borders of the card, and its content
  * draws them itself, rounded, with the 1-px line under it. So a header that sticks at the top of the view while its
  * rows scroll under it still reads as the top of a card; the gap colour behind its corners hides the rows there. It
- * stops at the end of its card, which pushes it up, as IntelliJ's `y = min(blockMaxY - viewTop, h) - h`
+ * stops at the end of its card, which pushes it up, as IntelliJ's `y = min(blockMaxY - viewTop, h) - h`.
+ *
+ * It sticks 10 px below the top of the view (the space above the first card, `LayoutMetrics.cards.padding`,
+ * `DiffLayout.stickyTop`): a card at the top keeps the space it has at the top of the document, and the line above the
+ * view (the header of the commit) never touches its corners. Its gap colour reaches up over that space, so the rows and
+ * the side borders of its card do not show above it; the clip of the card cuts it off while the card is in its place
  */
 .dv-card > .dv-header {
+  top: 10px;
   height: 48px;
   margin: -1px -1px 0;
 }
 
 .dv-card > .dv-header::before {
   position: absolute;
-  inset: 0;
+  inset: -10px 0 0;
   z-index: -1;
   content: "";
   background: var(--diff-card-gap);

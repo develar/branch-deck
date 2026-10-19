@@ -182,6 +182,11 @@ review windows show their notices in the header and use no notice row), and the 
 - The sticky header is the top of its card: it draws the top and the side borders, rounded, and the line under it, so
   it reads as a card while its rows scroll under it. It stops at the end of its card, which pushes it up, as
   IntelliJ's `y = min(blockMaxY - viewTop, h) - h`; that is the rule of `position: sticky` in its section.
+- It sticks 10 px below the top of the view (`DiffLayout.stickyTop`, the space above the first card), not at the top
+  as IntelliJ's: a card at the top keeps the space it has at the top of the document, so a stuck header never lies
+  against the line of what is above the view (the header of the commit in a review). The gap colour of the header
+  reaches up over that space and hides the rows of its card there. A scroll to a file (`DiffLayout.fileTop`) and the
+  file at the top (`fileAtTop`) count it.
 - The layout counts all of it (`LayoutMetrics.cards`): the top of file `i` is the space above the cards, the heights of
   the files before it and a gap after each. A file is `header + notice + rows + bottom border`. So every offset stays
   arithmetic, and the anchor, the rows in view and the scroll to a file need no measure.
@@ -411,7 +416,7 @@ lines. ⌘A in the diffs selects the side of the file at the top.
 
 **Keys.** J and K go to the next and the previous file. N and P go to the next and the previous change. Both use the
 layout, so the scroll lands exactly at once:
-- A file goes to the top.
+- A file goes to the top, its card below the gap above the first card.
 - A change goes to its first row, with its 4 rows of context visible below the sticky header.
 
 The targets of N and P are the `block` segments, so N and P skip an `ignored` block and a collapsed file. A

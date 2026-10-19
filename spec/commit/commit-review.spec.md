@@ -160,6 +160,11 @@ where a dialog would cover it.
   top must become the selected file, its directories opened. A scroll the review made (a choice, J, K, N, P) changes
   the selection only through the key or the row that made it, also for a last file that cannot reach the top.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+- The top of the diffs must keep the gap of 10 px that the first card has above it: a file at the top and a header
+  stuck while its rows scroll under it sit 10 px below the header of the commit, never against its line, and no row
+  shows in the gap.
+  [@test] ../../src/lib/diff/layout.test.ts (`sticks a header below the space above the first card, so a file at the top keeps that space over its card`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 - J and K must select the next and the previous file. N and P must show the next and the previous block of changed
   lines, into the next or the previous file at the end of one; collapsed files are skipped.
   [@test] ../../src/lib/diff/rows.test.ts (`starts N and P at each block of changed lines, a deleted one too, never at a block the policy ignores`)
