@@ -65,18 +65,23 @@ test.describe("The font of the diffs", () => {
     const tree = await openCommitFilesSection(preview)
     const file = tree.getByRole("treeitem", { name: "RowMapper.kt" })
     await file.getByText("RowMapper.kt").click()
-    const decoration = (locator: ReturnType<typeof file.locator>) => locator.evaluateAll(elements => elements.map(element => getComputedStyle(element).textDecorationLine))
+    // found and read in one call: the painter replaces a row when its tokens arrive, so an element found by one call
+    // (`evaluateAll`) can be detached in the next, where its computed style is ""
+    const decoration = (selector: string) =>
+      file.evaluate((root, selector) => [...root.querySelectorAll(selector)].map(element => getComputedStyle(element).textDecorationLine), selector)
 
     await preview.getByRole("button", { name: "Inline", exact: true }).click()
     // `Row = Row` becomes `SessionRow = SessionRow`: the deleted part stands before the inserted one
-    const deleted = file.locator(".dv-row[data-kind=inline] [data-inline-deleted]")
-    await expect(deleted.first()).toBeVisible()
+    const deleted = ".dv-row[data-kind=inline] [data-inline-deleted]"
+    await expect(file.locator(deleted).first()).toBeVisible()
     expect(new Set(await decoration(deleted))).toEqual(new Set(["line-through"]))
 
     for (const mode of ["Split", "Unified"]) {
       await preview.getByRole("button", { name: mode, exact: true }).click()
+      // the rows of the mode, not the Inline rows before the switch
+      await expect(file.locator(".dv-row[data-kind=inline]")).toHaveCount(0)
       await expect(file.locator(".dv-changed").first()).toBeVisible()
-      expect(new Set(await decoration(file.locator(".dv-changed"))), mode).toEqual(new Set(["none"]))
+      expect(new Set(await decoration(".dv-changed")), mode).toEqual(new Set(["none"]))
     }
   })
 })
