@@ -434,9 +434,11 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   owners", a checkbox per suggested code owner with a GitHub login of the groups whose approval is missing (the full name,
   the login beside it, the groups below), never the author, a member asked already or one whose approval counts, each
   once; checked when it opens: one per missing group nobody is asked for yet, each once, as the Create Pull Request
-  dialog chooses them (`preselectedReviewers`). "Others" (or "Reviewers" without code owners): the reviewer search of
+  dialog chooses them (`preselectedReviewers`). A readiness that comes after the opening checks them too, until the
+  user checks or unchecks one. "Others" (or "Reviewers" without code owners): the reviewer search of
   the dialog (`ReviewerPicker`, `useReviewerSearch`). "Request Review" asks the checked ones and the chosen ones.
   [@test] ../../src/lib/request-review.test.ts (`are the suggested ones of the missing groups, one per group nobody is asked for chosen, each once`, `leave out the author, whoever is asked already and an approval that counts; a group someone is asked for chooses nobody`, `are none when no approval is missing or the readiness is unknown`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should choose the code owner of a readiness of the whole stack that comes after its Request Review… opened`)
 - The surfaces ([Next Step](next-step.spec.md), row 9): the row's slot mounts the popover around its step, or, for
   another step, around an anchor at its end, which "Request Review…" of the branch menu opens
   (`request-review-popover`). The Safe Push popover has no Request Review…: a start whose approvals are missing is

@@ -49,11 +49,16 @@ async function pushFirst(name: string, errorTitle: string): Promise<boolean> {
   return pushed.pushed
 }
 
-/** The body of `RequestReviewPopover`, mounted on each opening: the choice starts again from the suggested code owners */
+/**
+ * The body of `RequestReviewPopover`, mounted on each opening: the choice starts again from the suggested code owners,
+ * also those of a readiness that comes after the opening, until the user checks or unchecks one
+ */
 export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: RequestReviewFormProps) {
   const repositoryPath = useSelectedProjectPath() ?? ""
   const candidates = getRequestReviewCandidates(readiness, pullRequest)
-  const [checked, setChecked] = useState<readonly string[]>(() => candidates.filter(candidate => candidate.preselected).map(candidate => candidate.login))
+  // null until the user changes the choice: the suggested ones of the readiness as it is now
+  const [choice, setChoice] = useState<readonly string[] | null>(null)
+  const checked = choice ?? candidates.filter(candidate => candidate.preselected).map(candidate => candidate.login)
   const [others, setOthers] = useState<GitHubUser[]>([])
   const search = useReviewerSearch(repositoryPath)
   // the request runs from here: one operation of the pull request (a second click joins it), its spinner here
@@ -84,7 +89,7 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
   }
 
   const toggle = (login: string, on: boolean) => {
-    setChecked(on ? [...checked, login] : checked.filter(it => !isLogin(it, login)))
+    setChoice(on ? [...checked, login] : checked.filter(it => !isLogin(it, login)))
   }
 
   const request = () => {

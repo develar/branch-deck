@@ -24,7 +24,7 @@ import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { routeCommand } from "../helpers/wait-helpers"
+import { holdCommand, routeCommand } from "../helpers/wait-helpers"
 
 /** The island of the stack on `root` */
 function island(page: Page, root: string): Locator {
@@ -42,6 +42,16 @@ async function openIslandMenu(page: Page, root: string): Promise<void> {
 async function openWholeStackSubmenu(page: Page, root: string): Promise<void> {
   await findBranchRow(page, root).click({ button: "right" })
   await page.getByRole("menuitem", { name: "Whole Stack" }).click()
+}
+
+/** "Request Review…" of "Whole Stack ›" of the root's menu: its popover, which asks on #12, without code owners yet */
+async function openWholeStackRequestReview(page: Page, root: string): Promise<Locator> {
+  await openWholeStackSubmenu(page, root)
+  await page.getByRole("menuitem", { name: "Request Review…" }).click()
+  const popover = page.getByTestId("request-review-popover")
+  await expect(popover).toContainText("Request a review on #12")
+  await expect(popover.getByTestId("request-review-candidates")).toHaveCount(0)
+  return popover
 }
 
 /** "Review Whole Stack" of the island's "⋯": the review window of the whole air stack, linked to the main window */
@@ -423,6 +433,20 @@ test.describe("Whole stack", () => {
     await expectPopoverAtSlot(popover, rootSlot)
   })
 
+  test("should choose the code owner of a readiness of the whole stack that comes after its Request Review… opened", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the readiness waits: "Whole Stack ›" of the root opens the popover before it knows whom to suggest
+    const release = await holdCommand(page, "get_branch_review_readiness")
+    await setupUnaskedStackPullRequest(setupRepo, syncAndWaitForBranches, "stacked_branches", "auth")
+    await expect(findBranchRow(page, "auth").getByTestId("request-review-anchor")).toBeAttached()
+    const popover = await openWholeStackRequestReview(page, "auth")
+    await expect(popover.getByTestId("request-review-submit")).toBeDisabled()
+
+    // it comes: its code owner is chosen, as in a popover opened after it
+    release()
+    await expect(popover.getByTestId("request-review-candidate-ikorennoy")).toBeChecked()
+    await expect(popover.getByTestId("request-review-submit")).toBeEnabled()
+  })
+
   test("should ask for a review of the pull request of the whole stack from the island's ⋯ and the root's menu, the popover at the header", async ({
     page,
     setupRepo,
@@ -497,10 +521,7 @@ test.describe("Whole stack", () => {
     await expect(root.getByTestId("request-review-anchor")).toHaveCount(1)
     await expect(page.getByTestId("next-step-slot")).toHaveCount(0)
 
-    await openWholeStackSubmenu(page, "auth")
-    await page.getByRole("menuitem", { name: "Request Review…" }).click()
-    await expect(popover).toContainText("Request a review on #12")
-    await expect(popover.getByTestId("request-review-candidates")).toHaveCount(0)
+    await openWholeStackRequestReview(page, "auth")
     await expectPopoverAtSlot(popover, root)
     await popover.getByTestId("request-review-reviewer-search").fill("ca")
     await page.getByRole("option", { name: /carol/ }).click()
