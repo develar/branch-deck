@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useEffectEvent, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { BranchReviewActions, BranchReviewBar, BranchReviewBody, BranchReviewGone } from "@/components/review/BranchReview"
+import type { BranchReviewMoves } from "@/components/review/BranchReview"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
@@ -81,6 +82,21 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
   }
 
   const { loaded } = model
+  const target = loaded?.target ?? data.chain.at(-1) ?? ""
+  // up to the whole stack and down to a branch of it: the main window opens the review as its menus would
+  const moves: BranchReviewMoves = {
+    wholeStack: linked.wholeStack,
+    onWholeStack: () => void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath: data.repositoryPath, branchName: target, scope: "wholeStack" }),
+    from: data.from ?? [],
+    stackCommits: linked.stackCommits,
+    onBranch: (branchName, commitKey) =>
+      void askMainWindow<BranchReviewRequest>(
+        BRANCH_REVIEW_WINDOW,
+        commitKey === undefined
+          ? { repositoryPath: data.repositoryPath, branchName, review: "branch" }
+          : { repositoryPath: data.repositoryPath, branchName, review: "commit", commitKey },
+      ),
+  }
   const actions = useBranchReviewActions(
     data.repositoryPath,
     loaded?.target ?? "",
@@ -99,7 +115,7 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
       data-testid="branch-review"
       body="fill"
       readyByContent
-      title={<BranchReviewBar model={model} />}
+      title={<BranchReviewBar model={model} moves={moves} />}
       titleEnd={
         loaded !== null && (
           <>
@@ -136,7 +152,7 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
       <BranchReviewGone model={model} />
       <Card className="min-h-0 flex-1 flex-row gap-0 overflow-hidden py-0">
         <div className="min-w-0 flex-1">
-          <BranchReviewBody model={model} />
+          <BranchReviewBody model={model} moves={moves} />
         </div>
       </Card>
       {/* outside the review: its keys never see what is typed into the dialog */}

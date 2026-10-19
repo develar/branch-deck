@@ -57,8 +57,9 @@ its commits above the files in the sidebar (`BranchReview`); the review of a pul
 branch table: the window stays beside it (the Safe Push popover too), where a dialog covered it. A
 stacked branch shows its stack from the baseline as a bar of segments, one per branch; a click shows one branch on its
 parent, Shift+click extends the part, "From Root" shows everything from the baseline to the branch, root..branch, which
-is what its Safe Push lands and Patronus checks. The whole stack, every branch of a stack that forks
-([Landing](../../docs/design/landing.md)), is reviewed in the same window as its stack branch: "Review Whole Stack".
+is what its Safe Push lands and Patronus checks; "Whole Stack" after it goes up to every branch of the stack. The whole stack, every branch of a stack that forks
+([Landing](../../docs/design/landing.md)), is reviewed in the same window as its stack branch: "Review Whole Stack";
+each of its commits names its branch, and the segments of the chain it came from go back down.
 The files are labelled with their code owners by the `OWNERSHIP` files of the baseline, and chips filter them by the
 reviewer groups the code-owner check of a Safe Push asks for and by owner. The Safe Push popover names the files each
 group has to review, and its "Review Changes" opens the review on them. The title bar of the window holds the stack, the diff view and the
@@ -75,7 +76,8 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
 - No comments and no approvals: the review happens in the pull request.
 - No branch state in the window: the main window owns the branches and runs the actions the window asks for; the
   "Create pull request" dialog of the window shows what the main window sends and asks it to create the pull request.
-- No review of the children of a branch: each has its own window, with this branch as a segment.
+- No review of the children of a branch in its window: each has its own, with this branch as a segment; "Whole Stack"
+  reviews every branch of the stack, the children too.
 - No group membership: "my files" needs the members of a group, which the repository doesn't hold.
 
 ## Requirements
@@ -94,8 +96,9 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   [@test] ../../src/lib/branch-review.test.ts (`allows a synced branch with commits`)
 - "Review Whole Stack" (the "⋯" of a stack island and "Whole Stack ›" of the menu of every branch of the stack) must open the same window for
   the whole stack of a stack that forks (`openWholeStackReviewWindow`, titled "Review the whole air stack"): one part,
-  its stack branch `{prefix}/stack/<root>` on the baseline (`GetBranchReviewParams::whole_stack`), named "Whole air
-  stack", every commit of the stack in the order of the history; read again when a sync moves the stack branch. It
+  its stack branch `{prefix}/stack/<root>` on the baseline (`GetBranchReviewParams::whole_stack`), every commit of
+  the stack in the order of the history, its stack bar the main line and "Whole Stack" ([below](#the-stack-and-the-commits));
+  read again when a sync moves the stack branch. It
   shows no actions of a branch: the whole stack's are in the menus of the main window. It is disabled, with the
   reason, while the stack branch has no tip. Of a straight chain, which has no stack branch, it opens the review of its
   last branch from the root (`range: "all"`).
@@ -150,6 +153,22 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   outside the part give way first (cut with "…", the name in their hover), the selected segments and the last one
   last.
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should start the row of a review window after the traffic lights, its empty parts dragging the window`)
+- After "From Root", "Whole Stack" must go up to every branch of the stack of the chain's root while the stack has
+  branches outside the chain (`WholeStackScope` of the window state, `wholeStackScopeOf`): one group "Scope" of the
+  two, one pressed at most. Of a stack that forks it is the review of its stack branch, its hover "Every branch of the
+  whole air stack, its side branches too, on origin/master: 7 branches · 14 commits, what its Safe Push lands" (what is
+  left of it, `getWholeStackRest`), disabled with the reason while the stack branch is not built; of a straight chain
+  it is the review of its last branch from the root ("IJPL-257337 to perf-part-2 on origin/master: 2 branches · 3
+  commits, what the Safe Push of perf-part-2 lands"), and its last branch has none: From Root is the whole stack. The
+  window asks the main window (`{ scope: "wholeStack" }`), which opens the review with the chain as the way back.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should move the review of a branch up to the whole stack, and down to a branch of it and to the branch of a commit`, `should offer the whole stack of a straight chain on a branch with branches built on it, as the last one from the root`)
+- The stack bar of the review of the whole stack must show the chain it came from (`from` of the window data; the
+  main line from the island and the menus), each segment with its number of commits, none pressed, then "Whole
+  Stack", pressed; a segment reviews its branch (`{ review: "branch" }`). Each commit of the column names its branch,
+  muted after its subject, matched across the copies by author, author time and subject (`reviewCommitKey`: the stack
+  branch has no mapping notes; `stackCommits` of the window state), and the heading of the shown commit ends with
+  "Review side-fix", the review of its branch at the commit (`{ review: "commit" }`).
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should move the review of a branch up to the whole stack, and down to a branch of it and to the branch of a commit`, `should go down from the review of the whole stack the island opens, along its main line`)
 - The stack bar of a stack of more than 6 branches must stay short: it shows the root, the ends of the selected
   part and the last two segments (the parent and the branch), and folds each run of two or more others into a ghost
   "… 14 more" button (in `text-primary` while the part covers it) with "14 branches · 120 commits · Click to show them"

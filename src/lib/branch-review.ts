@@ -62,6 +62,15 @@ export function moveView<T extends SegmentView>(view: T, focus: BranchReviewFocu
   return { ...view, range: kept ? view.range : { from: index, to: index }, commitId: focus.commitId! }
 }
 
+/**
+ * A commit across its copies, which a review of the whole stack matches to the branch it came from (the stack branch
+ * has no mapping notes): its author, author time and subject without the prefix (a copy's subject, a row's
+ * `strippedSubject`), as the robot's commits are matched
+ */
+export function reviewCommitKey(commit: { readonly author: string; readonly authorTime: number; readonly subject: string }): string {
+  return `${commit.author}\n${commit.authorTime}\n${commit.subject}`
+}
+
 /** Why a branch of a review has no actions: it is no longer a virtual branch */
 export function branchGoneReason(branchName: string): string {
   return `${branchName} is no longer a branch: it landed or was renamed`

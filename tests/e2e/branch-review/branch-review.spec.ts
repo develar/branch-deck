@@ -157,6 +157,90 @@ test.describe("Reading the review ahead", () => {
   })
 })
 
+test.describe("The scopes of the stack", () => {
+  test("should move the review of a branch up to the whole stack, and down to a branch of it and to the branch of a commit", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the `stack_island` template: air, bazel, bridge, runtime, deploy, and side-fix, side-test off bazel; two commits each
+    await setupRepo("stack_island")
+    await syncAndWaitForBranches()
+    const window = await openLinkedSubWindow(page, await openReviewWindow(page, "bazel"))
+    const whole = window.getByTestId("branch-review-whole-stack")
+    await expect(window.getByRole("button", { name: "From Root" })).toHaveAttribute("aria-pressed", "false")
+    await expect(whole).toHaveAttribute("aria-pressed", "false")
+
+    // up: the stack branch, the chain the window showed as the way back
+    await whole.click()
+    const stack = await openedReview(page, 2)
+    expect(stack).toMatchObject({
+      title: "Review the whole air stack",
+      data: {
+        chain: ["air"],
+        wholeStack: true,
+        from: [
+          { name: "air", commits: 2 },
+          { name: "bazel", commits: 2 },
+        ],
+      },
+    })
+    await reopenLinkedSubWindow(window, stack)
+    await expect(whole).toHaveAttribute("aria-pressed", "true")
+    const segments = window.getByTestId("branch-review-segment")
+    await expect(segments).toHaveText(["air2", "bazel2"])
+
+    // each commit of the whole stack names its branch, whose review its heading opens at the commit
+    const fix = window.getByTestId("range-review-commit").filter({ hasText: "Fix the jar manifest, part 2" })
+    await expect(fix.getByTestId("range-review-commit-branch")).toHaveText("side-fix")
+    await fix.click()
+    await window.getByTestId("range-review-commit-header").getByRole("button", { name: "Review side-fix" }).click()
+    const atCommit = await openedReview(page, 3)
+    expect(atCommit.data).toMatchObject({ chain: ["air", "bazel", "side-fix"], focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) } })
+    expect(atCommit.data.wholeStack).toBeUndefined()
+    expect(atCommit.title).toMatch(/^Review side-fix · [0-9a-f]{8}$/)
+
+    // down: a segment of the way back reviews its branch
+    await segments.first().click()
+    const back = await openedReview(page, 4)
+    expect(back.data).toMatchObject({ chain: ["air"] })
+    expect(back.data.wholeStack).toBeUndefined()
+  })
+
+  test("should go down from the review of the whole stack the island opens, along its main line", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stack_island")
+    await syncAndWaitForBranches()
+    await page.getByTestId("stack-island").getByRole("button", { name: "More actions for the air stack" }).click()
+    await page.getByRole("menuitem", { name: "Review Whole Stack" }).click()
+    const opened = await openedReview(page, 1)
+    expect(opened.data.from?.map(branch => branch.name)).toEqual(["air", "bazel", "bridge", "runtime", "deploy"])
+    const window = await openLinkedSubWindow(page, opened)
+    await window.getByTestId("branch-review-segment").filter({ hasText: "runtime" }).click()
+    expect((await openedReview(page, 2)).data).toMatchObject({ chain: ["air", "bazel", "bridge", "runtime"] })
+  })
+
+  test("should offer the whole stack of a straight chain on a branch with branches built on it, as the last one from the root", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the `stack_push_alone` template: perf-part-2 stacked on IJPL-257337, a straight chain
+    await setupRepo("stack_push_alone")
+    await syncAndWaitForBranches()
+    const window = await openLinkedSubWindow(page, await openReviewWindow(page, "IJPL-257337"))
+    const whole = window.getByTestId("branch-review-whole-stack")
+    await whole.hover()
+    await expect(window.getByRole("tooltip")).toHaveText("IJPL-257337 to perf-part-2 on origin/master: 2 branches · 3 commits, what the Safe Push of perf-part-2 lands")
+    await whole.click()
+    expect((await openedReview(page, 2)).data).toMatchObject({ chain: ["IJPL-257337", "perf-part-2"], focus: { range: "all" } })
+
+    // the last branch: From Root is the whole stack already
+    await reopenLinkedSubWindow(window, await openReviewWindow(page, "perf-part-2"))
+    await expect(window.getByRole("button", { name: "From Root" })).toBeVisible()
+    await expect(whole).toHaveCount(0)
+  })
+})
+
 test.describe("Branch review window", () => {
   test("should review a stacked branch on its parent, then the whole stack, by owner", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_ownership")
@@ -343,23 +427,19 @@ test.describe("Branch review window", () => {
     const requests = await getEmittedEvents<BranchReviewRequest>(page, "branch-review/request")
 
     // the main window shows another repository: what it runs waits for it, the pull request opens from here
-    await emitTauriEvent(page, "branch-review/state", {
-      repositoryPath: "/elsewhere",
-      selected: true,
+    const emptyState = (repository: string, selected: boolean): BranchReviewWindowState => ({
+      repositoryPath: repository,
+      selected,
       tips: {},
       items: {},
       menus: {},
       createPullRequest: null,
-    } satisfies BranchReviewWindowState)
+      wholeStack: null,
+      stackCommits: {},
+    })
+    await emitTauriEvent(page, "branch-review/state", emptyState("/elsewhere", true))
     await expect(actions.getByRole("button", { name: "Safe Push · 2" })).toBeEnabled()
-    await emitTauriEvent(page, "branch-review/state", {
-      repositoryPath,
-      selected: false,
-      tips: {},
-      items: {},
-      menus: {},
-      createPullRequest: null,
-    } satisfies BranchReviewWindowState)
+    await emitTauriEvent(page, "branch-review/state", emptyState(repositoryPath, false))
     // they stay: a click switches the main window to this repository first, as the hover says
     await expect(actions.getByRole("button", { name: "Safe Push · 2" })).toBeEnabled()
     // the tooltip of the button the mouse was on closes first

@@ -9,7 +9,15 @@ import { formatShortHash } from "@/lib/hash"
  */
 export type RangeReviewItem =
   | { readonly kind: "scope"; readonly key: string; readonly label: string; readonly detail?: string }
-  | { readonly kind: "commit"; readonly key: string; readonly commit: ReviewCommit; readonly group?: string; readonly divider?: string }
+  | {
+      readonly kind: "commit"
+      readonly key: string
+      readonly commit: ReviewCommit
+      readonly group?: string
+      readonly divider?: string
+      /** The branch a commit of the whole stack came from: its commits are in the order of the history, not by branch */
+      readonly branch?: string
+    }
 
 /** The key of "All Changes": the whole range */
 export const ALL_CHANGES = "all"

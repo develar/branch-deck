@@ -2,6 +2,7 @@ import { useEffect } from "react"
 import { GitPullRequestCreateIcon, GitPullRequestIcon, InfoIcon, ShieldAlertIcon, ShieldCheckIcon, UploadIcon } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { Alert, AlertTitle } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { FilesCount } from "@/components/commit/CommitReview"
 import { BranchReviewStackBar } from "@/components/review/BranchReviewStackBar"
@@ -12,10 +13,11 @@ import { ChoiceChip } from "@/components/shared/ChoiceChip"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { BranchReviewAction, BranchReviewModel } from "@/hooks/useBranchReview"
-import { branchGoneReason } from "@/lib/branch-review"
+import { branchGoneReason, reviewCommitKey } from "@/lib/branch-review"
 import { filterEmptyText, filterPaths, reviewFilterChips, sameFilter, soleOwner } from "@/lib/review-owners"
 import type { ReviewFilter, ReviewFilterChip } from "@/lib/review-owners"
 import { markSubWindowContentReady } from "@/lib/sub-window"
+import type { ReviewedBranch, WholeStackScope } from "@/types/sub-window"
 
 /*
  * The parts of the review of a branch (`useBranchReview`), in the dialog of the branch preview and in its window: the
@@ -23,8 +25,21 @@ import { markSubWindowContentReady } from "@/lib/sub-window"
  * owner chips beside the diffs, the actions on the branch of the part.
  */
 
-/** The stack bar: the part of the stack the review shows */
-export function BranchReviewBar({ model }: { model: BranchReviewModel }) {
+/** How the review moves to another scope of the stack: up to the whole stack, down to a branch of it */
+export interface BranchReviewMoves {
+  /** "Whole Stack" of the stack bar of a chain; null where it holds nothing more */
+  readonly wholeStack: WholeStackScope | null
+  readonly onWholeStack: () => void
+  /** The review of the whole stack: the chain it came from */
+  readonly from: readonly ReviewedBranch[]
+  /** The branch of each commit of the whole stack, by `reviewCommitKey` */
+  readonly stackCommits: Readonly<Record<string, string>>
+  /** The review of a branch of the stack, at a commit of the whole stack (`commitKey`) */
+  readonly onBranch: (name: string, commitKey?: string) => void
+}
+
+/** The stack bar: the part of the stack the review shows, the scopes of the stack */
+export function BranchReviewBar({ model, moves }: { model: BranchReviewModel; moves: BranchReviewMoves }) {
   const { loaded } = model
   if (loaded === null) {
     return null
@@ -36,6 +51,10 @@ export function BranchReviewBar({ model }: { model: BranchReviewModel }) {
       range={loaded.range}
       onRangeChange={model.setRange}
       wholeStack={model.source.wholeStack === true}
+      wholeStackScope={moves.wholeStack}
+      onWholeStack={moves.onWholeStack}
+      from={moves.from}
+      onBranch={name => moves.onBranch(name)}
     />
   )
 }
@@ -77,7 +96,7 @@ function BranchReviewFilesHeader({ model, count }: { model: BranchReviewModel; c
 }
 
 /** The commits of the part beside the diffs; the error, or the loading line, before they are read */
-export function BranchReviewBody({ model }: { model: BranchReviewModel }) {
+export function BranchReviewBody({ model, moves }: { model: BranchReviewModel; moves: BranchReviewMoves }) {
   const { state, loaded, filter, source } = model
   // the error is the content of the window (the window of a review shows by its content, `readyByContent`)
   const failed = state.status === "error"
@@ -98,9 +117,12 @@ export function BranchReviewBody({ model }: { model: BranchReviewModel }) {
   if (loaded === null) {
     return <LoadingLine className="p-6">Loading changes…</LoadingLine>
   }
+  // the commits of the whole stack come in the order of the history: each says its branch, and opens its review
+  const items =
+    source.wholeStack === true ? loaded.items.map(item => (item.kind === "commit" ? { ...item, branch: moves.stackCommits[reviewCommitKey(item.commit)] } : item)) : loaded.items
   return (
     <RangeReview
-      items={loaded.items}
+      items={items}
       selected={loaded.selected}
       onSelect={model.select}
       subject={loaded.subject}
@@ -111,6 +133,16 @@ export function BranchReviewBody({ model }: { model: BranchReviewModel }) {
       fileOwners={loaded.owners}
       rangeNoun="branch"
       filesHeader={count => <BranchReviewFilesHeader model={model} count={count} />}
+      commitAction={item => {
+        const branch = item.branch
+        return (
+          branch !== undefined && (
+            <Button size="xs" variant="ghost" data-testid="branch-review-commit-branch" onClick={() => moves.onBranch(branch, reviewCommitKey(item.commit))}>
+              {`Review ${branch}`}
+            </Button>
+          )
+        )
+      }}
     />
   )
 }

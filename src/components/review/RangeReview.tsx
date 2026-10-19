@@ -34,6 +34,8 @@ export interface RangeReviewProps {
   rangeNoun: string
   /** The header of the files: the owner chips of a branch review */
   filesHeader?: CommitReviewProps["filesHeader"]
+  /** At the end of the heading of the shown commit: "Review bazel" of a commit of the whole stack */
+  commitAction?: (item: Extract<RangeReviewItem, { kind: "commit" }>) => ReactNode
 }
 
 /**
@@ -54,6 +56,7 @@ export function RangeReview({
   fileOwners,
   rangeNoun,
   filesHeader,
+  commitAction,
 }: RangeReviewProps) {
   const single = isSingleCommit(items)
   const shown = single ? items.find(item => item.kind === "commit") : items.find(item => item.key === selected)
@@ -82,7 +85,7 @@ export function RangeReview({
         neighbours={neighbours}
         sidebarTop={single ? undefined : <CommitColumn items={items} selected={selected} onSelect={onSelect} />}
         filesHeader={filesHeader}
-        codeTop={shown?.kind === "commit" ? <ReviewCommitHeader key={shown.key} commit={shown.commit} /> : undefined}
+        codeTop={shown?.kind === "commit" ? <ReviewCommitHeader key={shown.key} commit={shown.commit} action={commitAction?.(shown)} /> : undefined}
       />
     </div>
   )
@@ -171,6 +174,11 @@ function ColumnItem({ item, selected, onSelect }: { item: RangeReviewItem; selec
       {option(
         <>
           <span className="flex-1 truncate">{item.commit.subject}</span>
+          {item.branch !== undefined && (
+            <span className="max-w-24 shrink-0 truncate text-xs text-muted-foreground" data-testid="range-review-commit-branch">
+              {item.branch}
+            </span>
+          )}
           <span className="font-mono text-xs text-muted-foreground">{formatShortHash(item.commit.id)}</span>
         </>,
         item.commit.subject,
@@ -184,24 +192,27 @@ function optionId(key: string): string {
 }
 
 /** The shown commit above its diffs, as the branch preview heads a commit (`CommitHeading`); the message three lines until Show More */
-function ReviewCommitHeader({ commit }: { commit: ReviewCommit }) {
+function ReviewCommitHeader({ commit, action }: { commit: ReviewCommit; action: ReactNode }) {
   const [expanded, setExpanded] = useState(false)
   const fileStats = useCommitFileStats(commit.id)
   const hasBody = hasCommitMessageBody(commit.subject, commit.message)
   return (
-    <div className="shrink-0 border-b border-border px-4 py-3" data-testid="range-review-commit-header">
-      <CommitHeading subject={commit.subject} hash={commit.id} author={commit.author} authorTime={commit.authorTime} committerTime={commit.committerTime} fileStats={fileStats}>
-        {hasBody && (
-          <div className="flex flex-col items-start gap-1">
-            <div className={cn("max-h-[50vh] overflow-y-auto", !expanded && "line-clamp-3 overflow-hidden")}>
-              <CommitMessageBody message={commit.message} size="reading" />
+    <div className="flex shrink-0 items-start gap-2 border-b border-border px-4 py-3" data-testid="range-review-commit-header">
+      <div className="min-w-0 flex-1">
+        <CommitHeading subject={commit.subject} hash={commit.id} author={commit.author} authorTime={commit.authorTime} committerTime={commit.committerTime} fileStats={fileStats}>
+          {hasBody && (
+            <div className="flex flex-col items-start gap-1">
+              <div className={cn("max-h-[50vh] overflow-y-auto", !expanded && "line-clamp-3 overflow-hidden")}>
+                <CommitMessageBody message={commit.message} size="reading" />
+              </div>
+              <Button variant="link" size="xs" className="h-auto px-0" onClick={() => setExpanded(!expanded)}>
+                {expanded ? "Show Less" : "Show More"}
+              </Button>
             </div>
-            <Button variant="link" size="xs" className="h-auto px-0" onClick={() => setExpanded(!expanded)}>
-              {expanded ? "Show Less" : "Show More"}
-            </Button>
-          </div>
-        )}
-      </CommitHeading>
+          )}
+        </CommitHeading>
+      </div>
+      {action}
     </div>
   )
 }

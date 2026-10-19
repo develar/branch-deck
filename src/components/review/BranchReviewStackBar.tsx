@@ -9,6 +9,7 @@ import { formatBranchesAndCommits } from "@/lib/branch"
 import { selectSegment, stackBarItems } from "@/lib/branch-review"
 import type { SegmentRange } from "@/lib/branch-review"
 import { formatWholeStackStart } from "@/lib/whole-stack"
+import type { ReviewedBranch, WholeStackScope } from "@/types/sub-window"
 
 export interface BranchReviewStackBarProps {
   baselineBranch: string
@@ -18,6 +19,12 @@ export interface BranchReviewStackBarProps {
   onRangeChange: (range: SegmentRange) => void
   /** The review of the whole stack: its one part is the stack branch of the root, named "Whole air stack" */
   wholeStack?: boolean
+  /** "Whole Stack" after "From Root", the whole stack of the root (`WholeStackScope`); null where it holds nothing more */
+  wholeStackScope?: WholeStackScope | null
+  onWholeStack?: () => void
+  /** The review of the whole stack: the chain it came from, each segment back to the review of its branch */
+  from?: readonly ReviewedBranch[]
+  onBranch?: (name: string) => void
 }
 
 /**
@@ -26,11 +33,24 @@ export interface BranchReviewStackBarProps {
  * baseline to the branch (root..branch, what its Safe Push lands and Patronus checks). A long stack folds its middle
  * into "… 14 more", which unfolds it. The whole stack (`wholeStack`) is one part, its stack branch.
  */
-export function BranchReviewStackBar({ baselineBranch, segments, range, onRangeChange, wholeStack = false }: BranchReviewStackBarProps) {
+export function BranchReviewStackBar({
+  baselineBranch,
+  segments,
+  range,
+  onRangeChange,
+  wholeStack = false,
+  wholeStackScope = null,
+  onWholeStack,
+  from = [],
+  onBranch,
+}: BranchReviewStackBarProps) {
   const isWhole = range.from === 0 && range.to === segments.length - 1
   const select = (index: number) => (event: MouseEvent) => onRangeChange(selectSegment(range, index, event.shiftKey))
   const commitCount = segments.reduce((sum, segment) => sum + segment.commits.length, 0)
   const [unfolded, setUnfolded] = useState(false)
+  if (wholeStack && from.length > 0) {
+    return <WholeStackBar baselineBranch={baselineBranch} from={from} onBranch={onBranch} />
+  }
   return (
     // one line, a title bar's: the other branches give way before the shown ones and the last, which give way too
     // rather than run under the actions
@@ -91,24 +111,93 @@ export function BranchReviewStackBar({ baselineBranch, segments, range, onRangeC
           </Fragment>
         )
       })}
-      {segments.length > 1 && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                size="xs"
-                variant="ghost"
-                aria-pressed={isWhole}
-                className={cn("ml-1 shrink-0", isWhole && "text-primary hover:text-primary")}
-                onClick={() => onRangeChange({ from: 0, to: segments.length - 1 })}
-              />
-            }
-          >
-            From Root
-          </TooltipTrigger>
-          <TooltipContent>{`${segments[0]!.name} to ${segments.at(-1)!.name} on ${baselineBranch}: ${formatBranchesAndCommits(segments.length, commitCount)}, what the Safe Push of ${segments.at(-1)!.name} lands · Shift+click a branch to extend`}</TooltipContent>
-        </Tooltip>
+      {(segments.length > 1 || wholeStackScope !== null) && (
+        // the scopes of the stack: the branch with what it is built on, every branch of the stack
+        <div role="group" aria-label="Scope" className="ml-1 flex shrink-0 items-center">
+          {segments.length > 1 && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    aria-pressed={isWhole}
+                    className={cn("shrink-0", isWhole && "text-primary hover:text-primary")}
+                    onClick={() => onRangeChange({ from: 0, to: segments.length - 1 })}
+                  />
+                }
+              >
+                From Root
+              </TooltipTrigger>
+              <TooltipContent>{`${segments[0]!.name} to ${segments.at(-1)!.name} on ${baselineBranch}: ${formatBranchesAndCommits(segments.length, commitCount)}, what the Safe Push of ${segments.at(-1)!.name} lands · Shift+click a branch to extend`}</TooltipContent>
+            </Tooltip>
+          )}
+          {wholeStackScope !== null && <WholeStackScopeButton scope={wholeStackScope} pressed={false} onClick={onWholeStack} />}
+        </div>
       )}
     </div>
+  )
+}
+
+/**
+ * The stack bar of the review of the whole stack: the chain it came from (the main line from the island), each
+ * segment back to the review of its branch, then "Whole Stack", pressed
+ */
+function WholeStackBar({ baselineBranch, from, onBranch }: { baselineBranch: string; from: readonly ReviewedBranch[]; onBranch: ((name: string) => void) | undefined }) {
+  return (
+    <div className="flex min-w-0 items-center gap-1.5" data-testid="branch-review-stack">
+      <span className="min-w-8 shrink-[2] truncate text-muted-foreground">{baselineBranch}</span>
+      {from.map(branch => (
+        <Fragment key={branch.name}>
+          <ChevronRightIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+          <Button
+            size="xs"
+            variant="outline"
+            aria-pressed={false}
+            data-testid="branch-review-segment"
+            data-name={branch.name}
+            title={`Review ${branch.name}`}
+            className="max-w-64 min-w-12 shrink"
+            onClick={() => onBranch?.(branch.name)}
+          >
+            <span className="truncate">{branch.name}</span>
+            <span className="text-muted-foreground tabular-nums">{branch.commits}</span>
+          </Button>
+        </Fragment>
+      ))}
+      <div role="group" aria-label="Scope" className="ml-1 flex shrink-0 items-center">
+        <WholeStackScopeButton scope={null} pressed />
+      </div>
+    </div>
+  )
+}
+
+/** "Whole Stack": the scope of every branch of the stack, what its Safe Push lands; pressed while it is shown */
+function WholeStackScopeButton({ scope, pressed, onClick }: { scope: WholeStackScope | null; pressed: boolean; onClick?: () => void }) {
+  const disabled = scope?.disabled === true
+  const props = {
+    size: "xs",
+    variant: "ghost",
+    "aria-pressed": pressed,
+    disabled,
+    "data-testid": "branch-review-whole-stack",
+    className: cn("shrink-0", pressed && "text-primary hover:text-primary"),
+    onClick: pressed ? undefined : onClick,
+  } as const
+  if (scope === null) {
+    return <Button {...props}>Whole Stack</Button>
+  }
+  return (
+    <Tooltip>
+      {/* a disabled button gets no pointer events: its hover is a span's */}
+      {disabled ? (
+        <TooltipTrigger render={<span />}>
+          <Button {...props}>Whole Stack</Button>
+        </TooltipTrigger>
+      ) : (
+        <TooltipTrigger render={<Button {...props} />}>Whole Stack</TooltipTrigger>
+      )}
+      <TooltipContent>{scope.description}</TooltipContent>
+    </Tooltip>
   )
 }

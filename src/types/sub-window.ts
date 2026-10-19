@@ -70,6 +70,23 @@ export interface BranchReviewMenuItem {
   readonly description?: string
 }
 
+/**
+ * The whole stack of the chain's root, the scope after "From Root" in the stack bar ("Whole Stack"): offered while the
+ * stack has branches outside the chain; disabled with the reason while its review can't open
+ */
+export interface WholeStackScope {
+  readonly root: string
+  readonly disabled?: boolean
+  /** What it holds and lands, or why it can't open */
+  readonly description: string
+}
+
+/** A branch of the chain a review of the whole stack came from, a segment of its stack bar that goes back to it */
+export interface ReviewedBranch {
+  readonly name: string
+  readonly commits: number
+}
+
 /** What the main window tells the review window of a branch (over its link) */
 export interface BranchReviewWindowState {
   readonly repositoryPath: string
@@ -83,6 +100,13 @@ export interface BranchReviewWindowState {
   readonly menus: Readonly<Record<string, readonly (readonly BranchReviewMenuItem[])[]>>
   /** What the "Create pull request" dialog of the window shows, while it is open; null otherwise */
   readonly createPullRequest: CreatePullRequestContext | null
+  /** The whole stack of the chain's root as a scope of the stack bar; null where it would show nothing more */
+  readonly wholeStack: WholeStackScope | null
+  /**
+   * The review of the whole stack: the branch of each of its commits, by `reviewCommitKey` (its copies have no
+   * mapping notes); empty otherwise
+   */
+  readonly stackCommits: Readonly<Record<string, string>>
 }
 
 /**
@@ -96,6 +120,12 @@ export type BranchReviewRequest = { readonly id: string; readonly repositoryPath
   | { readonly dialog: "open" | "close" | "safePushWithoutReview" }
   | { readonly dialog: "create"; readonly input: CreatePullRequestInput }
   | { readonly dialog: "continueOnGitHub"; readonly fields: CompareFields }
+  /** The window moves to the whole stack of the chain's root, keeping the chain as the way back */
+  | { readonly scope: "wholeStack" }
+  /** The window moves to the review of `branchName`, a branch of the stack it shows */
+  | { readonly review: "branch" }
+  /** The window moves to the review of `branchName` at its commit of `commitKey` (`reviewCommitKey`), a commit of the whole stack */
+  | { readonly review: "commit"; readonly commitKey: string }
 )
 
 /**
@@ -117,6 +147,8 @@ export interface BranchReviewWindowData {
   groups: BranchReviewGroup[]
   /** The whole stack of the root `chain` names alone: its stack branch (`openWholeStackReviewWindow`) */
   wholeStack?: boolean
+  /** The review of the whole stack: the chain it came from (the main line from the island), its way back */
+  from?: ReviewedBranch[]
   /** Where the review starts: the part of the stack, the files, the commit, the file ("Review Changes" of the Safe Push popover) */
   focus: Omit<BranchReviewFocus, "groups">
   /** A new value on every open: a move to a commit of the chain on screen shows it (`move`) */
