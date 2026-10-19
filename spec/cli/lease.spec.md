@@ -148,10 +148,19 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   with the build layout they clean (not git config, and not `.worktreeinclude`, which Treehouse and Claude Code read
   too). There are two kinds and no command, since a return must not run arbitrary code:
   `{ cargo = "<dir>", keep = 8, age = "1h" }` (the defaults) prunes the profile dirs under `<dir>` (a dir with
-  `.cargo-lock`, at most 4 levels down): a unit of `build/<package>/<hash>` or `incremental/<crate>-<hash>` stays when
-  it is among the `keep` newest of its group or younger than `age` (`s`, `m`, `h`, `d`); the newest mtime of the unit
-  dir and of the children of its `fingerprint` dir counts. `{ delete = "<path>" }` removes a path.
-  [@test] ../../crates/sync-core/src/lease_clean_test.rs (`the_rules_are_cargo_and_delete_with_their_defaults`, `the_cargo_rule_keeps_the_newest_and_the_young_units`)
+  `.cargo-lock`, at most 4 levels down, also of a cross target such as `aarch64-unknown-linux-musl/debug`): a unit
+  stays when it is among the `keep` newest of its group or younger than `age` (`s`, `m`, `h`, `d`), and the files of a
+  unit go together. Each profile dir is pruned in the layout it has:
+  - the build-dir layout: a unit is `build/<package>/<hash>/`, built at the newest mtime of the dir and of the children
+    of its `fingerprint` dir;
+  - the classic layout: a unit is `<name>-<16 hex digits>`, its group `<name>` (`-` and `_` the same, without the
+    `lib` of a library file), and its files are all of that name and hash in `deps/` (`lib<name>-<hash>.rlib` and
+    `.rmeta`, `<name>-<hash>.d`, the object files, the test or bin executable and its `.dSYM`, `.pdb` or `.exe`),
+    `.fingerprint/` and `build/` (a build script and its run, `out/`), built at the newest mtime of its files;
+  - in both, `incremental/<crate>-<hash>/` is a unit of its own, grouped by crate.
+  The uplifted artifacts at the top of the profile dir (`debug/libavl_vm.rlib`, `debug/<bin>`) and `.cargo-lock` are
+  never touched. `{ delete = "<path>" }` removes a path.
+  [@test] ../../crates/sync-core/src/lease_clean_test.rs (`the_rules_are_cargo_and_delete_with_their_defaults`, `the_cargo_rule_keeps_the_newest_and_the_young_units`, `the_cargo_rule_prunes_the_classic_layout_by_units_of_name_and_hash`, `a_classic_unit_is_its_name_and_its_hash`)
 - An unknown key, an unknown kind, a wrong type or a file that does not parse must be an error of the file.
   [@test] ../../crates/sync-core/src/lease_clean_test.rs (`unknown_keys_and_kinds_are_errors`)
 - A rule must be skipped and reported (`error`), never applied, when its path is absolute, leaves the checkout with

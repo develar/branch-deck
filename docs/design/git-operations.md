@@ -1179,7 +1179,9 @@ The clean rules (`crates/sync-core/src/lease_clean.rs`). Cargo never deletes a u
 free slots of Branch Deck held 679 GB of stale units, which a prune script nobody ran left alone. The return now cleans
 its slot by the `[lease] clean` rules of the committed `.branchdeck.toml`, read once from the source the lease
 recorded (the slot's own when the source is gone), after every check passed and before the slot is freed. A rule is
-`cargo` (the stale units of the profile dirs of a target dir, the logic of the retired `prune-rust-target.mjs`) or
+`cargo` (the stale units of the profile dirs of a target dir: the build-dir layout of Branch Deck, `build/<pkg>/<hash>`,
+and the classic one of idea-1, a unit `<name>-<16 hex>` across `deps/`, `.fingerprint/` and `build/`, whose files go
+together; a dry run on the idea-1 checkout found 27.9 of the 33 GB of `community/tools/vm/target` stale) or
 `delete` (a path); no command, as a return must not run arbitrary code. A path is normalized and relative, stays in the
 slot, names no `.git`, crosses no symlink, and git tracks nothing under it (one `ls-files -z` of all paths): a rule that
 breaks one is reported and skipped. A rule error never fails the return. `bd lease clean` applies the rules on

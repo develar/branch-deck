@@ -293,8 +293,10 @@ fn run_rule(rule: &CleanRule, target: &Path, apply: bool) -> Result<u64> {
       let cutoff = SystemTime::now().checked_sub(*age).unwrap_or(SystemTime::UNIX_EPOCH);
       let mut freed = 0;
       for profile in profile_dirs(target, PROFILE_DEPTH) {
-        freed += prune_units(&profile.join("build"), true, *keep, cutoff, apply)?;
-        freed += prune_units(&profile.join("incremental"), false, *keep, cutoff, apply)?;
+        let mut groups = classic_units(&profile);
+        add_build_dir_units(&mut groups, &profile.join("build"));
+        add_incremental_units(&mut groups, &profile.join("incremental"));
+        freed += remove_stale(groups, *keep, cutoff, apply)?;
       }
       Ok(freed)
     }
@@ -323,30 +325,100 @@ fn subdirs(dir: &Path) -> Vec<PathBuf> {
   })
 }
 
-/// Remove the stale units of `dir`: `build/<package>/<hash>` (`nested`) or `incremental/<crate>-<hash>`, grouped by
-/// package or crate (a crate name may hold `-`). A unit stays when it is among the `keep` last built of its group or
-/// was built after `cutoff`: a slot builds a dozen variants an hour, so age alone keeps all
-fn prune_units(dir: &Path, nested: bool, keep: usize, cutoff: SystemTime, apply: bool) -> Result<u64> {
-  let mut groups: HashMap<String, Vec<(SystemTime, PathBuf)>> = HashMap::new();
-  for entry in subdirs(dir) {
-    let name = entry.file_name().map_or_default(|name| name.to_string_lossy().into_owned());
-    if nested {
-      for unit in subdirs(&entry) {
-        groups.entry(name.clone()).or_default().push((last_built(&unit), unit));
+/// The files of one unit, removed together, and when the unit was last built (the newest of `last_built` of its files)
+#[derive(Debug, Default)]
+struct Unit {
+  built: Option<SystemTime>,
+  paths: Vec<PathBuf>,
+}
+
+impl Unit {
+  fn add(&mut self, path: PathBuf) {
+    let built = last_built(&path);
+    self.built = Some(self.built.map_or(built, |known| known.max(built)));
+    self.paths.push(path);
+  }
+}
+
+/// The units of each group (a package or a crate, `-` and `_` the same), by an id unique in the profile dir
+type Groups = HashMap<String, HashMap<String, Unit>>;
+
+/// The units of the classic layout of a profile dir: `<name>-<16 hex>` in `deps/` (`lib<name>-<hash>.rlib`,
+/// `.rmeta`, `<name>-<hash>.d`, the executable, its `.dSYM`, `.pdb` or `.exe`, the object files), `.fingerprint/` and
+/// `build/` (a build script and its run, `out/`). One name and hash is one unit, whose files go together. The uplifted
+/// artifacts at the top of the profile dir and `.cargo-lock` are never part of one
+fn classic_units(profile: &Path) -> Groups {
+  let mut groups = Groups::new();
+  for dir in ["deps", ".fingerprint", "build"] {
+    let Ok(entries) = std::fs::read_dir(profile.join(dir)) else { continue };
+    for entry in entries.flatten() {
+      // a symlink is never part of a unit: its target may be out of the slot
+      if entry.file_type().is_ok_and(|file_type| file_type.is_symlink()) {
+        continue;
       }
-    } else {
-      let crate_name = name.rfind('-').map_or(name.as_str(), |dash| &name[..dash]).to_string();
-      groups.entry(crate_name).or_default().push((last_built(&entry), entry));
+      let name = entry.file_name().to_string_lossy().into_owned();
+      if let Some((group, hash)) = classic_unit_name(&name) {
+        groups.entry(group).or_default().entry(hash).or_default().add(entry.path());
+      }
     }
   }
+  groups
+}
+
+/// The group and the hash of a file or a dir of the classic layout: the name before `-<16 hex digits>`, which the end
+/// or a `.` follows, without the `lib` of a library file, `-` as `_`
+pub fn classic_unit_name(file_name: &str) -> Option<(String, String)> {
+  let bytes = file_name.as_bytes();
+  let dash = file_name.match_indices('-').map(|(index, _)| index).find(|&index| {
+    let hash = &bytes[index + 1..];
+    hash.len() >= 16 && hash[..16].iter().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte)) && hash.get(16).is_none_or(|&next| next == b'.')
+  })?;
+  let rest = &file_name[dash + 17..];
+  let mut name = &file_name[..dash];
+  if [".rlib", ".rmeta", ".so", ".dylib", ".a"].contains(&rest) {
+    name = name.strip_prefix("lib").unwrap_or(name);
+  }
+  (!name.is_empty()).then(|| (name.replace('-', "_"), file_name[dash + 1..dash + 17].to_string()))
+}
+
+/// The units of the build-dir layout: `build/<package>/<hash>/`; a classic `build/<pkg>-<hash>/` belongs to
+/// `classic_units`
+fn add_build_dir_units(groups: &mut Groups, build: &Path) {
+  for package in subdirs(build) {
+    let name = package.file_name().map_or_default(|name| name.to_string_lossy().into_owned());
+    if classic_unit_name(&name).is_some() {
+      continue;
+    }
+    for unit in subdirs(&package) {
+      let id = format!("build/{name}/{}", unit.file_name().map_or_default(|hash| hash.to_string_lossy().into_owned()));
+      groups.entry(name.replace('-', "_")).or_default().entry(id).or_default().add(unit);
+    }
+  }
+}
+
+/// The units of `incremental/<crate>-<hash>/`, grouped by crate (a crate name may hold `-`); their hash is not the one
+/// of the other files, so each is a unit of its own
+fn add_incremental_units(groups: &mut Groups, incremental: &Path) {
+  for unit in subdirs(incremental) {
+    let name = unit.file_name().map_or_default(|name| name.to_string_lossy().into_owned());
+    let crate_name = name.rfind('-').map_or(name.as_str(), |dash| &name[..dash]).replace('-', "_");
+    groups.entry(format!("incremental {crate_name}")).or_default().entry(name).or_default().add(unit);
+  }
+}
+
+/// Remove the stale units of `groups`: a unit stays when it is among the `keep` last built of its group or was built
+/// after `cutoff`, since a slot builds a dozen variants an hour and age alone keeps all. The files of a unit go together
+fn remove_stale(groups: Groups, keep: usize, cutoff: SystemTime, apply: bool) -> Result<u64> {
   let mut freed = 0;
-  for units in groups.values_mut() {
-    units.sort_by_key(|(built, _)| std::cmp::Reverse(*built));
-    for (built, unit) in units.iter().skip(keep) {
-      if *built < cutoff {
-        freed += disk_size(unit);
+  for units in groups.into_values() {
+    let mut units: Vec<Unit> = units.into_values().collect();
+    units.sort_by_key(|unit| std::cmp::Reverse(unit.built));
+    for unit in units.iter().skip(keep).filter(|unit| unit.built.is_some_and(|built| built < cutoff)) {
+      for path in &unit.paths {
+        freed += disk_size(path);
         if apply {
-          std::fs::remove_dir_all(unit).map_err(|error| anyhow!("cannot remove {}: {error}", unit.display()))?;
+          let is_dir = path.symlink_metadata().is_ok_and(|metadata| metadata.is_dir());
+          if is_dir { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) }.map_err(|error| anyhow!("cannot remove {}: {error}", path.display()))?;
         }
       }
     }
@@ -354,9 +426,9 @@ fn prune_units(dir: &Path, nested: bool, keep: usize, cutoff: SystemTime, apply:
   Ok(freed)
 }
 
-/// When a unit was last built: a rebuild rewrites its fingerprint files (`build/`) or adds a session
-/// (`incremental/`), not always the directory itself, so the newest mtime of the directory and of the direct children
-/// of its `fingerprint` dir (else of itself) counts
+/// When a file or a dir of a unit was last built: a rebuild rewrites its fingerprint files (`build/`) or adds a
+/// session (`incremental/`), not always the directory itself, so the newest mtime of the directory and of the direct
+/// children of its `fingerprint` dir (else of itself) counts; of a file its own mtime
 fn last_built(unit: &Path) -> SystemTime {
   let modified = |path: &Path| path.symlink_metadata().and_then(|metadata| metadata.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
   let fingerprint = unit.join("fingerprint");
