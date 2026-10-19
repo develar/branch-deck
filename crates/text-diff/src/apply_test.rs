@@ -1,7 +1,10 @@
 //! The blocks applied to bytes: known edits, the line ends at the end of a text, the ids, and property tests that all
-//! blocks give the new text, none the old one, and a part of them the old text with those lines replaced.
+//! blocks give the new text, none the old one, and a part of them the old text with those lines replaced. The result
+//! of a merge on bytes: the resolves by words, the line ends, and property tests that a change of one side gives that
+//! side.
 
-use crate::apply::{BlockId, LineBlock, apply_blocks, split_lines};
+use crate::apply::{BlockId, ComposedMerge, LineBlock, apply_blocks, compose_merge, split_lines};
+use crate::merge_model::merge_texts;
 use crate::model::{DiffBudget, diff_texts};
 use crate::policy::WhitespacePolicy;
 use crate::test_support::{proptest_config, text_of_lines};
@@ -120,5 +123,93 @@ proptest! {
     // the content of the lines is exact; only an empty last line may differ, by the final line end
     let trim = |lines: &[String]| -> Vec<String> { let mut lines = lines.to_vec(); if lines.last().is_some_and(String::is_empty) { lines.pop(); } lines };
     assert_eq!(trim(&result_lines), trim(&expected));
+  }
+}
+
+/// The result of the merge of three texts, and whether it is exact
+fn composed(left: &str, base: &str, right: &str) -> (String, bool) {
+  let merge = merge_texts(left, base, right, WhitespacePolicy::Default, &DiffBudget::NONE);
+  let ComposedMerge { bytes, exact } = compose_merge(left.as_bytes(), base.as_bytes(), right.as_bytes(), &merge);
+  (String::from_utf8(bytes).unwrap(), exact)
+}
+
+#[test]
+fn a_conflict_that_its_words_resolve_takes_both_changes() {
+  assert_eq!(
+    composed("fun f(A, b, c)\nx\n", "fun f(a, b, c)\nx\n", "fun f(a, b, C)\nx\n"),
+    ("fun f(A, b, C)\nx\n".to_string(), true)
+  );
+  // without a final newline, the resolved line stays the last one without an end
+  assert_eq!(composed("A b c", "a b c", "a b C"), ("A b C".to_string(), true));
+}
+
+#[test]
+fn the_changes_of_both_sides_apply_to_the_base() {
+  let base = "a\nb\nc\nd\ne\n";
+  assert_eq!(composed("A\nb\nc\nd\ne\n", base, "a\nb\nc\nd\nE\n"), ("A\nb\nc\nd\nE\n".to_string(), true));
+  // one side adds the final newline, the other changes a line
+  assert_eq!(composed("a\nb", "a\nb", "A\nb"), ("A\nb".to_string(), true));
+  assert_eq!(composed("a\nb\n", "a\nb", "A\nb"), ("A\nb\n".to_string(), true));
+}
+
+#[test]
+fn a_conflict_that_does_not_resolve_keeps_its_base_and_is_not_exact() {
+  assert_eq!(composed("x\nA\n", "x\na\n", "x\nB\n"), ("x\na\n".to_string(), false));
+}
+
+#[test]
+fn the_lines_keep_the_ends_of_the_texts() {
+  let crlf = |text: &str| text.replace('\n', "\r\n");
+  let (left, base, right) = (crlf("fun f(A, b, c)\nx\ny\n"), crlf("fun f(a, b, c)\nx\ny\n"), crlf("fun f(a, b, C)\nx\nY\n"));
+  assert_eq!(composed(&left, &base, &right), (crlf("fun f(A, b, C)\nx\nY\n"), true));
+  let cr = |text: &str| text.replace('\n', "\r");
+  assert_eq!(composed(&cr("A b c\nx\n"), &cr("a b c\nx\n"), &cr("a b C\nx\n")), (cr("A b C\nx\n"), true));
+  // the merge takes a line that one side ends otherwise as equal: the result keeps the base's end and is not exact
+  assert_eq!(composed("A\nx\r\n", "a\nx\n", "a\nx\n"), ("A\nx\n".to_string(), false));
+  // a resolve by words over lines that end in more than one way keeps its base and is not exact either
+  let base = "a b\r\nc d\n";
+  assert_eq!(composed("A b\r\nC d\n", base, "a b\r\nc D\n"), (base.to_string(), false));
+}
+
+fn merge_text() -> impl Strategy<Value = String> {
+  text_of_lines(vec!["a", "b", "a b", "a c", "x y z", "", "}"], vec!["\n", "\n", "\r\n"], 8)
+}
+
+proptest! {
+  #![proptest_config(proptest_config(400))]
+
+  #[test]
+  fn a_change_of_one_side_gives_that_side(base in merge_text(), changed in merge_text()) {
+    for (left, right) in [(base.as_str(), changed.as_str()), (changed.as_str(), base.as_str())] {
+      let (result, exact) = composed(left, &base, right);
+      if exact {
+        assert_eq!(result, changed);
+      }
+      if !changed.contains('\r') && !base.contains('\r') {
+        assert!(exact, "{left:?} {base:?} {right:?}");
+      }
+    }
+    // the same change on both sides
+    let (result, exact) = composed(&changed, &base, &changed);
+    assert!(exact || base.contains('\r') || changed.contains('\r'));
+    if exact {
+      assert_eq!(result, changed);
+    }
+  }
+
+  #[test]
+  fn an_exact_result_has_the_lines_of_a_merge(left in merge_text(), base in merge_text(), right in merge_text()) {
+    let merge = merge_texts(&left, &base, &right, WhitespacePolicy::Default, &DiffBudget::NONE);
+    let composed = compose_merge(left.as_bytes(), base.as_bytes(), right.as_bytes(), &merge);
+    assert_eq!(composed.exact && merge.unresolved > 0, false);
+    if merge.unresolved == 0 && !left.contains('\r') && !base.contains('\r') && !right.contains('\r') {
+      assert!(composed.exact, "{left:?} {base:?} {right:?}");
+      // each side merged with the result gives the result: nothing of a side is lost
+      let result = String::from_utf8(composed.bytes).unwrap();
+      for side in [&left, &right] {
+        let again = merge_texts(side, &base, &result, WhitespacePolicy::Default, &DiffBudget::NONE);
+        assert_eq!(again.unresolved, 0, "{side:?} {base:?} {result:?}");
+      }
+    }
   }
 }

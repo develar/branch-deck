@@ -83,6 +83,7 @@ flowchart TD
 | `merge_resolve_util.rs` | `diff/comparison/MergeResolveUtil.kt` |
 | `model.rs` | Branch Deck's own: `TextDiff`, the model of the views, and `diff_texts` |
 | `inline.rs` | Branch Deck's own: the inline pairs and the dropped ranges of a block |
+| `apply.rs` | Branch Deck's own: blocks applied to bytes, the result of a merge on bytes, the ids of the blocks |
 
 ### Model
 
@@ -171,6 +172,15 @@ from it.
   empty inner lists and paints it pale without words (`DiffViewerHighlighters.createHighlighter`, `withIgnored`).
   Any other block with word ranges, also an empty list per line, is painted pale too, the changed words in the full
   colour. An insertion or a deletion without the shortcut has no word ranges and is painted in the full colour.
+- **Result.** `apply::compose_merge(left, base, right, &merge)` builds the result of a merge on the bytes of the three
+  texts, as IntelliJ's merge viewer does when it applies every change: the base, each block replaced by the lines of
+  the side that changed it or by `resolvedText`, and the base of a conflict that does not resolve. Each line keeps its
+  own end, and the lines of `resolvedText` take the one end of the lines of their block. The result is `exact` when
+  every block resolves and no line end is lost: the merge takes lines that differ only in their ends as equal, so a
+  side that ends such a line otherwise, or a resolved block whose lines end in more than one way, makes it inexact. A
+  block that reaches the end of the base decides how the line before it ends, as in `apply_blocks`. Property tests
+  check that a change of one side gives that side, and that each side merges with an exact result without a
+  conflict.
 - **Proof.** The tests of `LineComparisonMergeUtilTest`, `CharComparisonMergeUtilTest`, `WordMergeComparisonUtilTest`
   and `MergeResolveUtilTest` are ported as they are. The merge parts of `ComparisonUtilAutoTest` are property tests on
   three generated texts (the source passes the base as the right text too), and they also take the type of each block.
