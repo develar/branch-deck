@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.23.0](https://github.com/develar/branch-deck/compare/v0.22.0...v0.23.0) (2026-10-19)
+
+
+### Features
+
+* **bd:** the return of a lease cleans its slot by the rules of a committed .branchdeck.toml, and bd lease clean applies them on demand ([77d1e23](https://github.com/develar/branch-deck/commit/77d1e238d28c321112e3f89815529e051914d2df))
+* **diff:** get_blob_syntax answers the tree-sitter highlighting of a blob's lines as raw bytes, made once per blob ([513e476](https://github.com/develar/branch-deck/commit/513e476dda9cbf98e5c2a4e5237ffe51071d88b2))
+* **diff:** Kotlin, Java, Rust, TypeScript and JavaScript are coloured by tree-sitter in the backend, as IntelliJ does ([ed595fa](https://github.com/develar/branch-deck/commit/ed595fa2a7606ba0370ab42fc90b9ba2e64fb467))
+* **filter:** the state chips of the branch table are the sections of the landing overview, by the node of each row ([2912f98](https://github.com/develar/branch-deck/commit/2912f98bbf08364ab3d210aee3eaaab93870e86d))
+* **push:** the first push of a branch is a step of its landing, in the menu only, and every push is named "Push" ([d31dba5](https://github.com/develar/branch-deck/commit/d31dba5c299573eac5ae395f373d947ea23fb220))
+* **review:** a ⌘-click, ⌘B or Go to Declaration on a name in a review shows its declaration, Back returns ([ecf6699](https://github.com/develar/branch-deck/commit/ecf6699b886b8756b182800088d71791c9ebaafc))
+* **review:** a declaration outside the review opens its file at the commit of the side, found by accio ([bb59ef4](https://github.com/develar/branch-deck/commit/bb59ef43540ead3f2f5c55f3e033c7b3c57feaa5))
+* **review:** the decisions on a pull request are in the title bar of its review window, its diff view at the end of the tabs ([1cad66a](https://github.com/develar/branch-deck/commit/1cad66a5818c94fc8708d145267cd5d4fb900e9f))
+* **safe-push:** a start refuses a branch that Patronus can't rebase onto the newest target ([c688f5c](https://github.com/develar/branch-deck/commit/c688f5ce1b9cd250c5ac109098324b5ca5ac397b))
+* **stack:** the chip of a collapsed stack and the states of an island header count the rows by their nodes ([171afed](https://github.com/develar/branch-deck/commit/171afed47aae392ed0c60da6e94896f76c0a4756))
+* **symbols:** code_symbols::highlight colours Kotlin, Java, Rust and TypeScript as IntelliJ does without resolving names ([c084262](https://github.com/develar/branch-deck/commit/c084262e691c154d6ef59a09a095473a2a1b38cc))
+* **toast:** the issue keys of a toast's title and description link to the tracker ([bf3326f](https://github.com/develar/branch-deck/commit/bf3326fd9cc7b7a8cef8b856d2a5b80265979269))
+
+
+### Bug Fixes
+
+* **bd:** bd check without --plan checks the current grouping and never reads stdin ([61b9286](https://github.com/develar/branch-deck/commit/61b9286b13154bd445679e8543d7f3444833b0ba))
+* **bd:** bd lease return waits up to 60 s for git's background maintenance in the slot instead of refusing at once ([dda2b37](https://github.com/develar/branch-deck/commit/dda2b3785ae05485d1198283a0aba0ebae8f043d))
+* **bd:** process_scan_test builds on Windows: ProcessScan is imported on every platform ([30bf6f5](https://github.com/develar/branch-deck/commit/30bf6f566a8cce75742def8f0fa0c500b4e56cad))
+* **bd:** the cargo clean rule also prunes the classic target layout, a unit by its name and hash across deps, .fingerprint and build ([6c99301](https://github.com/develar/branch-deck/commit/6c99301fbfde204f81a5f82776bfd0ccab1d817f))
+* **diff:** a Java or Rust call, a Java package, import or class type are plain text, a Rust attribute an annotation ([8247993](https://github.com/develar/branch-deck/commit/8247993391877fc8abcf26c3e036a49747c2f661))
+* **diff:** a Markdown file reads its front matter as YAML and its fenced blocks by their language ([c153486](https://github.com/develar/branch-deck/commit/c153486a7e54eceae9e498c47ae1a716f2cb77c6))
+* **diff:** a stuck file header keeps the gap of the cards below the top of the view ([e2809f2](https://github.com/develar/branch-deck/commit/e2809f2e2b0799427892c11d2fcd638538584f1d))
+* **push:** a push replaces remote commits the baseline landed or that were reworded here, without --force ([e207296](https://github.com/develar/branch-deck/commit/e2072960450ca8396113f74b3311ba3905c04b8d))
+* **review:** a request the user answered with a comment leaves Your Turn until the other side moves ([0bea635](https://github.com/develar/branch-deck/commit/0bea6358c1c8fe6291c7ad57317b6a218c4fa915))
+* **symbols:** a name that is also a soft keyword is coloured as a name ([304029c](https://github.com/develar/branch-deck/commit/304029c7ea681d1ab46daa19ca1235bb7ef7be02))
+* **update:** the tooltip of a running update lists every step from its start ([f06efc0](https://github.com/develar/branch-deck/commit/f06efc03223476315b89d7b832ac2f05dcde7fa9))
+
 ## [0.22.0](https://github.com/develar/branch-deck/compare/v0.21.0...v0.22.0) (2026-10-19)
 
 
