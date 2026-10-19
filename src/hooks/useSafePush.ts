@@ -11,7 +11,17 @@ import { notifyError } from "@/lib/errors"
 import { pushForAction } from "@/lib/git/push"
 import { pushWholeStack } from "@/lib/git/stack-push"
 import type { BypassProfiles, PullRequestStart } from "@/lib/patronus"
-import { allowsPushMode, formatPushHoldReason, formatPushMode, getBypassProfiles, getPullRequestStart, getStartPush, isLandedWhole, isStartBlocked } from "@/lib/patronus"
+import {
+  allowsPushMode,
+  formatPushHoldReason,
+  formatPushMode,
+  getBypassProfiles,
+  getPullRequestStart,
+  getStartPush,
+  isLandedWhole,
+  isStartBlocked,
+  openRobot,
+} from "@/lib/patronus"
 import { openPullRequest } from "@/lib/pull-request"
 import { getPushAction } from "@/lib/push-summary"
 import type { DismissFact, ReviewFact, SafePushDecision, SafePushFacts, StartOptionsFact } from "@/lib/safe-push-decision"
@@ -19,6 +29,7 @@ import { getSafePushDecision } from "@/lib/safe-push-decision"
 import type { SafePushStart } from "@/lib/safe-push-start"
 import { startSafePush } from "@/lib/safe-push-start"
 import { stackAncestors, stackPushOrder } from "@/lib/stack"
+import type { ToastActionProps } from "@/lib/toast-message"
 import { showToast } from "@/lib/toast-message"
 import type { StackLandedPart } from "@/lib/whole-stack"
 import { formatReadinessSubject, formatWholeStack, getStackBranchBlocker, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
@@ -460,13 +471,30 @@ async function settleSafePush(branchName: string, ask: Omit<SafePushRequest, "pl
  * A start that can't run: the reason as an `info` toast (a precondition); the push alone where it is the step (of the
  * stack branch for the whole stack, `pushAlone`)
  */
-function tellRefusal(branchName: string, mode: SafePushMode, reason: string, offersPush: boolean): void {
+function tellRefusal(branchName: string, mode: SafePushMode, reason: string, offersPush: boolean, opens?: "pullRequest" | "robot"): void {
+  let action: ToastActionProps | undefined
+  if (offersPush) {
+    action = { children: "Push", onClick: () => void pushAlone(branchName) }
+  } else if (opens !== undefined) {
+    action = refusalObjectAction(branchName, opens)
+  }
   showToast({
     type: "info",
     title: `${formatPushMode(mode)} of ${formatReadinessSubject(branchName)} can't start`,
     description: reason,
-    ...(offersPush && { action: { children: "Push", onClick: () => void pushAlone(branchName) } }),
+    ...(action !== undefined && { action }),
   })
+}
+
+/** The action that opens what a refusal names: the pull request of a draft, the robot that holds the branch */
+function refusalObjectAction(branchName: string, opens: "pullRequest" | "robot"): ToastActionProps | undefined {
+  const root = stackRootOfReadinessKey(branchName)
+  if (opens === "pullRequest") {
+    const pullRequest = root === null ? getPullRequest(branchName) : getStackPullRequest(root)
+    return pullRequest === undefined ? undefined : { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) }
+  }
+  const hold = root === null ? getPushHold(branchName) : getStackPushHold(root)
+  return hold === null ? undefined : { children: "Open in Patronus", onClick: () => openRobot(hold.robot) }
 }
 
 /** The push alone before a start: of the branch (its stack first), or of the stack branch of the whole stack of a key */
@@ -484,9 +512,10 @@ export async function pushAlone(branchName: string): Promise<boolean> {
 
 /**
  * The `info` toast of a start the next step refuses (`BranchNextStep.notice`): the pull request it waits in opens from
- * it, and the one its approvals need is created from it ("Create Pull Request…", "Create Pull Request of the Stack…":
- * the step's own action, row 7); the whole stack whose stack branch the sync didn't build lands in pieces, the Safe Push
- * of the last branch of its main line the first (`WholeStackRead.piece`)
+ * it, and the step the user takes runs from it, the step's own action: "Create Pull Request…" (row 7, "Create Pull
+ * Request of the Stack…"), "Request Review…" (row 9), "Retarget #7 to master" (row 5); the whole stack whose stack
+ * branch the sync didn't build lands in pieces, the Safe Push of the last branch of its main line the first
+ * (`WholeStackRead.piece`)
  */
 function tellNotice(branchName: string, step: BranchNextStep, notice: { readonly title: string; readonly description: string }, request: SafePushRequest): void {
   const root = stackRootOfReadinessKey(branchName)
@@ -499,8 +528,11 @@ function tellNotice(branchName: string, step: BranchNextStep, notice: { readonly
     action = { children: `Safe Push ${piece}`, onClick: () => void requestSafePush(piece, { ...request, via: "click" }) }
   } else if (pullRequest !== undefined && step.tone !== "default") {
     action = { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) }
-  } else if (step.kind === "createPullRequest" && step.tone === "default" && item !== null && item.disabled !== true) {
+  } else if (step.tone === "default" && item !== null && item.disabled !== true) {
     action = { children: item.label, onClick: () => item.onSelect() }
+  } else {
+    // nothing to take: a robot that runs on it or lands it holds the start back, the notice opens it
+    action = refusalObjectAction(branchName, "robot")
   }
   showToast({ type: "info", title: notice.title, description: notice.description, ...(action !== undefined && { action }) })
 }
@@ -556,7 +588,8 @@ export async function requestSafePush(branchName: string, request: SafePushReque
       // a step that waits in the pull request (the approvals, a draft, another base) opens it from the notice
       tellNotice(branchName, step, step.notice, { ...request, placement })
     } else {
-      tellRefusal(branchName, mode, blocker, false)
+      // a robot that runs on it or lands it holds the start back: the refusal opens it
+      tellRefusal(branchName, mode, blocker, false, "robot")
     }
     return
   }
@@ -600,7 +633,7 @@ export async function requestSafePush(branchName: string, request: SafePushReque
       if (settled?.notice != null && settled.safePushBlocker === decision.reason) {
         tellNotice(branchName, settled, settled.notice, { ...request, placement })
       } else {
-        tellRefusal(branchName, mode, decision.reason, decision.offersPush)
+        tellRefusal(branchName, mode, decision.reason, decision.offersPush, decision.opens)
       }
       return
     }

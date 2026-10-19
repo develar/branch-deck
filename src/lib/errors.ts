@@ -1,5 +1,6 @@
 import { error as logErrorToBackend } from "@tauri-apps/plugin-log"
 import { toast } from "@/components/ui/toast"
+import type { ToastActionProps } from "@/lib/toast-message"
 
 /** The message of an error for the user: the `message` of an `Error` (no "Error:" prefix) or of a `CommandError` */
 export function getErrorDetails(error: unknown): string {
@@ -31,8 +32,11 @@ export function recordError(title: string, error: unknown): string {
   return description
 }
 
-/** Logs the error, shows a sticky error toast and records it in Activity. Usable outside React. */
-export function notifyError(title: string, error: unknown): void {
+/**
+ * Logs the error, shows a sticky error toast and records it in Activity. Usable outside React. `action` opens the object
+ * the error names ("Open in Patronus" of the robot that refused the push).
+ */
+export function notifyError(title: string, error: unknown, action?: ToastActionProps): void {
   const description = recordError(title, error)
 
   toast.add({
@@ -41,6 +45,7 @@ export function notifyError(title: string, error: unknown): void {
     description,
     // don't auto-dismiss errors
     timeout: 0,
+    ...(action !== undefined && { actionProps: action }),
   })
 }
 

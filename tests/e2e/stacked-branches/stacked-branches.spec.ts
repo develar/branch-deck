@@ -1,7 +1,7 @@
 // @spec spec/branch/stacked-branches.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
-import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, getStackChip, verifyCommitCount } from "../helpers/branch-helpers"
+import { collapseBranch, expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, getStackChip, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots, mergeRunningRobot, mergeRunningRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
@@ -262,6 +262,22 @@ test.describe("Stacked branches", () => {
     await expect(findBranchRow(page, "auth").getByTestId("branch-status")).toHaveText("merge conflict")
     await expect(getPushButton(loginRow)).toBeDisabled()
     await expect(getPushButton(loginRow)).toHaveAccessibleName("Push")
+    const authRow = findBranchRow(page, "auth")
+
+    // the hover of the node and the description of the push name the parent: both show it
+    await loginRow.getByTestId("lane-node-target").hover()
+    const node = page.getByTestId("lane-node-details")
+    await expect(node).toContainText("Blocked by auth, which doesn't build")
+    await node.getByRole("button", { name: "Show auth" }).click()
+    await expect(authRow).toHaveAttribute("data-state", "open")
+    await collapseBranch(page, authRow)
+    await expect(loginRow).toHaveAttribute("data-state", "closed")
+    await getPushButton(loginRow).hover()
+    const description = page.getByTestId("push-description")
+    await expect(description).toContainText("Blocked by auth: fix it first, then sync")
+    await description.getByRole("button", { name: "Show auth" }).click()
+    await expect(authRow).toHaveAttribute("data-state", "open")
+    await collapseBranch(page, authRow)
 
     await expandBranch(page, loginRow)
     const alert = getBranchDetailsRow(page, "login").getByTestId("branch-blocked")
@@ -1041,20 +1057,22 @@ test.describe("Stacked branches", () => {
       await expect(page.getByTestId("next-step-hover")).toHaveText(
         "Approvals in #8 don't count: its base is user-name/virtual/login, a virtual branch. Changes the base of #8 from user-name/virtual/login to master on GitHub: Patronus merges a pull request into its base",
       )
-      // no start from it: S says why, the menu disables the start with the reason
-      await oauthRow.focus()
-      await page.keyboard.press("s")
-      const notice = page.locator("[data-slot=toast]", { hasText: "Approvals in #8 of oauth don't count" })
-      await expect(notice.locator("[data-slot=toast-description]")).toHaveText("Its base is user-name/virtual/login, not master")
-      await expect(safePushPopover(page)).toHaveCount(0)
+      // no start from it: the menu disables the start with the reason, S says why and offers the retarget
       await openContextMenu(page, oauthRow)
       const item = page.getByRole("menuitem", { name: /^Safe Push · 3/ })
       await expect(item).toHaveAttribute("aria-disabled", "true")
       await item.hover()
       await expect(page.getByRole("tooltip").filter({ hasText: "don't count" }).last()).toHaveText("Approvals in #8 don't count: its base is user-name/virtual/login")
       await page.keyboard.press("Escape")
+      await oauthRow.focus()
+      await page.keyboard.press("s")
+      const notice = page.locator("[data-slot=toast]", { hasText: "Approvals in #8 of oauth don't count" })
+      await expect(notice.locator("[data-slot=toast-description]")).toHaveText("Its base is user-name/virtual/login, not master")
+      await expect(safePushPopover(page)).toHaveCount(0)
 
-      await retarget.click()
+      // the retarget of the slot (its own test in next-step.spec.ts) runs from the notice too
+      await expect(retarget).toBeVisible()
+      await notice.getByRole("button", { name: "Retarget #8 to master" }).click()
       await expect.poll(() => retargets).toEqual([expect.objectContaining({ pullRequestNumber: 8, base: "master" })])
       await expect(page.locator("[data-slot=toast]", { hasText: "Retargeted #8 to master" })).toBeVisible()
       // into master again: its approvals count, the start comments on it

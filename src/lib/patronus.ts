@@ -13,6 +13,7 @@ import type {
 import { formatCommitCount } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
+import { shellWord } from "@/lib/prompt-text"
 import type { OutgoingState, PushAction } from "@/lib/push-summary"
 import type { ReviewCommitState } from "@/lib/review-commit"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
@@ -329,6 +330,15 @@ export function formatPatronusAvailabilityHint(availability: PatronusAvailabilit
     default:
       return null
   }
+}
+
+/**
+ * The command the hint "Run ./safePush.cmd once to log in to Patronus" names, ready to paste in a terminal: into the
+ * repository, then the Safe Push CLI, which logs in when it runs (PowerShell on Windows)
+ */
+export function formatSafePushLoginCommand(repositoryPath: string, powershell: boolean): string {
+  const cd = `cd ${shellWord(repositoryPath, powershell)}`
+  return powershell ? `${cd}; .\\safePush.cmd` : `${cd} && ./safePush.cmd`
 }
 
 /** Opens the robot page of the Patronus web UI */

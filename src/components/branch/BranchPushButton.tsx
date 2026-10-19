@@ -7,17 +7,21 @@ import { Kbd } from "@/components/ui/kbd"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Spinner } from "@/components/ui/spinner"
 import { DroppedCommitList } from "@/components/branch/DroppedCommitList"
+import { RobotActionButton } from "@/components/branch/PatronusChip"
+import { getGatedRobotActions } from "@/hooks/useBranchNextStep"
 import type { PushButtonAction } from "@/hooks/usePushButton"
 import { usePushButton, useStackBranchPushAlone } from "@/hooks/usePushButton"
 import type { TransferProgress } from "@/lib/bindings"
 import { pushBranch, pushFromButton } from "@/lib/git/push"
-import { formatStackPushing, stackPushSubject } from "@/lib/stack"
+import { blockingBranchOf, formatStackPushing, stackPushSubject } from "@/lib/stack"
 import { transferAmountNotInLine, transferLabel } from "@/lib/transfer-progress"
 import { ghostButtonColorClass } from "@/lib/ui-types"
 import { STACK_BRANCH_PUSHING, formatWholeStackBranch, stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchPushProgress, useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
+import { requestReveal } from "@/stores/commit-move"
 import { useIsRowProcessing } from "@/stores/inline-row-action"
+import { usePushHold } from "@/stores/patronus"
 import type { PushConfirmRequest, PushConfirmTarget } from "@/stores/push-confirm"
 import { clearPushConfirm, usePushConfirmRequest } from "@/stores/push-confirm"
 import { useSafePushStarting } from "@/stores/safe-push"
@@ -203,6 +207,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
                 {push.text}
               </Button>
             )}
+            {push.disabled && <PushHeldActions branch={branch} close={close} />}
             {push.action !== null && <PushAlternative action={push.action} disabled={disabled} close={close} />}
             {/* the children's push goes also while the branch's own push has nothing to send */}
             {push.childrenAction !== null && <PushAlternative action={push.childrenAction} disabled={isPushing || processing} close={close} />}
@@ -210,6 +215,46 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
         )}
       </PopoverContent>
     </Popover>
+  )
+}
+
+/** The robot actions a push description of a held branch offers, by id: the restart its text names, the robot */
+const HOLD_ACTIONS: ReadonlySet<string> = new Set(["restart-robot", "push-and-restart-robot", "open-robot"])
+
+/**
+ * What the reason of a push that can't go names, as buttons: "Show auth", the parent a blocked branch waits for; the
+ * robot that holds the branch (`PushHold`), its restart while it runs on the branch itself ("…or restart it on the
+ * current branch") and "Open in Patronus", from the one list of its actions (`getGatedRobotActions`)
+ */
+function PushHeldActions({ branch, close }: { branch: Branch; close: () => void }) {
+  const hold = usePushHold(branch.name)
+  const blocker = blockingBranchOf(branch)
+  if (blocker !== null) {
+    return (
+      <Button
+        variant="outline"
+        size="xs"
+        className="self-start"
+        onClick={() => {
+          close()
+          requestReveal({ branchName: blocker, commitIds: [] })
+        }}
+      >
+        {`Show ${blocker}`}
+      </Button>
+    )
+  }
+  if (hold === null) {
+    return null
+  }
+  const own = hold.kind === "own"
+  const actions = getGatedRobotActions(hold.robot, own ? branch : null).filter(it => HOLD_ACTIONS.has(it.id) && (own || it.id === "open-robot"))
+  return (
+    <div className="flex flex-wrap gap-2" data-testid="push-hold-actions">
+      {actions.map(action => (
+        <RobotActionButton key={action.id} action={action} />
+      ))}
+    </div>
   )
 }
 

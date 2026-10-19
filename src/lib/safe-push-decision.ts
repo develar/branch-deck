@@ -91,8 +91,11 @@ export type ConfirmReason =
 export type SafePushDecision =
   /** A fact it decides on loads: the start waits, its button busy with `what` */
   | { readonly kind: "wait"; readonly what: string }
-  /** Patronus would refuse or fail it, or the branch can't: no start, `reason` said; `offersPush`: the push alone helps */
-  | { readonly kind: "refuse"; readonly reason: string; readonly offersPush: boolean }
+  /**
+   * Patronus would refuse or fail it, or the branch can't: no start, `reason` said; `offersPush`: the push alone helps;
+   * `opens`: the object the reason names, which the toast opens (the pull request of a draft, the robot that holds it)
+   */
+  | { readonly kind: "refuse"; readonly reason: string; readonly offersPush: boolean; readonly opens?: "pullRequest" | "robot" }
   /** A Safe Push without review waits for its profile */
   | { readonly kind: "choose"; readonly reason: string }
   /** The popover first, with the lines `reasons` names */
@@ -139,10 +142,10 @@ export function getSafePushDecision(facts: SafePushFacts): SafePushDecision {
   }
   const pullRequest = facts.fromPullRequest
   if (pullRequest?.blockedByDraft === true) {
-    return { kind: "refuse", reason: `#${pullRequest.number} is a draft: Patronus merges it once it is ready for review`, offersPush: false }
+    return { kind: "refuse", reason: `#${pullRequest.number} is a draft: Patronus merges it once it is ready for review`, offersPush: false, opens: "pullRequest" }
   }
   if (facts.pushHeld !== null) {
-    return { kind: "refuse", reason: facts.pushHeld, offersPush: false }
+    return { kind: "refuse", reason: facts.pushHeld, offersPush: false, opens: "robot" }
   }
   const { review } = facts
   if (review.kind === "loading") {

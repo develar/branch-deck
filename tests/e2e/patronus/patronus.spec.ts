@@ -391,6 +391,10 @@ baseTest.describe("Patronus unavailable", () => {
     await syncAndWaitForBranches()
     const popover = await openLandingOverview(page)
     await expect(popover.getByTestId("patronus-status-line")).toContainText("Run ./safePush.cmd once to log in to Patronus")
+    // the hint names a command: it copies, into the repository
+    await popover.getByTestId("patronus-status-line-action").click()
+    // the user agent of the tests is Windows': PowerShell
+    await expect.poll(() => readClipboard(page)).toMatch(/^cd .+; \.\\safePush\.cmd$/)
     await expect(page.getByTestId("patronus-chip")).toHaveCount(0)
     // never a toast
     await expect(page.locator("[data-slot=toast]")).toHaveCount(0)

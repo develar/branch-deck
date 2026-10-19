@@ -36,6 +36,8 @@ export interface LandingNode {
   readonly pending?: true
   /** The label tells the state of the robot of the branch (of the whole stack): the hover shows the robot with its actions */
   readonly robot?: true
+  /** The branch the label names, which the hover offers to show: the parent a blocked branch waits for */
+  readonly shows?: string
 }
 
 /** What decides the node beside the facts of the next step, which don't tell these apart */
@@ -80,7 +82,9 @@ export function getLandingNode(facts: LandingNodeFacts): LandingNode {
     return node("waiting", "No commits")
   }
   if (facts.status === "Blocked") {
-    return node("waiting", facts.blockedBy === null ? "Blocked by its parent branch" : `Blocked by ${facts.blockedBy}, which doesn't build`)
+    return facts.blockedBy === null
+      ? node("waiting", "Blocked by its parent branch")
+      : { kind: "waiting", label: `Blocked by ${facts.blockedBy}, which doesn't build`, shows: facts.blockedBy }
   }
   const robot = next.robot
   if (robot.kind === "running") {

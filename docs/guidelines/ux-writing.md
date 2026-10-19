@@ -111,6 +111,13 @@ indicator could cancel a robot but not restart it.
   offer the same actions of the object; only the view modes (Review, Files) change with the form.
 - **A key hint only where the key works**: an item shows its key (`kbds`, `<Kbd>`) only on a surface whose handler
   has the key; a key shown in the menu works on the focused row too.
+- **What a text names opens from it**: a hover, a notice or a toast that names an object or a move offers it right
+  there, from the builder of the object: an issue key is a link to the tracker, "Safe Push" of a robot opens it in
+  Patronus, "#12" its pull request, "Blocked by auth" offers "Show auth", "…or Restart Safe Push" the restart. A
+  tooltip holds no link (the local `Tooltip` is not hoverable): a hover that names one is a popover
+  (`LandingNodeHover`). The node of a branch once said "Safe Push failed on IJAI-4184 as it is: fix it or restart it"
+  in a tooltip, nothing of it clickable. A text inside a button (the toggle of an island header) is no place for a
+  link: the button that opens its object stands beside it.
 - **Disabled with a reason, not hidden**: an action that does not apply now stays in the list, disabled, and says why
   on hover (`description`); it disappears only where it never applies (no pull request, no robot).
 - **A step the app can do is part of the action**: a push an action needs, a wait for the sync, a fetch run inside the

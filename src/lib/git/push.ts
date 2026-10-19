@@ -12,6 +12,7 @@ import { showRobotToast } from "@/lib/patronus-actions"
 import { describePush, dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
 import { buildRemoteMovedTexts } from "@/lib/remote-status"
 import { buttonStackPushOrder, needsPush, stackAncestors, stackPushOrder } from "@/lib/stack"
+import type { ToastActionProps } from "@/lib/toast-message"
 import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 import { recordPush, recordRobot } from "@/stores/activity"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
@@ -64,7 +65,7 @@ export interface PushOptions {
 }
 
 /** Says why a push failed or was refused: the title of an error toast and its reason */
-export type PushReport = (title: string, error: unknown) => void
+export type PushReport = (title: string, error: unknown, action?: ToastActionProps) => void
 
 /**
  * Pushes a virtual branch and updates its remote status from the result, then the pull requests (the pull request of
@@ -255,7 +256,8 @@ export async function checkPushHold(branchName: string, options: PushOptions, re
   if (status !== null && status !== "running") {
     return true
   }
-  report(`Cannot push ${branchName}`, formatPushHoldReason(branchName, hold))
+  // the robot that holds it opens from the error: its restart, its cancel
+  report(`Cannot push ${branchName}`, formatPushHoldReason(branchName, hold), { children: "Open in Patronus", onClick: () => openRobot(hold.robot) })
   return false
 }
 

@@ -92,8 +92,11 @@ indicator, whose states were the same story told twice.
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count the user's moves, put the most urgent node in the header and group the work by where it is`)
   [@test] ../../src/lib/landing-overview.test.ts (`leaves out of the last day the robots of what is in master: the In master row says it`, `is empty with nothing on the way, nothing in master and no robot of the last day`)
 - A row of a unit has its node, its name (a click closes the overview and shows the row; of a stack, the stack
-  expanded), its size ("1 commit", "5 branches · 37 commits"), the first line of its node's hover (all of it on hover),
-  its pull request chip and the next step of its row (`StepButton`, the item of `getBranchNextStep`).
+  expanded), its size ("1 commit", "5 branches · 37 commits"), the first line of its node's hover (on hover the hover of
+  its node itself, `LandingNodeHover` of [Branch Row](../branch/branch-row.spec.md#tree): the issue keys as links, "Show
+  auth" of a parent it names, which closes the overview, the robot whose state it tells), its pull request chip and the
+  next step of its row (`StepButton`, the item of `getBranchNextStep`).
+  [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count the user's moves, put the most urgent node in the header and group the work by where it is`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show a robot that failed on the branch tip once, as the move it is, with the chips of the other rows`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show the pull request chips of the rows, and a pull request that waits for its author as a fix`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show every branch again for a reveal of a hidden one`, `should show a match deep in a collapsed stack, and expand the stack for a reveal`)

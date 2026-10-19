@@ -1,6 +1,8 @@
 import type { ReactNode } from "react"
 import { PopoverDescription, PopoverSectionTitle, PopoverTitle } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import type { LandingNodeSubject } from "@/components/branch/LandingNodeHover"
+import { LandingNodeHover } from "@/components/branch/LandingNodeHover"
 import { StepButton } from "@/components/branch/NextStepSlot"
 import { LaneNodeDot } from "@/components/branch/StackLanes"
 import { RobotList, RobotRow } from "@/components/repository/RobotRows"
@@ -140,6 +142,7 @@ function StackUnitRow({ unit, failedRobotOf, onClose, onReveal, renderPullReques
         name={unit.name}
         node={unit.node}
         size={`${formatBranchCount(unit.branchCount)} · ${formatCommitCount(unit.commitCount)}`}
+        subject={next == null || next.leaf === null ? { kind: "stack", root: unit.name } : { kind: "branch", name: next.leaf }}
         step={next?.step ?? null}
         stepOwner={next?.leaf ?? unit.name}
         onClose={onClose}
@@ -172,6 +175,8 @@ function FixRow({ name, node, onClose, onReveal, renderPullRequest }: { name: st
 interface LandingRowProps {
   name: string
   node: LandingNode
+  /** Whose node it is: the branch, the stack branch of a forking stack, the last branch of a straight chain */
+  subject?: LandingNodeSubject
   /** "2 commits", "5 branches · 37 commits" */
   size: string | null
   step: BranchNextStep | null
@@ -187,11 +192,11 @@ interface LandingRowProps {
 }
 
 /**
- * The node and the name (a click shows its row), the size, the first line of the node's hover (all of it on hover), the
- * pull request chip and the next step: a click closes the overview, shows the row and runs the step there, as the slot
- * of the row would
+ * The node and the name (a click shows its row), the size, the first line of the node's hover (the hover of the node on
+ * hover, `LandingNodeHover`: its links, "Show auth", the robot), the pull request chip and the next step: a click
+ * closes the overview, shows the row and runs the step there, as the slot of the row would
  */
-function LandingRow({ name, node, size, step, stepOwner = name, nested = false, kind, pullRequest, onClose, onReveal }: LandingRowProps) {
+function LandingRow({ name, node, subject = { kind: "branch", name }, size, step, stepOwner = name, nested = false, kind, pullRequest, onClose, onReveal }: LandingRowProps) {
   const reason = node.label.split("\n")[0] ?? ""
   const item = step?.item ?? null
   return (
@@ -215,10 +220,15 @@ function LandingRow({ name, node, size, step, stepOwner = name, nested = false, 
           </Tooltip>
           {size !== null && <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{size}</span>}
         </span>
-        <Tooltip>
-          <TooltipTrigger render={<span className="min-w-0 truncate text-xs text-muted-foreground" data-testid="landing-row-reason" />}>{reason}</TooltipTrigger>
-          <TooltipContent className="max-w-sm whitespace-pre-line">{node.label}</TooltipContent>
-        </Tooltip>
+        {/* the hover of its node: what it names opens from there, a branch it shows closes the overview */}
+        <LandingNodeHover
+          node={node}
+          subject={subject}
+          onReveal={onReveal}
+          trigger={<span className="min-w-0 truncate text-xs text-muted-foreground" data-testid="landing-row-reason" />}
+        >
+          {reason}
+        </LandingNodeHover>
       </span>
       <span className="flex shrink-0 items-center gap-1">{pullRequest}</span>
       {item !== null && (

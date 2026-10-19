@@ -23,6 +23,7 @@ import {
   findPushHold,
   formatMergedRobotTitle,
   formatPatronusAvailabilityHint,
+  formatSafePushLoginCommand,
   formatPushHoldReason,
   formatReviewerGroup,
   formatReviewerGroupFiles,
@@ -268,6 +269,14 @@ describe("formatPatronusAvailabilityHint", () => {
     expect(formatPatronusAvailabilityHint({ status: "available" })).toBeNull()
     expect(formatPatronusAvailabilityHint({ status: "notPatronus" })).toBeNull()
     expect(formatPatronusAvailabilityHint(null)).toBeNull()
+  })
+})
+
+describe("formatSafePushLoginCommand", () => {
+  it("names the command of the login hint, into the repository, quoted for the shell of the platform", () => {
+    expect(formatSafePushLoginCommand("/Users/me/idea", false)).toBe("cd /Users/me/idea && ./safePush.cmd")
+    expect(formatSafePushLoginCommand("/Users/me/my idea", false)).toBe("cd '/Users/me/my idea' && ./safePush.cmd")
+    expect(formatSafePushLoginCommand("C:\\work\\idea", true)).toBe("cd 'C:\\work\\idea'; .\\safePush.cmd")
   })
 })
 

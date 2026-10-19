@@ -1,4 +1,5 @@
 import type { ReactElement, ReactNode } from "react"
+import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { RobotRow } from "@/components/repository/RobotRows"
@@ -7,6 +8,7 @@ import { getPatronusChipState } from "@/lib/patronus"
 import type { RobotOverviewEntry } from "@/lib/robot-overview"
 import { formatWholeStackStart } from "@/lib/whole-stack"
 import { useBranchRemoteStatus, useBranchTip, useStackBranch } from "@/stores/branch-sync"
+import { requestReveal } from "@/stores/commit-move"
 import { useBranchRobot, useRobotFailing, useRobotNeedsReview, useStackRobot } from "@/stores/patronus"
 
 /** Whose node it is: a branch of the table, or the whole stack of `root` (the header of its island) */
@@ -19,6 +21,8 @@ export interface LandingNodeHoverProps {
   trigger: ReactElement
   /** The node itself (`LaneNodeDot`) */
   children: ReactNode
+  /** Shows the row of a branch the label names; `requestReveal` by default, the landing overview closes first */
+  onReveal?: (name: string) => void
 }
 
 /**
@@ -26,7 +30,7 @@ export interface LandingNodeHoverProps {
  * its actions (`LandingNodeDetails`). A click on the node goes on to the row (or the island header): it never pins the
  * popover. Not a tab stop: the row has its own keys, and the same actions are in its slot, its menu and its robot chip.
  */
-export function LandingNodeHover({ node, subject, trigger, children }: LandingNodeHoverProps) {
+export function LandingNodeHover({ node, subject, trigger, children, onReveal }: LandingNodeHoverProps) {
   return (
     <Popover
       onOpenChange={(_open, eventDetails) => {
@@ -47,20 +51,33 @@ export function LandingNodeHover({ node, subject, trigger, children }: LandingNo
         onClick={event => event.stopPropagation()}
         onContextMenu={event => event.stopPropagation()}
       >
-        <LandingNodeDetails node={node} subject={subject} />
+        <LandingNodeDetails node={node} subject={subject} onReveal={onReveal} />
       </PopoverContent>
     </Popover>
   )
 }
 
-/** The state of the node a line each, the issue keys as links; below it the robot whose state it tells */
-export function LandingNodeDetails({ node, subject }: { node: LandingNode; subject: LandingNodeSubject }) {
+/**
+ * The state of the node a line each, the issue keys as links; "Show auth" of the branch it names; below it the robot
+ * whose state it tells
+ */
+export function LandingNodeDetails({ node, subject, onReveal = revealBranch }: { node: LandingNode; subject: LandingNodeSubject; onReveal?: (name: string) => void }) {
+  const shows = node.shows
   return (
     <>
       <LinkedText text={node.label} className="break-words whitespace-pre-line" linkClassName="text-primary hover:underline" />
+      {shows !== undefined && (
+        <Button variant="outline" size="xs" className="self-start" onClick={() => onReveal(shows)}>
+          {`Show ${shows}`}
+        </Button>
+      )}
       {node.robot === true && (subject.kind === "branch" ? <BranchNodeRobot name={subject.name} /> : <StackNodeRobot root={subject.root} />)}
     </>
   )
+}
+
+function revealBranch(name: string): void {
+  requestReveal({ branchName: name, commitIds: [] })
 }
 
 function BranchNodeRobot({ name }: { name: string }) {

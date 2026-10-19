@@ -221,13 +221,18 @@ branch from all the facts (the branch, its robots, its pull request and the read
   an `info` toast (a precondition, `notice`): a short title naming the branch, the reason as the description ("Safe
   Push of auth waits for Ilya Korennoy" / "IJPL Code Platform · requested on #1078", "Safe Push of auth waits for 2
   reviews", "#7 of auth is a draft", "Safe Push of auth can't start" / "Landed in origin/master"), with "Open Pull
-  Request" while the step waits in it and the step's "Create Pull Request…" ("Create Pull Request of the Stack…" for
-  the whole stack) while its approvals need one (row 7); a click that waited for the answer of the readiness says the
+  Request" while the step waits in it, the step's own action while it is the user's ("Create Pull Request…", "Create
+  Pull Request of the Stack…" for the whole stack, row 7; "Request Review…", row 9; "Retarget #7 to master", row 5),
+  and else "Open in Patronus" of the robot that runs on the branch or lands it ("A Safe Push of the last commit is
+  running"); a click that waited for the answer of the readiness says the
   same notice when the answer is the step's reason; the preview footer, the review window (`getBranchReviewItems`), S in the preview and the
   stack header read the same blocker. Your Turn is not a branch row: its Safe Push of a reviewed pull request has its
   own check ([Review Requests](../repository/review-requests.spec.md)).
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner the pull request asks, never offer a Safe Push that fails, and say why on S`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on S why the whole stack can't start without its pull request, and create it from the notice`)
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should open Request Review… from the notice of S while nobody of a group is asked`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer the retarget of a pull request into the parent's branch as the next step, whose approvals don't count`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push popover from the branch preview with S, and start from its footer button`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should ask for the approvals of the whole stack of a small stack while its root's row shows, and offer its pull request where they are missing`)
 - The node of the row, at the left edge of the name cell, renders the step too, as where the branch is on its way
   into master ([Branch Row](branch-row.spec.md#tree), `getLandingNode` over the same facts): ready to land, the user's

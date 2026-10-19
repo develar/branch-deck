@@ -198,10 +198,13 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   (`RobotRow`, without the branch name): its mode ("Safe Push") a link that opens it in Patronus, its state and time,
   and its actions from the one list of the branch menu (`getGatedRobotActions`: Restart Safe Push, Copy Prompt for
   Agent, Copy Prompt with CI Details, Open in Patronus, Open Pull Request #N). The failed state says so: "Safe Push
-  failed on ABC-123 as it is: fix it, or Restart Safe Push". A click in the hover never toggles the row. The node is no
+  failed on ABC-123 as it is: fix it, or Restart Safe Push". A blocked branch offers "Show auth", the parent it waits
+  for (`LandingNode.shows`). A click in the hover never toggles the row. The node is no
   tab stop: the row has its keys, and the same actions are in its slot, its menu and its robot chip.
   [@test] ../../src/lib/landing-node.test.ts (`needs a fix: a sync error, a conflict, a robot that failed on the branch as it is, changes requested`, `is landing while its own Safe Push runs or one of a branch built on it lands it; a dry run lands nothing`)
   [@test] ../../tests/e2e/branch-graph/branch-graph.spec.ts (`should open the issue and the failed Safe Push from the hover of the node, and restart it or copy the prompt there`)
+  [@test] ../../src/lib/landing-node.test.ts (`waits for others: the reviewers, its parent, a robot that lands an ancestor, a base that may be meant`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
 - The "Branch Name" head must end with the legend of the nodes, "About Branch Graph" (`BranchGraphHelpPopover`): one
   line on what a node says and what filled means, each kind as its node with its legend, and a line on the lines of
   a stack.
@@ -308,7 +311,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 
 - A blocked stacked branch must have one treatment: a hollow neutral node ("Blocked by auth, which doesn't build": the
   fix is in the row of its parent), the muted status "blocked by <parent>" after a `warning` dot, a
-  disabled push button, and, expanded, a `warning` alert with the reason and "Show <parent>", which reveals the parent.
+  disabled push button whose description offers "Show <parent>" too, the hover of the node as well, and, expanded, a
+  `warning` alert with the reason and "Show <parent>", which reveals the parent.
   Its commits carry the `warning` Blocked badge.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should block the children of a parent that doesn't build`)
 - A stacked branch whose declared parent has no commits is not blocked but built elsewhere ("Base changed"): the muted

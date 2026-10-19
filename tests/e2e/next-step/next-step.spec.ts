@@ -474,6 +474,18 @@ test.describe("Next step", () => {
     await expect(pushedToast(page, BRANCH)).toHaveCount(0)
   })
 
+  test("should open Request Review… from the notice of S while nobody of a group is asked", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setup(page, setupRepo, syncAndWaitForBranches, UNASKED_CODE_OWNER, [pullRequest(BRANCH, 1078)])
+    await expect(slot(page)).toHaveAttribute("data-step", "requestReview")
+    await findBranchRow(page, BRANCH).focus()
+    await page.keyboard.press("s")
+    const notice = page.locator("[data-slot=toast]", { hasText: `Safe Push of ${BRANCH} waits for a review request` })
+    await expect(notice).toContainText("nobody is requested on #1078")
+    // the notice runs the step the slot offers
+    await notice.getByRole("button", { name: "Request Review…" }).click()
+    await expect(page.getByTestId("request-review-popover")).toContainText("Request a review on #1078")
+  })
+
   test("should open Request Review… from the branch menu, at the row's next step", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [AWAITED])
     await expect(slot(page)).toHaveAttribute("data-step", "awaiting")

@@ -417,7 +417,11 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   the row runs an inline action or a start of the branch runs. After that the next step disables a Safe Push that
   Patronus would fail (the approvals that count missing, a draft, a pull request into another base, landed or merged),
   never a dry run; a start asked anyway (S, a toast, the review window) says the reason in an `info` toast ("Safe Push
-  of auth waits for Ilya Korennoy", "Dry Run of auth can't start").
+  of auth waits for Ilya Korennoy", "Dry Run of auth can't start"), which opens what the reason names: the robot that
+  runs on the branch or lands it ("Open in Patronus"), the pull request of a draft ("Open Pull Request",
+  `SafePushDecision.opens`).
+  [@test] ../../src/lib/safe-push-decision.test.ts (`refuses what Patronus would refuse or fail: an unprotected target, a draft, missing approvals, a push that dismisses the counted ones`, `tells a push that dismisses approvals Patronus doesn't count, and a dry run that pushes into a held branch can't`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the Safe Push popover from the branch preview with S, and start from its footer button`)
   [@test] ../../src/lib/patronus.test.ts (`blocks a start while a robot runs on the remote branch that has the same commits, rebuilt on a newer baseline`)
   [@test] ../../crates/sync-core/src/patronus_start_test.rs (`a_start_waits_for_a_robot_on_the_last_commit_and_a_push_guards_a_running_safe_push`)
   [@test] ../../src/lib/patronus.test.ts (`starts a robot unless one runs on the commit the branch is at or the branch is blocked, and says why`, `waits for a robot that lands an ancestor of a stacked branch, not for a dry run of it`, `knows the ancestors a running robot of a stacked branch lands, and refuses their own Safe Push`, `waits for a robot of a side branch that lands an ancestor: the branch would land its commits a second time`)
@@ -890,11 +894,12 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   "The code owners did not approve the changes. Get their approvals in the pull request of the branch, then start a
   new Safe Push from it: a restart has no pull request to count them in." A robot of a pull request offers Restart instead: "The code owners
   did not approve the changes in pull request #7. Restart once they approve: the restart counts the approvals the pull
-  request has by then."
+  request has by then.", "#7" a link that opens the pull request.
   [@test] ../../src/lib/patronus.test.ts (`restarts a failed, canceled or canceling robot of the branch, a passed dry run only with a newer pushed commit`)
   [@test] ../../src/lib/patronus.test.ts (`names a robot that failed for missing approvals "Needs review"`)
   [@test] ../../src/stores/patronus.test.ts (`reads the problems of a failed robot of a branch once`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say "Needs review" for a robot that failed for missing approvals, and start a new Safe Push from it`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the pull request a robot that failed for missing approvals was started from, from its details`)
 
 ### Safe Push without review
 
@@ -1004,13 +1009,17 @@ explicit choice of the user, offered only where the approvals count in a pull re
 - A held branch offers no push: the place of the row's push button stays empty, as its Safe Push slot does; its Status
   cell says why (the robot chip, "lands with oauth", "Landed with oauth"). P does nothing; Push in the menu, the preview footer, the outgoing
   overview and the review window is disabled with the reason: "A Safe Push of auth is running: wait until it merges, or
-  restart it on the current branch", "A Safe Push of oauth is running: it lands auth with it". The "to push" counts leave it out (the
+  restart it on the current branch", "A Safe Push of oauth is running: it lands auth with it". The description of the
+  preview's push offers what it names, from the robot's actions (`getGatedRobotActions`): "Restart Safe Push" of its own
+  robot and "Open in Patronus" of the robot that holds it (`push-hold-actions`). The "to push" counts leave it out (the
   header, the stack chip, the island, the filter chip).
   [@test] ../../src/hooks/usePushButton.test.ts (`offers no push while a Safe Push holds the branch, and says why; the children of a landed one push without it`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open and restart the robot from the description of the preview's push, which says why it can't push`)
   [@test] ../../src/lib/push-summary.test.ts (`skips a branch a running Safe Push holds: its row offers no push`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer no push: it won't land, and the menu says why`)
 - A push that raced with a start (the IDE, `bd`, another window) reads the status of the robot first (`GET
-  /robots/{id}/status`, one row): still running, it pushes nothing and says why ("Cannot push auth"); finished meanwhile,
+  /robots/{id}/status`, one row): still running, it pushes nothing and says why ("Cannot push auth", with "Open in
+  Patronus" of the robot); finished meanwhile,
   it pushes. A branch a merged Safe Push landed is refused without a read: the robot finished, its commits are in the
   target. Nothing asks: no dialog.
   [@test] ../../src/lib/git/push.test.ts (`refuses the push: it won't land, and the Safe Push would fail at the end`, `pushes when the Safe Push finished meanwhile: the status is read fresh`, `refuses a branch a Safe Push of a branch built on it lands`, `refuses a branch a merged Safe Push of a branch built on it landed, without reading its status`)
@@ -1059,11 +1068,13 @@ explicit choice of the user, offered only where the approvals count in a pull re
 - The footer has a line "Patronus checked just now" (it ages while shown, as every relative time:
   [Update Project](../repository/update-project.spec.md)) with a Refresh button (a full list), named "Refresh
   Patronus". When Patronus can't answer, the line is a quiet hint instead: "Run ./safePush.cmd once to log in to
-  Patronus" or "Patronus: <the error>". It is never a toast. A repository that is not on Space has no line.
+  Patronus", with "Copy Command" (`cd <repository> && ./safePush.cmd`, PowerShell's `cd <repository>; .\safePush.cmd`
+  on Windows, `formatSafePushLoginCommand`), or "Patronus: <the error>". It is never a toast. A repository that is not on Space has no line.
   [@test] ../../src/lib/patronus.test.ts (`hints at what to do, and says nothing when there is nothing to do`)
   [@test] ../../src/lib/check-counts.test.ts (`lists the failing checks first, then the running, the canceled and the passed ones`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should list the robots again from the overview`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should hint quietly when the Safe Push CLI is not logged in`)
+  [@test] ../../src/lib/patronus.test.ts (`names the command of the login hint, into the repository, quoted for the shell of the platform`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should say nothing for a repository that is not on Space`)
 
 ## User Experience

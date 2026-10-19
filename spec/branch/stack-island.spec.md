@@ -105,8 +105,11 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   ring of the robot is on "1 running". The pull request of the whole stack is counted apart, first, as where the
   approvals of its Safe Push count: "Approvals count in #12, the pull request of the whole stack" (" · approved", " ·
   changes requested" as GitHub says). One that no longer matches it says so in `text-warning` instead: "#12 no longer
-  matches the air stack: auth landed".
+  matches the air stack: auth landed". The lines are inside the toggle of the header, so the pull request they name is
+  a button before the state chips (`StackPullRequestButton`): "#12" opens it, "Close Pull Request #12…" in `warning`
+  asks to close one that no longer matches (in the root's row, as from "⋯").
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should count the approvals of the whole stack in its pull request: the header says so apart from the branches', and a branch without its own points to it`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should offer the close of the pull request of the whole stack in the island header once it no longer matches`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say in the popover of the whole stack only what holds: the branches on the remote stay, no approvals where none are needed`)
 - The header must end with the Actions cell of a branch row, for the whole stack, at the widths of the rows below, so

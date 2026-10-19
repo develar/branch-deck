@@ -38,6 +38,9 @@ test.describe("Landing overview", () => {
     await expect(running.getByTestId("robots-row-state")).toHaveText("Safe Push · 18m · ~22m left")
     await expect(running.getByTestId("robot-progress")).toHaveAttribute("aria-valuenow", "45")
     await expect(landingRow(popover.getByTestId("landing-in-master"), "feature-db").getByTestId("landing-row-reason")).toHaveText("Merged by Patronus")
+    // the reason of a row is the hover of its node: the state in full, what it names opens from there
+    await landingRow(popover.getByTestId("landing-in-master"), "feature-db").getByTestId("landing-row-reason").hover()
+    await expect(page.getByTestId("lane-node-details")).toHaveText("Merged by Patronus")
     // the last day without what the In master row says: a branch archived since, no row to show
     const finished = popover.getByTestId("landing-finished").getByTestId("robots-row")
     await expect(finished).toHaveCount(1)

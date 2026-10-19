@@ -127,6 +127,28 @@ async function openCreatePullRequestFromSlot(page: Page): Promise<Locator> {
 }
 
 /** Restart Safe Push of the running robot of JIRA-456, from its menu (it pushes first): the one push into a branch whose Safe Push runs */
+/**
+ * The restart of the running robot of JIRA-456 answered in the page, its status read running: the commands it ran, in
+ * order ("cancel", "push", "restart")
+ */
+async function routeCancelPushRestart(page: Page): Promise<string[]> {
+  const order: string[] = []
+  await routeCommand(page, "get_patronus_robot_status", () => "running")
+  await routeCommand(page, "cancel_patronus_robot", () => {
+    order.push("cancel")
+    return { ...OLDER, status: "canceling" }
+  })
+  await routeCommand(page, "push_branch", params => {
+    order.push("push")
+    return pushOutcome(params.branchName as string)
+  })
+  await routeCommand(page, "restart_patronus_robot", () => {
+    order.push("restart")
+    return robot("JIRA-456", "restarted-robot", { name: "Restarted" })
+  })
+  return order
+}
+
 async function pushAndRestartFromMenu(page: Page) {
   await findBranchRow(page, "JIRA-456").click({ button: "right" })
   await page.getByRole("menuitem", { name: "Restart Safe Push", exact: true }).click()
@@ -321,6 +343,10 @@ test.describe("Patronus actions", () => {
     await expect(safePushPopover(page)).toHaveCount(0)
     await page.keyboard.press("Escape")
     await expect(preview).toHaveCount(0)
+    // the robot it names opens from it; the focus goes back to the table
+    await refused.getByRole("button", { name: "Open in Patronus" }).click()
+    expect(await getOpenedUrls(page)).toEqual([RUNNING.url])
+    await findBranchRow(page, "ABC-123").focus()
 
     preview = await openBranchPreview(page, "ABC-123")
     await expect(preview.getByTestId("safe-push-button").locator("kbd")).toHaveText("S")
@@ -585,6 +611,20 @@ test.describe("Patronus actions", () => {
         ["JIRA-456", "dryRun"],
         ["ABC-123", "dryRun"],
       ])
+    })
+
+    test("should open the pull request a robot that failed for missing approvals was started from, from its details", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await routeCommand(page, "get_patronus_robot_problems", () => [{ title: "Changes require review approval", subsystem: "OWNERSHIP_REVIEW_APPROVAL_CHECK" }])
+      const pullRequestUrl = "https://github.com/acme/monorepo/pull/7"
+      await setupStarts(page, setupRepo, syncAndWaitForBranches, { ...FAILED, pullRequest: { number: 7, url: pullRequestUrl } })
+      await expect(chip(page, "ABC-123")).toHaveText("Needs review")
+      const popover = await hoverStatusChip(page, chip(page, "ABC-123"), "patronus-popover")
+      const text = popover.getByTestId("patronus-needs-review")
+      await expect(text).toHaveText(
+        "The code owners did not approve the changes in pull request #7. Restart once they approve: the restart counts the approvals the pull request has by then.",
+      )
+      await text.getByRole("button", { name: "#7" }).click()
+      expect(await getOpenedUrls(page)).toEqual([pullRequestUrl])
     })
 
     test('should say "Needs review" for a robot that failed for missing approvals, and start a new Safe Push from it', async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -992,21 +1032,22 @@ test.describe("Patronus actions", () => {
       expect(pushes).toHaveLength(0)
     })
 
+    test("should open and restart the robot from the description of the preview's push, which says why it can't push", async ({ page }) => {
+      const order = await routeCancelPushRestart(page)
+      const preview = await openBranchPreview(page, "JIRA-456")
+      await preview.getByTestId("push-button").hover()
+      const description = page.getByTestId("push-description")
+      await expect(description).toContainText("A Safe Push of JIRA-456 is running: wait until it merges, or restart it on the current branch")
+      const actions = description.getByTestId("push-hold-actions")
+      await actions.getByRole("button", { name: "Open in Patronus" }).click()
+      expect(await getOpenedUrls(page)).toEqual([OLDER.url])
+      await actions.getByRole("button", { name: "Restart Safe Push" }).click()
+      await expect.poll(() => order).toEqual(["cancel", "push", "restart"])
+      await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push restarted" })).toBeVisible()
+    })
+
     test("should cancel the robot, push and restart it on the pushed commit, from Restart Safe Push", async ({ page }) => {
-      const order: string[] = []
-      await routeCommand(page, "get_patronus_robot_status", () => "running")
-      await routeCommand(page, "cancel_patronus_robot", () => {
-        order.push("cancel")
-        return { ...OLDER, status: "canceling" }
-      })
-      await routeCommand(page, "push_branch", params => {
-        order.push("push")
-        return pushOutcome(params.branchName as string)
-      })
-      await routeCommand(page, "restart_patronus_robot", () => {
-        order.push("restart")
-        return robot("JIRA-456", "restarted-robot", { name: "Restarted" })
-      })
+      const order = await routeCancelPushRestart(page)
 
       await pushAndRestartFromMenu(page)
       // the restart is the action: one toast says it, and opens the restarted robot

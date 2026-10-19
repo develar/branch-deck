@@ -563,6 +563,9 @@ test.describe("Whole stack", () => {
     const separatorBefore = (line: Locator) => line.evaluate(element => getComputedStyle(element, "::before").content)
     expect(await separatorBefore(branchesLine)).toBe('"·"')
     expect(await separatorBefore(stackLine)).toBe("none")
+    // the pull request of the whole stack the line names opens beside the header's actions
+    await island(page, "air").getByTestId("stack-island-open-pull-request").click()
+    expect(await getOpenedUrls(page)).toEqual([stack.url])
 
     // bridge waits for approvals in a pull request: the one of the whole stack collects them for its Safe Push
     const slot = findBranchRow(page, "bridge").getByTestId("next-step-slot")
@@ -575,7 +578,7 @@ test.describe("Whole stack", () => {
       "Code owners must approve in a pull request: IJPL Code Platform\nApprovals in #12, the pull request of the whole air stack, count for its Safe Push only\nOpen Pull Request #12",
     )
     await step.click()
-    await expect.poll(() => getOpenedUrls(page)).toEqual([stack.url])
+    await expect.poll(() => getOpenedUrls(page)).toEqual([stack.url, stack.url])
 
     // the branch's own Safe Push still needs approvals of its own: S says so, and where those of the whole stack count
     await findBranchRow(page, "bridge").click()
@@ -912,5 +915,25 @@ test.describe("Whole stack", () => {
     await expect.poll(() => closes.length).toBe(1)
     expect(closes[0]).toMatchObject({ pullRequestNumber: 12, comment: "Closed in Branch Deck: #12 no longer matches the auth stack: login landed." })
     await expect(page.locator("[data-slot=toast]").filter({ hasText: "Closed pull request #12" })).toBeVisible()
+  })
+
+  test("should offer the close of the pull request of the whole stack in the island header once it no longer matches", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const running = robot("bazel", "bazel-robot")
+    const repo = await setupRepo("stack_island", {
+      patronus: availableRobots(running),
+      pullRequests: withStackPullRequests(availablePullRequests(), { air: stackPullRequest("air", 12) }),
+    })
+    await syncAndWaitForBranches()
+    // the Safe Push of bazel lands air, the root: the pull request of the whole stack shows a stack that is no more
+    await repo.setPatronus(availableRobots({ ...running, status: "success", finishTime: 1704142800 }))
+    await emitTauriEvent(page, "tauri://focus")
+    await expect(page.locator("[data-slot=toast]").filter({ hasText: "bazel merged into master" })).toBeVisible()
+    const line = island(page, "air").getByTestId("orphaned-stack-pull-request")
+    await expect(line).toContainText("#12 no longer matches the air stack")
+    // the line is in the toggle of the header: the close is beside its actions
+    await expect(island(page, "air").getByTestId("stack-island-open-pull-request")).toHaveCount(0)
+    await island(page, "air").getByRole("button", { name: "Close Pull Request #12…" }).click()
+    const confirm = page.locator('tr[data-branch-of="air"]').filter({ has: page.getByRole("button", { name: "Close Pull Request", exact: true }) })
+    await expect(confirm).toContainText("Close pull request #12")
   })
 })

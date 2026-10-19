@@ -82,6 +82,8 @@ describe("getSafePushDecision", () => {
     expect(getSafePushDecision(facts({ fromPullRequest: { number: 7, blockedByDraft: true, command: "/patronus merge" } }))).toMatchObject({
       kind: "refuse",
       reason: "#7 is a draft: Patronus merges it once it is ready for review",
+      // the toast opens the pull request it names
+      opens: "pullRequest",
     })
     expect(getSafePushDecision(facts({ review: { kind: "loaded", readiness: { kind: "missing", groups: [], notCounted: [], reason: "approvalsMissing" } } }))).toMatchObject({
       kind: "refuse",
@@ -100,7 +102,7 @@ describe("getSafePushDecision", () => {
       kind: "confirm",
       reasons: ["review", "dismisses"],
     })
-    expect(getSafePushDecision(facts({ mode: "dryRun", review: { kind: "none" }, pushHeld: "A Safe Push of auth is running" }))).toMatchObject({ kind: "refuse" })
+    expect(getSafePushDecision(facts({ mode: "dryRun", review: { kind: "none" }, pushHeld: "A Safe Push of auth is running" }))).toMatchObject({ kind: "refuse", opens: "robot" })
   })
 
   it("lets a profile that skips the review start without the approvals, and a start without review wait for its profile", () => {

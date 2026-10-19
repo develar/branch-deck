@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 import { cn } from "cn"
-import { FoldVerticalIcon, UnfoldVerticalIcon } from "lucide-react"
+import { FoldVerticalIcon, GitPullRequestIcon, UnfoldVerticalIcon } from "lucide-react"
 import { useShallow } from "zustand/react/shallow"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -8,7 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { CompactPushLabel, PushProgressDescription } from "@/components/branch/BranchPushButton"
 import { LandingNodeHover } from "@/components/branch/LandingNodeHover"
 import { NextStepSlot, WholeStackRequestReviewAnchor } from "@/components/branch/NextStepSlot"
-import { OrphanedStackPullRequestLine } from "@/components/branch/OrphanedStackPullRequest"
+import { ClosePullRequestButton, OrphanedStackPullRequestLine } from "@/components/branch/OrphanedStackPullRequest"
 import { RobotRing } from "@/components/branch/RobotProgress"
 import { LaneNodeDot } from "@/components/branch/StackLanes"
 import { WholeStackSlot } from "@/components/branch/WholeStackSlot"
@@ -29,6 +29,7 @@ import { pushWithChildren } from "@/lib/git/stack-push"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { formatPushHoldReason, formatPushMode } from "@/lib/patronus"
 import { hasKeyModifier } from "@/lib/preview-keys"
+import { openPullRequest } from "@/lib/pull-request"
 import { dropsRemoteCommits } from "@/lib/push-summary"
 import { formatStackPushLine } from "@/lib/push-up-to"
 import { formatRobotProgress } from "@/lib/robot-eta"
@@ -188,6 +189,7 @@ export function StackIslandCard({ island, filtered, landing, children }: StackIs
       }}
       actions={
         <>
+          <StackPullRequestButton root={root} />
           <IslandStateChips summary={summary} />
           {/* the header has the card's wider padding: its actions stand where the Actions cell of the rows ends */}
           <div className="sm:-mr-2" data-testid="stack-island-actions">
@@ -275,6 +277,33 @@ function WholeStackPullRequestLine({ root }: { root: string }) {
   }
   const decision = pullRequest.reviewDecision === "approved" ? " · approved" : pullRequest.reviewDecision === "changesRequested" ? " · changes requested" : ""
   return <span data-testid="stack-island-stack-pull-request">{`${formatWholeStackApprovals(pullRequest.number)}${decision}`}</span>
+}
+
+/**
+ * The pull request of the whole stack the header names, beside the actions (the header lines are inside its toggle):
+ * "#12" opens it while it matches the stack, "Close Pull Request #12…" asks to close it once it no longer does
+ */
+function StackPullRequestButton({ root }: { root: string }) {
+  const pullRequest = useStackPullRequest(root)
+  const stack = useStackBranch(root)
+  const landedBy = useStackLandedBy(root)
+  if (pullRequest?.state !== "open") {
+    return null
+  }
+  if (describeOrphanedStackPullRequest(root, pullRequest, stack, landedBy) !== null) {
+    return <ClosePullRequestButton root={root} number={pullRequest.number} variant="ghost" className="text-warning" />
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<Button variant="ghost" size="xs" className="tabular-nums" data-testid="stack-island-open-pull-request" onClick={() => openPullRequest(pullRequest)} />}
+      >
+        <GitPullRequestIcon data-icon="inline-start" />
+        {`#${pullRequest.number}`}
+      </TooltipTrigger>
+      <TooltipContent>{`Open Pull Request #${pullRequest.number}`}</TooltipContent>
+    </Tooltip>
+  )
 }
 
 /** "4 pull requests open · 1 approved · 1 changes requested" of the open pull requests of the stack's branches */

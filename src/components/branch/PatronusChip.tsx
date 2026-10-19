@@ -18,6 +18,7 @@ import type { MenuItem } from "@/lib/menu"
 import type { PatronusChipState } from "@/lib/patronus"
 import { formatPushMode, formatRobotCommitNotice, getPatronusChipState, getRobotRestartAction, isFailingChip, openRobot, robotRingColor } from "@/lib/patronus"
 import { patronusChipIcons } from "@/lib/patronus-icons"
+import { openPullRequestUrl } from "@/lib/pull-request"
 import { formatCheckProgress, formatRobotTimingDetails } from "@/lib/robot-eta"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
@@ -221,9 +222,15 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
 
       {needsReview && (
         <p className="text-xs text-warning" data-testid="patronus-needs-review">
-          {robot.pullRequest == null
-            ? "The code owners did not approve the changes. Get their approvals in the pull request of the branch, then start a new Safe Push from it: a restart has no pull request to count them in."
-            : `The code owners did not approve the changes in pull request #${robot.pullRequest.number}. Restart once they approve: the restart counts the approvals the pull request has by then.`}
+          {robot.pullRequest == null ? (
+            "The code owners did not approve the changes. Get their approvals in the pull request of the branch, then start a new Safe Push from it: a restart has no pull request to count them in."
+          ) : (
+            <>
+              {"The code owners did not approve the changes in pull request "}
+              <PullRequestLink pullRequest={robot.pullRequest} />
+              {". Restart once they approve: the restart counts the approvals the pull request has by then."}
+            </>
+          )}
         </p>
       )}
 
@@ -239,11 +246,24 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
   )
 }
 
+/** "#1078" in a sentence, a link that opens the pull request the robot was started from */
+function PullRequestLink({ pullRequest }: { pullRequest: { readonly number: number; readonly url: string } }) {
+  return (
+    <button
+      type="button"
+      className="rounded-sm underline-offset-2 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
+      onClick={() => openPullRequestUrl(pullRequest.url)}
+    >
+      {`#${pullRequest.number}`}
+    </button>
+  )
+}
+
 /**
  * An action of the robot as an `outline` button; a disabled one says why on hover. `data-action` names it: a restart
  * that pushes first has the name of a restart
  */
-function RobotActionButton({ action }: { action: MenuItem }) {
+export function RobotActionButton({ action }: { action: MenuItem }) {
   const content = (
     <>
       {action.icon && <action.icon data-icon="inline-start" />}

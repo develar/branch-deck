@@ -304,11 +304,12 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 - A pull request of the whole stack that no longer matches it (a Safe Push of a branch landed the root in a piece, as
   the app saw the merge; or the stack no longer forks and its stack branch stays for its remote branch) must never be
   closed by itself, and its stack branch stays: the merge toast, the root's preview, the island's header and the
-  description of its items say "#12 no longer matches the air stack: auth landed", and "Close Pull Request #12…" asks in
-  the root's row before it closes it with a comment that says why.
+  description of its items say "#12 no longer matches the air stack: auth landed", and "Close Pull Request #12…" (the
+  preview's notice, the island's header, "⋯") asks in the root's row before it closes it with a comment that says why.
   [@test] ../../src/lib/whole-stack.test.ts (`has a pull request that no longer matches it once a piece landed the root or the stack no longer forks, an open one only`)
   [@test] ../../src/stores/patronus.test.ts (`says that a piece that landed the root leaves the pull request of the whole stack, never closed by itself`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say that the pull request of the whole stack no longer matches it once a piece landed the root, and close it only when asked`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should offer the close of the pull request of the whole stack in the island header once it no longer matches`)
 
 ### The Safe Push of the whole stack in the app
 

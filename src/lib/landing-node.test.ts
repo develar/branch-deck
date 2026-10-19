@@ -81,7 +81,7 @@ describe("getLandingNode", () => {
 
   it("waits for others: the reviewers, its parent, a robot that lands an ancestor, a base that may be meant", () => {
     expect(landing(withReadiness(missing([group()])))).toEqual({ kind: "waiting", label: "Waits for the approval of IJPL Code Platform: Ilya Korennoy is requested on #1078" })
-    expect(landing(facts({ blocked: true }), { status: "Blocked", blockedBy: "auth" })).toEqual({ kind: "waiting", label: "Blocked by auth, which doesn't build" })
+    expect(landing(facts({ blocked: true }), { status: "Blocked", blockedBy: "auth" })).toEqual({ kind: "waiting", label: "Blocked by auth, which doesn't build", shows: "auth" })
     const ancestor = "A Safe Push of login is running: wait until it merges"
     expect(landing(withReadiness(approved, { startBlocker: ancestor }))).toEqual({ kind: "waiting", label: ancestor })
     // the approvals still wait in the pull request whatever runs below
