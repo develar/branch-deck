@@ -153,6 +153,36 @@ simpleTest.describe("Commit review", () => {
     await expect(page.getByTestId("review-sidebar")).toBeVisible()
   })
 
+  simpleTest("should drag the divider of the sides of Split, keep its share, and make the sides equal with a double click", async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 })
+    await openTreePreview(page)
+    await page.keyboard.press("d")
+    const window = await showReviewWindow(page, await openedReview(page, 1))
+    const row = window.locator(".dv-row[data-kind=changed]").first()
+    await expect(row).toBeVisible()
+    const share = () => row.evaluate(element => element.children[0]!.getBoundingClientRect().width / element.getBoundingClientRect().width)
+    await expect.poll(share).toBeCloseTo(0.5, 2)
+    // the divider is the line between the halves of a row
+    const line = async () => {
+      const box = (await row.locator('.dv-half[data-side="1"]').boundingBox())!
+      return { x: box.x, y: box.y + box.height / 2 }
+    }
+
+    const at = await line()
+    await page.mouse.move(at.x, at.y)
+    await page.mouse.down()
+    await page.mouse.move(at.x - 300, at.y, { steps: 5 })
+    await page.mouse.up()
+    const dragged = await share()
+    expect(dragged).toBeLessThan(0.35)
+    await waitForStorePersistence(page, "diffView", settings => Math.abs(((settings as { splitRatio?: number } | undefined)?.splitRatio ?? 0.5) - dragged) < 0.01)
+
+    // IntelliJ's DiffSplitter: a double click makes the sides equal
+    const moved = await line()
+    await page.mouse.dblclick(moved.x, moved.y)
+    await expect.poll(share).toBeCloseTo(0.5, 2)
+  })
+
   simpleTest("should copy the lines of a selection of the diffs from the model, one side in Split, without the line numbers", async ({ page }) => {
     await openTreePreview(page)
     await page.keyboard.press("d")

@@ -135,6 +135,29 @@
   border-inline-start: 1px solid var(--border);
 }
 
+/* Split: the old side takes its share of the row, the new side the rest (DiffView's `codeWidthsOf` counts the same) */
+[data-split] .dv-half[data-side="0"],
+[data-split] .dv-hscroll[data-side="0"] {
+  flex: 0 0 calc(var(--dv-split, 0.5) * 100%);
+}
+
+/*
+ * The divider of the sides: the line between the halves of a row, a hit area of 4 px to each side of it (DiffView's
+ * `dragSplit`); a fold row and a header have none, so their buttons stay free
+ */
+[data-split] .dv-row > .dv-half[data-side="1"] {
+  position: relative;
+}
+
+[data-split].dv-scroller .dv-row > .dv-half[data-side="1"]::before {
+  position: absolute;
+  inset-block: 0;
+  left: -4px;
+  width: 8px;
+  content: "";
+  cursor: col-resize;
+}
+
 /* the line numbers of IntelliJ: a point smaller than the editor font, LINE_NUMBERS_COLOR */
 .dv-num {
   flex: none;

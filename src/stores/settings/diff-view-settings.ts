@@ -7,6 +7,9 @@ import { createPersistentStore } from "./persistent-store"
  * One choice for every diff view, as IntelliJ's diff settings: the layout (`DiffViewToggle`, Settings → Appearance),
  * soft wraps and ligatures. A default only fills a missing field, so a stored value wins over it.
  */
+/** The narrowest share of a side of Split */
+export const MIN_SPLIT_RATIO = 0.15
+
 const DiffViewSettingsSchema = z.object({
   // Split first, as IntelliJ's diff and its VCS log; Inline is Unified with a lightly edited line as one row
   mode: z.enum(["split", "unified", "inline"]).default("split"),
@@ -15,6 +18,13 @@ const DiffViewSettingsSchema = z.object({
   // on, unlike IntelliJ's "Enable ligatures": a ligature of JetBrains Mono keeps the width of its cells
   // (docs/design/ui-theme.md, "Diffs")
   ligatures: z.boolean().default(true),
+  // the share of the old side in Split, as IntelliJ's DiffSplitter: its divider drags, a double click makes it 0.5
+  splitRatio: z
+    .number()
+    .min(MIN_SPLIT_RATIO)
+    .max(1 - MIN_SPLIT_RATIO)
+    .catch(0.5)
+    .default(0.5),
   // what the diff engine ignores; IntelliJ's default compares every character
   whitespacePolicy: z.enum(["default", "trim", "ignore", "ignoreBlankLines"] satisfies WhitespacePolicy[]).default("default"),
 })
@@ -32,6 +42,15 @@ export function useDiffViewMode(): DiffViewMode {
 /** Long lines break at the edge of the diff instead of scrolling */
 export function useDiffSoftWraps(): boolean {
   return useStore(diffViewStore, state => state.softWraps)
+}
+
+/** The share of the old side in Split, in every diff view */
+export function useDiffSplitRatio(): number {
+  return useStore(diffViewStore, state => state.splitRatio)
+}
+
+export function setDiffSplitRatio(splitRatio: number): void {
+  diffViewStore.setState({ splitRatio: Math.min(Math.max(splitRatio, MIN_SPLIT_RATIO), 1 - MIN_SPLIT_RATIO) })
 }
 
 /** The ligatures of JetBrains Mono in the code of every diff view */

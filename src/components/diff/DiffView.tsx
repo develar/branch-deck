@@ -1,5 +1,5 @@
 import { memo, startTransition, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react"
-import type { CSSProperties, KeyboardEvent, ReactNode, Ref } from "react"
+import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, Ref } from "react"
 import { flushSync } from "react-dom"
 import { cn } from "cn"
 import { useStore } from "zustand"
@@ -27,7 +27,7 @@ import type { TextMetrics } from "@/lib/diff/wrap"
 import { blobTextsStore, putDerivedText, requestBlobTexts } from "@/stores/blob-texts"
 import type { BlobTextEntry } from "@/stores/blob-texts"
 import { useAppSettings } from "@/stores/settings/appSettings"
-import { useDiffLigatures } from "@/stores/settings/diff-view-settings"
+import { MIN_SPLIT_RATIO, setDiffSplitRatio, useDiffLigatures, useDiffSplitRatio } from "@/stores/settings/diff-view-settings"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 import "./diff-view.css"
 
@@ -239,6 +239,10 @@ export function DiffView({
   const headerHeight = cards ? CARD_HEADER_HEIGHT : 0
   const zoom = useAppSettings(state => state.zoom)
   const ligatures = useDiffLigatures()
+  // the share of the old side in Split: the stored one, or the one of a drag of the divider until it ends
+  const storedSplit = useDiffSplitRatio()
+  const [draggedSplit, setDraggedSplit] = useState<number | null>(null)
+  const split = mode === "split" ? (draggedSplit ?? storedSplit) : 0.5
   // the files the user expanded or collapsed against the way they start
   const [toggled, setToggled] = useState<ReadonlySet<string>>(() => new Set())
   // the fold levels this view changed; `setFoldLevels` keeps them for the next view of the same diff
@@ -289,7 +293,7 @@ export function DiffView({
         return undefined
       }
       const tables = file.ids.map((id, side) => (id === null ? null : getLineTable(id, sides[side]!)))
-      const widths = codeWidthsOf(file, width, metrics.columnWidth)
+      const widths = codeWidthsOf(file, width, metrics.columnWidth, split)
       const sideBySide = cells.columns.length > 1
       return visualLinePrefix(rows.rowCount, row => {
         const value = rowAt(rows, row)
@@ -313,7 +317,7 @@ export function DiffView({
         return lines
       })
     })
-  }, [prepared, softWraps, width, texts, metrics])
+  }, [prepared, softWraps, width, texts, metrics, split])
 
   // a view without headers shows the notice of a file in a row of the layout; the key keeps the notices one array
   // while they stay the same, so a text that arrives lays out nothing again
@@ -360,10 +364,10 @@ export function DiffView({
       cells: file.cells,
       rows: layout.files[index]!.rows,
       language: languageOf(file.path),
-      codeWidths: codeWidthsOf(file, width, metrics.columnWidth),
+      codeWidths: codeWidthsOf(file, width, metrics.columnWidth, split),
     }))
     painter.setModel({ files: painterFiles, layout, softWraps, textMetrics: metrics.text, hits: hitLines })
-  }, [painter, prepared, layout, softWraps, metrics, width, hitLines])
+  }, [painter, prepared, layout, softWraps, metrics, width, hitLines, split])
 
   // the hit a step chose: a third of the viewport below the header, never above its file
   useLayoutEffect(() => {
@@ -631,6 +635,7 @@ export function DiffView({
         columnWidth={metrics.columnWidth}
         softWraps={softWraps}
         width={width}
+        split={split}
         sideWidths={file.ids.map(widthOf).join(" ")}
         painter={painter}
         renderHeader={renderHeader}
@@ -640,6 +645,40 @@ export function DiffView({
     )
   })
 
+  // the divider of Split, as IntelliJ's DiffSplitter: the line between the halves of a row, 4 px to each side of it
+  // (`.dv-half[data-side="1"]::before` gives the cursor); a drag sets the share, a double click makes the sides equal
+  const onDividerOf = (event: { clientX: number; clientY: number }) => {
+    // by the point, not the target: the drag before a double click captured the pointer
+    const half = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('.dv-row > .dv-half[data-side="1"]') ?? null
+    return half !== null && Math.abs(event.clientX - half.getBoundingClientRect().left) <= 4
+  }
+  const dragSplit = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !onDividerOf(event)) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    const element = event.currentTarget
+    const start = element.getBoundingClientRect().left + (cards ? CARD_INSET + CARD_BORDER : 0)
+    const shareAt = (clientX: number) => Math.min(Math.max((clientX - start) / Math.max(width, 1), MIN_SPLIT_RATIO), 1 - MIN_SPLIT_RATIO)
+    let share = split
+    element.setPointerCapture(event.pointerId)
+    const move = (moved: PointerEvent) => {
+      share = shareAt(moved.clientX)
+      setDraggedSplit(share)
+    }
+    const end = () => {
+      element.removeEventListener("pointermove", move)
+      element.removeEventListener("pointerup", end)
+      element.removeEventListener("pointercancel", end)
+      setDiffSplitRatio(share)
+      setDraggedSplit(null)
+    }
+    element.addEventListener("pointermove", move)
+    element.addEventListener("pointerup", end)
+    element.addEventListener("pointercancel", end)
+  }
+
   const view = (
     <div
       ref={scroller}
@@ -648,6 +687,10 @@ export function DiffView({
       tabIndex={scroll === "own" ? 0 : undefined}
       className={cn(scroll === "own" ? "dv-scroller min-h-0 flex-1" : "dv-embedded", cards && "dv-cards")}
       data-ligatures={ligatures ? undefined : "off"}
+      data-split={mode === "split" ? "" : undefined}
+      style={mode === "split" ? ({ "--dv-split": String(split) } as CSSProperties) : undefined}
+      onPointerDown={scroll === "own" && mode === "split" ? event => dragSplit(event) : undefined}
+      onDoubleClick={scroll === "own" && mode === "split" ? event => onDividerOf(event) && setDiffSplitRatio(0.5) : undefined}
       data-testid="diff-view"
     >
       <div className="dv-document" style={{ height: layout.height }}>
@@ -693,6 +736,8 @@ interface DiffSectionProps {
   columnWidth: number
   softWraps: boolean
   width: number
+  /** The share of the old side in Split */
+  split: number
   /**
    * The width of the widest line of the text of each side in CSS px, 0 while a text is not read; one string, so the
    * memo of the section compares it by value
@@ -720,6 +765,7 @@ const DiffSection = memo(function DiffSection(props: DiffSectionProps) {
     columnWidth,
     softWraps,
     width,
+    split,
     sideWidths,
     painter,
     renderHeader,
@@ -769,7 +815,7 @@ const DiffSection = memo(function DiffSection(props: DiffSectionProps) {
             }}
           />
           {!softWraps && (
-            <HorizontalBars file={file} sideWidths={sideWidths.split(" ").map(Number)} columnWidth={columnWidth} codeWidths={codeWidthsOf(file, width, columnWidth)} />
+            <HorizontalBars file={file} sideWidths={sideWidths.split(" ").map(Number)} columnWidth={columnWidth} codeWidths={codeWidthsOf(file, width, columnWidth, split)} />
           )}
         </>
       )}
@@ -837,11 +883,16 @@ function scrollParentOf(element: HTMLElement): HTMLElement | null {
  * The width of the code of each side in CSS px: its column, less the line numbers, the bar of a change and the
  * padding; one column shows both line numbers
  */
-function codeWidthsOf(file: PreparedFile, width: number, columnWidth: number): number[] {
+function codeWidthsOf(file: PreparedFile, width: number, columnWidth: number, split: number): number[] {
   const gutter = file.gutterColumns * columnWidth
   // the padding before the code; the colour of a line fills its gutter, so no bar takes a width
   const chrome = columnWidth
   const columns = file.cells?.columns.length ?? 1
+  if (columns === 2) {
+    // Split: the old side takes its share of the row (`--dv-split`), the new side the rest less its 1-px border
+    const old = split * width
+    return [old - gutter - chrome, width - old - 1 - gutter - chrome]
+  }
   // a border of 1 px between two columns
   const code = columns > 1 ? (width - (columns - 1)) / columns - gutter - chrome : width - 2 * gutter - chrome
   return file.ids.map(() => code)

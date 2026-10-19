@@ -186,6 +186,10 @@ review windows show their notices in the header and use no notice row), and the 
   the files before it and a gap after each. A file is `header + notice + rows + bottom border`. So every offset stays
   arithmetic, and the anchor, the rows in view and the scroll to a file need no measure.
 
+**The divider of Split.** The old side takes `splitRatio` of the row (`--dv-split`), the new side the rest less its
+1-px border; `codeWidthsOf` counts the same widths, so the soft wraps stay exact. A drag of the divider of a view
+with its own scroller changes the share while it moves and stores it at its end; a double click stores 0.5.
+
 **The row height.** It comes from the metrics of the editor font, not from a constant:
 - The view measures the ascent and the descent of the font with `measureText` of a canvas, at the font size of the
   diffs (13 px). It multiplies their sum by IntelliJ's default line spacing (1.2).
