@@ -762,6 +762,15 @@ pub mod templates {
   /// at the line, but its words resolve (`{ timeout: 10, retries: 3 }`), and the added line resolves as it is. The
   /// resolve by words is off, so the sync reports the conflict of git and the view shows what the words would do
   pub fn conflict_words() -> RepoTemplate {
+    words_conflict("conflict_words").config("branchdeck.resolveByWords", "false")
+  }
+
+  /// `conflict_words` with the resolve by words on, as by default: the sync copies the commit of `ui` with the result
+  pub fn resolved_words() -> RepoTemplate {
+    words_conflict("resolved_words")
+  }
+
+  fn words_conflict(name: &str) -> RepoTemplate {
     // the limits line, and two lines apart from the end of the file
     let limits = |timeout: u32, retries: u32, end: &str| {
       format!(
@@ -769,9 +778,8 @@ pub mod templates {
       )
     };
     // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
-    RepoTemplate::new("conflict_words")
+    RepoTemplate::new(name)
       .branch_prefix("user-name")
-      .config("branchdeck.resolveByWords", "false")
       .commit_with_timestamp("Initial project setup", &[("limits.js", limits(10, 1, "").as_str())], Some(1704117600))
       .commit_with_timestamp("(core) Raise the timeout", &[("limits.js", limits(30, 1, "").as_str())], Some(1704119400))
       .commit_with_timestamp(

@@ -99,8 +99,11 @@ fn file(repo: &TestRepo, rev: &str, path: &str) -> String {
 
 const BETA: &str = "refs/heads/test/virtual/beta";
 
-fn resolved_call() -> WordResolutionSummary {
+/// The resolve of beta, the last commit, copied onto the baseline
+fn resolved_call(repo: &TestRepo) -> WordResolutionSummary {
   WordResolutionSummary {
+    parent: repo.rev_parse("HEAD~1").unwrap(),
+    target: repo.rev_parse("refs/remotes/origin/master").unwrap(),
     conflicts: 1,
     file_count: 1,
     files: vec![ResolvedFileSummary {
@@ -115,7 +118,7 @@ async fn a_conflict_that_its_words_resolve_is_copied_with_the_author_and_the_mes
   let repo = repo_with_a_word_conflict();
   let events = sync_events(&repo).await;
   assert!(!has_conflict(&events));
-  assert_eq!(beta_copies(&events), vec![(CommitSyncStatus::Created, Some(resolved_call()))]);
+  assert_eq!(beta_copies(&events), vec![(CommitSyncStatus::Created, Some(resolved_call(&repo)))]);
   // the change of beta on the baseline, as IntelliJ resolves it: the first argument of the baseline, the third of beta
   assert_eq!(file(&repo, BETA, "Call.kt"), "call(a, b, C)\nend");
   let original = repo.head();
@@ -139,7 +142,7 @@ async fn the_next_sync_reuses_the_resolved_copy_and_says_so_from_its_note() {
   // the note keeps the counts, not the files: the view merges the commit again for them
   let from_note = WordResolutionSummary {
     files: Vec::new(),
-    ..resolved_call()
+    ..resolved_call(&repo)
   };
   assert_eq!(beta_copies(&events), vec![(CommitSyncStatus::Unchanged, Some(from_note))]);
 }
@@ -151,7 +154,7 @@ async fn the_setting_off_gives_the_conflict_of_git_and_on_again_the_resolved_cop
   assert!(has_conflict(&sync_events(&repo).await));
   repo.set_config("branchdeck.resolveByWords", "true").unwrap();
   let events = sync_events(&repo).await;
-  assert_eq!(beta_copies(&events), vec![(CommitSyncStatus::Created, Some(resolved_call()))]);
+  assert_eq!(beta_copies(&events), vec![(CommitSyncStatus::Created, Some(resolved_call(&repo)))]);
   // off again: the reused copy would keep a resolve the user turned off, so the commit is copied again and conflicts
   repo.set_config("branchdeck.resolveByWords", "false").unwrap();
   assert!(has_conflict(&sync_events(&repo).await));

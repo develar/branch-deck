@@ -24,15 +24,21 @@ export interface MergeColumnLabels {
 
 export interface ConflictingFilesSectionProps {
   files: readonly ConflictFile[]
-  /** The cherry-pick that conflicts: its merges come from `get_file_merges` */
+  /**
+   * The cherry-pick that conflicts: its merges come from `get_file_merges`. With `resolved`, the copy that resolved the
+   * conflict by words: the middle shows what the sync committed
+   */
   source: MergeSource
   labels: MergeColumnLabels
 }
 
-const MIDDLES: Array<{ middle: MergeMiddle; label: string }> = [
-  { middle: "result", label: "Result (proposed)" },
-  { middle: "base", label: "Base" },
-]
+/** The choices of the middle column; the result of a resolved copy is the one the sync committed */
+function middles(resolved: boolean): Array<{ middle: MergeMiddle; label: string }> {
+  return [
+    { middle: "result", label: resolved ? "Result (committed)" : "Result (proposed)" },
+    { middle: "base", label: "Base" },
+  ]
+}
 
 /**
  * The conflicting files, one item each, the first open: the merge of each file in three columns, as IntelliJ's merge
@@ -44,9 +50,12 @@ export function ConflictingFilesSection({ files, source, labels }: ConflictingFi
   const policy = useDiffWhitespacePolicy()
   const entry = useFileMerges(source, policy)
   const [middle, setMiddle] = useState<MergeMiddle>("result")
-  const { parent, target, commit } = source
+  const { parent, target, commit, resolved } = source
   const first = files[0]?.file
-  useEffect(() => loadFileMerges({ kind: "cherryPick", parent, target, commit }, policy, first === undefined ? [] : [first]), [parent, target, commit, policy, first])
+  useEffect(
+    () => loadFileMerges({ kind: "cherryPick", parent, target, commit, resolved }, policy, first === undefined ? [] : [first]),
+    [parent, target, commit, resolved, policy, first],
+  )
 
   return (
     <AccordionPrimitive.Root multiple defaultValue={files.length === 0 ? [] : ["file-0"]} className="flex flex-col gap-2">
@@ -59,7 +68,7 @@ export function ConflictingFilesSection({ files, source, labels }: ConflictingFi
               path={file.file}
               actions={
                 <Badge variant="outline" className="tabular-nums" data-testid="file-conflict-count">
-                  {count === 0 ? "modify/delete" : count === 1 ? "1 conflict" : `${count} conflicts`}
+                  {conflictCountText(count, resolved !== undefined && resolved !== null)}
                 </Badge>
               }
             />
@@ -70,7 +79,7 @@ export function ConflictingFilesSection({ files, source, labels }: ConflictingFi
               ) : found === undefined ? (
                 <DiffLoadState loading="" error={entry?.kind === "error" ? `Cannot load the conflict: ${entry.message}` : "Git reports no conflict in this file"} />
               ) : (
-                <FileMergeView merge={found} labels={labels} middle={middle} onMiddleChange={setMiddle} />
+                <FileMergeView merge={found} labels={labels} middle={middle} onMiddleChange={setMiddle} resolved={resolved !== undefined && resolved !== null} />
               )}
             </AccordionPrimitive.Panel>
           </AccordionPrimitive.Item>
@@ -80,15 +89,25 @@ export function ConflictingFilesSection({ files, source, labels }: ConflictingFi
   )
 }
 
+/** The badge of a file: its conflicts of git, resolved by words in a resolved copy */
+function conflictCountText(count: number, resolved: boolean): string {
+  if (count === 0) {
+    return resolved ? "resolved" : "modify/delete"
+  }
+  const conflicts = count === 1 ? "1 conflict" : `${count} conflicts`
+  return resolved ? `${conflicts} resolved` : conflicts
+}
+
 interface FileMergeViewProps {
   merge: FileMerge
   labels: MergeColumnLabels
   middle: MergeMiddle
   onMiddleChange: (middle: MergeMiddle) => void
+  resolved: boolean
 }
 
 /** The merge of one file under the names of its three columns; a one-sided merge as the diff of the change it keeps */
-function FileMergeView({ merge, labels, middle, onMiddleChange }: FileMergeViewProps) {
+function FileMergeView({ merge, labels, middle, onMiddleChange, resolved }: FileMergeViewProps) {
   const mode = useDiffViewMode()
   const softWraps = useDiffSoftWraps()
   const { content } = merge
@@ -118,7 +137,7 @@ function FileMergeView({ merge, labels, middle, onMiddleChange }: FileMergeViewP
           {labels.left}
         </span>
         <FieldGroup className="justify-self-center">
-          {MIDDLES.map(choice => (
+          {middles(resolved).map(choice => (
             <Button
               key={choice.middle}
               size="xs"

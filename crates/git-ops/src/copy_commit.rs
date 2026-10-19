@@ -206,7 +206,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     debug!(commit_id = %commit.id, copy = copy.id, "taking the copy the sync remembers");
     // the next commit of the branch is copied onto this one
     tree_id_cache.insert(copy.id, copy.tree);
-    let resolved = copy.resolved.map(|resolved| summary_of_note(&resolved));
+    let resolved = copy.resolved.map(|resolved| summary_of_note(&resolved, commit, new_parent_oid));
     return Ok(copied(commit, copy.id.to_string(), new_parent_oid, existing_virtual_commits, source, resolved));
   }
   let commit_message = virtual_message(commit);
@@ -251,7 +251,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
         hash: mapped_id.clone(),
         status: CommitSyncStatus::Unchanged,
         note,
-        resolved: commit.mapped_resolution.as_ref().map(summary_of_note),
+        resolved: commit.mapped_resolution.as_ref().map(|resolved| summary_of_note(resolved, commit, new_parent_oid)),
       }
     };
     match &commit.mapped_source {
@@ -278,7 +278,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
         let copy = copied_tree()?;
         if copy.tree == virtual_commit.tree {
           debug!(original_id = %commit.id, mapped_id = %mapped_id, "the mapped commit is a copy of this commit");
-          let resolved = copy.resolved.as_ref().map(Resolved::summary);
+          let resolved = copy.resolved.as_ref().map(|resolved| resolved.summary(parent_of(commit), new_parent_oid));
           let note = (recorded.as_ref() != Some(&source) || resolved.as_ref().map(note_resolution) != commit.mapped_resolution).then(|| MappingNote {
             original: commit.id.clone(),
             mapped: mapped_id.clone(),
@@ -321,13 +321,21 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     .map_err(|e| CopyCommitError::Other(anyhow!("Failed to create commit: {e}")))?;
   // the next commit of the branch is copied onto this one; its tree is known, so don't ask git for it
   tree_id_cache.insert(&new_commit_hash, &tree_id);
-  let resolved = picked.resolved.as_ref().map(Resolved::summary);
+  let resolved = picked.resolved.as_ref().map(|resolved| resolved.summary(parent_of(commit), new_parent_oid));
   Ok(copied(commit, new_commit_hash, new_parent_oid, existing_virtual_commits, source, resolved))
 }
 
-/// The resolve a mapping note records, without the files, which the note does not keep
-const fn summary_of_note(resolved: &NoteResolution) -> WordResolutionSummary {
+/// The parent of a commit that a resolve merged: a root commit has none and never merges
+fn parent_of(commit: &Commit) -> &str {
+  commit.parent_id.as_deref().unwrap_or_default()
+}
+
+/// The resolve a mapping note records, without the files, which the note does not keep, for the copy of `commit` onto
+/// `target`
+fn summary_of_note(resolved: &NoteResolution, commit: &Commit, target: &str) -> WordResolutionSummary {
   WordResolutionSummary {
+    parent: parent_of(commit).to_string(),
+    target: target.to_string(),
     conflicts: resolved.conflicts,
     file_count: resolved.files,
     files: Vec::new(),

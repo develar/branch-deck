@@ -159,7 +159,8 @@ enum CommitProcessingResult {
     new_commit_hash: String,
     sync_status: CommitSyncStatus,
     mapping_info: Option<MappingNote>,
-    resolved: Option<WordResolutionSummary>,
+    /// Boxed: the summary would make the variant much larger than the other one (`large_enum_variant`)
+    resolved: Option<Box<WordResolutionSummary>>,
   },
   BranchError(BlockReason),
 }
@@ -331,7 +332,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
         // every path to a copy leaves its tree in the cache
         let tree = tree_id_cache.get_tree_id(git_executor, repository_path, &new_commit_hash)?;
         copies.push((new_commit_hash.clone(), tree));
-        resolutions.push(resolved.as_ref().map(note_resolution));
+        resolutions.push(resolved.as_deref().map(note_resolution));
 
         current_parent_hash.clone_from(&new_commit_hash);
         last_commit_hash = new_commit_hash;
@@ -559,7 +560,7 @@ fn process_single_commit<P: ProgressReporter>(
         new_commit_hash,
         sync_status,
         mapping_info,
-        resolved,
+        resolved: resolved.map(Box::new),
       })
     }
     Err(CopyCommitError::BranchError(mut branch_error)) => {

@@ -22,6 +22,7 @@ import type {
   SyncEvent,
   TransferProgress,
   UpdateCheck,
+  WordResolutionSummary,
 } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
@@ -56,6 +57,8 @@ export interface SyncedCommit extends Commit {
   hash?: string
   status?: CommitSyncStatus
   error?: BranchError | null
+  /** The conflict of git that the copy resolved by words (`branchdeck.resolveByWords`) */
+  resolved?: WordResolutionSummary | null
 }
 
 /** Remote tracking information for a branch. */
@@ -1585,14 +1588,14 @@ function applyStackBranchUpdate(draft: SyncDraft, update: StackBranchUpdate): vo
 }
 
 function applyCommitSynced(draft: SyncDraft, data: Extract<SyncEvent, { type: "commitSynced" }>["data"]): void {
-  const { branchName, commitHash, newHash, status } = data
+  const { branchName, commitHash, newHash, status, resolved } = data
   updateDraftBranch(draft, branchName, branch => {
     if (branch.commitIndex[commitHash] === undefined) {
       return branch
     }
     return {
       ...branch,
-      commits: updateCommit(branch, commitHash, { hash: newHash, status }),
+      commits: updateCommit(branch, commitHash, { hash: newHash, status, resolved: resolved ?? null }),
       processedCount: branch.processedCount + 1,
     }
   })

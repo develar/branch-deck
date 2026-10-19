@@ -149,8 +149,10 @@ function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds,
     const { merge } = entry
     const text = merge?.content.kind === "text" ? merge.content : null
     const rows = text === null ? null : buildMergeRows(text, middle, folds.get(text) ?? getFoldLevels(text))
-    const ids = merge === undefined ? [] : [merge.leftId, text !== null && middle === "result" ? resultTextId(text) : merge.baseId, merge.rightId]
-    const reads = text === null ? [] : [merge!.leftId, merge!.baseId, merge!.rightId].flatMap(id => (id === null ? [] : [{ id, path: null }]))
+    // the result of a copy that resolved the conflict by words is the blob the sync committed, else the one the engine proposes
+    const result = text === null ? null : (merge!.resolvedId ?? resultTextId(text))
+    const ids = merge === undefined ? [] : [merge.leftId, result !== null && middle === "result" ? result : merge.baseId, merge.rightId]
+    const reads = text === null ? [] : [merge!.leftId, merge!.baseId, merge!.rightId, merge!.resolvedId].flatMap(id => (id === null ? [] : [{ id, path: null }]))
     const digits = String(Math.max(text?.leftLineCount ?? 0, text?.baseLineCount ?? 0, text?.rightLineCount ?? 0, 1)).length
     const file = mergeStandIn(entry.path)
     return {
@@ -382,6 +384,7 @@ export function DiffView({
         !("baseLineCount" in model) ||
         middle !== "result" ||
         id === null ||
+        merge.resolvedId !== null ||
         blobTextsStore.getState().byId.get(id)?.kind === "loaded"
       ) {
         continue

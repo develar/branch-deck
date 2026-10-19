@@ -460,7 +460,9 @@ copied onto (ours, stage 2), right the commit (theirs, stage 3), the middle the 
   changed it, the text of its resolve by words, or the base for a conflict that does not resolve. "Base" shows the
   base. The result is a text that no blob holds: `composeResult` composes it once the three texts are read, and the
   view keeps it in the blob texts store under its own id (`resultTextId`), so the line tables, the highlight worker
-  and the widths take it as a blob.
+  and the widths take it as a blob. A copy that the sync committed with the conflict resolved by words
+  (`MergeSource::CherryPick::resolved`) shows "Result (committed)": the blob of the file in the copy
+  (`resolvedId`), read by its id as the sides are, not a text the view composes.
 - **Cells.** `mergeCells` of `src/lib/diff/row-cells.ts`, as `diffCells` for a diff, tells the painter the columns,
   the kind of each cell and its ranges. A block has the colour of its kind (inserted green, deleted grey, modified
   blue, conflict red) in the middle and on each side that changed it; a side that did not change it stays plain. The

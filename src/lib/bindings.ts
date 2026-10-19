@@ -3352,6 +3352,10 @@ export type WhitespacePolicy =
  *  the commit row says ("Resolved 3 conflicts by words")
  */
 export type WordResolutionSummary = {
+	/**  The parent of the original commit: the base of the merge that the conflict view opens again */
+	parent: string,
+	/**  The commit the copy is built on: ours of that merge */
+	target: string,
 	/**  The conflicts of git that the words resolved: the `<<<<<<<` lines git would have left */
 	conflicts: number,
 	/**  The resolved files */

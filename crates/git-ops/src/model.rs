@@ -46,6 +46,10 @@ pub enum CommitSyncStatus {
 #[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
 pub struct WordResolutionSummary {
+  /// The parent of the original commit: the base of the merge that the conflict view opens again
+  pub parent: String,
+  /// The commit the copy is built on: ours of that merge
+  pub target: String,
   /// The conflicts of git that the words resolved: the `<<<<<<<` lines git would have left
   pub conflicts: u32,
   /// The resolved files

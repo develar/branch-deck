@@ -95,8 +95,8 @@ impl Resolved {
     }
   }
 
-  /// What the commit row and the mapping note say of it
-  pub fn summary(&self) -> WordResolutionSummary {
+  /// What the commit row and the mapping note say of it, for the copy of a commit with `parent` onto `target`
+  pub fn summary(&self, parent: &str, target: &str) -> WordResolutionSummary {
     let files: Vec<ResolvedFileSummary> = match self {
       Self::Now(resolution) => resolution
         .files
@@ -115,6 +115,8 @@ impl Resolved {
         .collect(),
     };
     WordResolutionSummary {
+      parent: parent.to_string(),
+      target: target.to_string(),
       conflicts: files.iter().map(|file| file.conflicts).sum(),
       file_count: u32::try_from(files.len()).unwrap_or(u32::MAX),
       files,

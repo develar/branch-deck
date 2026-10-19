@@ -22,6 +22,7 @@ import type { CommitUnion } from "@/lib/commit"
 import { getCommitFileCount, getCommitHash, getCommitSubject, getSubjectLine, hasCommitMessageBody, parseSubject, stripLeadingIssueKey, toReviewCommit } from "@/lib/commit"
 import { openCommitReviewWindow } from "@/lib/commit-review-window"
 import type { MenuItemGroups } from "@/lib/menu"
+import { resolvedNotice } from "@/lib/resolved-by-words"
 import { useAutosquashPlan } from "@/stores/branch-sync"
 import { requestCommitForm, UNASSIGNED_SOURCE, useCommitFormRequest } from "@/stores/commit-move"
 import type { CommitFormRequest } from "@/stores/commit-move"
@@ -29,6 +30,7 @@ import type { CommitFormRequest } from "@/stores/commit-move"
 // the preview pulls in the review: its frame, the file tree and the resizable panels
 const CommitPreviewDialog = lazy(() => import("@/components/commit/CommitPreviewDialog").then(it => ({ default: it.CommitPreviewDialog })))
 const MergeConflictViewer = lazy(() => import("@/components/conflict/MergeConflictViewer").then(it => ({ default: it.MergeConflictViewer })))
+const ResolvedMergeViewer = lazy(() => import("@/components/conflict/ResolvedMergeViewer").then(it => ({ default: it.ResolvedMergeViewer })))
 
 export type CommitListVariant = "compact" | "detailed" | "status"
 
@@ -422,6 +424,8 @@ function CommitRowWithContextMenu({ commit, rowProps, getMenuGroups, onOpenChang
 function CommitCellContent({ commit, hash, variant, branchName, showFileCount, showAuthor, omitIssueKey, isAmendTarget, onOpenPreview }: CommitRowProps) {
   const status = variant === "status" && "status" in commit ? commit.status : undefined
   const error = variant === "status" && "error" in commit ? commit.error : undefined
+  const resolved = variant === "status" && "resolved" in commit ? commit.resolved : undefined
+  const [showResolved, setShowResolved] = useState(false)
   // a fixup shows its markers apart, with where it goes
   const autosquash = parseSubject(getSubjectLine(commit.message)).autosquash
   const fullSubject = getCommitSubject(commit)
@@ -458,6 +462,22 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
             )}
             {status === "Error" && <Badge variant="destructive">{error?.MergeConflict ? "Merge conflict" : "Error"}</Badge>}
             {status === "Blocked" && <Badge variant="warning">Blocked</Badge>}
+            {resolved && statusHash !== undefined && (
+              <Badge
+                variant="success"
+                render={<button type="button" />}
+                className="cursor-pointer"
+                data-testid="resolved-by-words-notice"
+                aria-expanded={showResolved}
+                onClick={(event: MouseEvent) => {
+                  // the row's click selects it
+                  event.stopPropagation()
+                  setShowResolved(shown => !shown)
+                }}
+              >
+                {resolvedNotice(resolved)}
+              </Badge>
+            )}
             {isAmendTarget && (
               <Tooltip>
                 <TooltipTrigger render={<Badge variant="primary" />}>Amend target</TooltipTrigger>
@@ -468,6 +488,11 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
         }
       />
 
+      {showResolved && resolved && statusHash !== undefined && (
+        <Suspense fallback={null}>
+          <ResolvedMergeViewer commit={hash} copy={statusHash} resolved={resolved} subject={subject} />
+        </Suspense>
+      )}
       {error?.MergeConflict ? (
         <Suspense fallback={null}>
           <MergeConflictViewer conflict={error.MergeConflict} branchName={branchName} />

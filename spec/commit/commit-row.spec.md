@@ -31,6 +31,7 @@ targets:
   - ../../src/components/branch/ArchivedBranchExpanded.tsx
   - ../../src/components/conflict/ConflictCommitContext.tsx
   - ../../src/components/conflict/MergeConflictViewer.tsx
+  - ../../src/components/conflict/ResolvedMergeViewer.tsx
   - ../../src/components/conflict/ConflictResolutionHint.tsx
   - ../../src/components/conflict/ConflictExplanation.tsx
   - ../../src/components/conflict/ConflictFixPanel.tsx
@@ -352,6 +353,15 @@ The commit hash popover shows the same header and body.
   header has the split/unified/inline toggle, persisted: a stored choice keeps winning over the Split default.
   [@test] ../../src/lib/diff/view-files.test.ts (`says why a file shows no lines: binary, too large, a submodule, a blob git cannot read, a text that cannot be read, no changed lines`)
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should keep a stored diff view mode over the Split default`)
+- A commit whose conflict of git the sync resolved by words (`branchdeck.resolveByWords`, on by default; see
+  [Agent CLI](../cli/agent-cli.spec.md), "`bd sync`") must not show a conflict: its row says "Resolved 1 conflict by
+  words" ("Resolved 3 conflicts by words"), a button. A click shows "Resolved by Words" under the row: what git stopped
+  at, that the sync copied the commit with the result as IntelliJ resolves simple conflicts, and the merge of each
+  file in three columns, each file with "1 conflict resolved", the middle "Result (committed)", the blob that the sync
+  committed. A second click hides it. A copy that a later sync reused gives the counts of its mapping note, and its
+  files come with the merges.
+  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`copies the commit with the result, says so on its row and shows what it committed`)
+  [@test] ../../crates/file-diffs/src/merge_test.rs (`a_resolved_copy_names_the_blob_of_each_file`)
 - A row with a generic error must show the error text in a destructive alert.
 - The conflict commit context of a sub-window must show the title over the meta line of the commit, with the branch
   name as an extra meta item. An unknown branch must be left out, never shown as "Unknown".

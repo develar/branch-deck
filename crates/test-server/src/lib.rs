@@ -240,6 +240,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
   spawn("stacked_conflict", |path| templates::stacked_conflict().build(path));
   spawn("conflict_fix", |path| templates::conflict_fix().build(path));
   spawn("conflict_words", |path| templates::conflict_words().build(path));
+  spawn("resolved_words", |path| templates::resolved_words().build(path));
   spawn("stacked_ownership", |path| templates::stacked_ownership().build(path));
   spawn("stack_push_alone", |path| templates::stack_push_alone().build(path));
   spawn("stack_uses_parent", |path| templates::stack_uses_parent().build(path));
@@ -315,6 +316,8 @@ pub enum RepositoryTemplate {
   ConflictFix,
   #[serde(rename = "conflict_words")]
   ConflictWords,
+  #[serde(rename = "resolved_words")]
+  ResolvedWords,
   #[serde(rename = "stacked_ownership")]
   StackedOwnership,
   #[serde(rename = "stack_push_alone")]
@@ -373,6 +376,7 @@ impl RepositoryTemplate {
       Self::StackedConflict => "stacked_conflict",
       Self::ConflictFix => "conflict_fix",
       Self::ConflictWords => "conflict_words",
+      Self::ResolvedWords => "resolved_words",
       Self::StackedOwnership => "stacked_ownership",
       Self::StackPushAlone => "stack_push_alone",
       Self::StackUsesParent => "stack_uses_parent",

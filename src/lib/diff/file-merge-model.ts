@@ -112,7 +112,7 @@ export function resultTextId(merge: TextMerge): string {
   return id
 }
 
-/** The id of a merge source in the stores */
+/** The id of a merge source in the stores; the merges of a resolved copy also name its blobs */
 export function mergeSourceId(source: MergeSource): string {
-  return `${source.parent}\0${source.target}\0${source.commit}`
+  return `${source.parent}\0${source.target}\0${source.commit}\0${source.resolved ?? ""}`
 }

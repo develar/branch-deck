@@ -333,3 +333,32 @@ simpleTest.describe("Merge of a conflicting file", () => {
     await expect(half(inserted, 1)).toHaveAttribute("data-cell", "filler")
   })
 })
+
+simpleTest.describe("Conflict resolved by words", () => {
+  simpleTest("copies the commit with the result, says so on its row and shows what it committed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // `resolved_words`: `conflict_words` with the resolve by words on, as by default
+    await setupRepo("resolved_words")
+    await syncAndWaitForBranches()
+    const uiRow = findBranchRow(page, "ui")
+    await expect(uiRow.getByTestId("branch-status")).not.toHaveText("merge conflict")
+    if ((await uiRow.getAttribute("data-state")) !== "open") {
+      await expandBranch(page, uiRow)
+    }
+    const details = getBranchDetailsRow(page, "ui")
+    const notice = details.getByTestId("resolved-by-words-notice")
+    await expect(notice).toHaveText("Resolved 1 conflict by words")
+    await notice.click()
+
+    const resolved = details.getByTestId("resolved-by-words")
+    const file = resolved.getByTestId("file-diff")
+    await expect(file.getByTestId("file-conflict-count")).toHaveText("1 conflict resolved")
+    // the middle is the blob the sync committed: the line with the words of both sides
+    await expect(file.getByRole("button", { name: "Result (committed)" })).toHaveAttribute("aria-pressed", "true")
+    const conflict = file.locator(".dv-row[data-kind=merge]", { hasText: "limits" })
+    await expect(conflict.locator('.dv-half[data-side="1"]')).toContainText("{ timeout: 10, retries: 3 }")
+    await expect(conflict.locator('.dv-half[data-side="2"]')).toContainText("{ timeout: 30, retries: 3 }")
+
+    await notice.click()
+    await expect(resolved).toHaveCount(0)
+  })
+})
