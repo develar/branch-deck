@@ -17,7 +17,7 @@
  10:     get() = field + 1
      keyword "get" · field "field" · number "1"
  11:     set(value) { field = value }
-     keyword "set" · keyword "value" · field "field" · keyword "value"
+     keyword "set" · field "field"
  12:   companion object { const val LIMIT = 10; val DEFAULT = Box<Any>(1, "a") }
      keyword "companion" · keyword "object" · keyword "const" · keyword "val" · field+italic "LIMIT" · number "10" · keyword "val" · field+italic "DEFAULT" · number "1" · string "\"a\""
  13: 

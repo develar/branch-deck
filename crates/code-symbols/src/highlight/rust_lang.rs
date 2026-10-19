@@ -99,7 +99,7 @@ impl Rules for Rust {
         Paint::Inherit
       }
       "label" => Paint::Leaf(Role::Label.style()),
-      "identifier" => name_style(scopes, cx, node).map_or(Paint::Inherit, Paint::Leaf),
+      "identifier" => name_style(scopes, cx, node).map_or(Paint::Opaque, Paint::Leaf),
       _ => return None,
     })
   }

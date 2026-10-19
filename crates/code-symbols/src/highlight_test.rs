@@ -141,3 +141,12 @@ fn roles_match_the_view() {
   let names: Vec<&str> = list.split(',').map(|it| it.trim().trim_matches('"')).filter(|it| !it.is_empty()).collect();
   assert_eq!(names, Role::NAMES[..names.len()], "the roles of the view are the roles of the highlighting, in their order");
 }
+
+#[test]
+fn colours_a_kotlin_name_that_is_a_soft_keyword_as_a_name() {
+  let text = "fun set(value: Int, get: String) = value + get.length\n";
+  let runs = highlight(Grammar::Kotlin, text).unwrap();
+  let rendered = render(text, &runs);
+  // `fun` is a keyword, `set` the declared function; `value` and `get` are parameters, not the soft keywords
+  assert!(rendered.contains(r#"keyword "fun" · functionDeclaration "set" · field "length""#), "{rendered}");
+}

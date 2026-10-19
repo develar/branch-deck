@@ -120,7 +120,7 @@ impl Rules for Java {
       }
       "labeled_statement" | "break_statement" | "continue_statement" => label(cx, node.named_child(0)),
       "type_parameter" => type_parameter(scopes, cx, node.named_child(0).filter(|it| it.kind() == "type_identifier")),
-      "identifier" => name_style(scopes, cx, node).map_or(Paint::Inherit, Paint::Leaf),
+      "identifier" => name_style(scopes, cx, node).map_or(Paint::Opaque, Paint::Leaf),
       _ => return None,
     })
   }

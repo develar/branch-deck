@@ -137,7 +137,8 @@ impl Rules for Kotlin {
         }
         Paint::Inherit
       }
-      "simple_identifier" => name_style(scopes, cx, node).map_or(Paint::Inherit, Paint::Leaf),
+      "type_identifier" if !scopes.is_type_parameter(cx.text_of(node)) => Paint::Opaque,
+      "simple_identifier" => name_style(scopes, cx, node).map_or(Paint::Opaque, Paint::Leaf),
       // `break@`, `continue@`, `return@`, `this@`, `super@`: one token, a keyword and the `@` of its label
       kind if !node.is_named() && kind.len() > 1 && kind.ends_with('@') => Paint::Lexed(Role::Keyword.style(), Lex::KeywordAt),
       _ => return None,

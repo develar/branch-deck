@@ -15,6 +15,9 @@ use tree_sitter::{Node, Tree};
 pub(crate) enum Paint {
   /// The node has the style of the node around it, and its children are walked
   Inherit,
+  /// The node has the style of the node around it, and its children are not walked: a name, whose tokens may be words
+  /// a grammar also has as keywords (Kotlin's `value`, `get`, `field`)
+  Opaque,
   /// The node has this style, and its children may paint over it
   Style(u32),
   /// The node has this style, and its children are not walked: a comment, a literal
@@ -38,8 +41,9 @@ pub(crate) trait Rules {
 /// The paint of a node the walk enters: the mark of its parent, else the rules of the grammar, else a type parameter in
 /// scope, a keyword token, or the style around it
 fn enter(rules: &mut impl Rules, scopes: &mut Scopes, cx: &mut Cx<'_, '_>, node: Node<'_>, marked: Option<u32>) -> Paint {
+  // a marked node with no named children is a leaf: its anonymous tokens are its text (Kotlin's soft keywords)
   if let Some(style) = marked {
-    return if node.child_count() == 0 { Paint::Leaf(style) } else { Paint::Style(style) };
+    return if node.named_child_count() == 0 { Paint::Leaf(style) } else { Paint::Style(style) };
   }
   if let Some(paint) = rules.node(scopes, cx, node) {
     return paint;
@@ -149,6 +153,7 @@ pub(crate) fn paint(tree: &Tree, text: &str, rules: &mut impl Rules, out: &mut B
     out.push(node.start_byte(), current);
     let (style, descend) = match paint {
       Paint::Inherit => (None, true),
+      Paint::Opaque => (None, false),
       Paint::Style(style) => (Some(style), true),
       Paint::Leaf(style) => (Some(style), false),
       Paint::Lexed(base, kind) => {

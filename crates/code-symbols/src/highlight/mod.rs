@@ -31,7 +31,7 @@ mod typescript;
 use lines::LineRuns;
 
 /// The version of the highlighting rules; bump it on any rule change, so that cached highlightings are made again
-pub const RULES_VERSION: u32 = 2;
+pub const RULES_VERSION: u32 = 3;
 /// Files above this size are not highlighted: `MAX_BLOB_BYTES` of the texts the view reads
 pub const MAX_BYTES: usize = 8 << 20;
 /// The progress callbacks of a parse per KiB of text; the densest files of the IntelliJ monorepo take 19
