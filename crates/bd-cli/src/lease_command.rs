@@ -15,8 +15,8 @@ use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_core::lease::{
-  Adopted, CreatedBy, LandedCheck, LeaseGetParams, LeaseRefusal, LeaseReturnParams, SkipReason, SlotState, canonical_path, lease_adopt_core, lease_get_core, lease_return_core,
-  lease_status_core, pool_dir,
+  Adopted, CreatedBy, LandedCheck, LeaseAdoptParams, LeaseGetParams, LeaseRefusal, LeaseReturnParams, SkipReason, SlotState, canonical_path, lease_adopt_core, lease_get_core,
+  lease_return_core, lease_status_core, pool_dir,
 };
 use sync_core::repository_lock::RepositoryLocked;
 use sync_utils::list_cut::kept;
@@ -77,6 +77,10 @@ pub struct LeaseStatusArgs {
 
 #[derive(Debug, Default, clap::Args)]
 pub struct LeaseAdoptArgs {
+  /// Move each worktree into the pool directory, `<pool>/<n>/<repository name>`, with `git worktree move`; only on the
+  /// same volume
+  #[arg(long = "move")]
+  pub move_into_pool: bool,
   /// The top levels of the linked worktrees
   #[arg(required = true, value_name = "DIR")]
   pub dirs: Vec<PathBuf>,
@@ -494,12 +498,16 @@ impl LeaseAdoptOutput {
 pub struct AdoptedOutput {
   pub slot: String,
   pub path: String,
+  /// With --move: where the worktree was
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub moved_from: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct RefusedOutput {
   pub path: String,
-  /// `not_a_slot`, `slot_in_pool`, `slot_busy` or `dirty_worktree`
+  /// `not_a_slot`, `slot_in_pool`, `slot_busy`, `dirty_worktree`; with --move `other_volume` or `git_error` (the move
+  /// failed)
   pub code: ErrorCode,
   pub message: String,
   /// The local changes of `dirty_worktree`
@@ -509,7 +517,21 @@ pub struct RefusedOutput {
 
 pub fn lease_adopt(context: &LeaseContext, environment: &Environment, args: &LeaseAdoptArgs) -> Result<LeaseAdoptOutput, CliError> {
   let dirs: Vec<PathBuf> = args.dirs.iter().map(|dir| environment.cwd.join(dir)).collect();
-  let (outcomes, process_scan) = lease_adopt_core(&context.git, Path::new(&context.dirs.git_common_dir), &dirs, context.lock_timeout).map_err(lease_error)?;
+  let git_common_dir = Path::new(&context.dirs.git_common_dir);
+  let pool = if args.move_into_pool {
+    let config = lease_config(&context.git, &context.dirs.top_level)?;
+    Some(pool_dir(&config, &context.dirs.top_level, Path::new(&canonical_path(git_common_dir)), environment.home.as_deref()).map_err(lease_error)?)
+  } else {
+    None
+  };
+  let params = LeaseAdoptParams {
+    repository: &context.dirs.top_level,
+    git_common_dir,
+    dirs: &dirs,
+    move_into: pool.as_deref(),
+    lock_timeout: context.lock_timeout,
+  };
+  let (outcomes, process_scan) = lease_adopt_core(&context.git, &params).map_err(lease_error)?;
   let mut output = LeaseAdoptOutput {
     schema: SchemaVersion,
     repository: context.dirs.top_level.clone(),
@@ -519,7 +541,11 @@ pub fn lease_adopt(context: &LeaseContext, environment: &Environment, args: &Lea
   };
   for outcome in outcomes {
     match outcome {
-      Adopted::Added(slot) => output.adopted.push(AdoptedOutput { slot: slot.name, path: slot.path }),
+      Adopted::Added { slot, moved_from } => output.adopted.push(AdoptedOutput {
+        slot: slot.name,
+        path: slot.path,
+        moved_from,
+      }),
       Adopted::Refused { path, refusal } => {
         let error = refusal_error(&refusal);
         output.refused.push(RefusedOutput {
@@ -561,6 +587,8 @@ fn refusal_error(refusal: &LeaseRefusal) -> CliError {
     LeaseRefusal::NotASlot { .. } => ErrorCode::NotASlot,
     LeaseRefusal::InPool(_) => ErrorCode::SlotInPool,
     LeaseRefusal::NoCommits(_) => ErrorCode::NoBaseline,
+    LeaseRefusal::OtherVolume { .. } => ErrorCode::OtherVolume,
+    LeaseRefusal::CannotMove { .. } => ErrorCode::GitError,
   };
   let mut error = CliError::new(code, refusal.to_string());
   match refusal {

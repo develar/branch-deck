@@ -57,6 +57,7 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::UnlandedCommits, 4, false),
   (ErrorCode::DirtyWorktree, 4, false),
   (ErrorCode::BranchExists, 4, false),
+  (ErrorCode::OtherVolume, 4, false),
   (ErrorCode::GitNotFound, 5, false),
   (ErrorCode::GitError, 5, false),
   (ErrorCode::NetworkError, 5, true),

@@ -97,7 +97,7 @@ A refused resolution of `bd update --continue` has `paths` too, the conflicting 
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
 | 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `round_moved`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `landed`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `landed`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
@@ -665,9 +665,11 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
 - `bd lease status [--processes]` lists the slots from the state alone: `state` `free`, `preparing`, `ready`,
   `templating` (a get clones it into a new slot) or `abandoned` (a get died while preparing or cloning it), `dirty`, `missing`, `lease`; no `git status`. `--processes` adds the
   processes in each slot.
-- `bd lease adopt <dir>...` adds clean linked worktrees of this repository as free slots where they are (`adopted`),
-  and lists the refused ones with their code (`refused`: `not_a_slot`, `slot_in_pool`, `slot_busy`,
-  `dirty_worktree`; exit 4).
+- `bd lease adopt [--move] <dir>...` adds clean linked worktrees of this repository as free slots where they are
+  (`adopted`), and lists the refused ones with their code (`refused`: `not_a_slot`, `slot_in_pool`, `slot_busy`,
+  `dirty_worktree`; exit 4). `--move` moves each into the pool directory with `git worktree move` (`moved_from`),
+  only on the same volume (`other_volume`), and removes its old parent directory when it is left empty. A moved slot
+  has a new path, so Bazel gives it a new, cold output base.
 - `processes_checked: false`: the platform has no process scan (Windows), and nothing was refused for a process.
 
 ### `bd fold [--branch <b>] [--expect-head <id>] [--dry-run]`

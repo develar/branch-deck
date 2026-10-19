@@ -144,6 +144,8 @@ pub enum ErrorCode {
   DirtyWorktree,
   /// `bd lease get --branch`: the branch exists
   BranchExists,
+  /// `bd lease adopt --move`: the worktree is on another volume than the pool directory; a move would copy every file
+  OtherVolume,
   /// No usable git executable
   GitNotFound,
   /// A git command failed
@@ -206,7 +208,8 @@ impl ErrorCode {
       | Self::SlotBusy
       | Self::UnlandedCommits
       | Self::DirtyWorktree
-      | Self::BranchExists => 4,
+      | Self::BranchExists
+      | Self::OtherVolume => 4,
       Self::GitNotFound | Self::GitError | Self::NetworkError | Self::PatronusError => 5,
     }
   }

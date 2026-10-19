@@ -336,7 +336,8 @@ adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a 
    refuses instead. --confirm-preserved discards the changes and gives up the
    commits, only when the user said so. `bd lease status` lists the slots and their leases from the pool state
    (--processes adds the processes in each); `bd lease adopt <dir>...` adds clean linked worktrees of the repository as
-   free slots, where they are.
+   free slots, where they are, or with --move in the pool directory (`moved_from`; the same volume only,
+   `other_volume`).
 6. The reflog of the branch tells who moved it: `branch-deck: pick`, `undo pick`, `update project`, `undo update`,
    `squash fixups` (`bd fold` or the app's Squash Fixups), `reword <n> commits` (`bd group`, `bd rename`), `undo`,
    `squash <n> commits`, `drop <n> commits`, `amend <id>`, `move hunk`, each also with ` rolled back` when its files

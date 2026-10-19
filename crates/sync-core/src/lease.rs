@@ -13,7 +13,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{
   CheckoutWorkers, LeaseConfig, UnlandedCommit, add_slot, checkout_slot, clean_cloned_slot, detach_slot_head, discard_slot_changes, ignored_paths, is_valid_branch_name,
-  lease_config, linked_worktree, refresh_cloned_index, register_slot, slot_changes, unlanded_commits,
+  lease_config, linked_worktree, move_slot, refresh_cloned_index, register_slot, slot_changes, unlanded_commits,
 };
 use git_ops::pick::commits_to_pick;
 use git_ops::revs::{RepositoryDirs, read_head, ref_exists};
@@ -137,6 +137,10 @@ pub enum LeaseRefusal {
   InPool(String),
   #[error("The repository at {0} has no commits yet")]
   NoCommits(String),
+  #[error("{path} is on another volume than the pool {pool}: a move would copy every file")]
+  OtherVolume { path: String, pool: String },
+  #[error("Cannot move {path} into the pool: {reason}")]
+  CannotMove { path: String, reason: String },
 }
 
 fn describe_processes(processes: &[(u32, String)]) -> String {
@@ -477,11 +481,7 @@ fn reserve(
     }
   }
   let template = CLONE_AVAILABLE.then(|| mark_template(store, git_common_dir, scan, lease)).flatten();
-  let leaf = repository_name(git_common_dir);
-  let path = (1..=u32::MAX)
-    .map(|number| pool_dir.join(number.to_string()))
-    .find(|dir| !dir.exists() && !store.slots.iter().any(|slot| Path::new(&slot.path).starts_with(dir)))
-    .map_or_default(|dir| dir.join(&leaf));
+  let path = next_slot_path(store, pool_dir, git_common_dir);
   store.slots.push(Slot {
     name: String::new(),
     path: display_path(&path),
@@ -489,6 +489,16 @@ fn reserve(
     lease: Some(lease.clone()),
   });
   Reserved::New { path, template }
+}
+
+/// The path of the next new slot: `<pool>/<n>/<repository name>`, the smallest `n` whose directory does not exist and
+/// holds no slot of the state
+fn next_slot_path(store: &LeaseStore, pool_dir: &Path, git_common_dir: &Path) -> PathBuf {
+  let leaf = repository_name(git_common_dir);
+  (1..=u32::MAX)
+    .map(|number| pool_dir.join(number.to_string()))
+    .find(|dir| !dir.exists() && !store.slots.iter().any(|slot| Path::new(&slot.path).starts_with(dir)))
+    .map_or_default(|dir| dir.join(&leaf))
 }
 
 /// Whether a new slot can be a clone: APFS `clonefile(2)` is macOS only
@@ -1114,29 +1124,147 @@ pub fn lease_status_core(git_common_dir: &Path, processes: bool) -> Result<(Vec<
 /// A directory `bd lease adopt` added, or refused
 #[derive(Debug, Clone)]
 pub enum Adopted {
-  Added(Slot),
-  Refused { path: String, refusal: LeaseRefusal },
+  /// With `moved_from` when `--move` moved it into the pool directory
+  Added {
+    slot: Slot,
+    moved_from: Option<String>,
+  },
+  Refused {
+    path: String,
+    refusal: LeaseRefusal,
+  },
 }
 
 /// Add existing linked worktrees of this repository to the pool as free slots, where they are. Each is refused when it
 /// is not a linked worktree of the same common dir, the pool holds it, a process is in it, or it has local changes (one
 /// `status`)
-pub fn lease_adopt_core(git_executor: &GitCommandExecutor, git_common_dir: &Path, dirs: &[PathBuf], lock_timeout: Duration) -> Result<(Vec<Adopted>, bool)> {
-  let git_common_dir = PathBuf::from(canonical_path(git_common_dir));
+/// What `bd lease adopt` adds
+pub struct LeaseAdoptParams<'a> {
+  /// A worktree of the repository, where `git worktree move` runs
+  pub repository: &'a str,
+  pub git_common_dir: &'a Path,
+  pub dirs: &'a [PathBuf],
+  /// `--move`: the pool directory each worktree moves into, as `<pool>/<n>/<repository name>`
+  pub move_into: Option<&'a Path>,
+  pub lock_timeout: Duration,
+}
+
+/// Add existing linked worktrees of this repository to the pool as free slots, where they are, or with `move_into`
+/// moved into the pool directory by `git worktree move` (same volume only). Each is refused when it is not a linked
+/// worktree of the same common dir, the pool holds it, a process is in it, or it has local changes (one `status`)
+pub fn lease_adopt_core(git_executor: &GitCommandExecutor, params: &LeaseAdoptParams<'_>) -> Result<(Vec<Adopted>, bool)> {
+  let git_common_dir = PathBuf::from(canonical_path(params.git_common_dir));
   let pool = Pool::new(&git_common_dir);
   let scan = ProcessScan::scan();
-  let mut outcomes = Vec::new();
-  for dir in dirs {
-    let path = canonical_path(dir);
-    match adopt_one(git_executor, &pool, &git_common_dir, &path, &scan, lock_timeout)? {
-      Ok(slot) => outcomes.push(Adopted::Added(slot)),
-      Err(refusal) => outcomes.push(Adopted::Refused { path, refusal }),
+  let move_into = match params.move_into {
+    Some(dir) => {
+      std::fs::create_dir_all(dir).with_context(|| format!("Cannot create the pool directory {}", dir.display()))?;
+      Some(PathBuf::from(canonical_path(dir)))
     }
+    None => None,
+  };
+  let mut outcomes = Vec::new();
+  for dir in params.dirs {
+    let path = canonical_path(dir);
+    let adopted = match adopt_one(git_executor, &pool, &git_common_dir, &path, &scan)? {
+      Ok(()) => match &move_into {
+        Some(pool_dir) => move_in(git_executor, &pool, params, &git_common_dir, pool_dir, &path)?,
+        None => add_slot_entry(&pool, params.lock_timeout, &path, None)?,
+      },
+      Err(refusal) => Err(refusal),
+    };
+    outcomes.push(match adopted {
+      Ok((slot, moved_from)) => Adopted::Added { slot, moved_from },
+      Err(refusal) => Adopted::Refused { path, refusal },
+    });
   }
   Ok((outcomes, scan.is_available()))
 }
 
-fn adopt_one(git_executor: &GitCommandExecutor, pool: &Pool, git_common_dir: &Path, path: &str, scan: &ProcessScan, lock_timeout: Duration) -> Result<Result<Slot, LeaseRefusal>> {
+type AdoptResult = Result<Result<(Slot, Option<String>), LeaseRefusal>>;
+
+/// Record the worktree at `path` (moved from `moved_from`) as a free slot, under the pool lock
+fn add_slot_entry(pool: &Pool, lock_timeout: Duration, path: &str, moved_from: Option<String>) -> AdoptResult {
+  let name = linked_worktree(Path::new(path)).map_or_default(|worktree| worktree.id);
+  pool.update(lock_timeout, |store| {
+    if store.slots.iter().any(|slot| slot.path == path) {
+      return Ok(Err(LeaseRefusal::InPool(path.to_string())));
+    }
+    let slot = Slot {
+      name,
+      path: path.to_string(),
+      dirty: false,
+      lease: None,
+    };
+    store.slots.push(slot.clone());
+    Ok(Ok((slot, moved_from)))
+  })
+}
+
+/// `--move`: under the pool lock, the next slot path, then `git worktree move` there (a rename on one volume, so the
+/// lock is held for a moment) and the free slot recorded. The parent of the old directory goes when it is left empty
+/// (`<treehouse pool>/<n>/`); the state file of Treehouse is not touched, and Treehouse sees the old path as missing
+fn move_in(git_executor: &GitCommandExecutor, pool: &Pool, params: &LeaseAdoptParams<'_>, git_common_dir: &Path, pool_dir: &Path, path: &str) -> AdoptResult {
+  if !same_volume(Path::new(path), pool_dir) {
+    return Ok(Err(LeaseRefusal::OtherVolume {
+      path: path.to_string(),
+      pool: display_path(pool_dir),
+    }));
+  }
+  let moved = pool.update(params.lock_timeout, |store| {
+    if store.slots.iter().any(|slot| slot.path == path) {
+      return Ok(Err(LeaseRefusal::InPool(path.to_string())));
+    }
+    let target = next_slot_path(store, pool_dir, git_common_dir);
+    let cannot_move = |reason: String| LeaseRefusal::CannotMove { path: path.to_string(), reason };
+    if let Some(parent) = target.parent()
+      && let Err(error) = std::fs::create_dir_all(parent)
+    {
+      return Ok(Err(cannot_move(error.to_string())));
+    }
+    if let Err(error) = move_slot(git_executor, params.repository, path, &target) {
+      if let Some(parent) = target.parent() {
+        let _ = std::fs::remove_dir(parent);
+      }
+      return Ok(Err(cannot_move(format!("{error:#}"))));
+    }
+    let target = display_path(&target);
+    let slot = Slot {
+      name: linked_worktree(Path::new(&target)).map_or_default(|worktree| worktree.id),
+      path: target,
+      dirty: false,
+      lease: None,
+    };
+    store.slots.push(slot.clone());
+    Ok(Ok(slot))
+  })?;
+  let slot = match moved {
+    Ok(slot) => slot,
+    Err(refusal) => return Ok(Err(refusal)),
+  };
+  if let Some(parent) = Path::new(path).parent() {
+    // only an empty one goes
+    let _ = std::fs::remove_dir(parent);
+  }
+  Ok(Ok((slot, Some(path.to_string()))))
+}
+
+/// Whether `a` and `b` are on one volume (`st_dev`); elsewhere than on Unix the move is left to git
+fn same_volume(a: &Path, b: &Path) -> bool {
+  #[cfg(unix)]
+  {
+    use std::os::unix::fs::MetadataExt;
+    matches!((std::fs::metadata(a), std::fs::metadata(b)), (Ok(a), Ok(b)) if a.dev() == b.dev())
+  }
+  #[cfg(not(unix))]
+  {
+    let _ = (a, b);
+    true
+  }
+}
+
+/// The checks of an adopt: a linked worktree of this repository, not in the pool, no process in it, clean
+fn adopt_one(git_executor: &GitCommandExecutor, pool: &Pool, git_common_dir: &Path, path: &str, scan: &ProcessScan) -> Result<Result<(), LeaseRefusal>> {
   let not_a_slot = |reason: &str| {
     Ok(Err(LeaseRefusal::NotASlot {
       path: path.to_string(),
@@ -1166,19 +1294,7 @@ fn adopt_one(git_executor: &GitCommandExecutor, pool: &Pool, git_common_dir: &Pa
       paths: changes,
     }));
   }
-  pool.update(lock_timeout, |store| {
-    if store.slots.iter().any(|slot| slot.path == path) {
-      return Ok(Err(LeaseRefusal::InPool(path.to_string())));
-    }
-    let slot = Slot {
-      name: worktree.id,
-      path: path.to_string(),
-      dirty: false,
-      lease: None,
-    };
-    store.slots.push(slot.clone());
-    Ok(Ok(slot))
-  })
+  Ok(Ok(()))
 }
 
 #[cfg(test)]

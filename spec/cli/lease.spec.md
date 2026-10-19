@@ -155,6 +155,13 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   (`not_a_slot`), held by the pool already (`slot_in_pool`), a process in it (`slot_busy`), local changes
   (`dirty_worktree`).
   [@test] ../../crates/bd-cli/src/lease_test.rs (`adopt_adds_clean_linked_worktrees_and_refuses_the_rest`)
+- `bd lease adopt --move <dir>...` must, after the same checks, move each worktree to the next slot path
+  `<pool>/<n>/<repository name>` with `git worktree move` (never a plain rename), report `moved_from`, and remove the
+  old parent directory when it is left empty (`<treehouse pool>/<n>/`). A worktree on another volume than the pool
+  directory (`st_dev`) must be refused as `other_volume` (exit 4): a move there copies every file. The state file of
+  Treehouse is not touched; Treehouse sees the old path as missing. Bazel derives the output base from the workspace
+  path, so a moved slot starts with a new, cold output base, and the old one stays on disk until the user deletes it.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`adopt_with_move_moves_the_worktree_into_the_pool`)
 
 ### Error codes
 
@@ -162,7 +169,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 |---|---|
 | 2 | `invalid_arguments`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool` |
 | 3 | `locked` (the pool lock, retryable) |
-| 4 | `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `no_baseline` (a source without commits) |
+| 4 | `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `no_baseline` (a source without commits) |
 
 - The outputs must match `bd schema` (`lease_get`, `lease_return`, `lease_status`, `lease_adopt`).
   [@test] ../../crates/bd-cli/src/lease_test.rs (`lease_outputs_match_the_schema`)

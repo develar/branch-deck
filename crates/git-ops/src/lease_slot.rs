@@ -148,6 +148,14 @@ pub fn clean_cloned_slot(git_executor: &GitCommandExecutor, slot: &str) -> Resul
   Ok(())
 }
 
+/// Move the linked worktree `from` to `to` with `worktree move`, which renames the directory and fixes the links of its
+/// `.git` file and of its admin directory; never a plain rename. `to` must not exist
+pub fn move_slot(git_executor: &GitCommandExecutor, repository: &str, from: &str, to: &Path) -> Result<()> {
+  let to = to.to_str().ok_or_else(|| anyhow!("The slot path is not UTF-8: {}", to.display()))?;
+  git_executor.execute_command(&["worktree", "move", from, to], repository)?;
+  Ok(())
+}
+
 /// A commit of HEAD that no branch, tag or remote-tracking ref holds, with its subject
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnlandedCommit {

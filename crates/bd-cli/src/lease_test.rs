@@ -772,6 +772,32 @@ fn adopt_adds_clean_linked_worktrees_and_refuses_the_rest() {
   assert_eq!((path_of(&got), &got["reused"], &got["slot"]), (slot_path(&lane.path), &json!(true), &json!("lane")));
 }
 
+/// `bd lease adopt --move` moves a linked worktree into the pool directory with `git worktree move`: git knows the new
+/// path, the old directory and its empty parent are gone, and the next get reuses the slot there
+#[test_log::test]
+fn adopt_with_move_moves_the_worktree_into_the_pool() {
+  let fixture = Fixture::new();
+  let lane = TestWorktree::detached(&fixture.repo);
+  let old = slot_path(&lane.path);
+  let (exit_code, output) = fixture.run(&["lease", "adopt", "--move", &lane.path]);
+  assert_eq!(exit_code, 0, "{output}");
+  let adopted = &output["adopted"][0];
+  let path = adopted["path"].as_str().unwrap().to_string();
+  assert_eq!((&adopted["slot"], &adopted["moved_from"]), (&json!("lane"), &json!(old)));
+  assert!(Path::new(&path).ends_with(Path::new("1").join(fixture.repo.path().file_name().unwrap())), "{path}");
+  assert!(!Path::new(&old).exists() && !Path::new(&old).parent().unwrap().exists());
+  let listed = git(&fixture.repo, &["worktree", "list", "--porcelain"]);
+  assert!(listed.lines().any(|line| line == format!("worktree {}", git_path(&path))), "{listed}");
+  assert_eq!(slot_git(&path, &["status", "--porcelain"]), "");
+  let got = fixture.get(&[]);
+  assert_eq!((path_of(&got), &got["reused"]), (path, &json!(true)));
+}
+
+/// `path` as `git worktree list` names it: `/`-separated on Windows too
+fn git_path(path: &str) -> String {
+  path.replace('\\', "/")
+}
+
 /// `bd lease status` reads the state file: the repository and the pool config, no `status` of any slot
 #[test_log::test]
 fn the_status_reads_the_state_without_a_git_status() {

@@ -1136,7 +1136,11 @@ for the next lease. The seeded paths are removed, and a branch HEAD is on is det
 no-deref`, `branch-deck: lease return`). The slot stays at its commit: the next get moves it.
 
 Status reads the state file only: one `rev-parse` and one `config` (`branchdeck.leasePool`), no git in any slot.
-Adopt registers existing linked worktrees (old Treehouse slots) where they are, after one `status` of each.
+Adopt registers existing linked worktrees (old Treehouse slots) where they are, after one `status` of each. With
+`--move` each goes to the next slot path by `git worktree move`, which fixes both links of the worktree, under the
+pool lock (a rename on one volume, so the lock is held for a moment; another volume, by `st_dev`, refuses, since git
+would copy every file). The empty parent of the old directory goes; the Treehouse state is not touched. Bazel derives
+the output base from the workspace path, so a moved slot starts with a cold output base.
 
 The process scan (`crates/sync-core/src/process_scan.rs`) reads the working directory and the argv of every process of
 the user: on macOS through libproc (`proc_listallpids`, `proc_pidinfo` with `PROC_PIDVNODEPATHINFO`) and
