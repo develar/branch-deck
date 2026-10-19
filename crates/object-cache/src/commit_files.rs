@@ -50,6 +50,12 @@ pub struct CommitFile {
   pub deletions: u32,
   /// Git counts no lines for the file (`-` in `--numstat`)
   pub binary: bool,
+  /// The blob id before the commit, the commit of a submodule; `None` for an added file
+  pub old_id: Option<String>,
+  /// The blob id after the commit, the commit of a submodule; `None` for a deleted file
+  pub new_id: Option<String>,
+  /// A side is a submodule (mode 160000): its id is the commit the submodule points to
+  pub submodule: bool,
 }
 
 impl ObjectCache {

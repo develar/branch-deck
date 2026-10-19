@@ -4,7 +4,7 @@ import type { CommitFile, CommitFiles } from "@/lib/bindings"
 import { formatCommitFilePath, formatFileStatus, getChangedPaths, getCommitFileStats } from "@/lib/commit-files"
 
 function file(path: string, oldPath: string | null = null): CommitFile {
-  return { path, status: oldPath === null ? "modified" : "renamed", oldPath, additions: 1, deletions: 0, binary: false }
+  return { path, status: oldPath === null ? "modified" : "renamed", oldPath, additions: 1, deletions: 0, binary: false, oldId: null, newId: null, submodule: false }
 }
 
 function commitFiles(commitId: string, files: CommitFile[]): CommitFiles {

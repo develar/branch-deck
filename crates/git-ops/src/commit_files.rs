@@ -225,6 +225,15 @@ pub fn parse_commit_files(output: &[u8]) -> Result<HashMap<String, Vec<CommitFil
   parse_files(output, None)
 }
 
+/// The ids of a raw entry (`:<old mode> <new mode> <old id> <new id> <status>`), `None` for the zero id of a missing
+/// side, and whether a side is a submodule, whose id is a commit
+fn raw_ids(entry: &[u8]) -> (Option<String>, Option<String>, bool) {
+  let fields: Vec<&[u8]> = entry.strip_prefix(b":").unwrap_or(entry).split(|&b| b == b' ').collect();
+  let side = |id: usize| fields.get(id).filter(|id| id.iter().any(|&b| b != b'0')).map(|id| String::from_utf8_lossy(id).into_owned());
+  let submodule = fields.iter().take(2).any(|mode| *mode == b"160000");
+  (side(2), side(3), submodule)
+}
+
 /// `parse_commit_files` of output whose entries before the first commit id are of `first`: the output of one subject
 /// with `--no-commit-id` has no id at all
 fn parse_files(output: &[u8], first: Option<String>) -> Result<HashMap<String, Vec<CommitFile>>> {
@@ -241,6 +250,7 @@ fn parse_files(output: &[u8], first: Option<String>) -> Result<HashMap<String, V
       let (_, files) = current.as_mut().ok_or_else(|| anyhow!("raw entry before a commit id"))?;
       let letter = field.rsplit(|&b| b == b' ').next().and_then(|status| status.first().copied()).unwrap_or(b'M');
       let status = FileStatus::from_letter(letter);
+      let (old_id, new_id, submodule) = raw_ids(field);
       let first_path = next_path(&mut fields, "raw entry")?;
       let (path, old_path) = if matches!(status, FileStatus::Renamed | FileStatus::Copied) {
         (next_path(&mut fields, "rename")?, Some(first_path))
@@ -254,6 +264,9 @@ fn parse_files(output: &[u8], first: Option<String>) -> Result<HashMap<String, V
         additions: 0,
         deletions: 0,
         binary: false,
+        old_id,
+        new_id,
+        submodule,
       });
     } else if let Some((additions, deletions, path)) = split_numstat(field) {
       let (_, files) = current.as_mut().ok_or_else(|| anyhow!("numstat entry before a commit id"))?;

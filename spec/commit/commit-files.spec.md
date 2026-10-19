@@ -77,9 +77,10 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 - The files of a commit must be its changes against its first parent, with renames detected. A root commit adds
   every file. A merge commit shows the changes against its first parent.
 - Each file must have its status (added, modified, deleted, renamed, copied, type changed), its path, the path before
-  a rename or copy, its added and deleted lines, and whether git counts no lines (a binary file).
+  a rename or copy, its added and deleted lines, whether git counts no lines (a binary file), and the blob ids of its
+  two sides: none for a side the file does not exist on, and the commit of a submodule.
 - The paths must be the bytes git stores: spaces, tabs and non-ASCII letters stay as they are.
-  [@test] ../../crates/git-ops/src/commit_files_test.rs (`lists_the_status_paths_and_line_counts_of_each_file`, `lists_a_merge_against_its_first_parent_and_nothing_for_an_empty_commit`, `parses_numstat_entries_in_another_order_than_the_raw_entries`, `rejects_output_it_does_not_understand`)
+  [@test] ../../crates/git-ops/src/commit_files_test.rs (`lists_the_status_paths_and_line_counts_of_each_file`, `each_file_has_the_blob_ids_of_its_sides`, `a_submodule_has_the_ids_of_its_commits`, `lists_a_merge_against_its_first_parent_and_nothing_for_an_empty_commit`, `parses_numstat_entries_in_another_order_than_the_raw_entries`, `rejects_output_it_does_not_understand`)
 - The files of many commits must be read by one `diff-tree --stdin --raw --numstat -z` process.
 - The files must be cached by commit id in the object cache of the repository, which the app shares with `bd`.
   A commit read before must cost no git process.

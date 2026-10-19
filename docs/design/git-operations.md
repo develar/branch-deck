@@ -1447,9 +1447,10 @@ The commit rows show "3 files · +42 −7", and the commit preview lists the fil
 ([Commit Files](../../spec/commit/commit-files.spec.md)). Both are read-only:
 - **One process per list.** `get_commits_files` reads the commits of an expanded branch (or the unassigned commits)
   with one `diff-tree --stdin --raw --numstat -z -r -M --root --diff-merges=first-parent`, the ids on stdin. The output
-  is NUL-separated: each commit id, its `--raw` entries (status letter, paths verbatim), then its `--numstat` entries in
-  the same order (`-` counts for a binary file). `get_commit_files` is the same for one commit, when a preview shows a
-  commit no list loaded. The ids must be full object ids, so none reads as an option or a revision.
+  is NUL-separated: each commit id, its `--raw` entries (status letter, paths verbatim, the blob ids of both sides), then
+  its `--numstat` entries in the same order (`-` counts for a binary file). A zero id is a missing side. The id of a
+  submodule (`submodule: true`) is the commit it points to. `get_commit_files` is the same for one commit, when a
+  preview shows a commit no list loaded. The ids must be full object ids, so none reads as an option or a revision.
 - **Cached by commit id** in the `commit_files` store of the object cache: the commits the output lists are written
   back, so a commit seen once costs no process again, also in a later session. A commit the output doesn't list (no
   changes, or not fetched yet) is not cached. The app resolves `--git-common-dir` once per repository

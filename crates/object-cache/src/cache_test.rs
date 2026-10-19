@@ -2,6 +2,8 @@ use crate::cache::{CacheConfig, DEFAULT_CONFLICT_MAP_SIZE, DEFAULT_MAP_SIZE, DEF
 use crate::commit_diff::{FileChange, Hunk};
 use crate::commit_files::{CommitFile, FileStatus};
 use crate::conflict_info::{ConflictKey, MAX_CONFLICT_INFO_BYTES};
+use crate::file_diff::DiffKey;
+use crate::file_merge::FileMergeKey;
 use crate::merge_result::{MergeKey, MergeResult};
 use crate::review_answer::ReviewAnswer;
 use heed::types::{Bytes, DecodeIgnore};
@@ -72,6 +74,9 @@ fn round_trip() {
       additions: 3,
       deletions: 1,
       binary: false,
+      old_id: Some("1".repeat(40)),
+      new_id: Some("2".repeat(40)),
+      submodule: false,
     },
     CommitFile {
       path: "b.bin".to_string(),
@@ -80,6 +85,9 @@ fn round_trip() {
       additions: 0,
       deletions: 0,
       binary: true,
+      old_id: None,
+      new_id: Some("3".repeat(40)),
+      submodule: true,
     },
   ];
   cache.put_commit_files([("c1", &commit_files)]);
@@ -387,6 +395,48 @@ fn patches_are_read_by_the_limits_version_that_cut_them() {
   assert_eq!(cache.has_commit_patches(1, &ids), [false, false]);
   assert_eq!(cache.has_commit_patches(2, &ids), [false, true]);
   assert_eq!(ObjectCache::disabled().has_commit_patches(2, &ids), [false, false]);
+}
+
+#[test_log::test]
+fn file_diffs_are_read_by_their_blob_pair_policy_and_version() {
+  let dir = tempfile::tempdir().unwrap();
+  let cache = open(dir.path());
+  let diff = vec![1u32, 2, 3];
+  let pair = DiffKey {
+    policy: 0,
+    old_id: "a",
+    new_id: "b",
+  };
+  cache.put_file_diffs(1, &[(pair, &diff)]);
+  let other_policy = DiffKey { policy: 2, ..pair };
+  let swapped = DiffKey { old_id: "b", new_id: "a", ..pair };
+  assert_eq!(cache.get_file_diffs::<Vec<u32>>(1, &[pair, other_policy, swapped]), [Some(diff.clone()), None, None]);
+  assert_eq!(cache.get_file_diffs::<Vec<u32>>(2, &[pair]), [None], "a diff of another model is never read");
+
+  // the first write of another version clears the store
+  cache.put_file_diffs(2, &[(swapped, &diff)]);
+  assert_eq!(cache.get_file_diffs::<Vec<u32>>(1, &[pair]), [None]);
+  assert_eq!(cache.get_file_diffs::<Vec<u32>>(2, &[swapped]), [Some(diff)]);
+}
+
+#[test_log::test]
+fn file_merges_are_read_by_their_three_blobs() {
+  let dir = tempfile::tempdir().unwrap();
+  let cache = open(dir.path());
+  let merge = FileMergeKey {
+    options: 0,
+    base_id: "b",
+    left_id: "l",
+    right_id: "r",
+  };
+  let swapped = FileMergeKey {
+    left_id: "r",
+    right_id: "l",
+    ..merge
+  };
+  cache.put_file_merges(1, &[(merge, &7u32)]);
+  assert_eq!(cache.get_file_merges::<u32>(1, &[merge, swapped]), [Some(7), None]);
+  assert_eq!(cache.get_file_merges::<u32>(2, &[merge]), [None]);
 }
 
 /// A cache in `dir` opened with `config`, which holds one merge: the entry a full environment of another store must keep

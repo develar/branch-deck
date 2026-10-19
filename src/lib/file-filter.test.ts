@@ -3,7 +3,7 @@ import type { CommitFile } from "@/lib/bindings"
 import { filterFilesByText, formatNoFileMatch } from "@/lib/file-filter"
 
 function file(path: string, oldPath: string | null = null): CommitFile {
-  return { path, oldPath, status: oldPath === null ? "modified" : "renamed", additions: 1, deletions: 0, binary: false }
+  return { path, oldPath, status: oldPath === null ? "modified" : "renamed", additions: 1, deletions: 0, binary: false, oldId: null, newId: null, submodule: false }
 }
 
 const files = [file("plugins/air/src/AcpSessionLiveState.kt"), file("plugins/air/testSrc/AcpPromptTest.kt"), file("spec/core/trace.spec.md", "spec/core/old-trace.md")]

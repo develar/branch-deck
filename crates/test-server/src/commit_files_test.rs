@@ -19,13 +19,16 @@ async fn commit_files_routes_read_the_fixture_repository() {
   let ids = GitCommandExecutor::new().execute_command_lines(&["rev-list", "HEAD"], &repository_path).unwrap();
   assert_eq!(ids.len(), 2);
 
+  let git = GitCommandExecutor::new();
+  let blob = |commit: &str, path: &str| git.execute_command(&["rev-parse", &format!("{commit}:{path}")], &repository_path).unwrap();
+  let (blob2, blob1) = (blob(&ids[0], "file2.txt"), blob(&ids[1], "file1.txt"));
   let all = invoke(&client, addr, "get_commits_files", json!({ "repositoryPath": repository_path, "commitIds": ids })).await;
   // newest first, as asked; the root commit adds its file too
   assert_eq!(
     all,
     json!([
-      { "commitId": ids[0], "files": [{ "path": "file2.txt", "status": "added", "oldPath": null, "additions": 1, "deletions": 0, "binary": false }], "additions": 1, "deletions": 0 },
-      { "commitId": ids[1], "files": [{ "path": "file1.txt", "status": "added", "oldPath": null, "additions": 1, "deletions": 0, "binary": false }], "additions": 1, "deletions": 0 },
+      { "commitId": ids[0], "files": [{ "path": "file2.txt", "status": "added", "oldPath": null, "additions": 1, "deletions": 0, "binary": false, "oldId": null, "newId": blob2, "submodule": false }], "additions": 1, "deletions": 0 },
+      { "commitId": ids[1], "files": [{ "path": "file1.txt", "status": "added", "oldPath": null, "additions": 1, "deletions": 0, "binary": false, "oldId": null, "newId": blob1, "submodule": false }], "additions": 1, "deletions": 0 },
     ])
   );
 

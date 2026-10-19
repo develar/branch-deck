@@ -46,7 +46,7 @@ const PATCH: CommitPatch = {
 }
 
 function file(path: string, status: CommitFile["status"], oldPath: string | null = null, binary = false): CommitFile {
-  return { path, status, oldPath, additions: 1, deletions: 1, binary }
+  return { path, status, oldPath, additions: 1, deletions: 1, binary, oldId: null, newId: null, submodule: false }
 }
 
 describe("getCommitFileDiff", () => {

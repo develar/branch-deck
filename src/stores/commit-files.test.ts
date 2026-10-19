@@ -16,7 +16,12 @@ const { calls } = vi.hoisted(() => ({
 }))
 
 function files(commitId: string): CommitFiles {
-  return { commitId, files: [{ path: `${commitId}.txt`, status: "added", oldPath: null, additions: 1, deletions: 0, binary: false }], additions: 1, deletions: 0 }
+  return {
+    commitId,
+    files: [{ path: `${commitId}.txt`, status: "added", oldPath: null, additions: 1, deletions: 0, binary: false, oldId: null, newId: null, submodule: false }],
+    additions: 1,
+    deletions: 0,
+  }
 }
 
 vi.mock("@/lib/bindings", () => ({

@@ -674,6 +674,12 @@ export type CommitFile = {
 	deletions: number,
 	/**  Git counts no lines for the file (`-` in `--numstat`) */
 	binary: boolean,
+	/**  The blob id before the commit, the commit of a submodule; `None` for an added file */
+	oldId: string | null,
+	/**  The blob id after the commit, the commit of a submodule; `None` for a deleted file */
+	newId: string | null,
+	/**  A side is a submodule (mode 160000): its id is the commit the submodule points to */
+	submodule: boolean,
 };
 
 /**  The changed files of a commit against its first parent (or of a range), with the sums of their line counts */

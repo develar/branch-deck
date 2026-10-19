@@ -3,7 +3,7 @@
 //! - **Keys are object ids**, so an entry never becomes stale: it is only evicted. The cap is the map size; a write that
 //!   hits `MDB_MAP_FULL` clears every database of its environment and is retried once.
 //! - **Four environments**, so that what is bulky never evicts what is small and costly: the patches of `commit_patch`
-//!   in `patches/` (`CacheConfig::patch_map_size`); the merges of `merge_result` and the trees of `commit_tree`, small
+//!   and the diffs and merges of `file_diff` and `file_merge` in `patches/` (`CacheConfig::patch_map_size`); the merges of `merge_result` and the trees of `commit_tree`, small
 //!   entries a check costs most to learn again, in `merges/` (`CacheConfig::merge_map_size`); the conflict views of
 //!   `conflict_info`, a few that may each hold megabytes of file contents, and the chains of `conflict_chain`, in
 //!   `conflicts/` (`CacheConfig::conflict_map_size`); the other stores (the diffs, lines and summaries of commits and
@@ -112,10 +112,12 @@ pub(crate) enum Store {
   ConflictChain,
   StackBranch,
   PatronusRobots,
+  FileDiff,
+  FileMerge,
 }
 
 /// How many stores there are
-const STORE_COUNT: usize = 14;
+const STORE_COUNT: usize = 16;
 
 /// The version each store was checked for by this process (`keep_only_version`), by `Store::index`; 0 before a check
 static CHECKED_VERSIONS: [AtomicU64; STORE_COUNT] = [const { AtomicU64::new(0) }; STORE_COUNT];
@@ -135,6 +137,8 @@ pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::ConflictChain,
   Store::StackBranch,
   Store::PatronusRobots,
+  Store::FileDiff,
+  Store::FileMerge,
 ];
 
 impl Store {
@@ -144,12 +148,12 @@ impl Store {
     match self {
       // 2: the blob ids of `FileChange` (`commit_diff`); the paths of the raw entries, so a file whose name holds a
       // space or a quote is there (`commit_lines`). 3: the hunks, and the lines and their order in each, with the
-      // algorithm, the inter-hunk context and the indent heuristic pinned, whatever the user's diff config
-      Self::CommitDiff | Self::CommitLines => 3,
+      // algorithm, the inter-hunk context and the indent heuristic pinned, whatever the user's diff config.
+      // `commit_files` 2: the blob ids of `CommitFile`; 3: its submodule flag
+      Self::CommitDiff | Self::CommitLines | Self::CommitFiles => 3,
       // a new extractor needs no bump: its version is part of each key (`blob_summary`, `conflict_info`,
       // `remote_status`, `build_result`, `conflict_chain`, `stack_branch`)
-      Self::CommitFiles
-      | Self::CommitTree
+      Self::CommitTree
       | Self::MergeResult
       | Self::BlobSummary
       | Self::ReviewAnswer
@@ -159,13 +163,15 @@ impl Store {
       | Self::BuildResult
       | Self::ConflictChain
       | Self::StackBranch
-      | Self::PatronusRobots => 1,
+      | Self::PatronusRobots
+      | Self::FileDiff
+      | Self::FileMerge => 1,
     }
   }
 
   pub(crate) const fn environment(self) -> Environment {
     match self {
-      Self::CommitPatch => Environment::Patches,
+      Self::CommitPatch | Self::FileDiff | Self::FileMerge => Environment::Patches,
       Self::MergeResult | Self::CommitTree => Environment::Merges,
       Self::ConflictInfo | Self::ConflictChain => Environment::Conflicts,
       Self::CommitDiff
@@ -201,6 +207,8 @@ impl Store {
       Self::ConflictChain => "conflict_chain",
       Self::StackBranch => "stack_branch",
       Self::PatronusRobots => "patronus_robots",
+      Self::FileDiff => "file_diff",
+      Self::FileMerge => "file_merge",
     }
   }
 }
@@ -209,7 +217,7 @@ impl Store {
 pub struct CacheConfig {
   /// The LMDB map size in bytes, rounded up to the page size: the cap of the cache
   pub map_size: usize,
-  /// The map size of the patch environment (`commit_patch`)
+  /// The map size of the patch environment (`commit_patch`, `file_diff`, `file_merge`)
   pub patch_map_size: usize,
   /// The map size of the merge environment (`merge_result`, `commit_tree`)
   pub merge_map_size: usize,

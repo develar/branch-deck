@@ -14,6 +14,8 @@ pub mod commit_patch;
 pub mod commit_tree;
 pub mod conflict_chain;
 pub mod conflict_info;
+pub mod file_diff;
+pub mod file_merge;
 pub mod merge_result;
 pub mod patronus_robots;
 pub mod remote_status;

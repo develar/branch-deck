@@ -5,7 +5,7 @@ import { buildFileTree, flattenTreeFiles, formatTreeFileLabel, getInitiallyColla
 import type { FileTreeDirectory, FileTreeNode } from "@/lib/file-tree"
 
 function file(path: string, additions = 1, deletions = 0, status: FileStatus = "modified", oldPath: string | null = null): CommitFile {
-  return { path, status, oldPath, additions, deletions, binary: false }
+  return { path, status, oldPath, additions, deletions, binary: false, oldId: null, newId: null, submodule: false }
 }
 
 /** `name` per row, indented by depth, directories with a trailing slash */

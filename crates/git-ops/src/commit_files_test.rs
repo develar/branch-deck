@@ -30,6 +30,29 @@ fn file(path: &str, status: FileStatus, additions: u32, deletions: u32) -> Commi
     additions,
     deletions,
     binary: false,
+    old_id: None,
+    new_id: None,
+    submodule: false,
+  }
+}
+
+/// The files without their blob ids, which a test of the paths and counts does not name
+fn without_ids(files: &[CommitFile]) -> Vec<CommitFile> {
+  files
+    .iter()
+    .map(|file| CommitFile {
+      old_id: None,
+      new_id: None,
+      ..file.clone()
+    })
+    .collect()
+}
+
+fn ids(old_id: Option<&str>, new_id: Option<&str>, file: CommitFile) -> CommitFile {
+  CommitFile {
+    old_id: old_id.map(str::to_string),
+    new_id: new_id.map(str::to_string),
+    ..file
   }
 }
 
@@ -54,9 +77,9 @@ fn lists_the_status_paths_and_line_counts_of_each_file() {
   let files = read_commit_files(repo.git_executor(), repo_path(&repo), &[root.clone(), second.clone()]).unwrap();
 
   // the root commit adds everything
-  assert_eq!(files[&root], [file("a.txt", FileStatus::Added, 3, 0), file("b.txt", FileStatus::Added, 1, 0)]);
+  assert_eq!(without_ids(&files[&root]), [file("a.txt", FileStatus::Added, 3, 0), file("b.txt", FileStatus::Added, 1, 0)]);
   assert_eq!(
-    files[&second],
+    without_ids(&files[&second]),
     [
       file("b.txt", FileStatus::Deleted, 0, 1),
       CommitFile {
@@ -69,6 +92,40 @@ fn lists_the_status_paths_and_line_counts_of_each_file() {
       },
       file("dir name/ü\tx.txt", FileStatus::Added, 1, 0),
     ]
+  );
+}
+
+#[test]
+fn each_file_has_the_blob_ids_of_its_sides() {
+  let (repo, root, second) = repo_with_all_statuses();
+  let files = read_commit_files(repo.git_executor(), repo_path(&repo), std::slice::from_ref(&second)).unwrap();
+  let blob = |commit: &str, path: &str| Some(repo.rev_parse(&format!("{commit}:{path}")).unwrap());
+  let sides: Vec<(&str, Option<String>, Option<String>)> = files[&second].iter().map(|file| (file.path.as_str(), file.old_id.clone(), file.new_id.clone())).collect();
+  assert_eq!(
+    sides,
+    [
+      ("b.txt", blob(&root, "b.txt"), None),
+      ("bin.dat", None, blob(&second, "bin.dat")),
+      ("c.txt", blob(&root, "a.txt"), blob(&second, "c.txt")),
+      ("dir name/ü\tx.txt", None, blob(&second, "dir name/ü\tx.txt")),
+    ]
+  );
+}
+
+#[test]
+fn a_submodule_has_the_ids_of_its_commits() {
+  let repo = TestRepo::new();
+  let root = repo.create_commit_with_files("Initial", &[("a.txt", "a\n")]);
+  run(&repo, &["update-index", "--add", "--cacheinfo", &format!("160000,{root},sub")]);
+  let second = repo.create_commit_in_index("Add a submodule", &[]);
+  let files = read_commit_files(repo.git_executor(), repo_path(&repo), std::slice::from_ref(&second)).unwrap();
+  assert_eq!(
+    files[&second],
+    [CommitFile {
+      new_id: Some(root),
+      submodule: true,
+      ..file("sub", FileStatus::Added, 1, 0)
+    }]
   );
 }
 
@@ -86,7 +143,7 @@ fn lists_a_merge_against_its_first_parent_and_nothing_for_an_empty_commit() {
   let empty = repo.head();
 
   let files = read_commit_files(repo.git_executor(), repo_path(&repo), &[merge.clone(), empty.clone()]).unwrap();
-  assert_eq!(files[&merge], [file("side.txt", FileStatus::Added, 1, 0)]);
+  assert_eq!(without_ids(&files[&merge]), [file("side.txt", FileStatus::Added, 1, 0)]);
   assert!(!files.contains_key(&empty));
 }
 
@@ -163,7 +220,7 @@ fn range_files_are_the_changes_of_all_its_commits() {
   let files = read_diff_files(repo.git_executor(), repo_path(&repo), &range(&root, &head)).unwrap();
   assert_eq!(files.commit_id, format!("{root}..{head}"));
   assert_eq!(
-    files.files,
+    without_ids(&files.files),
     [
       file("b.txt", FileStatus::Deleted, 0, 1),
       CommitFile {
@@ -243,13 +300,23 @@ fn parses_numstat_entries_in_another_order_than_the_raw_entries() {
   output.extend_from_slice(b"1\t1\t\0old.txt\0new.txt\0");
 
   let files = parse_commit_files(&output).unwrap();
-  assert_eq!(files[ID_A], [file("a.txt", FileStatus::Modified, 2, 1), file("b.txt", FileStatus::Added, 7, 0)]);
+  assert_eq!(
+    files[ID_A],
+    [
+      ids(Some(&"1".repeat(40)), Some(&"2".repeat(40)), file("a.txt", FileStatus::Modified, 2, 1)),
+      ids(None, Some(&"3".repeat(40)), file("b.txt", FileStatus::Added, 7, 0)),
+    ]
+  );
   assert_eq!(
     files[ID_B],
-    [CommitFile {
-      old_path: Some("old.txt".to_string()),
-      ..file("new.txt", FileStatus::Renamed, 1, 1)
-    }]
+    [ids(
+      Some(&"4".repeat(40)),
+      Some(&"5".repeat(40)),
+      CommitFile {
+        old_path: Some("old.txt".to_string()),
+        ..file("new.txt", FileStatus::Renamed, 1, 1)
+      }
+    )]
   );
 }
 
