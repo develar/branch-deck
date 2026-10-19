@@ -134,7 +134,7 @@ below has its reason. It renders in the light DOM with the classes of `src/compo
 - **Font.** JetBrains Mono at 13 px, its real italic faces for the italic of the schemes; the row height comes from
   the font metrics and the zoom: the size of the IntelliJ editor and of the UI text beside it, at the cost of about
   8% of the columns of a split view.
-- **Ligatures** are on by default, with a switch in Settings → Appearance, "Diffs". IntelliJ has them off by default
+- **Ligatures** are on by default, with a switch in Settings → Diffs & Merge. IntelliJ has them off by default
   (Settings → Editor → Font → Enable ligatures); on is the user's choice. It is safe in a diff: a ligature of
   JetBrains Mono keeps the width of its cells, so the arithmetic of the layout and the wraps holds; and the bound of
   a changed range inside a ligature splits the text run, so a changed character inside `!=` or `->` stays visible as

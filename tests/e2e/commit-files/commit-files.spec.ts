@@ -308,7 +308,7 @@ simpleTest.describe("Commit files in nested directories", () => {
     // off by default, as in IntelliJ: the line keeps its shape and scrolls
     await expect.poll(() => overflowsSideways(deletions)).toBe(true)
 
-    const settings = await openSettingsWindow(page, { page: "appearance" })
+    const settings = await openSettingsWindow(page, { page: "diffs" })
     const softWraps = settings.getByTestId("setting-softWraps")
     await expect(softWraps.getByRole("switch")).not.toBeChecked()
     await softWraps.click()

@@ -5,6 +5,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AppearancePage } from "@/components/settings/AppearancePage"
+import { DiffsPage } from "@/components/settings/DiffsPage"
 import { GeneralPage } from "@/components/settings/GeneralPage"
 import { GitHubPage } from "@/components/settings/GitHubPage"
 import { NotificationsPage } from "@/components/settings/NotificationsPage"
@@ -23,6 +24,7 @@ import { appSettingsStore, setSettingsPage } from "@/stores/settings/appSettings
 const PAGE_LABELS: Record<SettingsPageId, string> = {
   general: "General",
   appearance: "Appearance",
+  diffs: "Diffs & Merge",
   notifications: "Notifications",
   github: "GitHub",
   repository: "Repository",
@@ -103,6 +105,9 @@ export function SettingsPage() {
           </SettingsPanel>
           <SettingsPanel id="appearance">
             <AppearancePage />
+          </SettingsPanel>
+          <SettingsPanel id="diffs">
+            <DiffsPage />
           </SettingsPanel>
           <SettingsPanel id="notifications">
             <NotificationsPage openCount={openCount} />

@@ -1,6 +1,6 @@
 ---
 name: Settings
-description: Requirements for the Settings window, a sub-window of its own with a sidebar of pages (General, Appearance, Notifications, GitHub, Repository), opened by the main window from the menu, the keys and the buttons that name a page; the branchdeck.* git config of the selected repository on Repository, and the order of the branch prefixes.
+description: Requirements for the Settings window, a sub-window of its own with a sidebar of pages (General, Appearance, Diffs & Merge, Notifications, GitHub, Repository), opened by the main window from the menu, the keys and the buttons that name a page; the branchdeck.* git config of the selected repository on Repository, and the order of the branch prefixes.
 style: plain-1
 targets:
   - ../../src-tauri/src/menu.rs
@@ -23,6 +23,8 @@ targets:
   - ../../src/components/settings/SettingRow.tsx
   - ../../src/components/settings/GeneralPage.tsx
   - ../../src/components/settings/AppearancePage.tsx
+  - ../../src/components/settings/DiffsPage.tsx
+  - ../../src/components/shared/DiffViewToggle.tsx
   - ../../src/components/settings/NotificationsPage.tsx
   - ../../src/components/settings/GitHubPage.tsx
   - ../../src/components/settings/GitHubSettings.tsx
@@ -60,7 +62,7 @@ Date: 2026-10-17
 ## Summary
 
 Settings is a window of its own, as in IntelliJ and the macOS apps: a sidebar of pages on the canvas (General,
-Appearance, Notifications, GitHub, and Repository for the selected repository) beside one island with the page. It is
+Appearance, Diffs & Merge, Notifications, GitHub, and Repository for the selected repository) beside one island with the page. It is
 not modal: the main window stays usable, and a change applies at once in every window. The main window opens it, from
 the menu (⌘,), the keys of a custom title bar and the buttons that need a setting ("Notification Settings…", "Sign
 In…", "Set GitHub Repository…"), which name the page they need. Repository shows the `branchdeck.*` git config of the
@@ -140,10 +142,10 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 ### Pages
 
 - The sidebar is a vertical Base UI `Tabs` list on the canvas (`TabsList variant="list"`): General, Appearance,
-  Notifications, GitHub, a separator, then Repository with the name of the selected repository muted beside it (the
+  Diffs & Merge, Notifications, GitHub, a separator, then Repository with the name of the selected repository muted beside it (the
   name of the tab stays "Repository"), the selected one in the selected row of the tables (`bg-primary/15`). ↑ and ↓
-  switch the page (`activateOnFocus`). The page is one island (`Card`), which scrolls only where a large zoom leaves it no room; the page
-  left is hidden at once (`data-ending-style`), so two never stack.
+  switch the page (`activateOnFocus`). The page is one island (`Card`), which scrolls only where a large zoom leaves it
+  no room; the page left is hidden at once (`data-ending-style`), so two never stack.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should open at the page an open names, else at the page shown last, its tab focused`)
 - General: "Branches", the branch prefix of every repository without one of its own (`BranchPrefixSetting`,
   [Onboarding](onboarding.spec.md), [Branch prefix order](#branch-prefix-order));
@@ -153,12 +155,16 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should turn AI on and off in Settings`)
 - Appearance: "Zoom", Zoom Out · the level · Zoom In, then Actual Size: the items of the View menu by id
   (`zoomMenuItems`), their keys in the tooltips, the same command, so every window zooms one step
-  ([Zoom](zoom.spec.md)); "Diffs", the layout of every diff view, "Ligatures" and "Soft wraps"
-  ([Commit Files](../commit/commit-files.spec.md#soft-wraps)); "Title bar" (Windows, Linux), the system title bar
-  ([Title Bar](title-bar.spec.md#setting)).
-  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should break a long line with Soft Wraps on in Settings, and scroll it with them off`)
+  ([Zoom](zoom.spec.md)); "Title bar" (Windows, Linux), the system title bar ([Title Bar](title-bar.spec.md#setting)).
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should zoom every window from Appearance with the items of the View menu`)
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should offer the system title bar in Settings → Appearance, applied after a restart`, `should show a fixed system title bar in the settings with its reason`)
+- Diffs & Merge: "Diffs", one setting of every diff view in each row, as IntelliJ's diff settings: Layout (Split ·
+  Unified · Inline) and Whitespace (the menu above the diffs, which says the choice here), the controls above every
+  diff too; then "Soft wraps" and "Ligatures", each with what it does
+  ([Commit Files](../commit/commit-files.spec.md#soft-wraps)). The diffs had a section of Appearance before; a page of
+  their own leaves room for the merge.
+  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should break a long line with Soft Wraps on in Settings, and scroll it with them off`)
+  [@test] ../../tests/e2e/settings/settings.spec.ts (`should set every diff from Diffs & Merge, the Whitespace menu naming its choice`)
 - Notifications: the four switches of the OS notifications, the permission of the OS, and "Dock icon" (not Windows)
   ([Review Requests](review-requests.spec.md#settings)). The permission is asked when the page shows, on each open of
   the window and when the window gets the focus.
@@ -302,8 +308,9 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 
 ## User Experience
 
-- Window title "Settings"; pages "General", "Appearance", "Notifications", "GitHub", "Repository"; sections in sentence case
-  ("Branches", "Sync", "AI", "Zoom", "Title bar", "Notifications", "Dock icon", "GitHub").
+- Window title "Settings"; pages "General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "Repository";
+  sections in sentence case ("Branches", "Sync", "AI", "Zoom", "Title bar", "Diffs", "Notifications", "Dock icon",
+  "GitHub").
 - Menu item "Settings…", buttons "Notification Settings…", "Sign In…", "GitHub Settings…", "Set GitHub Repository…",
   "Open Repository Settings", "Use Default", "Use Global", "Retry"; the modes "Off", "Report Only", "On".
 - A failed open is "Cannot open Settings" with the reason (`notifyError`).

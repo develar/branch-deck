@@ -107,7 +107,7 @@ test.describe("Settings window", () => {
     const tabs = window.getByRole("tablist", { name: "Settings pages" })
     await expect(tabs).toHaveAttribute("aria-orientation", "vertical")
     // the page of the selected repository last, its name beside it
-    await expect(tabs.getByRole("tab")).toHaveText(["General", "Appearance", "Notifications", "GitHub", /^Repositoryrepo-\d+$/])
+    await expect(tabs.getByRole("tab")).toHaveText(["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", /^Repositoryrepo-\d+$/])
     await expect(settingsTab(window, "General")).toBeFocused()
     await expect(window.getByTestId("settings-page-general")).toBeVisible()
 
@@ -116,7 +116,7 @@ test.describe("Settings window", () => {
     await expect(settingsTab(window, "Appearance")).toHaveAttribute("aria-selected", "true")
     await expect(window.getByTestId("settings-page-appearance")).toBeVisible()
     await window.keyboard.press("ArrowDown")
-    await expect(window.getByTestId("settings-page-notifications")).toBeVisible()
+    await expect(window.getByTestId("settings-page-diffs")).toBeVisible()
     await window.keyboard.press("ArrowUp")
     await expect(window.getByTestId("settings-page-appearance")).toBeVisible()
     await expect(window.getByTestId("settings-page-general")).toHaveCount(0)
@@ -183,6 +183,30 @@ test.describe("Settings window", () => {
     await expect.poll(() => webviewZoom(page)).toBe(1)
   })
 
+  test("should set every diff from Diffs & Merge, the Whitespace menu naming its choice", async ({ page, testStore }) => {
+    const window = await openSettingsWindow(page, { page: "diffs" })
+    // the main window saves what differs from the defaults
+    await window.getByTestId("setting-diffViewMode").getByRole("button", { name: "Unified" }).click()
+    await expect.poll(() => testStore.get("diffView")).toEqual({ mode: "unified" })
+
+    const whitespace = window.getByTestId("setting-whitespacePolicy").getByRole("button")
+    await expect(whitespace).toHaveText("Do Not Ignore")
+    await whitespace.click()
+    await window.getByRole("menuitemradio", { name: "Trim Whitespace" }).click()
+    await expect(whitespace).toHaveText("Trim Whitespace")
+    // a radio item keeps the menu open; Escape closes the menu only, not the window
+    await window.keyboard.press("Escape")
+    await expect(window.getByRole("menu")).toHaveCount(0)
+    await expect.poll(() => testStore.get("diffView")).toEqual({ mode: "unified", whitespacePolicy: "trim" })
+
+    const ligatures = window.getByTestId("setting-ligatures")
+    await expect(ligatures).toContainText("keeps the width of its characters")
+    await expect(ligatures.getByRole("switch")).toBeChecked()
+    await ligatures.click()
+    await expect(ligatures.getByRole("switch")).not.toBeChecked()
+    await expect.poll(() => testStore.get("diffView")).toEqual({ mode: "unified", whitespacePolicy: "trim", ligatures: false })
+  })
+
   test("should ask the OS for the permission to notify again when the window gets the focus", async ({ page }) => {
     const window = await openSettingsWindow(
       page,
@@ -210,8 +234,8 @@ test.describe("Settings window", () => {
   test("should fit every page at 720 × 540 without scrolling", async ({ page }) => {
     const window = await openTallestSettings(page)
     // Windows: the title bar on Appearance, no Dock badge
-    await expectEveryPageFits(window, ["General", "Appearance", "Notifications", "GitHub", "Repository"])
-    for (const id of ["general", "appearance", "notifications", "repository"]) {
+    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "Repository"])
+    for (const id of ["general", "appearance", "diffs", "notifications", "repository"]) {
       await window.getByTestId(`settings-tab-${id}`).click()
       await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${id}`)
     }
@@ -227,7 +251,7 @@ test.describe("Settings window on macOS", () => {
     await expect(window.getByTestId("settings-page-github")).toBeVisible()
     await settingsTab(window, "Notifications").click()
     await expect(window.getByTestId("setting-reviewBadge")).toBeVisible()
-    await expectEveryPageFits(window, ["General", "Appearance", "Notifications", "GitHub", "Repository"])
+    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "Repository"])
     // no title bar setting on macOS
     await settingsTab(window, "Appearance").click()
     await expect(window.getByTestId("setting-zoom")).toBeVisible()

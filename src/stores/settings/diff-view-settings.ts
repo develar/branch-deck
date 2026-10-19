@@ -4,7 +4,7 @@ import type { WhitespacePolicy } from "@/lib/diff/file-diff-model"
 import { createPersistentStore } from "./persistent-store"
 
 /*
- * One choice for every diff view, as IntelliJ's diff settings: the layout (`DiffViewToggle`, Settings → Appearance),
+ * One choice for every diff view, as IntelliJ's diff settings: the layout (`DiffViewToggle`, Settings → Diffs & Merge),
  * soft wraps and ligatures. A default only fills a missing field, so a stored value wins over it.
  */
 /** The narrowest share of a side of Split */

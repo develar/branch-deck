@@ -22,42 +22,49 @@ const WHITESPACE_POLICIES: Array<{ policy: WhitespacePolicy; label: string }> = 
   { policy: "ignoreBlankLines", label: "Ignore Whitespace and Blank Lines" },
 ]
 
-/**
- * The layout switch of every diff view (`diff-view-settings.ts`) and the Whitespace menu beside it, above the diffs and
- * in Settings → Appearance
- */
+/** The layout switch of every diff view (`diff-view-settings.ts`) and the Whitespace menu beside it, above the diffs */
 export function DiffViewToggle() {
-  const current = useDiffViewMode()
   return (
     <div className="flex items-center gap-2">
-      <FieldGroup>
-        {modes.map(({ mode, label, icon: Icon }) => (
-          <Button
-            key={mode}
-            size="xs"
-            variant="outline"
-            aria-pressed={current === mode}
-            className={cn(current === mode && "border-primary/50 text-primary hover:text-primary")}
-            onClick={() => setDiffViewMode(mode)}
-          >
-            <Icon data-icon="inline-start" />
-            {label}
-          </Button>
-        ))}
-      </FieldGroup>
+      <DiffLayoutButtons />
       <WhitespaceMenu />
     </div>
   )
 }
 
-/** "Whitespace": what the diff engine ignores; the button is marked while it ignores anything */
-function WhitespaceMenu() {
+/** Split · Unified · Inline, the pressed one the layout of every diff view; also in Settings → Diffs & Merge */
+export function DiffLayoutButtons() {
+  const current = useDiffViewMode()
+  return (
+    <FieldGroup>
+      {modes.map(({ mode, label, icon: Icon }) => (
+        <Button
+          key={mode}
+          size="xs"
+          variant="outline"
+          aria-pressed={current === mode}
+          className={cn(current === mode && "border-primary/50 text-primary hover:text-primary")}
+          onClick={() => setDiffViewMode(mode)}
+        >
+          <Icon data-icon="inline-start" />
+          {label}
+        </Button>
+      ))}
+    </FieldGroup>
+  )
+}
+
+/**
+ * "Whitespace": what the diff engine ignores; the button is marked while it ignores anything. `named`: the button
+ * says the choice instead, as a row of Settings → Diffs & Merge labelled "Whitespace"
+ */
+export function WhitespaceMenu({ named = false }: { named?: boolean }) {
   const policy = useDiffWhitespacePolicy()
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button size="xs" variant="outline" className={cn(policy !== "default" && "border-primary/50 text-primary hover:text-primary")} />}>
+      <DropdownMenuTrigger render={<Button size="xs" variant="outline" className={cn(!named && policy !== "default" && "border-primary/50 text-primary hover:text-primary")} />}>
         <PilcrowIcon data-icon="inline-start" />
-        Whitespace
+        {named ? WHITESPACE_POLICIES.find(it => it.policy === policy)?.label : "Whitespace"}
         <ChevronDownIcon data-icon="inline-end" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">

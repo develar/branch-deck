@@ -103,7 +103,7 @@
   background: var(--card);
 }
 
-/* the ligatures of JetBrains Mono are on by default (Settings → Appearance, docs/design/ui-theme.md "Diffs") */
+/* the ligatures of JetBrains Mono are on by default (Settings → Diffs & Merge, docs/design/ui-theme.md "Diffs") */
 [data-ligatures="off"] .dv-rows {
   font-feature-settings:
     "calt" 0,

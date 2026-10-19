@@ -4,7 +4,6 @@ import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { FieldGroup } from "@/components/layout/FieldGroup"
 import { SettingRow, SettingsSection } from "@/components/settings/SettingRow"
-import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { zoomMenuItems } from "@/lib/main-menu"
@@ -14,17 +13,13 @@ import { isMac } from "@/lib/platform"
 import { titleBar } from "@/lib/title-bar"
 import type { NativeTitleBarReason } from "@/lib/title-bar"
 import { setSystemTitleBar, useAppSettings } from "@/stores/settings/appSettings"
-import { setDiffLigatures, setDiffSoftWraps, useDiffLigatures, useDiffSoftWraps } from "@/stores/settings/diff-view-settings"
 
-/** Settings → Appearance: the zoom of every window, the diffs; off macOS, the system title bar */
+/** Settings → Appearance: the zoom of every window; off macOS, the system title bar */
 export function AppearancePage() {
   return (
     <>
       <SettingsSection title="Zoom" description="The size of the text and the controls in every window, also in the View menu">
         <ZoomStepper />
-      </SettingsSection>
-      <SettingsSection title="Diffs" description="Every diff of the app: the commit preview, the reviews, the conflicts">
-        <DiffSettings />
       </SettingsSection>
       {!isMac && (
         <SettingsSection title="Title bar" description="The title bar of the windows">
@@ -81,30 +76,6 @@ function ZoomButton({ item }: { item: MenuItem }) {
         )}
       </TooltipContent>
     </Tooltip>
-  )
-}
-
-/** The layout of the diffs, the switch above every diff too, soft wraps and ligatures */
-function DiffSettings() {
-  const softWraps = useDiffSoftWraps()
-  const ligatures = useDiffLigatures()
-  return (
-    <div className="flex flex-col gap-3">
-      {/* the ligatures beside the layout: the page fits the smallest window without a scroll */}
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-        <div data-testid="setting-diffViewMode">
-          <DiffViewToggle />
-        </div>
-        <SettingRow testId="setting-ligatures" label="Ligatures" checked={ligatures} onCheckedChange={setDiffLigatures} />
-      </div>
-      <SettingRow
-        testId="setting-softWraps"
-        label="Soft wraps"
-        description="Break a long line at the edge of the diff; without wraps it scrolls, both sides of Split together"
-        checked={softWraps}
-        onCheckedChange={setDiffSoftWraps}
-      />
-    </div>
   )
 }
 
