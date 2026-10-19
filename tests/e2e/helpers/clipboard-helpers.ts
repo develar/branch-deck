@@ -3,10 +3,13 @@ import { expect } from "@playwright/test"
 import { captureFloatingElementSnapshot } from "./aria-snapshot-helpers"
 
 /**
- * Setup clipboard permissions for the test context
+ * Setup clipboard permissions for the test context; WebKit (the benchmarks, `pnpm perf:diff --project=webkit`) has no
+ * such permissions
  */
 export async function setupClipboardPermissions(context: BrowserContext): Promise<void> {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"])
+  if (context.browser()?.browserType().name() !== "webkit") {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"])
+  }
 }
 
 /**

@@ -21,11 +21,17 @@ test.describe("Conflict fix", () => {
     await expect(fix).toHaveAttribute("data-state", "found")
     await expect(fix).toContainText("Move “Show the timeout in seconds” to api")
     await expect(fix.getByTestId("fix-result")).toHaveText("Afterwards ui applies cleanly.")
-    // the conflict itself: the change of the base against the change of the commit, the markers naming the sides
+    // the conflict itself: the merge of settings.js in three columns, named by the sides. Both sides changed the same
+    // word of the timeout, so the proposed result keeps the base there
     const file = getBranchDetailsRow(page, "ui").getByTestId("conflicting-files").getByTestId("file-diff")
     await expect(file.getByTestId("file-conflict-count")).toHaveText("1 conflict")
-    await expect(file).toContainText("<<<<<<< origin/master")
-    await expect(file).toContainText(">>>>>>> “Show the timeout in seconds”")
+    await expect(file.getByTestId("merge-columns")).toContainText(/^(origin\/)?master/)
+    await expect(file.getByTestId("merge-columns")).toContainText("“Show the timeout in seconds”")
+    const conflict = file.locator(".dv-row[data-kind=merge]")
+    await expect(conflict.locator('.dv-half[data-side="0"]')).toHaveText(/timeout = 10$/)
+    await expect(conflict.locator('.dv-half[data-side="1"]')).toHaveText(/timeout = 30$/)
+    await expect(conflict.locator('.dv-half[data-side="2"]')).toHaveText(/timeout = 30 \/\/ seconds$/)
+    await expect(file.getByTestId("merge-notice")).toHaveCount(0)
 
     await runAndWaitForSync(page, () => fix.getByTestId("apply-conflict-fix").click())
     await expect(page.getByText("Fixed the conflict of ui")).toBeVisible()

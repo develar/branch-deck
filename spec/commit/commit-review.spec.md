@@ -6,7 +6,8 @@ targets:
   - ../../src/components/commit/CommitReview.tsx
   - ../../src/components/commit/CommitPreviewDialog.tsx
   - ../../src/components/diff/CommitReviewCode.tsx
-  - ../../src/lib/diff/review-diffs.ts
+  - ../../src/components/diff/DiffView.tsx
+  - ../../src/components/diff/diff-painter.ts
   - ../../src/lib/sub-window.ts
   - ../../src/lib/open-timing.ts
   - ../../src/lib/review-window-reads.ts
@@ -15,11 +16,13 @@ targets:
   - ../../src/components/files/FileContextMenu.tsx
   - ../../src/components/shared/WindowPage.tsx
   - ../../src/pages/CommitReviewPage.tsx
-  - ../../src/lib/diff/change-targets.ts
-  - ../../src/lib/diff/commit-patch.ts
+  - ../../src/lib/diff/rows.ts
+  - ../../src/lib/diff/layout.ts
+  - ../../src/lib/diff/view-files.ts
   - ../../src/lib/file-tree.ts
   - ../../src/lib/preview-keys.ts
-  - ../../src/stores/commit-patch.ts
+  - ../../src/stores/file-diffs.ts
+  - ../../src/stores/blob-texts.ts
   - ../../src/stores/commit-files.ts
   - ../../src/lib/commit-files.ts
   - ../../src/pages/BranchReviewPage.tsx
@@ -68,8 +71,7 @@ where a dialog would cover it.
 
 - No comments, no "viewed" marks: the review reads, it does not record.
 - No review of uncommitted changes; the amend card shows them ([Amend Changes](amend.spec.md)).
-- No search in the diffs: the browser's find sees only the rendered part of a virtualized view. The search of the
-  sidebar finds files by their path, not text in them.
+- The search of the sidebar finds files by their path, not text in them; the find of the diffs finds text.
 
 ## Requirements
 
@@ -102,7 +104,7 @@ where a dialog would cover it.
   commit above its diffs as the branch preview heads one (`CommitHeading`: the subject `text-md font-medium`, the meta
   line with the committer time on hover and the coloured line counts, the reading body, three lines until Show More), the footer "Commit 2 / 3 · File 1 / 1" and
   `Esc Close`. Its title bar names the list and the commit ("session › 11346cdf", `listLabel` of the window data: the
-  branch, or "Unassigned") and ends with the Unified/Split toggle. Nothing is edited there.
+  branch, or "Unassigned") and ends with the Unified/Inline/Split toggle. Nothing is edited there.
 - ⌥↑/⌥↓ (Alt+↑/↓) must show the previous or next commit of the list.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should switch the commit of a review with Alt and the arrows`)
 
@@ -110,9 +112,9 @@ where a dialog would cover it.
   ([Review Requests](../repository/review-requests.spec.md#review-window)) or of a branch in its review window
   ([Branch Review](../branch/branch-review.spec.md)). The same view shows both: the loading line,
   the error ("Cannot read the changes of the commit", "… of the pull request") and the empty state are one. A range is
-  keyed `<base>..<head>` in the stores of the files and the patches and dropped when its review closes.
+  keyed `<base>..<head>` in the stores of the files and the diffs and dropped when its review closes.
   [@test] ../../src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
-  [@test] ../../src/stores/commit-patch.test.ts (`reads the range of a review with its own command, keyed base..head, until its review drops it`)
+  [@test] ../../src/stores/file-diffs.test.ts (`keeps the last subjects only, and forgets the subjects of a closed review under every policy`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
 
 ### The sidebar and the diffs
@@ -136,13 +138,14 @@ where a dialog would cover it.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 - J and K must select the next and the previous file. N and P must show the next and the previous block of changed
   lines, into the next or the previous file at the end of one; collapsed files are skipped.
-  [@test] ../../src/lib/diff/change-targets.test.ts (`finds each block of changed lines on the new side, past the context and the other blocks`, `takes the old side of a block that only deletes, and counts every hunk from its own start`)
-  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+  [@test] ../../src/lib/diff/rows.test.ts (`starts N and P at each block of changed lines, a deleted one too, never at a block the policy ignores`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`, `N and P skip a block the whitespace policy ignores`)
 - The tree and the headers of the first files must show as soon as the files are read, while git reads the patch;
-  "Loading changes…" only after 300 ms. The diffs mount once the engine is ready and the files from the initial one
-  are highlighted (`prepareFirstDiffs`, at most 80 ms for the highlight, then plain text), so their first frame is
-  complete; then the window shows ([Title Bar](../repository/title-bar.spec.md)). Once the patch is read, the patches
-  of the commits before and after it in the list are read too, so ⌥↑/⌥↓ show them at once.
+  "Loading changes…" only after 300 ms. The diffs mount with the diffs of the engine, before their texts: each file
+  reads its texts by blob id as it comes into view, and its rows show plain text until the tokens of their page
+  arrive. The window shows once the rows of the first screen are painted with their texts, and their tokens are there
+  or 80 ms late ([Title Bar](../repository/title-bar.spec.md)). Once the diffs are read, the diffs of the commits
+  before and after it in the list are read too, so ⌥↑/⌥↓ show them at once.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the files while the patch is read, settle with the diffs, and step to a commit read beside it`)
 - The diffs must have the focus when the review shows its subject, so the arrows, PageUp, PageDown and Space scroll them;
   Shift+Tab goes to the tree. While another commit loads, or one without files or that cannot be read is shown, the
@@ -152,11 +155,24 @@ where a dialog would cover it.
   so. Lock files (`pnpm-lock.yaml`, `Cargo.lock`, …), minified and snapshot files, and files with more than 1,000
   changed lines must start collapsed; the chevron of the header expands them.
 - The unchanged lines between hunks must expand as in the Files section ([Commit Files](commit-files.spec.md)).
-- The diffs are to come from `get_file_diffs` and their texts from `get_blob_texts`
-  ([Commit Files](commit-files.spec.md#file-diffs)): N and P step through the blocks that are not `Ignored`. The
-  backend is done; the views come with another branch, and their e2e tests are pending.
-- The Unified/Split toggle must switch the layout; it is the setting of the Files section. It is in the header of the
-  block whose diffs it switches: the title bar of a review window, the toolbar of a pull request.
+- A copy of a selection in the diffs must give the lines its rows show, from the texts, also of rows no longer on
+  screen: without the line numbers, the folds and the deleted parts of an Inline row, the old and the new line of a
+  changed pair in Unified, and one side in Split (a press on a side keeps the selection there). ⌘A (Ctrl+A off macOS)
+  selects the side of the file at the top, and a copy then gives all its shown lines.
+  [@test] ../../src/lib/diff/copy-text.test.ts (`copies the lines the rows show from the model, cut at both ends, in the order of the diffs`, `copies one side in Split, and the new line of an Inline row without its deleted parts`, `copies across files and leaves out a fold and a text not read yet`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should copy the lines of a selection of the diffs from the model, one side in Split, without the line numbers`)
+- ⌘F (Ctrl+F off macOS) in the diffs must open a find bar above them. It finds the text in the lines the rows show,
+  ignoring case, from the model, not from the rows on screen: both sides of a change in Split and the new side of an
+  unchanged line, and with "In folded lines" the folded lines too. It reads the texts of every file it searches. The
+  bar counts the hits ("12 results", "3 of 12"); Enter and ⌘G go to the next one, Shift with them to the previous one,
+  a hit in a fold opens its fold, and the current hit is marked; Escape closes the bar and gives the diffs the focus.
+  [@test] ../../src/lib/diff/find.test.ts (`finds the query in the lines the rows show, ignoring case, in the order of the rows`, `searches both sides of a change in Split and the new side of an unchanged line, and the folds on request`, `groups the hits by file and line for the painter, the current one marked`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should find a text in the diffs from the model, also in the folded lines, with ⌘F, Enter and Escape`)
+- The diffs come from `get_file_diffs` and their texts from `get_blob_texts`
+  ([Commit Files](commit-files.spec.md#file-diffs)): N and P step through the blocks that are not `Ignored`.
+- The Unified/Inline/Split toggle must switch the layout; it is the setting of the Files section, Split by default. It is in
+  the header of the block whose diffs it switches: the title bar of a review window, the toolbar of a pull request.
+  Soft wraps follow the setting of Settings → Appearance ([Commit Files](commit-files.spec.md#soft-wraps)).
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 - A review may show a part of its files (the branch review filters by code owner: by the path or the old path of a
   rename) and the owner of each file, muted in the header of its diff and in the hover of its tree row; a tree row
@@ -204,7 +220,7 @@ where a dialog would cover it.
 
 ## Testing / Local Run
 
-- `pnpm test:unit`: `src/lib/diff/change-targets.test.ts`, and the tests of [Commit Files](commit-files.spec.md) for
+- `pnpm test:unit`: `src/lib/diff/rows.test.ts`, `layout.test.ts`, `copy-text.test.ts`, `find.test.ts`, and the tests of [Commit Files](commit-files.spec.md) for
   the tree and the patch.
 - `pnpm e2e`: `tests/e2e/commit-files/commit-review.spec.ts` on the `commit_tree`, `commit_many_files` (nine files,
   the search) and `issue_links` templates. A

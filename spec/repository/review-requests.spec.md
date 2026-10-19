@@ -271,7 +271,7 @@ Safe Push it allows.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
   [@test] ../../src/lib/pull-request-review.test.ts (`keeps its review for a plain open of the request it shows, and starts over for another request or an intent`)
 - The window opens at once with what the search returned. Its title bar ([Title Bar](title-bar.spec.md)): ↑ ↓ (in the
-  tooltips) and the window title "Your Turn › 2 of 5" on the left; the Unified/Split toggle while the changes show, GitHub (`O`) and "⋯"
+  tooltips) and the window title "Your Turn › 2 of 5" on the left; the Unified/Inline/Split toggle while the changes show, GitHub (`O`) and "⋯"
   (Copy Pull Request Link, Copy Branch Name) on the right (`ActionButton`s: in a title bar narrower than 48rem only
   their icons). Then, in one island:
   - who asks and for how long: an initials avatar, "dave asks for your review of carol's pull request" (the author named
@@ -344,9 +344,9 @@ Safe Push it allows.
   [@test] ../../src/stores/review-requests.test.ts (`tells the window that asked, records Activity in the main window, and switches it to the request's repository first`)
   [@test] ../../src/lib/sub-window-link.test.ts (`knows what the window shows until it is destroyed, and only by its own label`, `sends the state only when it changed`, `answers each request by its id, with the feedback in between`, `forgets a window that failed to open`)
 - The close of the window kills its fetch and prunes the refs of the request it showed; the stores of the files and
-  the patches of a range are the window's and go with it.
+  the diffs of a range are the window's and go with it.
   [@test] ../../src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
-  [@test] ../../src/stores/commit-patch.test.ts (`reads the range of a review with its own command, keyed base..head, until its review drops it`)
+  [@test] ../../src/stores/file-diffs.test.ts (`keeps the last subjects only, and forgets the subjects of a closed review under every policy`)
 
 ### Reviews
 
@@ -476,7 +476,7 @@ Safe Push it allows.
 
 - `pnpm test:unit`: `src/lib/review-requests.test.ts` (ages, order, news, backoff), `src/stores/review-requests.test.ts`
   (polling, notifications, pruning), `src/lib/os-notification.test.ts`, `src/lib/dock.test.ts`, `src/stores/commit-files.test.ts`,
-  `src/stores/commit-patch.test.ts`.
+  `src/stores/file-diffs.test.ts`.
 - `cargo nextest run`: `crates/sync-core/src/review_requests_test.rs` (a fake GitHub), `review_fetch_test.rs` (local
   bare remotes), `crates/git-ops/src/commit_files_test.rs`, `crates/git-executor/src/git_command_executor_test.rs`,
   `crates/test-server/src/review_requests_test.rs`.

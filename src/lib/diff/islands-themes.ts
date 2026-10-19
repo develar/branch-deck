@@ -1,6 +1,9 @@
-import type { ThemeRegistration } from "@pierre/diffs"
+import type { ThemeRegistration } from "shiki"
 
-/** The colours of a syntax theme: the IntelliJ New UI editor schemes (Light, Dark), by role */
+/**
+ * The colours of a syntax theme by role. The colours of the IntelliJ New UI editor schemes (Light, Dark) are the
+ * `--syntax-*` tokens of `src/index.css`; `ROLE_THEME` gives each role an id instead of a colour
+ */
 interface EditorPalette {
   foreground: string
   keyword: string
@@ -13,34 +16,6 @@ interface EditorPalette {
   annotation: string
   tag: string
   attribute: string
-}
-
-const LIGHT: EditorPalette = {
-  foreground: "#080808",
-  keyword: "#0033B3",
-  string: "#067D17",
-  escape: "#0037A6",
-  number: "#1750EB",
-  comment: "#8C8C8C",
-  functionDeclaration: "#00627A",
-  field: "#871094",
-  annotation: "#9E880D",
-  tag: "#0033B3",
-  attribute: "#174AD4",
-}
-
-const DARK: EditorPalette = {
-  foreground: "#BCBEC4",
-  keyword: "#CF8E6D",
-  string: "#6AAB73",
-  escape: "#CF8E6D",
-  number: "#2AACB8",
-  comment: "#7A7E85",
-  functionDeclaration: "#56A8F5",
-  field: "#C77DBB",
-  annotation: "#B3AE60",
-  tag: "#D5B778",
-  attribute: "#BABABA",
 }
 
 /** TextMate scopes by palette role; a later rule wins over an earlier one for the same token */
@@ -88,19 +63,6 @@ function tokenColors(palette: EditorPalette): ThemeRegistration["tokenColors"] {
     { scope: ["markup.italic"], settings: { fontStyle: "italic" } },
   ]
 }
-
-function islandsTheme(name: string, type: "light" | "dark", palette: EditorPalette): ThemeRegistration {
-  return {
-    name,
-    type,
-    // the background comes from the card behind the diff (src/index.css)
-    colors: { "editor.foreground": palette.foreground, "editor.background": type === "light" ? "#FFFFFF" : "#191A1C" },
-    tokenColors: tokenColors(palette),
-  }
-}
-
-export const ISLANDS_LIGHT_THEME = islandsTheme("bd-islands-light", "light", LIGHT)
-export const ISLANDS_DARK_THEME = islandsTheme("bd-islands-dark", "dark", DARK)
 
 /**
  * The roles of a token after the default foreground (role 0), in the order of their ids; the class of a role is

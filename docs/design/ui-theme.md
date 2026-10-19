@@ -105,20 +105,18 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
 
 ### Diffs
 
-A diff (`@pierre/diffs`, [Diff View](diff-view.md)) renders into the open shadow root of `<diffs-container>`, so
-Tailwind classes do not reach it. It takes its colours and fonts from custom properties, which inherit into the shadow
-root. `src/index.css` sets them on `diffs-container`; a declaration on the host wins over the theme the library writes
-on `:host`:
+A diff ([Diff View](diff-view.md)) renders in the light DOM with the classes of
+`src/components/diff/diff-view.css`, on the tokens of `src/index.css`:
 
-- the background is `--card`, in both the light and the dark variable: our tokens already switch with the scheme;
-- added, deleted and modified lines are `--success`, `--destructive` and `--primary`, line numbers `--muted-foreground`,
-  the separators the `--bd-tint` of the foreground;
-- the code is JetBrains Mono at 13px without ligatures, 20px lines (the height Pierre's virtualizer measures with): the
-  size of the IntelliJ editor and of the UI text beside it (the header of a file, the hunk separators in Inter), at the
-  cost of about 8% of the columns of a split view. The font comes from `--theme(--font-mono)`: Tailwind does not emit
-  `--font-mono` as a variable (`@theme inline`), so `var(--font-mono)` would be empty.
+- the background is `--card`: our tokens already switch with the scheme;
+- added and deleted lines are `--success` and `--destructive`, line numbers `--muted-foreground`, the folds the
+  `--bd-tint` of the foreground. A merge colours its blocks as IntelliJ: inserted `--success`, deleted
+  `--muted-foreground`, modified `--primary`, conflict `--destructive`;
+- the code is JetBrains Mono at 13px without ligatures; the row height comes from the font metrics and the zoom: the
+  size of the IntelliJ editor and of the UI text beside it, at the cost of about 8% of the columns of a split view.
 
-The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/diff/islands-themes.ts`.
+The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `src/index.css`, by the roles of
+`src/lib/diff/islands-themes.ts`.
 
 ### Key Decisions
 
@@ -157,10 +155,10 @@ The syntax colours are the IntelliJ editor schemes, as Shiki themes in `src/lib/
     window.
 - **Every window's top row is its title bar** (`WindowTitleBar`, [Title Bar](../../spec/repository/title-bar.spec.md)),
   on the canvas, never an island: on the left where the user is (the repository, the stack, the list and the commit,
-  the request), on the right the view of the window (Unified/Split) and the actions on its object (`ActionButton`). A
+  the request), on the right the view of the window (Unified/Inline/Split) and the actions on its object (`ActionButton`). A
   sub-window is a `WindowPage`: the row, the islands, the footer with the position and the keys only. A preview dialog
   keeps its actions in its footer. A review is a window, never a dialog: a review is a task of minutes beside the
-  branch table, a dialog would cover it; a preview is a glance (Quick Look), a dialog. The Unified/Split toggle is in
+  branch table, a dialog would cover it; a preview is a glance (Quick Look), a dialog. The Unified/Inline/Split toggle is in
   the title bar of the window whose diffs it switches.
 - **Window buttons** are the platform's, never a generic set: Windows' caption buttons (46×40, Segoe Fluent), GNOME's
   and KDE's as IntelliJ draws them (a 47×40 cell, its icons; the `window-button-*` tokens of `src/index.css` are their

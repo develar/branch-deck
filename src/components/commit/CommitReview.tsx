@@ -10,22 +10,23 @@ import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SearchField } from "@/components/shared/SearchField"
 import { SectionLabel } from "@/components/shared/SectionLabel"
-import type { CommitFile, CommitPatch } from "@/lib/bindings"
+import type { CommitFile } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
-import { getDiffWorkerPool } from "@/lib/diff/diff-engine"
-import { prepareFirstDiffs } from "@/lib/diff/review-diffs"
+import type { FileDiff } from "@/lib/diff/file-diff-model"
+import { getHighlightClient } from "@/lib/diff/highlight/highlighter"
+import { withEngineCounts } from "@/lib/diff/view-files"
 import { FILE_FILTER_MIN_FILES, filterFilesByText, formatNoFileMatch } from "@/lib/file-filter"
 import { buildFileTree, flattenTreeFiles, getInitiallyCollapsed, revealInTree, toggleInSet } from "@/lib/file-tree"
 import { isTypingTarget } from "@/lib/preview-keys"
 import type { ReviewPosition } from "@/lib/review-position"
 import { markSubWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
-import { loadSubjectPatch, useCommitPatch } from "@/stores/commit-patch"
-import { useConflictViewerSettings } from "@/stores/settings/diff-view-settings"
+import { loadFileDiffs, useFileDiffs } from "@/stores/file-diffs"
+import { useDiffViewMode, useDiffWhitespacePolicy } from "@/stores/settings/diff-view-settings"
 
-// the diff engine starts with the page of a review, beside the reads of its files and patch, not after them
-getDiffWorkerPool()
+// the highlight worker starts with the page of a review, beside the reads of its files and diffs, not after them
+getHighlightClient()
 
 export interface CommitReviewProps {
   /** A commit, or the range of a pull request */
@@ -76,7 +77,8 @@ export function CommitReview({
 }: CommitReviewProps) {
   const subjectId = diffSubjectId(subject)
   const commitFiles = useFilesOfCommit(subjectId)
-  const entry = useCommitPatch(subjectId)
+  const policy = useDiffWhitespacePolicy()
+  const entry = useFileDiffs(subject, policy)
   const [filesFailed, setFilesFailed] = useState<string | null>(null)
   const [filterText, setFilterText] = useState("")
   const filteredFiles = useMemo(() => (commitFiles === undefined ? undefined : filterFiles(commitFiles.files, pathFilter)), [commitFiles, pathFilter])
@@ -96,10 +98,14 @@ export function CommitReview({
         setFilesFailed(subjectId)
       }
     })
-    loadSubjectPatch(current)
   }, [subjectId])
+  // the backend sends the diff of the file the review opens at first; the others follow in the order of the tree
+  const priorityPath = initialPath
+  useEffect(() => {
+    loadFileDiffs(parseDiffSubjectId(subjectId), policy, { priorityPaths: priorityPath === null ? [] : [priorityPath] })
+  }, [subjectId, policy, priorityPath])
 
-  const patchLoaded = entry?.kind === "loaded"
+  const diffsLoaded = entry?.kind === "loaded"
   useEffect(() => {
     if (commitFiles !== undefined) {
       markSubWindowOpenPhase("files")
@@ -107,16 +113,16 @@ export function CommitReview({
   }, [commitFiles])
   const neighbourIds = neighbours?.map(diffSubjectId).join("\n") ?? ""
   useEffect(() => {
-    if (!patchLoaded) {
+    if (!diffsLoaded) {
       return
     }
-    markSubWindowOpenPhase("patch")
+    markSubWindowOpenPhase("diffs")
     for (const id of neighbourIds === "" ? [] : neighbourIds.split("\n")) {
       const neighbour = parseDiffSubjectId(id)
       void loadFilesOfSubject(neighbour)
-      loadSubjectPatch(neighbour)
+      loadFileDiffs(neighbour, policy)
     }
-  }, [patchLoaded, neighbourIds])
+  }, [diffsLoaded, neighbourIds, policy])
 
   let message: ReactNode = null
   let loaded: LoadedReview | null = null
@@ -153,9 +159,11 @@ export function CommitReview({
     loaded = {
       // the selection and the collapsed directories belong to one commit or range, and to one filter
       key: pathFilter === null ? subjectId : `${subjectId}|${[...pathFilter].join("\n")}`,
-      files: shownFiles,
+      // the counts of the engine, none until its diffs are read: git's numstat counts what the policy ignores too
+      files: withEngineCounts(shownFiles, entry?.kind === "loaded" ? entry.files : undefined),
       totalCount: filteredFiles?.length ?? shownFiles.length,
-      patch: entry?.kind === "loaded" ? entry.patch : null,
+      diffs: entry?.kind === "loaded" ? entry.files : null,
+      diffsComplete: entry?.kind === "loaded" && entry.complete,
       initialPath: initialPath !== null && shownFiles.some(file => file.path === initialPath) ? initialPath : null,
     }
   }
@@ -226,7 +234,7 @@ function filterFiles(files: readonly CommitFile[], pathFilter: ReadonlySet<strin
   return files.filter(file => pathFilter.has(file.path) || (file.oldPath !== null && pathFilter.has(file.oldPath)))
 }
 
-/** The files of the shown subject once read, and its patch once read too: the tree does not wait for the patch */
+/** The files of the shown subject once read, and their diffs once read too: the tree does not wait for the diffs */
 interface LoadedReview {
   /** The subject and the filter: a new key starts the tree and the diffs over */
   key: string
@@ -234,7 +242,10 @@ interface LoadedReview {
   files: readonly CommitFile[]
   /** The files before the search: "Files 2 of 18" */
   totalCount: number
-  patch: CommitPatch | null
+  /** The files whose diff arrived, in the order of git */
+  diffs: readonly FileDiff[] | null
+  /** Every diff of the subject arrived: a file without one has none */
+  diffsComplete: boolean
   initialPath: string | null
 }
 
@@ -293,7 +304,7 @@ const initialLayout = { sidebar: 30, code: 70 }
  * files) stay mounted, only the tree and the diffs start over for another subject or filter.
  */
 function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTop, filesHeader, codeTop, search }: ReviewLayoutProps) {
-  const diffViewMode = useConflictViewerSettings(state => state.conflictDiffViewMode)
+  const diffViewMode = useDiffViewMode()
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "review-sidebar", storage: localStorage, onlySaveAfterUserInteractions: true })
   const loadedFiles = loaded?.files
   const nodes = useMemo(() => (loadedFiles === undefined ? [] : buildFileTree(loadedFiles)), [loadedFiles])
@@ -320,31 +331,21 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
     scrollToSelected()
   }, [filterText])
 
-  // the diffs mount once their first screen is ready (`prepareFirstDiffs`), so their first frame is highlighted
-  const patch = loaded?.patch ?? null
-  const initialPath = loaded?.initialPath ?? null
-  const [prepared, setPrepared] = useState<{ key: string; patch: CommitPatch } | null>(null)
-  const isPrepared = loaded !== null && patch !== null && prepared?.key === loaded.key && prepared.patch === patch
-  useEffect(() => {
-    if (loadedKey === null || patch === null) {
-      return
+  // the diffs mount with the models of the engine; each file reads its texts by blob id as it comes into view, and the
+  // window shows once the rows of the first screen are painted (`onFirstScreen`)
+  const diffs = loaded?.diffs ?? null
+  const diffsComplete = loaded?.diffsComplete ?? false
+  const viewFiles = useMemo(() => {
+    if (diffs === null) {
+      return null
     }
-    let current = true
-    void prepareFirstDiffs(patch, files, initialPath).then(() => {
-      if (current) {
-        setPrepared({ key: loadedKey, patch })
-      }
-    })
-    return () => {
-      current = false
-    }
-  }, [loadedKey, patch, files, initialPath])
-  // the diffs rendered their first frame in their mount: the window shows it
-  useEffect(() => {
-    if (isPrepared) {
-      markSubWindowContentReady()
-    }
-  }, [isPrepared])
+    const byPath = new Map(diffs.map(diff => [diff.path, diff]))
+    return withEngineCounts(files, diffs).map(file => ({ file, diff: byPath.get(file.path), pending: !diffsComplete && !byPath.has(file.path) }))
+  }, [diffs, diffsComplete, files])
+  const showWindow = useCallback(() => {
+    markSubWindowOpenPhase("painted")
+    markSubWindowContentReady()
+  }, [])
 
   const toggleDirectory = useCallback((key: string) => setSelection(previous => ({ ...previous, collapsed: toggleInSet(previous.collapsed, key) })), [])
 
@@ -453,7 +454,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
             {codeTop}
             {loaded === null ? (
               <div className="min-h-0 flex-1 overflow-y-auto">{message}</div>
-            ) : !isPrepared || patch === null ? (
+            ) : viewFiles === null ? (
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <PendingFileHeaders files={files} fileOwners={fileOwners} />
                 <LoadingLine key={loaded.key} className="p-6">
@@ -465,11 +466,11 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
                 <CommitReviewCode
                   key={loaded.key}
                   ref={code}
-                  patch={patch}
-                  files={files}
+                  files={viewFiles}
                   diffViewMode={diffViewMode}
                   initialPath={loaded.initialPath}
                   onVisibleFileChange={select}
+                  onFirstScreen={showWindow}
                   fileOwners={fileOwners}
                 />
               </div>

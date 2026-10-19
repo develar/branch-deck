@@ -1,0 +1,357 @@
+/*
+ * The rows of `DiffView` (docs/design/diff-view.md, "DOM and React"): light DOM, the tokens of src/index.css. The painter
+ * (diff-painter.ts) sets the row height, the gutter width and the horizontal offset of each side as custom properties.
+ */
+
+.dv-scroller {
+  position: relative;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* the view keeps its own anchor: the rows in the DOM change with every frame */
+  overflow-anchor: none;
+  outline: none;
+}
+
+.dv-document {
+  position: relative;
+}
+
+/* a view in the scroller of its parent: the diff under a tree row, the files of a card or a dialog */
+.dv-embedded {
+  position: relative;
+  outline: none;
+}
+
+/* why a file shows no rows, or how its line ends changed: one row under the header */
+.dv-notice {
+  height: var(--dv-row-height, 20px);
+  padding-inline: 1rem;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: var(--dv-row-height, 20px);
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dv-section {
+  position: absolute;
+  inset-inline: 0;
+}
+
+.dv-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.dv-rows {
+  position: relative;
+  font-family: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-feature-settings: "calt" 0;
+  font-size: 13px;
+  tab-size: 4;
+  color: var(--syntax-foreground);
+  background: var(--card);
+}
+
+.dv-row {
+  position: absolute;
+  inset-inline: 0;
+  display: flex;
+  height: var(--dv-row-height, 20px);
+  overflow: hidden;
+  line-height: var(--dv-row-height, 20px);
+  white-space: pre;
+}
+
+.dv-half {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.dv-half + .dv-half {
+  border-inline-start: 1px solid var(--border);
+}
+
+.dv-num {
+  flex: none;
+  width: var(--dv-gutter, 4ch);
+  padding-inline-end: 1ch;
+  text-align: end;
+  color: var(--muted-foreground);
+  user-select: none;
+}
+
+.dv-code {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  padding-inline-start: 1ch;
+  border-inline-start: 3px solid transparent;
+}
+
+.dv-text {
+  display: inline-block;
+  transform: translateX(calc(-1px * var(--dv-scroll, 0)));
+}
+
+[data-side="0"] > .dv-code > .dv-text {
+  --dv-scroll: var(--dv-scroll-0, 0);
+}
+
+[data-side="1"] > .dv-code > .dv-text {
+  --dv-scroll: var(--dv-scroll-1, 0);
+}
+
+[data-side="2"] > .dv-code > .dv-text {
+  --dv-scroll: var(--dv-scroll-2, 0);
+}
+
+.dv-vl {
+  display: block;
+  height: var(--dv-row-height, 20px);
+  overflow: hidden;
+}
+
+/*
+ * The kinds of a cell: a deleted or an added line, a gap, a block the policy ignores (plain). The tints are IntelliJ's
+ * (`SimpleDiffChangeUi`, `TextDiffTypeImpl.getIgnoredColor`): a block without inner ranges in the full colour; a block
+ * with them pale, the change colour mixed 0.6 with the background, and its ranges in the full colour; a block that
+ * differs only in whitespace pale, with a faded bar
+ */
+.dv-rows {
+  --dv-deleted: color-mix(in oklab, var(--destructive) 20%, var(--card));
+  --dv-added: color-mix(in oklab, var(--success) 20%, var(--card));
+}
+
+[data-cell="deleted"] {
+  background: var(--dv-deleted);
+}
+
+[data-cell="deleted"] > .dv-code {
+  border-inline-start-color: var(--destructive);
+}
+
+[data-cell="added"] {
+  background: var(--dv-added);
+}
+
+[data-cell="added"] > .dv-code {
+  border-inline-start-color: var(--success);
+}
+
+[data-cell="filler"] {
+  background: color-mix(in oklab, var(--foreground) 3%, var(--card));
+}
+
+[data-tint][data-cell="deleted"] {
+  background: color-mix(in oklab, var(--dv-deleted) 40%, var(--card));
+}
+
+[data-tint][data-cell="added"] {
+  background: color-mix(in oklab, var(--dv-added) 40%, var(--card));
+}
+
+[data-tint="whitespace"] > .dv-code {
+  border-inline-start-color: color-mix(in oklab, currentColor 30%, transparent);
+}
+
+[data-cell="deleted"] .dv-changed {
+  background: var(--dv-deleted);
+  border-radius: 2px;
+}
+
+[data-cell="added"] .dv-changed {
+  background: var(--dv-added);
+  border-radius: 2px;
+}
+
+/*
+ * The cells of a merge, as IntelliJ's merge viewer colours them: inserted green, deleted grey, modified blue, conflict
+ * red; in the middle and on each side that changed the block. The tints follow the rule of a diff.
+ */
+[data-cell="merge-inserted"] {
+  --dv-merge: var(--success);
+}
+
+[data-cell="merge-deleted"] {
+  --dv-merge: var(--muted-foreground);
+}
+
+[data-cell="merge-modified"] {
+  --dv-merge: var(--primary);
+}
+
+[data-cell="merge-conflict"] {
+  --dv-merge: var(--destructive);
+}
+
+[data-cell^="merge-"] {
+  background: color-mix(in oklab, var(--dv-merge) 20%, var(--card));
+}
+
+[data-cell^="merge-"] > .dv-code {
+  border-inline-start-color: var(--dv-merge);
+}
+
+[data-tint][data-cell^="merge-"] {
+  background: color-mix(in oklab, var(--dv-merge) 8%, var(--card));
+}
+
+[data-cell^="merge-"] .dv-changed {
+  background: color-mix(in oklab, var(--dv-merge) 20%, var(--card));
+  border-radius: 2px;
+}
+
+/* the result of a conflict that the engine resolves: a dashed bar */
+[data-resolved] > .dv-code {
+  border-inline-start-style: dashed;
+}
+
+/* the deleted parts of an Inline row: not selectable, so a copy gives the new line */
+[data-inline-deleted] {
+  user-select: none;
+  border-radius: 2px;
+  background: var(--dv-deleted);
+}
+
+/* the hits of the find, the current one stronger */
+.dv-hit {
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--warning) 30%, var(--card));
+}
+
+.dv-hit-current {
+  background: color-mix(in oklab, var(--warning) 60%, var(--card));
+  outline: 1px solid var(--warning);
+}
+
+.dv-fold {
+  background: color-mix(in oklab, var(--foreground) var(--bd-tint), var(--card));
+  user-select: none;
+}
+
+/* with a column per side a selection stays on the side it started on */
+[data-select-side="0"] .dv-half:not([data-side="0"]),
+[data-select-side="1"] .dv-half:not([data-side="1"]),
+[data-select-side="2"] .dv-half:not([data-side="2"]) {
+  user-select: none;
+}
+
+/* a screen reader says what a changed line is; the generated content is not copied */
+[data-cell="deleted"] > .dv-code::before {
+  content: "" / "deleted";
+}
+
+[data-cell="added"] > .dv-code::before {
+  content: "" / "added";
+}
+
+[data-cell="merge-inserted"] > .dv-code::before {
+  content: "" / "inserted";
+}
+
+[data-cell="merge-deleted"] > .dv-code::before {
+  content: "" / "deleted";
+}
+
+[data-cell="merge-modified"] > .dv-code::before {
+  content: "" / "modified";
+}
+
+[data-cell="merge-conflict"] > .dv-code::before {
+  content: "" / "conflict";
+}
+
+[data-cell="merge-conflict"][data-resolved] > .dv-code::before {
+  content: "" / "resolved conflict";
+}
+
+.dv-fold-button {
+  display: flex;
+  gap: 2ch;
+  width: 100%;
+  min-width: 0;
+  padding-inline-start: calc(var(--dv-gutter, 4ch) + 1ch);
+  overflow: hidden;
+  text-align: start;
+  color: var(--muted-foreground);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.dv-fold-button:hover {
+  color: var(--foreground);
+}
+
+.dv-fold-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--foreground);
+}
+
+.dv-eof {
+  margin-inline-start: 1ch;
+  color: var(--muted-foreground);
+  user-select: none;
+}
+
+/* the scrollbars of the sides, sticky at the bottom of the viewport while their file is in view */
+.dv-hscrolls {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  height: 0;
+  pointer-events: none;
+}
+
+.dv-hscroll {
+  flex: 1 1 0;
+  height: 10px;
+  margin-top: -10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  pointer-events: auto;
+}
+
+/* the syntax roles of the highlight worker (SYNTAX_ROLES), their colours in src/index.css */
+.t1 {
+  color: var(--syntax-keyword);
+}
+.t2 {
+  color: var(--syntax-string);
+}
+.t3 {
+  color: var(--syntax-escape);
+}
+.t4 {
+  color: var(--syntax-number);
+}
+.t5 {
+  color: var(--syntax-comment);
+}
+.t6 {
+  color: var(--syntax-function-declaration);
+}
+.t7 {
+  color: var(--syntax-field);
+}
+.t8 {
+  color: var(--syntax-annotation);
+}
+.t9 {
+  color: var(--syntax-tag);
+}
+.t10 {
+  color: var(--syntax-attribute);
+}
+.ti {
+  font-style: italic;
+}
+.tb {
+  font-weight: bold;
+}

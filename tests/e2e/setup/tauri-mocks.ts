@@ -530,6 +530,10 @@ export const tauriMockScript = () => {
       return null
     },
 
+    // the diffs of the files stream through the channel `events` (`FileDiffEvent`); the server answers them as SSE
+    get_file_diffs: async (cmd: string, payload: any) => handleStreamingCommand(cmd, { ...payload, progress: payload.events }),
+    get_file_merges: async (cmd: string, payload: any) => handleStreamingCommand(cmd, { ...payload, progress: payload.events }),
+
     // Special async commands
     sync_branches: async (_cmd: string, payload: any) => {
       if (payload && payload.progress) {
@@ -605,16 +609,18 @@ export const tauriMockScript = () => {
     }
 
     tauriInternals.mockIPC(async (cmd: string, payload: any) => {
-      // Special handling for commands with Channel objects
-      if (cmd === "sync_branches" && payload && payload.progress) {
+      // Special handling for commands with Channel objects: `progress` of sync_branches, `events` of get_file_diffs and
+      // get_file_merges
+      const channelKey = cmd === "sync_branches" ? "progress" : cmd === "get_file_diffs" || cmd === "get_file_merges" ? "events" : null
+      if (channelKey !== null && payload && payload[channelKey]) {
         // Store the onmessage handler before it gets lost
-        const onmessageHandler = payload.progress.onmessage
+        const onmessageHandler = payload[channelKey].onmessage
         debug("[Test Mock] Captured onmessage handler:", typeof onmessageHandler)
 
-        // Replace progress with our handler reference
+        // Replace the channel with our handler reference
         const modifiedPayload = {
           ...payload,
-          progress: {
+          [channelKey]: {
             onmessage: onmessageHandler,
           },
         }
@@ -826,6 +832,8 @@ export const tauriMockScript = () => {
       const name = attr.name
       // the number of finished syncs depends on timing, not on what the UI shows (`waitForSyncComplete` reads it)
       if (name === "data-sync-count") continue
+      // the offsets and the heights of a diff view come from the metrics of the font
+      if (name === "style" && element.closest(".dv-document") !== null) continue
 
       // Apply normalization rules based on attribute type
       if (name === "style") {
@@ -846,6 +854,12 @@ export const tauriMockScript = () => {
     // Add sorted attributes to tag
     for (const [name, value] of normalizedAttrs) {
       result += ` ${name}="${value}"`
+    }
+
+    // the rows and the scroll bars of a diff view depend on what is in view, the width and when its tokens arrive: a
+    // test reads their text (`toContainText`), a snapshot keeps their element only
+    if (element.classList.contains("dv-rows") || element.classList.contains("dv-hscrolls")) {
+      return `${result} />`
     }
 
     // Elements without text are printed self-closed, except that the icons inside them are kept

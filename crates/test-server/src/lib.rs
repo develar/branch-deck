@@ -236,12 +236,14 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
   spawn("commit_tree", |path| templates::commit_tree().build(path));
   spawn("commit_deleted", |path| templates::commit_deleted().build(path));
   spawn("commit_many_files", |path| templates::commit_many_files().build(path));
+  spawn("commit_whitespace", |path| templates::commit_whitespace().build(path));
   spawn("stacked_branches", |path| templates::stacked_branches().build(path));
   spawn("stack_island", |path| templates::stack_island().build(path));
   spawn("stack_side_conflict", |path| templates::stack_side_conflict().build(path));
   spawn("stacked_issues", |path| templates::stacked_issues().build(path));
   spawn("stacked_conflict", |path| templates::stacked_conflict().build(path));
   spawn("conflict_fix", |path| templates::conflict_fix().build(path));
+  spawn("conflict_words", |path| templates::conflict_words().build(path));
   spawn("stacked_ownership", |path| templates::stacked_ownership().build(path));
   spawn("stack_push_alone", |path| templates::stack_push_alone().build(path));
   spawn("stack_uses_parent", |path| templates::stack_uses_parent().build(path));
@@ -301,6 +303,8 @@ pub enum RepositoryTemplate {
   CommitDeleted,
   #[serde(rename = "commit_many_files")]
   CommitManyFiles,
+  #[serde(rename = "commit_whitespace")]
+  CommitWhitespace,
   #[serde(rename = "stacked_branches")]
   StackedBranches,
   #[serde(rename = "stack_island")]
@@ -313,6 +317,8 @@ pub enum RepositoryTemplate {
   StackedConflict,
   #[serde(rename = "conflict_fix")]
   ConflictFix,
+  #[serde(rename = "conflict_words")]
+  ConflictWords,
   #[serde(rename = "stacked_ownership")]
   StackedOwnership,
   #[serde(rename = "stack_push_alone")]
@@ -363,12 +369,14 @@ impl RepositoryTemplate {
       Self::CommitTree => "commit_tree",
       Self::CommitDeleted => "commit_deleted",
       Self::CommitManyFiles => "commit_many_files",
+      Self::CommitWhitespace => "commit_whitespace",
       Self::StackedBranches => "stacked_branches",
       Self::StackIsland => "stack_island",
       Self::StackSideConflict => "stack_side_conflict",
       Self::StackedIssues => "stacked_issues",
       Self::StackedConflict => "stacked_conflict",
       Self::ConflictFix => "conflict_fix",
+      Self::ConflictWords => "conflict_words",
       Self::StackedOwnership => "stacked_ownership",
       Self::StackPushAlone => "stack_push_alone",
       Self::StackUsesParent => "stack_uses_parent",

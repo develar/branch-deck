@@ -1,6 +1,5 @@
 import { Spinner } from "@/components/ui/spinner"
 import { Callout } from "@/components/shared/Callout"
-import type { ConflictContentsEntry } from "@/stores/conflict-contents"
 
 export interface DiffLoadStateProps {
   /** What is loading: "Loading file content…" */
@@ -24,9 +23,4 @@ export function DiffLoadState({ loading, error }: DiffLoadStateProps) {
       {loading}
     </p>
   )
-}
-
-/** `DiffLoadState` of an open item of a conflict view until the contents of the conflict are loaded */
-export function ConflictContentsLoadState({ entry }: { entry: ConflictContentsEntry | undefined }) {
-  return <DiffLoadState loading="Loading the conflict…" error={entry?.kind === "error" ? `Cannot load the conflict: ${entry.message}` : null} />
 }

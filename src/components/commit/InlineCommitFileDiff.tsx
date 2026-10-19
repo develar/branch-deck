@@ -1,46 +1,35 @@
-import { useEffect } from "react"
-import { LazyCommitFileDiffView } from "@/components/diff/LazyDiffViews"
+import { SubjectFileDiff } from "@/components/conflict/SubjectFileDiffList"
 import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import type { CommitFile } from "@/lib/bindings"
-import { loadCommitPatch, useCommitPatch } from "@/stores/commit-patch"
-import type { ConflictDiffViewMode } from "@/stores/settings/diff-view-settings"
+import { fileDiffOf } from "@/stores/file-diffs"
+import type { FileDiffsEntry } from "@/stores/file-diffs"
+import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 
 export interface InlineCommitFileDiffProps {
-  commitId: string
+  /** The diffs of the files of the commit, read by the tree under the policy */
+  diffs: FileDiffsEntry | undefined
   file: CommitFile
-  diffViewMode: ConflictDiffViewMode
+  diffViewMode: DiffViewMode
 }
 
 /**
- * The diff of a file under its row in the files of a commit. The first expanded file reads the patch of the whole
- * commit (one `diff-tree -p`), the others of the commit reuse it.
+ * The diff of a file under its row in the files of a commit: the tree reads the diffs of all files (one
+ * `get_file_diffs`), an expanded file reads its two texts by blob id.
  */
-export function InlineCommitFileDiff({ commitId, file, diffViewMode }: InlineCommitFileDiffProps) {
-  // a binary file and a file without changed lines (a rename, a mode change) need no patch
-  const needsPatch = !file.binary && file.additions + file.deletions > 0
-  const entry = useCommitPatch(commitId)
-
-  useEffect(() => {
-    if (needsPatch) {
-      loadCommitPatch(commitId)
-    }
-  }, [commitId, needsPatch])
-
-  if (!needsPatch) {
-    return <p className="p-4 text-sm text-muted-foreground">{file.binary ? "Binary file" : "No changed lines"}</p>
-  }
-  if (entry?.kind === "error") {
+export function InlineCommitFileDiff({ diffs, file, diffViewMode }: InlineCommitFileDiffProps) {
+  if (diffs?.kind === "error") {
     return (
       <div className="p-4">
         <Callout tone="destructive" title="Cannot read the changes of the commit">
-          {entry.message}
+          {diffs.message}
         </Callout>
       </div>
     )
   }
-  if (entry?.kind !== "loaded") {
+  const diff = fileDiffOf(diffs, file.path)
+  if (diff === "pending") {
     return <LoadingLine className="p-4">Loading diff…</LoadingLine>
   }
-  return <LazyCommitFileDiffView patch={entry.patch} file={file} diffViewMode={diffViewMode} />
+  return <SubjectFileDiff file={{ path: file.path, status: file.status }} diff={diff} diffViewMode={diffViewMode} />
 }

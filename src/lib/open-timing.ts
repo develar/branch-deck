@@ -1,5 +1,5 @@
 /** A phase of the open of a sub-window, in the order it usually comes */
-export type OpenPhase = "loaded" | "files" | "patch" | "engine" | "primed" | "ready"
+export type OpenPhase = "loaded" | "files" | "diffs" | "painted" | "ready"
 
 interface OpenTiming {
   readonly id: number
@@ -26,7 +26,7 @@ export function markOpenPhase(open: { id: number; openedAt: number | null } | un
 }
 
 /**
- * The timing line of the open `id`, "commit-review open 96 ms: loaded 41, files 44, patch 47, ready 96", once: null
+ * The timing line of the open `id`, "commit-review open 96 ms: loaded 41, files 44, diffs 47, ready 96", once: null
  * for another open or when it was told
  */
 export function takeOpenTimingLine(label: string, id: number): string | null {

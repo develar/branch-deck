@@ -1,7 +1,7 @@
 // @spec spec/commit/commit-row.spec.md
 import type { CommitReviewWindowData } from "../../../src/lib/commit-review-window"
 import type { ConflictingFilesWindowData, MissingCommitsWindowData } from "../../../src/types/sub-window"
-import { testWithConflicts, expect } from "../fixtures/test-fixtures"
+import { test as simpleTest, testWithConflicts, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, expandBranch, collapseBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
 import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
@@ -49,6 +49,8 @@ test.describe("Conflict Viewer Feature", () => {
       await expect(explanation).toContainText(/bug-fix is built on (origin\/)?master, which doesn't have them\./)
       // the missing commits are grouped by their branch, the unassigned ones last
       await expect(bugFixDetails.getByTestId("missing-commits").locator("[data-missing-group]")).toHaveText(["feature-auth1 commit", "Unassigned1 commit"])
+      // the modify/delete file shows the change of the commit, from its merge
+      await expect(bugFixDetails.getByTestId("conflicting-files").getByTestId("file-diff").first()).toContainText(COMMIT_CHANGE)
 
       await captureHtmlSnapshot(bugFixDetails, "conflict-viewer")
     })
@@ -106,28 +108,29 @@ test.describe("Conflict Viewer Feature", () => {
       const file = files.first()
       await expect(file.getByTestId("file-conflict-count")).toHaveText("modify/delete")
       // open without a click: the change of the commit under the line that says what happened
-      await expect(file).toContainText("One side deleted the file, the other changed it: the change of the commit")
+      await expect(file.getByTestId("merge-one-sided")).toHaveText(/^(origin\/)?master does not have the file, the commit changes it: the change of the commit$/)
+      await expect(file).toContainText(COMMIT_CHANGE)
     })
 
-    test("should load the contents of a conflict when its view shows it, once for all its files", async ({ page }) => {
+    test("should read the merges of a conflict when its view shows it, once for all its files", async ({ page }) => {
+      const reads: string[] = []
+      page.on("request", request => {
+        if (request.url().endsWith("/invoke/get_file_merges")) {
+          reads.push(request.postData() ?? "")
+        }
+      })
       const bugFixBranch = findBranchRow(page, "bug-fix")
       await expandBranch(page, bugFixBranch)
       const bugFixDetails = getBranchDetailsRow(page, "bug-fix")
       await waitForConflictViewer(page, bugFixDetails)
-      // the first conflicting file is open: the change of the commit, from the contents
+      // the first conflicting file is open: the change of the commit, from its merge
       const conflictingFile = bugFixDetails.getByTestId("conflicting-files").getByTestId("file-diff").first()
       await expect(conflictingFile).toContainText(COMMIT_CHANGE)
 
-      // closed, the view drops the contents; shown again, one read gives the conflicting files and the missing commits
+      // closed and shown again: a merge of git's objects never changes, so the view reads it once
       await collapseBranch(page, bugFixBranch)
       // the only conflict of the repository: its view is gone
       await expect(page.getByTestId("conflict-title")).toHaveCount(0)
-      const reads: string[] = []
-      page.on("request", request => {
-        if (request.url().endsWith("/invoke/get_conflict_contents")) {
-          reads.push(request.postData() ?? "")
-        }
-      })
       await expandBranch(page, bugFixBranch)
       await expect(conflictingFile).toContainText(COMMIT_CHANGE)
       // the first missing commit, of feature-auth: "Add authentication to UserService"
@@ -135,27 +138,30 @@ test.describe("Conflict Viewer Feature", () => {
       await missingFile.getByRole("button", { name: USER_SERVICE }).click()
       await expect(missingFile).toContainText(MISSING_COMMIT_CHANGE)
       expect(reads).toHaveLength(1)
-      const conflict = JSON.parse(reads[0]!) as { commit: string; parent: string; target: string }
-      expect(conflict).toMatchObject({
-        commit: expect.stringMatching(/^[0-9a-f]{40}$/),
-        parent: expect.stringMatching(/^[0-9a-f]{40}$/),
-        target: expect.stringMatching(/^[0-9a-f]{40}$/),
+      const params = JSON.parse(reads[0]!) as { source: { kind: string; commit: string; parent: string; target: string }; priorityPaths: string[] }
+      expect(params).toMatchObject({
+        source: {
+          kind: "cherryPick",
+          commit: expect.stringMatching(/^[0-9a-f]{40}$/),
+          parent: expect.stringMatching(/^[0-9a-f]{40}$/),
+          target: expect.stringMatching(/^[0-9a-f]{40}$/),
+        },
+        priorityPaths: [USER_SERVICE],
       })
     })
 
-    test("should say why the contents of a conflict did not load", async ({ page }) => {
-      await routeCommandError(page, "get_conflict_contents", "Commit 1234 not found")
+    test("should say why the merges of a conflict did not load", async ({ page }) => {
+      await routeCommandError(page, "get_file_merges", "Commit 1234 not found")
       const bugFixBranch = findBranchRow(page, "bug-fix")
       await collapseBranch(page, bugFixBranch)
       await expandBranch(page, bugFixBranch)
       const bugFixDetails = getBranchDetailsRow(page, "bug-fix")
       await waitForConflictViewer(page, bugFixDetails)
 
-      await expect(page.locator("[data-slot=toast]", { hasText: "Cannot load the conflict" })).toContainText("Commit 1234 not found")
-      // the open file says it too; its header and conflict count came with the sync
+      // the header and the conflict count of the open file came with the sync; its merge says why it is missing
       const conflictingFile = bugFixDetails.getByTestId("conflicting-files").getByTestId("file-diff").first()
-      await expect(conflictingFile).toContainText("Cannot load the conflict: Commit 1234 not found")
       await expect(conflictingFile.getByTestId("file-conflict-count")).toHaveText("modify/delete")
+      await expect(conflictingFile).toContainText("Cannot load the conflict: Commit 1234 not found")
     })
 
     test("should load the contents of the conflict in the windows of its files and missing commits", async ({ page }) => {
@@ -212,6 +218,8 @@ test.describe("Conflict Viewer Feature", () => {
 
       // Wait for accordion content to be visible - look for the expanded state
       await expect(fileAccordion).toHaveAttribute("aria-expanded", "true")
+      // the diff of the missing commit is read when its item opens: the snapshot waits for it
+      await expect(bugFixDetails.getByTestId("missing-commits").getByTestId("file-diff").first()).toContainText(MISSING_COMMIT_CHANGE)
 
       // Capture expanded state (the capture waits for the expansion to settle)
       await captureHtmlSnapshot(bugFixDetails, "missing-commits-accordion-expanded")
@@ -257,15 +265,16 @@ test.describe("Conflict Viewer Feature", () => {
       await setupConflictRepo("conflict_branches")
     })
 
-    test("should persist the diff view mode", async ({ page }) => {
+    test("should keep a stored diff view mode over the Split default", async ({ page }) => {
       const bugFixBranch = findBranchRow(page, "bug-fix")
       await expandBranch(page, bugFixBranch)
       const missingCommits = getBranchDetailsRow(page, "bug-fix").getByTestId("missing-commits")
       await waitForConflictViewer(page, getBranchDetailsRow(page, "bug-fix"))
-      await missingCommits.getByRole("button", { name: "Split" }).click()
       await expect(missingCommits.getByRole("button", { name: "Split" })).toHaveAttribute("aria-pressed", "true")
+      await missingCommits.getByRole("button", { name: "Unified" }).click()
+      await expect(missingCommits.getByRole("button", { name: "Unified" })).toHaveAttribute("aria-pressed", "true")
 
-      await waitForStorePersistence(page, "conflictViewer", settings => (settings as { conflictDiffViewMode?: string } | undefined)?.conflictDiffViewMode === "split")
+      await waitForStorePersistence(page, "diffView", settings => (settings as { mode?: string } | undefined)?.mode === "unified")
       await page.reload()
       await syncBranches(page, ['[data-testid="branch-row"][data-branch-name="feature-auth"]', '[data-testid="branch-row"][data-branch-name="bug-fix"]'])
       const bugFixAfterReload = findBranchRow(page, "bug-fix")
@@ -273,7 +282,54 @@ test.describe("Conflict Viewer Feature", () => {
         await expandBranch(page, bugFixAfterReload)
       }
       const missingAfterReload = getBranchDetailsRow(page, "bug-fix").getByTestId("missing-commits")
-      await expect(missingAfterReload.getByRole("button", { name: "Split" })).toHaveAttribute("aria-pressed", "true")
+      await expect(missingAfterReload.getByRole("button", { name: "Unified" })).toHaveAttribute("aria-pressed", "true")
     })
+  })
+})
+
+simpleTest.describe("Merge of a conflicting file", () => {
+  simpleTest.beforeEach(async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the `conflict_words` template: the commit of ui changes the retries on the line whose timeout core raised first,
+    // and adds a line
+    await setupRepo("conflict_words")
+    await syncAndWaitForBranches()
+    await expect(findBranchRow(page, "ui").getByTestId("branch-status")).toHaveText("merge conflict")
+  })
+
+  simpleTest("shows the merge in three columns, with the result the engine proposes and the base", async ({ page }) => {
+    const uiRow = findBranchRow(page, "ui")
+    if ((await uiRow.getAttribute("data-state")) !== "open") {
+      await expandBranch(page, uiRow)
+    }
+    const file = getBranchDetailsRow(page, "ui").getByTestId("conflicting-files").getByTestId("file-diff")
+    await expect(file.getByTestId("file-conflict-count")).toHaveText("1 conflict")
+    // ours, the middle, theirs
+    const columns = file.getByTestId("merge-columns")
+    await expect(columns).toContainText(/^(origin\/)?master/)
+    await expect(columns).toContainText("“Retry three times and log it”")
+    // git stops at the line, but the changes of the two sides touch other words of it
+    await expect(file.getByTestId("merge-notice")).toHaveText("Git stops here; the conflict resolves by words")
+
+    const conflict = file.locator(".dv-row[data-kind=merge]", { hasText: "limits" })
+    const half = (row: typeof conflict, side: number) => row.locator(`.dv-half[data-side="${side}"]`)
+    await expect(half(conflict, 0)).toHaveAttribute("data-cell", "merge-conflict")
+    await expect(half(conflict, 0)).toContainText("{ timeout: 10, retries: 1 }")
+    await expect(half(conflict, 2)).toContainText("{ timeout: 30, retries: 3 }")
+    // Result (proposed): the conflict resolved by its words, marked as resolved
+    await expect(file.getByRole("button", { name: "Result (proposed)" })).toHaveAttribute("aria-pressed", "true")
+    await expect(half(conflict, 1)).toContainText("{ timeout: 10, retries: 3 }")
+    await expect(half(conflict, 1)).toHaveAttribute("data-resolved", "")
+    // the line the commit added: inserted on its side and in the result, a gap on the left
+    const inserted = file.locator(".dv-row[data-kind=merge]", { hasText: "verbose" })
+    await expect(half(inserted, 2)).toHaveAttribute("data-cell", "merge-inserted")
+    await expect(half(inserted, 1)).toHaveAttribute("data-cell", "merge-inserted")
+    await expect(half(inserted, 0)).toHaveAttribute("data-cell", "filler")
+
+    // Base: the lines before both changes; the base has no line where the commit added one
+    await file.getByRole("button", { name: "Base" }).click()
+    await expect(file.getByRole("button", { name: "Base" })).toHaveAttribute("aria-pressed", "true")
+    await expect(half(conflict, 1)).toContainText("{ timeout: 30, retries: 1 }")
+    await expect(half(conflict, 1)).not.toHaveAttribute("data-resolved")
+    await expect(half(inserted, 1)).toHaveAttribute("data-cell", "filler")
   })
 })

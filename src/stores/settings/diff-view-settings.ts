@@ -1,21 +1,54 @@
 import { z } from "zod"
 import { useStore } from "zustand"
+import type { WhitespacePolicy } from "@/lib/diff/file-diff-model"
 import { createPersistentStore } from "./persistent-store"
 
-// Unified or Split, one choice for every diff view (`DiffViewToggle`), persisted under its older name "conflictViewer"
-const ConflictViewerSettingsSchema = z.object({
-  conflictDiffViewMode: z.enum(["unified", "split"]).default("unified"),
+/*
+ * One choice for every diff view, as IntelliJ's diff settings: the layout (`DiffViewToggle`, Settings → Appearance) and
+ * soft wraps. A default only fills a missing field, so a stored value wins over it.
+ */
+const DiffViewSettingsSchema = z.object({
+  // Split first, as IntelliJ's diff and its VCS log; Inline is Unified with a lightly edited line as one row
+  mode: z.enum(["unified", "inline", "split"]).default("split"),
+  // off, as IntelliJ's USE_SOFT_WRAPS: a long line keeps its shape and scrolls
+  softWraps: z.boolean().default(false),
+  // what the diff engine ignores; IntelliJ's default compares every character
+  whitespacePolicy: z.enum(["default", "trim", "ignore", "ignoreBlankLines"] satisfies WhitespacePolicy[]).default("default"),
 })
 
-type ConflictViewerSettings = z.infer<typeof ConflictViewerSettingsSchema>
-export type ConflictDiffViewMode = ConflictViewerSettings["conflictDiffViewMode"]
+type DiffViewSettings = z.infer<typeof DiffViewSettingsSchema>
+export type DiffViewMode = DiffViewSettings["mode"]
 
-const conflictViewerStore = createPersistentStore("conflictViewer", { schema: ConflictViewerSettingsSchema, isArray: false, isMainOnly: false })
+const diffViewStore = createPersistentStore("diffView", { schema: DiffViewSettingsSchema, isArray: false, isMainOnly: false })
 
-export function useConflictViewerSettings<T>(selector: (state: ConflictViewerSettings) => T): T {
-  return useStore(conflictViewerStore, selector)
+/** The layout of every diff view */
+export function useDiffViewMode(): DiffViewMode {
+  return useStore(diffViewStore, state => state.mode)
 }
 
-export function setConflictDiffViewMode(conflictDiffViewMode: ConflictDiffViewMode): void {
-  conflictViewerStore.setState({ conflictDiffViewMode })
+/** Long lines break at the edge of the diff instead of scrolling */
+export function useDiffSoftWraps(): boolean {
+  return useStore(diffViewStore, state => state.softWraps)
+}
+
+/** What the diff engine ignores in every diff view */
+export function useDiffWhitespacePolicy(): WhitespacePolicy {
+  return useStore(diffViewStore, state => state.whitespacePolicy)
+}
+
+/** The policy outside a component: the reads a window starts with its page */
+export function getDiffWhitespacePolicy(): WhitespacePolicy {
+  return diffViewStore.getState().whitespacePolicy
+}
+
+export function setDiffWhitespacePolicy(whitespacePolicy: WhitespacePolicy): void {
+  diffViewStore.setState({ whitespacePolicy })
+}
+
+export function setDiffViewMode(mode: DiffViewMode): void {
+  diffViewStore.setState({ mode })
+}
+
+export function setDiffSoftWraps(softWraps: boolean): void {
+  diffViewStore.setState({ softWraps })
 }

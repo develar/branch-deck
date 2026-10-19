@@ -396,7 +396,8 @@ pub mod templates {
   }
 
   /// One commit that changes files in nested directories (Kotlin, a Gradle script, the README), for the directory tree
-  /// of the commit preview: `RowMapper.kt` has two hunks with 20 unchanged lines between them, which a diff can expand
+  /// of the commit preview: `RowMapper.kt` has two hunks with 20 unchanged lines between them, which a diff can expand;
+  /// the changed line of `Reducer.kt` is longer than a side of Split, which scrolls or wraps it
   pub fn commit_tree() -> RepoTemplate {
     RepoTemplate::new("commit_tree")
       .branch_prefix("user-name")
@@ -408,7 +409,7 @@ pub mod templates {
           ("plugins/air/backend/session/catalog/src/RowMapper.kt", &row_mapper("Row")),
           (
             "plugins/air/backend/session/projection/src/Reducer.kt",
-            "class Reducer {\n  fun reduce(state: Int): Int = state\n}\n",
+            "class Reducer {\n  fun reduce(state: Int, event: SessionEvent, clock: Clock, log: Logger, metrics: Metrics, settings: SessionSettings): Int = state\n}\n",
           ),
         ],
         Some(1704117600),
@@ -425,8 +426,37 @@ pub mod templates {
           ),
           (
             "plugins/air/backend/session/projection/src/Reducer.kt",
-            "class Reducer {\n  fun reduce(state: Int): Int = state + 1\n}\n",
+            "class Reducer {\n  fun reduce(state: Int, event: SessionEvent, clock: Clock, log: Logger, metrics: Metrics, settings: SessionSettings): Int = state + 1\n}\n",
           ),
+        ],
+        Some(1704119400),
+      )
+  }
+
+  /// One commit of one file for the whitespace policies of the diffs: a block of two lines indented again, a blank line
+  /// added apart from the other changes, and one real change, so each policy shows a different diff (`Format.kt`)
+  pub fn commit_whitespace() -> RepoTemplate {
+    RepoTemplate::new("commit_whitespace")
+      .branch_prefix("user-name")
+      .commit_with_timestamp(
+        "Initial project setup",
+        &[
+          (
+            "src/Format.kt",
+            "class Format {\n  fun first() {\n    val a = 1\n    val b = 2\n  }\n  fun middle() = 0\n  fun second() = 3\n}\n",
+          ),
+          ("src/Main.kt", "fun main() = Format().second()\n"),
+        ],
+        Some(1704117600),
+      )
+      .commit_with_timestamp(
+        "(format) indent the block of first and return 4",
+        &[
+          (
+            "src/Format.kt",
+            "class Format {\n  fun first() {\n      val a = 1\n      val b = 2\n  }\n\n  fun middle() = 0\n  fun second() = 4\n}\n",
+          ),
+          ("src/Main.kt", "fun main() = println(Format().second())\n"),
         ],
         Some(1704119400),
       )
@@ -726,6 +756,27 @@ pub mod templates {
       .commit_with_timestamp("(auth) Read the auth config", &[("config.js", "export const config = { auth: true }\n")], Some(1704121200))
       .commit_with_timestamp("(auth/login) Add login form", &[("login.js", "export function login() {}\n")], Some(1704123000))
       .commit_with_timestamp("(docs) Document the login", &[("docs.md", "# Login\n")], Some(1704124800))
+  }
+
+  /// The commit of `ui` changes the retries on the line whose timeout `core` raised first, and adds a line: git stops
+  /// at the line, but its words resolve (`{ timeout: 10, retries: 3 }`), and the added line resolves as it is
+  pub fn conflict_words() -> RepoTemplate {
+    // the limits line, and two lines apart from the end of the file
+    let limits = |timeout: u32, retries: u32, end: &str| {
+      format!(
+        "export const host = \"localhost\"\nexport const limits = {{ timeout: {timeout}, retries: {retries} }}\nexport const port = 8080\nexport const name = \"limits\"\n{end}"
+      )
+    };
+    // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
+    RepoTemplate::new("conflict_words")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial project setup", &[("limits.js", limits(10, 1, "").as_str())], Some(1704117600))
+      .commit_with_timestamp("(core) Raise the timeout", &[("limits.js", limits(30, 1, "").as_str())], Some(1704119400))
+      .commit_with_timestamp(
+        "(ui) Retry three times and log it",
+        &[("limits.js", limits(30, 3, "export const verbose = true\n").as_str())],
+        Some(1704121200),
+      )
   }
 
   /// Stacked branches on: the last commit of `ui` changes a line of the settings that `api` (stacked on `core`) changed

@@ -29,12 +29,9 @@ function shikiBundle(): Plugin {
       if (/[/\\]shiki[/\\]dist[/\\]langs-bundle-full-[^/\\]+\.mjs$/.test(path)) {
         return filterShikiLanguageList(await readFile(path, "utf8"), BUNDLED_LANGUAGE_IDS)
       }
-      // Shiki's themes and the collection of them in @pierre/theming: the diffs register their own (islands-themes.ts)
+      // Shiki's themes: the highlight worker has its own theme of roles (islands-themes.ts)
       if (/[/\\]shiki[/\\]dist[/\\]themes\.mjs$/.test(path)) {
         return "const bundledThemesInfo = []\nconst bundledThemes = {}\nexport { bundledThemes, bundledThemesInfo }\n"
-      }
-      if (/[/\\]@pierre[/\\]theming[/\\]dist[/\\]collections[/\\]shiki\.js$/.test(path)) {
-        return 'import { createThemeCollection } from "../modules/createThemeCollection.js"\nexport const shikiThemes = createThemeCollection({ themes: Object.freeze([]) })\n'
       }
       return null
     },
@@ -68,7 +65,15 @@ export default defineConfig({
   // React Compiler memoizes components and hooks (docs/design/rendering-performance.md); a component it would skip
   // fails the build instead of running unmemoized
   // lazy: `vp lint` and `vp fmt` read this file too and need none of the plugins
-  plugins: lazyPlugins(() => [react({ compiler: { panicThreshold: "all_errors" } }), tailwindcss(), shikiBundle(), preloadInterFont()]),
+  plugins: lazyPlugins(() => [
+    react({
+      compiler: { panicThreshold: "all_errors" },
+      exclude: [/[/\\]node_modules[/\\]/],
+    }),
+    tailwindcss(),
+    shikiBundle(),
+    preloadInterFont(),
+  ]),
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
@@ -109,12 +114,15 @@ export default defineConfig({
       "@tauri-apps/plugin-log",
       "@tauri-apps/api/app",
       "@tauri-apps/api/core",
-      "@pierre/diffs",
-      "@pierre/diffs/react",
+      // the highlighter of the diffs
+      "shiki",
+      "shiki/core",
+      "shiki/engine/javascript",
+      "shiki/textmate",
       "p-debounce",
       "zod",
     ],
-    // the dev server pre-bundles @pierre/diffs with shiki in it, without the plugins above
+    // the dev server pre-bundles shiki without the plugins above
     rolldownOptions: {
       plugins: [shikiBundle()],
     },

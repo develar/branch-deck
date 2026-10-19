@@ -8,9 +8,11 @@ import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { CommitFile, CommitFiles } from "@/lib/bindings"
+import { withEngineCounts } from "@/lib/diff/view-files"
 import { buildFileTree, getInitiallyCollapsed, toggleInSet } from "@/lib/file-tree"
 import { getFilesOfCommit, loadFilesOfCommit, toggleCommitFilesSection, useFilesOfCommit, useIsCommitFilesSectionOpen } from "@/stores/commit-files"
-import { useConflictViewerSettings } from "@/stores/settings/diff-view-settings"
+import { loadFileDiffs, useFileDiffs } from "@/stores/file-diffs"
+import { useDiffViewMode, useDiffWhitespacePolicy } from "@/stores/settings/diff-view-settings"
 
 export interface CommitFilesSectionProps {
   commitId: string
@@ -92,13 +94,20 @@ function CommitFilesContent({ commitId, onReviewFile }: { commitId: string; onRe
 }
 
 function CommitFileTree({ commitFiles, onReviewFile }: { commitFiles: CommitFiles; onReviewFile: (path: string) => void }) {
-  const diffViewMode = useConflictViewerSettings(state => state.conflictDiffViewMode)
-  const nodes = useMemo(() => buildFileTree(commitFiles.files), [commitFiles])
+  const diffViewMode = useDiffViewMode()
+  const policy = useDiffWhitespacePolicy()
+  const { commitId } = commitFiles
+  const diffs = useFileDiffs({ kind: "commit", id: commitId }, policy)
+  useEffect(() => {
+    loadFileDiffs({ kind: "commit", id: commitId }, policy)
+  }, [commitId, policy])
+  // the counts of the engine, none until its diffs are read: git's numstat counts what the policy ignores too
+  const files = useMemo(() => withEngineCounts(commitFiles.files, diffs?.kind === "loaded" ? diffs.files : undefined), [commitFiles, diffs])
+  const nodes = useMemo(() => buildFileTree(files), [files])
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => getInitiallyCollapsed(nodes, commitFiles.files.length))
   const [expandedFiles, setExpandedFiles] = useState<ReadonlySet<string>>(() => new Set())
   const toggleDirectory = useCallback((key: string) => setCollapsed(previous => toggleInSet(previous, key)), [])
   const toggleFile = useCallback((key: string) => setExpandedFiles(previous => toggleInSet(previous, key)), [])
-  const { commitId } = commitFiles
 
   return (
     <FileTree
@@ -109,7 +118,7 @@ function CommitFileTree({ commitFiles, onReviewFile }: { commitFiles: CommitFile
       onToggleDirectory={toggleDirectory}
       expandedFiles={expandedFiles}
       onToggleFile={toggleFile}
-      renderFileContent={(file: CommitFile) => <InlineCommitFileDiff commitId={commitId} file={file} diffViewMode={diffViewMode} />}
+      renderFileContent={(file: CommitFile) => <InlineCommitFileDiff diffs={diffs} file={file} diffViewMode={diffViewMode} />}
       onOpenFile={(file: CommitFile) => onReviewFile(file.path)}
     />
   )

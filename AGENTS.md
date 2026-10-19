@@ -191,12 +191,13 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   the words of its toast, a main-only persistent store (`src/stores/activity.ts`), the rewrite's Undo for its 10 s
   (`spec/repository/activity.spec.md`).
 - **Commit files**: "3 files · +42 −7" on the commit meta line, the Files section of the commit preview (`F`) as a
-  directory tree (compacted chains, roving focus) with diffs on @pierre/diffs (word diff, IntelliJ syntax colours,
-  expandable context), Copy Changed Paths; one `diff-tree --stdin --raw --numstat` per list, cached by commit id in the
-  object cache; one `diff-tree -p --full-index` per commit for its diffs, one `cat-file --batch` by blob id to expand
-  (`spec/commit/commit-files.spec.md`, `docs/design/diff-view.md`). `D` (on a row, its menu, the preview) reviews the
-  commit in the `commit-review` window, the only review of a commit: the tree beside all diffs in a virtualized
-  `CodeView`, J/K files, N/P changes, ⌥↑/⌥↓ commits (`spec/commit/commit-review.spec.md`).
+  directory tree (compacted chains, roving focus), Copy Changed Paths; one `diff-tree --stdin --raw --numstat` per
+  list, cached by commit id in the object cache. The diffs are the typed blocks of the diff engine, streamed by
+  `get_file_diffs` (the files in view first), their texts read by blob id (`get_blob_texts`), rendered by our
+  `DiffView`, also the merges of a conflict in three columns (`get_file_merges`) (`spec/commit/commit-files.spec.md`,
+  `docs/design/diff-view.md`). `D` (on a row, its menu, the
+  preview) reviews the commit in the `commit-review` window, the only review of a commit: the tree beside all diffs in
+  one virtualized `DiffView`, J/K files, N/P changes, ⌥↑/⌥↓ commits (`spec/commit/commit-review.spec.md`).
 - **Title bar**: the top row of every window is its title bar, as in the IntelliJ new UI: beside the macOS traffic
   lights (overlay); on Windows (no decorations) and Linux (GTK client-side decorations with an empty titlebar) with the
   window buttons where the desktop's layout puts them, in IntelliJ's looks, and ☰, the main menu that replaces the
@@ -608,7 +609,7 @@ the `peekaboo` CLI.
   --threshold 0 --path <dir>` in the background, then press; `<dir>/metadata.json` lists the frames with their time
   and change, so a blank or "Loading" frame before the content shows.
 - **Timings**: every sub-window open logs its phases in `~/Library/Logs/org.develar.branch-deck/BranchDeck.log`
-  ("commit-review open 258 ms: loaded 91, files 187, patch 187, engine 195, primed 235"), the backend the source of
+  ("commit-review open 258 ms: loaded 91, files 187, diffs 187, painted 235"), the backend the source of
   each patch (memory, disk, git) at debug level.
 
 ## Error Handling Patterns
@@ -619,7 +620,7 @@ the `peekaboo` CLI.
 
 ### Design Documents
 - [Async Patterns and spawn_blocking](docs/design/async-patterns.md) - Explains async/sync boundaries and proper use of spawn_blocking
-- [Diff View](docs/design/diff-view.md) - The @pierre/diffs engine: Shiki in a worker pool, IntelliJ syntax themes, word diff, the lazy chunk
+- [Diff View](docs/design/diff-view.md) - Our own renderer on the blocks of the engine (`DiffView`: the row model, the exact layout, the highlight worker by blob id), for the 2-way diffs and the 3-way merges
 - [Distributed Settings Architecture](docs/design/distributed-settings.md) - Settings synchronization across windows
 - [Rendering Performance](docs/design/rendering-performance.md) - React Compiler, narrow selectors, sync events applied in batches, derived structure cached, lazy main page
 - [E2E Testing Architecture](docs/design/e2e-testing.md) - E2E test infrastructure with mock Tauri API
@@ -648,7 +649,7 @@ src/
 │   ├── commit/      # Commit list, commit info, floating selection bar
 │   ├── unassigned/  # Unassigned commits card and inline branch creator
 │   ├── conflict/    # Conflict and missing-commits views
-│   ├── diff/        # Diff views on @pierre/diffs (lazy chunk)
+│   ├── diff/        # Diff views on the diff engine (lazy chunk)
 │   ├── files/       # The directory tree of changed files
 │   ├── ai/          # AI branch name suggestions (Claude Code)
 │   └── settings/    # The pages of the Settings window and their rows
@@ -691,7 +692,7 @@ Branch Deck automatically groups commits by prefix (e.g., `(feature-auth)`) and 
 
 ## Conflict Handling
 - Uses `git merge-tree --write-tree` for conflict detection, never the working tree.
-- Shows each conflict of a file as the change of the base against the change of the commit (the diff engine's
-  `UnresolvedFile`), and offers the regroup a trial build verified (`spec/branch/conflict-fix.spec.md`).
+- Shows the merge of each conflicting file in three columns as IntelliJ's merge viewer, read-only (`get_file_merges`,
+  `docs/design/diff-view.md`), and offers the regroup a trial build verified (`spec/branch/conflict-fix.spec.md`).
 - Conflicts occur when grouping by prefix changes the linear history of commits that depend on each other.
 

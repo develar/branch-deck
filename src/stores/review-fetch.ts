@@ -7,7 +7,7 @@ import { invokeCommand } from "@/lib/command"
 import { diffSubjectId } from "@/lib/commit-files"
 import { logError } from "@/lib/errors"
 import { dropFilesOf } from "@/stores/commit-files"
-import { dropPatchesOf } from "@/stores/commit-patch"
+import { dropFileDiffsOf } from "@/stores/file-diffs"
 import { noteReviewRefsWritten } from "@/stores/review-requests"
 
 /*
@@ -116,7 +116,7 @@ function forget(key: string, cancel: boolean): void {
 function dropRangeOf(bases: readonly string[], head: string): void {
   const ids = bases.map(base => diffSubjectId({ kind: "range", base, head }))
   dropFilesOf(ids)
-  dropPatchesOf(ids)
+  dropFileDiffsOf(ids)
 }
 
 /** Forgets every fetch (tests) */

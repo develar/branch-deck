@@ -2,8 +2,7 @@ import { useCallback, useMemo } from "react"
 import { AppWindowIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CommitList } from "@/components/commit/CommitList"
-import { ConflictContentsLoadState } from "@/components/conflict/DiffLoadState"
-import { FileDiffList } from "@/components/conflict/FileDiffList"
+import { SubjectFileDiffList } from "@/components/conflict/SubjectFileDiffList"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { SectionPanel } from "@/components/shared/NestedPanel"
 import type { MergeConflictInfo, MissingCommit } from "@/lib/bindings"
@@ -12,14 +11,13 @@ import { notifyError } from "@/lib/errors"
 import type { MissingCommitOwners } from "@/lib/merge-conflict"
 import { openSubWindow } from "@/lib/window-management"
 import { requestReveal } from "@/stores/commit-move"
-import { useConflictContents } from "@/stores/conflict-contents"
 import { fixStepsFor } from "@/stores/conflict-fix"
 import { getDiffRepositoryPath } from "@/stores/repository"
-import { useConflictViewerSettings } from "@/stores/settings/diff-view-settings"
+import { useDiffViewMode } from "@/stores/settings/diff-view-settings"
 import type { MissingCommitsWindowData } from "@/types/sub-window"
 
 export interface MissingCommitsDetailsProps {
-  /** The conflict whose missing commits are listed; the diffs come with its contents (`useConflictContents`) */
+  /** The conflict whose missing commits are listed; the diffs of each commit are read for its files */
   conflict: MergeConflictInfo
   /** The branches of the missing commits (`getMissingCommitOwners`): the list is grouped by them */
   owners: MissingCommitOwners
@@ -39,8 +37,7 @@ export interface MissingCommitsDetailsProps {
  */
 export function MissingCommitsDetails({ conflict, owners, branchName, onto, builtOn, isInWindow = false }: MissingCommitsDetailsProps) {
   const missingCommits = conflict.conflictAnalysis.missingCommits
-  const contents = useConflictContents(conflict)
-  const diffViewMode = useConflictViewerSettings(state => state.conflictDiffViewMode)
+  const diffViewMode = useDiffViewMode()
   const hasAnyFileDiffs = missingCommits.some(commit => commit.filesTouched.length > 0)
   const groups = useMemo(() => {
     const byHash = new Map(missingCommits.map(commit => [commit.hash, commit]))
@@ -64,20 +61,16 @@ export function MissingCommitsDetails({ conflict, owners, branchName, onto, buil
       if (commit.filesTouched.length === 0) {
         return null
       }
-      // the file contents of a missing commit come with its patch
-      const diffs = contents?.kind === "loaded" ? (contents.contents.missingCommitDiffs[commit.hash] ?? []) : undefined
       return (
-        <FileDiffList
-          files={commit.filesTouched}
-          diffs={diffs}
-          pending={<ConflictContentsLoadState entry={contents} />}
+        <SubjectFileDiffList
+          subject={{ kind: "commit", id: commit.hash }}
+          files={commit.filesTouched.map(path => ({ path }))}
           keyPrefix={commit.hash}
           diffViewMode={diffViewMode}
-          withContents
         />
       )
     },
-    [contents, diffViewMode],
+    [diffViewMode],
   )
 
   const openMissingCommitsWindow = () => {

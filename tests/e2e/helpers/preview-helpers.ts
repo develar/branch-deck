@@ -22,3 +22,12 @@ export async function openCommitFilesSection(preview: Locator): Promise<Locator>
   await expect(header).toHaveAttribute("aria-expanded", "true")
   return preview.getByRole("tree", { name: "Changed files" })
 }
+
+/** Chooses a whitespace policy in the Whitespace menu of `scope` (a preview, a review window), and closes the menu */
+export async function chooseWhitespace(page: Page, scope: Locator, label: string): Promise<void> {
+  await scope.getByRole("button", { name: "Whitespace" }).click()
+  await page.getByRole("menuitemradio", { name: label, exact: true }).click()
+  // a radio item keeps its menu open: Escape closes it, not the preview or the window
+  await page.keyboard.press("Escape")
+  await expect(page.getByRole("menu")).toHaveCount(0)
+}

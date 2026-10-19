@@ -87,7 +87,7 @@ let lastReadyOpen: number | null = null
 /**
  * The page settled the content of the open it shows: the backend shows the window, built hidden so it never shows a
  * blank frame, if that open is the latest. Once per open, and logs how long the open took, by phase ("commit-review
- * open 96 ms: loaded 41, files 44, patch 47"). A page whose content is its data calls it on render (`WindowPage`), a
+ * open 96 ms: loaded 41, files 44, diffs 47"). A page whose content is its data calls it on render (`WindowPage`), a
  * review once its first diffs are prepared. Nothing in the main window.
  */
 export function markSubWindowContentReady(): void {

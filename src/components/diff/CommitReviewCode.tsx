@@ -1,240 +1,56 @@
-import { useCallback, useEffect, useEffectEvent, useImperativeHandle, useMemo, useRef, useState } from "react"
 import type { Ref } from "react"
-import type { CodeView as CodeViewInstance, CodeViewDiffItem, CodeViewItem } from "@pierre/diffs"
-import { CodeView, WorkerPoolContext } from "@pierre/diffs/react"
-import type { CodeViewHandle } from "@pierre/diffs/react"
 import { cn } from "cn"
+import { UnfoldVerticalIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { LineCounts } from "@/components/commit/CommitMetadata"
+import { DiffView } from "@/components/diff/DiffView"
+import type { DiffHeaderProps, DiffViewFile, DiffViewHandle } from "@/components/diff/DiffView"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FILE_HEADER_CLASS_NAME, FileHeaderChevron, FileHeaderCopyButton } from "@/components/files/FileHeaderParts"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
-import type { CommitFile, CommitPatch } from "@/lib/bindings"
+import type { CommitFile } from "@/lib/bindings"
 import { formatCommitFilePath } from "@/lib/commit-files"
-import { getChangeTargets } from "@/lib/diff/change-targets"
-import type { ChangeTarget } from "@/lib/diff/change-targets"
-import { getCommitFileDiffs, loadCommitFileContents } from "@/lib/diff/commit-patch"
-import type { CommitFileDiff } from "@/lib/diff/commit-patch"
-import { BASE_DIFF_OPTIONS, getDiffWorkerPool } from "@/lib/diff/diff-engine"
-import { FIRST_SCREEN_FILES, getNotice, startsCollapsed } from "@/lib/diff/review-diffs"
-import type { ConflictDiffViewMode } from "@/stores/settings/diff-view-settings"
+import { useDiffSoftWraps } from "@/stores/settings/diff-view-settings"
+import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 
-/** The height of a file header: `h-9` of `ReviewFileHeader`, the metric the virtualizer lays out with */
-const HEADER_HEIGHT = 36
+/** The files whose headers show while the diffs of a review are read */
+const PENDING_HEADERS = 12
 
-export interface CommitReviewCodeHandle {
-  /** Shows the file at the top */
-  scrollToFile: (path: string) => void
-  /**
-   * Shows the next (1) or previous (-1) block of changed lines, from the last one shown in the file at the top; into
-   * the next file at the end of one. Collapsed files are skipped. Returns the path of the file it shows
-   */
-  moveChange: (direction: 1 | -1) => string | undefined
-  focus: () => void
-}
+export type CommitReviewCodeHandle = DiffViewHandle
 
 export interface CommitReviewCodeProps {
   ref?: Ref<CommitReviewCodeHandle>
-  patch: CommitPatch
-  /** In the order of the tree */
-  files: readonly CommitFile[]
-  diffViewMode: ConflictDiffViewMode
+  /** The files in the order of the tree, with their diffs; the texts are read as they come into view */
+  files: readonly DiffViewFile[]
+  diffViewMode: DiffViewMode
   /** The file shown first, at the top */
   initialPath: string | null
   /** The file whose header is at the top, as the diffs scroll */
   onVisibleFileChange: (path: string) => void
+  /** The first screen is painted: the window can show */
+  onFirstScreen?: () => void
   /** The code owner of a file by its path, in its header */
   fileOwners?: ReadonlyMap<string, string>
 }
 
 /**
- * The diffs of all files of a commit in one virtualized view (Pierre's `CodeView`): a sticky header per file, the
- * unchanged lines expandable, lock and generated files and files over 1,000 changed lines collapsed.
+ * The diffs of all files of a commit or a range in one `DiffView`: a sticky header per file, the unchanged lines folded
+ * as IntelliJ, lock and generated files and files over 1,000 changed lines collapsed.
  */
-export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath, onVisibleFileChange, fileOwners }: CommitReviewCodeProps) {
-  const entries = useMemo(() => getCommitFileDiffs(patch, files).filter(entry => entry.fileDiff !== undefined), [patch, files])
-  const byPath = useMemo(() => new Map(entries.map(entry => [entry.file.path, entry])), [entries])
-  const initiallyCollapsed = useMemo(() => new Set(entries.filter(startsCollapsed).map(entry => entry.file.path)), [entries])
-  // how often each file was collapsed or expanded: its state, and the version CodeView renders it again for
-  const [toggleCounts, setToggleCounts] = useState<ReadonlyMap<string, number>>(() => new Map())
-  const isCollapsed = useCallback((path: string) => initiallyCollapsed.has(path) !== ((toggleCounts.get(path) ?? 0) % 2 === 1), [initiallyCollapsed, toggleCounts])
-  const codeView = useRef<CodeViewHandle<undefined, undefined>>(null)
-  const container = useRef<HTMLDivElement>(null)
-  const visiblePath = useRef<string | undefined>(initialPath ?? entries[0]?.file.path)
-  // the block of changed lines N and P stepped to last, in the file at the top
-  const changeCursor = useRef<{ path: string; index: number } | null>(null)
-  // after a scroll to a file or a change, the file at the top is not reported until the user scrolls: the last files
-  // of a commit cannot reach the top, and the file above them would take the selection back
-  const followScroll = useRef(true)
-  const targetsByPath = useMemo(() => new Map(entries.map(entry => [entry.file.path, entry.fileDiff === undefined ? [] : getChangeTargets(entry.fileDiff)])), [entries])
-
-  const items = useMemo<CodeViewItem<undefined>[]>(
-    () =>
-      entries.map((entry): CodeViewDiffItem<undefined> => ({
-        id: entry.file.path,
-        type: "diff",
-        fileDiff: entry.fileDiff!,
-        collapsed: isCollapsed(entry.file.path),
-        version: toggleCounts.get(entry.file.path) ?? 0,
-      })),
-    [entries, isCollapsed, toggleCounts],
-  )
-
-  const toggleFile = useCallback((path: string) => {
-    setToggleCounts(previous => new Map(previous).set(path, (previous.get(path) ?? 0) + 1))
-  }, [])
-
-  const options = useMemo(
-    () =>
-      ({
-        ...BASE_DIFF_OPTIONS,
-        diffStyle: diffViewMode,
-        hunkSeparators: "line-info",
-        loadDiffFiles: loadCommitFileContents,
-        stickyHeaders: true,
-        itemMetrics: { diffHeaderHeight: HEADER_HEIGHT },
-      }) as const,
-    [diffViewMode],
-  )
-
-  // only when the review opens: a later file is the tree's or the keys'
-  const scrollToInitialFile = useEffectEvent(() => {
-    if (initialPath !== null) {
-      followScroll.current = false
-      codeView.current?.scrollTo({ type: "item", id: initialPath, align: "start", behavior: "instant" })
-      // the scroll renders on an animation frame, which a window still hidden runs none of: its first frame shows the file
-      codeView.current?.getInstance()?.render(true)
-    }
-  })
-
-  // the diffs take the focus, so the arrows, PageUp and PageDown scroll them; the review opens at its file
-  useEffect(() => {
-    const element = container.current
-    const follow = () => {
-      followScroll.current = true
-    }
-    if (element !== null) {
-      element.tabIndex = 0
-      element.setAttribute("aria-label", "Changes of the commit")
-      // from the review, from what holds it or from the body, and from anything of its dialog (the dialog focused its
-      // close button before the review was there), but not from what the user works in beside the diffs (the commits,
-      // the owner chips: `data-review-keeps-focus`), which keeps its keys
-      const active = document.activeElement
-      const root = element.closest("[data-review-root]")
-      const dialog = element.closest("[role=dialog]")
-      const keeps = active?.closest("[data-review-keeps-focus]") != null
-      if (
-        active === null ||
-        active === document.body ||
-        root === null ||
-        (root.contains(active) && !keeps) ||
-        active.contains(root) ||
-        (dialog !== null && dialog.contains(active) && !keeps && active.closest("[role=listbox]") === null)
-      ) {
-        element.focus()
-      }
-      // what the user scrolls with: the wheel, a touch, the scroll bar, the keys
-      for (const type of ["wheel", "touchstart", "pointerdown", "keydown"] as const) {
-        element.addEventListener(type, follow, { passive: true })
-      }
-    }
-    scrollToInitialFile()
-    return () => {
-      for (const type of ["wheel", "touchstart", "pointerdown", "keydown"] as const) {
-        element?.removeEventListener(type, follow)
-      }
-    }
-  }, [])
-
-  const scrollToTarget = (path: string, target: ChangeTarget) => {
-    followScroll.current = false
-    codeView.current?.scrollTo({ type: "line", id: path, lineNumber: target.lineNumber, side: target.side, align: "start", offset: HEADER_HEIGHT + 8, behavior: "instant" })
-  }
-
-  useImperativeHandle(ref, () => ({
-    scrollToFile: path => {
-      changeCursor.current = { path, index: -1 }
-      visiblePath.current = path
-      followScroll.current = false
-      codeView.current?.scrollTo({ type: "item", id: path, align: "start", behavior: "instant" })
-    },
-    moveChange: direction => {
-      const order = entries.map(entry => entry.file.path)
-      const start = changeCursor.current ?? { path: visiblePath.current ?? order[0] ?? "", index: -1 }
-      let fileIndex = order.indexOf(start.path)
-      let index = start.index + direction
-      if (fileIndex === -1) {
-        // the file at the top is filtered out: from the first file, or back from the last one
-        fileIndex = direction === 1 ? 0 : order.length - 1
-        index = direction === 1 ? 0 : Number.MAX_SAFE_INTEGER
-      } else if (direction === -1 && start.index === -1) {
-        // from the top of a file going back: the last block of the file before it
-        fileIndex--
-        index = Number.MAX_SAFE_INTEGER
-      }
-      while (fileIndex >= 0 && fileIndex < order.length) {
-        const path = order[fileIndex]!
-        const targets = isCollapsed(path) ? [] : (targetsByPath.get(path) ?? [])
-        const clamped = index === Number.MAX_SAFE_INTEGER ? targets.length - 1 : index
-        const target = targets[clamped]
-        if (target !== undefined && clamped >= 0) {
-          changeCursor.current = { path, index: clamped }
-          visiblePath.current = path
-          scrollToTarget(path, target)
-          return path
-        }
-        fileIndex += direction
-        index = direction === 1 ? 0 : Number.MAX_SAFE_INTEGER
-      }
-      return undefined
-    },
-    focus: () => container.current?.focus(),
-  }))
-
-  // the file at the top: the last one whose top is above the scroll position
-  const handleScroll = (scrollTop: number, viewer: CodeViewInstance<undefined, undefined>) => {
-    if (!followScroll.current) {
-      return
-    }
-    let low = 0
-    let high = entries.length - 1
-    let found = 0
-    while (low <= high) {
-      const middle = (low + high) >> 1
-      const top = viewer.getTopForItem(entries[middle]!.file.path) ?? 0
-      if (top <= scrollTop + HEADER_HEIGHT / 2) {
-        found = middle
-        low = middle + 1
-      } else {
-        high = middle - 1
-      }
-    }
-    const path = entries[found]?.file.path
-    if (path !== undefined && path !== visiblePath.current) {
-      visiblePath.current = path
-      // the user scrolled into another file: N starts from its top
-      if (changeCursor.current?.path !== path) {
-        changeCursor.current = null
-      }
-      onVisibleFileChange(path)
-    }
-  }
-
+export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisibleFileChange, onFirstScreen, fileOwners }: CommitReviewCodeProps) {
+  const softWraps = useDiffSoftWraps()
   return (
-    <WorkerPoolContext.Provider value={getDiffWorkerPool()}>
-      <CodeView<undefined, undefined>
-        ref={codeView}
-        containerRef={container}
-        className="h-full overflow-auto outline-none"
-        items={items}
-        options={options}
-        onScroll={handleScroll}
-        renderCustomHeader={item => {
-          const entry = byPath.get(item.id)
-          return entry === undefined ? null : <ReviewFileHeader entry={entry} owner={fileOwners?.get(entry.file.path)} collapsed={isCollapsed(item.id)} onToggle={toggleFile} />
-        }}
-      />
-    </WorkerPoolContext.Provider>
+    <DiffView
+      ref={ref}
+      files={files}
+      mode={diffViewMode}
+      softWraps={softWraps}
+      initialPath={initialPath}
+      label="Changes of the commit"
+      onVisibleFileChange={onVisibleFileChange}
+      onFirstScreen={onFirstScreen}
+      renderHeader={header => <ReviewFileHeader {...header} owner={fileOwners?.get(header.file.path)} />}
+    />
   )
 }
 
@@ -245,33 +61,21 @@ export function CommitReviewCode({ ref, patch, files, diffViewMode, initialPath,
 export function PendingFileHeaders({ files, fileOwners }: { files: readonly CommitFile[]; fileOwners?: ReadonlyMap<string, string> }) {
   return (
     <div data-testid="review-pending-files" aria-busy="true" className="flex flex-col gap-2">
-      {files.slice(0, FIRST_SCREEN_FILES * 2).map(file => (
-        <ReviewFileHeader
-          key={file.path}
-          entry={{ file, fileDiff: undefined, omittedLines: null }}
-          pending
-          owner={fileOwners?.get(file.path)}
-          collapsed={false}
-          onToggle={() => {}}
-        />
+      {files.slice(0, PENDING_HEADERS).map(file => (
+        <ReviewFileHeader key={file.path} file={file} notice={null} empty collapsed={false} onToggle={() => {}} pending owner={fileOwners?.get(file.path)} />
       ))}
     </div>
   )
 }
 
-interface ReviewFileHeaderProps {
-  entry: CommitFileDiff
-  /** The patch is not read yet: no notice, nothing to collapse */
+interface ReviewFileHeaderProps extends DiffHeaderProps {
+  /** The diffs are not read yet: no notice, nothing to collapse */
   pending?: boolean
   owner: string | undefined
-  collapsed: boolean
-  onToggle: (path: string) => void
 }
 
 /** The sticky header of a file: what the tree row says, with the path in full, its owner, and the menu of the file */
-function ReviewFileHeader({ entry, pending = false, owner, collapsed, onToggle }: ReviewFileHeaderProps) {
-  const { file } = entry
-  const notice = pending ? null : getNotice(entry)
+function ReviewFileHeader({ file, notice, empty, pending = false, owner, collapsed, onToggle, onExpandAll }: ReviewFileHeaderProps) {
   const name = file.path.slice(file.path.lastIndexOf("/") + 1)
   return (
     <FileContextMenu
@@ -284,8 +88,8 @@ function ReviewFileHeader({ entry, pending = false, owner, collapsed, onToggle }
         size="icon-xs"
         aria-label={collapsed ? `Expand ${name}` : `Collapse ${name}`}
         aria-expanded={!collapsed}
-        disabled={pending || notice !== null}
-        onClick={() => onToggle(file.path)}
+        disabled={pending || empty}
+        onClick={onToggle}
       >
         <FileHeaderChevron open={!collapsed} />
       </Button>
@@ -293,8 +97,20 @@ function ReviewFileHeader({ entry, pending = false, owner, collapsed, onToggle }
         <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} emphasis />
       </span>
       <FileHeaderCopyButton path={file.path} />
+      {onExpandAll !== undefined && (
+        <Button variant="ghost" size="icon-xs" aria-label={`Expand all unchanged lines of ${name}`} title="Expand All" onClick={onExpandAll}>
+          <UnfoldVerticalIcon />
+        </Button>
+      )}
       <span className="ml-auto flex shrink-0 items-center gap-3 text-xs">
-        {notice !== null && <span className="text-muted-foreground">{notice}</span>}
+        {notice !== null &&
+          (empty ? (
+            <span className="text-muted-foreground">{notice}</span>
+          ) : (
+            <span data-testid="review-file-line-ends" className="text-muted-foreground">
+              {notice}
+            </span>
+          ))}
         {owner !== undefined && (
           <span data-testid="review-file-owner" className="text-muted-foreground" title={`Owned by ${owner}`}>
             {owner}

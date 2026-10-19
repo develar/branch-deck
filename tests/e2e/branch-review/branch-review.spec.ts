@@ -254,13 +254,14 @@ test.describe("Branch review window", () => {
     await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()
     const reviewPage = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
-    const split = reviewPage.getByRole("button", { name: "Split" })
-    await expect(split).toHaveAttribute("aria-pressed", "false")
-    await split.click()
+    const unified = reviewPage.getByRole("button", { name: "Unified" })
+    await expect(unified).toHaveAttribute("aria-pressed", "false")
+    await unified.click()
     // only the main window writes settings.json: the window asked it, and it applied the value before it wrote it
-    await expect.poll(() => testStore.get("conflictViewer")).toEqual({ conflictDiffViewMode: "split" })
+    // the main window saves what differs from the defaults
+    await expect.poll(() => testStore.get("diffView")).toEqual({ mode: "unified" })
     // the main window's answer keeps the choice
-    await expect(split).toHaveAttribute("aria-pressed", "true")
+    await expect(unified).toHaveAttribute("aria-pressed", "true")
   })
 
   test("should read the stack again when a sync moves a tip of it", async ({ page, setupRepo, syncAndWaitForBranches }) => {

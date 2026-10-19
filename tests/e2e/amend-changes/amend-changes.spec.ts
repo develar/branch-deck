@@ -44,6 +44,8 @@ test.describe("Amend Changes Feature", () => {
     // Wait for the Amend Changes button to be enabled (indicates data is loaded)
     const amendButton = page.getByRole("dialog").locator('button:has-text("Amend Changes")')
     await expect(amendButton).toBeEnabled({ timeout: 10000 })
+    // the counts of the engine come with the diffs of the files, after the list: the snapshot waits for them
+    await expect(page.getByRole("dialog").getByTestId("file-diff").first()).toContainText("+10")
 
     // Capture HTML snapshot of the dialog structure
     await captureModalSnapshot(page, "amend-changes-dialog")

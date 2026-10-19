@@ -3,7 +3,8 @@ import type { GetBranchReviewParams } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { CommitReviewWindowData } from "@/lib/commit-review-window"
 import { loadFilesOfSubject } from "@/stores/commit-files"
-import { loadSubjectPatch } from "@/stores/commit-patch"
+import { loadFileDiffs } from "@/stores/file-diffs"
+import { getDiffWhitespacePolicy } from "@/stores/settings/diff-view-settings"
 import type { BranchReviewWindowData } from "@/types/sub-window"
 
 type BranchReviewRead = ReturnType<typeof commands.getBranchReview>
@@ -24,7 +25,7 @@ export function readBranchReview(params: GetBranchReviewParams): BranchReviewRea
 
 /**
  * The reads of a review window start with its page, beside the load of its route chunk (the diff engine, about
- * 640 KB to parse), which they need nothing of: the files and the patch of the commit of the commit review (into their
+ * 640 KB to parse), which they need nothing of: the files and the diffs of the commit of the commit review (into their
  * stores, which the review then finds read or being read), the segments of the branch review (`readBranchReview`)
  */
 export function startReviewWindowReads(): void {
@@ -40,7 +41,7 @@ export function startReviewWindowReads(): void {
     if (id !== undefined) {
       const subject = { kind: "commit", id } as const
       void loadFilesOfSubject(subject)
-      loadSubjectPatch(subject)
+      loadFileDiffs(subject, getDiffWhitespacePolicy(), { priorityPaths: data?.path == null ? [] : [data.path] })
     }
   } else if (label === "branch-review") {
     const data = window.__INIT_DATA__ as BranchReviewWindowData | undefined

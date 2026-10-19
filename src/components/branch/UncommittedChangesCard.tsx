@@ -1,14 +1,12 @@
 import { Spinner } from "@/components/ui/spinner"
-import { OnDemandFileDiffList } from "@/components/conflict/OnDemandFileDiffList"
-import type { OnDemandFile } from "@/components/conflict/OnDemandFileDiffList"
+import { SubjectFileDiffList } from "@/components/conflict/SubjectFileDiffList"
+import type { SubjectFile } from "@/components/conflict/SubjectFileDiffList"
 import { Callout } from "@/components/shared/Callout"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { NestedPanel } from "@/components/shared/NestedPanel"
-import { commands } from "@/lib/bindings"
 import type { UncommittedChangesResult, UncommittedFileChange } from "@/lib/bindings"
 import { parseFileStatus } from "@/lib/commit-files"
-import { vcsRequestFactory } from "@/stores/repository"
-import { useConflictViewerSettings } from "@/stores/settings/diff-view-settings"
+import { useDiffViewMode } from "@/stores/settings/diff-view-settings"
 
 export interface UncommittedChangesCardProps {
   diffData: UncommittedChangesResult | null
@@ -18,7 +16,7 @@ export interface UncommittedChangesCardProps {
 
 /** Preview of the uncommitted changes in the amend form, a panel nested in the expanded row. */
 export function UncommittedChangesCard({ diffData, loading, error }: UncommittedChangesCardProps) {
-  const diffViewMode = useConflictViewerSettings(state => state.conflictDiffViewMode)
+  const diffViewMode = useDiffViewMode()
   const hasChanges = !loading && !error && diffData?.hasChanges === true
 
   return (
@@ -46,7 +44,14 @@ export function UncommittedChangesCard({ diffData, loading, error }: Uncommitted
       ) : (
         diffData.files.length > 0 && (
           <div className="bd-padding-card">
-            <OnDemandFileDiffList files={toDiffListFiles(diffData.files)} keyPrefix="uncommitted" diffViewMode={diffViewMode} loadDiff={loadWorkingTreeDiff} />
+            {/* a new answer of the uncommitted changes reads their diffs again */}
+            <SubjectFileDiffList
+              subject={{ kind: "uncommitted" }}
+              files={toDiffListFiles(diffData.files)}
+              keyPrefix="uncommitted"
+              diffViewMode={diffViewMode}
+              refreshKey={diffData}
+            />
           </div>
         )
       )}
@@ -54,12 +59,6 @@ export function UncommittedChangesCard({ diffData, loading, error }: Uncommitted
   )
 }
 
-function toDiffListFiles(files: readonly UncommittedFileChange[]): OnDemandFile[] {
+function toDiffListFiles(files: readonly UncommittedFileChange[]): SubjectFile[] {
   return files.map(file => ({ path: file.filePath, status: parseFileStatus(file.status) }))
-}
-
-/** The diff of a file against HEAD, from the working tree */
-function loadWorkingTreeDiff(file: OnDemandFile) {
-  const { repositoryPath } = vcsRequestFactory.createRequest()
-  return commands.getFileContentForDiff({ repositoryPath, filePath: file.path })
 }

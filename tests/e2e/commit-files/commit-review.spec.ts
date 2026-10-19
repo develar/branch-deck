@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import type { CommitReviewWindowData } from "../../../src/lib/commit-review-window"
 import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchCommitRow } from "../helpers/branch-helpers"
-import { getCommitPreview, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
+import { chooseWhitespace, getCommitPreview, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
 import { getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
 import type { OpenedSubWindow } from "../helpers/sub-window-helpers"
 import { holdCommand } from "../helpers/wait-helpers"
@@ -73,6 +73,11 @@ simpleTest.describe("Commit review", () => {
     await expect(window.getByRole("textbox", { name: "Filter files" })).toHaveCount(0)
     // the header of a file names itself, then its directory, as every list of changed files does
     await expect(code.getByTestId("review-file-header").first()).toContainText("RowMapper.ktplugins/air/backend/session/catalog/src")
+    // Expand All of the header shows every unchanged line of its file
+    await expect(code).not.toContainText("val field10 = 10")
+    await code.getByRole("button", { name: "Expand all unchanged lines of RowMapper.kt" }).click()
+    await expect(code).toContainText("val field10 = 10")
+    await expect(code.getByRole("button", { name: "Expand all unchanged lines of RowMapper.kt" })).toHaveCount(0)
 
     await code.locator("[aria-label='Changes of the commit']").focus()
     await page.keyboard.press("j")
@@ -96,8 +101,62 @@ simpleTest.describe("Commit review", () => {
     await expect(code).toContainText("one row each")
 
     // the view of the diffs is in the title bar of the window
-    await window.getByRole("button", { name: "Split" }).click()
-    await expect(window.getByRole("button", { name: "Split" })).toHaveAttribute("aria-pressed", "true")
+    await window.getByRole("button", { name: "Unified" }).click()
+    await expect(window.getByRole("button", { name: "Unified" })).toHaveAttribute("aria-pressed", "true")
+  })
+
+  simpleTest("should copy the lines of a selection of the diffs from the model, one side in Split, without the line numbers", async ({ page }) => {
+    await openTreePreview(page)
+    await page.keyboard.press("d")
+    const window = await showReviewWindow(page, await openedReview(page, 1))
+    const code = window.getByTestId("commit-review-code")
+    const newSide = code.locator('.dv-half[data-side="1"] .dv-code[data-side]')
+    await expect(newSide.nth(2)).toBeVisible()
+    // a press on the new side keeps the selection there; the copy reads the lines of the rows from the texts
+    await newSide.nth(0).click()
+    const copied = await code.evaluate(element => {
+      const cells = element.querySelectorAll('.dv-half[data-side="1"] .dv-code[data-side]')
+      const range = document.createRange()
+      range.setStart(cells[0]!, 0)
+      range.setEnd(cells[2]!, cells[2]!.childNodes.length)
+      document.getSelection()!.removeAllRanges()
+      document.getSelection()!.addRange(range)
+      const data = new DataTransfer()
+      element.querySelector("[data-testid=diff-view]")!.dispatchEvent(new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true }))
+      return { text: data.getData("text/plain"), lines: [...cells].slice(0, 3).map(cell => cell.textContent) }
+    })
+    expect(copied.text).toBe(copied.lines.join("\n"))
+    expect(copied.text.split("\n")).toHaveLength(3)
+  })
+
+  simpleTest("should find a text in the diffs from the model, also in the folded lines, with ⌘F, Enter and Escape", async ({ page }) => {
+    await openTreePreview(page)
+    await page.keyboard.press("d")
+    const window = await showReviewWindow(page, await openedReview(page, 1))
+    const code = window.getByTestId("commit-review-code")
+    await expect(code).toContainText("SessionRowMapper")
+    await code.locator("[aria-label='Changes of the commit']").focus()
+
+    await page.keyboard.press("ControlOrMeta+f")
+    const field = window.getByRole("textbox", { name: "Find in the diffs" })
+    await expect(field).toBeFocused()
+    // line 11 of RowMapper.kt lies in a fold: only the find in the folded lines sees it
+    await field.fill("field10")
+    const count = window.getByTestId("diff-find-count")
+    await expect(count).toHaveText("No results")
+    await window.getByText("In folded lines").click()
+    await expect(count).toHaveText("1 result")
+    // Enter goes to the hit: its fold opens, the hit is marked
+    await field.press("Enter")
+    await expect(count).toHaveText("1 of 1")
+    await expect(code.locator(".dv-hit-current")).toHaveText("field10")
+    await expect(code).toContainText("val field10 = 10")
+
+    // Escape closes the find, the diffs keep the focus
+    await field.press("Escape")
+    await expect(window.getByTestId("diff-find-bar")).toHaveCount(0)
+    await expect(code.locator("[aria-label='Changes of the commit']")).toBeFocused()
+    await expect(code.locator(".dv-hit")).toHaveCount(0)
   })
 
   simpleTest("should open the review at a file with Enter in the tree, and with the footer button", async ({ page }) => {
@@ -168,21 +227,21 @@ testWithIssueLinks("should switch the commit of a review with Alt and the arrows
 
 testWithIssueLinks("should show the files while the patch is read, settle with the diffs, and step to a commit read beside it", async ({ page }) => {
   const opened = await reviewPoolSizeCommit(page)
-  // the window's own reads of patches, and the patch of its commit held
-  const patchReads: unknown[] = []
+  // the window's own reads of diffs, and the diffs of its commit held
+  const diffReads: unknown[] = []
   let release!: () => void
   const review = await openLinkedSubWindow(page, opened, {
     beforeLoad: async window => {
       window.on("request", request => {
-        if (request.url().endsWith("/invoke/get_commit_patch")) {
-          patchReads.push(request.postDataJSON())
+        if (request.url().endsWith("/invoke/get_file_diffs")) {
+          diffReads.push(request.postDataJSON())
         }
       })
-      release = await holdCommand(window, "get_commit_patch")
+      release = await holdCommand(window, "get_file_diffs")
     },
   })
 
-  // the tree and the header of the file while git reads the patch; the window waits for the diffs to show
+  // the tree and the header of the file while the engine reads the diffs; the window waits for the diffs to show
   await expect(review.getByRole("tree", { name: "Changed files" })).toBeVisible()
   await expect(review.getByTestId("review-pending-files").getByTestId("review-file-header")).toHaveCount(1)
   expect(await getSubWindowReadyOpen(review)).toBeNull()
@@ -193,11 +252,11 @@ testWithIssueLinks("should show the files while the patch is read, settle with t
   await expect.poll(() => getSubWindowReadyOpen(review)).toBe(1)
 
   // the commits before and after it were read with it: ⌥↓ shows the next one without a read
-  await expect.poll(() => patchReads.length).toBe(3)
+  await expect.poll(() => diffReads.length).toBe(3)
   await review.keyboard.press("Alt+ArrowDown")
   await expect(review.getByTestId("range-review-commit-header")).toContainText("Fix database connection pool timeout")
   await expect(review.getByTestId("commit-review-code")).toBeVisible()
-  expect(patchReads).toHaveLength(3)
+  expect(diffReads).toHaveLength(3)
 })
 
 testWithIssueLinks("should review a commit of a row in its window with D and with the item of its menu", async ({ page }) => {
@@ -323,4 +382,54 @@ simpleTest("should filter the files of a review by their path, with / from the d
   await window.getByRole("button", { name: "Clear Filter" }).click()
   await expect(search).toHaveValue("")
   await expect(files).toHaveCount(9)
+})
+
+simpleTest.describe("Commit review of a re-indented file", () => {
+  simpleTest.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
+    // the `commit_whitespace` template: Format.kt indents two lines again, adds a blank line apart from them and changes
+    // `3` to `4`; Main.kt changes one line
+    await setupRepo("commit_whitespace")
+    await syncAndWaitForBranches()
+  })
+
+  simpleTest("N and P skip a block the whitespace policy ignores", async ({ page }) => {
+    await expandBranch(page, findBranchRow(page, "format"))
+    await openCommitPreview(page, getBranchCommitRow(page, "format", "indent the block of first and return 4"))
+    await page.keyboard.press("d")
+    const window = await showReviewWindow(page, await openedReview(page, 1))
+    const position = window.getByTestId("commit-review-position")
+    const code = window.getByTestId("commit-review-code")
+    await expect(position).toHaveText("File 1 / 2")
+    await expect(code).toContainText("fun second() = 4")
+    /** From the top of Format.kt, N goes through `changes` blocks there, then to Main.kt; P comes back to the last one */
+    const stepThrough = async (changes: number) => {
+      await window.getByRole("treeitem", { name: "Format.kt" }).click()
+      await expect(position).toHaveText("File 1 / 2")
+      await code.locator("[aria-label='Changes of the commit']").focus()
+      for (let step = 0; step < changes; step++) {
+        await page.keyboard.press("n")
+        await expect(position).toHaveText("File 1 / 2")
+      }
+      await page.keyboard.press("n")
+      await expect(position).toHaveText("File 2 / 2")
+      await page.keyboard.press("p")
+      await expect(position).toHaveText("File 1 / 2")
+    }
+    const choose = async (label: string, additions: string) => {
+      await chooseWhitespace(page, window, label)
+      await expect(window.getByRole("treeitem", { name: "Format.kt" })).toHaveAttribute("aria-description", additions)
+    }
+
+    // Do Not Ignore: the indentation, the blank line and `4`
+    await stepThrough(3)
+    // Trim Whitespace: the indentation is an ignored block, so N passes it
+    await choose("Trim Whitespace", "modified, +2 −1")
+    await stepThrough(2)
+    // Ignore Whitespace: the blank line is a whitespace-only change, pale, and N still stops at it, as in IntelliJ
+    await choose("Ignore Whitespace", "modified, +2 −1")
+    await stepThrough(2)
+    // Ignore Whitespace and Blank Lines: the blank line is ignored, so N passes it
+    await choose("Ignore Whitespace and Blank Lines", "modified, +1 −1")
+    await stepThrough(1)
+  })
 })

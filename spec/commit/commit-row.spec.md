@@ -38,13 +38,15 @@ targets:
   - ../../src/hooks/useMissingCommitOwners.ts
   - ../../crates/sync-core/src/missing_commits.rs
   - ../../src/components/conflict/ConflictingFilesSection.tsx
-  - ../../src/components/diff/FileDiffView.tsx
-  - ../../src/components/conflict/FileDiffList.tsx
+  - ../../src/components/diff/DiffView.tsx
+  - ../../src/stores/file-merges.ts
+  - ../../src/lib/diff/file-merge-model.ts
+  - ../../src/lib/diff/row-cells.ts
+  - ../../src/components/conflict/SubjectFileDiffList.tsx
   - ../../src/components/conflict/ConflictWindowPage.tsx
   - ../../src/components/conflict/DiffLoadState.tsx
   - ../../src/components/shared/NestedPanel.tsx
   - ../../src/lib/merge-conflict.ts
-  - ../../src/stores/conflict-contents.ts
   - ../../crates/sync-core/src/conflict_contents.rs
   - ../../crates/sync-core/src/conflict_chain.rs
   - ../../src-tauri/src/commands/conflict_contents.rs
@@ -298,47 +300,62 @@ The commit hash popover shows the same header and body.
   decides which files conflict, and the engine merges the three stages of each file again. Each block has its kind,
   the sides that changed it, its word ranges and its resolution. A conflict that its words resolve says so: "Git
   stops here; the conflict resolves by words" (`conflicts > 0`, `unresolved == 0`, the `resolvedText` of each of its
-  blocks). A modify/delete shows the diff of the base to the side that kept the file. The backend is done; the view
-  comes with another branch, and its e2e tests are pending.
+  blocks). A modify/delete shows the diff of the base to the side that kept the file.
+  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`shows the merge in three columns, with the result the engine proposes and the base`)
   [@test] ../../crates/file-diffs/src/merge_test.rs (`each_conflict_type_has_its_merge`, `a_merge_costs_one_merge_tree_and_one_cat_file_then_nothing`, `the_stream_lists_the_files_then_the_file_in_view_first`, `the_model_is_json_with_a_kind`)
   [@test] ../../crates/text-diff/src/merge_model_test.rs (`a_conflict_of_other_words_resolves_by_its_words`, `a_conflict_of_the_same_words_stays_with_the_user`, `a_change_the_policy_ignores_is_an_ignored_block`, `blocks_partition_the_three_texts`)
   [@test] ../../crates/test-server/src/commit_files_test.rs (`commit_files_routes_read_the_fixture_repository`)
 - The conflicting files must be one list, a collapsible item per file, the first open, each with the number of its
-  conflicts ("1 conflict", "3 conflicts") or "modify/delete". A file with conflict markers shows them as an
-  unresolved file of the diff engine (`UnresolvedFile`): each conflict as the current change (the branch the commit is
-  copied onto), the version before the commit and the incoming change (the commit), 3 lines of context around it, the
-  rest folded; nothing is resolved there. Its marker lines name the sides instead of the commit ids git wrote:
-  `<<<<<<< <base of the branch>`, `||||||| before the commit`, `>>>>>>> “<subject>”`.
-  [@test] ../../src/lib/merge-conflict.test.ts (`names the sides in words instead of the commit ids git wrote`)
+  conflicts ("1 conflict", "3 conflicts") or "modify/delete". The merge of a file shows in three columns, as
+  IntelliJ's merge viewer, read-only: left the branch the commit is copied onto (ours), right the commit (theirs),
+  named above them. The middle column shows "Result (proposed)" by default: each block as it resolves (the side that
+  changed it, or its resolve by words), and the base for a conflict that does not resolve. "Base" shows the base. A
+  block has the colour of its kind (inserted green, deleted grey, modified blue, conflict red) in the middle and on
+  each side that changed it; a side that did not change it stays plain. The tints follow the rule of a diff, with the
+  word ranges of each side: a block with inner ranges, also empty ones, is pale with its changed words in the full
+  colour, and an insertion or a deletion without them is in the full colour. A conflict that the result resolves has
+  a dashed bar there. Every block is a change that N and P stop at; a block the whitespace choice ignores is pale,
+  never drawn as unchanged lines, as in IntelliJ's merge viewer. The equal lines fold as in a diff. The merge takes
+  the one Whitespace choice of the diffs; IntelliJ's merge has no Ignore Whitespace and Blank Lines, so that choice
+  merges as Ignore Whitespace, and the conflict view has no menu of its own. A resolve action is not part of this
+  view.
+  [@test] ../../src/lib/diff/rows.test.ts (`aligns the blocks of a merge in three columns, the middle the result, without the empty last line`, `counts the lines of a resolve by words in the middle, and moves the middle lines after it`, `folds the equal lines of a merge, labelled by the scopes of the left side under the result`, `draws a block the policy ignores pale, and keeps it a change that N and P stop at, as IntelliJ's merge viewer`, `tints the commit_whitespace merge by IntelliJ's rule under each policy`, `draws the lines of a merge block with inner ranges pale`)
+  [@test] ../../src/lib/diff/row-cells.test.ts (`colours a block in the middle and on the sides that changed it, and marks a resolved conflict in the result`, `leaves a side that did not change a block plain`)
+  [@test] ../../src/lib/diff/file-merge-model.test.ts (`takes the side that changed a block, the resolve by words, or the base of a conflict that does not resolve`, `composes the result text with the line indices of the middle column`)
   [@test] ../../crates/git-ops/src/merge_conflict_tests.rs (`the_conflicts_of_a_merged_file_are_counted_by_their_start_markers`)
   [@test] ../../tests/e2e/conflict-fix/conflict-fix.spec.ts (`should offer the move a trial build verified, apply it and undo it`)
-- A file without conflict markers (one side deleted it, the other changed it) must show the change of the commit
-  under the line "One side deleted the file, the other changed it: the change of the commit", so the list is never
-  empty under a non-zero file count.
+  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`shows the merge in three columns, with the result the engine proposes and the base`)
+- A file that one side deleted and the other changed must show the change of the side that kept it, under a line
+  that says what happened: "<branch> does not have the file, the commit changes it: the change of the commit", or
+  "The commit deletes the file, <branch> changed it: that change". So the list is never empty under a non-zero file
+  count.
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should list every conflicting file, the first open, and say that a file without conflict markers is a modify/delete`)
 - A sync must report a conflict without its contents: the commits, each conflicting file with its number of conflicts,
   and the missing commits with the files they change. Its events stay a few kilobytes whatever the size of the files.
-  A view reads the contents (the merged files, the change of the commit, the diffs of the missing commits) when it
-  shows the conflict, with one read for its conflicting files and its missing commits, and drops them when it closes;
-  an open item shows "Loading the conflict…" until then. The read takes the contents the sync left in the object
+  A view reads the merges of its conflicting files (`get_file_merges`) when it shows the conflict, one read per
+  conflict and whitespace choice, the open file first, and keeps the last 8; an open item shows "Loading the
+  conflict…" until its merge arrives. The backend can still read the contents of a conflict (`get_conflict_contents`:
+  the merged files, the change of the commit, the diffs of the missing commits), which no view reads now. That read
+  takes the contents the sync left in the object
   cache, else merges and analyses the conflict again; that merge must work after `git gc` too, while the branch
   conflicts, also after a sync without the object cache: the sync keeps the copies of the branch's commits before the
   conflict, which the conflict merges onto, on a ref of its own.
   [@test] ../../crates/sync-core/src/conflict_contents_test.rs (`a_sync_reports_a_conflict_without_the_contents_of_its_files`, `the_remembered_contents_are_the_ones_the_analysis_makes`)
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`opening_a_conflict`, `opening_a_conflict_after_gc`)
   [@test] ../../crates/sync-core/src/conflict_chain_test.rs (`a_conflicting_branch_keeps_its_copies_while_it_conflicts`, `the_refs_move_with_compare_and_swap_and_a_move_by_another_process_counts`, `a_branch_and_a_branch_below_it_have_refs_of_their_own`)
-  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should load the contents of a conflict when its view shows it, once for all its files`)
-- A failed read must be the sticky toast "Cannot load the conflict" with the reason, and an open item must say
-  "Cannot load the conflict: <reason>" under its header, which keeps the file and its conflict count. The conflict is
-  read again when it is shown anew.
-  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should say why the contents of a conflict did not load`)
+  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should read the merges of a conflict when its view shows it, once for all its files`)
+  [@test] ../../src/stores/file-diffs.test.ts (`reads the merges of a conflict once per policy, the open file first, and the late scopes keep the lines it expanded`, `says why a read failed`)
+- A failed read must make each open item say "Cannot load the conflict: <reason>" under its header, which keeps the
+  file and its conflict count. A failed read is read again when the conflict is shown anew.
+  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should say why the merges of a conflict did not load`)
 - The windows of the conflicting files and of the missing commits must get the conflict without its contents, and the
-  repository, and read the contents themselves.
+  repository, and read the merges and the diffs themselves.
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should load the contents of the conflict in the windows of its files and missing commits`)
-- The diffs of the missing commits and of a modify/delete file must expand the unchanged lines between hunks: they
-  come with both file contents. The missing commits header has the unified/split toggle, persisted.
-  [@test] ../../src/lib/diff/file-diff.test.ts (`is complete with contents that agree with the hunks, so the unchanged lines can expand`, `keeps the file header of hunks that each repeat it once`, `adds a file header to hunks without one`)
-  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should persist the diff view mode`)
+- The diffs of the missing commits must be the diffs of the engine of their commit (one
+  `get_file_diffs` per commit, its texts by blob id), so the unchanged lines between hunks expand. The missing commits
+  header has the unified/inline/split toggle, persisted: a stored choice keeps winning over the Split default.
+  [@test] ../../src/lib/diff/view-files.test.ts (`says why a file shows no lines: binary, too large, a submodule, a blob git cannot read, a text that cannot be read, no changed lines`)
+  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should keep a stored diff view mode over the Split default`)
 - A row with a generic error must show the error text in a destructive alert.
 - The conflict commit context of a sub-window must show the title over the meta line of the commit, with the branch
   name as an extra meta item. An unknown branch must be left out, never shown as "Unknown".

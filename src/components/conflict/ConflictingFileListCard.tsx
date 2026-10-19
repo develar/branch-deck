@@ -6,7 +6,6 @@ import type { MergeConflictInfo } from "@/lib/bindings"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
 import { openSubWindow } from "@/lib/window-management"
-import { useConflictContents } from "@/stores/conflict-contents"
 import { fixStepsFor } from "@/stores/conflict-fix"
 import { getDiffRepositoryPath } from "@/stores/repository"
 import type { ConflictingFilesWindowData } from "@/types/sub-window"
@@ -23,7 +22,6 @@ export interface ConflictingFileListCardProps {
 /** The conflicting files of a commit: a nested panel in the expanded row, an island in the sub-window. */
 export function ConflictingFileListCard({ conflictInfo, branchName, onto, isInWindow = false }: ConflictingFileListCardProps) {
   const conflicts = conflictInfo.conflictingFiles
-  const contents = useConflictContents(conflictInfo)
   const openConflictingFilesWindow = () => {
     const repositoryPath = getDiffRepositoryPath()
     if (repositoryPath === undefined) {
@@ -60,8 +58,8 @@ export function ConflictingFileListCard({ conflictInfo, branchName, onto, isInWi
       <div className="bd-padding-card">
         <ConflictingFilesSection
           files={conflicts}
-          contents={contents}
-          labels={{ current: onto ?? "the baseline", base: "before the commit", incoming: `“${parseSubject(getSubjectLine(conflictInfo.commit.message)).rest}”` }}
+          source={{ kind: "cherryPick", parent: conflictInfo.originalParent.hash, target: conflictInfo.targetBranch.hash, commit: conflictInfo.commit.hash }}
+          labels={{ left: onto ?? "the baseline", right: `“${parseSubject(getSubjectLine(conflictInfo.commit.message)).rest}”` }}
         />
       </div>
     </SectionPanel>

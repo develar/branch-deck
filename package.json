@@ -26,6 +26,7 @@
     "lint:cpd": "jscpd",
     "prune:target": "node scripts/prune-rust-target.mjs",
     "perf:monorepo": "node scripts/perf/monorepo.mjs",
+    "perf:diff": "playwright test -c playwright.perf.config.ts",
     "lint": "pnpm run \"/^lint:.*/\"",
     "update-deps": "pnpm update --latest '!oxc-transform-react' && cargo upgrade --incompatible && cargo update",
     "update-gh-deps": "actions-up"
@@ -33,7 +34,6 @@
   "dependencies": {
     "@base-ui/react": "1.9.0",
     "@fontsource-variable/jetbrains-mono": "5.3.0",
-    "@pierre/diffs": "1.5.2",
     "@tauri-apps/api": "2.12.4",
     "@tauri-apps/plugin-clipboard-manager": "2.5.0",
     "@tauri-apps/plugin-log": "2.10.1",

@@ -1,10 +1,11 @@
 // @spec spec/commit/commit-files.spec.md
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, expandBranch, getBranchCommitRow } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
-import { openCommitFilesSection, openCommitPreview as openPreview } from "../helpers/preview-helpers"
+import { chooseWhitespace, openCommitFilesSection, openCommitPreview as openPreview } from "../helpers/preview-helpers"
 import { clickContextMenuItem, multiSelectCommit, openContextMenu, selectCommit } from "../helpers/selection-helpers"
+import { openSettingsWindow } from "../helpers/settings-helpers"
 import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
 
 // the `issue_links` template: JIRA-456 has three commits, newest first; each changes one file under db/
@@ -69,8 +70,8 @@ testWithIssueLinks.describe("Commit files", () => {
     await expect(file).toHaveAttribute("aria-description", "modified, +1 −1")
     await expect(file).toHaveAttribute("aria-expanded", "false")
     await expect(files.getByTestId("file-line-counts")).toHaveText("+1 −1")
-    // the diff view mode of the conflict viewer
-    await expect(files.getByRole("button", { name: "Unified" })).toHaveAttribute("aria-pressed", "true")
+    // the layout of every diff view, Split by default as in IntelliJ
+    await expect(files.getByRole("button", { name: "Split" })).toHaveAttribute("aria-pressed", "true")
 
     // the highlighted diff splits a line into tokens: match the text of the section
     await expect(files).not.toContainText("size: 50")
@@ -252,13 +253,149 @@ simpleTest.describe("Commit files in nested directories", () => {
     await expect(tree.getByRole("treeitem", { name: "catalog" })).toHaveAttribute("aria-description", "2 files, +8 −2")
     await expect(tree.getByRole("treeitem", { name: "RowMapperTest.kt" })).toHaveAttribute("aria-description", "added, +6 −0")
 
-    // two hunks with 14 unchanged lines between them: expanding reads both versions of the file
+    // two changes with 20 unchanged lines between them, 4 shown next to each: the fold names the scope of its lines
     const mapper = tree.getByRole("treeitem", { name: "RowMapper.kt" })
     await mapper.getByText("RowMapper.kt").click()
     await expect(mapper).toContainText("SessionRowMapper")
     await expect(mapper).not.toContainText("field10")
-    // the separator spans the gutter and the code: its first button
-    await mapper.locator("[data-expand-both]").first().click()
+    const fold = mapper.locator(".dv-fold-button")
+    await expect(fold).toHaveAttribute("aria-label", "Expand 12 unchanged lines in SessionRowMapper")
+    // the folds nest as IntelliJ's: 8 lines next to each change, then all
+    await fold.click()
+    await expect(fold).toHaveAttribute("aria-label", "Expand 4 unchanged lines in SessionRowMapper")
+    await fold.click()
     await expect(mapper).toContainText("val field10 = 10")
+    await expect(fold).toHaveCount(0)
+  })
+
+  simpleTest("Split scrolls both sides together", async ({ page }) => {
+    const { reducer, deletions, additions } = await openReducerDiff(page)
+    await expect.poll(() => overflowsSideways(deletions)).toBe(true)
+
+    // a wheel on the old side scrolls the new side to the same place, the line numbers stay
+    await reducer.locator('.dv-half[data-side="0"] .dv-code').first().hover()
+    await page.mouse.wheel(160, 0)
+    await expect.poll(() => scrollLeft(deletions)).toBeGreaterThan(0)
+    await expect.poll(async () => (await scrollLeft(additions)) === (await scrollLeft(deletions))).toBe(true)
+    // and back from the new side
+    await reducer.locator('.dv-half[data-side="1"] .dv-code').first().hover()
+    await page.mouse.wheel(-40, 0)
+    await expect.poll(async () => (await scrollLeft(deletions)) === (await scrollLeft(additions)) && (await scrollLeft(additions)) < 160).toBe(true)
+  })
+
+  simpleTest("Inline shows a lightly edited line as one row", async ({ page }) => {
+    // the diff engine finds line 2 a similar pair: ` + 1` inserted after `state`
+    const { preview, reducer } = await openReducerDiff(page)
+    await preview.getByRole("button", { name: "Inline" }).click()
+    await expect(preview.getByRole("button", { name: "Inline" })).toHaveAttribute("aria-pressed", "true")
+
+    // the pair is one row: the new line with the deleted part of the old line before the inserted part
+    const inlineRow = reducer.locator(".dv-row[data-kind=inline]")
+    await expect(inlineRow).toHaveCount(1)
+    // a pure insertion: the old line has no deleted part
+    await expect(inlineRow).toContainText("settings: SessionSettings): Int = state + 1")
+    await expect(inlineRow.locator("[data-inline-deleted]")).toHaveCount(0)
+
+    // Unified shows the pair as two rows again
+    await preview.getByRole("button", { name: "Unified" }).click()
+    await expect(reducer.locator(".dv-row[data-kind=deleted]")).toHaveCount(1)
+    await expect(reducer.locator(".dv-row[data-kind=added]")).toHaveCount(1)
+    await expect(inlineRow).toHaveCount(0)
+  })
+
+  simpleTest("should break a long line with Soft Wraps on in Settings, and scroll it with them off", async ({ page, testStore }) => {
+    const { reducer, deletions } = await openReducerDiff(page)
+    // off by default, as in IntelliJ: the line keeps its shape and scrolls
+    await expect.poll(() => overflowsSideways(deletions)).toBe(true)
+
+    const settings = await openSettingsWindow(page, { page: "appearance" })
+    const softWraps = settings.getByTestId("setting-softWraps")
+    await expect(softWraps.getByRole("switch")).not.toBeChecked()
+    await softWraps.click()
+    await expect.poll(() => testStore.get("diffView")).toEqual({ softWraps: true })
+    // the view breaks the line itself: its visual lines, and no scroll bar
+    await expect.poll(() => reducer.locator(".dv-vl").count()).toBeGreaterThan(1)
+    await expect(deletions).toHaveCount(0)
+
+    await softWraps.click()
+    await expect.poll(() => overflowsSideways(deletions)).toBe(true)
+    await expect(reducer.locator(".dv-vl")).toHaveCount(0)
+    await expect.poll(() => testStore.get("diffView")).toBeNull()
+  })
+})
+
+/**
+ * The diff of `Reducer.kt`, whose changed line is longer than a side of Split, and the horizontal scroll bars of the old
+ * and the new side of Split, which have no role or name
+ */
+async function openReducerDiff(page: Page) {
+  const { preview, tree } = await openTreePreview(page)
+  const reducer = tree.getByRole("treeitem", { name: "Reducer.kt" })
+  await reducer.getByText("Reducer.kt").click()
+  await expect(reducer).toContainText("SessionSettings")
+  return { preview, reducer, deletions: reducer.locator('.dv-hscroll[data-side="0"]'), additions: reducer.locator('.dv-hscroll[data-side="1"]') }
+}
+
+function overflowsSideways(column: Locator): Promise<boolean> {
+  return column.evaluate(element => element.scrollWidth > element.clientWidth)
+}
+
+function scrollLeft(column: Locator): Promise<number> {
+  return column.evaluate(element => element.scrollLeft)
+}
+
+simpleTest.describe("Whitespace of the diffs", () => {
+  simpleTest.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
+    // the `commit_whitespace` template: Format.kt indents two lines again, adds a blank line apart from them and changes
+    // `3` to `4`; Main.kt changes one line
+    await setupRepo("commit_whitespace")
+    await syncAndWaitForBranches()
+  })
+
+  simpleTest("Ignore Whitespace hides an indentation-only change", async ({ page }) => {
+    await expandBranch(page, findBranchRow(page, "format"))
+    const preview = await openPreview(page, getBranchCommitRow(page, "format", "indent the block of first and return 4"))
+    const tree = await openCommitFilesSection(preview)
+    const format = tree.getByRole("treeitem", { name: "Format.kt" })
+    await format.getByText("Format.kt").click()
+    await expect(format).toContainText("fun second() = 4")
+    const tinted = format.locator(".dv-half[data-tint]")
+    const indentation = format.locator(".dv-row[data-kind=changed]", { hasText: "val a = 1" })
+    const choose = (label: string) => chooseWhitespace(page, preview, label)
+
+    // Do Not Ignore: the indentation, the blank line and `4` are changes. As in IntelliJ, the re-indented lines are pale
+    // and their inner ranges, the indentation, carry the full colour
+    await expect(format).toHaveAttribute("aria-description", "modified, +4 −3")
+    await expect(indentation).toHaveCount(1)
+    await expect(indentation.locator('.dv-half[data-tint="pale"]')).toHaveCount(2)
+    await expect(indentation.locator('.dv-half[data-side="1"] .dv-changed')).toHaveText(/^ +$/)
+    // the engine counts 10 lines in the 9 lines and the final line end of Format.kt: the empty 10th line does not show
+    await expect(format.locator('.dv-half[data-side="1"] .dv-num', { hasText: /^9$/ })).toHaveCount(1)
+    await expect(format.locator(".dv-num", { hasText: /^10$/ })).toHaveCount(0)
+
+    // Trim Whitespace: the indentation is unchanged lines; the blank line stays a change, in the full colour, since it has
+    // no inner ranges; `4` is the only tinted row, pale with `4` in the full colour
+    await choose("Trim Whitespace")
+    await expect(format).toHaveAttribute("aria-description", "modified, +2 −1")
+    await expect(indentation).toHaveCount(0)
+    const second = format.locator(".dv-row[data-kind=changed]", { hasText: "fun second()" })
+    await expect(tinted).toHaveCount(2)
+    await expect(second.locator('.dv-half[data-tint="pale"]')).toHaveCount(2)
+    await expect(second.locator('.dv-half[data-side="1"] .dv-changed')).toHaveText("4")
+    await expect(format).toContainText("val a = 1")
+    // Ignore Whitespace: the blank line holds no character the engine compares, so it is a whitespace-only change, as
+    // in IntelliJ: pale, and still counted
+    await choose("Ignore Whitespace")
+    await expect(format).toHaveAttribute("aria-description", "modified, +2 −1")
+    await expect(indentation).toHaveCount(0)
+    await expect(format.locator('.dv-row[data-kind=changed] .dv-half[data-side="1"][data-tint="whitespace"]')).toHaveCount(1)
+
+    // and Blank Lines: the blank line is ignored, drawn as an unchanged line; only `4` is left
+    await choose("Ignore Whitespace and Blank Lines")
+    await expect(format).toHaveAttribute("aria-description", "modified, +1 −1")
+    await expect(format.locator(".dv-row[data-kind=changed]")).toHaveCount(1)
+
+    await choose("Do Not Ignore")
+    await expect(format).toHaveAttribute("aria-description", "modified, +4 −3")
   })
 })

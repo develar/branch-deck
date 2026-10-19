@@ -22,9 +22,17 @@ targets:
   - ../../src/components/files/FileContextMenu.tsx
   - ../../src/lib/file-actions.ts
   - ../../src/lib/file-tree.ts
-  - ../../src/stores/commit-patch.ts
   - ../../src-tauri/src/commands/review_requests.rs
-  - ../../src/lib/diff/commit-patch.ts
+  - ../../src/lib/diff/view-files.ts
+  - ../../src/lib/diff/file-diff-model.ts
+  - ../../src/lib/diff/rows.ts
+  - ../../src/lib/diff/line-parts.ts
+  - ../../src/components/diff/DiffView.tsx
+  - ../../src/stores/file-diffs.ts
+  - ../../src/stores/blob-texts.ts
+  - ../../src/components/shared/DiffViewToggle.tsx
+  - ../../src/stores/settings/diff-view-settings.ts
+  - ../../src/components/settings/AppearancePage.tsx
   - ../../src/lib/preview-keys.ts
   - ../../crates/git-ops/src/cat_file_batch.rs
   - ../../crates/file-diffs/src/service.rs
@@ -35,11 +43,8 @@ targets:
   - ../../src-tauri/src/commands/file_diffs.rs
   - ../../crates/test-utils/src/repo_template.rs
   - ../../src/components/conflict/CollapsibleFileHeader.tsx
-  - ../../src/components/diff/FileDiffView.tsx
   - ../../src/components/diff/LazyDiffViews.tsx
-  - ../../src/lib/diff/file-diff.ts
-  - ../../src/lib/diff/diff-engine.ts
-  - ../../src/lib/diff/diff-languages.ts
+  - ../../src/lib/diff/file-languages.ts
   - ../../src/lib/diff/bundled-languages.ts
   - ../../vite.config.ts
   - ../../src/lib/diff/islands-themes.ts
@@ -111,53 +116,31 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 
 ### Reading the diffs
 
-- The patch of a commit must be read whole, by one `diff-tree -p --full-index` process with the options of the files
-  (first parent, renames, no external diff or textconv), when the preview first shows a diff of it and the caches
-  miss it, or by the warm of its list.
-  The patch must be cut into a section per file at its `diff --git` lines, as it streams, and kept untrimmed.
-  [@test] ../../crates/git-ops/src/commit_files_test.rs (`commit_patch_has_a_section_per_file_in_git_order`, `commit_patch_of_a_rename_shows_the_changed_lines_with_full_blob_ids`, `patch_splitter_cuts_at_diff_headers_across_chunk_boundaries`)
-- The backend must read the patch of a commit from memory, then from the `commit_patch` store of the object cache,
-  then from git, and write what git read back to both (a range only to memory): memory holds 96 MiB of patches by repository
-  and subject id, least recently used out first, and the readers of one patch at the same time run one read; the
-  store keeps a patch of at most 2 MiB, keyed by its subject id and the version of the limits that cut it, in an
-  environment of its own (512 MiB), so that a full patch store clears only the patches. A failed read is not kept.
-  [@test] ../../src-tauri/src/patch_cache_test.rs (`concurrent_readers_of_a_patch_run_one_load`, `memory_is_read_before_the_store_and_git_by_repository_and_subject`, `a_failed_load_is_not_cached`)
-  [@test] ../../crates/git-ops/src/commit_files_test.rs (`patches_are_read_through_the_cache`, `a_patch_over_the_cache_limit_stays_out_of_the_store`)
-  [@test] ../../crates/object-cache/src/cache_test.rs (`patches_are_read_by_the_limits_version_that_cut_them`, `a_full_patch_store_keeps_the_other_stores`)
-- After the files of a list are read, the backend must warm the patches of its commits that the store misses, in the
-  background, never delaying the files: one `diff-tree --stdin -p` for all of them, cut per commit at the id line git
-  prints before each, every patch the same as its own read, written in one transaction. It skips a range, a commit
-  without changes, and a commit over 5,000 changed lines or 300 files. One warm runs per repository; the ids that
-  come while it runs are warmed next, and an id is asked for once while the repository is among the last four
-  warmed (a fifth forgets the ids of the one warmed longest ago).
-  [@test] ../../crates/git-ops/src/commit_files_test.rs (`batch_patches_are_the_patches_of_each_commit`, `the_warm_reads_the_commits_of_a_list_within_its_limits`, `the_warm_writes_the_patches_the_cache_misses`)
-  [@test] ../../src-tauri/src/patch_cache_test.rs (`the_warm_of_a_repository_runs_one_at_a_time`, `the_warm_remembers_the_ids_of_the_last_repositories`)
-- A file over 1 MiB or 10 000 lines of patch, and every file after the first 16 MiB of a commit, must keep only its
-  header and the count of the lines left out: a huge commit costs the limits, not its size.
-  [@test] ../../crates/git-ops/src/commit_files_test.rs (`commit_patch_keeps_only_the_header_of_a_file_over_a_limit`, `commit_patch_leaves_out_the_hunks_after_the_total_limit`)
-- The patch of a range comes with its files (above), kept in memory under `<base>..<head>`; the files at most 16 MiB
-  by their paths, whatever the number of ranges.
-  [@test] ../../src/stores/commit-patch.test.ts (`reads the range of a review with its own command, keyed base..head, until its review drops it`)
-  [@test] ../../src-tauri/src/patch_cache_test.rs (`the_files_of_a_range_come_with_its_patch_and_stay_in_memory`)
-- The app must keep the patches of the last 8 commits it showed, at most 32 MiB of text, and read a commit once while
-  it is being read; a failed read is tried again with the next diff shown.
-  [@test] ../../src/stores/commit-patch.test.ts (`reads a commit once, also when asked again while it loads`, `keeps a failure as an error and tries again on the next load`, `evicts the least recently loaded patch over the limit`)
-- A file's diff is its section of the patch, found by its path after the commit; the same file gives the same parsed
-  diff, so lines it expanded stay expanded.
-  [@test] ../../src/lib/diff/commit-patch.test.ts (`finds the section of each file by its path after the commit`, `parses a patch once: the same diff for the same file, which an expansion fills in place`, `has no diff for a file the patch does not list`)
-- The unchanged lines between hunks must expand: both versions of the file are read by their blob ids from the
-  patch's `index` line, with one `cat-file --batch` process, at most 16 blobs. A binary blob, a blob over 8 MiB and an
-  id that is not a blob are told apart, never sent as text; the bytes of a blob over 8 MiB are skipped, never read
-  into memory; the side a file does not exist on is not asked for.
-  [@test] ../../crates/git-ops/src/commit_files_test.rs (`blob_contents_tells_text_from_binary_missing_and_too_many`, `a_blob_over_the_limit_is_too_large_with_its_size`)
+- The views must read the diffs of every file of a commit or a range with one `get_file_diffs` under the whitespace
+  policy: typed blocks of the diff engine, no patch text. The diffs stream ([File diffs](#file-diffs)): a file shows
+  once its content arrives and "Loading…" before, the files in view are asked for first (`priorityPaths`, the file a
+  review opens at), and the late scopes of a text name its folds without losing the lines it expanded. The app keeps
+  the diffs of the last 8 subjects per policy, reads a subject once while it is being read, tries a failed read
+  again, shows the loaded uncommitted changes until their new read ends, and drops the ranges of a closed review.
+  [@test] ../../src/stores/file-diffs.test.ts (`reads a subject once per policy, the files in view first`, `shows each file as its content arrives, and the late scopes of a text keep the lines it expanded`, `reads the uncommitted changes again on a refresh, and keeps the loaded ones until the new read ends`, `keeps the last subjects only, and forgets the subjects of a closed review under every policy`)
+- The texts of a diff must be read by git blob id (`get_blob_texts`), shared by every commit, range and window, the new
+  side of an uncommitted change by its path too: the ids of one task in one call (64 at most), each id once, a failed read tried again, the least recently used texts
+  dropped over 64 Mi UTF-16 units, never the ones just read. A file's diff is built from its blocks and both texts,
+  complete: the unchanged lines between hunks expand without a request. The same diff gives the same model, so the
+  lines it expanded stay expanded.
+  [@test] ../../src/stores/blob-texts.test.ts (`reads the ids of one task in one call, and each id once`, `reads many ids in batches`, `keeps a failed read as an error and reads it again on the next request`, `drops the least recently requested texts over the length, never the ones just read`)
+  [@test] ../../src/lib/diff/rows.test.ts (`finds each row from its segment, and keeps the fold levels of a diff object`)
+  [@test] ../../src/lib/diff/view-files.test.ts (`says why a file shows no lines: binary, too large, a submodule, a blob git cannot read, a text that cannot be read, no changed lines`)
   [@test] ../../crates/git-ops/src/cat_file_batch_test.rs (`the_content_of_an_object_over_the_limit_is_not_buffered`)
-  [@test] ../../src/lib/diff/commit-patch.test.ts (`reads both sides by the blob ids of the patch`, `does not ask for the side a file does not exist on`, `shows why a side cannot be read, and fails the expansion`)
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should group the files by directory and expand the unchanged lines of a diff`)
+- The `+N −M` of a file and a directory in the tree, in the header of a diff and in the uncommitted card must be the
+  counts of the engine under the whitespace policy, and show nothing until its diffs are read, never git's count
+  first. The meta line of a commit row keeps git's numstat, which reads no blob, so the two can differ.
+  [@test] ../../src/lib/diff/view-files.test.ts (`takes the line counts of the engine, and none before its diff is read`)
 
 ### File diffs
 
-The views are to show the typed diff of each file instead of the patch. The backend is done; the views come with
-another branch, so the e2e tests of this section are pending.
+The views show the typed diff of each file instead of the patch ([Reading the diffs](#reading-the-diffs)).
 
 - `get_file_diffs` must give the diff of each changed file of a commit, a range or the working tree (`DiffSource`)
   under a whitespace policy, in the order of git: its path, the path before a rename or copy, its status, the blob ids
@@ -186,10 +169,11 @@ another branch, so the e2e tests of this section are pending.
   [@test] ../../crates/file-diffs/src/service_test.rs (`the_texts_of_a_diff_come_from_memory`, `a_working_tree_text_is_read_by_its_path_and_checked_against_its_id`)
 - The hunk headers must name the declaration around each hunk, `Outer › inner`, from the scopes of the diff.
   [@test] ../../crates/file-diffs/src/scopes_test.rs (`a_member_is_labelled_with_its_containers`, `a_rust_impl_member_is_labelled_with_its_type`)
-- The views must build the context, the hunks and the expansion from the blocks and the texts: a `WhitespaceOnly`
-  block pale, an `Ignored` block as unchanged and skipped by N and P, the inline pairs of a block in one row in the
-  Inline view, and a notice when the files differ in their line ends only. The e2e tests are pending until the views
-  land.
+- The views must build the context, the hunks and the expansion from the blocks and the texts: the tints of IntelliJ
+  (below), an `Ignored` block as unchanged and skipped by N and P, the inline pairs of a block in one row in the
+  Inline view, and a notice when the files differ in their line ends only.
+  [@test] ../../src/lib/diff/rows.test.ts (`draws a whitespace-only block in the whitespace tint, and a block the policy ignores as unchanged lines inside the context`, `makes each similar pair of a block one row only in the Inline view, also at the end of a file`)
+  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should group the files by directory and expand the unchanged lines of a diff`, `Inline shows a lightly edited line as one row`)
 
 ### Meta line
 
@@ -235,19 +219,54 @@ another branch, so the e2e tests of this section are pending.
   D) keep working in the tree.
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should move through the tree with the keyboard and switch commits with Alt`)
 - A binary file must show "Binary file", and a file without changed lines "No changed lines", instead of a diff; a
-  file the patch left out shows "Too large to show: 12,345 changed lines", and a file with more than 2,000 changed
-  lines waits for `Show Diff`, as its diff is not virtualized under its row.
+  file over the limits of the engine shows "Too large to show: 12.3 MB". The diff under a row is virtualized in the
+  scroller of the preview, so a large file shows at once, without a click.
 - The diff must mark the changed words of a changed line, and highlight the code as the IntelliJ editor does, in the
   light and the dark scheme. Kotlin, Gradle (`.gradle`, `.gradle.kts`), Rust, TypeScript, Java and the other common
   languages must be read by their grammar; a file of a language the app does not bundle (`BUNDLED_LANGUAGE_IDS`: 84
   90 of Shiki's grammars, no Emacs Lisp, COBOL or Wolfram) and an unknown file are plain text, never a failed diff.
-  [@test] ../../src/lib/diff/bundled-languages.test.ts (`keeps only the bundled entries of Shiki's language list, so the other grammars leave the build`, `fails the build for an id Shiki does not have`, `highlights %s with a bundled grammar`, `maps our custom extensions to bundled grammars`, `shows a file of a grammar the build leaves out as plain text`)
-  [@test] ../../src/lib/diff/file-diff.test.ts (`keeps a whole git patch as it is, also its last context line of a blank line`, `parses a git patch with its object ids, partial without the contents`, `has no hunks for a file without hunks`)
-  [@test] ../../src/lib/diff/diff-languages.test.ts (`maps our custom extensions to grammars Shiki has`, `highlights %s as %s`)
-  [@test] ../../src/lib/diff/islands-themes.test.ts (`colour Kotlin as the IntelliJ Light scheme does`, `colour Rust and TypeScript with the dark scheme`)
-- Highlighting must not block the window: it runs in a worker pool, which starts with the first diff shown and lives
-  as long as the window. When the workers cannot start, the diff is highlighted on the main thread.
-- The section must offer the unified and the split view; the choice is the one of the conflict viewer.
+  [@test] ../../src/lib/diff/bundled-languages.test.ts (`keeps only the bundled entries of Shiki's language list, so the other grammars leave the build`, `fails the build for an id Shiki does not have`, `highlights %s with a bundled grammar`, `maps the extension table and our custom extensions to bundled grammars only`, `shows a file of a grammar the build leaves out as plain text`)
+  [@test] ../../src/lib/diff/file-languages.test.ts (`maps our custom extensions to grammars Shiki has`, `highlights %s as %s`, `shows a file without a known name as plain text`)
+  [@test] ../../src/lib/diff/highlight/engine.test.ts (`gives each token the role of the Islands themes, in runs that change only with the style`, `gives Rust and TypeScript tokens the roles of the Islands themes too`)
+- A diff must show the blocks of the diff engine with 4 lines of context (IntelliJ's), changes whose context touches
+  without a fold between them, and the changed ranges of the engine instead of a word diff, also on a changed line
+  without a line beside it. The tints are IntelliJ's: a block with inner ranges draws its lines pale and its ranges
+  in the full colour; a block without them (line-level only, or ranges dropped) draws its lines in the full colour; a
+  whitespace-only block draws its lines pale with a faded bar. The line indices are the engine's: the empty line
+  after a final line end is a line, and it shows only when a block touches it.
+  [@test] ../../src/lib/diff/rows.test.ts (`leaves out the empty line after a final line end, unless a block touches it`, `draws the lines of a block with inner ranges pale and the lines of a block without them in the full tint, as IntelliJ`, `keeps 4 lines of context next to a change, as IntelliJ, and folds the others`, `skips a level that shows no more lines, and folds no fewer than 2 lines`, `cuts the context at both ends of the file`, `fills the shorter side of a block in the split view`, `shows a new file and a deleted file as one block of one side`, `splits lines as IntelliJ: LF, CRLF and a lone CR end a line, and a text may end without one`)
+  [@test] ../../src/lib/diff/line-parts.test.ts (`cuts a line at each run of the tokens and each bound of a changed range`)
+- A file whose line ends changed must say so under its header ("Line endings: LF → CRLF"), and "Only line endings
+  changed: …" when that is its only change.
+  [@test] ../../src/lib/diff/view-files.test.ts (`names a change of the line ends, and says so when it is the only change`)
+- A fold of unchanged lines must name the innermost declaration around its lines (the scopes of the engine, such as
+  `fun main() {`, the new side first) after their count. The folds nest as IntelliJ's: a click on a fold shows 8
+  lines next to each change, the next one 16, then all. "Expand All" of a file header in a review, and ⌥-click (Alt) on
+  a fold, show all the lines of the file.
+  [@test] ../../src/lib/diff/rows.test.ts (`labels a fold with the innermost scope around its lines, the new side first`, `nests the folds at 4, 8 and 16 lines of context, then shows all lines`)
+  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should group the files by directory and expand the unchanged lines of a diff`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+- Highlighting must not block the window: it runs in a worker, which starts with the first diff shown and lives as
+  long as the window, and a row shows plain text until its tokens arrive. When the workers cannot start, the diff is
+  highlighted on the main thread in idle slices.
+  [@test] ../../src/lib/diff/highlight/engine.test.ts (`answers a page far into a file first as provisional, then exact, and confirms equal runs without arrays`)
+  [@test] ../../src/lib/diff/highlight/client.test.ts (`keeps the pages the engine on the main thread answers, a provisional one confirmed exact`)
+- The section must offer the unified, the inline and the split view. The choice is one setting of every diff view (the
+  section, the reviews, the uncommitted changes, the conflicts and the missing commits), also in Settings →
+  Appearance, "Diffs". Split is the default, as in IntelliJ; a stored choice keeps winning over it.
+  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should list the files of the commit in the preview and load a diff when a file is expanded`)
+  [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should keep a stored diff view mode over the Split default`)
+- Inline must show each pair of a block that the diff engine finds similar as one row: the new line with the deleted
+  parts of the old line before the inserted parts, each part in the syntax colours of its own side, the deleted parts
+  left out of a copy, the line number of the new line. A line of a pair without a range of its own (a pure insertion
+  or deletion) has an empty one where the other line changes. The other blocks show as in Unified, and so does a pair
+  at the end of a file without a newline at its end.
+  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`Inline shows a lightly edited line as one row`)
+  [@test] ../../src/lib/diff/line-parts.test.ts (`puts the deleted part of the old line before the inserted part, each with the runs of its side`, `aligns a pure insertion: the old line without a range gets an empty one, so the row is the new line`)
+  [@test] ../../src/lib/diff/rows.test.ts (`makes each similar pair of a block one row only in the Inline view, also at the end of a file`)
+- Split must scroll its two sides together: a horizontal scroll of one side moves the other to the same place, as
+  IntelliJ's diff does.
+  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`Split scrolls both sides together`)
 - Another commit (↑, ↓) must show its own files, collapsed.
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should list the files of the commit in the preview and load a diff when a file is expanded`)
 - The header of the section, F and the `F Files` button of the footer must open or close it. The choice must hold
@@ -256,6 +275,32 @@ another branch, so the e2e tests of this section are pending.
 - A preview of a commit no list loaded must load its files alone (`get_commit_files`).
   [@test] ../../src/stores/commit-files.test.ts (`loads the one commit a preview shows with the single command`)
 - A failed read must show "Cannot read the files of the commit" in the section.
+
+### Soft Wraps
+
+- "Soft wraps" in Settings → Appearance, "Diffs", must break a long line at the edge of the diff. It is off by
+  default, as IntelliJ's `USE_SOFT_WRAPS`: a long line keeps its shape and scrolls sideways. One setting for every
+  diff view.
+  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should break a long line with Soft Wraps on in Settings, and scroll it with them off`)
+
+### Whitespace
+
+- The Whitespace menu beside the layout switch (also in Settings → Appearance, "Diffs") must choose what the diff of
+  every view ignores: Do Not Ignore (the default, as IntelliJ), Trim Whitespace, Ignore Whitespace, Ignore Whitespace
+  and Blank Lines. The button is marked while it ignores anything. The choice goes to the backend with every read of
+  the diffs of the files.
+  Trim Whitespace hides a change of indentation. Under Ignore Whitespace a blank line added holds no character the
+  engine compares: it is a whitespace-only change, pale, counted, and N and P stop at it, as in IntelliJ. Ignore
+  Whitespace and Blank Lines ignores it. The counts of the file follow the choice.
+  Under Do Not Ignore a change of indentation is a change with inner ranges, as in IntelliJ: its lines are pale, and
+  the indentation is in the full colour.
+  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`Ignore Whitespace hides an indentation-only change`)
+- A block that only the choice ignores must show as unchanged lines: the unified and the inline view show its new
+  lines as context and leave its old lines out (the old line numbers jump, as in IntelliJ), the split view shows both
+  sides plain, the shorter one filled. N and P skip it. A block that differs only in whitespace is drawn pale; it
+  counts, and N and P stop at it.
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`N and P skip a block the whitespace policy ignores`)
+  [@test] ../../src/lib/diff/rows.test.ts (`draws a whitespace-only block in the whitespace tint, and a block the policy ignores as unchanged lines inside the context`, `shows no rows for a file whose only blocks the policy ignores`, `folds the lines an ignored block holds, with their own count on each side`, `starts N and P at each block of changed lines, a deleted one too, never at a block the policy ignores`)
 
 ### The actions on a file
 
@@ -296,7 +341,7 @@ another branch, so the e2e tests of this section are pending.
 - A `border-border` rule above the section separates it from the message. Its header is a button: a `ChevronRightIcon`
   (`size-3.5` muted, turned down when open, as a tree row's) and the label "Files 4", muted `text-xs font-medium`
   (`SectionLabel` with the count, as the files of a review), `hover:bg-muted rounded-md`, `aria-expanded`; the
-  `Unified`/`Split` toggle on its right while it is open.
+  `Unified`/`Inline`/`Split` toggle on its right while it is open.
 - The tree rows are `h-6 rounded-md text-sm`, `hover:bg-muted`, indented by 0.75rem per level, a `ring-2 ring-ring/50`
   inset on the focused row. A row starts with a `ChevronRightIcon` (`size-3.5` muted, turned down when open). A 1px
   `border` guide per level runs under the chevron of each parent, on the rows only (not on a diff under a row).
@@ -309,7 +354,9 @@ another branch, so the e2e tests of this section are pending.
   counts never wrap or shrink. A zero count is not coloured.
 - The diff of an expanded file is a `rounded-lg border` panel under its row, at the row's indent.
 - The diff is JetBrains Mono at 13px on the `card` background, added lines `success`, deleted `destructive`, a bar in
-  the gutter, the changed words a stronger tint ([UI Theme](../../docs/design/ui-theme.md) "Diffs").
+  the gutter, the changed words a stronger tint ([UI Theme](../../docs/design/ui-theme.md) "Diffs"). The rows of a
+  whitespace-only block are paler, their gutter bar faded. The scope of a hunk follows the count of its separator in
+  `foreground`, cut with "…" when it is long.
 - Loading: an inline spinner and "Loading files…" in muted `text-sm`; a file's diff shows "Loading diff…". A failed
   read of the patch is a destructive callout "Cannot read the changes of the commit" in the panel.
 - The footer shows the ghost `xs` buttons `D Review Changes` and `F Files` (pressed while the section is open) before
@@ -320,7 +367,7 @@ another branch, so the e2e tests of this section are pending.
 - `pnpm test:backend`: `crates/git-ops/src/commit_files_test.rs`, `crates/object-cache/src/cache_test.rs`,
   `src-tauri/src/repository_state_test.rs`, `src-tauri/src/patch_cache_test.rs`.
 - `pnpm test:unit`: `src/lib/commit-files.test.ts`, `src/lib/file-tree.test.ts`, `src/stores/commit-files.test.ts`,
-  `src/stores/commit-patch.test.ts`, `src/lib/diff/*.test.ts`.
+  `src/stores/file-diffs.test.ts`, `src/stores/blob-texts.test.ts`, `src/lib/diff/*.test.ts`.
 - `pnpm e2e`: `tests/e2e/commit-files`, on the `issue_links` and `commit_tree` templates (nested directories, a Kotlin
   file with two hunks). The test server runs the commands on the fixture repositories without the object cache, the
   memory cache of patches and the warm: each read of a patch runs git.

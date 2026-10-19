@@ -1,7 +1,7 @@
 // @spec spec/commit/commit-row.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { MissingCommit } from "@/lib/bindings"
-import { formatConflictTitle, formatMissingCommitsReason, formatMissingCommitsTitle, getMissingCommitOwners, labelConflictMarkers } from "@/lib/merge-conflict"
+import { formatConflictTitle, formatMissingCommitsReason, formatMissingCommitsTitle, getMissingCommitOwners } from "@/lib/merge-conflict"
 
 describe("formatConflictTitle", () => {
   it("names the subject without its grouping prefix and the branch it is copied onto", () => {
@@ -14,16 +14,6 @@ describe("formatConflictTitle", () => {
 
   it('says "the baseline" before the first sync names it', () => {
     expect(formatConflictTitle("Add login", null)).toBe("“Add login” does not apply cleanly onto the baseline")
-  })
-})
-
-describe("labelConflictMarkers", () => {
-  const merged = "a\n<<<<<<< 40ee0032\nten\n||||||| afd93b3c\nthirty\n=======\nthirty seconds\n>>>>>>> c82db1ff\n<<<<<<<< not a marker\n"
-
-  it("names the sides in words instead of the commit ids git wrote", () => {
-    expect(labelConflictMarkers(merged, { current: "origin/master", base: "before the commit", incoming: "“Show the timeout”" })).toBe(
-      "a\n<<<<<<< origin/master\nten\n||||||| before the commit\nthirty\n=======\nthirty seconds\n>>>>>>> “Show the timeout”\n<<<<<<<< not a marker\n",
-    )
   })
 })
 

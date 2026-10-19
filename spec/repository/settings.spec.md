@@ -153,7 +153,10 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/inline-branch-creator-ai/inline-branch-creator-ai.spec.ts (`should turn AI on and off in Settings`)
 - Appearance: "Zoom", Zoom Out · the level · Zoom In, then Actual Size: the items of the View menu by id
   (`zoomMenuItems`), their keys in the tooltips, the same command, so every window zooms one step
-  ([Zoom](zoom.spec.md)); "Title bar" (Windows, Linux), the system title bar ([Title Bar](title-bar.spec.md#setting)).
+  ([Zoom](zoom.spec.md)); "Diffs", the layout of every diff view and "Soft wraps"
+  ([Commit Files](../commit/commit-files.spec.md#soft-wraps)); "Title bar" (Windows, Linux), the system title bar
+  ([Title Bar](title-bar.spec.md#setting)).
+  [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should break a long line with Soft Wraps on in Settings, and scroll it with them off`)
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should zoom every window from Appearance with the items of the View menu`)
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should offer the system title bar in Settings → Appearance, applied after a restart`, `should show a fixed system title bar in the settings with its reason`)
 - Notifications: the four switches of the OS notifications, the permission of the OS, and "Dock icon" (not Windows)

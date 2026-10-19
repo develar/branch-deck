@@ -12,6 +12,7 @@ targets:
   - ../../src/hooks/useAmendChanges.ts
   - ../../src/components/branch/InlineAmendChangesInput.tsx
   - ../../src/components/branch/UncommittedChangesCard.tsx
+  - ../../src/components/conflict/SubjectFileDiffList.tsx
 ---
 
 # Amend Changes
@@ -48,6 +49,13 @@ tree is never written, and the user's other staged work stays staged.
   [@test] ../../crates/git-ops/src/amend_operations_test.rs (`amend_non_head_applies_only_delta`)
 - The amended commit must keep its author and its message. Its committer and the committer of the commits after it
   become the current user.
+
+### The diffs of the uncommitted changes
+
+- The Uncommitted Changes card must show the diff of each changed file as the diff engine computes it, the working
+  tree against HEAD under the whitespace policy, with the engine's `+N −M` in its header; a new answer of the
+  uncommitted changes reads the diffs again, the shown ones stay meanwhile.
+  [@test] ../../src/stores/file-diffs.test.ts (`reads the uncommitted changes again on a refresh, and keeps the loaded ones meanwhile`)
 
 ### Working tree and index
 

@@ -173,7 +173,7 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
 ### Title bar, footer and actions
 
 - The title bar of the window ([Title Bar](../repository/title-bar.spec.md)) must show the stack bar, then at its other
-  end the Unified/Split toggle and the actions on the target branch. The footer must show the position in the review
+  end the Unified/Inline/Split toggle and the actions on the target branch. The footer must show the position in the review
   ("All Changes · File 2 / 5", "Commit 1 / 3 · File 1 / 2") and the keys of the commit review (`J K Files`, `N P
   Changes`, `⌥↑ ⌥↓ Commits` with several commits), `Esc Close` (Escape closes a sub-window). The actions are the items
   of the branch's menu (`getBranchReviewItems`), their keys working in the whole window: `O Open Pull Request` when it has a pull request, `Create Pull Request…` for a
@@ -185,7 +185,7 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   repository or the branch left.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should run an item of the branch's menu from the window's ⋯, in the main window`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
-- Unified/Split must be the setting of every diff view, saved by the main window, which owns `settings.json`
+- Unified/Inline/Split must be the setting of every diff view, saved by the main window, which owns `settings.json`
   ([Distributed Settings](../../docs/design/distributed-settings.md)): the window asks it, and keeps the choice on its
   answer.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should save the diff view the window chooses through the main window`)

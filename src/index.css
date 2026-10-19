@@ -300,6 +300,21 @@
   --window-button-kde-circle-hover: #a8adbd;
   --window-button-kde-circle-pressed: #818594;
   --window-button-kde-on-circle: #ffffff;
+  /*
+   * The syntax roles of the diffs (SYNTAX_ROLES of src/lib/diff/islands-themes.ts): the IntelliJ New UI Light editor
+   * scheme. The highlight worker tokenizes once for both schemes (docs/design/diff-view.md, "One theme of roles")
+   */
+  --syntax-foreground: #080808;
+  --syntax-keyword: #0033b3;
+  --syntax-string: #067d17;
+  --syntax-escape: #0037a6;
+  --syntax-number: #1750eb;
+  --syntax-comment: #8c8c8c;
+  --syntax-function-declaration: #00627a;
+  --syntax-field: #871094;
+  --syntax-annotation: #9e880d;
+  --syntax-tag: #0033b3;
+  --syntax-attribute: #174ad4;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -339,30 +354,19 @@
     --window-button-kde-circle-hover: #dfe1e6;
     --window-button-kde-circle-pressed: #ced0d6;
     --window-button-kde-on-circle: #393b40;
+    /* the IntelliJ New UI Dark editor scheme */
+    --syntax-foreground: #bcbec4;
+    --syntax-keyword: #cf8e6d;
+    --syntax-string: #6aab73;
+    --syntax-escape: #cf8e6d;
+    --syntax-number: #2aacb8;
+    --syntax-comment: #7a7e85;
+    --syntax-function-declaration: #56a8f5;
+    --syntax-field: #c77dbb;
+    --syntax-annotation: #b3ae60;
+    --syntax-tag: #d5b778;
+    --syntax-attribute: #bababa;
   }
-}
-
-/*
- * Diffs (@pierre/diffs) render into an open shadow root: custom properties inherit into it, and these declarations on
- * the host win over the theme the library writes on :host (docs/design/ui-theme.md "Diffs"). The tokens switch with the
- * colour scheme, so one value serves both the light and the dark variable.
- */
-diffs-container {
-  /* --font-mono is not emitted as a variable (@theme inline) */
-  --diffs-font-family: --theme(--font-mono);
-  --diffs-header-font-family: --theme(--font-sans);
-  --diffs-font-features: "calt" 0;
-  --diffs-font-size: 13px;
-  /* the line height Pierre's virtualizer measures with */
-  --diffs-line-height: 20px;
-  --diffs-tab-size: 4;
-  --diffs-light-bg: var(--card);
-  --diffs-dark-bg: var(--card);
-  --diffs-addition-color-override: var(--success);
-  --diffs-deletion-color-override: var(--destructive);
-  --diffs-modified-color-override: var(--primary);
-  --diffs-fg-number-override: var(--muted-foreground);
-  --diffs-bg-separator-override: color-mix(in oklab, var(--foreground) var(--bd-tint), var(--card));
 }
 
 @layer base {

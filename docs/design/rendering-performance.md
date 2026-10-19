@@ -84,7 +84,7 @@ flowchart LR
    **Rationale**: by default the compiler skips such a function quietly and it runs without memoization. Its usual
    causes are caught early instead:
    - a disable comment for a React rule (Oxlint reports it as `react/rule-suppression`): read the latest values
-     through `useEffectEvent` instead (`InlineForm`, `CommitReviewCode`);
+     through `useEffectEvent` instead (`InlineForm`, `DiffView`);
    - `try` with `finally` but no `catch`: use `promise.finally(…)` (`SquashCommitsDialog`);
    - a JSX element as a parameter default: use `prop ?? <… />` in the body (`ui/toast.tsx`).
 
@@ -109,10 +109,10 @@ flowchart LR
    evicts caches keyed on the object, such as the compiled issue patterns.
 
 6. **Decision**: a sync event carries a conflict without its contents (`MergeConflictInfo`: the commits, the file
-   names with their conflict counts, the missing commits); a view that shows the conflict reads them
-   (`useConflictContents`, `src/stores/conflict-contents.ts`: one `get_conflict_contents` for the conflicting files and
-   the missing commits of a conflict, kept while a view of it is mounted, "Loading the conflict…" in an open item until
-   then). The conflict windows get the conflict and the repository in their data and read the contents themselves.
+   names with their conflict counts, the missing commits); a view that shows the conflict reads what it shows
+   (`src/stores/file-merges.ts`: one `get_file_merges` per conflict and whitespace choice for the conflicting files;
+   the missing commits read their diffs per commit; "Loading the conflict…" in an open item until then). The conflict
+   windows get the conflict and the repository in their data and read the merges themselves.
    **Rationale**: the contents are whole files, up to 8 MiB each: 20 KiB to 40 MiB a conflict in the monorepo, and a
    sync sends each conflict twice (the error of the commit and the status of the branch) at every run. Rust serialized
    them, the IPC carried them, the page parsed them and the stores kept them, for conflicts nobody opened. A conflict
@@ -128,15 +128,14 @@ used to download and compile the main window's tree before its own page: 61 modu
 - The commit preview (`CommitList`) loads on first open too. It pulls in the file tree; the commit review and the
   resizable panels load only in the review window.
 - A sub-window is built hidden, on the canvas colour of the theme, and shows once its page settled the content of the
-  latest open (`markSubWindowContentReady`: `WindowPage` on its render, a review once `prepareFirstDiffs` readied its
-  first screen), at most 300 ms after the page loaded (`sub_window_loaded`, the budget kept by the backend, because a
+  latest open (`markSubWindowContentReady`: `WindowPage` on its render, a review once `DiffView` painted its first
+  screen), at most 300 ms after the page loaded (`sub_window_loaded`, the budget kept by the backend, because a
   hidden page's timers are throttled). Nothing on that path waits for an animation frame: a hidden WKWebView runs
-  none, and a show from `requestAnimationFrame` waited 3 s for the fallback. Pierre renders on animation frames too, so
-  the first screen of a review is highlighted into the pool's cache before `CodeView` mounts and renders it in its
-  mount; a scroll to the initial file renders at once (`render(true)`).
+  none, and a show from `requestAnimationFrame` waited 3 s for the fallback. The painter of `DiffView` paints in its
+  effects and its scroll events, never on an animation frame ([Diff View](diff-view.md)).
 - The review page imports `CommitReviewCode` statically (the route is the lazy chunk): a `React.lazy` there committed
   its fallback even after the chunk was loaded and revealed the diffs only after React's 300 ms throttle. The page
-  starts the worker pool when its module loads, beside the reads of the files and the patch.
+  starts the highlight worker when its module loads, beside the reads of the files and the diffs.
 - A review window starts its reads with its page (`startReviewWindowReads` of `main.tsx`): the files and the patch of
   the commit review into their stores, the segments of the branch review for its first read (`readBranchReview`).
   Its route chunk holds the diff engine (about 640 KB to parse, about 100 ms in the release build), and the reads
@@ -144,8 +143,8 @@ used to download and compile the main window's tree before its own page: 61 modu
 - A loading line ("Loading changes…", "Loading diff…", "Loading files…", `LoadingLine`) shows only after 300 ms: a
   read from a cache answers before, and a spinner that flashes for a frame reads as a delay where there was none. The
   review shows what it has meanwhile (the tree, the headers of the files).
-- The page logs the phases of each open ("commit-review open 96 ms: loaded 41, files 44, patch 47, engine 70, primed
-  88"): a new window loads the app (`loaded`), a reused one only renders.
+- The page logs the phases of each open ("commit-review open 96 ms: loaded 41, files 44, diffs 47, painted 88"): a new
+  window loads the app (`loaded`), a reused one only renders.
 
 The eager part is now 7 modulepreloads, about 590 KB.
 
@@ -164,7 +163,7 @@ output); `Symbol.for("react.memo_cache_sentinel")` in a build with `build.minify
 
 - `vite.config.ts`: the plugin and its options
 - `src/stores/branch-sync.ts`: `queueSyncEvent`, `flushSyncEvents`, `structureOf`, `branchTableRowsIn`
-- `src/stores/conflict-contents.ts`: `useConflictContents`, the contents of the shown conflicts
+- `src/stores/file-merges.ts`: `useFileMerges`, the merges of the shown conflicts
 - `src/lib/patronus.ts`: `findBranchRobot` and its index
 - `src/router.ts`, `src/App.tsx`, `src/pages/IndexPage.tsx`: the lazy main page and dialogs
 - [Distributed Settings](distributed-settings.md): the persisted stores the selectors read

@@ -1,13 +1,10 @@
 import { lazy, Suspense } from "react"
 import type { ReactNode } from "react"
-import type { CommitFileDiffViewProps, ConflictFileViewProps, FileDiffViewProps } from "@/components/diff/FileDiffView"
+import type { DiffViewProps } from "@/components/diff/DiffView"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 
-// the diff engine (Shiki, its themes and the worker pool) loads with the first diff shown
-const loadDiffViews = () => import("@/components/diff/FileDiffView")
-const FileDiffViewChunk = lazy(() => loadDiffViews().then(it => ({ default: it.FileDiffView })))
-const ConflictFileViewChunk = lazy(() => loadDiffViews().then(it => ({ default: it.ConflictFileView })))
-const CommitFileDiffViewChunk = lazy(() => loadDiffViews().then(it => ({ default: it.CommitFileDiffView })))
+// our renderer, its highlight worker and its grammars load with the first diff of a view outside the review windows
+const DiffViewChunk = lazy(() => import("@/components/diff/DiffView").then(it => ({ default: it.DiffView })))
 
 /** A spinner while the diff chunk loads */
 function DiffSuspense({ children }: { children: ReactNode }) {
@@ -15,29 +12,11 @@ function DiffSuspense({ children }: { children: ReactNode }) {
   return <Suspense fallback={fallback}>{children}</Suspense>
 }
 
-/** `FileDiffView` from its own chunk */
-export function LazyFileDiffView(props: FileDiffViewProps) {
+/** `DiffView` from its own chunk */
+export function LazyDiffView(props: DiffViewProps) {
   return (
     <DiffSuspense>
-      <FileDiffViewChunk {...props} />
-    </DiffSuspense>
-  )
-}
-
-/** `CommitFileDiffView` from its own chunk */
-export function LazyCommitFileDiffView(props: CommitFileDiffViewProps) {
-  return (
-    <DiffSuspense>
-      <CommitFileDiffViewChunk {...props} />
-    </DiffSuspense>
-  )
-}
-
-/** `ConflictFileView` from its own chunk */
-export function LazyConflictFileView(props: ConflictFileViewProps) {
-  return (
-    <DiffSuspense>
-      <ConflictFileViewChunk {...props} />
+      <DiffViewChunk {...props} />
     </DiffSuspense>
   )
 }

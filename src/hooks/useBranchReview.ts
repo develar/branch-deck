@@ -15,7 +15,7 @@ import type { ReviewPosition } from "@/lib/review-position"
 import { formatReviewPosition } from "@/lib/review-position"
 import { readBranchReview } from "@/lib/review-window-reads"
 import { dropFilesOf, useFilesOfCommit } from "@/stores/commit-files"
-import { dropPatchesOf } from "@/stores/commit-patch"
+import { dropFileDiffsOf } from "@/stores/file-diffs"
 import type { BranchReviewGroup } from "@/types/sub-window"
 
 /*
@@ -165,7 +165,7 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
     }
     return () => {
       dropFilesOf([rangeId])
-      dropPatchesOf([rangeId])
+      dropFileDiffsOf([rangeId])
     }
   }, [rangeId])
 

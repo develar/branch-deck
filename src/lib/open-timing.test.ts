@@ -7,9 +7,9 @@ describe("takeOpenTimingLine", () => {
     markOpenPhase(open, "loaded", 1041)
     markOpenPhase(open, "files", 1044)
     markOpenPhase(open, "files", 1090)
-    markOpenPhase(open, "patch", 1047)
+    markOpenPhase(open, "diffs", 1047)
     markOpenPhase(open, "ready", 1096)
-    expect(takeOpenTimingLine("commit-review", 3)).toBe("commit-review open 96 ms: loaded 41, files 44, patch 47")
+    expect(takeOpenTimingLine("commit-review", 3)).toBe("commit-review open 96 ms: loaded 41, files 44, diffs 47")
     expect(takeOpenTimingLine("commit-review", 3)).toBeNull()
   })
 

@@ -4,7 +4,8 @@ const { reads } = vi.hoisted(() => ({ reads: [] as unknown[] }))
 
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ label: "branch-review" }) }))
 vi.mock("@/stores/commit-files", () => ({ loadFilesOfSubject: async () => {} }))
-vi.mock("@/stores/commit-patch", () => ({ loadSubjectPatch: () => {} }))
+vi.mock("@/stores/file-diffs", () => ({ loadFileDiffs: () => {} }))
+vi.mock("@/stores/settings/diff-view-settings", () => ({ getDiffWhitespacePolicy: () => "default" }))
 vi.mock("@/lib/bindings", () => ({
   commands: {
     getBranchReview: (params: unknown) => {

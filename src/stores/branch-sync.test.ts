@@ -39,11 +39,7 @@ const { syncEvents, syncResult, toasts, inputs, held, repository, projectUpdates
 
 vi.mock("@/lib/toast-message", () => ({ showToast: (toast: { type?: string; title: string; description?: string }) => toasts.push(toast) }))
 
-vi.mock("@tauri-apps/api/core", () => ({
-  Channel: class {
-    onmessage: (event: unknown) => void = () => {}
-  },
-}))
+vi.mock("@tauri-apps/api/core", () => import("@/test-support/channel-mock"))
 
 vi.mock("@/lib/bindings", () => ({
   commands: {

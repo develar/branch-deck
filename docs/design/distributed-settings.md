@@ -7,7 +7,7 @@
 ## Problem
 
 Branch Deck opens sub-windows (the reviews, the conflict windows, Settings) next to the main window. Every window renders settings
-(theme, conflict viewer options, AI settings, recent projects) and some can change them. Each window must have the settings
+(theme, diff view options, AI settings, recent projects) and some can change them. Each window must have the settings
 synchronously on its first render, and a change made in any window must reach all others without loops or lost updates.
 
 Only one process can safely own `settings.json`. Several windows writing it independently would race and overwrite

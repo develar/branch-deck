@@ -1,9 +1,8 @@
 // @spec spec/commit/commit-files.spec.md
-import { EXTENSION_TO_FILE_FORMAT, getFiletypeFromFileName } from "@pierre/diffs"
 import { bundledLanguagesInfo } from "shiki"
 import { describe, expect, it } from "vite-plus/test"
-import { BUNDLED_LANGUAGE_IDS, filterShikiLanguageList, getUnbundledExtensions } from "@/lib/diff/bundled-languages"
-import { CUSTOM_EXTENSIONS } from "@/lib/diff/diff-languages"
+import { BUNDLED_LANGUAGE_IDS, filterShikiLanguageList } from "@/lib/diff/bundled-languages"
+import { CUSTOM_EXTENSIONS, EXTENSION_LANGUAGES, languageOfPath } from "@/lib/diff/file-languages"
 
 // Shiki's language list as the build reads it (`shikiBundle` in vite.config.ts)
 const shikiLanguageLists = import.meta.glob<string>("/node_modules/shiki/dist/langs-bundle-full-*.mjs", { query: "?raw", import: "default", eager: true })
@@ -70,23 +69,18 @@ describe("the bundled Shiki languages", () => {
     "login.feature",
     ".gitignore",
   ])("highlights %s with a bundled grammar", fileName => {
-    const lang = getFiletypeFromFileName(fileName)
+    const lang = languageOfPath(fileName)
     expect(lang === "text" || Object.hasOwn(bundled, lang), `${fileName}: ${lang}`).toBe(true)
   })
 
-  it("maps our custom extensions to bundled grammars", () => {
-    for (const lang of Object.values(CUSTOM_EXTENSIONS)) {
+  it("maps the extension table and our custom extensions to bundled grammars only", () => {
+    for (const lang of [...Object.values(EXTENSION_LANGUAGES), ...Object.values(CUSTOM_EXTENSIONS)]) {
       expect(Object.hasOwn(bundled, lang), lang).toBe(true)
     }
   })
 
   it("shows a file of a grammar the build leaves out as plain text", () => {
-    const unbundled = new Set(getUnbundledExtensions(EXTENSION_TO_FILE_FORMAT, bundled))
-    expect(unbundled.has("el")).toBe(true)
-    expect(unbundled.has("cob")).toBe(true)
-    // FreeMarker is mapped by Pierre, but Shiki has no grammar for it
-    expect(unbundled.has("ftl")).toBe(true)
-    expect(unbundled.has("kt")).toBe(false)
-    expect(unbundled.has("properties")).toBe(false)
+    expect(["init.el", "PAYROLL.cob", "page.ftl"].map(languageOfPath)).toEqual(["text", "text", "text"])
+    expect(["Foo.kt", "messages.properties"].map(languageOfPath)).toEqual(["kotlin", "properties"])
   })
 })

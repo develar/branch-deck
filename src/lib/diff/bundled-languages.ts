@@ -1,7 +1,8 @@
 /*
  * The Shiki grammars the app bundles (docs/design/diff-view.md "Languages"). `vite.config.ts` cuts Shiki's language
  * list down to them, so the other ~150 grammars (Emacs Lisp, Wolfram, COBOL, …) are not in `dist`; a file of one of
- * them is shown as plain text (`getUnbundledExtensions`). No imports: `vite.config.ts` loads this module in Node.
+ * them is shown as plain text (`file-languages.ts` keeps only the bundled ones). No imports: `vite.config.ts` loads
+ * this module in Node.
  */
 
 /** Shiki language ids; their aliases (`kt`, `kts`, `sh`, `yml`, …) come with them, and so do the grammars they embed */
@@ -120,14 +121,4 @@ export function filterShikiLanguageList(source: string, ids: readonly string[]):
     throw new Error(`Not in Shiki's language list: ${missing.join(", ")}`)
   }
   return `${head}${entries.join(",\n")}${source.slice(end)}`
-}
-
-/**
- * The file names and extensions Pierre maps to a grammar the bundle lacks: they are shown as plain text, as
- * Pierre fails a highlight of a language it cannot resolve
- */
-export function getUnbundledExtensions(extensionMap: Readonly<Record<string, string | undefined>>, bundled: Readonly<Record<string, unknown>>): string[] {
-  return Object.entries(extensionMap)
-    .filter(([, lang]) => lang !== undefined && lang !== "text" && lang !== "ansi" && !Object.hasOwn(bundled, lang))
-    .map(([extension]) => extension)
 }

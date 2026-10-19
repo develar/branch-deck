@@ -9,7 +9,7 @@ import type { ToastMessage } from "@/lib/toast-message"
 export interface ConflictingFilesWindowData {
   /** The repository of the conflict: the window reads the contents of the conflict from it (`getDiffRepositoryPath`) */
   repositoryPath: string
-  /** Without its contents, which the window reads (`useConflictContents`) */
+  /** Without its contents: the window reads the merges of its conflicting files (`get_file_merges`) */
   conflict: MergeConflictInfo
   /** Left out of the meta line when unknown */
   branchName?: string
@@ -23,7 +23,7 @@ export interface ConflictingFilesWindowData {
 export interface MissingCommitsWindowData {
   /** The repository of the conflict: the diffs of the window and the review of a commit of it read it (`getDiffRepositoryPath`) */
   repositoryPath: string
-  /** Without its contents: the window reads the diffs of the missing commits (`useConflictContents`) */
+  /** Without its contents: the window reads the diffs of the missing commits (`get_file_diffs`) */
   conflict: MergeConflictInfo
   /** Left out of the meta line when unknown */
   branchName?: string

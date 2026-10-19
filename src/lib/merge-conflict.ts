@@ -10,27 +10,6 @@ export function formatConflictTitle(message: string, onto: string | null | undef
   return `“${autosquash}${rest}” does not apply cleanly onto ${onto || "the baseline"}`
 }
 
-/** What the marker lines of a merged file name instead of the commit ids git wrote */
-export interface ConflictMarkerLabels {
-  /** `<<<<<<<`: the branch the commit is copied onto */
-  current: string
-  /** `|||||||`: the version before the commit */
-  base: string
-  /** `>>>>>>>`: the commit */
-  incoming: string
-}
-
-/**
- * The contents of a merged file with its marker lines naming the sides in words: git writes the commit ids, which say
- * nothing in a view that shows one conflict of one commit. Only a marker of exactly 7 characters is a marker
- */
-export function labelConflictMarkers(contents: string, labels: ConflictMarkerLabels): string {
-  return contents.replace(/^(<{7}|\|{7}|>{7})(?: .*)?$/gm, (_, marker: string) => {
-    const label = marker.startsWith("<") ? labels.current : marker.startsWith("|") ? labels.base : labels.incoming
-    return `${marker} ${label}`
-  })
-}
-
 /** A branch that has missing commits of a conflict, with their ids */
 export interface MissingCommitOwner {
   branch: string
