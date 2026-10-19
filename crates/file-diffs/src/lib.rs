@@ -6,6 +6,7 @@
 //! of `code-symbols`, which the git plumbing of `git-ops` does not depend on.
 
 pub mod blocks;
+pub mod declarations;
 mod merge;
 pub mod model;
 pub mod patch;
@@ -16,6 +17,8 @@ mod worktree;
 
 #[cfg(test)]
 mod blocks_test;
+#[cfg(test)]
+mod declarations_test;
 #[cfg(test)]
 mod fixture_test;
 #[cfg(test)]

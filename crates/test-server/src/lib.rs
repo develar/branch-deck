@@ -157,6 +157,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_file_merges", post(tauri_command_bridge::get_file_merges))
     .route("/invoke/get_blob_texts", post(tauri_command_bridge::get_blob_texts))
     .route("/invoke/get_blob_syntax", post(tauri_command_bridge::get_blob_syntax))
+    .route("/invoke/find_declaration", post(tauri_command_bridge::find_declaration))
     .route("/invoke/browse_repository/{repo_id}", post(tauri_command_bridge::browse_repository))
     .route("/invoke/suggest_branch_names", post(tauri_command_bridge::suggest_branch_names))
     // the native menu: a test counts the requests of the page
@@ -238,6 +239,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
   spawn("commit_deleted", |path| templates::commit_deleted().build(path));
   spawn("commit_many_files", |path| templates::commit_many_files().build(path));
   spawn("commit_whitespace", |path| templates::commit_whitespace().build(path));
+  spawn("symbol_navigation", |path| templates::symbol_navigation().build(path));
   spawn("stacked_branches", |path| templates::stacked_branches().build(path));
   spawn("stack_island", |path| templates::stack_island().build(path));
   spawn("stack_side_conflict", |path| templates::stack_side_conflict().build(path));
@@ -308,6 +310,8 @@ pub enum RepositoryTemplate {
   CommitManyFiles,
   #[serde(rename = "commit_whitespace")]
   CommitWhitespace,
+  #[serde(rename = "symbol_navigation")]
+  SymbolNavigation,
   #[serde(rename = "stacked_branches")]
   StackedBranches,
   #[serde(rename = "stack_island")]
@@ -377,6 +381,7 @@ impl RepositoryTemplate {
       Self::CommitDeleted => "commit_deleted",
       Self::CommitManyFiles => "commit_many_files",
       Self::CommitWhitespace => "commit_whitespace",
+      Self::SymbolNavigation => "symbol_navigation",
       Self::StackedBranches => "stacked_branches",
       Self::StackIsland => "stack_island",
       Self::StackSideConflict => "stack_side_conflict",

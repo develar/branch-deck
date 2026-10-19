@@ -1,13 +1,16 @@
 import { memo, startTransition, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react"
-import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, Ref } from "react"
+import type { CSSProperties, KeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, Ref } from "react"
 import { flushSync } from "react-dom"
 import { cn } from "cn"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
+import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { DiffPainter } from "@/components/diff/diff-painter"
-import type { PainterCallbacks, PainterFile } from "@/components/diff/diff-painter"
+import type { CodeWord, PainterCallbacks, PainterFile } from "@/components/diff/diff-painter"
 import { DiffFindBar } from "@/components/diff/DiffFindBar"
-import type { BlobRequest, CommitFile } from "@/lib/bindings"
+import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
+import type { BlobRequest, CommitFile, DeclarationSite } from "@/lib/bindings"
+import { codeMenuItems } from "@/lib/diff/code-menu"
 import type { FileDiff, TextDiff } from "@/lib/diff/file-diff-model"
 import { composeResult, resultTextId } from "@/lib/diff/file-merge-model"
 import type { FileMerge, MergeMiddle, TextMerge } from "@/lib/diff/file-merge-model"
@@ -24,6 +27,8 @@ import type { FileRows, FoldRow } from "@/lib/diff/rows"
 import { blobText, fileNotice, isEmptyNotice, languageOf, mergeNotice, startsCollapsed } from "@/lib/diff/view-files"
 import { visualLineCount } from "@/lib/diff/wrap"
 import type { TextMetrics } from "@/lib/diff/wrap"
+import type { MenuItem } from "@/lib/menu"
+import { isMac } from "@/lib/platform"
 import { blobTextsStore, putDerivedText, requestBlobTexts } from "@/stores/blob-texts"
 import type { BlobTextEntry } from "@/stores/blob-texts"
 import { useAppSettings } from "@/stores/settings/appSettings"
@@ -83,6 +88,21 @@ export interface DiffViewHandle {
    */
   moveChange: (direction: 1 | -1) => string | undefined
   focus: () => void
+  /**
+   * Shows a declaration of the view: its file open, the fold around it expanded, its name selected; `from` is the place
+   * Back returns to. False for a file the view does not show
+   */
+  revealDeclaration: (place: DeclarationPlace, from: DeclarationPlace | null) => boolean
+}
+
+/** A name in a side of a file of the view: a declaration to show, or the place a jump to one started */
+export interface DeclarationPlace {
+  path: string
+  side: "old" | "new"
+  /** The line from 0 and the UTF-16 columns of the name */
+  line: number
+  column: number
+  endColumn: number
 }
 
 export interface DiffViewProps {
@@ -101,6 +121,11 @@ export interface DiffViewProps {
   onVisibleFileChange?: (path: string) => void
   /** The rows of the first screen are painted with their texts, and highlighted or 80 ms late */
   onFirstScreen?: () => void
+  /**
+   * Go to Declaration (spec/commit/symbol-navigation.spec.md): a ⌘-click (Ctrl-click off macOS) on a name, ⌘B on the
+   * selection, the item of the menu of the code; `at` is where to show a choice of declarations
+   */
+  onGoToDeclaration?: (site: DeclarationSite, at: { x: number; y: number }, reveal: (place: DeclarationPlace) => boolean) => void
   /** The sticky header of each file; without it the view shows its files open, a notice in a row under each */
   renderHeader?: (props: DiffHeaderProps) => ReactNode
   /** "own": the view scrolls itself (the review windows); "parent": it is a block of the scroller it lies in */
@@ -242,6 +267,7 @@ export function DiffView({
   renderHeader,
   scroll = "own",
   worktree = false,
+  onGoToDeclaration,
 }: DiffViewProps) {
   // each file a card under its header: the review windows
   const cards = renderHeader !== undefined
@@ -571,6 +597,181 @@ export function DiffView({
     painter.scrollTo(Math.max(top, layout.fileTop(file)))
   }
 
+  const toggleFile = (path: string) =>
+    setToggled(previous => {
+      const next = new Set(previous)
+      if (!next.delete(path)) {
+        next.add(path)
+      }
+      return next
+    })
+
+  // Go to Declaration: the name under the pointer with the modifier held, its underline, the jump, Back and Forward
+  const links = useRef<HTMLDivElement>(null)
+  const pointer = useRef<{ x: number; y: number } | null>(null)
+  const history = useRef<{ back: DeclarationPlace[]; forward: DeclarationPlace[] }>({ back: [], forward: [] })
+  const pendingReveal = useRef<DeclarationPlace | null>(null)
+  const [revealTick, setRevealTick] = useState(0)
+  const navigates = onGoToDeclaration !== undefined && scroll === "own"
+  // ⌘ on macOS, where a Ctrl-click is the context menu; Ctrl elsewhere, the Meta key too
+  const modifierHeld = (event: { metaKey: boolean; ctrlKey: boolean }) => event.metaKey || (!isMac && event.ctrlKey)
+
+  /** Where a word is, as the backend reads it: a side of a file of a diff, never of a merge */
+  const siteOf = (word: CodeWord): { site: DeclarationSite; place: DeclarationPlace } | null => {
+    const file = prepared[word.file]
+    const id = file?.ids[word.side]
+    if (file === undefined || file.kind !== "diff" || id == null) {
+      return null
+    }
+    const side = word.side === OLD ? "old" : "new"
+    const path = file.paths[word.side] ?? file.path
+    return {
+      site: { path, side, blob: { id, path: file.worktreePaths[word.side] ?? null }, line: word.line, column: word.start },
+      place: { path: file.path, side, line: word.line, column: word.start, endColumn: word.end },
+    }
+  }
+
+  /** The underline of a name to go to, as a link of IntelliJ; none for null */
+  const showLink = (word: CodeWord | null) => {
+    const layer = links.current
+    const target = scroller.current
+    if (layer === null || target === null) {
+      return
+    }
+    const rects = word === null || siteOf(word) === null ? [] : word.rects()
+    layer.replaceChildren(
+      ...rects.map(rect => {
+        const line = document.createElement("div")
+        line.className = "dv-link"
+        line.style.cssText = `left:${rect.left}px;top:${rect.bottom - 1}px;width:${rect.width}px`
+        return line
+      }),
+    )
+    target.style.cursor = rects.length > 0 ? "pointer" : ""
+  }
+
+  /** Shows a place of the view: its file open, its fold expanded, then (`revealTick`) scrolled to and selected */
+  const revealPlace = (place: DeclarationPlace): boolean => {
+    const index = layout.indexOf(place.path)
+    const file = prepared[index]
+    if (file === undefined) {
+      return false
+    }
+    if (file.collapsed) {
+      toggleFile(file.path)
+    }
+    const side = place.side === "old" ? OLD : NEW
+    const text = file.model
+    const fold = file.rows?.segments.find(segment => segment.kind === "fold" && segment.row.lines[side]![0] <= place.line && place.line < segment.row.lines[side]![1])
+    if (text !== null && fold?.kind === "fold" && (getFoldLevels(text)[fold.row.gap] ?? 0) < EXPANDED) {
+      const levels = Array.from({ length: Math.max(getFoldLevels(text).length, fold.row.gap + 1) }, (_, gap) => getFoldLevels(text)[gap] ?? 0)
+      levels[fold.row.gap] = EXPANDED
+      setFoldLevels(text, levels)
+      setFolds(previous => new Map(previous).set(text, levels))
+    }
+    pendingReveal.current = place
+    setRevealTick(tick => tick + 1)
+    return true
+  }
+
+  const goTo = (word: CodeWord | null, at: { x: number; y: number }) => {
+    const found = word === null ? null : siteOf(word)
+    if (found !== null) {
+      // a reveal of a declaration keeps the place of the name for Back
+      onGoToDeclaration?.(found.site, at, place => {
+        if (layout.indexOf(place.path) < 0) {
+          return false
+        }
+        history.current.back.push(found.place)
+        history.current.forward = []
+        return revealPlace(place)
+      })
+    }
+  }
+
+  const onCodeMouseMove = (event: ReactMouseEvent<HTMLDivElement>) => {
+    pointer.current = { x: event.clientX, y: event.clientY }
+    showLink(modifierHeld(event) ? painter.wordAt(event.clientX, event.clientY) : null)
+  }
+
+  const onCodeClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!modifierHeld(event) || event.button !== 0) {
+      return
+    }
+    const word = painter.wordAt(event.clientX, event.clientY)
+    if (word !== null && siteOf(word) !== null) {
+      event.preventDefault()
+      event.stopPropagation()
+      showLink(null)
+      goTo(word, { x: event.clientX, y: event.clientY })
+    }
+  }
+
+  /** The items of the menu of the code: built when it opens, for the name under the pointer */
+  const [codeMenu, setCodeMenu] = useState<MenuItem[]>([])
+  const openCodeMenu = () => {
+    const at = pointer.current ?? { x: 0, y: 0 }
+    const word = painter.wordAtSelection() ?? painter.wordAt(at.x, at.y)
+    const target = word === null ? null : siteOf(word)
+    setCodeMenu(codeMenuItems({ name: target === null ? null : word!.text, goToDeclaration: () => goTo(word, at) }))
+  }
+
+  // the place a reveal waits for: scrolled to a third of the viewport below the header, then its name selected
+  useLayoutEffect(() => {
+    const place = pendingReveal.current
+    const index = place === null ? -1 : layout.indexOf(place.path)
+    const rows = index < 0 ? null : layout.files[index]!.rows
+    if (place === null || rows === null) {
+      return
+    }
+    pendingReveal.current = null
+    const side = place.side === "old" ? OLD : NEW
+    const top = layout.rowTop(index, rowOfLine(rows, side, place.line)) - layout.stickyTop - headerHeight - (scroller.current?.clientHeight ?? 0) / 3
+    painter.scrollTo(Math.max(top, layout.fileTop(index)))
+    // the row of the name is painted in a frame or two
+    const select = (attempt: number) => {
+      if (!painter.selectWord(index, side, place.line, place.column, place.endColumn) && attempt < 10) {
+        requestAnimationFrame(() => select(attempt + 1))
+      }
+    }
+    requestAnimationFrame(() => select(0))
+  }, [layout, revealTick, painter, headerHeight])
+
+  /** Back (⌘[) and Forward (⌘]): the places of the jumps */
+  const stepHistory = (direction: "back" | "forward") => {
+    const from = direction === "back" ? history.current.back : history.current.forward
+    const to = direction === "back" ? history.current.forward : history.current.back
+    const place = from.pop()
+    if (place === undefined) {
+      return
+    }
+    const word = painter.wordAtSelection()
+    const current = word === null ? null : siteOf(word)
+    if (current !== null) {
+      to.push(current.place)
+    }
+    revealPlace(place)
+  }
+
+  const onNavigationKeys = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!navigates) {
+      return
+    }
+    const command = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
+    if (command && !event.altKey && !event.shiftKey && event.code === "KeyB") {
+      const word = painter.wordAtSelection()
+      const rect = word?.rects()[0]
+      event.preventDefault()
+      goTo(word, rect === undefined ? (pointer.current ?? { x: 0, y: 0 }) : { x: rect.left, y: rect.bottom })
+    } else if (isMac && command && !event.altKey && (event.code === "BracketLeft" || event.code === "BracketRight")) {
+      event.preventDefault()
+      stepHistory(event.code === "BracketLeft" ? "back" : "forward")
+    } else if (!isMac && command && event.altKey && (event.code === "ArrowLeft" || event.code === "ArrowRight")) {
+      event.preventDefault()
+      stepHistory(event.code === "ArrowLeft" ? "back" : "forward")
+    }
+  }
+
   useImperativeHandle(ref, () => ({
     scrollToFile: path => {
       const index = layout.indexOf(path)
@@ -611,16 +812,17 @@ export function DiffView({
       return undefined
     },
     focus: () => scroller.current?.focus(),
-  }))
-
-  const toggleFile = (path: string) =>
-    setToggled(previous => {
-      const next = new Set(previous)
-      if (!next.delete(path)) {
-        next.add(path)
+    revealDeclaration: (place, from) => {
+      if (layout.indexOf(place.path) < 0) {
+        return false
       }
-      return next
-    })
+      if (from !== null) {
+        history.current.back.push(from)
+        history.current.forward = []
+      }
+      return revealPlace(place)
+    },
+  }))
 
   // a section renders again only when its own props change: a scroll into the next file mounts that file alone
   const sections = prepared.slice(first, last + 1).map((file, offset) => {
@@ -702,18 +904,40 @@ export function DiffView({
       style={mode === "split" ? ({ "--dv-split": String(split) } as CSSProperties) : undefined}
       onPointerDown={scroll === "own" && mode === "split" ? event => dragSplit(event) : undefined}
       onDoubleClick={scroll === "own" && mode === "split" ? event => onDividerOf(event) && setDiffSplitRatio(0.5) : undefined}
+      onMouseMove={navigates ? onCodeMouseMove : undefined}
+      onMouseLeave={navigates ? () => showLink(null) : undefined}
+      onClickCapture={navigates ? onCodeClick : undefined}
+      onScroll={navigates ? () => showLink(null) : undefined}
       data-testid="diff-view"
     >
-      <div className="dv-document" style={{ height: layout.height }}>
-        {sections}
-      </div>
+      {navigates ? (
+        <ContextMenu onOpenChange={open => open && openCodeMenu()}>
+          {/* the trigger turns off the selection of its content; the code keeps it (the copy, ⌘B) */}
+          <ContextMenuTrigger render={<div className="dv-document select-text" style={{ height: layout.height }} />}>{sections}</ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItems groups={[codeMenu]} />
+          </ContextMenuContent>
+        </ContextMenu>
+      ) : (
+        <div className="dv-document" style={{ height: layout.height }}>
+          {sections}
+        </div>
+      )}
+      {navigates && <div ref={links} className="dv-links" aria-hidden />}
     </div>
   )
   if (scroll === "parent") {
     return view
   }
   return (
-    <div className="flex h-full min-h-0 flex-col" onKeyDown={onFindKeys}>
+    <div
+      className="flex h-full min-h-0 flex-col"
+      onKeyDown={event => {
+        onFindKeys(event)
+        onNavigationKeys(event)
+      }}
+      onKeyUp={navigates ? event => !modifierHeld(event) && showLink(null) : undefined}
+    >
       {find.open && (
         <DiffFindBar
           query={find.query}

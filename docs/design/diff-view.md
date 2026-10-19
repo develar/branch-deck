@@ -445,6 +445,14 @@ highlighted at 77–115 ms of CPU per MB in a release build, the parse included;
 to 18 % over the `s` of the release profile, so it stays. The rules have golden files
 (`crates/code-symbols/testdata/highlight/*.highlight`).
 
+**Go to Declaration** ([Symbol Navigation](../../spec/commit/symbol-navigation.spec.md)). The painter finds the word
+under a point or at the selection (`wordAt`, `wordAtSelection`: the caret of the point, the offset of its code cell
+without the deleted parts of an Inline row) and selects a name once its row is painted (`selectWord`); the view draws
+the underline of a link in a layer of its own (`.dv-links`), never in the rows the painter replaces. `find_declaration`
+(`crates/file-diffs/src/declarations.rs`) reads the name and its scopes from the tree (`code_symbols::navigate`),
+then the declarations of the review's files from the summaries of the `blob_summary` store and the texts the diffs
+read, so a jump starts no git process.
+
 ### Painting the layers of a line
 
 A code cell can show up to four layers:

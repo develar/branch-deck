@@ -433,6 +433,32 @@ pub mod templates {
       )
   }
 
+  /// One commit for Go to Declaration in a review: `Uses.kt` calls `store.add` of an untyped receiver (two `add` in the
+  /// review: `Store` and `Queue`) and `helper`, declared at the end of `Store.kt`, whose change at its top leaves the
+  /// declaration in a fold
+  pub fn symbol_navigation() -> RepoTemplate {
+    let store = |version: u32| {
+      let mut text = format!("class Store {{\n  val version = {version}\n");
+      for index in 0..30 {
+        let _ = writeln!(text, "  val field{index} = {index}");
+      }
+      text.push_str("  fun add(value: Int) {}\n}\n\nfun helper(value: Int) = value\n");
+      text
+    };
+    RepoTemplate::new("symbol_navigation")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial project setup", &[("src/Store.kt", &store(1))], Some(1704117600))
+      .commit_with_timestamp(
+        "(nav) use the store and the queue",
+        &[
+          ("src/Store.kt", &store(2)),
+          ("src/Queue.kt", "class Queue {\n  fun add(value: Int) {}\n}\n"),
+          ("src/Uses.kt", "class Uses {\n  fun run(store: Any) {\n    store.add(1)\n    helper(2)\n  }\n}\n"),
+        ],
+        Some(1704119400),
+      )
+  }
+
   /// One commit of one file for the whitespace policies of the diffs: a block of two lines indented again, a blank line
   /// added apart from the other changes, and one real change, so each policy shows a different diff (`Format.kt`)
   pub fn commit_whitespace() -> RepoTemplate {

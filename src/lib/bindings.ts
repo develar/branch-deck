@@ -351,6 +351,11 @@ export const commands = {
 	 */
 	getBlobTexts: (params: GetBlobTextsParams) => typedError<BlobText[], CommandError>(__TAURI_INVOKE("get_blob_texts", { params })),
 	/**
+	 *  The declarations a name in a diff of a review may mean, the most likely first (`file_diffs::declarations`): by the
+	 *  scopes of its file, else in the files of the review, from the blobs the diffs read and the summaries of the store
+	 */
+	findDeclaration: (params: FindDeclarationParams) => typedError<FoundDeclarations, CommandError>(__TAURI_INVOKE("find_declaration", { params })),
+	/**
 	 *  Checks Auto-sync on Focus of the native menu as the setting is, whichever window changed it: the main window calls it
 	 *  for every value of `appSettings.autoSyncOnFocus` (`useMenuSync`). Without a native menu (a custom title bar on
 	 *  Windows and Linux, whose main menu reads the setting itself) there is nothing to check.
@@ -839,6 +844,30 @@ export type CreatedPullRequest = {
 	warnings: string[],
 };
 
+/**  Where the name is: a side of a file of the review, a line from 0 and a UTF-16 column */
+export type DeclarationSite = {
+	/**  The path of the side: the old path for the old side of a rename */
+	path: string,
+	side: DiffSide,
+	blob: BlobRequest,
+	line: number,
+	column: number,
+};
+
+/**  A declaration in a side of a file of the review */
+export type DeclarationTarget = {
+	path: string,
+	side: DiffSide,
+	/**  The line of the declared name, from 0, and its UTF-16 columns */
+	line: number,
+	column: number,
+	endColumn: number,
+	/**  What is declared: `class`, `function`, `property`, `constant`, `enumEntry`, `typeAlias`, `module`, `macro`, `local` */
+	kind: string,
+	/**  The name of the declaration it is a member of */
+	container: string | null,
+};
+
 /**  A parent and the commits that declare it */
 export type DeclaredParent = {
 	parent: string,
@@ -908,6 +937,9 @@ export type DiffFileHeader = {
 	 */
 	newId: string | null,
 };
+
+/**  A side of a diff */
+export type DiffSide = "old" | "new";
 
 /**  What a diff compares */
 export type DiffSource = 
@@ -1081,6 +1113,14 @@ export type FindConflictFixParams = {
 	branchPrefix: string,
 };
 
+/**  The parameters of `find_declaration`: a name in a diff of a review and the files of the review (`declarations.rs`) */
+export type FindDeclarationParams = {
+	repositoryPath: string,
+	site: DeclarationSite,
+	/**  The changed files of the review, whose sides are searched */
+	files: ReviewFileSides[],
+};
+
 /**  Steps that belong together: they share a branch, and their plan alone has the result */
 export type FixComponent = {
 	steps: FixStep[],
@@ -1134,6 +1174,12 @@ export type FlatNameClash = {
 	branch: string,
 	/**  The branch whose name is a directory of it, `auth` */
 	beside: string,
+};
+
+/**  The declarations a name may mean, the most likely first */
+export type FoundDeclarations = {
+	name: string,
+	targets: DeclarationTarget[],
 };
 
 export type GetAutosquashPlanParams = {
@@ -2368,6 +2414,16 @@ export type ReviewCommit = {
 };
 
 export type ReviewDecision = "approved" | "changesRequested" | "reviewRequired";
+
+/**  A changed file of a review with the blobs of its sides */
+export type ReviewFileSides = {
+	path: string,
+	oldPath: string | null,
+	oldId: string | null,
+	newId: string | null,
+	/**  The new side is the file of the working tree */
+	worktree: boolean,
+};
 
 /**  How the fetched branch relates to the commit the pull request shows */
 export type ReviewHeadState = 

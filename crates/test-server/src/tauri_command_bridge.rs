@@ -6,7 +6,9 @@ use axum::{
     sse::{Event, KeepAlive, Sse},
   },
 };
-use file_diffs::model::{BlobText, FileDiffEvent, FileMergeEvent, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams};
+use file_diffs::model::{
+  BlobText, FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams,
+};
 use file_diffs::service::FileDiffs;
 use git_ops::commit_files::{CommitFiles, DiffSubject, GetCommitFilesParams, GetCommitsFilesParams, read_commit_files_cached, read_diff_files};
 use object_cache::cache::ObjectCache;
@@ -1147,6 +1149,15 @@ pub async fn get_blob_syntax(State(state): State<Arc<AppState>>, Json(params): J
   let git_executor = state.git_executor.clone();
   let Json(bytes) = run_command("highlight a blob", move || FileDiffs::default().blob_syntax(&git_executor, &params)).await?;
   Ok(([(header::CONTENT_TYPE, "application/octet-stream")], bytes).into_response())
+}
+
+pub async fn find_declaration(State(state): State<Arc<AppState>>, Json(params): Json<FindDeclarationParams>) -> CommandResult<FoundDeclarations> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("find a declaration", move || {
+    FileDiffs::default().find_declaration(&git_executor, &ObjectCache::disabled(), &params)
+  })
+  .await
 }
 
 #[derive(Deserialize)]

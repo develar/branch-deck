@@ -507,3 +507,17 @@
   text-decoration: underline;
   text-decoration-color: var(--syntax-mutable-underline);
 }
+
+/* the underline of a name a ⌘-click (Ctrl-click off macOS) goes to the declaration of, as a link of IntelliJ */
+.dv-links {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.dv-link {
+  position: fixed;
+  height: 1px;
+  background: var(--primary);
+}

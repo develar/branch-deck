@@ -3,11 +3,13 @@ import { UnfoldVerticalIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LineCounts } from "@/components/commit/CommitMetadata"
+import { DeclarationChooser } from "@/components/diff/DeclarationChooser"
 import { DiffView } from "@/components/diff/DiffView"
 import type { DiffHeaderProps, DiffViewFile, DiffViewHandle } from "@/components/diff/DiffView"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FileHeaderChevron, FileHeaderCopyButton } from "@/components/files/FileHeaderParts"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
+import { useGoToDeclaration } from "@/hooks/useGoToDeclaration"
 import type { CommitFile } from "@/lib/bindings"
 import { formatCommitFilePath } from "@/lib/commit-files"
 import { useDiffSoftWraps } from "@/stores/settings/diff-view-settings"
@@ -39,18 +41,23 @@ export interface CommitReviewCodeProps {
  */
 export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisibleFileChange, onFirstScreen, fileOwners }: CommitReviewCodeProps) {
   const softWraps = useDiffSoftWraps()
+  const { goToDeclaration, choice, closeChoice } = useGoToDeclaration(files)
   return (
-    <DiffView
-      ref={ref}
-      files={files}
-      mode={diffViewMode}
-      softWraps={softWraps}
-      initialPath={initialPath}
-      label="Changes of the commit"
-      onVisibleFileChange={onVisibleFileChange}
-      onFirstScreen={onFirstScreen}
-      renderHeader={header => <ReviewFileHeader {...header} owner={fileOwners?.get(header.file.path)} />}
-    />
+    <>
+      <DiffView
+        ref={ref}
+        files={files}
+        mode={diffViewMode}
+        softWraps={softWraps}
+        initialPath={initialPath}
+        label="Changes of the commit"
+        onVisibleFileChange={onVisibleFileChange}
+        onFirstScreen={onFirstScreen}
+        onGoToDeclaration={goToDeclaration}
+        renderHeader={header => <ReviewFileHeader {...header} owner={fileOwners?.get(header.file.path)} />}
+      />
+      <DeclarationChooser choice={choice} onClose={closeChoice} />
+    </>
   )
 }
 

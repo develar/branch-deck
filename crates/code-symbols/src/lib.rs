@@ -15,6 +15,7 @@
 pub mod extract;
 pub mod highlight;
 pub mod language;
+pub mod navigate;
 pub mod summary;
 
 #[cfg(feature = "java")]
@@ -32,6 +33,8 @@ mod highlight_test;
 mod java_test;
 #[cfg(all(test, feature = "kotlin"))]
 mod kotlin_test;
+#[cfg(all(test, feature = "kotlin", feature = "java", feature = "rust", feature = "typescript"))]
+mod navigate_test;
 #[cfg(all(test, feature = "rust"))]
 mod rust_test;
 #[cfg(test)]

@@ -132,6 +132,78 @@ pub struct GetBlobSyntaxParams {
   pub text: Option<String>,
 }
 
+/// The parameters of `find_declaration`: a name in a diff of a review and the files of the review (`declarations.rs`)
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct FindDeclarationParams {
+  pub repository_path: String,
+  pub site: DeclarationSite,
+  /// The changed files of the review, whose sides are searched
+  pub files: Vec<ReviewFileSides>,
+}
+
+/// Where the name is: a side of a file of the review, a line from 0 and a UTF-16 column
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct DeclarationSite {
+  /// The path of the side: the old path for the old side of a rename
+  pub path: String,
+  pub side: DiffSide,
+  pub blob: BlobRequest,
+  pub line: u32,
+  pub column: u32,
+}
+
+/// A side of a diff
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum DiffSide {
+  Old,
+  New,
+}
+
+/// A changed file of a review with the blobs of its sides
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewFileSides {
+  pub path: String,
+  pub old_path: Option<String>,
+  pub old_id: Option<String>,
+  pub new_id: Option<String>,
+  /// The new side is the file of the working tree
+  pub worktree: bool,
+}
+
+/// The declarations a name may mean, the most likely first
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct FoundDeclarations {
+  pub name: String,
+  pub targets: Vec<DeclarationTarget>,
+}
+
+/// A declaration in a side of a file of the review
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct DeclarationTarget {
+  pub path: String,
+  pub side: DiffSide,
+  /// The line of the declared name, from 0, and its UTF-16 columns
+  pub line: u32,
+  pub column: u32,
+  pub end_column: u32,
+  /// What is declared: `class`, `function`, `property`, `constant`, `enumEntry`, `typeAlias`, `module`, `macro`, `local`
+  pub kind: String,
+  /// The name of the declaration it is a member of
+  pub container: Option<String>,
+}
+
 /// A blob that the views ask for: by its id, and for a file of the working tree, by its path too
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

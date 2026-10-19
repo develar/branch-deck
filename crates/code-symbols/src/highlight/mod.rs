@@ -196,14 +196,19 @@ pub(crate) fn named_child<'tree>(node: tree_sitter::Node<'tree>, kind: &str) -> 
   node.named_children(&mut cursor).find(|it| it.kind() == kind)
 }
 
+/// The tree of a text by its grammar, within the parse budget of its size
+pub(crate) fn parse_text(grammar: Grammar, text: &str) -> Option<tree_sitter::Tree> {
+  let language = grammar.language()?;
+  let budget = (text.len() / 1024).saturating_mul(PARSE_BUDGET_PER_KIB).max(MIN_PARSE_BUDGET);
+  crate::extract::parse_language(&language, text.as_bytes(), u32::try_from(budget).unwrap_or(u32::MAX))
+}
+
 /// The highlighting of a text; `None` when it is over `MAX_BYTES` or its parse ran out of budget
 pub fn highlight(grammar: Grammar, text: &str) -> Option<LineRuns> {
   if text.len() > MAX_BYTES {
     return None;
   }
-  let language = grammar.language()?;
-  let budget = (text.len() / 1024).saturating_mul(PARSE_BUDGET_PER_KIB).max(MIN_PARSE_BUDGET);
-  let tree = crate::extract::parse_language(&language, text.as_bytes(), u32::try_from(budget).unwrap_or(u32::MAX))?;
+  let tree = parse_text(grammar, text)?;
   let mut runs = LineRuns::builder(text);
   match grammar {
     #[cfg(feature = "kotlin")]

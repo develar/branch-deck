@@ -10,7 +10,7 @@ import type { InlinePart, LineHits, LinePart } from "@/lib/diff/line-parts"
 import { getLineTable, lineText } from "@/lib/diff/line-table"
 import type { LineTable } from "@/lib/diff/line-table"
 import type { RowCells } from "@/lib/diff/row-cells"
-import { NEW, OLD, rowAt } from "@/lib/diff/rows"
+import { NEW, OLD, rowAt, rowOfLine } from "@/lib/diff/rows"
 import type { FileRows, FoldRow, LineRow, LineTint } from "@/lib/diff/rows"
 import { blobText } from "@/lib/diff/view-files"
 import { wrapBreaks } from "@/lib/diff/wrap"
@@ -39,6 +39,20 @@ export interface PainterFile {
   worktreePaths: readonly (string | null)[]
   /** The width of the code of each side, in CSS px, for the soft wraps */
   codeWidths: readonly number[]
+}
+
+/** A word of code in the view: where it is in the model, and its text */
+export interface CodeWord {
+  file: number
+  side: number
+  /** The line of its side, from 0 */
+  line: number
+  /** Its UTF-16 columns in the line */
+  start: number
+  end: number
+  text: string
+  /** Where it is drawn now, in viewport coordinates */
+  rects: () => DOMRect[]
 }
 
 export interface PainterModel {
@@ -880,6 +894,70 @@ export class DiffPainter {
   }
 
   /** A copy gives the lines of the model between the ends of the selection, also of rows no longer painted */
+  /** The word of code at a point of the viewport: a name to go to the declaration of; null outside the code */
+  wordAt(clientX: number, clientY: number): CodeWord | null {
+    const caret = caretAt(clientX, clientY)
+    return caret === null ? null : this.wordOfPoint(caret.node, caret.offset)
+  }
+
+  /** The word at the start of the selection in the view, or at the caret a click left */
+  wordAtSelection(): CodeWord | null {
+    const selection = document.getSelection()
+    if (selection === null || selection.rangeCount === 0 || selection.anchorNode === null) {
+      return null
+    }
+    const range = selection.getRangeAt(0)
+    return this.wordOfPoint(range.startContainer, range.startOffset)
+  }
+
+  private wordOfPoint(node: Node, offset: number): CodeWord | null {
+    const model = this.model
+    if (model === null || this.root === null || !this.root.contains(node)) {
+      return null
+    }
+    const point = pointOf(node, offset)
+    const painterFile = point === null ? undefined : model.files[point.file]
+    if (point === null || painterFile?.rows == null) {
+      return null
+    }
+    const value = rowAt(painterFile.rows, point.row)
+    const line = value.kind === "fold" ? null : value.lines[point.side]
+    const table = this.tablesOf(painterFile)[point.side]
+    if (line == null || table == null) {
+      return null
+    }
+    const content = lineText(table, line)
+    const [start, end] = wordBounds(content, point.offset)
+    if (start === end) {
+      return null
+    }
+    const element = node instanceof Element ? node : node.parentElement
+    const cell = element?.closest<HTMLElement>(".dv-code") ?? null
+    return {
+      file: point.file,
+      side: point.side,
+      line,
+      start,
+      end,
+      text: content.slice(start, end),
+      rects: () => (cell === null ? [] : Array.from(cellRange(cell, start, end).getClientRects())),
+    }
+  }
+
+  /** Selects the columns `[start, end)` of a line of a side once its row is painted; false while it is not */
+  selectWord(file: number, side: number, line: number, start: number, end: number): boolean {
+    const rows = this.model?.files[file]?.rows
+    const element = rows == null ? undefined : this.painted.get(file)?.get(rowOfLine(rows, side, line))?.element
+    const cell = element?.querySelector<HTMLElement>(`.dv-code[data-side="${side}"]`)
+    if (cell == null) {
+      return false
+    }
+    const selection = document.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(cellRange(cell, start, end))
+    return true
+  }
+
   private onCopy(event: ClipboardEvent): void {
     const model = this.model
     const selection = document.getSelection()
@@ -936,6 +1014,57 @@ export class DiffPainter {
 function holdsSelection(element: HTMLElement): boolean {
   const selection = document.getSelection()
   return selection !== null && !selection.isCollapsed && (element.contains(selection.anchorNode) || element.contains(selection.focusNode))
+}
+
+/** The characters of a name: letters, digits, `_` and `$` */
+const NAME_CHARACTER = /[\p{L}\p{N}_$]/u
+
+/** The name around a column of a line, `[start, end)`; empty where none is */
+export function wordBounds(content: string, column: number): [number, number] {
+  let start = Math.min(column, content.length)
+  let end = start
+  while (start > 0 && NAME_CHARACTER.test(content[start - 1]!)) {
+    start--
+  }
+  while (end < content.length && NAME_CHARACTER.test(content[end]!)) {
+    end++
+  }
+  // a number is no name
+  return start < end && /\p{N}/u.test(content[start]!) ? [start, start] : [start, end]
+}
+
+/** The caret at a point: `caretPositionFromPoint` where the engine has it, else WebKit's `caretRangeFromPoint` */
+function caretAt(clientX: number, clientY: number): { node: Node; offset: number } | null {
+  const position = document.caretPositionFromPoint?.(clientX, clientY)
+  if (position != null) {
+    return { node: position.offsetNode, offset: position.offset }
+  }
+  const range = document.caretRangeFromPoint?.(clientX, clientY)
+  return range == null ? null : { node: range.startContainer, offset: range.startOffset }
+}
+
+/** The range of the columns `[start, end)` of a code cell, without the deleted parts of an Inline row */
+function cellRange(cell: HTMLElement, start: number, end: number): Range {
+  const range = document.createRange()
+  let length = 0
+  let started = false
+  const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT)
+  for (let text = walker.nextNode(); text !== null; text = walker.nextNode()) {
+    if (text.parentElement?.closest("[data-inline-deleted], .dv-eof") != null) {
+      continue
+    }
+    const size = text.textContent?.length ?? 0
+    if (!started && start <= length + size) {
+      range.setStart(text, start - length)
+      started = true
+    }
+    if (started && end <= length + size) {
+      range.setEnd(text, end - length)
+      return range
+    }
+    length += size
+  }
+  return range
 }
 
 /** The text of a code cell before a point of a selection, without the deleted parts of an Inline row */

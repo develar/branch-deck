@@ -1,7 +1,9 @@
 use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use crate::repository_state::RepositoryStateCache;
-use file_diffs::model::{BlobText, FileDiffEvent, FileMergeEvent, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams};
+use file_diffs::model::{
+  BlobText, FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams,
+};
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
@@ -107,4 +109,23 @@ pub async fn get_blob_syntax(
   let git = (*git_executor).clone();
   let file_diffs = (*file_diffs).clone();
   run_blocking(move || file_diffs.blob_syntax(&git, &params)).await.map(tauri::ipc::Response::new)
+}
+
+/// The declarations a name in a diff of a review may mean, the most likely first (`file_diffs::declarations`): by the
+/// scopes of its file, else in the files of the review, from the blobs the diffs read and the summaries of the store
+#[tauri::command]
+#[instrument(skip(git_executor, repository_state, file_diffs, params), fields(path = %params.site.path, line = params.site.line))]
+#[specta::specta]
+pub async fn find_declaration(
+  git_executor: State<'_, GitCommandExecutor>,
+  repository_state: State<'_, RepositoryStateCache>,
+  file_diffs: State<'_, FileDiffs>,
+  params: FindDeclarationParams,
+) -> Result<FoundDeclarations, CommandError> {
+  let (git, repository_state, file_diffs) = ((*git_executor).clone(), (*repository_state).clone(), (*file_diffs).clone());
+  run_blocking(move || {
+    let cache = repository_state.object_cache(&git, &params.repository_path);
+    file_diffs.find_declaration(&git, &cache, &params)
+  })
+  .await
 }
