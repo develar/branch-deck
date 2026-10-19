@@ -1165,6 +1165,12 @@ the files, and the guards, none of which a return may take from the shared check
 path, and decides alone without a recorded branch, when the branch is gone, or when the pick can't tell
 (`range_unknown`, a merge in the range); the output names the check (`landed_check`).
 
+git's background maintenance keeps no lease either. A commit in a slot starts `git maintenance run --auto --detach`;
+it and its git children (`git repack -d -l --geometric=2 --write-midx`, `git multi-pack-index write`) keep the slot
+as their working directory for about 30 s in idea-1, and write only the shared object store. The return waits up to
+60 s for them (a `git maintenance` or a `git gc --auto` by argv, and every git below it in the parent chain), then
+goes on; one still there is `slot_busy`. A get does not skip a free slot for them.
+
 A Bazel server of the slot (its argv has `--workspace_directory=` the slot or a directory in it, `community/` in
 idea-1) keeps no lease: Bazel derives its output base from the workspace path, so it serves only that slot. Once
 nothing else refuses, the return sends it SIGTERM, waits up to 30 s and names it in `stopped_servers`; the output

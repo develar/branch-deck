@@ -138,6 +138,13 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   server works elsewhere: a `--watchfs` server can miss the events of a large checkout, and its build could be stale.
   [@test] ../../crates/bd-cli/src/lease_test.rs (`a_return_stops_the_bazel_servers_of_the_slot`, `a_return_stops_no_server_it_should_keep_and_signals_no_other_process`, `a_get_skips_a_free_slot_under_a_live_bazel_server`)
   [@test] ../../crates/sync-core/src/process_scan_test.rs (`the_argv_comes_from_the_procargs_buffer_without_the_environment`)
+- The return must wait up to 60 s for git's background maintenance in the slot, then go on: a `git maintenance` or a
+  `git gc --auto` and every git below it in the parent chain (`git repack`, `git multi-pack-index write`), told by
+  argv. A commit in a slot starts `git maintenance run --auto --detach`, whose repack keeps the slot as its working
+  directory for about 30 s and writes only the shared object store. One still there after the wait refuses the return
+  as `slot_busy` and is named. A get must not skip a free slot for them.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`the_return_waits_for_git_maintenance_and_a_get_ignores_it`)
+  [@test] ../../crates/sync-core/src/process_scan_test.rs (`git_maintenance_is_the_maintenance_and_the_gits_it_starts`)
 - `--confirm-preserved` must give up the unlanded commits (`given_up`) and discard the local changes (`discarded`)
   with `reset --hard HEAD` and `clean -fd`: the ignored files stay.
   [@test] ../../crates/bd-cli/src/lease_test.rs (`a_return_refuses_unlanded_commits_a_dirty_tree_and_a_busy_slot`)

@@ -40,6 +40,39 @@ impl ProcessInfo {
     self.argv.iter().find_map(|arg| arg.strip_prefix(OUTPUT_BASE))
   }
 
+  /// Whether the program is git: its argv starts with `git` or a path to it
+  fn is_git(&self) -> bool {
+    self
+      .argv
+      .first()
+      .is_some_and(|program| matches!(Path::new(program).file_name().and_then(|name| name.to_str()), Some("git" | "git.exe")))
+  }
+
+  /// The subcommand of a git argv: the first argument that is no option, past the value of `-c` and `-C`
+  fn git_subcommand(&self) -> Option<&str> {
+    let mut args = self.argv.iter().skip(1);
+    while let Some(arg) = args.next() {
+      match arg.as_str() {
+        "-c" | "-C" => {
+          args.next();
+        }
+        option if option.starts_with('-') => {}
+        subcommand => return Some(subcommand),
+      }
+    }
+    None
+  }
+
+  /// `git maintenance …` or `git gc --auto`
+  fn is_git_maintenance_root(&self) -> bool {
+    self.is_git()
+      && match self.git_subcommand() {
+        Some("maintenance") => true,
+        Some("gc") => self.argv.iter().any(|arg| arg == "--auto"),
+        _ => false,
+      }
+  }
+
   /// Whether the process works in `dir` (canonical): its working directory, or the workspace of a Bazel server, is
   /// `dir` or below it, by path components
   fn works_in(&self, dir: &Path) -> bool {
@@ -73,6 +106,31 @@ impl ProcessScan {
 
   pub const fn is_available(&self) -> bool {
     matches!(self, Self::Done { .. })
+  }
+
+  /// The pids of git's background maintenance: a `git maintenance` or a `git gc --auto` (a commit starts `git
+  /// maintenance run --auto --detach`), and every git below it in the parent chain (`git repack`, `git multi-pack-index
+  /// write`). They work on the shared object store and write nothing in a working tree, by their argv
+  pub fn git_maintenance(&self) -> HashSet<u32> {
+    let Self::Done { processes, .. } = self else { return HashSet::new() };
+    let parents: HashMap<u32, u32> = processes.iter().map(|process| (process.pid, process.parent)).collect();
+    let roots: HashSet<u32> = processes.iter().filter(|process| process.is_git_maintenance_root()).map(|process| process.pid).collect();
+    processes
+      .iter()
+      .filter(|process| process.is_git())
+      .filter(|process| {
+        let mut current = process.pid;
+        let mut seen = HashSet::new();
+        while current != 0 && seen.insert(current) {
+          if roots.contains(&current) {
+            return true;
+          }
+          current = parents.get(&current).copied().unwrap_or(0);
+        }
+        false
+      })
+      .map(|process| process.pid)
+      .collect()
   }
 
   /// The processes whose working directory, or the workspace of a Bazel server, is `dir` or below it, by path

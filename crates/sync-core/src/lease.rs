@@ -465,7 +465,10 @@ fn reserve(
         continue;
       }
       tried.insert(slot.path.clone());
-      let processes = processes_of(&scan.inside(Path::new(&slot.path)));
+      // git's background maintenance writes nothing in the slot: no reason to skip it
+      let maintenance = scan.git_maintenance();
+      let inside = scan.inside(Path::new(&slot.path));
+      let processes = processes_of(&inside.into_iter().filter(|process| !maintenance.contains(&process.pid)).collect::<Vec<_>>());
       if !processes.is_empty() {
         skipped.push(SkippedSlot {
           name: slot.name.clone(),
@@ -874,6 +877,8 @@ pub struct LeaseReturnParams<'a> {
   pub keep_servers: bool,
   /// How long the return waits for the Bazel servers it asked to exit
   pub server_timeout: Duration,
+  /// How long the return waits for git's background maintenance (`git maintenance`, `git gc --auto`) to leave the slot
+  pub maintenance_timeout: Duration,
   /// Apply the clean rules of `.branchdeck.toml`, with these overrides; `None` (`--no-clean`) applies none
   pub clean: Option<CleanOverrides>,
   pub lock_timeout: Duration,
@@ -988,7 +993,7 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
   if lease.state != LeaseState::Ready && !lease.is_abandoned() {
     bail!(LeaseRefusal::Preparing { path, pid: lease.pid });
   }
-  let scan = ProcessScan::scan();
+  let scan = wait_for_git_maintenance(Path::new(&path), params.maintenance_timeout);
   let inside = scan.inside(Path::new(&path));
   // the Bazel servers of the slot, which serve only it; every other process keeps the slot busy
   let (servers, others): (Vec<&ProcessInfo>, Vec<&ProcessInfo>) = inside.iter().partition(|process| !params.keep_servers && process.bazel_workspace().is_some());
@@ -1055,6 +1060,24 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
     clean_error,
     process_scan: scan.is_available(),
   })
+}
+
+/// A fresh scan once git's background maintenance (`ProcessScan::git_maintenance`) has left `slot`, or after `timeout`:
+/// a commit in the slot starts `git maintenance run --auto --detach`, whose repack keeps the slot as its working
+/// directory for half a minute and writes only the shared object store. One still there after the wait stays in the
+/// scan, so the return refuses as `slot_busy` and names it
+fn wait_for_git_maintenance(slot: &Path, timeout: Duration) -> ProcessScan {
+  let deadline = std::time::Instant::now() + timeout;
+  loop {
+    let scan = ProcessScan::scan();
+    let maintenance = scan.git_maintenance();
+    let waiting = scan.inside(slot).iter().filter(|process| maintenance.contains(&process.pid)).count();
+    if waiting == 0 || std::time::Instant::now() >= deadline {
+      return scan;
+    }
+    debug!(slot = %slot.display(), processes = waiting, "waiting for git's maintenance to leave the slot");
+    std::thread::sleep(Duration::from_millis(250));
+  }
 }
 
 /// A Bazel server of a slot that the return stopped

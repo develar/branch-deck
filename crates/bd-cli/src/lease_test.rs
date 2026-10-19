@@ -591,6 +591,61 @@ fn a_get_skips_a_free_slot_under_a_live_bazel_server() {
   );
 }
 
+/// A fake `git maintenance run --auto --detach` in `cwd`: `sh` named `git` in its argv, blocked in `read` on a pipe (no
+/// child process); it ends when its stdin closes
+#[cfg(unix)]
+fn fake_maintenance(cwd: &str) -> std::process::Child {
+  use std::os::unix::process::CommandExt;
+  let child = std::process::Command::new("sh")
+    .arg0("git")
+    .args(["-c", "read line", "maintenance", "run", "--auto", "--detach"])
+    .current_dir(cwd)
+    .stdin(std::process::Stdio::piped())
+    .spawn()
+    .unwrap();
+  let deadline = std::time::Instant::now() + Duration::from_secs(10);
+  while !sync_core::process_scan::ProcessScan::scan().git_maintenance().contains(&child.id()) {
+    assert!(std::time::Instant::now() < deadline, "the fake maintenance never showed up");
+    std::thread::sleep(Duration::from_millis(20));
+  }
+  child
+}
+
+/// The return waits for git's background maintenance in the slot, then frees it; one that outlasts the wait refuses
+/// the return as `slot_busy` and is named; a get takes a free slot with it
+#[cfg(unix)]
+#[test_log::test]
+fn the_return_waits_for_git_maintenance_and_a_get_ignores_it() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let mut stuck = fake_maintenance(&path);
+  let mut environment = fixture.environment(Path::new(&path));
+  environment.maintenance_timeout = Duration::from_millis(500);
+  let (exit_code, output) = run_json(&environment, &["lease", "return"]);
+  assert_error(&output, exit_code, (4, "slot_busy"));
+  assert!(output["error"]["message"].as_str().unwrap().contains(&format!("({})", stuck.id())), "{output}");
+
+  // it ends during the wait: the return goes on
+  let stdin = stuck.stdin.take().unwrap();
+  let closer = std::thread::spawn(move || {
+    std::thread::sleep(Duration::from_millis(1500));
+    drop(stdin);
+  });
+  let started = std::time::Instant::now();
+  let returned = fixture.give_back(&path);
+  closer.join().unwrap();
+  stuck.wait().unwrap();
+  assert!(started.elapsed() >= Duration::from_secs(1), "the return waited");
+  assert_eq!(returned.get("error"), None);
+
+  // a free slot with maintenance in it is reused, not skipped
+  let mut running = fake_maintenance(&path);
+  let got = fixture.get(&[]);
+  let _ = running.kill();
+  let _ = running.wait();
+  assert_eq!((path_of(&got), &got["reused"], got.get("skipped")), (path, &json!(true), None), "{got}");
+}
+
 /// Concurrent gets reserve their slots under the pool lock: never one slot twice, whether reused or new
 #[test_log::test]
 fn two_leases_never_get_the_same_slot() {

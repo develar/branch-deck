@@ -138,6 +138,7 @@ pub struct LeaseContext {
   pub dirs: RepositoryDirs,
   pub lock_timeout: Duration,
   pub server_stop_timeout: Duration,
+  pub maintenance_timeout: Duration,
 }
 
 impl LeaseContext {
@@ -157,6 +158,7 @@ impl LeaseContext {
       dirs,
       lock_timeout: environment.lock_timeout,
       server_stop_timeout: environment.server_stop_timeout,
+      maintenance_timeout: environment.maintenance_timeout,
     })
   }
 }
@@ -402,6 +404,7 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
     keep_servers: args.keep_servers,
     clean: if args.no_clean { None } else { Some(args.overrides.overrides()?) },
     server_timeout: context.server_stop_timeout,
+    maintenance_timeout: context.maintenance_timeout,
     lock_timeout: context.lock_timeout,
   };
   let returned = lease_return_core(&context.git, &params).map_err(lease_error)?;

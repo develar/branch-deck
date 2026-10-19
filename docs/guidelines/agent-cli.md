@@ -680,7 +680,8 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   its commit. Refused with nothing changed: `no_lease`, `lease_mismatch`, `slot_busy` (a process other than bd and its
   ancestors in it), `unlanded_commits` (`commits` that no branch, tag or remote branch holds and that a dry run of
   the pick onto the branch of the source would pick: land them with `bd pick --from <dir> --follow`),
-  `dirty_worktree` (`paths`). A Bazel server of the worktree (`--workspace_directory` in it) is asked to exit with
+  `dirty_worktree` (`paths`). The return waits up to 60 s for git's background maintenance in the worktree (`git
+  maintenance`, `git gc --auto` and the gits they start), then goes on. A Bazel server of the worktree (`--workspace_directory` in it) is asked to exit with
   SIGTERM, up to 30 s, and named in `stopped_servers`; `--keep-servers` refuses as `slot_busy` instead. `landed_check` says which check found the work landed: `reachability` or `content`
   (`landed_branch`). `--confirm-preserved` gives the commits up
   (`given_up`) and discards the changes (`discarded`) with `reset --hard` and `clean -fd`.
