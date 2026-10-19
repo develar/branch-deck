@@ -1,5 +1,66 @@
 # Changelog
 
+## [0.22.0](https://github.com/develar/branch-deck/compare/v0.21.0...v0.22.0) (2026-10-19)
+
+
+### Features
+
+* **actions:** the robot, the pull request and the review writes run as operations: once, the other one waits ([1df098e](https://github.com/develar/branch-deck/commit/1df098e371598074d1afa8d933650aeeeb4ea157))
+* **bd:** bd lease adopt --move moves the adopted worktrees into the pool directory with git worktree move ([c2a305b](https://github.com/develar/branch-deck/commit/c2a305b2f1e62ed176a96a365a1e1c6cac24caed))
+* **bd:** bd lease checks out a slot with one worker per core, unless the repository sets checkout.workers ([43a428e](https://github.com/develar/branch-deck/commit/43a428e71fb2b2b205c39815bd9cabdea3824466))
+* **bd:** bd lease keeps a pool of worktrees whose state is the authority, so a get reuses a free slot whatever master did ([64e0f9c](https://github.com/develar/branch-deck/commit/64e0f9c2aa4198db5985b789c345d406e3772c1e))
+* **bd:** bd lease return stops the Bazel servers of the slot, which serve only it, and keeps their output bases ([9f242da](https://github.com/develar/branch-deck/commit/9f242da7b41b3a696b42ee70d378b2cd50ce66f5))
+* **bd:** bd sync, bd status and bd commits say which commits resolved a conflict of git by words ([90cf21c](https://github.com/develar/branch-deck/commit/90cf21c6d0bce7f134d5bbd3f1ef20587eb83925))
+* **bd:** bd update names the commits that resolved by words, and every round names the rounds that resolved themselves ([2bb64a4](https://github.com/develar/branch-deck/commit/2bb64a46eec4a1d1b9806304363fe1c1f8cb2f8a))
+* **bd:** on macOS bd lease adds a new slot as an APFS clone of a free slot or of the source, then checks out the diff ([d1922ec](https://github.com/develar/branch-deck/commit/d1922ec2184601122d8dfdd42a41e9a7500fa707))
+* **diff:** each inner range of a 2-way block has the kind of its change and marks its empty side, as IntelliJ types a fragment ([a109564](https://github.com/develar/branch-deck/commit/a1095648d97e8316dc50cf669e5188a5f9d1e45f))
+* **diff:** git-ops resolves a conflicting cherry-pick by its words, all or nothing, and gives the files and the tree ([27d0139](https://github.com/develar/branch-deck/commit/27d0139004dfcd799dd22c2d156b81f12556f6e3))
+* **diff:** Inline strikes its deleted parts through, so they read as deleted without their colour ([c0ea327](https://github.com/develar/branch-deck/commit/c0ea327d31f8371c48d6640e30d0453f8811099e))
+* **diff:** text-diff composes the result of a merge on the bytes of its texts, with the line ends kept ([68aab7e](https://github.com/develar/branch-deck/commit/68aab7ece0f686b20d58bcea3ed67f12b3a539e0))
+* **diff:** the commit row says "Resolved N conflicts by words" and shows what the sync committed ([4d9e108](https://github.com/develar/branch-deck/commit/4d9e108c461087efe7c9f86328c501aa30855b34))
+* **diff:** the diff looks as IntelliJ's in Islands Light and Islands Dark, with ligatures on by default ([628c74b](https://github.com/develar/branch-deck/commit/628c74b2918aca43a1b2b2cebf2315c85252ff9f))
+* **diff:** the divider of Split drags, as IntelliJ's DiffSplitter, and a double click makes the sides equal ([693f908](https://github.com/develar/branch-deck/commit/693f908785ed867e5d7514e8ca9923f3407b56e2))
+* **diff:** the merges of a resolved copy name the blob that the sync committed for each file ([bf6afdc](https://github.com/develar/branch-deck/commit/bf6afdc6e47f88403c5da0c22d521b7017a62ba6))
+* **diff:** the setting branchdeck.resolveByWords, the word_resolution store, and the resolve mode in the conflict keys ([5a1a60c](https://github.com/develar/branch-deck/commit/5a1a60c066bd6a9f141dee37d6ee967675c5f518))
+* **diff:** the sync commits a conflict of git that its words resolve, and the note and the event say so ([8897d50](https://github.com/develar/branch-deck/commit/8897d50c367a0da453dc0d2a684ff10945e6040b))
+* **diff:** Update Project and the rounds of bd update resolve a conflict of git by words, as the sync does ([3c7e7b7](https://github.com/develar/branch-deck/commit/3c7e7b725aac4051f3030c02373756199f582679))
+* **diff:** Update Project applies an update whose conflicts resolve by words and says so in the tooltip and the toast ([3386854](https://github.com/develar/branch-deck/commit/3386854a9ac924ea54cb31456f03a8c69be03a6b))
+* **keys:** P, D, O and M run the item of the branch menu they are the hints of, a disabled one says why ([b0a1f6d](https://github.com/develar/branch-deck/commit/b0a1f6dcb44a38d8784fafbb0cf032fc44aedb34))
+* **review:** each file of a review is a card, as in IntelliJ's combined diff, its sticky header the top of the card ([01b6c9a](https://github.com/develar/branch-deck/commit/01b6c9a986a21a1f4278337618bf04c7c1967ba5))
+* **review:** the sidebar of a review starts at 19rem, and F or its button hides it so the diffs take the window ([c372bbd](https://github.com/develar/branch-deck/commit/c372bbd44b780aea6bfa41409e5019b5cedc00c6))
+* **settings:** Diffs & Merge turns the resolve by words on and off for every repository, in the global git config ([449da7f](https://github.com/develar/branch-deck/commit/449da7f8c149a79f139bdd118d41f0c5bea1eb54))
+* **settings:** set_repository_config writes a key to the global git config too, for the Diffs & Merge page ([5afdde8](https://github.com/develar/branch-deck/commit/5afdde86e8a9fc53b4f44eeab792426fc571c9ea))
+* **settings:** the diffs get a page of their own, Diffs & Merge, with a row and a description for each setting ([28b3ebf](https://github.com/develar/branch-deck/commit/28b3ebf9c830ebfcac3a4776c2ba4b03e84c4a38))
+* **update:** Update Project is a rewrite of the repository: it waits for a running regroup, and the rewrites for it ([b863f6c](https://github.com/develar/branch-deck/commit/b863f6c15b7f2fd5c321f7e952e75d305f2ba8c6))
+
+
+### Bug Fixes
+
+* **bd:** a resolve session is state version 2, and bd reads the version before the other fields ([e6be824](https://github.com/develar/branch-deck/commit/e6be8249ae6b36544d9674103df0afc7795591a2))
+* **bd:** bd lease return decides unlanded work by a dry run of the pick onto the source branch, not by reachability alone ([4e98d11](https://github.com/develar/branch-deck/commit/4e98d114971011e302a269822edeec36d35b49e6))
+* **bd:** bd lease return signals a Bazel server only while its pid still has the start time of the scan ([e461b59](https://github.com/develar/branch-deck/commit/e461b59a2d0f4f650eb955e2e255e3d45cc56f62))
+* **bd:** the lease code and its tests build on Windows and the pool checkout test expects a worktree add where no clone is ([bcadc73](https://github.com/develar/branch-deck/commit/bcadc73250b2b903c615d1726f1538a6ab2001f2))
+* **check:** a restack of the fix keeps the parent of a stacked leaf and replaces the parent its plan gives ([6e22cbd](https://github.com/develar/branch-deck/commit/6e22cbd40ae77d57378f6f3fc6e5e9c700b197cd))
+* **check:** bd check --fix tries the direct restack first, stops at its budget and prints each trial ([d9f52f9](https://github.com/develar/branch-deck/commit/d9f52f9ead6a1f6234e15b687295059945370d53))
+* **diff:** the diffs that mount take no focus from the trigger of an open menu, so the "⋯" of the commit heading stays open ([36cbe14](https://github.com/develar/branch-deck/commit/36cbe143fb0f35361b2855110ec30641b297d4fe))
+* **e2e:** a merge test merges only once the page has the pull requests the merge reads ([e876fc3](https://github.com/develar/branch-deck/commit/e876fc342920c965c50224652cc3557457e14327))
+* **e2e:** a test merges a running robot only once the page shows it running ([2852e23](https://github.com/develar/branch-deck/commit/2852e237f026d098b6723f2988219609adc81e67))
+* **e2e:** the menu test of the review window opens the next menu once the one before is gone ([1dc0053](https://github.com/develar/branch-deck/commit/1dc0053a9195eaba79abbbe7ad44b9b3ac8f4fde))
+* **e2e:** the strikethrough test of Inline reads the styles of the rows in one call ([7bf03fb](https://github.com/develar/branch-deck/commit/7bf03fb071b2d583940b71dc6b1d4ada7ea897b4))
+* **e2e:** the sync of a test waits for the unassigned commits card, which moves the table down ([164905e](https://github.com/develar/branch-deck/commit/164905e4f2d2a4a595c79bbfb12b65d695a3e2e1))
+* **lock:** the locked error names the holder of the repository lock, its command, pid and how long it holds it ([f9db549](https://github.com/develar/branch-deck/commit/f9db5499bffd4bdf1e3e2b1c23d685d3e17a804a))
+* **menu:** the branch menu follows its stores while it is mounted; a disabled submenu and a busy "⋯" say why ([a4f776e](https://github.com/develar/branch-deck/commit/a4f776e81ed336559b6412c6fefb2c419679f3fb))
+* **pick:** a commit with the patch id of a branch commit is left out before the replay, the rest replays in segments ([fff38e4](https://github.com/develar/branch-deck/commit/fff38e4db494249287b48489a6a54ae1e8c8c7be))
+* **pick:** a picked commit whose branch is not built on what it needs is named, with the plan that moves it ([1820b71](https://github.com/develar/branch-deck/commit/1820b71092b839516aeb470ae7fa6fd17f2c18c3))
+* **review:** Request Review… checks the code owners of a readiness that comes after it opened ([a04b0a1](https://github.com/develar/branch-deck/commit/a04b0a1c1ba0c017fdfda5964b810eb4e34a11a5))
+* **safe-push:** --check holds the repository lock for its sync only and builds only what lands ([3ca1df1](https://github.com/develar/branch-deck/commit/3ca1df1ae9d1b7cc9a079c7d0304c725ee46c286))
+* **stack:** a (parent/leaf) prefix that stacks a root group is reported as reparented, conflicting parents name the restack ([6ce0ba3](https://github.com/develar/branch-deck/commit/6ce0ba3ab341c8d83d9fe9a4739db4a0be4fef2f))
+* **stack:** the "⋯" of an island follows its stores while it is open, the pull requests that load after the sync too ([6216b03](https://github.com/develar/branch-deck/commit/6216b0340cc9a7e0f20ed14e6cb614d54c049dc5))
+* **symbols:** a Rust `.collect()` is no use of a removed `fn collect`, and a crate uses another's items only through its name ([82a43cb](https://github.com/develar/branch-deck/commit/82a43cba22b64665ab8be4255be9d4468e747803))
+* **symbols:** the crate of an item a commit deletes with its module is known, so another crate's `record::collect` is no use of it ([5fc0980](https://github.com/develar/branch-deck/commit/5fc0980de5aec39744e8b79f5fc1c6d270c38e39))
+* **sync:** each commit chain writes on a temporary ref of its own and deletes it after a checkpoint ([d743156](https://github.com/develar/branch-deck/commit/d743156a00013fae8b6e86c08e01b6023131048e))
+* **update:** the bd conflict prompt leaves the protocol to bd: hint, session.next and retryable instead of restated exit codes ([7685542](https://github.com/develar/branch-deck/commit/7685542a9e3c65255c73e514e2a6273df370898c))
+
 ## [0.21.0](https://github.com/develar/branch-deck/compare/v0.20.0...v0.21.0) (2026-10-19)
 
 
