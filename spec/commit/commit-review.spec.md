@@ -152,6 +152,9 @@ where a dialog would cover it.
   so. Lock files (`pnpm-lock.yaml`, `Cargo.lock`, …), minified and snapshot files, and files with more than 1,000
   changed lines must start collapsed; the chevron of the header expands them.
 - The unchanged lines between hunks must expand as in the Files section ([Commit Files](commit-files.spec.md)).
+- The diffs are to come from `get_file_diffs` and their texts from `get_blob_texts`
+  ([Commit Files](commit-files.spec.md#file-diffs)): N and P step through the blocks that are not `Ignored`. The
+  backend is done; the views come with another branch, and their e2e tests are pending.
 - The Unified/Split toggle must switch the layout; it is the setting of the Files section. It is in the header of the
   block whose diffs it switches: the title bar of a review window, the toolbar of a pull request.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)

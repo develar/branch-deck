@@ -6,6 +6,8 @@ use axum::{
     sse::{Event, KeepAlive, Sse},
   },
 };
+use file_diffs::model::{BlobText, FileDiffEvent, FileMergeEvent, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams};
+use file_diffs::service::FileDiffs;
 use git_ops::commit_files::{
   BlobContents, CommitFiles, CommitPatch, DiffSubject, GetBlobContentsParams, GetCommitFilesParams, GetCommitPatchParams, GetCommitsFilesParams, read_blob_contents,
   read_commit_files_cached, read_diff_files, read_patch_cached,
@@ -1103,6 +1105,60 @@ pub async fn get_blob_contents(State(state): State<Arc<AppState>>, Json(params):
   let git_executor = state.git_executor.clone();
   run_command("read the contents of blobs", move || {
     read_blob_contents(&git_executor, &params.repository_path, &params.object_ids)
+  })
+  .await
+}
+
+/// The events of the app's channel as SSE events named `fileDiff`, once all are known; a failed read answers with its
+/// error instead. Without the object cache and with fresh memory caches: each read of a test runs git
+pub async fn get_file_diffs(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<GetFileDiffsParams>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, CommandFailure> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  stream_events("read the file diffs", "fileDiff", move |send: &mut dyn FnMut(FileDiffEvent)| {
+    FileDiffs::default().stream(&git_executor, &ObjectCache::disabled(), &params, send)
+  })
+  .await
+}
+
+/// The events of the app's channel as SSE events named `fileMerge`, as `get_file_diffs`
+pub async fn get_file_merges(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<GetFileMergesParams>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, CommandFailure> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  stream_events("read the file merges", "fileMerge", move |send: &mut dyn FnMut(FileMergeEvent)| {
+    FileDiffs::default().stream_merges(&git_executor, &ObjectCache::disabled(), &params, send)
+  })
+  .await
+}
+
+/// Runs `produce` off the async runtime and answers with the events it sent, as SSE events named `event_name`
+async fn stream_events<E, F>(operation: &'static str, event_name: &'static str, produce: F) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, CommandFailure>
+where
+  E: serde::Serialize + std::fmt::Debug + Send + 'static,
+  F: FnOnce(&mut dyn FnMut(E)) -> anyhow::Result<()> + Send + 'static,
+{
+  let Json(events) = run_command(operation, move || {
+    let mut events: Vec<E> = Vec::new();
+    produce(&mut |event| events.push(event)).map(|()| events)
+  })
+  .await?;
+  let (sender, receiver) = mpsc::unbounded_channel();
+  for event in events {
+    let _ = sender.send(event);
+  }
+  Ok(sse_events(receiver, event_name))
+}
+
+pub async fn get_blob_texts(State(state): State<Arc<AppState>>, Json(params): Json<GetBlobTextsParams>) -> CommandResult<Vec<BlobText>> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("read the texts of blobs", move || {
+    FileDiffs::default().blob_texts(&git_executor, &params.repository_path, &params.blobs)
   })
   .await
 }

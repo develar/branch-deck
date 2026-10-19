@@ -1744,6 +1744,38 @@ two plus a check of every branch, so at most two are tried per check; `bd sugges
 Code: `crates/sync-core/src/dangling_references.rs`, `crates/sync-core/src/declaration_checks.rs`,
 `crates/sync-core/src/dangling_fix.rs`, `crates/git-ops/src/object_texts.rs`, `crates/object-cache/src/commit_lines.rs`.
 
+#### File merges (the conflict view)
+
+The conflict view gets the merge of each conflicting file as typed JSON (`FileDiffs::stream_merges`,
+`crates/file-diffs/src/merge.rs`, the command `get_file_merges`), never as text with markers.
+
+- **Git decides which files conflict.** One `merge-tree --write-tree -z --merge-base <parent> <target> <commit>` (the
+  merge of the sync) gives the conflicting paths with the blob ids of their stages: 1 the base, 2 ours (left, the
+  target), 3 theirs (right, the picked commit). It also gives the conflict type of each path: content, add/add,
+  modify/delete, rename/delete, rename/rename or binary. Git types an add/add as contents without a base stage, so the
+  stages name it. A file that git merges cleanly is never merged again. Memory keeps the stages of a merge.
+- **The engine merges each file again**, as IntelliJ's merge view does: `merge_texts` on the three blobs
+  ([Text Diff Engine](text-diff.md), "Merge"). So it can find that a conflict of git resolves by its words (the
+  `text` resolution), or that it covers fewer lines than the hunk of git.
+- **The content.** A `TextMerge`. `OneSided` for a modify/delete or a rename/delete: the two-way diff of the base to
+  the side that changed the file. `Binary`, `TooLarge`, `Submodule` (the commit of each stage), or `Missing`, which no
+  cache keeps.
+- **Processes.** One `merge-tree`, and one `cat-file --batch` for the blobs. A merge that memory has costs none. The
+  blobs are read first, because a conflict holds a few files; then the cores but one merge the files. The events are
+  those of `get_file_diffs`: `files` with the stage ids, a `content` for each file (the files in view first), and the
+  `scopes` of a text merge.
+- **Caches.** A merge is keyed by its three blob ids, the policy and the languages of the scopes: memory first, then
+  the `file_merge` store (`MERGE_MODEL_VERSION`). A merge that the time cut short stays in memory only. The blobs stay
+  in the blob cache of `get_blob_texts`.
+- **Measured** on cherry-picks of the last commits onto an older commit, under load (load average 15 to 20). In Branch
+  Deck, 141 merges and 886 files: p50 47 ms, of which 26 ms are the `merge-tree`. In the monorepo, 62 merges and 392
+  files: p50 77 ms, of which 57 ms are the `merge-tree`. 142 of the 709 text merges of Branch Deck and 38 of the 328
+  of the monorepo are conflicts of git that their words resolve.
+
+The text with zdiff3 markers (`ConflictContents`) stays for `bd` and the agents, until the view moves to the merges.
+
+Code: `crates/file-diffs/src/merge.rs`, `crates/text-diff/src/merge_model.rs`, `crates/object-cache/src/file_merge.rs`.
+
 #### Conflict fix (check)
 
 The fix of a sync conflict (`conflict_fix.rs`, [Conflict Fix](../../spec/branch/conflict-fix.spec.md)) is a search over

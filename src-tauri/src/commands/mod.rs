@@ -8,6 +8,7 @@ pub mod commit_files;
 pub mod conflict_contents;
 pub mod conflict_fix;
 pub mod fetch_baseline;
+pub mod file_diffs;
 pub mod github;
 pub mod move_commits;
 pub mod patronus;

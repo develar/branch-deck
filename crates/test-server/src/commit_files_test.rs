@@ -10,6 +10,18 @@ async fn invoke(client: &reqwest::Client, addr: SocketAddr, command: &str, param
   response.json().await.unwrap()
 }
 
+/// The SSE events of a route that stands for a command with a channel
+async fn stream(client: &reqwest::Client, addr: SocketAddr, command: &str, params: Value) -> Vec<Value> {
+  let response = client.post(format!("http://{addr}/invoke/{command}")).json(&params).send().await.unwrap();
+  assert_eq!(response.status(), 200, "{command}");
+  let body = response.text().await.unwrap();
+  body
+    .lines()
+    .filter_map(|line| line.strip_prefix("data: "))
+    .map(|data| serde_json::from_str(data).unwrap())
+    .collect()
+}
+
 /// The routes take the params of the Tauri commands and answer in their shape, on a fixture repository
 #[tokio::test]
 async fn commit_files_routes_read_the_fixture_repository() {
@@ -51,4 +63,30 @@ async fn commit_files_routes_read_the_fixture_repository() {
   let blob_id = blob_id.split(' ').next().unwrap();
   let blobs = invoke(&client, addr, "get_blob_contents", json!({ "repositoryPath": repository_path, "objectIds": [blob_id] })).await;
   assert_eq!(blobs, json!([{ "kind": "text", "objectId": blob_id, "content": "Content 1" }]));
+
+  // the typed diffs, and the texts by blob id
+  let source = json!({ "kind": "commit", "id": ids[1] });
+  let params = json!({ "repositoryPath": repository_path, "source": source, "policy": "default", "priorityPaths": [] });
+  let events = stream(&client, addr, "get_file_diffs", params).await;
+  assert_eq!(events[0]["kind"], "files");
+  assert_eq!(
+    (events[0]["files"][0]["path"].as_str(), events[0]["files"][0]["newId"].as_str()),
+    (Some("file1.txt"), Some(blob1.as_str()))
+  );
+  assert_eq!((events[1]["kind"].as_str(), events[1]["index"].as_u64()), (Some("content"), Some(0)));
+  assert_eq!((events[1]["content"]["kind"].as_str(), events[1]["content"]["additions"].as_u64()), (Some("text"), Some(1)));
+
+  // the merges of a cherry-pick: this one merges cleanly, so it lists no file
+  let source = json!({ "kind": "cherryPick", "parent": ids[1], "target": ids[0], "commit": ids[0] });
+  let params = json!({ "repositoryPath": repository_path, "source": source, "policy": "default", "priorityPaths": [] });
+  let events = stream(&client, addr, "get_file_merges", params).await;
+  assert_eq!(events, [json!({ "kind": "files", "files": [] })]);
+  let texts = invoke(
+    &client,
+    addr,
+    "get_blob_texts",
+    json!({ "repositoryPath": repository_path, "blobs": [{ "id": blob1, "path": null }] }),
+  )
+  .await;
+  assert_eq!(texts, json!([{ "kind": "text", "id": blob1, "text": "Content 1" }]));
 }

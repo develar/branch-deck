@@ -27,6 +27,12 @@ targets:
   - ../../src/lib/diff/commit-patch.ts
   - ../../src/lib/preview-keys.ts
   - ../../crates/git-ops/src/cat_file_batch.rs
+  - ../../crates/file-diffs/src/service.rs
+  - ../../crates/file-diffs/src/worktree.rs
+  - ../../crates/file-diffs/src/model.rs
+  - ../../crates/text-diff/src/model.rs
+  - ../../crates/object-cache/src/file_diff.rs
+  - ../../src-tauri/src/commands/file_diffs.rs
   - ../../crates/test-utils/src/repo_template.rs
   - ../../src/components/conflict/CollapsibleFileHeader.tsx
   - ../../src/components/diff/FileDiffView.tsx
@@ -44,8 +50,8 @@ targets:
 
 # Commit Files
 
-Status: Implemented
-Date: 2026-10-14
+Status: Implemented (the typed file diffs: the backend; the views still show the patch)
+Date: 2026-10-18
 
 ## Summary
 
@@ -147,6 +153,43 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   [@test] ../../crates/git-ops/src/cat_file_batch_test.rs (`the_content_of_an_object_over_the_limit_is_not_buffered`)
   [@test] ../../src/lib/diff/commit-patch.test.ts (`reads both sides by the blob ids of the patch`, `does not ask for the side a file does not exist on`, `shows why a side cannot be read, and fails the expansion`)
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should group the files by directory and expand the unchanged lines of a diff`)
+
+### File diffs
+
+The views are to show the typed diff of each file instead of the patch. The backend is done; the views come with
+another branch, so the e2e tests of this section are pending.
+
+- `get_file_diffs` must give the diff of each changed file of a commit, a range or the working tree (`DiffSource`)
+  under a whitespace policy, in the order of git: its path, the path before a rename or copy, its status, the blob ids
+  of both sides, and its content. The content is a `TextDiff` of the engine
+  ([Text Diff Engine](../../docs/design/text-diff.md), "Model"), `Binary`, `TooLarge` with the sizes, `Submodule` with
+  the commit of each side ("Subproject commit a → b"), or `Missing` for a blob git cannot read. No patch text carries
+  it.
+  [@test] ../../crates/file-diffs/src/service_test.rs (`a_commit_has_a_typed_diff_of_each_kind_of_file`, `a_range_has_the_diffs_of_all_its_commits`, `the_model_is_json_with_a_kind`, `a_submodule_names_its_commits`, `a_blob_git_cannot_read_is_missing_and_not_cached`)
+  [@test] ../../crates/test-server/src/commit_files_test.rs (`commit_files_routes_read_the_fixture_repository`)
+- The diffs must stream: the files first, then the content of each file as it is known, the files in view
+  (`priorityPaths`) first and the others in the order of the tree, then the scopes of a text that the caches did not
+  have. The result must not depend on the load of the machine: only a pathological file (100 ms for its inner ranges,
+  1 s for its lines) is compared by line.
+  [@test] ../../crates/file-diffs/src/service_test.rs (`the_stream_lists_the_files_then_the_files_in_view_first_and_their_scopes_after_their_blocks`, `the_work_takes_the_files_in_view_then_the_tree_order_with_directories_first_and_numbers_as_numbers`)
+  [@test] ../../crates/test-server/src/commit_files_test.rs (`commit_files_routes_read_the_fixture_repository`)
+- The diff of a commit must cost one file list and one `cat-file --batch`, and nothing when the caches have it. The
+  caches key a diff by its blob pair, the policy and the languages of the scopes, so two commits with the same blob
+  pair share one diff. The store never keeps a diff that the time cut short.
+  [@test] ../../crates/file-diffs/src/service_test.rs (`a_diff_costs_one_list_and_one_cat_file_then_nothing`, `two_commits_with_the_same_blob_pair_share_its_diff`, `the_policy_keys_its_own_diff`, `a_diff_out_of_time_is_by_line_and_not_stored`)
+  [@test] ../../crates/object-cache/src/cache_test.rs (`file_diffs_are_read_by_their_blob_pair_policy_and_version`)
+- The working tree must be compared with `HEAD`: staged, unstaged and untracked files, from one `status`. The new side
+  is the file on the disk, with the blob id that `git hash-object --no-filters` gives its bytes.
+  [@test] ../../crates/file-diffs/src/service_test.rs (`the_working_tree_is_compared_with_head_by_the_ids_git_gives_its_files`)
+- `get_blob_texts` must give the texts by blob id, from the blobs that the diffs read when it can. A file of the working
+  tree is read by its path, and only when its bytes still have the id; a path outside the repository is refused.
+  [@test] ../../crates/file-diffs/src/service_test.rs (`the_texts_of_a_diff_come_from_memory`, `a_working_tree_text_is_read_by_its_path_and_checked_against_its_id`)
+- The hunk headers must name the declaration around each hunk, `Outer › inner`, from the scopes of the diff.
+  [@test] ../../crates/file-diffs/src/scopes_test.rs (`a_member_is_labelled_with_its_containers`, `a_rust_impl_member_is_labelled_with_its_type`)
+- The views must build the context, the hunks and the expansion from the blocks and the texts: a `WhitespaceOnly`
+  block pale, an `Ignored` block as unchanged and skipped by N and P, the inline pairs of a block in one row in the
+  Inline view, and a notice when the files differ in their line ends only. The e2e tests are pending until the views
+  land.
 
 ### Meta line
 

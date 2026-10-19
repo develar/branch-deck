@@ -27,6 +27,7 @@ tokio-stream.workspace = true
 # Use the git operations crate
 branch-integration = { path = "../branch-integration" }
 git-ops = { path = "../git-ops" }
+file-diffs = { path = "../file-diffs" }
 git-executor = { path = "../git-executor" }
 object-cache = { path = "../object-cache" }
 patronus = { path = "../patronus" }

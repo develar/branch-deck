@@ -1,0 +1,95 @@
+use crate::blocking::run_blocking;
+use crate::command_error::CommandError;
+use crate::repository_state::RepositoryStateCache;
+use file_diffs::model::{BlobText, FileDiffEvent, FileMergeEvent, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams};
+use file_diffs::service::FileDiffs;
+use git_executor::git_command_executor::GitCommandExecutor;
+use object_cache::cache::ObjectCache;
+use tauri::State;
+use tauri::ipc::Channel;
+use tracing::{instrument, warn};
+
+// jscpd:ignore-start: two Tauri commands with the same states; the command macro needs each signature in full
+/// The typed diff of each changed file of a commit, a range or the working tree, for the diff views, through `events`:
+/// the files, then the content of each file as it is known, the files in view (`priority_paths`) first. Through the
+/// memory cache of the app and the `file_diff` store, else one list and one `cat-file --batch`
+// `instrument` must come before `specta::specta`: specta parses the remaining attributes and rejects `%` in `fields`
+#[tauri::command]
+#[instrument(skip(git_executor, repository_state, file_diffs, params, events), fields(repository_path = %params.repository_path, source = ?params.source))]
+#[specta::specta]
+pub async fn get_file_diffs(
+  git_executor: State<'_, GitCommandExecutor>,
+  repository_state: State<'_, RepositoryStateCache>,
+  file_diffs: State<'_, FileDiffs>,
+  params: GetFileDiffsParams,
+  events: Channel<FileDiffEvent>,
+) -> Result<(), CommandError> {
+  let repository_path = params.repository_path.clone();
+  stream_to(
+    &git_executor,
+    &repository_state,
+    &file_diffs,
+    repository_path,
+    events,
+    move |file_diffs, git, cache, send| file_diffs.stream(git, cache, &params, send),
+  )
+  .await
+}
+
+/// The merge of each conflicting file of a cherry-pick, for the conflict view, through `events`: the files with the
+/// stage blob ids that `merge-tree` gives, then the content of each file as it is known, the files in view first
+#[tauri::command]
+#[instrument(skip(git_executor, repository_state, file_diffs, params, events), fields(repository_path = %params.repository_path, source = ?params.source))]
+#[specta::specta]
+pub async fn get_file_merges(
+  git_executor: State<'_, GitCommandExecutor>,
+  repository_state: State<'_, RepositoryStateCache>,
+  file_diffs: State<'_, FileDiffs>,
+  params: GetFileMergesParams,
+  events: Channel<FileMergeEvent>,
+) -> Result<(), CommandError> {
+  let repository_path = params.repository_path.clone();
+  stream_to(
+    &git_executor,
+    &repository_state,
+    &file_diffs,
+    repository_path,
+    events,
+    move |file_diffs, git, cache, send| file_diffs.stream_merges(git, cache, &params, send),
+  )
+  .await
+}
+
+// jscpd:ignore-end
+
+/// Runs `stream` off the async runtime with the object cache of the repository, its events into `events`
+async fn stream_to<E: serde::Serialize + Clone + Send + 'static>(
+  git_executor: &GitCommandExecutor,
+  repository_state: &RepositoryStateCache,
+  file_diffs: &FileDiffs,
+  repository_path: String,
+  events: Channel<E>,
+  stream: impl FnOnce(&FileDiffs, &GitCommandExecutor, &ObjectCache, &mut dyn FnMut(E)) -> anyhow::Result<()> + Send + 'static,
+) -> Result<(), CommandError> {
+  let (git, repository_state, file_diffs) = (git_executor.clone(), repository_state.clone(), file_diffs.clone());
+  run_blocking(move || {
+    let cache = repository_state.object_cache(&git, &repository_path);
+    stream(&file_diffs, &git, &cache, &mut |event| {
+      if let Err(e) = events.send(event) {
+        warn!(error = %e, "failed to send an event of a file diff or merge");
+      }
+    })
+  })
+  .await
+}
+
+/// The texts of blobs by id, for the diff views: mostly from the blobs that `get_file_diffs` read, else one
+/// `cat-file --batch`; a file of the working tree by its path, when its bytes still have the id
+#[tauri::command]
+#[instrument(skip(git_executor, file_diffs, params), fields(repository_path = %params.repository_path, blobs = params.blobs.len()))]
+#[specta::specta]
+pub async fn get_blob_texts(git_executor: State<'_, GitCommandExecutor>, file_diffs: State<'_, FileDiffs>, params: GetBlobTextsParams) -> Result<Vec<BlobText>, CommandError> {
+  let git = (*git_executor).clone();
+  let file_diffs = (*file_diffs).clone();
+  run_blocking(move || file_diffs.blob_texts(&git, &params.repository_path, &params.blobs)).await
+}

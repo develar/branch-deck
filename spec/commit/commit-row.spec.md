@@ -3,6 +3,8 @@ name: Commit Row
 description: Requirements for the commit row, the commit preview with the message body and its editing, and the commit hash popover.
 style: plain-1
 targets:
+  - ../../crates/file-diffs/src/merge.rs
+  - ../../crates/text-diff/src/merge_model.rs
   - ../../src/components/conflict/CollapsibleFileHeader.tsx
   - ../../src/components/files/FileHeaderParts.tsx
   - ../../src/components/commit/CommitList.tsx
@@ -292,6 +294,15 @@ The commit hash popover shows the same header and body.
   under "Unassigned"; the header of a group names its branch and count, and in the main window shows the branch.
 - The conflicting files must follow, and then the missing commits details.
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show branches with missing commits`, `should expand/collapse file accordions in missing commits details`)
+- The conflicting files are to come from `get_file_merges`, as IntelliJ's merge view shows them: git's `merge-tree`
+  decides which files conflict, and the engine merges the three stages of each file again. Each block has its kind,
+  the sides that changed it, its word ranges and its resolution. A conflict that its words resolve says so: "Git
+  stops here; the conflict resolves by words" (`conflicts > 0`, `unresolved == 0`, the `resolvedText` of each of its
+  blocks). A modify/delete shows the diff of the base to the side that kept the file. The backend is done; the view
+  comes with another branch, and its e2e tests are pending.
+  [@test] ../../crates/file-diffs/src/merge_test.rs (`each_conflict_type_has_its_merge`, `a_merge_costs_one_merge_tree_and_one_cat_file_then_nothing`, `the_stream_lists_the_files_then_the_file_in_view_first`, `the_model_is_json_with_a_kind`)
+  [@test] ../../crates/text-diff/src/merge_model_test.rs (`a_conflict_of_other_words_resolves_by_its_words`, `a_conflict_of_the_same_words_stays_with_the_user`, `a_change_the_policy_ignores_is_an_ignored_block`, `blocks_partition_the_three_texts`)
+  [@test] ../../crates/test-server/src/commit_files_test.rs (`commit_files_routes_read_the_fixture_repository`)
 - The conflicting files must be one list, a collapsible item per file, the first open, each with the number of its
   conflicts ("1 conflict", "3 conflicts") or "modify/delete". A file with conflict markers shows them as an
   unresolved file of the diff engine (`UnresolvedFile`): each conflict as the current change (the branch the commit is

@@ -34,6 +34,7 @@ use commands::commit_files::{get_blob_contents, get_commit_files, get_commit_pat
 use commands::conflict_contents::get_conflict_contents;
 use commands::conflict_fix::{apply_conflict_fix, cancel_conflict_fix, find_conflict_fix};
 use commands::fetch_baseline::fetch_baseline;
+use commands::file_diffs::{get_blob_texts, get_file_diffs, get_file_merges};
 use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_status, sign_out_of_github, start_github_sign_in, wait_github_sign_in};
 use commands::move_commits::move_commits_to_branch;
 use commands::patronus::{
@@ -169,6 +170,9 @@ fn specta_builder() -> Builder<tauri::Wry> {
     get_commits_files,
     get_commit_patch,
     get_blob_contents,
+    get_file_diffs,
+    get_file_merges,
+    get_blob_texts,
     get_conflict_contents,
     set_auto_sync_menu_checked,
     install_agent_cli,
@@ -244,6 +248,7 @@ pub fn run() {
         app.state::<GitCommandExecutor>().inner().clone(),
         app.state::<RepositoryStateCache>().inner().clone(),
       ));
+      app.manage(file_diffs::service::FileDiffs::default());
       app.manage(BranchNameSuggestionState::default());
       app.manage(ReviewFetchState::default());
       app.manage(SubWindowState::default());

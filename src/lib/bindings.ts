@@ -341,6 +341,22 @@ export const commands = {
 	/**  The contents of blobs, when a diff expands the unchanged lines between its hunks: one `cat-file --batch` */
 	getBlobContents: (params: GetBlobContentsParams) => typedError<BlobContents[], CommandError>(__TAURI_INVOKE("get_blob_contents", { params })),
 	/**
+	 *  The typed diff of each changed file of a commit, a range or the working tree, for the diff views, through `events`:
+	 *  the files, then the content of each file as it is known, the files in view (`priority_paths`) first. Through the
+	 *  memory cache of the app and the `file_diff` store, else one list and one `cat-file --batch`
+	 */
+	getFileDiffs: (params: GetFileDiffsParams, events: Channel<FileDiffEvent>) => typedError<null, CommandError>(__TAURI_INVOKE("get_file_diffs", { params, events })),
+	/**
+	 *  The merge of each conflicting file of a cherry-pick, for the conflict view, through `events`: the files with the
+	 *  stage blob ids that `merge-tree` gives, then the content of each file as it is known, the files in view first
+	 */
+	getFileMerges: (params: GetFileMergesParams, events: Channel<FileMergeEvent>) => typedError<null, CommandError>(__TAURI_INVOKE("get_file_merges", { params, events })),
+	/**
+	 *  The texts of blobs by id, for the diff views: mostly from the blobs that `get_file_diffs` read, else one
+	 *  `cat-file --batch`; a file of the working tree by its path, when its bytes still have the id
+	 */
+	getBlobTexts: (params: GetBlobTextsParams) => typedError<BlobText[], CommandError>(__TAURI_INVOKE("get_blob_texts", { params })),
+	/**
 	 *  The contents of a conflict view (the merged files, the change of the commit, the diffs of the missing commits),
 	 *  when a view shows the conflict: from the object cache, where the sync left them, else by the merge and the report
 	 *  again. The sync events carry the conflict without them
@@ -467,6 +483,37 @@ export type BlobContents =
 { kind: "tooLarge"; objectId: string; size: number } | 
 /**  Not a blob of the repository */
 { kind: "missing"; objectId: string };
+
+/**  A blob that the views ask for: by its id, and for a file of the working tree, by its path too */
+export type BlobRequest = {
+	id: string,
+	/**  The path of the file in the working tree, relative to the repository, when the id is of a working tree file */
+	path: string | null,
+};
+
+/**  The text of a blob */
+export type BlobText = 
+/**  The bytes as UTF-8, an invalid sequence replaced with U+FFFD */
+{ kind: "text"; id: string; text: string } | { kind: "binary"; id: string } | 
+/**  Over `MAX_BLOB_BYTES` */
+{ kind: "tooLarge"; id: string; size: number } | 
+/**  No blob of the repository and no file of the working tree has the id */
+{ kind: "missing"; id: string };
+
+/**  How a view draws a block */
+export type BlockKind = 
+/**  A change */
+"changed" | 
+/**
+ *  The lines are equal under the policy, an empty list of inner changes (whitespace only, or a blank line under
+ *  `Ignore`): drawn pale, still a change that counts and that the navigation stops at, as in IntelliJ
+ */
+"whitespaceOnly" | 
+/**
+ *  `IgnoreBlankLines` cut the block off the ends of a run of changes, where IntelliJ drops it: drawn as unchanged,
+ *  not counted, and the change navigation skips it. A view needs it to align the two sides.
+ */
+"ignored";
 
 /**  Why a branch is not rebuilt: its parent can't be built on */
 export type BlockReason = 
@@ -862,6 +909,65 @@ export type DetectedGitHubRepository = {
 	source: GitHubRepositorySource,
 };
 
+/**  A block of changed lines */
+export type DiffBlock = {
+	/**  0-based line indices, the end exclusive; `start == end` is a side without lines */
+	oldStart: number,
+	oldEnd: number,
+	newStart: number,
+	newEnd: number,
+	kind: BlockKind,
+	/**  The sides have the same number of lines and each pair is similar: the Inline view may draw pair i as one row */
+	inlinePairs: boolean,
+	/**
+	 *  For each line of the old side, `[start, end, start, end, ...]`: UTF-16 offsets inside the line, the end
+	 *  exclusive, never the line end. Empty when the block has no inner ranges: `Ignored`, `WhitespaceOnly`, ranges
+	 *  dropped, or `line_level_only`.
+	 */
+	oldRanges: number[][],
+	newRanges: number[][],
+};
+
+/**  What the views show of a file */
+export type DiffContent = {
+	kind: "text",
+} & TextDiff | 
+/**  A side is binary: a NUL in its first 8000 bytes, or git counts no lines */
+({ kind: "binary" }) & { newBytes?: never; newCommit?: never; oldBytes?: never; oldCommit?: never } | 
+/**  A side is over `MAX_BLOB_BYTES`; the sizes in bytes, 0 for a missing side */
+({ kind: "tooLarge"; oldBytes: number; newBytes: number }) & { newCommit?: never; oldCommit?: never } | 
+/**
+ *  A submodule: the commit it points to on each side, `None` for a side without it, as git writes
+ *  `Subproject commit <id>`
+ */
+({ kind: "submodule"; oldCommit: string | null; newCommit: string | null }) & { newBytes?: never; oldBytes?: never } | 
+/**  Git cannot read a blob of the file, as in a partial or a shallow clone */
+({ kind: "missing" }) & { newBytes?: never; newCommit?: never; oldBytes?: never; oldCommit?: never };
+
+/**  A changed file before its content: the first event of `get_file_diffs` lists them */
+export type DiffFileHeader = {
+	path: string,
+	/**  The path before a rename or copy */
+	oldPath: string | null,
+	status: FileStatus,
+	/**  The blob id of the old text; `None` for an added file and a submodule, whose commits are in its content */
+	oldId: string | null,
+	/**
+	 *  The blob id of the new text; `None` for a deleted file and a submodule. A file of the working tree has the id
+	 *  that git would give its bytes (`git hash-object --no-filters`).
+	 */
+	newId: string | null,
+};
+
+/**  What a diff compares */
+export type DiffSource = 
+/**  A commit with its first parent */
+{ kind: "commit"; id: string } | 
+/**  Two commits, as `git diff base head` */
+{ kind: "range"; base: string; head: string } | 
+/**  The working tree with `HEAD`: staged, unstaged and untracked files */
+{ kind: "uncommitted" };
+
 /**  Summary of how two branches have diverged from their common ancestor. */
 export type DivergenceSummary = {
 	commitsAheadInSource: number,
@@ -877,6 +983,12 @@ export type DroppedCommit = {
 	author: string,
 	/**  Unix timestamp */
 	authorTime: number,
+};
+
+/**  Whether the last line of each text is empty and does not count */
+export type EmptyLastLine = {
+	old: boolean,
+	new: boolean,
 };
 
 /**  A failed build of the dependency chain of a check (never a composite one) */
@@ -961,11 +1073,49 @@ export type FileDiff = {
 	hunks: string[],
 };
 
+/**
+ *  What `get_file_diffs` sends through its channel: `files` once, then one `content` for each file, the files in view
+ *  first, and a `scopes` after the `content` of a text that the caches did not have
+ */
+export type FileDiffEvent = 
+/**  The changed files in the order of git; `index` of the other events points into this list */
+{ kind: "files"; files: DiffFileHeader[] } | 
+/**
+ *  The content of a file. A `TextDiff` that the caches did not have comes with empty scopes, which a `scopes` event
+ *  of the same file fills later: the parse costs more than the comparison
+ */
+{ kind: "content"; index: number; content: DiffContent } | 
+/**  The scopes of the text of a file, for the labels of its hunks */
+{ kind: "scopes"; index: number; oldScopes: Scope[]; newScopes: Scope[] };
+
 /**  Information about a file including its content and metadata. */
 export type FileInfo = {
 	fileName: string,
 	fileLang: string,
 	content: string,
+};
+
+/**
+ *  What `get_file_merges` sends through its channel: `files` once, then one `content` for each file, the files in view
+ *  first, and a `scopes` after the `content` of a text merge that the caches did not have
+ */
+export type FileMergeEvent = 
+/**  The conflicting files in the order of git; `index` of the other events points into this list */
+{ kind: "files"; files: FileMergeHeader[] } | { kind: "content"; index: number; content: MergeContent } | 
+/**  The scopes of the three sides of a text merge */
+{ kind: "scopes"; index: number; leftScopes: Scope[]; baseScopes: Scope[]; rightScopes: Scope[] };
+
+/**  A conflicting file before its content: the first event of `get_file_merges` lists them */
+export type FileMergeHeader = {
+	path: string,
+	kind: GitConflictKind,
+	/**
+	 *  The blob ids of the stages: base (1), left (2, ours, the target) and right (3, theirs, the picked commit); `None`
+	 *  for a stage that the path does not have, and for a submodule, whose commits are in its content
+	 */
+	baseId: string | null,
+	leftId: string | null,
+	rightId: string | null,
 };
 
 /**  The owner of a path and the rule that names it */
@@ -996,6 +1146,12 @@ export type FilePatch = {
 export type FileStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | 
 /**  A file became a symlink or a submodule, or the other way round */
 "typeChanged";
+
+/**  Whether each text ends with a line end */
+export type FinalNewline = {
+	old: boolean,
+	new: boolean,
+};
 
 export type FindConflictFixParams = {
 	repositoryPath: string,
@@ -1067,6 +1223,13 @@ export type GetBlobContentsParams = {
 	objectIds: string[],
 };
 
+/**  The parameters of `get_blob_texts` */
+export type GetBlobTextsParams = {
+	repositoryPath: string,
+	/**  At most `MAX_BLOB_REQUESTS` */
+	blobs: BlobRequest[],
+};
+
 export type GetBranchPrefixParams = {
 	repositoryPath: string,
 };
@@ -1133,6 +1296,24 @@ export type GetConflictContentsParams = {
 export type GetFileContentForDiffParams = {
 	repositoryPath: string,
 	filePath: string,
+};
+
+/**  The parameters of `get_file_diffs` */
+export type GetFileDiffsParams = {
+	repositoryPath: string,
+	source: DiffSource,
+	policy: WhitespacePolicy,
+	/**  The files in view, whose diffs come first; then the others in the order of the tree */
+	priorityPaths: string[],
+};
+
+/**  The parameters of `get_file_merges` */
+export type GetFileMergesParams = {
+	repositoryPath: string,
+	source: MergeSource,
+	policy: WhitespacePolicy,
+	/**  The files in view, whose merges come first; then the others in the order of the tree */
+	priorityPaths: string[],
 };
 
 export type GetFileOwnersParams = {
@@ -1255,6 +1436,9 @@ export type GitBranchPrefix = {
 	repositoryScoped: boolean,
 };
 
+/**  The conflict type of a path, as `merge-tree` names it (`CONFLICT (<type>)`) */
+export type GitConflictKind = "content" | "addAdd" | "modifyDelete" | "renameDelete" | "renameRename" | "binary" | "other";
+
 /**  The GitHub sign-in as Settings shows it */
 export type GitHubAuthStatus = {
 	/**  The build has the client id of the Branch Deck OAuth app: the app can sign in itself */
@@ -1376,6 +1560,56 @@ export type LandedCommit = {
 	upstream: UpstreamCommit | null,
 };
 
+/**  The line ends of a whole file */
+export type LineEndKind = "lf" | "crlf" | "cr" | 
+/**  More than one kind */
+"mixed";
+
+/**  The line ends of two files that differ in them */
+export type LineEnds = {
+	old: LineEndKind,
+	new: LineEndKind,
+	/**  The files differ in their line ends only */
+	only: boolean,
+};
+
+/**  A block of a merge */
+export type MergeBlock = {
+	/**  0-based line indices of each side, the end exclusive */
+	leftStart: number,
+	leftEnd: number,
+	baseStart: number,
+	baseEnd: number,
+	rightStart: number,
+	rightEnd: number,
+	kind: MergeBlockKind,
+	leftChanged: boolean,
+	rightChanged: boolean,
+	/**
+	 *  Under `Ignore` (and `IgnoreBlankLines`, whose comparison it is), the three sides are equal ignoring whitespace,
+	 *  a side that did not change as empty: a blank line added or removed. Drawn pale without word ranges, as IntelliJ
+	 *  paints it, and still a change that a side applies and the navigation stops at; IntelliJ's merge drops no block
+	 */
+	ignored: boolean,
+	/**
+	 *  How the block resolves: `Default` takes the side that changed, `Text` takes `resolved_text`; `None` for a conflict
+	 *  that the user resolves
+	 */
+	resolution: MergeResolution | null,
+	/**  The text of the block resolved by its words, without the end of its last line; only for the `Text` resolution */
+	resolvedText: string | null,
+	/**
+	 *  For each line of a side, `[start, end, ...]`: UTF-16 offsets inside the line, never the line end. Empty for a
+	 *  block without inner ranges: inserted, deleted, ignored, or `line_level_only`
+	 */
+	leftRanges: number[][],
+	baseRanges: number[][],
+	rightRanges: number[][],
+};
+
+/**  The kind of a merge block (`MergeConflictType.Type`) */
+export type MergeBlockKind = "inserted" | "deleted" | "modified" | "conflict";
+
 /**
  *  A merge conflict of a cherry-pick, as a sync reports it: the commits, the conflicting files and the conflict
  *  analysis, without file contents and diffs. Those are `ConflictContents`, which a view reads when it shows the
@@ -1391,6 +1625,39 @@ export type MergeConflictInfo = {
 	conflictingFiles: ConflictFile[],
 	conflictAnalysis: ConflictAnalysis,
 };
+
+/**  What the conflict view shows of a file */
+export type MergeContent = {
+	kind: "text",
+} & TextMerge | 
+/**  A side is binary */
+({ kind: "binary" }) & { baseBytes?: never; baseCommit?: never; deleted?: never; diff?: never; leftBytes?: never; leftCommit?: never; rightBytes?: never; rightCommit?: never } | 
+/**  A side is over `MAX_BLOB_BYTES`; the sizes in bytes, 0 for a missing side */
+({ kind: "tooLarge"; baseBytes: number; leftBytes: number; rightBytes: number }) & { baseCommit?: never; deleted?: never; diff?: never; leftCommit?: never; rightCommit?: never } | 
+/**  A submodule: the commit of each stage */
+({ kind: "submodule"; baseCommit: string | null; leftCommit: string | null; rightCommit: string | null }) & { baseBytes?: never; deleted?: never; diff?: never; leftBytes?: never; rightBytes?: never } | 
+/**  Git cannot read a blob of the file */
+({ kind: "missing" }) & { baseBytes?: never; baseCommit?: never; deleted?: never; diff?: never; leftBytes?: never; leftCommit?: never; rightBytes?: never; rightCommit?: never } | 
+/**  One side deleted the file and the other changed it: the diff of the base to the changed side, as two-way */
+({ kind: "oneSided"; deleted: MergeSide; diff: TextDiff }) & { baseBytes?: never; baseCommit?: never; leftBytes?: never; leftCommit?: never; rightBytes?: never; rightCommit?: never };
+
+/**  How a merge block resolves (`MergeConflictResolutionStrategy` without the language-specific one) */
+export type MergeResolution = 
+/**  Take the side that changed */
+"default" | 
+/**  The changes of the two sides do not overlap at the word level */
+"text";
+
+/**  A side of a merge besides the base */
+export type MergeSide = "left" | "right";
+
+/**  What a merge merges */
+export type MergeSource = 
+/**
+ *  The cherry-pick of `commit` onto `target`: `parent` is the base, `target` ours (left), `commit` theirs (right),
+ *  as the sync merges it
+ */
+{ kind: "cherryPick"; parent: string; target: string; commit: string };
 
 /**  Why the approvals are missing */
 export type MissingApprovalsReason = 
@@ -2503,6 +2770,14 @@ export type RobotLandingRequest = {
 	tip: string | null,
 };
 
+/**  A declaration of a text: its lines and its label, `Outer › inner` */
+export type Scope = {
+	/**  0-based, the end exclusive */
+	startLine: number,
+	endLine: number,
+	label: string,
+};
+
 export type SearchGitHubUsersParams = {
 	repositoryPath: string,
 	query: string,
@@ -2516,6 +2791,13 @@ export type SearchState = "complete" |
 export type SetRepositoryConfigParams = {
 	repositoryPath: string,
 	change: RepositoryConfigChange,
+};
+
+/**  A value of each of the three sides of a merge */
+export type Sides<T> = {
+	left: T,
+	base: T,
+	right: T,
 };
 
 export type SquashCommitsParams = {
@@ -2900,6 +3182,71 @@ export type SyncInputsParams = {
 	branchPrefix: string,
 };
 
+/**  The diff of two texts */
+export type TextDiff = {
+	oldLineCount: number,
+	newLineCount: number,
+	/**
+	 *  The changed lines of the new text under the policy: an `Ignored` block, and the empty line after a final line
+	 *  end, do not count
+	 */
+	additions: number,
+	/**  The same for the old text */
+	deletions: number,
+	/**  The line ends of the two files when they differ; `None` when they are the same, or a file has no line end */
+	lineEnds: LineEnds | null,
+	/**
+	 *  Whether each text ends with a line end, when only one does ("Newline at end of file added"); `None` when they agree,
+	 *  or a text is empty (an added or a deleted file)
+	 */
+	finalNewline: FinalNewline | null,
+	/**
+	 *  Whether the last line of each text is the empty line that does not count: the line after a final line end, or
+	 *  the one line of an empty text. A view hides it when no block touches it, so a file shows no empty last row
+	 */
+	emptyLastLine: EmptyLastLine,
+	/**  The inner ranges were not compared (a side over a limit, or out of time): the blocks are still exact */
+	lineLevelOnly: boolean,
+	/**  In order and without overlap; the lines between two blocks are equal under the policy */
+	blocks: DiffBlock[],
+	/**  The declarations of the old text, for the labels of the hunks; empty when not known */
+	oldScopes: Scope[],
+	newScopes: Scope[],
+};
+
+/**  The merge of three texts */
+export type TextMerge = {
+	leftLineCount: number,
+	baseLineCount: number,
+	rightLineCount: number,
+	/**
+	 *  The line ends of the sides (`None` for a side without one) when they differ; `None` when the sides with a line
+	 *  end agree
+	 */
+	lineEnds: Sides<LineEndKind | null> | null,
+	/**  Whether each text ends with a line end, when they disagree; `None` when they agree or a text is empty */
+	finalNewline: Sides<boolean> | null,
+	/**  Whether the last line of each text is the empty line that does not count (`TextDiff::empty_last_line`) */
+	emptyLastLine: Sides<boolean>,
+	/**
+	 *  The inner ranges and the resolve by words were not computed (a side over a limit, or out of time): the blocks are
+	 *  still exact, and no conflict resolves by words
+	 */
+	lineLevelOnly: boolean,
+	/**  In order and without overlap; the lines between two blocks are equal on the three sides under the policy */
+	blocks: MergeBlock[],
+	/**  The blocks that both sides changed differently */
+	conflicts: number,
+	/**
+	 *  The conflicts that no resolution resolves; `conflicts > 0` with `unresolved == 0` is a conflict of git that its
+	 *  words resolve
+	 */
+	unresolved: number,
+	leftScopes: Scope[],
+	baseScopes: Scope[],
+	rightScopes: Scope[],
+};
+
 /**  Where the GitHub token came from, in the order they are tried (`github::token`) */
 export type TokenSource = 
 /**  `GH_TOKEN`, else `GITHUB_TOKEN` */
@@ -3086,6 +3433,20 @@ export type WaitForGitHubBranchParams = {
 	/**  The full branch name on the remote, e.g. `user/virtual/feature-auth` */
 	branch: string,
 };
+
+/**  The whitespace option of a diff view (`IgnorePolicy`) */
+export type WhitespacePolicy = 
+/**  Every char counts */
+"default" | 
+/**  The whitespace at the start and the end of a line does not count */
+"trim" | 
+/**  No whitespace counts */
+"ignore" | 
+/**
+ *  No whitespace counts, and a block that changed only in whitespace or empty lines at its start or end is cut off
+ *  (`IGNORE_WHITESPACES_CHUNKS`)
+ */
+"ignoreBlankLines";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {
