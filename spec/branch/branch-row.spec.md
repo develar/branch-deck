@@ -16,6 +16,8 @@ targets:
   - ../../src/components/branch/BranchNameCell.tsx
   - ../../src/components/branch/IssueFamilyRow.tsx
   - ../../src/components/branch/StackLanes.tsx
+  - ../../src/components/branch/LandingNodeHover.tsx
+  - ../../src/components/repository/RobotRows.tsx
   - ../../src/stores/stack-view.ts
   - ../../src/components/branch/StackChip.tsx
   - ../../src/hooks/useStackPathPointer.ts
@@ -187,9 +189,19 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - Hovering the node must say its state in the words the row uses elsewhere (the reason of the next step, the status):
   "Ready to land: Safe Push lands 2 branches", "Waits for the approval of IJPL Code Platform: Ilya Korennoy is
   requested on #1078", "Lands with oauth: its Safe Push runs", "Landed in origin/master". Its hover target is the lane's
-  16px square around the 8px circle; a click goes on to the row.
+  16px square around the 8px circle; a click goes on to the row, and never pins the hover.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`, `should say which branches a running Safe Push lands, and not start them on their own`)
-  [@test] ../../tests/e2e/branch-graph/branch-graph.spec.ts (`should give every branch of a table without stacks its node, and keep the push on the dot of the status`)
+  [@test] ../../tests/e2e/branch-graph/branch-graph.spec.ts (`should give every branch of a table without stacks its node, and keep the push on the dot of the status`, `should go on to the row on a click of the node, never pinning its hover`)
+- What the hover names must open from it: it is a popover (`LandingNodeHover`), not a tooltip. The issue keys of the
+  text are links to the tracker (the issue navigation of the project). A state of the robot of the branch (it failed on
+  the branch as it is, it runs, a Dry Run runs) shows the robot below the text as the landing overview lists it
+  (`RobotRow`, without the branch name): its mode ("Safe Push") a link that opens it in Patronus, its state and time,
+  and its actions from the one list of the branch menu (`getGatedRobotActions`: Restart Safe Push, Copy Prompt for
+  Agent, Copy Prompt with CI Details, Open in Patronus, Open Pull Request #N). The failed state says so: "Safe Push
+  failed on ABC-123 as it is: fix it, or Restart Safe Push". A click in the hover never toggles the row. The node is no
+  tab stop: the row has its keys, and the same actions are in its slot, its menu and its robot chip.
+  [@test] ../../src/lib/landing-node.test.ts (`needs a fix: a sync error, a conflict, a robot that failed on the branch as it is, changes requested`, `is landing while its own Safe Push runs or one of a branch built on it lands it; a dry run lands nothing`)
+  [@test] ../../tests/e2e/branch-graph/branch-graph.spec.ts (`should open the issue and the failed Safe Push from the hover of the node, and restart it or copy the prompt there`)
 - The "Branch Name" head must end with the legend of the nodes, "About Branch Graph" (`BranchGraphHelpPopover`): one
   line on what a node says and what filled means, each kind as its node with its legend, and a line on the lines of
   a stack.
@@ -647,7 +659,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   `tests/e2e/archived-branches`, the chip specs and `tests/e2e/issue-reference.spec.ts` for the inline forms (a
   failure is a `page.route` of the command with status 500). E2E reads the status text by
   `data-testid="branch-status"` and its dot by `branch-status-dot` (`data-color`), the graph by `data-lane` on the row,
-  `lane-node` (`data-kind`, `data-color`, `data-filled`, `data-ring`) in `lane-node-target`, `lane-ring`, `lane-lines`, `landing-lanes` and `stack-path-lanes` (a node the hovered push sends has
+  `lane-node` (`data-kind`, `data-color`, `data-filled`, `data-ring`) in `lane-node-target`, its hover `lane-node-details` (`data-kind`) with `lane-node-robot`, `lane-ring`, `lane-lines`, `landing-lanes` and `stack-path-lanes` (a node the hovered push sends has
   `data-pushed`), the stack chip by `stack-chip` (`data-stack`: `expanded`, `collapsed`, `filtered`;
   `stack-chip-attention`) and `lane-collapsed`, the dividers by `data-divider`, the family guide by `family-guide`, the rail by `commit-rail`, a dimmed row by `data-dimmed` and the
   archived status by `archived-branch-status` (`data-status`: `merged`, `partial`, `not-merged`, `unknown`).

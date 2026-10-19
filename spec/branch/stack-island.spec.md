@@ -9,6 +9,7 @@ targets:
   - ../../src/lib/stack-state.ts
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/components/branch/StackIslandCard.tsx
+  - ../../src/components/branch/LandingNodeHover.tsx
   - ../../src/hooks/usePushButton.ts
   - ../../src/hooks/useWholeStackActions.ts
   - ../../src/components/branch/OrphanedStackPullRequest.tsx
@@ -83,8 +84,11 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   stack chip, the header is it. Before the name, the node of the whole stack says where it is on its way into master,
   as the node of a row says it of a branch ([Branch Row](branch-row.spec.md#tree)): of its stack branch while the stack
   forks, of its last branch for a straight chain; its hover says it ("Ready to land: Safe Push lands 7 branches"), so
-  a collapsed island still answers it.
+  a collapsed island still answers it. The hover is that of the node of a row ([Branch Row](branch-row.spec.md#tree),
+  `LandingNodeHover`): a failed or running robot shows below the text with its actions, the robot of the whole stack
+  while the stack forks, else that of its last branch.
   [@test] ../../tests/e2e/branch-graph/branch-graph.spec.ts (`should say in the island header where the whole stack is on its way into master`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the failed robot of the whole stack in the hover of the island's node, with its actions`)
 - After it, what the stack holds, each counted as the stack chip counts it (`summarizeStackState` over the whole
   stack, `getStackStateChips`), the strongest first: "1 failed", "1 running", "3 to push"; a click on a count shows the
   first branch in that state (`requestReveal`: it expands the island and the row), also from a collapsed island. The

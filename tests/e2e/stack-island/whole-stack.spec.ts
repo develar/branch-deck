@@ -252,6 +252,21 @@ test.describe("Whole stack", () => {
     expect(creates[0]).toMatchObject({ branchName: "air", head: "user-name/stack/air", reviewers: ["ikorennoy"] })
   })
 
+  test("should show the failed robot of the whole stack in the hover of the island's node, with its actions", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const failed = wholeStackRobot("air", "whole", { status: "failure", finishTime: 1704142800 })
+    await setupRepo("stack_island", { patronus: availableRobots(failed) })
+    await syncAndWaitForBranches()
+    const node = island(page, "air").getByTestId("stack-island-node")
+    await expect(node.getByTestId("lane-node")).toHaveAttribute("data-kind", "needsFix")
+    await node.hover()
+    const details = page.getByTestId("lane-node-details")
+    await expect(details.getByText("Safe Push failed on the whole air stack as it is: fix it, or Restart Safe Push")).toBeVisible()
+    const robotRow = details.getByTestId("lane-node-robot").getByTestId("robots-row")
+    await expect(robotRow.getByRole("button", { name: "Copy Prompt for Agent of the whole air stack" })).toBeVisible()
+    await robotRow.getByRole("button", { name: "Safe Push", exact: true }).click()
+    expect(await getOpenedUrls(page)).toEqual([failed.url])
+  })
+
   test("should show the push of the stack branch alone in the header's push when the restart of its robot pushes it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const { stackPushes, release, restarts } = await setupFailedWholeStackRobot(page, setupRepo, syncAndWaitForBranches)
     const push = islandPush(page, "air")

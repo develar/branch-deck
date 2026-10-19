@@ -50,9 +50,22 @@ function computeStackNode(root: string): LandingNode | null {
       pushPending: false,
     })
   }
+  const leaf = mainLineLeaf(root)
+  return leaf === null ? null : getLandingNodeNow(leaf)
+}
+
+/** The last branch of the straight chain of `root`, whose Safe Push lands the whole stack; null for a lone branch */
+function mainLineLeaf(root: string): string | null {
   const mainLine = stackMainLineIn(branchSyncStore.getState(), root)
-  const leaf = mainLine.at(-1)
-  return leaf === undefined || mainLine.length < 2 ? null : getLandingNodeNow(leaf)
+  return mainLine.length < 2 ? null : (mainLine.at(-1) ?? null)
+}
+
+/**
+ * The branch whose node the header of the island of `root` shows (the last of its straight chain), whose robot its hover
+ * shows; null while the stack forks: the node is of its stack branch, the robot of the whole stack
+ */
+export function getStackNodeBranch(root: string): string | null {
+  return isForkingStack(getStackBranch(root)) ? null : mainLineLeaf(root)
 }
 
 /** By key (a branch, `stack:<root>`): the node shown, and the store states it was computed for */
@@ -96,4 +109,9 @@ export function useLandingNode(name: string): LandingNode | null {
 /** The node of the whole stack of `root`, for the header of its island */
 export function useStackLandingNode(root: string): LandingNode | null {
   return useNextStepStores(() => getStackLandingNodeNow(root))
+}
+
+/** `getStackNodeBranch`, re-rendering when it changes */
+export function useStackNodeBranch(root: string): string | null {
+  return useNextStepStores(() => getStackNodeBranch(root))
 }

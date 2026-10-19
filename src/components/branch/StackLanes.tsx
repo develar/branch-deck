@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react"
 import { cn } from "cn"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { LandingNodeHover } from "@/components/branch/LandingNodeHover"
 import { RobotRing } from "@/components/branch/RobotProgress"
 import { useLandingNode } from "@/hooks/useLandingNode"
 import type { LandingNodeKind } from "@/lib/landing-node"
@@ -119,30 +119,31 @@ export function LaneCell({ lanes, branch, familyIndent, lineDown, collapsedBelow
   )
 }
 
+/** The hover target of a node: the lane's 16px square around its 8px circle */
+const NODE_TARGET = "pointer-events-auto absolute top-1/2 left-[calc((var(--bd-node-lane)+0.5)*var(--bd-lane-width))] flex size-4 -translate-1/2 items-center justify-center"
+
 /**
  * The node of a branch, an 8px circle on its lane: where the branch is on its way into master (`getLandingNode`), filled
- * while the next step is the user's, hollow while it waits for others or is done; the hover says it. The push has the
- * dot of the status text.
+ * while the next step is the user's, hollow while it waits for others or is done; the hover says it, with its links and
+ * the robot it tells of (`LandingNodeHover`). The push has the dot of the status text.
  */
 function LaneNodeMark({ branch, ring }: { branch: Branch; ring: boolean }) {
   const node = useLandingNode(branch.name)
   // the hovered push button sends this branch: the node is circled in its colour
   const pushed = useIsPushedOnPath(branch.name)
   const kind = node?.kind ?? "waiting"
+  const dot = <LaneNodeDot kind={kind} ring={ring ? <LaneRobotRing branchName={branch.name} /> : null} pushed={pushed} />
+  if (node === null) {
+    return (
+      <span className={NODE_TARGET} data-testid="lane-node-target">
+        {dot}
+      </span>
+    )
+  }
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <span
-            className="pointer-events-auto absolute top-1/2 left-[calc((var(--bd-node-lane)+0.5)*var(--bd-lane-width))] flex size-4 -translate-1/2 items-center justify-center"
-            data-testid="lane-node-target"
-          />
-        }
-      >
-        <LaneNodeDot kind={kind} ring={ring ? <LaneRobotRing branchName={branch.name} /> : null} pushed={pushed} />
-      </TooltipTrigger>
-      {node !== null && <TooltipContent className="whitespace-pre-line">{node.label}</TooltipContent>}
-    </Tooltip>
+    <LandingNodeHover node={node} subject={{ kind: "branch", name: branch.name }} trigger={<span className={NODE_TARGET} data-testid="lane-node-target" />}>
+      {dot}
+    </LandingNodeHover>
   )
 }
 

@@ -102,8 +102,8 @@ indicator, whose states were the same story told twice.
   Safe Push (at once when it has nothing to ask), Create Pull Request…, Request Review… (its popover at the slot),
   Retarget, Restart Safe Push.
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should run the next step of a move from the overview at its row: a Safe Push, a pull request`)
-- A robot row has the icon of the state (the ring while it runs) and the branch; below it the push mode and the merge
-  profile when an answer named it, then for a running robot its time ("Safe Push · Large Scale Change · 18m · ~1h 32m
+- A robot row has the icon of the state (the ring while it runs) and the branch; below it the push mode (a link that
+  opens the robot in Patronus, "Open in Patronus" on hover) and the merge profile when an answer named it, then for a running robot its time ("Safe Push · Large Scale Change · 18m · ~1h 32m
   left", [Patronus](../branch/patronus.spec.md#timing)) and a progress bar, for a finished one the state in its hue and
   when it finished ("Safe Push · Failed · 50 minutes ago"); then the actions of the robot as every surface lists them
   (`getGatedRobotActions`, [Patronus](../branch/patronus.spec.md#restart-and-cancel)), icon buttons named after the

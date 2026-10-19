@@ -84,7 +84,7 @@ test.describe("Stacked branches", () => {
     await expect(node).toHaveAttribute("data-filled", "true")
     await findBranchRow(page, "login").getByTestId("lane-node-target").hover()
     // GitHub doesn't list the pull requests here: nobody judges the approvals before the start, the start is the user's step
-    await expect(page.getByRole("tooltip")).toHaveText("Safe Push lands 2 branches: Patronus checks the approvals when the robot starts")
+    await expect(page.getByTestId("lane-node-details")).toHaveText("Safe Push lands 2 branches: Patronus checks the approvals when the robot starts")
     await expect(findBranchRow(page, "login").getByTestId("branch-status-dot")).toHaveAttribute("data-color", "primary")
     // the graph shows what a branch is built on: the row doesn't say it
     await expect(findBranchRow(page, "oauth").getByTestId("stack-base")).toHaveCount(0)
@@ -1121,7 +1121,7 @@ test.describe("Stacked branches", () => {
         await expect(findBranchRow(page, name).getByTestId("lane-node")).toHaveAttribute("data-kind", "landing")
       }
       await findBranchRow(page, "login").getByTestId("lane-node-target").hover()
-      await expect(page.getByRole("tooltip", { name: "Lands with oauth: its Safe Push runs" })).toBeVisible()
+      await expect(page.getByTestId("lane-node-details")).toHaveText("Lands with oauth: its Safe Push runs")
       await page.mouse.move(0, 0)
       for (const name of ["auth", "session", "login", "oauth"]) {
         await expect(findBranchRow(page, name).getByTestId("landing-lanes")).toHaveCount(1)

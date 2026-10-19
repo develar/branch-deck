@@ -7,8 +7,9 @@ import { RelativeTime } from "@/components/shared/RelativeTime"
 import { getGatedRobotActions } from "@/hooks/useBranchNextStep"
 import { usePatronusRobotDetails } from "@/hooks/usePatronusRobotDetails"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
+import type { PatronusRobot } from "@/lib/bindings"
 import { formatFailedChecks } from "@/lib/check-counts"
-import { formatPushMode, robotRingColor } from "@/lib/patronus"
+import { formatPushMode, openRobot, robotRingColor } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { patronusChipIcons } from "@/lib/patronus-icons"
 import { formatCheckProgress, formatRobotProgress } from "@/lib/robot-eta"
@@ -44,11 +45,12 @@ export function RobotList({ title, testId, entries, onReveal }: RobotListProps) 
 }
 
 /**
- * A robot: its icon, the branch (a click shows its row), below it the mode, the merge profile when an answer named it,
- * and the time or the state ("Safe Push · Large Scale Change · 18m · ~1h 30m left"), the progress bar of a running one;
- * then the actions of the robot as icon buttons, named as in the branch menu (`getGatedRobotActions`)
+ * A robot: its icon, the branch (a click shows its row), below it the mode (a link that opens the robot in Patronus),
+ * the merge profile when an answer named it, and the time or the state ("Safe Push · Large Scale Change · 18m · ~1h 30m
+ * left"), the progress bar of a running one; then the actions of the robot as icon buttons, named as in the branch menu
+ * (`getGatedRobotActions`). Without `onReveal` the branch is left out: the surface is the branch (the hover of its node).
  */
-export function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onReveal: (name: string) => void }) {
+export function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onReveal?: (name: string) => void }) {
   const { robot, chip, branchName } = entry
   const branch = useBranch(entry.stackRoot === undefined ? branchName : "")
   // the whole stack is named in a sentence as "the whole air stack", and a click shows its root
@@ -65,7 +67,7 @@ export function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onRev
         {active ? <RobotRing className={cn("size-3.5", robotRingColor(failing))} /> : <Icon className={cn("size-3.5", statusChipTextColors[chip.color])} />}
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        {entry.hasRow ? (
+        {onReveal === undefined ? null : entry.hasRow ? (
           <Tooltip>
             <TooltipTrigger
               render={
@@ -84,7 +86,8 @@ export function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onRev
           <span className="min-w-0 truncate text-sm">{branchName}</span>
         )}
         <span className="text-xs text-muted-foreground tabular-nums" data-testid="robots-row-state">
-          {`${mode} · `}
+          <RobotModeLink robot={robot} mode={mode} />
+          {" · "}
           {robot.profile?.name != null && `${robot.profile.name} · `}
           {active ? (
             <RunningTime entry={entry} />
@@ -108,6 +111,27 @@ export function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onRev
         ))}
       </span>
     </li>
+  )
+}
+
+/** The mode of the robot ("Safe Push", "Dry Run") as a link: a click opens the robot in Patronus */
+function RobotModeLink({ robot, mode }: { robot: PatronusRobot; mode: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className="rounded-sm outline-none hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
+            data-testid="robots-row-mode"
+            onClick={() => openRobot(robot)}
+          />
+        }
+      >
+        {mode}
+      </TooltipTrigger>
+      <TooltipContent>Open in Patronus</TooltipContent>
+    </Tooltip>
   )
 }
 

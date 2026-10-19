@@ -79,6 +79,9 @@ test.describe("Landing overview", () => {
     ])
     await row.getByRole("button", { name: "Open Pull Request #7 of ABC-123" }).click()
     expect(await getOpenedUrls(page)).toEqual([pullRequest.url])
+    // the mode of the robot is a link to it
+    await row.getByTestId("robots-row-mode").click()
+    expect(await getOpenedUrls(page)).toEqual([pullRequest.url, FAILED.url])
     await row.getByRole("button", { name: "Restart Safe Push of ABC-123" }).click()
     expect(restarts).toEqual([expect.objectContaining({ robotId: "failed-robot" })])
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push restarted" })).toBeVisible()

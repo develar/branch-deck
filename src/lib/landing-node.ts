@@ -34,6 +34,8 @@ export interface LandingNode {
   readonly label: string
   /** It waits for the first answer of Patronus: the header counts no move of it yet */
   readonly pending?: true
+  /** The label tells the state of the robot of the branch (of the whole stack): the hover shows the robot with its actions */
+  readonly robot?: true
 }
 
 /** What decides the node beside the facts of the next step, which don't tell these apart */
@@ -54,6 +56,9 @@ export interface LandingNodeFacts {
 }
 
 const node = (kind: LandingNodeKind, label: string): LandingNode => ({ kind, label })
+
+/** A state of the robot of the branch itself, which the hover shows with its actions (`LandingNodeDetails`) */
+const robotNode = (kind: LandingNodeKind, label: string): LandingNode => ({ kind, label, robot: true })
 
 /** Nobody can tell yet where it is: Patronus hasn't answered */
 const pendingNode = (label: string): LandingNode => ({ kind: "waiting", label, pending: true })
@@ -80,9 +85,9 @@ export function getLandingNode(facts: LandingNodeFacts): LandingNode {
   const robot = next.robot
   if (robot.kind === "running") {
     if (facts.robotDryRun) {
-      return node("waiting", "Dry Run running: it checks the branch, it lands nothing")
+      return robotNode("waiting", "Dry Run running: it checks the branch, it lands nothing")
     }
-    return node("landing", isFailingChip(robot.chip) ? "Landing: Safe Push running, a required check failed" : "Landing: Safe Push running")
+    return robotNode("landing", isFailingChip(robot.chip) ? "Landing: Safe Push running, a required check failed" : "Landing: Safe Push running")
   }
   if (facts.landingWith !== null) {
     return node("landing", `Lands with ${facts.landingWith}: its Safe Push runs`)
@@ -94,7 +99,8 @@ export function getLandingNode(facts: LandingNodeFacts): LandingNode {
     return facts.patronusKnown ? withoutPatronus(next, facts.pushPending) : pendingNode("Waits for the answer of Patronus")
   }
   if (robot.kind === "finished" && robot.chip.kind === "failed") {
-    return node("needsFix", `Safe Push failed on ${next.subject} as it is: fix it or restart it`)
+    // the hover shows the robot: its restart and the prompts for an agent are buttons there
+    return robotNode("needsFix", `Safe Push failed on ${next.subject} as it is: fix it, or Restart Safe Push`)
   }
 
   // the reason of the step itself: a robot that lands an ancestor is said apart, for a start only

@@ -62,15 +62,20 @@ describe("getLandingNode", () => {
   it("needs a fix: a sync error, a conflict, a robot that failed on the branch as it is, changes requested", () => {
     expect(landing(facts({ hasError: true }), { status: "Error", statusText: "cannot read" })).toEqual({ kind: "needsFix", label: "cannot read" })
     expect(landing(facts(), { status: "MergeConflict", statusText: "merge conflict" }).kind).toBe("needsFix")
-    expect(landing(withReadiness(approved, { robot: finished("failed"), restart })).kind).toBe("needsFix")
+    // the hover shows the robot, whose restart and prompts are buttons; the advice names the restart as its button does
+    expect(landing(withReadiness(approved, { robot: finished("failed"), restart }))).toEqual({
+      kind: "needsFix",
+      label: "Safe Push failed on wsm-skip-wa-2 as it is: fix it, or Restart Safe Push",
+      robot: true,
+    })
     const changes = missing([group({ changesRequestedBy: [{ login: "ikorennoy", fullName: "Ilya Korennoy" }] })])
     expect(landing(withReadiness(changes))).toEqual({ kind: "needsFix", label: "Ilya Korennoy requested changes on #1078" })
   })
 
   it("is landing while its own Safe Push runs or one of a branch built on it lands it; a dry run lands nothing", () => {
     const running = facts({ robot: { kind: "running", chip: chip("running") } })
-    expect(landing(running)).toEqual({ kind: "landing", label: "Landing: Safe Push running" })
-    expect(landing(running, { robotDryRun: true }).kind).toBe("waiting")
+    expect(landing(running)).toEqual({ kind: "landing", label: "Landing: Safe Push running", robot: true })
+    expect(landing(running, { robotDryRun: true })).toMatchObject({ kind: "waiting", robot: true })
     expect(landing(facts({ held: true }), { landingWith: "oauth" })).toEqual({ kind: "landing", label: "Lands with oauth: its Safe Push runs" })
   })
 

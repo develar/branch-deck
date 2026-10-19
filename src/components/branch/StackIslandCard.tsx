@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { CompactPushLabel, PushProgressDescription } from "@/components/branch/BranchPushButton"
+import { LandingNodeHover } from "@/components/branch/LandingNodeHover"
 import { NextStepSlot, WholeStackRequestReviewAnchor } from "@/components/branch/NextStepSlot"
 import { OrphanedStackPullRequestLine } from "@/components/branch/OrphanedStackPullRequest"
 import { RobotRing } from "@/components/branch/RobotProgress"
@@ -15,7 +16,7 @@ import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
-import { useStackLandingNode } from "@/hooks/useLandingNode"
+import { useStackLandingNode, useStackNodeBranch } from "@/hooks/useLandingNode"
 import { useStackBranchAlong, useStackBranchPushAlone } from "@/hooks/usePushButton"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { requestSafePush } from "@/hooks/useSafePush"
@@ -204,19 +205,22 @@ export function StackIslandCard({ island, filtered, landing, children }: StackIs
   )
 }
 
-/** Where the whole stack is on its way into master, as the node of a row says it of a branch; the hover says it */
+/** Where the whole stack is on its way into master, as the node of a row says it of a branch; the hover says it (`LandingNodeHover`) */
 function IslandLandingNode({ root }: { root: string }) {
   const node = useStackLandingNode(root)
+  // a straight chain shows the node of its last branch, and the robot of that branch
+  const leaf = useStackNodeBranch(root)
   if (node === null) {
     return null
   }
   return (
-    <Tooltip>
-      <TooltipTrigger render={<span className="flex shrink-0" data-testid="stack-island-node" />}>
-        <LaneNodeDot kind={node.kind} />
-      </TooltipTrigger>
-      <TooltipContent className="whitespace-pre-line">{node.label}</TooltipContent>
-    </Tooltip>
+    <LandingNodeHover
+      node={node}
+      subject={leaf === null ? { kind: "stack", root } : { kind: "branch", name: leaf }}
+      trigger={<span className="flex shrink-0" data-testid="stack-island-node" />}
+    >
+      <LaneNodeDot kind={node.kind} />
+    </LandingNodeHover>
   )
 }
 

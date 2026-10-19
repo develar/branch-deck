@@ -296,7 +296,7 @@ test.describe("Next step", () => {
     const node = findBranchRow(page, BRANCH).getByTestId("lane-node")
     await expect(node).toHaveAttribute("data-kind", "waiting")
     await findBranchRow(page, BRANCH).getByTestId("lane-node-target").hover()
-    await expect(page.getByRole("tooltip").filter({ hasText: "Waits for ikorennoy" })).toHaveText(
+    await expect(page.getByTestId("lane-node-details").filter({ hasText: "Waits for ikorennoy" })).toHaveText(
       "Waits for ikorennoy on #1078 · Patronus can't tell yet whether the approvals there count: the start checks them\nOpen Pull Request #1078",
     )
     await page.mouse.move(0, 0)
