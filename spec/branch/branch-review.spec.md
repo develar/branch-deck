@@ -92,14 +92,14 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should open the review of a branch in its window from its row, its menu and its preview`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say on Space that the approvals count in the GitHub pull request, and open Settings at its repository`)
   [@test] ../../src/lib/branch-review.test.ts (`allows a synced branch with commits`)
-- "Review Whole Stack" (the "⋯" of a stack island and "Whole Stack ›" of the root's menu) must open the same window for
+- "Review Whole Stack" (the "⋯" of a stack island and "Whole Stack ›" of the menu of every branch of the stack) must open the same window for
   the whole stack of a stack that forks (`openWholeStackReviewWindow`, titled "Review the whole air stack"): one part,
   its stack branch `{prefix}/stack/<root>` on the baseline (`GetBranchReviewParams::whole_stack`), named "Whole air
   stack", every commit of the stack in the order of the history; read again when a sync moves the stack branch. It
   shows no actions of a branch: the whole stack's are in the menus of the main window. It is disabled, with the
   reason, while the stack branch has no tip. Of a straight chain, which has no stack branch, it opens the review of its
   last branch from the root (`range: "all"`).
-  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should review the whole stack in the window of its stack branch, from the island's menu and the root's menu`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should review the whole stack in the window of its stack branch, from the island's menu, the root's menu and the menu of a branch of it`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
   [@test] ../../crates/sync-core/src/branch_review_test.rs (`the_whole_stack_is_one_part_of_its_stack_branch`)
 - D on a commit row of a branch, the "Review Changes" of its menu and the D, the footer button and Enter in the

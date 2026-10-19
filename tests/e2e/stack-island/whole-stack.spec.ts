@@ -37,7 +37,7 @@ async function openIslandMenu(page: Page, root: string): Promise<void> {
     .click()
 }
 
-/** Opens "Whole Stack ›" of the root's menu (the right-click on its row) */
+/** Opens "Whole Stack ›" of the menu of a branch of the stack, its root's too (the right-click on its row) */
 async function openWholeStackSubmenu(page: Page, root: string): Promise<void> {
   await findBranchRow(page, root).click({ button: "right" })
   await page.getByRole("menuitem", { name: "Whole Stack" }).click()
@@ -612,7 +612,11 @@ test.describe("Whole stack", () => {
     await expect(popover.getByTestId("safe-push-whole-stack-approvals")).toHaveText("Approvals count in #12, the pull request of the whole stack.")
   })
 
-  test("should review the whole stack in the window of its stack branch, from the island's menu and the root's menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should review the whole stack in the window of its stack branch, from the island's menu, the root's menu and the menu of a branch of it", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     await setupRepo("stack_island")
     await syncAndWaitForBranches()
 
@@ -622,6 +626,10 @@ test.describe("Whole stack", () => {
     await openWholeStackSubmenu(page, "air")
     await page.getByRole("menuitem", { name: "Review Whole Stack" }).click()
     await expect.poll(async () => (await getOpenedSubWindows<BranchReviewWindowData>(page)).length).toBe(2)
+    // a branch of the stack has the same submenu, its root's
+    await openWholeStackSubmenu(page, "bazel")
+    await page.getByRole("menuitem", { name: "Review Whole Stack" }).click()
+    await expect.poll(async () => (await getOpenedSubWindows<BranchReviewWindowData>(page)).length).toBe(3)
     for (const opened of await getOpenedSubWindows<BranchReviewWindowData>(page)) {
       expect(opened).toMatchObject({ windowId: "branch-review", title: "Review the whole air stack", data: { chain: ["air"], wholeStack: true } })
     }

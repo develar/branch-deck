@@ -171,7 +171,7 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   counts the others.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
 - "⋯" is the menu of the stack ("More actions for the air stack"), built when it opens: the actions of the whole
-  stack, the list the root's menu shows under "Whole Stack ›" (`getWholeStackMenuItems`,
+  stack, the list the menu of every branch of the stack shows under "Whole Stack ›" (`getWholeStackMenuItems`,
   [Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)): "Safe Push Whole Stack" and "Dry Run Whole Stack"
   (the popover at the header's slot, disabled with the reasons of the whole stack), "Safe Push deploy" while the stack
   lands in pieces, then "Create Pull Request of the Stack…" or "Open Pull

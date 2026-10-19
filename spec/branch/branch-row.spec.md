@@ -455,7 +455,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - The groups must come in this order: copy ("Copy Full Branch Name", "Copy Branch Name", "Copy Pull Request Link" for a
   branch with a pull request, "Copy Retarget Command" for an open one into a virtual branch), the name ("Rename…" or
   "Name This Branch…", "Move to…", "Ungroup"), the stack ("Stack On…", "Unstack from …", "Collapse Stack" `⌥←` or
-  "Expand Stack" `⌥→`), the commits ("Add Issue Reference…", "Amend Changes…",
+  "Expand Stack" `⌥→`, on every branch of a stack "Whole Stack ›", the actions of the whole stack of its root:
+  [Whole Stack](whole-stack.spec.md)), the commits ("Add Issue Reference…", "Amend Changes…",
   "Unapply…"), the history ("Review Changes", "Squash N Fixups…", "Open Pull Request" or "Create Pull Request…") and the
   remote: the push of the branch, named as its push button, "Push oauth Only" after it while it pushes the stack
   ([Stacked Branches](stacked-branches.spec.md#pull-requests)), on a branch with branches stacked on it "Push with

@@ -54,6 +54,7 @@ import {
   formatBlockedReason,
   formatPushWithChildrenLabel,
   offersPushWithChildren,
+  stackAncestors,
   stackAskFirst,
   stackChildrenPushOrder,
 } from "@/lib/stack"
@@ -565,9 +566,10 @@ function getMoveMenuItems(name: string): MenuItem[] {
 const STACK_TARGET_LIMIT = 20
 
 /**
- * "Stack On…" (any other branch that isn't stacked on this one), "Unstack", the collapse of the stack, and on the root of
- * a stack "Whole Stack ›", the actions of the whole stack (`getWholeStackMenuItems`; Push with Children stays beside
- * the push), so a small stack without an island has them in the root's menu and preview
+ * "Stack On…" (any other branch that isn't stacked on this one), "Unstack", the collapse of the stack, and on every
+ * branch of a stack "Whole Stack ›", the actions of the whole stack of its root (`getWholeStackMenuItems`; Push with
+ * Children stays beside the push of the root), so a small stack without an island has them in the menu and the preview
+ * of each of its branches
  */
 function getStackMenuItems(branch: Branch, rewrite: (items: MenuItem[]) => MenuItem[]): MenuItem[] {
   const parent = branch.stack?.declaredParent ?? null
@@ -601,7 +603,9 @@ function getStackMenuItems(branch: Branch, rewrite: (items: MenuItem[]) => MenuI
         : { id: "collapse-stack", label: "Collapse Stack", icon: FoldVerticalIcon, kbds: ["alt", "arrowleft"], onSelect: () => void toggleStackCollapsed(branch.name, true) },
     )
   }
-  const wholeStack = parent === null && descendants.length > 0 ? getWholeStackMenuItems(branch.name, { withPush: false }) : []
+  // every branch of a stack is a piece of the whole stack: one submenu, its root's, on each of them
+  const root = stackAncestors(branch.name, getBranch)[0]?.name ?? (descendants.length > 0 ? branch.name : null)
+  const wholeStack = root === null ? [] : getWholeStackMenuItems(root, { withPush: false })
   if (wholeStack.length > 0) {
     items.push({ id: "whole-stack", label: "Whole Stack", icon: LayersIcon, onSelect: () => {}, children: wholeStack })
   }

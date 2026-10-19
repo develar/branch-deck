@@ -61,6 +61,24 @@ describe("the items of the branch menu", () => {
   })
 })
 
+describe("Whole Stack › of the branch menu", () => {
+  afterEach(() => {
+    branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false })
+  })
+
+  it("is the submenu of the root's whole stack on every branch of the stack, none on a branch of no stack", () => {
+    setBranches(synced("auth", null, unpushed), synced("login", "auth", unpushed), synced("oauth", "login", unpushed), synced("docs", null, unpushed))
+    const reviewOf = (name: string) =>
+      menuOf(name)
+        .find(item => item.id === "whole-stack")
+        ?.children?.find(item => item.id === "review-whole-stack")
+    for (const name of ["auth", "login", "oauth"]) {
+      expect(reviewOf(name)).toMatchObject({ label: "Review Whole Stack" })
+    }
+    expect(menuOf("docs").some(item => item.id === "whole-stack")).toBe(false)
+  })
+})
+
 describe("the branch menu during a sync", () => {
   afterEach(() => {
     branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, isSyncing: false })
