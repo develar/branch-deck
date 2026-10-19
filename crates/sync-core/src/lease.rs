@@ -1258,18 +1258,17 @@ fn move_in(git_executor: &GitCommandExecutor, pool: &Pool, params: &LeaseAdoptPa
   Ok(Ok((slot, Some(path.to_string()))))
 }
 
-/// Whether `a` and `b` are on one volume (`st_dev`); elsewhere than on Unix the move is left to git
+/// Whether `a` and `b` are on one volume (`st_dev`)
+#[cfg(unix)]
 fn same_volume(a: &Path, b: &Path) -> bool {
-  #[cfg(unix)]
-  {
-    use std::os::unix::fs::MetadataExt;
-    matches!((std::fs::metadata(a), std::fs::metadata(b)), (Ok(a), Ok(b)) if a.dev() == b.dev())
-  }
-  #[cfg(not(unix))]
-  {
-    let _ = (a, b);
-    true
-  }
+  use std::os::unix::fs::MetadataExt;
+  matches!((std::fs::metadata(a), std::fs::metadata(b)), (Ok(a), Ok(b)) if a.dev() == b.dev())
+}
+
+/// Elsewhere than on Unix the move is left to git
+#[cfg(not(unix))]
+const fn same_volume(_a: &Path, _b: &Path) -> bool {
+  true
 }
 
 /// The checks of an adopt: a linked worktree of this repository, not in the pool, no process in it, clean

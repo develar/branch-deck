@@ -1,6 +1,10 @@
-use crate::lease::{glob_matches, repository_name, seed_candidates, stop_servers};
+#[cfg(unix)]
+use crate::lease::stop_servers;
+use crate::lease::{glob_matches, repository_name, seed_candidates};
+#[cfg(unix)]
 use crate::process_scan::{ProcessInfo, is_running, process_started};
 use std::path::Path;
+#[cfg(unix)]
 use std::time::Duration;
 
 #[test]

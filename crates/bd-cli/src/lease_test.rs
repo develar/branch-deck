@@ -108,10 +108,7 @@ fn a_free_slot_is_reused_after_master_was_rewritten_past_its_commit() {
   );
   // the leaf directory keeps the name of the repository
   assert_eq!(Path::new(&path).file_name(), repo.path().file_name());
-  assert!(
-    Path::new(&path).starts_with(fixture.home.path().canonicalize().unwrap().join(".branch-deck/pool")),
-    "{path}"
-  );
+  assert!(Path::new(&path).starts_with(canonical(fixture.home.path()).join(".branch-deck/pool")), "{path}");
   assert_eq!(slot_git(&path, &["rev-parse", "HEAD"]), repo.head());
   fixture.give_back(&path);
   assert_eq!(states(&fixture.status()), [(path.clone(), "free".to_string())]);
@@ -189,6 +186,7 @@ fn a_busy_free_slot_is_skipped() {
 }
 
 /// The `argv` of every git that started since the trace file was emptied, from its trace2 `start` events
+#[cfg(unix)]
 fn started_gits(trace: &Path) -> Vec<Vec<String>> {
   let text = std::fs::read_to_string(trace).unwrap_or_default();
   std::fs::write(trace, "").unwrap();
@@ -201,6 +199,7 @@ fn started_gits(trace: &Path) -> Vec<Vec<String>> {
 }
 
 /// The `argv` of the gits whose subcommand (after the `-c` options) is `subcommand`
+#[cfg(unix)]
 fn gits_of<'a>(gits: &'a [Vec<String>], subcommand: &str) -> Vec<&'a Vec<String>> {
   gits
     .iter()
@@ -257,24 +256,24 @@ fn every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_
   let added = fixture.get(&[]);
   drop(unreadable);
   assert_eq!(added["created_by"], json!("checkout"), "{added}");
+  let worktree_add = |gits: &[Vec<String>]| gits_of(gits, "worktree").iter().any(|argv| argv.contains(&"add".to_string()) && parallel(argv));
   let gits = started_gits(&trace);
-  assert!(
-    gits_of(&gits, "worktree").iter().any(|argv| argv.contains(&"add".to_string()) && parallel(argv)),
-    "{gits:?}"
-  );
-  // a reused slot, then a new one by a clone of the source
+  assert!(worktree_add(&gits), "{gits:?}");
+  // a reused slot, then a new one by a clone of the source on macOS, by `worktree add` elsewhere
   let path = path_of(&added);
   fixture.give_back(&path);
   fixture.repo.create_commit("Add c", "c.txt", "c\n");
   started_gits(&trace);
   fixture.get(&[]);
   let cloned = fixture.get(&[]);
-  if cfg!(target_os = "macos") {
-    assert_eq!(cloned["created_by"], json!("clone"), "{cloned}");
-  }
   let gits = started_gits(&trace);
   let checkouts = gits_of(&gits, "checkout");
-  assert!(checkouts.len() >= 2 && checkouts.iter().all(parallel), "{gits:?}");
+  if cfg!(target_os = "macos") {
+    assert_eq!(cloned["created_by"], json!("clone"), "{cloned}");
+    assert!(checkouts.len() >= 2 && checkouts.iter().all(parallel), "{gits:?}");
+  } else {
+    assert!(!checkouts.is_empty() && checkouts.iter().all(parallel) && worktree_add(&gits), "{gits:?}");
+  }
 
   fixture.give_back(&path);
   fixture.repo.set_config("checkout.workers", "2").unwrap();
@@ -287,6 +286,7 @@ fn every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_
 }
 
 /// The entries of the pool directory of `got`, without the slot names: what a clone may leave behind
+#[cfg(unix)]
 fn pool_entries(got: &Value) -> Vec<String> {
   let mut entries: Vec<String> = std::fs::read_dir(got["pool"].as_str().unwrap())
     .unwrap()
