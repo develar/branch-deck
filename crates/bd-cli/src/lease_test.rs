@@ -10,13 +10,13 @@ use std::time::Duration;
 use test_utils::git_test_utils::{TestRepo, TestWorktree};
 
 /// A repository with a commit on master and the home directory its pool lives in
-struct Fixture {
-  repo: TestRepo,
-  home: tempfile::TempDir,
+pub(crate) struct Fixture {
+  pub(crate) repo: TestRepo,
+  pub(crate) home: tempfile::TempDir,
 }
 
 impl Fixture {
-  fn new() -> Self {
+  pub(crate) fn new() -> Self {
     let repo = repo_with_baseline(&[("a.txt", "a\n")]);
     repo.create_commit("Add b", "b.txt", "b\n");
     Self {
@@ -34,29 +34,29 @@ impl Fixture {
   }
 
   /// `bd <args>` in the repository
-  fn run(&self, args: &[&str]) -> (i32, Value) {
+  pub(crate) fn run(&self, args: &[&str]) -> (i32, Value) {
     self.run_in(self.repo.path(), args)
   }
 
-  fn run_in(&self, cwd: &Path, args: &[&str]) -> (i32, Value) {
+  pub(crate) fn run_in(&self, cwd: &Path, args: &[&str]) -> (i32, Value) {
     run_json(&self.environment(cwd), args)
   }
 
   /// `bd lease get <args>`, which must succeed
-  fn get(&self, args: &[&str]) -> Value {
+  pub(crate) fn get(&self, args: &[&str]) -> Value {
     let (exit_code, output) = self.run(&[&["lease", "get"][..], args].concat());
     assert_eq!(exit_code, 0, "{output}");
     output
   }
 
   /// `bd lease return` run inside the slot, which must succeed
-  fn give_back(&self, path: &str) -> Value {
+  pub(crate) fn give_back(&self, path: &str) -> Value {
     let (exit_code, output) = self.run_in(Path::new(path), &["lease", "return"]);
     assert_eq!(exit_code, 0, "{output}");
     output
   }
 
-  fn status(&self) -> Value {
+  pub(crate) fn status(&self) -> Value {
     let (exit_code, output) = self.run(&["lease", "status"]);
     assert_eq!(exit_code, 0, "{output}");
     output
@@ -74,13 +74,13 @@ fn slot_path(path: &str) -> String {
 }
 
 /// git in a slot; panics on a failure
-fn slot_git(path: &str, args: &[&str]) -> String {
+pub(crate) fn slot_git(path: &str, args: &[&str]) -> String {
   GitCommandExecutor::new()
     .execute_command(args, path)
     .unwrap_or_else(|e| panic!("git {args:?} in {path}: {e}"))
 }
 
-fn path_of(output: &Value) -> String {
+pub(crate) fn path_of(output: &Value) -> String {
   output["path"].as_str().unwrap_or_else(|| panic!("no path: {output}")).to_string()
 }
 

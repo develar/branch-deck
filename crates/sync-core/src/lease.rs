@@ -5,6 +5,7 @@
 //! writes a slot: two gets never wait for each other's checkouts, and no get waits for an update.
 
 use crate::clone_dir::clone_directory;
+use crate::lease_clean::{CleanOverrides, Cleaned, apply_clean_rules, read_clean_rules};
 use crate::pick::baseline_tracking_ref;
 use crate::process_scan::{ProcessInfo, ProcessScan, is_running, process_started, terminate};
 use crate::repository_lock::{RepositoryLock, lock_file};
@@ -873,6 +874,8 @@ pub struct LeaseReturnParams<'a> {
   pub keep_servers: bool,
   /// How long the return waits for the Bazel servers it asked to exit
   pub server_timeout: Duration,
+  /// Apply the clean rules of `.branchdeck.toml`, with these overrides; `None` (`--no-clean`) applies none
+  pub clean: Option<CleanOverrides>,
   pub lock_timeout: Duration,
 }
 
@@ -951,6 +954,10 @@ pub struct LeaseReturned {
   pub removed: Vec<String>,
   /// The branch the slot was on; it stays
   pub detached_branch: Option<String>,
+  /// What each clean rule of `.branchdeck.toml` did
+  pub cleaned: Vec<Cleaned>,
+  /// Why the rules could not be read; the return succeeded anyway
+  pub clean_error: Option<String>,
   pub process_scan: bool,
 }
 
@@ -1021,6 +1028,15 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
   if detached_branch.is_some() {
     detach_slot_head(git_executor, &path)?;
   }
+  // the rules of the source, as the seed is read; the slot's own when the source is gone. They never fail the return
+  let rules_from = Some(Path::new(&lease.source))
+    .filter(|source| !lease.source.is_empty() && source.is_dir())
+    .unwrap_or_else(|| Path::new(&path));
+  let (cleaned, clean_error) = match params.clean.map(|overrides| read_clean_rules(rules_from).map(|rules| overrides.apply(rules))) {
+    None => (Vec::new(), None),
+    Some(Ok(rules)) => (apply_clean_rules(git_executor, &path, &rules, true), None),
+    Some(Err(error)) => (Vec::new(), Some(format!("{error:#}"))),
+  };
   pool.update(params.lock_timeout, |store| {
     let slot = leased_slot(store, &path, &lease.id).ok_or_else(|| anyhow!("The lease of {path} changed while it was returned"))?;
     slot.lease = None;
@@ -1035,6 +1051,8 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
     stopped_servers,
     removed,
     detached_branch,
+    cleaned,
+    clean_error,
     process_scan: scan.is_available(),
   })
 }
@@ -1128,6 +1146,83 @@ pub fn lease_status_core(git_common_dir: &Path, processes: bool) -> Result<(Vec<
     })
     .collect();
   Ok((slots, scan.is_available()))
+}
+
+/// What `bd lease clean` cleans
+pub struct LeaseCleanParams<'a> {
+  /// The checkout bd runs in: its `.branchdeck.toml` holds the rules, and without `free` and `dirs` it is the target
+  pub repository: &'a RepositoryDirs,
+  /// The free slots of the pool
+  pub free: bool,
+  /// Worktrees to clean
+  pub dirs: &'a [PathBuf],
+  /// Delete, the default; false (`--dry-run`) only measures
+  pub apply: bool,
+  /// The parameters of this call that change the rules of the file
+  pub overrides: CleanOverrides,
+}
+
+/// A checkout `bd lease clean` cleaned, or skipped
+#[derive(Debug, Clone)]
+pub struct CleanTarget {
+  pub path: String,
+  /// Why it was not cleaned: a lease, a process in it
+  pub skipped: Option<String>,
+  pub cleaned: Vec<Cleaned>,
+}
+
+/// Apply the rules of `.branchdeck.toml` of the repository, read once, to the free slots, to `dirs`, or to the
+/// repository itself. A slot of the pool with a lease or with a process in it is skipped, as a get would skip it; a
+/// checkout that is no slot is cleaned as asked. The rules that can't be read are the error, and nothing is cleaned
+pub fn lease_clean_core(git_executor: &GitCommandExecutor, params: &LeaseCleanParams<'_>) -> Result<(Vec<CleanTarget>, bool)> {
+  let rules = params.overrides.apply(read_clean_rules(Path::new(&params.repository.top_level))?);
+  let pool = Pool::new(Path::new(&canonical_path(Path::new(&params.repository.git_common_dir))));
+  let store = pool.read()?;
+  let mut paths: Vec<String> = Vec::new();
+  if params.free {
+    paths.extend(
+      store
+        .slots
+        .iter()
+        .filter(|slot| slot.lease.is_none() && Path::new(&slot.path).is_dir())
+        .map(|slot| slot.path.clone()),
+    );
+  }
+  paths.extend(params.dirs.iter().map(|dir| canonical_path(dir)));
+  if !params.free && params.dirs.is_empty() {
+    paths.push(canonical_path(Path::new(&params.repository.top_level)));
+  }
+  let mut seen = HashSet::new();
+  paths.retain(|path| seen.insert(path.clone()));
+  let scan = ProcessScan::scan();
+  let targets = paths
+    .into_iter()
+    .map(|path| {
+      let skipped = if store.slots.iter().any(|slot| slot.path == path) {
+        // the state again: a get may have leased the slot since the read
+        let leased = pool
+          .read()
+          .ok()
+          .and_then(|store| store.slots.into_iter().find(|slot| slot.path == path))
+          .and_then(|slot| slot.lease);
+        let processes = processes_of(&scan.inside(Path::new(&path)));
+        match leased {
+          Some(lease) => Some(format!("leased by {}", lease.holder)),
+          None if !processes.is_empty() => Some(format!("processes work in it: {}", describe_processes(&processes))),
+          None => None,
+        }
+      } else {
+        None
+      };
+      let cleaned = if skipped.is_some() {
+        Vec::new()
+      } else {
+        apply_clean_rules(git_executor, &path, &rules, params.apply)
+      };
+      CleanTarget { path, skipped, cleaned }
+    })
+    .collect();
+  Ok((targets, scan.is_available()))
 }
 
 /// A directory `bd lease adopt` added, or refused

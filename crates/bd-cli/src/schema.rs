@@ -4,7 +4,7 @@ use crate::describe::DescribeOutput;
 use crate::error::ErrorOutput;
 use crate::fold_command::FoldOutput;
 use crate::install::InstallOutput;
-use crate::lease_command::{LeaseAdoptOutput, LeaseGetOutput, LeaseReturnOutput, LeaseStatusOutput};
+use crate::lease_command::{LeaseAdoptOutput, LeaseCleanOutput, LeaseGetOutput, LeaseReturnOutput, LeaseStatusOutput};
 use crate::move_hunk_command::MoveHunkOutput;
 use crate::output::SchemaVersion;
 use crate::pick_command::PickOutput;
@@ -24,8 +24,8 @@ use std::collections::BTreeMap;
 
 /// `bd schema`: the JSON Schema of every output, by command; `rewrite` is the output of group, rename, restack and
 /// unstack, `commits_brief` and `status_brief` the outputs of `--brief`, `update_status` and `update_abort` those of
-/// `bd update --status` and `--abort`, `lease_get`, `lease_return`, `lease_status` and `lease_adopt` those of
-/// `bd lease`, and `error` is what any command prints when it fails
+/// `bd update --status` and `--abort`, `lease_get`, `lease_return`, `lease_status`, `lease_adopt` and `lease_clean`
+/// those of `bd lease`, and `error` is what any command prints when it fails
 #[derive(Debug, Serialize)]
 pub struct SchemaOutput {
   pub schema: SchemaVersion,
@@ -44,6 +44,7 @@ pub fn schema_output() -> SchemaOutput {
       ("fold".to_string(), schema_for!(FoldOutput)),
       ("install".to_string(), schema_for!(InstallOutput)),
       ("lease_adopt".to_string(), schema_for!(LeaseAdoptOutput)),
+      ("lease_clean".to_string(), schema_for!(LeaseCleanOutput)),
       ("lease_get".to_string(), schema_for!(LeaseGetOutput)),
       ("lease_return".to_string(), schema_for!(LeaseReturnOutput)),
       ("lease_status".to_string(), schema_for!(LeaseStatusOutput)),

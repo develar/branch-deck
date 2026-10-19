@@ -156,6 +156,27 @@ pub fn move_slot(git_executor: &GitCommandExecutor, repository: &str, from: &str
   Ok(())
 }
 
+/// The paths of `paths` (relative, `/`-separated) under which git tracks a file in `slot`, as the file it tracks: one
+/// `ls-files -z` of all of them, literal pathspecs
+pub fn tracked_under(git_executor: &GitCommandExecutor, slot: &str, paths: &[&str]) -> Result<Vec<String>> {
+  if paths.is_empty() {
+    return Ok(Vec::new());
+  }
+  let mut args = vec!["--literal-pathspecs", "ls-files", "-z", "--"];
+  args.extend_from_slice(paths);
+  let output = git_executor.cmd(&args, slot).bytes()?;
+  Ok(nul_separated(&output))
+}
+
+/// The paths of `-z` output: NUL-separated, the empty ones left out
+fn nul_separated(output: &[u8]) -> Vec<String> {
+  output
+    .split(|&byte| byte == 0)
+    .filter(|path| !path.is_empty())
+    .map(|path| String::from_utf8_lossy(path).into_owned())
+    .collect()
+}
+
 /// A commit of HEAD that no branch, tag or remote-tracking ref holds, with its subject
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnlandedCommit {
@@ -223,13 +244,7 @@ pub fn ignored_paths(git_executor: &GitCommandExecutor, repository: &str, paths:
     input.push(0);
   }
   let output = git_executor.cmd(&["check-ignore", "-z", "--stdin"], repository).stdin(&input).accept(&[1]).bytes()?;
-  Ok(
-    output
-      .split(|&byte| byte == 0)
-      .filter(|path| !path.is_empty())
-      .map(|path| String::from_utf8_lossy(path).into_owned())
-      .collect(),
-  )
+  Ok(nul_separated(&output))
 }
 
 /// The git config of the pool, from one read

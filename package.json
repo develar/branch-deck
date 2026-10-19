@@ -24,7 +24,6 @@
     "lint:typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.e2e.json",
     "lint:frontend": "pnpm run \"/^lint:(js|typecheck)$/\"",
     "lint:cpd": "jscpd",
-    "prune:target": "node scripts/prune-rust-target.mjs",
     "perf:monorepo": "node scripts/perf/monorepo.mjs",
     "perf:diff": "playwright test -c playwright.perf.config.ts",
     "lint": "pnpm run \"/^lint:.*/\"",

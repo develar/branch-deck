@@ -96,6 +96,7 @@
 //!
 //! The lease pool:
 //! - `lease`: the slots agent sessions lease (`bd lease`), their state and lock in `$GIT_COMMON_DIR/branch-deck/`
+//! - `lease_clean`: the clean rules of `.branchdeck.toml` that a return and `bd lease clean` apply to a slot
 //! - `process_scan`: the processes whose working directory is inside a slot
 //! - `clone_dir`: a directory tree by one APFS clone, the new slot of a get on macOS
 //!
@@ -138,6 +139,7 @@ pub mod issue_groups;
 pub mod issue_navigation;
 pub mod landed;
 pub mod lease;
+pub mod lease_clean;
 pub mod missing_commits;
 pub mod missing_declarations;
 pub mod module_roots;

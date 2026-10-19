@@ -59,6 +59,7 @@ fn schema_lists_every_output() {
       "fold",
       "install",
       "lease_adopt",
+      "lease_clean",
       "lease_get",
       "lease_return",
       "lease_status",

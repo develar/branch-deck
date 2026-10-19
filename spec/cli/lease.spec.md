@@ -1,6 +1,6 @@
 ---
 name: bd lease
-description: Requirements for bd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source or adds one, return frees it, status reads the state, adopt adds existing worktrees.
+description: Requirements for bd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source or adds one, return frees it and applies the clean rules of .branchdeck.toml, status reads the state, adopt adds existing worktrees, clean applies the rules on demand.
 style: plain-1
 targets:
   - ../../crates/bd-cli/src/lease_command.rs
@@ -8,6 +8,8 @@ targets:
   - ../../crates/bd-cli/src/error.rs
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/sync-core/src/lease.rs
+  - ../../crates/sync-core/src/lease_clean.rs
+  - ../../.branchdeck.toml
   - ../../crates/sync-core/src/process_scan.rs
   - ../../crates/sync-core/src/repository_lock.rs
   - ../../crates/git-ops/src/lease_slot.rs
@@ -140,6 +142,40 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   with `reset --hard HEAD` and `clean -fd`: the ignored files stay.
   [@test] ../../crates/bd-cli/src/lease_test.rs (`a_return_refuses_unlanded_commits_a_dirty_tree_and_a_busy_slot`)
 
+### Clean rules
+
+- The rules are the `clean` array of the `[lease]` table of `.branchdeck.toml` at the root of the checkout, committed
+  with the build layout they clean (not git config, and not `.worktreeinclude`, which Treehouse and Claude Code read
+  too). There are two kinds and no command, since a return must not run arbitrary code:
+  `{ cargo = "<dir>", keep = 8, age = "1h" }` (the defaults) prunes the profile dirs under `<dir>` (a dir with
+  `.cargo-lock`, at most 4 levels down): a unit of `build/<package>/<hash>` or `incremental/<crate>-<hash>` stays when
+  it is among the `keep` newest of its group or younger than `age` (`s`, `m`, `h`, `d`); the newest mtime of the unit
+  dir and of the children of its `fingerprint` dir counts. `{ delete = "<path>" }` removes a path.
+  [@test] ../../crates/sync-core/src/lease_clean_test.rs (`the_rules_are_cargo_and_delete_with_their_defaults`, `the_cargo_rule_keeps_the_newest_and_the_young_units`)
+- An unknown key, an unknown kind, a wrong type or a file that does not parse must be an error of the file.
+  [@test] ../../crates/sync-core/src/lease_clean_test.rs (`unknown_keys_and_kinds_are_errors`)
+- A rule must be skipped and reported (`error`), never applied, when its path is absolute, leaves the checkout with
+  `..`, names `.git`, names the checkout itself, has a symlink on its way or is one, or holds a file that git tracks
+  (one `ls-files -z` of the paths of all rules). The walk of a rule never follows a symlink.
+  [@test] ../../crates/sync-core/src/lease_clean_test.rs (`an_unsafe_path_is_a_rule_that_is_reported`)
+  [@test] ../../crates/bd-cli/src/lease_clean_test.rs (`an_unsafe_rule_is_skipped_and_reported`)
+- The return must read the file once, from the source checkout that the lease recorded (the slot's own when the
+  source is gone), and apply the rules after all its checks passed, before it frees the slot: `cleaned` [{`rule`,
+  `freed_bytes`, `ms`, `error`?}]. A file that can't be read or parsed (`clean_error`) and a failed rule never fail
+  the return.
+  [@test] ../../crates/bd-cli/src/lease_clean_test.rs (`the_return_applies_the_clean_rules_of_the_source`, `a_bad_file_does_not_fail_the_return`)
+- `bd lease clean [--free] [--dry-run] [--keep <n>] [--age <duration>] [<dir>...]` must apply the rules of the checkout
+  it runs in, read once, to the free slots (`--free`), to the given worktrees, or to that checkout. A slot of the pool
+  with a lease or with a process in it is skipped (`skipped`); a checkout that is no slot is cleaned as asked.
+  `--dry-run` deletes nothing and says what the rules would free. A file that does not parse is `invalid_arguments`
+  (exit 2).
+  [@test] ../../crates/bd-cli/src/lease_clean_test.rs (`clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing`, `a_bad_file_does_not_fail_the_return`)
+- The rules are configured on purpose, so they apply by default: the return and `bd lease clean` delete what they
+  name, as the user decided. `bd lease return --no-clean` applies none. `--keep <n>` and `--age <duration>`, on both
+  commands, set `keep` and `age` of every cargo rule for that call without an edit of the file; a bad `--age` is
+  `invalid_arguments`. These are the only overrides: a `delete` rule has no parameter.
+  [@test] ../../crates/bd-cli/src/lease_clean_test.rs (`no_clean_and_the_overrides_change_what_a_call_cleans`)
+
 ### Status
 
 - `bd lease status` must list every slot from the state alone, with its `path`, `state` (`free`, `preparing`,
@@ -171,8 +207,9 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 | 3 | `locked` (the pool lock, retryable) |
 | 4 | `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `no_baseline` (a source without commits) |
 
-- The outputs must match `bd schema` (`lease_get`, `lease_return`, `lease_status`, `lease_adopt`).
+- The outputs must match `bd schema` (`lease_get`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`).
   [@test] ../../crates/bd-cli/src/lease_test.rs (`lease_outputs_match_the_schema`)
+  [@test] ../../crates/bd-cli/src/lease_clean_test.rs (`clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
 - The slot writes (`checkout` twice, `reset`, `clean` twice) must stay in `crates/git-ops/src/lease_slot.rs`, with their
   exact counts in the worktree safety scan.
@@ -185,6 +222,9 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   the process scan.
 
 ## Open Questions / Risks
+
+- `bd lease clean --free` reads the state again right before it cleans a free slot, but takes no pool lock while it
+  deletes: a get that leases the slot meanwhile finds a cargo unit or a test artifact gone, which costs a rebuild.
 
 - A clone copies what the template has at that moment: an ignored file that the template writes during the clone can
   be copied half written, and the checkout and the clean keep ignored files. A free slot is the preferred template

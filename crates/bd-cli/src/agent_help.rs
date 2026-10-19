@@ -352,7 +352,12 @@ adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a 
    serve only it: the return stops them with SIGTERM (`stopped_servers`; their output bases stay), --keep-servers
    refuses instead. --confirm-preserved discards the changes and gives up the
    commits, only when the user said so. `bd lease status` lists the slots and their leases from the pool state
-   (--processes adds the processes in each); `bd lease adopt <dir>...` adds clean linked worktrees of the repository as
+   (--processes adds the processes in each). The return applies the clean rules of `.branchdeck.toml` (`cleaned`:
+   stale cargo units, test artifacts; `clean_error` when the file does not parse, the return still succeeds):
+   `bd lease return --no-clean` applies none, and `bd lease return --keep <n> --age <duration>` changes every cargo
+   rule for this call. `bd lease clean` applies the rules now (--free: the free slots; --dry-run only reports;
+   --keep, --age as for the return). The rules are the user's choice: pass `bd lease return --no-clean` only when
+   the user asks. `bd lease adopt <dir>...` adds clean linked worktrees of the repository as
    free slots, where they are, or with --move in the pool directory (`moved_from`; the same volume only,
    `other_volume`).
 6. The reflog of the branch tells who moved it: `branch-deck: pick`, `undo pick`, `update project`, `undo update`,

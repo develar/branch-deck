@@ -47,7 +47,7 @@ use crate::describe::{DescribeArgs, describe};
 use crate::error::{CONFLICT_EXIT, CliError, ErrorCode};
 use crate::fold_command::{FoldArgs, fold};
 use crate::install::{InstallArgs, install, skill_command};
-use crate::lease_command::{LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, lease_adopt, lease_get, lease_return, lease_status};
+use crate::lease_command::{LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, lease_adopt, lease_clean, lease_get, lease_return, lease_status};
 use crate::move_hunk_command::{MoveHunkArgs, MoveHunkOutput, move_hunk};
 use crate::output::write_json;
 use crate::pick_command::{PickArgs, PickOutput, pick};
@@ -279,6 +279,11 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
       .and_then(|context| lease_status(&context, environment, args))
       .and_then(|output| print(out, &output)),
     Command::Lease(LeaseArgs {
+      command: LeaseCommand::Clean(args),
+    }) => lease_context(None)
+      .and_then(|context| lease_clean(&context, environment, args))
+      .and_then(|output| print(out, &output)),
+    Command::Lease(LeaseArgs {
       command: LeaseCommand::Adopt(args),
     }) => {
       return print_summary(
@@ -373,6 +378,8 @@ mod fold_test;
 mod install_test;
 #[cfg(test)]
 mod landed_test;
+#[cfg(test)]
+mod lease_clean_test;
 #[cfg(test)]
 mod lease_test;
 #[cfg(test)]

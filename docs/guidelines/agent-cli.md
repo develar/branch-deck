@@ -692,6 +692,14 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   `dirty_worktree`; exit 4). `--move` moves each into the pool directory with `git worktree move` (`moved_from`),
   only on the same volume (`other_volume`), and removes its old parent directory when it is left empty. A moved slot
   has a new path, so Bazel gives it a new, cold output base.
+- The return applies the clean rules of `.branchdeck.toml` (`[lease] clean`: `cargo`, the stale units of a target
+  dir; `delete`, a path) of the source checkout before it frees the slot: `cleaned` [{`rule`, `freed_bytes`, `ms`,
+  `error`}], a rule with an unsafe path (out of the slot, `.git`, tracked, a symlink) skipped with its `error`;
+  `clean_error` when the file does not parse, the return succeeds anyway; `--no-clean` applies none.
+  `bd lease clean [--free] [--dry-run] [<dir>...]` applies the rules now to the free slots, the given worktrees, or
+  the checkout of `-C`; it deletes by default, `--dry-run` only reports (`dry_run`, `freed_bytes`); a slot with a
+  lease or a process is `skipped`; a file that does not parse is `invalid_arguments`. On both commands `--keep <n>`
+  and `--age <duration>` set `keep` and `age` of every cargo rule for that call.
 - `processes_checked: false`: the platform has no process scan (Windows), and nothing was refused for a process.
 
 ### `bd fold [--branch <b>] [--expect-head <id>] [--dry-run]`

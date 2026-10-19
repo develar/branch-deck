@@ -1,0 +1,11 @@
+# The clean rules of a slot of the bd lease pool: `bd lease return` applies them before it frees the slot, and
+# `bd lease clean` applies them on demand (spec/cli/lease.spec.md). Cargo never deletes a unit whose hash went out of
+# use, so a reused slot piles up dozens of copies of every workspace crate within hours.
+[lease]
+clean = [
+  # the stale units of every profile dir of target/: the 8 newest of each package and the ones built in the last hour stay
+  { cargo = "target", keep = 8, age = "1h" },
+  # the artifacts of the e2e tests (`outputDir` of playwright.config.ts) and of the HTML report
+  { delete = "tests/results" },
+  { delete = "playwright-report" },
+]

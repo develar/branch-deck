@@ -15,9 +15,10 @@ use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_core::lease::{
-  Adopted, CreatedBy, LandedCheck, LeaseAdoptParams, LeaseGetParams, LeaseRefusal, LeaseReturnParams, SkipReason, SlotState, canonical_path, lease_adopt_core, lease_get_core,
-  lease_return_core, lease_status_core, pool_dir,
+  Adopted, CreatedBy, LandedCheck, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseRefusal, LeaseReturnParams, SkipReason, SlotState, canonical_path, lease_adopt_core,
+  lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir,
 };
+use sync_core::lease_clean::{CleanOverrides, Cleaned, parse_age};
 use sync_core::repository_lock::RepositoryLocked;
 use sync_utils::list_cut::kept;
 
@@ -40,6 +41,10 @@ pub enum LeaseCommand {
   Status(LeaseStatusArgs),
   /// Add existing linked worktrees of this repository to the pool as free slots, where they are
   Adopt(LeaseAdoptArgs),
+  /// Apply the clean rules of `.branchdeck.toml` now: to the free slots, to worktrees, or to this checkout
+  ///
+  /// It deletes what the rules name; --dry-run only reports. A slot with a lease or with a process in it is skipped
+  Clean(LeaseCleanArgs),
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -66,6 +71,11 @@ pub struct LeaseReturnArgs {
   /// Refuse while a Bazel server of the worktree runs, instead of stopping it with SIGTERM
   #[arg(long)]
   pub keep_servers: bool,
+  /// Apply none of the clean rules of `.branchdeck.toml`
+  #[arg(long, conflicts_with_all = ["keep", "age"])]
+  pub no_clean: bool,
+  #[command(flatten)]
+  pub overrides: CleanOverrideArgs,
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -73,6 +83,42 @@ pub struct LeaseStatusArgs {
   /// Also list the processes in each slot
   #[arg(long)]
   pub processes: bool,
+}
+
+/// The parameters of one call that change the clean rules of `.branchdeck.toml` without an edit of the file
+#[derive(Debug, Default, clap::Args)]
+pub struct CleanOverrideArgs {
+  /// `keep` of every cargo rule: how many units of each group stay, whatever their age
+  #[arg(long, value_name = "N")]
+  pub keep: Option<usize>,
+  /// `age` of every cargo rule: the units built within it stay (`30m`, `1h`, `2d`)
+  #[arg(long, value_name = "DURATION")]
+  pub age: Option<String>,
+}
+
+impl CleanOverrideArgs {
+  fn overrides(&self) -> Result<CleanOverrides, CliError> {
+    let age = match &self.age {
+      Some(age) => Some(parse_age(age).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("--age: {error:#}")))?),
+      None => None,
+    };
+    Ok(CleanOverrides { keep: self.keep, age })
+  }
+}
+
+#[derive(Debug, Default, clap::Args)]
+pub struct LeaseCleanArgs {
+  /// Every free slot of the pool
+  #[arg(long)]
+  pub free: bool,
+  /// Only say what the rules would free; nothing is deleted
+  #[arg(long)]
+  pub dry_run: bool,
+  #[command(flatten)]
+  pub overrides: CleanOverrideArgs,
+  /// Worktrees to clean; without them and without --free, the checkout of -C
+  #[arg(value_name = "DIR")]
+  pub dirs: Vec<PathBuf>,
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -287,6 +333,12 @@ pub struct LeaseReturnOutput {
   /// The seeded paths removed
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub removed: Vec<String>,
+  /// What each clean rule of `.branchdeck.toml` did, before the slot was freed
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub cleaned: Vec<CleanedOutput>,
+  /// Why the rules could not be read; the return succeeded anyway
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub clean_error: Option<String>,
   /// The branch HEAD was on; HEAD is detached now, the branch stays
   #[serde(skip_serializing_if = "Option::is_none")]
   pub detached_branch: Option<String>,
@@ -299,6 +351,30 @@ pub struct LeaseReturnOutput {
 pub enum LandedCheckOutput {
   Reachability,
   Content,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct CleanedOutput {
+  /// `cargo <dir>` or `delete <path>`
+  pub rule: String,
+  /// The bytes on disk it freed (`bd lease clean --dry-run`: would free)
+  pub freed_bytes: u64,
+  pub ms: u64,
+  /// Why the rule was skipped (a path out of the checkout, `.git`, a tracked file, a symlink) or failed partway
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+}
+
+fn cleaned_output(cleaned: &[Cleaned]) -> Vec<CleanedOutput> {
+  cleaned
+    .iter()
+    .map(|cleaned| CleanedOutput {
+      rule: cleaned.rule.clone(),
+      freed_bytes: cleaned.freed_bytes,
+      ms: u64::try_from(cleaned.elapsed.as_millis()).unwrap_or(u64::MAX),
+      error: cleaned.error.clone(),
+    })
+    .collect()
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -324,6 +400,7 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
     lease_id: args.lease_id.as_deref(),
     confirm_preserved: args.confirm_preserved,
     keep_servers: args.keep_servers,
+    clean: if args.no_clean { None } else { Some(args.overrides.overrides()?) },
     server_timeout: context.server_stop_timeout,
     lock_timeout: context.lock_timeout,
   };
@@ -367,6 +444,8 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
       LandedCheck::Reachability { .. } => None,
     },
     removed: returned.removed.clone(),
+    cleaned: cleaned_output(&returned.cleaned),
+    clean_error: returned.clean_error.clone(),
     detached_branch: returned.detached_branch.clone(),
     processes_checked: returned.process_scan,
   })
@@ -558,6 +637,60 @@ pub fn lease_adopt(context: &LeaseContext, environment: &Environment, args: &Lea
     }
   }
   Ok(output)
+}
+
+/// `bd lease clean`
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LeaseCleanOutput {
+  pub schema: SchemaVersion,
+  /// The checkout whose `.branchdeck.toml` holds the rules
+  pub repository: String,
+  /// With --dry-run: nothing was deleted, `freed_bytes` is what the rules would free
+  pub dry_run: bool,
+  pub targets: Vec<CleanTargetOutput>,
+  /// The sum of `freed_bytes` of every rule of every target
+  pub freed_bytes: u64,
+  /// Whether the processes were checked; false where bd can't see them (Windows)
+  pub processes_checked: bool,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct CleanTargetOutput {
+  pub path: String,
+  /// Why it was not cleaned: a lease, a process in it
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub skipped: Option<String>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub cleaned: Vec<CleanedOutput>,
+}
+
+/// `context` is of the checkout whose rules apply; a file that does not parse is `invalid_arguments`
+pub fn lease_clean(context: &LeaseContext, environment: &Environment, args: &LeaseCleanArgs) -> Result<LeaseCleanOutput, CliError> {
+  let dirs: Vec<PathBuf> = args.dirs.iter().map(|dir| environment.cwd.join(dir)).collect();
+  let params = LeaseCleanParams {
+    repository: &context.dirs,
+    free: args.free,
+    dirs: &dirs,
+    apply: !args.dry_run,
+    overrides: args.overrides.overrides()?,
+  };
+  let (targets, process_scan) = lease_clean_core(&context.git, &params).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))?;
+  let targets: Vec<CleanTargetOutput> = targets
+    .iter()
+    .map(|target| CleanTargetOutput {
+      path: target.path.clone(),
+      skipped: target.skipped.clone(),
+      cleaned: cleaned_output(&target.cleaned),
+    })
+    .collect();
+  Ok(LeaseCleanOutput {
+    schema: SchemaVersion,
+    repository: context.dirs.top_level.clone(),
+    dry_run: args.dry_run,
+    freed_bytes: targets.iter().flat_map(|target| &target.cleaned).map(|cleaned| cleaned.freed_bytes).sum(),
+    targets,
+    processes_checked: process_scan,
+  })
 }
 
 /// The error of a failed lease command: a refusal of the pool by its code, a held pool lock as `locked`, else

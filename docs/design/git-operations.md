@@ -1175,6 +1175,18 @@ server can miss the events of a large checkout. Unlanded commits, local changes 
 for the next lease. The seeded paths are removed, and a branch HEAD is on is detached with a `RefTransaction` (`option
 no-deref`, `branch-deck: lease return`). The slot stays at its commit: the next get moves it.
 
+The clean rules (`crates/sync-core/src/lease_clean.rs`). Cargo never deletes a unit whose hash went out of use, so the
+free slots of Branch Deck held 679 GB of stale units, which a prune script nobody ran left alone. The return now cleans
+its slot by the `[lease] clean` rules of the committed `.branchdeck.toml`, read once from the source the lease
+recorded (the slot's own when the source is gone), after every check passed and before the slot is freed. A rule is
+`cargo` (the stale units of the profile dirs of a target dir, the logic of the retired `prune-rust-target.mjs`) or
+`delete` (a path); no command, as a return must not run arbitrary code. A path is normalized and relative, stays in the
+slot, names no `.git`, crosses no symlink, and git tracks nothing under it (one `ls-files -z` of all paths): a rule that
+breaks one is reported and skipped. A rule error never fails the return. `bd lease clean` applies the rules on
+demand, skipping a slot with a lease or a process. The rules are configured on purpose, so both delete by default (the
+user's decision): `--dry-run` only reports, `bd lease return --no-clean` applies none, and `--keep` and `--age` set the
+parameters of every cargo rule for one call.
+
 Status reads the state file only: one `rev-parse` and one `config` (`branchdeck.leasePool`), no git in any slot.
 Adopt registers existing linked worktrees (old Treehouse slots) where they are, after one `status` of each. With
 `--move` each goes to the next slot path by `git worktree move`, which fixes both links of the worktree, under the

@@ -71,8 +71,10 @@ Parallel work runs in a worktree of the `bd lease` pool (`~/.branch-deck/pool/<r
   checkout, so it starts with them too. Run `pnpm install` when `pnpm-lock.yaml` changed.
 - **Rust cache**: every checkout keeps its own `target/`; never a shared `CARGO_TARGET_DIR` or `build.build-dir`: the
   unit hash of a workspace crate does not depend on the checkout's path, so worktrees would overwrite each other's
-  units. Cargo never deletes a stale unit, so `pnpm prune:target --pool --yes` trims the free slots (dry run without
-  `--yes`); dependencies are built with workspace-wide features (`.cargo/config.toml`) and line tables only.
+  units. Cargo never deletes a stale unit, so the return of a lease applies the clean rules of `.branchdeck.toml` (the
+  stale units of `target/`, the e2e artifacts); `bd lease clean --free` applies them to the free slots now
+  (`--dry-run` only reports). Dependencies are built with workspace-wide features (`.cargo/config.toml`) and line
+  tables only.
 - **E2E**: the mock server listens on 3030 in every checkout; when another worktree's server holds it, run
   `E2E_PORT=3031 pnpm e2e` (any free port). Global setup refuses a server that serves another checkout, because
   Playwright reuses whatever listens on the port.
@@ -133,7 +135,7 @@ pnpm lint:backend         # cargo fmt, clippy --fix, then clippy -D warnings
 pnpm lint:frontend        # `vp check --fix` (Oxfmt, type-aware Oxlint) + lint:typecheck
 pnpm lint:typecheck       # tsc of tsconfig.app.json, tsconfig.node.json and tsconfig.e2e.json
 pnpm lint:cpd             # jscpd copy/paste detection (config in .jscpd.json); fails on any clone
-pnpm prune:target --pool  # Dry run: stale cargo units of this checkout and the free lease slots (`--yes` deletes)
+bd lease clean --free     # the clean rules of .branchdeck.toml on the free lease slots (`--dry-run` only reports)
 pnpm perf:monorepo pin|measure|summarize|compare  # bd's git processes and times on a pinned large clone (git-operations.md)
 cargo run -p branch-deck -- cli status -C <repo>  # agent CLI, JSON on stdout (docs/guidelines/agent-cli.md)
 ```
@@ -460,7 +462,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Squash and fixups (`bd fold`) | `commit/squash`, `commit/fixups` | `crates/sync-core/src/squash.rs`, `crates/sync-core/src/autosquash.rs` |
 | Update Project (`bd update`, resolve sessions, `bd undo update:`) | `repository/update-project`, `cli/update` | `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/update_resolve.rs`, `update-progress.ts` |
 | Pick between worktrees (`bd pick --from <worktree> --follow`) | `cli/pick` | `crates/sync-core/src/pick.rs`, `crates/git-ops/src/pick.rs` |
-| Lease pool (`bd lease`) | `cli/lease` | `crates/sync-core/src/lease.rs`, `crates/bd-cli/src/lease_command.rs`, `crates/git-ops/src/lease_slot.rs` (state in `$GIT_COMMON_DIR/branch-deck/leases.json`) |
+| Lease pool (`bd lease`), its clean rules (`.branchdeck.toml`) | `cli/lease` | `crates/sync-core/src/lease.rs`, `crates/sync-core/src/lease_clean.rs`, `crates/bd-cli/src/lease_command.rs`, `crates/git-ops/src/lease_slot.rs` (state in `$GIT_COMMON_DIR/branch-deck/leases.json`) |
 | Landed commits | `repository/landed-commits` | `crates/sync-core/src/landed.rs` (report in `branch-deck/landed.json`) |
 | Landing overview, PR status, Create Pull Request, Request Review | `repository/landing-overview`, `repository/outgoing`, `branch/pull-requests` | `crates/github/`, `sync_core::pull_requests`, `sync_core::pull_request_create` |
 | Patronus: robots, Safe Push and Dry Run, the next step, the failure prompt (`bd safe-push`, `bd robot`) | `branch/patronus`, `branch/next-step`, `branch/safe-push-failure-prompt`, `branch/whole-stack`, `cli/agent-cli` | `crates/patronus/`, `src/lib/branch-next-step.ts`, `src/stores/review-readiness.ts` |
