@@ -54,7 +54,7 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
 
 - stdout gets exactly one JSON object per run, on one line. Only `bd help` prints text.
 - The JSON is ASCII: every other character is a `\uXXXX` escape, so a shell that decodes stdout with a legacy code
-  page (Windows PowerShell 5.1) still reads every path and subject. A plan or a body that bd reads (`--plan`, stdin,
+  page (Windows PowerShell 5.1) still reads every path and subject. A plan or a body that bd reads (`--plan`,
   `--body-file`; `-` is stdin) is UTF-8, with or without a byte order mark, or UTF-16 with one. A pipe of Windows
   PowerShell 5.1 turns other characters into `?` before bd reads them, so pass a file there.
 - Every object starts with `"schema": 2`. The version goes up only when a field changes meaning or disappears. New
@@ -398,12 +398,13 @@ commit id (`crates/object-cache`, LMDB through heed):
 - `bd check` memoizes its merges in `merge_result` ((base, commit, target) trees → result tree or conflict files) and
   commit trees in `commit_tree`. Sync doesn't use them yet.
 
-### `bd group [--dry-run | --sync] [--expect-head <id> [--allow-append]] [--map] [--plan <file>] < plan.json`
+### `bd group [--dry-run | --sync] [--expect-head <id> [--allow-append]] [--map] --plan <file | ->`
 
 Moves commits between branches by their subject prefixes, in one message-only history rewrite
 (`sync_core::regroup`, see "Regroup, rename, restack" in [Git Operations](../design/git-operations.md)), and changes
 the issue groups and the stack parents in the same ref transaction. Then it sets the pull request texts of the plan and, with `--sync`,
-rebuilds the virtual branches, under the same repository lock.
+rebuilds the virtual branches, under the same repository lock. The plan is the file of `--plan`, or stdin for
+`--plan -`; without `--plan` it is `invalid_arguments`, and stdin is never read.
 
 ```json
 {"branches": {"auth": ["41c7d00e", "5e2f9c3b"], "auth/login": ["9f3a2b1c"]}, "unassign": ["77e01aa4"],
@@ -755,9 +756,10 @@ HEAD's tree, so the index and the working tree stay as they are
 - `--dry-run` prints the blocks and checks the rewrite (the merges and the empty commits); it writes only git objects.
   `--sync` syncs under the same lock, as `bd group --sync` does. `bd undo <undo_token>` restores the previous head.
 
-### `bd check [--plan FILE | < plan.json] [--build COMMAND [--build-paths PATH…] [--rebuild]] [--fix [--max-trials N] [--time-budget SECONDS]] [--allow-dangling]`
+### `bd check [--plan <file | ->] [--build COMMAND [--build-paths PATH…] [--rebuild]] [--fix [--max-trials N] [--time-budget SECONDS]] [--allow-dangling]`
 
-A trial sync of a plan (`sync_core::check`), or of the current grouping without one. The plan is applied in memory
+A trial sync of a plan (`sync_core::check`), or of the current grouping without `--plan`: stdin is read only for
+`--plan -`, so the open stdin of an agent or a CI never holds it. The plan is applied in memory
 and validated as `bd group --dry-run` does, `descriptions` included (an invalid plan is exit 2), the branches are
 placed as a stacked sync places them, and each one is built with the sync's `build_branch`, parents first. It writes
 commit objects and the object cache only: no ref, note, config, HEAD or working tree changes, no remote status and no

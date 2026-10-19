@@ -9,7 +9,7 @@ use crate::output::{SchemaVersion, ShortIds};
 use crate::rewrite::regroup_error;
 use crate::status::{StackBlockSummary, StackIssue, stack_issues};
 use crate::suggest::SuggestPlan;
-use crate::text_input::{read_stdin_unless_terminal, read_text};
+use crate::text_input::read_text;
 use git_ops::cat_file_batch::object_ids_and_types;
 use git_ops::tree_archive::write_tree_archive;
 use schemars::JsonSchema;
@@ -34,8 +34,7 @@ use sync_utils::list_cut::kept;
 
 #[derive(Debug, Default, clap::Args)]
 pub struct CheckArgs {
-  /// The plan of `bd group`, `-` for stdin; default: stdin if it is not a terminal, and without a plan the current
-  /// grouping
+  /// The plan of `bd group`, `-` for stdin; without it the current grouping, and stdin is never read
   #[arg(long, value_name = "FILE")]
   pub plan: Option<PathBuf>,
   /// Then run this shell command in the tree of each branch that is ok, extracted into a temporary directory outside
@@ -725,12 +724,11 @@ pub(crate) fn checked_branches(report: &CheckReport, files_of: &HashMap<String, 
     .collect()
 }
 
-/// The plan from `--plan` (`-` for stdin), else from stdin unless it is a terminal; `None` for no plan
+/// The plan from `--plan` (`-` for stdin); `None` without one or for an empty one. Never stdin without `--plan`: an
+/// agent's or a CI's stdin is an open pipe that never ends
 fn read_plan(path: Option<&PathBuf>) -> Result<Option<GroupPlan>, CliError> {
-  let text = match path {
-    Some(path) => read_text(path, "the plan")?,
-    None => read_stdin_unless_terminal("the plan")?,
-  };
+  let Some(path) = path else { return Ok(None) };
+  let text = read_text(path, "the plan")?;
   if text.trim().is_empty() {
     return Ok(None);
   }

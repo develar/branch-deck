@@ -145,7 +145,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - The JSON must be ASCII: every other character is a `\uXXXX` escape (a UTF-16 pair above the BMP), so a reader that
   decodes stdout with a legacy code page, as Windows PowerShell 5.1 does, still gets every path and subject.
   [@test] ../../crates/bd-cli/src/describe_test.rs (`a_body_from_windows_powershell_is_read_and_printed_as_ascii`)
-- A plan and a body (`--plan`, stdin, `--body-file`; `-` is stdin) must be read as UTF-8 without a leading byte order
+- A plan and a body (`--plan`, `--body-file`; `-` is stdin) must be read as UTF-8 without a leading byte order
   mark, or as UTF-16 with one, which Windows PowerShell 5.1 writes.
   [@test] ../../crates/bd-cli/src/text_input_test.rs (`a_bom_is_dropped_and_utf16_is_decoded`)
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_plan_with_a_byte_order_mark_is_read`)
@@ -326,11 +326,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### `bd group`, `rename`, `restack`, `unstack`
 
 - `bd group` must read a plan `{branches: {path: [ids]}, unassign: [ids], issue_groups: {name: [keys]},
-  ungroup_issues: [keys], unstack: [branches]}` from stdin or `--plan`, set the prefixes of all its commits in one
+  ungroup_issues: [keys], unstack: [branches]}` from `--plan` (`-` for stdin), set the prefixes of all its commits in one
   message-only rewrite, and change the issue groups ([Issue Groups](../branch/issue-groups.spec.md)) and the stack
   parents ([Stack Parents](../branch/stack-parents.spec.md)) in the same ref transaction; ids may be abbreviated. A
   plan of issue groups and stack parents only rewrites no commit.
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_applies_a_plan`)
+- `bd group` without `--plan` must be refused as `invalid_arguments` (exit 2), and stdin must not be read.
+  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_without_a_plan_is_refused`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`applies_a_plan_in_one_rewrite`, `unassign_falls_back_to_the_issue_key`)
 - A commit without a prefix that the plan puts into the branch of its own issue key must keep its subject, so a plan
   that names the current branch of each commit (its stack path with stacked branches on) rewrites no commit without a
@@ -466,11 +468,15 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd check`
 
-- `bd check` must apply a plan (stdin or `--plan`; the current grouping without one) in memory, validate it like a
+- `bd check` must apply a plan (`--plan`, `-` for stdin; the current grouping without one) in memory, validate it like a
   regroup (exit 2 when invalid, `descriptions` included), place the branches as a stacked sync does and build each
   one, parents first, writing git objects and the cache only: refs, notes, config and HEAD must not change.
   [@test] ../../crates/sync-core/src/check_test.rs (`a_commit_moved_away_from_its_dependency_conflicts`, `stacking_resolves_the_conflict`, `the_current_grouping_and_a_clean_plan_build`, `an_invalid_plan_is_refused`)
   [@test] ../../crates/bd-cli/src/check_test.rs (`the_current_grouping_and_invalid_plans`)
+- Without `--plan`, `bd check` must check the current grouping and never read stdin, so the stdin of an agent, a CI
+  or an IDE, an open pipe that sends nothing, does not hold it. `--plan -` must read the plan from stdin, with the
+  result of `--plan <file>`.
+  [@test] ../../crates/bd-cli/src/check_test.rs (`without_a_plan_an_open_stdin_is_not_read`, `a_plan_on_stdin_with_plan_dash_is_the_plan_of_a_file`)
 - The branches must build at the same time as a sync builds them: a branch as soon as the one it is built on has its
   head, the others at once, with the outcomes of a build one by one (a child on its parent's head, blocked by a failed
   parent) and no more git processes.

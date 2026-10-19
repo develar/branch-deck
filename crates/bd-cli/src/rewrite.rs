@@ -16,7 +16,7 @@ use git_ops::revs::read_head;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use sync_core::baseline::NoBaseline;
 use sync_core::regroup::{
   RegroupError, RegroupOptions, RegroupOutcome, UndoToken, describe_problem, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core, undo_regroup_core,
@@ -47,9 +47,9 @@ pub struct RewriteArgs {
 #[derive(Debug, Default, clap::Args)]
 pub struct GroupArgs {
   /// The plan `{"branches": {"path": [ids]}, "unassign": [ids], "issue_groups": {"name": [keys]}, "ungroup_issues":
-  /// [keys], "unstack": [branches], "descriptions": {"branch": {"title", "body"}}}`; default: stdin
+  /// [keys], "unstack": [branches], "descriptions": {"branch": {"title", "body"}}}`, `-` for stdin
   #[arg(long, value_name = "FILE")]
-  pub plan: Option<PathBuf>,
+  pub plan: PathBuf,
   #[command(flatten)]
   pub rewrite: RewriteArgs,
 }
@@ -248,7 +248,7 @@ pub struct UndoOutput {
 }
 
 pub fn group(context: &RepoContext, args: &GroupArgs) -> Result<RewriteOutput, CliError> {
-  let text = read_text(args.plan.as_deref().unwrap_or_else(|| Path::new("-")), "the plan")?;
+  let text = read_text(&args.plan, "the plan")?;
   let plan = parse_group_plan(&text)?;
   rewrite(context, "group", &args.rewrite, &plan.descriptions, |options| {
     regroup_commits_accepted(&context.git, &context.repository, &plan.regroup, options, |outcome| {

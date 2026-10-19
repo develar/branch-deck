@@ -153,8 +153,6 @@ Mistakes agents made here; each cost a session.
   the other run (timeouts in page setup, not test failures).
 - **`CI=1` does not speed up E2E**: it means 1 worker, 2 retries and no reuse of a running server
   (`playwright.config.ts`). A test that fails only under parallel load is a race: fix the wait, don't serialize.
-- **`bd check` without `--plan` reads the plan from stdin** when stdin is not a terminal (`read_plan` in
-  `crates/bd-cli/src/check_command.rs`): from a background or piped shell it waits forever. Pass `</dev/null`.
 - **Same-second commits are the same commit**: a `git replay` or cherry-pick of a commit onto its own parent within one
   second writes the identical object, so "the copy" is the original. A test that needs a new copy makes the target
   diverge first (one more commit) or uses `cherry-pick -x`; a test that passes on a rerun is often this.

@@ -107,7 +107,7 @@ enum Command {
   Commits(CommitsArgs),
   /// Move commits between branches by a plan: one rewrite of their subjects
   ///
-  /// The plan comes from --plan or stdin; one validated rewrite, then the descriptions it names and, with --sync, a
+  /// The plan comes from --plan (`-` for stdin); one validated rewrite, then the descriptions it names and, with --sync, a
   /// sync, all under one repository lock
   Group(GroupArgs),
   /// Rename a branch in every commit prefix, its children included
@@ -148,7 +148,7 @@ enum Command {
   MoveHunk(MoveHunkArgs),
   /// Would the branches build with this plan? A trial sync
   ///
-  /// The plan comes from --plan or stdin; exit code 1 when a branch is not `ok`
+  /// The plan comes from --plan (`-` for stdin), else the current grouping; exit code 1 when a branch is not `ok`
   Check(CheckArgs),
   /// Suggest a grouping of the commits into branches, checked by a trial sync
   ///

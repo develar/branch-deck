@@ -230,8 +230,8 @@ All git runs through `GitCommandExecutor` (`crates/git-executor/src/git_command_
 - The executor knows no git beyond running it: a rev or ref fact (`resolve_tree_id`, `ref_exists`) is a function of
   `git_ops::revs`.
 - stdin is null unless the call pipes it: git never inherits the stdin of the app or of `bd`. On Windows git queries
-  its stdin handle at startup, which waits while a read of the same pipe is pending in our process (`bd check` reads
-  a plan from stdin).
+  its stdin handle at startup, which waits while a read of the same pipe is pending in our process (`bd check --plan -`
+  reads a plan from stdin).
 - `GIT_NOTES_DISPLAY_REF` is set to an empty value. It replaces an inherited one and turns off `notes.displayRef`. So
   `%N` shows only the notes of `core.notesRef`, the mapping notes, or those of an explicit `--notes=<ref>`. With
   `notes.displayRef=refs/notes/*`, `%N` would otherwise print the notes of every ref, and the mapping readers would take

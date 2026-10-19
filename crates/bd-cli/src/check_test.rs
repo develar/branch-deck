@@ -1,12 +1,19 @@
 use crate::check_command::{DanglingReferenceSummary, DeclarationPlace, dangling_reference_message};
 use crate::fixture_test::{
-  ACP_AGENT, ACP_HOST, LEDGER, LEDGER_TEST, MANAGER_TEST, commit_all, commit_changed_declaration, commit_changed_member, commit_dangling_reference, commit_override_of_overload,
-  git, repo_with_baseline, run_in, with_header, write,
+  ACP_AGENT, ACP_HOST, LEDGER, LEDGER_TEST, MANAGER_TEST, PREFIX, commit_all, commit_changed_declaration, commit_changed_member, commit_dangling_reference,
+  commit_override_of_overload, environment, git, repo_with_baseline, run_in, run_json, with_header, write,
 };
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+use std::io::Write;
+use std::path::Path;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 use test_utils::git_test_utils::TestRepo;
+
+/// `<mode>|<repository>|<plan file>` of `bd_check_in_a_child`
+const CHILD_ENV: &str = "BD_CHECK_STDIN_CHILD";
 
 /// `(a)` creates a file and changes it; `(c)` is unrelated
 fn repo() -> (TestRepo, Vec<String>) {
@@ -152,7 +159,7 @@ fn stacking_resolves_the_conflict() {
 #[test_log::test]
 fn the_current_grouping_and_invalid_plans() {
   let (repo, ids) = repo();
-  // no plan on stdin: the current grouping
+  // no --plan: the current grouping
   let (exit_code, output) = run_in(&repo, &["check"]);
   assert_eq!((exit_code, &output["ok"], &output["rewritten"]), (0, &json!(true), &json!(0)), "{output}");
 
@@ -160,6 +167,70 @@ fn the_current_grouping_and_invalid_plans() {
   assert_eq!((exit_code, &output["error"]["code"]), (2, &json!("not_ahead_of_baseline")));
   let (exit_code, output) = check(&repo, &json!({ "branches": { "b": [ids[0]] }, "unassign": [ids[0]] }), &[]);
   assert_eq!((exit_code, &output["error"]["code"]), (2, &json!("invalid_plan")));
+}
+
+/// An agent's or a CI's stdin is an open pipe that sends nothing: `bd check` without `--plan` never reads it
+#[test_log::test]
+fn without_a_plan_an_open_stdin_is_not_read() {
+  let (repo, _) = repo();
+  let mut child = check_in_a_child("current", repo.path(), Path::new(""));
+  // open until the child ends: a read of it would never end
+  let stdin = child.stdin.take().unwrap();
+  let deadline = Instant::now() + Duration::from_mins(1);
+  let status = loop {
+    if let Some(status) = child.try_wait().unwrap() {
+      break status;
+    }
+    if Instant::now() > deadline {
+      child.kill().unwrap();
+      panic!("bd check waits for its stdin");
+    }
+    std::thread::sleep(Duration::from_millis(20));
+  };
+  drop(stdin);
+  assert!(status.success(), "{status}");
+}
+
+#[test_log::test]
+fn a_plan_on_stdin_with_plan_dash_is_the_plan_of_a_file() {
+  let (repo, ids) = repo();
+  let plan = json!({ "branches": { "b": [ids[1]], "d": [ids[2]] } }).to_string();
+  let file = tempfile::NamedTempFile::new().unwrap();
+  std::fs::write(file.path(), &plan).unwrap();
+  let mut child = check_in_a_child("dash", repo.path(), file.path());
+  // the end of stdin ends the plan
+  child.stdin.take().unwrap().write_all(plan.as_bytes()).unwrap();
+  let status = child.wait().unwrap();
+  assert!(status.success(), "{status}");
+}
+
+/// This test binary running only `bd_check_in_a_child` in `mode`, its stdin a pipe
+fn check_in_a_child(mode: &str, repo: &Path, plan: &Path) -> std::process::Child {
+  Command::new(std::env::current_exe().unwrap())
+    .args(["--exact", "check_test::bd_check_in_a_child", "--nocapture"])
+    .env(CHILD_ENV, format!("{mode}|{}|{}", repo.display(), plan.display()))
+    .stdin(Stdio::piped())
+    .spawn()
+    .unwrap()
+}
+
+/// The child of `check_in_a_child`, `bd check` on the stdin of this process; does nothing in a normal run.
+/// `current`: no `--plan`, the current grouping; `dash`: `--plan -` gives what `--plan <file>` gives
+#[test_log::test]
+fn bd_check_in_a_child() {
+  let Ok(spec) = std::env::var(CHILD_ENV) else { return };
+  let mut parts = spec.splitn(3, '|');
+  let (mode, repo, plan) = (parts.next().unwrap(), Path::new(parts.next().unwrap()), parts.next().unwrap());
+  let run = |args: &[&str]| run_json(&environment(repo), &[&["--prefix", PREFIX, "check"], args].concat());
+  if mode == "current" {
+    let (exit_code, output) = run(&[]);
+    assert_eq!((exit_code, &output["ok"], &output["rewritten"]), (0, &json!(true), &json!(0)), "{output}");
+  } else {
+    // the plan, not the current grouping: b lacks the commit that adds its file
+    let (exit_code, from_stdin) = run(&["--plan", "-"]);
+    assert_eq!((exit_code, &from_stdin["rewritten"]), (1, &json!(2)), "{from_stdin}");
+    assert_eq!((exit_code, from_stdin), run(&["--plan", plan]));
+  }
 }
 
 #[test_log::test]

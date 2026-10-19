@@ -42,6 +42,14 @@ fn assert_error(output: &Value, exit_code: i32, expected_exit_code: i32, code: &
   assert_eq!((exit_code, &output["error"]["code"]), (expected_exit_code, &json!(code)), "{output}");
 }
 
+/// Without `--plan` there is no plan: stdin is never read
+#[test_log::test]
+fn group_without_a_plan_is_refused() {
+  let (repo, _) = repo_with(&["Add login"]);
+  let (exit_code, output) = run_in(&repo, &["group"]);
+  assert_error(&output, exit_code, 2, "invalid_arguments");
+}
+
 #[test_log::test]
 fn group_applies_a_plan() {
   let (repo, ids) = repo_with(&["Add login", "Fix crash", "Tidy up"]);

@@ -68,12 +68,10 @@ fn repo_with_branches() -> TestRepo {
 /// unless Git's `usr\bin` is on `PATH`
 const PASSING_BUILD: &str = "exit 0";
 
-/// `bd check` of `build` with `build_paths`, an empty plan file standing for no plan
+/// `bd check` of the current grouping with `build` and `build_paths`
 fn run_check(repo: &TestRepo, build: Option<&str>, build_paths: &[&str]) -> RepoContext {
-  let plan = tempfile::NamedTempFile::new().unwrap();
   let context = context(repo);
   let args = CheckArgs {
-    plan: Some(plan.path().to_path_buf()),
     build: build.map(str::to_string),
     build_paths: build_paths.iter().map(|path| (*path).to_string()).collect(),
     ..CheckArgs::default()
@@ -667,7 +665,7 @@ fn a_group_dry_run_with_a_description() {
   let plan = tempfile::NamedTempFile::new().unwrap();
   std::fs::write(plan.path(), r#"{"descriptions": {"auth": {"title": "Login"}}}"#).unwrap();
   let args = GroupArgs {
-    plan: Some(plan.path().to_path_buf()),
+    plan: plan.path().to_path_buf(),
     rewrite: RewriteArgs {
       dry_run: true,
       ..RewriteArgs::default()

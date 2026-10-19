@@ -3,7 +3,6 @@
 //! BOM, `Out-File` and `>` write UTF-16LE)
 
 use crate::error::{CliError, ErrorCode};
-use std::io::IsTerminal;
 use std::path::Path;
 
 /// The text of `bytes`: UTF-8 without its byte order mark, or UTF-16 (little or big endian) with one
@@ -44,17 +43,6 @@ pub fn read_text(path: &Path, what: &str) -> Result<String, CliError> {
     (bytes, path.display().to_string())
   };
   decode_text(&bytes).map_err(|e| invalid(format!("Cannot read {what} from {source}: {e}; write it as UTF-8")))
-}
-
-/// The text of stdin, or nothing when stdin is a terminal
-///
-/// # Errors
-/// As `read_text`
-pub fn read_stdin_unless_terminal(what: &str) -> Result<String, CliError> {
-  if std::io::stdin().is_terminal() {
-    return Ok(String::new());
-  }
-  read_text(Path::new("-"), what)
 }
 
 fn invalid(message: String) -> CliError {
