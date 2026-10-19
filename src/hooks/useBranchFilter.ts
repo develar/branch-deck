@@ -1,32 +1,26 @@
 import { useEffect, useMemo } from "react"
-import { useShallow } from "zustand/react/shallow"
-import { useIsFullyLanded } from "@/hooks/useLandedIn"
-import type { BranchFilterChip, BranchStateSources } from "@/lib/branch-filter"
-import { chipCount, CHIPS, collectChipMatches, FILTER_BAR_MIN_BRANCHES, filterBranches, isFilterActive, keepShown } from "@/lib/branch-filter"
+import { useNextStepStores } from "@/hooks/useBranchNextStep"
+import { getLandingNodeNow } from "@/hooks/useLandingNode"
+import type { BranchChipMatches, BranchFilterChip } from "@/lib/branch-filter"
+import { chipCount, CHIPS, collectChipMatches, FILTER_BAR_MIN_BRANCHES, filterBranches, isFilterActive, keepShown, movesByUrgency } from "@/lib/branch-filter"
+import type { LandingNodeKind } from "@/lib/landing-node"
 import { clearBranchFilter, rememberShown, useBranchFilter, useShownBranches } from "@/stores/branch-filter"
-import type { BranchSyncState } from "@/stores/branch-sync"
-import { useBranchSync } from "@/stores/branch-sync"
+import { branchSyncStore, useBranchSync } from "@/stores/branch-sync"
 import { useCommitMove } from "@/stores/commit-move"
-import { usePushHolds, useRepositoryRobots } from "@/stores/patronus"
-import { useRepositoryPullRequestMap } from "@/stores/pull-requests"
 
-type OtherSources = Omit<BranchStateSources, "branches">
-
-/**
- * What the state chips read besides the branches; re-renders only when the robots, the pull requests, the landing or the
- * push holds change
- */
-function useOtherSources(): OtherSources {
-  const robots = useRepositoryRobots()
-  const pullRequests = useRepositoryPullRequestMap()
-  const isLanded = useIsFullyLanded()
-  const holds = usePushHolds()
-  return useMemo(() => ({ robots, pullRequests, isLanded, isHeld: (name: string) => holds.has(name) }), [robots, pullRequests, isLanded, holds])
+/** The kind of the node of the row of `name` now, as the row shows it */
+function nodeKindNow(name: string): LandingNodeKind | null {
+  return getLandingNodeNow(name)?.kind ?? null
 }
 
 /** Every branch is in a row of the table (`branchTableRowsIn`): the backend order has them all */
-function chipMatchesIn(state: BranchSyncState, sources: OtherSources) {
-  return collectChipMatches(state.branchOrder, { ...sources, branches: state.branches })
+function chipMatchesNow(): BranchChipMatches {
+  return collectChipMatches(branchSyncStore.getState().branchOrder, nodeKindNow)
+}
+
+/** The rows F2 steps through now, a fix first (`movesByUrgency`) */
+export function getMoveRowsNow(names: readonly string[]): string[] {
+  return movesByUrgency(names, nodeKindNow)
 }
 
 /**
@@ -38,15 +32,20 @@ export function useHasFilterBar(branchCount: number): boolean {
   return branchCount >= FILTER_BAR_MIN_BRANCHES || isFilterActive(filter)
 }
 
-/** The count of each chip, of all branches; re-renders only when a count changes */
+/**
+ * The count of each chip, of all branches, by the node of each row; re-renders only when a count changes, on a change
+ * of the stores the nodes read
+ */
 export function useChipCounts(): Readonly<Record<BranchFilterChip, number>> {
-  const sources = useOtherSources()
-  return useBranchSync(
-    useShallow(state => {
-      const matches = chipMatchesIn(state, sources)
-      return Object.fromEntries(CHIPS.map(chip => [chip, chipCount(matches, chip)])) as Record<BranchFilterChip, number>
-    }),
-  )
+  // a string, so the stores notify only when a count changes
+  const key = useNextStepStores(() => {
+    const matches = chipMatchesNow()
+    return CHIPS.map(chip => chipCount(matches, chip)).join(",")
+  })
+  return useMemo(() => {
+    const counts = key.split(",").map(Number)
+    return Object.fromEntries(CHIPS.map((chip, index) => [chip, counts[index] ?? 0])) as Record<BranchFilterChip, number>
+  }, [key])
 }
 
 /**
@@ -56,9 +55,8 @@ export function useChipCounts(): Readonly<Record<BranchFilterChip, number>> {
  */
 export function useFilteredBranches(): ReadonlySet<string> | null {
   const filter = useBranchFilter()
-  const sources = useOtherSources()
-  // a string, so the store notifies only when the matches change
-  const key = useBranchSync(state => (isFilterActive(filter) ? filterBranches(chipMatchesIn(state, sources), state.branches, filter)!.join("\n") : null))
+  // a string, so the stores notify only when the matches change
+  const key = useNextStepStores(() => (isFilterActive(filter) ? filterBranches(chipMatchesNow(), branchSyncStore.getState().branches, filter)!.join("\n") : null))
   const matches = useMemo(() => (key === null ? null : key.split("\n").filter(name => name !== "")), [key])
   const shown = useShownBranches()
   useEffect(() => {

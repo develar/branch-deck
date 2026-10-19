@@ -74,6 +74,10 @@ The specs are the contract of each part:
   next step, [Branch Row](../../spec/branch/branch-row.spec.md#tree)). Filled is the user's move on this row, hollow a
   wait or done; the push keeps the dot of the status text. A table without stacks keeps the column, a lane for the
   node alone.
+- **The filter.** The state chips of the table take the rows by their nodes, in the words of the overview: Your Move,
+  Landing, Waiting, In Master ([Branch Filter](../../spec/branch/branch-filter.spec.md)). They replaced To Push,
+  Running and Attention: a push is no state, a running robot is Landing (a Dry Run waits), and what needed attention is
+  a fix among the user's moves, which F2 visits first.
 - **The header.** One button says where the work is on its way into master: the node of the most urgent move, the
   number of the user's moves, a bar of the way ([Landing Overview](../../spec/repository/landing-overview.spec.md)). A
   stack is one move, as it lands in one robot; its overview runs the next step of a move at its row, lists the robots

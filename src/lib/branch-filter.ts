@@ -1,12 +1,13 @@
-import type { PatronusRobot, PullRequest } from "@/lib/bindings"
-import { findBranchRobot, isRobotActive, needsBranchRobotAttention } from "@/lib/patronus"
-import { formatAuthorAttention } from "@/lib/pull-request"
-import { summarizePushState } from "@/lib/push-summary"
+import type { LandingNodeKind } from "@/lib/landing-node"
+import { MOVE_KINDS } from "@/lib/landing-overview"
 import { matchesAllWords, searchWords } from "@/lib/text-search"
 import type { Branch } from "@/stores/branch-sync"
 
-/** A state chip of the filter bar; `all` takes every state */
-export type BranchFilterChip = "all" | "toPush" | "running" | "attention"
+/**
+ * A state chip of the filter bar, where a branch is on its way into master as the node of its row says it (the
+ * sections of the landing overview); `all` takes every state
+ */
+export type BranchFilterChip = "all" | "yourMove" | "landing" | "waiting" | "inMaster"
 
 /** The filter of the branch table: the branches with every word of `text` in their texts, in the state of `chip` */
 export interface BranchFilter {
@@ -37,60 +38,57 @@ export function matchesBranchText(branch: SearchedBranch, text: string): boolean
   )
 }
 
-/**
- * A branch that waits for the user: an error or a conflict, blocked by its stack parent, a failed robot of the branch as
- * it is (also one that failed for missing approvals) unless another robot holds or landed it or the baseline has it
- * (`carried`), or an open pull request with changes requested or failing checks (`needsBranchRobotAttention` and
- * `formatAuthorAttention`, the moves of the landing overview)
- */
-export function needsAttention(branch: Branch, robot: PatronusRobot | undefined, pullRequest: PullRequest | undefined, carried: boolean): boolean {
-  if (branch.hasError || branch.status === "Error" || branch.status === "MergeConflict" || branch.status === "Blocked") {
-    return true
+/** The chip of a node: the filled ones are the user's move */
+function chipOfNode(kind: LandingNodeKind): Exclude<BranchFilterChip, "all"> {
+  switch (kind) {
+    case "ready":
+    case "yourStep":
+    case "needsFix":
+      return "yourMove"
+    case "landing":
+    case "waiting":
+    case "inMaster":
+      return kind
   }
-  return (
-    (robot !== undefined && needsBranchRobotAttention(robot, branch.commits[0]?.hash, branch.remoteStatus, carried)) ||
-    (pullRequest !== undefined && formatAuthorAttention(pullRequest) !== null)
-  )
-}
-
-/** What the state chips look at, from the stores */
-export interface BranchStateSources {
-  readonly branches: Readonly<Record<string, Branch>>
-  readonly robots: Readonly<Record<string, PatronusRobot>> | undefined
-  readonly pullRequests: Readonly<Record<string, PullRequest>>
-  /** The fetched baseline has every commit of the branch: nothing is left to push (`useIsFullyLanded`) */
-  readonly isLanded: (name: string) => boolean
-  /** A running Safe Push holds the branch: its row offers no push (`usePushHolds`) */
-  readonly isHeld?: (name: string) => boolean
 }
 
 /** The branches of each state chip, of all rows of the table */
 export interface BranchChipMatches {
   /** In table order */
   readonly all: readonly string[]
-  /** A push has work for the remote, by the rule of the outgoing counts (`summarizePushState`) */
-  readonly toPush: ReadonlySet<string>
-  /** A robot of the branch runs or cancels */
-  readonly running: ReadonlySet<string>
-  readonly attention: ReadonlySet<string>
+  /** The node is filled: the next step is the user's, a fix first (`needsFix`, `yourStep`, `ready`) */
+  readonly yourMove: ReadonlySet<string>
+  /** A Safe Push lands the branch: its own, or one of a branch built on it, of the whole stack */
+  readonly landing: ReadonlySet<string>
+  /** It waits for others: reviewers, its parent, a robot, the first answer of Patronus */
+  readonly waiting: ReadonlySet<string>
+  /** The baseline or a merge has it, until the update archives it */
+  readonly inMaster: ReadonlySet<string>
 }
 
-/** The branches of each state chip among `names` (the branch rows, in table order) */
-export function collectChipMatches(names: readonly string[], sources: BranchStateSources): BranchChipMatches {
-  const branches = names.flatMap(name => sources.branches[name] ?? [])
-  const toPush = new Set(summarizePushState(branches, sources.isLanded, sources.isHeld).branches.map(it => it.name))
-  const running = new Set<string>()
-  const attention = new Set<string>()
-  for (const branch of branches) {
-    const robot = findBranchRobot(sources.robots, branch.name, branch.commits[0]?.hash, branch.remoteStatus?.remoteTip ?? null)
-    if (robot !== undefined && isRobotActive(robot)) {
-      running.add(branch.name)
-    }
-    if (needsAttention(branch, robot, sources.pullRequests[branch.name], sources.isHeld?.(branch.name) === true || sources.isLanded(branch.name))) {
-      attention.add(branch.name)
+/**
+ * The branches of each state chip among `names` (the branch rows, in table order), by the node of each row
+ * (`nodeOf`, `getLandingNodeNow`); a branch without a node is in All only
+ */
+export function collectChipMatches(names: readonly string[], nodeOf: (name: string) => LandingNodeKind | null): BranchChipMatches {
+  const matches = { yourMove: new Set<string>(), landing: new Set<string>(), waiting: new Set<string>(), inMaster: new Set<string>() }
+  const all: string[] = []
+  for (const name of names) {
+    const kind = nodeOf(name)
+    all.push(name)
+    if (kind !== null) {
+      matches[chipOfNode(kind)].add(name)
     }
   }
-  return { all: branches.map(branch => branch.name), toPush, running, attention }
+  return { all, ...matches }
+}
+
+/**
+ * The rows F2 steps through: the user's moves, a fix first, then a step of the user, then the ready ones, each in
+ * table order (`MOVE_KINDS`)
+ */
+export function movesByUrgency(names: readonly string[], nodeOf: (name: string) => LandingNodeKind | null): string[] {
+  return MOVE_KINDS.flatMap(kind => names.filter(name => nodeOf(name) === kind))
 }
 
 /** The count of a chip: every branch for `all` */
@@ -111,7 +109,7 @@ export function filterBranches(matches: BranchChipMatches, branches: Readonly<Re
 
 /**
  * The branches to show: the matches, and those shown since the filter last changed (`shown`), so a branch that stops
- * matching (pushed, its robot done) stays where the user is looking until the filter changes; the same set when no
+ * matching (started, its robot done) stays where the user is looking until the filter changes; the same set when no
  * match is new
  */
 export function keepShown(shown: ReadonlySet<string> | null, matches: readonly string[]): ReadonlySet<string> {
@@ -122,19 +120,21 @@ export function keepShown(shown: ReadonlySet<string> | null, matches: readonly s
 }
 
 const chipEmptyLines: Readonly<Record<Exclude<BranchFilterChip, "all">, string>> = {
-  toPush: "Nothing to push",
-  running: "No robot is running",
-  attention: "Nothing needs attention",
+  yourMove: "Nothing is your move",
+  landing: "Nothing is landing",
+  waiting: "Nothing waits for others",
+  inMaster: "Nothing is in master",
 }
 
 const chipNoMatchLines: Readonly<Record<BranchFilterChip, string>> = {
   all: "No branches match",
-  toPush: "No branches to push match",
-  running: "No branches with a running robot match",
-  attention: "No branches that need attention match",
+  yourMove: "No branches of your move match",
+  landing: "No landing branches match",
+  waiting: "No waiting branches match",
+  inMaster: "No branches in master match",
 }
 
-/** The line of a table the filter left empty: `No branches match “foo”`, or "Nothing to push" for a chip alone */
+/** The line of a table the filter left empty: `No branches match “foo”`, or "Nothing is your move" for a chip alone */
 export function formatNoMatch(filter: BranchFilter): string {
   const text = filter.text.trim()
   if (text === "" && filter.chip !== "all") {
@@ -143,13 +143,14 @@ export function formatNoMatch(filter: BranchFilter): string {
   return `${chipNoMatchLines[filter.chip]} “${text}”`
 }
 
-/** The label of a chip, Title Case as a tab */
+/** The label of a chip, Title Case as a tab, in the words of the landing overview */
 export const CHIP_LABELS: Readonly<Record<BranchFilterChip, string>> = {
   all: "All",
-  toPush: "To Push",
-  running: "Running",
-  attention: "Attention",
+  yourMove: "Your Move",
+  landing: "Landing",
+  waiting: "Waiting",
+  inMaster: "In Master",
 }
 
-/** The chips in the order of the bar */
-export const CHIPS: readonly BranchFilterChip[] = ["all", "toPush", "running", "attention"]
+/** The chips in the order of the bar: the user's moves, then the way into master */
+export const CHIPS: readonly BranchFilterChip[] = ["all", "yourMove", "landing", "waiting", "inMaster"]

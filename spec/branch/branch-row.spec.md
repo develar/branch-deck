@@ -440,7 +440,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - P must push the focused branch as its push button does (`pushOrConfirm`, the stack where the button pushes it, the
   question before a push that drops remote commits), when that button is enabled (`canPushNow`, the rule of P in the
   preview).
-  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should keep a pushed branch under To Push until the filter changes`)
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should keep a branch under Your Move until the filter changes, once its move is made`)
 - S must open the Safe Push popover at the slot of the focused row when its "Safe Push" is enabled (Patronus answered,
   the row has a push, `canStartRobot`, no inline action running): S never starts by itself (`requestSafePush` with
   `via: "key"`). The popover focuses its start button once it can start, so Enter starts the robot. Otherwise S says
@@ -456,13 +456,14 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   the menu offers it (a synced branch with commits, no error); with selected rows M opens it for them
   ([Move Commits](move-commits.spec.md)).
   [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should open Move to… for the focused row with M, without a selection`)
-- F2 and Shift+F2 must move the focus to the next or the previous branch row that waits for the user (the rows of
-  Attention, [Branch Filter](branch-filter.spec.md#state-chips)), around the ends, from anywhere in the window but a text
-  field, a dialog or a menu, as F2 steps through the problems in IntelliJ: from no focused row the first or the last one.
-  A row in a collapsed stack expands its stack; under a filter only the rows it shows count. Nothing happens while none
-  waits. The tooltip of the Attention chip tells the keys.
-  [@test] ../../src/lib/branch-row-keys.test.ts (`steps to the next or the previous row that waits for the user, around the ends`, `starts at the first or the last one from no row, and finds none while nothing waits`)
-  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should step through the rows that wait for the user with F2 and Shift+F2, into a collapsed stack`)
+- F2 and Shift+F2 must move the focus to the next or the previous branch row that is the user's move (the rows of
+  Your Move, [Branch Filter](branch-filter.spec.md#state-chips)), the most urgent first: the fixes, then the steps of
+  the user, then the branches ready to land, each in table order (`movesByUrgency`), around the ends, from anywhere in
+  the window but a text field, a dialog or a menu, as F2 steps through the problems in IntelliJ: from no focused row,
+  or one that is no move, the first or the last one. A row in a collapsed stack expands its stack; under a filter only
+  the rows it shows count. Nothing happens without a move. The tooltip of the Your Move chip tells the keys.
+  [@test] ../../src/lib/branch-row-keys.test.ts (`steps to the next or the previous move by urgency, around the ends`, `starts at the most urgent or the least urgent move from no row or a row that is no move, and finds none without a move`)
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should step through the user's moves with F2 and Shift+F2, a fix first, into a collapsed stack`)
 - P, S, D, O and M work in any keyboard layout (the physical key). The menu items show them (the push `P`, "Safe
   Push" `S`, "Review Changes" `D`, "Open Pull Request" `O`, "Move to…" `M`), and so does the
   hover of "Safe Push" in the row (`S`): a key shown in the menu works on the row.

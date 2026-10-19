@@ -105,7 +105,7 @@ export function BranchTableCard() {
   // Space previews a row, D reviews it in its window: the same in the table and in the islands
   const previewHotkeys = { preview: openBranchPreview, review: reviewBranchRow, intent: prefetchBranchRowReview }
   usePreviewHotkeys(tableRef, () => lastToggledRef.current, previewHotkeys)
-  const { handleRowKey, handleStackKey, focusFirstRow, focusAttentionRow } = useBranchRowKeys({
+  const { handleRowKey, handleStackKey, focusFirstRow, focusMoveRow } = useBranchRowKeys({
     rows,
     expandedKeys,
     setExpanded,
@@ -113,7 +113,7 @@ export function BranchTableCard() {
     lastFocusedRef: lastToggledRef,
     unfoldedNames,
   })
-  useAttentionKey(focusAttentionRow)
+  useMoveKey(focusMoveRow)
   // a reveal of a branch the filter hides clears it; one in a collapsed stack, or an inline form opened there, expands it
   useRevealClearsFilter(unfoldedNames)
   const revealTarget = useCommitMove(state => state.reveal?.branchName ?? null)
@@ -318,9 +318,9 @@ function IslandTable({ rows, lastFocusedRef, hotkeys, onKeyDown, pathPointer, ch
  */
 /**
  * F2 and Shift+F2 from anywhere in the window but a text field, a dialog or a menu: the focus moves to the next or the
- * previous branch row that waits for the user
+ * previous branch row that is the user's move, a fix first
  */
-function useAttentionKey(focusAttentionRow: (step: 1 | -1) => void): void {
+function useMoveKey(focusMoveRow: (step: 1 | -1) => void): void {
   const onKeyDown = useEffectEvent((event: globalThis.KeyboardEvent) => {
     if (event.key !== "F2" || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
       return
@@ -329,7 +329,7 @@ function useAttentionKey(focusAttentionRow: (step: 1 | -1) => void): void {
       return
     }
     event.preventDefault()
-    focusAttentionRow(event.shiftKey ? -1 : 1)
+    focusMoveRow(event.shiftKey ? -1 : 1)
   })
   useEffect(() => {
     const listener = (event: globalThis.KeyboardEvent) => onKeyDown(event)

@@ -13,22 +13,19 @@ export function neighbourRow(names: readonly string[], current: string | null, s
 }
 
 /**
- * The row F2 (`step` 1) or Shift+F2 (-1) moves the focus to: the next or the previous of `order` (the branch rows in
- * table order) that waits for the user (`isAttention`), after `current` and around the ends, as F2 steps through the
- * problems in IntelliJ; from no row the first or the last one; null while none waits
+ * The row F2 (`step` 1) or Shift+F2 (-1) moves the focus to: the next or the previous of `moves` (the user's moves, the
+ * most urgent first, `movesByUrgency`) after `current`, around the ends, as F2 steps through the problems in IntelliJ;
+ * from no row or a row that is no move the first or the last one, the most urgent or the least; null without a move
  */
-export function attentionRow(order: readonly string[], isAttention: (name: string) => boolean, current: string | null, step: 1 | -1): string | null {
-  const start = current === null ? -1 : order.indexOf(current)
-  const count = order.length
-  for (let offset = 1; offset <= count; offset++) {
-    // from no row, offset 1 is the first row going down and the last one going up
-    const index = start === -1 ? (step === 1 ? offset - 1 : count - offset) : (start + step * offset + count * offset) % count
-    const name = order[index]!
-    if (isAttention(name)) {
-      return name
-    }
+export function moveRow(moves: readonly string[], current: string | null, step: 1 | -1): string | null {
+  if (moves.length === 0) {
+    return null
   }
-  return null
+  const index = current === null ? -1 : moves.indexOf(current)
+  if (index === -1) {
+    return moves.at(step === 1 ? 0 : -1)!
+  }
+  return moves[(index + step + moves.length) % moves.length]!
 }
 
 /** The branch row of `name` among `rows` and its index; null for a branch without a row */

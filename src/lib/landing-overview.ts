@@ -20,7 +20,7 @@ export interface LandingUnit {
 }
 
 /** The kinds that are the user's move, the most urgent first */
-const MOVE_KINDS: readonly LandingNodeKind[] = ["needsFix", "yourStep", "ready"]
+export const MOVE_KINDS: readonly LandingNodeKind[] = ["needsFix", "yourStep", "ready"]
 
 export interface LandingOverview {
   /** The units on the way to master, in the table order: the bar of the header button */

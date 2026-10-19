@@ -1,18 +1,15 @@
 import type { KeyboardEvent, RefObject } from "react"
 import { getBranchContextMenuItems } from "@/hooks/useBranchContextActions"
-import { getLandedIn } from "@/hooks/useBranchNextStep"
+import { getMoveRowsNow } from "@/hooks/useBranchFilter"
 import { requestSafePush } from "@/hooks/useSafePush"
-import { needsAttention } from "@/lib/branch-filter"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import { prefetchBranchReview } from "@/lib/branch-review-window"
-import { attentionRow, neighbourRow, parentRow } from "@/lib/branch-row-keys"
+import { moveRow, neighbourRow, parentRow } from "@/lib/branch-row-keys"
 import { FROM_MENU, selectMenuItemById } from "@/lib/menu"
 import { showToast } from "@/lib/toast-message"
 import type { BranchTableRow } from "@/stores/branch-sync"
 import { getBranch } from "@/stores/branch-sync"
 import { getOperations } from "@/stores/operations"
-import { getBranchRobot, getPushHold } from "@/stores/patronus"
-import { getPullRequest } from "@/stores/pull-requests"
 import { expandStackOf, getCollapsedSideStacks, isStackIsland, sideStackToCollapse, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
 
 export interface BranchRowKeysOptions {
@@ -38,10 +35,10 @@ export interface BranchRowKeys {
   /** ↓ in the search of the filter bar */
   focusFirstRow: () => void
   /**
-   * F2 (`step` 1) or Shift+F2 (-1): the focus moves to the next or the previous branch row that waits for the user
-   * (`needsAttention`, the rows of Attention), expanding the collapsed stack it is in; nothing while none waits
+   * F2 (`step` 1) or Shift+F2 (-1): the focus moves to the next or the previous branch row that is the user's move (the
+   * rows of Your Move, a fix first), expanding the collapsed stack it is in; nothing without a move
    */
-  focusAttentionRow: (step: 1 | -1) => void
+  focusMoveRow: (step: 1 | -1) => void
 }
 
 /**
@@ -93,12 +90,6 @@ export function prefetchBranchRowReview(name: string): void {
  * its Safe Push popover, D opens its review window, O opens its pull request, M opens "Move to…" for it: P, D, O and M
  * as the items of the branch menu they are the hints of (`selectRowItem`). A handled key is `preventDefault`ed.
  */
-/** The branch waits for the user, as Attention of the filter bar counts it */
-function isAttentionRow(name: string): boolean {
-  const branch = getBranch(name)
-  return branch !== undefined && needsAttention(branch, getBranchRobot(name), getPullRequest(name), getPushHold(name) !== null || getLandedIn(name) !== null)
-}
-
 export function useBranchRowKeys({ rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef, unfoldedNames }: BranchRowKeysOptions): BranchRowKeys {
   const branchNames = rows.flatMap(it => (it.kind === "branch" ? [it.name] : []))
   // in the table or in an island below it
@@ -180,9 +171,9 @@ export function useBranchRowKeys({ rows, expandedKeys, setExpanded, toggleExpand
     }
   }
 
-  const focusAttentionRow = (step: 1 | -1) => {
+  const focusMoveRow = (step: 1 | -1) => {
     const focused = document.activeElement?.closest<HTMLElement>("tr[data-testid=branch-row]")?.dataset.branchName
-    const name = attentionRow(unfoldedNames, isAttentionRow, focused ?? lastFocusedRef.current, step)
+    const name = moveRow(getMoveRowsNow(unfoldedNames), focused ?? lastFocusedRef.current, step)
     if (name === null) {
       return
     }
@@ -195,5 +186,5 @@ export function useBranchRowKeys({ rows, expandedKeys, setExpanded, toggleExpand
     requestAnimationFrame(() => focusRow(name))
   }
 
-  return { handleRowKey, handleStackKey, focusFirstRow: () => focusRow(branchNames[0] ?? null), focusAttentionRow }
+  return { handleRowKey, handleStackKey, focusFirstRow: () => focusRow(branchNames[0] ?? null), focusMoveRow }
 }

@@ -16,8 +16,9 @@ export interface BranchFilterBarProps {
 
 /**
  * The filter bar at the top of the branch table: a search ("/" focuses it from anywhere in the window, Escape clears
- * it, then leaves it) and the state chips with their counts of all branches (All, To Push, Running, Attention; one at a
- * time, the chosen one again goes back to All), a chip shown while it counts a branch or is chosen. Hidden in a table
+ * it, then leaves it) and the state chips with their counts of all branches by the node of each row (All, Your Move,
+ * Landing, Waiting, In Master, the words of the landing overview; one at a time, the chosen one again goes back to All),
+ * a chip shown while it counts a branch or is chosen. Hidden in a table
  * of fewer than `FILTER_BAR_MIN_BRANCHES` branches, unless a filter is active.
  */
 export function BranchFilterBar({ onFocusRows, onLeave }: BranchFilterBarProps) {
@@ -40,7 +41,7 @@ export function BranchFilterBar({ onFocusRows, onLeave }: BranchFilterBarProps) 
             </ChoiceChip>
           )
           // F2 steps through these rows from anywhere in the window: the chip is where the key is told
-          return chip === "attention" && counts.attention > 0 ? (
+          return chip === "yourMove" && counts.yourMove > 0 ? (
             <Tooltip key={chip}>
               <TooltipTrigger render={choice} />
               <TooltipContent>

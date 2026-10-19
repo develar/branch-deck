@@ -490,10 +490,10 @@ menu stacks, unstacks and renames branches.
   waits for the user first: "· 1 conflict" or "· 1 error" (`destructive`), "· 1 blocked" (`warning`), "· 1 failed"
   (`destructive`), "· 1 needs review" (`warning`), then "· 1 running" with the ring and "· 3 to push" (the push
   colour). Each counts as the surface that tells it for all branches (`summarizeStackState`): "failed" a robot that
-  failed on the branch as it is, as the landing indicator and Attention count it (one of an earlier state, fixed since,
+  failed on the branch as it is, as the landing indicator counts it (one of an earlier state, fixed since,
   counts nothing: its row offers a new Safe Push; nor one of a branch another robot holds or landed, or the baseline
   has), "needs review" one that failed for missing approvals, "to push" by the
-  rule of To Push. Stacks are expanded by default; a collapsed one
+  rule of the outgoing counts (`summarizePushState`). Stacks are expanded by default; a collapsed one
   is remembered per repository (`collapsedStacks`, by root; a rename of the root keeps it, a stack on another branch or
   a merged root leaves the list), and the table keeps the lane column of the expanded stacks, so no name moves.
   Collapsing closes the inline form of a hidden row; a reveal of a hidden branch, or an inline form opened for one

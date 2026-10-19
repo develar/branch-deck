@@ -14,18 +14,18 @@ describe("branch filter store", () => {
   })
 
   it("chooses one chip at a time, and the chosen one again goes back to All", () => {
-    toggleFilterChip("toPush")
-    expect(getBranchFilter().chip).toBe("toPush")
-    toggleFilterChip("running")
-    expect(getBranchFilter().chip).toBe("running")
-    toggleFilterChip("running")
+    toggleFilterChip("yourMove")
+    expect(getBranchFilter().chip).toBe("yourMove")
+    toggleFilterChip("landing")
+    expect(getBranchFilter().chip).toBe("landing")
+    toggleFilterChip("landing")
     expect(getBranchFilter().chip).toBe("all")
   })
 
   it("keeps the text with the chip and clears both", () => {
     setFilterText("auth")
-    toggleFilterChip("attention")
-    expect(getBranchFilter()).toEqual({ text: "auth", chip: "attention" })
+    toggleFilterChip("waiting")
+    expect(getBranchFilter()).toEqual({ text: "auth", chip: "waiting" })
     clearBranchFilter()
     expect(getBranchFilter()).toEqual({ text: "", chip: "all" })
   })
@@ -35,7 +35,7 @@ describe("branch filter store", () => {
     // nothing to remember while the filter shows all
     expect(getShownBranches()).toBeNull()
 
-    toggleFilterChip("toPush")
+    toggleFilterChip("yourMove")
     rememberShown(["auth", "api"])
     rememberShown(["api"])
     expect([...getShownBranches()!]).toEqual(["auth", "api"])
@@ -50,7 +50,7 @@ describe("branch filter store", () => {
     expect(getBranchFilter()).toEqual({ text: "", chip: "all" })
     expect(getShownBranches()).toBeNull()
     // the first change there starts from no filter
-    toggleFilterChip("running")
-    expect(getBranchFilter()).toEqual({ text: "", chip: "running" })
+    toggleFilterChip("landing")
+    expect(getBranchFilter()).toEqual({ text: "", chip: "landing" })
   })
 })

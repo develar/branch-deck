@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import { attentionRow, neighbourRow, parentRow } from "@/lib/branch-row-keys"
+import { moveRow, neighbourRow, parentRow } from "@/lib/branch-row-keys"
 import type { BranchTableRow } from "@/stores/branch-sync"
 
 function branchRow(name: string, depth: number): BranchTableRow {
@@ -46,26 +46,24 @@ describe("branch row keys", () => {
   })
 })
 
-describe("attentionRow", () => {
-  const order = ["auth", "login", "docs", "api", "cache"]
-  const waiting = new Set(["login", "api"])
-  const isAttention = (name: string) => waiting.has(name)
+describe("moveRow", () => {
+  // the moves by urgency: a fix first (`movesByUrgency`)
+  const moves = ["api", "login", "docs"]
 
-  it("steps to the next or the previous row that waits for the user, around the ends", () => {
-    expect(attentionRow(order, isAttention, "auth", 1)).toBe("login")
-    expect(attentionRow(order, isAttention, "login", 1)).toBe("api")
-    expect(attentionRow(order, isAttention, "api", 1)).toBe("login")
-    expect(attentionRow(order, isAttention, "docs", -1)).toBe("login")
-    expect(attentionRow(order, isAttention, "login", -1)).toBe("api")
+  it("steps to the next or the previous move by urgency, around the ends", () => {
+    expect(moveRow(moves, "api", 1)).toBe("login")
+    expect(moveRow(moves, "docs", 1)).toBe("api")
+    expect(moveRow(moves, "login", -1)).toBe("api")
+    expect(moveRow(moves, "api", -1)).toBe("docs")
   })
 
-  it("starts at the first or the last one from no row, and finds none while nothing waits", () => {
-    expect(attentionRow(order, isAttention, null, 1)).toBe("login")
-    expect(attentionRow(order, isAttention, null, -1)).toBe("api")
-    // a row the filter hid counts as no row
-    expect(attentionRow(order, isAttention, "gone", 1)).toBe("login")
-    expect(attentionRow(order, () => false, "auth", 1)).toBeNull()
+  it("starts at the most urgent or the least urgent move from no row or a row that is no move, and finds none without a move", () => {
+    expect(moveRow(moves, null, 1)).toBe("api")
+    expect(moveRow(moves, null, -1)).toBe("docs")
+    // a waiting row, or one the filter hid
+    expect(moveRow(moves, "web", 1)).toBe("api")
+    expect(moveRow([], "auth", 1)).toBeNull()
     // the only one: F2 stays on it
-    expect(attentionRow(order, name => name === "docs", "docs", 1)).toBe("docs")
+    expect(moveRow(["docs"], "docs", 1)).toBe("docs")
   })
 })

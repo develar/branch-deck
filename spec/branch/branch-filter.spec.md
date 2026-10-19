@@ -1,6 +1,6 @@
 ---
 name: Branch Filter
-description: Requirements for the filter bar of the branch table, the search over the branch names, issue keys, summaries and commit subjects, the state chips All, To Push, Running and Attention with their counts, the dimmed stack ancestors of the matches, the empty result, and how the filter meets the selection, a reveal, a collapsed stack and the keys of the rows.
+description: Requirements for the filter bar of the branch table, the search over the branch names, issue keys, summaries and commit subjects, the state chips All, Your Move, Landing, Waiting and In Master with their counts by the node of each row, the dimmed stack ancestors of the matches, the empty result, and how the filter meets the selection, a reveal, a collapsed stack and the keys of the rows.
 style: plain-1
 targets:
   - ../../src/components/branch/BranchFilterBar.tsx
@@ -9,7 +9,9 @@ targets:
   - ../../src/components/branch/BranchContextMenuRow.tsx
   - ../../src/components/branch/BranchSelectionBar.tsx
   - ../../src/hooks/useBranchFilter.ts
+  - ../../src/hooks/useBranchRowKeys.ts
   - ../../src/lib/branch-filter.ts
+  - ../../src/lib/branch-row-keys.ts
   - ../../src/lib/text-search.ts
   - ../../src/components/shared/SearchField.tsx
   - ../../src/hooks/useSlashFocus.ts
@@ -21,15 +23,16 @@ targets:
 # Branch Filter
 
 Status: Implemented
-Date: 2026-10-15
+Date: 2026-10-19
 
 ## Summary
 
 A repository with 28 branches and a stack of 15 no longer fits in one look. The filter bar at the top of the branch
 table narrows it: a search over what a row shows (the name, the issue key, the summary, the commit subjects) and one
-state chip at a time (To Push, Running, Attention), each with its count of all branches. The matches stay in their
+state chip at a time (Your Move, Landing, Waiting, In Master: where a branch is on its way into master, as the node of
+its row says it), each with its count of all branches. The matches stay in their
 place in the stack graph: the branches they are built on show as dimmed context, so the lines stay connected. A branch
-that stops matching while the user looks at it (pushed, its robot done) stays until the filter changes.
+that stops matching while the user looks at it (its move made, its robot done) stays until the filter changes.
 
 ## Goals
 
@@ -71,30 +74,30 @@ that stops matching while the user looks at it (pushed, its robot done) stays un
 
 ### State chips
 
-- The chips must be All, To Push, Running and Attention, each with its count of all branches, whatever the search.
-  A chip must show while it counts a branch or is chosen; All always shows.
+- The chips must be All, Your Move, Landing, Waiting and In Master, each with its count of all branches, whatever the
+  search: the words of the sections of the [landing overview](../repository/landing-overview.spec.md#overview), so the
+  table, the node of each row and the header tell one story ([Landing](../../docs/design/landing.md)). A push is no
+  state of its own: the steps push what they need. A chip must show while it counts a branch or is chosen; All always
+  shows.
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should filter by a state chip, with the counts of all branches`)
 - One chip must be chosen at a time, All by default; the chosen chip again must go back to All. A chip combines with
   the search.
   [@test] ../../src/stores/branch-filter.test.ts (`chooses one chip at a time, and the chosen one again goes back to All`, `keeps the text with the chip and clears both`)
   [@test] ../../src/lib/branch-filter.test.ts (`shows the branches of the chosen chip that match the text, in table order; an inactive filter shows all`)
-- To Push must take the branches the header counts as having work for the remote (`summarizePushState`): synced
-  without an error, with commits, not blocked, not landed, and a push that is not "up to date"; an amended or
-  restacked branch is a force push (`isRemoteUpToDate`), so it counts.
-  [@test] ../../src/lib/branch-filter.test.ts (`puts a branch into To Push by the rule of the outgoing counts`)
+- A chip must take a branch by the node of its row (`getLandingNodeNow`, [Branch Row](branch-row.spec.md#tree)): Your
+  Move the filled nodes, a fix (`needsFix`: a conflict, an error, a failed robot of the branch as it is, changes
+  requested, failing checks), a step of the user (`yourStep`) and a branch ready to land (`ready`); Landing a Safe Push
+  that lands the branch, its own or one of a branch built on it or of the whole stack (`landing`); Waiting what waits
+  for others, reviewers, its parent (a blocked branch too), a robot that holds it, a Dry Run, the first answer of
+  Patronus (`waiting`); In Master what the baseline or a merge has until the update archives it (`inMaster`). A branch
+  without a node yet is in All only. The chips count branches, the rows the table shows; the header counts the units
+  that land in one move, so a ready stack of five branches is five rows of Your Move and one move of the header.
+  [@test] ../../src/lib/branch-filter.test.ts (`puts a branch into the chip of the node of its row, the filled nodes into Your Move`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should filter by a state chip, with the counts of all branches`)
-- Running must take the branches whose robot (`findBranchRobot`) runs or cancels (`isRobotActive`).
-  [@test] ../../src/lib/branch-filter.test.ts (`puts a branch whose robot runs or cancels into Running`)
-- Attention must take what waits for the user: an error or a conflict, a branch blocked by its stack parent, a failed
-  robot of the branch as it is (also one that failed for missing approvals) that nothing else carries (another robot
-  holds or landed it, or the baseline has it; `needsBranchRobotAttention`), and an open pull
-  request with changes requested or failing checks (`formatAuthorAttention`), a fix of the
-  [landing overview](../repository/landing-overview.spec.md#overview).
-  [@test] ../../src/lib/branch-filter.test.ts (`puts an error, a conflict, a blocked branch, a failed robot of the branch as it is and a pull request waiting for its author into Attention`)
-  [@test] ../../src/lib/branch-filter.test.ts (`leaves out of Attention the failed robot of a branch another robot holds or landed, or the baseline has, not its pull request`)
-  The tooltip of Attention, while it counts a branch, tells F2 and Shift+F2, which step through its rows from anywhere
-  in the window ([Branch Row](branch-row.spec.md#keyboard)).
-  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should filter by a state chip, with the counts of all branches`)
+- The tooltip of Your Move, while it counts a branch, tells F2 and Shift+F2, which step through its rows, a fix first,
+  from anywhere in the window ([Branch Row](branch-row.spec.md#keyboard)).
+  [@test] ../../src/lib/branch-filter.test.ts (`orders the moves for F2 by urgency, a fix first, each kind in table order`)
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should step through the user's moves with F2 and Shift+F2, a fix first, into a collapsed stack`)
 
 ### Rows
 
@@ -103,14 +106,14 @@ that stops matching while the user looks at it (pushed, its robot done) stays un
   opens its menu and takes the keys.
   [@test] ../../src/stores/branch-table-rows.test.ts (`prunes the rows to the visible branches and the branches they stack on, which are dimmed`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show the matches of a search and, dimmed, the branches they stack on`)
-- A branch shown under the filter must stay until the filter changes, also when it stops matching (pushed under To
-  Push, its robot done under Running); a new match shows at once. The counts follow the branches at once.
+- A branch shown under the filter must stay until the filter changes, also when it stops matching (pushed or started
+  under Your Move, its robot done under Landing); a new match shows at once. The counts follow the branches at once.
   [@test] ../../src/lib/branch-filter.test.ts (`keeps the branches shown since the filter changed, and adds the new matches`)
   [@test] ../../src/stores/branch-filter.test.ts (`remembers the shown branches until the filter changes`)
-  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should keep a pushed branch under To Push until the filter changes`)
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should keep a branch under Your Move until the filter changes, once its move is made`)
 - A filter that leaves no row must show one quiet line in the table instead of the rows and the column heads: `No
-  branches match “foo”` (`No branches to push match “foo”` with a chip), or for a chip alone "Nothing to push", "No
-  robot is running", "Nothing needs attention", with a Clear Filter button that shows all branches again.
+  branches match “foo”` (`No branches of your move match “foo”` with a chip), or for a chip alone "Nothing is your
+  move", "Nothing is landing", "Nothing waits for others", "Nothing is in master", with a Clear Filter button that shows all branches again.
   [@test] ../../src/lib/branch-filter.test.ts (`says what found nothing`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should say when nothing matches and clear the filter`)
 
@@ -141,7 +144,7 @@ that stops matching while the user looks at it (pushed, its robot done) stays un
   here `w-60`, with the `SearchIcon`, the placeholder "Filter branches" (also its accessible name), the `Kbd` `/` at
   its end while empty and an `icon-xs` X button ("Clear the filter text") once typed.
 - The chips are `ChoiceChip`s (`xs`) in a group named "Branch state": the chosen one soft primary (`aria-pressed`), the
-  others `secondary`; the label in Title Case as a tab (All, To Push, Running, Attention), the count after it in tabular
+  others `secondary`; the label in Title Case as a tab (All, Your Move, Landing, Waiting, In Master), the count after it in tabular
   figures at 70% opacity. E2E finds them by `data-chip`.
 - A dimmed row is `opacity-55`, its node and lines too, and full opacity on hover or focus (`data-dimmed`).
 - The empty line is `text-sm text-muted-foreground` in a `px-6 py-4` cell; Clear Filter is a `link` `xs` button.
@@ -153,8 +156,8 @@ that stops matching while the user looks at it (pushed, its robot done) stays un
   `src/stores/branch-table-rows.test.ts`.
 - `pnpm e2e tests/e2e/branch-filter`: the `branch_filter` template (eleven branches: the stack `core` → `api` → `web`
   with `cli` forked off `core`, issue branches, `search` of IJPL-200, and "the API" in the subject of `docs`); robots
-  through the `patronus` option of `setupRepo`, pushes through `routePush`. To Push is compared with the count of the rows
-  whose push button is enabled, which follows the same rule.
+  through the `patronus` option of `setupRepo`, pushes through `routePush`. The counts are checked against the nodes of
+  the rows (`lane-node`, `data-kind`), which follow the same rule.
 
 ## Open Questions / Risks
 
@@ -167,6 +170,7 @@ that stops matching while the user looks at it (pushed, its robot done) stays un
 
 - [Branch Row](branch-row.spec.md): the rows, their keys and the dimmed row
 - [Stacked Branches](stacked-branches.spec.md): the pruned graph
-- [Outgoing Commits](../repository/outgoing.spec.md): the push rule of To Push and the attention of the indicator
-- [Patronus](patronus.spec.md): the robots of Running and Attention
+- [Landing Overview](../repository/landing-overview.spec.md): the sections the chips are named by
+- [Next Step](next-step.spec.md): what decides the node of a row
+- [Patronus](patronus.spec.md): the robots that land a branch or failed on it
 - [Move Commits](move-commits.spec.md): the selection

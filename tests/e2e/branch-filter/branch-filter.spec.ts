@@ -29,27 +29,15 @@ function searchInput(page: Page): Locator {
   return page.getByRole("textbox", { name: "Filter branches" })
 }
 
-function chip(page: Page, name: "all" | "toPush" | "running" | "attention"): Locator {
+function chip(page: Page, name: "all" | "yourMove" | "landing" | "waiting" | "inMaster"): Locator {
   return page.getByRole("group", { name: "Branch state" }).locator(`[data-chip=${name}]`)
 }
 
-/**
- * The rows with work for the remote, To Push's rule: the push of the row's menu is enabled, as P is. The menu, not the
- * push button: the first push of a branch whose Safe Push pushes it has no button on the row
- */
-async function outgoingBranchCount(page: Page): Promise<number> {
-  let count = 0
-  for (const name of ROW_ORDER) {
-    await findBranchRow(page, name).click({ button: "right" })
-    const push = page.getByRole("menuitem", { name: /^(Force Push|Push|Push Stack) \(\d+/ })
-    await expect(page.getByRole("menuitem", { name: /^Copy Branch Name/ })).toBeVisible()
-    if ((await push.count()) === 1 && (await push.getAttribute("aria-disabled")) !== "true") {
-      count++
-    }
-    await page.keyboard.press("Escape")
-    await expect(page.getByRole("menu")).toHaveCount(0)
-  }
-  return count
+/** The kind of the node of each row, in table order: what the chips take the rows by */
+async function nodeKinds(page: Page): Promise<string[]> {
+  return page
+    .getByTestId("branch-row")
+    .evaluateAll(rows => rows.map(row => `${row.getAttribute("data-branch-name")}:${row.querySelector("[data-testid=lane-node]")?.getAttribute("data-kind")}`))
 }
 
 /** The `branch_filter` repository with these robots, synced; the unassigned commits card renders after the branches */
@@ -118,23 +106,46 @@ test.describe("Branch filter", () => {
 
   test("should filter by a state chip, with the counts of all branches", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setup(page, setupRepo, syncAndWaitForBranches, robot("web", "running-robot"), robot("ci", "failed-robot", { status: "failure", finishTime: 1704142800 }))
+    // the chips take the rows by their nodes: web's Safe Push lands core and api with it, ci's robot failed on it as it is
+    await expect
+      .poll(() => nodeKinds(page))
+      .toEqual([
+        "deps:yourStep",
+        "lint:yourStep",
+        "search:yourStep",
+        "IJPL-102:yourStep",
+        "IJPL-101:yourStep",
+        "ci:needsFix",
+        "docs:yourStep",
+        "core:landing",
+        "cli:waiting",
+        "api:landing",
+        "web:landing",
+      ])
     await expect(chip(page, "all")).toHaveText("All11")
-    await expect(chip(page, "toPush")).toHaveText(`To Push${await outgoingBranchCount(page)}`)
-    await expect(chip(page, "running")).toHaveText("Running1")
-    await expect(chip(page, "attention")).toHaveText("Attention1")
+    await expect(chip(page, "yourMove")).toHaveText("Your Move7")
+    await expect(chip(page, "landing")).toHaveText("Landing3")
+    await expect(chip(page, "waiting")).toHaveText("Waiting1")
+    // a chip shows only while it counts a branch
+    await expect(chip(page, "inMaster")).toHaveCount(0)
 
-    await chip(page, "running").click()
-    await expect(chip(page, "running")).toHaveAttribute("aria-pressed", "true")
-    await expect.poll(() => shownRows(page)).toEqual(["core~", "api~", "web"])
+    await chip(page, "landing").click()
+    await expect(chip(page, "landing")).toHaveAttribute("aria-pressed", "true")
+    await expect.poll(() => shownRows(page)).toEqual(["core", "api", "web"])
     // a chip combines with the text
     await searchInput(page).fill("deps")
-    await expect(page.getByTestId("branch-filter-empty")).toHaveText("No branches with a running robot match “deps”Clear Filter")
+    await expect(page.getByTestId("branch-filter-empty")).toHaveText("No landing branches match “deps”Clear Filter")
     await searchInput(page).fill("")
 
-    await chip(page, "attention").click()
-    await expect.poll(() => shownRows(page)).toEqual(["ci"])
+    // cli waits for the Safe Push of web, which holds the stack: core, dimmed, is what it is built on
+    await chip(page, "waiting").click()
+    await expect.poll(() => shownRows(page)).toEqual(["core~", "cli"])
+
+    // the user's moves, the fix of ci among them
+    await chip(page, "yourMove").click()
+    await expect.poll(() => shownRows(page)).toEqual(["deps", "lint", "search", "IJPL-102", "IJPL-101", "ci", "docs"])
     // the chosen chip again: all branches
-    await chip(page, "attention").click()
+    await chip(page, "yourMove").click()
     await expect.poll(() => shownRows(page)).toEqual(ROW_ORDER)
   })
 
@@ -149,23 +160,26 @@ test.describe("Branch filter", () => {
     await expect.poll(() => shownRows(page)).toEqual(ROW_ORDER)
   })
 
-  test("should keep a pushed branch under To Push until the filter changes", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should keep a branch under Your Move until the filter changes, once its move is made", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setup(page, setupRepo, syncAndWaitForBranches)
     const pushes = await routePush(page, {})
-    const toPush = await outgoingBranchCount(page)
-    await chip(page, "toPush").click()
+    // neither Patronus nor GitHub: every branch not on the remote is the user's move, its push
+    await expect(chip(page, "yourMove")).toHaveText("Your Move11")
+    await chip(page, "yourMove").click()
     await focusRow(page, "docs")
 
     await page.keyboard.press("p")
     await expectPushedToast(page, "docs")
     expect(pushes.map(push => push.branchName)).toEqual(["docs"])
-    await expect(chip(page, "toPush")).toHaveText(`To Push${toPush - 1}`)
+    // pushed, it lands through its pull request: it waits for others
+    await expect(chip(page, "yourMove")).toHaveText("Your Move10")
+    await expect(chip(page, "waiting")).toHaveText("Waiting1")
     // where the user is looking: the row stays, and the focus with it
     await expect(findBranchRow(page, "docs")).toBeVisible()
     await expect(findBranchRow(page, "docs")).toBeFocused()
 
-    await chip(page, "toPush").click()
-    await chip(page, "toPush").click()
+    await chip(page, "yourMove").click()
+    await chip(page, "yourMove").click()
     await expect(findBranchRow(page, "docs")).toHaveCount(0)
   })
 
@@ -265,28 +279,35 @@ test.describe("Branch filter", () => {
     await expect(getStackChip(findBranchRow(page, "core"))).toHaveAttribute("data-stack", "expanded")
   })
 
-  test("should step through the rows that wait for the user with F2 and Shift+F2, into a collapsed stack", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should step through the user's moves with F2 and Shift+F2, a fix first, into a collapsed stack", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const failed = { status: "failure" as const, finishTime: 1704142800 }
     await setup(page, setupRepo, syncAndWaitForBranches, robot("lint", "lint-failed", failed), robot("api", "api-failed", failed))
-    await expect(chip(page, "attention")).toContainText("2")
+    // the robots of lint and api failed on them as they are: their fixes come first, then the steps of the others
+    await expect(findBranchRow(page, "lint").getByTestId("lane-node")).toHaveAttribute("data-kind", "needsFix")
+    await expect(chip(page, "yourMove")).toHaveText("Your Move11")
     await getStackChip(findBranchRow(page, "core")).click()
     await expect(findBranchRow(page, "api")).toHaveCount(0)
     // the chip tells the key
-    await chip(page, "attention").hover()
+    await chip(page, "yourMove").hover()
     await expect(page.getByRole("tooltip").filter({ hasText: "Go to the next one" })).toBeVisible()
 
-    // from anywhere in the window: the first row that waits, then the next one, in its collapsed stack
+    // from anywhere in the window: the first fix, then the next one, in its collapsed stack
     await page.mouse.click(5, 300)
     await page.keyboard.press("F2")
     await expect(findBranchRow(page, "lint")).toBeFocused()
     await page.keyboard.press("F2")
     await expect(findBranchRow(page, "api")).toBeFocused()
     await expect(getStackChip(findBranchRow(page, "core"))).toHaveAttribute("data-stack", "expanded")
-    // around the ends, and back
+    // then the steps of the user, in table order
     await page.keyboard.press("F2")
-    await expect(findBranchRow(page, "lint")).toBeFocused()
+    await expect(findBranchRow(page, "deps")).toBeFocused()
+    // back, and around the ends: the least urgent move is the last one
     await page.keyboard.press("Shift+F2")
     await expect(findBranchRow(page, "api")).toBeFocused()
+    await page.keyboard.press("Shift+F2")
+    await expect(findBranchRow(page, "lint")).toBeFocused()
+    await page.keyboard.press("Shift+F2")
+    await expect(findBranchRow(page, "web")).toBeFocused()
 
     // typed into the search, it is no key of the table
     await searchInput(page).focus()

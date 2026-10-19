@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from "vite-plus/test"
-import type { PatronusRobot, PullRequest } from "@/lib/bindings"
-import type { BranchFilter, BranchStateSources } from "@/lib/branch-filter"
-import { chipCount, collectChipMatches, filterBranches, formatNoMatch, isFilterActive, keepShown, matchesBranchText, NO_FILTER } from "@/lib/branch-filter"
+import { describe, expect, it } from "vite-plus/test"
+import type { BranchFilter } from "@/lib/branch-filter"
+import { chipCount, collectChipMatches, filterBranches, formatNoMatch, isFilterActive, keepShown, matchesBranchText, movesByUrgency, NO_FILTER } from "@/lib/branch-filter"
+import type { LandingNodeKind } from "@/lib/landing-node"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -14,47 +14,10 @@ function branch(name: string, overrides: Partial<Branch> = {}, subject = `Work o
   return testBranch(name, null, { commits: [commit(name, subject)], remoteStatus: testRemoteStatus({ exists: false }), ...overrides })
 }
 
-function robot(branchName: string, status: PatronusRobot["status"]): PatronusRobot {
-  return {
-    id: `robot-${branchName}`,
-    name: branchName,
-    status,
-    pushMode: "rebaseAutosquash",
-    branchName,
-    sourceRevision: `${branchName}-tip`,
-    targetBranch: "master",
-    startTime: 1,
-    finishTime: null,
-    cancellationReason: null,
-    url: "https://patronus/robot",
-  }
+/** The node of each row by name, as `getLandingNodeNow` gives it; none for a branch not listed */
+function nodes(kinds: Record<string, LandingNodeKind>): (name: string) => LandingNodeKind | null {
+  return name => kinds[name] ?? null
 }
-
-function pullRequest(branchName: string, patch: Partial<PullRequest>): PullRequest {
-  return {
-    number: 7,
-    title: branchName,
-    url: "https://github.com/o/r/pull/7",
-    state: "open",
-    isDraft: false,
-    reviewDecision: null,
-    headRefName: `user/virtual/${branchName}`,
-    headRefOid: `${branchName}-tip`,
-    checks: null,
-    updatedAt: 0,
-    reviewers: [],
-    author: "me",
-    ...patch,
-  }
-}
-
-function sources(branches: Branch[], patch: Partial<Omit<BranchStateSources, "branches">> = {}): BranchStateSources {
-  return { branches: Object.fromEntries(branches.map(it => [it.name, it])), robots: undefined, pullRequests: {}, isLanded: () => false, ...patch }
-}
-
-// `@/lib/patronus` opens robots and reports errors
-vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: async () => {} }))
-vi.mock("@/lib/errors", () => ({ notifyError: () => {} }))
 
 describe("branch filter", () => {
   it("matches every word in the name, the issue key, the summary, the description title or a commit subject, ignoring case", () => {
@@ -70,97 +33,63 @@ describe("branch filter", () => {
     expect(matchesBranchText(auth, "  ")).toBe(true)
   })
 
-  it("puts a branch into To Push by the rule of the outgoing counts", () => {
-    const branches = [
-      branch("new"),
-      branch("pushed", { remoteStatus: testRemoteStatus() }),
-      branch("ahead", { remoteStatus: testRemoteStatus({ unpushedCommits: ["a"], commitsAhead: 1, myCommitsAhead: 1 }) }),
-      // nothing ahead, but the remote has older versions of its commits: a force push replaces them
-      branch("amended", { remoteStatus: testRemoteStatus({ commitsAmended: 1, fastForward: false }) }),
-      branch("restacked", { remoteStatus: testRemoteStatus({ commitsRestacked: 2, fastForward: false }) }),
-      branch("blocked", { status: "Blocked" }),
-      branch("broken", { hasError: true, status: "Error" }),
-      branch("landed"),
-      branch("loading", { remoteStatus: null }),
-    ]
-    const matches = collectChipMatches(
-      branches.map(it => it.name),
-      sources(branches, { isLanded: name => name === "landed" }),
-    )
-    expect([...matches.toPush]).toEqual(["new", "ahead", "amended", "restacked"])
-    expect(chipCount(matches, "all")).toBe(9)
-    expect(chipCount(matches, "toPush")).toBe(4)
+  it("puts a branch into the chip of the node of its row, the filled nodes into Your Move", () => {
+    const kinds: Record<string, LandingNodeKind> = {
+      conflict: "needsFix",
+      review: "yourStep",
+      approved: "ready",
+      robot: "landing",
+      parent: "waiting",
+      blocked: "waiting",
+      merged: "inMaster",
+    }
+    const names = [...Object.keys(kinds), "syncing"]
+    const matches = collectChipMatches(names, nodes(kinds))
+    expect([...matches.yourMove]).toEqual(["conflict", "review", "approved"])
+    expect([...matches.landing]).toEqual(["robot"])
+    expect([...matches.waiting]).toEqual(["parent", "blocked"])
+    expect([...matches.inMaster]).toEqual(["merged"])
+    // a branch without a node yet is in All only
+    expect(chipCount(matches, "all")).toBe(8)
+    expect(chipCount(matches, "yourMove")).toBe(3)
   })
 
-  it("puts a branch whose robot runs or cancels into Running", () => {
-    const branches = [branch("running"), branch("canceling"), branch("failed"), branch("idle")]
-    const robots = Object.fromEntries([robot("running", "running"), robot("canceling", "canceling"), robot("failed", "failure")].map(it => [it.id, it]))
-    const matches = collectChipMatches(
-      branches.map(it => it.name),
-      sources(branches, { robots }),
-    )
-    expect([...matches.running]).toEqual(["running", "canceling"])
-  })
-
-  it("puts an error, a conflict, a blocked branch, a failed robot of the branch as it is and a pull request waiting for its author into Attention", () => {
-    const branches = [
-      branch("broken", { hasError: true, status: "Error" }),
-      branch("conflict", { hasError: true, status: "MergeConflict" }),
-      branch("blocked", { status: "Blocked" }),
-      branch("failed"),
-      // the robot took a commit the branch no longer has: its failure is old news
-      branch("changed", { commits: [commit("changed-now", "Work on changed")], remoteStatus: testRemoteStatus({ remoteTip: "changed-now-tip" }) }),
-      branch("review"),
-      branch("fine"),
-    ]
-    const robots = Object.fromEntries([robot("failed", "failure"), robot("changed", "failure")].map(it => [it.id, it]))
-    const pullRequests = { review: pullRequest("review", { reviewDecision: "changesRequested" }), fine: pullRequest("fine", { reviewDecision: "approved" }) }
-    const matches = collectChipMatches(
-      branches.map(it => it.name),
-      sources(branches, { robots, pullRequests }),
-    )
-    expect([...matches.attention]).toEqual(["broken", "conflict", "blocked", "failed", "review"])
-  })
-
-  it("leaves out of Attention the failed robot of a branch another robot holds or landed, or the baseline has, not its pull request", () => {
-    const branches = [branch("held"), branch("landed"), branch("review")]
-    const robots = Object.fromEntries([robot("held", "failure"), robot("landed", "failure"), robot("review", "failure")].map(it => [it.id, it]))
-    const pullRequests = { review: pullRequest("review", { reviewDecision: "changesRequested" }) }
-    const names = branches.map(it => it.name)
-    expect([...collectChipMatches(names, sources(branches, { robots, pullRequests })).attention]).toEqual(["held", "landed", "review"])
-    const carried = collectChipMatches(names, { ...sources(branches, { robots, pullRequests }), isHeld: name => name !== "landed", isLanded: name => name === "landed" })
-    expect([...carried.attention]).toEqual(["review"])
+  it("orders the moves for F2 by urgency, a fix first, each kind in table order", () => {
+    const kinds = nodes({ docs: "ready", auth: "yourStep", api: "needsFix", web: "waiting", cli: "needsFix", core: "ready" })
+    expect(movesByUrgency(["docs", "auth", "api", "web", "cli", "core"], kinds)).toEqual(["api", "cli", "auth", "docs", "core"])
+    expect(movesByUrgency(["web"], kinds)).toEqual([])
   })
 
   it("shows the branches of the chosen chip that match the text, in table order; an inactive filter shows all", () => {
     const branches = [branch("auth"), branch("api", { remoteStatus: testRemoteStatus() }), branch("docs", {}, "Document the API")]
-    const all = sources(branches)
     const matches = collectChipMatches(
       branches.map(it => it.name),
-      all,
+      nodes({ auth: "ready", api: "waiting", docs: "yourStep" }),
     )
-    const filter = (patch: Partial<BranchFilter>) => filterBranches(matches, all.branches, { ...NO_FILTER, ...patch })
+    const byName = Object.fromEntries(branches.map(it => [it.name, it]))
+    const filter = (patch: Partial<BranchFilter>) => filterBranches(matches, byName, { ...NO_FILTER, ...patch })
     expect(filter({})).toBeNull()
     expect(isFilterActive({ text: " ", chip: "all" })).toBe(false)
     expect(filter({ text: "api" })).toEqual(["api", "docs"])
-    expect(filter({ chip: "toPush" })).toEqual(["auth", "docs"])
-    expect(filter({ text: "api", chip: "toPush" })).toEqual(["docs"])
+    expect(filter({ chip: "yourMove" })).toEqual(["auth", "docs"])
+    expect(filter({ text: "api", chip: "yourMove" })).toEqual(["docs"])
     expect(filter({ text: "gone" })).toEqual([])
   })
 
   it("keeps the branches shown since the filter changed, and adds the new matches", () => {
     const first = keepShown(null, ["auth", "api"])
     expect([...first]).toEqual(["auth", "api"])
-    // auth was pushed: it no longer matches To Push, but stays
+    // auth's Safe Push started: it no longer matches Your Move, but stays
     expect(keepShown(first, ["api"])).toBe(first)
     expect([...keepShown(first, ["api", "docs"])]).toEqual(["auth", "api", "docs"])
   })
 
   it("says what found nothing", () => {
     expect(formatNoMatch({ text: " foo ", chip: "all" })).toBe("No branches match “foo”")
-    expect(formatNoMatch({ text: "foo", chip: "toPush" })).toBe("No branches to push match “foo”")
-    expect(formatNoMatch({ text: "", chip: "toPush" })).toBe("Nothing to push")
-    expect(formatNoMatch({ text: "", chip: "running" })).toBe("No robot is running")
-    expect(formatNoMatch({ text: "", chip: "attention" })).toBe("Nothing needs attention")
+    expect(formatNoMatch({ text: "foo", chip: "yourMove" })).toBe("No branches of your move match “foo”")
+    expect(formatNoMatch({ text: "", chip: "yourMove" })).toBe("Nothing is your move")
+    expect(formatNoMatch({ text: "", chip: "landing" })).toBe("Nothing is landing")
+    expect(formatNoMatch({ text: "", chip: "waiting" })).toBe("Nothing waits for others")
+    expect(formatNoMatch({ text: "", chip: "inMaster" })).toBe("Nothing is in master")
   })
 })
