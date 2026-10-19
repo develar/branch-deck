@@ -951,6 +951,12 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../src/lib/patronus-actions.test.ts (`waits for a robot that lands an ancestor of the branch, as a start does; a dry run lands nothing and needn't`, `refuses the restart of a branch a merged Safe Push landed whole, a Dry Run too, and restarts one with commits after the landed ones`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should refuse the restart of the failed robot of a branch a merged Safe Push of a branch built on it landed, in its menu, its robot's details and its preview`)
 - Cancel is offered for a running robot; the robot is canceling until its checks stopped.
+- A restart or a cancel runs once per robot (an operation of the robot, [Running Operations](../../docs/design/operations.md)):
+  while it runs, it is running on every surface of the robot (the slot, the details, the landing overview: disabled,
+  a spinner in place of its icon, `aria-busy`), a second click joins it, the other one of the robot waits with its busy
+  state ("Restarting the Safe Push…").
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should restart a robot once while its restart runs, running in the slot and in its details`)
+  [@test] ../../src/stores/operations.test.ts (`lets a remote action wait for one of the same object or of a branch it works on`)
 - One builder lists the actions of a robot (`getRobotActions`), and every surface of the robot renders that list: the
   branch menu, the details (the chip popover, the preview section) and the [landing overview](../repository/landing-overview.spec.md#overview).
   In this order: "Restart Safe Push" or "Restart Safe Push" (below), "Cancel Safe Push", "Open in Patronus",

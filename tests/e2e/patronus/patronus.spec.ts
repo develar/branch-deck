@@ -9,7 +9,7 @@ import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { EARLIER_COMMIT, hoverStatusChip, landingRow, openBranchPreview, openLandingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { routeCommand } from "../helpers/wait-helpers"
+import { holdCommandCalls, routeCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed; the page's clock is at 2024-01-02 10:00Z, the robots start 14 hours
 // before, and the merged one took an hour: the usual time of a Safe Push
@@ -100,6 +100,25 @@ test.describe("Patronus chip", () => {
     await restart.click()
     await expect.poll(() => restarts.length).toBe(1)
     await verifyBranchState(findBranchRow(page, "ABC-123"), "closed")
+  })
+
+  test("should restart a robot once while its restart runs, running in the slot and in its details", async ({ page }) => {
+    await routeCommand(page, "restart_patronus_robot", () => robot("ABC-123", "restarted-robot", { startTime: NOW }))
+    const restarts = await holdCommandCalls(page, "restart_patronus_robot")
+    const restart = getSlot(page, "ABC-123").getByRole("button", { name: "Restart Safe Push" })
+    await restart.click()
+    await expect(restart).toHaveAttribute("aria-busy", "true")
+    await expect(restart).toBeDisabled()
+    // the details offer the same restart: it runs there too, a click starts no second one
+    const popover = await hoverChip(page, "ABC-123")
+    const again = popover.getByRole("button", { name: "Restart Safe Push" })
+    await expect(again).toHaveAttribute("aria-busy", "true")
+    await expect(again).toBeDisabled()
+    await again.click({ force: true })
+
+    restarts.release()
+    await expect(page.getByText("Safe Push restarted", { exact: true })).toBeVisible()
+    expect(restarts.calls).toHaveLength(1)
   })
 
   test("should show the details on hover and open the robot on click", async ({ page }) => {

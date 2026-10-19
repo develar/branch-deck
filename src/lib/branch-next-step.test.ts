@@ -328,9 +328,15 @@ describe("getBranchNextStep", () => {
     expect(getBranchNextStep(facts({ pullRequestsAvailable: false })).needsReadiness).toBe(false)
   })
 
-  it("disables the action of the slot while an inline action of the row runs, never the quiet steps", () => {
-    expect(getBranchNextStep(facts({ processing: true }))).toMatchObject({ item: { disabled: true }, safePushBlocker: "Wait for the action on the branch to finish" })
-    expect(getBranchNextStep(withReadiness(missing([group()]), { processing: true })).item?.disabled).toBeUndefined()
+  it("disables the action of the slot while an operation on the row runs, never the quiet steps; its own runs", () => {
+    const renaming = { id: "rename", label: "Renaming auth to login" }
+    expect(getBranchNextStep(facts({ busy: renaming }))).toMatchObject({
+      item: { disabled: true, description: "Renaming auth to login…" },
+      safePushBlocker: "Renaming auth to login…",
+    })
+    expect(getBranchNextStep(withReadiness(missing([group()]), { busy: renaming })).item?.disabled).toBeUndefined()
+    const safePushing = { id: "safe-push", label: "Starting the Safe Push" }
+    expect(getBranchNextStep(facts({ busy: safePushing })).item).toMatchObject({ id: "safe-push", running: true, disabled: true, description: "Starting the Safe Push…" })
   })
 
   it("words the notice of S as a short title naming the branch, the reason below; a reason of the branch first", () => {

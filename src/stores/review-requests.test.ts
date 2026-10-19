@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { ReviewRequest, ReviewRequestsResult } from "@/lib/bindings"
 import { resetOsNotification, setWindowFocus } from "@/lib/os-notification"
 import { MAX_BACKOFF_MS, POLL_INTERVAL_MS } from "@/lib/review-requests"
+import { getOperations } from "@/stores/operations"
 import {
   approveAndSafePush,
   connectReviewWindow,
+  getReviewBusy,
   noteReviewRefsWritten,
   openReviewRequest,
   pruneReviewRefsOf,
@@ -302,7 +304,7 @@ describe("reviews", () => {
     expect(gh.toasts.map(it => [it.title, it.description, it.actionProps?.children])).toEqual([["Approved #7", "Change 7", "Open Pull Request"]])
     expect(gh.activity).toEqual(["Approved #7"])
     expect(entry().reviewed[7]).toEqual({ event: "approve", commitId: HEAD })
-    expect(entry().busy).toEqual({})
+    expect(getReviewBusy(getOperations(), "/repo")).toEqual({})
     await vi.waitFor(() => expect(entry().requests.map(it => it.number)).toEqual([8]))
     // the window was opened on it at its place in the list, which it keeps once the request left
     expect(reviewWindow.opens).toEqual([{ number: 7, index: 0, intent: null }])
@@ -347,7 +349,7 @@ describe("Safe Push of a reviewed pull request", () => {
     expect(gh.announced).toEqual(["watch #7 Change 7"])
     expect(gh.toasts.at(-1)).toMatchObject({ title: "Safe Push started", description: "auth → master", actionProps: { children: "Open in Patronus" } })
     expect(gh.activity.at(-1)).toBe("robot: Safe Push started")
-    expect(entry().busy).toEqual({})
+    expect(getReviewBusy(getOperations(), "/repo")).toEqual({})
   })
 
   it("refuses a pull request that got commits since the review, and says the reason of the bot", async () => {

@@ -1,6 +1,6 @@
 import { GitPullRequestCreateIcon } from "lucide-react"
 import type { StartStepOptions } from "@/hooks/useBranchNextStep"
-import { announceApproval, getBranchNextStepNow, getLandedIn, nextStepSources, tellApprovalNews, useBranchNextStep, useNextStepStores } from "@/hooks/useBranchNextStep"
+import { announceApproval, busyFact, getBranchNextStepNow, getLandedIn, nextStepSources, tellApprovalNews, useBranchNextStep, useNextStepStores } from "@/hooks/useBranchNextStep"
 import { requestSafePush } from "@/hooks/useSafePush"
 import type { ApprovalNews } from "@/lib/approval-news"
 import { formatBranchCount } from "@/lib/branch"
@@ -18,7 +18,6 @@ import { describeWholeStackLanding, formatWholeStack, getStackBranchBlocker, sta
 import type { StackBranch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getStackBranch, stackMainLineIn, useBranchSync } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
-import { isObjectBusy } from "@/stores/operations"
 import {
   getLandedBy,
   getStackLandedReason,
@@ -32,7 +31,6 @@ import {
 import { getPullRequestAvailability, getStackPullRequest } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { freshReadiness, getReadinessTarget, getReviewReadiness, useShowReviewReadiness } from "@/stores/review-readiness"
-import { getSafePushStarting } from "@/stores/safe-push"
 
 /**
  * The next step of the whole stack of a root ([Next Step](../../spec/branch/next-step.spec.md#the-whole-stack)): of its
@@ -195,7 +193,7 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     hasError: false,
     commitCount: stack.commitCount,
     // its own running start is no reason against the start it runs
-    processing: isObjectBusy(key) || (options === null && getSafePushStarting(key) !== null),
+    busy: busyFact(key, options),
     blocked: false,
     startBlocker: start.ok ? null : start.reason,
     dryRunStartBlocker: dryRun.ok ? null : dryRun.reason,

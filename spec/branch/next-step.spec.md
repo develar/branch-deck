@@ -163,10 +163,11 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../src/lib/branch-next-step.test.ts (`a stacked branch takes the steps of its own pull request into master`, `a stacked branch waits for the reasons of its ancestors`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner a stacked branch's own pull request asks, not for its root`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should wait for the Safe Push of an ancestor, which lands its commits`)
-- An inline action of the row disables the action of the slot ("Wait for the action on the branch to finish"), never a
-  quiet step: it only opens the pull request.
+- An operation on the row ([Running Operations](../../docs/design/operations.md)) disables the action of the slot with
+  its busy state ("Renaming auth to login…"), never a quiet step: it only opens the pull request. The slot's own
+  action that runs (a retarget, a restart of its robot) is running: disabled, its spinner in place of its icon.
   [@test] ../../src/lib/branch-next-step.test.ts (`words the notice of S as a short title naming the branch, the reason below; a reason of the branch first`)
-  [@test] ../../src/lib/branch-next-step.test.ts (`disables the action of the slot while an inline action of the row runs, never the quiet steps`, `disables the Safe Push of a branch a robot of its ancestor lands, its slot says why`)
+  [@test] ../../src/lib/branch-next-step.test.ts (`disables the action of the slot while an operation on the row runs, never the quiet steps; its own runs`, `disables the Safe Push of a branch a robot of its ancestor lands, its slot says why`)
 - The pull requests are a fact of their own: until GitHub lists them (not configured, signed out, SSO, not loaded),
   the readiness counts as `unavailable` and rows 5 to 10 don't apply: the table never offers a Create Pull Request… for
   a branch that may have one; the start then holds nothing back either, and confirms first: "GitHub doesn't list the

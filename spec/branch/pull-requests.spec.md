@@ -335,7 +335,10 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   and `POST pulls/<n>/requested_reviewers`. After the pull request exists nothing fails the creation: an assignee
   GitHub leaves out and a reviewer it refuses are warnings; a refused list of reviewers is asked again one by one, to
   name whom it refuses. Escape and a click outside don't close the dialog while it runs; a click outside never closes
-  it (the text stays).
+  it (the text stays). The creation and "Continue on GitHub" are operations of the pull request in the main window
+  ([Running Operations](../../docs/design/operations.md)): a second submit joins the first; the dialog of the main
+  window reads them, the review window its own request. So is "Request Review…": its button shows the spinner, a
+  second click joins it.
   [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`creates_the_pull_request_assigns_the_user_and_asks_the_reviewers_except_the_author`, `without_the_assignee_and_reviewers_only_the_pull_request_is_created`, `a_refused_list_of_reviewers_is_asked_one_by_one_and_who_github_refuses_is_a_warning`, `an_assignee_github_leaves_out_or_refuses_is_a_warning_of_the_created_pull_request`, `a_rejected_token_writes_nothing`, `a_title_of_several_lines_is_refused_before_github_is_asked`)
 - The result is one toast with "Open Pull Request", recorded in Activity: "Created pull request #123" / "feature-auth
   → master · review requested from alice · assigned to you", a `warning` toast whose description names what GitHub

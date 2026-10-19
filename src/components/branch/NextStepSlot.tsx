@@ -3,6 +3,7 @@ import type { ReactNode, RefObject } from "react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
+import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { RequestReviewPopover } from "@/components/branch/RequestReviewPopover"
 import { SafePushButton } from "@/components/branch/SafePushButton"
@@ -228,15 +229,18 @@ export function StepButton({ action, tone, showKeys }: { action: MenuItem; tone:
 /** The ghost `xs` button of a step, `onClick` its action (none where a popover trigger opens it) */
 function stepButton(action: MenuItem, tone: NextStepTone, onClick: () => void) {
   const isDisabled = action.disabled === true
+  // the action of the slot runs (a retarget, a restart): its spinner in place of the icon, not dimmed
+  const running = action.running === true
   const Icon = action.icon
   return (
     <Button
       variant="ghost"
       size="xs"
       disabled={isDisabled}
+      aria-busy={running || undefined}
       // the hover says why; Base UI keeps the button focusable, so the dimming is ours
       focusableWhenDisabled
-      className={cn("max-w-full min-w-0", toneClass[tone], isDisabled && "opacity-50")}
+      className={cn("max-w-full min-w-0", toneClass[tone], isDisabled && !running && "opacity-50")}
       data-testid="next-step"
       data-tone={tone}
       onClick={event => {
@@ -249,7 +253,7 @@ function stepButton(action: MenuItem, tone: NextStepTone, onClick: () => void) {
         onClick()
       }}
     >
-      {Icon !== undefined && <Icon data-icon="inline-start" />}
+      {running ? <Spinner data-icon="inline-start" /> : Icon !== undefined && <Icon data-icon="inline-start" />}
       <span className="truncate">{action.label}</span>
     </Button>
   )

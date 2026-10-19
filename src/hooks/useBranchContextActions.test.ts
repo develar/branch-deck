@@ -21,7 +21,7 @@ describe("getSafePushBlocker", () => {
     operationsStore.setState({
       running: [{ key: 1, id: "rename", subject: "branch:login", objects: ["login"], kind: "rewrite", label: "Renaming login to auth", repositoryPath: "", surface: null }],
     })
-    expect(getSafePushBlocker(testBranch("login", null))).toBe("Wait for the action on the branch to finish")
+    expect(getSafePushBlocker(testBranch("login", null))).toBe("Renaming login to auth…")
   })
 })
 

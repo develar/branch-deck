@@ -19,6 +19,7 @@ import { recordPullRequestCreated } from "@/stores/activity"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
 import { getBranch } from "@/stores/branch-sync"
 import { forgetLandedStackRoot } from "@/stores/landed-stacks"
+import { branchSubject, runOperation } from "@/stores/operations"
 import { getPushHold } from "@/stores/patronus"
 import { createPullRequest } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getFullBranchName, getFullStackBranchName } from "@/stores/repository"
@@ -202,10 +203,43 @@ async function pushForPullRequest(context: CreatePullRequestContext): Promise<vo
  * it a moment later): the creation waits for it (`waitForMirror`). Main window only (the push, the store of the pull
  * requests, Activity). Throws why nothing was pushed, or what GitHub said.
  */
-export async function submitPullRequest(
-  context: CreatePullRequestContext,
-  input: CreatePullRequestInput,
-): Promise<{ toast: Omit<ToastMessage, "action">; pullRequest: PullRequest }> {
+export function submitPullRequest(context: CreatePullRequestContext, input: CreatePullRequestInput): Promise<{ toast: Omit<ToastMessage, "action">; pullRequest: PullRequest }> {
+  return runPullRequestOperation(context, "create-pull-request", `Creating the pull request of ${context.label}`, () => createPullRequestOf(context, input))
+}
+
+/** The ids of the operations of the pull request dialog: its creation and "Continue on GitHub", which push first */
+export const PULL_REQUEST_DIALOG_ACTIONS: readonly string[] = ["create-pull-request", "continue-on-github"]
+
+/** The subject of the pull request of a branch, or of the whole stack of a root (`wholeStack`) */
+export function pullRequestSubject(branchName: string, wholeStack: boolean): string {
+  return wholeStack ? `stack:${branchName}` : branchSubject(branchName)
+}
+
+/**
+ * Runs an action of the dialog as one operation of its pull request (`runOperation`): a second submit joins it; one that
+ * must wait (another remote action of the branch) throws why
+ */
+async function runPullRequestOperation<T>(context: CreatePullRequestContext, id: string, label: string, run: () => Promise<T>): Promise<T> {
+  let blocked: string | null = null
+  const result = await runOperation(
+    {
+      id,
+      subject: pullRequestSubject(context.branchName, context.wholeStack !== null),
+      objects: [context.branchName],
+      kind: "remote",
+      label,
+      repositoryPath: context.repositoryPath,
+    },
+    run,
+    reason => (blocked = reason),
+  )
+  if (blocked !== null) {
+    throw new Error(blocked)
+  }
+  return result as T
+}
+
+async function createPullRequestOf(context: CreatePullRequestContext, input: CreatePullRequestInput): Promise<{ toast: Omit<ToastMessage, "action">; pullRequest: PullRequest }> {
   await pushForPullRequest(context)
   const request = {
     branchName: context.branchName,
@@ -235,7 +269,11 @@ export async function submitPullRequest(
  * moment later; GitHub's form of a branch it doesn't have shows nothing), then opens GitHub's form with `fields`. Main
  * window only. Throws why nothing was pushed, or that GitHub still doesn't have the branch.
  */
-export async function continueOnGitHub(context: CreatePullRequestContext, fields: CompareFields): Promise<void> {
+export function continueOnGitHub(context: CreatePullRequestContext, fields: CompareFields): Promise<void> {
+  return runPullRequestOperation(context, "continue-on-github", `Opening the pull request of ${context.label} on GitHub`, () => continueOnGitHubOf(context, fields))
+}
+
+async function continueOnGitHubOf(context: CreatePullRequestContext, fields: CompareFields): Promise<void> {
   await pushForPullRequest(context)
   if (context.repository === null || context.newPullRequestBlocker !== null) {
     throw new Error(context.newPullRequestBlocker ?? "The GitHub repository of the branches is unknown")

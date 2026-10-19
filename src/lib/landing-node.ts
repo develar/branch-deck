@@ -70,7 +70,7 @@ const pendingNode = (label: string): LandingNode => ({ kind: "waiting", label, p
  * the state they started from; the next step (`getBranchNextStep`) decides the rest, as the slot of the row shows it.
  */
 export function getLandingNode(facts: LandingNodeFacts): LandingNode {
-  const next: NextStepFacts = { ...facts.next, syncing: false, processing: false }
+  const next: NextStepFacts = { ...facts.next, syncing: false, busy: null }
   if (next.hasError || facts.status === "Error" || facts.status === "MergeConflict" || facts.status === "AnalyzingConflict") {
     return node("needsFix", facts.statusText || "The branch failed to sync")
   }

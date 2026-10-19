@@ -18,6 +18,8 @@ import { MIN_POLL_GAP_MS, POLL_INTERVAL_MS, describeNewRequests, findNewRequests
 import { showRepository } from "@/lib/show-repository"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { recordReview, recordReviewRequest, recordRobot } from "@/stores/activity"
+import type { Operations } from "@/stores/operations"
+import { operationsStore, runOperation } from "@/stores/operations"
 import { startPatronusFromReviewedPullRequest, watchRobot } from "@/stores/patronus"
 import { getGitHubRepository } from "@/stores/pull-requests"
 import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
@@ -49,8 +51,6 @@ export interface RepositoryReviewRequests {
   readonly unread: ReadonlySet<string>
   /** The reviews the user submitted from the app in this session, by pull request number */
   readonly reviewed: Readonly<Record<number, SubmittedReview>>
-  /** What runs for a pull request now (a review being submitted, a Safe Push being asked for), by number */
-  readonly busy: Readonly<Record<number, ReviewAction>>
 }
 
 /** A review the user submitted from the app: the review says it, and keeps the request once it left the list */
@@ -79,7 +79,6 @@ const EMPTY: RepositoryReviewRequests = {
   isRefreshing: false,
   unread: new Set(),
   reviewed: {},
-  busy: {},
 }
 
 // ---- hooks ----
@@ -126,7 +125,47 @@ export function useSubmittedReview(number: number): SubmittedReview | undefined 
 
 /** What runs for pull request `number` of the selected repository now, if anything */
 export function useReviewAction(number: number): ReviewAction | undefined {
-  return useEntry(entry => entry.busy[number])
+  const repositoryPath = useSelectedProjectPath() ?? ""
+  return useStore(operationsStore, state => getReviewBusy(state.running, repositoryPath)[number])
+}
+
+const REVIEW_ACTIONS: ReadonlySet<string> = new Set<ReviewAction>(["approve", "requestChanges", "safePush"])
+
+/** The subject of the writes of the user to pull request `number` on review: one at a time */
+function reviewSubject(number: number): string {
+  return `review:${number}`
+}
+
+/**
+ * What runs for the pull requests of the repository now (a review being submitted, a Safe Push being asked for), by
+ * number: the operations of their writes (`runOperation`)
+ */
+export function getReviewBusy(running: Operations, repositoryPath: string): Readonly<Record<number, ReviewAction>> {
+  const busy: Record<number, ReviewAction> = {}
+  for (const operation of running) {
+    if (operation.repositoryPath === repositoryPath && operation.subject.startsWith("review:") && REVIEW_ACTIONS.has(operation.id)) {
+      busy[Number(operation.subject.slice("review:".length))] = operation.id as ReviewAction
+    }
+  }
+  return busy
+}
+
+/**
+ * Runs a write of the user to pull request `number` as one operation (`runOperation`): a second click joins it, another
+ * write of the same pull request waits for it (said by `feedback`); resolves to false when it did not run
+ */
+function runReviewWrite(
+  repositoryPath: string,
+  number: number,
+  action: ReviewAction,
+  label: string,
+  feedback: ReviewFeedback,
+  failure: string,
+  run: () => Promise<boolean>,
+): Promise<boolean> {
+  return runOperation({ id: action, subject: reviewSubject(number), objects: [], kind: "remote", label, repositoryPath }, run, reason => feedback.error(failure, reason)).then(
+    done => done === true,
+  )
 }
 
 // ---- refresh ----
@@ -407,12 +446,6 @@ export function mainReviewFeedback(request: ReviewRequest): ReviewFeedback {
   }
 }
 
-function setBusy(repositoryPath: string, number: number, action: ReviewAction | null): void {
-  update(repositoryPath, entry => ({
-    busy: action === null ? Object.fromEntries(Object.entries(entry.busy).filter(([key]) => key !== String(number))) : { ...entry.busy, [number]: action },
-  }))
-}
-
 /** "Approved #123", "Requested changes on #123" */
 export function describeReview(event: PullRequestReviewEvent, number: number): string {
   return event === "approve" ? `Approved #${number}` : `Requested changes on #${number}`
@@ -438,25 +471,30 @@ export async function submitReview(
   feedback: ReviewFeedback = mainReviewFeedback(request),
 ): Promise<boolean> {
   const { number } = request
-  setBusy(repositoryPath, number, event)
-  try {
-    const result = await commands.submitPullRequestReview({
-      repositoryPath,
-      githubRepository: githubRepositoryOfRequests(repositoryPath),
-      pullRequestNumber: number,
-      event,
-      commitId,
-      body,
-    })
-    if (result.status === "error") {
-      feedback.error(reviewFailure(event, number), result.error.message)
+  const failure = reviewFailure(event, number)
+  const label = event === "approve" ? `Approving #${number}` : `Requesting changes on #${number}`
+  const submitted = await runReviewWrite(repositoryPath, number, event, label, feedback, failure, async () => {
+    try {
+      const result = await commands.submitPullRequestReview({
+        repositoryPath,
+        githubRepository: githubRepositoryOfRequests(repositoryPath),
+        pullRequestNumber: number,
+        event,
+        commitId,
+        body,
+      })
+      if (result.status === "error") {
+        feedback.error(failure, result.error.message)
+        return false
+      }
+      return true
+    } catch (error) {
+      feedback.error(failure, error)
       return false
     }
-  } catch (error) {
-    feedback.error(reviewFailure(event, number), error)
+  })
+  if (!submitted) {
     return false
-  } finally {
-    setBusy(repositoryPath, number, null)
   }
   markRead(repositoryPath, request)
   update(repositoryPath, entry => ({ reviewed: { ...entry.reviewed, [number]: { event, commitId } } }))
@@ -493,7 +531,20 @@ export async function approveAndSafePush(
     return false
   }
   const githubRepository = githubRepositoryOfRequests(repositoryPath)
-  setBusy(repositoryPath, number, "safePush")
+  return runReviewWrite(repositoryPath, number, "safePush", `Starting the Safe Push of #${number}`, feedback, SAFE_PUSH_FAILURE, () =>
+    startReviewedSafePush(repositoryPath, request, commitId, githubRepository, feedback),
+  )
+}
+
+/** The Safe Push of `approveAndSafePush` once the commit is approved: the head checked, then the `/patronus merge` comment */
+async function startReviewedSafePush(
+  repositoryPath: string,
+  request: ReviewRequest,
+  commitId: string,
+  githubRepository: ReturnType<typeof githubRepositoryOfRequests>,
+  feedback: ReviewFeedback,
+): Promise<boolean> {
+  const { number } = request
   try {
     const head = await commands.getPullRequestHead({ repositoryPath, githubRepository, pullRequestNumber: number })
     if (head.status === "error") {
@@ -520,8 +571,6 @@ export async function approveAndSafePush(
   } catch (error) {
     feedback.error(SAFE_PUSH_FAILURE, error)
     return false
-  } finally {
-    setBusy(repositoryPath, number, null)
   }
 }
 

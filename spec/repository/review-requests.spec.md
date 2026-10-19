@@ -341,7 +341,9 @@ Safe Push it allows.
   main window, and `pull-request-review/reply` ends the wait (no timeout: Patronus may take a minute). A Safe Push asks
   Patronus of the repository the main window shows: for another one the main window switches to the request's
   repository first (`showRepository`, it waits for its sync), and the window keeps the Safe Push of the Patronus it last
-  saw there.
+  saw there. Each write is an operation of the pull request in the main window
+  ([Running Operations](../../docs/design/operations.md)): one at a time, a second one waits with its busy state, and
+  the window reads what runs from the state the main window sends (`busy`).
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve the commit the review shows, in the review too, and keep its place once it left the list`, `should keep the window while a write runs, and tell its result in the main window once the window closed`)
   [@test] ../../src/stores/review-requests.test.ts (`tells the window that asked, records Activity in the main window, and switches it to the request's repository first`)
   [@test] ../../src/lib/sub-window-link.test.ts (`knows what the window shows until it is destroyed, and only by its own label`, `sends the state only when it changed`, `answers each request by its id, with the feedback in between`, `forgets a window that failed to open`)

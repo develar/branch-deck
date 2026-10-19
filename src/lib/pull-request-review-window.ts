@@ -12,6 +12,7 @@ import type {
 } from "@/lib/pull-request-review"
 import type { ReviewIntent } from "@/lib/review-request-actions"
 import { createWindowLink } from "@/lib/sub-window-link"
+import { getOperations } from "@/stores/operations"
 import { isPatronusAvailable, readPatronusTargetBranch } from "@/stores/patronus"
 import { getSelectedProject } from "@/stores/repository"
 import {
@@ -20,6 +21,7 @@ import {
   noteReviewRefsWritten,
   openRequestOnGitHub,
   connectReviewWindow,
+  getReviewBusy,
   mainReviewFeedback,
   pruneReviewRefsOf,
   reviewRequestsStore,
@@ -85,7 +87,7 @@ function buildState(repositoryPath: string): ReviewWindowState {
     selected,
     requests: entry?.requests ?? [],
     reviewed: entry?.reviewed ?? {},
-    busy: entry?.busy ?? {},
+    busy: getReviewBusy(getOperations(), repositoryPath),
     patronus: selected ? reviewPatronus(repositoryPath) : { available: false, target: null },
   }
 }

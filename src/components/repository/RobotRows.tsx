@@ -1,6 +1,7 @@
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { PopoverSectionTitle } from "@/components/ui/popover"
+import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { RobotProgressBar, RobotRing } from "@/components/branch/RobotProgress"
 import { RelativeTime } from "@/components/shared/RelativeTime"
@@ -19,6 +20,7 @@ import { isFailingEntry } from "@/lib/robot-overview"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatWholeStack } from "@/lib/whole-stack"
 import { useBranch } from "@/stores/branch-sync"
+import { useOperations } from "@/stores/operations"
 import { useRobotNeedsReview } from "@/stores/patronus"
 
 interface RobotListProps {
@@ -58,6 +60,8 @@ export function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onRev
   const subject = entry.stackRoot === undefined ? branchName : formatWholeStack(entry.stackRoot)
   const reveal = entry.stackRoot ?? branchName
   const needsReview = useRobotNeedsReview(robot.id)
+  // a restart or a cancel that runs shows in its button
+  const operations = useOperations()
   const mode = formatPushMode(robot.pushMode)
   const Icon = patronusChipIcons[chip.kind]
   const active = chip.kind === "running"
@@ -107,7 +111,7 @@ export function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onRev
         {active && <RunningProgress entry={entry} />}
       </span>
       <span className="flex shrink-0">
-        {getGatedRobotActions(robot, branch ?? null, needsReview, failing).map(action => (
+        {getGatedRobotActions(robot, branch ?? null, needsReview, failing, operations).map(action => (
           <IconAction key={action.id} action={action} label={action.id === "open-robot" ? `Open ${mode} of ${subject} in Patronus` : `${action.label} of ${subject}`} />
         ))}
       </span>
@@ -202,11 +206,13 @@ function IconAction({ action, label }: { action: RobotAction; label: string }) {
             focusableWhenDisabled
             className={cn("text-muted-foreground", action.disabled && "opacity-50")}
             aria-label={label}
+            aria-busy={action.running === true || undefined}
             onClick={() => action.onSelect(FROM_MENU)}
           />
         }
       >
-        {action.icon && <action.icon />}
+        {/* a restart or a cancel that runs: the spinner in place of its icon */}
+        {action.running === true ? <Spinner /> : action.icon && <action.icon />}
       </TooltipTrigger>
       <TooltipContent>{action.description === undefined ? action.label : `${action.label}: ${action.description}`}</TooltipContent>
     </Tooltip>

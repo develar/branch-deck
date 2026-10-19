@@ -147,13 +147,21 @@ export function runOperation<T>(spec: OperationSpec, run: () => Promise<T>, onBl
     surface: spec.surface ?? null,
   }
   operationsStore.setState(state => ({ running: [...state.running, operation] }))
-  const promise = Promise.resolve()
-    .then(run)
-    .finally(() => {
-      promises.delete(operation.key)
-      operationsStore.setState(state => ({ running: state.running.filter(it => it !== operation) }))
-    })
+  // the promise is known before `run` starts, so a start of the same action from inside it joins it; `run` starts at
+  // once, as a direct call would, and a throw before its first await rejects the promise
+  let settle!: { resolve: (value: T) => void; reject: (error: unknown) => void }
+  const promise = new Promise<T>((resolve, reject) => {
+    settle = { resolve, reject }
+  }).finally(() => {
+    promises.delete(operation.key)
+    operationsStore.setState(state => ({ running: state.running.filter(it => it !== operation) }))
+  })
   promises.set(operation.key, promise)
+  try {
+    run().then(settle.resolve, settle.reject)
+  } catch (error) {
+    settle.reject(error)
+  }
   return promise
 }
 
@@ -178,8 +186,18 @@ export function useOperationBlocker(key: OperationKey): string | null {
   })
 }
 
+/** Whether one of the actions `ids` of the subject runs (the pull request dialog while its creation runs) */
+export function useSubjectRunning(subject: string, ids: readonly string[]): boolean {
+  return useStore(operationsStore, state => state.running.some(operation => operation.subject === subject && ids.includes(operation.id)))
+}
+
 function busyOf(running: Operations, name: string): Operation | undefined {
   return running.find(operation => operation.objects.includes(name))
+}
+
+/** The operation that works on the branch (or the archived branch) `name`, the first one started; undefined while none does */
+export function getObjectBusy(name: string): Operation | undefined {
+  return busyOf(operationsStore.getState().running, name)
 }
 
 /** Whether an operation works on the branch (or the archived branch) `name`: its row is busy */

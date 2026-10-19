@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { cn } from "cn"
 import { CircleXIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ReviewCommitNotice } from "@/components/branch/ReviewCommitNotice"
 import { RobotRing } from "@/components/branch/RobotProgress"
@@ -24,6 +25,7 @@ import { formatCheckProgress, formatRobotTimingDetails } from "@/lib/robot-eta"
 import { statusChipTextColors } from "@/lib/status-chip"
 import { formatTimestamp } from "@/lib/time"
 import { useBranch, useBranchRemoteStatus, useBranchTip } from "@/stores/branch-sync"
+import { useOperations } from "@/stores/operations"
 import { useBranchRobot, usePatronusAvailable, useRobotFailing, useRobotNeedsReview } from "@/stores/patronus"
 
 /**
@@ -117,6 +119,8 @@ export interface PatronusRobotDetailsProps {
 export function PatronusRobotDetails({ branchName, robot, loadDetails }: PatronusRobotDetailsProps) {
   const needsReview = useRobotNeedsReview(robot.id)
   const failing = useRobotFailing(robot.id)
+  // a restart or a cancel that runs shows in its button
+  const operations = useOperations()
   const localTip = useBranchTip(branchName)
   const remote = useBranchRemoteStatus(branchName)
   const chip = getPatronusChipState(robot, localTip, remote, { needsReview, failing })
@@ -239,7 +243,7 @@ export function PatronusRobotDetails({ branchName, robot, loadDetails }: Patronu
         {/* the form is below the row: an open branch preview closes first (`SafePushButton`) */}
         {needsReview && robot.pullRequest == null && patronusAvailable && branch !== undefined && <SafePushButton branch={branch} variant="outline" />}
         {/* named as in the branch menu: a bare "Cancel" reads like closing the popover */}
-        {getGatedRobotActions(robot, branch ?? null, needsReview, failing).map(action => (
+        {getGatedRobotActions(robot, branch ?? null, needsReview, failing, operations).map(action => (
           <RobotActionButton key={action.id} action={action} />
         ))}
       </div>
@@ -265,15 +269,17 @@ function PullRequestLink({ pullRequest }: { pullRequest: { readonly number: numb
  * that pushes first has the name of a restart
  */
 export function RobotActionButton({ action }: { action: MenuItem }) {
+  // a restart or a cancel that runs: the spinner in place of its icon (`operationItem`)
+  const running = action.running === true
   const content = (
     <>
-      {action.icon && <action.icon data-icon="inline-start" />}
+      {running ? <Spinner data-icon="inline-start" /> : action.icon && <action.icon data-icon="inline-start" />}
       {action.label}
     </>
   )
   if (action.description === undefined) {
     return (
-      <Button variant="outline" size="xs" data-action={action.id} disabled={action.disabled} onClick={() => action.onSelect(FROM_MENU)}>
+      <Button variant="outline" size="xs" data-action={action.id} disabled={action.disabled} aria-busy={running || undefined} onClick={() => action.onSelect(FROM_MENU)}>
         {content}
       </Button>
     )
@@ -288,6 +294,7 @@ export function RobotActionButton({ action }: { action: MenuItem }) {
             size="xs"
             data-action={action.id}
             disabled={action.disabled}
+            aria-busy={running || undefined}
             focusableWhenDisabled
             className={cn(action.disabled && "opacity-50")}
             onClick={() => action.onSelect(FROM_MENU)}

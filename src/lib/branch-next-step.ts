@@ -87,6 +87,12 @@ export interface NextStepActions {
 }
 
 /** What decides the next step of a branch; built from the stores by `getBranchNextStepNow`, plain data for the tests */
+/** The operation that works on the branch: the `id` of its item, its busy state ("Retargeting #12 to master") */
+export interface NextStepBusy {
+  readonly id: string
+  readonly label: string
+}
+
 export interface NextStepFacts {
   readonly branchName: string
   /** What the texts call the object of the Safe Push ("Safe Push of auth waits for Ilya Korennoy"): the branch's name */
@@ -96,8 +102,8 @@ export interface NextStepFacts {
   readonly syncing: boolean
   readonly hasError: boolean
   readonly commitCount: number
-  /** An inline action of the row runs */
-  readonly processing: boolean
+  /** An operation on the row runs (`getObjectBusy`, its own running start of a Safe Push left out): its action and label */
+  readonly busy: NextStepBusy | null
   /** A stacked branch whose parent failed to build (`Blocked`) */
   readonly blocked: boolean
   /**
@@ -308,8 +314,8 @@ function startReason(facts: NextStepFacts, startBlocker: string | null): string 
   if (landed !== null) {
     return landed
   }
-  if (facts.processing) {
-    return "Wait for the action on the branch to finish"
+  if (facts.busy !== null) {
+    return `${facts.busy.label}…`
   }
   return null
 }
@@ -397,9 +403,26 @@ function decideNextStep(facts: NextStepFacts): BranchNextStep {
     return withNotice(facts, step("none", null, general, dryRunBlocker))
   }
   const result = withNotice(facts, nextStep(facts, general, dryRunBlocker))
-  // an action of the row waits for the inline action that runs; a quiet step only opens the pull request
-  if (facts.processing && result.item !== null && result.tone === "default" && result.item.disabled !== true) {
-    return { ...result, item: { ...result.item, disabled: true, description: "Wait for the action on the branch to finish" } }
+  const busy = facts.busy
+  // the retarget the menu offers beside the step runs too
+  if (busy !== null && result.retarget?.id === busy.id) {
+    return withBusy({ ...result, retarget: { ...result.retarget, running: true, disabled: true, description: `${busy.label}…` } }, busy)
+  }
+  return withBusy(result, busy)
+}
+
+/**
+ * The step while `busy` runs on the row: the action of the slot running itself (a retarget, a restart), else waiting for
+ * it; a quiet step only opens the pull request and stays
+ */
+function withBusy(result: BranchNextStep, busy: NextStepBusy | null): BranchNextStep {
+  if (busy !== null && result.item !== null) {
+    if (result.item.id === busy.id) {
+      return { ...result, item: { ...result.item, running: true, disabled: true, description: `${busy.label}…` } }
+    }
+    if (result.tone === "default" && result.item.disabled !== true) {
+      return { ...result, item: { ...result.item, disabled: true, description: `${busy.label}…` } }
+    }
   }
   return result
 }

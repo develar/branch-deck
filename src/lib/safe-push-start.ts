@@ -8,7 +8,7 @@ import { canCancelRobot, describeRobot, formatPushMode, openRobot } from "@/lib/
 import { runRobotAction } from "@/lib/patronus-actions"
 import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 import { recordRobot } from "@/stores/activity"
-import { cancelPatronusRobot, startPatronusFromPullRequest, startPatronusRobot } from "@/stores/patronus"
+import { startPatronusFromPullRequest, startPatronusRobot } from "@/stores/patronus"
 import type { SafePushMode } from "@/stores/safe-push"
 import { getSafePushStarting, setSafePushStarting } from "@/stores/safe-push"
 
@@ -111,7 +111,7 @@ function announceStart(title: string, robot: PatronusRobot, profileName: string 
           label: `Cancel ${mode}`,
           onClick: () => {
             toast.close(id)
-            void runRobotAction(cancelPatronusRobot, robot, `${mode} is canceling`, `Cannot cancel the ${mode}`)
+            void runRobotAction("cancel-robot", robot)
           },
         },
       },

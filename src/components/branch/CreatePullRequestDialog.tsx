@@ -23,7 +23,7 @@ import type { GitHubUser, NewPullRequest } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { isLogin, preselectedReviewers, suggestedReviewers } from "@/lib/create-pull-request"
 import type { SuggestedReviewer } from "@/lib/create-pull-request"
-import { continueOnGitHub, submitPullRequest } from "@/lib/create-pull-request-context"
+import { continueOnGitHub, PULL_REQUEST_DIALOG_ACTIONS, pullRequestSubject, submitPullRequest } from "@/lib/create-pull-request-context"
 import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/create-pull-request-context"
 import { notifyError } from "@/lib/errors"
 import { FROM_MENU } from "@/lib/menu"
@@ -36,6 +36,7 @@ import { transferLabel } from "@/lib/transfer-progress"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranchPushProgress, useBranchSync, useIsBranchPushing, useIsStackBranchPushing, useStackBranchPushProgress, useStackPush } from "@/stores/branch-sync"
 import { closeCreatePullRequestDialog, useCreatePullRequestBranch, useCreatePullRequestGeneration, useCreatePullRequestWholeStack } from "@/stores/create-pull-request-dialog"
+import { useSubjectRunning } from "@/stores/operations"
 import { setCreatePullRequestAssignSelf, useAppSettings } from "@/stores/settings/appSettings"
 
 /**
@@ -56,10 +57,11 @@ export function CreatePullRequestDialog() {
   if (branchName !== null && shown?.generation !== generation) {
     setShown({ branchName, wholeStack, generation })
   }
-  const [isCreating, setIsCreating] = useState(false)
+  // the creation runs in this window: the dialog waits while its operation runs (`runOperation`)
+  const isCreating = useSubjectRunning(shown === null ? "" : pullRequestSubject(shown.branchName, shown.wholeStack), PULL_REQUEST_DIALOG_ACTIONS)
   const titleRef = useRef<HTMLInputElement>(null)
   const branch = useBranchSync(state => (shown === null ? undefined : state.branches[shown.branchName]))
-  const formProps = { titleRef, isCreating, setIsCreating }
+  const formProps = { titleRef, isCreating }
 
   return (
     <CreatePullRequestDialogFrame open={branchName !== null} isCreating={isCreating} titleRef={titleRef} onClose={closeCreatePullRequestDialog}>
@@ -122,8 +124,10 @@ export interface CreatePullRequestActions {
 
 interface FormProps {
   titleRef: RefObject<HTMLInputElement | null>
+  /** The creation or "Continue on GitHub" runs: the operation of the main window, or the request a review window sent */
   isCreating: boolean
-  setIsCreating: (isCreating: boolean) => void
+  /** A review window's own wait for the main window; the main window reads its operation */
+  setIsCreating?: (isCreating: boolean) => void
 }
 
 /** "Pushing 45%" while the push a creation starts with runs ("Pushing 2 branches 45%" with its parents), else null */
@@ -290,10 +294,10 @@ export function CreatePullRequestForm({
     if (!canCreate) {
       return
     }
-    setIsCreating(true)
+    setIsCreating?.(true)
     const input = { title: title.trim(), body, reviewers: reviewers.map(user => user.login), assignSelf, viewerLogin }
     // `.finally`, not try/finally: React Compiler cannot compile a try without a catch
-    const created = await actions.create(input).finally(() => setIsCreating(false))
+    const created = await actions.create(input).finally(() => setIsCreating?.(false))
     if (created) {
       actions.close()
     }
@@ -303,9 +307,9 @@ export function CreatePullRequestForm({
     if (isCreating || newPullRequestBlocker !== null) {
       return
     }
-    setIsCreating(true)
+    setIsCreating?.(true)
     const fields = { title: title.trim(), body, assignee: assignSelf ? (viewerLogin ?? undefined) : undefined }
-    const opened = await actions.continueOnGitHub(fields).finally(() => setIsCreating(false))
+    const opened = await actions.continueOnGitHub(fields).finally(() => setIsCreating?.(false))
     if (opened) {
       actions.close()
     }

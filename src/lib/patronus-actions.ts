@@ -26,6 +26,8 @@ import { getStackBranchBlocker } from "@/lib/whole-stack"
 import { recordRobot } from "@/stores/activity"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { getStackBranch } from "@/stores/branch-sync"
+import type { OperationKey, Operations } from "@/stores/operations"
+import { getOperations, operationItem, runOperation } from "@/stores/operations"
 import {
   cancelPatronusRobot,
   getLandedBy,
@@ -52,16 +54,28 @@ export function showRobotToast(title: string, robot: PatronusRobot, profileName:
   showToast({ title, description: describeRobot(robot, profileName), action: { children: "Open in Patronus", onClick: () => openRobot(robot) } })
 }
 
-/** Runs a restart or a cancel of a robot from a menu or a popover, and says how it went */
-export async function runRobotAction(action: (robot: PatronusRobot) => Promise<PatronusRobot>, robot: PatronusRobot, success: string, failure: string): Promise<void> {
-  let result: PatronusRobot
-  try {
-    result = await action(robot)
-  } catch (error) {
-    notifyError(failure, error)
-    return
-  }
-  announceRobot(success, result)
+/** The operation of a restart (`restart-robot`) or a cancel (`cancel-robot`) of the robot: one at a time per robot */
+export function robotOperation(id: "restart-robot" | "cancel-robot", robot: PatronusRobot): OperationKey {
+  return { id, subject: `robot:${robot.id}`, objects: [], kind: "remote" }
+}
+
+/**
+ * Runs a restart or a cancel of a robot from a menu, a popover or a toast as one operation of the robot
+ * (`runOperation`: a second click joins it, the other one waits), and says how it went
+ */
+export async function runRobotAction(id: "restart-robot" | "cancel-robot", robot: PatronusRobot): Promise<void> {
+  const mode = formatPushMode(robot.pushMode)
+  const restart = id === "restart-robot"
+  const failure = restart ? `Cannot restart the ${mode}` : `Cannot cancel the ${mode}`
+  await runOperation(
+    { ...robotOperation(id, robot), label: restart ? `Restarting the ${mode}` : `Canceling the ${mode}` },
+    () =>
+      (restart ? restartPatronusRobot(robot) : cancelPatronusRobot(robot)).then(
+        result => announceRobot(restart ? `${mode} restarted` : `${mode} is canceling`, result),
+        (error: unknown) => notifyError(failure, error),
+      ),
+    reason => showToast({ type: "info", title: failure, description: reason }),
+  )
 }
 
 /**
@@ -142,7 +156,13 @@ export function hasRobotFailurePrompt(robot: PatronusRobot, needsReview: boolean
  * `needsReview`: the robot failed for missing approvals; a component passes the value it subscribed to, so its list
  * follows it; `failing` likewise: a required check of the running robot failed.
  */
-export function getRobotActions(robot: PatronusRobot, branch: Branch | null, needsReview = isRobotNeedingReview(robot.id), failing = isRobotFailing(robot.id)): RobotAction[] {
+export function getRobotActions(
+  robot: PatronusRobot,
+  branch: Branch | null,
+  needsReview = isRobotNeedingReview(robot.id),
+  failing = isRobotFailing(robot.id),
+  operations: Operations = getOperations(),
+): RobotAction[] {
   const mode = formatPushMode(robot.pushMode)
   const items: RobotAction[] = []
   const target = restartTargetOf(robot, branch)
@@ -154,13 +174,19 @@ export function getRobotActions(robot: PatronusRobot, branch: Branch | null, nee
     start = root !== null ? checkStackRobotRestart(robot, root) : branch === null ? null : checkRobotRestart(robot, branch)
   }
   if (restart === "restart") {
-    items.push({
-      id: "restart-robot",
-      label: formatRobotRestartLabel(robot),
-      icon: RotateCcwIcon,
-      ...(start?.ok === false && { disabled: true, description: start.reason }),
-      onSelect: () => void runRobotAction(restartPatronusRobot, robot, `${mode} restarted`, `Cannot restart the ${mode}`),
-    })
+    items.push(
+      operationItem(
+        operations,
+        {
+          id: "restart-robot",
+          label: formatRobotRestartLabel(robot),
+          icon: RotateCcwIcon,
+          ...(start?.ok === false && { disabled: true, description: start.reason }),
+          onSelect: () => void runRobotAction("restart-robot", robot),
+        },
+        robotOperation("restart-robot", robot),
+      ) as RobotAction,
+    )
   } else if (restart === "pushAndRestart" && (branch !== null || root !== null)) {
     // a running robot tests a commit the branch moved past: the push cancels it first, the one push into its branch; the
     // push is part of the restart, its name is the restart's
@@ -182,12 +208,13 @@ export function getRobotActions(robot: PatronusRobot, branch: Branch | null, nee
     })
   }
   if (canCancelRobot(robot)) {
-    items.push({
-      id: "cancel-robot",
-      label: `Cancel ${mode}`,
-      icon: ShieldOffIcon,
-      onSelect: () => void runRobotAction(cancelPatronusRobot, robot, `${mode} is canceling`, `Cannot cancel the ${mode}`),
-    })
+    items.push(
+      operationItem(
+        operations,
+        { id: "cancel-robot", label: `Cancel ${mode}`, icon: ShieldOffIcon, onSelect: () => void runRobotAction("cancel-robot", robot) },
+        robotOperation("cancel-robot", robot),
+      ) as RobotAction,
+    )
   }
   if (hasRobotFailurePrompt(robot, needsReview, failing)) {
     items.push(

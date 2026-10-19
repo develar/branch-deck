@@ -108,11 +108,24 @@ reword, the conflict fix, and their undos. The inline forms run theirs through `
 add issue reference; delete archived as a remote action), whose function includes the sync, or `withRowProgress` around
 an action that is an operation itself (rename, ungroup, squash fixups, close the stack's pull request).
 
+### Remote actions
+
+- **The robot**: its restart and its cancel (`runRobotAction`, subject `robot:<id>`); `getRobotActions` marks them
+  with `operationItem`, so the slot, the details and the landing overview show the running one (a spinner in place of
+  its icon) and the other waits.
+- **The pull request**: the retarget of the next step (`retargetToTarget`, subject `pr:<n>`), the creation and
+  "Continue on GitHub" (`submitPullRequest`, `continueOnGitHub`: a second submit joins; one that must wait throws
+  why), "Request Review…" (`RequestReviewForm`, its button the surface).
+- **The review of a pull request**: Approve, Request Changes and Approve and Safe Push (`runReviewWrite`, subject
+  `review:<n>`); `getReviewBusy` is what the review list and the review window read (`ReviewWindowState.busy`).
+
+The next step reads the operation on its row (`NextStepFacts.busy`): the slot's own action runs (`running`), the
+others wait with its busy state.
+
 ### Not in the registry yet
 
-Push and stack push (`pushingBranches`, `stackPushes`), Safe Push and Dry Run (`safePushStore.starting`), the robot's
-restart and cancel, the pull request actions (create, retarget, request review) and Update Project keep their own
-state; push already joins a second click itself.
+Push and stack push (`pushingBranches`, `stackPushes`), Safe Push and Dry Run (`safePushStore.starting`) and Update
+Project keep their own state; push already joins a second click itself.
 
 ## Key Decisions
 

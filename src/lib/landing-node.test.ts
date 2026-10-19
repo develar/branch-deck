@@ -100,10 +100,10 @@ describe("getLandingNode", () => {
     expect(landing(facts({ landedIn: "origin/master", robot: finished("failed"), restart })).kind).toBe("inMaster")
   })
 
-  it("keeps its state while a sync or an inline action of the row runs", () => {
+  it("keeps its state while a sync or an operation on the row runs", () => {
     const ready = withReadiness(approved)
     expect(landing({ ...ready, syncing: true }, { status: "Syncing" })).toEqual(landing(ready))
-    expect(landing({ ...ready, processing: true })).toEqual(landing(ready))
+    expect(landing({ ...ready, busy: { id: "rename", label: "Renaming auth to login" } })).toEqual(landing(ready))
   })
 
   it("lands by its pull request in a repository that is not on Space", () => {

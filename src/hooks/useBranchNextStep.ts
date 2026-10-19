@@ -5,13 +5,13 @@ import { requestSafePush } from "@/hooks/useSafePush"
 import type { ApprovalNews } from "@/lib/approval-news"
 import { describeApprovalNews } from "@/lib/approval-news"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
-import type { BranchNextStep, NextStepFacts, NextStepPullRequest, StackPullRequestFact } from "@/lib/branch-next-step"
+import type { BranchNextStep, NextStepBusy, NextStepFacts, NextStepPullRequest, StackPullRequestFact } from "@/lib/branch-next-step"
 import { formatLandedState, getBranchNextStep } from "@/lib/branch-next-step"
 import { notifyError } from "@/lib/errors"
 import { isVirtualBranchBase } from "@/lib/git/new-pull-request"
 import { isFullyLanded } from "@/lib/landed"
 import { announce } from "@/lib/os-notification"
-import { canStartRobot, formatLandedReason, getSafePushSlot, isLandedByOwnRobot, isLandedWhole, isPullRequestIntoTarget } from "@/lib/patronus"
+import { canStartRobot, formatLandedReason, formatPushMode, getSafePushSlot, isLandedByOwnRobot, isLandedWhole, isPullRequestIntoTarget } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { changesRequestedBy, openPullRequest, waitingReviewers } from "@/lib/pull-request"
@@ -23,7 +23,8 @@ import { recordApproval, recordRetarget } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getStackBranchOf, useBranchSync } from "@/stores/branch-sync"
 import { landedStore } from "@/stores/landed"
-import { isObjectBusy, operationsStore } from "@/stores/operations"
+import type { Operations } from "@/stores/operations"
+import { getObjectBusy, operationsStore, runOperation } from "@/stores/operations"
 import {
   getBranchRobot,
   getLandedBy,
@@ -94,16 +95,22 @@ export async function retargetToTarget(branchName: string): Promise<void> {
     return
   }
   const base = getReadinessTarget()
-  try {
-    await retargetPullRequest(branchName, base)
-  } catch (error) {
-    notifyError(`Cannot retarget pull request #${pullRequest.number}`, error)
-    return
-  }
-  const title = `Retargeted #${pullRequest.number} to ${base}`
-  const description = `${branchName} · its approvals count for a Safe Push now`
-  recordRetarget(title, description, pullRequest.url)
-  showToast({ title, description, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
+  const failure = `Cannot retarget pull request #${pullRequest.number}`
+  // an operation of the pull request: a second click joins it, the slot and the menu say it runs
+  await runOperation(
+    { id: "retarget-pull-request", subject: `pr:${pullRequest.number}`, objects: [branchName], kind: "remote", label: `Retargeting #${pullRequest.number} to ${base}` },
+    () =>
+      retargetPullRequest(branchName, base).then(
+        () => {
+          const title = `Retargeted #${pullRequest.number} to ${base}`
+          const description = `${branchName} · its approvals count for a Safe Push now`
+          recordRetarget(title, description, pullRequest.url)
+          showToast({ title, description, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
+        },
+        (error: unknown) => notifyError(failure, error),
+      ),
+    reason => showToast({ type: "info", title: failure, description: reason }),
+  )
 }
 
 /**
@@ -122,6 +129,19 @@ function stackPullRequestFactOf(name: string): StackPullRequestFact | null {
     return null
   }
   return { number: pullRequest.number, subject: formatWholeStack(stack.root), open: () => openPullRequest(getStackPullRequest(stack.root) ?? pullRequest) }
+}
+
+/**
+ * The operation on the row for the next step (`NextStepFacts.busy`): an operation of the registry, or the running start
+ * of a Safe Push of the row, which is no reason against the start it runs itself (`options`)
+ */
+export function busyFact(key: string, options: StartStepOptions | null): NextStepBusy | null {
+  const operation = getObjectBusy(key)
+  if (operation !== undefined) {
+    return { id: operation.id, label: operation.label }
+  }
+  const starting = options === null ? getSafePushStarting(key) : null
+  return starting == null ? null : { id: "", label: `Starting the ${formatPushMode(starting.mode)}` }
 }
 
 /** What decides the next step of the branch now, from the stores; the node of its row reads them too (`useLandingNode`) */
@@ -160,7 +180,7 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
     syncing: branch.status === "Syncing",
     hasError: branch.hasError,
     commitCount: branch.commitCount,
-    processing: isObjectBusy(name) || (options === null && getSafePushStarting(name) !== null),
+    busy: busyFact(name, options),
     blocked: branch.status === "Blocked",
     startBlocker: start.ok ? null : start.reason,
     dryRunStartBlocker: dryRun.ok ? null : dryRun.reason,
@@ -340,8 +360,8 @@ const APPROVAL_STEPS: ReadonlySet<BranchNextStep["kind"]> = new Set(["createPull
  * landing overview): its restart is disabled with the reason of the next step while the approvals that count are still
  * missing (a restart of a robot that failed for them fails again)
  */
-export function getGatedRobotActions(robot: PatronusRobot, branch: Branch | null, needsReview?: boolean, failing?: boolean): RobotAction[] {
-  const actions = getRobotActions(robot, branch, needsReview, failing)
+export function getGatedRobotActions(robot: PatronusRobot, branch: Branch | null, needsReview?: boolean, failing?: boolean, operations?: Operations): RobotAction[] {
+  const actions = getRobotActions(robot, branch, needsReview, failing, operations)
   if (branch === null) {
     return actions
   }

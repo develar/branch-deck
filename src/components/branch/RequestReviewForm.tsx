@@ -17,6 +17,7 @@ import { formatCandidate, formatRefused, formatRequestedToast, getRequestReviewB
 import { showToast } from "@/lib/toast-message"
 import { stackRootOfReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
+import { runOperation, useIndicatorClaim, useSurfaceBusy } from "@/stores/operations"
 import { requestReviewers } from "@/stores/pull-requests"
 import { useSelectedProjectPath } from "@/stores/repository"
 
@@ -55,7 +56,10 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
   const [checked, setChecked] = useState<readonly string[]>(() => candidates.filter(candidate => candidate.preselected).map(candidate => candidate.login))
   const [others, setOthers] = useState<GitHubUser[]>([])
   const search = useReviewerSearch(repositoryPath)
-  const [isRequesting, setIsRequesting] = useState(false)
+  // the request runs from here: one operation of the pull request (a second click joins it), its spinner here
+  const surface = `request-review:${branch.name}`
+  useIndicatorClaim(surface)
+  const isRequesting = useSurfaceBusy(surface) !== null
 
   const blocker = getRequestReviewBlocker(pullRequest)
   // the reviewers see the commits: the request pushes the work the remote lacks first, a step of it, not of the user
@@ -83,33 +87,33 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
     setChecked(on ? [...checked, login] : checked.filter(it => !isLogin(it, login)))
   }
 
-  const request = async () => {
+  const request = () => {
     if (!canRequest) {
       return
     }
-    setIsRequesting(true)
     const errorTitle = `Cannot request a review on #${number}`
-    if (pushes && !(await pushFirst(branch.name, errorTitle))) {
-      setIsRequesting(false)
-      return
-    }
-    // `.finally`, not try/finally: React Compiler cannot compile a try without a catch
-    const result = await requestReviewers(branch.name, logins)
-      .catch((error: unknown) => {
+    const run = async () => {
+      if (pushes && !(await pushFirst(branch.name, errorTitle))) {
+        return
+      }
+      const result = await requestReviewers(branch.name, logins).catch((error: unknown) => {
         notifyError(errorTitle, error)
         return null
       })
-      .finally(() => setIsRequesting(false))
-    if (result === null) {
-      return
+      if (result === null) {
+        return
+      }
+      const toast = formatRequestedToast(pullRequest, result, nameOf)
+      if (toast === null) {
+        notifyError(errorTitle, new Error(formatRefused(result, nameOf)))
+        return
+      }
+      showToast({ ...toast, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
+      onDone()
     }
-    const toast = formatRequestedToast(pullRequest, result, nameOf)
-    if (toast === null) {
-      notifyError(errorTitle, new Error(formatRefused(result, nameOf)))
-      return
-    }
-    showToast({ ...toast, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
-    onDone()
+    void runOperation({ id: "request-review", subject: `pr:${number}`, objects: [branch.name], kind: "remote", label: `Requesting a review on #${number}`, surface }, run, reason =>
+      showToast({ type: "info", title: errorTitle, description: reason }),
+    )
   }
 
   return (
@@ -161,7 +165,7 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
       )}
 
       <div className="flex justify-end">
-        <Button size="xs" data-testid="request-review-submit" disabled={!canRequest} onClick={() => void request()}>
+        <Button size="xs" data-testid="request-review-submit" disabled={!canRequest} onClick={request}>
           {isRequesting && <Spinner data-icon="inline-start" />}
           Request Review
         </Button>

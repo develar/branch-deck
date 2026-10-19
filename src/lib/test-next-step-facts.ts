@@ -52,7 +52,7 @@ export function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
     syncing: false,
     hasError: false,
     commitCount: 2,
-    processing: false,
+    busy: null,
     blocked: false,
     startBlocker: null,
     dryRunStartBlocker: null,
