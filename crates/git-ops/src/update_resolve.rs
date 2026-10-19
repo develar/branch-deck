@@ -38,7 +38,9 @@ pub const SESSION_REF_PREFIX: &str = "refs/branch-deck/resolve/";
 /// The audit record of a session: a note per resolved commit, written only by the finish
 pub const RESOLVE_NOTES_REF: &str = "refs/notes/branch-deck/resolve";
 const STATE_FILE: &str = "state.json";
-const STATE_VERSION: u32 = 1;
+/// The version of `state.json`: 2 since a round can resolve itself by words (`Outcome::Words`, `Resolution::words`).
+/// bd is one binary for every session of a machine, so a bd of another version refuses a session by this number
+const STATE_VERSION: u32 = 2;
 /// The modes of a regular file: the only ones a round supports
 const FILE_MODES: [&str; 2] = ["100644", "100755"];
 /// The upstream commits listed per conflicting file
@@ -565,13 +567,21 @@ pub fn read_session(git_executor: &GitCommandExecutor, repo_path: &str, worktree
     bail!("{session_ref} points at a {}, not a state commit", commit.kind);
   }
   let commit = commit.id;
-  let state: SessionState = serde_json::from_slice(&state.content).map_err(|e| anyhow!("Unreadable {STATE_FILE} of {session_ref}: {e}"))?;
-  if state.version != STATE_VERSION {
-    bail!("{session_ref} has state version {}; this bd reads {STATE_VERSION}", state.version);
+  // the version first: a state of another version may have fields or values this bd can't parse
+  let version: StateVersion = serde_json::from_slice(&state.content).map_err(|e| anyhow!("Unreadable {STATE_FILE} of {session_ref}: {e}"))?;
+  if version.version != STATE_VERSION {
+    bail!("{session_ref} has state version {}; this bd reads {STATE_VERSION}", version.version);
   }
+  let state: SessionState = serde_json::from_slice(&state.content).map_err(|e| anyhow!("Unreadable {STATE_FILE} of {session_ref}: {e}"))?;
   let mut session = Session::new(session_ref, commit, state);
   session.head_seen = head_seen;
   Ok(Some(session))
+}
+
+/// The one field of `state.json` that every version has
+#[derive(Deserialize)]
+struct StateVersion {
+  version: u32,
 }
 
 /// Every session of the repository, of any worktree, with one `for-each-ref` and one `cat-file --batch`

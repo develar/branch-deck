@@ -805,7 +805,8 @@ copies), `crates/bd-cli/src/update_command.rs`.
   linked worktree. It is a shared ref, not a `refs/worktree/` ref: a probe showed that a `gc --prune=now` in another
   worktree prunes the objects of a `refs/worktree/` ref, because the gc of one worktree does not see the per-worktree
   refs of another.
-- The ref points at a state commit. Its tree holds `state.json` (version 1, the only file that readers parse),
+- The ref points at a state commit. Its tree holds `state.json` (version 2 since a round can resolve itself by words;
+  the only file that readers parse, its `version` first, so a bd of another version refuses it by that number),
   `round/merge` (a `040000` entry of the round's merge tree, which keeps the `edit` copies rebuildable) and
   `round/{before,onto,commit}/<path>` (the stage blobs, by id). Its parents are the previous state, the replayed tip
   and HEAD as the session knows it. The tip keeps the replayed commits reachable, and HEAD keeps the original local

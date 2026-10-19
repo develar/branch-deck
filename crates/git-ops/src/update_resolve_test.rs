@@ -2,8 +2,8 @@ use crate::merge_tree_output::parse_merge_tree_output;
 use crate::revs::current_worktree;
 use crate::update_branch::{CheckPurpose, UpdateKind, UpdateState, UpstreamRef, apply_update, check_update, no_landed_candidates};
 use crate::update_resolve::{
-  ConflictFile, ConflictKind, Outcome, ResolveError, ResolvedRef, RoundInput, SessionStart, SessionState, SessionStatus, Side, Step, conflict_files, continue_session, discard,
-  follow_head, is_valid_tree_path, read_session, start_session, write_state,
+  ConflictFile, ConflictKind, Outcome, ResolveError, ResolvedRef, RoundInput, STATE_FILE, STATE_VERSION, SessionStart, SessionState, SessionStatus, Side, Step, conflict_files,
+  continue_session, discard, follow_head, is_valid_tree_path, read_session, start_session, write_state,
 };
 use crate::word_resolve::ResolveMode;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -133,7 +133,7 @@ fn only_text_and_modify_delete_conflicts_are_supported() {
 /// A session of `master` in `repo` that knows HEAD as `head`, before its first round
 fn session_state(repo: &TestRepo, head: &str) -> SessionState {
   SessionState {
-    version: 1,
+    version: STATE_VERSION,
     worktree: "main".to_string(),
     git_dir: repo.path().join(".git").to_str().unwrap().to_string(),
     branch: "master".to_string(),
@@ -360,4 +360,61 @@ fn a_later_round_that_its_words_resolve_resolves_in_the_continue_and_the_finish_
   let note = resolve_note(&clone, &resolved);
   assert!(note.contains("\nround: 2\n"), "{note}");
   assert!(note.ends_with(&format!("commit: {}\nresolved-by-words: 1 1\nwords\tf.txt", words.commit)), "{note}");
+}
+
+/// Point the session ref of `main` at a state commit whose `state.json` is `json`
+fn store_state_json(repo: &TestRepo, json: &serde_json::Value) {
+  let path = repo.path().join("state.json");
+  std::fs::write(&path, serde_json::to_vec(json).unwrap()).unwrap();
+  let blob = repo.git(&["hash-object", "-w", path.to_str().unwrap()]);
+  std::fs::remove_file(path).unwrap();
+  // an index file that does not exist yet: git starts it empty
+  let index = tempfile::tempdir().unwrap();
+  let git = |args: &[&str]| -> String {
+    let output = test_utils::git_test_utils::git_command()
+      .args(["-C", repo.path_str()])
+      .args(args)
+      .env("GIT_INDEX_FILE", index.path().join("index"))
+      .output()
+      .unwrap();
+    assert!(output.status.success(), "{args:?}");
+    String::from_utf8(output.stdout).unwrap().trim().to_string()
+  };
+  git(&["update-index", "--add", "--cacheinfo", &format!("100644,{blob},{STATE_FILE}")]);
+  let tree = git(&["write-tree"]);
+  let commit = repo.git(&["commit-tree", &tree, "-m", "state"]);
+  repo.git(&["update-ref", "refs/branch-deck/resolve/main", &commit]);
+}
+
+#[test]
+fn a_state_of_another_version_is_refused_by_its_version_before_its_fields_are_read() {
+  let repo = TestRepo::new();
+  let head = repo.create_commit("one", "a.txt", "a\n");
+  let (git, path) = (repo.git_executor(), repo.path_str());
+
+  // the state a bd before the rounds that resolve by words wrote: refused as before, by its version
+  let mut state = serde_json::to_value(session_state(&repo, &head)).unwrap();
+  state["version"] = serde_json::json!(1);
+  store_state_json(&repo, &state);
+  let error = read_session(git, path, "main").unwrap_err();
+  assert_eq!(
+    format!("{error:#}"),
+    format!("refs/branch-deck/resolve/main has state version 1; this bd reads {STATE_VERSION}")
+  );
+
+  // a later version whose values this bd can't parse: the version message too, not a parse error
+  state["version"] = serde_json::json!(STATE_VERSION + 1);
+  state["resolutions"] = serde_json::json!([{ "round": 1, "commit": head, "resolved": null, "paths": [{ "path": "a.txt", "outcome": "later" }] }]);
+  store_state_json(&repo, &state);
+  let error = read_session(git, path, "main").unwrap_err();
+  assert_eq!(
+    format!("{error:#}"),
+    format!("refs/branch-deck/resolve/main has state version {}; this bd reads {STATE_VERSION}", STATE_VERSION + 1)
+  );
+
+  // this version reads
+  state["version"] = serde_json::json!(STATE_VERSION);
+  state["resolutions"] = serde_json::json!([]);
+  store_state_json(&repo, &state);
+  assert_eq!(read_session(git, path, "main").unwrap().unwrap().state().version, STATE_VERSION);
 }
