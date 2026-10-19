@@ -253,9 +253,13 @@ fn finds_claude_in_the_known_paths_before_path() {
   let other = tempfile::tempdir().unwrap();
   let on_path = fake_executable(other.path(), "claude", "true");
   let path = other.path().as_os_str();
-  // Homebrew may have one on this machine
-  if !cfg!(target_os = "macos") {
-    assert_eq!(find_claude_in(Some(home.path()), Some(path)), Some(on_path));
+  let found = find_claude_in(Some(home.path()), Some(path));
+  if cfg!(target_os = "macos") {
+    // Homebrew's, where this machine has it, comes before PATH
+    let found = found.unwrap();
+    assert!(found == on_path || found.starts_with("/opt/homebrew") || found.starts_with("/usr/local"), "{found:?}");
+  } else {
+    assert_eq!(found, Some(on_path));
   }
 
   std::fs::create_dir_all(home.path().join(".claude/local")).unwrap();
