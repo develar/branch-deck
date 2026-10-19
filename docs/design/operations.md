@@ -84,6 +84,11 @@ React (the review window's bridge) pass `getOperations()`.
 `MenuItem.onSelect` takes a `SelectContext`: `{ surface }` of the button that started it, `FROM_MENU` (`surface:
 null`) for a menu, a key or a toast. The action passes it to its operation.
 
+A surface that is no menu runs the item itself (`selectMenuItemById`, `findMenuItem` in `src/lib/menu.ts`), so it
+can't miss a reason the builder knows: the keys of a branch row (P, D, O, M, `selectRowItem`; a disabled item says why
+in an `info` toast) and the review window, which asks the main window to run an item by its id. A toast's action
+(Undo, the unstack the move offers) calls the action itself, which waits or joins as any start does.
+
 ### The indicator
 
 A surface that stays while its action runs claims its key (`useIndicatorClaim`, a count per key in the store) and shows

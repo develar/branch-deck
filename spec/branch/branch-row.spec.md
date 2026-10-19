@@ -422,16 +422,20 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should walk the branch rows with the arrows and preview the focused one with Space`)
 - Enter on the focused row must toggle it; with selected rows, Enter opens "Move to…" instead
   ([Move Commits](move-commits.spec.md)). A focused button of the row keeps its Enter.
+- P, D, O and M must run the item of the branch menu they are the hints of (`selectRowItem`): the same action, enabled
+  as the item is, a running one joined. A disabled item says why in an `info` toast, its reason as the title ("The
+  remote branch is up to date", "Unstacking oauth…"); a branch without the item (O without a pull request) does nothing.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show an unstack started from the menu on the row's ⋯ and let the other rewrites wait for it, from a key too`)
 - P must push the focused branch as its push button does (`pushOrConfirm`, the stack where the button pushes it, the
   question before a push that drops remote commits), when that button is enabled (`canPushNow`, the rule of P in the
-  preview); otherwise nothing happens.
+  preview).
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should keep a pushed branch under To Push until the filter changes`)
 - S must open the Safe Push popover at the slot of the focused row when its "Safe Push" is enabled (Patronus answered,
   the row has a push, `canStartRobot`, no inline action running): S never starts by itself (`requestSafePush` with
   `via: "key"`). The popover focuses its start button once it can start, so Enter starts the robot. Otherwise S says
   why in an `info` toast, the reason the button's hover says.
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should open the Safe Push popover of the focused row with S and start it with Enter`)
-- D must review the branch in its review window when its "Review Changes" is enabled; otherwise nothing happens. They are keys that look at a row, as Space (`usePreviewHotkeys`): the focused row while the
+- D must review the branch in its review window when its "Review Changes" is enabled. They are keys that look at a row, as Space (`usePreviewHotkeys`): the focused row while the
   pointer hasn't moved since, else the row under the pointer; never from a button, a checkbox or a field of an inline
   form in the row. The keys that act on a row (P, S, O, M) need its focus.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should open the review of a branch in its window from its row, its menu and its preview`)
@@ -487,12 +491,12 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   branch and commit menu, is disabled with its busy state as the reason: "Unstacking oauth…". A rewrite that must wait
   says so in an info toast titled as its failure; its success toast with Undo comes after the sync.
   [@test] ../../src/stores/operations.test.ts (`runs a second start of the same action once: it joins the running one and resolves with it`, `lets a rewrite wait for any rewrite of the repository, never for a remote action`, `lets a remote action wait for one of the same object or of a branch it works on`, `ends the operation when its action fails`, `marks the item of the running action running, the items that wait for it disabled with its busy state`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`, `should show an unstack started from the menu on the row's ⋯ and let the other rewrites wait for it`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`, `should show an unstack started from the menu on the row's ⋯ and let the other rewrites wait for it, from a key too`)
 - An action started from the menu, a key or a toast must show its spinner on the "⋯" of its row (`aria-busy`, its
   hover the busy state); one started from a button that stays (the notice's "Unstack from login", a form, a dialog,
   the Safe Push popover) shows it there, and "⋯" is only disabled. Every row the operation works on is busy meanwhile:
   no right-click menu, "⋯" disabled, no drag, no push.
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`, `should show an unstack started from the menu on the row's ⋯ and let the other rewrites wait for it`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should unstack once from the alert, its spinner on the button until the sync shows the branch`, `should show an unstack started from the menu on the row's ⋯ and let the other rewrites wait for it, from a key too`)
 - The same error toast must not stack: an error with the title and the description of an open error toast updates
   it in place; Activity records each.
 - An item that opens a form must end with "…"; an item that acts at once must not: "Safe Push" and "Dry Run" start at

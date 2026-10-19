@@ -17,7 +17,7 @@ import { continueOnGitHub, submitPullRequest } from "@/lib/create-pull-request-c
 import { logError, notifyError, recordError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
-import { FROM_MENU } from "@/lib/menu"
+import { findMenuItem, FROM_MENU } from "@/lib/menu"
 import { showRepository } from "@/lib/show-repository"
 import { stackAncestors } from "@/lib/stack"
 import { createWindowLink } from "@/lib/sub-window-link"
@@ -517,7 +517,11 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
   const wholeStack = request.wholeStack === true
   const subject = wholeStack ? formatWholeStack(branchName) : branchName
   const menuItem =
-    "menuItemId" in request ? (wholeStack ? wholeStackMenu(branchName).find(item => item.id === request.menuItemId) : findMenuItem(branchName, request.menuItemId)) : undefined
+    "menuItemId" in request
+      ? wholeStack
+        ? wholeStackMenu(branchName).find(item => item.id === request.menuItemId)
+        : findBranchMenuItem(branchName, request.menuItemId)
+      : undefined
   const stackItem = wholeStack && "itemId" in request ? getWholeStackReviewItems(branchName).find(item => item.id === request.itemId) : undefined
   const action =
     "menuItemId" in request
@@ -661,13 +665,9 @@ async function moveReview(
 }
 
 /** The item of the branch's menu the review window asks to run, as the row's menu has it now */
-function findMenuItem(branchName: string, id: string): MenuItem | undefined {
+function findBranchMenuItem(branchName: string, id: string): MenuItem | undefined {
   const branch = getBranch(branchName)
-  return branch === undefined
-    ? undefined
-    : getBranchContextMenuItems(branch, revealRow, getOperations())
-        .flat()
-        .find(item => item.id === id && item.children === undefined)
+  return branch === undefined ? undefined : findMenuItem(getBranchContextMenuItems(branch, revealRow, getOperations()), id)
 }
 
 /** Why the main window doesn't offer the action of a request on the branch */

@@ -38,6 +38,29 @@ export interface MenuItem {
 /** Groups are separated by a separator. */
 export type MenuItemGroups = MenuItem[][]
 
+/** The item `id` of `groups` that acts (not a submenu), as a menu lists it now */
+export function findMenuItem(groups: MenuItemGroups, id: string): MenuItem | undefined {
+  return groups.flat().find(item => item.id === id && item.children === undefined)
+}
+
+/**
+ * Runs the item `id` of `groups` as a click on it does, for a surface that is no menu (a key, the review window): an
+ * item disabled now runs nothing and tells why (`onRefused`, with its `description`). Resolves to the item, undefined
+ * when the groups have none.
+ */
+export function selectMenuItemById(groups: MenuItemGroups, id: string, context: SelectContext, onRefused: (item: MenuItem) => void): MenuItem | undefined {
+  const item = findMenuItem(groups, id)
+  if (item === undefined) {
+    return undefined
+  }
+  if (item.disabled === true) {
+    onRefused(item)
+  } else {
+    item.onSelect(context)
+  }
+  return item
+}
+
 const kbdSymbols: Record<string, string> = {
   // the primary modifier of the platform: ⌘ on macOS, Ctrl elsewhere
   mod: modifierKey,

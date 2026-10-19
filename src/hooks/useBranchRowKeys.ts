@@ -1,17 +1,16 @@
 import type { KeyboardEvent, RefObject } from "react"
+import { getBranchContextMenuItems } from "@/hooks/useBranchContextActions"
 import { getLandedIn } from "@/hooks/useBranchNextStep"
-import { canPushNow } from "@/hooks/usePushButton"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { needsAttention } from "@/lib/branch-filter"
 import { branchReviewBlocker } from "@/lib/branch-review"
-import { openBranchReviewWindow, prefetchBranchReview } from "@/lib/branch-review-window"
+import { prefetchBranchReview } from "@/lib/branch-review-window"
 import { attentionRow, neighbourRow, parentRow } from "@/lib/branch-row-keys"
-import { pushOrConfirm } from "@/lib/git/push"
-import { openPullRequest } from "@/lib/pull-request"
+import { FROM_MENU, selectMenuItemById } from "@/lib/menu"
+import { showToast } from "@/lib/toast-message"
 import type { BranchTableRow } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getBranchTableOrder, isBranchPushing, isStackPushing } from "@/stores/branch-sync"
-import { selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
-import { isObjectBusy } from "@/stores/operations"
+import { getBranch } from "@/stores/branch-sync"
+import { getOperations } from "@/stores/operations"
 import { getBranchRobot, getPushHold } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 import { expandStackOf, getCollapsedSideStacks, isStackIsland, sideStackToCollapse, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
@@ -45,13 +44,21 @@ export interface BranchRowKeys {
   focusAttentionRow: (step: 1 | -1) => void
 }
 
-/** P: pushes as the push button of the row does (`pushOrConfirm`), when that button is enabled */
-function pushRow(name: string): void {
+/**
+ * A key of the row runs the item of the branch menu it is the hint of (`getBranchContextMenuItems`), as a click on it
+ * does: the same action, disabled while it is, the running one joins (`operationItem`); a disabled one says why in an
+ * `info` toast, as its hover does
+ */
+function selectRowItem(name: string, id: string, setExpanded: (name: string, expanded: boolean) => void): void {
   const branch = getBranch(name)
-  const isPushing = isBranchPushing(name) || isStackPushing(name)
-  if (branch !== undefined && canPushNow(branch, { isPushing, processing: isObjectBusy(name) })) {
-    pushOrConfirm(name, "row")
+  if (branch === undefined) {
+    return
   }
+  selectMenuItemById(getBranchContextMenuItems(branch, setExpanded, getOperations()), id, FROM_MENU, item => {
+    if (item.description !== undefined) {
+      showToast({ type: "info", title: item.description })
+    }
+  })
 }
 
 /**
@@ -68,10 +75,7 @@ function openSafePush(name: string): void {
  * row (`usePreviewHotkeys`): the focused row, or the one under the pointer.
  */
 export function reviewBranchRow(name: string): void {
-  const branch = getBranch(name)
-  if (branch !== undefined && branchReviewBlocker(branch) === null) {
-    void openBranchReviewWindow(name)
-  }
+  selectRowItem(name, "review-changes", () => {})
 }
 
 /** The pointer rests on a branch row or it got the focus: its review is read ahead, if it can be reviewed */
@@ -82,32 +86,12 @@ export function prefetchBranchRowReview(name: string): void {
   }
 }
 
-/** O: opens the pull request of the branch, as "Open Pull Request" of its menu */
-function openRowPullRequest(name: string): void {
-  const pullRequest = getPullRequest(name)
-  if (pullRequest !== undefined) {
-    openPullRequest(pullRequest)
-  }
-}
-
-/**
- * M without a selection: selects the row and opens "Move to…" for it, as the item of its menu does, where the menu offers
- * it (a synced branch with commits, no error); with a selection `BranchTableCard` opens it for the selected rows
- */
-function moveRow(name: string): void {
-  const branch = getBranch(name)
-  if (branch !== undefined && branch.commits.length > 0 && !branch.hasError && branch.status !== "Syncing" && !branchSyncStore.getState().isSyncing) {
-    selectBranches(name, "only", getBranchTableOrder())
-    setBranchTargetOpen(true)
-  }
-}
-
 /**
  * The keys of the focused branch row, for a key without a modifier pressed on the row (one of its buttons too) or on
  * the table: ↑/↓ move the focus between the branch rows (from the table to the first or the last), → expands the row,
  * ← collapses it or moves to the branch it is nested under, Enter on the row itself toggles it, P pushes it, S opens
- * its Safe Push popover, D opens its review window, O opens its pull request, M opens "Move to…" for it. A handled key is
- * `preventDefault`ed.
+ * its Safe Push popover, D opens its review window, O opens its pull request, M opens "Move to…" for it: P, D, O and M
+ * as the items of the branch menu they are the hints of (`selectRowItem`). A handled key is `preventDefault`ed.
  */
 /** The branch waits for the user, as Attention of the filter bar counts it */
 function isAttentionRow(name: string): boolean {
@@ -159,16 +143,16 @@ export function useBranchRowKeys({ rows, expandedKeys, setExpanded, toggleExpand
     // the physical key, in any keyboard layout
     else if (event.code === "KeyP") {
       event.preventDefault()
-      pushRow(name)
+      selectRowItem(name, "push", setExpanded)
     } else if (event.code === "KeyS") {
       event.preventDefault()
       openSafePush(name)
     } else if (event.code === "KeyO") {
       event.preventDefault()
-      openRowPullRequest(name)
+      selectRowItem(name, "open-pull-request", setExpanded)
     } else if (event.code === "KeyM") {
       event.preventDefault()
-      moveRow(name)
+      selectRowItem(name, "move-to", setExpanded)
     }
   }
 

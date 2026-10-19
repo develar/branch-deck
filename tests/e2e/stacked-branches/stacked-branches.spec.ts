@@ -39,10 +39,9 @@ async function expectRewritesWaitAndUnstackOnce(page: Page, restack: { calls: re
     ["Unapply…", "Unstacking oauth…"],
   ])
   await page.keyboard.press("Escape")
-  await runAndWaitForSync(page, async () => {
-    restack.release()
-    await expect(page.getByText(/^Unstacked oauth/)).toBeVisible()
-  })
+  await runAndWaitForSync(page, async () => restack.release())
+  // its toast comes once the sync showed the result
+  await expect(page.getByText(/^Unstacked oauth/)).toBeVisible()
   expect(restack.calls).toHaveLength(1)
 }
 
@@ -311,10 +310,9 @@ test.describe("Stacked branches", () => {
     await openContextMenu(page, findBranchRow(page, "docs"))
     // the submenu lists the other branches
     await page.getByRole("menuitem", { name: "Stack On…" }).hover()
-    await runAndWaitForSync(page, async () => {
-      await clickContextMenuItem(page, "oauth")
-      await expect(page.getByText("Stacked docs on oauth")).toBeVisible()
-    })
+    await runAndWaitForSync(page, () => clickContextMenuItem(page, "oauth"))
+    // the toast comes once the sync showed the result
+    await expect(page.getByText("Stacked docs on oauth")).toBeVisible()
     await expect.poll(() => tree(page)).toEqual(["auth@0", "session@1", "login@1", "oauth@2", "docs@3"])
 
     await openContextMenu(page, findBranchRow(page, "docs"))
@@ -330,11 +328,9 @@ test.describe("Stacked branches", () => {
 
     await openContextMenu(page, findBranchRow(page, "ABC-2"))
     await page.getByRole("menuitem", { name: "Stack On…" }).hover()
-    await runAndWaitForSync(page, async () => {
-      await clickContextMenuItem(page, "ABC-1")
-      // no commit moved: the toast names no count
-      await expect(page.getByText("Stacked ABC-2 on ABC-1", { exact: true })).toBeVisible()
-    })
+    await runAndWaitForSync(page, () => clickContextMenuItem(page, "ABC-1"))
+    // no commit moved: the toast names no count
+    await expect(page.getByText("Stacked ABC-2 on ABC-1", { exact: true })).toBeVisible()
     await expect.poll(() => tree(page)).toEqual(["ABC-1@0", "docs@1", "ABC-2@1"])
     await expandBranch(page, findBranchRow(page, "ABC-2"))
     // the commit keeps its message; the row of ABC-2 shows the key
@@ -433,7 +429,11 @@ test.describe("Stacked branches", () => {
     await expect(getBranchDetailsRow(page, "oauth").getByTestId("branch-base-changed")).toHaveCount(0)
   })
 
-  test("should show an unstack started from the menu on the row's ⋯ and let the other rewrites wait for it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should show an unstack started from the menu on the row's ⋯ and let the other rewrites wait for it, from a key too", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
 
@@ -443,6 +443,11 @@ test.describe("Stacked branches", () => {
     const more = findBranchRow(page, "oauth").getByRole("button", { name: "More actions for oauth" })
     await expect(more).toHaveAttribute("aria-busy", "true")
     await expect(more).toBeDisabled()
+    // a key runs the item it is the hint of: M on another row says why it waits, and opens no form
+    await findBranchRow(page, "docs").focus()
+    await page.keyboard.press("m")
+    await expect(page.locator("[data-slot=toast]", { hasText: "Unstacking oauth…" })).toBeVisible()
+    await expect(page.getByTestId("inline-branch-target")).toHaveCount(0)
     await expectRewritesWaitAndUnstackOnce(page, restack)
     await expect(more).toBeEnabled()
     await expect(more).not.toHaveAttribute("aria-busy")
