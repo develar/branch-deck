@@ -7,243 +7,169 @@ stacked, only so that it can land in pieces: a piece is a branch and what it is 
 stack lands in one robot too; every pull request goes into master, holding what its Safe Push lands. Judge every
 feature by what it lands into master and in how many robots ([Landing Work into Master](docs/design/landing.md)).
 
-Desktop Git branch management tool using React 19 + Vite + Tauri v2. Use `pnpm` only: the version is `packageManager`
-in `package.json`, Node.js is `.node-version`; CI reads both through `voidzero-dev/setup-vp`.
+A desktop app (React 19 + Vite SPA in a Tauri v2 shell), a Rust workspace under `crates/`, and `bd`, the agent CLI
+([Agent CLI](docs/guidelines/agent-cli.md)). Use `pnpm` only: the version is `packageManager` in `package.json`,
+Node.js is `.node-version`; CI reads both through `voidzero-dev/setup-vp`.
 
-## Quick Commands
+**A sync** ([Virtual Branches](docs/design/virtual-branches.md)): `CommitGrouper` groups the commits ahead of the
+baseline by their `(prefix)`, else by the issue group of the subject's issue key (`refs/branch-deck/issue-groups`),
+else by the issue key; with stacks on, `(parent/child)` groups into the leaf. Each group becomes the branch
+`{branch prefix}/virtual/<group>`: its commits copied onto the baseline as trees, one `merge-tree --write-tree --stdin`
+and one `fast-import` per branch (`CommitChain`), never `git cherry-pick`, never the working tree. A conflict comes from
+the same merge: grouping changed the history of commits that depend on each other. The conflict view shows the merge of
+each file in three columns, read-only (`get_file_merges`), and offers the regroup a trial build verified
+([Conflict Fix](spec/branch/conflict-fix.spec.md)). A note on each original commit (the default notes ref,
+`core.notesRef`; `MappingNote` in `crates/git-ops/src/notes.rs`) names its copy, `v-commit-v1:<copy>`, the trees it
+was copied from, `v-commit-source-v1:<parent tree> <tree>`, and for a copy resolved by words
+`v-commit-resolved-v1:<version> <conflicts> <files>`; a later sync reuses the copy while the original's trees match.
+
+## Never
+Hard rules in one place; the linked section says why and what to do instead.
+- Never edit, build or commit in the main checkout: every session, a background job too, works in its own lease
+  ([Worktrees](#worktrees)).
+- Never `cargo test`: always `cargo nextest run` ([Verification](#verification)).
+- Never a merge commit, `--no-ff`, `--no-verify`, or `commit-tree` with two `-p` ([Commits and History](#commits-and-history)).
+- Never a behaviour change without its spec, `[@test]` links and docs in the same commit ([Specs and Docs](#specs-and-docs)).
+- Never git outside `GitCommandExecutor` in the app's code, never a write to the user's working tree beyond the named
+  exception, never a raw `Command::new("git")` in a test fixture (`test_utils::git_test_utils::git_command`)
+  ([Git Operations](#git-operations)).
+- Never a `gh` process for GitHub (HTTP through `crates/github`; the one `gh` is `gh auth token` of the token chain),
+  never `-c credential.helper=`.
+- Never `#[allow]` (`#[expect(lint, reason = "…")]`), never `pub use`, never a `../` import in the frontend (`@/`)
+  ([Code Style](#code-style)).
+- Never a `dark:` variant, a colour outside the semantic tokens, or a radius class in `src/components/ui/*`
+  ([Code Style](#code-style)).
+- Never `waitForTimeout`, a CSS-class locator, or a check of a menu label instead of invoking the action
+  ([E2E Tests](#e2e-tests)).
+- Never `pnpm dlx shadcn@latest` (it crashes): `npx shadcn@latest` ([Code Style](#code-style)).
+
+## Session Workflow
+1. **Lease** a worktree before the first edit: `bd lease get --holder <agent-name> -b <branch>` in the main checkout,
+   then work in the `path` it prints ([Worktrees](#worktrees)).
+2. **Read** the spec and the design doc of what you change ([Feature Index](#feature-index)): the spec is the
+   contract, the doc the why. Before changing a git operation, [Adding a git operation](#adding-a-git-operation).
+3. **Change** the code together with its spec, its `[@test]` links and the docs it contradicts.
+4. **Verify** by the table in [Verification](#verification).
+5. **Commit** in the lease, a conventional subject as in `git log` (`feat(bd): …`, `fix(e2e): …`, `docs(agents): …`),
+   then `git rebase master` there and `git merge --ff-only <branch>` in the main checkout.
+6. **Release**: stop the processes you started in the lease (the e2e mock server, `cargo watch`), then
+   `bd lease return --workspace <path>`.
+
+### Worktrees
+Parallel work runs in a worktree of the `bd lease` pool (`~/.branch-deck/pool/<repo>-<hash>/`,
+[bd lease](spec/cli/lease.spec.md)); never `git worktree add`, `EnterWorktree` or `isolation: "worktree"`.
+- **Every session edits in its own lease**, the main session and a background job too, not only a spawned agent: other
+  sessions work in this repository at the same time. A harness default such as "edit files directly in your working
+  directory" does not override this rule. The main checkout is only for `git merge --ff-only <branch>` into `master`
+  ("commit right away" means: commit in the lease, then fast-forward `master`).
+- **Acquire**: `bd lease get --holder <agent-name> -b <branch>` creates `<branch>` at the HEAD of the checkout that runs
+  it (local `master` in the main checkout, which may be ahead of `origin/master`; `-C <worktree>` cuts from another
+  branch; without `-b` the worktree is detached) and prints the lease as JSON (`path`, `lease_id`). It does not fetch.
+  A leased worktree is never handed out again.
+- **Inside**: the rules of the main checkout apply (`.githooks/` via the shared `core.hooksPath`, `cargo nextest`).
+  `node_modules` and `target/` survive a reuse; on macOS a new slot is an APFS clone of a free slot or of the main
+  checkout, so it starts with them too. Run `pnpm install` when `pnpm-lock.yaml` changed.
+- **Rust cache**: every checkout keeps its own `target/`; never a shared `CARGO_TARGET_DIR` or `build.build-dir`: the
+  unit hash of a workspace crate does not depend on the checkout's path, so worktrees would overwrite each other's
+  units. Cargo never deletes a stale unit, so `pnpm prune:target --pool --yes` trims the free slots (dry run without
+  `--yes`); dependencies are built with workspace-wide features (`.cargo/config.toml`) and line tables only.
+- **E2E**: the mock server listens on 3030 in every checkout; when another worktree's server holds it, run
+  `E2E_PORT=3031 pnpm e2e` (any free port). Global setup refuses a server that serves another checkout, because
+  Playwright reuses whatever listens on the port.
+- **Release**: `bd lease return --workspace <path>` refuses local changes, a commit that no branch holds and that
+  `master` lacks by content, or a process inside. `--confirm-preserved` discards the changes and commits it reports, so
+  pass it only when they are preserved elsewhere. The branch survives; the next get moves the worktree.
+  `bd lease status` lists the pool. A worktree leased from the old Treehouse pool (`~/.treehouse/<repo>-<hash>/`)
+  goes back with `treehouse return <path>`.
+
+## Verification
+⚠️ **NEVER `cargo test`, ALWAYS `cargo nextest run`.** `cargo test` runs the tests of a binary as threads of one
+process, and a test that sets environment variables (`test_utils::env_vars::EnvVars`, sound only with a process per
+test) changes them under the others. `nextest` (`.config/nextest.toml`) runs a process per test, all in parallel
+(the suite takes about 80 s on 18 cores); kills a test still running after 5 minutes (a hung git) and fails one whose
+git process outlives it; in CI (`NEXTEST_PROFILE=ci`) runs a failed test twice more, and one that passes on a retry is
+FLAKY and still fails the run, because a flaky test is a race to fix (locally no retries). With recording on in the user
+config (`[experimental] record = true` and `[record] enabled = true` in `~/.config/nextest/config.toml`),
+`cargo nextest run -R latest` runs only what failed; finish with a full run.
+
+If Homebrew `cargo`/`rustc` come before rustup in `PATH`, prefix cargo commands with `PATH=$HOME/.cargo/bin:$PATH`:
+the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the workspace manifest.
+
+| You changed | Run |
+|---|---|
+| Rust | `pnpm lint:backend`, then `cargo nextest run --workspace` (`-p <crate>` or `-E 'test(/…/)'` while iterating) |
+| a git operation | also its test in `process_budget_test.rs` and the scan tests (`worktree_safety_test.rs`, `git_usage_scan_test.rs`) |
+| a Tauri command or a type it passes | `src/lib/bindings.ts`: a debug run of the app writes it (`pnpm tauri dev`, or `target/debug/branch-deck` started in `src-tauri/` for a few seconds); `the_bindings_are_what_the_export_writes` fails on a stale one |
+| frontend | `pnpm lint:frontend`, `pnpm test:unit`, `pnpm e2e`; `pnpm e2e-up` when the HTML changes, its snapshot diff reviewed like code |
+| code anywhere | `pnpm lint:cpd`: fix a clone with a helper, constant or fixture; `// jscpd:ignore-start` / `// jscpd:ignore-end` only for an intentional duplication, with the reason in the comment |
+| `#[cfg]` or `cfg!` code | Linux and Windows too: [Platform Checks](docs/guidelines/platform-checks.md) (a check on the Mac compiles only its side) |
+| what the release app shows (a window that opens late, a "Loading…" frame) | [Real App Checks](docs/guidelines/real-app-checks.md) (`pnpm install-app`, Peekaboo) |
+
+### Quick Commands
 See `package.json` for the full list of scripts.
 
 ```bash
-# Core Development
 pnpm install              # Install dependencies
-pnpm run tauri dev        # Run the full Tauri app (frontend + backend)
-pnpm dev                  # Run only the Vite frontend (port 1420)
+pnpm run tauri dev        # The full app (frontend + backend); a debug run writes src/lib/bindings.ts
+pnpm dev                  # Only the Vite frontend (port 1420)
+pnpm build                # The frontend into dist/ (E2E global setup runs it)
 pnpm install-app          # Unsigned release build of the .app, copied to /Applications (macOS)
 
-# Testing
-pnpm test                 # Run all tests (Rust and E2E)
-pnpm test:backend         # Run backend tests with nextest (fast)
+pnpm test                 # test:backend + test:unit (Rust and Vitest; not E2E)
+pnpm test:backend         # cargo nextest run --workspace
 cargo nextest run -R latest  # Rerun what failed or did not run in the last run (record on in the user config)
-pnpm test:unit            # Run frontend unit tests (`vp test`, Vitest; src/**/*.test.ts)
+pnpm test:unit            # Vitest (`vp test run`; src/**/*.test.ts)
 
-# E2E Testing (Playwright)
-pnpm setup:e2e            # First-time setup: Install Playwright browsers
-pnpm e2e                  # Run Playwright E2E tests (auto-installs browsers if needed)
-pnpm e2e-up               # Run E2E tests and update snapshots
-DEBUG_E2E=1 pnpm e2e      # Run E2E tests with the mock server's debug log and every page console line
-E2E_PORT=3031 pnpm e2e    # Run them on another port when another checkout's mock server holds 3030
+pnpm e2e                  # Playwright E2E tests (installs the browsers if needed; `pnpm setup:e2e` by hand)
+pnpm e2e-up               # E2E tests that rewrite the snapshots
+DEBUG_E2E=1 pnpm e2e      # With the mock server's debug log and every page console line
+E2E_PORT=3031 pnpm e2e    # On another port when another checkout's mock server holds 3030
 pnpm test-server:dev      # Optional: the E2E mock server with auto-restart (needs watchexec); `pnpm e2e` reuses it
+pnpm perf:diff            # The diff review performance test (playwright.perf.config.ts)
 
-# Linting & Formatting
-pnpm lint                 # Run all linting and formatting
+pnpm lint                 # Every lint:* script
 pnpm exec vp check        # Formatting, lint and types without fixing (what CI checks first)
-pnpm lint:backend         # Format and lint Rust code (clippy --fix)
-pnpm lint:frontend        # `vp check --fix` (Oxfmt, type-aware Oxlint) + tsc of the React/TypeScript code and the E2E tests
+pnpm lint:backend         # cargo fmt, clippy --fix, then clippy -D warnings
+pnpm lint:frontend        # `vp check --fix` (Oxfmt, type-aware Oxlint) + lint:typecheck
+pnpm lint:typecheck       # tsc of tsconfig.app.json, tsconfig.node.json and tsconfig.e2e.json
 pnpm lint:cpd             # jscpd copy/paste detection (config in .jscpd.json); fails on any clone
 pnpm prune:target --pool  # Dry run: stale cargo units of this checkout and the free lease slots (`--yes` deletes)
 pnpm perf:monorepo pin|measure|summarize|compare  # bd's git processes and times on a pinned large clone (git-operations.md)
 cargo run -p branch-deck -- cli status -C <repo>  # agent CLI, JSON on stdout (docs/guidelines/agent-cli.md)
 ```
 
-Fix a clone reported by `lint:cpd` with a helper, constant or fixture. Wrap code in `// jscpd:ignore-start` /
-`// jscpd:ignore-end` only when the duplication is intentional, and say why in the comment.
+### Debugging
+- **E2E**: a failed test carries the console errors of its pages as the `page errors` attachment. Run with
+  `DEBUG_E2E=1` for the debug log of the mock server and every console line live; without it the server logs warnings
+  and errors only (`TEST_SERVER_LOG`, not `RUST_LOG`, which `.cargo/config.toml` forces to debug), and a green run
+  prints none. "Executable doesn't exist": `pnpm setup:e2e` (needed after an update of `@playwright/test`).
+- **Types**: `pnpm lint:typecheck` isolates TypeScript errors.
 
-If Homebrew `cargo`/`rustc` come before rustup in `PATH`, prefix cargo commands with `PATH=$HOME/.cargo/bin:$PATH`:
-the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the workspace manifest.
-
-## ⚠️ Critical Testing Rule
-**NEVER use `cargo test` - ALWAYS use `cargo nextest run`**
-
-This is not optional. `cargo test` runs the tests of a binary as threads of one process, and a test that sets
-environment variables (`test_utils::env_vars::EnvVars`, sound only with a process per test) changes them under the
-others. `nextest` (`.config/nextest.toml`) gives:
-- **A process per test**, all in parallel: the suite takes about 80 s on 18 cores.
-- **Timeouts**: a test still running after 5 minutes (a hung git) is killed, and a git process that outlives its test
-  fails it.
-- **Flaky tests made visible**: in CI (`NEXTEST_PROFILE=ci`) a failed test runs twice more; one that passes on a retry
-  is FLAKY and the run still fails, because a flaky test is a race to fix. Locally there are no retries.
-- **Rerun**: with recording on in the user config (`[experimental] record = true` and `[record] enabled = true` in
-  `~/.config/nextest/config.toml`), `cargo nextest run -R latest` runs only what failed; finish with a full run.
-
-## Technology Stack
-We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
-- **React 19 + Vite 8 SPA**: function components and hooks, `react-router` (`createBrowserRouter` in `src/router.ts`).
-- **React Compiler**: its Rust port `oxc-transform-react` (`react({ compiler })` in `vite.config.ts`, no Babel)
-  compiles every component and hook; a function it would skip fails the build (`panicThreshold: "all_errors"`): no
-  disable comment for a React rule (`react/rule-suppression`; use `useEffectEvent`), no `try`/`finally` without
-  `catch` (use `promise.finally`), no JSX parameter default ([Rendering Performance](docs/design/rendering-performance.md)).
-  `oxc-transform-react` is pinned to the range `@vitejs/plugin-react` declares; `pnpm update-deps` leaves it alone.
-- **zustand**: vanilla stores (`createStore`) read with `useStore` selectors; persisted settings sync across windows.
-- **shadcn/ui on Base UI**: components generated into `src/components/ui/` (`components.json`, style `base-rhea`).
-- **Font**: InterVariable from `inter-ui` (the full rsms build; `@fontsource-variable/inter` lacks `ss02`/`cv*` features),
-  falling back to the system UI font, at 13px (`text-sm`, the IntelliJ UI size). Commit bodies enable `ss04` (I/l/1
-  disambiguation). `font-mono` is JetBrains Mono (`@fontsource-variable/jetbrains-mono`) without ligatures.
-- **Tailwind CSS v4**: via `@tailwindcss/vite`; theme tokens in `src/index.css`.
-- **lucide-react**: icon components.
-- **TypeScript 7**: the Go compiler, strict mode, checked with `tsc` (`tsconfig.app.json`, `tsconfig.node.json`,
-  `tsconfig.e2e.json`).
-- **Vite+** (`vite-plus`, the `vp` CLI): one pinned toolchain of Vite, Vitest, Oxlint and Oxfmt, configured in
-  `vite.config.ts` (`lint`, `fmt`). Oxlint is type-aware through tsgolint (TypeScript 7) and runs the React Compiler
-  rules; there is no ESLint, because typescript-eslint cannot use TypeScript 7. Oxfmt formats code and config (not
-  Markdown) and sorts imports and Tailwind classes. Test files import from `vite-plus/test`.
-- **Tauri v2**: desktop application shell.
-- **Nextest**: test runner for all Rust tests.
-- **Playwright**: End-to-End (E2E) tests.
-
-## Recent Features
-- **Integration Status**: Auto-detection and archiving of merged, rebased, or squashed branches.
-- **AI Branch Naming**: two names for selected commits from the user's Claude Code (`claude -p --model haiku`, commit
-  messages and file names only, after a consent prompt) (`spec/branch/branch-name-suggestions.spec.md`).
-- **Context Menus**: Right-click operations (shadcn `ContextMenu`) for common actions on branches and commits.
-- **Squash and fixups**: squash selected commits, fold `fixup!`/`squash!`/`amend!` commits (also `bd fold`), with undo
-  (`spec/commit/squash.spec.md`, `spec/commit/fixups.spec.md`).
-- **Update Project**: fetch and replay onto the baseline, in the app and as `bd update`, with `bd undo update:`; a
-  guarded working-tree write (the other one is `bd pick`); in the app one progress over its steps (fetch, lock wait, check, files, the sync of an
-  applied update), shared by their usual times (`update-progress.ts`) (`spec/repository/update-project.spec.md`). A conflict in `bd update` starts a resolve
-  session: one round per conflicting commit, resolved in copies outside the working tree, state in git
-  (`spec/cli/update.spec.md`).
-- **Pick between worktrees**: `bd pick --from <worktree> --follow` lands the commits of another worktree (an agent's
-  lease) on the checked out branch without a cherry-pick: one `git replay`, a commit the branch has left out
-  (`already_present`), both worktrees moved under the repository lock through the guarded update, `bd undo pick:`
-  (`spec/cli/pick.spec.md`).
-- **Lease pool**: `bd lease get` leases a worktree of a pool at the HEAD of a checkout, a free slot moved there (only the
-  diff written) or a new one (on macOS an APFS clone of a free slot or of the source, then the diff); `bd lease return` frees it once its commits landed, refused while it has unlanded commits,
-  local changes or a process in it; the state in `$GIT_COMMON_DIR/branch-deck/leases.json` is the authority, no
-  ancestry check, `bd lease status` reads only it (`spec/cli/lease.spec.md`).
-- **Landed commits**: what of the user's work the baseline has, before and after an update (also one made elsewhere),
-  matched by author, author time and subject; report in `branch-deck/landed.json` (`spec/repository/landed-commits.spec.md`).
-- **Landing overview and PR status**: the header button of the work on its way into master (the user's moves, the robots
-  that land, `spec/repository/landing-overview.spec.md`), GitHub PR state through the GitHub API (`crates/github`, the
-  query in `sync_core::pull_requests`; the token of
-  `GH_TOKEN`, `gh auth token`, the app's sign-in or `git credential fill`, no `gh` process otherwise), also for a checkout mirrored to GitHub
-  (the mirror of `.space/repository-settings.json`, or `branchdeck.githubRepository`); a PR Patronus closed with the label `merged` is merged (`spec/repository/outgoing.spec.md`,
-  `spec/branch/pull-requests.spec.md`). "Create Pull Request…" is a dialog that creates the PR into the baseline
-  through the API (`sync_core::pull_request_create`, shared with `bd`): its text from `bd describe` or the pushed commits, the code
-  owners Patronus suggests (`githubUsername` of the pre-check) and a search of the repository's users as reviewers,
-  the user as assignee; "Continue on GitHub" opens GitHub's form with the text. "Request Review…" (`bd request-review`)
-  asks the suggested code owners of the groups whose approval is missing on an open pull request
-  (`request_pull_request_reviewers`, the per-reviewer 422 fallback shared with the creation).
-- **Patronus**: robot status per branch over the Patronus REST API (`crates/patronus`), polled only while a robot runs
-  (every minute focused, every 5 minutes in the background while a robot pushes; `bd status` keeps them in the object
-  cache by the same rules, `robot_list.rs`); a merge is a toast with Fetch and,
-  in the background, an OS notification, and the branches it landed say "Landed with oauth" (its own keeps "Merged"; no
-  Safe Push, no push) until the update, after a change below its commit by content (`robot_landings`, the robot's
-  tested commits against each branch: "Landed with oauth · 1 commit after it", the new commit the only work left; the
-  whole stack lands only what is left of it; `bd status` names it `landed_by`, `bd push` leaves a branch landed whole
-  out (`skipped`), `bd safe-push` refuses it as `landed`); a running robot whose required check failed is "Failing" (Patronus' warning
-  `robot_is_failing`), told once with Cancel Safe Push; Safe Push / Dry Run are actions, not a form (`requestSafePush`,
-  `getSafePushDecision`): a click starts at once when there is nothing to say (the code-owner review pre-check, the
-  push a step shown in the slot button, a toast with Cancel Safe Push), else a popover at the slot says what lands, the
-  profile, the robot it cancels, the review; S and "Safe Push With Profile…" always open it; restart, cancel, and a
-  no push of a branch a running Safe Push lands (`PushHold`; the row's push place stays empty, Push and Restart
-  Safe Push cancels, pushes and restarts; `bd push` refuses it as `robot_running`, `--restart-running`); a branch with a GitHub PR starts from it with a `/patronus merge`
-  comment, so the PR's approvals count (`spec/branch/patronus.spec.md`); a stacked branch's Safe Push lands it with
-  what it is built on in one robot ("Safe Push · 3", its popover at its own row), landing it alone (unstack, move) the
-  second way, and closes by content the PRs of the ancestors it landed (the robot of the whole stack, `RobotSubject`,
-  those of every branch of the stack; a stack PR that no longer matches is asked about, never closed by itself); the
-  whole stack lands in one robot of its stack branch ("Safe Push Whole Stack", the subject `stack:<root>` of
-  `requestSafePush`, `stack: true`, only the stack branch pushed), its approvals only in its own PR ("Approvals count in
-  #12", a branch without its own PR "In #12"). One model decides
-  the next step of a branch (`getBranchNextStep`, `src/lib/branch-next-step.ts`, the table of
-  `spec/branch/next-step.spec.md`; of the whole stack `useStackNextStep`), rendered by the slot, "⋯", S, the preview,
-  the review window, the stack header and the start: approvals are counted only by Patronus, the app asks it in the background for the branches a
-  surface shows (`src/stores/review-readiness.ts`, the one reader) and never offers a Safe Push it would fail
-  ("Awaiting Ilya Korennoy" opens the PR). `bd safe-push` starts one from the agent CLI with a merge profile, a
-  stacked branch with its ancestors in one robot (`lands`; `--check` adds the trial build alone, `alone`);
-  missing code-owner approvals refuse it (`approvals_missing`) unless `--without-approvals`
-  (Patronus judges the approvals of the pull request the robot starts from: the pre-check sends it, the readiness
-  `sync_core::review_readiness` is shared with the app, its answer kept in the object cache by paths and reviews); `--create-pull-request`
-  opens the GitHub pull request the approvals count in, assigned to the user, `--reviewer <login>` asked (no Space merge request: deprecated). A failed robot's toast copies
-  a prompt for an agent (Restart first only when its builds never started): the failed checks with their TeamCity
-  builds, the commits it tested by their local hashes (`robot_commits.rs`), with CI Details the failed builds, tests
-  and log tails (`teamcity` CLI if logged in); `bd robot <branch> --full` says the same (`spec/branch/safe-push-failure-prompt.spec.md`).
-- **GitHub sign-in**: the OAuth device flow of the Branch Deck OAuth app in Settings (client id at build time,
-  `BRANCH_DECK_GITHUB_CLIENT_ID`, set by `build-tauri.yml`), the token in a 0600 `github-token.json` of the app data dir that `bd` reads too, not
-  the keychain; "Sign In…" after the hint of a repository without a token (`spec/repository/github-sign-in.spec.md`).
-- **Issue groups**: an issue key -> branch name map in `refs/branch-deck/issue-groups` puts the commits of several issues
-  into one branch without a rewrite (`spec/branch/issue-groups.spec.md`).
-- **Conflict fix**: a sync conflict names the branches of the commits it misses (`MissingCommit.branch`, without the
-  copies of the branch and its ancestors) and the fix: the regroup trial builds verified (`conflict_fix.rs`: move the
-  commit, pull what it needs in, restack; extended by a new dangling reference or conflict; never breaks a clean
-  branch), offered, never decided, applied as one regroup with Undo (`apply_conflict_fix`, a fingerprint check under
-  the lock), `bd check --fix` for agents (`spec/branch/conflict-fix.spec.md`).
-- **Move to a branch**: one operation behind drag and drop of commits and branch rows, the branch selection, the menus
-  and the keyboard; the smallest regroup (`move_plan.rs`): a whole issue by the issue groups, a part by the prefix; a
-  dry run previews it, `undo_regroup` undoes it in one transaction (`spec/branch/move-commits.spec.md`).
-- **Stacked branches** (opt-in, `branchdeck.stacks`): `(parent/child)` builds the child on its parent, dependency-driven
-  sync, blocked children; the push button (and `bd push`) pushes the parents with work first; every PR goes into the
-  baseline with what it lands, and a push (also `bd push`, `bd safe-push`) retargets an open one from a virtual branch
-  (`PATCH pulls/<n>`, `isVirtualBranchBase`, [Landing](docs/design/landing.md)); the root row heads its stack ("22 branches", collapses with ⌥←, per repository), the
-  hovered branch lights its path to the root (`stack-view.ts`) (`spec/branch/stacked-branches.spec.md`); a stack of 5+
-  branches or 40+ commits is an island below the table: a header that says what it holds, with the Actions cell of a row for the stack (↑ Push with Children of
-  the root, the Safe Push of the whole stack, its popover at the header, also from S on the header and "⋯", the main
-  line's piece while the stack branch is not built; nothing while a Safe Push runs in it; the popover of a piece offers
-  "Safe Push Whole Stack", whose readiness the root's row asks), the
-  commits on the lanes, oldest first (`spec/branch/stack-island.spec.md`); a side stack collapses into its root (a
-  quiet one starts collapsed); Push Up to Here pushes the ancestors whole and the branch up to a commit
-  (`StackPushBranch.tip`, one `rev-list` checks the cut); a push of several branches is one atomic push, all or none
-  (`push_branches`, `src/lib/git/stack-push.ts`), through the leased push of `bd push` (`push_leased`); the whole stack
-  (`{prefix}/stack/<root>`) is an object of its own, "the whole air stack": its robot, its PR ("Create Pull Request of
-  the Stack…"), "Review Whole Stack", its Safe Push and Dry Run, one list of actions (`getWholeStackMenuItems`) in the
-  island's "⋯" and the root's "Whole Stack ›", a small stack's popover at the root's row (`spec/branch/whole-stack.spec.md`).
-- **Stack parents**: a child -> parent map in `refs/branch-deck/stack-parents` stacks a branch, an issue branch and an
-  issue group included, without a rewrite; Stack On, Unstack, `bd restack`/`unstack` and a plan path `parent/leaf`
-  write it, a prefix with a parent level still declares one; a sync drops the line of an integrated branch; a trial
-  build of a stacked branch alone (`stack_independence`) lets the Safe Push popover, the move toast and `bd safe-push`
-  offer the unstack or the move of the commits it needs, never decide it (`spec/branch/stack-parents.spec.md`).
-- **Activity**: the header log of what the app did per repository (push, update, landed, Patronus, rewrite, error) in
-  the words of its toast, a main-only persistent store (`src/stores/activity.ts`), the rewrite's Undo for its 10 s
-  (`spec/repository/activity.spec.md`).
-- **Commit files**: "3 files · +42 −7" on the commit meta line, the Files section of the commit preview (`F`) as a
-  directory tree (compacted chains, roving focus), Copy Changed Paths; one `diff-tree --stdin --raw --numstat` per
-  list, cached by commit id in the object cache. The diffs are the typed blocks of the diff engine, streamed by
-  `get_file_diffs` (the files in view first), their texts read by blob id (`get_blob_texts`), rendered by our
-  `DiffView`, also the merges of a conflict in three columns (`get_file_merges`) (`spec/commit/commit-files.spec.md`,
-  `docs/design/diff-view.md`). `D` (on a row, its menu, the
-  preview) reviews the commit in the `commit-review` window, the only review of a commit: the tree beside all diffs in
-  one virtualized `DiffView`, J/K files, N/P changes, ⌥↑/⌥↓ commits (`spec/commit/commit-review.spec.md`).
-- **Title bar**: the top row of every window is its title bar, as in the IntelliJ new UI: beside the macOS traffic
-  lights (overlay); on Windows (no decorations) and Linux (GTK client-side decorations with an empty titlebar) with the
-  window buttons where the desktop's layout puts them, in IntelliJ's looks, and ☰, the main menu that replaces the
-  native menu bar (its keys handled by the page, its commands one function each, `runAppCommand`); the system title bar
-  where a custom one doesn't fit (WSL, a tiling WM, no `XDG_CURRENT_DESKTOP`) or Settings → Appearance asks for it. Decided
-  once per process (`init_title_bar`), the page reads `window.__BD_TITLE_BAR__` and draws `WindowTitleBar` (the main
-  toolbar; a sub-window's `WindowPage`) (`spec/repository/title-bar.spec.md`).
-- **Your Turn** (review requests): the island of the open pull requests that ask for the user's review by name
-  (one GraphQL search, `user-review-requested:@me`), polled every 5 min with backoff, "Returned to you" for the own pull
-  requests with changes requested, a toast or an OS notification per answer with news, the Dock badge
-  (`setBadgeSource`); the review (a decision header: Overview / Changes, Approve the primary) fetches the pull request
-  into `refs/branch-deck/review/<n>/…` and reviews `base..head` in the range review (`RangeReview`: the commit column
-  beside the commit review, as the branch review), only in its own `pull-request-review` window (a row, Enter, D,
-  the toast; the main window runs its writes, the fetch counts per window, the draft of Request Changes is kept per
-  pull request); an approval of the user's own pull request that ends a wait ("Awaiting Ilya Korennoy") is news
-  with Safe Push (`approval-news.ts`, the poll refreshes the pull requests while a row waits); Settings →
-  Notifications holds the notification and badge switches (`spec/repository/review-requests.spec.md`).
-- **Settings**: a sub-window of its own (`settings`, `SettingsPage`), a sidebar of pages (General, Appearance,
-  Notifications, GitHub, Repository; vertical `Tabs`, ↑/↓) beside one island; only the main window opens it
-  (`open_settings`, from ⌘,, ☰, Ctrl+, and the buttons that name a page, `SettingsTarget` `{page, focus}`), the page
-  shown last remembered (`appSettings.settingsPage`); its writes go through the main window, and it closes with the
-  main window (`close_sub_windows`). Repository reads and writes the `branchdeck.*` git config of the selected
-  repository (`.git/config` only; `repository_config_changed` makes the main window sync), refuses stacks off while
-  flat names would clash; the branch prefix order is the specific one first, the repository's own, the app's, the
-  global git one, in the app as in `bd` (`spec/repository/settings.spec.md`).
-- **Branch Review**: Review Changes (D; on a row, its menu, the preview, the code-owner block) reviews a branch in the
-  `branch-review` sub-window, the only review of a branch (`BranchReview`): the stack as segments (own part, Shift+click
-  to extend, From Root = what its Safe Push lands and Patronus checks; Review Whole Stack the stack branch;
-  `get_branch_review`, one `for-each-ref` + one `log`), its commits, the commit review of the range, owners by the
-  `OWNERSHIP` files of the baseline (`ownership.rs`, one `cat-file --batch`) as labels and filter chips, the files of
-  each reviewer group (`paths` from Patronus when it sends them, else by owner name), opened from "Review Changes" of
-  the Safe Push popover too (`spec/branch/branch-review.spec.md`).
-- **Symbol dependencies**: tree-sitter summaries of the files the commits change (`crates/code-symbols`: Kotlin, Java,
-  Rust, TypeScript and JavaScript), cached by blob id; `bd commits` names the edges by symbols (`via`, the class
-  `Order`: never joins `units`), an override of a member, the overload or constructor form a call's arguments select
-  and a member's changed form included (Kotlin, Java), and the dangling-reference check subtracts comments, strings,
-  locals, still-bound names and override lines; with `branchdeck.symbols on` (the default; `report`, `off`) they also
-  order and stack branches in `bd suggest`, the conflict fix, `missing_declarations` of `bd check` and the unstack
-  warning of the Safe Push popover (`spec/commit/symbol-dependencies.spec.md`).
-- **Zoom**: View → Zoom In / Zoom Out / Actual Size, our own (WKWebView has no zoom keys), 67–150%, one saved level
-  for all windows (`appSettings.zoom`), the toolbar not zoomed, the minimum window wider above 125%
-  (`spec/repository/zoom.spec.md`).
+## Agent Pitfalls
+Mistakes agents made here; each cost a session.
+- **One `pnpm e2e` per checkout**, even on two ports: each global setup runs `pnpm build`, which empties `dist/` under
+  the other run (timeouts in page setup, not test failures).
+- **`CI=1` does not speed up E2E**: it means 1 worker, 2 retries and no reuse of a running server
+  (`playwright.config.ts`). A test that fails only under parallel load is a race: fix the wait, don't serialize.
+- **`bd check` without `--plan` reads the plan from stdin** when stdin is not a terminal (`read_plan` in
+  `crates/bd-cli/src/check_command.rs`): from a background or piped shell it waits forever. Pass `</dev/null`.
+- **Same-second commits are the same commit**: a `git replay` or cherry-pick of a commit onto its own parent within one
+  second writes the identical object, so "the copy" is the original. A test that needs a new copy makes the target
+  diverge first (one more commit) or uses `cherry-pick -x`; a test that passes on a rerun is often this.
+- **React Compiler and store reads**: a function that reads stores with `getState()`, called in the render body beside
+  `useStore`, is memoized on its arguments and shows a stale value. The value must come out of the selector:
+  `useNextStepStores(() => getBranchNextStepNow(name))` (`src/hooks/useBranchNextStep.ts`); a menu builder likewise
+  (`useBranchMenu`, `src/hooks/useBranchContextActions.ts`).
+- **Typing into a Base UI dialog in E2E**: wait for `toBeFocused()` first; `press`/`type` on an unfocused input puts the
+  caret at 0 and the text lands at the start.
+- **zsh does not word-split `$args`**: `args="--no-default-features --features=x"; cargo build $args` passes one
+  argument. Write the arguments out, use `${=args}`, or run the loop under `bash -c '…'`.
+- **An "unresolved import" of a module that clearly exists**, after another session moved branches under the same
+  `target/`, is a stale cargo fingerprint: `touch` the crate's files and rebuild.
+- **Throwaway Playwright specs** (screenshots, debugging) go into `shots.local/` of the worktree (`*.local` is
+  ignored), with a config there that spreads `../playwright.config` and sets `testDir: "."`, `globalSetup:
+  "../tests/e2e/setup/global-setup.ts"` and `webServer[].cwd: ".."`; run `npx playwright test --config
+  shots.local/shots.config.ts`. Delete them before a commit: `pnpm lint:frontend` lints them too.
 
 ## Development Rules
 
@@ -252,11 +178,14 @@ Specs (`spec/<area>/<name>.spec.md`) and design docs (`docs/design/`) are part o
 - **Before** changing a feature, read its spec and the design doc it links: the spec is the contract, the doc the why.
 - **Same commit**: a behaviour change updates its spec: requirements, `[@test]` links, `targets:` front matter and the
   UX tokens. A renamed or moved test or file updates every link to it; grep `spec/` and `docs/` for the old name.
-- **New user-visible feature**: a new spec in the air format (copy the structure of an existing one), plus at most one
-  sentence and a spec link in the matching README "Features" group; the detail belongs in the spec. README is the
-  pitch for a newcomer: no new bullet per feature, no shortcut lists, nothing internal to one company (Patronus, Space).
+- **New user-visible feature**: a new spec in the air format (copy the structure of an existing one), a row in the
+  [Feature Index](#feature-index), plus at most one sentence and a spec link in the matching README "Features" group;
+  the detail belongs in the spec. README is the pitch for a newcomer: no new bullet per feature, no shortcut lists,
+  nothing internal to one company (Patronus, Space).
 - **Git**: a new git operation or a changed flow gets its section in [Git Operations](docs/design/git-operations.md);
   a new or changed hard rule also goes into "Git Operations" below.
+- **AGENTS.md** holds the rules an agent must not miss and pointers; the detail of a feature goes into its spec, of a
+  git flow into the design doc, of a one-off procedure into `docs/guidelines/`.
 - **Truth**: docs describe the code as it is. A doc that contradicts the code is a bug: fix the doc (or the code) in
   the same change; never leave it for later. See [Design Docs Guidelines](docs/guidelines/design-docs.md).
 
@@ -297,106 +226,82 @@ How agents commit to this repository; "Git Operations" below is about the git th
   every worktree shares the setting: `git config core.hooksPath .githooks && git config merge.ff only`.
 - Never `--no-ff`, never `--no-verify`, never `commit-tree` with two `-p`.
 
-### Worktrees
-Parallel work runs in a worktree of the `bd lease` pool (`~/.branch-deck/pool/<repo>-<hash>/`,
-[bd lease](spec/cli/lease.spec.md)); never `git worktree add`, `EnterWorktree` or `isolation: "worktree"`.
-- **Every session edits in its own lease**, the main session and a background job too, not only a spawned agent: other
-  sessions work in this repository at the same time. A harness default such as "edit files directly in your working
-  directory" does not override this rule. The main checkout is only for `git merge --ff-only <branch>` into `master`
-  ("commit right away" means: commit in the lease, then fast-forward `master`).
-- **Acquire**: `bd lease get --holder <agent-name> -b <branch>` in the main checkout creates `<branch>` at its HEAD
-  and prints the lease as JSON (`path`, `lease_id`). It does not fetch. A leased worktree is never handed out again.
-- **Base**: the branch starts at the HEAD of the checkout that runs the get, local `master` in the main checkout,
-  which may be ahead of `origin/master`. Run it with `-C <worktree>` to cut from another branch. Without `-b` the
-  worktree is detached.
-- **Inside**: the rules of the main checkout apply (`.githooks/` via the shared `core.hooksPath`, `cargo nextest`).
-  `node_modules` and `target/` survive a reuse. On macOS a new slot is an APFS clone of a free slot or of the main
-  checkout, so it starts with them too. Run `pnpm install` when `pnpm-lock.yaml` changed.
-- **Rust cache**: every checkout keeps its own `target/`; never a shared `CARGO_TARGET_DIR` or `build.build-dir`: the
-  unit hash of a workspace crate does not depend on the checkout's path, so worktrees would overwrite each other's
-  units. Cargo never deletes a stale unit, so `pnpm prune:target --pool --yes` trims the free slots (dry run without
-  `--yes`); dependencies are built with workspace-wide features (`.cargo/config.toml`) and line tables only.
-- **E2E**: the mock server listens on 3030 in every checkout; when another worktree's server holds it, run
-  `E2E_PORT=3031 pnpm e2e` (any free port). Global setup refuses a server that serves another checkout, because
-  Playwright reuses whatever listens on the port.
-- **Integrate** as in "Commits and History": `git rebase master` in the worktree, `git merge --ff-only <branch>` in
-  the main checkout.
-- **Release**: commit, land, stop the processes you started in the worktree (the e2e mock server, `cargo watch`),
-  then `bd lease return --workspace <path>`. It refuses local changes, a commit that no branch holds and that
-  `master` lacks by content, or a process inside. `--confirm-preserved` discards the changes and commits it reports, so pass it only
-  when they are preserved elsewhere. The branch survives; the next get moves the worktree.
-  `bd lease status` lists the pool. A worktree leased from the old Treehouse pool (`~/.treehouse/<repo>-<hash>/`)
-  goes back with `treehouse return <path>`.
-
 ### Git Operations
-Hard rules; rationale and per-operation flows in [Git Operations](docs/design/git-operations.md).
+Hard rules of the git the app and `bd` run; the flows and the reasons are in
+[Git Operations](docs/design/git-operations.md) (2600 lines: open the section a rule links).
 - **Git 2.54+** (`MIN_VERSION` in `crates/git-executor/src/git_info.rs`), checked when git is discovered, on every platform.
-- All git runs through `GitCommandExecutor`. It adds `-c core.quotePath=false -c color.ui=never -c log.showSignature=false
-  -c i18n.logOutputEncoding=UTF-8`, sets `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0`, strips inherited
-  `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_NOTES_REF`, empties `GIT_NOTES_DISPLAY_REF` (`%N` shows only the mapping
-  notes, or an explicit `--notes=<ref>`) and gives git a null stdin unless the call pipes one; callers don't add
-  `--no-pager`. A git with an environment, stdin, accepted exit codes, a timeout, streamed stdout, progress or a reply
-  protocol is `git.cmd(&args, repo)` with `.env`, `.stdin`, `.accept`, `.timeout` and one finisher (`.text`, `.bytes`,
-  `.lines`, `.output`, `.status`, `.stream`, `.progress`, `.interactive`), all on one spawn core; the only shorthands are
-  `execute_command` (`.text`), `execute_command_lines` (`.lines`) and `execute_command_with_status` (`.status` as text).
-  The executor knows no git beyond that: a rev or ref fact (`resolve_tree_id`, `ref_exists`) is a git-ops function.
+- All git runs through `GitCommandExecutor` ([Executor](docs/design/git-operations.md#executor)). It adds
+  `-c core.quotePath=false -c color.ui=never -c log.showSignature=false -c i18n.logOutputEncoding=UTF-8`, sets
+  `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0`, strips inherited `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/
+  `GIT_NOTES_REF`, empties `GIT_NOTES_DISPLAY_REF` (`%N` shows only the mapping notes, or an explicit `--notes=<ref>`)
+  and gives git a null stdin unless the call pipes one; callers don't add `--no-pager`. A git with an environment,
+  stdin, accepted exit codes, a timeout, streamed stdout, progress or a reply protocol is `git.cmd(&args, repo)` with
+  `.env`, `.stdin`, `.accept`, `.timeout` and one finisher (`.text`, `.bytes`, `.lines`, `.output`, `.status`,
+  `.stream`, `.progress`, `.interactive`), all on one spawn core; the only shorthands are `execute_command` (`.text`),
+  `execute_command_lines` (`.lines`) and `execute_command_with_status` (`.status` as text). The executor knows no git
+  beyond that: a rev or ref fact (`resolve_tree_id`, `ref_exists`) is a git-ops function. Test fixtures run git through
+  `test_utils::git_test_utils::git_command()`, which removes the repository variables a hook or `rebase --exec`
+  exports (`git_command_test.rs` fails on a raw `Command::new("git")`).
 - **Scan tests** (`crates/git-executor/src/git_usage_scan_test.rs`, on the sources as `source_scan_test.rs` reads them
   for the worktree safety scan too): git starts only in `GitCommandExecutor` (and `git_info.rs`'s discovery); bd-cli
-  and src-tauri start no git of their own; no `--no-pager`, no
-  `credential.helper=`; `update-ref` only in `ref_transaction.rs`; `cat-file --batch*` only in `cat_file_batch.rs`;
-  `--name-only`, `--name-status` and `--raw` only with `-z`; paths after `--` only with `--literal-pathspecs`;
-  `push`, `fetch` and `ls-remote` only through `execute_remote_command*`. An exemption names its file, its reason and
-  its exact number of hits.
+  and src-tauri start no git of their own; no `--no-pager`, no `credential.helper=`; `update-ref` only in
+  `ref_transaction.rs`; `cat-file --batch*` only in `cat_file_batch.rs`; `--name-only`, `--name-status` and `--raw`
+  only with `-z`; paths after `--` only with `--literal-pathspecs`; `push`, `fetch` and `ls-remote` only through
+  `execute_remote_command*`. An exemption names its file, its reason and its exact number of hits.
 - **Never write to the working tree**: no `checkout`, `checkout-index`, `switch`, `reset`, `rebase`, `stash`, `commit`,
   `cherry-pick`, `merge`, `restore`, `clean`, `apply` without `--cached`, `read-tree -u`/`--reset`, `git history`;
   `crates/git-executor/src/worktree_safety_test.rs` enforces it. Reading worktree files into a temporary
   `GIT_INDEX_FILE` is fine. The single exception is the guarded two-way `read-tree -m -u` in
-  `crates/git-ops/src/worktree_update.rs` (dry run on an index copy first, then the CAS ref move, rollback on failure).
-  Its functions are `pub(crate)` and only `update_branch.rs` calls them, for Update Project (`apply_update`, the app
-  and `bd update`), its undo (`apply_update_undo` of an `UpdateUndo` that only `check_update_undo` builds, the
-  trees swapped), the finish of a resolve session (`update_resolve.rs` through the `pub(crate)`
-  `move_branch_and_files_with` and `files_follow`, to the tip it reads from the session ref), and `bd pick`
-  (`pick.rs` through the `pub(crate)` `move_branch_and_files`, to the tip its own check replayed, `PickPlan`; the
-  worktree of `--follow` too, a detached HEAD with `option no-deref`; its undo by `check_pick_undo`). The scan counts
-  its `-u` argument lists. Don't add another caller, another argument list, or a public way to build a move; see
-  "Update project" and "Pick" in the design doc. A slot of the lease pool is not the user's working tree: its
-  `checkout --force`, `reset --hard` and `clean -fd` live in `crates/git-ops/src/lease_slot.rs` only, each counted by
-  the scan ("Lease" in the design doc).
+  `crates/git-ops/src/worktree_update.rs` (dry run on an index copy first, then the CAS ref move, rollback on failure),
+  `pub(crate)`, called only by `update_branch.rs`: for Update Project (the app and `bd update`), its undo, the finish
+  of a resolve session (`update_resolve.rs`) and `bd pick` (`pick.rs`, also the worktree of `--follow`) and its undo
+  ([Invariants](docs/design/git-operations.md#invariants)). The scan counts its `-u` argument lists. Don't add another
+  caller, another argument list, or a public way to build a move. A slot of the lease pool is not the user's working
+  tree: its `checkout --force`, `reset --hard` and `clean -fd` live in `crates/git-ops/src/lease_slot.rs` only, each
+  counted by the scan ([Lease](docs/design/git-operations.md#lease)).
 - **The user's index** changes only where HEAD's tree changed (`IndexUpdate` in `crates/git-ops/src/rewrite_guard.rs`):
   a drop runs `read-tree -m -i <old> <new>` after a preflight on a copy of the index, an amend stages the amended files.
   Staged work on other paths survives; never `reset --mixed`, never ignore an index error.
 - **Ref moves**: one `RefTransaction` (`update-ref --stdin`) with old-value CAS and a `branch-deck: <op>` reflog
-  message; related refs (unapply rename, temp refs) go into the same transaction. The named exception is a notes ref
-  that `fast-import` writes (`write_notes_to_refs`, `write_commits_with_notes`): it moves the ref itself
-  (`from <ref>^0`) and refuses a tip that does not contain the ref's value at its end, so a concurrent writer fails the
-  run instead of being overwritten; the resolve notes move in the session's transaction. The second is the temporary ref
-  of a sync chain's commit writer (`commit_chain.rs`): one per writer (`unique_temp_ref`), deleted in its own
-  `fast-import` stream after a `checkpoint` wrote it (`reset` from the null id); a sync deletes stale temporary refs
-  that its listing found (`is_stale_temp_ref`). A move that the files follow (an
-  update and its undo) updates `HEAD` itself (deref) and commits only if `symbolic-ref HEAD`, read while git holds the
-  locks after `prepare`, is still the checked branch (`RefTransaction::commit_while`, else `BranchSwitched`); git
-  refuses `symref-verify HEAD` next to either form of the update. The finish of a resolve session moves the session
-  ref and the notes ref (`refs/notes/branch-deck/resolve`, written only there) in that transaction.
-- **Issue groups** (`refs/branch-deck/issue-groups`, `issue_groups.rs`) and **stack parents**
-  (`refs/branch-deck/stack-parents`, `stack_parents.rs`): two refs, never one tree (a store commit replaces its whole
-  tree). Only a regroup writes them, under the repository lock, in the ref transaction that moves HEAD, with CAS on
-  every ref it moves; a sync only reads them, except that it drops the stack parent of a branch whose archived branch
-  is integrated (one CAS write, best effort, `drop_integrated_stack_parents`).
-- **Conflict refs** (`refs/branch-deck/conflict/<sha256 of the branch's full name>`, `conflict_chain.rs`): they keep the
-  copies a sync wrote of a conflicting branch's commits before its conflict, which its view merges onto and the object
-  cache remembers (`conflict_chain`). Only a sync writes them, in one CAS transaction per sync after the branches, only
-  when one changes; a failed move fails no sync (listed again, a ref already where it should be counts as moved).
-- **Stack branches** (`{prefix}/stack/<root>`, `crates/sync-core/src/stack_branch.rs`): only a sync writes them, for a
-  stack that forks: its members' original commits in history order on the base of the sync, in one `CommitChain`,
-  without mapping notes (an original's note names the copy of its own branch) and without branch events; moved with CAS
-  on the tip the sync listed, and only when every member was built; deleted in one CAS transaction once the stack stops
-  forking, never while it has a remote branch or a worktree has it checked out. A stack branch the sync did not rebuild
-  (any state but `Built`) keeps its tip and is never pushed; a `Built` one alone by the Safe Push of the whole stack,
-  its restart, the creation of its pull request and Request Review (`bd safe-push --whole-stack`, the app's
-  `pushWholeStack`), and after the branches by Push with Children of the root (the app's, `bd push <root>
-  --with-children`) once it is on the remote or its pull request is open (`getStackBranchAlong`), leased on the remote
-  head of its remote status. Its build is remembered by a hash of the base and the original ids (`StackBuilds`, the object cache's
-  `stack_branch`), never by `CommitKey`, which an amend keeps.
+  message; related refs (unapply rename, temp refs) go into the same transaction. The named exceptions: a notes ref
+  that `fast-import` writes (`write_notes_to_refs`, `write_commits_with_notes`: `from <ref>^0`, and a tip that does not
+  contain the ref's value fails the run, so a concurrent writer is never overwritten; the resolve notes move in the
+  session's transaction); the temporary ref of a sync chain's commit writer (`commit_chain.rs`): one per writer
+  (`unique_temp_ref`), deleted in its own `fast-import` stream after a `checkpoint` wrote it (`reset` from the null
+  id), and a sync deletes the stale temporary refs its listing found (`is_stale_temp_ref`); and the refs of the review
+  fetch (below). A move that the files follow (an update and its undo) updates `HEAD` itself (deref) and commits only if
+  `symbolic-ref HEAD`, read while git holds the locks after `prepare`, is still the checked branch
+  (`RefTransaction::commit_while`, else `BranchSwitched`); git refuses `symref-verify HEAD` next to either form of the
+  update. The finish of a resolve session moves the session ref and the notes ref (`refs/notes/branch-deck/resolve`,
+  written only there) in that transaction.
+- **Who writes the refs of Branch Deck**:
+  - `refs/branch-deck/issue-groups` and `refs/branch-deck/stack-parents`: two refs, never one tree (a store commit
+    replaces its whole tree). Only a regroup writes them, under the repository lock, in the ref transaction that moves
+    HEAD, with CAS on every ref it moves; a sync only reads them, except that it drops the stack parent of a branch whose
+    archived branch is integrated (one CAS write, best effort, `drop_integrated_stack_parents`)
+    ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
+  - `refs/branch-deck/conflict/<sha256 of the branch's full name>` (`conflict_chain.rs`): only a sync, in one CAS
+    transaction after the branches, only when one changes; a failed move fails no sync
+    ([Virtual branch sync](docs/design/git-operations.md#virtual-branch-sync)).
+  - `{prefix}/stack/<root>` (`stack_branch.rs`): only a sync, for a stack that forks, with CAS on the tip it listed and
+    only when every member was built; deleted once the stack stops forking, never while it has a remote branch or a
+    worktree has it checked out. Only a `Built` one is pushed: by the Safe Push of the whole stack (its restart, the
+    creation of its pull request, Request Review) and by Push with Children of the root once it is on the remote or its
+    pull request is open. Its build is remembered by the base and the original ids (`StackBuilds`), never by
+    `CommitKey`, which an amend keeps ([Stack branch](docs/design/git-operations.md#stack-branch)).
+  - `refs/branch-deck/review/<n>/{head,base}`: only `review_fetch.rs`, through its own fetch refspecs; always
+    `--refmap=` and `--no-prune`, so no remote-tracking ref moves; never under the repository lock; no fetch when both
+    commits are local; killed on cancel or 120 s of silence; pruned with one `for-each-ref` and one CAS
+    `update-ref --stdin`. Range diffs (`DiffSubject::Range`) never go into the object cache (`RangeFilesCache` in
+    memory) ([Review fetch](docs/design/git-operations.md#review-fetch)).
+  - `refs/branch-deck/resolve/<worktree id>` (a shared ref: a gc in another worktree prunes a `refs/worktree/` ref):
+    the state of a resolve session. The copies an agent edits (`resolve_copies.rs`) live only in `branch-deck/resolve/`
+    of the worktree's git dir or in `--dir` (absolute, not a symlink, outside every worktree, empty or marked for this
+    git dir, used by no other session; the marker `.branch-deck-resolve` names the owner's git dir); flat names
+    `<key>-<basename>`, never tree paths; tree paths validated (no empty, `.`, `..` or `.git` component, nor an
+    NTFS/HFS+ alias of `.git`); regular files only, bytes as git stores them without filters, never read, written or
+    deleted through a symlink, every write a temporary file plus a rename; delete only the files bd wrote, only in a
+    directory whose marker names this git dir ([Resolve session](docs/design/git-operations.md#resolve-session)).
 - **Repository lock**: every rewrite of the checked-out branch takes it in its core, before it reads anything: the
   regroup (`regroup.rs`) and the move of a hunk through their options, and the app's squash and its undo, squash
   fixups (also `bd fold`), amend, unapply, reword and add issue reference through `RewriteOptions` (`held_lock`,
@@ -404,132 +309,64 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   `bd safe-push` (the sync, the checks and the push; the robot start after it), `bd move-hunk`, `bd undo`,
   Update Project (the app and `bd update`, after the fetch, also when it starts a resolve session), `bd pick` (both
   worktrees under one hold), and `bd update --continue` and `--abort` hold `$GIT_COMMON_DIR/branch-deck.lock`
-  (`repository_lock.rs`, bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch.
-  A fetch never runs under it.
+  (bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch. The app's sync never
+  takes it. A fetch never runs under it ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
 - **Guards** (`History::check_rewrite`, `check_rewrite_range`) before rewriting the checked-out branch: no
   rebase/merge/cherry-pick/revert in progress, HEAD not detached, no merges in the range (refuse, no rebase fallback).
   A sync (the app's and `bd sync`) is refused under the first two as `SyncDeferred` (`check_sync_guards`): a half-done
   history would archive the branches it lacks.
 - **Metadata**: message-only rewrites (reword, move) keep author and committer byte-for-byte (`commit_writer`:
-  `cat-file --batch` + `fast-import`); content rewrites (amend, drop via `git replay`) keep the author, committer = current
-  user. The one named exception: `bd move-hunk` (`move_hunk.rs`) keeps author and committer byte-for-byte for every
-  commit whose diff stays the same (`patch-id --stable`; the commits between the two and above), so their virtual
-  commits stay; `from`, `to` and the commits whose diff of the file changed get committer = current user and no mapping
-  note. Signatures are stripped.
+  `cat-file --batch` + `fast-import`); content rewrites (amend, drop via `git replay`) keep the author, committer =
+  current user. The one named exception: `bd move-hunk` (`move_hunk.rs`) keeps author and committer byte-for-byte for
+  every commit whose diff stays the same (`patch-id --stable`), so their virtual commits stay; `from`, `to` and the
+  commits whose diff of the file changed get committer = current user and no mapping note. Signatures are stripped.
 - **Batch**: one process per phase, not per item (`--stdin`, `cat-file --batch`, `fast-import` for commits and notes,
   `update-ref --stdin`). A chain whose next step needs the answer of the one before keeps one interactive process per
   chain: a sync merges a branch in one `merge-tree --stdin` and writes its copies with one `fast-import`
   (`commit_chain.rs`), never `commit-tree` per commit; `with_process_stats` counts the processes of an operation. A
-  resolve session finds the first conflicting commit with a binary search over prefixes:
-  ⌈log₂ n⌉ `replay` runs, then one `replay` of the rest per round. Never parse translated text: exit codes,
-  `--porcelain`, `-z`. The one named exception: a branch description costs one `git config` per changed branch
-  (`bd describe`, `descriptions` of a `bd group` plan), because git has no batch config writer; read them with one
-  `--get-regexp`.
-- Handle special exit codes: `merge-tree` and `replay` exit with 1 on conflicts; `merge-tree --stdin` exits with 0
-  even then, and each merge of its output starts with its status, 1 clean, 0 conflicted (`parse_batch_merge`);
-  `merge-base` exits with 1 for "no" (`--is-ancestor`) or "none" (no merge base, no fork point), and any other non-zero
-  is an error, never a "no" (`git_ops::revs`).
-- **Resolve session store** (`resolve_copies.rs`): the copies an agent edits live in `branch-deck/resolve/` of the
-  worktree's git dir, or in `--dir` (absolute, not a symlink, outside every worktree, empty or marked for this git dir,
-  used by no other session); the marker `.branch-deck-resolve` names the owner's git dir; flat names
-  `<key>-<basename>` (the basename cut to 100 bytes), never tree paths; tree paths validated (no empty, `.`, `..` or
-  `.git` component, nor an NTFS/HFS+ alias of `.git`, `gix-validate`); regular files only, bytes as git stores them without filters, never read, written or deleted
-  through a symlink (of the file or of any directory below the git dir or `--dir`), every write a temporary file plus
-  a rename; delete only the files bd wrote, only in a directory whose marker names this git dir. All other session
-  state is in git (`refs/branch-deck/resolve/<worktree id>`, a shared ref: a gc in another worktree prunes a
-  `refs/worktree/` ref).
+  resolve session finds the first conflicting commit with a binary search over prefixes: ⌈log₂ n⌉ `replay` runs, then
+  one `replay` of the rest per round. Never parse translated text: exit codes, `--porcelain`, `-z`. The one named
+  exception: a branch description costs one `git config` per changed branch (`bd describe`, `descriptions` of a
+  `bd group` plan), because git has no batch config writer; read them with one `--get-regexp`.
+- **Exit codes**: `merge-tree` and `replay` exit with 1 on conflicts; `merge-tree --stdin` exits with 0 even then, and
+  each merge of its output starts with its status, 1 clean, 0 conflicted (`parse_batch_merge`); `merge-base` exits with
+  1 for "no" (`--is-ancestor`) or "none" (no merge base, no fork point), and any other non-zero is an error, never a
+  "no" (`git_ops::revs`).
 - **Network commands** (push, fetch) run through `execute_remote_command` (`crates/sync-core/src/remote_command.rs`):
   the user's credential helpers stay, prompts are off, stalled HTTP transfers abort, the locale is C (untranslated
   `--progress` lines). Never pass `-c credential.helper=`.
-- **Git config writes**: only `--local` (`.git/config`), only the `branchdeck.*` keys of Settings → Repository
+- **Git config writes**: only the `branchdeck.*` keys of Settings → Repository and Settings → Diffs & Merge
   (`repository_config.rs`: one `--get-regexp --show-scope` read, `--replace-all` or `--unset-all`, refused when the
-  worktree config or `git -c` sets the key) and the branch descriptions of `bd describe`; never `--global`.
+  worktree config or `git -c` sets the key), `--local` (`.git/config`), or `--global` only where the request names the
+  global scope (`set_repository_config` with `scope: "global"`); and the branch descriptions of `bd describe`
+  ([Repository settings](docs/design/git-operations.md#repository-settings)).
 - **GitHub credentials**: the only git of the GitHub token chain is `git credential fill` (`crates/github/src/token.rs`),
   a `GitCommand` with `.timeout` (10 s) and `.status`, with `credential.interactive=false`, an empty `GIT_ASKPASS` and
   `GCM_INTERACTIVE=never`; never `credential approve` or `reject`. GitHub itself is asked over HTTP (`GitHubService`),
-  never by a `gh` process.
-- **Review fetch** (`review_fetch.rs`): the only writer of `refs/branch-deck/review/<n>/{head,base}`, through its own
-  fetch refspecs (the named exception to the ref transaction rule); always `--refmap=` and `--no-prune`, so no
-  remote-tracking ref moves; never under the repository lock; no fetch at all when both commits are local; killed on
-  cancel or 120 s of silence (`execute_remote_command_with_progress_until`). Pruning is one `for-each-ref` plus one
-  CAS `update-ref --stdin`. Range diffs (`DiffSubject::Range`) are never written to the object cache: the app keeps
-  the files of a range in memory only (`RangeFilesCache`), from one `diff-tree`.
-- **Symbols** (`symbol_scan.rs`): source blobs by id from the `--raw --no-abbrev` of the commit diffs; one
-  `cat-file --batch` of the directories above them at HEAD, one for the blobs the `blob_summary` cache misses and the
-  manifests; the declarations the range adds or changes are the index, never the whole tree. The summaries of trial
-  blobs (the dangling-reference check) stay in memory, never in the object cache.
+  never by a `gh` process; the app's own sign-in keeps its token in a 0600 `github-token.json` of the app data dir
+  (which `bd` reads too), not the keychain ([GitHub credentials](docs/design/git-operations.md#github-credentials)).
+- **Symbols** (`symbol_scan.rs`): source blobs by id from the commit diffs, the declarations the range adds or changes
+  as the index, never the whole tree; the summaries of trial blobs stay in memory, never in the object cache
+  ([Symbol summaries](docs/design/git-operations.md#symbol-summaries)).
 
 ### Adding a git operation
-An operation keeps one name across the layers (`git_ops::move_hunk`, `sync_core::move_hunk`, `bd move-hunk`). The `//!`
-headers of `crates/git-ops/src/lib.rs` and `crates/sync-core/src/lib.rs` map the modules by area; the layers are the
-"Architecture" of [Git Operations](docs/design/git-operations.md).
-- **git-ops** (`crates/git-ops/src/<op>.rs`): the git, functions of `(git, repo_path, …)`, one process per phase (many
-  ids or paths on stdin, `cat-file --batch`, `fast-import`, one `RefTransaction`), through `git.cmd(&args, repo)` with
-  one finisher, or the shorthands `execute_command`, `execute_command_lines`, `execute_command_with_status`. Read `-z`
-  output (paths as bytes), take full ids (`is_object_id` for an id from outside), put a revision from outside after
-  `--end-of-options` and a path after `--` as a literal pathspec (`--literal-pathspecs` first in the argument list).
-  A rewrite of the checked-out branch runs the guards on the history it read (`History::check_rewrite`;
-  `check_rewrite_range` for a range it did not read) and moves the branch with CAS on the HEAD it read. Reuse a helper
-  below before writing a parser; no lock and no policy here.
-- **The core** (`crates/sync-core/src/<op>.rs`): `<op>_core(git, params, …)`, the one entry of every caller. A rewrite
-  of the checked-out branch takes `&RewriteOptions`: `options.lock(..)` before it reads anything, then the expected
-  HEAD (`ensure_head`, `expected_full_head`), then git-ops. A step of a sync, or of a `bd` command after its sync, takes
-  the facts `RepoFacts`, `ConfigSnapshot`, `Snapshot` or the `SyncReport` hold instead of reading them again; a remote
-  only through `remote_command`. The params and results the app passes derive `specta::Type` (feature `specta`).
-- **bd** (usually `crates/bd-cli/src/<op>_command.rs`, a variant of `Command` in `lib.rs`): clap arguments, one JSON object with
-  `schema` (`bd schema`, `schema_test.rs`), errors as `CliError` with an `ErrorCode` (its exit code in
-  `docs/guidelines/agent-cli.md`), a read-only command in `read_only!` (`agent_help.rs`); bd's own lock goes to the core
-  as `held_lock` only when bd writes more under it. No git of its own.
-- **The app** (`src-tauri/src/commands/<op>.rs`): `#[tauri::command]` `#[specta::specta]` that calls
-  `run_blocking(move || <op>_core(..))`, registered in `src-tauri/src/lib.rs`, `src/lib/bindings.ts` regenerated
-  (`bindings_test.rs`); the E2E server routes the command to the same core (`crates/test-server/src/lib.rs`,
-  `tauri_command_bridge.rs`).
-- **Same commit**: the spec, the flow's section in [Git Operations](docs/design/git-operations.md), and a test of the
-  operation in `process_budget_test.rs` (`crates/sync-core/src/` for a core, `crates/bd-cli/src/` for a `bd` command)
-  that pins its processes by subcommand; the scan tests stay green (`worktree_safety_test.rs`,
-  `git_usage_scan_test.rs`, "Scan tests" above), an exemption added only with its reason and its number of hits.
-
-| Helper | Module | For |
-|---|---|---|
-| `RefTransaction` (`update`, `create`, `delete`, `verify`, `commit`, `commit_while`) | `git_ops::ref_transaction` | every ref move: CAS, reflog message, related refs in one transaction |
-| `read_raw_commits`, `write_commits_with_notes`, `write_store_updates`, `write_notes_to_refs`, `complete_line` | `git_ops::commit_writer` | commits, store commits and notes from one `fast-import`, exact metadata, temporary refs deleted with CAS |
-| `CommitChain` | `git_ops::commit_chain` | dependent merges and commits of one branch: one `merge-tree --stdin` and one `fast-import` |
-| `parse_batch_merge`, `parse_merge_tree_output`; `MergeOutcome` | `git_ops::merge_tree_output`, `git_ops::merge_memo` | the `-z` output of `merge-tree --write-tree`, a `--stdin` run merge by merge |
-| `for_each_object`, `read_objects`, `object_types` | `git_ops::cat_file_batch` | many objects from one `cat-file --batch --buffer -Z`, streamed, over-limit contents skipped |
-| `read_blob_bytes`, `read_texts`, `read_trees` | `git_ops::object_texts` | blob bytes or texts and tree entries of many names |
-| `History::read_to`, `read_ahead_of`, `check_rewrite` | `git_ops::history` | the first-parent history a rewrite works on, never the whole one, and its guards |
-| `check_rewrite_range`, `ensure_no_operation_in_progress`, `IndexUpdate`, `HeadMoved` | `git_ops::rewrite_guard` | the guards of a range not read; the user's index after a rewrite |
-| `short_id`, `is_object_id`, `current_branch`, `checked_out_branch`, `read_head`, `resolve_commit`, `resolve_tree_id`, `ref_exists`, `is_ancestor`, `merge_base`, `fork_point`, `ref_tips`, `tips_under`, `current_worktree`, `repository_dirs` | `git_ops::revs` | rev, branch and worktree facts; a full id; `merge-base` exit 1 is "no", any other an error |
-| `changed_paths`, `commits_touching` | `git_ops::paths` | the paths two trees differ in, as bytes; the commits that change some paths |
-| `replay_range`, `replay_range_with_env`, `merge_trees` | `git_ops::replay` | `git replay` of a range, a merge of three trees, objects only |
-| `read_notes`, `notes_ref`, `write_commit_notes` | `git_ops::notes` | the notes of many commits from one `log --no-walk --stdin`; the mapping notes |
-| `get_commits_info`, `find_commit`, `empty_tree`, `blob_id`, `object_id_of` | `git_ops::commit_utils` | commits by id from one `log --no-walk --stdin`; ids without a process |
-| `get_commit_list_with_handler` | `git_ops::commit_list` | the commits ahead of the baseline, streamed |
-| `read_commit_files_cached`, `read_diff_files` | `git_ops::commit_files` | files and line counts of many commits from one `diff-tree --stdin`, of a range from one `diff-tree` |
-| `read_attributes` | `git_ops::attributes` | the attributes of many paths, one `check-attr --stdin -z` |
-| `resolve_by_words`, `RESOLVE_VERSION` | `git_ops::word_resolve` | a conflicting cherry-pick that its words resolve, all or nothing: the files and the tree |
-| `read_descriptions`, `write_description`, `clear_description` | `git_ops::branch_description` | the pull request text of a branch |
-| `to_final_branch_name`, `qualified_branch_name`, `strip_branch_namespace`, `sanitize_branch_name` | `git_ops::branch_names` | `{prefix}/virtual/<name>` and the other namespaces under the prefix; a group name valid in a ref |
-| `RepoFacts`, `read_baseline_listing` | `sync_core::repo_facts` | the baseline, HEAD, upstream and the branches under the prefix, read once per sync |
-| `plan_stack_branches`, `StackBuilds`, `read_stack_branches` | `sync_core::stack_branch` | the stack branch of a stack that forks: its members and commits, its remembered builds, its state without a sync |
-| `ConfigSnapshot` | `sync_core::config_snapshot` | the `branchdeck.*` settings and the descriptions from one `git config` |
-| `Snapshot`, `CommitsAhead`, `read_grouping_inputs` | `sync_core::snapshot` | the commits ahead of the baseline and what groups them, once per operation |
-| `LineStore`; `ISSUE_GROUPS`, `STACK_PARENTS` | `sync_core::store_lines`; `issue_groups`, `stack_parents` | a `key<TAB>value` map in a ref of its own: read, CAS write |
-| `walk_commits`, `CommitKey` | `sync_core::commit_walk`, `sync_core::commit_key` | a `rev-list` walk matched across a rebase |
-| `resolve_commit_ids` | `sync_core::commit_ids` | the ids of a request, abbreviated or full, among the commits ahead of the baseline |
-| `CacheMemo`, `ConflictMemo` | `sync_core::cache_memo` (private) | merges, commit trees and conflict views in the object cache |
-| `lock_repository`, `RewriteOptions`, `ensure_expected_head` | `sync_core::repository_lock` | the repository lock and the expected HEAD |
-| `execute_remote_command` (`_accepting`, `_with_progress`, `_with_progress_until`) | `sync_core::remote_command` | every push and fetch |
-| `push_refs` | `sync_core::push_lease` | one leased `push --porcelain` of many refs |
-| `detect_baseline_branch`; `check_sync_guards` | `sync_core::baseline`; `sync_core::sync` | the baseline outside a sync; the guards of a sync |
-| `ProcessPermits` | `git_executor::concurrency` | the slots of an operation's parallel git work |
-| `with_process_stats`, `process_stats().by_command()` | `git_executor::git_command_executor` | the processes of an operation, in a test or in the log |
-
-### Rust Import Rules
-- **NO RE-EXPORTS**: Never use `pub use` statements except for internal module organization.
-- **Explicit Imports**: All imports must use full module paths (e.g., `use git_executor::git_command_executor::GitCommandExecutor`).
-- **Module Structure**: Make modules public with `pub mod` instead of re-exporting their contents.
-- **Clarity**: Every import should clearly show where types and functions originate from.
+Read [Adding a Git Operation](docs/guidelines/adding-git-operation.md) (the layers in detail, the helper table) before
+you add or change git code in `crates/git-ops/`, `crates/sync-core/`, `crates/bd-cli/` or `src-tauri/src/commands/`.
+The checklist:
+- One name across the layers (`git_ops::move_hunk`, `sync_core::move_hunk`, `bd move-hunk`); the `//!` headers of
+  `crates/git-ops/src/lib.rs` and `crates/sync-core/src/lib.rs` map the modules by area.
+- **git-ops** has the git: one process per phase, `-z` output, full ids, `--end-of-options` before a revision from
+  outside, `--literal-pathspecs` for paths after `--`; no lock and no policy.
+- **The core** `<op>_core` in `crates/sync-core/` is the one entry of every caller: a rewrite of the checked-out branch
+  takes `&RewriteOptions` and the lock before it reads anything, then checks the expected HEAD.
+- **bd** and **the app** parse, call the core and present its result; no git of their own. A `bd` command answers one
+  JSON object with `schema`, errors as `CliError` with an `ErrorCode`; a Tauri command is `run_blocking` of the core,
+  and the E2E server routes it to the same core.
+- **Reuse a helper** before writing a parser or a process: `ref_transaction`, `commit_writer`, `commit_chain`,
+  `cat_file_batch`, `object_texts`, `history`, `rewrite_guard` and `revs` in `git_ops`; `repo_facts`, `snapshot`,
+  `repository_lock` and `remote_command` in `sync_core`.
+- **Same commit**: the spec, the flow's section in [Git Operations](docs/design/git-operations.md), and a test in
+  `process_budget_test.rs` that pins its processes by subcommand; the scan tests stay green.
 
 ### Code Style
 - **Colors**: shadcn semantic tokens only (`text-muted-foreground`, `bg-background`, `bg-muted`, `border-border`, `text-primary`,
@@ -546,10 +383,14 @@ headers of `crates/git-ops/src/lib.rs` and `crates/sync-core/src/lib.rs` map the
   or hardcode `rounded-[…]`. To change the feel, change the token. Prefer a coherent token-driven scale over copying
   IntelliJ pixel values.
 - **Spacing**: `flex flex-col gap-*` on the parent, not `space-y-*` or child `mt-*`.
+- **Font**: InterVariable from `inter-ui` (the full rsms build; `@fontsource-variable/inter` lacks `ss02`/`cv*`
+  features), falling back to the system UI font, at 13px (`text-sm`, the IntelliJ UI size). Commit bodies enable `ss04`
+  (I/l/1 disambiguation). `font-mono` is JetBrains Mono (`@fontsource-variable/jetbrains-mono`) without ligatures.
 - **Icons**: lucide-react components (`<GitBranchIcon />`). Inside `Button`, add `data-icon="inline-start"` (or `inline-end`)
   and no size classes; the button sizes them. Elsewhere use `size-*` classes (e.g. `size-3`).
 - **Components**: `Tooltip` for simple text tooltips, `Popover` for rich content, `Kbd` for keyboard shortcuts,
-  `showToast({ title, description, action })` from `@/lib/toast-message` for notifications, `notifyError` for errors.
+  `showToast({ title, description, action })` from `@/lib/toast-message` for notifications. Every user-facing error
+  goes through `notifyError` in `src/lib/errors.ts` (sticky toast, logged to the Tauri log plugin, recorded in Activity).
 - **Wording** ([UX Writing](docs/guidelines/ux-writing.md)): a toast title says what happened ("Pushed feature-ui"),
   never "Success"/"Error"; errors are "Cannot <verb> <object>" with the reason; a toast about an object opens it
   ("Open in Patronus"); Title Case for buttons, menu items and toast actions, sentence case for the rest; "…", "·",
@@ -557,106 +398,90 @@ headers of `crates/git-ops/src/lib.rs` and `crates/sync-core/src/lib.rs` map the
 - **Actions** ([UX Writing → Actions](docs/guidelines/ux-writing.md#actions)): one builder of `MenuItem`s (stable `id`) per
   object, rendered by every surface; the same actions in every form; a key hint only where the key works; disabled
   with a reason, not hidden; one name per action ("Open Pull Request", "Restart Safe Push").
+- **React Compiler**: its Rust port `oxc-transform-react` (`react({ compiler })` in `vite.config.ts`, no Babel)
+  compiles every component and hook; a function it would skip fails the build (`panicThreshold: "all_errors"`): no
+  disable comment for a React rule (`react/rule-suppression`; use `useEffectEvent`), no `try`/`finally` without
+  `catch` (use `promise.finally`), no JSX parameter default ([Rendering Performance](docs/design/rendering-performance.md)).
+  `oxc-transform-react` is pinned to the range `@vitejs/plugin-react` declares; `pnpm update-deps` leaves it alone.
+- **State**: zustand vanilla stores (`createStore`) read with `useStore` selectors; select narrow slices: the compiler
+  memoizes renders, not selectors, which run on every store change. Persisted settings sync across windows
+  ([Distributed Settings](docs/design/distributed-settings.md)). Debounce user inputs where appropriate (`p-debounce`).
 - **Base UI**: compose with the `render` prop (`<TooltipTrigger render={<Button />} />`), not `asChild`. Base UI emits
   `data-open`/`data-closed`; set `data-state` manually where E2E tests read it.
-- **shadcn workflow**: run the CLI with `npx shadcn@latest …` (`add <component>`, `docs`, `init --preset`), then adapt
-  the files. `pnpm dlx shadcn@latest` crashes with `o.deepPartial is not a function`: `@shadcn/registry` uses the zod 3
-  API and pnpm dlx resolves zod 4.
+- **shadcn workflow**: components are generated into `src/components/ui/` (`components.json`, style `base-rhea`). Run
+  the CLI with `npx shadcn@latest …` (`add <component>`, `docs`, `init --preset`), then adapt the files.
+  `pnpm dlx shadcn@latest` crashes with `o.deepPartial is not a function`: `@shadcn/registry` uses the zod 3 API and
+  pnpm dlx resolves zod 4.
 - **Locally customised ui files**: `alert`, `badge`, `button`, `card`, `checkbox`, `input`, `popover`, `spinner`, `tabs`,
   `textarea`, `tooltip`, `toast` in `src/components/ui/` carry a `// local customisation: …` header naming the edits. After
   `add --overwrite` (e.g. a style switch), re-apply them; `git diff HEAD -- src/components/ui` shows what was lost.
+- **Toolchain** (Vite+, `vite-plus`, the `vp` CLI): one pinned toolchain of Vite 8, Vitest, Oxlint and Oxfmt,
+  configured in `vite.config.ts` (`lint`, `fmt`); Tailwind CSS v4 through `@tailwindcss/vite`, its theme tokens in
+  `src/index.css`. Oxlint is type-aware through tsgolint (TypeScript 7, the Go compiler, strict, checked with `tsc` on
+  `tsconfig.app.json`, `tsconfig.node.json` and `tsconfig.e2e.json`) and runs the React Compiler rules; there is no ESLint, because typescript-eslint cannot use
+  TypeScript 7. Oxfmt formats code and config (not Markdown) and sorts imports and Tailwind classes. Test files import
+  from `vite-plus/test`.
 - **TypeScript**: Use `u32` for timestamps and `snake_case` for properties that bind to Rust structs.
-- **Rust**: Use `snake_case` for all variables and functions.
+- **Rust**: `snake_case` for variables, functions and modules; `tracing` for structured logging, `#[instrument]` to
+  trace a function's entry, exit and arguments; proper `Result` types, not strings.
 - **Clippy**: pedantic, nursery and cargo plus the restriction lints that catch defects (`[workspace.lints]` in
   `Cargo.toml`), on all targets; any warning fails `pnpm lint:backend` and CI (`-D warnings`), Windows included. An
   exception is `#[expect(lint, reason = "…")]` where it holds, never `#[allow]`; a lint that is wrong for this code is
   allowed in `Cargo.toml` with its reason.
-- **Imports**: Always use explicit, full module paths. Never use `pub use` re-exports. Examples:
+- **A platform branch in a test** asserts on every platform: an `if cfg!(target_os = "macos")` has an `else` that
+  checks what the other platforms do (a `worktree add` where no APFS clone is), never a branch that asserts nothing.
+  A helper or import that only `#[cfg(unix)]` tests use carries `#[cfg(unix)]` too, or Windows clippy fails on it.
+- **Rust imports** ([Import Guidelines](docs/guidelines/imports.md)): never `pub use` re-exports (except for internal
+  module organization); make modules public with `pub mod`; every import uses the full module path, so it shows where
+  a type or function comes from:
   - ✅ `use git_executor::git_command_executor::GitCommandExecutor`
   - ✅ `use sync_types::issue_navigation::IssueNavigationConfig`
   - ❌ `pub use pull_request::PullRequestAvailability` (in lib.rs)
 
-### Naming Conventions
-- **Components**: PascalCase `.tsx` files with a named export (e.g., `BranchTableCard.tsx`).
-- **Hooks**: camelCase with `use` prefix in `src/hooks` (e.g., `useRowSelection.ts`).
-- **Stores**: zustand stores in `src/stores/*.ts` (e.g., `branch-sync.ts`), persisted settings in `src/stores/settings/`.
-- **Rust-bound props**: `snake_case`, as in the generated bindings.
-- **Rust modules**: snake_case (e.g., `git_ops.rs`).
-
-### Frontend Imports (IMPORTANT!)
+### Frontend Imports and Naming
 - Import every React API, component, hook, store, utility and type explicitly; types with `import type`.
 - Project modules only through the `@/` alias (`@/stores/branch-sync`), never `../`. shadcn: `import { Button } from "@/components/ui/button"`.
 - Generated Rust bindings: `import { commands } from "@/lib/bindings"` (written by Specta from `src-tauri/src/lib.rs`).
 - Heavy or rarely shown components: `React.lazy` with the named export, rendered inside `Suspense`.
-- See [Import Guidelines](docs/guidelines/imports.md).
+- **Components**: PascalCase `.tsx` files with a named export (`BranchTableCard.tsx`). **Hooks**: camelCase with the
+  `use` prefix in `src/hooks` (`useRowSelection.ts`). **Stores**: `src/stores/*.ts` (`branch-sync.ts`), persisted
+  settings in `src/stores/settings/`. **Rust-bound props**: `snake_case`, as in the generated bindings.
 
-## Performance & Debugging
+## Where Things Are
 
-### Performance Guidelines
-- **Frontend**: Select narrow slices from zustand stores: the compiler memoizes renders, not selectors, which run on every
-  store change. Debounce user inputs where appropriate (e.g., using `p-debounce`). See [Rendering Performance](docs/design/rendering-performance.md).
-- **Backend**: One git process per operation phase, never one per commit, note or file (see [Git Operations](docs/design/git-operations.md)).
+### Feature Index
+Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); read it before changing the feature.
 
-### Debugging & Troubleshooting
-- **E2E Test Issues**: a failed test carries the console errors of its pages as the `page errors` attachment. Run
-  with `DEBUG_E2E=1` for the debug log of the mock server and every console line live; without it the server logs
-  warnings and errors only (`TEST_SERVER_LOG`, not `RUST_LOG`, which `.cargo/config.toml` forces to debug), and a
-  green run prints none.
-- **Playwright browser errors**: If tests fail with "Executable doesn't exist", run `pnpm setup:e2e` to install browsers. This happens automatically when running `pnpm e2e`, but may be needed after updating `@playwright/test`.
-- **Type Errors**: Run `pnpm lint:typecheck` to isolate and verify TypeScript issues.
+| Feature | Specs | Entry code |
+|---|---|---|
+| Integration status: archive the branches the baseline has (by default rebase/cherry-pick detection only; merge and squash by an environment variable) | `branch/branch-row` ([Integration Detection](docs/design/integration-detection.md)) | `crates/branch-integration/` |
+| Context menus (the "⋯" menu on right-click, acting on the selection) | `branch/branch-row`, `commit/commit-row` | `src/components/shared/ContextMenuItems.tsx`, `src/hooks/useBranchContextActions.ts` |
+| AI branch naming (`claude -p --model haiku`, after consent) | `branch/branch-name-suggestions` | `src/components/ai/` |
+| Squash and fixups (`bd fold`) | `commit/squash`, `commit/fixups` | `crates/sync-core/src/squash.rs`, `crates/sync-core/src/autosquash.rs` |
+| Update Project (`bd update`, resolve sessions, `bd undo update:`) | `repository/update-project`, `cli/update` | `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/update_resolve.rs`, `update-progress.ts` |
+| Pick between worktrees (`bd pick --from <worktree> --follow`) | `cli/pick` | `crates/sync-core/src/pick.rs`, `crates/git-ops/src/pick.rs` |
+| Lease pool (`bd lease`) | `cli/lease` | `crates/sync-core/src/lease.rs`, `crates/bd-cli/src/lease_command.rs`, `crates/git-ops/src/lease_slot.rs` (state in `$GIT_COMMON_DIR/branch-deck/leases.json`) |
+| Landed commits | `repository/landed-commits` | `crates/sync-core/src/landed.rs` (report in `branch-deck/landed.json`) |
+| Landing overview, PR status, Create Pull Request, Request Review | `repository/landing-overview`, `repository/outgoing`, `branch/pull-requests` | `crates/github/`, `sync_core::pull_requests`, `sync_core::pull_request_create` |
+| Patronus: robots, Safe Push and Dry Run, the next step, the failure prompt (`bd safe-push`, `bd robot`) | `branch/patronus`, `branch/next-step`, `branch/safe-push-failure-prompt`, `branch/whole-stack`, `cli/agent-cli` | `crates/patronus/`, `src/lib/branch-next-step.ts`, `src/stores/review-readiness.ts` |
+| GitHub sign-in (OAuth device flow) | `repository/github-sign-in` | `crates/github/src/token.rs` |
+| Issue groups | `branch/issue-groups` | `crates/sync-core/src/issue_groups.rs` |
+| Conflict fix (`bd check --fix`) | `branch/conflict-fix`, `commit/commit-row` | `crates/sync-core/src/conflict_fix.rs` |
+| Move to a branch (drag and drop, menus, keys) | `branch/move-commits` | `crates/sync-core/src/move_plan.rs` |
+| Stacked branches, the stack island, the whole stack | `branch/stacked-branches`, `branch/stack-island`, `branch/whole-stack`, `branch/branch-row` | `src/stores/stack-view.ts`, `src/lib/git/stack-push.ts`, `crates/sync-core/src/stack_branch.rs` |
+| Stack parents (`bd restack`, `bd unstack`) | `branch/stack-parents` | `crates/sync-core/src/stack_parents.rs` |
+| Activity log | `repository/activity` | `src/stores/activity.ts` |
+| Commit files, diffs, the commit review (`D`) | `commit/commit-files`, `commit/commit-review` ([Diff View](docs/design/diff-view.md)) | `crates/file-diffs/`, `src/components/diff/` |
+| Title bar and main menu | `repository/title-bar` | `src-tauri/src/title_bar.rs`, `src/components/shared/WindowTitleBar.tsx` |
+| Your Turn (review requests, the pull request review) | `repository/review-requests`, `repository/robots-indicator` | `src/components/review/` |
+| Settings window | `repository/settings` | `src/components/settings/`, `crates/sync-core/src/repository_config.rs` |
+| Branch review | `branch/branch-review` | `src/components/review/BranchReview.tsx`, `crates/git-ops/src/ownership.rs` |
+| Symbol dependencies | `commit/symbol-dependencies` ([Symbol Dependencies](docs/design/symbol-dependencies.md)) | `crates/code-symbols/`, `crates/sync-core/src/symbol_scan.rs` |
+| Zoom | `repository/zoom` | `src-tauri/src/zoom.rs` |
 
-### The Real App (macOS, Peekaboo)
-What a release build shows on screen (a window that opens late, a frame of "Loading…") is checked in the real app,
-not only in E2E: `pnpm install-app` (5–7 min, quits and replaces /Applications/BranchDeck.app), then drive it with
-the `peekaboo` CLI.
-- **Through Peekaboo.app**: its Bridge holds Screen Recording, Accessibility and Event Synthesizing. Keep Peekaboo.app
-  open, never pass `--no-remote`, never delete or replace the CLI (other agents call it), kill nothing. Peekaboo may
-  pick its on-demand daemon (`daemon-*.sock`), which has no permissions ("Operation hotkey is not allowed"): pass
-  `--bridge-socket "$HOME/Library/Application Support/Peekaboo/bridge.sock"` on every call; if the socket is missing,
-  ask the user to open Peekaboo.app. From an agent shell `screencapture` and `osascript` keystrokes are refused.
-- **Windows**: `peekaboo window list --pid <pid> --json` gives the window ids (a webview window has several rows);
-  `peekaboo window focus --window-id <id>`, a screenshot with `peekaboo see --window-id <id> --no-elements --path x.png`.
-- **Input**: `peekaboo move --at x,y --global --foreground` (a move needs `--foreground` as consent), `peekaboo click
-  --at x,y --global --foreground`, `peekaboo press d --foreground`.
-- **Frames of an open**: start `peekaboo capture live --mode area --region x,y,w,h --duration 2500 --active-fps 15
-  --threshold 0 --path <dir>` in the background, then press; `<dir>/metadata.json` lists the frames with their time
-  and change, so a blank or "Loading" frame before the content shows.
-- **Timings**: every sub-window open logs its phases in `~/Library/Logs/org.develar.branch-deck/BranchDeck.log`
-  ("commit-review open 258 ms: loaded 91, files 187, diffs 187, painted 235"), the backend the source of
-  each patch (memory, disk, git) at debug level.
-
-### Linux and Windows (Docker, Parallels)
-CI runs clippy and the tests on macOS, Linux and Windows. A check on this Mac compiles only the macOS side of every
-`#[cfg]` and runs only the macOS branch of every `cfg!`, so a change with platform code is checked on the other two
-before it lands. Clippy for Windows from the Mac (`--target x86_64-pc-windows-msvc`) does not build: the C of
-tree-sitter finds no Windows headers.
-- **A platform branch in a test** asserts on every platform: an `if cfg!(target_os = "macos")` has an `else` that
-  checks what the other platforms do (a `worktree add` where no APFS clone is), never a branch that asserts nothing.
-  A helper or import that only `#[cfg(unix)]` tests use carries `#[cfg(unix)]` too, or Windows clippy fails on it.
-- **Linux**: OrbStack Docker (`orb start` when `docker` cannot connect), the arm64 image `bd-linux-build` (ubuntu:26.04,
-  rustup without a toolchain), the volumes `bd-linux-cargo` at `/root/.cargo/registry` and `bd-linux-target` at
-  `/target` (`CARGO_TARGET_DIR`), the worktree at `/src`. Its git is 2.53, below the minimum: build git 2.55 from the
-  kernel.org tarball (`env -u CARGO_TARGET_DIR make prefix=/usr/local NO_TCLTK=1 NO_PERL=1 NO_PYTHON=1 all install`,
-  with `RUSTUP_TOOLCHAIN` the toolchain of `rust-toolchain.toml`: git builds a Rust part of its own), take nextest
-  from `https://get.nexte.st/latest/linux-arm`, and run the tests as a user that is not root, as CI does: root reads
-  a `0o000` file.
-- **Windows**: the Parallels VM "Windows 11" (ARM64, 8 cores; `prlctl resume`, then `prlctl suspend`), the Mac home as
-  `Z:`. Rust, nextest, git, MSVC Build Tools and LLVM are under `C:\dev\tools`. A `.bat` sets
-  `CARGO_HOME=C:\dev\tools\cargo`, `RUSTUP_HOME=C:\dev\tools\rustup`, `CARGO_TARGET_DIR=C:\dev\bd-target` and `PATH`
-  (`C:\dev\tools\cargo\bin`, `C:\dev\tools\git\cmd`, `C:\Program Files\LLVM\bin`), copies the worktree with
-  `robocopy Z:\<path> C:\dev\bd /MIR /XD target node_modules .git dist /XF .git`, writes an empty `dist\index.html`
-  for `src-tauri` and runs cargo with its output in a file under `Z:`; start it with
-  `prlctl exec "Windows 11" --current-user cmd /c Z:\<path>.bat`. `/XF .git` matters: the `.git` of a lease is a file
-  that names a Mac path, and a copied one fails every git whose cwd is in the copy ("not a git repository: (NULL)").
-  The full suite takes about 19 minutes there.
-- **Commands**: the clippy of CI, `cargo clippy --workspace --all-targets --features branch-deck/auto-update -- -D
-  warnings`, then `cargo nextest run --workspace` (or `-E 'test(/…/)'` for the tests of the change).
-
-## Error Handling Patterns
-- **Frontend**: Every user-facing error goes through `notifyError` in `src/lib/errors.ts` (sticky toast, logged to the Tauri log plugin, recorded in Activity), titled "Cannot <verb> <object>" ([UX Writing](docs/guidelines/ux-writing.md)).
-- **Backend (Rust)**: Use the `tracing` crate for structured logging. Use `#[instrument]` to automatically trace function entry/exit and arguments. Return proper `Result` types, not strings.
-
-## Architecture
+The rows and the menus of the main window: `branch/branch-row`, `commit/commit-row` (start there). The `bd` commands:
+`cli/agent-cli` and [Agent CLI](docs/guidelines/agent-cli.md). The `branch-deck` agent skill is generated by
+`skill_text()` (`crates/bd-cli/src/agent_help.rs`) and installed by `bd install`; the repository has no skill file.
 
 ### Design Documents
 - [Async Patterns and spawn_blocking](docs/design/async-patterns.md) - Explains async/sync boundaries and proper use of spawn_blocking
@@ -672,68 +497,69 @@ tree-sitter finds no Windows headers.
 - [Text Diff Engine](docs/design/text-diff.md) - The IntelliJ comparison ported to `crates/text-diff`: lines, words, chars, and the typed diff model of the views
 - [Symbol Dependencies](docs/design/symbol-dependencies.md) - tree-sitter summaries of the changed files, `Order` edges by evidence, the subtraction in the dangling-reference check
 - [UI Theme](docs/design/ui-theme.md) - Islands layering, the radius scale and the rules for UI changes
-- [Virtual Branches](docs/design/virtual-branches.md) - How commits are grouped and cherry-picked into virtual branches
+- [Virtual Branches](docs/design/virtual-branches.md) - How commits are grouped and copied into virtual branches
+- [Specs](spec/) - Requirement specs in the air format (spec/<area>/<name>.spec.md, [@test] links); start with spec/commit/commit-row.spec.md
+
+### Guidelines
+- [Adding a Git Operation](docs/guidelines/adding-git-operation.md) - The layers of an operation and the helpers to reuse
+- [Agent CLI](docs/guidelines/agent-cli.md) - The `bd` commands, their JSON, error codes and exit codes
+- [Platform Checks](docs/guidelines/platform-checks.md) - Linux in Docker and Windows in the Parallels VM before platform code lands
+- [Real App Checks](docs/guidelines/real-app-checks.md) - The release app driven with Peekaboo: windows, input, frames, timings
 - [Import Guidelines](docs/guidelines/imports.md) - No re-exports policy and proper import patterns
 - [UX Writing](docs/guidelines/ux-writing.md) - Toast titles and actions, "Cannot …" errors, Title Case and sentence case, punctuation
 - [Design Docs Guidelines](docs/guidelines/design-docs.md) - How to write design documents
-- [Specs](spec/) - Requirement specs in the air format (spec/<area>/<name>.spec.md, [@test] links); start with spec/commit/commit-row.spec.md
 
 ### File Structure
 ```
 src/
 ├── components/
-│   ├── ui/          # shadcn/ui components (generated)
+│   ├── ui/          # shadcn/ui components (generated, some locally customised)
 │   ├── layout/      # Layout primitives (Container, FieldGroup)
-│   ├── shared/      # Shared app components (cards, inline forms, copy button)
-│   ├── repository/  # Header, repository selector, welcome card
-│   ├── branch/      # Branch tables, rows, inline actions
+│   ├── shared/      # Shared app components (cards, inline forms, copy button, context menus, title bar)
+│   ├── repository/  # Header, repository selector, welcome card, Your Turn
+│   ├── branch/      # Branch tables, rows, inline actions, the Safe Push popover
 │   ├── commit/      # Commit list, commit info, floating selection bar
 │   ├── unassigned/  # Unassigned commits card and inline branch creator
 │   ├── conflict/    # Conflict and missing-commits views
 │   ├── diff/        # Diff views on the diff engine (lazy chunk)
 │   ├── files/       # The directory tree of changed files
+│   ├── review/      # Branch, range and pull request reviews
 │   ├── ai/          # AI branch name suggestions (Claude Code)
 │   └── settings/    # The pages of the Settings window and their rows
 ├── hooks/           # React hooks (useX.ts)
 ├── stores/          # zustand stores; settings/ holds persisted, cross-window settings
-├── lib/             # Utilities and generated bindings.ts
+├── lib/             # Utilities and the generated bindings.ts
 ├── pages/           # Route components (index, the sub-windows: reviews, conflict windows, settings)
-├── router.ts        # react-router routes
+├── types/           # Shared TypeScript types
+├── test-support/    # Helpers of the unit tests
+├── router.ts        # react-router routes (createBrowserRouter)
+├── App.tsx          # The root route
+├── index.css        # Tailwind and the theme tokens
 └── main.tsx         # App entry (store handlers, router)
-src-tauri/
+src-tauri/src/
 ├── commands/        # Tauri commands
-├── ...
+├── lib.rs           # Command registration, the bindings export of a debug run
+└── …                # title_bar.rs, menu.rs, zoom.rs, …
 crates/
-├── git-executor/    # Git CLI executor
+├── git-executor/    # GitCommandExecutor: the one place git starts; the scan tests
 ├── git-ops/         # Git operations library
-├── sync-core/       # Branch sync logic
+├── sync-core/       # Branch sync and the cores of every operation
+├── sync-types/      # Types shared by the cores, bd and the app
+├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes)
+├── branch-integration/ # Integration detection: rebase, merge and squash strategies
 ├── bd-cli/          # `bd` agent CLI (docs/guidelines/agent-cli.md)
 ├── object-cache/    # LMDB cache keyed by git object ids, shared by the app and bd
-├── code-symbols/    # Declarations, imports and references of a Kotlin/Java/Rust/TS file on tree-sitter, no git
+├── code-symbols/    # Declarations, imports and references of a Kotlin/Java/Rust/TS/JS file on tree-sitter, no git
 ├── text-diff/       # Line, word and char comparison of two texts, ported from IntelliJ (Apache-2.0, NOTICE)
 ├── file-diffs/      # The typed diff of each file of a commit, a range or the working tree, and blob texts by id
 ├── patronus/        # Patronus REST client, Space token of the Safe Push CLI, request policy
 ├── github/          # GitHub REST and GraphQL client (rate limits, SSO, conditional GETs), fake GitHub for tests
 ├── test-server/     # E2E mock server
-└── ...
+├── test-utils/      # Test repositories and fixture git (`git_command`)
+├── sync-test-utils/ # Test helpers of the sync and the integration detection
+├── integration-detection-tests/ # Tests of the integration detection
+└── …
 tests/
-└── e2e/             # Playwright specs by feature, their HTML snapshots, fixtures/ and helpers/
+├── e2e/             # Playwright specs by feature, their HTML snapshots, fixtures/ and helpers/
+└── perf/            # Performance tests (`pnpm perf:diff`)
 ```
-
-## How Branch Deck Virtual Branches Work
-### Core Concept
-Branch Deck automatically groups commits by prefix (e.g., `(feature-auth)`) and creates virtual branches by cherry-picking these grouped commits onto a new base.
-
-### The Sync Process
-1.  **Commit Grouping**: `CommitGrouper` reads commits and groups them by prefix.
-2.  **Virtual Branch Creation**: For each group, it creates a branch `{user}/virtual/{prefix}` by cherry-picking commits.
-3.  **Note Structure**: A git note on each ORIGINAL commit (the default notes ref, `core.notesRef`) names its NEW virtual
-    copy, `v-commit-v1:<copy>`, and the trees it was copied from, `v-commit-source-v1:<parent tree> <tree>`
-    (`MappingNote` in `crates/git-ops/src/notes.rs`); a later sync reuses that copy while the original's trees match.
-
-## Conflict Handling
-- Uses `git merge-tree --write-tree` for conflict detection, never the working tree.
-- Shows the merge of each conflicting file in three columns as IntelliJ's merge viewer, read-only (`get_file_merges`,
-  `docs/design/diff-view.md`), and offers the regroup a trial build verified (`spec/branch/conflict-fix.spec.md`).
-- Conflicts occur when grouping by prefix changes the linear history of commits that depend on each other.
-

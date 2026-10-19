@@ -16,7 +16,8 @@ Branch Deck solves this by enabling linear development on main while automatical
 
 ## Solution Overview
 
-Branch Deck watches your commits for grouping patterns (like `(feature-auth)` prefixes or `IJPL-123` issue keys) and automatically cherry-picks related commits into dedicated virtual branches. This allows developers to work linearly on main while maintaining clean, organized virtual branches for review and integration.
+Branch Deck watches your commits for grouping patterns (like `(feature-auth)` prefixes or `IJPL-123` issue keys) and automatically copies related commits into dedicated virtual branches (a cherry-pick as trees: one
+`merge-tree --stdin` and one `fast-import` per branch, never `git cherry-pick` or the working tree). This allows developers to work linearly on main while maintaining clean, organized virtual branches for review and integration.
 
 The system handles the entire lifecycle: creating virtual branches, archiving inactive ones, detecting when branches are integrated back into main, and cleaning up completed work.
 
@@ -200,7 +201,8 @@ edges of the hunks are not edges of the blocks.
 ### Implementation Notes
 
 - **Commit Grouping**: `CommitGrouper` scans commits and extracts patterns (see `crates/sync-core/src/commit_grouper.rs`)
-- **Branch Materialization**: Cherry-picks grouped commits onto baseline (see `crates/git-ops/src/cherry_pick.rs`)
+- **Branch Materialization**: Cherry-picks grouped commits onto baseline as trees, in one `CommitChain` per branch (see
+  `crates/git-ops/src/cherry_pick.rs`, `crates/git-ops/src/commit_chain.rs`)
 - **Integration Detection**: Parallel strategies for merge/rebase/squash detection (see `crates/branch-integration/`)
 - **Async Boundaries**: Tauri commands use `spawn_blocking` for git operations (see `src-tauri/src/commands/`)
 

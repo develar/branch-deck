@@ -279,7 +279,7 @@ The commit hash popover shows the same header and body.
   [@test] ../../src/lib/merge-conflict.test.ts (`names the subject without its grouping prefix and the branch it is copied onto`, `says "the baseline" before the first sync names it`)
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show branches with missing commits`)
 - The missing commits are the older commits that change a conflicting file and are neither in the branch nor in the
-  branches it is built on, each with the branch it is in (none for an unassigned commit). The copies of the branch's
+  branches it is built on, each with the branch it is in (`MissingCommit.branch`, none for an unassigned commit). The copies of the branch's
   own commits and of its stack ancestors are not missing.
   [@test] ../../crates/sync-core/src/missing_commits_test.rs (`the_missing_commits_leave_out_the_branches_it_is_built_on_and_name_their_branch`)
 - The explanation must be one callout in the row and in the missing-commits window. Its title says where the missing

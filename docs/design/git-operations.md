@@ -55,8 +55,9 @@ is made safe against the app and the parallel `bd` processes, once for every cal
 checks the HEAD the request was made for and orders the git steps. git-ops knows git and no policy: which arguments,
 which process, how to read its output, each module one operation or one primitive that operations share; a rewrite there
 runs the guards on the history it read and moves the branch with CAS. The `//!` headers of `crates/git-ops/src/lib.rs`
-and `crates/sync-core/src/lib.rs` map their modules by area, and "Adding a git operation" in `AGENTS.md` says where a
-new one goes and which helpers it reuses.
+and `crates/sync-core/src/lib.rs` map their modules by area; "Adding a git operation" in `AGENTS.md` is the checklist
+of a new one, and [Adding a Git Operation](../guidelines/adding-git-operation.md) says where it goes and which helpers
+it reuses.
 
 A rewrite of the checked out branch:
 
@@ -178,7 +179,7 @@ written, except by Update Project and the finish of its resolve session (their o
    - the range from the oldest rewritten commit to HEAD contains no merge; if it does, the rewrite is refused. A
      rewrite of commits it read (see "Rewrite history") takes this from the parents of its history, without a
      process (`History::check_rewrite`); a range it did not read, such as the undo of a squash, asks
-     `rev-list --min-parents=2 -n1 HEAD ^<oldest>^@`.
+     `rev-list --min-parents=2 -n1 HEAD ^<oldest>^@` (`check_rewrite_range`).
 5. **Metadata**:
    - A message-only rewrite keeps the author and the committer (name, email, date and timezone) byte for byte, and
      the message bytes of every commit it does not reword.
@@ -226,6 +227,8 @@ All git runs through `GitCommandExecutor` (`crates/git-executor/src/git_command_
   a record that is not UTF-8.
 - Inherited `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and `GIT_NOTES_REF` are removed. A temporary index is always
   passed explicitly, in the per-call environment, which is applied after the removal.
+- The executor knows no git beyond running it: a rev or ref fact (`resolve_tree_id`, `ref_exists`) is a function of
+  `git_ops::revs`.
 - stdin is null unless the call pipes it: git never inherits the stdin of the app or of `bd`. On Windows git queries
   its stdin handle at startup, which waits while a read of the same pipe is pending in our process (`bd check` reads
   a plan from stdin).
@@ -2144,7 +2147,8 @@ The GitHub API is asked with the first token of a chain (`crates/github/src/toke
 - never `credential approve` or `reject`: these are the user's credentials, and a token GitHub rejects is only
   skipped by the app (`TokenChain::reject`), not erased from the helper.
 
-It reads nothing of the working tree and writes nothing; the worktree safety scan allows it.
+It reads nothing of the working tree and writes nothing; the worktree safety scan allows it. GitHub itself is asked
+over HTTP (`GitHubService`, `crates/github/src/service.rs`); the only `gh` process is `gh auth token` of the chain.
 
 #### Repository settings
 
