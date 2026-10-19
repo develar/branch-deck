@@ -88,9 +88,11 @@ Date: 2026-10-16
 
 ## Summary
 
-Changes reach the master of the IntelliJ monorepo through Patronus: a robot (Safe Push, Safe Merge, Dry Run) rebases
-the branch onto the target, runs the TeamCity checks and, unless it is a dry run, pushes. Branch Deck shows, per virtual
-branch, the robot of the branch: running, failed, merged or passed, and whether the branch changed since it started.
+Changes reach the master of the IntelliJ monorepo through Patronus: a robot (Safe Push, Safe Merge, Dry Run) puts the
+branch on the target as it is at its start (a Safe Push rebases the branch onto it, a Dry Run merges it into the
+branch), runs the TeamCity checks and, unless it is a dry run, pushes, rebased once more onto the target as it is then.
+Branch Deck shows, per virtual branch, the robot of the branch: running, failed, merged or passed, and whether the
+branch changed since it started.
 The Status cell of a row says the robot as the state of the branch: while it runs, how long it runs and how long it
 usually takes, learnt from the robots already listed, with a progress line under its time and "lands with oauth" on the
 branches it lands; once it finished, its result. The Safe Push slot of the Actions cell offers the next step: "Safe
@@ -932,7 +934,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
   and for a passed dry run when the remote branch has a newer commit; Patronus refuses the others. Not for a robot that
   failed for missing approvals in a Space merge request; a robot of a pull request that did is restarted, as the restart
   counts the approvals the pull request has by then (its popover says so). A Safe Push of a
-  temporary ref (IDE, CLI) is not restarted from here: it would test its old commit. The restart is a new robot.
+  temporary ref (IDE, CLI) is not restarted from here: it would test its old commit. The restart is a new robot, on the
+  target as it is at the restart: the branch of an old robot needs no push of a newer baseline.
 - A restart is a start: it waits where "Safe Push" waits (`canStartRobot`), disabled with the same reason on every
   surface, for a blocked branch, and, for a Safe Push, while a robot lands an ancestor of the branch or a branch built
   on it lands the branch: two robots would land the same commits. A dry run pushes nothing into the target, so only the
