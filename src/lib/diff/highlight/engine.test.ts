@@ -19,7 +19,8 @@ beforeAll(async () => {
 
 function engineOf(): { engine: HighlightEngine; answers: HighlightAnswer[] } {
   const answers: HighlightAnswer[] = []
-  const engine = new HighlightEngine(source, answer => answers.push(answer))
+  // a line the time limit cuts under a loaded run (the cargo build beside it in CI) would change the runs of one pass
+  const engine = new HighlightEngine(source, answer => answers.push(answer), { lineTimeLimitMs: 0 })
   return { engine, answers }
 }
 

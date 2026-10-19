@@ -40,6 +40,8 @@ export interface EngineOptions {
   now?: () => number
   /** Lets the messages of the view in; the main thread waits for an idle period */
   yieldTask?: () => Promise<void>
+  /** The time limit of `tokenizeLine2` for one line, in ms; 0 for none, so the runs do not depend on the load (tests) */
+  lineTimeLimitMs?: number
 }
 
 interface BlobState {
@@ -77,15 +79,17 @@ export class HighlightEngine {
   private readonly sliceMs: number
   private readonly now: () => number
   private readonly yieldTask: () => Promise<void>
+  private readonly lineTimeLimitMs: number
 
   constructor(
     private readonly source: GrammarSource,
     private readonly send: (answer: HighlightAnswer, transfer: ArrayBuffer[]) => void,
-    { sliceMs = 8, now = () => performance.now(), yieldTask = () => new Promise(resolve => setTimeout(resolve, 0)) }: EngineOptions = {},
+    { sliceMs = 8, now = () => performance.now(), yieldTask = () => new Promise(resolve => setTimeout(resolve, 0)), lineTimeLimitMs = LINE_TIME_LIMIT }: EngineOptions = {},
   ) {
     this.sliceMs = sliceMs
     this.now = now
     this.yieldTask = yieldTask
+    this.lineTimeLimitMs = lineTimeLimitMs
   }
 
   handle(request: HighlightRequest): void {
@@ -273,7 +277,7 @@ export class HighlightEngine {
     if (text.length > MAX_TOKENIZED_LINE) {
       return { state }
     }
-    let result = grammar.tokenizeLine2(text, state, LINE_TIME_LIMIT)
+    let result = grammar.tokenizeLine2(text, state, this.lineTimeLimitMs)
     if (result.stoppedEarly && !compiledGrammars.has(grammar)) {
       compiledGrammars.add(grammar)
       result = grammar.tokenizeLine2(text, state, COMPILE_TIME_LIMIT)
