@@ -775,6 +775,8 @@ test.describe("Whole stack", () => {
     await syncAndWaitForBranches()
     const closes = await routeCommand(page, "close_pull_request", () => null)
     await expect(findBranchRow(page, "login").getByTestId("landing-span")).toHaveText("lands with the whole auth stack")
+    // the merge reads the pull requests, which load after the sync
+    await expect(findBranchRow(page, "auth").getByTestId("pull-request-chip")).toBeVisible()
 
     // it merged: the pull requests of the branches it landed are closed, saying with what; its own is Patronus'
     await repo.setPatronus(availableRobots({ ...running, status: "success", finishTime: 1704142800 }))
@@ -957,6 +959,8 @@ test.describe("Whole stack", () => {
     })
     await syncAndWaitForBranches()
     await expect(findBranchRow(page, "auth").getByTestId("landing-span")).toHaveText("lands with login")
+    // the merge reads the pull requests, which load after the sync: #12 is known once its Request Review… is at the root
+    await expect(findBranchRow(page, "auth").getByTestId("request-review-anchor")).toBeAttached()
     const closes = await routeCommand(page, "close_pull_request", () => null)
 
     // the Safe Push of login lands auth, the root: the pull request of the whole stack shows a stack that is no more
@@ -994,6 +998,8 @@ test.describe("Whole stack", () => {
     })
     await syncAndWaitForBranches()
     await expect(findBranchRow(page, "air").getByTestId("landing-span")).toHaveText("lands with bazel")
+    // the merge reads the pull requests, which load after the sync: the header names #12
+    await expect(island(page, "air").getByTestId("stack-island-open-pull-request")).toBeVisible()
     // the Safe Push of bazel lands air, the root: the pull request of the whole stack shows a stack that is no more
     await repo.setPatronus(availableRobots({ ...running, status: "success", finishTime: 1704142800 }))
     await emitTauriEvent(page, "tauri://focus")
