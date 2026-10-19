@@ -1,4 +1,4 @@
-use crate::diff_scan::read_commit_diffs;
+use crate::diff_scan_test::commit_diffs;
 use crate::symbol_scan::{SymbolMode, TsAliases, crate_name, read_symbol_input, read_symbol_mode, ts_aliases};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
@@ -51,7 +51,7 @@ fn reads_the_summaries_through_the_cache() {
     "change",
     &[("crates/wire/src/lib.rs", "pub fn two() {}\n"), ("src/a.ts", "export const a = 1;\n"), ("notes.txt", "x\n")],
   );
-  let diffs = read_commit_diffs(repo.git_executor(), repo.path_str(), &ObjectCache::disabled(), std::slice::from_ref(&commit)).unwrap();
+  let diffs = commit_diffs(&repo, &commit);
   let dir = tempfile::tempdir().unwrap();
   let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
 

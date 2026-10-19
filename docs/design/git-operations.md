@@ -1684,13 +1684,13 @@ A branch that removes a declaration its own tree still uses merges cleanly and f
 commit that changed the use is in another branch (the Safe Push of 2026-10-16 that motivated it). After the builds of
 a check, `find_dangling_references` looks for such uses without a compiler:
 1. The changed lines of every commit ahead of the baseline, in the files of the known languages, come from the object
-   cache (`commit_lines`) and one `log --no-walk --stdin -z --raw -p -U0 --no-renames` for the misses, read once per
-   `CheckSession`, with the hunk options of `diff_scan` (`HUNK_OPTIONS`: `--diff-algorithm=myers
-   --inter-hunk-context=0 --indent-heuristic`), so `diff.indentHeuristic=false` doesn't reorder the cached lines of a
-   hunk. The paths are those of the raw entries, NUL-separated and verbatim, which the file sections of the patch
-   follow in their order (a type change has two); the `---`/`+++` lines, which end a name with a space with a tab and
-   C-quote one with a quote or a backslash, are not read for paths. The `commit_lines` store is at version 3: the
-   entries of version 1 lack such files, those of version 2 were read with the user's hunk options.
+   cache (`commit_lines`), read once per `CheckSession`. For the misses, one `log --no-walk --stdin -z --raw
+   --no-renames` gives the files, and `FileDiffs::changed_lines_of` gives the lines of their blocks (one `cat-file
+   --batch` of the blobs): the same blocks as the diff views, the dependency edges and `bd commits --patch`, so the
+   user's diff config changes no line. Without renames, a moved file removes its lines from the old path and adds them
+   at the new one. The paths are those of the raw entries, NUL-separated and verbatim. A side without text (a symlink)
+   is empty. The `commit_lines` store is at version 4: the entries of version 1 lack such files, those of version 2
+   were read with the user's hunk options, those of version 3 hold git's hunks.
 2. A removed line of a branch's commit is a declaration when it declares a name other files can use (a top-level type
    or function, a static member), by per-language patterns. A member is searched as `<file stem>.<name>`, a top-level
    name as a whole word, a private one only in its file; a top-level JVM declaration moved to another package as

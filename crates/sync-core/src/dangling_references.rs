@@ -14,22 +14,26 @@
 //! - **Evidence.** `fixed_by` is the commit outside the branch whose patch removes the use; without one the reference is
 //!   only possible. The uses that landed on the baseline after the base (`<base> <baseline tip>`) are possible too:
 //!   Patronus merges onto the baseline tip.
-//! - The changed lines of each commit come from one `log -z --raw -p -U0 --no-renames`, by the paths of the raw
-//!   entries, and are cached by commit id (`commit_lines`).
+//! - The changed lines of each commit are the lines of the blocks of the diff views (`file_diffs::patch`), from one
+//!   `log -z --raw --no-renames` and one `cat-file --batch` of the blobs, and are cached by commit id (`commit_lines`).
 //! - **By the summaries** (`declaration_checks`, with `branchdeck.symbols on`): an instance or static member a branch
 //!   removes, a form it changes and a declaration it adds again, on the same `diff-tree` and `cat-file` (`TreeSearch`),
 //!   each a reference of its `DanglingKind`.
 
 use crate::check::{BranchCheck, CheckOutcome};
-use crate::diff_scan::{HUNK_OPTIONS, split_records};
+use crate::diff_scan::{Renames, blob_pair, read_commit_changes};
 use crate::symbol_dependencies::declaration_checks::{DeclarationFacts, DeclarationSearch, Fit, TreeForm, searches_of};
 use anyhow::{Result, anyhow};
 use code_symbols::extract::summarize;
 use code_symbols::language::language_of as symbols_language_of;
 use code_symbols::summary::{FileSummary, Role};
+use file_diffs::blocks::BlobPair;
+use file_diffs::patch::ChangedLines;
+use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::object_texts::read_texts;
 use object_cache::cache::ObjectCache;
+use object_cache::commit_diff::FileChange;
 use object_cache::commit_lines::FileLines;
 use regex::Regex;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -390,38 +394,40 @@ pub(crate) fn uses_added_declarations<'a>(moved: impl IntoIterator<Item = &'a Fi
   })
 }
 
-/// The changed lines of `ids` in the files of the known languages, from the cache, then one `git log` for the rest
-#[instrument(skip(git, ids, cache), fields(commits = ids.len()))]
-pub fn read_commit_lines(git: &GitCommandExecutor, repository_path: &str, ids: &[String], cache: &ObjectCache) -> Result<HashMap<String, Vec<FileLines>>> {
+/// The changed lines of `ids` in the files of the known languages, from the cache, then one `git log` and the blocks
+/// of `file_diffs` for the rest
+#[instrument(skip(git, ids, cache, file_diffs), fields(commits = ids.len()))]
+pub fn read_commit_lines(git: &GitCommandExecutor, repository_path: &str, ids: &[String], cache: &ObjectCache, file_diffs: &FileDiffs) -> Result<HashMap<String, Vec<FileLines>>> {
   let mut lines = cache.get_commit_lines(ids);
-  let missing: Vec<&String> = ids.iter().filter(|id| !lines.contains_key(*id)).collect();
+  let missing: Vec<String> = ids.iter().filter(|id| !lines.contains_key(*id)).cloned().collect();
   if missing.is_empty() {
     return Ok(lines);
   }
-  let input = missing.iter().fold(String::new(), |mut input, id| {
-    input.push_str(id);
-    input.push('\n');
-    input
-  });
-  let mut args = vec![
-    "log",
-    "--no-walk=unsorted",
-    "--stdin",
-    "--format=%x1e%H",
-    "-z",
-    "--raw",
-    "-p",
-    "-U0",
-    "--no-renames",
-    "--no-ext-diff",
-    "--no-textconv",
-    "--src-prefix=a/",
-    "--dst-prefix=b/",
-  ];
-  // the lines are cached: which ones a hunk holds, and in which order, must not depend on the user's diff config
-  args.extend(HUNK_OPTIONS);
-  let output = git.cmd(&args, repository_path).stdin(input.as_bytes()).bytes()?;
-  let read = parse_commit_lines(&output);
+  // without renames, a moved file removes its declarations from the old path and adds them at the new one
+  let diffs = read_commit_changes(git, repository_path, &missing, Renames::Off)?;
+  // a file of a known language with a text on one side at least: a symlink side has none, and is empty
+  let read_lines = |change: &FileChange| language_of(&change.path).is_some() && (change.old_blob.is_some() || change.new_blob.is_some());
+  let pairs: Vec<BlobPair<'_>> = diffs.iter().flat_map(|diff| &diff.files).filter(|change| read_lines(change)).map(blob_pair).collect();
+  let mut changed = file_diffs.changed_lines_of(git, repository_path, cache, &pairs)?.into_iter();
+  let mut read: HashMap<String, Vec<FileLines>> = HashMap::with_capacity(diffs.len());
+  for diff in &diffs {
+    let files = read.entry(diff.id.clone()).or_default();
+    for change in diff.files.iter().filter(|change| read_lines(change)) {
+      let Some(ChangedLines { mut removed, mut added }) = changed.next().flatten() else {
+        continue;
+      };
+      if removed.is_empty() && added.is_empty() {
+        continue;
+      }
+      removed.truncate(MAX_LINES_PER_FILE);
+      added.truncate(MAX_LINES_PER_FILE);
+      files.push(FileLines {
+        path: change.path.clone(),
+        removed,
+        added,
+      });
+    }
+  }
   cache.put_commit_lines(read.iter().map(|(id, files)| (id.as_str(), files)));
   lines.extend(read);
   Ok(lines)
@@ -429,96 +435,6 @@ pub fn read_commit_lines(git: &GitCommandExecutor, repository_path: &str, ids: &
 
 /// The most lines kept per file and side: a generated file of thousands of lines declares nothing anyone looks for
 const MAX_LINES_PER_FILE: usize = 5000;
-
-/// Parse `log --format=%x1e%H -z --raw -p -U0` into the lines of the files of the known languages, by commit. The paths
-/// are those of the raw entries, NUL-separated and verbatim: the `---`/`+++` lines of the patch end a name with a space
-/// with a tab and C-quote one with a quote, a backslash or a control character. The file sections of the patch follow
-/// the raw entries in their order; a type change has two, the old file deleted and the new one added, whose lines are
-/// one file's
-fn parse_commit_lines(output: &[u8]) -> HashMap<String, Vec<FileLines>> {
-  let mut commits = HashMap::new();
-  for record in split_records(output) {
-    let Some(RawRecord { id, paths, patch }) = split_raw_part(record) else { continue };
-    let mut files: Vec<Option<FileLines>> = paths.iter().map(|_| None).collect();
-    // the entry of the current section, the sections it still has, and whether its lines are read
-    let (mut current, mut sections_left, mut in_hunks) = (None::<usize>, 0, false);
-    for line in patch.split(|&b| b == b'\n') {
-      let line = line.strip_suffix(b"\r").unwrap_or(line);
-      if line.starts_with(b"diff --git ") {
-        in_hunks = false;
-        if sections_left == 0 {
-          let next = current.map_or(0, |index| index + 1);
-          if next >= paths.len() {
-            debug!(commit = %id, "more patch sections than raw entries");
-            break;
-          }
-          current = Some(next);
-          sections_left = if paths[next].1 == b'T' { 2 } else { 1 };
-        }
-        sections_left -= 1;
-        continue;
-      }
-      let Some(index) = current.filter(|index| language_of(&paths[*index].0).is_some()) else {
-        continue;
-      };
-      if line.starts_with(b"@@") {
-        in_hunks = true;
-        files[index].get_or_insert_with(|| FileLines {
-          path: paths[index].0.clone(),
-          removed: Vec::new(),
-          added: Vec::new(),
-        });
-        continue;
-      }
-      let Some(file) = files[index].as_mut().filter(|_| in_hunks) else { continue };
-      let (side, text) = match line.split_first() {
-        Some((b'-', text)) => (&mut file.removed, text),
-        Some((b'+', text)) => (&mut file.added, text),
-        _ => continue,
-      };
-      if side.len() < MAX_LINES_PER_FILE {
-        side.push(String::from_utf8_lossy(text).into_owned());
-      }
-    }
-    commits.insert(id, files.into_iter().flatten().collect());
-  }
-  commits
-}
-
-/// A record of `log -z --raw -p`
-struct RawRecord<'a> {
-  id: String,
-  /// The path and the status letter of each raw entry
-  paths: Vec<(String, u8)>,
-  patch: &'a [u8],
-}
-
-/// The id of a record of `log -z --raw -p`, its raw entries (`:<modes> <ids> <status>` NUL `<path>` NUL) and the patch
-/// after the NUL that ends them
-fn split_raw_part(record: &[u8]) -> Option<RawRecord<'_>> {
-  fn field<'a>(rest: &mut &'a [u8]) -> Option<&'a [u8]> {
-    let end = rest.iter().position(|&b| b == 0)?;
-    let field = &rest[..end];
-    *rest = &rest[end + 1..];
-    Some(field)
-  }
-  let mut rest = record;
-  let id = String::from_utf8_lossy(field(&mut rest)?).trim().to_string();
-  rest = rest.strip_prefix(b"\n").unwrap_or(rest);
-  let mut paths = Vec::new();
-  while rest.first() == Some(&b':') {
-    let status = field(&mut rest)?.rsplit(|&b| b == b' ').next().and_then(|status| status.first().copied()).unwrap_or(b'M');
-    let first = field(&mut rest)?;
-    // a rename or a copy names the old path first
-    let path = if matches!(status, b'R' | b'C') { field(&mut rest)? } else { first };
-    paths.push((String::from_utf8_lossy(path).into_owned(), status));
-  }
-  Some(RawRecord {
-    id,
-    paths,
-    patch: rest.strip_prefix(b"\0").unwrap_or(rest),
-  })
-}
 
 /// What a dangling-reference check needs besides the trial builds
 pub struct DanglingInput<'a> {

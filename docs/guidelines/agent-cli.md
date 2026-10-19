@@ -350,8 +350,8 @@ This is in `crates/sync-core/src/dependencies.rs`.
 
 - Every line a commit adds is owned by that commit. The owned line ranges of each file are carried forward through
   the later commits.
-- A commit depends on an earlier one when its hunk replaces or deletes an owned line, or is adjacent to one. Git's
-  three-way merge conflicts on adjacent changes too.
+- A commit depends on an earlier one when one of its blocks (the blocks of the diff views) replaces or deletes an owned
+  line, or is adjacent to one. Git's three-way merge conflicts on adjacent changes too.
   - `-a,b` with `b > 0` touches lines `a-1` to `a+b`.
   - A pure insertion after line `a` touches lines `a` and `a+1`.
 - A change to a file created in the range depends on the commit that created it.
@@ -361,8 +361,8 @@ This is in `crates/sync-core/src/dependencies.rs`.
 
 The approximation sees only text. It misses semantic dependencies, such as a call to a function that another commit
 adds in another file. Edits next to each other do conflict in git's merge. Rarely, an edge is one git's merge would
-not conflict on: the hunks come from the myers diff, git's merge uses histogram, and in a large rewrite the two can
-disagree about which commit added a line. Treat an edge as
+not conflict on: the blocks come from the diff engine of the app, git's merge uses histogram, and in a large rewrite
+the two can disagree about which commit added a line. Treat an edge as
 "these can't be cherry-picked apart without a conflict", not as a proof.
 
 The edges by symbols (`crates/sync-core/src/symbol_dependencies.rs`, unless `branchdeck.symbols` is `off`) add those: a

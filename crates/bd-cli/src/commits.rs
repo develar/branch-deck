@@ -266,7 +266,7 @@ impl LinkedDiffs {
 /// among them from one `check-attr`. The linked changes leave the generated files out unless `include_generated`;
 /// `flag_generated` reads the generated paths with `include_generated` too, for an output that flags them
 pub(crate) fn read_linked_diffs(context: &RepoContext, ids: &[String], include_generated: bool, flag_generated: bool) -> Result<LinkedDiffs, CliError> {
-  let diffs = read_commit_diffs_cached(&context.git, &context.repository, &context.cache(), ids)?;
+  let diffs = read_commit_diffs_cached(&context.git, &context.repository, &context.cache(), context.file_diffs(), ids)?;
   let generated = if flag_generated || !include_generated {
     let paths = diffs
       .iter()
@@ -453,7 +453,7 @@ pub fn commits(context: &RepoContext, args: &CommitsArgs) -> Result<CommitsOutpu
   let diff_of: HashMap<&str, &CommitDiff> = diffs.iter().map(|diff| (diff.id.as_str(), diff)).collect();
   let mut patches: HashMap<&str, Vec<PatchFile>> = if args.patch {
     let listed_diffs: Vec<&CommitDiff> = listed.iter().filter_map(|(commit, _)| diff_of.get(commit.id.as_str()).copied()).collect();
-    let files = read_patches(&context.git, &context.repository, &context.cache(), &listed_diffs)?;
+    let files = read_patches(&context.git, &context.repository, &context.cache(), context.file_diffs(), &listed_diffs)?;
     listed_diffs.iter().map(|diff| diff.id.as_str()).zip(files).collect()
   } else {
     HashMap::new()

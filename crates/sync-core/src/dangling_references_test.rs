@@ -1,8 +1,10 @@
 use crate::check::{CheckOutcome, CheckReport, check_plan};
 use crate::dangling_references::{DanglingKind, DanglingReference, read_commit_lines};
+use file_diffs::service::FileDiffs;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_lines::FileLines;
 use pretty_assertions::assert_eq;
+use std::collections::HashMap;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -122,8 +124,13 @@ fn a_use_in_a_path_with_a_space_is_fixed_by_its_commit() {
   assert_eq!(found, [(spaced_host.to_string(), Some(fixed_by))]);
 }
 
-/// The changed lines of a commit by the paths of its `--raw` entries: a name with a space or a quote (C-quoted in the
-/// patch) is read as git stores it, and a type change, two sections in the patch, is one file
+/// The changed lines of one commit, without caches
+fn commit_lines(repo: &TestRepo, commit: &str) -> HashMap<String, Vec<FileLines>> {
+  read_commit_lines(repo.git_executor(), repo.path_str(), &[commit.to_string()], &ObjectCache::disabled(), &FileDiffs::default()).unwrap()
+}
+
+/// The changed lines of a commit by the paths of its `--raw` entries: a name with a space or a quote is read as git
+/// stores it, and a type change from a symlink, whose side has no text, is the lines of the new file
 #[test]
 fn the_changed_lines_are_read_by_the_paths_as_stored() {
   let repo = TestRepo::new();
@@ -148,7 +155,7 @@ fn the_changed_lines_are_read_by_the_paths_as_stored() {
     ],
   );
 
-  let mut lines = read_commit_lines(repo.git_executor(), repo.path_str(), std::slice::from_ref(&commit), &ObjectCache::disabled()).unwrap();
+  let mut lines = commit_lines(&repo, &commit);
 
   let file = |path: &str, removed: &[&str], added: &[&str]| FileLines {
     path: path.to_string(),
@@ -159,7 +166,7 @@ fn the_changed_lines_are_read_by_the_paths_as_stored() {
     lines.remove(&commit).unwrap(),
     [
       file("My File.kt", &[], &["fun spaced() {}"]),
-      file("link.kt", &["target.kt"], &["val linked = 1"]),
+      file("link.kt", &[], &["val linked = 1"]),
       file("q\"uote.kt", &[], &["val quoted = 1"]),
       file("z.kt", &["val z = 1"], &["val z = 2"]),
     ]
@@ -176,7 +183,7 @@ fn the_changed_lines_do_not_depend_on_the_diff_config() {
   repo.git(&["config", "diff.indentHeuristic", "false"]);
   repo.git(&["config", "diff.interHunkContext", "10"]);
 
-  let mut lines = read_commit_lines(repo.git_executor(), repo.path_str(), std::slice::from_ref(&commit), &ObjectCache::disabled()).unwrap();
+  let mut lines = commit_lines(&repo, &commit);
 
   let added: Vec<String> = ["/* function */", "bar() {", "\tfoo", "}", ""].iter().map(ToString::to_string).collect();
   assert_eq!(

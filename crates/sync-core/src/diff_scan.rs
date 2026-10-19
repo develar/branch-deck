@@ -20,31 +20,35 @@ pub struct CommitDiff {
   pub files: Vec<FileChange>,
 }
 
-/// The options that fix where the hunks start and end and which lines they hold, whatever `diff.algorithm`,
-/// `diff.interHunkContext` and `diff.indentHeuristic` say, for the changed lines of the dangling-reference check
-/// (`read_commit_lines`), which are cached
-pub(crate) const HUNK_OPTIONS: [&str; 3] = ["--diff-algorithm=myers", "--inter-hunk-context=0", "--indent-heuristic"];
+/// Diff options that make the raw part independent of the user's diff config
+const DIFF_OPTIONS: [&str; 4] = ["--no-color", "--no-ext-diff", "--no-textconv", "--no-relative"];
 
-/// Diff options that, with `HUNK_OPTIONS`, make the output independent of the user's diff config
-const DIFF_OPTIONS: [&str; 7] = ["-M", "--no-color", "--no-ext-diff", "--no-textconv", "--no-relative", "--src-prefix=a/", "--dst-prefix=b/"];
+/// Whether `read_commit_changes` pairs a deleted and an added file as a rename (`-M`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Renames {
+  Detect,
+  /// A rename is a deleted and an added file, as the dangling-reference check reads the lines (`read_commit_lines`)
+  Off,
+}
 
 /// Read the changes of `ids` (in this order): the files from one `log --raw`, their blocks from the caches of the diff
-/// views or one `cat-file --batch`
-#[instrument(skip(git, cache, ids), fields(commits = ids.len()))]
-pub fn read_commit_diffs(git: &GitCommandExecutor, repository: &str, cache: &ObjectCache, ids: &[String]) -> Result<Vec<CommitDiff>> {
-  let mut diffs = read_commit_changes(git, repository, ids)?;
-  add_blocks(git, repository, cache, &mut diffs)?;
+/// views or one `cat-file --batch`, through `file_diffs` (an instance `for_scans` keeps the blobs for a next pass)
+#[instrument(skip(git, cache, file_diffs, ids), fields(commits = ids.len()))]
+pub fn read_commit_diffs(git: &GitCommandExecutor, repository: &str, cache: &ObjectCache, file_diffs: &FileDiffs, ids: &[String]) -> Result<Vec<CommitDiff>> {
+  let mut diffs = read_commit_changes(git, repository, ids, Renames::Detect)?;
+  add_blocks(git, repository, cache, file_diffs, &mut diffs)?;
   Ok(diffs)
 }
 
 /// The changed files of `ids` (in this order) with their statuses, paths and blob ids, from one `log --raw`: no hunks,
 /// no counts
-pub fn read_commit_changes(git: &GitCommandExecutor, repository: &str, ids: &[String]) -> Result<Vec<CommitDiff>> {
+pub fn read_commit_changes(git: &GitCommandExecutor, repository: &str, ids: &[String], renames: Renames) -> Result<Vec<CommitDiff>> {
   if ids.is_empty() {
     return Ok(Vec::new());
   }
   // full blob ids in the raw part, whatever the hash: `--abbrev=40` would cut a SHA-256 id
   let mut args = vec!["log", "--no-walk=unsorted", "--stdin", "--format=%x1e%H", "-z", "--raw", "--no-abbrev"];
+  args.push(if renames == Renames::Detect { "-M" } else { "--no-renames" });
   args.extend(DIFF_OPTIONS);
   let output = git.cmd(&args, repository).stdin(stdin_ids(ids).as_bytes()).bytes()?;
   parse_commit_diffs(&output)
@@ -53,11 +57,11 @@ pub fn read_commit_changes(git: &GitCommandExecutor, repository: &str, ids: &[St
 /// The hunks and the counts of the text files of `diffs`, from the blocks of the diff views under `Default`; a file
 /// without text (binary, a symlink, a submodule, over 8 MiB) is binary. A change of only the line ends is one hunk of
 /// the whole file, as git sees it
-fn add_blocks(git: &GitCommandExecutor, repository: &str, cache: &ObjectCache, diffs: &mut [CommitDiff]) -> Result<()> {
+fn add_blocks(git: &GitCommandExecutor, repository: &str, cache: &ObjectCache, file_diffs: &FileDiffs, diffs: &mut [CommitDiff]) -> Result<()> {
   // a type change needs no lines: the edges take the whole file
   let compared = |change: &FileChange| change.status != 'T' && (change.old_blob.is_some() || change.new_blob.is_some());
   let pairs: Vec<BlobPair<'_>> = diffs.iter().flat_map(|diff| &diff.files).filter(|change| compared(change)).map(blob_pair).collect();
-  let mut pair_diffs = FileDiffs::default().blocks_of(git, repository, cache, &pairs)?.into_iter();
+  let mut pair_diffs = file_diffs.blocks_of(git, repository, cache, &pairs)?.into_iter();
   for change in diffs.iter_mut().flat_map(|diff| &mut diff.files) {
     if !compared(change) {
       // a symlink or a submodule: no text to compare
@@ -108,11 +112,11 @@ fn hunk_of(block: &DiffBlock) -> Hunk {
 }
 
 /// `read_commit_diffs` through the cache: git runs once for the ids the cache misses, and its results are written back
-pub fn read_commit_diffs_cached(git: &GitCommandExecutor, repository: &str, cache: &ObjectCache, ids: &[String]) -> Result<Vec<CommitDiff>> {
+pub fn read_commit_diffs_cached(git: &GitCommandExecutor, repository: &str, cache: &ObjectCache, file_diffs: &FileDiffs, ids: &[String]) -> Result<Vec<CommitDiff>> {
   let mut cached = cache.get_commit_diffs(ids);
   let missing: Vec<String> = ids.iter().filter(|id| !cached.contains_key(*id)).cloned().collect();
   tracing::debug!(cached = cached.len(), missing = missing.len(), "commit diffs");
-  let read = read_commit_diffs(git, repository, cache, &missing)?;
+  let read = read_commit_diffs(git, repository, cache, file_diffs, &missing)?;
   cache.put_commit_diffs(read.iter().map(|diff| (diff.id.as_str(), &diff.files)));
   for diff in read {
     cached.insert(diff.id, diff.files);
@@ -135,8 +139,8 @@ fn stdin_ids(ids: &[String]) -> String {
 }
 
 /// The commit records of the output: each starts with `RECORD_START` at the start of the output or of a line, or after
-/// the NUL that ends a raw part (a patch line never starts with it, and patch text holds no NUL)
-pub(crate) fn split_records(output: &[u8]) -> impl Iterator<Item = &[u8]> {
+/// the NUL that ends a raw part
+fn split_records(output: &[u8]) -> impl Iterator<Item = &[u8]> {
   let starts: Vec<usize> = (0..output.len())
     .filter(|&i| output[i] == RECORD_START && (i == 0 || matches!(output[i - 1], b'\n' | 0)))
     .collect();
@@ -144,7 +148,7 @@ pub(crate) fn split_records(output: &[u8]) -> impl Iterator<Item = &[u8]> {
   starts.into_iter().zip(ends).map(move |(start, end)| &output[start + 1..end])
 }
 
-/// Parse the output of `log --format=%x1e%H -z --raw --no-abbrev -p`
+/// Parse the output of `log --format=%x1e%H -z --raw --no-abbrev`
 pub fn parse_commit_diffs(output: &[u8]) -> Result<Vec<CommitDiff>> {
   split_records(output).map(parse_record).collect()
 }
@@ -188,9 +192,6 @@ fn parse_record(record: &[u8]) -> Result<CommitDiff> {
       hunks: Vec::new(),
     });
   }
-  fields.skip_while(0);
-
-  parse_patch(&id, fields.rest(), &mut files);
   Ok(CommitDiff { id, files })
 }
 
@@ -198,68 +199,6 @@ fn parse_record(record: &[u8]) -> Result<CommitDiff> {
 /// symlink (120000), a submodule (160000) or no file (000000)
 fn is_source_mode(mode: &str) -> bool {
   mode.starts_with("100")
-}
-
-/// Fill in the counts, binary flags and hunks from the patch. The file sections come in the order of the raw entries;
-/// a type change has two sections (the old file deleted, the new one added)
-fn parse_patch(id: &str, patch: &[u8], files: &mut [FileChange]) {
-  // the file of the current section and the sections still expected for it
-  let mut current: Option<usize> = None;
-  let mut remaining_sections = 0;
-  let mut in_hunks = false;
-  for line in patch.split(|&b| b == b'\n') {
-    if line.starts_with(b"diff --git ") {
-      in_hunks = false;
-      if remaining_sections == 0 {
-        let next = current.map_or(0, |index| index + 1);
-        if next >= files.len() {
-          tracing::warn!(commit = id, "more patch sections than raw entries");
-          current = None;
-          continue;
-        }
-        current = Some(next);
-        remaining_sections = if files[next].status == 'T' { 2 } else { 1 };
-      }
-      remaining_sections -= 1;
-      continue;
-    }
-    let Some(file) = current.map(|index| &mut files[index]) else { continue };
-    if line.starts_with(b"@@ ") {
-      in_hunks = true;
-      if let Some(hunk) = parse_hunk_header(line) {
-        file.hunks.push(hunk);
-      }
-    } else if in_hunks {
-      match line.first() {
-        Some(b'+') => file.additions += 1,
-        Some(b'-') => file.deletions += 1,
-        _ => {}
-      }
-    } else if line.starts_with(b"Binary files ") || line.starts_with(b"GIT binary patch") {
-      file.binary = true;
-    }
-  }
-}
-
-/// `@@ -a[,b] +c[,d] @@ …`; an omitted count is 1
-fn parse_hunk_header(line: &[u8]) -> Option<Hunk> {
-  let line = std::str::from_utf8(line).ok()?;
-  let mut parts = line.strip_prefix("@@ ")?.split(' ');
-  let (old_start, old_lines) = parse_range(parts.next()?.strip_prefix('-')?)?;
-  let (new_start, new_lines) = parse_range(parts.next()?.strip_prefix('+')?)?;
-  Some(Hunk {
-    old_start,
-    old_lines,
-    new_start,
-    new_lines,
-  })
-}
-
-fn parse_range(range: &str) -> Option<(u32, u32)> {
-  match range.split_once(',') {
-    Some((start, lines)) => Some((start.parse().ok()?, lines.parse().ok()?)),
-    None => Some((range.parse().ok()?, 1)),
-  }
 }
 
 struct Fields<'a> {
@@ -284,9 +223,5 @@ impl<'a> Fields<'a> {
     let end = rest.iter().position(|&b| b == 0)?;
     self.pos += end + 1;
     Some(&rest[..end])
-  }
-
-  fn rest(&self) -> &'a [u8] {
-    &self.data[self.pos.min(self.data.len())..]
   }
 }

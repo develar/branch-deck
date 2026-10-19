@@ -527,7 +527,7 @@ async fn the_second_check_of_a_session() {
 
 /// The checks of a session on Kotlin sources, whose declaration searches read the summaries of the commits' files: the
 /// first reads them once (the commits' changes with the blobs of their blocks, the trees above them, the blobs) with the
-/// changed lines; the next
+/// changed lines, which take the blobs of their blocks from the session's memory; the next
 /// checks of the session, and of a session of a rewrite, which shares them, read none of them again: only the builds
 /// (the copies, which no sync wrote) and the trees' differences and blobs of the search (`diff-tree`, `cat-file`)
 #[test]

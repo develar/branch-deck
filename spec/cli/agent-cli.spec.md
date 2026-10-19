@@ -267,7 +267,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `--files` must list each changed file with its status (`A`, `M`, `D`, `R` with the old path, `T`) and the counts of
   the changed lines of the diff views; a binary file must have `"binary": true` and no counts.
   [@test] ../../crates/bd-cli/src/commits_test.rs (`files_with_renames_binaries_and_deletions`)
-  [@test] ../../crates/sync-core/src/diff_scan_test.rs (`parses_raw_and_patch_parts`, `read_commit_diffs_takes_the_blocks_of_the_views`)
+  [@test] ../../crates/sync-core/src/diff_scan_test.rs (`parses_the_raw_part`, `read_commit_diffs_takes_the_blocks_of_the_views`)
 - `--patch` must add per changed file the blocks of the diff views under `Default`, each with its id for
   `bd move-hunk --block` (the lines as in a git hunk header and a hash of them), its kind, a header with the label of
   its scope, and its lines between up to three lines of context that stop at the next block; `--branch` must keep the

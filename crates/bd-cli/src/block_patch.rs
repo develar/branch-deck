@@ -85,9 +85,10 @@ const fn has_text(change: &FileChange) -> bool {
 }
 
 /// The files of each commit of `diffs` with their blocks, in the order of `diffs`: one `cat-file --batch` of the blobs
-pub fn read_patches(git: &GitCommandExecutor, repository: &str, cache: &ObjectCache, diffs: &[&CommitDiff]) -> anyhow::Result<Vec<Vec<PatchFile>>> {
+/// that `file_diffs` lacks in memory
+pub fn read_patches(git: &GitCommandExecutor, repository: &str, cache: &ObjectCache, file_diffs: &FileDiffs, diffs: &[&CommitDiff]) -> anyhow::Result<Vec<Vec<PatchFile>>> {
   let pairs: Vec<BlobPair<'_>> = diffs.iter().flat_map(|diff| &diff.files).filter(|change| has_text(change)).map(blob_pair).collect();
-  let mut patches = FileDiffs::default().patches_of(git, repository, cache, &pairs)?.into_iter();
+  let mut patches = file_diffs.patches_of(git, repository, cache, &pairs)?.into_iter();
   Ok(
     diffs
       .iter()

@@ -1,5 +1,6 @@
 use crate::dependencies::compute_dependencies;
 use crate::diff_scan::{CommitDiff, parse_commit_diffs, read_commit_diffs};
+use file_diffs::service::FileDiffs;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_diff::{FileChange, Hunk};
 use pretty_assertions::assert_eq;
@@ -19,6 +20,11 @@ fn change(status: char, path: &str) -> FileChange {
   }
 }
 
+/// The changes of one commit, without caches
+pub(crate) fn commit_diffs(repo: &TestRepo, commit: &str) -> Vec<CommitDiff> {
+  read_commit_diffs(repo.git_executor(), repo.path_str(), &ObjectCache::disabled(), &FileDiffs::default(), &[commit.to_string()]).unwrap()
+}
+
 fn hunk(old_start: u32, old_lines: u32, new_start: u32, new_lines: u32) -> Hunk {
   Hunk {
     old_start,
@@ -28,59 +34,16 @@ fn hunk(old_start: u32, old_lines: u32, new_start: u32, new_lines: u32) -> Hunk 
   }
 }
 
+/// The raw part: the status, the paths (a rename names the old one first) and the blob ids of each file; the zero id
+/// of a side without a file, a symlink and a submodule give no blob. The hunks and the counts come from the blocks
 #[test]
-fn parses_raw_and_patch_parts() {
+fn parses_the_raw_part() {
   let output = b"\x1eaaaa\0\n\
 :100644 100644 1111111 2222222 M\0text file.txt\0\
 :000000 100644 0000000 3333333 A\0bin\0\
 :100644 100644 4444444 5555555 R090\0old\0new\0\
 :100644 120000 6666666 7777777 T\0link\0\
 :160000 160000 8888888 9999999 M\0sub\0\0\
-diff --git a/text file.txt b/text file.txt\n\
-index 1111111..2222222 100644\n\
---- a/text file.txt\t\n\
-+++ b/text file.txt\t\n\
-@@ -2 +2 @@ context\n\
--b\n\
-+B\n\
-@@ -5,0 +6,2 @@\n\
-+x\n\
-+y\n\
-\\ No newline at end of file\n\
-diff --git a/bin b/bin\n\
-new file mode 100644\n\
-index 0000000..3333333\n\
-Binary files /dev/null and b/bin differ\n\
-diff --git a/old b/new\n\
-similarity index 90%\n\
-rename from old\n\
-rename to new\n\
---- a/old\n\
-+++ b/new\n\
-@@ -3,2 +3 @@\n\
--- a removed line that starts with a dash\n\
--+ and one with a plus\n\
-+--- an added line that looks like a header\n\
-diff --git a/link b/link\n\
-deleted file mode 100644\n\
---- a/link\n\
-+++ /dev/null\n\
-@@ -1 +0,0 @@\n\
--target\n\
-diff --git a/link b/link\n\
-new file mode 120000\n\
---- /dev/null\n\
-+++ b/link\n\
-@@ -0,0 +1 @@\n\
-+target\n\
-\\ No newline at end of file\n\
-diff --git a/sub b/sub\n\
-index 8888888..9999999 160000\n\
---- a/sub\n\
-+++ b/sub\n\
-@@ -1 +1 @@\n\
--Subproject commit 8888888\n\
-+Subproject commit 9999999\n\
 \x1ebbbb\0\n";
 
   let diffs = parse_commit_diffs(output).unwrap();
@@ -88,9 +51,6 @@ index 8888888..9999999 160000\n\
   let mut renamed = change('R', "new");
   renamed.old_path = Some("old".to_string());
   (renamed.old_blob, renamed.new_blob) = (blob("4444444"), blob("5555555"));
-  renamed.additions = 1;
-  renamed.deletions = 2;
-  renamed.hunks = vec![hunk(3, 2, 3, 1)];
   assert_eq!(
     diffs,
     [
@@ -98,34 +58,20 @@ index 8888888..9999999 160000\n\
         id: "aaaa".to_string(),
         files: vec![
           FileChange {
-            additions: 3,
-            deletions: 1,
-            hunks: vec![hunk(2, 1, 2, 1), hunk(5, 0, 6, 2)],
             old_blob: blob("1111111"),
             new_blob: blob("2222222"),
             ..change('M', "text file.txt")
           },
-          // the zero id of the side without a file
           FileChange {
-            binary: true,
             new_blob: blob("3333333"),
             ..change('A', "bin")
           },
           renamed,
-          // a symlink has no source to read, nor has a submodule
           FileChange {
-            additions: 1,
-            deletions: 1,
-            hunks: vec![hunk(1, 1, 0, 0), hunk(0, 0, 1, 1)],
             old_blob: blob("6666666"),
             ..change('T', "link")
           },
-          FileChange {
-            additions: 1,
-            deletions: 1,
-            hunks: vec![hunk(1, 1, 1, 1)],
-            ..change('M', "sub")
-          },
+          change('M', "sub"),
         ],
       },
       CommitDiff {
@@ -148,7 +94,7 @@ fn read_commit_diffs_gives_the_full_blob_ids() {
   let commit = repo.create_commit_with_files("change", &[("kept.txt", "two\n"), ("added.txt", "new\n")]);
   let blob = |commit: &str, path: &str| Some(git(&["rev-parse", &format!("{commit}:{path}")]));
 
-  let diffs = read_commit_diffs(repo.git_executor(), repo.path_str(), &ObjectCache::disabled(), std::slice::from_ref(&commit)).unwrap();
+  let diffs = commit_diffs(&repo, &commit);
   let blobs: Vec<(&str, Option<String>, Option<String>)> = diffs[0]
     .files
     .iter()
@@ -178,7 +124,7 @@ fn read_commit_diffs_takes_the_blocks_of_the_views() {
   repo.git(&["rm", "-q", "gone.txt"]);
   let commit = repo.create_commit_with_files("change", &[("lines.txt", "a\nB\nc\n"), ("crlf.txt", "a\nb\n"), ("data.bin", "\0two")]);
 
-  let diffs = read_commit_diffs(repo.git_executor(), repo.path_str(), &ObjectCache::disabled(), std::slice::from_ref(&commit)).unwrap();
+  let diffs = commit_diffs(&repo, &commit);
   let files: Vec<(&str, u32, u32, bool, &[Hunk])> = diffs[0]
     .files
     .iter()
@@ -211,12 +157,12 @@ fn the_diff_config_of_the_user_changes_neither_the_hunks_nor_the_edges() {
     repo.create_commit("B", "file.txt", &lines(&[5, 10, 15])),
   ];
   let path = repo.path().to_str().unwrap();
-  let plain = read_commit_diffs(repo.git_executor(), path, &ObjectCache::disabled(), &ids).unwrap();
+  let plain = read_commit_diffs(repo.git_executor(), path, &ObjectCache::disabled(), &FileDiffs::default(), &ids).unwrap();
 
   for (key, value) in [("diff.interHunkContext", "10"), ("diff.algorithm", "histogram"), ("diff.indentHeuristic", "false")] {
     repo.set_config(key, value).unwrap();
   }
-  let configured = read_commit_diffs(repo.git_executor(), path, &ObjectCache::disabled(), &ids).unwrap();
+  let configured = read_commit_diffs(repo.git_executor(), path, &ObjectCache::disabled(), &FileDiffs::default(), &ids).unwrap();
 
   assert_eq!(configured, plain);
   assert_eq!(configured[1].files[0].hunks, [hunk(5, 1, 5, 1), hunk(15, 1, 15, 1)]);

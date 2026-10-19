@@ -1,6 +1,7 @@
 use crate::error::{CliError, ErrorCode};
 use crate::install::bd_command;
 use crate::output::ShortIds;
+use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
 use git_ops::revs::{RepositoryDirs, repository_dirs};
@@ -107,6 +108,8 @@ pub struct RepoContext {
   pub bd: String,
   /// The object cache, opened by the first that asks: opening reads the database names of every environment
   cache: OnceLock<ObjectCache>,
+  /// The blocks and the blobs of the scans of this command (`file_diffs`)
+  file_diffs: OnceLock<FileDiffs>,
   /// The git config, read once (`config`)
   config: Mutex<Option<ConfigSnapshot>>,
   /// The push URL of `origin` (`None` without it), read by the first that asks: the Space repository, the GitHub
@@ -175,6 +178,7 @@ impl RepoContext {
       bd: bd_command(environment).map_or_else(|_| "bd".to_string(), |command| command.for_shell_in(&repository)),
       repository,
       cache: OnceLock::new(),
+      file_diffs: OnceLock::new(),
       config: Mutex::new(config),
       origin_url: OnceLock::new(),
       github_repository: OnceLock::new(),
@@ -235,6 +239,12 @@ impl RepoContext {
   /// The Space repository `origin` pushes to; `None` when it is not on Space
   pub fn space_repository(&self) -> Result<Option<SpaceRepository>, CliError> {
     Ok(self.origin_url()?.and_then(parse_space_repository))
+  }
+
+  /// The diffs of the scans of this command (`FileDiffs::for_scans`): the changes of the commits and their patches read
+  /// each blob once
+  pub fn file_diffs(&self) -> &FileDiffs {
+    self.file_diffs.get_or_init(FileDiffs::for_scans)
   }
 
   /// The object cache of the repository, or a disabled one with --no-cache; a handle is cheap to clone

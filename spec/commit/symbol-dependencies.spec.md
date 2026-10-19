@@ -128,7 +128,7 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_spec_kind_exists_in_its_grammar`)
 - The commits' changes must carry the full ids of the blobs before and after each file, from the same `log --raw`
   process (`--no-abbrev`); a side without a file, a symlink and a submodule have none.
-  [@test] ../../crates/sync-core/src/diff_scan_test.rs (`parses_raw_and_patch_parts`, `read_commit_diffs_gives_the_full_blob_ids`)
+  [@test] ../../crates/sync-core/src/diff_scan_test.rs (`parses_the_raw_part`, `read_commit_diffs_gives_the_full_blob_ids`)
 - The summaries must be read through the object cache, keyed by the extractor version, the language and the blob id,
   with one `cat-file --batch` for the blobs the cache misses; a write of another extractor version must clear the
   store once. A summary cut by the parse budget must not be cached.

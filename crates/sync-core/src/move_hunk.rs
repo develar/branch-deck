@@ -4,7 +4,7 @@
 //! tree (docs/design/git-operations.md, "Move a hunk")
 
 use crate::commit_ids::{IdMatch, match_commit_id};
-use crate::diff_scan::{blob_pair, read_commit_changes};
+use crate::diff_scan::{Renames, blob_pair, read_commit_changes};
 use crate::regroup::RegroupError;
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, ensure_expected_head, lock_repository};
 use crate::snapshot::CommitsAhead;
@@ -178,7 +178,7 @@ pub fn move_hunk_core(
 
 /// The blocks of `path` in `from`; `None` for a file without text
 fn file_blocks(git_executor: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, from: &str, path: &str) -> Result<Option<Vec<BlockPatch>>, MoveHunkError> {
-  let files = read_commit_changes(git_executor, repository_path, &[from.to_string()])?
+  let files = read_commit_changes(git_executor, repository_path, &[from.to_string()], Renames::Detect)?
     .pop()
     .map_or_default(|diff| diff.files);
   let change = files

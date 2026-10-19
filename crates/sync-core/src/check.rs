@@ -26,6 +26,7 @@ use crate::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
 use crate::symbol_scan::{SymbolInput, SymbolMode, read_symbol_input, read_symbol_mode};
 use crate::sync::{SyncReport, seeded_tree_cache};
 use code_symbols::language::language_of as symbols_language_of;
+use file_diffs::service::FileDiffs;
 use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{BranchKind, strip_branch_namespace};
@@ -225,6 +226,9 @@ pub struct CheckSession {
   symbol_graph: OnceLock<Result<Option<SymbolGraph>, String>>,
   /// The changes of the commits ahead of the baseline, read by the first that asks
   commit_diffs: OnceLock<Result<Vec<CommitDiff>, String>>,
+  /// The blocks and the blobs of the scans (`FileDiffs::for_scans`): the changes and the changed lines of the commits
+  /// read the blobs once; shared with the sessions of `with_rewrite`
+  file_diffs: FileDiffs,
   /// Their line dependencies and fixup units, computed by the first that asks
   line_graph: OnceLock<Result<LineGraph, String>>,
   /// The states of the declared parents without commits, by the set of them, shared with the sessions of
@@ -334,6 +338,7 @@ impl CheckSession {
       added_keys: Arc::default(),
       symbol_graph: OnceLock::new(),
       commit_diffs: OnceLock::new(),
+      file_diffs: FileDiffs::for_scans(),
       line_graph: OnceLock::new(),
       parent_states: Arc::default(),
       base_facts: Arc::default(),
@@ -404,6 +409,7 @@ impl CheckSession {
       added_keys: Arc::clone(&self.added_keys),
       symbol_graph: OnceLock::new(),
       commit_diffs: OnceLock::new(),
+      file_diffs: self.file_diffs.clone(),
       line_graph: OnceLock::new(),
       parent_states: Arc::clone(&self.parent_states),
       existing_commits: Arc::clone(&self.existing_commits),
@@ -703,7 +709,7 @@ impl CheckSession {
   fn dangling_facts(&self) -> Result<&DanglingFacts, RegroupError> {
     let commits: Vec<String> = self.snapshot.commits.iter().map(|commit| commit.id.clone()).collect();
     let read = self.dangling_input.get_or_init(|| {
-      let lines = read_commit_lines(&self.git_executor, &self.repository_path, &commits, &self.cache).map_err(|e| format!("{e:#}"))?;
+      let lines = read_commit_lines(&self.git_executor, &self.repository_path, &commits, &self.cache, &self.file_diffs).map_err(|e| format!("{e:#}"))?;
       Ok((lines, self.baseline_commit().map(str::to_string)))
     });
     read.as_ref().map_err(|e| RegroupError::Other(anyhow::anyhow!("Cannot read the changed lines: {e}")))
@@ -721,7 +727,7 @@ impl CheckSession {
       .commit_diffs
       .get_or_init(|| {
         let ids: Vec<String> = self.snapshot.commits.iter().map(|commit| commit.id.clone()).collect();
-        read_commit_diffs_cached(&self.git_executor, &self.repository_path, &self.cache, &ids).map_err(|e| format!("{e:#}"))
+        read_commit_diffs_cached(&self.git_executor, &self.repository_path, &self.cache, &self.file_diffs, &ids).map_err(|e| format!("{e:#}"))
       })
       .as_ref()
       .map(Vec::as_slice)
