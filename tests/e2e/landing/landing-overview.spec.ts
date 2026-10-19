@@ -60,8 +60,9 @@ test.describe("Landing overview", () => {
     const cancels = await routeCommand(page, "cancel_patronus_robot", () => ({ ...RUNNING, status: "canceling" }))
     const popover = await openLandingOverview(page)
     await popover.getByRole("button", { name: "Cancel Safe Push of JIRA-456" }).click()
-    expect(cancels).toEqual([expect.objectContaining({ robotId: "running-robot" })])
+    // the toast comes with the answer of the cancel: the request reached the backend by then
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push is canceling" })).toBeVisible()
+    expect(cancels).toEqual([expect.objectContaining({ robotId: "running-robot" })])
     await expect(popover.getByTestId("landing-running").getByTestId("robots-row-state")).toHaveText("Safe Push · Canceling")
   })
 
