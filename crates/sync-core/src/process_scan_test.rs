@@ -1,5 +1,6 @@
+use crate::process_scan::ProcessScan;
 #[cfg(unix)]
-use crate::process_scan::{ProcessScan, is_running, process_started};
+use crate::process_scan::{is_running, process_started};
 
 /// A child that sleeps in a directory is inside it; this process, the parent of the child, never is
 #[cfg(unix)]
