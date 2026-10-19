@@ -6,12 +6,14 @@
 use crate::context::{Environment, RepoContext};
 use crate::error::{CONFLICT_EXIT, CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
+use crate::suggest::SuggestPlan;
 use crate::update_command::{core_error, uncommitted_overlap};
 use git_ops::pick::{FollowState, PickRefusal, PickState, PresentBy};
 use schemars::JsonSchema;
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
-use sync_core::pick::{GroupedBy, PickFrom, PickParams, PickResult, PickUndoToken, UndonePick, pick_core, undo_pick_core};
+use sync_core::pick::{DependencyFix, GroupedBy, PickDependency, PickFrom, PickParams, PickResult, PickUndoToken, UndonePick, pick_core, undo_pick_core};
 use sync_core::repository_lock::RewriteOptions;
 
 #[derive(Debug, Default, clap::Args)]
@@ -60,6 +62,10 @@ pub struct PickOutput {
   /// out by their patch id
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub already_present: Vec<PresentOutput>,
+  /// Picked commits whose prefix names a branch that is not built on the branches they need (their hunks change what
+  /// commits of those branches wrote): that branch can't sync. Also with --dry-run, to fix the prefix before the pick
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub dependencies: Vec<DependencyOutput>,
   /// With --follow: how the worktree of --from followed
   #[serde(skip_serializing_if = "Option::is_none")]
   pub followed: Option<FollowedOutput>,
@@ -163,6 +169,25 @@ impl From<PresentBy> for PresentByOutput {
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
+pub struct DependencyOutput {
+  /// The copy on the branch (with --dry-run: the one the pick writes)
+  pub commit: String,
+  pub subject: String,
+  /// The branch its prefix names
+  pub prefix_branch: String,
+  /// The branches it needs that `prefix_branch` is not built on
+  pub depends_on: Vec<String>,
+  /// The plan for `bd group --plan`: the commit moves into the branch of the stack that holds all of them. The plans
+  /// of several commits go into one `bd group`, their `branches` merged: a rewrite gives the commits new ids
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub plan: Option<SuggestPlan>,
+  /// The commit needs its own branch too: `bd restack <prefix_branch> <parent>` stacks the branch on one that holds
+  /// all of them and its parent
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub restack: Option<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct FollowedOutput {
   /// The worktree, its top level
   pub worktree: String,
@@ -209,7 +234,7 @@ pub fn pick(context: &RepoContext, args: &PickArgs, environment: &Environment) -
     lock_timeout: context.lock_timeout,
     held_lock: None,
   };
-  let result = pick_core(&context.git, &params, &options).map_err(pick_error)?;
+  let result = pick_core(&context.git, &params, &options, &context.cache(), context.file_diffs()).map_err(pick_error)?;
   output(context, &result, args.dry_run)
 }
 
@@ -237,6 +262,7 @@ fn output(context: &RepoContext, result: &PickResult, dry_run: bool) -> Result<P
   ids.extend(check.picked.iter().flat_map(|commit| [commit.commit.as_str(), commit.new_id.as_str()]));
   ids.extend(check.present.iter().flat_map(|commit| std::iter::once(commit.commit.as_str()).chain(commit.on.as_deref())));
   ids.extend(check.follow.iter().map(|follow| follow.head.as_str()));
+  ids.extend(result.dependencies.iter().map(|dependency| dependency.commit.as_str()));
   if let PickState::Conflict(conflict) = &check.state {
     ids.extend(std::iter::once(conflict.commit.id.as_str()).chain(conflict.clean.iter().map(|commit| commit.id.as_str())));
   }
@@ -307,10 +333,34 @@ fn output(context: &RepoContext, result: &PickResult, dry_run: bool) -> Result<P
         by: commit.by.into(),
       })
       .collect(),
+    dependencies: result.dependencies.iter().map(|dependency| dependency_output(context, dependency, &short)).collect(),
     followed,
     conflict,
     undo_token: result.undo_token().map(|token| token.to_string()),
   })
+}
+
+fn dependency_output(context: &RepoContext, dependency: &PickDependency, short: &ShortIds) -> DependencyOutput {
+  let commit = short.get(&dependency.commit).to_string();
+  let (plan, restack) = match &dependency.fix {
+    Some(DependencyFix::Move(branch)) => (
+      Some(SuggestPlan {
+        branches: BTreeMap::from([(branch.clone(), vec![commit.clone()])]),
+        ..SuggestPlan::default()
+      }),
+      None,
+    ),
+    Some(DependencyFix::Restack(parent)) => (None, Some(format!("{} restack {} {parent}", context.bd, dependency.prefix_branch))),
+    None => (None, None),
+  };
+  DependencyOutput {
+    commit,
+    subject: dependency.subject.clone(),
+    prefix_branch: dependency.prefix_branch.clone(),
+    depends_on: dependency.depends_on.clone(),
+    plan,
+    restack,
+  }
 }
 
 /// What an agent does with a conflict: the source is moved onto the branch and the commit made again there, never with

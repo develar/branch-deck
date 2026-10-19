@@ -30,6 +30,7 @@ use crate::move_commits::{MoveCommitsResult, move_result};
 use crate::move_plan::plan_move;
 use crate::regroup::{RegroupError, RegroupOptions, RegroupPlan, regroup_planned};
 use crate::snapshot::Snapshot;
+use crate::stack::stack_top;
 use anyhow::{Result, anyhow};
 use code_symbols::language::language_of as symbols_language_of;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -794,7 +795,7 @@ fn restack_on_owners(facts: &Facts, graph: &Graph, branch: &BranchCheck, owners:
     return None;
   }
   let mut change = Change::default();
-  if let Some(top) = stack_top(facts, owners, true) {
+  if let Some(top) = stack_top(owners, true, |owner| facts.chain(owner)) {
     let moved = fork_child(facts, branch, top)?;
     restack(&mut change, &moved.name, top, moved.built_on.as_ref());
     return Some(change);
@@ -953,7 +954,7 @@ fn candidates(facts: &Facts, branch: &BranchCheck, graph: &Graph, lines: &HashMa
       }
       let owners: BTreeSet<&str> = needed.iter().filter_map(|id| facts.group(id)).collect();
       let unassigned: Vec<String> = needed.iter().filter(|id| facts.group(id).is_none()).cloned().collect();
-      let top = stack_top(facts, &owners, stacks);
+      let top = stack_top(&owners, stacks, |owner| facts.chain(owner));
 
       // restack the branch on the branch that has what it needs, or on a chain of the branches that do: no rewrite, but
       // the base of its pull request changes
@@ -993,7 +994,7 @@ fn candidates(facts: &Facts, branch: &BranchCheck, graph: &Graph, lines: &HashMa
       // or the commits that remove the declarations go to the branch whose stack has the fixes
       let owners: BTreeSet<&str> = fixes.iter().filter_map(|id| facts.group(id)).collect();
       if fixes.iter().all(|id| facts.group(id).is_some())
-        && let Some(top) = stack_top(facts, &owners, stacks).filter(|top| *top != branch.name)
+        && let Some(top) = stack_top(&owners, stacks, |owner| facts.chain(owner)).filter(|top| *top != branch.name)
       {
         let mut moved: BTreeSet<String> = BTreeSet::new();
         for (removed_by, _) in &references {
@@ -1026,25 +1027,6 @@ fn needed_commits(facts: &Facts, graph: &Graph, commit: &str, present: &HashSet<
     }
   }
   needed.into_iter().map(|position| graph.ids[position].clone()).collect()
-}
-
-/// The branch whose stack holds every owner: an owner built on all the others, the deepest; with stacked branches off
-/// only a single owner
-fn stack_top<'a>(facts: &Facts<'a>, owners: &BTreeSet<&'a str>, stacks: bool) -> Option<&'a str> {
-  if owners.is_empty() {
-    return None;
-  }
-  if !stacks {
-    return (owners.len() == 1).then(|| *owners.iter().next().unwrap_or(&""));
-  }
-  owners
-    .iter()
-    .copied()
-    .filter(|owner| {
-      let chain = facts.chain(owner);
-      owners.iter().all(|other| chain.contains(other))
-    })
-    .max_by_key(|owner| facts.chain(owner).len())
 }
 
 /// The fixing commits of the dangling references that are not in `branch` or moving already, pulled into it

@@ -628,6 +628,18 @@ through the guarded update. `--follow` moves the source worktree onto the new ti
   writes at most git objects: it answers "does the branch hold my commits?" by content, never by date.
 - `picked[].group` is the branch Branch Deck groups the copy into, `grouped_by` `prefix`, `issue_group`, `issue` or
   `none`: a subject without a prefix or an issue key lands unassigned. Write the `(branch)` prefix when you commit.
+- `dependencies` (also with `--dry-run`, so the prefix can be fixed in the worktree before the pick): a picked commit
+  whose prefix names a branch the branch has already (`prefix_branch`), which is not built on every branch whose
+  commits its hunks depend on (`depends_on`; the edges by lines of `bd commits`, without symbols), so that branch
+  can't sync. `plan` is the `bd group` plan that moves the commit into the branch of the stack that holds all of them
+  (merge the `branches` of several plans into one `bd group`: the rewrite gives the commits new ids); `restack`, for a
+  commit that needs its own branch too, is the `bd restack <prefix_branch> <parent>` onto a branch that holds them and
+  its parent; neither when no branch holds them all. The pick never applies it.
+
+  ```json
+  "dependencies":[{"commit":"9d0e1f2a","subject":"(base/teamcity) Watch the monitor","prefix_branch":"teamcity",
+   "depends_on":["hang"],"plan":{"branches":{"hang":["9d0e1f2a"]},"unassign":[]}}]
+  ```
 - `followed.state`: `moved`, `at_tip` (nothing to move), `would_move` (`--dry-run`), or, after the branch moved,
   `head_moved` or `blocked` with a `message`: the same `bd pick` again finds every commit present and moves only the
   worktree. A detached HEAD stays detached (`option no-deref`); a rebase, merge or cherry-pick in progress in the

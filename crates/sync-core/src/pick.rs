@@ -1,19 +1,28 @@
 //! `bd pick`: the commits of another worktree landed on the checked out branch under the repository lock, the source
-//! worktree following with `follow` (`git_ops::pick`, spec/cli/pick.spec.md), and the undo of both.
+//! worktree following with `follow` (`git_ops::pick`, spec/cli/pick.spec.md), and the undo of both. Before the move,
+//! one read of how the branch groups tells the group of each picked commit and the picked commits whose branch is not
+//! built on the branches they need.
 
 use crate::baseline::{NoBaseline, detect_baseline_branch};
 use crate::commit_grouper::{GroupingInputs, issue_group_of, parse_subject};
+use crate::dependencies::compute_dependencies;
+use crate::diff_scan::read_commit_diffs_cached;
 use crate::repository_lock::{RewriteOptions, lock_repository};
-use crate::snapshot::read_grouping_inputs;
+use crate::snapshot::{Grouped, group_commits, read_grouping_inputs};
+use crate::stack::{StackForest, stack_top};
 use crate::update_project::{UndoBlocked, resolve_baseline_upstream};
 use anyhow::{Result, anyhow};
+use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::pick::{AppliedPick, PickCheck, PickRequest, PickSource, PickState, apply_pick, check_pick, check_pick_undo};
+use git_ops::commit_list::{Commit, get_commit_list};
+use git_ops::pick::{AppliedPick, PickCheck, PickRequest, PickSource, PickState, PickedCommit, apply_pick, check_pick, check_pick_undo};
 use git_ops::revs::is_object_id;
 use git_ops::update_branch::{UndoCheck, UpdateUndo, apply_update_undo, finish_pending_update};
+use object_cache::cache::ObjectCache;
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::Duration;
-use tracing::{info, instrument};
+use tracing::{debug, info, instrument};
 
 /// Where `bd pick` takes the commits from
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,11 +64,39 @@ pub struct PickedGroup {
   pub grouped_by: GroupedBy,
 }
 
+/// A picked commit whose prefix puts it into a branch that is not built on every branch it needs: its hunks change
+/// lines (or a file) that commits of those branches wrote, so the branch can't sync
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PickDependency {
+  /// The copy on the branch (with a dry run: the one the pick writes)
+  pub commit: String,
+  pub subject: String,
+  /// The branch its prefix names
+  pub prefix_branch: String,
+  /// The branches it needs that `prefix_branch` is not built on, sorted
+  pub depends_on: Vec<String>,
+  /// The regroup that builds it on what it needs; `None` when no branch is built on all of them
+  pub fix: Option<DependencyFix>,
+}
+
+/// How a picked commit gets the branches it needs; offered, never applied by the pick
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DependencyFix {
+  /// Move the commit into this branch, which is built on all of them (a `bd group` plan)
+  Move(String),
+  /// The commit needs its own branch too: stack `prefix_branch` on this branch (`bd restack <prefix_branch> <parent>`),
+  /// which is built on all of them and on the current parent
+  Restack(String),
+}
+
 #[derive(Debug)]
 pub struct PickResult {
   pub check: PickCheck,
   /// Per commit of `check.picked`, in its order
   pub groups: Vec<PickedGroup>,
+  /// The picked commits whose branch is not built on what they need; only for a prefix that names a branch the target
+  /// has already
+  pub dependencies: Vec<PickDependency>,
   /// `None` for a dry run and for a pick that is not clean
   pub applied: Option<AppliedPick>,
 }
@@ -87,10 +124,11 @@ impl PickResult {
 
 /// Pick the commits of `params.from` onto the branch checked out at `params.repository_path`. Under the repository lock
 /// (shared by every worktree), after an interrupted move of the target (and of the source with `follow`) is finished:
-/// the check, then, when it is clean, the move of the target and of the source. A conflict or local changes in the way
-/// change nothing (`check.state`)
-#[instrument(skip(git_executor, options))]
-pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options: &RewriteOptions<'_>) -> Result<PickResult> {
+/// the check, how the branch groups with the picked commits (`landing`), then, when it is clean, the move of the target
+/// and of the source. A conflict or local changes in the way change nothing (`check.state`). `cache` and `file_diffs`
+/// give the diffs of the dependency check
+#[instrument(skip(git_executor, options, cache, file_diffs))]
+pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options: &RewriteOptions<'_>, cache: &ObjectCache, file_diffs: &FileDiffs) -> Result<PickResult> {
   let target = params.repository_path.as_str();
   let _lock = if params.dry_run { None } else { options.lock(git_executor, target)? };
   if !params.dry_run {
@@ -99,7 +137,7 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
       finish_pending_update(git_executor, source)?;
     }
   }
-  let upstream = baseline_tracking_ref(git_executor, target)?;
+  let (baseline, upstream) = baseline_tracking_ref(git_executor, target)?;
   let source = match &params.from {
     PickFrom::Worktree(dir) => PickSource::Worktree(dir),
     PickFrom::Revisions(text) => PickSource::Revisions(text),
@@ -114,32 +152,149 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
     },
   )?;
   options.ensure_head(git_executor, target, &plan.check.head)?;
+  let landing = if plan.check.picked.is_empty() {
+    Landing::default()
+  } else {
+    let diffs = Diffs { cache, file_diffs };
+    landing(git_executor, target, baseline.as_deref(), &plan.check.picked, &diffs)?
+  };
   let applied = if !params.dry_run && plan.check.state == PickState::Clean {
     Some(apply_pick(git_executor, target, &plan)?)
   } else {
     None
   };
-  let groups = if plan.check.picked.is_empty() {
-    Vec::new()
-  } else {
-    let grouping = read_grouping_inputs(git_executor, target)?;
-    plan.check.picked.iter().map(|commit| picked_group(&grouping, &commit.subject)).collect()
-  };
   Ok(PickResult {
     check: plan.check,
-    groups,
+    groups: landing.groups,
+    dependencies: landing.dependencies,
     applied,
   })
 }
 
-/// The remote-tracking ref of the target's baseline, `None` for a local baseline or none
-pub(crate) fn baseline_tracking_ref(git_executor: &GitCommandExecutor, target: &str) -> Result<Option<String>> {
+/// The target's baseline and its remote-tracking ref; `None` for no baseline, the ref `None` for a local baseline
+pub(crate) fn baseline_tracking_ref(git_executor: &GitCommandExecutor, target: &str) -> Result<(Option<String>, Option<String>)> {
   let baseline = match detect_baseline_branch(git_executor, target) {
     Ok(baseline) => baseline,
-    Err(e) if e.downcast_ref::<NoBaseline>().is_some() => return Ok(None),
+    Err(e) if e.downcast_ref::<NoBaseline>().is_some() => return Ok((None, None)),
     Err(e) => return Err(e),
   };
-  Ok(resolve_baseline_upstream(git_executor, target, &baseline)?.map(|upstream| upstream.tracking_ref))
+  let upstream = resolve_baseline_upstream(git_executor, target, &baseline)?.map(|upstream| upstream.tracking_ref);
+  Ok((Some(baseline), upstream))
+}
+
+/// Where the diffs of the dependency check come from
+struct Diffs<'a> {
+  cache: &'a ObjectCache,
+  file_diffs: &'a FileDiffs,
+}
+
+/// How the picked commits land in the groups of the target
+#[derive(Default)]
+struct Landing {
+  groups: Vec<PickedGroup>,
+  dependencies: Vec<PickDependency>,
+}
+
+/// How the picked commits group on the target, from one read before the move: the grouping inputs (`git config`, one
+/// `cat-file --batch`) and the commits ahead of the baseline (one `log`), grouped without and with the copies on top.
+/// Only when a prefix of a picked commit names a branch the target has, the diffs of the commits ahead and of the copies
+/// (`read_commit_diffs_cached`) give the edges by lines (`compute_dependencies`, no symbols)
+fn landing(git_executor: &GitCommandExecutor, target: &str, baseline: Option<&str>, picked: &[PickedCommit], diffs: &Diffs) -> Result<Landing> {
+  let grouping = read_grouping_inputs(git_executor, target)?;
+  let groups: Vec<PickedGroup> = picked.iter().map(|commit| picked_group(&grouping, &commit.subject)).collect();
+  let Some(baseline) = baseline else {
+    return Ok(Landing { groups, ..Landing::default() });
+  };
+  let mut commits = get_commit_list(git_executor, target, baseline)?;
+  let before = group_commits(&commits, &grouping);
+  let existing: BTreeSet<&str> = before.groups.values().flatten().map(String::as_str).collect();
+  let picked_at = commits.len();
+  commits.extend(picked.iter().map(copy_commit));
+  let after = group_commits(&commits, &grouping);
+
+  // the picked commits whose prefix names a branch the target has
+  let checked: Vec<(usize, &str)> = groups
+    .iter()
+    .enumerate()
+    .filter(|(_, group)| group.grouped_by == GroupedBy::Prefix)
+    .filter_map(|(index, group)| group.group.as_deref().filter(|group| existing.contains(group)).map(|group| (index, group)))
+    .collect();
+  let dependencies = if checked.is_empty() {
+    Vec::new()
+  } else {
+    let ids: Vec<String> = commits.iter().map(|commit| commit.id.clone()).collect();
+    let edges = compute_dependencies(&read_commit_diffs_cached(git_executor, target, diffs.cache, diffs.file_diffs, &ids)?);
+    checked
+      .into_iter()
+      .filter_map(|(index, group)| {
+        let position = picked_at + index;
+        let needs: BTreeSet<&str> = edges
+          .iter()
+          .filter(|edge| edge.from == position)
+          .filter_map(|edge| after.groups.get(&ids[edge.to]).and_then(Option::as_deref))
+          .collect();
+        dependency(&picked[index], group, &needs, &after, grouping.stacks)
+      })
+      .collect()
+  };
+  debug!(dependencies = dependencies.len(), "the landing of the pick");
+  Ok(Landing { groups, dependencies })
+}
+
+/// The branch and the branches it is built on, nearest first; only the branch with stacked branches off
+fn chain_of<'a>(forest: &'a StackForest, branch: &'a str, stacks: bool) -> Vec<&'a str> {
+  if stacks { forest.chain(branch) } else { vec![branch] }
+}
+
+/// The copy of a picked commit as the grouping sees it: its id and subject
+fn copy_commit(commit: &PickedCommit) -> Commit {
+  Commit {
+    id: commit.new_id.clone(),
+    stripped_subject: commit.subject.clone(),
+    message: commit.subject.clone(),
+    author_name: String::new(),
+    author_email: String::new(),
+    author_timestamp: 0,
+    committer_timestamp: 0,
+    author_timezone: String::new(),
+    committer_timezone: String::new(),
+    subject: commit.subject.clone(),
+    parent_id: None,
+    tree_id: String::new(),
+    note: None,
+    mapped_commit_id: None,
+    mapped_source: None,
+    mapped_resolution: None,
+  }
+}
+
+/// The dependency of a picked commit of `group` that needs the commits of the branches `needs`: `None` when `group` is
+/// built on each of them (or is one). The fix: the commit moves into the branch of the stack that holds all of them; a
+/// commit that needs its own branch too stacks the branch instead, on a branch that holds them and its parent
+fn dependency(commit: &PickedCommit, group: &str, needs: &BTreeSet<&str>, after: &Grouped, stacks: bool) -> Option<PickDependency> {
+  let empty = StackForest::default();
+  let forest = after.forest.as_ref().unwrap_or(&empty);
+  let built_on = chain_of(forest, group, stacks);
+  let depends_on: Vec<String> = needs.iter().filter(|need| !built_on.contains(need)).map(|need| (*need).to_string()).collect();
+  if depends_on.is_empty() {
+    return None;
+  }
+  let fix = if needs.contains(group) {
+    let mut owners: BTreeSet<&str> = needs.iter().copied().filter(|need| *need != group).collect();
+    owners.extend(forest.declared_parent(group));
+    stack_top(&owners, stacks, |branch| chain_of(forest, branch, stacks))
+      .filter(|top| stacks && !chain_of(forest, top, stacks).contains(&group))
+      .map(|top| DependencyFix::Restack(top.to_string()))
+  } else {
+    stack_top(needs, stacks, |branch| chain_of(forest, branch, stacks)).map(|top| DependencyFix::Move(top.to_string()))
+  };
+  Some(PickDependency {
+    commit: commit.new_id.clone(),
+    subject: commit.subject.clone(),
+    prefix_branch: group.to_string(),
+    depends_on,
+    fix,
+  })
 }
 
 /// The branch a commit with this subject lands in on the target, and what decides it

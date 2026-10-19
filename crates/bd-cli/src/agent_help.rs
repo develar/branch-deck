@@ -208,7 +208,8 @@ Other tasks
   a resolve session (exit 1), which `bd help update` explains.
 - Several sessions or worktrees on one branch: `bd lease get` leases a worktree of your own, `bd lease return` gives
   it back; `bd pick --from <worktree> --follow` lands the commits of another worktree here (or `bd pick <rev>`,
-  `<a>..<b>`; --expect-head, --dry-run); `bd help worktrees` explains it.
+  `<a>..<b>`; --expect-head, --dry-run), never `git cherry-pick`; `dependencies` names a picked commit whose branch is
+  not built on what it needs, with the `plan` for `bd group` or the `bd restack`; `bd help worktrees` explains it.
 - Fixups: `bd fold` (--branch, --expect-head, --dry-run) folds the fixup!, squash! and amend! commits into their
   targets and keeps HEAD's tree.
 - A change in the wrong commit: `bd move-hunk <from> <to> <path>` (--block <id>, repeatable; --expect-head, --dry-run;
@@ -316,6 +317,10 @@ adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a 
    it; the files follow, and --follow moves your worktree onto the new tip (its local changes on other paths stay).
    - `picked[]`: the copies, each with the `group` it lands in; `grouped_by: none` is a commit without a prefix: fix
      the subject before the owner groups it.
+   - `dependencies[]`: a commit whose prefix names a branch that is not built on the branches it needs (`depends_on`:
+     its hunks change what their commits wrote), so that branch can't sync. Fix the prefix in your worktree before
+     the pick (--dry-run says it too), or after it run `bd group` with its `plan` (the commit moves into the branch
+     that holds them) or its `restack`.
    - `already_present[]`: commits whose change the branch has already (`on`: its commit with the same patch; `by`:
      `patch_id`, left out before the replay, or `empty`, the change in another form); never an empty commit.
      `state: up_to_date`: nothing was left to pick.
@@ -391,6 +396,7 @@ worktrees work on one branch, run `bd help worktrees` first.
 
 - Run bd in the repository, or pass `-C <repo>`.
 - Write the `(branch)` prefix of a commit's subject when you commit, a readable name, never an issue id as the name.
+- Land the commits of another worktree with `bd pick`, never with `git cherry-pick`, which leaves `CHERRY_PICK_HEAD`.
 - Every command prints one JSON object on stdout. Branch on `error.code` and the exit code, never on the message;
   `bd schema` prints the JSON Schema of every output, `bd version` the version of bd and git.
 - Never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; move a

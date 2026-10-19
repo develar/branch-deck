@@ -224,3 +224,79 @@ fn pick_outputs_match_the_schema() {
   );
   assert_covered(pick_schema, pick_schema, &present, "pick of a present commit");
 }
+
+/// `output` matches the `pick` output of `bd schema`
+fn assert_pick_schema(repo: &TestRepo, output: &Value, what: &str) {
+  let (_, schema) = run_json(&environment(repo.path()), &["schema"]);
+  let pick_schema = &schema["outputs"]["pick"];
+  assert_covered(pick_schema, pick_schema, output, what);
+}
+
+/// Run `bd group` with `plan` written to a file
+fn group(repo: &TestRepo, plan: &Value) -> (i32, Value) {
+  let file = tempfile::NamedTempFile::new().unwrap();
+  std::fs::write(file.path(), plan.to_string()).unwrap();
+  run_in(repo, &["group", "--plan", file.path().to_str().unwrap()])
+}
+
+#[test_log::test]
+fn a_picked_commit_that_needs_another_branch_names_it_with_the_plan_that_moves_it() {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  repo.create_commit("(base) Add base", "base.txt", "base\n");
+  repo.create_commit("(base/hang) Add the monitor", "monitor.rs", "monitor\n");
+  repo.create_commit("(base/teamcity) Add the runner", "runner.rs", "runner\n");
+  let lane = TestWorktree::detached(&repo);
+  // the prefix names teamcity, the hunk changes the file hang created
+  let watch = lane.commit("(base/teamcity) Watch the monitor", "monitor.rs", "monitor\nwatch\n");
+  let expected = json!([{
+    "commit": watch,
+    "subject": "(base/teamcity) Watch the monitor",
+    "prefix_branch": "teamcity",
+    "depends_on": ["hang"],
+    "plan": { "branches": { "hang": [watch] }, "unassign": [] },
+  }]);
+
+  let (exit_code, dry_run) = run_in(&repo, &["--full-ids", "pick", "--from", &lane.path, "--dry-run"]);
+  assert_eq!(exit_code, 0, "{dry_run}");
+  assert_eq!(dry_run["dependencies"], expected);
+  let (exit_code, output) = run_in(&repo, &["--full-ids", "pick", "--from", &lane.path]);
+  assert_eq!((exit_code, &output["state"]), (0, &json!("picked")), "{output}");
+  assert_eq!(output["dependencies"], expected);
+  assert_pick_schema(&repo, &output, "pick with a dependency and its plan");
+  // as it is, teamcity does not sync
+  let (exit_code, sync) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 1, "{sync}");
+
+  let (exit_code, grouped) = group(&repo, &output["dependencies"][0]["plan"]);
+  assert_eq!(exit_code, 0, "{grouped}");
+  let (exit_code, sync) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{sync}");
+  assert_eq!(git(&repo, &["log", "-1", "--format=%s"]), "(hang) Watch the monitor");
+}
+
+#[test_log::test]
+fn a_picked_commit_that_needs_its_own_and_another_branch_offers_the_restack() {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  repo.create_commit("(server) Add the server", "server.rs", "server\n");
+  repo.create_commit("(client) Add the client", "client.rs", "client\n");
+  let lane = TestWorktree::detached(&repo);
+  lane.write("server.rs", "server\nport\n");
+  lane.git(&["add", "--", "server.rs"]);
+  lane.commit("(client) Connect to the server port", "client.rs", "client\nport\n");
+
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path]);
+  assert_eq!(exit_code, 0, "{output}");
+  let dependency = &output["dependencies"][0];
+  assert_eq!(
+    (&dependency["prefix_branch"], &dependency["depends_on"], &dependency["restack"]),
+    (&json!("client"), &json!(["server"]), &json!("bd restack client server"))
+  );
+  assert!(dependency.get("plan").is_none(), "{output}");
+  assert_pick_schema(&repo, &output, "pick with a dependency and its restack");
+  let (exit_code, restacked) = run_in(&repo, &["restack", "client", "server"]);
+  assert_eq!(exit_code, 0, "{restacked}");
+  let (exit_code, sync) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{sync}");
+}

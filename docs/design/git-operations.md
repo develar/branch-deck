@@ -1063,7 +1063,15 @@ pick, and interleaves with a fold or an update of the owner.
    patch id, it drops as empty or conflicts.
 5. Both dry runs before either move: `blocking_paths` of the target (HEAD → new tip) and of the source (its HEAD →
    new tip), each on its own index copy and working tree.
-6. The target moves through `move_branch_and_files` (`branch-deck: pick`, the mark, CAS, rollback), then the source
+6. How the picked commits land, from one read before the move (`landing` in `crates/sync-core/src/pick.rs`): the
+   grouping inputs (`git config`, one `cat-file --batch`) and the commits ahead of the baseline (one `log`), grouped
+   without and with the copies on top, give the `group` of each copy. Only when a prefix names a branch the target has, the
+   diffs of the commits ahead and of the copies (`read_commit_diffs_cached`, by id) give the edges by lines
+   (`compute_dependencies`, no symbols): a copy whose branch is not built on each branch it needs is in
+   `dependencies`, with the move into the branch of the stack that holds them all (`stack::stack_top`, shared with
+   the conflict fix) or, when it needs its own branch too, the restack of its branch. Offered, never applied: the
+   pick stays one guarded move, and `bd group` and `bd restack` have their own lock and undo.
+7. The target moves through `move_branch_and_files` (`branch-deck: pick`, the mark, CAS, rollback), then the source
    through the same move, a detached HEAD with `option no-deref` and a check under the locks that HEAD is still
    detached (`HeadAttached` otherwise), so a `git switch` to a branch at the same commit can't move that branch. A
    source that moved or switched after the check stays where it is while the target moved: the outcome says so, and
@@ -1076,7 +1084,7 @@ then both move back (`branch-deck: undo pick`). The source moves back too: other
 the range, since the fork point of N is N. The worktree path comes from `$GIT_COMMON_DIR/worktrees/<id>/gitdir`.
 
 Code: `crates/git-ops/src/pick.rs`, `crates/git-ops/src/update_branch.rs` (the moves, `HeadRef`, the undo check by
-operation), `crates/sync-core/src/pick.rs` (lock, baseline, grouping, the undo token), `crates/bd-cli/src/pick_command.rs`.
+operation), `crates/sync-core/src/pick.rs` (lock, baseline, grouping, dependencies, the undo token), `crates/bd-cli/src/pick_command.rs`.
 
 #### Lease
 
@@ -2568,7 +2576,8 @@ the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and
 | `bd safe-push --check` of a stacked branch, with its trial build alone | `a_safe_push_check_of_a_stacked_branch` § | 40 | 35 |
 | `bd safe-push --whole-stack --check` of a stack that forks (three branches and the stack branch) | `a_safe_push_check_of_the_whole_stack` ¶ | 39 | 39 |
 | `bd fold` | `a_fold` | 36 | 30 |
-| `bd pick --from --follow` (2026-10-18) | `a_pick` | 54 | 54 |
+| `bd pick --from --follow` (2026-10-18; the grouping before the move, 2026-10-19) | `a_pick` | 54 | 55 |
+| `bd pick --dry-run` of a fast-forward into a branch the target has: the dependency check (2026-10-19) | `a_pick_into_a_branch_the_target_has` | 28 | 28 |
 | `bd lease get` of a free slot, then `bd lease return` (2026-10-19) | `a_lease_get_and_return` | 5, 4 | 5, 4 |
 | `bd status` (the push URL of `origin` for `landed_by` since 2026-10-18) | `a_status` * | 10 | 8 |
 | `bd status` of a stack that forks | `a_status_of_a_forking_stack` ‡ | 7 | 8 |

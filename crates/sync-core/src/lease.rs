@@ -913,7 +913,7 @@ fn unlanded_work(git_executor: &GitCommandExecutor, path: &str, lease: &Lease) -
   if !ref_exists(git_executor, path, &format!("refs/heads/{branch}")) {
     return Ok((reachable, reachability(Some(format!("the branch {branch} is gone")))));
   }
-  let upstream = baseline_tracking_ref(git_executor, path).unwrap_or_default();
+  let upstream = baseline_tracking_ref(git_executor, path).ok().and_then(|(_, upstream)| upstream);
   match commits_to_pick(git_executor, path, branch, path, upstream.as_deref()) {
     Ok(commits) => {
       let mut unlanded: Vec<UnlandedCommit> = commits

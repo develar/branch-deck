@@ -9,6 +9,8 @@ targets:
   - ../../crates/bd-cli/src/rewrite.rs
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/sync-core/src/pick.rs
+  - ../../crates/sync-core/src/stack.rs
+  - ../../crates/sync-core/src/dependencies.rs
   - ../../crates/git-ops/src/pick.rs
   - ../../crates/git-ops/src/update_branch.rs
   - ../../crates/git-ops/src/ref_transaction.rs
@@ -88,6 +90,14 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   leaves `CHERRY_PICK_HEAD`).
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_conflict_after_a_commit_left_out_by_its_patch_id_names_the_commit_and_lists_the_left_out_one`)
   [@test] ../../crates/bd-cli/src/pick_test.rs (`a_conflict_changes_nothing_and_says_what_to_do`)
+- A picked commit whose prefix names a branch the branch has already must be listed in `dependencies` when that
+  branch is not built on every branch whose commits its hunks depend on (the edges by lines, no symbols), with the
+  copy, `prefix_branch` and `depends_on`, in a `--dry-run` too. `plan`, the `bd group` plan that moves the commit
+  into the branch of the stack that holds all of them, must make the next `bd sync` clean; a commit that also needs
+  its own branch gets `restack`, `bd restack <prefix_branch> <parent>` onto a branch that holds them and its current
+  parent. The pick never applies either. A prefix of a new branch is not checked: the check reads the diffs only for a
+  prefix that names a branch the branch has.
+  [@test] ../../crates/bd-cli/src/pick_test.rs (`a_picked_commit_that_needs_another_branch_names_it_with_the_plan_that_moves_it`, `a_picked_commit_that_needs_its_own_and_another_branch_offers_the_restack`)
 - The range of a worktree must be `<source HEAD> ^<branch> ^<upstream> ^<base>`, the base being the fork point of the
   source in the reflog of the branch, so that a branch folded, regrouped or redated after the worktree was cut gives
   none of its old commits back.
@@ -161,7 +171,9 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
 - The outputs must match `bd schema` (`pick`, `undo`).
   [@test] ../../crates/bd-cli/src/pick_test.rs (`pick_outputs_match_the_schema`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
-- A pick must run a fixed number of git processes: one `replay`, the two moves with their marks.
+- A pick must run a fixed number of git processes: one `replay`, one read of the grouping before the move (the
+  inputs and one `log` of the commits ahead), the two moves with their marks; the diffs of the dependency check only
+  for a prefix that names a branch the branch has.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_pick`)
 
 ## Testing / Local Run
@@ -170,6 +182,9 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   `cargo nextest run -p bd-cli pick_test` runs the command end to end.
 
 ## Open Questions / Risks
+
+- The dependency check sees lines only, not symbols: a picked commit that calls a function another branch adds in
+  another file is not named; `bd check` names it after the pick (`missing_declarations`).
 
 - A source directly on the branch's HEAD, picked in the same second as its commits were made, replays into the same
   commits: the branch fast-forwards to them and the source does not move (`at_tip`).

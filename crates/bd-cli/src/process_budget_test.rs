@@ -8,7 +8,7 @@ use crate::fixture_test::{PREFIX, commit_subjects, context_with_the_config_prefi
 use crate::fold_command::{FoldArgs, fold};
 use crate::lease_command::{LeaseContext, LeaseGetArgs, LeaseReturnArgs, lease_get, lease_return};
 use crate::move_hunk_command::{MoveHunkArgs, move_hunk};
-use crate::pick_command::{PickArgs, pick};
+use crate::pick_command::{PickArgs, PickOutput, pick};
 use crate::push_command::{PushArgs, push};
 use crate::push_test::repo_with_remote;
 use crate::request_review_command::{RequestReviewArgs, request_review};
@@ -330,9 +330,22 @@ fn a_move_hunk() {
   assert_eq!(move_hunk_processes(1), move_hunk_processes(6));
 }
 
+/// `bd pick --from <lane>` with the options `options` sets, in a counting context
+fn pick_from(repo: &TestRepo, lane: TestWorktree, options: impl FnOnce(&mut PickArgs)) -> (RepoContext, PickOutput) {
+  let context = context(repo);
+  let mut args = PickArgs {
+    from: Some(lane.path.into()),
+    ..PickArgs::default()
+  };
+  options(&mut args);
+  let output = pick(&context, &args, &environment(repo.path())).unwrap();
+  (context, output)
+}
+
 /// `bd pick --from <worktree> --follow`: the lock, the marks of both worktrees, the baseline, the check (HEAD with its
-/// committer date, the range, one `replay`, the copies, both dry runs), the two moves with their marks (`update-ref`, `read-tree`), and the grouping
-/// of the picked commits
+/// committer date, the range with the patch id marks, one `replay`, the copies, both dry runs), the grouping of the
+/// picked commits before the move (the inputs and one `log` of the commits ahead: a new prefix needs no diffs), and the
+/// two moves with their marks (`update-ref`, `read-tree`)
 #[test]
 fn a_pick() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -340,13 +353,7 @@ fn a_pick() {
   lane.commit("(lane) Add a", "a.txt", "a\n");
   lane.commit("(lane) Add b", "b.txt", "b\n");
   commit_subjects(&repo, &["(own) Add c"]);
-  let context = context(&repo);
-  let args = PickArgs {
-    from: Some(lane.path.into()),
-    follow: true,
-    ..PickArgs::default()
-  };
-  let output = pick(&context, &args, &environment(repo.path())).unwrap();
+  let (context, output) = pick_from(&repo, lane, |args| args.follow = true);
   assert_eq!(
     (output.picked.len(), output.followed.as_ref().map(|followed| followed.state)),
     (2, Some(crate::pick_command::FollowedState::Moved))
@@ -358,7 +365,7 @@ fn a_pick() {
       ("config", 1),
       ("diff-tree", 2),
       ("for-each-ref", 2),
-      ("log", 3),
+      ("log", 4),
       ("merge-base", 3),
       ("read-tree", 4),
       ("remote", 2),
@@ -422,6 +429,36 @@ fn a_lease_get_of_a_new_slot_by_a_clone() {
       ("status", 1),
       ("update-index", 1),
       ("worktree", 2),
+    ],
+  );
+}
+
+/// `bd pick --dry-run` of a commit whose prefix names a branch the target has, a fast-forward: the check without a
+/// replay and without the follow, the grouping, and the diffs of the dependency check (`log --raw` of the commits ahead
+/// and the copy, one `cat-file` of their blobs)
+#[test]
+fn a_pick_into_a_branch_the_target_has() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  commit_subjects(&repo, &["(own) Add c"]);
+  let lane = TestWorktree::detached(&repo);
+  lane.commit("(own) Change c", "f0.txt", "changed\n");
+  let (context, output) = pick_from(&repo, lane, |args| args.dry_run = true);
+  assert_eq!((output.picked.len(), output.dependencies.len()), (1, 0));
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 2),
+      ("config", 1),
+      ("diff-tree", 1),
+      ("for-each-ref", 2),
+      ("log", 4),
+      ("merge-base", 3),
+      ("read-tree", 1),
+      ("remote", 2),
+      ("rev-list", 1),
+      ("rev-parse", 8),
+      ("symbolic-ref", 2),
+      ("update-index", 1),
     ],
   );
 }

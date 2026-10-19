@@ -109,6 +109,36 @@ impl StackForest {
   pub fn problems(&self, branch: &str) -> &[StackProblem] {
     self.nodes.get(branch).map_or(&[], |node| node.problems.as_slice())
   }
+
+  /// The branch and its declared parents, nearest first; a cycle ends at its first repeat
+  pub fn chain<'a>(&'a self, branch: &'a str) -> Vec<&'a str> {
+    let mut chain: Vec<&'a str> = Vec::new();
+    let mut current = Some(branch);
+    while let Some(name) = current.filter(|name| !chain.contains(name)) {
+      chain.push(name);
+      current = self.declared_parent(name);
+    }
+    chain
+  }
+}
+
+/// The branch whose stack holds every owner: an owner built on all the others, the deepest, by `chain` (a branch and
+/// the branches it is built on, nearest first); with stacked branches off only a single owner
+pub(crate) fn stack_top<'a>(owners: &BTreeSet<&'a str>, stacks: bool, chain: impl Fn(&'a str) -> Vec<&'a str>) -> Option<&'a str> {
+  if owners.is_empty() {
+    return None;
+  }
+  if !stacks {
+    return (owners.len() == 1).then(|| *owners.iter().next().unwrap_or(&""));
+  }
+  owners
+    .iter()
+    .copied()
+    .filter(|owner| {
+      let chain = chain(owner);
+      owners.iter().all(|other| chain.contains(other))
+    })
+    .max_by_key(|owner| chain(owner).len())
 }
 
 /// What the commits of one grouping declare, collected while grouping
