@@ -1,6 +1,7 @@
 import { memo, startTransition, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties, KeyboardEvent, ReactNode, Ref } from "react"
 import { flushSync } from "react-dom"
+import { cn } from "cn"
 import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { DiffPainter } from "@/components/diff/diff-painter"
@@ -30,8 +31,15 @@ import { useDiffLigatures } from "@/stores/settings/diff-view-settings"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 import "./diff-view.css"
 
-/** The height of a file header: `h-9` */
-const HEADER_HEIGHT = 36
+/*
+ * The file cards of a view with headers (docs/design/diff-view.md, "File cards"), as IntelliJ's combined diff: a gap of
+ * 10 px between two cards and around them, an inset of 12 px at the sides, a border of 1 px. The header holds the top
+ * border of its card.
+ */
+const CARD_HEADER_HEIGHT = 48
+const CARD_GAP = 10
+const CARD_INSET = 12
+const CARD_BORDER = 1
 /** The font of the rows, as `.dv-rows` of diff-view.css */
 const ROWS_FONT = `${DIFF_FONT_SIZE}px "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`
 /** The files after the window whose texts are read ahead */
@@ -226,7 +234,9 @@ export function DiffView({
   scroll = "own",
   worktree = false,
 }: DiffViewProps) {
-  const headerHeight = renderHeader === undefined ? 0 : HEADER_HEIGHT
+  // each file a card under its header: the review windows
+  const cards = renderHeader !== undefined
+  const headerHeight = cards ? CARD_HEADER_HEIGHT : 0
   const zoom = useAppSettings(state => state.zoom)
   const ligatures = useDiffLigatures()
   // the files the user expanded or collapsed against the way they start
@@ -235,7 +245,9 @@ export function DiffView({
   const [folds, setFolds] = useState<ReadonlyMap<TextDiff | TextMerge, readonly number[]>>(() => new Map())
   const [windowRange, setWindowRange] = useState<readonly [number, number]>([0, 0])
   const [metrics, setMetrics] = useState<ViewMetrics>(() => ({ rowHeight: 20, columnWidth: 7.8, text: { columnWidth: 7.8, tabSize: DIFF_TAB_SIZE, widthOf: () => 7.8 } }))
-  const [width, setWidth] = useState(0)
+  const [viewWidth, setWidth] = useState(0)
+  // the width of the rows: the view less the insets and the borders of the cards
+  const width = cards ? Math.max(viewWidth - 2 * (CARD_INSET + CARD_BORDER), 0) : viewWidth
   const scroller = useRef<HTMLDivElement>(null)
   const visiblePath = useRef<string | undefined>(initialPath ?? (files[0] === undefined ? undefined : pathOf(files[0])))
   // the block of changed lines N and P stepped to last, in the file at the top
@@ -317,9 +329,9 @@ export function DiffView({
           notice: notices[index] !== null,
           visualLines: visualLines[index],
         })),
-        { rowHeight: metrics.rowHeight, headerHeight },
+        { rowHeight: metrics.rowHeight, headerHeight, cards: cards ? { gap: CARD_GAP, padding: CARD_GAP, borderBottom: CARD_BORDER } : undefined },
       ),
-    [prepared, visualLines, metrics, headerHeight, notices],
+    [prepared, visualLines, metrics, headerHeight, notices, cards],
   )
 
   // the hits of the find in the lines the rows show, from the texts read so far
@@ -613,7 +625,8 @@ export function DiffView({
         noticeRow={layout.files[index]!.notice}
         top={layout.offsets[index]!}
         height={layout.fileHeight(index)}
-        rowsOffset={layout.rowsOffset(index)}
+        rowsHeight={layout.rowsHeight(index)}
+        card={cards}
         rowHeight={metrics.rowHeight}
         columnWidth={metrics.columnWidth}
         softWraps={softWraps}
@@ -633,7 +646,7 @@ export function DiffView({
       role="region"
       aria-label={label}
       tabIndex={scroll === "own" ? 0 : undefined}
-      className={scroll === "own" ? "dv-scroller min-h-0 flex-1" : "dv-embedded"}
+      className={cn(scroll === "own" ? "dv-scroller min-h-0 flex-1" : "dv-embedded", cards && "dv-cards")}
       data-ligatures={ligatures ? undefined : "off"}
       data-testid="diff-view"
     >
@@ -673,7 +686,9 @@ interface DiffSectionProps {
   noticeRow: boolean
   top: number
   height: number
-  rowsOffset: number
+  rowsHeight: number
+  /** The file is a card: a border, rounded corners, its header the top of the card */
+  card: boolean
   rowHeight: number
   columnWidth: number
   softWraps: boolean
@@ -691,14 +706,35 @@ interface DiffSectionProps {
 
 /** The section of a file: as tall as the file, its header sticky, the rows element the painter fills */
 const DiffSection = memo(function DiffSection(props: DiffSectionProps) {
-  const { index, file, rows, notice, noticeRow, top, height, rowsOffset, rowHeight, columnWidth, softWraps, width, sideWidths, painter, renderHeader, onToggle, onExpandAll } =
-    props
+  const {
+    index,
+    file,
+    rows,
+    notice,
+    noticeRow,
+    top,
+    height,
+    rowsHeight,
+    card,
+    rowHeight,
+    columnWidth,
+    softWraps,
+    width,
+    sideWidths,
+    painter,
+    renderHeader,
+    onToggle,
+    onExpandAll,
+  } = props
   return (
     <section
-      className="dv-section"
+      className={card ? "dv-section dv-card" : "dv-section"}
       aria-label={file.path}
       data-testid="diff-view-file"
       data-path={file.path}
+      // a card with its header alone (diff-view.css): an attribute, as a `:has()` of the rows costs Chromium a style
+      // recalc of the card on each row the painter adds
+      data-collapsed={card && rows === null && !noticeRow ? "" : undefined}
       style={{ top, height, "--dv-gutter": `${file.gutterColumns * columnWidth}px`, "--dv-row-height": `${rowHeight}px` } as CSSProperties}
     >
       {renderHeader !== undefined && (
@@ -722,7 +758,7 @@ const DiffSection = memo(function DiffSection(props: DiffSectionProps) {
         <>
           <div
             className="dv-rows"
-            style={{ height: height - rowsOffset }}
+            style={{ height: rowsHeight }}
             ref={host => {
               painter.attachRows(index, host)
               return () => {

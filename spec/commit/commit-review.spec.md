@@ -142,10 +142,13 @@ where a dialog would cover it.
   commit or filter loads, has no files or cannot be read, the diffs pane says so, and the commits and the header of
   the files stay where they are, with their focus.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
-- The right pane must show the diffs of all files in the order of the tree, in one virtualized view, each under a
-  sticky header with its status letter, its name, where a rename came from and its directory muted, its owner, its
-  line counts, a copy button and the menu of the file ([Commit Files](commit-files.spec.md#the-actions-on-a-file)).
-  The commit a range shows is above them.
+- The right pane must show the diffs of all files in the order of the tree, in one virtualized view, each file a card
+  as in IntelliJ's combined diff: 10 px apart, a 1-px border, rounded corners, a collapsed file its header alone. Its
+  header is the top of the card and sticks while its rows scroll, until the end of the card pushes it up. The header
+  shows the status letter, the name bold, where a rename came from and its directory muted, Expand All with its
+  tooltip, its owner, its line counts, a copy button and the menu of the file
+  ([Commit Files](commit-files.spec.md#the-actions-on-a-file)). The commit a range shows is above them.
+  [@test] ../../src/lib/diff/layout.test.ts (`counts the gaps, the space around the cards and the bottom border of each card, so each offset stays exact`)
 - A file chosen in the tree must scroll its header to the top. As the diffs scroll, the file whose header is at the
   top must become the selected file, its directories opened. A scroll the review made (a choice, J, K, N, P) changes
   the selection only through the key or the row that made it, also for a last file that cannot reach the top.

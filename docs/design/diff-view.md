@@ -165,12 +165,26 @@ in microseconds.
 
 ### Layout and virtualization
 
-**Items of the document.** The view is a document of items: the header of a file (36 px, `h-9`), the notice of a
-file (one row; the review windows show their notices in the header and use no notice row), and the rows of a file. Each item has a known height:
-- Soft wraps off (the default): every row has the row height. The height of a file is `header + rows × row height`.
+**Items of the document.** The view is a document of items: the header of a file, the notice of a file (one row; the
+review windows show their notices in the header and use no notice row), and the rows of a file. Each item has a known height:
+- Soft wraps off (the default): every row has the row height. The height of a file is `header + rows × row height`,
+  and the bottom border of its card in a review window (below).
   The row count comes from the blocks and the line counts, so the layout is exact before the texts arrive.
 - Soft wraps on: the height of a row is its count of visual lines × the row height. The view computes this count
   itself, see below.
+
+**File cards.** A view with headers (the review windows) shows each file as a card, as IntelliJ's combined diff:
+- A gap of 10 px between two cards and above the first and below the last one, in the panel colour; an inset of
+  12 px at the sides; a border of 1 px in the colour of IntelliJ's `Editor.Toolbar.borderColor`; the radius of the
+  scale nearest to IntelliJ's 12 px (`--radius-4xl`), all four corners. A collapsed file is its header alone.
+- The header is 48 px: IntelliJ's insets of 12 px around a control of 24 px, 10 px at the sides. It holds the top
+  border of its card. Its name is bold, its path muted.
+- The sticky header is the top of its card: it draws the top and the side borders, rounded, and the line under it, so
+  it reads as a card while its rows scroll under it. It stops at the end of its card, which pushes it up, as
+  IntelliJ's `y = min(blockMaxY - viewTop, h) - h`; that is the rule of `position: sticky` in its section.
+- The layout counts all of it (`LayoutMetrics.cards`): the top of file `i` is the space above the cards, the heights of
+  the files before it and a gap after each. A file is `header + notice + rows + bottom border`. So every offset stays
+  arithmetic, and the anchor, the rows in view and the scroll to a file need no measure.
 
 **The row height.** It comes from the metrics of the editor font, not from a constant:
 - The view measures the ascent and the descent of the font with `measureText` of a canvas, at the font size of the

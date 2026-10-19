@@ -100,3 +100,25 @@ describe("DiffLayout", () => {
     expect(layout.scrollTopOf({ key: "a", line: { side: NEW, line: 3 }, offset: 4 })).toBe(36 + 4)
   })
 })
+
+describe("DiffLayout of file cards", () => {
+  const CARDS = { rowHeight: 20, headerHeight: 48, cards: { gap: 10, padding: 10, borderBottom: 1 } }
+
+  it("counts the gaps, the space around the cards and the bottom border of each card, so each offset stays exact", () => {
+    const rows = buildFileRows(ONE_CHANGE, "unified", [EXPANDED, EXPANDED])
+    // a file with rows, a collapsed one (its header alone), one with a notice row
+    const layout = new DiffLayout([file("a", rows), file("b", null), file("c", rows, { notice: true })], CARDS)
+    const a = 48 + rows.rowCount * 20 + 1
+    expect([layout.offsets[0], layout.fileHeight(0), layout.fileHeight(1), layout.offsets[1], layout.offsets[2]]).toEqual([10, a, 49, 10 + a + 10, 10 + a + 10 + 49 + 10])
+    expect(layout.rowsOffset(2)).toBe(48 + 20)
+    expect(layout.rowTop(0, 3)).toBe(10 + 48 + 3 * 20)
+    expect(layout.height).toBe(layout.offsets[2]! + layout.fileHeight(2) + 10)
+    // a row of the second card: the first card, its gap and the header
+    expect(layout.rowTop(2, 0)).toBe(layout.offsets[2]! + 68)
+    // a y in a gap is the file above it
+    expect(layout.fileAt(10 + a + 5)).toBe(0)
+    // the anchor keeps its line across the layout of the same files
+    const anchor = layout.anchorAt(layout.rowTop(2, 5) + 3)!
+    expect(layout.scrollTopOf(anchor)).toBe(layout.rowTop(2, 5) + 3)
+  })
+})

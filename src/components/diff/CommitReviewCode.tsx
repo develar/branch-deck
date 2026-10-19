@@ -1,12 +1,12 @@
 import type { Ref } from "react"
-import { cn } from "cn"
 import { UnfoldVerticalIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { DiffView } from "@/components/diff/DiffView"
 import type { DiffHeaderProps, DiffViewFile, DiffViewHandle } from "@/components/diff/DiffView"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
-import { FILE_HEADER_CLASS_NAME, FileHeaderChevron, FileHeaderCopyButton } from "@/components/files/FileHeaderParts"
+import { FileHeaderChevron, FileHeaderCopyButton } from "@/components/files/FileHeaderParts"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
 import type { CommitFile } from "@/lib/bindings"
 import { formatCommitFilePath } from "@/lib/commit-files"
@@ -60,9 +60,14 @@ export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisi
  */
 export function PendingFileHeaders({ files, fileOwners }: { files: readonly CommitFile[]; fileOwners?: ReadonlyMap<string, string> }) {
   return (
-    <div data-testid="review-pending-files" aria-busy="true" className="flex flex-col gap-2">
+    // the cards the files will have, header only (diff-view.css)
+    <div data-testid="review-pending-files" aria-busy="true" className="dv-cards flex flex-col gap-2.5 px-3 py-2.5">
       {files.slice(0, PENDING_HEADERS).map(file => (
-        <ReviewFileHeader key={file.path} file={file} notice={null} empty collapsed={false} onToggle={() => {}} pending owner={fileOwners?.get(file.path)} />
+        <div key={file.path} className="dv-card">
+          <div className="dv-header">
+            <ReviewFileHeader file={file} notice={null} empty collapsed={false} onToggle={() => {}} pending owner={fileOwners?.get(file.path)} />
+          </div>
+        </div>
       ))}
     </div>
   )
@@ -74,14 +79,18 @@ interface ReviewFileHeaderProps extends DiffHeaderProps {
   owner: string | undefined
 }
 
-/** The sticky header of a file: what the tree row says, with the path in full, its owner, and the menu of the file */
+/**
+ * The sticky header of a file, the top of its card: what the tree row says, the name bold and the path muted, Expand
+ * All, its owner and counts, and the menu of the file. The insets are IntelliJ's: 12 px above and below, 10 px at the
+ * sides
+ */
 function ReviewFileHeader({ file, notice, empty, pending = false, owner, collapsed, onToggle, onExpandAll }: ReviewFileHeaderProps) {
   const name = file.path.slice(file.path.lastIndexOf("/") + 1)
   return (
     <FileContextMenu
       target={() => ({ kind: "file", path: file.path })}
       selectable
-      render={<div data-testid="review-file-header" data-path={file.path} className={cn(FILE_HEADER_CLASS_NAME, "border-b border-border bg-card")} />}
+      render={<div data-testid="review-file-header" data-path={file.path} className="group/file-header flex items-center gap-2 px-2.5 text-sm" />}
     >
       <Button
         variant="ghost"
@@ -97,12 +106,16 @@ function ReviewFileHeader({ file, notice, empty, pending = false, owner, collaps
         <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} emphasis />
       </span>
       <FileHeaderCopyButton path={file.path} />
-      {onExpandAll !== undefined && (
-        <Button variant="ghost" size="icon-xs" aria-label={`Expand all unchanged lines of ${name}`} title="Expand All" onClick={onExpandAll}>
-          <UnfoldVerticalIcon />
-        </Button>
-      )}
       <span className="ml-auto flex shrink-0 items-center gap-3 text-xs">
+        {/* an action on the rows of the file, with the other parts at the end, named on hover as IntelliJ's */}
+        {onExpandAll !== undefined && (
+          <Tooltip>
+            <TooltipTrigger render={<Button variant="ghost" size="icon-xs" aria-label={`Expand all unchanged lines of ${name}`} onClick={onExpandAll} />}>
+              <UnfoldVerticalIcon />
+            </TooltipTrigger>
+            <TooltipContent>Expand All</TooltipContent>
+          </Tooltip>
+        )}
         {notice !== null &&
           (empty ? (
             <span className="text-muted-foreground">{notice}</span>

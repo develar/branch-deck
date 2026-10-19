@@ -281,10 +281,11 @@ async function scrollFrames(window: Page, viewportsPerSecond: number): Promise<R
     while (performance.now() < end && scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1) {
       const now = await new Promise<number>(resolve => requestAnimationFrame(resolve))
       frames.push(now - last)
-      // the frame shows what the last scroll painted: every point below the sticky header is a row or a header
+      // the frame shows what the last scroll painted: no point below the sticky header is the empty host of the rows
+      // (the gap between two cards is no row either, by design)
       for (let index = 1; index < 10; index++) {
         const hit = document.elementFromPoint(box.left + 120, box.top + 40 + ((box.height - 40) * index) / 10)
-        if (hit === null || hit.closest(".dv-row, .dv-header, .dv-hscrolls") === null) {
+        if (hit === null || hit.classList.contains("dv-rows")) {
           empty++
           break
         }

@@ -10,8 +10,13 @@ import type { FileRows } from "@/lib/diff/rows"
 export interface LayoutMetrics {
   /** The height of a row, in CSS px (`rowHeightOf`) */
   rowHeight: number
-  /** The height of a file header */
+  /** The height of a file header, the top border of its card included */
   headerHeight: number
+  /**
+   * Each file a card (the review windows, docs/design/diff-view.md "File cards"): the gap between two cards, the space
+   * above the first and below the last, and the bottom border of a card. Absent: the files follow each other
+   */
+  cards?: { gap: number; padding: number; borderBottom: number }
 }
 
 export interface LayoutFile {
@@ -46,23 +51,35 @@ export class DiffLayout {
     this.metrics = metrics
     this.offsets = new Float64Array(files.length + 1)
     this.byKey = new Map()
+    const gap = metrics.cards?.gap ?? 0
+    this.offsets[0] = metrics.cards?.padding ?? 0
     files.forEach((file, index) => {
       this.byKey.set(file.key, index)
-      this.offsets[index + 1] = this.offsets[index]! + this.fileHeight(index)
+      this.offsets[index + 1] = this.offsets[index]! + this.fileHeight(index) + gap
     })
   }
 
+  /** The height of the document: the files, the gaps between them and the space around them */
   get height(): number {
-    return this.offsets[this.files.length]!
+    if (this.files.length === 0) {
+      return 0
+    }
+    const cards = this.metrics.cards
+    return this.offsets[this.files.length]! - (cards?.gap ?? 0) + (cards?.padding ?? 0)
   }
 
   indexOf(key: string): number {
     return this.byKey.get(key) ?? -1
   }
 
-  /** The header, the notice and the rows of a file */
+  /** The header, the notice and the rows of a file, and the bottom border of its card */
   fileHeight(file: number): number {
-    return this.rowsOffset(file) + this.visualLines(file, this.files[file]!.rows?.rowCount ?? 0) * this.metrics.rowHeight
+    return this.rowsOffset(file) + this.rowsHeight(file) + (this.metrics.cards?.borderBottom ?? 0)
+  }
+
+  /** The rows of a file */
+  rowsHeight(file: number): number {
+    return this.visualLines(file, this.files[file]!.rows?.rowCount ?? 0) * this.metrics.rowHeight
   }
 
   /** The offset of the first row in its file: below the header and the notice */

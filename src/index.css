@@ -337,6 +337,12 @@
   --diff-selection: #a6d2ff;
   --diff-search-result: #fcd47e;
   --diff-search-result-border: transparent;
+  /*
+   * The file cards of a review, as IntelliJ's combined diff: the gap between them is the panel background, the border of
+   * a card Editor.Toolbar.borderColor (#E9EAEE, the canvas)
+   */
+  --diff-card-gap: #f7f8f9;
+  --diff-card-border: var(--canvas);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -403,6 +409,9 @@
     --diff-selection: #214283;
     --diff-search-result: #114957;
     --diff-search-result-border: #165e70;
+    /* the gap is the island itself; the border #26282C, the canvas */
+    --diff-card-gap: var(--card);
+    --diff-card-border: var(--canvas);
   }
 }
 
