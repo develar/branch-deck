@@ -77,7 +77,8 @@ The specs are the contract of each part:
 - **The filter.** The state chips of the table take the rows by their nodes, in the words of the overview: Your Move,
   Landing, Waiting, In Master ([Branch Filter](../../spec/branch/branch-filter.spec.md)). They replaced To Push,
   Running and Attention: a push is no state, a running robot is Landing (a Dry Run waits), and what needed attention is
-  a fix among the user's moves, which F2 visits first.
+  a fix among the user's moves, which F2 visits first. The chip of a collapsed stack and the states of an island
+  header count the rows of the stack by their nodes alike ("· 1 to fix", "4 landing", "2 waiting").
 - **The header.** One button says where the work is on its way into master: the node of the most urgent move, the
   number of the user's moves, a bar of the way ([Landing Overview](../../spec/repository/landing-overview.spec.md)). A
   stack is one move, as it lands in one robot; its overview runs the next step of a move at its row, lists the robots

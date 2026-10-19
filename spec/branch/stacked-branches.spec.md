@@ -51,6 +51,7 @@ targets:
   - ../../src/hooks/useCommitMoveList.ts
   - ../../crates/sync-core/src/push.rs
   - ../../src/lib/stack-state.ts
+  - ../../src/hooks/useStackStates.ts
   - ../../src/lib/stack-collapse.ts
   - ../../src/stores/stack-collapse.ts
   - ../../src/stores/settings/repositorySettings.ts
@@ -483,23 +484,23 @@ menu stacks, unstacks and renames branches.
 - The root row of a stack must head it, so a stack of 22 branches doesn't read as 22 rows. A stack is the tree of the
   branches built on a root; what a branch's ancestors are to it is "built on", and a Safe Push "lands … with it". After
   the root's name a chip sizes the stack, "22 branches", and the tooltip says the rest: "Stack of vm-lane-daemon · 22
-  branches · 152 commits · 4 to push · Collapse Stack ⌥←" (`StackChip`). A click on it, ⌥← from any row of the stack
+  branches · 152 commits · 3 your step · 18 waiting · Collapse Stack ⌥←" (`StackChip`): where the branches stacked on
+  the root are on their way into master. A click on it, ⌥← from any row of the stack
   (the focus moves to the root) and "Collapse Stack" of the branch menu collapse the stack into its root; the click,
   ⌥→ and "Expand Stack" expand it. A held key collapses once. A collapsed root has no line down from its node, a short
-  line fading out below it instead (`lane-collapsed`), and its chip adds the strongest state the hidden rows hold, what
-  waits for the user first: "· 1 conflict" or "· 1 error" (`destructive`), "· 1 blocked" (`warning`), "· 1 failed"
-  (`destructive`), "· 1 needs review" (`warning`), then "· 1 running" with the ring and "· 3 to push" (the push
-  colour). Each counts as the surface that tells it for all branches (`summarizeStackState`): "failed" a robot that
-  failed on the branch as it is, as the landing indicator counts it (one of an earlier state, fixed since,
-  counts nothing: its row offers a new Safe Push; nor one of a branch another robot holds or landed, or the baseline
-  has), "needs review" one that failed for missing approvals, "to push" by the
-  rule of the outgoing counts (`summarizePushState`). Stacks are expanded by default; a collapsed one
+  line fading out below it instead (`lane-collapsed`), and its chip adds the strongest state the hidden rows hold, by the
+  nodes of their rows (`summarizeStackState`, [Landing](../../docs/design/landing.md)), in the colour of the node, the
+  user's moves first: "· 1 to fix" (`destructive`: a conflict, an error, a robot that failed on the branch as it is,
+  changes requested), "· 2 your step" (`primary`), "· 3 ready" (`success`), then "· 4 landing" with the ring of the
+  robot, "· 2 waiting" (muted: reviewers, the parent, a robot that holds it) and "· 1 in master" (`info`). They are the
+  words of the landing overview and of the filter chips; a push is no state of its own. A robot of an earlier state,
+  fixed since, makes no fix: the row offers a new Safe Push. Stacks are expanded by default; a collapsed one
   is remembered per repository (`collapsedStacks`, by root; a rename of the root keeps it, a stack on another branch or
   a merged root leaves the list), and the table keeps the lane column of the expanded stacks, so no name moves.
   Collapsing closes the inline form of a hidden row; a reveal of a hidden branch, or an inline form opened for one
   elsewhere, expands its stack. The header counters, the landing overview (a stack is one row there, its root's) and Your Turn count every branch.
   [@test] ../../src/stores/branch-table-rows.test.ts (`collapses a stack to its root and keeps the lane count of the expanded table`, `marks no root collapsed whose stack has no other row, and finds the root from any row of a stack`, `keeps only the collapsed roots that still head a stack`)
-  [@test] ../../src/lib/stack-state.test.ts (`counts a failed robot as the header does: on the branch as it is, apart from one that needs review`, `counts no failure of a branch another robot holds or landed, or the baseline has: the Safe Push of a branch built on it lands it`, `counts the push by the rule of the outgoing counts: not a landed branch, nor one without commits`, `tells a conflict from another sync error`, `puts what waits for the user before what runs, and the push last`)
+  [@test] ../../src/lib/stack-state.test.ts (`counts the rows of a stack by their nodes, and nothing of a branch without one`, `puts the user's moves first, a fix before a step before ready, then what lands, waits and is in master, in the colours of the nodes`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should head a stack with its size and collapse it into its root, per repository`, `should name in the chip of a collapsed stack only the robots that failed on its branches as they are`, `should collapse and expand a stack with Alt+arrows from any of its rows`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show a match deep in a collapsed stack, and expand the stack for a reveal`)
 - A side stack, a branch forked off the lane of its parent with a branch stacked on it, must have the chip of a stack

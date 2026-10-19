@@ -49,7 +49,8 @@ test.describe("Dock", () => {
     await setupRepo("stack_island", { patronus: availableRobots(failed) })
     await syncAndWaitForBranches()
     const states = page.locator(`[data-testid="stack-island"][data-stack-root="air"]`).getByTestId("stack-island-states")
-    await expect(states.getByRole("button")).toHaveText(["1 failed", "7 to push"])
+    // the fix of the whole stack, then the branches, each a step of the user
+    await expect(states.getByRole("button")).toHaveText(["1 to fix", "7 your step"])
     await expect.poll(async () => (await getDockCalls(page)).at(-1)).toEqual({ badgeCount: 1 })
 
     // the stack no longer forks: its stack branch stays for its remote branch, not rebuilt, and the stack lands in pieces
@@ -64,7 +65,7 @@ test.describe("Dock", () => {
     await runAndWaitForSync(page, () => page.getByTestId("sync-button").click())
     await expect.poll(async () => (await getDockCalls(page)).at(-1)).toEqual({ badgeCount: null })
     // the header keeps what the branches hold
-    await expect(states.getByRole("button")).toHaveText(["7 to push"])
+    await expect(states.getByRole("button")).toHaveText(["7 your step"])
   })
 
   test("should not count the failed robot of a branch while the Safe Push of a branch built on it lands it", async ({ page, setupRepo, syncAndWaitForBranches }) => {

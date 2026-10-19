@@ -7,6 +7,7 @@ targets:
   - ../../src/stores/stack-collapse.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/lib/stack-state.ts
+  - ../../src/hooks/useStackStates.ts
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/components/branch/StackIslandCard.tsx
   - ../../src/components/branch/LandingNodeHover.tsx
@@ -89,21 +90,22 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   while the stack forks, else that of its last branch.
   [@test] ../../tests/e2e/branch-graph/branch-graph.spec.ts (`should say in the island header where the whole stack is on its way into master`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the failed robot of the whole stack in the hover of the island's node, with its actions`)
-- After it, what the stack holds, each counted as the stack chip counts it (`summarizeStackState` over the whole
-  stack, `getStackStateChips`), the strongest first: "1 failed", "1 running", "3 to push"; a click on a count shows the
+- After it, where the branches of the stack are on their way into master, by the nodes of their rows, as the stack
+  chip counts them (`summarizeStackState` over the whole stack, `getStackStateChips`), the strongest first in the
+  colours of the nodes: "1 to fix", "4 landing" with the ring of the robot, "2 waiting"; a click on a count shows the
   first branch in that state (`requestReveal`: it expands the island and the row), also from a collapsed island. The
-  robot of the whole stack, which runs on its stack branch and on no branch, counts as the root's: "1 running" with
-  its ring while it runs ("1 failing", "1 failed" or "1 needs review" on the stack branch as it is, a failure only
-  while the sync built it), its count showing the root.
+  robot of the whole stack runs on its stack branch, no branch's: while it runs every branch it lands is landing
+  ("7 landing"); a failure of it on the stack branch as the sync built it is one more fix, the root's ("1 to fix"),
+  its count showing the root.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should count the robot of the whole stack in the header of its island, a click on it showing the root`)
-  [@test] ../../src/lib/stack-state.test.ts (`counts the robot of the whole stack, which runs on its stack branch, as the root's: running, failing or failed on it as it is`)
-  [@test] ../../src/lib/stack-state.test.ts (`counts no failure of the robot of the whole stack on a stack branch the sync did not build: its restart is refused, the stack lands in pieces`)
+  [@test] ../../src/lib/stack-state.test.ts (`counts a fix of the whole stack, whose stack branch has no row, as the root's`)
+  [@test] ../../tests/e2e/patronus/dock.spec.ts (`should count the failed robot of the whole stack only while the sync built its stack branch`)
 - Below the name, muted, " · " between its items as between the parts of each: the open pull requests of the stack
   ("2 pull requests open · 1 approved · 1 changes requested") and what each running robot lands, with its time left ("Safe Push of runtime lands 4 branches · ~23m
   left", the branch and the ones it lands with it, `useLandingSpans`; "Safe Push of the whole stack lands 7 branches"
   for the robot of the whole stack, [Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)), without a ring: the
-  ring of the robot is on "1 running". The pull request of the whole stack is counted apart, first, as where the
+  ring of the robot is on the count of the branches it lands ("4 landing"). The pull request of the whole stack is counted apart, first, as where the
   approvals of its Safe Push count: "Approvals count in #12, the pull request of the whole stack" (" · approved", " ·
   changes requested" as GitHub says). One that no longer matches it says so in `text-warning` instead: "#12 no longer
   matches the air stack: auth landed". The lines are inside the toggle of the header, so the pull request they name is
@@ -119,7 +121,7 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
 - The push is the compact push of a row: "↑ 41", the commits of "Push with Children (7 branches)" of the root, its
   accessible name, as the root's menu names it: the branches of the stack that have work for the remote, each after
   the branch it is built on (`stackChildrenPushOrder`), the landed ones and the ones a running Safe Push holds left
-  out, so it counts as the "to push" chip does; and the stack branch of the whole stack while it goes along, once it
+  out; and the stack branch of the whole stack while it goes along, once it
   is on the remote or its pull request is open ([Stacked Branches](stacked-branches.spec.md#pull-requests)): one more
   branch ("Push with Children (8 branches)", "Push with Children (the whole stack branch)" alone), a commit it and the
   branches both send counted once. Its hover names it and lists the pushes ("Pushes 8 branches, parents first:", a
@@ -166,9 +168,9 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   their slots, one popover at a time (`SafePushAsk`). The header shows no key hints: it is no row.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`, `should disable the whole stack's Safe Push while its stack branch conflicts, and land it in pieces from the header`)
 - While a Safe Push runs in the stack (each one lands the root: [Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs))
-  the header's push is disabled with the reason of the hold and it offers no Safe Push: the landing line and "1
-  running" say why, as the Status cell of a row whose robot runs. The branches it lands are not to push: "3 to push"
-  counts the others.
+  the header's push is disabled with the reason of the hold and it offers no Safe Push: the landing line and "4
+  landing" say why, as the Status cell of a row whose robot runs; the branches it holds and doesn't land are "2
+  waiting".
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
 - "⋯" is the menu of the stack ("More actions for the air stack"), built when it opens: the actions of the whole
   stack, the list the menu of every branch of the stack shows under "Whole Stack ›" (`getWholeStackMenuItems`,

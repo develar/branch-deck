@@ -734,11 +734,9 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [Load on Patronus](#load-on-patronus), or read with its details); a canceling one never is: the user decided already.
   [@test] ../../crates/patronus/src/actions_test.rs (`details_have_the_profile_the_checks_and_the_error_problems`)
 - A failing robot is still a running one (its ring, its time, Cancel), named "Failing" in `destructive`: in the Status
-  cell of its row ("18m · Failing", accessible name "Safe Push: Failing"), the chip, the ring of its node in the stack graph,
-  the chip of a collapsed stack ("· 1 failing", after "failed" and "needs review", before "running"), and the
+  cell of its row ("18m · Failing", accessible name "Safe Push: Failing"), the chip, the ring of its node in the stack graph, and the
   [landing overview](../repository/landing-overview.spec.md#overview), a move under "Landing", where its row names the checks
   that failed: "Failed: Bazel Community Build Aggregator".
-  [@test] ../../src/lib/stack-state.test.ts (`puts what waits for the user before what runs, and the push last`)
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count a running Safe Push whose required check failed as a move, show it failing and cancel it from the toast`)
 - Each failing robot is told once: a `warning` toast "A required check of auth failed" / "Bazel Community Build
   Aggregator · the Safe Push will fail" (the checks from its details, which the warning doesn't name; a watched robot

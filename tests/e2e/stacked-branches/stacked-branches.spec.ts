@@ -232,8 +232,12 @@ test.describe("Stacked branches", () => {
     await chip.click()
     expect(await tree(page)).toEqual(["docs@0", "auth@0"])
     await expect(chip).toHaveAttribute("data-stack", "collapsed")
-    // what the hidden rows hold: their branches to push, in the push colour
-    await expect(chip.getByTestId("stack-chip-attention")).toHaveText("· 3 to push")
+    // where the hidden rows are on their way into master, in the colour of their nodes: neither Patronus nor GitHub, so
+    // their push is the user's step
+    await expect(chip.getByTestId("stack-chip-attention")).toHaveText("· 3 your step")
+    await expect(chip.getByTestId("stack-chip-attention")).toHaveClass(/text-primary/)
+    await chip.hover()
+    await expect(page.getByRole("tooltip")).toContainText("Stack of auth · 4 branches · 4 commits · 3 your step")
     await expect(findBranchRow(page, "auth").getByTestId("lane-collapsed")).toBeVisible()
     // the header still has the whole stack, one row of its 4 branches
     await expect(landingRow(await openLandingOverview(page), "auth")).toContainText("4 branches")
@@ -267,7 +271,7 @@ test.describe("Stacked branches", () => {
     const chip = getStackChip(findBranchRow(page, "auth"))
     await chip.click()
     // the header's count: the failure the user has to act on, not the two fixed since
-    await expect(chip.getByTestId("stack-chip-attention")).toHaveText("· 1 failed")
+    await expect(chip.getByTestId("stack-chip-attention")).toHaveText("· 1 to fix")
     await expect(chip.getByTestId("stack-chip-attention")).toHaveClass(/text-destructive/)
   })
 

@@ -18,12 +18,13 @@ import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
 import { nextStepSources, useNextStepStores } from "@/hooks/useBranchNextStep"
+import { useIsFullyLanded } from "@/hooks/useLandedIn"
 import { useStackLandingNode, useStackNodeBranch } from "@/hooks/useLandingNode"
 import { useStackBranchAlong, useStackBranchPushAlone } from "@/hooks/usePushButton"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { isForkingStack } from "@/hooks/useStackNextStep"
-import { useStackStateSources } from "@/hooks/useStackStateSources"
+import { useStackStates } from "@/hooks/useStackStates"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import { formatBranchCount, formatBranchesAndCommits } from "@/lib/branch"
@@ -37,11 +38,11 @@ import { formatStackPushLine } from "@/lib/push-up-to"
 import { formatRobotProgress } from "@/lib/robot-eta"
 import { describePushWithChildrenBlocker, formatAskFirst, formatPushWithChildrenLabel, needsPush, stackChildrenPushOrder, stackPushSubject } from "@/lib/stack"
 import type { StackIsland } from "@/lib/stack-collapse"
-import type { StackAttention, StackState, StackStateChip } from "@/lib/stack-state"
-import { firstBranchOfEachState, getStackStateChips, summarizeStackState } from "@/lib/stack-state"
+import type { StackStateChip } from "@/lib/stack-state"
+import { getStackStateChips } from "@/lib/stack-state"
 import { joinNames } from "@/lib/text"
 import { transferLabel } from "@/lib/transfer-progress"
-import { ghostButtonColorClass } from "@/lib/ui-types"
+import { ghostButtonColorClass, textColorClassName } from "@/lib/ui-types"
 import {
   STACK_BRANCH_PUSHING,
   describeOrphanedStackPullRequest,
@@ -64,7 +65,7 @@ import {
 } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { landedStacksStore, useStackLandedBy } from "@/stores/landed-stacks"
-import { useBranchRobot, useLandedWithChildrenReason, usePushHold, useStackRobot } from "@/stores/patronus"
+import { useBranchRobot, useLandedWithChildrenReason, usePushHold, usePushHolds, useStackRobot } from "@/stores/patronus"
 import { useRepositoryPullRequestMap, useStackPullRequest } from "@/stores/pull-requests"
 import { getReadinessTarget } from "@/stores/review-readiness"
 import { toggleStackCollapsed } from "@/stores/stack-collapse"
@@ -72,9 +73,6 @@ import { toggleStackCollapsed } from "@/stores/stack-collapse"
 interface IslandSummary {
   branchCount: number
   commitCount: number
-  state: StackState
-  /** The first branch of the stack in each state: where a click on its chip goes */
-  first: Partial<Record<keyof StackState, string>>
   /** What a "Push with Children" of the root pushes, parents first, without the branches a Safe Push holds */
   pushOrder: string[]
   /** The commits that push sends */
@@ -93,13 +91,13 @@ interface IslandSummary {
 }
 
 /**
- * The size of the stack on `root` and what its branches and the robot of its whole stack need, each counted as the
- * header and the filter chips count it (`summarizeStackState`), over the whole stack: a filter that shows a part of it
- * doesn't change what the stack holds
+ * The size of the stack on `root` and what its push sends, over the whole stack: a filter that shows a part of it
+ * doesn't change what the stack holds; the states of its branches are `useStackStates`
  */
 function useIslandSummary(root: string): IslandSummary | null {
-  const sources = useStackStateSources()
-  const { isLanded, isHeld } = sources
+  const isLanded = useIsFullyLanded()
+  const holds = usePushHolds()
+  const isHeld = (name: string): boolean => holds.has(name)
   const rootHold = usePushHold(root)
   // a string, so the store notifies only when the summary changes
   const key = useBranchSync(state => {
@@ -108,9 +106,7 @@ function useIslandSummary(root: string): IslandSummary | null {
     if (state.branches[root] === undefined) {
       return ""
     }
-    // its robot runs on its stack branch, no branch's: counted as the header counts the robots of the branches
-    const stack = state.stackBranches[root]
-    // the push counts as the "to push" chip: what the rows offer, the landed branches left out
+    // what the rows offer, the landed branches left out
     const pushOrder = stackChildrenPushOrder(
       root,
       descendants,
@@ -120,8 +116,6 @@ function useIslandSummary(root: string): IslandSummary | null {
     return JSON.stringify({
       branchCount: branches.length,
       commitCount: branches.reduce((sum, branch) => sum + branch.commitCount, 0),
-      state: summarizeStackState(branches, sources, stack),
-      first: firstBranchOfEachState(branches, sources, stack),
       pushOrder,
       pushCommits: pushOrder.reduce((sum, name) => sum + (state.branches[name]?.remoteStatus?.commitsAhead ?? 0), 0),
       askFirst: branches
@@ -136,12 +130,6 @@ function useIslandSummary(root: string): IslandSummary | null {
     } satisfies IslandSummary)
   })
   return key === "" ? null : (JSON.parse(key) as IslandSummary)
-}
-
-const chipClassNames: Readonly<Record<StackAttention["color"], string>> = {
-  error: "text-destructive",
-  warning: "text-warning",
-  primary: "text-primary",
 }
 
 export interface StackIslandCardProps {
@@ -192,7 +180,7 @@ export function StackIslandCard({ island, filtered, landing, children }: StackIs
       actions={
         <>
           <StackPullRequestButton root={root} />
-          <IslandStateChips summary={summary} />
+          <IslandStateChips root={root} />
           {/* the header has the card's wider padding: its actions stand where the Actions cell of the rows ends */}
           <div className="sm:-mr-2" data-testid="stack-island-actions">
             <RowActions>
@@ -371,16 +359,20 @@ function RunningWholeStack({ count, robot }: { count: number; robot: PatronusRob
   )
 }
 
-/** The states the stack holds, the strongest first; a click shows the first branch in that state */
-function IslandStateChips({ summary }: { summary: IslandSummary }) {
-  const chips = getStackStateChips(summary.state)
-  if (chips.length === 0) {
+/**
+ * Where the branches of the stack are on their way into master, by the nodes of their rows and a fix of the whole
+ * stack (`useStackStates`), the strongest first in the colours of the nodes; a click shows the first branch in that state
+ */
+function IslandStateChips({ root }: { root: string }) {
+  const states = useStackStates(root, { withRoot: true })
+  const chips = states === null ? [] : getStackStateChips(states.state)
+  if (states === null || chips.length === 0) {
     return null
   }
   return (
     <div className="hidden items-center gap-1 sm:flex" data-testid="stack-island-states">
       {chips.map(chip => (
-        <StateChip key={chip.state} chip={chip} branch={summary.first[chip.state]} />
+        <StateChip key={chip.state} chip={chip} branch={states.first[chip.state]} />
       ))}
     </div>
   )
@@ -394,7 +386,7 @@ function StateChip({ chip, branch }: { chip: StackStateChip; branch: string | un
           <Button
             variant="ghost"
             size="xs"
-            className={cn("tabular-nums", chipClassNames[chip.color])}
+            className={cn("tabular-nums", textColorClassName(chip.color))}
             disabled={branch === undefined}
             data-state-chip={chip.state}
             onClick={() => {

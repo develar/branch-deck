@@ -48,6 +48,25 @@ export function ghostButtonColorClass(color: UIColor): string {
   }
 }
 
+/** Text colour of a count in a semantic colour: the states of a stack (`getStackStateChips`) */
+export function textColorClassName(color: UIColor): string {
+  switch (color) {
+    case "primary":
+      return "text-primary"
+    case "success":
+      return "text-success"
+    case "info":
+      return "text-info"
+    case "warning":
+      return "text-warning"
+    case "error":
+      return "text-destructive"
+    case "secondary":
+    case "neutral":
+      return "text-muted-foreground"
+  }
+}
+
 /** Colour of the dot before a routine status text */
 export function statusDotClassName(color: UIColor): string {
   switch (color) {

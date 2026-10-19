@@ -783,17 +783,17 @@ test.describe("Whole stack", () => {
     const air = island(page, "air")
     const states = air.getByTestId("stack-island-states")
 
-    // it runs on the stack branch, no branch's: the header counts it as running, its ring on the count, and the line
-    // below the name says what it lands
+    // it runs on the stack branch, no branch's: every branch of the stack is landing, the ring on their count, and the
+    // line below the name says what it lands
     await expect(air.getByTestId("stack-island-landing")).toHaveText("Safe Push of the whole stack lands 7 branches")
-    await expect(states.getByRole("button")).toHaveText(["1 running"])
+    await expect(states.getByRole("button")).toHaveText(["7 landing"])
     await expect(states.getByTestId("robot-ring")).toHaveCount(1)
     await expect(air.getByTestId("stack-island-landing").getByTestId("robot-ring")).toHaveCount(0)
 
     // collapsed, the island still tells it, and the count shows the root, whose stack it lands
     await air.getByTestId("stack-island-root").click()
     await expect(air).toHaveAttribute("data-state", "closed")
-    await states.getByRole("button", { name: "1 running" }).click()
+    await states.getByRole("button", { name: "7 landing" }).click()
     await expect(air).toHaveAttribute("data-state", "open")
     await expect(getBranchDetailsRow(page, "air")).toBeVisible()
   })

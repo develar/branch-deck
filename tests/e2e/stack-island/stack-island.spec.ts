@@ -125,8 +125,10 @@ test.describe("Stack island", () => {
     await syncAndWaitForBranches()
     const air = island(page, "air")
     const states = air.getByTestId("stack-island-states")
-    // the robot of runtime holds the branches it lands: they are not to push
-    await expect(states.getByRole("button")).toHaveText(["1 failed", "1 running", "3 to push"])
+    // where the branches are on their way into master, as their nodes say it: side-fix to fix, the four branches the
+    // robot of runtime lands, the two it holds waiting
+    await expect(states.getByRole("button")).toHaveText(["1 to fix", "4 landing", "2 waiting"])
+    await expect(states.getByRole("button", { name: "1 to fix" })).toHaveClass(/text-destructive/)
     await expect(air.getByTestId("stack-island-pull-requests")).toHaveText("2 pull requests open · 1 approved · 1 changes requested")
     // the robot of runtime lands the branches it is built on
     await expect(air.getByTestId("stack-island-landing")).toContainText("Safe Push of runtime lands 4 branches")
@@ -148,7 +150,7 @@ test.describe("Stack island", () => {
 
     // collapsed, the island still tells it, and the count shows its branch
     await air.getByTestId("stack-island-root").click()
-    await states.getByRole("button", { name: "1 failed" }).click()
+    await states.getByRole("button", { name: "1 to fix" }).click()
     await expect(air).toHaveAttribute("data-state", "open")
     await expect(getBranchDetailsRow(page, "side-fix")).toBeVisible()
   })
