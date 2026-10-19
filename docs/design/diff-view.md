@@ -410,6 +410,20 @@ are coloured as the IntelliJ editor colours them without resolving a name, from 
 - bounded: over `MAX_BYTES` (8 MiB, the limit of the texts) or after the parse budget (50 operations per KiB) there is
   no highlighting.
 
+The view asks for it with `get_blob_syntax` (`crates/file-diffs/src/syntax.rs`), one call per blob and range of lines:
+- the text comes from the blobs `get_file_diffs` and `get_blob_texts` read (the memory cache, so no git process), the
+  working tree, or one `cat-file --batch`; the view sends the text of a blob it made (the result of a merge) and of one
+  answered `Missing`;
+- the highlighting is made once per blob and kept in memory by grammar and id (64 MiB); a second call for a blob in
+  work waits for it, and at most half the cores parse at once, beside the workers of the diffs. It is not stored: a
+  reopened review parses again (2–15 ms for a typical file), cheaper than a write to the object cache, whose overflow
+  clears its whole environment;
+- the answer is raw bytes (`tauri::ipc::Response`, an `ArrayBuffer` in the view, `application/octet-stream` from the
+  e2e server): `u32`s of a header (format, status, line count, the lines answered, the run count), the line starts of
+  the lines asked for from 0, then their runs. The status says `Runs`, `Fallback` (no grammar, a binary or too large
+  file, a parse over its budget: the worker colours it) or `Missing`. The typed bindings cannot say raw bytes, so the
+  command has its own handler beside theirs (`lib.rs` of `src-tauri`).
+
 On the corpus of the comparison with Shiki (578 files of the IntelliJ monorepo and Branch Deck) every file is
 highlighted at 77–115 ms of CPU per MB in a release build, the parse included; `opt-level = 3` for the grammars gains 0
 to 18 % over the `s` of the release profile, so it stays. The rules have golden files

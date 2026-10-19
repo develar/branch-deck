@@ -1,12 +1,12 @@
 use axum::{
   extract::State,
-  http::StatusCode,
+  http::{StatusCode, header},
   response::{
     IntoResponse, Json, Response,
     sse::{Event, KeepAlive, Sse},
   },
 };
-use file_diffs::model::{BlobText, FileDiffEvent, FileMergeEvent, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams};
+use file_diffs::model::{BlobText, FileDiffEvent, FileMergeEvent, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams};
 use file_diffs::service::FileDiffs;
 use git_ops::commit_files::{CommitFiles, DiffSubject, GetCommitFilesParams, GetCommitsFilesParams, read_commit_files_cached, read_diff_files};
 use object_cache::cache::ObjectCache;
@@ -1125,6 +1125,14 @@ pub async fn get_blob_texts(State(state): State<Arc<AppState>>, Json(params): Js
     FileDiffs::default().blob_texts(&git_executor, &params.repository_path, &params.blobs)
   })
   .await
+}
+
+/// The highlighting of one blob as the app answers it: raw bytes (`application/octet-stream`), or the error of a command
+pub async fn get_blob_syntax(State(state): State<Arc<AppState>>, Json(params): Json<GetBlobSyntaxParams>) -> Result<Response, CommandFailure> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  let Json(bytes) = run_command("highlight a blob", move || FileDiffs::default().blob_syntax(&git_executor, &params)).await?;
+  Ok(([(header::CONTENT_TYPE, "application/octet-stream")], bytes).into_response())
 }
 
 #[derive(Deserialize)]

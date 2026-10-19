@@ -116,6 +116,22 @@ pub enum DiffContent {
   Missing,
 }
 
+/// The parameters of `get_blob_syntax`, the tree-sitter highlighting of one blob (`syntax.rs`)
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetBlobSyntaxParams {
+  pub repository_path: String,
+  /// The blob, with the path of its file in the working tree when it is one, as `get_blob_texts` reads it
+  pub blob: BlobRequest,
+  /// The path whose extension tells the grammar: for the old side of a rename, the old path
+  pub file_path: String,
+  /// The lines to answer, `[from_line, to_line)`: the pages the view asks for
+  pub from_line: u32,
+  pub to_line: u32,
+  /// The text of a blob the view made (the result of a merge), or of one the backend answered `Missing` for
+  pub text: Option<String>,
+}
+
 /// A blob that the views ask for: by its id, and for a file of the working tree, by its path too
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

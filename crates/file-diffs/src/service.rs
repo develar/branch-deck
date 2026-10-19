@@ -21,9 +21,11 @@
 use crate::merge::{ConflictPath, MergeMemoryKey, merge_weight};
 use crate::model::{BlobRequest, BlobText, DiffContent, DiffFile, DiffFileHeader, DiffSource, FileDiffEvent, GetFileDiffsParams, MergeContent, MergeSource};
 use crate::scopes::scopes_of_summary;
+use crate::syntax::{SYNTAX_CACHE_BYTES, syntax_weight};
 use crate::worktree::{read_worktree_blob, uncommitted_entries};
 use anyhow::{Result, bail};
 use code_symbols::extract::{extractor_version, summarize};
+use code_symbols::highlight::lines::LineRuns;
 use code_symbols::language::{Language, language_of};
 use code_symbols::summary::FileSummary;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -82,6 +84,8 @@ pub struct FileDiffs {
   /// The conflicting paths of a merge with their stages, by repository and merge
   pub(crate) conflicts: Cache<(String, MergeSource), Arc<Vec<ConflictPath>>>,
   pub(crate) blobs: Cache<String, Arc<BlobText>>,
+  /// The tree-sitter highlighting of blobs by grammar and id, `None` when a blob has none (`syntax.rs`)
+  pub(crate) syntax: Cache<(u8, String), Arc<Option<LineRuns>>>,
   pub(crate) limits: DiffLimits,
   /// `blocks_of` keeps the blobs it reads in `blobs` (`for_scans`)
   pub(crate) keep_scan_blobs: bool,
@@ -188,6 +192,10 @@ impl FileDiffs {
       blobs: Cache::builder()
         .max_capacity(BLOB_CACHE_BYTES)
         .weigher(|_id: &String, blob: &Arc<BlobText>| blob.size().saturating_add(64))
+        .build(),
+      syntax: Cache::builder()
+        .max_capacity(SYNTAX_CACHE_BYTES)
+        .weigher(|_key: &(u8, String), runs: &Arc<Option<LineRuns>>| syntax_weight(runs))
         .build(),
       limits,
       keep_scan_blobs: false,

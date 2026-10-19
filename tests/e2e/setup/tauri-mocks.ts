@@ -121,6 +121,10 @@ export const tauriMockScript = () => {
     await checkServerResponse(cmd, response)
 
     const contentType = response.headers.get("content-type")
+    // raw bytes, as the app answers `get_blob_syntax` (`tauri::ipc::Response`): an ArrayBuffer
+    if (contentType?.includes("application/octet-stream")) {
+      return await response.arrayBuffer()
+    }
     const data = contentType?.includes("application/json") ? await response.json() : await response.text()
 
     // a Result of the server ({ status: "ok", data } or { status: "error", error }); a value with a status of its own

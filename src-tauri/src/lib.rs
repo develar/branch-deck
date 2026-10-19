@@ -33,7 +33,7 @@ use commands::branch_review::{get_branch_review, get_file_owners, prefetch_branc
 use commands::commit_files::{get_commit_files, get_commits_files};
 use commands::conflict_fix::{apply_conflict_fix, cancel_conflict_fix, find_conflict_fix};
 use commands::fetch_baseline::fetch_baseline;
-use commands::file_diffs::{get_blob_texts, get_file_diffs, get_file_merges};
+use commands::file_diffs::{get_blob_syntax, get_blob_texts, get_file_diffs, get_file_merges};
 use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_status, sign_out_of_github, start_github_sign_in, wait_github_sign_in};
 use commands::move_commits::move_commits_to_branch;
 use commands::patronus::{
@@ -229,8 +229,17 @@ pub fn run() {
   #[cfg(feature = "auto-update")]
   let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
 
+  // the commands of the typed bindings, and the one whose answer is raw bytes (`get_blob_syntax`), which they cannot say
+  let typed_handler = ts_builder.invoke_handler();
+  let raw_invoke_handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![get_blob_syntax];
   builder
-    .invoke_handler(ts_builder.invoke_handler())
+    .invoke_handler(move |invoke| {
+      if invoke.message.command() == "get_blob_syntax" {
+        raw_invoke_handler(invoke)
+      } else {
+        typed_handler(invoke)
+      }
+    })
     .on_menu_event(handle_menu_event)
     .setup(move |app| {
       ts_builder.mount_events(app);

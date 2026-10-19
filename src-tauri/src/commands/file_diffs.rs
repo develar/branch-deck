@@ -1,7 +1,7 @@
 use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use crate::repository_state::RepositoryStateCache;
-use file_diffs::model::{BlobText, FileDiffEvent, FileMergeEvent, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams};
+use file_diffs::model::{BlobText, FileDiffEvent, FileMergeEvent, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams};
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
@@ -92,4 +92,19 @@ pub async fn get_blob_texts(git_executor: State<'_, GitCommandExecutor>, file_di
   let git = (*git_executor).clone();
   let file_diffs = (*file_diffs).clone();
   run_blocking(move || file_diffs.blob_texts(&git, &params.repository_path, &params.blobs)).await
+}
+
+/// The tree-sitter highlighting of the lines a view asks for of one blob (`file_diffs::syntax`): raw bytes, which the
+/// typed bindings cannot say, so it has its own handler (`raw_invoke_handler` in `lib.rs`) and its own call in the view
+/// (`src/lib/diff/highlight/backend-port.ts`). From the blobs the diffs read, else one `cat-file --batch`
+#[tauri::command]
+#[instrument(skip(git_executor, file_diffs, params), fields(id = %params.blob.id, path = %params.file_path))]
+pub async fn get_blob_syntax(
+  git_executor: State<'_, GitCommandExecutor>,
+  file_diffs: State<'_, FileDiffs>,
+  params: GetBlobSyntaxParams,
+) -> Result<tauri::ipc::Response, CommandError> {
+  let git = (*git_executor).clone();
+  let file_diffs = (*file_diffs).clone();
+  run_blocking(move || file_diffs.blob_syntax(&git, &params)).await.map(tauri::ipc::Response::new)
 }
