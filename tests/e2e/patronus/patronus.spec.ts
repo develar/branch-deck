@@ -344,6 +344,10 @@ test.describe("Patronus merge", () => {
     await emitTauriEvent(page, "tauri://focus")
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "JIRA-456 merged into master" })
     await expect(toast).toContainText("Safe Push")
+    // the issue of the title opens in the tracker, as from the row
+    const issueLink = toast.getByRole("link", { name: "JIRA-456" })
+    await expect(issueLink).toHaveAttribute("href", "https://jira.example.com/browse/JIRA-456")
+    await expect(issueLink).toHaveAttribute("target", "_blank")
     await expect(getChip(page, "JIRA-456")).toHaveText("Merged")
 
     // the second action opens the robot, the toast stays for Update Project
@@ -362,6 +366,9 @@ test.describe("Patronus failure", () => {
     await emitTauriEvent(page, "tauri://focus")
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Safe Push of JIRA-456 failed" })
     await expect(toast).toContainText("JIRA-456 → master")
+    // the title and the description link the issue
+    await expect(toast.getByRole("link", { name: "JIRA-456" })).toHaveCount(2)
+    await expect(toast.getByRole("link", { name: "JIRA-456" }).last()).toHaveAttribute("href", "https://jira.example.com/browse/JIRA-456")
     // the row says it, and its node is in the colour of the failure
     await expect(getChip(page, "JIRA-456")).toHaveText("Failed")
     await expect(getSlot(page, "JIRA-456")).toHaveAttribute("data-step", "restart")

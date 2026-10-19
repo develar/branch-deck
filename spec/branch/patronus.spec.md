@@ -665,13 +665,14 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../src/lib/patronus.test.ts (`finds a running or canceling robot that succeeded, not a dry run and not a robot first seen finished`)
   [@test] ../../src/stores/patronus.test.ts (`does not tell a successful dry run or a robot first seen merged`)
 - With the window focused, a `success` toast says "auth merged into master" (the branch, or the subject of a Safe Push
-  of a temporary ref) with the push mode ("Safe Push"), for 10 s. Its actions are below the text (the `robot` body of
-  the toast): "Update Project", the primary one, which picks the merge up in one click (it fetches the baseline first,
-  then updates onto it; the click is the consent, and a conflict, local changes or a lock say so as Update Project
-  does), then "Open in Patronus", which opens the robot page and leaves the toast for the update. A merge in a
-  repository the main window doesn't show offers Fetch instead (Update Project updates the shown one), or only "Open in
-  Patronus" once its baseline was fetched since the merge (`lastFetchTime`: Branch Deck's fetch, or one elsewhere by
-  `FETCH_HEAD`).
+  of a temporary ref) with the push mode ("Safe Push"), for 10 s; an issue key of the title ("IJPL-1 merged into
+  master") links to the tracker, as in the branch name ([Toasts](../../docs/guidelines/ux-writing.md#toasts)). Its
+  actions are below the text (the `robot` body of the toast): "Update Project", the primary one, which picks the merge
+  up in one click (it fetches the baseline first, then updates onto it; the click is the consent, and a conflict, local
+  changes or a lock say so as Update Project does), then "Open in Patronus", which opens the robot page and leaves the
+  toast for the update. A merge in a repository the main window doesn't show offers Fetch instead (Update Project
+  updates the shown one), or only "Open in Patronus" once its baseline was fetched since the merge (`lastFetchTime`:
+  Branch Deck's fetch, or one elsewhere by `FETCH_HEAD`).
   [@test] ../../src/lib/patronus.test.ts (`names the branch, else the subject of a robot of a temporary ref`)
   [@test] ../../src/stores/patronus.test.ts (`tells once in a toast with Update Project and the robot page when a running robot of a branch merged`, `offers Update Project also after a fetch since the merge: the update is what picks it up`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push merged, and update the project on request`)
@@ -783,8 +784,9 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
     request, a restart before them fails again;
   - recorded in Activity, and in the background the OS notification of "Safe Push failures" (`notifyPatronusFailures`),
     the toast on the next focus.
-  A robot told failing while it ran ([above](#failing)) is told no second time: its Activity entry says it failed. The
-  watched robot of a reviewed pull request is told by what it tests.
+  The issue keys of the toast's title and description ("Safe Push of JIRA-456 failed" / "JIRA-456 → master") link to the
+  tracker. A robot told failing while it ran ([above](#failing)) is told no second time: its Activity entry says it
+  failed. The watched robot of a reviewed pull request is told by what it tests.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should tell when a running Safe Push failed, record it and copy the prompt for an agent from the toast`, `should restart from the toast a Safe Push whose builds never started`)
   [@test] ../../src/stores/patronus.test.ts (`tells once that a robot failed, with Copy Prompt for Agent and the failed checks, once its problems are read`, `tells a robot that failed for missing approvals "needs review", with its pull request`, `tells no second time a robot told failing while it ran`, `tells a robot whose problems never come without them`, `names the profile of a robot started without the approvals whose profile checks them all the same`)
 - The step of a failing or failed toast is decided when it shows and again at the click: a toast stays 10 s, longer in

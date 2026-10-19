@@ -29,6 +29,9 @@ sticky and logged, others vanished after 5 s. The user read a toast, then could 
 - **No "branch: Title Case" prefixes** ("feature-auth: Changes Amended"): the branch is part of the sentence ("Unapplied
   feature-auth").
 - **Name the object the user knows**: the virtual branch, never its ref (`develar/virtual/air-session-runtime`).
+- **An issue key is a link**: the toast renders the issue keys of a text title and description as links to the tracker
+  (`LinkedText` with the issue navigation of the project, `renderText` of the `Toaster` in `App.tsx`), as the rows do; a
+  caller passes plain text and never builds the link.
 - **A toast about an object opens it** with its action:
   - a Patronus robot (started, restarted, canceling, merged): "Open in Patronus" (`robot.url`);
   - a pushed branch: "Open Pull Request", or "Create Pull Request…" without one (GitHub; the dialog asks for its text

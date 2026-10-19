@@ -1,8 +1,10 @@
 // local customisation: typed `data.secondaryAction`, a body with the actions below the text when there are two (the
 // primary one, then the secondary one, e.g. "Open in Patronus") or a description (the text keeps the width); the viewport `z-[60]` above the dialog overlays (`z-50`); the toast text `select-text`; the title
 // and description `wrap-break-word`, so a path or branch name wider than the text column breaks instead of running
-// under the action; the default `render` of the action and the close button in the body, not a parameter default
-// (React Compiler cannot compile a JSX parameter default)
+// under the action; `renderText` of the `Toaster` for a text title and description (the app links their issue keys,
+// `App.tsx`; this file imports nothing of the app, which imports `toast` everywhere); the default `render` of the
+// action and the close button in the body, not a parameter default (React Compiler cannot compile a JSX parameter
+// default)
 "use client"
 
 import * as React from "react"
@@ -137,7 +139,15 @@ interface ToastData {
   secondaryAction?: { label: string; onClick: () => void }
 }
 
-function ToastList() {
+/** Renders a text title or description of a toast, e.g. with its issue keys as links */
+type ToastTextRenderer = (text: string, part: "title" | "description") => React.ReactNode
+
+/** A text title or description through `renderText`; any other content (or none) is the toast's own */
+function renderToastText(text: React.ReactNode, part: "title" | "description", renderText: ToastTextRenderer | undefined): React.ReactNode {
+  return renderText !== undefined && typeof text === "string" && text !== "" ? renderText(text, part) : undefined
+}
+
+function ToastList({ renderText }: { renderText?: ToastTextRenderer }) {
   const { toasts } = ToastPrimitive.useToastManager<ToastData>()
 
   return toasts.map(toastItem => {
@@ -149,8 +159,8 @@ function ToastList() {
         <ToastContent>
           <ToastIcon type={toastItem.type} />
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <ToastTitle />
-            <ToastDescription />
+            <ToastTitle>{renderToastText(toastItem.title, "title", renderText)}</ToastTitle>
+            <ToastDescription>{renderToastText(toastItem.description, "description", renderText)}</ToastDescription>
             {stacked && (
               // the primary action first
               <div className="flex gap-2 pt-1">
@@ -171,13 +181,17 @@ function ToastList() {
   })
 }
 
-function Toaster({ children, toastManager = toast, ...props }: ToastPrimitive.Provider.Props) {
+interface ToasterProps extends ToastPrimitive.Provider.Props {
+  renderText?: ToastTextRenderer
+}
+
+function Toaster({ children, toastManager = toast, renderText, ...props }: ToasterProps) {
   return (
     <ToastProvider toastManager={toastManager} {...props}>
       {children}
       <ToastPortal>
         <ToastViewport>
-          <ToastList />
+          <ToastList renderText={renderText} />
         </ToastViewport>
       </ToastPortal>
     </ToastProvider>
