@@ -79,6 +79,28 @@ describe("HighlightEngine", () => {
     expect(["const", "50"].map(needle => styleAt(pageOf("ts"), 0, typescript.indexOf(needle)))).toEqual(["keyword", "number"])
   })
 
+  it("reads the front matter of a Markdown file as YAML and a fenced block by its language, never as emphasis", async () => {
+    const { engine, answers } = engineOf()
+    const lines = ["---", "allowed-tools: Bash(a:*), Bash(b:*), Bash(c:*)", "---", "", "```java", "class A {}", "```", "an *emphasis*"]
+    engine.handle({ type: "text", blobId: "md", language: "markdown", text: lines.join("\n") })
+    engine.handle({ type: "tokens", view: "v", wants: [{ blobId: "md", pages: [0], priority: 0 }] })
+    await engine.idle()
+    const [page] = pages(answers)
+    const at = (line: number, needle: string) => styleAt(page!, line, lines[line]!.indexOf(needle))
+    // the `*` of `a:*` and of `b:*` would open and close an emphasis in a paragraph; in YAML both are a plain value
+    expect([at(1, "allowed"), at(1, "Bash(a"), at(1, "Bash(b")]).toEqual(["tag", "string", "string"])
+    expect(at(5, "class")).toBe("keyword")
+    expect(at(7, "emphasis")).toBe("foreground italic")
+  })
+
+  it("loads the grammars a grammar embeds before it, so a file of one of them later leaves its grammar as it is", async () => {
+    const fresh = await createGrammarSource()
+    const markdown = await fresh.grammar("markdown")
+    await fresh.grammar("yaml")
+    await fresh.grammar("java")
+    expect(await fresh.grammar("markdown")).toBe(markdown)
+  })
+
   it("answers a page far into a file first as provisional, then exact, and confirms equal runs without arrays", async () => {
     const { engine, answers } = engineOf()
     const text = Array.from({ length: PAGE_LINES * 3 }, (_, index) => `val v${index} = ${index}`).join("\n")

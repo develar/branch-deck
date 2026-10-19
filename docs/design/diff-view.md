@@ -375,7 +375,10 @@ When no worker can start, the main thread tokenizes the pages in view in idle sl
 from Pierre's `getFiletypeFromFileName` (Apache-2.0, `file-languages.LICENSE.md`), cut to the bundled ids, with the
 attribution in its header. `CUSTOM_EXTENSIONS` beside it adds our extensions (`.gradle`, `.iml`, `.form`,
 `Cargo.lock`). The `shikiBundle` plugin with `bundled-languages.ts` keeps the build to 84 grammars. A grammar loads in
-the worker with the first blob of its language. The first line of a grammar that the time limit cuts gets one more try
+the worker with the first blob of its language, after the bundled grammars it embeds lazily (`embeddedLangsLazy`: the
+front matter and the fenced blocks of Markdown, the blocks of Vue and Svelte), theirs included. An include whose
+grammar is not loaded stays empty, so the front matter of Markdown would be a paragraph; and Shiki rebuilds a grammar
+when one it embeds lazily loads after it, while the worker keeps the states of the old one. The first line of a grammar that the time limit cuts gets one more try
 with 1 s: the first lines compile the regexes of the rules.
 
 ### Painting the layers of a line

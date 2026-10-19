@@ -223,10 +223,12 @@ The views show the typed diff of each file instead of the patch ([Reading the di
 - The diff must mark the changed words of a changed line, and highlight the code as the IntelliJ editor does, in the
   light and the dark scheme. Kotlin, Gradle (`.gradle`, `.gradle.kts`), Rust, TypeScript, Java and the other common
   languages must be read by their grammar; a file of a language the app does not bundle (`BUNDLED_LANGUAGE_IDS`: 84
-  90 of Shiki's grammars, no Emacs Lisp, COBOL or Wolfram) and an unknown file are plain text, never a failed diff.
+  of Shiki's grammars, no Emacs Lisp, COBOL or Wolfram) and an unknown file are plain text, never a failed diff. A
+  grammar reads what it embeds by the grammar of that language: the front matter of a Markdown file as YAML, never as
+  a paragraph whose `*` is an emphasis, a fenced block by the language it names, a block of Vue or Svelte by its own.
   [@test] ../../src/lib/diff/bundled-languages.test.ts (`keeps only the bundled entries of Shiki's language list, so the other grammars leave the build`, `fails the build for an id Shiki does not have`, `highlights %s with a bundled grammar`, `maps the extension table and our custom extensions to bundled grammars only`, `shows a file of a grammar the build leaves out as plain text`)
   [@test] ../../src/lib/diff/file-languages.test.ts (`maps our custom extensions to grammars Shiki has`, `highlights %s as %s`, `shows a file without a known name as plain text`)
-  [@test] ../../src/lib/diff/highlight/engine.test.ts (`gives each token the role of the Islands themes, in runs that change only with the style`, `gives Rust and TypeScript tokens the roles of the Islands themes too`)
+  [@test] ../../src/lib/diff/highlight/engine.test.ts (`gives each token the role of the Islands themes, in runs that change only with the style`, `gives Rust and TypeScript tokens the roles of the Islands themes too`, `reads the front matter of a Markdown file as YAML and a fenced block by its language, never as emphasis`, `loads the grammars a grammar embeds before it, so a file of one of them later leaves its grammar as it is`)
 - A diff must show the blocks of the diff engine with 4 lines of context (IntelliJ's), changes whose context touches
   without a fold between them, and the changed ranges of the engine instead of a word diff, also on a changed line
   without a line beside it. The tints are IntelliJ's: a block with inner ranges draws its lines pale and its ranges
