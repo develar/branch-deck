@@ -652,6 +652,8 @@ test.describe("Branch review window", () => {
     await older.click({ button: "right" })
     await window.getByRole("menuitem", { name: "Copy Commit Message" }).click()
     await expect.poll(() => readClipboard(window)).toBe("Add the login form")
+    // the menu fades out: its items are there until it is gone, beside those of the next menu
+    await expect(window.getByRole("menu")).toHaveCount(0)
 
     // "⋯" of the heading of the shown commit: Move to… opens the form of the row in the main window, at the commit
     await older.click()
@@ -663,6 +665,7 @@ test.describe("Branch review window", () => {
     await expect(page.getByTestId("inline-branch-target")).toBeVisible()
     await expect(getBranchCommitRow(page, "login", "Add the login form")).toHaveAttribute("data-selected", "true")
     await page.keyboard.press("Escape")
+    await expect(window.getByRole("menu")).toHaveCount(0)
 
     // Reword…: the preview of the commit in the main window, its message in edit
     await older.click({ button: "right" })
