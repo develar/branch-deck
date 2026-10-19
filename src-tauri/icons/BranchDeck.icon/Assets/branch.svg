@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <g fill="none" stroke="#FFFFFF" stroke-width="36" stroke-linecap="round">
+    <path d="M590 780V560"/>
+    <path d="M590 560C590 450 770 430 770 280"/>
+    <path d="M590 730C590 640 680 560 830 560"/>
+  </g>
+  <g fill="#FFFFFF">
+    <circle cx="590" cy="780" r="56"/>
+    <circle cx="590" cy="560" r="42"/>
+    <circle cx="770" cy="270" r="56"/>
+    <circle cx="830" cy="560" r="56"/>
+  </g>
+</svg>
