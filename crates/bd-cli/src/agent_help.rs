@@ -209,7 +209,8 @@ Other tasks
 - Several sessions or worktrees on one branch: `bd lease get` leases a worktree of your own, `bd lease return` gives
   it back; `bd pick --from <worktree> --follow` lands the commits of another worktree here (or `bd pick <rev>`,
   `<a>..<b>`; --expect-head, --dry-run), never `git cherry-pick`; `dependencies` names a picked commit whose branch is
-  not built on what it needs, with the `plan` for `bd group` or the `bd restack`; `bd help worktrees` explains it.
+  not built on what it needs, with the `plan` for `bd group` or the `bd restack`; `reparented` a branch that a
+  `(parent/leaf)` prefix stacked; `bd help worktrees` explains it.
 - Fixups: `bd fold` (--branch, --expect-head, --dry-run) folds the fixup!, squash! and amend! commits into their
   targets and keeps HEAD's tree.
 - A change in the wrong commit: `bd move-hunk <from> <to> <path>` (--block <id>, repeatable; --expect-head, --dry-run;
@@ -306,7 +307,9 @@ adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a 
 
 1. Write the prefix when you commit, never later. A subject is `(branch) <one sentence>`. With stacked branches
    (`branchdeck.stacks`) a new stack is declared once, `(parent/leaf) <one sentence>`; once the stack parents know the
-   leaf, `(leaf) <one sentence>` is enough, as a plan of `bd suggest` writes it. The branch is a readable name of a few words, never an issue
+   leaf, `(leaf) <one sentence>` is enough, as a plan of `bd suggest` writes it. `(parent/leaf)` on a commit of a
+   branch that is a root stacks the whole branch on `parent` (`reparented` in the pick); two parents for one branch
+   are conflicting parents, `bd restack <leaf> <parent>` keeps one. The branch is a readable name of a few words, never an issue
    id as the name; an issue id stays in the subject after the prefix, or in the body. A series of commits is a stack
    root with one leaf per logical group; a change on its own gets a root of its own. One deliberate commit per change:
    no `fixup!` subject on the shared branch, `bd fold` would fold it into its target. Rename a branch with

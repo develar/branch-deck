@@ -239,6 +239,43 @@ fn group(repo: &TestRepo, plan: &Value) -> (i32, Value) {
   run_in(repo, &["group", "--plan", file.path().to_str().unwrap()])
 }
 
+/// The parent of `name` in `bd status`, and the branch it is built on
+fn parent_in_status(repo: &TestRepo, name: &str) -> (Value, Value) {
+  let (exit_code, status) = run_in(repo, &["status"]);
+  assert_eq!(exit_code, 0, "{status}");
+  let branch = status["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!(name)).unwrap();
+  (branch["parent"].clone(), branch["effective_base"].clone())
+}
+
+#[test_log::test]
+fn a_parent_leaf_prefix_on_a_root_group_stacks_the_group_and_says_so() {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  repo.create_commit("(root) Add root", "root.txt", "root\n");
+  repo.create_commit("(leaf) Add leaf", "leaf.txt", "leaf\n");
+  assert_eq!(parent_in_status(&repo, "leaf").0, Value::Null);
+  let lane = TestWorktree::detached(&repo);
+  lane.commit("(root/leaf) Extend leaf", "leaf.txt", "leaf\nmore\n");
+
+  let (exit_code, dry_run) = run_in(&repo, &["pick", "--from", &lane.path, "--dry-run"]);
+  assert_eq!(exit_code, 0, "{dry_run}");
+  assert_eq!(dry_run["reparented"], json!({ "leaf": "root" }));
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((&output["picked"][0]["group"], &output["reparented"]), (&json!("leaf"), &json!({ "leaf": "root" })));
+  assert!(output.get("dependencies").is_none(), "{output}");
+  assert_pick_schema(&repo, &output, "pick that reparents");
+
+  // the bare `(leaf)` declares no parent: the whole group is a leaf of root now, and the stack builds
+  let (exit_code, sync) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{sync}");
+  assert_eq!(parent_in_status(&repo, "leaf"), (json!("root"), json!("root")));
+  // the same pick again lands nothing and reparents nothing
+  let (exit_code, again) = run_in(&repo, &["pick", "--from", &lane.path, "--dry-run"]);
+  assert_eq!((exit_code, &again["state"]), (0, &json!("up_to_date")), "{again}");
+  assert!(again.get("reparented").is_none(), "{again}");
+}
+
 #[test_log::test]
 fn a_picked_commit_that_needs_another_branch_names_it_with_the_plan_that_moves_it() {
   let repo = repo_with_baseline(&[("a.txt", "a\n")]);

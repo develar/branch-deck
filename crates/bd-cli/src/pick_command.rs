@@ -66,6 +66,10 @@ pub struct PickOutput {
   /// commits of those branches wrote): that branch can't sync. Also with --dry-run, to fix the prefix before the pick
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub dependencies: Vec<DependencyOutput>,
+  /// Branch -> its parent now: a `(parent/leaf)` prefix of a picked commit stacked a branch the branch had already, a
+  /// root or on another parent before
+  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+  pub reparented: BTreeMap<String, String>,
   /// With --follow: how the worktree of --from followed
   #[serde(skip_serializing_if = "Option::is_none")]
   pub followed: Option<FollowedOutput>,
@@ -334,6 +338,7 @@ fn output(context: &RepoContext, result: &PickResult, dry_run: bool) -> Result<P
       })
       .collect(),
     dependencies: result.dependencies.iter().map(|dependency| dependency_output(context, dependency, &short)).collect(),
+    reparented: result.reparented.clone(),
     followed,
     conflict,
     undo_token: result.undo_token().map(|token| token.to_string()),

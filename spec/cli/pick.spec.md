@@ -98,6 +98,10 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   parent. The pick never applies either. A prefix of a new branch is not checked: the check reads the diffs only for a
   prefix that names a branch the branch has.
   [@test] ../../crates/bd-cli/src/pick_test.rs (`a_picked_commit_that_needs_another_branch_names_it_with_the_plan_that_moves_it`, `a_picked_commit_that_needs_its_own_and_another_branch_offers_the_restack`)
+- A `(parent/leaf)` prefix of a picked commit on a branch the branch has as a root (or on another parent) must stack
+  the whole branch on `parent`, and the pick must say so in `reparented` (`{"leaf": "parent"}`), in a `--dry-run`
+  too; the next `bd sync` must build the stack.
+  [@test] ../../crates/bd-cli/src/pick_test.rs (`a_parent_leaf_prefix_on_a_root_group_stacks_the_group_and_says_so`)
 - The range of a worktree must be `<source HEAD> ^<branch> ^<upstream> ^<base>`, the base being the fork point of the
   source in the reflog of the branch, so that a branch folded, regrouped or redated after the worktree was cut gives
   none of its old commits back.

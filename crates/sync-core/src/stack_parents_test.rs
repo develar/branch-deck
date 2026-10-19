@@ -8,6 +8,7 @@ use crate::stack::{StackForest, describe_problem, place_branches};
 use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_REF, drop_integrated_stack_parents, integrated_children};
 use crate::store_lines::{StoreLines, format_store_lines, read_store_head};
 use crate::test_commit::commit;
+use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap};
 use sync_types::stack::{DeclaredParent, ParentSource, ParentState, StackProblem};
@@ -227,8 +228,15 @@ fn a_stored_parent_that_differs_from_a_prefix_is_a_conflict() {
       },
     ])]
   );
-  let message = describe_problem(&login.problems[0]);
-  assert!(message.contains("docs (the stack parent in refs/branch-deck/stack-parents)"), "{message}");
+  let message = describe_problem("login", &login.problems[0]);
+  assert_eq!(
+    message,
+    format!(
+      "Commits declare different parents: auth ({}), docs (the stack parent in refs/branch-deck/stack-parents); keep one: `bd restack login auth` or \
+       `bd restack login docs`",
+      short_id(&format!("{:040}", 2))
+    )
+  );
 }
 
 #[test]

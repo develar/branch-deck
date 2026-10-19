@@ -593,23 +593,33 @@ pub(crate) fn name_suffix(name: &str, branch: &str) -> Option<u32> {
   Some(digits.parse().unwrap_or(u32::MAX))
 }
 
-/// A sentence on a stack problem, naming its commits by short id
-pub fn describe_problem(problem: &StackProblem) -> String {
-  let commits = |ids: &[String]| ids.iter().map(|id| short_id(id)).collect::<Vec<_>>().join(", ");
+/// The commits by short id, comma-separated
+fn short_ids(ids: &[String]) -> String {
+  ids.iter().map(|id| short_id(id)).collect::<Vec<_>>().join(", ")
+}
+
+/// The conflicting parents of `branch`, each with the commits that declare it (or as its stack parent), and the
+/// `bd restack <branch> <parent>` of each that keeps it
+pub(crate) fn describe_conflicting_parents(branch: &str, parents: &[DeclaredParent]) -> String {
+  let declared: Vec<String> = parents
+    .iter()
+    .map(|declared| {
+      if declared.commits.is_empty() {
+        format!("{} (the stack parent in {STACK_PARENTS_REF})", declared.parent)
+      } else {
+        format!("{} ({})", declared.parent, short_ids(&declared.commits))
+      }
+    })
+    .collect();
+  let restacks: Vec<String> = parents.iter().map(|declared| format!("`bd restack {branch} {}`", declared.parent)).collect();
+  format!("{}; keep one: {}", declared.join(", "), restacks.join(" or "))
+}
+
+/// A sentence on a stack problem of `branch`, naming its commits by short id
+pub fn describe_problem(branch: &str, problem: &StackProblem) -> String {
+  let commits = short_ids;
   match problem {
-    StackProblem::ConflictingParents(parents) => {
-      let parents: Vec<String> = parents
-        .iter()
-        .map(|declared| {
-          if declared.commits.is_empty() {
-            format!("{} (the stack parent in {STACK_PARENTS_REF})", declared.parent)
-          } else {
-            format!("{} ({})", declared.parent, commits(&declared.commits))
-          }
-        })
-        .collect();
-      format!("Commits declare different parents: {}", parents.join(", "))
-    }
+    StackProblem::ConflictingParents(parents) => format!("Commits declare different parents: {}", describe_conflicting_parents(branch, parents)),
     StackProblem::Cycle(branches) => format!("The parents form a cycle: {} -> {}", branches.join(" -> "), branches[0]),
     StackProblem::SelfParent(ids) => format!("A prefix makes the branch its own parent: {}", commits(ids)),
     StackProblem::LeafCollision(other) => format!("Branch {other} has the same name ignoring case"),

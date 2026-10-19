@@ -659,7 +659,7 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
     };
     if let Some(stack) = stack {
       if let Some(problem) = stack.problems.first() {
-        report_not_built(&context.progress, &job, BranchSyncStatus::Error, describe_problem(problem));
+        report_not_built(&context.progress, &job, BranchSyncStatus::Error, describe_problem(&job.branch_name, problem));
         failed.insert(job.branch_name, BlockReason::Error);
         continue;
       }

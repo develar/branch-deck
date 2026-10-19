@@ -844,7 +844,9 @@ impl CheckSession {
       }
       Some(CheckOutcome::Conflict { commit, files }) => self.needed_commits(branch, parent, &commit, files),
       Some(CheckOutcome::Error { message }) => Err(RegroupError::Other(anyhow::anyhow!(message))),
-      Some(CheckOutcome::Problems(problems)) => Err(RegroupError::Other(anyhow::anyhow!(problems.iter().map(describe_problem).collect::<Vec<_>>().join("; ")))),
+      Some(CheckOutcome::Problems(problems)) => Err(RegroupError::Other(anyhow::anyhow!(
+        problems.iter().map(|problem| describe_problem(branch, problem)).collect::<Vec<_>>().join("; ")
+      ))),
       Some(CheckOutcome::Blocked { parent, .. }) => Err(RegroupError::Other(anyhow::anyhow!("{branch} is blocked by {parent}"))),
       None => Err(RegroupError::InvalidPlan {
         message: format!("No branch named {branch:?} among the commits ahead of the baseline"),

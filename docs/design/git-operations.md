@@ -1065,7 +1065,8 @@ pick, and interleaves with a fold or an update of the owner.
    new tip), each on its own index copy and working tree.
 6. How the picked commits land, from one read before the move (`landing` in `crates/sync-core/src/pick.rs`): the
    grouping inputs (`git config`, one `cat-file --batch`) and the commits ahead of the baseline (one `log`), grouped
-   without and with the copies on top, give the `group` of each copy. Only when a prefix names a branch the target has, the
+   without and with the copies on top, give the `group` of each copy and `reparented`, a branch the target had whose
+   declared parent a `(parent/leaf)` prefix of a copy changed. Only when a prefix names a branch the target has, the
    diffs of the commits ahead and of the copies (`read_commit_diffs_cached`, by id) give the edges by lines
    (`compute_dependencies`, no symbols): a copy whose branch is not built on each branch it needs is in
    `dependencies`, with the move into the branch of the stack that holds them all (`stack::stack_top`, shared with

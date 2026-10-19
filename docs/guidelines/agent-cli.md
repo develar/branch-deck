@@ -640,6 +640,10 @@ through the guarded update. `--follow` moves the source worktree onto the new ti
   "dependencies":[{"commit":"9d0e1f2a","subject":"(base/teamcity) Watch the monitor","prefix_branch":"teamcity",
    "depends_on":["hang"],"plan":{"branches":{"hang":["9d0e1f2a"]},"unassign":[]}}]
   ```
+- `reparented` (`{"leaf": "parent"}`): a `(parent/leaf)` prefix of a picked commit stacked a branch the branch had
+  already, a root or on another parent before: the whole branch is built on `parent` now (a bare `(leaf)` declares
+  no parent). Two parents for one branch are conflicting parents, which name the commits of each and the
+  `bd restack <leaf> <parent>` that keeps one.
 - `followed.state`: `moved`, `at_tip` (nothing to move), `would_move` (`--dry-run`), or, after the branch moved,
   `head_moved` or `blocked` with a `message`: the same `bd pick` again finds every commit present and moves only the
   worktree. A detached HEAD stays detached (`option no-deref`); a rebase, merge or cherry-pick in progress in the

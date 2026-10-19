@@ -282,6 +282,15 @@ fn stats_per_branch() {
   assert_eq!(output["branches"][0].get("stats"), None);
 }
 
+/// The problem of `c` in `stacked_repo`: its third commit declares `x`, its fourth `y`
+fn conflicting_parents_of_c(ids: &[String]) -> String {
+  format!(
+    "c has conflicting parents x ({}), y ({}); keep one: `bd restack c x` or `bd restack c y`",
+    short_id(&ids[2]),
+    short_id(&ids[3])
+  )
+}
+
 #[test_log::test]
 fn stacks_in_status() {
   let (repo, ids) = stacked_repo();
@@ -299,7 +308,7 @@ fn stacks_in_status() {
   assert_eq!(branch("login")["effective_base"], json!("auth"));
   assert_eq!(
     branch("c")["problems"],
-    json!([{ "message": "c has conflicting parents x, y", "commits": [short_id(&ids[2]), short_id(&ids[3])] }])
+    json!([{ "message": conflicting_parents_of_c(&ids), "commits": [short_id(&ids[2]), short_id(&ids[3])] }])
   );
 
   // `bd commits` groups by the leaf too
@@ -363,7 +372,7 @@ fn brief_status_keeps_the_stack_state() {
         "name": "c",
         "commit_count": 2,
         "newest": "Two",
-        "problems": [{ "message": "c has conflicting parents x, y", "commits": [short_id(&ids[2]), short_id(&ids[3])] }],
+        "problems": [{ "message": conflicting_parents_of_c(&ids), "commits": [short_id(&ids[2]), short_id(&ids[3])] }],
       },
       { "name": "login", "commit_count": 1, "newest": "Add login", "parent": "auth", "parent_source": "prefix" },
       { "name": "auth", "commit_count": 1, "newest": "Add auth" },

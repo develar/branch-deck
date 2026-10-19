@@ -1,7 +1,7 @@
 //! `bd pick`: the commits of another worktree landed on the checked out branch under the repository lock, the source
 //! worktree following with `follow` (`git_ops::pick`, spec/cli/pick.spec.md), and the undo of both. Before the move,
-//! one read of how the branch groups tells the group of each picked commit and the picked commits whose branch is not
-//! built on the branches they need.
+//! one read of how the branch groups tells the group of each picked commit, the branches whose stack parent a
+//! `(parent/leaf)` prefix changes, and the picked commits whose branch is not built on the branches they need.
 
 use crate::baseline::{NoBaseline, detect_baseline_branch};
 use crate::commit_grouper::{GroupingInputs, issue_group_of, parse_subject};
@@ -19,7 +19,7 @@ use git_ops::pick::{AppliedPick, PickCheck, PickRequest, PickSource, PickState, 
 use git_ops::revs::is_object_id;
 use git_ops::update_branch::{UndoCheck, UpdateUndo, apply_update_undo, finish_pending_update};
 use object_cache::cache::ObjectCache;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Duration;
 use tracing::{debug, info, instrument};
@@ -97,6 +97,9 @@ pub struct PickResult {
   /// The picked commits whose branch is not built on what they need; only for a prefix that names a branch the target
   /// has already
   pub dependencies: Vec<PickDependency>,
+  /// Branch -> the parent that a `(parent/leaf)` prefix of a picked commit declares for a branch the target has
+  /// already, with no or another parent before the pick
+  pub reparented: BTreeMap<String, String>,
   /// `None` for a dry run and for a pick that is not clean
   pub applied: Option<AppliedPick>,
 }
@@ -167,6 +170,7 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
     check: plan.check,
     groups: landing.groups,
     dependencies: landing.dependencies,
+    reparented: landing.reparented,
     applied,
   })
 }
@@ -193,6 +197,7 @@ struct Diffs<'a> {
 struct Landing {
   groups: Vec<PickedGroup>,
   dependencies: Vec<PickDependency>,
+  reparented: BTreeMap<String, String>,
 }
 
 /// How the picked commits group on the target, from one read before the move: the grouping inputs (`git config`, one
@@ -211,6 +216,17 @@ fn landing(git_executor: &GitCommandExecutor, target: &str, baseline: Option<&st
   let picked_at = commits.len();
   commits.extend(picked.iter().map(copy_commit));
   let after = group_commits(&commits, &grouping);
+
+  let mut reparented = BTreeMap::new();
+  if let (Some(before_forest), Some(after_forest)) = (&before.forest, &after.forest) {
+    for group in groups.iter().filter_map(|group| group.group.as_deref()).filter(|group| existing.contains(group)) {
+      if let Some(parent) = after_forest.declared_parent(group)
+        && before_forest.declared_parent(group) != Some(parent)
+      {
+        reparented.insert(group.to_string(), parent.to_string());
+      }
+    }
+  }
 
   // the picked commits whose prefix names a branch the target has
   let checked: Vec<(usize, &str)> = groups
@@ -237,8 +253,8 @@ fn landing(git_executor: &GitCommandExecutor, target: &str, baseline: Option<&st
       })
       .collect()
   };
-  debug!(dependencies = dependencies.len(), "the landing of the pick");
-  Ok(Landing { groups, dependencies })
+  debug!(dependencies = dependencies.len(), reparented = reparented.len(), "the landing of the pick");
+  Ok(Landing { groups, dependencies, reparented })
 }
 
 /// The branch and the branches it is built on, nearest first; only the branch with stacked branches off

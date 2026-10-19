@@ -15,7 +15,7 @@ use crate::move_commits::{validate_branch_name, with_branch_prefix};
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, RepositoryLocked, ensure_expected_head, lock_repository};
 use crate::reword_commit::reword_read_commits_at;
 use crate::snapshot::{Grouped, Snapshot, group_commits};
-use crate::stack::{StackForest, stack_path};
+use crate::stack::{StackForest, describe_conflicting_parents, stack_path};
 use crate::stack_parents::{STACK_PARENTS, undo_over_drops};
 use crate::store_lines::{LineStore, StoreLineProblem, StoreLines, StoreMoved, format_store_lines, read_store_head};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -1267,10 +1267,7 @@ fn problem_key(problem: &StackProblem) -> String {
 /// A sentence for a problem of `branch`
 pub fn describe_problem(branch: &str, problem: &StackProblem) -> String {
   match problem {
-    StackProblem::ConflictingParents(parents) => {
-      let names: Vec<&str> = parents.iter().map(|parent| parent.parent.as_str()).collect();
-      format!("{branch} has conflicting parents {}", names.join(", "))
-    }
+    StackProblem::ConflictingParents(parents) => format!("{branch} has conflicting parents {}", describe_conflicting_parents(branch, parents)),
     StackProblem::Cycle(branches) => format!("{branch} is in the cycle {}", branches.join(" -> ")),
     StackProblem::SelfParent(_) => format!("{branch} is declared as its own parent"),
     StackProblem::LeafCollision(other) => format!("{branch} and {other} differ only in case"),
