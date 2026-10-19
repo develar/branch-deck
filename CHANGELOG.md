@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.21.0](https://github.com/develar/branch-deck/compare/v0.20.0...v0.21.0) (2026-10-19)
+
+
+### Features
+
+* **actions:** one registry of running operations: an action runs once, the rewrites wait for it, the spinner where it started ([104eddc](https://github.com/develar/branch-deck/commit/104eddcb4e42156e46b0f6b8090faabe134aaeac))
+* **diff:** bd commits --patch prints the blocks of the diff views, and bd move-hunk moves them by their ids ([83e6f48](https://github.com/develar/branch-deck/commit/83e6f48a362c3cf0392c428d7a4ceca9f15d4b9c))
+* **diff:** each changed file has the blob ids of its sides, and the object cache has file_diff and file_merge stores ([bc18026](https://github.com/develar/branch-deck/commit/bc18026671d95682f5b88f49cd3c53a809cc3740))
+* **diff:** every diff, the 2-way and the 3-way, renders with DiffView; @pierre/diffs goes ([8535998](https://github.com/develar/branch-deck/commit/85359985bbb8e8b6b5b466ee3c5652a51e98a1a7))
+* **diff:** text-diff ports the three-way comparison of IntelliJ and builds the typed merge model of a conflict view ([0062ca5](https://github.com/develar/branch-deck/commit/0062ca5761c1f4214035f41eb1f412bbfa41937b))
+* **diff:** text-diff ports the two-way comparison of IntelliJ and builds the typed diff model of the views ([ffb6689](https://github.com/develar/branch-deck/commit/ffb6689e4e4ea4081d2f292be86f1dcc0a6689fe))
+* **diff:** the commands get_file_diffs, get_blob_texts and get_file_merges stream the typed diffs, merges and texts ([dc92127](https://github.com/develar/branch-deck/commit/dc921274930fd69b4102b93d03ba5434d7a6f820))
+* **diff:** the dangling-reference check reads the changed lines from the blocks, and a check reads the blobs once ([773ad6f](https://github.com/develar/branch-deck/commit/773ad6f152943b53699936e2bd360630d17b62e0))
+* **diff:** the dependency scan takes the blocks of the diff views, not git's -U0 hunks ([a664e9c](https://github.com/develar/branch-deck/commit/a664e9cd0ba0e6d981bc866341a06766df3914be))
+* **diff:** the file-diffs crate gives the typed diffs of a commit, a range or the worktree, and a conflict's merges ([d9367bd](https://github.com/develar/branch-deck/commit/d9367bd10bc5511a8fe0fe7cd7e9c768c619d050))
+* **diff:** the highlight worker, the line tables, the stores of the blob texts and the models of our own diff renderer ([7e5c216](https://github.com/develar/branch-deck/commit/7e5c2165a49bb86a6c104d48fb5ecc2f1c1e4ed2))
+* **diff:** the layout switch lists Split, Unified, Inline, and Inline has a strikethrough icon ([8ec60e8](https://github.com/develar/branch-deck/commit/8ec60e802eca70ef20504380370741c1e24c036b))
+* **graph:** the hover of a landing node opens what it names: the issue, the robot, its restart and prompts ([02a3755](https://github.com/develar/branch-deck/commit/02a375539ba14a20dec87c4ecf91e2cfb4f16782))
+* **review:** "Whole Stack" in the stack bar goes up to every branch of the stack, its segments back down ([02b7bb7](https://github.com/develar/branch-deck/commit/02b7bb785a7418e9a483d2f566d919f0e3a5959a))
+* **review:** a commit of a branch is reviewed in the window of its branch, at the commit ([45cc311](https://github.com/develar/branch-deck/commit/45cc3112f5b00a5af46cb26208bece33cca48a48))
+* **review:** a commit of the branch preview and an own pull request of Your Turn open the review of their branch ([bfb1bc5](https://github.com/develar/branch-deck/commit/bfb1bc5f1c1cd951b45507431b9318981458e332))
+* **review:** a commit of the review has the menu of its row ([7ab4d1d](https://github.com/develar/branch-deck/commit/7ab4d1def42afd950b3b20af572c4e874d5abd7a))
+* **review:** the review of the whole stack holds the actions of the whole stack ([529d1f5](https://github.com/develar/branch-deck/commit/529d1f56a080d5bd04d298db35b6c2cf153cd630))
+* **stack:** "Push oauth Only" is an item of the branch menu after the push of the stack ([f3a20fb](https://github.com/develar/branch-deck/commit/f3a20fb66e5fb954bdb968afd4c93fe6c8f8c599))
+* **stack:** every branch of a stack has "Whole Stack ›", the actions of its root's whole stack ([f824a45](https://github.com/develar/branch-deck/commit/f824a458cb5004f98889a05ba6aba42c75c6a6cb))
+* **ux:** what a hover, a notice or a toast names opens from it ([4150a0a](https://github.com/develar/branch-deck/commit/4150a0a057e44a3d43fb0b71fe59224b554b617a))
+
+
+### Bug Fixes
+
+* **fmt:** Oxfmt leaves the Icon Composer document alone, Icon Composer writes it ([4b01930](https://github.com/develar/branch-deck/commit/4b019301265fbcb91cae450c6d8b06ad8ff82e4c))
+* **icon:** a Liquid Glass app icon from an Icon Composer document, so macOS 26+ no longer puts it into a grey squircle ([d4ae063](https://github.com/develar/branch-deck/commit/d4ae0635f793029f57c6015d536e215695dcca29))
+* **icon:** a muted green for the app icon, the first one was too saturated ([f1abf9f](https://github.com/develar/branch-deck/commit/f1abf9f35eaff30c228b425d546de4b416944cbb))
+* **patronus:** a failure nothing is left to do about asks for nothing: no Dock badge, no "1 failed", no move ([b4acf12](https://github.com/develar/branch-deck/commit/b4acf124a2768ec5b602866be304557ab92de993))
+* **review:** the copies of the menu of a commit in the review come without icons, as its other items ([6baeb9b](https://github.com/develar/branch-deck/commit/6baeb9bf4043b1d356946fb79d282eafc3331248))
+* **test:** the cancel from the landing overview reads its request after the toast that its answer brings ([4713c56](https://github.com/develar/branch-deck/commit/4713c562cc9b008d17e4836783d4e105359cd4c1))
+
 ## [0.20.0](https://github.com/develar/branch-deck/compare/v0.19.0...v0.20.0) (2026-10-19)
 
 
