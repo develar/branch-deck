@@ -1,0 +1,20 @@
+  1: import { useState } from "react"
+     keyword "import" · keyword "from" · string "\"react\""
+  2: 
+  3: export function Counter({ start }: { start: number }) {
+     keyword "export" · keyword "function" · functionDeclaration "Counter" · field "start" · keyword "number"
+  4:   const [count, setCount] = useState(start)
+     keyword "const"
+  5:   return (
+     keyword "return"
+  6:     <div className="counter" data-count={count}>
+     tag "div" · attribute "className" · string "\"counter\"" · attribute "data-count"
+  7:       <Button onClick={() => setCount(count + 1)}>Add</Button>
+     tag "Button" · attribute "onClick" · number "1" · tag "Button"
+  8:       {count > 10 && <span>many</span>}
+     number "10" · tag "span" · tag "span"
+  9:     </div>
+     tag "div"
+ 10:   )
+ 11: }
+ 12: 

@@ -39,6 +39,10 @@ fn every_fixture_matches_its_golden_file() {
   let mut checked = 0;
   for directory in std::fs::read_dir(&testdata).unwrap() {
     let directory = directory.unwrap().path();
+    // the fixtures of the highlighting have their own golden files (`highlight_test.rs`)
+    if directory.ends_with("highlight") {
+      continue;
+    }
     let mut files: Vec<String> = std::fs::read_dir(&directory)
       .unwrap()
       .map(|it| it.unwrap().file_name().to_string_lossy().into_owned())

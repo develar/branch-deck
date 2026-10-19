@@ -1,0 +1,50 @@
+  1: package com.example.app
+     keyword "package"
+  2: 
+  3: import kotlin.math.max as maximum
+     keyword "import" · keyword "as"
+  4: 
+  5: /** Doc with [Link] and @param x the value */
+     comment+italic "/** Doc with [" · docTagValue "Link" · comment+italic "] and " · docTag "@param" · comment+italic " " · docTagValue "x" · comment+italic " the value */"
+  6: @Suppress("UNUSED") @get:JvmName("n")
+     annotation "@Suppress" · string "\"UNUSED\"" · annotation "@get:JvmName" · string "\"n\""
+  7: class Box<T : Any>(val size: Int, private var name: String) : Base(), Comparable<Box<T>> {
+     keyword "class" · typeParameter "T" · keyword "val" · field "size" · keyword "private" · keyword "var" · field "name" · typeParameter "T"
+  8:   private val items = mutableListOf<T>()
+     keyword "private" · keyword "val" · field "items" · typeParameter "T"
+  9:   var count: Int = 0
+     keyword "var" · field "count" · number "0"
+ 10:     get() = field + 1
+     keyword "get" · field "field" · number "1"
+ 11:     set(value) { field = value }
+     keyword "set" · keyword "value" · field "field" · keyword "value"
+ 12:   companion object { const val LIMIT = 10; val DEFAULT = Box<Any>(1, "a") }
+     keyword "companion" · keyword "object" · keyword "const" · keyword "val" · field+italic "LIMIT" · number "10" · keyword "val" · field+italic "DEFAULT" · number "1" · string "\"a\""
+ 13: 
+ 14:   fun add(item: T, times: Int = 1): Boolean {
+     keyword "fun" · functionDeclaration "add" · typeParameter "T" · number "1"
+ 15:     count++
+     field "count"
+ 16:     items.add(item)
+     field "items"
+ 17:     val text = "x=$count, ${items.size} items\n"
+     keyword "val" · string "\"x=" · keyword "$" · field "count" · string ", " · keyword "${" · field "items" · field "size" · keyword "}" · string " items" · escape "\\n" · string "\""
+ 18:     loop@ for (i in 0 until times) { if (i > LIMIT) break@loop }
+     label "loop@" · keyword "for" · keyword "in" · number "0" · keyword "if" · field+italic "LIMIT" · keyword "break" · label "@loop"
+ 19:     run(block = { it -> it.toString() })
+     namedArgument "block" · namedArgument "="
+ 20:     return items.isNotEmpty() && text.length > 0x1F
+     keyword "return" · field "items" · field "length" · number "0x1F"
+ 21:   }
+ 22: 
+ 23:   override fun compareTo(other: Box<T>): Int = size.compareTo(other.size)
+     keyword "override" · keyword "fun" · functionDeclaration "compareTo" · typeParameter "T" · field "size" · field "size"
+ 24: }
+ 25: 
+ 26: enum class Color { RED, GREEN }
+     keyword "enum" · keyword "class" · field+italic "RED" · field+italic "GREEN"
+ 27: typealias Name = String
+     keyword "typealias"
+ 28: fun interface Action { fun run() }
+     keyword "fun" · keyword "interface" · keyword "fun"
+ 29: 

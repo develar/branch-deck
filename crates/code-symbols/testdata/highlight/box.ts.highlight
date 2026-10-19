@@ -1,0 +1,44 @@
+  1: import { Item, type Kind } from "./model"
+     keyword "import" · keyword "type" · keyword "from" · string "\"./model\""
+  2: 
+  3: /** A box of items. @param T the type of an item */
+     comment+italic "/** A box of items. " · docTag "@param" · comment+italic " " · docTagValue "T" · comment+italic " the type of an item */"
+  4: @sealed
+     annotation "@sealed"
+  5: export class Box<T extends Item> {
+     keyword "export" · keyword "class" · typeParameter "T" · keyword "extends"
+  6:   static readonly LIMIT = 10
+     keyword "static" · keyword "readonly" · field+italic "LIMIT" · number "10"
+  7:   private items: T[] = []
+     keyword "private" · field "items"
+  8:   count = 0
+     field "count" · number "0"
+  9: 
+ 10:   add(item: T, times: number = 1): boolean {
+     functionDeclaration "add" · keyword "number" · number "1" · keyword "boolean"
+ 11:     this.count += times
+     keyword "this" · field "count"
+ 12:     const text = `x=${this.count}, ${item.name}\n` + "q\"" + 'c'
+     keyword "const" · string "`x=" · keyword "${this" · field "count" · keyword "}" · string ", " · keyword "${" · field "name" · keyword "}" · escape "\\n" · string "`" · string "\"q" · escape "\\\"" · string "\"" · string "'c'"
+ 13:     outer: for (let i = 0; i < times; i++) {
+     label "outer" · keyword "for" · keyword "let" · number "0"
+ 14:       if (i > Box.LIMIT) break outer
+     keyword "if" · field+italic "LIMIT" · keyword "break" · label "outer"
+ 15:       this.items.push(item)
+     keyword "this" · field "items"
+ 16:     }
+ 17:     const point = { x: 1, y: 2.5, text }
+     keyword "const" · field "x" · number "1" · field "y" · number "2.5" · field "text"
+ 18:     const pattern = /a+b/gi
+     keyword "const" · string "/a+b/gi"
+ 19:     return this.items.length > 0 && point.x === 1 && text !== undefined && null !== this
+     keyword "return" · keyword "this" · field "items" · field "length" · number "0" · field "x" · number "1" · keyword "undefined" · keyword "null" · keyword "this"
+ 20:   }
+ 21: }
+ 22: 
+ 23: export function make<K extends keyof Item>(key: K): Box<Item> | null {
+     keyword "export" · keyword "function" · functionDeclaration "make" · typeParameter "K" · keyword "extends" · keyword "keyof" · typeParameter "K" · keyword "null"
+ 24:   return new Box<Item>()
+     keyword "return" · keyword "new"
+ 25: }
+ 26: 

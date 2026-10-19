@@ -1,0 +1,68 @@
+  1: package com.example.app;
+     keyword "package"
+  2: 
+  3: import java.util.List;
+     keyword "import"
+  4: import static java.util.Objects.requireNonNull;
+     keyword "import" · keyword "static"
+  5: 
+  6: /**
+     comment+italic "/**"
+  7:  * A box of items. See {@link List#add(Object)} and {@code size}.
+     comment+italic " * A box of items. See {" · docTag "@link" · comment+italic " List#add(Object)} and {" · docTag "@code" · comment+italic " size}."
+  8:  * @param <T> the type of an item
+     comment+italic " * " · docTag "@param" · comment+italic " " · docTagValue "<T>" · comment+italic " the type of an item"
+  9:  */
+     comment+italic " */"
+ 10: @SuppressWarnings({"unchecked", "rawtypes"})
+     annotation "@SuppressWarnings" · string "\"unchecked\"" · string "\"rawtypes\""
+ 11: public final class Box<T extends Comparable<T>> implements Iterable<T> {
+     keyword "public" · keyword "final" · keyword "class" · typeParameter "T" · keyword "extends" · typeParameter "T" · keyword "implements" · typeParameter "T"
+ 12:   public static final int LIMIT = 10;
+     keyword "public" · keyword "static" · keyword "final" · keyword "int" · field+italic "LIMIT" · number "10"
+ 13:   private static int created;
+     keyword "private" · keyword "static" · keyword "int" · field+italic "created"
+ 14:   private final List<T> items = new java.util.ArrayList<>();
+     keyword "private" · keyword "final" · typeParameter "T" · field "items" · keyword "new"
+ 15:   private int count;
+     keyword "private" · keyword "int" · field "count"
+ 16: 
+ 17:   /** @throws IllegalStateException when full */
+     comment+italic "/** " · docTag "@throws" · comment+italic " " · docTagValue "IllegalStateException" · comment+italic " when full */"
+ 18:   public boolean add(T item, int times) {
+     keyword "public" · keyword "boolean" · functionDeclaration "add" · typeParameter "T" · keyword "int"
+ 19:     count++;
+     field "count"
+ 20:     this.count += times;
+     keyword "this" · field "count"
+ 21:     created = Math.max(created, LIMIT);
+     field+italic "created" · plain+italic "max" · field+italic "created" · field+italic "LIMIT"
+ 22:     String text = "x=" + count + ", \"quoted\"\n" + 'c' + '\t';
+     string "\"x=\"" · field "count" · string "\", " · escape "\\\"" · string "quoted" · escape "\\\"\\n" · string "\"" · string "'c'" · string "'\\t'"
+ 23:     outer:
+     label "outer"
+ 24:     for (int i = 0; i < times; i++) {
+     keyword "for" · keyword "int" · number "0"
+ 25:       if (i > Box.LIMIT) break outer;
+     keyword "if" · field+italic "LIMIT" · keyword "break" · label "outer"
+ 26:       items.add(requireNonNull(item));
+     field "items"
+ 27:     }
+ 28:     Runnable run = () -> System.out.println(text.length() + items.size() + 0x1F + 1.5e3);
+     field+italic "out" · field "items" · number "0x1F" · number "1.5e3"
+ 29:     return items.isEmpty() || count > 0 && true != false;
+     keyword "return" · field "items" · field "count" · number "0" · keyword "true" · keyword "false"
+ 30:   }
+ 31: 
+ 32:   @Override
+     annotation "@Override"
+ 33:   public java.util.Iterator<T> iterator() { return items.iterator(); }
+     keyword "public" · typeParameter "T" · functionDeclaration "iterator" · keyword "return" · field "items"
+ 34: 
+ 35:   enum Color { RED, GREEN; Color next() { return this == RED ? GREEN : RED; } }
+     keyword "enum" · field+italic "RED" · field+italic "GREEN" · functionDeclaration "next" · keyword "return" · keyword "this" · field+italic "RED" · field+italic "GREEN" · field+italic "RED"
+ 36: 
+ 37:   record Point(int x, int y) { int sum() { return x + y; } }
+     keyword "record" · keyword "int" · field "x" · keyword "int" · field "y" · keyword "int" · functionDeclaration "sum" · keyword "return" · field "x" · field "y"
+ 38: }
+ 39: 

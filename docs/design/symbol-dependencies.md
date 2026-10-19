@@ -128,7 +128,10 @@ flowchart TD
 6. **Decision**: `tree-sitter-kotlin-sg`, and one TSX grammar for TypeScript and JavaScript.
    **Rationale**: the maintained Kotlin grammar (the fwcd main, republished by ast-grep); `-ng` is dormant and parses
    far worse, and both export the same C symbol. TSX parses TypeScript and JavaScript but `<T>expr` casts, which make
-   a file degraded and send it back to the lines; one grammar less is about 1 MB of binary.
+   a file degraded and send it back to the lines; one grammar less is about 1 MB of binary. The highlighting of the
+   diffs (`code_symbols::highlight`, [Diff View](diff-view.md#syntax-highlighting)) reads `.ts`, `.mts` and `.cts` by
+   the TypeScript grammar of the same crate: a generic arrow or a cast there is an error under TSX, and a colour that
+   changes at it is visible.
 
 7. **Decision**: the key (namespace, containers and name) of a JVM type or a member of one holds entries, not one
    declaration. An entry is one declaration of the key, an overload of a member or a constructor of a type (decision

@@ -389,6 +389,32 @@ grammar is not loaded stays empty, so the front matter of Markdown would be a pa
 when one it embeds lazily loads after it, while the worker keeps the states of the old one. The first line of a grammar that the time limit cuts gets one more try
 with 1 s: the first lines compile the regexes of the rules.
 
+**Tree-sitter highlighting** (`crates/code-symbols/src/highlight/`). Kotlin, Java, Rust, TypeScript, TSX and JavaScript
+are coloured as the IntelliJ editor colours them without resolving a name, from a tree-sitter tree (the grammars of
+`code-symbols`; `.ts` by the TypeScript grammar, the rest of the script files by TSX):
+- one preorder walk asks the rules of the grammar (`kotlin.rs`, `java.rs`, `rust_lang.rs`, `typescript.rs`) for the
+  `Paint` of each node; a node with a style paints its text, an inner node paints over it (an escape in a string, the
+  code of a template), a parent marks children before the walk reaches them (the name of a declaration, the callee of
+  a call). The spans come out in the order of the text, with no sort;
+- a scope table (`scopes.rs`) tells what IntelliJ resolves and the tree shows by its scopes: an unqualified name that
+  is a member of an enclosing class with no local of that name in between is a field (`count++`), the companion members
+  of a Kotlin class too, a Rust `mut` binding is underlined wherever it is used, a type parameter is one in its scope;
+- a static member is italic: a `static`, `const` or top-level property, an enum entry, a name in upper case, a member
+  reached through a type (`Box.LIMIT`, `Math.max()`);
+- what a leaf holds and the grammar does not split is lexed: the escapes of a Kotlin string, the tags of a doc comment
+  (`@param` and its name, a KDoc `[link]`), the keyword and the `@` of `return@label`;
+- a leaf inside a parse error keeps what its kind tells (a keyword), the rest of the error stays plain;
+- the answer is the format of the worker: the lines as `buildLineTable` splits them, runs of (UTF-16 offset, style) per
+  line, a style the role in its low 6 bits and the font style above; the roles are `SYNTAX_ROLES` in their order
+  (`roles_match_the_view` checks it);
+- bounded: over `MAX_BYTES` (8 MiB, the limit of the texts) or after the parse budget (50 operations per KiB) there is
+  no highlighting.
+
+On the corpus of the comparison with Shiki (578 files of the IntelliJ monorepo and Branch Deck) every file is
+highlighted at 77–115 ms of CPU per MB in a release build, the parse included; `opt-level = 3` for the grammars gains 0
+to 18 % over the `s` of the release profile, so it stays. The rules have golden files
+(`crates/code-symbols/testdata/highlight/*.highlight`).
+
 ### Painting the layers of a line
 
 A code cell can show up to four layers:

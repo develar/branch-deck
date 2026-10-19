@@ -153,11 +153,16 @@ pub(crate) fn spec_of(language: Language) -> Option<&'static Spec> {
 }
 
 fn parse(table: &Table, source: &[u8], budget: u32) -> Option<Tree> {
+  parse_language(&table.language, source, budget)
+}
+
+/// A parse that stops after `budget` progress callbacks, on one parser per thread; the highlighting parses with it too
+pub(crate) fn parse_language(language: &tree_sitter::Language, source: &[u8], budget: u32) -> Option<Tree> {
   thread_local! {
     static PARSER: RefCell<Parser> = RefCell::new(Parser::new());
   }
   PARSER.with_borrow_mut(|parser| {
-    parser.set_language(&table.language).ok()?;
+    parser.set_language(language).ok()?;
     let mut calls = 0u32;
     let mut progress = |_: &ParseState| {
       calls += 1;

@@ -13,6 +13,7 @@
 )]
 
 pub mod extract;
+pub mod highlight;
 pub mod language;
 pub mod summary;
 
@@ -25,6 +26,8 @@ mod rust_lang;
 #[cfg(feature = "typescript")]
 mod typescript;
 
+#[cfg(all(test, feature = "kotlin", feature = "java", feature = "rust", feature = "typescript"))]
+mod highlight_test;
 #[cfg(all(test, feature = "java"))]
 mod java_test;
 #[cfg(all(test, feature = "kotlin"))]
