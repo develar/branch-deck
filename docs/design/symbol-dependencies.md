@@ -47,7 +47,7 @@ need the commit of that overload or form.
 
 ```mermaid
 flowchart TD
-    D[diff_scan: one log -p -U0 --raw --no-abbrev] -->|blob ids, hunks| S[symbol_scan]
+    D[diff_scan: one log --raw --no-abbrev, blocks] -->|blob ids, hunks| S[symbol_scan]
     R[module_roots: one cat-file of the trees at HEAD] --> S
     S -->|cache misses + Cargo.toml + tsconfig| C[one cat-file --batch of the blobs]
     C --> P[code_symbols::extract::summarize, one thread per core]

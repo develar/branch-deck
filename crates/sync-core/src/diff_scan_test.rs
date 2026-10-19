@@ -1,5 +1,6 @@
 use crate::dependencies::compute_dependencies;
 use crate::diff_scan::{CommitDiff, FilePatch, file_hunks, file_patch, parse_commit_diffs, read_commit_diffs};
+use object_cache::cache::ObjectCache;
 use object_cache::commit_diff::{FileChange, Hunk};
 use pretty_assertions::assert_eq;
 use test_utils::git_test_utils::TestRepo;
@@ -147,7 +148,7 @@ fn read_commit_diffs_gives_the_full_blob_ids() {
   let commit = repo.create_commit_with_files("change", &[("kept.txt", "two\n"), ("added.txt", "new\n")]);
   let blob = |commit: &str, path: &str| Some(git(&["rev-parse", &format!("{commit}:{path}")]));
 
-  let diffs = read_commit_diffs(repo.git_executor(), repo.path_str(), std::slice::from_ref(&commit)).unwrap();
+  let diffs = read_commit_diffs(repo.git_executor(), repo.path_str(), &ObjectCache::disabled(), std::slice::from_ref(&commit)).unwrap();
   let blobs: Vec<(&str, Option<String>, Option<String>)> = diffs[0]
     .files
     .iter()
@@ -162,6 +163,36 @@ fn read_commit_diffs_gives_the_full_blob_ids() {
     ]
   );
   assert_eq!(blob(&commit, "kept.txt").map(|id| id.len()), Some(40), "a full id");
+}
+
+/// The hunks and the counts are the blocks of the diff views: a final line end added is a block on the empty last line,
+/// not a changed line `c`; a deleted file counts its lines; a change of only the line ends, which the views show
+/// without a block, is the whole file; a binary file has no hunks
+#[test]
+fn read_commit_diffs_takes_the_blocks_of_the_views() {
+  let repo = TestRepo::new();
+  repo.create_commit_with_files(
+    "base",
+    &[("lines.txt", "a\nb\nc"), ("crlf.txt", "a\r\nb\r\n"), ("gone.txt", "x\ny\n"), ("data.bin", "\0one")],
+  );
+  repo.git(&["rm", "-q", "gone.txt"]);
+  let commit = repo.create_commit_with_files("change", &[("lines.txt", "a\nB\nc\n"), ("crlf.txt", "a\nb\n"), ("data.bin", "\0two")]);
+
+  let diffs = read_commit_diffs(repo.git_executor(), repo.path_str(), &ObjectCache::disabled(), std::slice::from_ref(&commit)).unwrap();
+  let files: Vec<(&str, u32, u32, bool, &[Hunk])> = diffs[0]
+    .files
+    .iter()
+    .map(|file| (file.path.as_str(), file.additions, file.deletions, file.binary, file.hunks.as_slice()))
+    .collect();
+  assert_eq!(
+    files,
+    [
+      ("crlf.txt", 0, 0, false, [hunk(1, 3, 1, 3)].as_slice()),
+      ("data.bin", 0, 0, true, [].as_slice()),
+      ("gone.txt", 0, 2, false, [hunk(1, 2, 0, 0)].as_slice()),
+      ("lines.txt", 1, 1, false, [hunk(2, 1, 2, 1), hunk(3, 0, 4, 1)].as_slice()),
+    ]
+  );
 }
 
 /// A commit patch as `read_commit_patches` reads it: a changed file with two hunks (the last line without a newline, an
@@ -232,12 +263,12 @@ fn the_diff_config_of_the_user_changes_neither_the_hunks_nor_the_edges() {
     repo.create_commit("B", "file.txt", &lines(&[5, 10, 15])),
   ];
   let path = repo.path().to_str().unwrap();
-  let plain = read_commit_diffs(repo.git_executor(), path, &ids).unwrap();
+  let plain = read_commit_diffs(repo.git_executor(), path, &ObjectCache::disabled(), &ids).unwrap();
 
   for (key, value) in [("diff.interHunkContext", "10"), ("diff.algorithm", "histogram"), ("diff.indentHeuristic", "false")] {
     repo.set_config(key, value).unwrap();
   }
-  let configured = read_commit_diffs(repo.git_executor(), path, &ids).unwrap();
+  let configured = read_commit_diffs(repo.git_executor(), path, &ObjectCache::disabled(), &ids).unwrap();
 
   assert_eq!(configured, plain);
   assert_eq!(configured[1].files[0].hunks, [hunk(5, 1, 5, 1), hunk(15, 1, 15, 1)]);

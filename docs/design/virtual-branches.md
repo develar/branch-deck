@@ -184,16 +184,18 @@ tip and is never pushed. See "Stack branch" in [Git Operations](git-operations.m
 
 `bd commits` (its `units`) and `bd suggest` keep together the commits that `compute_dependencies`
 (`crates/sync-core/src/dependencies.rs`, the rules in its header) links by lines: a newer commit depends on an older
-one when one of its `-U0` hunks replaces or deletes a line the older one added, or lies next to one. The adjacency
+one when one of its blocks replaces or deletes a line the older one added, or lies next to one. The blocks are those of
+the diff views under `Default` (`file_diffs::blocks`). The adjacency
 rule stays, by a measurement of 2026-10-18 on the last 200 commits of this repository and on 217 commits of an
 IntelliJ checkout: of 731 and 860 line edges, 239 and 203 rest on adjacency only, and none of them is false. The
 oracle replays the commits between the two onto the parent of the older one, without it and without the commits that
 conflict without it, then merges the newer one with `merge-tree`: 83 and 55 conflict because of the older commit
 itself (merge-ort conflicts on adjacent changes too), 153 and 148 because they need commits that need it, 3 and 0 are
-inconclusive. The one false edge of both ranges comes from the diff algorithm: bd cuts its hunks with myers
-(`HUNK_OPTIONS` in `diff_scan.rs`), merge-ort with histogram, and in a large rewrite myers gave the older commit a
-line that histogram keeps unchanged. Without it no `units` and no `bd suggest` plan change, so the hunk options stay
-too.
+inconclusive. The one false edge of both ranges came from the diff algorithm: bd then cut its hunks with git's myers,
+merge-ort with histogram, and in a large rewrite myers gave the older commit a line that histogram keeps unchanged.
+Without it no `units` and no `bd suggest` plan change. The measurement used the `-U0` hunks of git. On the last 300
+commits of both repositories, 6 of 1,496 and 2 of 388 edges of the blocks are not edges of those hunks, and 6 and 1
+edges of the hunks are not edges of the blocks.
 
 ### Implementation Notes
 

@@ -1,12 +1,15 @@
-//! The changes of many commits from one `git log -p -U0 --raw -z` process: per file the status and the paths (from the
-//! raw part, NUL-separated and never quoted), the added and deleted line counts (what `--numstat` reports), whether
-//! the file is binary, and the hunk ranges the dependency edges are computed from. And the patches of commits with
-//! three lines of context, whose hunks `bd commits --patch` prints and `bd move-hunk --hunk` numbers (`file_patch`).
+//! The changes of many commits: per file the status and the paths, from one `git log --raw -z` process (NUL-separated
+//! and never quoted), and the blocks of the diff views (`file_diffs::blocks`), from one `cat-file --batch` for the blobs
+//! that no cache has. The blocks give the hunk ranges the dependency edges are computed from, and the counts. And the
+//! patches of commits with three lines of context (`file_patch`).
 
 use anyhow::{Result, anyhow};
+use file_diffs::blocks::{BlobPair, PairDiff};
+use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_diff::{FileChange, Hunk};
+use text_diff::model::DiffBlock;
 use tracing::instrument;
 
 /// The marker the `--format` puts before each commit id
@@ -19,26 +22,84 @@ pub struct CommitDiff {
 }
 
 /// The options that fix where the hunks start and end and which lines they hold, whatever `diff.algorithm`,
-/// `diff.interHunkContext` and `diff.indentHeuristic` say. They matter three times: the `-U0` hunks give the
-/// dependency edges, hunk N of `bd commits --patch` is hunk N of `bd move-hunk --hunk N`, and the changed lines of the
-/// dangling-reference check (`read_commit_lines`) are cached
+/// `diff.interHunkContext` and `diff.indentHeuristic` say. They matter twice: hunk N of `bd commits --patch` is hunk N
+/// of `bd move-hunk --hunk N`, and the changed lines of the dangling-reference check (`read_commit_lines`) are cached
 pub(crate) const HUNK_OPTIONS: [&str; 3] = ["--diff-algorithm=myers", "--inter-hunk-context=0", "--indent-heuristic"];
 
 /// Diff options that, with `HUNK_OPTIONS`, make the output independent of the user's diff config
 const DIFF_OPTIONS: [&str; 7] = ["-M", "--no-color", "--no-ext-diff", "--no-textconv", "--no-relative", "--src-prefix=a/", "--dst-prefix=b/"];
 
-/// Read the changes of `ids` (in this order) with zero context lines, in one process
-#[instrument(skip(git, ids), fields(commits = ids.len()))]
-pub fn read_commit_diffs(git: &GitCommandExecutor, repository: &str, ids: &[String]) -> Result<Vec<CommitDiff>> {
+/// Read the changes of `ids` (in this order): the files from one `log --raw`, their blocks from the caches of the diff
+/// views or one `cat-file --batch`
+#[instrument(skip(git, cache, ids), fields(commits = ids.len()))]
+pub fn read_commit_diffs(git: &GitCommandExecutor, repository: &str, cache: &ObjectCache, ids: &[String]) -> Result<Vec<CommitDiff>> {
   if ids.is_empty() {
     return Ok(Vec::new());
   }
   // full blob ids in the raw part, whatever the hash: `--abbrev=40` would cut a SHA-256 id
-  let mut args = vec!["log", "--no-walk=unsorted", "--stdin", "--format=%x1e%H", "-z", "--raw", "--no-abbrev", "-p", "-U0"];
-  args.extend(HUNK_OPTIONS);
+  let mut args = vec!["log", "--no-walk=unsorted", "--stdin", "--format=%x1e%H", "-z", "--raw", "--no-abbrev"];
   args.extend(DIFF_OPTIONS);
   let output = git.cmd(&args, repository).stdin(stdin_ids(ids).as_bytes()).bytes()?;
-  parse_commit_diffs(&output)
+  let mut diffs = parse_commit_diffs(&output)?;
+  add_blocks(git, repository, cache, &mut diffs)?;
+  Ok(diffs)
+}
+
+/// The hunks and the counts of the text files of `diffs`, from the blocks of the diff views under `Default`; a file
+/// without text (binary, a symlink, a submodule, over 8 MiB) is binary. A change of only the line ends is one hunk of
+/// the whole file, as git sees it
+fn add_blocks(git: &GitCommandExecutor, repository: &str, cache: &ObjectCache, diffs: &mut [CommitDiff]) -> Result<()> {
+  // a type change needs no lines: the edges take the whole file
+  let compared = |change: &FileChange| change.status != 'T' && (change.old_blob.is_some() || change.new_blob.is_some());
+  let pairs: Vec<BlobPair<'_>> = diffs
+    .iter()
+    .flat_map(|diff| &diff.files)
+    .filter(|change| compared(change))
+    .map(|change| BlobPair {
+      path: &change.path,
+      old_path: change.old_path.as_deref(),
+      old_id: change.old_blob.as_deref(),
+      new_id: change.new_blob.as_deref(),
+    })
+    .collect();
+  let mut pair_diffs = FileDiffs::default().blocks_of(git, repository, cache, &pairs)?.into_iter();
+  for change in diffs.iter_mut().flat_map(|diff| &mut diff.files) {
+    if !compared(change) {
+      // a symlink or a submodule: no text to compare
+      change.binary = change.status != 'T';
+      continue;
+    }
+    match pair_diffs.next() {
+      Some(PairDiff::Text(diff)) => {
+        change.additions = diff.additions;
+        change.deletions = diff.deletions;
+        change.hunks = if diff.blocks.is_empty() && diff.line_ends.is_some() {
+          // only the line ends changed: the views show no block, but git and a merge take every line as changed
+          vec![Hunk {
+            old_start: 1,
+            old_lines: diff.old_line_count,
+            new_start: 1,
+            new_lines: diff.new_line_count,
+          }]
+        } else {
+          diff.blocks.iter().map(hunk_of).collect()
+        };
+      }
+      Some(PairDiff::NoText) | None => change.binary = true,
+    }
+  }
+  Ok(())
+}
+
+/// A block as git names a `-U0` hunk: 1-based starts, an empty side names the line before it
+fn hunk_of(block: &DiffBlock) -> Hunk {
+  let start = |start: u32, end: u32| if start == end { start } else { start + 1 };
+  Hunk {
+    old_start: start(block.old_start, block.old_end),
+    old_lines: block.old_end - block.old_start,
+    new_start: start(block.new_start, block.new_end),
+    new_lines: block.new_end - block.new_start,
+  }
 }
 
 /// `read_commit_diffs` through the cache: git runs once for the ids the cache misses, and its results are written back
@@ -46,7 +107,7 @@ pub fn read_commit_diffs_cached(git: &GitCommandExecutor, repository: &str, cach
   let mut cached = cache.get_commit_diffs(ids);
   let missing: Vec<String> = ids.iter().filter(|id| !cached.contains_key(*id)).cloned().collect();
   tracing::debug!(cached = cached.len(), missing = missing.len(), "commit diffs");
-  let read = read_commit_diffs(git, repository, &missing)?;
+  let read = read_commit_diffs(git, repository, cache, &missing)?;
   cache.put_commit_diffs(read.iter().map(|diff| (diff.id.as_str(), &diff.files)));
   for diff in read {
     cached.insert(diff.id, diff.files);

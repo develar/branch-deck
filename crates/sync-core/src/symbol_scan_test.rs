@@ -51,7 +51,7 @@ fn reads_the_summaries_through_the_cache() {
     "change",
     &[("crates/wire/src/lib.rs", "pub fn two() {}\n"), ("src/a.ts", "export const a = 1;\n"), ("notes.txt", "x\n")],
   );
-  let diffs = read_commit_diffs(repo.git_executor(), repo.path_str(), std::slice::from_ref(&commit)).unwrap();
+  let diffs = read_commit_diffs(repo.git_executor(), repo.path_str(), &ObjectCache::disabled(), std::slice::from_ref(&commit)).unwrap();
   let dir = tempfile::tempdir().unwrap();
   let cache = ObjectCache::open_dir(dir.path(), &CacheConfig::default());
 

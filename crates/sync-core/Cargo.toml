@@ -9,6 +9,8 @@ sync-types = { path = "../sync-types" }
 sync-utils = { path = "../sync-utils" }
 branch-integration = { path = "../branch-integration" }
 git-ops = { path = "../git-ops" }
+file-diffs = { path = "../file-diffs" }
+text-diff = { path = "../text-diff" }
 git-executor = { path = "../git-executor" }
 object-cache = { path = "../object-cache" }
 code-symbols = { path = "../code-symbols" }

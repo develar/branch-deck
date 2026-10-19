@@ -59,7 +59,7 @@
 //! - `inverted_stack`: a branch that needs a commit of a branch stacked on it, and its fixes
 //! - `missing_declarations`: the names a built branch uses that a commit outside it adds
 //! - `dependencies`: which commits depend on which, from the hunks of `diff_scan`
-//! - `diff_scan`: the changes of many commits from one `log -p -U0 --raw -z`
+//! - `diff_scan`: the changes of many commits from one `log --raw -z` and the blocks of the diff views
 //! - `symbol_scan`: the syntax summaries of the changed source files, by blob id
 //! - `symbol_dependencies`: the edges between commits by the names they declare and use
 //! - `module_roots`: where the modules of source files begin

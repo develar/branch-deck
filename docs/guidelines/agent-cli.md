@@ -216,7 +216,7 @@ what they listed.
     commit ahead of the baseline, which a sync rebuilds every branch on. It is exact while the tip is synced with
     the current commits, and `null` for a branch that was never synced.
   - It costs at most three more git processes for all branches together: the commit diffs the cache misses (the same
-    `-U0` pass and cache as `bd commits`), one `diff-tree --stdin --raw --numstat -z` with a `<tip> <base>` line per
+    `log --raw` and blob pass and cache as `bd commits`), one `diff-tree --stdin --raw --numstat -z` with a `<tip> <base>` line per
     synced branch (`git_ops::commit_files::read_files_from_base`, the parser of the commit files), and one
     `check-attr` (`git_ops::attributes`).
 - `--brief` prints `StatusBrief` (`status_brief` in `bd schema`), small enough to read whole: about 2 KB for the 12
@@ -308,8 +308,9 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
 - `top_dirs` of `bd status --stats` keeps its meaning: the full directories of the files.
 
 All changes, the file lists and the dependencies come from one `git log --no-walk=unsorted --stdin -z --raw
---no-abbrev -p -U0` process, for the commits the object cache misses; the raw part also gives the full ids of each
-file's blobs before and after. `--patch` adds one more process, with `-U3`. Both pass explicit diff options (`-M`, `--no-ext-diff`,
+--no-abbrev` process and one `cat-file --batch` of the blobs, for the commits the object cache misses. The raw part
+gives the full ids of each file's blobs before and after. The line counts and the line ranges of the dependencies are
+the blocks of the diff views under `Default`, so `bd commits` and the app count the same lines. `--patch` adds one more process, with `-U3`. Both pass explicit diff options (`-M`, `--no-ext-diff`,
 `--no-textconv`, `a/`/`b/` prefixes), so the user's diff config doesn't change the output; `--patch` also pins where its
 hunks start and end (`--diff-algorithm=myers --inter-hunk-context=0 --indent-heuristic`), for `bd move-hunk`.
 
@@ -706,7 +707,7 @@ repository lock.
   Kotlin top-level function the branch adds while its tree declares the key in another file of the package and module
   (`file`, `line`) that `fixed_by` deletes: a move whose deletion is in another branch. Their possible ones are
   `possible_changed_declaration` and `possible_duplicate_declaration`. It searches only the paths where the branch's tree and HEAD's differ,
-  so it costs a `diff-tree` and a `cat-file`, plus one `log -p -U0` for the commits the cache lacks.
+  so it costs a `diff-tree` and a `cat-file`, plus one `log --raw` and one `cat-file` for the commits the cache lacks.
 - `inverted_stack` `{branch, child, fixes}`: the branch conflicts, or has a dangling reference, because it needs a
   commit (`missing_commits`, `fixed_by`) of `child`, a branch stacked on it: no order of the stack builds both. Each
   fix is `{kind, branches, unstack}` to add to the plan, kept only when a trial build of the plan with it builds both

@@ -1303,16 +1303,16 @@ Code: `crates/git-ops/src/copy_commit.rs`, `crates/sync-core/src/branch_processo
 
 #### Object cache
 
-`bd commits` and `bd status --stats` read the changes of each commit (files, statuses, line counts, the `-U0` hunk
-ranges and the blob ids before and after) from a disk cache before they run git, and run one `log --no-walk=unsorted
---stdin -z --raw --no-abbrev -p -U0` only for the commits it misses (`--no-abbrev`, not `--abbrev=40`, so a SHA-256
-id stays whole).
+`bd commits` and `bd status --stats` read the changes of each commit (files, statuses, line counts, the line ranges
+of the blocks and the blob ids before and after) from a disk cache before they run git. Only for the commits it misses
+they run one `log --no-walk=unsorted --stdin -z --raw --no-abbrev` (`--no-abbrev`, not `--abbrev=40`, so a SHA-256 id
+stays whole) and one `cat-file --batch` of the blobs that the diff caches lack. The blocks are those of the diff views
+under `Default` (`file_diffs::blocks`).
 - **Safe without invalidation** (but `review_answer`, `patronus_robots` and `build_result`, below). Keys are object ids (`remote_status`, `stack_branch`: a hash of them), and an object never changes: the changes of a commit against
-  its first parent with fixed diff options (`-M`, `--no-ext-diff`, `--no-textconv`, and `--diff-algorithm=myers`,
-  `--inter-hunk-context=0`, `--indent-heuristic` for where the hunks start and end, so `diff.algorithm` and
-  `diff.interHunkContext` change no dependency edge) are the same forever. Entries are only evicted, never stale. Each
-  store versions its values in its database name (`commit_diff.v3`, `Store::version`), bumped when their type or the
-  options that compute them change; opening drops the older versions of a store, and a bump of one store keeps the
+  its first parent with fixed diff options (`-M`, `--no-ext-diff`, `--no-textconv`; the blocks come from the diff
+  engine, so `diff.algorithm` changes no dependency edge) are the same forever. Entries are only evicted, never stale. Each
+  store versions its values in its database name (`commit_diff.v4`, `Store::version`), bumped when their type, the
+  options or the engine that compute them change; opening drops the older versions of a store, and a bump of one store keeps the
   others, the costly `merge_result` above all.
 - **Shared by processes.** The cache is four LMDB environments (heed) in `$GIT_COMMON_DIR/branch-deck/cache/`, shared
   by every worktree and by the app and parallel `bd` calls: writers are serialized by LMDB's lock file, readers never
@@ -1657,7 +1657,7 @@ building each branch the merge memo misses: a second check of the same plan runs
 
 `stack_independence` asks whether a stacked branch builds without its parent: the plan `unstack: [branch]`, and only
 that branch is built, as a root on the baseline. Its first conflict names the commit and the files. Only then the
-changes of every commit ahead of the baseline are read (the object cache, one `log -p -U0` for the misses) for the line
+changes of every commit ahead of the baseline are read (the object cache, one `log --raw` and one `cat-file` for the misses) for the line
 dependencies (`dependencies.rs`), lock files included: they name the commits of the ancestors the branch needs. The
 changes and the line dependencies with the fixup units (`CheckSession::line_graph`) are read once per session, and the
 conflict fix, the symbol edges and `bd check` share them.

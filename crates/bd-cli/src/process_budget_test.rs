@@ -89,9 +89,10 @@ const WARM_CHECK: [(&str, u32); 7] = [
   ("rev-parse", 5),
 ];
 
-/// The processes of `bd check` of the current grouping of `repo_with_branches`, with an empty object cache
+/// The processes of `bd check` of the current grouping of `repo_with_branches`, with an empty object cache: one
+/// `cat-file` reads the blobs of the commits' blocks
 const CHECK: [(&str, u32); 8] = [
-  ("cat-file", 1),
+  ("cat-file", 2),
   ("config", 2),
   ("fast-import", 2),
   ("for-each-ref", 2),
@@ -122,7 +123,7 @@ fn a_check() {
 fn a_check_with_a_build() {
   let repo = repo_with_branches();
   let context = run_check(&repo, Some(PASSING_BUILD), &["f0.txt", "f1.txt"]);
-  assert_processes(&context, &changed(&CHECK, &[("archive", 2), ("cat-file", 2)]));
+  assert_processes(&context, &changed(&CHECK, &[("archive", 2), ("cat-file", 3)]));
 }
 
 /// `bd check --build` again on the same trees: the passes are cached, so no `archive`; the one `cat-file` that reads the
@@ -434,7 +435,7 @@ fn a_safe_push_check_of_a_stacked_branch() {
   assert_processes(
     &context,
     &[
-      ("cat-file", 2),
+      ("cat-file", 3),
       ("config", 1),
       ("diff-tree", 1),
       ("fast-import", 4),
