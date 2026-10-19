@@ -410,6 +410,11 @@ worktrees work on one branch, run `bd help worktrees` first.
   its side branches included, in one robot.
 - A branch a merged Safe Push landed says so in `bd status` (`landed_by`) until `bd update`: only its `after` commits
   are left to push or land, and with none `bd push` leaves it out (`skipped`) and `bd safe-push` refuses it (`landed`).
+- `bd check --fix` prints a line per trial on stderr and stops at `--max-trials` (12) or `--time-budget` (180 s): a
+  `search: budget` answer is the best plan so far. A commit prefixed `(parent/leaf)` stacks the existing group `leaf`
+  on `parent` (`reparented` in `bd pick`); two parents of one group name the `bd restack` that keeps one.
+- A `git_error` \"not updating refs/branch-deck/tmp/chain (… does not contain …)\" is a ref a Branch Deck 0.21 or older left:
+  `git update-ref -d refs/branch-deck/tmp/chain`, then retry.
 "
   )
 }
