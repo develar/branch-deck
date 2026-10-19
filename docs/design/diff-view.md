@@ -451,7 +451,14 @@ without the deleted parts of an Inline row) and selects a name once its row is p
 the underline of a link in a layer of its own (`.dv-links`), never in the rows the painter replaces. `find_declaration`
 (`crates/file-diffs/src/declarations.rs`) reads the name and its scopes from the tree (`code_symbols::navigate`),
 then the declarations of the review's files from the summaries of the `blob_summary` store and the texts the diffs
-read, so a jump starts no git process.
+read, so a jump starts no git process. A name the review does not declare is asked of the index of accio
+(`crates/file-diffs/src/accio.rs`, behind the `SymbolIndex` trait: the e2e server answers from a fixture of the test
+repository) at the commit of its side. A declaration in another file opens `DeclarationFileView` over the review: a
+`DiffView` of one synthetic added file (all its lines one block of the new side) in `plain` mode, which paints no
+changed background, so the file has the colours, the find and the navigation of a diff without a mode of its own.
+`CommitReviewCode` keeps a stack of these views with the name each jump started from; Back of the first view returns
+to that name, a declaration of the review reached from a view closes them all, and the tree and the keys of the review
+close them too, through the handle it forwards to the review's view.
 
 ### Painting the layers of a line
 

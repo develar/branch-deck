@@ -1,15 +1,18 @@
+import { useImperativeHandle, useRef, useState } from "react"
 import type { Ref } from "react"
 import { UnfoldVerticalIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { DeclarationChooser } from "@/components/diff/DeclarationChooser"
+import { DeclarationFileView } from "@/components/diff/DeclarationFileView"
 import { DiffView } from "@/components/diff/DiffView"
-import type { DiffHeaderProps, DiffViewFile, DiffViewHandle } from "@/components/diff/DiffView"
+import type { DeclarationPlace, DiffHeaderProps, DiffViewFile, DiffViewHandle } from "@/components/diff/DiffView"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FileHeaderChevron, FileHeaderCopyButton } from "@/components/files/FileHeaderParts"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
-import { useGoToDeclaration } from "@/hooks/useGoToDeclaration"
+import { placeOf, useGoToDeclaration } from "@/hooks/useGoToDeclaration"
+import type { DeclarationTarget, DiffRevisions } from "@/lib/bindings"
 import type { CommitFile } from "@/lib/bindings"
 import { formatCommitFilePath } from "@/lib/commit-files"
 import { useDiffSoftWraps } from "@/stores/settings/diff-view-settings"
@@ -33,19 +36,56 @@ export interface CommitReviewCodeProps {
   onFirstScreen?: () => void
   /** The code owner of a file by its path, in its header */
   fileOwners?: ReadonlyMap<string, string>
+  /** The commits of the sides: a declaration outside the review is read at them */
+  revisions: DiffRevisions
 }
 
 /**
  * The diffs of all files of a commit or a range in one `DiffView`: a sticky header per file, the unchanged lines folded
  * as IntelliJ, lock and generated files and files over 1,000 changed lines collapsed.
  */
-export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisibleFileChange, onFirstScreen, fileOwners }: CommitReviewCodeProps) {
+export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisibleFileChange, onFirstScreen, fileOwners, revisions }: CommitReviewCodeProps) {
   const softWraps = useDiffSoftWraps()
-  const { goToDeclaration, choice, closeChoice } = useGoToDeclaration(files)
+  const review = useRef<DiffViewHandle>(null)
+  // the files outside the review a jump opened, each with the name it started from, the last one shown over the review;
+  // Back closes them one by one, the last one back to its name in the review
+  const [fileViews, setFileViews] = useState<readonly { target: DeclarationTarget; from: DeclarationPlace | null }[]>([])
+  // a file outside the review opens over it; a declaration of the review, reached from such a file, closes them all
+  const openFile = (target: DeclarationTarget, from: DeclarationPlace | null) => {
+    if (target.outside !== null) {
+      setFileViews(views => [...views, { target, from }])
+    } else {
+      setFileViews([])
+      review.current?.revealDeclaration(placeOf(target), null)
+    }
+  }
+  // the tree and the keys of the review move in the review: they close the files over it
+  useImperativeHandle(ref, () => ({
+    scrollToFile: path => {
+      setFileViews([])
+      review.current?.scrollToFile(path)
+    },
+    moveChange: direction => {
+      setFileViews([])
+      return review.current?.moveChange(direction)
+    },
+    focus: () => review.current?.focus(),
+    revealDeclaration: (place, from) => review.current?.revealDeclaration(place, from) ?? false,
+  }))
+  const inReview = useGoToDeclaration(files, revisions, openFile)
+  const shownFile = fileViews.at(-1)?.target
+  const back = () => {
+    const from = fileViews.length === 1 ? fileViews[0]!.from : null
+    setFileViews(fileViews.slice(0, -1))
+    if (from !== null) {
+      review.current?.revealDeclaration(from, null)
+    }
+  }
+  const inFile = useGoToDeclaration(files, { old: null, new: shownFile?.outside?.revision ?? null }, openFile)
   return (
-    <>
+    <div className="relative h-full">
       <DiffView
-        ref={ref}
+        ref={review}
         files={files}
         mode={diffViewMode}
         softWraps={softWraps}
@@ -53,11 +93,20 @@ export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisi
         label="Changes of the commit"
         onVisibleFileChange={onVisibleFileChange}
         onFirstScreen={onFirstScreen}
-        onGoToDeclaration={goToDeclaration}
+        onGoToDeclaration={inReview.goToDeclaration}
         renderHeader={header => <ReviewFileHeader {...header} owner={fileOwners?.get(header.file.path)} />}
       />
-      <DeclarationChooser choice={choice} onClose={closeChoice} />
-    </>
+      {shownFile !== undefined && (
+        <DeclarationFileView key={`${fileViews.length}:${shownFile.path}:${shownFile.line}`} target={shownFile} onBack={back} onGoToDeclaration={inFile.goToDeclaration} />
+      )}
+      <DeclarationChooser
+        choice={inReview.choice ?? inFile.choice}
+        onClose={() => {
+          inReview.closeChoice()
+          inFile.closeChoice()
+        }}
+      />
+    </div>
   )
 }
 

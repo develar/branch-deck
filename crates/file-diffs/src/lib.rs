@@ -5,6 +5,7 @@
 //! A crate of its own above `git-ops`: it joins the git reads with the comparison of `text-diff` and the declarations
 //! of `code-symbols`, which the git plumbing of `git-ops` does not depend on.
 
+pub mod accio;
 pub mod blocks;
 pub mod declarations;
 mod merge;

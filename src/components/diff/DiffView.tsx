@@ -125,7 +125,13 @@ export interface DiffViewProps {
    * Go to Declaration (spec/commit/symbol-navigation.spec.md): a ⌘-click (Ctrl-click off macOS) on a name, ⌘B on the
    * selection, the item of the menu of the code; `at` is where to show a choice of declarations
    */
-  onGoToDeclaration?: (site: DeclarationSite, at: { x: number; y: number }, reveal: (place: DeclarationPlace) => boolean) => void
+  onGoToDeclaration?: (site: DeclarationSite, at: { x: number; y: number }, reveal: (place: DeclarationPlace) => boolean, from: DeclarationPlace) => void
+  /** A place shown once the view mounts: the declaration a view of a file outside the review opens at */
+  initialPlace?: DeclarationPlace
+  /** Back with no jump left to return along: the view of a file outside the review closes */
+  onHistoryEnd?: () => void
+  /** A file shown by itself, not a change: no tint of an added file */
+  plain?: boolean
   /** The sticky header of each file; without it the view shows its files open, a notice in a row under each */
   renderHeader?: (props: DiffHeaderProps) => ReactNode
   /** "own": the view scrolls itself (the review windows); "parent": it is a block of the scroller it lies in */
@@ -268,6 +274,9 @@ export function DiffView({
   scroll = "own",
   worktree = false,
   onGoToDeclaration,
+  initialPlace,
+  onHistoryEnd,
+  plain = false,
 }: DiffViewProps) {
   // each file a card under its header: the review windows
   const cards = renderHeader !== undefined
@@ -678,14 +687,19 @@ export function DiffView({
     const found = word === null ? null : siteOf(word)
     if (found !== null) {
       // a reveal of a declaration keeps the place of the name for Back
-      onGoToDeclaration?.(found.site, at, place => {
-        if (layout.indexOf(place.path) < 0) {
-          return false
-        }
-        history.current.back.push(found.place)
-        history.current.forward = []
-        return revealPlace(place)
-      })
+      onGoToDeclaration?.(
+        found.site,
+        at,
+        place => {
+          if (layout.indexOf(place.path) < 0) {
+            return false
+          }
+          history.current.back.push(found.place)
+          history.current.forward = []
+          return revealPlace(place)
+        },
+        found.place,
+      )
     }
   }
 
@@ -716,6 +730,16 @@ export function DiffView({
     setCodeMenu(codeMenuItems({ name: target === null ? null : word!.text, goToDeclaration: () => goTo(word, at) }))
   }
 
+  // the place the view opens at, once its file is laid out
+  const initialShown = useRef(false)
+  const revealInitial = useEffectEvent((place: DeclarationPlace) => revealPlace(place))
+  useLayoutEffect(() => {
+    if (initialPlace !== undefined && !initialShown.current && layout.indexOf(initialPlace.path) >= 0) {
+      initialShown.current = true
+      revealInitial(initialPlace)
+    }
+  }, [layout, initialPlace])
+
   // the place a reveal waits for: scrolled to a third of the viewport below the header, then its name selected
   useLayoutEffect(() => {
     const place = pendingReveal.current
@@ -743,6 +767,9 @@ export function DiffView({
     const to = direction === "back" ? history.current.forward : history.current.back
     const place = from.pop()
     if (place === undefined) {
+      if (direction === "back") {
+        onHistoryEnd?.()
+      }
       return
     }
     const word = painter.wordAtSelection()
@@ -904,6 +931,7 @@ export function DiffView({
       style={mode === "split" ? ({ "--dv-split": String(split) } as CSSProperties) : undefined}
       onPointerDown={scroll === "own" && mode === "split" ? event => dragSplit(event) : undefined}
       onDoubleClick={scroll === "own" && mode === "split" ? event => onDividerOf(event) && setDiffSplitRatio(0.5) : undefined}
+      data-plain={plain ? "" : undefined}
       onMouseMove={navigates ? onCodeMouseMove : undefined}
       onMouseLeave={navigates ? () => showLink(null) : undefined}
       onClickCapture={navigates ? onCodeClick : undefined}

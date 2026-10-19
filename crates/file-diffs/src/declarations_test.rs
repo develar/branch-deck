@@ -1,8 +1,9 @@
 //! Going to a declaration in a review: by the scopes of the file, in the other files of the review ranked by the owner,
 //! from the texts the diffs read
 
+use crate::accio::{SymbolHit, SymbolIndex};
 use crate::fixture_test::{commit_all, process_counts, repo_path, write};
-use crate::model::{BlobRequest, DeclarationSite, DiffFile, DiffSide, DiffSource, FindDeclarationParams, ReviewFileSides};
+use crate::model::{BlobRequest, DeclarationSite, DiffFile, DiffRevisions, DiffSide, DiffSource, FindDeclarationParams, ReviewFileSides};
 use crate::service::FileDiffs;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
@@ -70,13 +71,14 @@ fn params(repo: &TestRepo, files: &[DiffFile], path: &str, line: u32, needle: &s
         worktree: false,
       })
       .collect(),
+    revisions: DiffRevisions::default(),
   }
 }
 
 /// The path, line and column of each target
 fn targets(diffs: &FileDiffs, repo: &TestRepo, params: &FindDeclarationParams) -> Vec<(String, u32, u32, String)> {
   diffs
-    .find_declaration(repo.git_executor(), &ObjectCache::disabled(), params)
+    .find_declaration(repo.git_executor(), &ObjectCache::disabled(), None, params)
     .unwrap()
     .targets
     .into_iter()
@@ -89,7 +91,7 @@ fn goes_to_a_constant_of_a_type_in_another_file_of_the_review_without_git() {
   let (repo, diffs, files) = review();
   let counting = repo.git_executor().with_process_stats("test");
   let found = diffs
-    .find_declaration(&counting, &ObjectCache::disabled(), &params(&repo, &files, "src/Uses.kt", 4, "LIMIT"))
+    .find_declaration(&counting, &ObjectCache::disabled(), None, &params(&repo, &files, "src/Uses.kt", 4, "LIMIT"))
     .unwrap();
   assert_eq!(process_counts(&counting), []);
   assert_eq!(found.name, "LIMIT");
@@ -126,4 +128,109 @@ fn goes_to_a_local_by_the_scopes_and_nowhere_from_a_declaration() {
     [("src/Uses.kt".to_string(), 5, 8, "local".to_string())]
   );
   assert_eq!(targets(&diffs, &repo, &params(&repo, &files, "src/Store.kt", 3, "add")), []);
+}
+
+/// An index that answers each query from a fixed list, and records the queries
+struct FakeIndex {
+  hits: Vec<(&'static str, SymbolHit)>,
+  queries: std::sync::Mutex<Vec<(String, Option<String>)>>,
+}
+
+impl SymbolIndex for FakeIndex {
+  fn symbols(&self, _repository_root: &str, query: &str, revision: Option<&str>) -> anyhow::Result<Option<Vec<SymbolHit>>> {
+    self
+      .queries
+      .lock()
+      .map_err(|error| anyhow::anyhow!("{error}"))?
+      .push((query.to_string(), revision.map(str::to_string)));
+    Ok(Some(self.hits.iter().filter(|(name, _)| *name == query).map(|(_, hit)| hit.clone()).collect()))
+  }
+}
+
+fn hit(path: &str, line: u32, kind: &str, name: &str) -> SymbolHit {
+  SymbolHit {
+    path: path.to_string(),
+    line,
+    kind: kind.to_string(),
+    name: name.to_string(),
+    parent: None,
+  }
+}
+
+#[test]
+fn goes_outside_the_review_through_the_index_at_the_revision_of_the_side() {
+  let repo = TestRepo::new();
+  std::fs::create_dir_all(repo.path().join("lib")).unwrap();
+  write(&repo, "lib/Outside.kt", b"package lib\n\nfun outsider() = 1\n");
+  commit_all(&repo, "Initial");
+  write(&repo, "Uses.kt", b"fun run() = outsider() + inner()\n\nfun inner() = 2\n");
+  let commit = commit_all(&repo, "Use it");
+  let diffs = FileDiffs::default();
+  let files = diffs
+    .read(
+      repo.git_executor(),
+      repo_path(&repo),
+      &ObjectCache::disabled(),
+      &DiffSource::Commit { id: commit.clone() },
+      WhitespacePolicy::Default,
+    )
+    .unwrap();
+  let index = FakeIndex {
+    hits: vec![("outsider", hit("lib/Outside.kt", 3, "function", "outsider"))],
+    queries: std::sync::Mutex::default(),
+  };
+  let file = &files[0];
+  let mut params = FindDeclarationParams {
+    repository_path: repo_path(&repo).to_string(),
+    site: DeclarationSite {
+      path: "Uses.kt".to_string(),
+      side: DiffSide::New,
+      blob: BlobRequest {
+        id: file.new_id.clone().unwrap(),
+        path: None,
+      },
+      line: 0,
+      column: 13,
+    },
+    files: vec![ReviewFileSides {
+      path: file.path.clone(),
+      old_path: None,
+      old_id: None,
+      new_id: file.new_id.clone(),
+      worktree: false,
+    }],
+    revisions: DiffRevisions {
+      old: Some(format!("{commit}^")),
+      new: Some(commit.clone()),
+    },
+  };
+  let counting = repo.git_executor().with_process_stats("test");
+  let found = diffs.find_declaration(&counting, &ObjectCache::disabled(), Some(&index), &params).unwrap();
+  // the blob at the revision (`cat-file --batch-check`) and its text for the column (`cat-file --batch`)
+  assert_eq!(process_counts(&counting), [("cat-file".to_string(), 2)]);
+  let target = &found.targets[0];
+  assert_eq!(
+    (target.path.as_str(), target.line, target.column, target.kind.as_str()),
+    ("lib/Outside.kt", 2, 4, "function")
+  );
+  let outside = target.outside.as_ref().unwrap();
+  assert_eq!((outside.revision.as_deref(), outside.line_count), (Some(commit.as_str()), 4));
+  assert_eq!(Some(outside.blob_id.clone()), repo.rev_parse(&format!("{commit}:lib/Outside.kt")).ok());
+  assert_eq!(*index.queries.lock().unwrap(), [("outsider".to_string(), Some(commit))]);
+
+  // a declaration of the review is found there, without the index
+  params.site.column = 25;
+  let inner = diffs.find_declaration(repo.git_executor(), &ObjectCache::disabled(), Some(&index), &params).unwrap();
+  assert_eq!((inner.targets.len(), inner.targets[0].line, inner.targets[0].outside.is_none()), (1, 2, true));
+  assert_eq!(index.queries.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn knows_where_accio_keeps_the_index_of_a_repository() {
+  let _env = test_utils::env_vars::EnvVars::set(&[("ACCIO_HOME", "/tmp/accio-home")]);
+  // `blob_oid` of the root path, its first 16 hex: what `accio stats` names as the index of Branch Deck's checkout
+  assert_eq!(
+    crate::accio::index_dir("/Users/develar/projects/branch-deck"),
+    Some(std::path::PathBuf::from("/tmp/accio-home/551c076cbbdc6d5b"))
+  );
 }

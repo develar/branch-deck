@@ -472,7 +472,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Stack parents (`bd restack`, `bd unstack`) | `branch/stack-parents` | `crates/sync-core/src/stack_parents.rs` |
 | Activity log | `repository/activity` | `src/stores/activity.ts` |
 | Commit files, diffs, the commit review (`D`), the tree-sitter highlighting | `commit/commit-files`, `commit/commit-review` ([Diff View](docs/design/diff-view.md)) | `crates/file-diffs/`, `crates/code-symbols/src/highlight/`, `src/components/diff/` |
-| Go to Declaration in a review (⌘-click, ⌘B, Back) | `commit/symbol-navigation` | `crates/code-symbols/src/navigate.rs`, `crates/file-diffs/src/declarations.rs`, `src/hooks/useGoToDeclaration.ts` |
+| Go to Declaration in a review (⌘-click, ⌘B, Back), outside it through accio | `commit/symbol-navigation` | `crates/code-symbols/src/navigate.rs`, `crates/file-diffs/src/declarations.rs`, `crates/file-diffs/src/accio.rs`, `src/hooks/useGoToDeclaration.ts`, `src/components/diff/DeclarationFileView.tsx` |
 | Title bar and main menu | `repository/title-bar` | `src-tauri/src/title_bar.rs`, `src/components/shared/WindowTitleBar.tsx` |
 | Your Turn (review requests, the pull request review) | `repository/review-requests`, `repository/robots-indicator` | `src/components/review/` |
 | Settings window | `repository/settings` | `src/components/settings/`, `crates/sync-core/src/repository_config.rs` |

@@ -1,4 +1,6 @@
 // @spec spec/commit/symbol-navigation.spec.md
+import { writeFileSync } from "node:fs"
+import path from "node:path"
 import type { Locator, Page } from "@playwright/test"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
@@ -29,9 +31,16 @@ async function openNavigationReview(page: Page): Promise<Locator> {
 
 /** The middle of the first `word` in the code of the file `path`, on the new side, the file shown by its row of the tree */
 async function pointOf(code: Locator, path: string, word: string): Promise<{ x: number; y: number }> {
-  const page = code.page()
-  await page.getByRole("treeitem", { name: path.split("/").at(-1) }).click()
-  const section = code.locator(`[data-testid=diff-view-file][data-path="${path}"]`)
+  await code
+    .page()
+    .getByRole("treeitem", { name: path.split("/").at(-1) })
+    .click()
+  return wordIn(code, path, word)
+}
+
+/** The middle of the first `word` in the code of the file `path` of `view`, on the new side */
+async function wordIn(view: Locator, path: string, word: string): Promise<{ x: number; y: number }> {
+  const section = view.locator(`[data-testid=diff-view-file][data-path="${path}"]`)
   await expect(section).toBeInViewport()
   return section.evaluate((element, name) => {
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
@@ -62,8 +71,10 @@ async function selected(page: Page): Promise<{ text: string; path: string | null
 }
 
 test.describe("Go to Declaration", () => {
+  /** The test repository of the test, for its fixture of the index */
+  let repositoryPath = ""
   test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("symbol_navigation")
+    repositoryPath = (await setupRepo("symbol_navigation")).path
     await syncAndWaitForBranches()
   })
 
@@ -115,6 +126,65 @@ test.describe("Go to Declaration", () => {
     await page.keyboard.down(MODIFIER)
     await page.mouse.click(at.x, at.y)
     await page.keyboard.up(MODIFIER)
-    await expect(page.getByText("No declaration of Any in the review")).toBeVisible()
+    await expect(page.getByText("No declaration of Any found")).toBeVisible()
+  })
+
+  test("should open a declaration outside the review that the index of the repository knows, go back to the review, and from that file to a declaration of the review", async ({
+    page,
+  }) => {
+    // the index of the repository, as accio answers `symbol outsider`
+    writeFileSync(path.join(repositoryPath, ".git", "branch-deck-accio.json"), JSON.stringify({ outsider: [{ file: "src/Base.kt", line: 1, kind: "function", name: "outsider" }] }))
+    const code = await openNavigationReview(page)
+    const fileView = page.getByTestId("declaration-file-view")
+    await expect(fileView).toBeHidden()
+    const at = await pointOf(code, "src/Uses.kt", "outsider")
+    await page.keyboard.down(MODIFIER)
+    await page.mouse.click(at.x, at.y)
+    await page.keyboard.up(MODIFIER)
+    // the file at the revision of the commit, over the review
+    await expect(fileView).toContainText("src/Base.kt")
+    await expect(fileView).toContainText("outside the review")
+    await expect(fileView.getByRole("region", { name: "File src/Base.kt" })).toContainText("fun outsider(value: Int) = helper(value)")
+    await expect.poll(() => selected(page)).toEqual({ text: "outsider", path: "src/Base.kt" })
+    // Back: the review, at the name
+    await page.keyboard.press(BACK)
+    await expect(fileView).toBeHidden()
+    await expect.poll(() => selected(page)).toEqual({ text: "outsider", path: "src/Uses.kt" })
+
+    // the button Back, then from the file outside the review to `helper` of Store.kt, in the review
+    await page.keyboard.down(MODIFIER)
+    await page.mouse.click(at.x, at.y)
+    await page.keyboard.up(MODIFIER)
+    await expect(fileView).toContainText("src/Base.kt")
+    await fileView.getByRole("button", { name: /Back/ }).click()
+    await expect(fileView).toBeHidden()
+    await page.keyboard.down(MODIFIER)
+    await page.mouse.click(at.x, at.y)
+    await page.keyboard.up(MODIFIER)
+    const helper = await wordIn(fileView, "src/Base.kt", "helper")
+    await page.keyboard.down(MODIFIER)
+    await page.mouse.click(helper.x, helper.y)
+    await page.keyboard.up(MODIFIER)
+    await expect(fileView).toBeHidden()
+    await expect(code).toContainText("fun helper(value: Int)")
+    await expect.poll(() => selected(page)).toEqual({ text: "helper", path: "src/Store.kt" })
+
+    // a file of the tree, K (Uses.kt is the last file) and N show in the review: the file over it closes
+    const openOutsider = async () => {
+      const again = await pointOf(code, "src/Uses.kt", "outsider")
+      await page.keyboard.down(MODIFIER)
+      await page.mouse.click(again.x, again.y)
+      await page.keyboard.up(MODIFIER)
+      await expect(fileView).toContainText("src/Base.kt")
+    }
+    await openOutsider()
+    await page.getByRole("treeitem", { name: "Queue.kt" }).click()
+    await expect(fileView).toBeHidden()
+    await expect(code.locator('[data-testid=diff-view-file][data-path="src/Queue.kt"]')).toBeInViewport()
+    for (const key of ["k", "n"]) {
+      await openOutsider()
+      await page.keyboard.press(key)
+      await expect(fileView).toBeHidden()
+    }
   })
 })

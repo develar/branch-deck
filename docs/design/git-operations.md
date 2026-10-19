@@ -1772,8 +1772,17 @@ git plumbing does not depend on.
   the run. The blobs that a diff read stay in a memory cache (128 MiB), so the texts that a view asks for next
   (`blob_texts`) cost no process. A text of the working tree is read again by its path, and only when its bytes still
   have the id.
+- **Go to Declaration** ([Symbol Navigation](../../spec/commit/symbol-navigation.spec.md)). A declaration of the
+  review comes from the texts in memory and the summaries of the store: no process. A name the review does not declare
+  asks the index of accio (`symbol --format json --limit 20 --project <root> --ref <the commit of the side> -- <name>`,
+  a null stdin, killed after 3 s), only when the index directory of the repository exists, because a query without
+  an index builds one. For the hits outside the review, one `cat-file --batch-check` names the blobs of
+  `<commit>:<path>` and one `cat-file --batch` reads them (`object_ids_and_types`, `blob_texts`); the texts stay in
+  the memory cache, so the view of the file reads nothing again. For uncommitted changes the hits are files of the
+  working tree, read from the disk. `declarations_test.rs` pins the two processes.
 
-Code: `crates/file-diffs/src/service.rs`, `crates/file-diffs/src/worktree.rs`, `crates/object-cache/src/file_diff.rs`.
+Code: `crates/file-diffs/src/service.rs`, `crates/file-diffs/src/worktree.rs`, `crates/file-diffs/src/declarations.rs`,
+`crates/file-diffs/src/accio.rs`, `crates/object-cache/src/file_diff.rs`.
 
 #### Review fetch
 

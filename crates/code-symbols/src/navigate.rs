@@ -104,14 +104,10 @@ const SCOPES: &[&str] = &[
 pub fn reference_at(grammar: Grammar, text: &str, position: Position) -> Option<ReferenceAt> {
   let offset = byte_offset(text, position)?;
   let tree = crate::highlight::parse_text(grammar, text)?;
-  let mut node = tree.root_node().descendant_for_byte_range(offset, offset)?;
-  // the end of a name is still the name: `foo|`
-  if !NAMES.contains(&node.kind()) && offset > 0 {
-    node = tree.root_node().descendant_for_byte_range(offset - 1, offset - 1)?;
-  }
-  if !NAMES.contains(&node.kind()) {
-    return None;
-  }
+  // the character at the place, else the one before it: the end of a name is still the name (`foo|`)
+  let root = tree.root_node();
+  let at = |start: usize, end: usize| root.named_descendant_for_byte_range(start, end).filter(|it| NAMES.contains(&it.kind()));
+  let node = at(offset, (offset + 1).min(text.len())).or_else(|| offset.checked_sub(1).and_then(|before| at(before, offset)))?;
   let name = text.get(node.byte_range())?.to_string();
   let (kind, qualifier) = kind_of(node, text);
   let local = if matches!(kind, ReferenceKind::Value | ReferenceKind::Call | ReferenceKind::Type) {

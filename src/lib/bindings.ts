@@ -352,7 +352,8 @@ export const commands = {
 	getBlobTexts: (params: GetBlobTextsParams) => typedError<BlobText[], CommandError>(__TAURI_INVOKE("get_blob_texts", { params })),
 	/**
 	 *  The declarations a name in a diff of a review may mean, the most likely first (`file_diffs::declarations`): by the
-	 *  scopes of its file, else in the files of the review, from the blobs the diffs read and the summaries of the store
+	 *  scopes of its file, else in the files of the review, from the blobs the diffs read and the summaries of the store,
+	 *  else in the index of the repository (`accio`)
 	 */
 	findDeclaration: (params: FindDeclarationParams) => typedError<FoundDeclarations, CommandError>(__TAURI_INVOKE("find_declaration", { params })),
 	/**
@@ -874,6 +875,8 @@ export type DeclarationTarget = {
 	kind: string,
 	/**  The name of the declaration it is a member of */
 	container: string | null,
+	/**  A file outside the review (found by `accio`); none for a file of the review */
+	outside: OutsideFile | null,
 };
 
 /**  A parent and the commits that declare it */
@@ -944,6 +947,12 @@ export type DiffFileHeader = {
 	 *  that git would give its bytes (`git hash-object --no-filters`).
 	 */
 	newId: string | null,
+};
+
+/**  The commits a review compares: the old side (the parent, the base of a range) and the new one */
+export type DiffRevisions = {
+	old: string | null,
+	new: string | null,
 };
 
 /**  A side of a diff */
@@ -1127,6 +1136,8 @@ export type FindDeclarationParams = {
 	site: DeclarationSite,
 	/**  The changed files of the review, whose sides are searched */
 	files: ReviewFileSides[],
+	/**  The revisions of the sides, for a declaration outside the review; none for the working tree */
+	revisions?: DiffRevisions,
 };
 
 /**  Steps that belong together: they share a branch, and their plan alone has the result */
@@ -1755,6 +1766,15 @@ export type OrphanFixup = {
 	subject: string,
 	/**  The virtual branch the fixup itself is grouped into; `None` if it is unassigned */
 	branch: string | null,
+};
+
+/**  A file outside the review that holds a declaration: shown by itself, at the revision of its side */
+export type OutsideFile = {
+	/**  The revision it is read at; none for the working tree */
+	revision: string | null,
+	blobId: string,
+	/**  The lines of its text, as the view counts them */
+	lineCount: number,
 };
 
 /**  Where the declared parent of a branch comes from */

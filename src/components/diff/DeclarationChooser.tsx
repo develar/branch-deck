@@ -1,6 +1,5 @@
 import { Popover, PopoverContent } from "@/components/ui/popover"
 import type { DeclarationChoice } from "@/hooks/useGoToDeclaration"
-import { placeOf } from "@/hooks/useGoToDeclaration"
 
 /**
  * The declarations a name may mean, at the name, as IntelliJ's "Choose Declaration": the most likely first, each with
@@ -30,7 +29,7 @@ export function DeclarationChooser({ choice, onClose }: { choice: DeclarationCho
                 className="flex items-baseline gap-3 rounded-sm px-2 py-1 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none"
                 onClick={() => {
                   onClose()
-                  choice.reveal(placeOf(target))
+                  choice.show(target)
                 }}
                 onKeyDown={event => {
                   const next = event.key === "ArrowDown" ? event.currentTarget.nextElementSibling : event.key === "ArrowUp" ? event.currentTarget.previousElementSibling : null
@@ -46,6 +45,7 @@ export function DeclarationChooser({ choice, onClose }: { choice: DeclarationCho
                 </span>
                 <span className="truncate text-xs text-muted-foreground">
                   {target.path}:{target.line + 1}
+                  {target.outside !== null && " · outside the review"}
                 </span>
               </button>
             ))}

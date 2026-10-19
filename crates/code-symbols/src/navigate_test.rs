@@ -94,3 +94,10 @@ fn has_no_reference_outside_a_name() {
   assert_eq!(reference_at(Grammar::Kotlin, "val a = 1\n", Position { line: 0, column: 8 }), None);
   assert_eq!(reference_at(Grammar::Kotlin, "val a = 1\n", Position { line: 5, column: 0 }), None);
 }
+
+#[test]
+fn finds_a_called_function_declared_later_in_the_file() {
+  let text = "fun run() = outsider() + inner()\n\nfun inner() = 2\n";
+  let inner = at(Grammar::Kotlin, text, "inner", 0);
+  assert_eq!((inner.kind, local(&inner)), (ReferenceKind::Call, Some((2, 4))));
+}

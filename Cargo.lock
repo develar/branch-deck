@@ -1796,6 +1796,7 @@ dependencies = [
  "serde",
  "serde_json",
  "specta",
+ "sync-utils",
  "tempfile",
  "test-log",
  "test-utils",

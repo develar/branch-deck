@@ -521,3 +521,8 @@
   height: 1px;
   background: var(--primary);
 }
+
+/* a file shown by itself (the view of a declaration outside a review): its lines without the tint of an added file */
+.dv-scroller[data-plain] [data-cell] {
+  background: var(--card);
+}

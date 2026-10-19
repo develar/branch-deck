@@ -1,16 +1,18 @@
 ---
 name: Symbol Navigation
-description: Requirements for going to the declaration of a name in the diffs of a review, as in IntelliJ: ⌘-click, ⌘B and the menu of the code, a choice of declarations, Back and Forward.
+description: Requirements for going to the declaration of a name in the diffs of a review, as in IntelliJ: ⌘-click, ⌘B and the menu of the code, a choice of declarations, Back and Forward, and a declaration outside the review, found by accio, in a view of its file.
 style: plain-1
 targets:
   - ../../src/components/diff/DiffView.tsx
   - ../../src/components/diff/diff-painter.ts
   - ../../src/components/diff/DeclarationChooser.tsx
+  - ../../src/components/diff/DeclarationFileView.tsx
   - ../../src/components/diff/CommitReviewCode.tsx
   - ../../src/hooks/useGoToDeclaration.ts
   - ../../src/lib/diff/code-menu.ts
   - ../../crates/code-symbols/src/navigate.rs
   - ../../crates/file-diffs/src/declarations.rs
+  - ../../crates/file-diffs/src/accio.rs
   - ../../src-tauri/src/commands/file_diffs.rs
 ---
 
@@ -26,7 +28,10 @@ A review reads a change the way the editor reads code: a name in a diff leads to
 declaration: in the same file by its scopes (a parameter, a local, a member of the class around it), else in the files
 of the review, on the same side of their diffs. A name with several declarations offers them, the most likely first;
 Back and Forward return along the jumps. The backend reads the names from the syntax tree (`code_symbols::navigate`)
-and the declarations from the summaries the sync already made, from the blobs the diffs read: a jump costs no git.
+and the declarations from the summaries the sync already made, from the blobs the diffs read: a jump costs no git. A
+name the review does not declare is looked for in the index of the repository that
+[accio](https://github.com/JetBrains/accio) keeps, when accio is installed and has indexed the repository, at the
+commit of the side; its file opens over the review at that commit, coloured and navigable as the diffs.
 
 ## Goals
 
@@ -36,7 +41,8 @@ and the declarations from the summaries the sync already made, from the blobs th
 
 ## Non-Goals
 
-- A declaration outside the review (the file view with `accio`) and Find Usages: later steps.
+- Find Usages: a later step.
+- Building an index: a repository accio has not indexed is searched in the review only.
 - Resolution as the compiler does it: what the syntax and the declarations of the review tell, not the types.
 
 ## Requirements
@@ -60,8 +66,23 @@ and the declarations from the summaries the sync already made, from the blobs th
   [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_to_a_constant_of_a_type_in_another_file_of_the_review_without_git`, `prefers_the_member_of_the_type_a_property_is_declared_with`)
 - Several declarations are a choice at the name, as IntelliJ's "Choose Declaration": the member's owner, the file and
   the line of each, the first focused, ↑ and ↓ and Enter or a click to show one. None says so in a toast ("No
-  declaration of Any in the review").
+  declaration of Any found").
   [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should offer the declarations of an ambiguous name and show the one chosen, from ⌘B and from the menu of the code`, `should say when the review has no declaration of a name`)
 - Back (⌘[, Ctrl+Alt+← off macOS) must return to the name a jump started from, and Forward (⌘], Ctrl+Alt+→) to the
   declaration again.
   [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should underline a name under the pointer with the modifier, go to its declaration in a fold on a click, and back`)
+- A name that the files of the review do not declare must be looked for in the index of accio, at the commit of its
+  side (the commit or the parent for a commit, the head or the base for a range, the working tree for uncommitted
+  changes), `Owner.name` first when the owner is known; only declarations of the language family and of the kind of
+  the name (a call: a function, a constructor or a type; a type: a type), ranked by the imports of the file, the
+  owner, then the top directory. A declaration in a file of the review is shown there. One `cat-file --batch-check` names the blobs of the
+  other files and one `cat-file --batch` reads them; nothing runs when accio is missing or has no index of the
+  repository, never an index build.
+  [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_outside_the_review_through_the_index_at_the_revision_of_the_side`, `knows_where_accio_keeps_the_index_of_a_repository`)
+- A declaration outside the review must open its whole file over the review: its path, "at <commit>, outside the
+  review" ("the working tree, outside the review" for uncommitted changes), coloured as the diffs, its name selected,
+  and Go to Declaration in it as in the review (a declaration of the review closes the file and shows it there).
+  [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should open a declaration outside the review that the index of the repository knows, go back to the review, and from that file to a declaration of the review`)
+- Back (the key or the button "Back" of the file) must close the file and return to the name the jump started from; a
+  file of the tree, J and K, or N and P show in the review and close the files over it.
+  [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should open a declaration outside the review that the index of the repository knows, go back to the review, and from that file to a declaration of the review`)

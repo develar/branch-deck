@@ -8,9 +8,15 @@
 //! - **The rank**: a member reached through a type (`Box.LIMIT`), `this` or `self`, or a property of a known type
 //!   (`items.add` of `val items: MutableList`) prefers the declarations of that type; then the file of the name, the
 //!   files that import its package, the files of its directory.
+//! - **Outside the review**: a name the files of the review do not declare is looked for in the index of the
+//!   repository (`accio`, at the revision of the side), `Owner.name` when the owner is known; a declaration in a file of
+//!   the review becomes one of the review, any other one names its blob (one `cat-file --batch-check`) for the view of
+//!   its file.
 
-use crate::model::{BlobRequest, BlobText, DeclarationTarget, DiffSide, FindDeclarationParams, FoundDeclarations, ReviewFileSides};
+use crate::accio::{SymbolHit, SymbolIndex};
+use crate::model::{BlobRequest, BlobText, DeclarationTarget, DiffSide, FindDeclarationParams, FoundDeclarations, OutsideFile, ReviewFileSides};
 use crate::service::{FileDiffs, read_summaries, write_summaries};
+use crate::worktree::read_worktree_blob;
 use anyhow::Result;
 use code_symbols::extract::summarize;
 use code_symbols::highlight::grammar_of;
@@ -18,6 +24,7 @@ use code_symbols::language::{Language, language_of};
 use code_symbols::navigate::{Position, ReferenceKind, reference_at};
 use code_symbols::summary::{DeclKind, FileSummary};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::cat_file_batch::object_ids_and_types;
 use object_cache::cache::ObjectCache;
 use std::collections::HashMap;
 use tracing::instrument;
@@ -34,8 +41,8 @@ struct Candidate<'a> {
 
 impl FileDiffs {
   /// The declarations the name at `params.site` may mean, the most likely first; none where no name is
-  #[instrument(skip(self, git, cache, params), fields(path = %params.site.path, line = params.site.line))]
-  pub fn find_declaration(&self, git: &GitCommandExecutor, cache: &ObjectCache, params: &FindDeclarationParams) -> Result<FoundDeclarations> {
+  #[instrument(skip(self, git, cache, index, params), fields(path = %params.site.path, line = params.site.line))]
+  pub fn find_declaration(&self, git: &GitCommandExecutor, cache: &ObjectCache, index: Option<&dyn SymbolIndex>, params: &FindDeclarationParams) -> Result<FoundDeclarations> {
     let site = &params.site;
     let empty = |name: String| FoundDeclarations { name, targets: Vec::new() };
     let (Some(grammar), Some(language)) = (grammar_of(&site.path), language_of(&site.path)) else {
@@ -67,6 +74,7 @@ impl FileDiffs {
         end_column,
         kind: "local".to_string(),
         container: None,
+        outside: None,
       };
       return Ok(FoundDeclarations {
         name: reference.name,
@@ -114,14 +122,7 @@ impl FileDiffs {
     scored.truncate(MAX_TARGETS);
     // the column of each name, from the texts of the files with a target
     let requests: Vec<BlobRequest> = scored.iter().map(|it| it.1.request.clone()).collect();
-    let texts: HashMap<String, String> = self
-      .blob_texts(git, &params.repository_path, &requests)?
-      .into_iter()
-      .filter_map(|blob| match blob {
-        BlobText::Text { id, text } => Some((id, text)),
-        _ => None,
-      })
-      .collect();
+    let texts = self.texts_by_id(git, &params.repository_path, &requests)?;
     let targets = scored
       .into_iter()
       .map(|(_, candidate, name_line, container, kind)| {
@@ -135,10 +136,156 @@ impl FileDiffs {
           end_column: column + u32::try_from(reference.name.encode_utf16().count()).unwrap_or(0),
           kind: kind_name(kind).to_string(),
           container,
+          outside: None,
         }
       })
-      .collect();
+      .collect::<Vec<_>>();
+    if targets.is_empty()
+      && let Some(index) = index
+    {
+      let targets = self.outside_targets(git, index, params, &reference.name, reference.kind, owner.as_deref(), &site_summary, language)?;
+      return Ok(FoundDeclarations { name: reference.name, targets });
+    }
     Ok(FoundDeclarations { name: reference.name, targets })
+  }
+
+  /// The declarations the index of the repository knows, at the revision of the side, ranked by the imports of the file
+  #[expect(clippy::too_many_arguments, reason = "the facts of one lookup")]
+  fn outside_targets(
+    &self,
+    git: &GitCommandExecutor,
+    index: &dyn SymbolIndex,
+    params: &FindDeclarationParams,
+    name: &str,
+    kind: ReferenceKind,
+    owner: Option<&str>,
+    site_summary: &FileSummary,
+    language: Language,
+  ) -> Result<Vec<DeclarationTarget>> {
+    let site = &params.site;
+    let revision = match site.side {
+      DiffSide::Old => params.revisions.old.as_deref(),
+      DiffSide::New => params.revisions.new.as_deref(),
+    };
+    let qualified = owner.map(|owner| format!("{owner}.{name}"));
+    let mut hits = match &qualified {
+      Some(query) => index.symbols(&params.repository_path, query, revision)?.unwrap_or_default(),
+      None => Vec::new(),
+    };
+    if hits.is_empty() {
+      hits = index.symbols(&params.repository_path, name, revision)?.unwrap_or_default();
+    }
+    let packages = imported_directories(site_summary, name);
+    let mut hits: Vec<(i32, SymbolHit)> = hits
+      .into_iter()
+      .filter(|hit| language_of(&hit.path).is_some_and(|it| it.family() == language.family()) && fits_hit(kind, &hit.kind))
+      .map(|hit| {
+        let mut score = 0;
+        if packages.iter().any(|directory| hit.path.contains(directory.as_str())) {
+          score += 50;
+        }
+        if owner.is_some() && hit.parent.as_deref() == owner {
+          score += 20;
+        }
+        if hit.path.split('/').next() == site.path.split('/').next() {
+          score += 5;
+        }
+        (score, hit)
+      })
+      .collect();
+    hits.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.path.cmp(&b.1.path)));
+    hits.truncate(MAX_TARGETS);
+    // the files of the review keep their place in it; the others are read at the revision
+    let in_review = |path: &str| {
+      params.files.iter().find(|file| match site.side {
+        DiffSide::Old => file.old_id.is_some() && file.old_path.as_deref().unwrap_or(&file.path) == path,
+        DiffSide::New => file.new_id.is_some() && file.path == path,
+      })
+    };
+    let outside_paths: Vec<&str> = hits.iter().map(|it| it.1.path.as_str()).filter(|path| in_review(path).is_none()).collect();
+    let ids = self.outside_ids(git, &params.repository_path, revision, &outside_paths)?;
+    // the blob of the side of a file of the review, else the one at the revision
+    let id_of = |path: &str| {
+      in_review(path)
+        .and_then(|it| if site.side == DiffSide::Old { it.old_id.clone() } else { it.new_id.clone() })
+        .or_else(|| ids.get(path).cloned())
+    };
+    let requests: Vec<BlobRequest> = hits
+      .iter()
+      .filter_map(|(_, hit)| {
+        Some(BlobRequest {
+          id: id_of(&hit.path)?,
+          path: None,
+        })
+      })
+      .collect();
+    let texts = self.texts_by_id(git, &params.repository_path, &requests)?;
+    Ok(
+      hits
+        .into_iter()
+        .filter_map(|(_, hit)| {
+          let file = in_review(&hit.path);
+          let id = id_of(&hit.path)?;
+          let text = texts.get(&id)?;
+          let line = hit.line.saturating_sub(1);
+          let column = column_of(text, line, name).unwrap_or(0);
+          let outside = file.is_none().then(|| OutsideFile {
+            revision: revision.map(str::to_string),
+            blob_id: id.clone(),
+            line_count: u32::try_from(text.split('\n').count()).unwrap_or(u32::MAX),
+          });
+          Some(DeclarationTarget {
+            path: file.map_or_else(|| hit.path.clone(), |it| it.path.clone()),
+            side: site.side,
+            line,
+            column,
+            end_column: column + u32::try_from(name.encode_utf16().count()).unwrap_or(0),
+            kind: hit.kind,
+            container: hit.parent,
+            outside,
+          })
+        })
+        .collect(),
+    )
+  }
+
+  /// The blob ids of `paths` at `revision` (one `cat-file --batch-check`), or of the files of the working tree
+  fn outside_ids(&self, git: &GitCommandExecutor, repository_path: &str, revision: Option<&str>, paths: &[&str]) -> Result<HashMap<String, String>> {
+    if paths.is_empty() {
+      return Ok(HashMap::new());
+    }
+    let Some(revision) = revision else {
+      let mut ids = HashMap::new();
+      for path in paths {
+        // the file of the working tree as a blob, its id what git would give its bytes; kept for the view of the file
+        if let Some(blob) = read_worktree_blob(repository_path, path, &"0".repeat(40))? {
+          ids.insert((*path).to_string(), self.keep_blob(blob).id().to_string());
+        }
+      }
+      return Ok(ids);
+    };
+    let names: Vec<String> = paths.iter().map(|path| format!("{revision}:{path}")).collect();
+    Ok(
+      paths
+        .iter()
+        .zip(object_ids_and_types(git, repository_path, &names)?)
+        .filter_map(|(path, found)| found.filter(|(_, kind)| *kind == "blob").map(|(id, _)| ((*path).to_string(), id)))
+        .collect(),
+    )
+  }
+
+  /// The texts of the blobs of `requests` by id, without the binary and missing ones
+  fn texts_by_id(&self, git: &GitCommandExecutor, repository_path: &str, requests: &[BlobRequest]) -> Result<HashMap<String, String>> {
+    Ok(
+      self
+        .blob_texts(git, repository_path, requests)?
+        .into_iter()
+        .filter_map(|blob| match blob {
+          BlobText::Text { id, text } => Some((id, text)),
+          _ => None,
+        })
+        .collect(),
+    )
   }
 
   /// The text of a blob, from memory, the working tree or one `cat-file`
@@ -250,6 +397,33 @@ fn column_of(text: &str, line: u32, name: &str) -> Option<u32> {
     let after = content[index + name.len()..].chars().next();
     (!before.is_some_and(is_word) && !after.is_some_and(is_word)).then(|| u32::try_from(content[..index].encode_utf16().count()).unwrap_or(0))
   })
+}
+
+/// The directories of the packages the file imports the name from: `a/b/` of `import a.b.Name`
+fn imported_directories(site: &FileSummary, name: &str) -> Vec<String> {
+  site
+    .imports
+    .iter()
+    .filter_map(|import| {
+      let path: Vec<&str> = import.path.iter().map(|id| site.name(*id)).collect();
+      let (last, package) = path.split_last()?;
+      (*last == name && !package.is_empty()).then(|| format!("{}/", package.join("/")))
+    })
+    .collect()
+}
+
+/// Whether a declaration of an index (its kind as accio names it) can be what the syntax says the name is
+fn fits_hit(reference: ReferenceKind, kind: &str) -> bool {
+  let is_type = matches!(
+    kind,
+    "class" | "interface" | "enum" | "object" | "trait" | "struct" | "union" | "record" | "annotation" | "type" | "typealias" | "type_alias"
+  );
+  match reference {
+    ReferenceKind::Type => is_type,
+    ReferenceKind::Call | ReferenceKind::MemberCall => is_type || matches!(kind, "method" | "function" | "constructor" | "macro"),
+    ReferenceKind::Member | ReferenceKind::Value => true,
+    ReferenceKind::Declaration => false,
+  }
 }
 
 const fn kind_name(kind: DeclKind) -> &'static str {

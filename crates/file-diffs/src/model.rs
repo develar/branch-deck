@@ -141,6 +141,30 @@ pub struct FindDeclarationParams {
   pub site: DeclarationSite,
   /// The changed files of the review, whose sides are searched
   pub files: Vec<ReviewFileSides>,
+  /// The revisions of the sides, for a declaration outside the review; none for the working tree
+  #[serde(default)]
+  pub revisions: DiffRevisions,
+}
+
+/// The commits a review compares: the old side (the parent, the base of a range) and the new one
+#[derive(Debug, Clone, Default, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct DiffRevisions {
+  pub old: Option<String>,
+  pub new: Option<String>,
+}
+
+/// A file outside the review that holds a declaration: shown by itself, at the revision of its side
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct OutsideFile {
+  /// The revision it is read at; none for the working tree
+  pub revision: Option<String>,
+  pub blob_id: String,
+  /// The lines of its text, as the view counts them
+  pub line_count: u32,
 }
 
 /// Where the name is: a side of a file of the review, a line from 0 and a UTF-16 column
@@ -202,6 +226,8 @@ pub struct DeclarationTarget {
   pub kind: String,
   /// The name of the declaration it is a member of
   pub container: Option<String>,
+  /// A file outside the review (found by `accio`); none for a file of the review
+  pub outside: Option<OutsideFile>,
 }
 
 /// A blob that the views ask for: by its id, and for a file of the working tree, by its path too

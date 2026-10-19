@@ -434,8 +434,9 @@ pub mod templates {
   }
 
   /// One commit for Go to Declaration in a review: `Uses.kt` calls `store.add` of an untyped receiver (two `add` in the
-  /// review: `Store` and `Queue`) and `helper`, declared at the end of `Store.kt`, whose change at its top leaves the
-  /// declaration in a fold
+  /// review: `Store` and `Queue`), `helper`, declared at the end of `Store.kt`, whose change at its top leaves the
+  /// declaration in a fold, and `outsider` of `Base.kt`, which the commit does not change: outside the review; it calls
+  /// `helper`, a declaration of the review
   pub fn symbol_navigation() -> RepoTemplate {
     let store = |version: u32| {
       let mut text = format!("class Store {{\n  val version = {version}\n");
@@ -447,13 +448,20 @@ pub mod templates {
     };
     RepoTemplate::new("symbol_navigation")
       .branch_prefix("user-name")
-      .commit_with_timestamp("Initial project setup", &[("src/Store.kt", &store(1))], Some(1704117600))
+      .commit_with_timestamp(
+        "Initial project setup",
+        &[("src/Store.kt", &store(1)), ("src/Base.kt", "fun outsider(value: Int) = helper(value)\n")],
+        Some(1704117600),
+      )
       .commit_with_timestamp(
         "(nav) use the store and the queue",
         &[
           ("src/Store.kt", &store(2)),
           ("src/Queue.kt", "class Queue {\n  fun add(value: Int) {}\n}\n"),
-          ("src/Uses.kt", "class Uses {\n  fun run(store: Any) {\n    store.add(1)\n    helper(2)\n  }\n}\n"),
+          (
+            "src/Uses.kt",
+            "class Uses {\n  fun run(store: Any) {\n    store.add(1)\n    helper(2)\n    outsider(3)\n  }\n}\n",
+          ),
         ],
         Some(1704119400),
       )

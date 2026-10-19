@@ -112,7 +112,8 @@ pub async fn get_blob_syntax(
 }
 
 /// The declarations a name in a diff of a review may mean, the most likely first (`file_diffs::declarations`): by the
-/// scopes of its file, else in the files of the review, from the blobs the diffs read and the summaries of the store
+/// scopes of its file, else in the files of the review, from the blobs the diffs read and the summaries of the store,
+/// else in the index of the repository (`accio`)
 #[tauri::command]
 #[instrument(skip(git_executor, repository_state, file_diffs, params), fields(path = %params.site.path, line = params.site.line))]
 #[specta::specta]
@@ -125,7 +126,9 @@ pub async fn find_declaration(
   let (git, repository_state, file_diffs) = ((*git_executor).clone(), (*repository_state).clone(), (*file_diffs).clone());
   run_blocking(move || {
     let cache = repository_state.object_cache(&git, &params.repository_path);
-    file_diffs.find_declaration(&git, &cache, &params)
+    // outside the review: accio, when this machine has it and the repository an index
+    let index = file_diffs::accio::AccioCli::discover().map(|accio| accio as &dyn file_diffs::accio::SymbolIndex);
+    file_diffs.find_declaration(&git, &cache, index, &params)
   })
   .await
 }

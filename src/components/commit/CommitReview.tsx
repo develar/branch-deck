@@ -10,7 +10,7 @@ import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SearchField } from "@/components/shared/SearchField"
 import { SectionLabel } from "@/components/shared/SectionLabel"
-import type { CommitFile } from "@/lib/bindings"
+import type { CommitFile, DiffRevisions } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import type { FileDiff } from "@/lib/diff/file-diff-model"
@@ -175,6 +175,8 @@ export function CommitReview({
       diffs: entry?.kind === "loaded" ? entry.files : null,
       diffsComplete: entry?.kind === "loaded" && entry.complete,
       initialPath: initialPath !== null && shownFiles.some(file => file.path === initialPath) ? initialPath : null,
+      // the commits of the sides: a declaration outside the review is read at them
+      revisions: subject.kind === "commit" ? { old: `${subject.id}^`, new: subject.id } : { old: subject.base, new: subject.head },
     }
   }
   // an error and an empty subject are the content: the window shows them
@@ -257,6 +259,7 @@ interface LoadedReview {
   /** Every diff of the subject arrived: a file without one has none */
   diffsComplete: boolean
   initialPath: string | null
+  revisions: DiffRevisions
 }
 
 /** The search of the files: the text belongs to the window, not to one subject */
@@ -486,6 +489,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
               <div data-testid="commit-review-code" className="min-h-0 flex-1">
                 <CommitReviewCode
                   key={loaded.key}
+                  revisions={loaded.revisions}
                   ref={code}
                   files={viewFiles}
                   diffViewMode={diffViewMode}

@@ -1154,8 +1154,9 @@ pub async fn get_blob_syntax(State(state): State<Arc<AppState>>, Json(params): J
 pub async fn find_declaration(State(state): State<Arc<AppState>>, Json(params): Json<FindDeclarationParams>) -> CommandResult<FoundDeclarations> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
+  // the index of a test repository is its fixture (`.git/branch-deck-accio.json`), as accio answers
   run_command("find a declaration", move || {
-    FileDiffs::default().find_declaration(&git_executor, &ObjectCache::disabled(), &params)
+    FileDiffs::default().find_declaration(&git_executor, &ObjectCache::disabled(), Some(&file_diffs::accio::FixtureIndex), &params)
   })
   .await
 }
