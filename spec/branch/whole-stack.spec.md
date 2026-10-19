@@ -284,8 +284,8 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../src/lib/patronus.test.ts (`holds the push of a branch a merged Safe Push landed, before a robot of its own`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
 - One builder must list the actions of the whole stack (`getWholeStackMenuItems`), which the "⋯" of the stack island
-  renders and the menu of every branch of the stack under "Whole Stack ›", the root's whole stack (so their previews
-  too): every branch is a piece of it, for a small stack without an island as for an island: "Safe Push Whole Stack" and "Dry Run Whole Stack" ([below](#the-safe-push-of-the-whole-stack-in-the-app)),
+  renders, the menu of every branch of the stack under "Whole Stack ›", the root's whole stack (so their previews
+  too), and the title bar and "⋯" of the review of the whole stack ([Branch Review](branch-review.spec.md#title-bar-footer-and-actions)): every branch is a piece of it, for a small stack without an island as for an island: "Safe Push Whole Stack" and "Dry Run Whole Stack" ([below](#the-safe-push-of-the-whole-stack-in-the-app)),
   "Open Pull Request #12" of its pull request and, while it is open and matches the stack, "Request Review…" of it (the
   step of the whole stack when it is the one, else `getRequestReviewItem` with the code owners of the readiness of
   `stack:<root>`; its popover at the header's slot of the island, else at an anchor of the root's slot, also from the

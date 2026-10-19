@@ -50,7 +50,16 @@ export interface BranchReviewGroup {
  * or "Create Pull Request…", "Safe Push" (S), "Push"; disabled with the reason as its description
  */
 export interface BranchReviewItem {
-  readonly id: "open-pull-request" | "create-pull-request" | "safe-push" | "push"
+  /** The branch's, or of the review of the whole stack the actions of the whole stack (`getWholeStackReviewItems`) */
+  readonly id:
+    | "open-pull-request"
+    | "create-pull-request"
+    | "safe-push"
+    | "push"
+    | "open-stack-pull-request"
+    | "create-stack-pull-request"
+    | "safe-push-whole-stack"
+    | "push-with-children"
   readonly label: string
   readonly kbds?: string[]
   readonly disabled?: boolean
@@ -114,8 +123,14 @@ export interface BranchReviewWindowState {
  * the window's "Create pull request" dialog asks (`dialog`): its context while it is open, the creation, the Safe Push
  * without review
  */
-export type BranchReviewRequest = { readonly id: string; readonly repositoryPath: string; readonly branchName: string } & (
-  | { readonly itemId: "safe-push" | "push" }
+export type BranchReviewRequest = {
+  readonly id: string
+  readonly repositoryPath: string
+  readonly branchName: string
+  /** Of the whole stack of `branchName`, its root: the actions, the menu and the dialog of the whole stack */
+  readonly wholeStack?: boolean
+} & (
+  | { readonly itemId: "safe-push" | "push" | "safe-push-whole-stack" | "push-with-children" }
   | { readonly menuItemId: string }
   | { readonly dialog: "open" | "close" | "safePushWithoutReview" }
   | { readonly dialog: "create"; readonly input: CreatePullRequestInput }

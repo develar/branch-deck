@@ -17,6 +17,7 @@ import type { MenuItemGroups } from "@/lib/menu"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import { repositoryName } from "@/lib/repository-config"
 import { showToast } from "@/lib/toast-message"
+import { formatWholeStack } from "@/lib/whole-stack"
 import type { BranchReviewFeedback, BranchReviewItem, BranchReviewMenuItem, BranchReviewRequest, BranchReviewWindowData } from "@/types/sub-window"
 
 const WindowCreatePullRequestDialog = lazy(() => import("@/components/review/WindowCreatePullRequestDialog").then(it => ({ default: it.WindowCreatePullRequestDialog })))
@@ -68,8 +69,15 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
   if (dialog !== null && !isDialogLoaded) {
     setDialogLoaded(true)
   }
+  // the review of the whole stack asks for the actions, the menu and the dialog of the whole stack of its root
+  const wholeStack = data.wholeStack === true
   const askDialog = (branchName: string, open: boolean) =>
-    void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath: data.repositoryPath, branchName, dialog: open ? "open" : "close" })
+    void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, {
+      repositoryPath: data.repositoryPath,
+      branchName,
+      ...(wholeStack && { wholeStack }),
+      dialog: open ? "open" : "close",
+    })
   const openDialog = (branchName: string) => {
     setDialog({ branchName, generation: (dialog?.generation ?? 0) + 1 })
     askDialog(branchName, true)
@@ -108,7 +116,7 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
           selected: linked.selected,
           gone: model.gone.includes(loaded.target),
         }),
-    { openCreatePullRequest: openDialog, keysSuspended: dialog !== null },
+    { openCreatePullRequest: openDialog, keysSuspended: dialog !== null, wholeStack },
   )
   return (
     <WindowPage
@@ -128,6 +136,7 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
                 groups={linked.menus?.[loaded.target] ?? []}
                 selected={linked.selected}
                 gone={model.gone.includes(loaded.target)}
+                wholeStack={wholeStack}
               />
             </div>
           </>
@@ -158,7 +167,7 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
       {/* outside the review: its keys never see what is typed into the dialog */}
       {isDialogLoaded && (
         <Suspense fallback={null}>
-          <WindowCreatePullRequestDialog repositoryPath={data.repositoryPath} dialog={dialog} context={linked.createPullRequest} onClose={closeDialog} />
+          <WindowCreatePullRequestDialog repositoryPath={data.repositoryPath} dialog={dialog} wholeStack={wholeStack} context={linked.createPullRequest} onClose={closeDialog} />
         </Suspense>
       )}
     </WindowPage>
@@ -176,12 +185,14 @@ function BranchReviewMenu({
   groups,
   selected,
   gone,
+  wholeStack,
 }: {
   repositoryPath: string
   branchName: string
   groups: readonly (readonly BranchReviewMenuItem[])[]
   selected: boolean
   gone: boolean
+  wholeStack: boolean
 }) {
   if (groups.length === 0) {
     return null
@@ -191,10 +202,10 @@ function BranchReviewMenu({
       ...item,
       ...(gone && { disabled: true, description: branchGoneReason(branchName) }),
       ...(!gone && !selected && item.disabled !== true && { description: switchesRepository(repositoryPath) }),
-      onSelect: () => void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, menuItemId: item.id }),
+      onSelect: () => void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, ...(wholeStack && { wholeStack }), menuItemId: item.id }),
     })),
   )
-  return <MoreActionsMenu name={branchName} menu={<DropdownMenuItems groups={items} />} />
+  return <MoreActionsMenu name={wholeStack ? formatWholeStack(branchName) : branchName} menu={<DropdownMenuItems groups={items} />} />
 }
 
 /**
@@ -210,7 +221,7 @@ function shownItems(
     return items
   }
   return items.map(item => {
-    if (item.url !== undefined || item.id === "open-pull-request") {
+    if (item.url !== undefined || item.id === "open-pull-request" || item.id === "open-stack-pull-request") {
       return item
     }
     return gone ? { ...item, disabled: true, description: branchGoneReason(branchName) } : { ...item, description: switchesRepository(repositoryPath) }
@@ -227,15 +238,16 @@ function useBranchReviewActions(
   repositoryPath: string,
   branchName: string,
   items: readonly BranchReviewItem[],
-  { openCreatePullRequest, keysSuspended }: { openCreatePullRequest: (branchName: string) => void; keysSuspended: boolean },
+  { openCreatePullRequest, keysSuspended, wholeStack }: { openCreatePullRequest: (branchName: string) => void; keysSuspended: boolean; wholeStack: boolean },
 ) {
-  const ask = (itemId: "safe-push" | "push") => void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, itemId })
+  const ask = (itemId: "safe-push" | "push" | "safe-push-whole-stack" | "push-with-children") =>
+    void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, ...(wholeStack && { wholeStack }), itemId })
   const run = (item: BranchReviewItem) => {
     if (item.url !== undefined) {
       openPullRequestUrl(item.url)
-    } else if (item.id === "create-pull-request") {
+    } else if (item.id === "create-pull-request" || item.id === "create-stack-pull-request") {
       openCreatePullRequest(branchName)
-    } else if (item.id !== "open-pull-request") {
+    } else if (item.id !== "open-pull-request" && item.id !== "open-stack-pull-request") {
       ask(item.id)
     }
   }

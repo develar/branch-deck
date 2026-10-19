@@ -2,8 +2,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window"
 import { getBranchContextMenuItems, getBranchReviewItems, getSafePushWithoutReviewItem } from "@/hooks/useBranchContextActions"
 import type { BranchActionItem } from "@/hooks/useBranchContextActions"
 import type { BranchReviewSource } from "@/hooks/useBranchReview"
-import { getCreatePullRequestContext } from "@/hooks/useCreatePullRequestContext"
+import { getCreatePullRequestContext, getStackPullRequestContext } from "@/hooks/useCreatePullRequestContext"
 import { getWholeStackRest, isForkingStack } from "@/hooks/useStackNextStep"
+import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import type { BranchReviewPart, PatronusReviewRequirement } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { formatBranchesAndCommits } from "@/lib/branch"
@@ -17,9 +18,10 @@ import { showRepository } from "@/lib/show-repository"
 import { stackAncestors } from "@/lib/stack"
 import { createWindowLink } from "@/lib/sub-window-link"
 import { showToast } from "@/lib/toast-message"
-import { formatWholeStack, getStackBranchBlocker } from "@/lib/whole-stack"
+import { formatWholeStack, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
 import { branchSyncStore, getBranch, getStackBranch, getStackDescendants, stackMainLineIn } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
+import { getStackPullRequest } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject } from "@/stores/repository"
 import { demandReviewReadiness, showReviewReadiness } from "@/stores/review-readiness"
 import type {
@@ -58,7 +60,7 @@ let syncedTips: { repositoryPath: string; tips: Readonly<Record<string, string>>
  * The branch whose "Create pull request" dialog the window has open: its context goes with the state, and its
  * readiness (the code owners) is asked for meanwhile
  */
-let dialog: { branchName: string; release: () => void } | null = null
+let dialog: { branchName: string; wholeStack: boolean; release: () => void } | null = null
 
 function closeDialog(): void {
   dialog?.release()
@@ -230,10 +232,12 @@ function tellDialogOpen(subject: string, dialogBranch: string): void {
 /**
  * Reviews the whole stack of `root` in the review window: its stack branch `{prefix}/stack/<root>`, every commit of the
  * stack on the baseline as one part ("Review Whole Stack"), each commit named by its branch; the segments of `from`
- * (the chain the window showed, else the main line) go back to a branch. Resolves to whether the window opened; a
- * failure is told.
+ * (the chain the window showed, else the main line) go back to a branch; its title bar holds the actions of the whole
+ * stack (`getWholeStackReviewItems`), its "⋯" all of them. `groups`: the reviewer groups of the code-owner check of the
+ * whole stack (the Safe Push popover). Resolves to whether the window opened; a failure is told.
  */
-export async function openWholeStackReviewWindow(root: string, from: readonly string[] = stackMainLineIn(branchSyncStore.getState(), root)): Promise<boolean> {
+export async function openWholeStackReviewWindow(root: string, options: { readonly from?: readonly string[]; readonly groups?: BranchReviewGroup[] } = {}): Promise<boolean> {
+  const from = options.from ?? stackMainLineIn(branchSyncStore.getState(), root)
   const source = getBranchReviewSource(root, {})
   if (source === null) {
     return false
@@ -244,14 +248,15 @@ export async function openWholeStackReviewWindow(root: string, from: readonly st
     tellDialogOpen(formatWholeStack(root), dialog.branchName)
     return false
   }
-  releaseChain()
   const startedAt = Date.now()
   const shown: ShownBranchReview = { repositoryPath, chain, wholeStack: true, startedAt }
   link.setShown(shown)
+  // its Safe Push reads the next step of the whole stack, as the header of its island does
+  showChain([stackReadinessKey(root)])
   const data: BranchReviewWindowData = {
     ...source,
     chain,
-    groups: [],
+    groups: options.groups ?? [],
     wholeStack: true,
     from: from.map((name): ReviewedBranch => ({ name, commits: getBranch(name)?.commitCount ?? 0 })),
     focus: { range: "own", filter: { kind: "all" }, commitId: null, path: null },
@@ -278,12 +283,41 @@ function buildStackState(repositoryPath: string, root: string): BranchReviewWind
     repositoryPath,
     selected,
     tips: tip == null ? {} : { [root]: tip },
-    items: {},
-    menus: {},
-    createPullRequest: null,
+    // the actions of the whole stack, under its root: the window's title bar and "⋯" render them as a branch's
+    items: selected ? { [root]: getWholeStackReviewItems(root).map(toReviewItem) } : {},
+    menus: selected ? { [root]: [wholeStackMenu(root).map(toMenuItem)] } : {},
+    createPullRequest: selected && dialog?.wholeStack === true ? getStackPullRequestContext(root) : null,
     wholeStack: null,
     stackCommits: selected ? stackCommitBranches(root) : {},
   }
+}
+
+/** The whole menu of the whole stack for the "⋯" of its review: without its review, which the window is */
+function wholeStackMenu(root: string): MenuItem[] {
+  return getWholeStackMenuItems(root, { withPush: true, landInPieces: true }).filter(
+    item => item.id !== undefined && item.id !== "review-whole-stack" && item.children === undefined,
+  )
+}
+
+/**
+ * The actions of the whole stack in the title bar of its review, as a branch's: O its pull request (opened by the
+ * window) or "Create Pull Request of the Stack…" (its dialog in the window), S "Safe Push Whole Stack", Push with
+ * Children of the root (no key: P is the previous change)
+ */
+function getWholeStackReviewItems(root: string): BranchActionItem[] {
+  const pullRequest = getStackPullRequest(root)
+  const keys: Readonly<Record<string, string[]>> = { "open-stack-pull-request": ["o"], "safe-push-whole-stack": ["s"] }
+  // in the order of a branch's: its pull request, its Safe Push, its push
+  const order = ["open-stack-pull-request", "create-stack-pull-request", "safe-push-whole-stack", "push-with-children"]
+  const menu = wholeStackMenu(root)
+  return order
+    .flatMap(id => menu.filter(item => item.id === id))
+    .map(item => ({
+      ...item,
+      ...(keys[item.id!] !== undefined && { kbds: keys[item.id!] }),
+      ...(item.id === "push-with-children" && { kbds: undefined }),
+      ...(item.id === "open-stack-pull-request" && pullRequest !== undefined && { url: pullRequest.url }),
+    }))
 }
 
 /** The branch of each commit of the whole stack of `root`, by `reviewCommitKey`: its copies carry no mapping notes */
@@ -359,7 +393,7 @@ function buildState(repositoryPath: string, chain: readonly string[]): BranchRev
         .filter(group => group.length > 0)
     }
   }
-  const dialogBranch = dialog === null ? undefined : getBranch(dialog.branchName)
+  const dialogBranch = dialog === null || dialog.wholeStack ? undefined : getBranch(dialog.branchName)
   const baselineBranch = branchSyncStore.getState().baselineBranch ?? ""
   return {
     repositoryPath,
@@ -428,7 +462,8 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
   if ("dialog" in request && (request.dialog === "open" || request.dialog === "close")) {
     closeDialog()
     if (request.dialog === "open") {
-      dialog = { branchName, release: demandReviewReadiness(branchName) }
+      const wholeStack = request.wholeStack === true
+      dialog = { branchName, wholeStack, release: demandReviewReadiness(wholeStack ? stackReadinessKey(branchName) : branchName) }
     }
     link.broadcast()
     return true
@@ -436,13 +471,20 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
   if ("scope" in request || "review" in request) {
     return moveReview(request, send)
   }
-  const menuItem = "menuItemId" in request ? findMenuItem(branchName, request.menuItemId) : undefined
+  // the review of the whole stack asks for the actions of the whole stack of its root
+  const wholeStack = request.wholeStack === true
+  const subject = wholeStack ? formatWholeStack(branchName) : branchName
+  const menuItem =
+    "menuItemId" in request ? (wholeStack ? wholeStackMenu(branchName).find(item => item.id === request.menuItemId) : findMenuItem(branchName, request.menuItemId)) : undefined
+  const stackItem = wholeStack && "itemId" in request ? getWholeStackReviewItems(branchName).find(item => item.id === request.itemId) : undefined
   const action =
     "menuItemId" in request
-      ? requestAction({ menuLabel: menuItem?.label ?? request.menuItemId }, branchName)
+      ? requestAction({ menuLabel: menuItem?.label ?? request.menuItemId }, subject)
       : "itemId" in request
-        ? requestAction(request.itemId, branchName)
-        : requestAction(request.dialog === "create" ? "create-pull-request" : request.dialog === "continueOnGitHub" ? "continue-on-github" : "safe-push-without-review", branchName)
+        ? wholeStack || request.itemId === "safe-push-whole-stack" || request.itemId === "push-with-children"
+          ? requestAction({ menuLabel: stackItem?.label ?? request.itemId }, subject)
+          : requestAction(request.itemId, subject)
+        : requestAction(request.dialog === "create" ? "create-pull-request" : request.dialog === "continueOnGitHub" ? "continue-on-github" : "safe-push-without-review", subject)
   const title = `Cannot ${action}`
   // a reason, or what GitHub said
   const refuse = (reason: unknown) => {
@@ -459,7 +501,7 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
     return refuse(branchGoneReason(branchName))
   }
   if ("dialog" in request && request.dialog === "create") {
-    const context = getCreatePullRequestContext(branch)
+    const context = wholeStack ? getStackPullRequestContext(branchName) : getCreatePullRequestContext(branch)
     if (context.newPullRequestBlocker !== null) {
       return refuse(context.newPullRequestBlocker)
     }
@@ -472,22 +514,25 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
     )
   }
   if ("dialog" in request && request.dialog === "continueOnGitHub") {
-    return continueOnGitHub(getCreatePullRequestContext(branch), request.fields).then(
+    return continueOnGitHub(wholeStack ? getStackPullRequestContext(branchName) : getCreatePullRequestContext(branch), request.fields).then(
       () => true,
       (error: unknown) => refuse(error),
     )
   }
   if ("menuItemId" in request && menuItem === undefined) {
-    return refuse(`The menu of ${branchName} has no such action now`)
+    return refuse(`The menu of ${subject} has no such action now`)
   }
   const item =
     "menuItemId" in request
       ? menuItem
       : "itemId" in request
-        ? getBranchReviewItems(branch).find(it => it.id === request.itemId)
+        ? wholeStack
+          ? stackItem
+          : getBranchReviewItems(branch).find(it => it.id === request.itemId)
         : (getSafePushWithoutReviewItem(branch) ?? undefined)
   if (item === undefined) {
-    return refuse(unavailableReason("itemId" in request ? request.itemId : "safe-push-without-review", branchName))
+    const itemId = "itemId" in request ? request.itemId : "safe-push-without-review"
+    return refuse(itemId === "safe-push-whole-stack" || itemId === "push-with-children" ? `${subject} has no such action now` : unavailableReason(itemId, branchName))
   }
   if (item.disabled === true) {
     return refuse(item.description ?? `${item.label} is not available now`)
@@ -527,7 +572,7 @@ async function moveReview(
       return refuse(scope?.description ?? `${root} heads no stack beyond ${chain.at(-1)}`)
     }
     if (isForkingStack(getStackBranch(root))) {
-      return openWholeStackReviewWindow(root, chain)
+      return openWholeStackReviewWindow(root, { from: chain })
     }
     return openBranchReviewWindow(stackMainLineIn(branchSyncStore.getState(), root).at(-1) ?? root, { range: "all" })
   }

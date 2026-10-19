@@ -14,13 +14,13 @@ import {
   robot,
   routeReviewRequirement,
 } from "../helpers/patronus-helpers"
-import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer } from "../helpers/pull-request-helpers"
+import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import type { PushRequest } from "../helpers/push-helpers"
 import { pushOutcome, routeHeldPush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
 import { landingRow, openBranchPreview, openLandingOverview } from "../helpers/review-status-helpers"
 import { DEFAULT_CHECKS_ONLY, expectDisabledItems, expectLandedActions, expectPopoverAtSlot, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
-import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
+import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { routeCommand } from "../helpers/wait-helpers"
@@ -41,6 +41,15 @@ async function openIslandMenu(page: Page, root: string): Promise<void> {
 async function openWholeStackSubmenu(page: Page, root: string): Promise<void> {
   await findBranchRow(page, root).click({ button: "right" })
   await page.getByRole("menuitem", { name: "Whole Stack" }).click()
+}
+
+/** "Review Whole Stack" of the island's "⋯": the review window of the whole air stack, linked to the main window */
+async function openWholeStackReview(page: Page): Promise<Page> {
+  await openIslandMenu(page, "air")
+  await page.getByRole("menuitem", { name: "Review Whole Stack" }).click()
+  await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
+  const opened = (await getOpenedSubWindows<BranchReviewWindowData>(page))[0]!
+  return openLinkedSubWindow(page, opened, { beforeLoad: review => routeNewPullRequest(review) })
 }
 
 /** The open pull request of the stack branch of `root`; its empty head is the stack branch the sync built */
@@ -633,6 +642,57 @@ test.describe("Whole stack", () => {
     for (const opened of await getOpenedSubWindows<BranchReviewWindowData>(page)) {
       expect(opened).toMatchObject({ windowId: "branch-review", title: "Review the whole air stack", data: { chain: ["air"], wholeStack: true } })
     }
+  })
+
+  test("should start the Safe Push of the whole stack with S in its review, its popover at the header, and run ⋯ in the main window", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await setupRepo("stack_island", { patronus: availableRobots(), pullRequests: availablePullRequests() })
+    await syncAndWaitForBranches()
+    await expect(island(page, "air").getByTestId("stack-island-actions").getByTestId("safe-push-button")).toBeVisible()
+    const window = await openWholeStackReview(page)
+    const actions = window.getByTestId("branch-review-actions")
+    await expect(actions.getByRole("button")).toHaveText(["Create Pull Request of the Stack…", "Safe Push Whole StackS", "Push with Children (7 branches)", ""])
+
+    // S: asked of the main window, which opens the popover of the whole stack at the header of its island
+    await window.keyboard.press("s")
+    await expect(safePushPopover(page).getByTestId("safe-push-lands")).toHaveText(
+      "Lands 7 branches · 14 commits into master in one Safe Push: air, bazel, … side-fix and side-test.",
+    )
+    await page.keyboard.press("Escape")
+
+    // "⋯": the whole menu of the whole stack but its review, run by the main window
+    await actions.getByRole("button", { name: "More actions for the whole air stack" }).click()
+    await expect(window.getByRole("menuitem")).toHaveText(["Safe Push Whole Stack", "Dry Run Whole Stack", "Create Pull Request of the Stack…", "Push with Children (7 branches)"])
+    await window.getByRole("menuitem", { name: "Create Pull Request of the Stack…" }).click()
+    await expect(createPullRequestDialog(page).getByTestId("create-pull-request-base")).toHaveText("Whole air stack → master")
+  })
+
+  test("should create the pull request of the whole stack in its review, in its window, its Safe Push disabled until then", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupAwaitingCodeOwner(page, setupRepo, syncAndWaitForBranches)
+    const window = await openWholeStackReview(page)
+    const actions = window.getByTestId("branch-review-actions")
+    const safePush = actions.getByRole("button", { name: /^Safe Push Whole Stack/ })
+    await expect(safePush).toBeDisabled()
+
+    // its dialog in the window, its code owners preselected; the main window stays where it is
+    await actions.getByRole("button", { name: "Create Pull Request of the Stack…" }).click()
+    const dialog = createPullRequestDialog(window)
+    await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("Whole air stack → master")
+    await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("air, with the 6 branches built on it")
+    await expect(createPullRequestDialog(page)).toHaveCount(0)
+
+    // Create: the main window pushes the stack branch alone and creates it; the toast is in the window
+    const { stackPushes, release } = await routeHeldPush(page, wholeStackResultKey("air"), 45)
+    const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(stackPullRequest("air", 12)))
+    await dialog.getByTestId("create-pull-request-submit").click()
+    release()
+    await expect.poll(() => creates.length).toBe(1)
+    expect(creates[0]).toMatchObject({ branchName: "air", head: "user-name/stack/air", base: "master" })
+    expect(stackPushes).toEqual([[expect.objectContaining({ branchName: "air", wholeStack: true })]])
+    await expect(window.locator("[data-slot=toast]").filter({ hasText: "Created pull request #12" })).toBeVisible()
   })
 
   test("should show the robot of the whole stack on the rows of a small stack, hold their pushes and cancel it from the root's menu", async ({

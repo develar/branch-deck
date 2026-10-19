@@ -3,7 +3,7 @@ import type { DiffSubject } from "@/lib/commit-files"
 import type { ReviewFilter } from "@/lib/review-owners"
 import { formatBlockedReason } from "@/lib/stack"
 import type { Branch } from "@/stores/branch-sync"
-import type { BranchReviewGroup, BranchReviewItem, BranchReviewWindowData } from "@/types/sub-window"
+import type { BranchReviewGroup, BranchReviewWindowData } from "@/types/sub-window"
 
 /**
  * The label of the review window of a branch: one window, reused for the next branch. Its link
@@ -78,7 +78,7 @@ export function branchGoneReason(branchName: string): string {
 
 /** What a request of the review window does, for "Cannot …": "push auth", "create the pull request of auth" */
 export function requestAction(
-  itemId: Exclude<BranchReviewItem["id"], "open-pull-request"> | "safe-push-without-review" | "continue-on-github" | { menuLabel: string },
+  itemId: "safe-push" | "push" | "create-pull-request" | "safe-push-without-review" | "continue-on-github" | { menuLabel: string },
   branchName: string,
 ): string {
   if (typeof itemId === "object") {

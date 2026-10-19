@@ -513,7 +513,11 @@ function ReviewChanges({ branchName, requirement }: { branchName: string; requir
       size="xs"
       className="w-fit"
       data-testid="safe-push-review-changes"
-      onClick={() => void (root === null ? openBranchReviewWindow(branchName, { range: "all", groups: toReviewGroups(requirement) }) : openWholeStackReviewWindow(root))}
+      onClick={() =>
+        void (root === null
+          ? openBranchReviewWindow(branchName, { range: "all", groups: toReviewGroups(requirement) })
+          : openWholeStackReviewWindow(root, { groups: toReviewGroups(requirement) }))
+      }
     >
       <FileDiffIcon data-icon="inline-start" />
       Review Changes

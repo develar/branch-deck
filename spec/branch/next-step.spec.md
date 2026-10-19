@@ -266,7 +266,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   through `useBranchNextStep`): a row on the screen, not one a collapsed stack, side stack or island hides (it is not
   rendered), and of the root of a stack that forks its whole stack too, so a small stack without an island knows the
   approvals of its whole stack before a click; the header of an island (its whole stack, below, or the last branch of
-  a straight chain, also while collapsed); the preview; the review window (its chain). They go in table order, the branches a start (a click that waits, its popover) or the dialog asks first (`demandReviewReadiness`),
+  a straight chain, also while collapsed); the preview; the review window (its chain, or `stack:<root>` of the review of the whole stack). They go in table order, the branches a start (a click that waits, its popover) or the dialog asks first (`demandReviewReadiness`),
   at most 8 per call, one call in flight. A hidden branch is asked once it shows; its answer stays meanwhile, marked
   stale when it shows with another input. One exception: a hidden branch whose last answer waits for an approval in its
   pull request stays asked, so a new review of it asks once and its approval is still news. The start is the one of

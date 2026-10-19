@@ -153,6 +153,10 @@ const ACTION_ICONS: Readonly<Record<string, LucideIcon>> = {
   "create-pull-request": GitPullRequestCreateIcon,
   "safe-push": ShieldCheckIcon,
   push: UploadIcon,
+  "open-stack-pull-request": GitPullRequestIcon,
+  "create-stack-pull-request": GitPullRequestCreateIcon,
+  "safe-push-whole-stack": ShieldCheckIcon,
+  "push-with-children": UploadIcon,
 }
 
 /** The actions on the target branch in the title bar of the window: O or Create Pull Request…, S Safe Push, Push */

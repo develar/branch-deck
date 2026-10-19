@@ -14,11 +14,14 @@ import type { BranchReviewRequest } from "@/types/sub-window"
 export function WindowCreatePullRequestDialog({
   repositoryPath,
   dialog,
+  wholeStack,
   context,
   onClose,
 }: {
   repositoryPath: string
   dialog: { branchName: string; generation: number } | null
+  /** The pull request of the whole stack of the root `dialog` names (the review of the whole stack) */
+  wholeStack: boolean
   context: CreatePullRequestContext | null
   onClose: () => void
 }) {
@@ -35,7 +38,7 @@ export function WindowCreatePullRequestDialog({
       | { dialog: "safePushWithoutReview" }
       | { dialog: "create"; input: Parameters<CreatePullRequestActions["create"]>[0] }
       | { dialog: "continueOnGitHub"; fields: Parameters<CreatePullRequestActions["continueOnGitHub"]>[0] },
-  ) => askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, ...request })
+  ) => askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, ...(wholeStack && { wholeStack }), ...request })
   const open = dialog !== null && shown?.generation === dialog.generation
   return (
     <CreatePullRequestDialogFrame open={open} isCreating={isCreating} titleRef={titleRef} onClose={onClose}>

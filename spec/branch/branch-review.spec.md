@@ -98,8 +98,8 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   the whole stack of a stack that forks (`openWholeStackReviewWindow`, titled "Review the whole air stack"): one part,
   its stack branch `{prefix}/stack/<root>` on the baseline (`GetBranchReviewParams::whole_stack`), every commit of
   the stack in the order of the history, its stack bar the main line and "Whole Stack" ([below](#the-stack-and-the-commits));
-  read again when a sync moves the stack branch. It
-  shows no actions of a branch: the whole stack's are in the menus of the main window. It is disabled, with the
+  read again when a sync moves the stack branch. Its
+  title bar holds the actions of the whole stack ([below](#title-bar-footer-and-actions)). It is disabled, with the
   reason, while the stack branch has no tip. Of a straight chain, which has no stack branch, it opens the review of its
   last branch from the root (`range: "all"`).
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should review the whole stack in the window of its stack branch, from the island's menu, the root's menu and the menu of a branch of it`)
@@ -219,6 +219,17 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   repository or the branch left.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should run an item of the branch's menu from the window's ⋯, in the main window`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
+- The title bar of the review of the whole stack must hold the actions of the whole stack, from the one builder of
+  its menus (`getWholeStackMenuItems`, `getWholeStackReviewItems`), in the order of a branch's: `O Open Pull Request
+  #12` of its pull request (opened by the window) or "Create Pull Request of the Stack…" (its dialog in the window,
+  the context of the whole stack, `getStackPullRequestContext`; Create pushes its stack branch alone, then creates
+  it, the toast in the window), `S Safe Push Whole Stack` (its popover at the header of the island, else at the
+  root's row; disabled with the reason of the next step of the whole stack) and Push with Children of the root,
+  without a key; "⋯" is the whole menu of the whole stack but "Review Whole Stack". Every request says it is of the
+  whole stack (`wholeStack` of `BranchReviewRequest`), and the main window runs the item of the whole stack of the
+  root; while the window is open it asks for the readiness of `stack:<root>`. Opened from the Safe Push popover, the
+  review gets the reviewer groups of the code-owner check of the whole stack.
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should start the Safe Push of the whole stack with S in its review, its popover at the header, and run ⋯ in the main window`, `should create the pull request of the whole stack in its review, in its window, its Safe Push disabled until then`)
 - Unified/Inline/Split must be the setting of every diff view, saved by the main window, which owns `settings.json`
   ([Distributed Settings](../../docs/design/distributed-settings.md)): the window asks it, and keeps the choice on its
   answer.
