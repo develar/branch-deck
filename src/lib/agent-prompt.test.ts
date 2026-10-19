@@ -127,34 +127,32 @@ describe("buildAgentPrompt", () => {
       [
         "Update the branch `master` of the Git repository at /work/repo onto `origin/master` with Branch Deck's bd, and resolve the conflicts. bd replays my commits outside the working tree.",
         "",
-        `bd is \`${bd.command}\`; below, \`bd\` stands for it. Each run prints one JSON object: act on \`state\`, \`error.code\` and the exit code. \`bd help update\` explains each field.`,
+        `bd is \`${bd.command}\`; below, \`bd\` stands for it. Run \`bd help update\` first and follow it: it explains each field and error. Each run prints one JSON object.`,
         "",
-        "State (fetched 2026-10-14T07:30:00.000Z):",
-        `- HEAD (master): ${H}`,
-        `- origin/master: ${U}`,
+        "State (fetched 2026-10-14T07:30:00Z): HEAD (master) 11111111, origin/master 22222222.",
         "- Likely conflict: src/app.txt (mine: bbbbbbbb; upstream: cccccccc)",
         "- Likely conflict: src/config.txt (upstream: cccccccc)",
         "",
-        "Upstream commits of these files, newest first:",
-        "- cccccccc Change line 2 upstream, Dana Lee",
-        "",
         "Steps:",
         "1. `bd update --no-fetch`. If `session.blocked_paths` is not empty, ask me about those files first.",
-        "2. Exit 1: for each entry of `session.files`, edit the file at `edit`. Keep the change of `onto` and reapply the intent of `session.commit` (its `patch`). Remove every conflict marker. For `kind` modify_delete, add `--take` or `--delete` to the command of step 3, as its `hint` says. A change the commit needs outside the conflict blocks waits for a `fixup!` commit after step 4.",
-        "3. `bd update --continue --round <session.round>`. Exit 1 is the next commit: go to step 2 (`state: pending`: run `session.next`). Exit 2: `error.message` says what to fix (the copies of `error.paths`; `round_moved`: go to step 1; `empty_resolution`: ask me).",
-        "4. Exit 0: build and run the tests of the code you touched. On a failure, commit only the files you fixed, as `git -C /work/repo commit -m 'fixup! <subject>' -- <paths>`, and run `bd fold`; or run `bd undo <undo_token>` and tell me.",
-        "5. Report each entry of `resolutions`: the file, the commit, what you kept from each side, and every line of `dropped_upstream_lines` and `dropped_commit_lines`.",
+        "2. While it exits 1: resolve each entry of `session.files` as its `hint` says (and `session.commit.hint`, if any), editing only the copy at `edit` and only the lines between the markers, then run `session.next` with the `--take` or `--delete` the hint names. A change the commit needs elsewhere waits for the fixup of step 3.",
+        "3. Exit 0: build and run the tests of the code you touched. On a failure, commit only the files you fixed, as `git -C /work/repo commit -m 'fixup! <subject>' -- <paths>`, and run `bd fold`; or run `bd undo <undo_token>` and tell me.",
+        "4. Report each entry of `resolutions` and of `resolved`: the file, the commit, what you kept from each side, and every line of `dropped_upstream_lines` and `dropped_commit_lines`.",
         "",
         "Rules:",
-        "- Other sessions work in this tree. Never run `git rebase`, `git stash`, `git checkout` or `git reset`.",
-        "- Edit only the files at `edit`, never the same path in the working tree.",
+        "- Other sessions work in this tree. Never run `git rebase`, `git stash`, `git checkout` or `git reset`, and never edit a conflicting file in the working tree.",
         "- Keep every commit message unchanged, including the `(prefix)` at the start of a subject: Branch Deck groups commits by it.",
         "- Don't squash, reorder, split or drop commits.",
         "- Don't push.",
-        "- Exit 3: run the same command again. Exit 4: stop and show me the error.",
+        "- On an error: `retryable` true: go to step 1. Exit 2 with `paths`: fix those copies and run the command again. `uncommitted_overlap` or `empty_resolution`: ask me. Anything else: stop and show me the error.",
       ].join("\n"),
     )
     expect(prompt).not.toContain("--expect-head")
+    // the protocol is bd's own (`bd help update`, `hint`, `session.next`, `retryable`): no exit code or error code that
+    // bd could change under the prompt, as `round_moved` moved from exit 2 to 3
+    expect(prompt).not.toMatch(/round_moved|Exit [345]/)
+    // a round names the upstream commits of its files
+    expect(prompt).not.toContain("Upstream commits of these files")
     // the command once, not per step
     expect(prompt.split(bd.command).length - 1).toBe(1)
   })
@@ -179,28 +177,27 @@ describe("buildAgentPrompt", () => {
     const upstreamCommits = Array.from({ length: 50 }, (_, i) => ({ ...commit("0", `Upstream change number ${i} with a long enough subject`, `Author ${i}`, files), id: id(2, i) }))
     const large = check({ status: "conflict", files, fileCount: 300, commits: local, upstreamCommits })
 
-    function expectShort(prompt: string, lines: number) {
+    /** `described`: the prompt describes the upstream commits the files name, each once (without bd) */
+    function expectShort(prompt: string, lines: number, described: boolean) {
       // 300 files with 50 upstream commits each were hundreds of kilobytes
       expect(prompt.length).toBeLessThan(10_000)
       expect(prompt.split("\n").filter(line => line.includes("Component")).length).toBe(lines)
-      // each upstream commit described at most once, the newest ten
       for (let i = 0; i < 50; i++) {
-        expect(prompt.split(`Upstream change number ${i} `).length - 1).toBe(i >= 47 ? 1 : 0)
+        expect(prompt.split(`Upstream change number ${i} `).length - 1).toBe(described && i >= 47 ? 1 : 0)
       }
     }
 
-    it("with bd, names the first files, a few commits of each and the newest upstream commits once", () => {
+    it("with bd, names the first files and a few commits of each by id", () => {
       const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: large, fetchTime: null, bd })
-      expectShort(prompt, 20)
+      expectShort(prompt, 20, false)
       expect(prompt).toContain(`- Likely conflict: ${files[0]} (mine: 10000000, 10000001, 10000002 +197 more; upstream: 20000031, 20000030, 2000002f +47 or more)`)
       expect(prompt).toContain("- … and 280 more files: bd names the files of each round")
-      expect(prompt).toContain("Upstream commits of these files, newest first:\n- 20000031 Upstream change number 49 with a long enough subject, Author 49\n")
       expect(prompt).not.toContain("… and 0 more")
     })
 
     it("without bd, lists only the local commits the files name, with the command for the rest", () => {
       const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: large, fetchTime: null, bd: null })
-      expectShort(prompt, 20)
+      expectShort(prompt, 20, true)
       expect(prompt).toContain(
         `My local commits that change these files, oldest first (200 in all; \`git log --reverse --oneline ${B}..${H}\` lists the branch):\n- 10000000 (auth) Local change number 0 with a long enough subject\n- 10000001 (auth) Local change number 1 with a long enough subject\n- 10000002 (auth) Local change number 2 with a long enough subject\n\n`,
       )
@@ -234,19 +231,16 @@ describe("buildAgentPrompt", () => {
 
     it("never counts one where the item would stand: a list one longer than its limit is given whole", () => {
       // 21 files (the limit is 20), 4 local and 4 upstream commits of each (3)
-      const wide = files.slice(0, 21)
-      const prompt = buildAgentPrompt({
-        repositoryPath: "/work/repo",
-        check: check({ status: "conflict", files: wide, fileCount: 21, commits: local.slice(0, 4), upstreamCommits: upstreamCommits.slice(0, 4) }),
-        fetchTime: null,
-        bd,
-      })
+      const wide = check({ status: "conflict", files: files.slice(0, 21), fileCount: 21, commits: local.slice(0, 4), upstreamCommits: upstreamCommits.slice(0, 4) })
+      const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: wide, fetchTime: null, bd })
       expect(prompt.split("\n").filter(line => line.startsWith("- Likely conflict:")).length).toBe(21)
       expect(prompt).toContain(`- Likely conflict: ${files[20]} (mine: 10000000, 10000001, 10000002, 10000003; upstream: 20000003, 20000002, 20000001, 20000000)`)
-      for (let i = 0; i < 4; i++) {
-        expect(prompt).toContain(`Upstream change number ${i} `)
-      }
       expect(prompt).not.toMatch(/\b1 more/)
+      const withoutBd = buildAgentPrompt({ repositoryPath: "/work/repo", check: wide, fetchTime: null, bd: null })
+      for (let i = 0; i < 4; i++) {
+        expect(withoutBd).toContain(`Upstream change number ${i} `)
+      }
+      expect(withoutBd).not.toMatch(/\b1 more/)
       // 51 blocking paths (50), 31 local commits without known files (30)
       const blocked = buildAgentPrompt({
         repositoryPath: "/work/repo",

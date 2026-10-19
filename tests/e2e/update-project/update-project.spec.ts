@@ -203,10 +203,13 @@ test.describe("Update Project", () => {
     const prompt = await readClipboard(page)
     expect(prompt).toContain("Update the branch `master` of the Git repository at ")
     expect(prompt).toMatch(/- Likely conflict: src\/app.txt \(mine: [0-9a-f]{8}; upstream: [0-9a-f]{8}\)/)
-    expect(prompt).toMatch(/Upstream commits of these files, newest first:\n- [0-9a-f]{8} Change line 2 upstream, Dana Lee\n/)
+    // the protocol is bd's own; each round names the upstream commits of its files
+    expect(prompt).toContain("Run `bd help update` first and follow it")
+    expect(prompt).not.toContain("Upstream commits of these files")
     expect(prompt).toMatch(/bd is `\/Users\/test\/\.local\/bin\/bd -C \S+`; below, `bd` stands for it\./)
     expect(prompt).toContain("1. `bd update --no-fetch`.")
-    expect(prompt).toContain("Edit only the files at `edit`, never the same path in the working tree.")
+    expect(prompt).toContain("editing only the copy at `edit`")
+    expect(prompt).toContain("never edit a conflicting file in the working tree.")
     expect(prompt).toContain("Don't push.")
     expect(prompt).not.toContain("git stash push")
 

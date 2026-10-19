@@ -414,46 +414,47 @@ The header shows whether an update would apply cleanly, from a check that every 
   changes with the upstream needs the same merge as a conflict.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
 - With a bd command, the conflict prompt must send the agent to bd's resolve session and keep it out of the working
-  tree: the repository path, the branch and the upstream; bd once, as the command to run as written (in PowerShell on
-  Windows), with "bd is `<command>`; below, `bd` stands for it", one JSON object per run, and `bd help update`; the
-  state lines the user saw (HEAD and the upstream with their ids, the fetch time, and per likely conflicting file
-  "Likely conflict: <path> (mine: <ids>; upstream: <ids>)"), then "Upstream commits of these files, newest first",
-  each "<id> <subject>, <author>" once; the steps:
+  tree. It holds what bd does not know and leaves the protocol to bd (`bd help update`, the `hint` of each file,
+  `session.next`, `retryable`): a prompt that restated it drifted from bd (it put `round_moved`, exit 3, under exit 2,
+  and its "exit 3 retries" then sent the agent back to the same refused round). It names the repository path, the
+  branch and the upstream; bd once, as the command to run as written (in PowerShell on Windows), with "bd is
+  `<command>`; below, `bd` stands for it", "Run `bd help update` first and follow it", one JSON object per run; the
+  state the user saw on one line ("State (fetched <time>): HEAD (<branch>) <id>, <upstream> <id>."), then per likely
+  conflicting file "Likely conflict: <path> (mine: <ids>; upstream: <ids>)" (each round names the upstream commits of
+  its files, so the prompt describes none); the steps:
   1. `bd update --no-fetch` (the upstream the user saw, no `--expect-head`, because peers commit meanwhile); with
      `session.blocked_paths`, ask the user about those files first;
-  2. on exit 1, edit each file at `edit`, keeping the change of `onto` and the intent of the commit (in PowerShell,
-     write each copy with `[IO.File]::WriteAllText`, as UTF-8 without a byte order mark); for modify/delete, add
-     `--take` or `--delete` to the command of step 3; a change the commit needs outside the conflict blocks waits for
-     a `fixup!` commit after step 4;
-  3. `bd update --continue --round <session.round>`: exit 1 is the next commit (`state: pending`: run
-     `session.next`); on exit 2, `error.message` says what to fix (the copies of `error.paths`; `round_moved`: step 1
-     again; `empty_resolution`: ask the user);
-  4. on exit 0, build and test, and on a failure a `fixup! <subject>` commit of only the fixed files
+  2. while it exits 1, resolve each file of `session.files` as its `hint` says (and `session.commit.hint`), only in
+     the copy at `edit` and only between the markers (in PowerShell, write each copy with `[IO.File]::WriteAllText`,
+     as UTF-8 without a byte order mark), then run `session.next` with the `--take` or `--delete` a hint names; a change
+     the commit needs elsewhere waits for the fixup of step 3;
+  3. on exit 0, build and test, and on a failure a `fixup! <subject>` commit of only the fixed files
      (`git -C <repository> commit -m 'fixup! <subject>' -- <paths>`, the repository quoted for the shell, and in
      PowerShell each `'` of the subject doubled; never the changes of other sessions) with `bd fold`, or
      `bd undo <undo_token>`;
-  5. report each resolution with its dropped lines.
+  4. report each entry of `resolutions` and of `resolved` (the commits resolved by words) with its dropped lines.
 
-  The rules: other sessions work in the tree, so never `git rebase`, `git stash`,
-  `git checkout` or `git reset`; edit only the files at `edit`, never the same path in the working tree; keep every
-  message with its `(prefix)`, don't squash, reorder, split or drop commits, don't push; exit 3 retries, exit 4 stops
-  and shows the error.
+  The rules: other sessions work in the tree, so never `git rebase`, `git stash`, `git checkout` or `git reset`, and
+  never edit a conflicting file in the working tree; keep every message with its `(prefix)`, don't squash, reorder,
+  split or drop commits, don't push; on an error, `retryable` goes back to step 1, exit 2 with `paths` fixes those
+  copies and runs the command again, `uncommitted_overlap` and `empty_resolution` ask the user, anything else stops
+  and shows the error. The prompt names no exit code above 2 and no other error code.
   [@test] ../../src/lib/agent-prompt.test.ts (`with bd, resolves a conflict in bd's session, outside the working tree`)
   [@test] ../../src/lib/agent-prompt.test.ts (`names PowerShell for a conflict on Windows`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
 - A conflict prompt stays a few kilobytes however large the conflict (hundreds of files with 50 upstream commits each
   were hundreds of kilobytes): it is a map, not the record; bd names the files and the upstream commits of each round,
-  git the rest. At most 20 files, then "… and <n> more files: bd names the files of each round" (without bd:
-  "`git status` names them when the rebase stops"), counted as in the title. Per file at most 3 commits a side, by
+  git the rest; with bd about 2 KB with one file. At most 20 files, then "… and <n> more files: bd names the
+  files of each round" (without bd: "`git status` names them when the rebase stops"), counted as in the title. Per file at most 3 commits a side, by
   id: mine the oldest (the first to stop a replay), upstream the newest, then "+<n> more", "+<n> or more" when the
-  backend kept only the newest 50 upstream commits. Each upstream commit is described once, at most the 10 newest,
-  then "… and <n> more:" with where the rest are (each bd round; without bd `git log --oneline <base>..<upstream> --
+  backend kept only the newest 50 upstream commits. Without bd, each upstream commit is described once, at most the 10
+  newest, then "… and <n> more:" with where the rest are (`git log --oneline <base>..<upstream> --
   <path>`). Without bd, more than 30 local commits list only those the files name (or the first 30, without known
   files), at most 30, with the count and `git log --reverse --oneline <base>..<head>`. A blocked prompt lists at most
   50 paths, then "… and <n> more: `git status` lists them", and asks about "these files". No list leaves out only one:
   one more than its limit is given whole (`cutList`), so the prompt never says "… and 1 more files".
   [@test] ../../src/lib/agent-prompt.test.ts (`never counts one where the item would stand: a list one longer than its limit is given whole`)
-  [@test] ../../src/lib/agent-prompt.test.ts (`with bd, names the first files, a few commits of each and the newest upstream commits once`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`with bd, names the first files and a few commits of each by id`)
   [@test] ../../src/lib/agent-prompt.test.ts (`without bd, lists only the local commits the files name, with the command for the rest`)
   [@test] ../../src/lib/agent-prompt.test.ts (`counts the rest exactly when the backend did not cut the upstream list`)
   [@test] ../../src/lib/agent-prompt.test.ts (`lists the first local commits without known files`)
