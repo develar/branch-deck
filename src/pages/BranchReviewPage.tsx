@@ -97,6 +97,9 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
     onWholeStack: () => void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath: data.repositoryPath, branchName: target, scope: "wholeStack" }),
     from: data.from ?? [],
     stackCommits: linked.stackCommits,
+    commitMenus: linked.commitMenus,
+    onCommitMenuItem: (branchName, commitId, commitMenuItemId) =>
+      void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath: data.repositoryPath, branchName, commitMenuItemId, commitId }),
     onBranch: (branchName, commitKey) =>
       void askMainWindow<BranchReviewRequest>(
         BRANCH_REVIEW_WINDOW,

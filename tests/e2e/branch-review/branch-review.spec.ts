@@ -4,9 +4,11 @@ import type { PatronusStartOptions } from "../../../src/lib/bindings"
 import type { BranchReviewFeedback, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData, BranchReviewWindowState } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
+import { readClipboard, setupClipboardPermissions } from "../helpers/clipboard-helpers"
 import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots } from "../helpers/patronus-helpers"
+import { getCommitPreview } from "../helpers/preview-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, routeNewPullRequest } from "../helpers/pull-request-helpers"
-import { routePush } from "../helpers/push-helpers"
+import { routePush, routePushBranches } from "../helpers/push-helpers"
 import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus } from "../helpers/sync-helpers"
@@ -436,6 +438,7 @@ test.describe("Branch review window", () => {
       createPullRequest: null,
       wholeStack: null,
       stackCommits: {},
+      commitMenus: {},
     })
     await emitTauriEvent(page, "branch-review/state", emptyState("/elsewhere", true))
     await expect(actions.getByRole("button", { name: "Safe Push · 2" })).toBeEnabled()
@@ -601,6 +604,52 @@ test.describe("Branch review window", () => {
     await reviewPage.keyboard.press("Escape")
     await expect(dialog).toBeHidden()
     await expect(reviewPage.getByTestId("range-review-commit-header")).toContainText("Add the login form")
+  })
+
+  test("should run the menu of a commit of the review in the main window, its forms at the row, its copies in the window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the `stacked_ownership` template: login, two commits, stacked on auth
+    await setupRepo("stacked_ownership")
+    await syncAndWaitForBranches()
+    const { stackPushes } = await routePushBranches(page)
+    const window = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
+    const column = window.getByTestId("range-review-commit")
+    const older = column.filter({ hasText: "Add the login form" })
+
+    // the right-click of a commit: the menu of its row, without key hints; Push Up to Here pushes in the main window
+    await older.click({ button: "right" })
+    await expect(window.getByRole("menuitem")).toHaveText([
+      "Reword…",
+      "Move to…",
+      "Move to Unassigned",
+      "Push Up to Here",
+      "Copy Commit Hash",
+      "Copy Commit Message",
+      "Copy Changed Paths",
+    ])
+    await window.getByRole("menuitem", { name: "Push Up to Here" }).click()
+    await expect.poll(() => stackPushes.map(push => push.map(branch => branch.branchName))).toEqual([["auth", "login"]])
+
+    // the copies run in the window: the message of the commit as it shows it, in the virtual branch
+    await setupClipboardPermissions(page.context())
+    await older.click({ button: "right" })
+    await window.getByRole("menuitem", { name: "Copy Commit Message" }).click()
+    await expect.poll(() => readClipboard(window)).toBe("Add the login form")
+
+    // "⋯" of the heading of the shown commit: Move to… opens the form of the row in the main window, at the commit
+    await older.click()
+    await window
+      .getByTestId("range-review-commit-header")
+      .getByRole("button", { name: /^More actions for / })
+      .click()
+    await window.getByRole("menuitem", { name: "Move to…" }).click()
+    await expect(page.getByTestId("inline-branch-target")).toBeVisible()
+    await expect(getBranchCommitRow(page, "login", "Add the login form")).toHaveAttribute("data-selected", "true")
+    await page.keyboard.press("Escape")
+
+    // Reword…: the preview of the commit in the main window, its message in edit
+    await older.click({ button: "right" })
+    await window.getByRole("menuitem", { name: "Reword…" }).click()
+    await expect(getCommitPreview(page).getByRole("textbox", { name: "Commit message" })).toBeVisible()
   })
 
   test("should start the Safe Push without review the window's dialog offers in the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {

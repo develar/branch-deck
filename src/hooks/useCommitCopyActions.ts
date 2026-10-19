@@ -13,28 +13,37 @@ import { getFilesOfCommit, loadCommitFiles } from "@/stores/commit-files"
  * and per path.
  */
 export function getCommitCopyMenuItems(commits: readonly CommitUnion[]): MenuItem[] {
-  const isMultiple = commits.length > 1
+  return copyMenuItems(
+    commits.map(getCommitHash).filter(Boolean),
+    commits.map(commit => commit.message),
+  )
+}
+
+/** The copies of a commit of a review window, by the id it shows (its copy in the virtual branch) */
+export function getReviewCommitCopyMenuItems(commit: { readonly id: string; readonly message: string }): MenuItem[] {
+  return copyMenuItems([commit.id], [commit.message])
+}
+
+function copyMenuItems(hashes: readonly string[], messages: readonly string[]): MenuItem[] {
+  const isMultiple = hashes.length > 1
   return [
     {
-      label: isMultiple ? `Copy ${commits.length} Commit Hashes` : "Copy Commit Hash",
+      id: "copy-commit-hash",
+      label: isMultiple ? `Copy ${hashes.length} Commit Hashes` : "Copy Commit Hash",
       icon: CopyIcon,
-      onSelect: () => void copyText(commits.map(getCommitHash).filter(Boolean).join("\n")),
+      onSelect: () => void copyText(hashes.join("\n")),
     },
     {
-      label: isMultiple ? `Copy ${commits.length} Commit Messages` : "Copy Commit Message",
+      id: "copy-commit-message",
+      label: isMultiple ? `Copy ${hashes.length} Commit Messages` : "Copy Commit Message",
       icon: CopyIcon,
-      onSelect: () =>
-        void copyText(
-          commits
-            .map(commit => commit.message)
-            .filter(Boolean)
-            .join("\n"),
-        ),
+      onSelect: () => void copyText(messages.filter(Boolean).join("\n")),
     },
     {
-      label: isMultiple ? `Copy Changed Paths of ${commits.length} Commits` : "Copy Changed Paths",
+      id: "copy-changed-paths",
+      label: isMultiple ? `Copy Changed Paths of ${hashes.length} Commits` : "Copy Changed Paths",
       icon: CopyIcon,
-      onSelect: () => void copyChangedPaths(commits.map(getCommitHash).filter(Boolean)),
+      onSelect: () => void copyChangedPaths(hashes),
     },
   ]
 }

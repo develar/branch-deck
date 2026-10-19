@@ -33,6 +33,16 @@ export interface RevealRequest {
   commitIds: readonly string[]
 }
 
+/**
+ * A form of commits a list opens for another window (the menu of a commit in the review window): "Move to…", the
+ * squash dialog or the reword of the commit in its preview; the list of `branchName` consumes it once it has them
+ */
+export interface CommitFormRequest {
+  branchName: string
+  commitIds: readonly string[]
+  form: "move" | "squash" | "reword"
+}
+
 export interface CommitMoveState {
   /** The list that holds the selection, `BRANCH_TABLE_SOURCE` for selected branches; selecting elsewhere clears it */
   selectionOwner: string | null
@@ -45,6 +55,7 @@ export interface CommitMoveState {
   drag: CommitDrag | null
   newBranchDrop: NewBranchDrop | null
   reveal: RevealRequest | null
+  form: CommitFormRequest | null
 }
 
 export const commitMoveStore = createStore<CommitMoveState>(() => ({
@@ -55,6 +66,7 @@ export const commitMoveStore = createStore<CommitMoveState>(() => ({
   drag: null,
   newBranchDrop: null,
   reveal: null,
+  form: null,
 }))
 
 export function useCommitMove<T>(selector: (state: CommitMoveState) => T): T {
@@ -73,6 +85,10 @@ export function useDroppableDrag(targetKey: string): CommitDrag | null {
 
 export function useRevealRequest(branchName: string): RevealRequest | null {
   return useStore(commitMoveStore, state => (state.reveal?.branchName === branchName ? state.reveal : null))
+}
+
+export function useCommitFormRequest(branchName: string): CommitFormRequest | null {
+  return useStore(commitMoveStore, state => (state.form?.branchName === branchName ? state.form : null))
 }
 
 export function claimSelection(sourceKey: string): void {
@@ -155,4 +171,9 @@ export function setNewBranchDrop(drop: NewBranchDrop | null): void {
 
 export function requestReveal(reveal: RevealRequest | null): void {
   commitMoveStore.setState({ reveal })
+}
+
+/** Opens a form of commits of a branch in its list, which expands for it (`requestReveal`); null once consumed */
+export function requestCommitForm(form: CommitFormRequest | null): void {
+  commitMoveStore.setState(form === null ? { form } : { form, reveal: { branchName: form.branchName, commitIds: form.commitIds } })
 }

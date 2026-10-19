@@ -1,8 +1,10 @@
+import { PencilLineIcon } from "lucide-react"
 import { commands } from "@/lib/bindings"
 import type { CommitUnion } from "@/lib/commit"
 import { getCommitHash } from "@/lib/commit"
 import { getErrorDetails, notifyError } from "@/lib/errors"
-import { syncBranches } from "@/stores/branch-sync"
+import type { MenuItem } from "@/lib/menu"
+import { branchSyncStore, syncBranches } from "@/stores/branch-sync"
 import { getSelectedProject } from "@/stores/repository"
 
 /**
@@ -33,4 +35,20 @@ export async function rewordCommit(commit: CommitUnion, message: string, onRewor
     await syncBranches({ autoScroll: false, autoExpand: false })
   }
   return true
+}
+
+/**
+ * "Reword…" of a commit row: its preview opens with the message in edit, as E does there; disabled while a sync runs (a
+ * reword is a rewrite)
+ */
+export function getRewordMenuItem(commit: CommitUnion, reword: (commit: CommitUnion) => void): MenuItem {
+  const syncing = branchSyncStore.getState().isSyncing
+  return {
+    id: "reword",
+    label: "Reword…",
+    icon: PencilLineIcon,
+    disabled: syncing,
+    description: syncing ? "Wait for the sync to finish" : "Edits the message of the commit in its preview",
+    onSelect: () => reword(commit),
+  }
 }

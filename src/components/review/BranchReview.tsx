@@ -13,11 +13,13 @@ import { ChoiceChip } from "@/components/shared/ChoiceChip"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { BranchReviewAction, BranchReviewModel } from "@/hooks/useBranchReview"
+import { getReviewCommitCopyMenuItems } from "@/hooks/useCommitCopyActions"
 import { branchGoneReason, reviewCommitKey } from "@/lib/branch-review"
+import type { MenuItemGroups } from "@/lib/menu"
 import { filterEmptyText, filterPaths, reviewFilterChips, sameFilter, soleOwner } from "@/lib/review-owners"
 import type { ReviewFilter, ReviewFilterChip } from "@/lib/review-owners"
 import { markSubWindowContentReady } from "@/lib/sub-window"
-import type { ReviewedBranch, WholeStackScope } from "@/types/sub-window"
+import type { BranchReviewMenuItem, ReviewedBranch, WholeStackScope } from "@/types/sub-window"
 
 /*
  * The parts of the review of a branch (`useBranchReview`), in the dialog of the branch preview and in its window: the
@@ -36,6 +38,10 @@ export interface BranchReviewMoves {
   readonly stackCommits: Readonly<Record<string, string>>
   /** The review of a branch of the stack, at a commit of the whole stack (`commitKey`) */
   readonly onBranch: (name: string, commitKey?: string) => void
+  /** The menu of each commit of the chain, by its id, as the main window sends it */
+  readonly commitMenus: Readonly<Record<string, readonly (readonly BranchReviewMenuItem[])[]>>
+  /** Runs an item of the menu of a commit of `branchName` in the main window */
+  readonly onCommitMenuItem: (branchName: string, commitId: string, itemId: string) => void
 }
 
 /** The stack bar: the part of the stack the review shows, the scopes of the stack */
@@ -133,6 +139,15 @@ export function BranchReviewBody({ model, moves }: { model: BranchReviewModel; m
       fileOwners={loaded.owners}
       rangeNoun="branch"
       filesHeader={count => <BranchReviewFilesHeader model={model} count={count} />}
+      commitMenu={commit => {
+        // the commit's branch: the segment that has it
+        const branch = loaded.segments.find(segment => segment.commits.some(it => it.id === commit.id))?.name
+        const groups: MenuItemGroups =
+          branch === undefined || source.wholeStack === true
+            ? []
+            : (moves.commitMenus[commit.id] ?? []).map(group => group.map(item => ({ ...item, onSelect: () => moves.onCommitMenuItem(branch, commit.id, item.id) })))
+        return [...groups, getReviewCommitCopyMenuItems(commit)]
+      }}
       commitAction={item => {
         const branch = item.branch
         return (

@@ -1,17 +1,22 @@
 import { useState } from "react"
-import type { KeyboardEvent, ReactNode } from "react"
+import type { KeyboardEvent, ReactElement, ReactNode } from "react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
+import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { CommitHeading } from "@/components/commit/CommitHeading"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { CommitReview } from "@/components/commit/CommitReview"
 import type { CommitReviewProps } from "@/components/commit/CommitReview"
+import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
+import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
+import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import { useCommitFileStats } from "@/hooks/useCommitFiles"
 import type { ReviewCommit } from "@/lib/bindings"
 import { hasCommitMessageBody } from "@/lib/commit"
 import type { DiffSubject } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
+import type { MenuItemGroups } from "@/lib/menu"
 import { handlePreviewItemSwitchKey } from "@/lib/preview-keys"
 import { isSingleCommit } from "@/lib/range-review"
 import type { RangeReviewItem } from "@/lib/range-review"
@@ -36,6 +41,8 @@ export interface RangeReviewProps {
   filesHeader?: CommitReviewProps["filesHeader"]
   /** At the end of the heading of the shown commit: "Review bazel" of a commit of the whole stack */
   commitAction?: (item: Extract<RangeReviewItem, { kind: "commit" }>) => ReactNode
+  /** The menu of a commit: its right-click in the column and the "⋯" of its heading; none without */
+  commitMenu?: (commit: ReviewCommit) => MenuItemGroups
 }
 
 /**
@@ -57,6 +64,7 @@ export function RangeReview({
   rangeNoun,
   filesHeader,
   commitAction,
+  commitMenu,
 }: RangeReviewProps) {
   const single = isSingleCommit(items)
   const shown = single ? items.find(item => item.kind === "commit") : items.find(item => item.key === selected)
@@ -83,16 +91,39 @@ export function RangeReview({
         fileOwners={fileOwners}
         rangeNoun={rangeNoun}
         neighbours={neighbours}
-        sidebarTop={single ? undefined : <CommitColumn items={items} selected={selected} onSelect={onSelect} />}
+        sidebarTop={single ? undefined : <CommitColumn items={items} selected={selected} onSelect={onSelect} commitMenu={commitMenu} />}
         filesHeader={filesHeader}
-        codeTop={shown?.kind === "commit" ? <ReviewCommitHeader key={shown.key} commit={shown.commit} action={commitAction?.(shown)} /> : undefined}
+        codeTop={
+          shown?.kind === "commit" ? (
+            <ReviewCommitHeader
+              key={shown.key}
+              commit={shown.commit}
+              action={
+                <>
+                  {commitAction?.(shown)}
+                  {commitMenu !== undefined && <CommitHeadingMenu commit={shown.commit} commitMenu={commitMenu} />}
+                </>
+              }
+            />
+          ) : undefined
+        }
       />
     </div>
   )
 }
 
 /** The commits of the range above the files: one tab stop, ↑/↓ choose inside it, the choice told to a screen reader */
-function CommitColumn({ items, selected, onSelect }: { items: readonly RangeReviewItem[]; selected: string; onSelect: (key: string) => void }) {
+function CommitColumn({
+  items,
+  selected,
+  onSelect,
+  commitMenu,
+}: {
+  items: readonly RangeReviewItem[]
+  selected: string
+  onSelect: (key: string) => void
+  commitMenu: RangeReviewProps["commitMenu"]
+}) {
   const index = items.findIndex(item => item.key === selected)
   const shown = items[index]
   const commitCount = items.filter(item => item.kind === "commit").length
@@ -120,7 +151,7 @@ function CommitColumn({ items, selected, onSelect }: { items: readonly RangeRevi
         onKeyDown={handleKeyDown}
       >
         {items.map(item => (
-          <ColumnItem key={item.key} item={item} selected={item.key === selected} onSelect={onSelect} />
+          <ColumnItem key={item.key} item={item} selected={item.key === selected} onSelect={onSelect} commitMenu={commitMenu} />
         ))}
       </div>
       <p aria-live="polite" className="sr-only">
@@ -130,7 +161,17 @@ function CommitColumn({ items, selected, onSelect }: { items: readonly RangeRevi
   )
 }
 
-function ColumnItem({ item, selected, onSelect }: { item: RangeReviewItem; selected: boolean; onSelect: (key: string) => void }) {
+function ColumnItem({
+  item,
+  selected,
+  onSelect,
+  commitMenu,
+}: {
+  item: RangeReviewItem
+  selected: boolean
+  onSelect: (key: string) => void
+  commitMenu: RangeReviewProps["commitMenu"]
+}) {
   const option = (children: ReactNode, title?: string) => (
     <div
       id={optionId(item.key)}
@@ -171,20 +212,60 @@ function ColumnItem({ item, selected, onSelect }: { item: RangeReviewItem; selec
           <span className="h-px flex-1 bg-border" />
         </div>
       )}
-      {option(
-        <>
-          <span className="flex-1 truncate">{item.commit.subject}</span>
-          {item.branch !== undefined && (
-            <span className="max-w-24 shrink-0 truncate text-xs text-muted-foreground" data-testid="range-review-commit-branch">
-              {item.branch}
-            </span>
-          )}
-          <span className="font-mono text-xs text-muted-foreground">{formatShortHash(item.commit.id)}</span>
-        </>,
-        item.commit.subject,
+      {withCommitMenu(
+        item.commit,
+        commitMenu,
+        option(
+          <>
+            <span className="flex-1 truncate">{item.commit.subject}</span>
+            {item.branch !== undefined && (
+              <span className="max-w-24 shrink-0 truncate text-xs text-muted-foreground" data-testid="range-review-commit-branch">
+                {item.branch}
+              </span>
+            )}
+            <span className="font-mono text-xs text-muted-foreground">{formatShortHash(item.commit.id)}</span>
+          </>,
+          item.commit.subject,
+        ),
       )}
     </>
   )
+}
+
+/** The commit of the column with its menu on the right-click, built when it opens; as it is without one */
+function withCommitMenu(commit: ReviewCommit, commitMenu: RangeReviewProps["commitMenu"], option: ReactElement): ReactNode {
+  if (commitMenu === undefined) {
+    return option
+  }
+  return <CommitContextMenu commit={commit} commitMenu={commitMenu} option={option} />
+}
+
+function CommitContextMenu({ commit, commitMenu, option }: { commit: ReviewCommit; commitMenu: NonNullable<RangeReviewProps["commitMenu"]>; option: ReactElement }) {
+  const [groups, setGroups] = useState<MenuItemGroups>([])
+  return (
+    <ContextMenu
+      onOpenChange={(open, eventDetails) => {
+        if (open) {
+          const next = commitMenu(commit)
+          if (next.every(group => group.length === 0)) {
+            eventDetails.cancel()
+            return
+          }
+          setGroups(next)
+        }
+      }}
+    >
+      <ContextMenuTrigger render={option} />
+      <ContextMenuContent finalFocus={false}>
+        <ContextMenuItems groups={groups} />
+      </ContextMenuContent>
+    </ContextMenu>
+  )
+}
+
+/** "⋯" at the end of the heading of the shown commit: the menu its right-click opens in the column */
+function CommitHeadingMenu({ commit, commitMenu }: { commit: ReviewCommit; commitMenu: NonNullable<RangeReviewProps["commitMenu"]> }) {
+  return <MoreActionsMenu name={formatShortHash(commit.id)} menu={<DropdownMenuItems groups={commitMenu(commit)} />} />
 }
 
 function optionId(key: string): string {

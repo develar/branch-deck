@@ -116,6 +116,11 @@ export interface BranchReviewWindowState {
    * mapping notes); empty otherwise
    */
   readonly stackCommits: Readonly<Record<string, string>>
+  /**
+   * The menu of each commit of the chain, by its id in the virtual branch, as its row's (`getReviewCommitMenu`): the
+   * main window runs the item (`commitMenuItemId`); the window adds the copies, which it runs itself
+   */
+  readonly commitMenus: Readonly<Record<string, readonly (readonly BranchReviewMenuItem[])[]>>
 }
 
 /**
@@ -135,6 +140,8 @@ export type BranchReviewRequest = {
   | { readonly dialog: "open" | "close" | "safePushWithoutReview" }
   | { readonly dialog: "create"; readonly input: CreatePullRequestInput }
   | { readonly dialog: "continueOnGitHub"; readonly fields: CompareFields }
+  /** An item of the menu of the commit `commitId` (its id in the virtual branch) of `branchName` */
+  | { readonly commitMenuItemId: string; readonly commitId: string }
   /** The window moves to the whole stack of the chain's root, keeping the chain as the way back */
   | { readonly scope: "wholeStack" }
   /** The window moves to the review of `branchName`, a branch of the stack it shows */

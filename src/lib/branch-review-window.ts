@@ -2,7 +2,10 @@ import { getCurrentWindow } from "@tauri-apps/api/window"
 import { getBranchContextMenuItems, getBranchReviewItems, getSafePushWithoutReviewItem } from "@/hooks/useBranchContextActions"
 import type { BranchActionItem } from "@/hooks/useBranchContextActions"
 import type { BranchReviewSource } from "@/hooks/useBranchReview"
+import { getCommitMenuGroups } from "@/hooks/useCommitMoveList"
 import { getCreatePullRequestContext, getStackPullRequestContext } from "@/hooks/useCreatePullRequestContext"
+import { moveCommits } from "@/hooks/useMoveCommits"
+import { getRewordMenuItem } from "@/hooks/useRewordCommit"
 import { getWholeStackRest, isForkingStack } from "@/hooks/useStackNextStep"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import type { BranchReviewPart, PatronusReviewRequirement } from "@/lib/bindings"
@@ -13,14 +16,16 @@ import type { BranchReviewFocus, ShownBranchReview } from "@/lib/branch-review"
 import { continueOnGitHub, submitPullRequest } from "@/lib/create-pull-request-context"
 import { logError, notifyError, recordError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
-import type { MenuItem } from "@/lib/menu"
+import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { showRepository } from "@/lib/show-repository"
 import { stackAncestors } from "@/lib/stack"
 import { createWindowLink } from "@/lib/sub-window-link"
 import { showToast } from "@/lib/toast-message"
 import { formatWholeStack, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
 import { branchSyncStore, getBranch, getStackBranch, getStackDescendants, stackMainLineIn } from "@/stores/branch-sync"
-import { requestReveal } from "@/stores/commit-move"
+import type { Branch, SyncedCommit } from "@/stores/branch-sync"
+import { requestCommitForm, requestReveal } from "@/stores/commit-move"
+import type { CommitFormRequest, RevealRequest } from "@/stores/commit-move"
 import { getStackPullRequest } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject } from "@/stores/repository"
 import { demandReviewReadiness, showReviewReadiness } from "@/stores/review-readiness"
@@ -289,6 +294,7 @@ function buildStackState(repositoryPath: string, root: string): BranchReviewWind
     createPullRequest: selected && dialog?.wholeStack === true ? getStackPullRequestContext(root) : null,
     wholeStack: null,
     stackCommits: selected ? stackCommitBranches(root) : {},
+    commitMenus: {},
   }
 }
 
@@ -375,11 +381,12 @@ function wholeStackScopeOf(chain: readonly string[], baselineBranch: string): Wh
 /** The tips of the chain the last sync built, and the actions of each branch; nothing for a repository not shown */
 function buildState(repositoryPath: string, chain: readonly string[]): BranchReviewWindowState {
   if (getSelectedProject()?.path !== repositoryPath) {
-    return { repositoryPath, selected: false, tips: {}, items: {}, menus: {}, createPullRequest: null, wholeStack: null, stackCommits: {} }
+    return { repositoryPath, selected: false, tips: {}, items: {}, menus: {}, createPullRequest: null, wholeStack: null, stackCommits: {}, commitMenus: {} }
   }
   const tips: Record<string, string> = {}
   const items: Record<string, BranchReviewItem[]> = {}
   const menus: Record<string, BranchReviewMenuItem[][]> = {}
+  const commitMenus: Record<string, BranchReviewMenuItem[][]> = {}
   for (const name of chain) {
     const tip = syncedTips?.repositoryPath === repositoryPath ? syncedTips.tips[name] : getBranch(name)?.commits[0]?.hash
     if (tip !== undefined) {
@@ -391,6 +398,11 @@ function buildState(repositoryPath: string, chain: readonly string[]): BranchRev
       menus[name] = getBranchContextMenuItems(branch, revealRow)
         .map(group => group.filter(item => item.id !== undefined && item.children === undefined).map(toMenuItem))
         .filter(group => group.length > 0)
+      for (const commit of branch.commits) {
+        if (commit.hash !== undefined) {
+          commitMenus[commit.hash] = toMenuGroups(getReviewCommitMenu(branch, commit))
+        }
+      }
     }
   }
   const dialogBranch = dialog === null || dialog.wholeStack ? undefined : getBranch(dialog.branchName)
@@ -404,7 +416,32 @@ function buildState(repositoryPath: string, chain: readonly string[]): BranchRev
     createPullRequest: dialogBranch === undefined ? null : getCreatePullRequestContext(dialogBranch),
     wholeStack: wholeStackScopeOf(chain, baselineBranch),
     stackCommits: {},
+    commitMenus,
   }
+}
+
+/** Groups of a menu for the window: its items without a submenu (a submenu stays in the row's menu), as plain data */
+function toMenuGroups(groups: MenuItemGroups): BranchReviewMenuItem[][] {
+  return groups.map(group => group.filter(item => item.id !== undefined && item.children === undefined).map(toMenuItem)).filter(group => group.length > 0)
+}
+
+/**
+ * The menu of a commit of a branch for the review window, from the builder of its row's (`getCommitMenuGroups`) and
+ * "Reword…": the forms (Move to…, the squash, the reword in the preview) open at the row (`requestCommitForm`); the
+ * copies are the window's own
+ */
+function getReviewCommitMenu(branch: Branch, commit: SyncedCommit): MenuItemGroups {
+  const formOf =
+    (form: CommitFormRequest["form"]) =>
+    (commits: readonly SyncedCommit[]): void =>
+      requestCommitForm({ branchName: branch.name, commitIds: commits.map(it => it.originalHash), form })
+  const groups = getCommitMenuGroups(branch.name, [commit], {
+    openTarget: formOf("move"),
+    openSquash: formOf("squash"),
+    removePrefix: commits => void moveCommits(commits, null),
+  })
+  const reword = getRewordMenuItem(commit, it => formOf("reword")([it as SyncedCommit]))
+  return [[reword], ...groups.map(group => group.filter(item => !item.id?.startsWith("copy-")))]
 }
 
 function toMenuItem(item: MenuItem): BranchReviewMenuItem {
@@ -471,6 +508,9 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
   if ("scope" in request || "review" in request) {
     return moveReview(request, send)
   }
+  if ("commitMenuItemId" in request) {
+    return runCommitMenuItem(request, send)
+  }
   // the review of the whole stack asks for the actions of the whole stack of its root
   const wholeStack = request.wholeStack === true
   const subject = wholeStack ? formatWholeStack(branchName) : branchName
@@ -485,12 +525,8 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
           ? requestAction({ menuLabel: stackItem?.label ?? request.itemId }, subject)
           : requestAction(request.itemId, subject)
         : requestAction(request.dialog === "create" ? "create-pull-request" : request.dialog === "continueOnGitHub" ? "continue-on-github" : "safe-push-without-review", subject)
-  const title = `Cannot ${action}`
   // a reason, or what GitHub said
-  const refuse = (reason: unknown) => {
-    send({ kind: "error", title, message: recordError(title, reason) })
-    return false
-  }
+  const refuse = refuserOf(`Cannot ${action}`, send)
   // the window of another repository: the main window switches to it, then runs the action on its branches
   const notShown = await showRepository(repositoryPath)
   if (notShown !== null) {
@@ -534,16 +570,57 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
     const itemId = "itemId" in request ? request.itemId : "safe-push-without-review"
     return refuse(itemId === "safe-push-whole-stack" || itemId === "push-with-children" ? `${subject} has no such action now` : unavailableReason(itemId, branchName))
   }
+  return runItem(item, { branchName, commitIds: [] }, refuse)
+})
+
+/** Refuses a request of the window with the reason (or what GitHub said), shown in the window and recorded in Activity */
+function refuserOf(title: string, send: (feedback: BranchReviewFeedback) => void): (reason: unknown) => false {
+  return reason => {
+    send({ kind: "error", title, message: recordError(title, reason) })
+    return false
+  }
+}
+
+/** Runs an item the window asked for as the row would: the main window comes to the front and shows the row; a disabled one is refused */
+function runItem(item: MenuItem, reveal: RevealRequest, refuse: (reason: unknown) => false): boolean {
   if (item.disabled === true) {
     return refuse(item.description ?? `${item.label} is not available now`)
   }
   getCurrentWindow()
     .setFocus()
     .catch((error: unknown) => logError("Cannot focus the main window", error))
-  requestReveal({ branchName, commitIds: [] })
+  requestReveal(reveal)
   item.onSelect()
   return true
-})
+}
+
+/** Runs an item of the menu of a commit in the review window, as its row's menu would: a form opens at the row */
+async function runCommitMenuItem(
+  request: BranchReviewRequest & { readonly commitMenuItemId: string; readonly commitId: string },
+  send: (feedback: BranchReviewFeedback) => void,
+): Promise<boolean> {
+  const { repositoryPath, branchName, commitId } = request
+  const branch = getBranch(branchName)
+  const commit = branch?.commits.find(it => it.hash === commitId)
+  const item =
+    branch === undefined || commit === undefined
+      ? undefined
+      : getReviewCommitMenu(branch, commit)
+          .flat()
+          .find(it => it.id === request.commitMenuItemId)
+  const refuse = refuserOf(`Cannot run "${(item?.label ?? request.commitMenuItemId).replace(/…$/, "")}" on ${formatShortHash(commitId)}`, send)
+  const notShown = await showRepository(repositoryPath)
+  if (notShown !== null) {
+    return refuse(notShown)
+  }
+  if (branch === undefined) {
+    return refuse(branchGoneReason(branchName))
+  }
+  if (item === undefined) {
+    return refuse(commit === undefined ? `${branchName} no longer has the commit: a sync rebuilt it` : `The menu of the commit has no such action now`)
+  }
+  return runItem(item, { branchName, commitIds: [commit!.originalHash] }, refuse)
+}
 
 /**
  * Moves the review window up to the whole stack of the chain it shows ("Whole Stack" of its stack bar), or down to a
@@ -557,11 +634,7 @@ async function moveReview(
   const shown = link.shown()
   const chain = shown !== null && !shown.wholeStack ? shown.chain : [branchName]
   const root = chain[0] ?? branchName
-  const title = `Cannot review ${"scope" in request ? formatWholeStack(root) : branchName}`
-  const refuse = (reason: string) => {
-    send({ kind: "error", title, message: recordError(title, reason) })
-    return false
-  }
+  const refuse = refuserOf(`Cannot review ${"scope" in request ? formatWholeStack(root) : branchName}`, send)
   const notShown = await showRepository(repositoryPath)
   if (notShown !== null) {
     return refuse(notShown)

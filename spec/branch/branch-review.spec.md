@@ -24,6 +24,9 @@ targets:
   - ../../src/pages/IndexPage.tsx
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useBranchRowKeys.ts
+  - ../../src/hooks/useCommitMoveList.ts
+  - ../../src/hooks/useCommitCopyActions.ts
+  - ../../src/stores/commit-move.ts
   - ../../src/components/branch/BranchPreviewDialog.tsx
   - ../../src/components/branch/SafePushPopover.tsx
   - ../../src/components/branch/StackIslandCard.tsx
@@ -230,6 +233,16 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   root; while the window is open it asks for the readiness of `stack:<root>`. Opened from the Safe Push popover, the
   review gets the reviewer groups of the code-owner check of the whole stack.
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should start the Safe Push of the whole stack with S in its review, its popover at the header, and run ⋯ in the main window`, `should create the pull request of the whole stack in its review, in its window, its Safe Push disabled until then`)
+- A commit of the review must have the menu of its row: its right-click in the column and "⋯" at the end of its
+  heading (a part of one commit has no column, its heading has it), built when it opens, without key hints and
+  without submenus: "Reword…", "Move to…", the way back ("Move to Unassigned", "Move Back to …"), the squash into its
+  target, "Push Up to Here" (`getCommitMenuGroups`, the one builder of the menus of commits, every item by a stable
+  id), which the main window sends by the id of the commit in the virtual branch (`commitMenus` of the window state)
+  and runs (`commitMenuItemId`): it comes to the front, reveals the row, and a form opens at the row
+  (`requestCommitForm`: Move to… and the squash in the list, Reword… in the preview of the commit). The copies
+  ("Copy Commit Hash", "Copy Commit Message", "Copy Changed Paths") run in the window, of the commit as it shows it.
+  The review of the whole stack has the copies only: "Review side-fix" leads to the menu.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should run the menu of a commit of the review in the main window, its forms at the row, its copies in the window`)
 - Unified/Inline/Split must be the setting of every diff view, saved by the main window, which owns `settings.json`
   ([Distributed Settings](../../docs/design/distributed-settings.md)): the window asks it, and keeps the choice on its
   answer.

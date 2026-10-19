@@ -68,7 +68,7 @@ describe("the review window of a branch", () => {
     openedAt: 1,
     startedAt: 1,
     move: false,
-    state: { repositoryPath: "/repo", selected: true, tips: {}, items: {}, menus: {}, createPullRequest: null, wholeStack: null, stackCommits: {} },
+    state: { repositoryPath: "/repo", selected: true, tips: {}, items: {}, menus: {}, createPullRequest: null, wholeStack: null, stackCommits: {}, commitMenus: {} },
   }
   const shown: ShownBranchReview = { repositoryPath: "/repo", chain: ["auth", "login"], wholeStack: false, startedAt: 1 }
   const open = (branchName: string, chain: string[], focus: BranchReviewFocus) => planReviewOpen(shown, { repositoryPath: "/repo", branchName, chain, focus }, 9)

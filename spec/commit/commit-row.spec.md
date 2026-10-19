@@ -387,7 +387,9 @@ The commit hash popover shows the same header and body.
   on its hover while a sync runs; "D Review Changes" of a commit without files is disabled with "The commit changes no
   files". A preview of a list with a row menu has "⋯" in its header, before the close button: the menu of the row (Move to…, Squash into, Push Up to
   Here, the copies), its key hints only for the keys of the preview; an item that opens a form of the row closes the
-  preview first, a copy keeps it (`toPreviewMenu`).
+  preview first, a copy keeps it (`toPreviewMenu`). One builder lists the menu of commits for the row, its preview and
+  the commit in the review window of its branch (`getCommitMenuGroups`), every item by a stable id
+  ([Branch Review](../branch/branch-review.spec.md#title-bar-footer-and-actions)).
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should offer the menu of the commit's row in its preview`)
 - While editing, the body is a monospace 13/20px text field at least 12rem high that grows with the message.
   The footer shows "The first line is the subject", or the prefix warning in `text-warning`, on the left, and

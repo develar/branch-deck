@@ -1,7 +1,6 @@
 import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import type { ComponentProps, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from "react"
 import { cn } from "cn"
-import { PencilLineIcon } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
@@ -15,15 +14,17 @@ import { beginCommitDrag } from "@/hooks/useCommitDrag"
 import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
 import { commitReviewBlocker, getCommitReviewMenuItems } from "@/hooks/useCommitReviewActions"
 import { usePreviewHotkeys } from "@/hooks/usePreviewHotkeys"
-import { rewordCommit } from "@/hooks/useRewordCommit"
+import { getRewordMenuItem, rewordCommit } from "@/hooks/useRewordCommit"
 import type { RowSelection } from "@/hooks/useRowSelection"
 import { describeFixupTarget, getFixupTarget } from "@/lib/autosquash"
 import { reviewBranchCommit } from "@/lib/branch-review-window"
 import type { CommitUnion } from "@/lib/commit"
 import { getCommitFileCount, getCommitHash, getCommitSubject, getSubjectLine, hasCommitMessageBody, parseSubject, stripLeadingIssueKey, toReviewCommit } from "@/lib/commit"
 import { openCommitReviewWindow } from "@/lib/commit-review-window"
-import type { MenuItem, MenuItemGroups } from "@/lib/menu"
-import { branchSyncStore, useAutosquashPlan } from "@/stores/branch-sync"
+import type { MenuItemGroups } from "@/lib/menu"
+import { useAutosquashPlan } from "@/stores/branch-sync"
+import { requestCommitForm, UNASSIGNED_SOURCE, useCommitFormRequest } from "@/stores/commit-move"
+import type { CommitFormRequest } from "@/stores/commit-move"
 
 // the preview pulls in the review: its frame, the file tree and the resizable panels
 const CommitPreviewDialog = lazy(() => import("@/components/commit/CommitPreviewDialog").then(it => ({ default: it.CommitPreviewDialog })))
@@ -191,6 +192,23 @@ export function CommitList<T extends CommitUnion>({
     return inBranch ?? openCommitReviewWindow(commits.map(toReviewCommit), listLabel ?? branchName ?? null, index, path)
   }
   const reviewRow = (commit: CommitUnion) => void review(getCommitHash(commit))
+  // "Reword…" another window asked for (the menu of a commit in the review window): the preview edits the message,
+  // the store forgets the request in an effect
+  const formRequest = useCommitFormRequest(branchName ?? UNASSIGNED_SOURCE)
+  const [rewordRequest, setRewordRequest] = useState<CommitFormRequest | null>(null)
+  if (formRequest?.form === "reword" && formRequest !== rewordRequest && editable) {
+    const commit = commits.find(it => formRequest.commitIds.includes(getCommitHash(it)))
+    if (commit !== undefined) {
+      setRewordRequest(formRequest)
+      setPreview({ hash: getCommitHash(commit), edit: true })
+      setIsPreviewLoaded(true)
+    }
+  }
+  useEffect(() => {
+    if (rewordRequest !== null) {
+      requestCommitForm(null)
+    }
+  }, [rewordRequest])
   usePreviewHotkeys(tableRef, () => lastPreviewedRef.current ?? latestRef.current.selection?.getAnchorId() ?? null, {
     preview: openPreview,
     review: hash => void review(hash),
@@ -481,20 +499,4 @@ function FixupMarker({ marker, commitId }: { marker: string; commitId: string })
       <TooltipContent>{description}</TooltipContent>
     </Tooltip>
   )
-}
-
-/**
- * "Reword…" of a commit row: its preview opens with the message in edit, as E does there; disabled while a sync runs (a
- * reword is a rewrite)
- */
-function getRewordMenuItem(commit: CommitUnion, reword: (commit: CommitUnion) => void): MenuItem {
-  const syncing = branchSyncStore.getState().isSyncing
-  return {
-    id: "reword",
-    label: "Reword…",
-    icon: PencilLineIcon,
-    disabled: syncing,
-    description: syncing ? "Wait for the sync to finish" : "Edits the message of the commit in its preview",
-    onSelect: () => reword(commit),
-  }
 }

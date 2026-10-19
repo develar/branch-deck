@@ -14,7 +14,8 @@ import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { hasKeyModifier } from "@/lib/preview-keys"
 import { describePushUpTo, pushUpToPlan } from "@/lib/push-up-to"
 import { getAutosquashPlan, getBranch, getIssueGroups, getMoveTargets } from "@/stores/branch-sync"
-import { claimSelection, requestReveal, startCommitDrag, UNASSIGNED_SOURCE, useCommitMove, useRevealRequest } from "@/stores/commit-move"
+import { claimSelection, requestCommitForm, requestReveal, startCommitDrag, UNASSIGNED_SOURCE, useCommitFormRequest, useCommitMove, useRevealRequest } from "@/stores/commit-move"
+import type { CommitFormRequest } from "@/stores/commit-move"
 import { getLandedBy, getPushHold } from "@/stores/patronus"
 
 /** Branches listed in the "Move to" submenu */
@@ -96,7 +97,7 @@ function getSquashIntoItems(commit: Commit): MenuItem[] {
   }
   const subject = getDisplaySubject(target.targetSubject)
   const label = subject.length > MAX_MENU_SUBJECT ? `${subject.slice(0, MAX_MENU_SUBJECT - 1)}…` : subject
-  return [{ label: `Squash into “${label}”`, icon: CombineIcon, onSelect: () => void squashFixupInto(commit.originalHash) }]
+  return [{ id: "squash-into", label: `Squash into “${label}”`, icon: CombineIcon, onSelect: () => void squashFixupInto(commit.originalHash) }]
 }
 
 /**
@@ -111,9 +112,60 @@ function getPushUpToItems(branchName: string, commit: Commit): MenuItem[] {
   }
   return [
     plan.ok
-      ? { label: "Push Up to Here", icon: UploadIcon, description: describePushUpTo(plan.steps, getBranch), onSelect: () => void pushUpTo(plan.steps) }
-      : { label: "Push Up to Here", icon: UploadIcon, disabled: true, description: plan.reason, onSelect: () => {} },
+      ? { id: "push-up-to", label: "Push Up to Here", icon: UploadIcon, description: describePushUpTo(plan.steps, getBranch), onSelect: () => void pushUpTo(plan.steps) }
+      : { id: "push-up-to", label: "Push Up to Here", icon: UploadIcon, disabled: true, description: plan.reason, onSelect: () => {} },
   ]
+}
+
+/** How the menu of commits opens the forms of their list */
+export interface CommitMenuForms<T extends Commit> {
+  readonly openTarget: (commits: readonly T[]) => void
+  readonly openSquash: (commits: readonly T[]) => void
+  readonly removePrefix: (commits: readonly T[]) => void
+}
+
+/**
+ * The menu of commits of a list (of `sourceBranch`, null for the unassigned ones), every item by a stable id, one
+ * builder for the menu of a row, of its preview and of a commit in the review window: "Move to…", "Move to Existing ›",
+ * the way back ("Remove Prefix", "Move Back to …"), the squash, "Push Up to Here", the copies
+ */
+export function getCommitMenuGroups<T extends Commit>(sourceBranch: string | null, menuCommits: readonly T[], forms: CommitMenuForms<T>): MenuItemGroups {
+  if (menuCommits.length === 0) {
+    return []
+  }
+  const isMultiple = menuCommits.length > 1
+  const moveItems: MenuItem[] = [
+    {
+      id: "move-to",
+      // the label of the selection button
+      label: "Move to…",
+      icon: FolderInputIcon,
+      kbds: ["m"],
+      onSelect: () => forms.openTarget(menuCommits),
+    },
+  ]
+  const targets = getMoveTargets(sourceBranch, MAX_MENU_TARGETS)
+  if (targets.length > 0) {
+    moveItems.push({
+      id: "move-to-existing",
+      label: "Move to Existing",
+      icon: GitBranchIcon,
+      onSelect: () => {},
+      children: [
+        ...targets.map(name => ({ label: name, icon: GitBranchIcon, onSelect: () => void moveCommits(menuCommits, name) })),
+        { label: "New Branch…", icon: GitBranchPlusIcon, onSelect: () => forms.openTarget(menuCommits) },
+      ],
+    })
+  }
+  const removeLabel = getRemovePrefixLabel(menuCommits, getIssueGroups())
+  if (removeLabel !== null) {
+    moveItems.push({ id: "remove-prefix", label: removeLabel, icon: UndoDotIcon, onSelect: () => forms.removePrefix(menuCommits) })
+  }
+  const squashItems: MenuItem[] = isMultiple
+    ? [{ id: "squash", label: `Squash ${menuCommits.length} Commits…`, icon: CombineIcon, kbds: ["s"], onSelect: () => forms.openSquash(menuCommits) }]
+    : getSquashIntoItems(menuCommits[0]!)
+  const pushItems = isMultiple || sourceBranch === null ? [] : getPushUpToItems(sourceBranch, menuCommits[0]!)
+  return [moveItems, squashItems, pushItems, getCommitCopyMenuItems(menuCommits)]
 }
 
 export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = false, sourceBranch }: CommitMoveListOptions<T>): CommitMoveList<T> {
@@ -192,43 +244,34 @@ export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = fal
     })
   }
 
-  const contextMenuItems = (menuCommits: T[]): MenuItemGroups => {
-    // no menu while the form is open
-    if (isTargetOpen || menuCommits.length === 0) {
-      return []
+  // no menu while the form is open
+  const contextMenuItems = (menuCommits: T[]): MenuItemGroups =>
+    isTargetOpen ? [] : getCommitMenuGroups(sourceBranch, menuCommits, { openTarget, openSquash, removePrefix: removePrefixFrom })
+
+  // a form another window asked for (the menu of a commit in the review window), once the list has its commits: the
+  // form opens in this render, the selection and the store follow in an effect
+  const formRequest = useCommitFormRequest(sourceKey)
+  const [openedForm, setOpenedForm] = useState<CommitFormRequest | null>(null)
+  if (formRequest !== null && formRequest !== openedForm && formRequest.form !== "reword") {
+    const requested = commits.filter(commit => formRequest.commitIds.includes(getCommitHash(commit)))
+    if (requested.length > 0) {
+      setOpenedForm(formRequest)
+      if (formRequest.form === "move") {
+        setIsTargetOpen(true)
+      } else if (requested.length > 1) {
+        setIsTargetOpen(false)
+        setSquashCommits(oldestFirst ? requested.toReversed() : requested)
+      }
     }
-    const isMultiple = menuCommits.length > 1
-    const moveItems: MenuItem[] = [
-      {
-        // the label of the selection button
-        label: "Move to…",
-        icon: FolderInputIcon,
-        kbds: ["m"],
-        onSelect: () => openTarget(menuCommits),
-      },
-    ]
-    const targets = getMoveTargets(sourceBranch, MAX_MENU_TARGETS)
-    if (targets.length > 0) {
-      moveItems.push({
-        label: "Move to Existing",
-        icon: GitBranchIcon,
-        onSelect: () => {},
-        children: [
-          ...targets.map(name => ({ label: name, icon: GitBranchIcon, onSelect: () => void moveCommits(menuCommits, name) })),
-          { label: "New Branch…", icon: GitBranchPlusIcon, onSelect: () => openTarget(menuCommits) },
-        ],
-      })
-    }
-    const removeLabel = getRemovePrefixLabel(menuCommits, getIssueGroups())
-    if (removeLabel !== null) {
-      moveItems.push({ label: removeLabel, icon: UndoDotIcon, onSelect: () => removePrefixFrom(menuCommits) })
-    }
-    const squashItems: MenuItem[] = isMultiple
-      ? [{ label: `Squash ${menuCommits.length} Commits…`, icon: CombineIcon, kbds: ["s"], onSelect: () => openSquash(menuCommits) }]
-      : getSquashIntoItems(menuCommits[0]!)
-    const pushItems = isMultiple || sourceBranch === null ? [] : getPushUpToItems(sourceBranch, menuCommits[0]!)
-    return [moveItems, squashItems, pushItems, getCommitCopyMenuItems(menuCommits)]
   }
+  useEffect(() => {
+    if (openedForm === null) {
+      return
+    }
+    selectIds([...openedForm.commitIds])
+    claimSelection(sourceKey)
+    requestCommitForm(null)
+  }, [openedForm, selectIds, sourceKey])
 
   const onKeyDown = (event: KeyboardEvent<HTMLTableElement>) => {
     // the open form handles Escape; the selection must not be cleared
