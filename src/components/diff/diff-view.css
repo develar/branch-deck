@@ -236,6 +236,8 @@
 [data-inline-deleted] {
   user-select: none;
   background: var(--diff-deleted);
+  /* struck through, so a deleted run beside an inserted one reads as deleted without its colour (ui-theme.md) */
+  text-decoration: line-through;
 }
 
 /*

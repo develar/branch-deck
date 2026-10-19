@@ -58,4 +58,25 @@ test.describe("The font of the diffs", () => {
     // the changed character has the width of a cell: it stays visible
     expect(measured.changed).toBeCloseTo(1, 1)
   })
+
+  test("strikes the deleted parts of an Inline row through, and no change of Split or Unified", async ({ page }) => {
+    await expandBranch(page, findBranchRow(page, "session"))
+    const preview = await openCommitPreview(page, getBranchCommitRow(page, "session", "a prompt that waits for its turn keeps the session row running"))
+    const tree = await openCommitFilesSection(preview)
+    const file = tree.getByRole("treeitem", { name: "RowMapper.kt" })
+    await file.getByText("RowMapper.kt").click()
+    const decoration = (locator: ReturnType<typeof file.locator>) => locator.evaluateAll(elements => elements.map(element => getComputedStyle(element).textDecorationLine))
+
+    await preview.getByRole("button", { name: "Inline", exact: true }).click()
+    // `Row = Row` becomes `SessionRow = SessionRow`: the deleted part stands before the inserted one
+    const deleted = file.locator(".dv-row[data-kind=inline] [data-inline-deleted]")
+    await expect(deleted.first()).toBeVisible()
+    expect(new Set(await decoration(deleted))).toEqual(new Set(["line-through"]))
+
+    for (const mode of ["Split", "Unified"]) {
+      await preview.getByRole("button", { name: mode, exact: true }).click()
+      await expect(file.locator(".dv-changed").first()).toBeVisible()
+      expect(new Set(await decoration(file.locator(".dv-changed"))), mode).toEqual(new Set(["none"]))
+    }
+  })
 })

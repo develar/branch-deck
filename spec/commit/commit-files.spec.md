@@ -285,6 +285,8 @@ The views show the typed diff of each file instead of the patch ([Reading the di
 - "Ligatures" in Settings → Appearance, "Diffs", must draw the ligatures of JetBrains Mono, on by default; each
   character keeps its cell, and a changed character inside a ligature stays visible.
   [@test] ../../tests/e2e/commit-files/diff-font.spec.ts (`keeps the cell width of each character with ligatures on, also where a changed range cuts a ligature`)
+- Inline must strike its deleted parts through, still grey and left out of a copy; Split and Unified strike nothing.
+  [@test] ../../tests/e2e/commit-files/diff-font.spec.ts (`strikes the deleted parts of an Inline row through, and no change of Split or Unified`)
 - "Soft wraps" in Settings → Appearance, "Diffs", must break a long line at the edge of the diff. It is off by
   default, as IntelliJ's `USE_SOFT_WRAPS`: a long line keeps its shape and scrolls sideways. One setting for every
   diff view.

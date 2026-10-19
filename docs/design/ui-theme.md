@@ -127,6 +127,10 @@ below has its reason. It renders in the light DOM with the classes of `src/compo
   it; `TEXT_SEARCH_RESULT_ATTRIBUTES` for the other hits, with the 1-px box of Islands Dark.
 - **Kept apart from IntelliJ** ([Diff View](diff-view.md)): Split aligns its sides with filler rows instead of the
   24-px curved divider, and its sides have a 1-px divider.
+- **Inline strikes its deleted parts through**, still grey and still left out of a copy. Inline has no precedent in
+  IntelliJ: it puts the deleted run beside the inserted one in one line, where only the colour would tell them apart.
+  A strikethrough is the convention of tracked changes, it matches the icon of the mode, and it does not depend on
+  telling colours apart. Split and Unified show each side on its own line, as IntelliJ does, without it.
 - **Font.** JetBrains Mono at 13 px, its real italic faces for the italic of the schemes; the row height comes from
   the font metrics and the zoom: the size of the IntelliJ editor and of the UI text beside it, at the cost of about
   8% of the columns of a split view.
