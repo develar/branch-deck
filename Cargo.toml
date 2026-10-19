@@ -18,6 +18,7 @@ members = [
   "crates/patronus",
   "crates/github",
   "crates/code-symbols",
+  "crates/text-diff",
 ]
 resolver = "2"
 

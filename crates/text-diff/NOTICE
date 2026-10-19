@@ -1,0 +1,9 @@
+text-diff
+Copyright 2026 Vladimir Krivosheev
+
+This crate is ported and modified from IntelliJ Platform
+(https://github.com/JetBrains/intellij-community), Apache License 2.0.
+Copyright 2000-2025 JetBrains s.r.o. and contributors.
+
+Each ported file names its Kotlin or Java source in its header.
+The text of the license is in LICENSE.

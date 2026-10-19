@@ -1,0 +1,28 @@
+[package]
+name = "text-diff"
+version.workspace = true
+edition.workspace = true
+# the code is ported from IntelliJ Platform, see NOTICE
+license = "Apache-2.0"
+description = "Line, word and char comparison of two texts, ported from IntelliJ"
+
+[dependencies]
+fixedbitset = "0.5.7"
+icu_properties = "2.3.0"
+rustc-hash = "2.1.3"
+serde.workspace = true
+sha1 = "0.10.7"
+specta = { workspace = true, optional = true }
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
+serde_json.workspace = true
+
+[features]
+default = []
+# the TypeScript types of the model (`model.rs`) for the app's bindings
+specta = ["dep:specta"]
+
+[lints]
+workspace = true

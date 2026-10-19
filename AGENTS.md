@@ -627,6 +627,7 @@ the `peekaboo` CLI.
 - [Landing Work into Master](docs/design/landing.md) - The product model: everything lands into master, stacks cut it into pieces, every pull request into master, a whole stack in one robot
 - [Integration Detection and Caching](docs/design/integration-detection.md) - How branch integration detection works with git notes caching
 - [Remote Status](docs/design/remote-status.md) - How remote tracking status is computed and displayed
+- [Text Diff Engine](docs/design/text-diff.md) - The IntelliJ comparison ported to `crates/text-diff`: lines, words, chars, and the typed diff model of the views
 - [Symbol Dependencies](docs/design/symbol-dependencies.md) - tree-sitter summaries of the changed files, `Order` edges by evidence, the subtraction in the dangling-reference check
 - [UI Theme](docs/design/ui-theme.md) - Islands layering, the radius scale and the rules for UI changes
 - [Virtual Branches](docs/design/virtual-branches.md) - How commits are grouped and cherry-picked into virtual branches
@@ -667,6 +668,7 @@ crates/
 ├── bd-cli/          # `bd` agent CLI (docs/guidelines/agent-cli.md)
 ├── object-cache/    # LMDB cache keyed by git object ids, shared by the app and bd
 ├── code-symbols/    # Declarations, imports and references of a Kotlin/Java/Rust/TS file on tree-sitter, no git
+├── text-diff/       # Line, word and char comparison of two texts, ported from IntelliJ (Apache-2.0, NOTICE)
 ├── patronus/        # Patronus REST client, Space token of the Safe Push CLI, request policy
 ├── github/          # GitHub REST and GraphQL client (rate limits, SSO, conditional GETs), fake GitHub for tests
 ├── test-server/     # E2E mock server
