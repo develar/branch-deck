@@ -38,6 +38,8 @@ pub struct Environment {
   pub git: Option<String>,
   /// How long a rewrite waits for the repository lock
   pub lock_timeout: Duration,
+  /// How long `bd lease return` waits for the Bazel servers of a slot to exit
+  pub server_stop_timeout: Duration,
   /// The home directory `bd install` writes into
   pub home: Option<PathBuf>,
   /// The running binary, which `bd install` links to
@@ -67,6 +69,7 @@ impl Environment {
       settings_file: app_data_dir().map(|dir| dir.join(SETTINGS_FILE_NAME)),
       git: std::env::var("BD_GIT").ok().filter(|git| !git.is_empty()),
       lock_timeout: DEFAULT_LOCK_TIMEOUT,
+      server_stop_timeout: Duration::from_secs(30),
       home: std::env::home_dir(),
       executable: std::env::current_exe().ok(),
       appimage: std::env::var_os("APPIMAGE").filter(|path| !path.is_empty()).map(PathBuf::from),

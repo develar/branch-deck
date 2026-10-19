@@ -1123,7 +1123,14 @@ fork point of the slot in the reflog of the branch, `git replay` onto its tip, a
 are unlanded. It runs on git objects only: `check_pick` needs a worktree on the branch, its index for the dry run of
 the files, and the guards, none of which a return may take from the shared checkout. Reachability stays the fast
 path, and decides alone without a recorded branch, when the branch is gone, or when the pick can't tell
-(`range_unknown`, a merge in the range); the output names the check (`landed_check`). Unlanded commits, local changes and a process in the slot refuse it; with
+(`range_unknown`, a merge in the range); the output names the check (`landed_check`).
+
+A Bazel server of the slot (its argv has `--workspace_directory=` the slot or a directory in it, `community/` in
+idea-1) keeps no lease: Bazel derives its output base from the workspace path, so it serves only that slot. Once
+nothing else refuses, the return sends it SIGTERM, waits up to 30 s and names it in `stopped_servers`; the output
+base stays, and the next lease of the slot finds its disk cache. No other process is signalled, and any other process
+in the slot refuses the return before a server is. A get never reuses a slot under a live server: a `--watchfs`
+server can miss the events of a large checkout. Unlanded commits, local changes and a process in the slot refuse it; with
 `--confirm-preserved` the changes go with `reset --hard HEAD` and `clean -fd`, and the ignored build outputs stay
 for the next lease. The seeded paths are removed, and a branch HEAD is on is detached with a `RefTransaction` (`option
 no-deref`, `branch-deck: lease return`). The slot stays at its commit: the next get moves it.
@@ -1131,9 +1138,9 @@ no-deref`, `branch-deck: lease return`). The slot stays at its commit: the next 
 Status reads the state file only: one `rev-parse` and one `config` (`branchdeck.leasePool`), no git in any slot.
 Adopt registers existing linked worktrees (old Treehouse slots) where they are, after one `status` of each.
 
-The process scan (`crates/sync-core/src/process_scan.rs`) reads the working directory of every process of the user:
-on macOS through libproc (`proc_listallpids`, `proc_pidinfo` with `PROC_PIDVNODEPATHINFO`), on Linux from
-`/proc/<pid>/cwd`. It leaves out `bd` and its ancestors, and compares canonical paths by components. Windows has no
+The process scan (`crates/sync-core/src/process_scan.rs`) reads the working directory and the argv of every process of
+the user: on macOS through libproc (`proc_listallpids`, `proc_pidinfo` with `PROC_PIDVNODEPATHINFO`) and
+`sysctl(KERN_PROCARGS2)`, on Linux from `/proc/<pid>/cwd` and `/proc/<pid>/cmdline`. It leaves out `bd` and its ancestors, and compares canonical paths by components. Windows has no
 scan: the outputs say `processes_checked: false`, and a lease never waits for it.
 
 Code: `crates/git-ops/src/lease_slot.rs`, `crates/sync-core/src/lease.rs`, `crates/sync-core/src/process_scan.rs`,

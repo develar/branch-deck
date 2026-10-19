@@ -454,6 +454,143 @@ fn a_return_refuses_only_the_commit_that_the_source_branch_lacks() {
   assert!(output["error"]["message"].as_str().unwrap().contains("detached HEAD"), "{output}");
 }
 
+/// A fake Bazel server: `sh` blocked in `read` on a pipe (no child process), its argv naming `workspace` as Bazel's
+/// does, its working directory `cwd`; `trap` keeps it alive on SIGTERM. Killed when dropped
+#[cfg(unix)]
+struct FakeServer {
+  child: std::process::Child,
+}
+
+#[cfg(unix)]
+impl FakeServer {
+  fn start(workspace: &str, cwd: &Path, ignore_term: bool) -> Self {
+    let script = if ignore_term { "trap '' TERM; read line" } else { "read line" };
+    let child = std::process::Command::new("sh")
+      .args([
+        "-c",
+        script,
+        "bazel(fake)",
+        "--output_base=/tmp/fake-output-base",
+        &format!("--workspace_directory={workspace}"),
+      ])
+      .current_dir(cwd)
+      .stdin(std::process::Stdio::piped())
+      .spawn()
+      .unwrap();
+    // its argv is the one of `sh` once it runs: wait until a scan sees the workspace
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let pid = child.id();
+    while !sync_core::process_scan::ProcessScan::scan()
+      .inside(Path::new(workspace))
+      .iter()
+      .any(|process| process.pid == pid)
+    {
+      assert!(std::time::Instant::now() < deadline, "the fake server never showed up");
+      std::thread::sleep(Duration::from_millis(20));
+    }
+    Self { child }
+  }
+
+  fn pid(&self) -> u32 {
+    self.child.id()
+  }
+
+  /// Whether it still runs; reaps it once it exited
+  fn running(&mut self) -> bool {
+    self.child.try_wait().unwrap().is_none()
+  }
+}
+
+#[cfg(unix)]
+impl Drop for FakeServer {
+  fn drop(&mut self) {
+    let _ = self.child.kill();
+    let _ = self.child.wait();
+  }
+}
+
+/// The return asks the Bazel servers of the slot (its root and `community/`) to exit with SIGTERM, waits for them and
+/// names them; their output bases stay
+#[cfg(unix)]
+#[test_log::test]
+fn a_return_stops_the_bazel_servers_of_the_slot() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let mut root = FakeServer::start(&path, Path::new(&path), false);
+  let mut community = FakeServer::start(&format!("{path}/community"), Path::new(&path), false);
+  let returned = fixture.give_back(&path);
+  let mut stopped: Vec<(u64, String, String)> = returned["stopped_servers"]
+    .as_array()
+    .unwrap_or_else(|| panic!("{returned}"))
+    .iter()
+    .map(|server| {
+      (
+        server["pid"].as_u64().unwrap(),
+        server["workspace"].as_str().unwrap().to_string(),
+        server["output_base"].as_str().unwrap().to_string(),
+      )
+    })
+    .collect();
+  stopped.sort();
+  let mut expected = vec![
+    (u64::from(root.pid()), path.clone(), "/tmp/fake-output-base".to_string()),
+    (u64::from(community.pid()), format!("{path}/community"), "/tmp/fake-output-base".to_string()),
+  ];
+  expected.sort();
+  assert_eq!(stopped, expected);
+  assert!(!root.running() && !community.running());
+  assert_eq!(states(&fixture.status())[0].1, "free");
+}
+
+/// `--keep-servers` keeps the refusal; a server that ignores SIGTERM keeps the slot busy; another process in the slot
+/// refuses before any server is signalled
+#[cfg(unix)]
+#[test_log::test]
+fn a_return_stops_no_server_it_should_keep_and_signals_no_other_process() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let mut server = FakeServer::start(&path, Path::new(&path), false);
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return", "--keep-servers"]);
+  assert_error(&output, exit_code, (4, "slot_busy"));
+  assert!(server.running());
+
+  let mut other = std::process::Command::new("sleep").arg("30").current_dir(&path).spawn().unwrap();
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return"]);
+  let _ = other.kill();
+  let _ = other.wait();
+  assert_error(&output, exit_code, (4, "slot_busy"));
+  assert!(output["error"]["message"].as_str().unwrap().contains(&format!("({})", other.id())), "{output}");
+  assert!(server.running(), "a refusal signals no server");
+  drop(server);
+
+  let mut stubborn = FakeServer::start(&path, Path::new(&path), true);
+  let mut environment = fixture.environment(Path::new(&path));
+  environment.server_stop_timeout = Duration::from_millis(500);
+  let (exit_code, output) = run_json(&environment, &["lease", "return"]);
+  assert_error(&output, exit_code, (4, "slot_busy"));
+  assert!(output["error"]["message"].as_str().unwrap().contains(&format!("({})", stubborn.pid())), "{output}");
+  assert!(stubborn.running());
+  assert_eq!(states(&fixture.status())[0].1, "ready");
+}
+
+/// A free slot with a live Bazel server of its own is skipped as busy, also when the server's working directory is
+/// elsewhere: its argv names the slot
+#[cfg(unix)]
+#[test_log::test]
+fn a_get_skips_a_free_slot_under_a_live_bazel_server() {
+  let fixture = Fixture::new();
+  let first = path_of(&fixture.get(&[]));
+  fixture.give_back(&first);
+  let server = FakeServer::start(&first, fixture.home.path(), false);
+  let second = fixture.get(&[]);
+  assert_ne!(path_of(&second), first);
+  assert_eq!(
+    (&second["skipped"][0]["reason"], &second["skipped"][0]["processes"][0]["pid"]),
+    (&json!("busy"), &json!(server.pid())),
+    "{second}"
+  );
+}
+
 /// Concurrent gets reserve their slots under the pool lock: never one slot twice, whether reused or new
 #[test_log::test]
 fn two_leases_never_get_the_same_slot() {

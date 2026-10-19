@@ -6,7 +6,7 @@
 
 use crate::clone_dir::clone_directory;
 use crate::pick::baseline_tracking_ref;
-use crate::process_scan::{ProcessInfo, ProcessScan, is_running, process_started};
+use crate::process_scan::{ProcessInfo, ProcessScan, is_running, process_started, terminate};
 use crate::repository_lock::{RepositoryLock, lock_file};
 use crate::resolve_copies::display_path;
 use anyhow::{Context, Result, anyhow, bail};
@@ -859,6 +859,10 @@ pub struct LeaseReturnParams<'a> {
   pub lease_id: Option<&'a str>,
   /// Give up the unlanded commits and discard the local changes
   pub confirm_preserved: bool,
+  /// Refuse while a Bazel server of the slot runs, instead of stopping it
+  pub keep_servers: bool,
+  /// How long the return waits for the Bazel servers it asked to exit
+  pub server_timeout: Duration,
   pub lock_timeout: Duration,
 }
 
@@ -931,6 +935,8 @@ pub struct LeaseReturned {
   pub given_up: Vec<UnlandedCommit>,
   /// Which check decided what is unlanded
   pub landed_check: LandedCheck,
+  /// The Bazel servers of the slot that exited on the SIGTERM of the return
+  pub stopped_servers: Vec<StoppedServer>,
   /// The seeded paths removed
   pub removed: Vec<String>,
   /// The branch the slot was on; it stays
@@ -966,9 +972,14 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
     bail!(LeaseRefusal::Preparing { path, pid: lease.pid });
   }
   let scan = ProcessScan::scan();
-  let processes = processes_of(&scan.inside(Path::new(&path)));
-  if !processes.is_empty() {
-    bail!(LeaseRefusal::SlotBusy { path, processes });
+  let inside = scan.inside(Path::new(&path));
+  // the Bazel servers of the slot, which serve only it; every other process keeps the slot busy
+  let (servers, others): (Vec<&ProcessInfo>, Vec<&ProcessInfo>) = inside.iter().partition(|process| !params.keep_servers && process.bazel_workspace().is_some());
+  if !others.is_empty() {
+    bail!(LeaseRefusal::SlotBusy {
+      path,
+      processes: processes_of(&inside),
+    });
   }
   let (unlanded, landed_check) = unlanded_work(git_executor, &path, &lease)?;
   if !unlanded.is_empty() && !params.confirm_preserved {
@@ -979,10 +990,20 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
     });
   }
   let changes = slot_changes(git_executor, &path)?;
+  if !changes.is_empty() && !params.confirm_preserved {
+    bail!(LeaseRefusal::DirtyWorktree { path, paths: changes });
+  }
+  // only now, when nothing else refuses: a server that does not exit keeps the slot busy
+  let stopped_servers = stop_servers(&servers, params.server_timeout);
+  let running: Vec<(u32, String)> = servers
+    .iter()
+    .filter(|server| !stopped_servers.iter().any(|stopped| stopped.pid == server.pid))
+    .map(|server| (server.pid, server.name.clone()))
+    .collect();
+  if !running.is_empty() {
+    bail!(LeaseRefusal::SlotBusy { path, processes: running });
+  }
   if !changes.is_empty() {
-    if !params.confirm_preserved {
-      bail!(LeaseRefusal::DirtyWorktree { path, paths: changes });
-    }
     discard_slot_changes(git_executor, &path)?;
   }
   let removed = remove_seeded(Path::new(&path), &lease.seeded)?;
@@ -1001,10 +1022,47 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
     discarded: changes,
     given_up: unlanded,
     landed_check,
+    stopped_servers,
     removed,
     detached_branch,
     process_scan: scan.is_available(),
   })
+}
+
+/// A Bazel server of a slot that the return stopped
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoppedServer {
+  pub pid: u32,
+  /// Its `--workspace_directory`: the slot or a directory in it (`community/`)
+  pub workspace: String,
+  /// Its `--output_base`, which stays on disk: the next lease of the slot gets the same one, with its disk cache
+  pub output_base: Option<String>,
+}
+
+/// Ask each Bazel server to exit with SIGTERM and wait up to `timeout` for them; the ones that exited. No other
+/// process is ever signalled: the caller passes only processes with `--workspace_directory` in the slot
+fn stop_servers(servers: &[&ProcessInfo], timeout: Duration) -> Vec<StoppedServer> {
+  if servers.is_empty() {
+    return Vec::new();
+  }
+  for server in servers {
+    debug!(pid = server.pid, argv = ?server.argv, "stopping a Bazel server of the slot");
+    terminate(server.pid);
+  }
+  let deadline = std::time::Instant::now() + timeout;
+  let running = |server: &&&ProcessInfo| server.started.is_none_or(|started| is_running(server.pid, Some(started)));
+  while servers.iter().any(|server| running(&server)) && std::time::Instant::now() < deadline {
+    std::thread::sleep(Duration::from_millis(50));
+  }
+  servers
+    .iter()
+    .filter(|server| !running(server))
+    .map(|server| StoppedServer {
+      pid: server.pid,
+      workspace: server.bazel_workspace().map_or_default(|workspace| display_path(&workspace)),
+      output_base: server.output_base().map(str::to_string),
+    })
+    .collect()
 }
 
 /// How `bd lease status` sees a slot, from the state alone

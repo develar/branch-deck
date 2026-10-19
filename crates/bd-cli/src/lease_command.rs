@@ -63,6 +63,9 @@ pub struct LeaseReturnArgs {
   /// Give up the unlanded commits and discard the local changes (`reset --hard`, `clean -fd`; ignored files stay)
   #[arg(long)]
   pub confirm_preserved: bool,
+  /// Refuse while a Bazel server of the worktree runs, instead of stopping it with SIGTERM
+  #[arg(long)]
+  pub keep_servers: bool,
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -84,6 +87,7 @@ pub struct LeaseContext {
   pub git: GitCommandExecutor,
   pub dirs: RepositoryDirs,
   pub lock_timeout: Duration,
+  pub server_stop_timeout: Duration,
 }
 
 impl LeaseContext {
@@ -102,6 +106,7 @@ impl LeaseContext {
       git,
       dirs,
       lock_timeout: environment.lock_timeout,
+      server_stop_timeout: environment.server_stop_timeout,
     })
   }
 }
@@ -269,6 +274,9 @@ pub struct LeaseReturnOutput {
   /// Which check found the work landed: `reachability` (a branch, tag or remote branch holds every commit) or
   /// `content` (a pick onto `landed_branch` would pick nothing, after a rewrite of that branch)
   pub landed_check: LandedCheckOutput,
+  /// The Bazel servers of the worktree that exited on the return's SIGTERM; their output bases stay on disk
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub stopped_servers: Vec<StoppedServerOutput>,
   /// The branch of the source that `content` checked
   #[serde(skip_serializing_if = "Option::is_none")]
   pub landed_branch: Option<String>,
@@ -290,6 +298,16 @@ pub enum LandedCheckOutput {
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
+pub struct StoppedServerOutput {
+  pub pid: u32,
+  /// Its `--workspace_directory`: the worktree or a directory in it
+  pub workspace: String,
+  /// Its `--output_base`
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub output_base: Option<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
 pub struct GivenUpOutput {
   pub commit: String,
   pub subject: String,
@@ -301,6 +319,8 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
     workspace: &context.dirs,
     lease_id: args.lease_id.as_deref(),
     confirm_preserved: args.confirm_preserved,
+    keep_servers: args.keep_servers,
+    server_timeout: context.server_stop_timeout,
     lock_timeout: context.lock_timeout,
   };
   let returned = lease_return_core(&context.git, &params).map_err(lease_error)?;
@@ -329,6 +349,15 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
       LandedCheck::Reachability { .. } => LandedCheckOutput::Reachability,
       LandedCheck::Content { .. } => LandedCheckOutput::Content,
     },
+    stopped_servers: returned
+      .stopped_servers
+      .iter()
+      .map(|server| StoppedServerOutput {
+        pid: server.pid,
+        workspace: server.workspace.clone(),
+        output_base: server.output_base.clone(),
+      })
+      .collect(),
     landed_branch: match &returned.landed_check {
       LandedCheck::Content { branch } => Some(branch.clone()),
       LandedCheck::Reachability { .. } => None,

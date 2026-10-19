@@ -31,8 +31,9 @@ tokio = { workspace = true, features = ["time"] }
 # the ids and the default holders of the leases (`lease`)
 uuid = { version = "1.28", features = ["v4"] }
 
-# the process scan of the lease pool (`process_scan`): the working directories of the processes through libproc
-[target.'cfg(target_os = "macos")'.dependencies]
+# the process scan of the lease pool (`process_scan`): the working directories and the argv through libproc and
+# sysctl on macOS, the SIGTERM of a Bazel server of a slot, the APFS clone (`clone_dir`)
+[target.'cfg(unix)'.dependencies]
 libc = "0.2.190"
 
 [features]

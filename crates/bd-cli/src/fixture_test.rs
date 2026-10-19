@@ -17,6 +17,7 @@ pub(crate) fn environment(cwd: &Path) -> Environment {
     settings_file: None,
     git: None,
     lock_timeout: std::time::Duration::from_millis(200),
+    server_stop_timeout: std::time::Duration::from_secs(30),
     home: None,
     executable: None,
     appimage: None,
