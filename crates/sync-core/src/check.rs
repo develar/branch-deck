@@ -501,8 +501,15 @@ impl CheckSession {
     self.check_only(plan, None, Some(branches))
   }
 
+  /// The check of the current grouping of `branch` and the branches it is built on, the others not built, with the
+  /// dangling references of `branches` among them: what a Safe Push of `branch` lands
+  #[instrument(skip(self))]
+  pub fn check_landing(&self, branch: &str, branches: &[String]) -> Result<CheckReport, RegroupError> {
+    self.check_only(None, Some(branch), Some(branches))
+  }
+
   /// The check of `plan`; with `only`, of that branch and the branches it is built on, the others are not built and
-  /// not in the report
+  /// not in the report, and without `dangling_of` no dangling reference is looked for
   pub(crate) fn check_only(&self, plan: Option<&RegroupPlan>, only: Option<&str>, dangling_of: Option<&[String]>) -> Result<CheckReport, RegroupError> {
     let report = self.check_until(plan, only, dangling_of, &|| false)?;
     Ok(report.expect("a check that is never stopped has a report"))
@@ -654,7 +661,7 @@ impl CheckSession {
     if stopped.into_inner() || stop() {
       return Ok(None);
     }
-    let dangling = if only.is_some() || dangling_of.is_some_and(<[String]>::is_empty) {
+    let dangling = if dangling_of.map_or_else(|| only.is_some(), <[String]>::is_empty) {
       BTreeMap::new()
     } else {
       self.dangling_references(&regroup.previous_head, base.as_deref(), &checks, dangling_of)?

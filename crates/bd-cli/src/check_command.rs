@@ -720,9 +720,17 @@ pub(crate) fn session_of_sync(context: &RepoContext, report: &SyncReport) -> Res
 }
 
 /// The dangling references of `branches` (a branch and the branches it is built on) in a check of the grouping of
-/// `session` (`session_of_sync`): the ones a commit proves, by branch, and the possible ones as warnings
-pub(crate) fn dangling_references_in(context: &RepoContext, session: &CheckSession, branches: &[&str]) -> Result<BranchDangling, CliError> {
-  let report = session.check(None).map_err(regroup_error)?;
+/// `session` (`session_of_sync`): the ones a commit proves, by branch, and the possible ones as warnings. With `chain`,
+/// only that branch and the branches it is built on are built; else every branch (a whole stack that forks)
+pub(crate) fn dangling_references_in(context: &RepoContext, session: &CheckSession, branches: &[&str], chain: Option<&str>) -> Result<BranchDangling, CliError> {
+  let report = match chain {
+    Some(chain) => {
+      let of: Vec<String> = branches.iter().map(|name| (*name).to_string()).collect();
+      session.check_landing(chain, &of)
+    }
+    None => session.check(None),
+  }
+  .map_err(regroup_error)?;
   let short = context.short_ids(report.regroup.commits.iter().map(|commit| commit.id.as_str()));
   let files_of = if has_mutual_reference(&report) {
     changed_files(session.commit_diffs().map_err(regroup_error)?)

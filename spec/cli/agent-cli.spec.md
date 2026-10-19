@@ -812,8 +812,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   app's start does (`startSafePush` after `getSafePushDecision`, [Patronus](../branch/patronus.spec.md)): sync, then push the branch as `bd push <branch>`
   pushes it, under the repository lock, then start the robot on `refs/heads/<prefix>/virtual/<branch>` after the
   lock, never repeated. `--check` must print the same object and push or start nothing, with the `refusals` a start
-  would fail with.
-  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`)
+  would fail with; it must hold the repository lock for its sync only, so its trial builds and the questions to
+  Patronus and GitHub keep no other `bd` writer waiting.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_check_frees_the_repository_lock_after_its_sync_and_a_start_holds_it`)
 - The target branch, the stack and the tips must come from the sync of the same run, and the Space and the GitHub
   repository from one read of the push URL of `origin`, shared with the push.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`)
@@ -874,7 +875,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told`)
   [@test] ../../crates/sync-core/src/patronus_start_test.rs (`the_robot_of_a_branch_is_the_running_one_then_the_newest_and_a_temporary_ref_by_its_revision`, `a_start_waits_for_a_robot_on_the_last_commit_and_a_push_guards_a_running_safe_push`, `a_safe_push_waits_for_a_robot_that_lands_an_ancestor_or_the_branch_itself`, `a_profile_allows_the_modes_it_lists_and_any_when_it_lists_none`)
 - A proven dangling reference (as `bd check` reports it) of the branch or a branch it is built on must refuse the start
-  with `dangling_reference` (exit 4), nothing pushed, naming the use, `fixed_by` and the fix (of two references both,
+  with `dangling_reference` (exit 4), nothing pushed; the trial build that finds it builds only what lands (every
+  branch for a whole stack that forks), naming the use, `fixed_by` and the fix (of two references both,
   from three on of the first and "(2 more: bd check)"); `--check` must list it in `refusals`, `--allow-dangling` must
   start anyway, and the possible ones are `warnings`.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_dangling_reference_refuses_the_safe_push_unless_allowed`)

@@ -68,6 +68,8 @@ pub struct FakePatronus {
   /// The test messages asked at once now, and the most at once so far
   test_runs_in_flight: AtomicU32,
   pub max_test_runs_in_flight: AtomicU32,
+  /// Runs on each request of the start options, before the answer: what the client holds meanwhile
+  pub on_start_options: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
 }
 
 impl FakePatronus {
@@ -313,6 +315,9 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
       "/app/rest/v1/robot-start-supported",
       get(|State(fake): State<Arc<FakePatronus>>| async move {
         fake.start_supported_calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(hook) = fake.on_start_options.lock().unwrap().as_ref() {
+          hook();
+        }
         fake.answer(serde_json::json!({"supported": true, "emergencySupported": true, "profiles": [
           {"id": "default", "name": "Default", "allowedPushModes": []},
           {"id": "lsc", "name": "Large Scale Change", "description": "All the tests", "allowedPushModes": ["REBASE_AUTOSQUASH", "DRY_RUN"]},

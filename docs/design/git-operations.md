@@ -416,7 +416,8 @@ squash and its undo, squash fixups (also `bd fold`), amend, unapply, reword and 
 `held_lock` for a caller that holds the lock already, so the core takes none, and `expect_head`, the HEAD the request
 was made for, abbreviated ids allowed, else `HeadMoved` (`ensure_expected_head`, one check for every core). The app
 shows a lock held for the whole wait as the error toast of the action, "Cannot squash the fixups" with "Another
-Branch Deck operation holds … ; retry when it is done". `bd sync`, `bd push`, `bd safe-push` (until its push),
+Branch Deck operation holds … ; retry when it is done". `bd sync`, `bd push`, `bd safe-push` (until its push; with
+`--check` only its sync),
 `bd move-hunk`, `bd pick` (the moves of both worktrees under one hold) and `bd undo` take it, and so does Update Project (the app's and `bd update`, which also starts a
 resolve session under it) after its fetch, and `bd update --continue` and `--abort`; `bd update --status` takes
 none. A core finds the file with one `rev-parse --git-common-dir`; `bd`'s own lock (`lock_repository_in`) takes the
@@ -2037,7 +2038,9 @@ Code: `crates/bd-cli/src/push_command.rs`, `crates/sync-core/src/push.rs`, `crat
 #### Agent Safe Push (`bd safe-push`)
 
 `bd safe-push` pushes the branch exactly as `bd push <branch>` does (`push_locked`, the same sync, refusals and
-lease), so its git side adds only reads before the push, all under the repository lock with the sync. A stacked
+lease), so its git side adds only reads before the push, all under the repository lock with the sync. `--check` writes
+nothing after its sync and releases the lock then: its trial builds and the questions to Patronus and GitHub keep no
+other `bd` writer waiting. A stacked
 branch lands with its ancestors in one robot ([Landing](landing.md)): the push takes the ancestors with work for the
 remote along, and the robot starts on the branch's virtual branch, which carries their commits (`lands`).
 
@@ -2051,7 +2054,9 @@ remote along, and the robot starts on the branch's virtual branch, which carries
    The dangling references of the branch and its ancestors come from a trial check on the sync's report
    (`session_of_sync`, `CheckSession::of_sync`): no guards, HEAD, config, stores or baseline are read again, only the
    commits ahead of the baseline with the mapping notes the sync wrote (one `log`, so the trial reuses the virtual
-   commits) and the branch tips under the prefix (one `for-each-ref`). With `--check`, the trial build of a stacked
+   commits) and the branch tips under the prefix (one `for-each-ref`). Only the branch and the branches it is built on
+   are built (`CheckSession::check_landing`), every branch only for a whole stack that forks. With `--check`, the
+   trial build of a stacked
    branch alone (`alone`, `stack_independence`) runs in the same session: its build and, for the names it uses, the
    changes of the commits; a start runs no trial.
 3. Then the push; the lock is released before the robot starts, as a start from a pull request comment waits up to a

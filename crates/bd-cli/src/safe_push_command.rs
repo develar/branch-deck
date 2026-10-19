@@ -460,6 +460,8 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
 
   let lock = lock(context)?;
   let synced = sync_locked(context)?;
+  // a check writes nothing after its sync: the trial builds and Patronus don't keep the other bd writers waiting
+  let lock = (!args.check).then_some(lock);
   // the whole stack: a stack that forks starts from its stack branch, a straight chain from its last branch
   let whole_stack = if args.whole_stack {
     Some(whole_stack_of(&synced.report.branches, &synced.report.stack_branches, &args.branch)?)
@@ -927,7 +929,12 @@ fn plan(
   // a removed declaration that another branch's commit still changes the use of: git merges it, the build fails
   let session = session_of_sync(context, &synced.report)?;
   let built: Vec<&str> = lands.iter().map(String::as_str).collect();
-  let (dangling, warnings) = dangling_references_in(context, &session, &built)?;
+  // what lands is one chain, but for a whole stack that forks
+  let chain = match subject {
+    Subject::Branch(name) => Some(name.as_str()),
+    Subject::Stack(_) => None,
+  };
+  let (dangling, warnings) = dangling_references_in(context, &session, &built, chain)?;
   if !dangling.is_empty() && !args.allow_dangling {
     // the whole stack is built on nothing: the branch that removes the declaration names it
     let of = match &stack_push {

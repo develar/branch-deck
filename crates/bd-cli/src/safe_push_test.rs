@@ -1089,3 +1089,26 @@ fn the_pull_request_of_the_whole_stack_is_its_stack_branchs_and_the_start_commen
   let (exit_code, output) = safe_push(&environment, &["auth", "--check"]);
   assert_eq!((exit_code, output.get("pull_request")), (0, None), "{output}");
 }
+
+#[test_log::test]
+fn a_check_frees_the_repository_lock_after_its_sync_and_a_start_holds_it() {
+  let space = Space::new(&["(auth) Add auth"]);
+  // while bd asks Patronus for the start options, another bd writer tries the lock
+  let taken = Arc::new(std::sync::Mutex::new(Vec::new()));
+  let git_common_dir = space.repo.path().join(".git");
+  *space.fake.on_start_options.lock().unwrap() = Some(Box::new({
+    let taken = Arc::clone(&taken);
+    move || {
+      let lock = sync_core::repository_lock::lock_repository_in(&git_common_dir, std::time::Duration::from_millis(200), &|| {});
+      taken.lock().unwrap().push(lock.is_ok());
+    }
+  }));
+
+  let (exit_code, output) = space.run(&["auth", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let (exit_code, output) = space.run(&["auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+
+  // the check writes nothing after its sync; the start pushes after the options, under the lock it synced with
+  assert_eq!(*taken.lock().unwrap(), [true, false]);
+}
