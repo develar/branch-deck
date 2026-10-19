@@ -318,28 +318,46 @@
   --syntax-tag: #0033b3;
   --syntax-attribute: #174ad4;
   /*
-   * The roles of the tree-sitter highlighting, from IntelliJ Light (`themes/Light.xml` and its parent `Default`) and the
-   * light schemes of the Kotlin and RustRover plugins: a comment is italic, a doc comment too, its tag underlined, a
-   * label bold and underlined in the text colour, a named argument plain
+   * The roles of the tree-sitter highlighting, from the scheme of Islands Light, "Light"
+   * (`themes/expUI/expUI_lightScheme.xml`), its parent `Default` and what the Kotlin, JavaScript and RustRover plugins
+   * add to it, resolved as IntelliJ resolves a key (its own entry anywhere in the chain, then its fallbacks): a comment
+   * is italic, a doc comment too, its tag underlined, a JavaScript label and parameter underlined in the text colour, an
+   * exported or global function italic
    */
   --syntax-comment-style: italic;
   --syntax-doc-comment: #8c8c8c;
   --syntax-doc-tag: #8c8c8c;
-  --syntax-doc-tag-style: italic;
+  --syntax-doc-tag-decoration: underline;
+  --syntax-doc-tag-underline: #999999;
   --syntax-doc-tag-value: #3d3d3d;
-  --syntax-doc-tag-value-style: italic;
-  --syntax-label: var(--syntax-foreground);
-  --syntax-label-weight: bold;
-  --syntax-label-decoration: underline;
-  --syntax-named-argument: var(--syntax-foreground);
+  --syntax-label: #4a86e8;
+  --syntax-default-label-decoration: underline;
+  --syntax-default-label-underline: #808080;
+  --syntax-named-argument: #4a86e8;
   --syntax-macro: #c27203;
   --syntax-lifetime: #02906d;
   --syntax-type-parameter: #007e8a;
   --syntax-self: #1c5dfe;
   --syntax-enum-variant: #0e7fc5;
   --syntax-question: #1c5dfe;
-  /* the underline of a mutable binding (`DEFAULT_REASSIGNED_LOCAL_VARIABLE`) */
+  --syntax-tag-bracket: var(--syntax-foreground);
+  --syntax-component-tag: #008077;
+  --syntax-regexp: #264eff;
+  --syntax-method: #914c07;
+  --syntax-local-variable: #2a8c7c;
+  --syntax-global-variable: #830091;
+  --syntax-global-variable-style: normal;
+  --syntax-parameter-decoration: underline;
+  --syntax-parameter-underline: #000000;
+  --syntax-global-function: var(--syntax-foreground);
+  --syntax-global-function-style: italic;
+  /* the underline of a mutable binding (`DEFAULT_REASSIGNED_LOCAL_VARIABLE`, Java's) */
   --syntax-mutable-underline: #909090;
+  /* what a plugin gives a role in its language only (`.dv-section[data-language]` of diff-view.css) */
+  --syntax-mutable-underline-kotlin: #000000;
+  --syntax-mutable-underline-rust: #2b2d30;
+  --syntax-type-parameter-rust: #007e8a;
+  --syntax-type-parameter-typescript: #20999d;
   /*
    * The diff colours of IntelliJ's Light scheme (Islands Light): DIFF_INSERTED, DIFF_DELETED, DIFF_MODIFIED and
    * DIFF_CONFLICT, each with its pale form (`TextDiffTypeImpl.getIgnoredColor`: the colour mixed 0.6 with the editor
@@ -416,17 +434,19 @@
     --syntax-field: #c77dbb;
     --syntax-annotation: #b3ae60;
     --syntax-tag: #d5b778;
-    --syntax-attribute: #bababa;
-    /* Islands Dark (`themes/islands/IslandSchemeDark.xml`) and the dark schemes of the Kotlin and RustRover plugins */
+    --syntax-attribute: #bcbec4;
+    /*
+     * Islands Dark (`themes/islands/IslandSchemeDark.xml`), its parent Darcula and what the plugins add to Darcula
+     * (Rust takes its colours from Darcula, its calls from `RustIslandsDark.xml`): a comment is plain, a doc comment and
+     * its tags italic, a global variable italic
+     */
     --syntax-comment-style: normal;
     --syntax-doc-comment: #5f826b;
     --syntax-doc-tag: #67a37c;
-    --syntax-doc-tag-style: normal;
+    --syntax-doc-tag-decoration: none;
     --syntax-doc-tag-value: #abadb3;
-    --syntax-doc-tag-value-style: normal;
     --syntax-label: #32b8af;
-    --syntax-label-weight: normal;
-    --syntax-label-decoration: none;
+    --syntax-default-label-decoration: none;
     --syntax-named-argument: #56c1d6;
     --syntax-macro: #4eade5;
     --syntax-lifetime: #20999d;
@@ -434,7 +454,21 @@
     --syntax-self: #d98eb3;
     --syntax-enum-variant: #6da1ab;
     --syntax-question: #cc7832;
+    --syntax-tag-bracket: #d5b778;
+    --syntax-component-tag: #2fbaa3;
+    --syntax-regexp: #42c3d4;
+    --syntax-method: #56a8f5;
+    --syntax-local-variable: #a9b7c6;
+    --syntax-global-variable: #c77dba;
+    --syntax-global-variable-style: italic;
+    --syntax-parameter-decoration: none;
+    --syntax-global-function: #56a8f5;
+    --syntax-global-function-style: normal;
     --syntax-mutable-underline: #84868c;
+    --syntax-mutable-underline-kotlin: #84868c;
+    --syntax-mutable-underline-rust: #84868c;
+    --syntax-type-parameter-rust: #20999d;
+    --syntax-type-parameter-typescript: #507874;
     /* the diff colours of Islands Dark and its parent Darcula, pale against the editor background #191A1C */
     --diff-inserted: #294436;
     --diff-inserted-pale: #1f2b26;

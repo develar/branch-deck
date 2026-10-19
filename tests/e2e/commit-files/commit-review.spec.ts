@@ -307,6 +307,27 @@ simpleTest.describe("Commit review", () => {
   })
 })
 
+simpleTest("should colour TSX as IntelliJ does: a name by its declaration, a component, a method, the brackets of a tag", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  // the `script_colors` template: one commit of `colors` adds src/Counter.tsx
+  await setupRepo("script_colors")
+  await syncAndWaitForBranches()
+  await expandBranch(page, findBranchRow(page, "colors"))
+  await openCommitPreview(page, getBranchCommitRow(page, "colors", "add the counter"))
+  await page.keyboard.press("d")
+  const window = await showReviewWindow(page, await openedReview(page, 1))
+  const code = window.getByTestId("commit-review-code")
+  await expect(code).toContainText("useState(start)")
+  const colorOf = (text: string) => code.getByText(text, { exact: true }).first()
+  // an imported function the file calls, a parameter, a local variable, a component, a method at its call
+  await expect(colorOf("useState")).toHaveCSS("color", await tokenColor(window, "--syntax-global-function"))
+  await expect(colorOf("setCount")).toHaveCSS("color", await tokenColor(window, "--syntax-local-variable"))
+  await expect(colorOf("Button")).toHaveCSS("color", await tokenColor(window, "--syntax-component-tag"))
+  await expect(colorOf("toFixed")).toHaveCSS("color", await tokenColor(window, "--syntax-method"))
+  // a parameter is underlined in the light scheme of the browser, as `JS.PARAMETER` of IntelliJ Light
+  await expect(colorOf("start")).toHaveCSS("text-decoration-line", "underline")
+  await expect(colorOf("</")).toHaveCSS("color", await tokenColor(window, "--syntax-tag-bracket"))
+})
+
 simpleTest("should strike a deleted file through, never its status letter, in the tree and above its diff", async ({ page, setupRepo, syncAndWaitForBranches }) => {
   // the `commit_deleted` template: one commit of `cleanup` deletes src/LegacyMapper.kt and changes src/Mapper.kt
   await setupRepo("commit_deleted")

@@ -4,7 +4,7 @@
 use crate::highlight::lex::Lex;
 use crate::highlight::paint::{Cx, Paint, Rules, comment, type_parameter};
 use crate::highlight::scopes::Scopes;
-use crate::highlight::{COMMENT, FIELD, Role, STATIC_FIELD, UNDERLINE, is_constant_name, named_child};
+use crate::highlight::{BOLD, COMMENT, FIELD, Role, STATIC_FIELD, UNDERLINE, is_constant_name, named_child};
 use tree_sitter::Node;
 
 pub(crate) struct Kotlin;
@@ -16,11 +16,9 @@ impl Rules for Kotlin {
       "multiline_comment" => comment(cx, node),
       "string_literal" | "character_literal" => Paint::Style(Role::String.style()),
       "string_content" => Paint::Lexed(Role::String.style(), Lex::Escapes),
-      "character_escape_seq" => Paint::Leaf(Role::Escape.style()),
-      // the `$`, `${` and `}` of a template are keywords, its code is code
-      "interpolation_identifier_start" | "interpolation_expression_start" | "interpolation_expression_end" | "boolean_literal" | "null_literal" => {
-        Paint::Leaf(Role::Keyword.style())
-      }
+      // an escape, and the `$`, `${` and `}` of a template (`KOTLIN_STRING_ESCAPE`); the code of a template is code
+      "character_escape_seq" | "interpolation_identifier_start" | "interpolation_expression_start" | "interpolation_expression_end" => Paint::Leaf(Role::Escape.style()),
+      "boolean_literal" | "null_literal" => Paint::Leaf(Role::Keyword.style()),
       "interpolated_expression" => Paint::Style(Role::Foreground.style()),
       "interpolated_identifier" => name_style(scopes, cx, node).map_or(Paint::Leaf(Role::Foreground.style()), Paint::Leaf),
       "integer_literal" | "long_literal" | "hex_literal" | "bin_literal" | "real_literal" | "unsigned_literal" => Paint::Leaf(Role::Number.style()),
@@ -57,11 +55,14 @@ impl Rules for Kotlin {
       }
       "lambda_literal" => {
         scopes.push_local(node.id());
+        // the implicit `it` is bold (`KOTLIN_CLOSURE_DEFAULT_PARAMETER`)
         if named_child(node, "lambda_parameters").is_none() {
-          scopes.bind("it");
+          scopes.bind_styled("it", BOLD);
         }
         Paint::Inherit
       }
+      // the braces and the arrow of a lambda are bold (`KOTLIN_FUNCTION_LITERAL_BRACES_AND_ARROW`)
+      "{" | "}" | "->" if cx.parent().is_some_and(|parent| parent.kind() == "lambda_literal") => Paint::Leaf(BOLD),
       "statements" | "for_statement" | "catch_block" | "when_expression" => {
         scopes.push_local(node.id());
         Paint::Inherit
@@ -157,8 +158,9 @@ fn name_style(scopes: &Scopes, cx: &Cx<'_, '_>, node: Node<'_>) -> Option<u32> {
   if let Some(style) = scopes.local(name) {
     return (style != 0).then_some(style);
   }
+  // the backing field of an accessor is bold text (`KOTLIN_BACKING_FIELD_VARIABLE`)
   if name == "field" && cx.ancestors().any(|it| matches!(it.kind(), "getter" | "setter")) {
-    return Some(FIELD);
+    return Some(BOLD);
   }
   scopes.member(name)
 }

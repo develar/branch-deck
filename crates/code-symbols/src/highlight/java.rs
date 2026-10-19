@@ -118,7 +118,8 @@ impl Rules for Java {
         }
         Paint::Inherit
       }
-      "labeled_statement" | "break_statement" | "continue_statement" => label(cx, node.named_child(0)),
+      // IntelliJ has no colour for a label of Java
+      "labeled_statement" | "break_statement" | "continue_statement" => label(cx, node.named_child(0), Role::Foreground.style()),
       "type_parameter" => type_parameter(scopes, cx, node.named_child(0).filter(|it| it.kind() == "type_identifier")),
       "identifier" => name_style(scopes, cx, node).map_or(Paint::Opaque, Paint::Leaf),
       _ => return None,

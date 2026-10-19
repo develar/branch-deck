@@ -467,6 +467,22 @@ pub mod templates {
       )
   }
 
+  /// One commit of one TSX file for the colours IntelliJ gives a name of JavaScript by its declaration: an imported
+  /// function, a parameter, a local variable, a component, a method
+  pub fn script_colors() -> RepoTemplate {
+    RepoTemplate::new("script_colors")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# view\n")], Some(1704117600))
+      .commit_with_timestamp(
+        "(colors) add the counter",
+        &[(
+          "src/Counter.tsx",
+          "import { useState } from \"react\"\n\nexport function Counter({ start }: { start: number }) {\n  const [count, setCount] = useState(start)\n  return <Button onClick={() => setCount(count + 1)}>{count.toFixed()}</Button>\n}\n",
+        )],
+        Some(1704119400),
+      )
+  }
+
   /// One commit of one file for the whitespace policies of the diffs: a block of two lines indented again, a blank line
   /// added apart from the other changes, and one real change, so each policy shows a different diff (`Format.kt`)
   pub fn commit_whitespace() -> RepoTemplate {

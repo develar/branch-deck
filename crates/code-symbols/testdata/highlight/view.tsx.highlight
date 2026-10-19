@@ -1,20 +1,20 @@
   1: import { useState } from "react"
-     keyword "import" · keyword "from" · string "\"react\""
+     keyword "import" · globalFunction "useState" · keyword "from" · string "\"react\""
   2: 
   3: export function Counter({ start }: { start: number }) {
-     keyword "export" · keyword "function" · functionDeclaration "Counter" · field "start" · keyword "number"
+     keyword "export" · keyword "function" · globalFunction "Counter" · parameter "start" · field "start" · keyword "number"
   4:   const [count, setCount] = useState(start)
-     keyword "const"
+     keyword "const" · localVariable "count" · localVariable "setCount" · globalFunction "useState" · parameter "start"
   5:   return (
      keyword "return"
   6:     <div className="counter" data-count={count}>
-     tag "div" · attribute "className" · string "\"counter\"" · attribute "data-count"
+     tagBracket "<" · tag "div" · attribute "className" · string "\"counter\"" · attribute "data-count" · localVariable "count" · tagBracket ">"
   7:       <Button onClick={() => setCount(count + 1)}>Add</Button>
-     tag "Button" · attribute "onClick" · number "1" · tag "Button"
+     tagBracket "<" · componentTag "Button" · attribute "onClick" · localVariable "setCount" · localVariable "count" · number "1" · tagBracket ">" · tagBracket "</" · componentTag "Button" · tagBracket ">"
   8:       {count > 10 && <span>many</span>}
-     number "10" · tag "span" · tag "span"
+     localVariable "count" · number "10" · tagBracket "<" · tag "span" · tagBracket ">" · tagBracket "</" · tag "span" · tagBracket ">"
   9:     </div>
-     tag "div"
+     tagBracket "</" · tag "div" · tagBracket ">"
  10:   )
  11: }
  12: 

@@ -31,7 +31,7 @@ mod typescript;
 use lines::LineRuns;
 
 /// The version of the highlighting rules; bump it on any rule change, so that cached highlightings are made again
-pub const RULES_VERSION: u32 = 3;
+pub const RULES_VERSION: u32 = 4;
 /// Files above this size are not highlighted: `MAX_BLOB_BYTES` of the texts the view reads
 pub const MAX_BYTES: usize = 8 << 20;
 /// The progress callbacks of a parse per KiB of text; the densest files of the IntelliJ monorepo take 19
@@ -83,11 +83,28 @@ pub enum Role {
   EnumVariant,
   /// Rust's `?`
   QuestionOperator,
+  /// A label of JavaScript (`DEFAULT_LABEL`): underlined in the light scheme only
+  DefaultLabel,
+  /// The `<`, `>` and `/>` of a JSX element: the text colour in the light scheme, the tag colour in the dark one
+  TagBracket,
+  /// A JSX element of a component (`<Button>`, `<Menu.Item>`), not of HTML
+  ComponentTag,
+  Regexp,
+  /// A method of JavaScript: its declaration and `.f(`
+  Method,
+  /// A variable that the file declares and does not export
+  LocalVariable,
+  /// A variable that the file exports or imports, or one it does not declare (`console`): italic in the dark scheme
+  GlobalVariable,
+  /// A parameter of JavaScript: underlined in the light scheme only
+  Parameter,
+  /// A function that the file exports or imports, or one it does not declare (`setTimeout`): italic in the light scheme
+  GlobalFunction,
 }
 
 impl Role {
   /// The names of the view, in the order of the ids after the default foreground
-  pub const NAMES: [&'static str; 21] = [
+  pub const NAMES: [&'static str; 30] = [
     "keyword",
     "string",
     "escape",
@@ -109,6 +126,15 @@ impl Role {
     "selfValue",
     "enumVariant",
     "questionOperator",
+    "defaultLabel",
+    "tagBracket",
+    "componentTag",
+    "regexp",
+    "method",
+    "localVariable",
+    "globalVariable",
+    "parameter",
+    "globalFunction",
   ];
 
   pub const fn style(self) -> u32 {
@@ -218,7 +244,7 @@ pub fn highlight(grammar: Grammar, text: &str) -> Option<LineRuns> {
     #[cfg(feature = "rust")]
     Grammar::Rust => paint::paint(&tree, text, &mut rust_lang::Rust, &mut runs),
     #[cfg(feature = "typescript")]
-    Grammar::TypeScript | Grammar::Tsx => paint::paint(&tree, text, &mut typescript::TypeScript, &mut runs),
+    Grammar::TypeScript | Grammar::Tsx => paint::paint(&tree, text, &mut typescript::TypeScript::default(), &mut runs),
     #[cfg_attr(
       all(feature = "kotlin", feature = "java", feature = "rust", feature = "typescript"),
       expect(unreachable_patterns, reason = "every arm above is behind a feature")

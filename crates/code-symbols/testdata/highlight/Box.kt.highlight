@@ -15,9 +15,9 @@
   9:   var count: Int = 0
      keyword "var" · field "count" · number "0"
  10:     get() = field + 1
-     keyword "get" · field "field" · number "1"
+     keyword "get" · plain+bold "field" · number "1"
  11:     set(value) { field = value }
-     keyword "set" · field "field"
+     keyword "set" · plain+bold "field"
  12:   companion object { const val LIMIT = 10; val DEFAULT = Box<Any>(1, "a") }
      keyword "companion" · keyword "object" · keyword "const" · keyword "val" · field+italic "LIMIT" · number "10" · keyword "val" · field+italic "DEFAULT" · number "1" · string "\"a\""
  13: 
@@ -32,11 +32,11 @@
  18:     items.add(item)
      field "items"
  19:     val text = "x=$count, ${items.size} items\n"
-     keyword "val" · string "\"x=" · keyword "$" · field "count" · string ", " · keyword "${" · field "items" · field "size" · keyword "}" · string " items" · escape "\\n" · string "\""
+     keyword "val" · string "\"x=" · escape "$" · field "count" · string ", " · escape "${" · field "items" · field "size" · escape "}" · string " items" · escape "\\n" · string "\""
  20:     loop@ for (i in 0 until times) { if (i > LIMIT) break@loop }
      label "loop@" · keyword "for" · keyword "in" · number "0" · keyword "if" · field+italic "LIMIT" · keyword "break" · label "@loop"
  21:     run(block = { it -> it.toString() })
-     namedArgument "block" · namedArgument "="
+     namedArgument "block" · namedArgument "=" · plain+bold "{" · plain+bold "->" · plain+bold "}"
  22:     return items.isNotEmpty() && text.length > 0x1F
      keyword "return" · field "items" · field "length" · number "0x1F"
  23:   }

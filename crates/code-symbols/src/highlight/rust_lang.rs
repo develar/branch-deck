@@ -29,7 +29,8 @@ impl Rules for Rust {
         }
         Paint::Inherit
       }
-      "lifetime" => Paint::Leaf(Role::Lifetime.style()),
+      // RustRover's lexer colours a label (`'outer`) as a lifetime (`QUOTE_IDENTIFIER`)
+      "lifetime" | "label" => Paint::Leaf(Role::Lifetime.style()),
       "attribute_item" | "inner_attribute_item" => Paint::Style(Role::Annotation.style()),
       "macro_invocation" => {
         if let Some(name) = node.child_by_field_name("macro") {
@@ -98,7 +99,6 @@ impl Rules for Rust {
         }
         Paint::Inherit
       }
-      "label" => Paint::Leaf(Role::Label.style()),
       "identifier" => name_style(scopes, cx, node).map_or(Paint::Opaque, Paint::Leaf),
       _ => return None,
     })

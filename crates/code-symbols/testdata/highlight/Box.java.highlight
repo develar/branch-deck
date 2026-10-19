@@ -40,11 +40,10 @@
  22:     String text = "x=" + count + ", \"quoted\"\n" + 'c' + '\t';
      string "\"x=\"" · field "count" · string "\", " · escape "\\\"" · string "quoted" · escape "\\\"\\n" · string "\"" · string "'c'" · string "'\\t'"
  23:     outer:
-     label "outer"
  24:     for (int i = 0; i < times; i++) {
      keyword "for" · keyword "int" · number "0"
  25:       if (i > Box.LIMIT) break outer;
-     keyword "if" · field+italic "LIMIT" · keyword "break" · label "outer"
+     keyword "if" · field+italic "LIMIT" · keyword "break"
  26:       items.add(requireNonNull(item));
      field "items"
  27:     }

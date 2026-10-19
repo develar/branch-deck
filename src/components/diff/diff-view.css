@@ -454,22 +454,21 @@
   color: var(--syntax-attribute);
 }
 .t11 {
-  font-weight: var(--syntax-label-weight);
   color: var(--syntax-label);
-  text-decoration: var(--syntax-label-decoration);
-  text-decoration-color: var(--syntax-mutable-underline);
 }
 .t12 {
   font-style: italic;
   color: var(--syntax-doc-comment);
 }
+/* a doc tag and its value lie in a doc comment, whose italic they keep (IntelliJ merges the font style of the layers) */
 .t13 {
-  font-style: var(--syntax-doc-tag-style);
+  font-style: italic;
   color: var(--syntax-doc-tag);
-  text-decoration: underline;
+  text-decoration: var(--syntax-doc-tag-decoration);
+  text-decoration-color: var(--syntax-doc-tag-underline);
 }
 .t14 {
-  font-style: var(--syntax-doc-tag-value-style);
+  font-style: italic;
   color: var(--syntax-doc-tag-value);
 }
 .t15 {
@@ -495,6 +494,49 @@
 .t21 {
   font-weight: bold;
   color: var(--syntax-question);
+}
+.t22 {
+  text-decoration: var(--syntax-default-label-decoration);
+  text-decoration-color: var(--syntax-default-label-underline);
+}
+.t23 {
+  color: var(--syntax-tag-bracket);
+}
+.t24 {
+  color: var(--syntax-component-tag);
+}
+.t25 {
+  color: var(--syntax-regexp);
+}
+.t26 {
+  color: var(--syntax-method);
+}
+.t27 {
+  color: var(--syntax-local-variable);
+}
+.t28 {
+  font-style: var(--syntax-global-variable-style);
+  color: var(--syntax-global-variable);
+}
+.t29 {
+  text-decoration: var(--syntax-parameter-decoration);
+  text-decoration-color: var(--syntax-parameter-underline);
+}
+.t30 {
+  font-style: var(--syntax-global-function-style);
+  color: var(--syntax-global-function);
+}
+/* the values a plugin gives a role in its language only: the underline of a mutable Kotlin `var` and Rust `mut`, the
+   type parameters of Rust (Darcula's) and of TypeScript */
+.dv-section:is([data-language="kotlin"], [data-language="kts"]) {
+  --syntax-mutable-underline: var(--syntax-mutable-underline-kotlin);
+}
+.dv-section[data-language="rust"] {
+  --syntax-mutable-underline: var(--syntax-mutable-underline-rust);
+  --syntax-type-parameter: var(--syntax-type-parameter-rust);
+}
+.dv-section:is([data-language="typescript"], [data-language="tsx"], [data-language="javascript"], [data-language="jsx"]) {
+  --syntax-type-parameter: var(--syntax-type-parameter-typescript);
 }
 .ti {
   font-style: italic;

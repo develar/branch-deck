@@ -27,6 +27,15 @@ interface EditorPalette {
   selfValue: string
   enumVariant: string
   questionOperator: string
+  defaultLabel: string
+  tagBracket: string
+  componentTag: string
+  regexp: string
+  method: string
+  localVariable: string
+  globalVariable: string
+  parameter: string
+  globalFunction: string
 }
 
 /** TextMate scopes by palette role; a later rule wins over an earlier one for the same token */
@@ -107,7 +116,12 @@ function tokenColors(palette: EditorPalette): ThemeRegistration["tokenColors"] {
       ],
       settings: { foreground: palette.annotation },
     },
-    { scope: ["entity.name.tag", "punctuation.definition.tag"], settings: { foreground: palette.tag } },
+    // the brackets of a tag are the text colour in the light scheme, the tag colour in the dark one (`XML_TAG`)
+    { scope: ["entity.name.tag"], settings: { foreground: palette.tag } },
+    { scope: ["punctuation.definition.tag"], settings: { foreground: palette.tagBracket } },
+    { scope: ["support.class.component"], settings: { foreground: palette.componentTag } },
+    // a regular expression of JavaScript (`JS.REGEXP`), in HTML or Vue
+    { scope: ["string.regexp.js", "string.regexp.ts"], settings: { foreground: palette.regexp } },
     { scope: ["entity.other.attribute-name"], settings: { foreground: palette.attribute } },
     { scope: ["markup.bold", "markup.heading"], settings: { fontStyle: "bold" } },
     { scope: ["markup.italic"], settings: { fontStyle: "italic" } },
@@ -141,6 +155,15 @@ export const SYNTAX_ROLES = [
   "selfValue",
   "enumVariant",
   "questionOperator",
+  "defaultLabel",
+  "tagBracket",
+  "componentTag",
+  "regexp",
+  "method",
+  "localVariable",
+  "globalVariable",
+  "parameter",
+  "globalFunction",
 ] as const
 
 /** The colour that stands for a role in `ROLE_THEME`: no real colour, an id */

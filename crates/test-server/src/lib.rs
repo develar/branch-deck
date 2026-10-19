@@ -241,6 +241,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
   spawn("commit_many_files", |path| templates::commit_many_files().build(path));
   spawn("commit_whitespace", |path| templates::commit_whitespace().build(path));
   spawn("symbol_navigation", |path| templates::symbol_navigation().build(path));
+  spawn("script_colors", |path| templates::script_colors().build(path));
   spawn("stacked_branches", |path| templates::stacked_branches().build(path));
   spawn("stack_island", |path| templates::stack_island().build(path));
   spawn("stack_side_conflict", |path| templates::stack_side_conflict().build(path));
@@ -313,6 +314,8 @@ pub enum RepositoryTemplate {
   CommitWhitespace,
   #[serde(rename = "symbol_navigation")]
   SymbolNavigation,
+  #[serde(rename = "script_colors")]
+  ScriptColors,
   #[serde(rename = "stacked_branches")]
   StackedBranches,
   #[serde(rename = "stack_island")]
@@ -383,6 +386,7 @@ impl RepositoryTemplate {
       Self::CommitManyFiles => "commit_many_files",
       Self::CommitWhitespace => "commit_whitespace",
       Self::SymbolNavigation => "symbol_navigation",
+      Self::ScriptColors => "script_colors",
       Self::StackedBranches => "stacked_branches",
       Self::StackIsland => "stack_island",
       Self::StackSideConflict => "stack_side_conflict",

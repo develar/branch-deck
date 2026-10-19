@@ -34,9 +34,9 @@
  20:     let text = format!("x={} \"q\"\n", self.name);
      keyword "let" · macro "format!" · string "\"x={} " · escape "\\\"" · string "q" · escape "\\\"\\n" · string "\"" · selfValue "self"
  21:     'outer: for i in 0..times {
-     label "'outer" · keyword "for" · keyword "in" · number "0"
+     lifetime "'outer" · keyword "for" · keyword "in" · number "0"
  22:       if i > LIMIT { break 'outer; }
-     keyword "if" · field+italic "LIMIT" · keyword "break" · label "'outer"
+     keyword "if" · field+italic "LIMIT" · keyword "break" · lifetime "'outer"
  23:       self.items.push(item.clone());
      selfValue "self" · field "items" · functionDeclaration "push" · functionDeclaration "clone"
  24:       count += 1;

@@ -343,7 +343,7 @@ attribute, and the default foreground. Font styles (bold, italic) are bits of th
 low 6 bits (`ROLE_MASK`) and the font style above them (`FONT_STYLE_SHIFT`). `islands-themes.ts` keeps its map from
 scopes to roles, IntelliJ's view of what is coloured: a call (`meta.function-call`, `meta.method-call`,
 `meta.function.call`), a package, an import and a class used as a type in Java are plain text, a Rust attribute is an
-annotation. The colours of the IntelliJ Light and Dark schemes move to CSS variables in
+annotation. The colours of the Islands Light and Dark schemes move to CSS variables in
 `src/index.css` (`--syntax-keyword` and the others). So one tokenization serves both themes, and a theme switch
 changes only CSS. A font style that differs between the schemes (a comment is italic in the light one only) is in CSS
 too, so the italic bit of a style is only for what both schemes put in italic (a static member).
@@ -409,13 +409,23 @@ are coloured as the IntelliJ editor colours them without resolving a name, from 
 - what a leaf holds and the grammar does not split is lexed: the escapes of a Kotlin string, the tags of a doc comment
   (`@param` and its name, a KDoc `[link]`), the keyword and the `@` of `return@label`;
 - a leaf inside a parse error keeps what its kind tells (a keyword), the rest of the error stays plain;
-- the roles are IntelliJ's colours that the syntax shows, from the IntelliJ Light and Islands Dark schemes and the
-  schemes of the Kotlin and RustRover plugins (`--syntax-*` of `src/index.css`): a property and a field, a static one
-  and a constant italic, a static Java method in the colour of a declaration and italic, a Rust call in the colour of
-  its function (RustRover colours calls, IntelliJ does not), a type parameter, a label, a named argument, a doc comment,
-  its tag and the name a tag documents, a macro, a lifetime, Rust's `self`, an enum variant, Rust's `?`; a Kotlin `var`
-  and a Rust `mut` binding are underlined (`UNDERLINE`). What needs a resolve stays out: an extension or a top-level
-  call, a smart cast, a field read without a syntax that tells it;
+- the roles are IntelliJ's colours that the syntax shows (`--syntax-*` of `src/index.css`): a property and a field, a
+  static one and a constant italic, a static Java method in the colour of a declaration and italic, a Rust call in the
+  colour of its function (RustRover colours calls, IntelliJ does not), a type parameter, a Kotlin label (a Rust one is
+  a lifetime, as RustRover's lexer has it; a Java one has no colour), a named argument, a doc comment, its tag and the
+  name a tag documents, a macro, a lifetime, Rust's `self`, an enum variant, Rust's `?`; a Kotlin `var` and a Rust `mut`
+  binding are underlined (`UNDERLINE`), Kotlin's `it`, backing `field` and lambda braces bold (`BOLD`). JavaScript has
+  the colours of its semantic visitor as far as the scopes of the file show a declaration (`typescript.rs`): a local
+  variable, a parameter, a local function, a global variable or function (exported, imported, or not declared by the
+  file: `console`, `setTimeout`; an import is a function when the file calls it), a method (also `.f(`), a regular
+  expression, a JSX component apart from an HTML tag, the brackets of a tag. What needs a resolve stays out: an
+  extension or a top-level call, a smart cast, a field read without a syntax that tells it;
+- the colours are resolved as IntelliJ resolves a key, from the scheme of Islands Light ("Light",
+  `themes/expUI/expUI_lightScheme.xml`, not "IntelliJ Light" of `themes/Light.xml`) with its parent `Default`, and
+  from Islands Dark with its parent Darcula, each with what the Kotlin, JavaScript and RustRover plugins add to the
+  parent: the key's own entry anywhere in the chain first, then its fallbacks. A font style that differs between the
+  schemes is a CSS token, a colour a plugin gives one language only is a token of `.dv-section[data-language]`
+  (`diff-view.css`: Rust's and TypeScript's type parameters, the underline of a mutable Kotlin or Rust name);
 - the answer is the format of the worker: the lines as `buildLineTable` splits them, runs of (UTF-16 offset, style) per
   line, a style the role in its low 6 bits and the font style above; the roles are `SYNTAX_ROLES` in their order
   (`roles_match_the_view` checks it);

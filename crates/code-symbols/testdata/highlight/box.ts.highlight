@@ -10,34 +10,34 @@
   6:   static readonly LIMIT = 10
      keyword "static" · keyword "readonly" · field+italic "LIMIT" · number "10"
   7:   private items: T[] = []
-     keyword "private" · field "items"
+     keyword "private" · field "items" · typeParameter "T"
   8:   count = 0
      field "count" · number "0"
   9: 
  10:   add(item: T, times: number = 1): boolean {
-     functionDeclaration "add" · keyword "number" · number "1" · keyword "boolean"
+     method "add" · parameter "item" · typeParameter "T" · parameter "times" · keyword "number" · number "1" · keyword "boolean"
  11:     this.count += times
-     keyword "this" · field "count"
+     keyword "this" · field "count" · parameter "times"
  12:     const text = `x=${this.count}, ${item.name}\n` + "q\"" + 'c'
-     keyword "const" · string "`x=" · keyword "${this" · field "count" · keyword "}" · string ", " · keyword "${" · field "name" · keyword "}" · escape "\\n" · string "`" · string "\"q" · escape "\\\"" · string "\"" · string "'c'"
+     keyword "const" · localVariable "text" · string "`x=" · keyword "this" · field "count" · string ", " · parameter "item" · field "name" · escape "\\n" · string "`" · string "\"q" · escape "\\\"" · string "\"" · string "'c'"
  13:     outer: for (let i = 0; i < times; i++) {
-     label "outer" · keyword "for" · keyword "let" · number "0"
+     defaultLabel "outer" · keyword "for" · keyword "let" · localVariable "i" · number "0" · localVariable "i" · parameter "times" · localVariable "i"
  14:       if (i > Box.LIMIT) break outer
-     keyword "if" · field+italic "LIMIT" · keyword "break" · label "outer"
+     keyword "if" · localVariable "i" · field+italic "LIMIT" · keyword "break" · defaultLabel "outer"
  15:       this.items.push(item)
-     keyword "this" · field "items"
+     keyword "this" · field "items" · method "push" · parameter "item"
  16:     }
  17:     const point = { x: 1, y: 2.5, text }
-     keyword "const" · field "x" · number "1" · field "y" · number "2.5" · field "text"
+     keyword "const" · localVariable "point" · field "x" · number "1" · field "y" · number "2.5" · localVariable "text"
  18:     const pattern = /a+b/gi
-     keyword "const" · string "/a+b/gi"
+     keyword "const" · localVariable "pattern" · regexp "/a+b/gi"
  19:     return this.items.length > 0 && point.x === 1 && text !== undefined && null !== this
-     keyword "return" · keyword "this" · field "items" · field "length" · number "0" · field "x" · number "1" · keyword "undefined" · keyword "null" · keyword "this"
+     keyword "return" · keyword "this" · field "items" · field "length" · number "0" · localVariable "point" · field "x" · number "1" · localVariable "text" · keyword "undefined" · keyword "null" · keyword "this"
  20:   }
  21: }
  22: 
  23: export function make<K extends keyof Item>(key: K): Box<Item> | null {
-     keyword "export" · keyword "function" · functionDeclaration "make" · typeParameter "K" · keyword "extends" · keyword "keyof" · typeParameter "K" · keyword "null"
+     keyword "export" · keyword "function" · globalFunction "make" · typeParameter "K" · keyword "extends" · keyword "keyof" · parameter "key" · typeParameter "K" · keyword "null"
  24:   return new Box<Item>()
      keyword "return" · keyword "new"
  25: }

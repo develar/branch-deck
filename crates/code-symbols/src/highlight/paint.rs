@@ -82,10 +82,10 @@ pub(crate) fn type_parameter(scopes: &mut Scopes, cx: &mut Cx<'_, '_>, name: Opt
   Paint::Inherit
 }
 
-/// A statement with a label: the label in its style
-pub(crate) fn label(cx: &mut Cx<'_, '_>, label: Option<Node<'_>>) -> Paint {
+/// A statement with a label: the label in `style`
+pub(crate) fn label(cx: &mut Cx<'_, '_>, label: Option<Node<'_>>, style: u32) -> Paint {
   if let Some(label) = label {
-    cx.mark(label, Role::Label.style());
+    cx.mark(label, style);
   }
   Paint::Inherit
 }

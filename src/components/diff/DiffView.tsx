@@ -1053,6 +1053,8 @@ const DiffSection = memo(function DiffSection(props: DiffSectionProps) {
       aria-label={file.path}
       data-testid="diff-view-file"
       data-path={file.path}
+      // the colours a plugin of IntelliJ gives a role in its language only (diff-view.css)
+      data-language={languageOf(file.path)}
       // a card with its header alone (diff-view.css): an attribute, as a `:has()` of the rows costs Chromium a style
       // recalc of the card on each row the painter adds
       data-collapsed={card && rows === null && !noticeRow ? "" : undefined}

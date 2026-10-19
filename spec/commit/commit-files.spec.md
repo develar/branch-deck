@@ -233,16 +233,22 @@ The views show the typed diff of each file instead of the patch ([Reading the di
 - Kotlin, Java, Rust, TypeScript and JavaScript must be coloured as the IntelliJ editor (and RustRover) colours them
   without resolving a name, from their syntax tree: a property, a field and an unqualified use of one as a field, a
   static member, a constant and an enum entry italic, a static method in the colour of a declaration and italic, a
-  Rust call in the colour of the function it calls (a Java or Kotlin call plain), a type parameter, a label, a named
-  argument, a doc comment with its tags, the code of a string template as code, a macro, a lifetime and Rust's `self`
-  and `?` in their own colours, a Kotlin `var` and a Rust `mut` binding underlined; the colours are those of the
-  IntelliJ Light and Islands Dark schemes, a comment italic in the light one only. The two sides of a file are always
+  Rust call in the colour of the function it calls (a Java or Kotlin call plain), a type parameter, a label (a Rust one
+  as a lifetime, a Java one plain), a named argument, a doc comment with its tags, the code of a string template as
+  code, a macro, a lifetime and Rust's `self` and `?` in their own colours, a Kotlin `var` and a Rust `mut` binding
+  underlined, Kotlin's `it`, backing `field` and lambda braces bold; a JavaScript name by its declaration in the file
+  (a local variable, a parameter, a local function, an exported, imported or undeclared variable or function as
+  global, a method also at its call), a regular expression, a JSX component apart from an HTML tag and the brackets of
+  a tag; the colours are those of the schemes of Islands Light ("Light") and Islands Dark, resolved as IntelliJ
+  resolves a key, with what a plugin gives one language only (Rust's and TypeScript's type parameters, the underline of
+  a mutable name), and a font style where the schemes differ (a comment italic in the light one only, a JavaScript
+  parameter and label underlined in the light one only, a global variable italic in the dark one only). The two sides of a file are always
   coloured alike: a file the syntax tree cannot colour (over 8 MiB, a parse over its budget) is coloured by its Shiki
   grammar, both sides.
-  [@test] ../../crates/code-symbols/src/highlight_test.rs (`every_fixture_matches_its_golden_file`, `splits_lines_and_counts_utf16_offsets_as_the_view`, `has_no_highlighting_over_the_limit`, `chooses_the_typescript_grammar_for_ts_and_tsx_for_the_rest`, `roles_match_the_view`)
+  [@test] ../../crates/code-symbols/src/highlight_test.rs (`every_fixture_matches_its_golden_file`, `splits_lines_and_counts_utf16_offsets_as_the_view`, `has_no_highlighting_over_the_limit`, `chooses_the_typescript_grammar_for_ts_and_tsx_for_the_rest`, `roles_match_the_view`, `colours_a_kotlin_name_that_is_a_soft_keyword_as_a_name`, `colours_a_javascript_name_by_its_declaration_as_intellij_does`)
   [@test] ../../crates/file-diffs/src/syntax_test.rs (`answers_the_runs_of_the_lines_asked_for_with_the_line_starts_from_zero`, `parses_a_blob_once_from_the_blobs_a_diff_read_and_reads_a_cold_one_with_one_cat_file`, `says_missing_for_a_blob_it_cannot_read_and_highlights_the_text_a_view_sends`, `falls_back_to_the_worker_for_a_file_without_a_grammar`)
   [@test] ../../src/lib/diff/highlight/backend-syntax.test.ts (`asks the backend for a run of pages and the next one, and keeps its answer as exact pages`, `sends the text of a blob the backend lacks, and of one the view made, with the first call`, `colours both sides of a file the backend cannot colour in the worker`, `leaves every language to the worker without a backend`)
-  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should colour Kotlin as IntelliJ does: a property as a field, a declaration, an annotation, a keyword`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should colour Kotlin as IntelliJ does: a property as a field, a declaration, an annotation, a keyword`, `should colour TSX as IntelliJ does: a name by its declaration, a component, a method, the brackets of a tag`)
 - A diff must show the blocks of the diff engine with 4 lines of context (IntelliJ's), changes whose context touches
   without a fold between them, and the changed ranges of the engine instead of a word diff, also on a changed line
   without a line beside it. The tints are IntelliJ's: a block with inner ranges draws its lines pale and its ranges

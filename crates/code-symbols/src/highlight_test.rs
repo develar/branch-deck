@@ -150,3 +150,25 @@ fn colours_a_kotlin_name_that_is_a_soft_keyword_as_a_name() {
   // `fun` is a keyword, `set` the declared function; `value` and `get` are parameters, not the soft keywords
   assert!(rendered.contains(r#"keyword "fun" · functionDeclaration "set" · field "length""#), "{rendered}");
 }
+
+#[test]
+fn colours_a_javascript_name_by_its_declaration_as_intellij_does() {
+  let text = "import { format } from \"./format\"\nimport * as ns from \"./ns\"\nexport const LIMIT = 1\nconst cache = new Map()\nfunction later(value) { return format(value) + ns.size }\nclass Store {\n  static create() { return new Store() }\n  add(item) { console.log(item); setTimeout(() => later(item)); cache.set(item, items => items) }\n}\nenum Color { Red, Green = 2 }\n";
+  let runs = highlight(Grammar::TypeScript, text).unwrap();
+  let rendered = render(text, &runs);
+  for expected in [
+    // an import the file calls is a function, any other a variable; an exported variable is global
+    r#"keyword "import" · globalFunction "format""#,
+    r#"keyword "as" · globalVariable "ns""#,
+    r#"keyword "export" · keyword "const" · globalVariable "LIMIT""#,
+    r#"keyword "const" · localVariable "cache""#,
+    // a function of the file is local, also where a function declared above it calls it
+    r#"keyword "function" · functionDeclaration "later" · parameter "value" · keyword "return" · globalFunction "format" · parameter "value" · globalVariable "ns" · field "size""#,
+    r#"keyword "static" · functionDeclaration+italic "create""#,
+    // a name the file does not declare is global; a method is a method at its call too
+    r#"method "add" · parameter "item" · globalVariable "console" · method "log" · parameter "item" · globalFunction "setTimeout" · functionDeclaration "later" · parameter "item" · localVariable "cache" · method "set" · parameter "item" · parameter "items" · parameter "items""#,
+    r#"field+italic "Red" · field+italic "Green" · number "2""#,
+  ] {
+    assert!(rendered.contains(expected), "{expected}\n{rendered}");
+  }
+}
