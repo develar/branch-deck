@@ -657,6 +657,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   while a rebase, merge, cherry-pick or revert is in progress (`operation_in_progress`) or HEAD is detached
   (`detached_head`, exit 4 both): the sync would archive the branches the half-done history lacks.
   [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`, `waits_for_the_lock`, `waits_while_a_rebase_is_in_progress`)
+- The message of `locked` must name the holder of the lock, its command line, pid and how long it holds it, from the
+  record (`<lock>.holder`) a holder writes once it has the lock and deletes before it releases it; a record of a
+  process that is gone (or none, of an older Branch Deck) names "Another Branch Deck operation".
+  [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_lock_timeout_names_the_holder_and_its_release_deletes_the_record`, `the_record_of_a_gone_holder_names_nobody`)
 - With stacked branches on, `stacks` must list the stack branch of each stack that forks, as the sync built it, with its
   `state` (`built`; `blocked` with the `member` and the `reason`; `conflict` with the commit, its subject and files;
   `stale` with the `error`), its `tip`, `commits`, `members` and the `remote` summary of its tip, then the ones kept

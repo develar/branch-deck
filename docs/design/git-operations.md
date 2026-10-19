@@ -420,7 +420,11 @@ Branch Deck operation holds … ; retry when it is done". `bd sync`, `bd push`, 
 `--check` only its sync),
 `bd move-hunk`, `bd pick` (the moves of both worktrees under one hold) and `bd undo` take it, and so does Update Project (the app's and `bd update`, which also starts a
 resolve session under it) after its fetch, and `bd update --continue` and `--abort`; `bd update --status` takes
-none. A core finds the file with one `rev-parse --git-common-dir`; `bd`'s own lock (`lock_repository_in`) takes the
+none. A holder writes who it is next to the lock (`branch-deck.lock.holder`: the command line, the pid, the start of
+the process and the time, through a temporary file and a rename) once it has the lock, and deletes it before it
+releases it, so the error of a wait names the holder; the lock file itself can't carry it, Windows refuses to read a
+locked file. A record whose process is gone (`process_scan::is_running`) names nobody. A core finds the file with one
+`rev-parse --git-common-dir`; `bd`'s own lock (`lock_repository_in`) takes the
 directory its context resolved, and a wait for it makes `bd` read the config again (`RepoContext::forget_config`). The app's sync
 never takes it: a sync of a large repository would make every `bd` writer fail with `locked`. Within a window one sync
 runs at a time (`syncBranches`): a request while one runs asks for one follow-up after it, the events of a superseded

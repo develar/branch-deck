@@ -105,7 +105,8 @@ A refused resolution of `bd update --continue` has `paths` too, the conflicting 
 
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.
 `retryable` is true for `head_moved`, `groups_moved`, `stacks_moved`, `round_moved`, `locked` and `network_error`: retry when it is
-true, whatever the exit code.
+true, whatever the exit code. The message of `locked` names the holder when it wrote its record (`` `bd check --fix` (pid 4242, for 12
+min 3 s) holds …/branch-deck.lock (waited 10.0 s); retry when it is done``), else "Another Branch Deck operation".
 
 A write whose step after the write failed (the descriptions or the sync of `bd group --sync`, the sync of
 `bd move-hunk --sync`) prints its output with `after_error`, never the error object: the write stands, its

@@ -5,7 +5,7 @@
 use crate::add_issue_reference::{AddIssueReferenceParams, add_issue_reference_to_commits_core};
 use crate::amend_to_branch::{AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use crate::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
-use crate::repository_lock::{RepositoryLocked, RewriteOptions, lock_repository};
+use crate::repository_lock::{LockHolder, RepositoryLocked, RewriteOptions, lock_repository, lock_repository_in};
 use crate::reword_commit::{CommitRewrite, RewordCommitsRequest, reword_commits_core};
 use crate::squash::{RestoreBranchHeadParams, SquashCommitsParams, restore_branch_head_core, squash_commits_core};
 use crate::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
@@ -154,7 +154,9 @@ fn every_rewrite_fails_with_locked_while_another_holds_the_lock() {
 
   for (rewrite, error) in run_every_rewrite(&repo, &commits, &options) {
     let error = error.unwrap_or_else(|| panic!("{rewrite} ran while the lock was held"));
-    assert!(error.starts_with("Another Branch Deck operation holds"), "{rewrite}: {error}");
+    // the holder is this test process, which names itself
+    assert!(error.contains(&format!("(pid {}, for ", std::process::id())), "{rewrite}: {error}");
+    assert!(error.ends_with("; retry when it is done"), "{rewrite}: {error}");
   }
   assert_eq!(state(&repo), before);
   drop(held);
@@ -273,4 +275,52 @@ fn the_lock_error_keeps_its_type() {
   let error = squash_fixup_commits_core(repo.git_executor(), &params, &options).unwrap_err();
 
   assert!(error.downcast_ref::<RepositoryLocked>().is_some(), "{error:#}");
+}
+
+#[test]
+fn a_lock_timeout_names_the_holder_and_its_release_deletes_the_record() {
+  let dir = tempfile::tempdir().unwrap();
+  let held = lock_repository_in(dir.path(), Duration::from_millis(100), &|| {}).unwrap();
+  let record = dir.path().join("branch-deck.lock.holder");
+  assert!(record.exists());
+
+  let error = lock_repository_in(dir.path(), Duration::from_millis(100), &|| {}).unwrap_err();
+  let locked = error.downcast_ref::<RepositoryLocked>().unwrap();
+  let holder = locked.holder.as_ref().expect("the holder is named");
+  assert_eq!(holder.pid, std::process::id());
+  let program = std::env::current_exe().unwrap().file_name().unwrap().to_string_lossy().into_owned();
+  assert!(holder.command.starts_with(&program), "{holder:?}");
+  let message = error.to_string();
+  assert!(message.starts_with(&format!("`{program}")), "{message}");
+  assert!(message.contains(&format!("(pid {}, for ", std::process::id())), "{message}");
+  assert!(message.contains(" s) holds "), "{message}");
+
+  drop(held);
+  assert!(!record.exists(), "the release deletes the record");
+  drop(lock_repository_in(dir.path(), Duration::from_millis(100), &|| {}).unwrap());
+}
+
+#[test]
+fn the_record_of_a_gone_holder_names_nobody() {
+  let dir = tempfile::tempdir().unwrap();
+  // a holder killed before it deleted its record, and a holder that writes none (Branch Deck 0.21)
+  let gone = LockHolder {
+    command: "bd sync".to_string(),
+    pid: std::process::id(),
+    process_started: Some(1),
+    since: 0,
+  };
+  std::fs::write(dir.path().join("branch-deck.lock.holder"), serde_json::to_vec(&gone).unwrap()).unwrap();
+  let file = std::fs::OpenOptions::new()
+    .create(true)
+    .truncate(false)
+    .write(true)
+    .open(dir.path().join("branch-deck.lock"))
+    .unwrap();
+  file.try_lock().unwrap();
+
+  let error = lock_repository_in(dir.path(), Duration::from_millis(100), &|| {}).unwrap_err();
+
+  assert_eq!(error.downcast_ref::<RepositoryLocked>().unwrap().holder, None);
+  assert!(error.to_string().starts_with("Another Branch Deck operation holds"), "{error}");
 }
