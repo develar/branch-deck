@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import { describePush, describeStackPush, formatPushCount, getPushAction, getPushColor, isRemoteUpToDate, summarizePushState } from "@/lib/push-summary"
+import { describePush, describeStackPush, formatPushCount, getPushAction, getPushColor, getPushHue, isRemoteUpToDate, summarizePushState } from "@/lib/push-summary"
 import type { RemoteStatus } from "@/stores/branch-sync"
 import { testRemoteStatus } from "@/stores/test-branch"
 
@@ -92,6 +92,20 @@ describe("getPushAction", () => {
     expect(isRemoteUpToDate(testRemoteStatus({ commitsRestacked: 1 }))).toBe(false)
     expect(isRemoteUpToDate(testRemoteStatus({ fastForward: false }))).toBe(true)
     expect(isRemoteUpToDate(testRemoteStatus({ exists: false }))).toBe(false)
+  })
+
+  it("force pushes, without the warning hue, a branch whose remote has older messages or commits that landed", () => {
+    // reworded: the remote has the changes with the old message, a robot would land it
+    expect(isRemoteUpToDate(testRemoteStatus({ commitsReworded: 1, fastForward: false }))).toBe(false)
+    expect(getPushAction(branch("a", { remote: { commitsReworded: 1, fastForward: false } }))).toBe("force")
+    // landed: the remote has older versions of commits the baseline has, nothing of them is lost
+    expect(getPushAction(branch("a", { remote: { commitsAhead: 1, commitsLanded: 7, fastForward: false } }))).toBe("force")
+    expect(getPushHue(0)).toBe("primary")
+    expect(describePush("a", testRemoteStatus({ commitsAhead: 1, commitsLanded: 7, fastForward: false }))).toEqual({
+      title: "Force pushed a",
+      description: "1 commit · replaced 7 landed commits",
+    })
+    expect(describePush("a", testRemoteStatus({ commitsReworded: 1, fastForward: false }))).toEqual({ title: "Force pushed a", description: "replaced 1 reworded commit" })
   })
 
   it("is up to date for a branch only rebased onto a newer baseline: the remote has its work", () => {
@@ -245,12 +259,14 @@ describe("summarizePushState", () => {
 
 describe("formatPushCount", () => {
   it("names the older versions a push replaces after the commits it sends, before the ones it drops", () => {
-    const count = { mine: 1, count: 1, amended: 0, restacked: 0, behind: 0 }
+    const count = { mine: 1, count: 1, amended: 0, restacked: 0, landed: 0, reworded: 0, behind: 0 }
     expect(formatPushCount({ ...count, amended: 1 })).toBe("1↑ · 1 amended")
     expect(formatPushCount({ ...count, mine: 4, count: 4, restacked: 2 })).toBe("4↑ · restacked")
     expect(formatPushCount({ ...count, mine: 0, count: 0, restacked: 2 })).toBe("restacked")
     expect(formatPushCount({ ...count, mine: 0, count: 0, amended: 1 })).toBe("1 amended")
     expect(formatPushCount({ ...count, mine: 2, count: 2, behind: 2 })).toBe("2↑ · 2↓")
-    expect(formatPushCount({ mine: 1, count: 3, amended: 1, restacked: 1, behind: 2 })).toBe("1 (3)↑ · 1 amended · restacked · 2↓")
+    expect(formatPushCount({ ...count, mine: 0, count: 0, reworded: 1 })).toBe("1 reworded")
+    expect(formatPushCount({ ...count, landed: 7 })).toBe("1↑ · 7 landed")
+    expect(formatPushCount({ mine: 1, count: 3, amended: 1, restacked: 1, landed: 0, reworded: 0, behind: 2 })).toBe("1 (3)↑ · 1 amended · restacked · 2↓")
   })
 })

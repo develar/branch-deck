@@ -709,8 +709,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/git-ops/src/notes_test.rs (`the_lines_are_found_by_their_prefix`)
 - The remote state must count the remote commits a push drops (`behind`, `dropped_commits`) apart from the older
   versions of commits it has ([Outgoing Commits](../repository/outgoing.spec.md#what-is-outgoing)): `amended` (of
-  commits amended here) and `restacked` (of commits of the branches it is built on), each left out at 0.
-  [@test] ../../crates/bd-cli/src/push_test.rs (`amended_and_restacked_commits_push_without_force`)
+  commits amended here), `restacked` (of commits of the branches it is built on) and `landed` (of commits the
+  baseline has, `landed_commits` with the `baseline_commit` of each), and the commits it has in another version
+  (`reworded`: another message or author), each left out at 0.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`amended_and_restacked_commits_push_without_force`, `a_push_replaces_the_remote_commits_the_baseline_landed_without_force`)
 - A conflict must name the conflicting commit, its subject, the files and the commits the change likely needs, and the
   exit code must be 1, as for every branch the sync could not build (`error`, `blocked`). A sync of an unchanged conflicting branch must take that view from the object cache, shared
   with the app, and run neither the merge nor the analysis of the conflict again; it must report the view the analysis
@@ -723,10 +725,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/sync-core/src/sync_test.rs (`a_remembered_conflict_is_the_one_the_analysis_made`)
   [@test] ../../crates/bd-cli/src/sync_test.rs (`a_conflict_exits_with_1`, `a_branch_that_is_not_built_is_exit_1`)
 - Per branch whose remote branch a push would change it must print the `bd push` to run, as bd names itself
-  (`bd -C <repo>`): plain for unpushed, amended or restacked commits; with `--force --expect-remote <remote.head>`
+  (`bd -C <repo>`): plain for unpushed, amended, reworded, restacked or landed commits; with
+  `--force --expect-remote <remote.head>`
   when the push drops commits and no branch it is built on has commits for the remote; with `--force` alone when one
   has. Run as written, it must push.
-  [@test] ../../crates/bd-cli/src/push_test.rs (`sync_names_the_push_of_each_branch`, `a_child_behind_its_remote_with_a_parent_to_push_forces_without_expect_remote`, `amended_and_restacked_commits_push_without_force`)
+  [@test] ../../crates/bd-cli/src/push_test.rs (`sync_names_the_push_of_each_branch`, `a_child_behind_its_remote_with_a_parent_to_push_forces_without_expect_remote`, `amended_and_restacked_commits_push_without_force`, `a_push_replaces_the_remote_commits_the_baseline_landed_without_force`)
   [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`)
 - The integration results of archived branches and the update check of the checked out branch must be included
   compactly, with the landed commits (`update.landing`, `landed`).
@@ -750,9 +753,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   carries the commits of the branches it is built on, its pull request into the baseline includes them either way.
   [@test] ../../crates/bd-cli/src/push_test.rs (`parents_go_first_and_a_child_alone_carries_its_parents_commits`, `a_parent_goes_along_only_with_commits_for_the_remote_and_brings_no_children`)
 - It must refuse (`push_refused`, exit 4, nothing pushed) a branch that didn't sync, and one behind its remote branch
-  without `--force` (a parent taken along too, with `--alone` as the way out). Older versions of commits amended or
-  restacked here are not behind: such a branch pushes without `--force`, and a parent with only them is taken along.
-  [@test] ../../crates/bd-cli/src/push_test.rs (`all_needs_yes_and_unsynced_branches_are_refused`, `amended_and_restacked_commits_push_without_force`, `a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`)
+  without `--force` (a parent taken along too, with `--alone` as the way out). Older versions of commits amended,
+  restacked or landed are not behind: such a branch pushes without `--force`, and a parent with only them is taken
+  along. A member of a stack that landed whole, with a new commit since, pushes without `--force`: its remote branch
+  has its commits as they were before the landing, which the baseline has by identity; `replaced_landed` of the
+  pushed branch (with `--dry-run` too) names them with their baseline commits. One remote commit the baseline lacks
+  keeps the refusal, and `dropped_commits` names only such commits.
+  [@test] ../../crates/bd-cli/src/push_test.rs (`all_needs_yes_and_unsynced_branches_are_refused`, `amended_and_restacked_commits_push_without_force`, `a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`, `a_push_replaces_the_remote_commits_the_baseline_landed_without_force`, `a_remote_commit_the_baseline_lacks_still_refuses_the_push`)
 - `--with-children` must add the branches stacked on the named ones, directly or further down, parents first, to the
   same atomic push, as the app's Push with Children does ([Stacked Branches](../branch/stacked-branches.spec.md)); a
   blocked child must refuse the push as a named branch that didn't sync does. It must need named branches and must
@@ -835,14 +842,21 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   repository from one read of the push URL of `origin`, shared with the push.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`)
 - The push must be decided by content, as the app's start decides it (`getStartPush`): `push_needed` only when the sync's remote status of
-  the branch or of a branch it is built on has work for the remote (`unpushed`, `behind`, `amended`, `restacked`, or
-  no remote branch). A branch whose remote branch has the same commits, only rebuilt since on a newer baseline, must
-  not be pushed (no `pushed`): the robot starts from the remote branch, and `--create-pull-request` opens the pull
+  the branch or of a branch it is built on has work for the remote (`unpushed`, `behind`, `amended`, `reworded`,
+  `restacked`, `landed`, or no remote branch). A branch whose remote branch has the same commits, only rebuilt since on
+  a newer baseline, must not be pushed (no `pushed`); one reworded since must be, the robot would land the old
+  messages: the robot starts from the remote branch, and `--create-pull-request` opens the pull
   request of the remote branch as it is. A robot running on that remote branch must refuse the start as one on the
   last commit does. A running Safe Push of an older commit must be replaced as the app's start replaces it once its
   popover said so (`replaces`, "Cancels the Safe Push of auth running on 1a2b3c4."): with nothing to push, a Safe Push start must refuse with `robot_running` ("the start would run beside it") unless
   `--cancel-running`, which cancels it before the start (`canceled`); a dry run and `--create-pull-request` leave it.
-  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_without_a_push`, `the_pull_request_of_a_branch_only_rebuilt_on_a_newer_baseline_is_opened_without_a_push`)
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_without_a_push`, `the_pull_request_of_a_branch_only_rebuilt_on_a_newer_baseline_is_opened_without_a_push`, `a_branch_reworded_since_its_push_is_pushed_before_the_start`)
+- `remotes` must name each existing remote branch the start pushes with its remote state, as `bd sync` has it, so
+  `--check` says beforehand what the push replaces (`amended`, `reworded`, `restacked`, `landed`) and drops. A branch
+  whose push would drop commits (`behind`) must refuse the check and the start with `push_refused` and the `bd push`
+  that drops them after the user approves; the start's error carries the branch in `error.branches`, nothing pushed
+  or started.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`check_counts_the_remote_commits_the_baseline_landed_and_refuses_a_drop`, `a_branch_reworded_since_its_push_is_pushed_before_the_start`)
 - The profiles must be those of the target that allow the mode, never the emergency ones (`--profile emergency` is
   `invalid_arguments`: only the app's Safe Push without review offers one, in red); `--profile` takes an id or a name
   (any case) or `none`, another value is `invalid_arguments` that lists them. Without it the profile of the last

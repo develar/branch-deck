@@ -72,6 +72,10 @@ export interface RemoteStatus {
   commitsAmended: number
   /** Remote commits that are older versions of the commits of the branches it is built on: a push replaces them */
   commitsRestacked: number
+  /** Remote commits that are older versions of commits the baseline has (they landed, maybe with other changes): a push replaces them */
+  commitsLanded: number
+  /** Commits the remote has by content but with another message or author (reworded here): a push replaces their remote copies */
+  commitsReworded: number
   myCommitsAhead: number
   /** The remote branch is an ancestor of the local one; a rebased branch is not, its push is a force push */
   fastForward: boolean
@@ -942,6 +946,8 @@ function sameRemoteStatus(a: RemoteStatus, b: RemoteStatus): boolean {
     a.commitsBehind === b.commitsBehind &&
     a.commitsAmended === b.commitsAmended &&
     a.commitsRestacked === b.commitsRestacked &&
+    a.commitsLanded === b.commitsLanded &&
+    a.commitsReworded === b.commitsReworded &&
     a.myCommitsAhead === b.myCommitsAhead &&
     a.fastForward === b.fastForward &&
     a.lastPushTime === b.lastPushTime &&
@@ -962,7 +968,18 @@ function sameItems(a: readonly string[], b: readonly string[]): boolean {
 
 type RemoteStatusFields = Pick<
   RemoteStatusUpdate,
-  "remoteExists" | "unpushedCommits" | "commitsBehind" | "commitsAmended" | "commitsRestacked" | "myUnpushedCount" | "fastForward" | "lastPushTime" | "remoteTip" | "droppedCommits"
+  | "remoteExists"
+  | "unpushedCommits"
+  | "commitsBehind"
+  | "commitsAmended"
+  | "commitsRestacked"
+  | "commitsLanded"
+  | "commitsReworded"
+  | "myUnpushedCount"
+  | "fastForward"
+  | "lastPushTime"
+  | "remoteTip"
+  | "droppedCommits"
 >
 
 export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
@@ -973,6 +990,8 @@ export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
     commitsBehind: update.commitsBehind,
     commitsAmended: update.commitsAmended,
     commitsRestacked: update.commitsRestacked,
+    commitsLanded: update.commitsLanded,
+    commitsReworded: update.commitsReworded,
     myCommitsAhead: update.myUnpushedCount ?? 0,
     fastForward: update.fastForward,
     lastPushTime: update.lastPushTime ?? 0,

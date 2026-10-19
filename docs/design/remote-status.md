@@ -26,11 +26,15 @@ Additionally, when virtual branches are rebased onto the latest baseline, they c
 Compare content, not hashes, with Git's cherry-pick algorithm:
 - **Commits ahead** are the commits whose content the remote lacks: the baseline and the rebased copies of pushed
   commits are left out. A branch only rebased onto a newer baseline is up to date.
+- **Reworded** are the commits the remote has by content in another version: the same changes, another message or
+  author (`commits_reworded`). Not ahead, yet the remote branch is not the branch: a push replaces their copies.
 - **Commits behind** are the remote commits whose content the branch lacks, sorted by what a push does with them:
   - **amended**: an older version of a commit of the branch, amended here (`commits_amended`); one that makes the same
     changes, only on other lines around them, is a rebased copy and counts nowhere;
   - **restacked**: an older version of a commit of a stack ancestor, which was amended or rebuilt since the branch was
     pushed: a child's remote branch has its parent's commits as they were (`commits_restacked`);
+  - **landed**: an older version of a commit the baseline has above the remote branch, as a Safe Push landed it
+    (`commits_landed`, the newest ten in `landed_commits` with the baseline commit of each);
   - **dropped**: the rest, work a push drops (`commits_behind`). The status lists the newest ten of them
     (`dropped_commits`: id, subject, author, time), so the Force Push button can say what it drops.
 - **Remote tip** (`remote_tip`) is the commit of the remote-tracking ref the counts were computed against. A push leases on it: it
@@ -108,6 +112,31 @@ flowchart TD
    author time and subject is replaced without a question, as an older version would be. It needs the same author,
    so it is the user's own work in another form; landed commits accept the same rule.
 
+8. **Decision**: A remote commit whose identity matches a commit of the baseline above the remote branch landed, not
+   dropped
+   **Rationale**: After a Safe Push of the whole stack, a member's remote branch keeps its commits as they were
+   before the landing; once Update Project put the branch on the baseline and it got a new commit, every one of them
+   read as dropped and `bd push` asked for `--force`, a separate approval for a push that loses nothing. `--cherry-mark`
+   matches only the ones whose patch the baseline has as it is: the robot rebuilds on a newer target, so a change below
+   a commit changes its patch. In the ultimate monorepo, 7 remote commits of `jvm-runner-goes` had a counterpart of the
+   same `CommitKey` in master, the copies of the robot; their patch ids with context matched for none, without context
+   (`-U0`) for 2 (one changed line was the call of a function whose signature a commit below changed). So the identity
+   decides, as for an amend and as Update Project finds landed commits (`landed.rs`): only when commits are left
+   dropped, one `rev-list --fixed-strings --author=<email>… <baseline> ^<remote tip>` of their authors finds the
+   baseline commits above the remote branch, and a remote commit with the key of one is landed. The record of the
+   robot (`landed_by`) is not needed: the baseline is the truth, also off Space.
+   **Risk**: as for amended, a different version of the commit made elsewhere with the same author, author time and
+   subject is replaced; its newer version is in the baseline.
+
+9. **Decision**: A copy the remote has by content but in another version is reworded, and the branch is not up to date
+   **Rationale**: The content is the whole comparison of a rebuilt branch, so a reword (or a new author) left the
+   branch "up to date, only rebased": nothing to push, and a Safe Push started, or restarted, from the remote branch
+   with the old message (robot `9d7a6cbd`, after a reword of a commit of `bd-lease`). Patronus lands the messages it
+   gets. Both walks carry the raw messages (`walk_commits_with_messages`, `%B` after the fields, each commit ended by
+   `\x01`), and the walk of the commits ahead marks the copies (`--cherry-mark` instead of `--cherry-pick`): a local
+   copy (`=`) whose author, author email, author time and message no remote copy (`=` of the walk behind) has is
+   reworded. No process more; a rebased copy keeps all four, so a branch only rebuilt stays up to date.
+
 ### Implementation Details
 
 The remote status calculation uses git's cherry-pick algorithm for patch-equivalent comparison:
@@ -125,16 +154,20 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   push computes after it, and the first sync after the push, whose statuses of the branch were of other commits.
 - **The walks** are one `rev-list` of `crates/sync-core/src/commit_walk.rs` (`walk_commits`, shared with the robot
   commit map): `--format=%m%x00%H%x00%an%x00%ae%x00%at%x00%s`, the caller's options, then the revs between
-  `--end-of-options` and `--`.
-- **Commits ahead and mine**: one walk, `git rev-list --reverse --cherry-pick --right-only ^baseline
-  origin/branch...local`; the user's commits are the ones whose author email matches, and the identity
-  (`CommitKey`) of each unpushed commit is what an amended remote commit matches: the new version of an amended commit
-  has other content, so it is unpushed.
+  `--end-of-options` and `--`; the two walks of a pushed branch read the raw messages too
+  (`walk_commits_with_messages`).
+- **Commits ahead and mine**: one walk, `git rev-list --reverse --cherry-mark --right-only ^baseline
+  origin/branch...local`; the lines marked `=` are copies the remote has by content, the rest is ahead. The user's
+  commits are the ones whose author email matches, and the identity (`CommitKey`) of each unpushed commit is what an
+  amended remote commit matches: the new version of an amended commit has other content, so it is unpushed. A copy
+  whose version (author, email, author time, message) no remote copy has is reworded.
 - **Commits behind (patch-aware)**: `git rev-list --cherry-mark --left-only --date-order <remote tip>...local`, newest
   first (a child before its parent). A line
   marked `=` (`%m`) is patch-equivalent to a local commit: the branch has it by content, it is not behind. Of the
   others, a line with the identity of an unpushed commit is an older version of it, one with the identity of a stack
-  ancestor's commit restacked; the rest is `commits_behind`, and its first ten are `dropped_commits`.
+  ancestor's commit restacked; of the rest, when there is any, one more walk of the baseline above the remote tip by
+  the authors of those commits finds the landed ones (Decision 8); what remains is `commits_behind`, and its first ten
+  are `dropped_commits`.
 - **Amended or a rebased copy**: only when an older version was found, one `git diff-tree --stdin -p -U0` of the
   pairs and one `git patch-id --stable` of its output: without context lines, and with the line numbers and
   whitespace a patch id ignores, equal ids are the same changes, a rebased copy; different ones are amended. The
@@ -191,20 +224,24 @@ Key components:
 - The commits behind are named for what they are, the remote's: "The remote has 2 commits your branch doesn't (by Ann
   and Bob).", never "commits you removed": after a rebase the patch-equivalent copies don't count, so what remains is
   someone else's work or the user's own dropped commit, and the authors tell which.
-- The older versions follow the commits to push, before the dropped ones: `1↑ · 1 amended`, `4↑ · restacked`,
-  `restacked` (nothing of its own to push), `1↑ · 1 amended · 2↓`. The description says "The remote has an older
-  version of 1 commit amended here." and "Rebuilt on the new auth: the remote has older versions of 2 of its
-  commits."; the Force Push button starts with what it replaces, "Force push replaces 1 commit amended here." or
-  "Force push replaces the older versions of auth's commits.", instead of those lines, and its toast says "replaced 1
-  amended commit" or "replaced the parent's older commits".
+- The older versions follow the commits to push, before the dropped ones: `1↑ · 1 amended`, `1 reworded`,
+  `1↑ · 7 landed`, `4↑ · restacked`, `restacked` (nothing of its own to push), `1↑ · 1 amended · 2↓`. The description
+  says "The remote has an older version of 1 commit amended here.", "The remote has the old message of 1 commit
+  reworded here.", "Rebuilt on the new auth: the remote has older versions of 2 of its commits." and "The remote has
+  older versions of 7 commits that landed."; the Force Push button starts with what it replaces, "Force push replaces 1
+  commit amended here." or "Force push replaces the older versions of auth's commits.", instead of those lines, and its
+  toast says "replaced 1 amended commit", "replaced 1 reworded commit", "replaced the parent's older commits" or
+  "replaced 7 landed commits".
 
 ### Colours
 One rule colours a push: the hue comes from its risk (`getPushHue` and `getPushColor` in `src/lib/push-summary.ts`),
 `warning` for a push that drops remote commits (behind), `primary` otherwise, also for the force push of a rebased
 branch, which only replaces the remote commits with their copies, and of an amended or restacked one, which replaces
-their older versions. Up to date, and a safe push of none of the user's commits, are neutral; a restacked branch with
-nothing of its own to push keeps `primary`, its remote branch is behind the user's work. Whether the remote is up to
-date is one function, `isRemoteUpToDate`: nothing to push, nothing amended, restacked or dropped. The push button and the
+their older versions (landed and reworded ones too). Up to date, and a safe push of none of the user's commits, are
+neutral; a restacked branch with nothing of its own to push keeps `primary`, its remote branch is behind the user's
+work. Whether the remote is up to date is one function, `isRemoteUpToDate`: nothing to push, nothing amended,
+reworded, restacked, landed or dropped. A robot's restart reads it too (`getRobotRestartAction`): a branch whose
+remote is not up to date is pushed first. The push button and the
 status text use it. See [Outgoing Commits](../../spec/repository/outgoing.spec.md).
 
 The `warning` hue is also the one push that asks first (`dropsRemoteCommits`): it drops someone else's work, so its

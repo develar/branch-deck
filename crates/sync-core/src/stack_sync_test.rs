@@ -304,7 +304,7 @@ fn stack_updates(events: &[SyncEvent]) -> BTreeMap<String, StackBranchUpdate> {
   events
     .iter()
     .filter_map(|event| match event {
-      SyncEvent::StackBranchUpdate(update) => Some((update.root.clone(), update.clone())),
+      SyncEvent::StackBranchUpdate(update) => Some((update.root.clone(), update.as_ref().clone())),
       _ => None,
     })
     .collect()

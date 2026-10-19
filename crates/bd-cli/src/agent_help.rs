@@ -132,8 +132,11 @@ Workflow: the commits into pull requests
    its `body` into it. An open pull request into a virtual branch (a parent's) is retargeted to the baseline: name
    `retargeted` with `approved_by` (GitHub may dismiss those approvals); `retarget_warnings` says what GitHub refused.
    --dry-run syncs, then asks the remote. Refusals, nothing pushed:
-   - `push_refused` (exit 4): a branch didn't sync, or is behind its remote branch (`remote.behind`; older versions
-     of commits amended or restacked here, `remote.amended` and `remote.restacked`, push without --force).
+   - `push_refused` (exit 4): a branch didn't sync, or is behind its remote branch (`remote.behind`, only what the
+     baseline lacks too). Older versions push without --force: of commits amended or restacked here
+     (`remote.amended`, `remote.restacked`), of commits the baseline has (`remote.landed`: after its whole stack
+     landed, a member's remote branch has its commits as they were; `replaced_landed` names them, nothing is lost),
+     and the remote copies of commits reworded here (`remote.reworded`).
    - `lease_rejected` (exit 4): the remote changed; bd fetched it. For a branch behind or rejected,
      `error.branches[].remote.dropped_commits` lists what a push drops: show it; once approved, --force
      --expect-remote <remote.head> for that one branch.
@@ -156,7 +159,8 @@ Workflow: the commits into pull requests
    - `review`: `readiness` (`not_required`, `approved`, `missing`, `unknown`), `groups` with their `reviewers` and
      `paths`, `waiting_for` (asked, not approved yet), `not_counted` (a bot's approval counts for nothing),
      `merge_request`; Patronus judges the approvals of the GitHub pull request;
-   - `push_needed` and the `refusals` a start would meet;
+   - `push_needed` and the `refusals` a start would meet; `remotes`, what the push replaces and drops of each remote
+     branch (a drop refuses with `push_refused`); a reworded branch needs a push, the robot lands the remote's messages;
    - `target_check`: bd fetches the target and replays what lands onto its tip, as Patronus rebases it before its
      checks: `result` `clean`, `conflict` or `not_run`; `fetched: false` means the check used the last fetched tip;
    - `lands`, what the one robot lands into the target, root first: a stacked branch lands the branches it is built

@@ -146,7 +146,7 @@ pub struct RemoteSummary {
   /// Commits of the virtual branch the remote doesn't have: all of them while there is no remote branch
   pub unpushed: usize,
   /// Commits the remote has that the virtual branch doesn't: a push with --force drops them. An older version of a
-  /// commit the branch has is not one of them (`amended`, `restacked`)
+  /// commit the branch or the baseline has is not one of them (`amended`, `restacked`, `landed`)
   pub behind: u32,
   /// Remote commits that are older versions of commits amended here (same author, author time and subject): a push
   /// replaces them without --force
@@ -156,12 +156,24 @@ pub struct RemoteSummary {
   /// since it was pushed: a push replaces them without --force
   #[serde(default, skip_serializing_if = "is_zero")]
   pub restacked: u32,
+  /// Remote commits that are older versions of commits the baseline has (same author, author time and subject; the
+  /// changes may differ, as when a Safe Push landed them on a newer target): they landed, a push replaces them without
+  /// --force
+  #[serde(default, skip_serializing_if = "is_zero")]
+  pub landed: u32,
+  /// Commits of the virtual branch the remote has by content in another version (a reword, another author): not
+  /// unpushed, but a push replaces their remote copies, which a Safe Push of the remote branch would land as they are
+  #[serde(default, skip_serializing_if = "is_zero")]
+  pub reworded: u32,
   /// The remote-tracking commit the counts compare with; `null` without a remote branch. `bd push --force` leases on
   /// it, as `--expect-remote` does
   pub head: Option<String>,
   /// The newest of the `behind` commits, newest first, at most ten
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub dropped_commits: Vec<DroppedCommitSummary>,
+  /// The newest of the `landed` commits, newest first, at most ten, each with the baseline commit that has it
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub landed_commits: Vec<LandedRemoteCommitSummary>,
   /// `head` in full, for the lease
   #[serde(skip)]
   pub head_id: Option<String>,
@@ -181,6 +193,15 @@ pub struct DroppedCommitSummary {
   pub author_time: u32,
 }
 
+/// A remote commit that landed in the baseline: a push replaces it
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct LandedRemoteCommitSummary {
+  pub commit: String,
+  pub subject: String,
+  /// The commit of the baseline with its author, author time and subject
+  pub baseline_commit: String,
+}
+
 impl RemoteSummary {
   /// `commit_count`: the commits of the branch, all of them unpushed without a remote branch
   pub fn new(remote: &RemoteStatusUpdate, commit_count: usize, short: &ShortIds) -> Self {
@@ -190,6 +211,8 @@ impl RemoteSummary {
       behind: remote.commits_behind,
       amended: remote.commits_amended,
       restacked: remote.commits_restacked,
+      landed: remote.commits_landed,
+      reworded: remote.commits_reworded,
       head: remote.remote_tip.as_deref().map(|head| short.get(head).to_string()),
       dropped_commits: remote
         .dropped_commits
@@ -201,8 +224,15 @@ impl RemoteSummary {
           author_time: commit.author_time,
         })
         .collect(),
+      landed_commits: landed_commits(remote, short),
       head_id: remote.remote_tip.clone(),
     }
+  }
+
+  /// A push of the branch would change its remote branch: the remote lacks it or commits of it, or has commits a push
+  /// replaces or drops
+  pub(crate) const fn has_work(&self) -> bool {
+    !self.exists || self.unpushed > 0 || self.behind > 0 || self.amended > 0 || self.restacked > 0 || self.landed > 0 || self.reworded > 0
   }
 
   /// The ids `new` shortens, for `RepoContext::short_ids`
@@ -212,7 +242,21 @@ impl RemoteSummary {
       .as_deref()
       .into_iter()
       .chain(remote.dropped_commits.iter().map(|commit| commit.id.as_str()))
+      .chain(remote.landed_commits.iter().flat_map(|commit| [commit.id.as_str(), commit.baseline_commit.as_str()]))
   }
+}
+
+/// The landed commits of `remote` (`RemoteSummary::landed_commits`), with the ids `RemoteSummary::ids` shortened
+pub(crate) fn landed_commits(remote: &RemoteStatusUpdate, short: &ShortIds) -> Vec<LandedRemoteCommitSummary> {
+  remote
+    .landed_commits
+    .iter()
+    .map(|commit| LandedRemoteCommitSummary {
+      commit: short.get(&commit.id).to_string(),
+      subject: commit.subject.clone(),
+      baseline_commit: short.get(&commit.baseline_commit).to_string(),
+    })
+    .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
@@ -543,17 +587,12 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
   }
 }
 
-/// Whether a push of the branch would change its remote branch
-const fn has_work_for_remote(remote: &RemoteSummary) -> bool {
-  !remote.exists || remote.unpushed > 0 || remote.behind > 0 || remote.amended > 0 || remote.restacked > 0
-}
-
 /// `branches` with the `bd push` each needs. `--expect-remote` pushes the named branch alone, so it pins the lease only
 /// when no branch it is built on has commits for the remote
 fn with_push_commands(mut branches: Vec<SyncedBranch>, bases: &HashMap<String, String>, bd: &str) -> Vec<SyncedBranch> {
   let work: HashMap<&str, bool> = branches
     .iter()
-    .map(|branch| (branch.name.as_str(), branch.tip.is_some() && branch.remote.as_ref().is_some_and(has_work_for_remote)))
+    .map(|branch| (branch.name.as_str(), branch.tip.is_some() && branch.remote.as_ref().is_some_and(RemoteSummary::has_work)))
     .collect();
   // the chain of bases, bounded in case a broken stack had a cycle
   let ancestor_has_work = |name: &str| {

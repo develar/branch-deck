@@ -1028,12 +1028,17 @@ rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress
 - `remote` compares with the remote-tracking branch of `origin` by content: `unpushed` commits it lacks, `behind`
   commits it has that the branch doesn't (a push drops them), and `head`, the remote commit the counts compare with
   (`null` without a remote branch). `dropped_commits` lists the newest ten of the `behind` commits, newest first:
-  `{"commit","subject","author","author_time"}`. Older versions of commits the branch has are not `behind`: `amended`
-  counts those of commits amended here, `restacked` those of commits of the branches it is built on (amended or
-  rebuilt since it was pushed); same author, author time and subject without the prefix, a push replaces them. Both
-  are left out at 0.
+  `{"commit","subject","author","author_time"}`. Older versions of commits the branch or the baseline has are not
+  `behind`: `amended` counts those of commits amended here, `restacked` those of commits of the branches it is built
+  on (amended or rebuilt since it was pushed), `landed` those of commits the baseline has above the remote branch (a
+  Safe Push landed them, also rebuilt with other changes: the remote branch of a member after its whole stack landed),
+  with the newest ten in `landed_commits`, `{"commit","subject","baseline_commit"}`; same author, author time and
+  subject without the prefix, a push replaces them. `reworded` counts the commits the remote has by content in another
+  version (a reword, a new author): not `unpushed`, yet a push replaces their remote copies, which a Safe Push of the
+  remote branch would land as they are. Each is left out at 0.
 - `push` is the `bd push` that brings the remote branch up to date, quoted for the shell, to run only after the user
-  approves: `bd push <branch>` (older versions of amended or restacked commits need no `--force`),
+  approves: `bd push <branch>` (older versions of amended, restacked or landed commits and reworded copies need no
+  `--force`),
   `bd push <branch> --force --expect-remote <remote.head>` when the push drops `dropped_commits`, and
   `bd push <branch> --force` when a branch it is built on has commits for the remote too (`--expect-remote` would push
   the branch alone). It is left out for a branch whose remote branch is up to date, one that didn't sync, and without
@@ -1094,9 +1099,11 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
 ```
 
 - Refused with `push_refused` (exit 4), nothing pushed: a branch that didn't sync, and one whose remote branch has
-  commits it lacks (`behind`) without `--force` (also a parent taken along: `--alone` leaves it). `amended` and
-  `restacked` need no `--force`: the push
-  replaces older versions of commits the branch has, and a parent with only them goes along. `--all` needs `--yes`. A
+  commits it lacks (`behind`) without `--force` (also a parent taken along: `--alone` leaves it). `amended`,
+  `reworded`, `restacked` and `landed` need no `--force`: the push replaces older versions of commits the branch or
+  the baseline has, and a parent with only them goes along. A pushed branch names the landed remote commits it
+  replaced in `replaced_landed` (`{"commit","subject","baseline_commit"}`, with `--dry-run` the ones it replaces): tell
+  the user they are in the baseline, nothing of them is lost. `--all` needs `--yes`. A
   branch refused as behind is in `error.branches` with its remote status, as below.
 - Refused with `robot_running` (exit 4), nothing pushed: on Space, a named branch whose Safe Push runs, on it or on a
   branch built on it that lands it ("A Safe Push of oauth is running: it lands auth with it"): a push won't land, and
@@ -1216,8 +1223,13 @@ lands them all. The branches built on it stay; after the merge the next sync bui
   ```
 
 - `--check` syncs and prints the same object without pushing or starting anything: what it `lands`, the profiles, the
-  review, `push_needed`, `target_check`, and `refusals`, each `{code, message}` a start would fail with. The agent shows
-  it to the user and starts only after the user approves.
+  review, `push_needed`, `remotes`, `target_check`, and `refusals`, each `{code, message}` a start would fail with. The
+  agent shows it to the user and starts only after the user approves.
+- `remotes` names each existing remote branch the start pushes, `{name, remote}` with the `remote` of `bd sync`: what
+  the push replaces (`amended`, `reworded`, `restacked`, `landed`) and drops (`behind`, `dropped_commits`). One that
+  drops commits refuses the check and the start with `push_refused` and the `bd push` that drops them, to run only
+  after the user approves; the start's error has it in `error.branches`. `push_needed` is true for a branch reworded
+  since its push: the robot would land the old messages of the remote branch.
 - The target conflict check (`target_check`, the core of the app's start too, `sync_core::target_conflict`): Patronus
   rebases what it lands onto the newest target before any check, and a conflict fails the robot at once. A branch is
   built on the base of the checked out branch, not on the newest target, and the target of a monorepo moves every

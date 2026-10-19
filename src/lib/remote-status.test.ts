@@ -68,6 +68,23 @@ describe("buildRemoteStatusTexts", () => {
 })
 
 describe("formatForcePushLine", () => {
+  it("says that the remote has the old messages of commits reworded here, or older versions of commits that landed", () => {
+    // the remote has the changes: nothing to push, yet not up to date
+    expect(buildRemoteStatusTexts(testRemoteStatus({ commitsReworded: 1, fastForward: false }))).toEqual({
+      text: "1 reworded",
+      tooltip: "The remote has the old message of 1 commit reworded here.",
+    })
+    expect(buildRemoteStatusTexts(testRemoteStatus({ commitsAhead: 2, myCommitsAhead: 2, commitsLanded: 7, fastForward: false }))).toEqual({
+      text: "2↑ · 7 landed",
+      tooltip: "2 commits to push.\nThe remote has older versions of 7 commits that landed.",
+    })
+    expect(formatForcePushLine(testRemoteStatus({ commitsReworded: 2, fastForward: false }))).toBe("Force push replaces the old messages of 2 commits reworded here.")
+    expect(formatForcePushLine(testRemoteStatus({ commitsAhead: 1, commitsAmended: 1, commitsLanded: 7, fastForward: false }))).toBe(
+      "Force push replaces 1 commit amended here and 7 commits that landed.",
+    )
+    expect(formatForcePushPart(testRemoteStatus({ commitsLanded: 1, commitsBehind: 1, fastForward: false }))).toBe("force push, drops 1 remote commit")
+  })
+
   it("names what a force push replaces when it drops nothing", () => {
     expect(formatForcePushLine(testRemoteStatus({ commitsAhead: 1, commitsAmended: 1, fastForward: false }))).toBe("Force push replaces 1 commit amended here.")
     expect(formatForcePushLine(testRemoteStatus({ commitsRestacked: 2, fastForward: false }), "air-lane-document")).toBe(

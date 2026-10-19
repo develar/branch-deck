@@ -1020,7 +1020,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
         };
         let updates = finish_stack_branches(&finish, &stack_branches, stack_results);
         for update in &updates {
-          let _ = progress.send(SyncEvent::StackBranchUpdate(update.clone()));
+          let _ = progress.send(SyncEvent::StackBranchUpdate(Box::new(update.clone())));
         }
         // their writes to the object cache, here on the blocking pool
         drop(remote_statuses);

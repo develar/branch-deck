@@ -289,7 +289,7 @@ fn push_from_elsewhere(remote: &TempDir, subject: &str) -> String {
 }
 
 /// `push_from_elsewhere` onto the remote branch `branch`
-fn push_from_elsewhere_to(remote: &TempDir, branch: &str, subject: &str) -> String {
+pub(crate) fn push_from_elsewhere_to(remote: &TempDir, branch: &str, subject: &str) -> String {
   let elsewhere = tempfile::tempdir().unwrap();
   let run = |args: &[&str]| {
     let status = git_command().args(args).current_dir(elsewhere.path()).output().unwrap();
@@ -578,6 +578,89 @@ fn amended_and_restacked_commits_push_without_force() {
     remote_tip(&remote, "test-user/virtual/login"),
     git(&repo, &["rev-parse", "refs/heads/test-user/virtual/login"])
   );
+}
+
+/// The subjects of `land_auth_by_content`: one branch, two commits
+pub(crate) const LANDED_SUBJECTS: [&str; 2] = ["(auth) Add auth", "(auth) Add login"];
+
+/// After the push of `LANDED_SUBJECTS`, a Safe Push landed both commits of auth into the baseline, as the robot of a
+/// whole stack does: `Add auth` rebuilt on a target that changed its lines (another patch; the author, the author time and
+/// the subject kept), `Add login` as it was; Update Project put the branch onto it, and auth got one new commit. Returns
+/// the baseline commit of `Add auth`
+pub(crate) fn land_auth_by_content(repo: &TestRepo) -> String {
+  git(repo, &["reset", "-q", "--hard", "refs/remotes/origin/master"]);
+  write(repo, "f0.txt", "(auth) Add auth, rebuilt on a changed target");
+  let landed = commit_all(repo, "Add auth", 1_700_000_000);
+  write(repo, "f1.txt", LANDED_SUBJECTS[1]);
+  commit_all(repo, "Add login", 1_700_000_100);
+  git(repo, &["update-ref", "refs/remotes/origin/master", "HEAD"]);
+  write(repo, "f2.txt", "(auth) Add session");
+  commit_all(repo, "(auth) Add session", 1_700_000_300);
+  landed
+}
+
+/// The remote branch of a member of a stack that landed whole has its commits as they were before the landing: older
+/// versions of commits the baseline has, by identity, though one has another patch there. Nothing of them is lost, so
+/// the sync counts them `landed`, not `behind`, and `bd push` replaces them without --force, naming them in
+/// `replaced_landed`; the remote branch gets the baseline and the one new commit
+#[test_log::test]
+fn a_push_replaces_the_remote_commits_the_baseline_landed_without_force() {
+  let (repo, remote) = repo_with_remote(&LANDED_SUBJECTS);
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let pushed = remote_tip(&remote, AUTH);
+  let landed = land_auth_by_content(&repo);
+
+  let (exit_code, output) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let auth = &branch(&output, "auth")["remote"];
+  assert_eq!((&auth["unpushed"], &auth["landed"], &auth["behind"]), (&json!(1), &json!(1), &json!(0)), "{output}");
+  // the copy of `Add auth` on the remote, below the one of `Add login`, which the baseline has as it is
+  let pushed_auth = git(&repo, &["rev-parse", &format!("{pushed}~1")]);
+  assert_eq!(
+    auth["landed_commits"],
+    json!([{"commit": short_id(&pushed_auth), "subject": "Add auth", "baseline_commit": short_id(&landed)}])
+  );
+  assert_eq!(branch(&output, "auth")["push"], json!("bd push auth"));
+  let (_, schema) = run_in(&repo, &["schema"]);
+  assert_covered(&schema["outputs"]["sync"], &schema["outputs"]["sync"], &output, "sync");
+
+  let (exit_code, output) = run_in(&repo, &["push", "auth", "--dry-run"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(remote_tip(&remote, AUTH), pushed, "a dry run pushes nothing");
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_pushed(&output, exit_code, "forced", &pushed);
+  assert_eq!(output["branches"][0]["replaced_landed"], auth["landed_commits"]);
+  assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
+  let tip = git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]);
+  assert_eq!(remote_tip(&remote, AUTH), tip);
+  assert_eq!(
+    git(&repo, &["rev-list", "--count", &format!("refs/remotes/origin/master..{tip}")]),
+    "1",
+    "the new commit on the baseline"
+  );
+}
+
+/// The same landing, and someone else's commit on the remote branch, which the baseline lacks: the push stays refused
+/// without --force, and `dropped_commits` names only that commit, the landed one counted apart
+#[test_log::test]
+fn a_remote_commit_the_baseline_lacks_still_refuses_the_push() {
+  let (repo, remote) = repo_with_remote(&LANDED_SUBJECTS);
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let theirs = push_from_elsewhere_to(&remote, AUTH, "Someone else");
+  git(&repo, &["fetch", "-q", "origin"]);
+  land_auth_by_content(&repo);
+
+  let (exit_code, output) = run_in(&repo, &["push", "auth"]);
+  assert_error(&output, exit_code, (4, "push_refused"));
+  let refused = &output["error"]["branches"][0]["remote"];
+  assert_eq!(
+    (&refused["head"], &refused["behind"], &refused["landed"]),
+    (&json!(short_id(&theirs)), &json!(1), &json!(1))
+  );
+  assert_eq!(dropped_subjects(refused), ["Someone else"]);
+  assert_eq!(remote_tip(&remote, AUTH), theirs, "nothing was pushed");
 }
 
 /// `bd push` with the arguments of a `push` line of the sync output

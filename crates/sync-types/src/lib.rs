@@ -42,6 +42,16 @@ pub struct RemoteStatusUpdate {
   /// Commits of the remote that are older versions of commits of the branches a stacked branch is built on (they were
   /// amended or rebuilt since the branch was pushed): a push replaces them
   pub commits_restacked: u32,
+  /// Commits of the remote that are older versions of commits the baseline has above the remote branch (author, author
+  /// time and subject match a baseline commit, as Update Project finds landed commits; the changes may differ, as when a
+  /// Safe Push landed them rebuilt on a newer target): a push replaces them
+  pub commits_landed: u32,
+  /// The newest of the landed commits, newest first, at most `remote_status::DROPPED_COMMITS_LIMIT`, all of them when
+  /// only one more (`commits_landed` is the total)
+  pub landed_commits: Vec<LandedRemoteCommit>,
+  /// Commits of the branch the remote has by content in another version: their message or author changed here (a
+  /// reword), so a push replaces the remote's copies, which a robot would land as they are
+  pub commits_reworded: u32,
   /// Of the unpushed commits, the ones authored by the current user
   pub my_unpushed_count: u32,
   /// The remote branch is an ancestor of the local one; false for a rebased branch, which a push overwrites
@@ -61,6 +71,17 @@ pub struct DroppedCommit {
   pub author: String,
   /// Unix timestamp
   pub author_time: u32,
+}
+
+/// A commit of the remote branch that is an older version of a commit of the baseline: a push replaces it
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct LandedRemoteCommit {
+  pub id: String,
+  pub subject: String,
+  /// The baseline commit with its identity
+  pub baseline_commit: String,
 }
 
 /// Progress events for sync operations
@@ -133,7 +154,7 @@ pub enum SyncEvent {
   /// Sent for each stack branch `BranchesGrouped` announced, once the branches of its stack are built: its state, its
   /// tip and its remote status
   #[serde(rename_all = "camelCase")]
-  StackBranchUpdate(stack::StackBranchUpdate),
+  StackBranchUpdate(Box<stack::StackBranchUpdate>),
   /// Sent once after `BranchesGrouped`: whether the checked out branch can be updated onto the last fetched baseline
   /// (checked without the network). Both fields `None` for a local baseline, which has nothing to update from.
   #[serde(rename_all = "camelCase")]

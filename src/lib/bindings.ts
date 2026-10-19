@@ -1456,6 +1456,14 @@ export type LandedCommit = {
 	upstream: UpstreamCommit | null,
 };
 
+/**  A commit of the remote branch that is an older version of a commit of the baseline: a push replaces it */
+export type LandedRemoteCommit = {
+	id: string,
+	subject: string,
+	/**  The baseline commit with its identity */
+	baselineCommit: string,
+};
+
 /**  The line ends of a whole file */
 export type LineEndKind = "lf" | "crlf" | "cr" | 
 /**  More than one kind */
@@ -2249,6 +2257,22 @@ export type RemoteStatusUpdate = {
 	 *  amended or rebuilt since the branch was pushed): a push replaces them
 	 */
 	commitsRestacked: number,
+	/**
+	 *  Commits of the remote that are older versions of commits the baseline has above the remote branch (author, author
+	 *  time and subject match a baseline commit, as Update Project finds landed commits; the changes may differ, as when a
+	 *  Safe Push landed them rebuilt on a newer target): a push replaces them
+	 */
+	commitsLanded: number,
+	/**
+	 *  The newest of the landed commits, newest first, at most `remote_status::DROPPED_COMMITS_LIMIT`, all of them when
+	 *  only one more (`commits_landed` is the total)
+	 */
+	landedCommits: LandedRemoteCommit[],
+	/**
+	 *  Commits of the branch the remote has by content in another version: their message or author changed here (a
+	 *  reword), so a push replaces the remote's copies, which a robot would land as they are
+	 */
+	commitsReworded: number,
 	/**  Of the unpushed commits, the ones authored by the current user */
 	myUnpushedCount: number,
 	/**  The remote branch is an ancestor of the local one; false for a rebased branch, which a push overwrites */

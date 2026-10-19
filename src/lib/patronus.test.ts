@@ -220,6 +220,9 @@ describe("formatRobotCommitNotice", () => {
     expect(notice(failed, pushedSince)).toBe(`${changed} Restart Safe Push to test the current branch.`)
     // a plain restart would test the commit the remote has
     expect(getRobotRestartAction(failed, "IJPL-1", localTip, unpushed)).toBe("pushAndRestart")
+    // a reword since: the remote has the changes with the old message, which the robot would land
+    const reworded = testRemoteStatus({ remoteTip: started.sourceRevision, commitsReworded: 1, fastForward: false })
+    expect(getRobotRestartAction(failed, "IJPL-1", localTip, reworded)).toBe("pushAndRestart")
     expect(notice(failed, unpushed)).toBe(`${changed} Restart Safe Push to test the current branch.`)
     // a passed dry run restarts only on a newer pushed commit: the push makes one
     const passed = robot({ status: "success", pushMode: "dryRun", ...started })

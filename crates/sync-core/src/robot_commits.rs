@@ -7,7 +7,7 @@
 //! checked-out branch they are copies of: an agent edits those, no hash the CI reports is local.
 
 use crate::commit_key::CommitKey;
-use crate::commit_walk::{WalkedCommit, walk_commits};
+use crate::commit_walk::{WalkedCommit, walk_commits, walk_commits_by_authors};
 use crate::remote_status::same_changes;
 use crate::review_fetch::present_commits;
 use crate::snapshot::read_grouping_inputs;
@@ -16,7 +16,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::revs::{current_branch, is_object_id};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use sync_types::robot_failure::{RobotCommit, RobotCommitMap, RobotCommitState, RobotFailure, RobotFailureReport};
 use tracing::{debug, instrument};
 
@@ -60,19 +60,10 @@ pub(crate) fn mapped_virtual(commit: &Commit) -> Option<&str> {
 /// The identities of the baseline commits since `source_revision` by the authors of `commits`: one `rev-list`, the
 /// authors as fixed strings, so a monorepo baseline stays small (as `landed` reads the upstream)
 fn landed_keys(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str, source_revision: &str, commits: &[&WalkedCommit]) -> Result<HashSet<CommitKey>> {
-  let authors: BTreeSet<String> = commits
-    .iter()
-    .filter(|commit| !commit.key.email.is_empty())
-    .map(|commit| format!("--author=<{}>", commit.key.email))
-    .collect();
-  if authors.is_empty() {
-    return Ok(HashSet::new());
-  }
   let exclusion = format!("^{source_revision}");
-  let mut options = vec!["--fixed-strings"];
-  options.extend(authors.iter().map(String::as_str));
+  let emails = commits.iter().map(|commit| commit.key.email.as_str());
   Ok(
-    walk(git_executor, repository_path, &options, &[baseline_branch, exclusion.as_str()])?
+    walk_commits_by_authors(git_executor, repository_path, emails, &[baseline_branch, exclusion.as_str()])?
       .into_iter()
       .map(|commit| commit.key)
       .collect(),

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use sync_core::remote_status::{AncestorCommits, DROPPED_COMMITS_LIMIT, PushTimes, StackParent, compute_remote_status_for_branch};
 use sync_core::sync::sync_branches;
 use sync_test_utils::TestReporter;
-use sync_types::{DroppedCommit, SyncEvent};
+use sync_types::{DroppedCommit, LandedRemoteCommit, SyncEvent};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -475,11 +475,15 @@ fn feature_status(scenario: &TestScenario) -> sync_types::RemoteStatusUpdate {
   branch_status(&scenario.git_executor, scenario, "feature")
 }
 
-/// The pushed `user/virtual/feature` of one commit of the user, `First`, on `main`; HEAD is `development`
+/// The author time of `First` of `pushed_feature`, which a landed copy keeps
+const FIRST_TIME: i64 = 1_700_000_000;
+
+/// The pushed `user/virtual/feature` of one commit of the user, `First` (at `FIRST_TIME`), on `main`; HEAD is
+/// `development`
 fn pushed_feature() -> (TestScenario, String) {
   let scenario = TestScenario::new();
   scenario.setup_development_branch();
-  let first = scenario.local_repo.create_commit("(feature) First", "first.txt", "first");
+  let first = scenario.local_repo.create_commit_with_timestamp("(feature) First", "first.txt", "first", Some(FIRST_TIME));
   scenario.local_repo.create_branch_at("user/virtual/feature", &first).unwrap();
   scenario.local_repo.push("origin", "user/virtual/feature").unwrap();
   (scenario, first)
@@ -529,6 +533,7 @@ async fn test_rebased_branch_with_new_commit_is_not_fast_forward() {
   assert_eq!(result.unpushed_commits, vec![second]);
   assert_eq!(result.my_unpushed_count, 1);
   assert_eq!(result.commits_behind, 0);
+  assert_eq!(result.commits_reworded, 0, "a rebased copy keeps its message and author");
   assert!(!result.fast_forward);
   assert_eq!(result.remote_tip.as_deref(), Some(first.as_str()), "the remote still has the commit before the rebase");
 }
@@ -796,6 +801,66 @@ async fn a_rebased_copy_whose_context_moved_is_not_amended() {
   assert!(!result.fast_forward, "the push replaces the remote copy");
 }
 
+/// A Safe Push landed a pushed commit rebuilt on a newer target, where a change below it changed its lines: the baseline
+/// has a commit with its author, author time and subject but another patch, so `--cherry-mark` misses it. The remote's
+/// copy is an older version of a landed commit, which a push replaces without --force; someone else's commit on the
+/// remote branch stays dropped
+#[test(tokio::test)]
+async fn a_remote_commit_that_landed_in_the_baseline_with_other_changes_is_landed_not_dropped() {
+  let (scenario, theirs) = feature_with_their_fixes(1);
+  let first = scenario.local_repo.git(&["rev-parse", &format!("{}~1", theirs[0])]);
+
+  // the landed copy: the subject without the prefix, the author and the author time kept, the content changed
+  scenario.local_repo.checkout("main").unwrap();
+  scenario.configure_author();
+  let landed = scenario
+    .local_repo
+    .create_commit_with_timestamp("First", "first.txt", "first, rebuilt on a changed target", Some(FIRST_TIME));
+  scenario.local_repo.push("origin", "main").unwrap();
+  // the branch rebuilt on the new baseline, with one new commit
+  scenario.local_repo.git(&["branch", "-f", "user/virtual/feature", "origin/main"]);
+  scenario.local_repo.checkout("user/virtual/feature").unwrap();
+  let second = scenario.local_repo.create_commit("(feature) Second", "second.txt", "second");
+
+  let result = feature_status(&scenario);
+
+  assert_eq!(result.unpushed_commits, [second]);
+  assert_eq!(
+    (result.commits_amended, result.commits_restacked, result.commits_landed, result.commits_behind),
+    (0, 0, 1, 1)
+  );
+  assert_eq!(
+    result.landed_commits,
+    [LandedRemoteCommit {
+      id: first,
+      subject: "(feature) First".to_string(),
+      baseline_commit: landed,
+    }]
+  );
+  assert_eq!(dropped_subjects(&result), ["Their fix 0"], "only someone else's commit is dropped");
+}
+
+/// A reword keeps the changes, so the remote has the commit by content, yet in another version: its message. The
+/// remote branch is not up to date, a robot would land the old message; a new author is another version too, and a copy
+/// with the message and the author as pushed only rebuilt
+#[test(tokio::test)]
+async fn a_reworded_commit_is_not_on_the_remote_as_it_is() {
+  let (scenario, _) = pushed_feature();
+  let amend = |args: &[&str]| {
+    scenario.local_repo.git(&[&["commit", "--amend", "--no-verify"], args].concat());
+    scenario.local_repo.git(&["branch", "-f", "user/virtual/feature", "HEAD"]);
+    let status = feature_status(&scenario);
+    assert_eq!(status.unpushed_commits, Vec::<String>::new(), "the remote has the changes");
+    assert_eq!((status.commits_amended, status.commits_landed, status.commits_behind), (0, 0, 0));
+    assert!(!status.fast_forward);
+    status.commits_reworded
+  };
+
+  assert_eq!(amend(&["-m", "(feature) First, reworded"]), 1, "reworded");
+  assert_eq!(amend(&["-m", "(feature) First", "--author", "Other User <other@example.com>"]), 1, "another author");
+  assert_eq!(amend(&["-m", "(feature) First", "--author", "Test User <user@example.com>"]), 0, "as pushed, only rebuilt");
+}
+
 /// What a status says of the remote side, and the git processes it ran by subcommand
 #[derive(Debug, PartialEq, Eq)]
 struct RemoteSide {
@@ -865,7 +930,12 @@ fn one_walk_tells_what_is_behind_and_the_fast_forward() {
   configure_test_author(&theirs.upstream_repo, "other@example.com", "Other User");
   theirs.upstream_repo.create_commit("Their fix", "theirs.txt", "theirs");
   theirs.local_repo.fetch_prune("origin").unwrap();
-  assert_eq!(counted_remote_side(&theirs), walked(Vec::new(), 1, false), "the remote has a commit of another author");
+  // a commit behind is looked for in the baseline by its identity (landed): one more `rev-list`, only then
+  let dropped = RemoteSide {
+    processes: BTreeMap::from([("for-each-ref".to_string(), 1), ("reflog".to_string(), 1), ("rev-list".to_string(), 3)]),
+    ..walked(Vec::new(), 1, false)
+  };
+  assert_eq!(counted_remote_side(&theirs), dropped, "the remote has a commit of another author");
 
   // First reached the baseline as a copy, and the branch is rebuilt on it with a new commit
   let (landed, first) = pushed_feature();

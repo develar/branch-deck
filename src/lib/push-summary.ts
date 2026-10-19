@@ -11,19 +11,26 @@ export type PushAction = OutgoingState | "upToDate"
 
 type RemoteStatusInput = Pick<Branch, "remoteStatus">
 
-type RemoteCounts = Pick<RemoteStatus, "exists" | "commitsAhead" | "commitsBehind" | "commitsAmended" | "commitsRestacked">
+/** The older versions a push replaces */
+type OlderVersions = Pick<RemoteStatus, "commitsAmended" | "commitsRestacked" | "commitsLanded" | "commitsReworded">
+
+type RemoteCounts = Pick<RemoteStatus, "exists" | "commitsAhead" | "commitsBehind"> & OlderVersions
 
 /**
  * The remote branch has the branch as it is, by content: nothing to push, and no remote commit the branch lacks, as an
- * older version (amended, restacked) or as work a push drops. A branch only rebased onto a newer baseline is up to date.
+ * older version (amended, restacked, landed, reworded) or as work a push drops. A branch only rebased onto a newer
+ * baseline is up to date; one reworded since is not, a robot would land the remote's messages.
  */
 export function isRemoteUpToDate(remote: RemoteCounts): boolean {
   return remote.exists && remote.commitsAhead === 0 && remote.commitsBehind === 0 && !replacesOlderVersions(remote)
 }
 
-/** The remote has older versions of commits of the branch (amended here) or of its stack ancestors (restacked) */
-export function replacesOlderVersions(remote: Pick<RemoteStatus, "commitsAmended" | "commitsRestacked">): boolean {
-  return remote.commitsAmended > 0 || remote.commitsRestacked > 0
+/**
+ * The remote has older versions of commits of the branch (amended here, or reworded: the same changes with another
+ * message or author), of its stack ancestors (restacked) or of the baseline (landed)
+ */
+export function replacesOlderVersions(remote: OlderVersions): boolean {
+  return remote.commitsAmended > 0 || remote.commitsRestacked > 0 || remote.commitsLanded > 0 || remote.commitsReworded > 0
 }
 
 /**
@@ -108,16 +115,25 @@ export function describePush(branchName: string, before: RemoteStatus | null): P
   }
 }
 
-/** "replaced 1 amended commit", "replaced the parent's older commits", both joined by "and"; null when neither */
-function formatReplaced({ commitsAmended, commitsRestacked }: Pick<RemoteStatus, "commitsAmended" | "commitsRestacked">): string | null {
+/**
+ * "replaced 1 amended commit", "replaced 2 reworded commits", "replaced the parent's older commits", "replaced 3 landed
+ * commits", joined by "and"; null when none
+ */
+function formatReplaced({ commitsAmended, commitsRestacked, commitsLanded, commitsReworded }: OlderVersions): string | null {
   const replaced: string[] = []
   if (commitsAmended > 0) {
     replaced.push(plural(commitsAmended, "amended commit", "amended commits"))
   }
+  if (commitsReworded > 0) {
+    replaced.push(plural(commitsReworded, "reworded commit", "reworded commits"))
+  }
   if (commitsRestacked > 0) {
     replaced.push("the parent's older commits")
   }
-  return replaced.length === 0 ? null : `replaced ${replaced.join(" and ")}`
+  if (commitsLanded > 0) {
+    replaced.push(plural(commitsLanded, "landed commit", "landed commits"))
+  }
+  return replaced.length === 0 ? null : `replaced ${joinNames(replaced)}`
 }
 
 /** A push of a branch, by the remote status it was made against */
@@ -318,6 +334,10 @@ export interface PushCount {
   amended: number
   /** Older versions of the commits of the branches it is built on */
   restacked: number
+  /** Older versions of commits the baseline has */
+  landed: number
+  /** Commits whose remote copies have another message or author */
+  reworded: number
   /** Remote commits the push drops */
   behind: number
 }
@@ -325,14 +345,21 @@ export interface PushCount {
 /**
  * The size of a push, as the status text of a branch row: `3↑` when the 3 commits are the user's, `1 (3)↑` when some
  * are others' (`0 (3)↑`: none is theirs), then `· 1 amended` for the older versions of commits amended here,
- * `· restacked` for those of the branches it is built on, `· 2↓` for the remote commits the push drops. A part without
- * commits to push starts the text: `2↓`, `restacked`.
+ * `· 1 reworded` for the remote copies of commits reworded here, `· 2 landed` for older versions of commits the baseline
+ * has, `· restacked` for those of the branches it is built on, `· 2↓` for the remote commits the push drops. A part
+ * without commits to push starts the text: `2↓`, `restacked`, `1 reworded`.
  */
-export function formatPushCount({ mine, count, amended, restacked, behind }: PushCount): string {
+export function formatPushCount({ mine, count, amended, restacked, landed, reworded, behind }: PushCount): string {
   const ahead = mine === count ? `${count}↑` : `${mine} (${count})↑`
   const parts: string[] = count === 0 ? [] : [ahead]
   if (amended > 0) {
     parts.push(`${amended} amended`)
+  }
+  if (reworded > 0) {
+    parts.push(`${reworded} reworded`)
+  }
+  if (landed > 0) {
+    parts.push(`${landed} landed`)
   }
   if (restacked > 0) {
     parts.push("restacked")

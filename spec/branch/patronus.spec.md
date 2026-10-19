@@ -498,8 +498,9 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   branch whose remote branch has the same commits, only rebuilt since on a newer baseline (every sync onto a newer
   baseline does it), is not pushed: Patronus rebases the remote branch itself, and the target conflict check below
   proves that the rebase applies; a push would replace it with copies of the same commits and move the head of its
-  pull request for nothing. While the remote status of the branch is not
-  loaded, the start waits: "Checking auth…". A dry run pushes the branch too: only the push into the target is left out.
+  pull request for nothing. One reworded since is pushed: Patronus lands the messages of the remote branch. While the
+  remote status of the branch is not loaded, the start waits: "Checking auth…". A dry run pushes the branch too: only
+  the push into the target is left out.
   [@test] ../../src/lib/patronus.test.ts (`pushes before a start only what the remote lacks by content, and waits for the remote status`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a branch whose remote branch has its commits under other hashes without a push`, `should wait to start until the remote status of the branch is loaded`)
 - A push before the start of a branch with an open pull request into the target that someone approved, in a
@@ -992,8 +993,9 @@ explicit choice of the user, offered only where the approvals count in a pull re
   target ("auth → master") with "Open in Patronus" (the new robot's page for a restart), as a start does; Activity
   records them in the same words. A failure is "Cannot restart the Safe Push" / "Cannot cancel the Safe Push".
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should restart a failed robot and cancel a running one from the popover`)
-- Patronus restarts on the newest commit of the remote branch. When the branch has work the remote lacks, every surface
-  offers "Restart Safe Push" instead of Restart: the push of the row, then the restart on the pushed commit,
+- Patronus restarts on the newest commit of the remote branch. When the branch has work the remote lacks (by content,
+  or commits reworded since its push: the remote has them with the old messages, which Patronus would land), every
+  surface offers "Restart Safe Push" instead of Restart: the push of the row, then the restart on the pushed commit,
   also for a running robot, which it cancels first ([below](#pushing-into-a-branch-whose-safe-push-runs)); a passed dry run counts
   the pushed commit as the newer one. It is disabled for a blocked branch, with the reason. The restart is the action:
   its toast "Safe Push restarted" is the one toast, the push has none (Activity records both).

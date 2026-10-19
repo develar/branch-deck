@@ -1,6 +1,6 @@
 use crate::context::Environment;
 use crate::fixture_test::{ACP_HOST, PREFIX, assert_error, commit_all, commit_dangling_reference, environment, git, run_json, write};
-use crate::push_test::repo_with_remote;
+use crate::push_test::{LANDED_SUBJECTS, land_auth_by_content, push_from_elsewhere_to, repo_with_remote};
 use crate::schema_test::assert_covered;
 use github::fake_github::{FakeAnswer, FakeGitHub, start_fake as start_fake_github};
 use github::token::TokenSources;
@@ -21,7 +21,7 @@ pub(crate) const AUTH: &str = "test-user/virtual/auth";
 /// repository through a fake `ssh`, and a Patronus that answers for it
 pub(crate) struct Space {
   pub(crate) repo: TestRepo,
-  remote: TempDir,
+  pub(crate) remote: TempDir,
   pub(crate) home: TempDir,
   pub(crate) fake: Arc<FakePatronus>,
   patronus_url: String,
@@ -284,6 +284,15 @@ fn push_and_rebuild_on_a_newer_baseline(space: &Space, environment: &Environment
   pushed
 }
 
+/// `bd safe-push auth` after a failed robot on `pushed`: it starts a new one
+fn start_auth_after_a_failed_robot(space: &Space, pushed: &str) -> Value {
+  space.set_robots(vec![robot("older", "FAILURE", "auth", pushed)]);
+  let (exit_code, output) = space.run(&["auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["robot"]["id"], json!("started"));
+  output
+}
+
 #[test_log::test]
 fn a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_without_a_push() {
   let space = Space::new(&["(auth) Add auth"]);
@@ -292,11 +301,8 @@ fn a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_witho
   // a robot on the remote branch runs on the same commits: a start would repeat it
   assert_refused_for_a_robot_on(&space, &pushed);
 
-  space.set_robots(vec![robot("older", "FAILURE", "auth", &pushed)]);
-  let (exit_code, output) = space.run(&["auth"]);
-  assert_eq!(exit_code, 0, "{output}");
+  let output = start_auth_after_a_failed_robot(&space, &pushed);
   assert_eq!((output["push_needed"].clone(), output.get("pushed")), (json!(false), None));
-  assert_eq!(output["robot"]["id"], json!("started"));
   assert_eq!(space.remote_tip(AUTH), pushed, "nothing was pushed");
   assert_eq!(space.last_start()["sourceBranch"], json!(format!("refs/heads/{AUTH}")));
 
@@ -315,6 +321,75 @@ fn a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_witho
   assert_eq!(*space.fake.canceled.lock().unwrap(), vec!["running".to_string()]);
   assert_eq!(output["robot"]["id"], json!("started"));
   assert_eq!(space.remote_tip(AUTH), pushed, "nothing was pushed");
+}
+
+/// `bd safe-push auth --check` of a branch whose remote branch is not as it is: a push is due, nothing refuses the
+/// start, and the output matches the schema; returns the remote state of auth in `remotes`
+fn check_auth_needs_a_push(space: &Space) -> Value {
+  let (exit_code, output) = space.run(&["auth", "--check"]);
+  assert_eq!((exit_code, output.get("refusals")), (0, None), "{output}");
+  assert_eq!(output["push_needed"], json!(true));
+  assert_eq!(output["remotes"][0]["name"], json!("auth"));
+  let (_, schema) = run_json(&space.environment(), &["schema"]);
+  assert_covered(&schema["outputs"]["safe_push"], &schema["outputs"]["safe_push"], &output, "safe_push");
+  output["remotes"][0]["remote"].clone()
+}
+
+/// A reword after the push keeps the changes, so the remote has the commit by content, but with the old message: a
+/// robot on the remote branch would land it. The check says a push is due (`remote.reworded`), and the start pushes
+/// before it starts, as it does after an amend
+#[test_log::test]
+fn a_branch_reworded_since_its_push_is_pushed_before_the_start() {
+  let space = Space::new(&["(auth) Add auth"]);
+  let pushed = push_and_rebuild_on_a_newer_baseline(&space, &space.environment());
+  git(&space.repo, &["commit", "--amend", "-q", "-m", "(auth) Add the auth module"]);
+
+  let remote = check_auth_needs_a_push(&space);
+  assert_eq!((&remote["unpushed"], &remote["reworded"], &remote["behind"]), (&json!(0), &json!(1), &json!(0)));
+
+  let output = start_auth_after_a_failed_robot(&space, &pushed);
+  assert_eq!(output["pushed"][0]["name"], json!("auth"));
+  assert_eq!(space.remote_tip(AUTH), space.local_tip(AUTH), "the reworded commit is on the remote");
+}
+
+/// A member of a stack that landed whole got a new commit: its remote branch has its commits as they were before the
+/// landing, which the baseline has by identity (`remote.landed`). The check names them and refuses nothing, the start
+/// pushes without --force; someone else's commit there, which the baseline lacks, refuses the check and the start with
+/// the push that drops it
+#[test_log::test]
+fn check_counts_the_remote_commits_the_baseline_landed_and_refuses_a_drop() {
+  let space = Space::new(&LANDED_SUBJECTS);
+  let (exit_code, output) = bd_push(&space.environment(), &["auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  land_auth_by_content(&space.repo);
+
+  let remote = check_auth_needs_a_push(&space);
+  assert_eq!((&remote["unpushed"], &remote["landed"], &remote["behind"]), (&json!(1), &json!(1), &json!(0)));
+
+  let theirs = push_from_elsewhere_to(&space.remote, AUTH, "Someone else");
+  git(&space.repo, &["fetch", "-q", "origin"]);
+  let (exit_code, output) = space.run(&["auth", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["refusals"][0]["code"], json!("push_refused"), "{output}");
+  let message = output["refusals"][0]["message"].as_str().unwrap();
+  assert!(
+    message.contains(&format!("`bd push auth --force --expect-remote {}`", git_ops::revs::short_id(&theirs))),
+    "{message}"
+  );
+  assert_eq!(
+    (&output["remotes"][0]["remote"]["behind"], &output["remotes"][0]["remote"]["landed"]),
+    (&json!(1), &json!(1))
+  );
+
+  let (exit_code, output) = space.run(&["auth"]);
+  assert_error(&output, exit_code, (4, "push_refused"));
+  let refused = &output["error"]["branches"][0]["remote"];
+  assert_eq!(refused["dropped_commits"][0]["subject"], json!("Someone else"));
+  assert_eq!(
+    (space.fake.start_calls.load(Ordering::SeqCst), space.remote_tip(AUTH)),
+    (0, theirs),
+    "nothing was pushed or started"
+  );
 }
 
 /// login stacked on auth, each with one commit of its own file

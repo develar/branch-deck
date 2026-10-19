@@ -98,15 +98,24 @@ is outgoing compares content, not hashes: the question is whether the remote has
   commit of the branch has it (an older version of a commit amended here) and makes other changes, a rebased copy
   counted nowhere when it makes the same changes on lines that moved around them, restacked when a commit of a branch
   it is built on has it (the parent was amended or rebuilt since the branch was pushed: the child's remote branch has
-  the parent's commits as they were), dropped otherwise. Only the dropped ones are behind (`commitsBehind`,
-  `droppedCommits`): a push replaces the older versions and drops the rest. Another author's commit is dropped, also
-  with the subject and the time of a commit of the branch. The sync knows the commits of the ancestors; a push
-  outside it reads them from the parent's virtual branch, only while a remote commit matches nothing of the branch.
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`an_amended_commit_is_amended_not_dropped`, `a_rebased_copy_whose_context_moved_is_not_amended`, `a_child_of_an_amended_parent_is_restacked`, `another_authors_commit_stays_dropped`, `an_amended_commit_and_a_dropped_one_are_told_apart`)
+  the parent's commits as they were), landed when a commit of the baseline above the remote branch has it (a Safe
+  Push landed it, also rebuilt with other changes: `commitsLanded`, `landedCommits` with the baseline commit of each),
+  dropped otherwise. Only the dropped ones are behind (`commitsBehind`, `droppedCommits`): a push replaces the older
+  versions and drops the rest. Another author's commit is dropped, also with the subject and the time of a commit of
+  the branch. The sync knows the commits of the ancestors; a push outside it reads them from the parent's virtual
+  branch, only while a remote commit matches nothing of the branch; the baseline is read only while commits are left
+  dropped, one walk more.
+  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`an_amended_commit_is_amended_not_dropped`, `a_rebased_copy_whose_context_moved_is_not_amended`, `a_child_of_an_amended_parent_is_restacked`, `another_authors_commit_stays_dropped`, `an_amended_commit_and_a_dropped_one_are_told_apart`, `a_remote_commit_that_landed_in_the_baseline_with_other_changes_is_landed_not_dropped`, `one_walk_tells_what_is_behind_and_the_fast_forward`)
+- A commit the remote has by content in another version, its message or its author changed here (a reword), must be
+  reworded (`commitsReworded`), with no process more than the walks: not ahead, yet the remote branch is not the
+  branch, and a robot started or restarted from it would land the old version. A rebased copy keeps its message and
+  author and stays up to date.
+  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`a_reworded_commit_is_not_on_the_remote_as_it_is`, `test_rebased_branch_with_new_commit_is_not_fast_forward`)
 - A branch is up to date only when the remote has nothing to receive and nothing the branch lacks, older versions
-  included (`isRemoteUpToDate`); the push button, the status text and the review status of a robot or a pull request
-  decide by it.
-  [@test] ../../src/lib/push-summary.test.ts (`force pushes a branch whose remote has older versions of commits amended or restacked`)
+  included, landed and reworded ones too (`isRemoteUpToDate`); the push button, the status text, the review status of
+  a robot or a pull request and the restart of a robot (pushed first when the remote is not up to date) decide by it.
+  [@test] ../../src/lib/push-summary.test.ts (`force pushes a branch whose remote has older versions of commits amended or restacked`, `force pushes, without the warning hue, a branch whose remote has older messages or commits that landed`)
+  [@test] ../../src/lib/patronus.test.ts (`names the change and the restart that tests the branch as it is, pushed first when the remote lacks it`)
   [@test] ../../src/lib/review-commit.test.ts (`compares with the remote branch and the remote status by content, not with the hash of the local tip`)
 - The remote status must name the remote commit it was computed against (`remoteTip`, null without a remote branch)
   and list the newest ten of the commits a push drops (`droppedCommits`: id, subject, author, time), newest first;
@@ -128,11 +137,12 @@ is outgoing compares content, not hashes: the question is whether the remote has
   [@test] ../../src/lib/push-summary.test.ts (`sums the outgoing branches in order and counts them by state`)
 - The count of a push must read `3↑` when its commits are all the user's, and `mine (total)↑` only when some are
   others' (`1 (3)↑`; `0 (3)↑` when none is theirs), then `· 1 amended` for the older versions of commits amended
-  here, `· restacked` for those of the branches it is built on, `· 2↓` for the remote commits it drops, in that
-  order; a push that sends no commit starts with the next part (`2↓`, `restacked`, `1 amended`), as the status text of
-  the branch row reads it.
+  here, `· 1 reworded` for the commits reworded here, `· 7 landed` for older versions of commits the baseline has,
+  `· restacked` for those of the branches it is built on, `· 2↓` for the remote commits it drops, in that order; a
+  push that sends no commit starts with the next part (`2↓`, `restacked`, `1 amended`, `1 reworded`), as the status
+  text of the branch row reads it.
   [@test] ../../src/lib/push-summary.test.ts (`names the older versions a push replaces after the commits it sends, before the ones it drops`)
-  [@test] ../../src/lib/remote-status.test.ts (`repeats the count in parentheses only when some commits to push are others'`, `says that the remote has older versions of commits amended here or of the parent's, not commits the branch lacks`)
+  [@test] ../../src/lib/remote-status.test.ts (`repeats the count in parentheses only when some commits to push are others'`, `says that the remote has older versions of commits amended here or of the parent's, not commits the branch lacks`, `says that the remote has the old messages of commits reworded here, or older versions of commits that landed`)
 
 ### Push colours
 
@@ -141,8 +151,8 @@ the stack chip. The hue says how risky the push is.
 
 - The hue must follow the risk of the push: `warning` when it drops remote commits the branch lacks (`· N↓`), `primary`
   otherwise. A force push of a rebased branch only replaces the remote commits with their rebased copies, one of an
-  amended or restacked branch their older versions: it is safe, `primary`, and keeps the `Force Push` label, which
-  says what git does.
+  amended, reworded, restacked or landed branch their older versions: it is safe, `primary`, and keeps the
+  `Force Push` label, which says what git does.
   [@test] ../../src/lib/push-summary.test.ts (`takes the hue from the risk: warning only for a push that drops remote commits`)
 - Up to date is neutral. A safe push of no commit of the user is neutral too (muted button, grey status dot): there is
   nothing of theirs to push. A first push and a push that drops remote commits keep their hue whoever authored the

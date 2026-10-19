@@ -1,6 +1,6 @@
 import type { DroppedCommit } from "@/lib/bindings"
 import { formatPushCount, getPushAction, isRemoteUpToDate, replacesOlderVersions } from "@/lib/push-summary"
-import { cutList } from "@/lib/text"
+import { cutList, joinNames } from "@/lib/text"
 import { formatTimestamp } from "@/lib/time"
 import type { UIColor } from "@/lib/ui-types"
 import type { RemoteStatus } from "@/stores/branch-sync"
@@ -8,7 +8,7 @@ import type { RemoteStatus } from "@/stores/branch-sync"
 export interface StatusTexts {
   /**
    * Compact display text, e.g. "3↑" | "1 (3)↑ · 2↓" | "0 (3)↑" | "2↓" | "1↑ · 1 amended" | "4↑ · restacked" |
-   * "restacked" | "up to date" | "not pushed"
+   * "restacked" | "1 reworded" | "1↑ · 7 landed" | "up to date" | "not pushed"
    */
   text: string
   /** Full descriptive text */
@@ -62,6 +62,16 @@ function formatAmended(count: number): string {
   return `The remote has ${olderVersions(count, plural(count, "commit", "commits"))} amended here.`
 }
 
+/** "The remote has the old message of 1 commit reworded here." */
+function formatReworded(count: number): string {
+  return `The remote has the old ${count === 1 ? "message" : "messages"} of ${plural(count, "commit", "commits")} reworded here.`
+}
+
+/** "The remote has older versions of 7 commits that landed." */
+function formatLanded(count: number): string {
+  return `The remote has ${olderVersions(count, plural(count, "commit", "commits"))} that landed.`
+}
+
 /** "Rebuilt on the new auth: the remote has older versions of 2 of its commits." */
 function formatRestacked(count: number, parent: string | null): string {
   return `Rebuilt on the new ${parent ?? "parent"}: the remote has ${olderVersions(count, `${count} of its commits`)}.`
@@ -80,7 +90,7 @@ export interface RemoteStatusTextOptions {
  * has older versions of commits of when the branch is restacked
  */
 export function buildRemoteStatusTexts(remote: RemoteStatus, parent: string | null = null, { forcePush = false }: RemoteStatusTextOptions = {}): RemoteStatusTexts {
-  const { exists, commitsAhead, commitsBehind, commitsAmended, commitsRestacked, lastPushTime, fastForward } = remote
+  const { exists, commitsAhead, commitsBehind, commitsAmended, commitsRestacked, commitsLanded, commitsReworded, lastPushTime, fastForward } = remote
   const mine = Math.min(remote.myCommitsAhead ?? 0, commitsAhead)
 
   const withPushTime = (lines: readonly string[]): string => {
@@ -108,31 +118,55 @@ export function buildRemoteStatusTexts(remote: RemoteStatus, parent: string | nu
   if (commitsAmended > 0 && !olderVersionsNamed) {
     lines.push(formatAmended(commitsAmended))
   }
+  if (commitsReworded > 0 && !olderVersionsNamed) {
+    lines.push(formatReworded(commitsReworded))
+  }
   if (commitsRestacked > 0 && !olderVersionsNamed) {
     lines.push(formatRestacked(commitsRestacked, parent))
+  }
+  if (commitsLanded > 0 && !olderVersionsNamed) {
+    lines.push(formatLanded(commitsLanded))
   }
   if (commitsBehind > 0) {
     lines.push(formatRemoteHas(remote))
   } else if (!fastForward && !replacesOlderVersions(remote)) {
     lines.push(rebasedText)
   }
-  const text = formatPushCount({ mine, count: commitsAhead, amended: commitsAmended, restacked: commitsRestacked, behind: commitsBehind })
+  const text = formatPushCount({
+    mine,
+    count: commitsAhead,
+    amended: commitsAmended,
+    restacked: commitsRestacked,
+    landed: commitsLanded,
+    reworded: commitsReworded,
+    behind: commitsBehind,
+  })
   return { text, tooltip: withPushTime(lines) }
 }
 
 /**
- * The older versions a force push that drops nothing replaces: "1 commit amended here", "the older versions of auth's
- * commits", both joined by "and"; null when there are none or the push drops remote commits
+ * The older versions a force push that drops nothing replaces: "1 commit amended here", "the old message of 1 commit
+ * reworded here", "the older versions of auth's commits", "7 commits that landed", joined by "and"; null when there are
+ * none or the push drops remote commits
  */
 function formatReplacedVersions(remote: RemoteStatus, parent: string | null): string | null {
+  if (remote.commitsBehind > 0) {
+    return null
+  }
   const replaced: string[] = []
-  if (remote.commitsBehind === 0 && remote.commitsAmended > 0) {
+  if (remote.commitsAmended > 0) {
     replaced.push(`${plural(remote.commitsAmended, "commit", "commits")} amended here`)
   }
-  if (remote.commitsBehind === 0 && remote.commitsRestacked > 0) {
+  if (remote.commitsReworded > 0) {
+    replaced.push(`the old ${remote.commitsReworded === 1 ? "message" : "messages"} of ${plural(remote.commitsReworded, "commit", "commits")} reworded here`)
+  }
+  if (remote.commitsRestacked > 0) {
     replaced.push(`the older versions of ${parent === null ? "the parent" : parent}'s commits`)
   }
-  return replaced.length === 0 ? null : replaced.join(" and ")
+  if (remote.commitsLanded > 0) {
+    replaced.push(`${plural(remote.commitsLanded, "commit", "commits")} that landed`)
+  }
+  return replaced.length === 0 ? null : joinNames(replaced)
 }
 
 /**

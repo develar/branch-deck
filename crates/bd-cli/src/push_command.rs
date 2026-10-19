@@ -19,7 +19,7 @@ use crate::output::{SchemaVersion, ShortIds};
 use crate::pull_request_retarget::{RetargetedPullRequest, retarget_listed, retarget_pull_requests_of};
 use crate::push_hold::{PushHolds, read_push_holds};
 use crate::safe_push_command::github_service;
-use crate::sync_command::{RemoteSummary, SyncOutput, SyncedBranch, lock, sync_locked};
+use crate::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
 use git_ops::branch_description::Description;
 use git_ops::branch_names::to_final_branch_name;
 use git_ops::revs::{ref_tips, resolve_commit, tips_under};
@@ -153,6 +153,10 @@ pub struct PushedBranch {
   /// `expected` (the remote head of the status: the sync's, or --expect-remote) or `absent` (no remote branch: it must
   /// not exist)
   pub lease_source: String,
+  /// The remote commits the push replaced (with `--dry-run`: replaces) that landed in the baseline (`remote.landed` of
+  /// `bd sync`), each with the baseline commit that has it: no --force was needed, nothing of them is lost
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub replaced_landed: Vec<LandedRemoteCommitSummary>,
   pub pull_request: PullRequestDraft,
 }
 
@@ -379,11 +383,7 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
     let parent_ref = parent.as_deref().map(|parent| final_name(context, parent)).transpose()?;
     let remote_state = remote_status(context, statuses.as_ref(), report, branch, (&full_name, tip), parent_ref.as_deref())?;
     let along = implicit.contains(*name);
-    if along
-      && remote_state
-        .as_ref()
-        .is_some_and(|remote| remote.exists && remote.unpushed == 0 && remote.behind == 0 && remote.amended == 0 && remote.restacked == 0)
-    {
+    if along && remote_state.as_ref().is_some_and(|remote| !remote.has_work()) {
       // on the remote as it is: nothing to take along
       continue;
     }
@@ -547,7 +547,8 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
     .zip(&refs)
     .map(|(candidate, &pushed)| {
       let draft = pull_request_draft(descriptions, &repository_option, base_branch.clone(), &candidate.full_name);
-      pushed_branch(&candidate.synced.name, pushed, &statuses, draft, &short)
+      let replaced_landed = candidate.remote.as_ref().map_or_default(|remote| remote.landed_commits.clone());
+      pushed_branch(&candidate.synced.name, pushed, &statuses, draft, &short, replaced_landed)
     })
     .collect();
   let stacks = stacks
@@ -555,7 +556,11 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
     .zip(&refs[candidates.len()..])
     .map(|(stack, &pushed)| {
       let draft = stack_pull_request_draft(context, report, base_branch.clone(), stack)?;
-      Ok(pushed_branch(&stack.root, pushed, &statuses, draft, &short))
+      let replaced_landed = stack
+        .remote
+        .as_ref()
+        .map_or_default(|remote| landed_commits(remote, &context.short_ids(RemoteSummary::ids(remote))));
+      Ok(pushed_branch(&stack.root, pushed, &statuses, draft, &short, replaced_landed))
     })
     .collect::<Result<_, CliError>>()?;
 
@@ -651,12 +656,25 @@ const fn state_word(state: StackBranchState) -> &'static str {
 
 /// A push of the branch would change its remote branch
 pub(crate) const fn has_work_for_remote(remote: &RemoteStatusUpdate) -> bool {
-  !remote.remote_exists || !remote.unpushed_commits.is_empty() || remote.commits_behind > 0 || remote.commits_amended > 0 || remote.commits_restacked > 0
+  !remote.remote_exists
+    || !remote.unpushed_commits.is_empty()
+    || remote.commits_behind > 0
+    || remote.commits_amended > 0
+    || remote.commits_restacked > 0
+    || remote.commits_landed > 0
+    || remote.commits_reworded > 0
 }
 
 /// The output of a pushed ref named `name`: its commit, what the remote did with it (`statuses` of the push, by remote
-/// ref), its lease and its pull request
-pub(crate) fn pushed_branch(name: &str, pushed: &PushRef, statuses: &HashMap<String, PushedRefStatus>, pull_request: PullRequestDraft, short: &ShortIds) -> PushedBranch {
+/// ref), its lease, the landed remote commits it replaced and its pull request
+pub(crate) fn pushed_branch(
+  name: &str,
+  pushed: &PushRef,
+  statuses: &HashMap<String, PushedRefStatus>,
+  pull_request: PullRequestDraft,
+  short: &ShortIds,
+  replaced_landed: Vec<LandedRemoteCommitSummary>,
+) -> PushedBranch {
   let flag = statuses.get(&format!("refs/heads/{}", pushed.full_name)).map_or(' ', |status| status.flag);
   PushedBranch {
     name: name.to_string(),
@@ -670,6 +688,7 @@ pub(crate) fn pushed_branch(name: &str, pushed: &PushRef, statuses: &HashMap<Str
     },
     lease: pushed.lease.as_deref().map(|lease| short.get(lease).to_string()),
     lease_source: pushed.source.as_str().to_string(),
+    replaced_landed,
     pull_request,
   }
 }

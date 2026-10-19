@@ -34,7 +34,7 @@ use crate::push_command::{
 use crate::push_hold::{PushHolds, StackRobots};
 use crate::robot_list::list_robots;
 use crate::stack_summary::{WholeStack, WholeStackSummary, whole_stack_of};
-use crate::sync_command::{RemoteSummary, SyncOutput, SyncedBranch, lock, sync_locked};
+use crate::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
 use git_ops::branch_names::to_final_branch_name;
 use github::client::{GITHUB_URL, GitHubClient, GitHubError};
 use github::service::{GitHubFailure, GitHubService};
@@ -155,6 +155,11 @@ pub struct SafePushOutput {
   /// first. False for a remote branch with the same commits, only rebuilt on an older baseline: the robot takes it as it
   /// is (Patronus rebases it), nothing is pushed
   pub push_needed: bool,
+  /// The remote branches the start pushes that exist: what the push replaces of each (`remote.amended`, `restacked`,
+  /// `landed` with `landed_commits`: older versions, no --force needed) and drops (`remote.behind` with
+  /// `dropped_commits`, which refuses the start with `push_refused`)
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub remotes: Vec<ErrorBranch>,
   /// With `--check`: what refuses a start, each with the error code the start would fail with
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub refusals: Vec<Refusal>,
@@ -441,6 +446,8 @@ struct Plan {
   /// The open pull requests into a virtual branch of the branch and of the branches its push takes along
   retargets: Vec<RetargetedPullRequest>,
   push_needed: bool,
+  /// The remote branches the start pushes, with their remote status
+  remotes: Vec<ErrorBranch>,
   /// What the robot lands: the branches it is built on, root first, then the branch; or every branch of the stack
   lands: Vec<String>,
   refusals: Vec<Refusal>,
@@ -464,6 +471,8 @@ struct StackPush {
   tip: Option<String>,
   /// The remote head its remote status compared with, the lease of the push; `None` without a remote branch
   lease: Option<String>,
+  /// The remote commits that landed in the baseline, which the push replaces
+  replaced_landed: Vec<LandedRemoteCommitSummary>,
   /// Its pull request, as the text of the whole stack opens it
   draft: PullRequestDraft,
 }
@@ -518,6 +527,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     profiles: plan.profiles.iter().map(profile_summary).collect(),
     review: plan.review.as_ref().map(|review| review_summary(review, plan.github.is_some(), plan.pull_request.as_ref())),
     push_needed: plan.push_needed,
+    remotes: plan.remotes.clone(),
     refusals: Vec::new(),
     target_check: plan.target_check.as_ref().map(|(_, summary)| summary.clone()),
     alone: None,
@@ -547,6 +557,9 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   }
   if let Some(refusal) = plan.refusals.first().cloned() {
     let mut error = CliError::new(refusal.code, refusal.message);
+    if refusal.code == ErrorCode::PushRefused {
+      error.branches = plan.remotes.iter().filter(|branch| branch.remote.behind > 0).cloned().collect();
+    }
     if refusal.code == ErrorCode::ApprovalsMissing {
       error.review = output.review.take().map(Box::new);
     }
@@ -679,6 +692,8 @@ struct Landing<'r> {
   push_needed: bool,
   /// The branches the push takes along, whose pull requests into a virtual branch are retargeted too
   pushed_along: Vec<String>,
+  /// The remote branches the push changes, with their remote status
+  remotes: Vec<ErrorBranch>,
   refusals: Vec<Refusal>,
   stack: Option<StackPush>,
 }
@@ -737,6 +752,32 @@ fn branch_landing<'r>(context: &RepoContext, synced: &SyncOutput, stack: &'r Sta
   // the virtual branch of a stacked branch carries the commits of its ancestors: one robot lands them all, and the
   // branches built on it stay
   let lands: Vec<String> = ancestors.iter().cloned().chain(std::iter::once(name.to_string())).collect();
+  // what the push replaces and drops of each remote branch: one that would drop commits the baseline lacks refuses the
+  // start, as `bd push` refuses it, with the push that drops them
+  let remotes: Vec<ErrorBranch> = lands
+    .iter()
+    .filter_map(|branch| synced_by_name.get(branch.as_str()))
+    .filter_map(|branch| {
+      let remote = branch.remote.clone().filter(|remote| remote.exists && remote.has_work())?;
+      Some(ErrorBranch {
+        name: branch.name.clone(),
+        remote,
+      })
+    })
+    .collect();
+  for branch in remotes.iter().filter(|branch| branch.remote.behind > 0) {
+    let push = synced_by_name
+      .get(branch.name.as_str())
+      .and_then(|synced| synced.push.as_deref())
+      .unwrap_or("bd push --force");
+    refusals.push(Refusal {
+      code: ErrorCode::PushRefused,
+      message: format!(
+        "Nothing was pushed or started: {}: the remote branch has {} commits the branch doesn't, and the baseline neither (`dropped_commits`); `{push}` replaces them, after the user approves",
+        branch.name, branch.remote.behind
+      ),
+    });
+  }
   Ok(Landing {
     name: name.to_string(),
     subject: name.to_string(),
@@ -748,6 +789,7 @@ fn branch_landing<'r>(context: &RepoContext, synced: &SyncOutput, stack: &'r Sta
     lands,
     push_needed,
     pushed_along,
+    remotes,
     refusals,
     stack: None,
   })
@@ -772,6 +814,15 @@ fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, stack: &'r Stac
   }
   let remote = update.remote.as_ref();
   let has_work = remote.is_none_or(has_work_for_remote);
+  let short = context.short_ids(remote.into_iter().flat_map(RemoteSummary::ids));
+  let remotes: Vec<ErrorBranch> = remote
+    .filter(|remote| remote.remote_exists && has_work)
+    .map(|remote| ErrorBranch {
+      name: update.branch_name.clone(),
+      remote: RemoteSummary::new(remote, usize::try_from(update.commit_count).unwrap_or(usize::MAX), &short),
+    })
+    .into_iter()
+    .collect();
   if let Some(remote) = remote.filter(|remote| remote.commits_behind > 0) {
     refusals.push(Refusal {
       code: ErrorCode::PushRefused,
@@ -808,11 +859,13 @@ fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, stack: &'r Stac
     lands: update.members.clone(),
     push_needed: has_work,
     pushed_along: Vec::new(),
+    remotes,
     refusals,
     stack: Some(StackPush {
       full_name: update.branch_name.clone(),
       tip: update.tip.clone(),
       lease: remote.and_then(|remote| remote.remote_tip.clone()),
+      replaced_landed: remote.map_or_default(|remote| landed_commits(remote, &short)),
       draft: stack_pull_request_draft(context, &synced.report, base, update)?,
     }),
   })
@@ -927,6 +980,7 @@ fn plan(
     lands,
     push_needed,
     pushed_along,
+    remotes,
     mut refusals,
     stack: stack_push,
   } = landing;
@@ -1156,6 +1210,7 @@ fn plan(
     other_base_pull_request,
     retargets,
     push_needed,
+    remotes,
     // what merged Safe Pushes landed of it is in the target: the robot lands the rest, the branch itself always named
     lands: lands
       .into_iter()
@@ -1298,7 +1353,7 @@ fn push_stack_branch(context: &RepoContext, synced: &SyncOutput, root: &str, sta
     LeasedPush::WouldReject => return Err(CliError::new(ErrorCode::LeaseRejected, format!("The remote would reject {}", stack.full_name))),
   };
   let short = context.short_ids(std::iter::once(push.tip.as_str()).chain(push.lease.as_deref()));
-  Ok(pushed_branch(root, &push, &statuses, stack.draft.clone(), &short))
+  Ok(pushed_branch(root, &push, &statuses, stack.draft.clone(), &short, stack.replaced_landed.clone()))
 }
 
 /// The service of `bd`: the token of the Safe Push CLI (`./safePush.cmd`), else `SPACE_TOKEN`; `not_logged_in` without
@@ -1350,9 +1405,9 @@ pub(crate) fn patronus_error(message: String) -> CliError {
   CliError::new(ErrorCode::PatronusError, message)
 }
 
-/// The remote lacks commits of the branch, or has commits a push replaces
+/// The remote lacks commits of the branch, or has commits a push replaces or drops
 fn needs_push(remote: Option<&RemoteSummary>) -> bool {
-  remote.is_none_or(|remote| !remote.exists || remote.unpushed > 0 || remote.behind > 0 || remote.amended > 0 || remote.restacked > 0)
+  remote.is_none_or(RemoteSummary::has_work)
 }
 
 /// The pull requests of the branches, by virtual branch name, and of the stack branches, by root (one search). A Safe
