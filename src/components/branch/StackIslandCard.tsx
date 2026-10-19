@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { FoldVerticalIcon, GitPullRequestIcon, UnfoldVerticalIcon } from "lucide-react"
+import { useStore } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -16,6 +17,7 @@ import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
+import { nextStepSources, useNextStepStores } from "@/hooks/useBranchNextStep"
 import { useStackLandingNode, useStackNodeBranch } from "@/hooks/useLandingNode"
 import { useStackBranchAlong, useStackBranchPushAlone } from "@/hooks/usePushButton"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
@@ -61,7 +63,7 @@ import {
   useStackPush,
 } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
-import { useStackLandedBy } from "@/stores/landed-stacks"
+import { landedStacksStore, useStackLandedBy } from "@/stores/landed-stacks"
 import { useBranchRobot, useLandedWithChildrenReason, usePushHold, useStackRobot } from "@/stores/patronus"
 import { useRepositoryPullRequestMap, useStackPullRequest } from "@/stores/pull-requests"
 import { getReadinessTarget } from "@/stores/review-readiness"
@@ -557,8 +559,28 @@ function StackSafePushSlot({ root, summary }: { root: string; summary: IslandSum
 }
 
 /** The items of the "⋯" of the header, built when it opens: Patronus, GitHub and the robots answer after the first render */
+/** The "⋯" of the header: an open menu follows every store it reads, the pull requests that load after the sync too */
 function StackIslandMenu({ root, collapsed }: { root: string; collapsed: boolean }) {
-  return <DropdownMenuItems groups={getStackIslandMenuItems(root, collapsed)} />
+  useStore(landedStacksStore, () => getStackIslandMenuNow(root, collapsed))
+  return <DropdownMenuItems groups={useNextStepStores(() => getStackIslandMenuNow(root, collapsed))} />
+}
+
+/** By root: the menu of the header built last, and the store states it was built from (`getStackIslandMenuNow`) */
+const shownIslandMenus = new Map<string, { sources: readonly unknown[]; groups: MenuItemGroups }>()
+
+/**
+ * The menu of the header as the stores are now (`getStackIslandMenuItems`), one object while the stores it reads stay: the
+ * selector of `StackIslandMenu`, as `getBranchMenuNow` is of the branch menu
+ */
+function getStackIslandMenuNow(root: string, collapsed: boolean): MenuItemGroups {
+  const sources = [...nextStepSources(), landedStacksStore.getState(), collapsed]
+  const shown = shownIslandMenus.get(root)
+  if (shown !== undefined && shown.sources.length === sources.length && shown.sources.every((source, index) => source === sources[index])) {
+    return shown.groups
+  }
+  const groups = getStackIslandMenuItems(root, collapsed)
+  shownIslandMenus.set(root, { sources, groups })
+  return groups
 }
 
 /** The items of the first group of the "⋯" of the header: the starts of the whole stack, and the piece of its main line */

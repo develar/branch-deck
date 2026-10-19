@@ -505,6 +505,27 @@ test.describe("Whole stack", () => {
     await expectPopoverAtSlot(popover, actions)
   })
 
+  test("should follow the pull requests in the island's ⋯ while it is open: they load after the sync", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // GitHub answers once the menu is open
+    const release = await holdCommand(page, "get_pull_requests")
+    await setupRepo("stack_island", {
+      patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
+      pullRequests: withStackPullRequests(availablePullRequests(), { air: stackPullRequest("air", 12) }),
+    })
+    await syncAndWaitForBranches()
+    await openIslandMenu(page, "air")
+    const menu = page.getByRole("menu", { name: "More actions for the air stack" })
+    await expect(menu.getByRole("menuitem", { name: "Create Pull Request of the Stack…" })).toBeVisible()
+    await expect(menu.getByRole("menuitem", { name: "Request Review…" })).toHaveCount(0)
+
+    // #12 arrives: the open menu has its items in place of the creation
+    release()
+    await expect(menu.getByRole("menuitem", { name: "Open Pull Request #12" })).toBeVisible()
+    await expect(menu.getByRole("menuitem", { name: "Create Pull Request of the Stack…" })).toHaveCount(0)
+    await menu.getByRole("menuitem", { name: "Request Review…" }).click()
+    await expect(page.getByTestId("request-review-popover")).toContainText("Request a review on #12")
+  })
+
   test("should ask for a review of the pull request of a small stack without Patronus from Whole Stack › of the root's menu, the popover at the root's row", async ({
     page,
     setupRepo,

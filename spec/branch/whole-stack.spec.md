@@ -293,7 +293,9 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   with the reason while the sync didn't build the stack branch, `getStackBranchBlocker`, and once every branch of the
   stack landed, `getStackLandedReason`), Push with Children (the
   island's; the root's menu has it beside its push), "Review Whole Stack" ([Branch Review](branch-review.spec.md#opening))
-  and the actions of its robot.
+  and the actions of its robot. An open "⋯" of the island follows what the list reads: the pull requests that load
+  after the sync change its items while it is open (`getStackIslandMenuNow`).
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should follow the pull requests in the island's ⋯ while it is open: they load after the sync`)
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`is the submenu of the root's whole stack on every branch of the stack, none on a branch of no stack`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`, `should review the whole stack in the window of its stack branch, from the island's menu, the root's menu and the menu of a branch of it`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should ask for a review of the pull request of a small stack from Whole Stack › of the root's menu, its row's ⋯ and its preview, the popover at the root's row`, `should ask for a review of the pull request of the whole stack from the island's ⋯ and the root's menu, the popover at the header`, `should open Request Review… of the whole stack at the header while its Safe Push runs and the header offers no step`)
