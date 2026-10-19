@@ -18,6 +18,8 @@ use std::hash::Hash;
 pub const DELTA_THRESHOLD_SIZE: usize = 20000;
 /// Do not try to compare lines by word after that many prior failures
 pub const MAX_BAD_LINES: usize = 3;
+/// The resolve of a conflict is the greedy one (`try_greedy_resolve`) instead of the simple one
+pub const USE_GREEDY_MERGE_MAGIC_RESOLVE: bool = false;
 /// A line with this many or fewer non-space chars cannot anchor a match of lines
 pub const UNIMPORTANT_LINE_CHAR_COUNT: usize = 3;
 

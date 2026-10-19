@@ -3,14 +3,21 @@
 // License 2.0, Copyright 2000-2015 JetBrains s.r.o. and contributors), as property tests: proptest generates the
 // texts with a fixed seed instead of the current time, and shrinks a failure to a minimal pair of texts.
 // The explicit blocks come from `compare_lines` under the default policy instead of `createRanges` of the VCS line
-// status. Left out: the merge and the three-way tests.
+// status. The three-way tests compare three generated texts: the source passes the base as the right text too
+// (`test(text1, text2, text2, …)`). They also take the type of each block (`MergeRangeUtil`), which the source does
+// not check, so that its assertions run on random blocks.
 
+use crate::by_word;
 use crate::cancellation::Deadline;
 use crate::character_utils::{char_count, code_point_at};
 use crate::comparison_util::{equals_ignore_whitespaces, unimportant_line_char_count};
 use crate::comparison_util_test_base::check_line_offsets;
 use crate::fragments::{DiffFragment, LineFragment};
-use crate::manager::{compare_chars, compare_lines, compare_lines_inner_with, compare_lines_word_first, compare_words, is_equal, process_blocks, squash};
+use crate::manager::{
+  compare_chars, compare_lines, compare_lines_inner_with, compare_lines_three, compare_lines_word_first, compare_words, is_equal, merge_lines, process_blocks, squash,
+};
+use crate::merge_range::{MergeRange, ThreeSide};
+use crate::merge_range_util::{get_line_merge_type, get_line_three_way_diff_type};
 use crate::policy::{ComparisonPolicy, HighlightPolicy, InnerFragmentsPolicy, WhitespacePolicy};
 use crate::provider::compare_line_ranges;
 use crate::range::Range;
@@ -112,7 +119,40 @@ proptest! {
   }
 }
 
+proptest! {
+  #![proptest_config(proptest_config(CASES))]
+
+  #[test]
+  fn three_way_diff((text1, text2, text3) in three_texts()) {
+    for_each_policy_three(&text1, &text2, &text3, |texts, policy| {
+      let fragments = compare_lines_three(texts[0], texts[1], texts[2], policy, &Deadline::NONE).expect("no limits");
+      for fragment in &fragments {
+        get_line_three_way_diff_type(fragment, texts, policy);
+      }
+      check_result_merge(texts, &fragments, policy, false);
+    });
+  }
+
+  #[test]
+  fn merge((text1, text2, text3) in three_texts()) {
+    for_each_policy_three(&text1, &text2, &text3, |texts, policy| {
+      let fragments = merge_lines(texts[0], texts[1], texts[2], policy, &Deadline::NONE).expect("no limits");
+      for fragment in &fragments {
+        get_line_merge_type(fragment, texts, policy);
+      }
+      check_result_merge(texts, &fragments, policy, policy != ComparisonPolicy::Default);
+    });
+  }
+}
+
 // jscpd:ignore-end
+
+fn for_each_policy_three(text1: &str, text2: &str, text3: &str, test: impl Fn([&Utf16Text; 3], ComparisonPolicy)) {
+  let (text1, text2, text3) = (Utf16Text::new(text1), Utf16Text::new(text2), Utf16Text::new(text3));
+  for policy in COMPARISON_POLICIES {
+    in_context(&policy, || test([&text1, &text2, &text3], policy));
+  }
+}
 
 fn for_each_inner_policy(text1: &str, text2: &str, fragments_policies: &[InnerFragmentsPolicy], test: impl Fn(&Utf16Text, &Utf16Text, ComparisonPolicy, InnerFragmentsPolicy)) {
   for_each_policy(text1, text2, |text1, text2, policy| {
@@ -149,6 +189,11 @@ fn in_context(context: &dyn Debug, check: impl FnOnce()) {
 /// `.`, `<`, `!` and the letters `i`-`l`, or, with high surrogates, the same with four emoji and `m`-`p` for the letters
 fn texts() -> impl Strategy<Value = (String, String)> {
   any::<bool>().prop_flat_map(|use_high_surrogates| (text(use_high_surrogates), text(use_high_surrogates)))
+}
+
+/// Three random texts, as `texts`
+fn three_texts() -> impl Strategy<Value = (String, String, String)> {
+  any::<bool>().prop_flat_map(|use_high_surrogates| (text(use_high_surrogates), text(use_high_surrogates), text(use_high_surrogates)))
 }
 
 fn text(use_high_surrogates: bool) -> impl Strategy<Value = String> {
@@ -362,4 +407,112 @@ fn get_first_last_lines(text: &Utf16Text, start: usize, end: usize) -> Option<(&
   let (last_start, last_end) = line_offsets.lines_range(end - 1, end, false);
 
   Some((&text.units()[first_start..first_end], &text.units()[last_start..last_end]))
+}
+
+//
+// Merge checks
+//
+
+/// The lines `[start, end)` of a text without the last `\n` (`DiffUtil.getLinesContent`)
+fn lines_content(text: &Utf16Text, start: usize, end: usize) -> &[u16] {
+  let (start_offset, end_offset) = text.line_offsets().lines_range(start, end, false);
+  &text.units()[start_offset..end_offset]
+}
+
+fn check_result_merge(texts: [&Utf16Text; 3], fragments: &[MergeRange], policy: ComparisonPolicy, allow_ignored_blocks: bool) {
+  check_line_consistency3(texts, fragments, allow_ignored_blocks);
+
+  check_valid_line_ranges3(texts, fragments, policy);
+  if !allow_ignored_blocks {
+    check_cant_trim_lines3(texts, fragments, policy);
+  }
+
+  for fragment in fragments {
+    let chunks = ThreeSide::ALL.map(|side| lines_content(texts[side.index()], fragment.start(side), fragment.end(side)));
+    let inner_fragments = by_word::compare_three(chunks[0], chunks[1], chunks[2], policy, &Deadline::NONE).expect("no limits");
+    check_diff_consistency3(&inner_fragments);
+    check_valid_word_ranges3(chunks, &inner_fragments, policy);
+  }
+}
+
+fn check_line_consistency3(texts: [&Utf16Text; 3], fragments: &[MergeRange], allow_non_squashed: bool) {
+  let mut last: Option<[usize; 3]> = None;
+  for fragment in fragments {
+    for side in ThreeSide::ALL {
+      assert!(fragment.end(side) <= get_line_count(texts[side.index()]));
+      assert!(fragment.start(side) <= fragment.end(side));
+    }
+    assert!(!fragment.is_empty());
+    let starts = ThreeSide::ALL.map(|side| fragment.start(side));
+    assert!(allow_non_squashed || last != Some(starts));
+    last = Some(ThreeSide::ALL.map(|side| fragment.end(side)));
+  }
+}
+
+fn check_diff_consistency3(fragments: &[MergeRange]) {
+  let mut last: Option<[usize; 3]> = None;
+  for fragment in fragments {
+    for side in ThreeSide::ALL {
+      assert!(fragment.start(side) <= fragment.end(side));
+    }
+    assert!(!fragment.is_empty());
+    let starts = ThreeSide::ALL.map(|side| fragment.start(side));
+    assert_ne!(last, Some(starts));
+    last = Some(ThreeSide::ALL.map(|side| fragment.end(side)));
+  }
+}
+
+/// The lines between the blocks are equal on all three sides
+fn check_valid_line_ranges3(texts: [&Utf16Text; 3], fragments: &[MergeRange], policy: ComparisonPolicy) {
+  let ignore_spaces = policy != ComparisonPolicy::Default;
+  let check = |last: [usize; 3], starts: [usize; 3]| {
+    let contents = ThreeSide::ALL.map(|side| lines_content(texts[side.index()], last[side.index()], starts[side.index()]));
+    assert_equals_char_sequences(contents[1], contents[0], ignore_spaces, false);
+    assert_equals_char_sequences(contents[1], contents[2], ignore_spaces, false);
+  };
+  let mut last = [0; 3];
+  for fragment in fragments {
+    check(last, ThreeSide::ALL.map(|side| fragment.start(side)));
+    last = ThreeSide::ALL.map(|side| fragment.end(side));
+  }
+  check(last, texts.map(get_line_count));
+}
+
+/// The chars between the word blocks are equal on all three sides, a block is no equal one, and no block splits a
+/// surrogate pair
+fn check_valid_word_ranges3(texts: [&[u16]; 3], fragments: &[MergeRange], policy: ComparisonPolicy) {
+  let ignore_spaces_unchanged = policy != ComparisonPolicy::Default;
+  let ignore_spaces_changed = policy == ComparisonPolicy::IgnoreWhitespaces;
+  let mut changes_sets = [FixedBitSet::new(), FixedBitSet::new(), FixedBitSet::new()];
+  let check_unchanged = |last: [usize; 3], starts: [usize; 3]| {
+    let contents = ThreeSide::ALL.map(|side| &texts[side.index()][last[side.index()]..starts[side.index()]]);
+    assert_equals_char_sequences(contents[1], contents[0], ignore_spaces_unchanged, false);
+    assert_equals_char_sequences(contents[1], contents[2], ignore_spaces_unchanged, false);
+  };
+
+  let mut last = [0; 3];
+  for fragment in fragments {
+    check_unchanged(last, ThreeSide::ALL.map(|side| fragment.start(side)));
+    let chunks = ThreeSide::ALL.map(|side| &texts[side.index()][fragment.start(side)..fragment.end(side)]);
+    assert!(!(is_equals_char_sequences(chunks[1], chunks[0], ignore_spaces_changed) && is_equals_char_sequences(chunks[1], chunks[2], ignore_spaces_changed)));
+    for side in ThreeSide::ALL {
+      insert_range(&mut changes_sets[side.index()], fragment.start(side), fragment.end(side));
+    }
+    last = ThreeSide::ALL.map(|side| fragment.end(side));
+  }
+  check_unchanged(last, texts.map(<[u16]>::len));
+
+  for (text, changes_set) in texts.iter().zip(&changes_sets) {
+    check_code_points(text, changes_set);
+  }
+}
+
+fn check_cant_trim_lines3(texts: [&Utf16Text; 3], fragments: &[MergeRange], policy: ComparisonPolicy) {
+  for fragment in fragments {
+    let [Some(sequence1), Some(sequence2), Some(sequence3)] = ThreeSide::ALL.map(|side| get_first_last_lines(texts[side.index()], fragment.start(side), fragment.end(side))) else {
+      continue;
+    };
+    assert!(!(is_equal(sequence2.0, sequence1.0, policy) && is_equal(sequence2.0, sequence3.0, policy)));
+    assert!(!(is_equal(sequence2.1, sequence1.1, policy) && is_equal(sequence2.1, sequence3.1, policy)));
+  }
 }

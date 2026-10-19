@@ -1,15 +1,17 @@
 // Ported and modified from `community/platform/util/diff/src/com/intellij/diff/comparison/ByLineRt.kt` of IntelliJ
-// Platform (Apache License 2.0, Copyright 2000-2025 JetBrains s.r.o. and contributors). Left out: the three-side
-// comparison and the merge, and the conversion into merge fragments.
+// Platform (Apache License 2.0, Copyright 2000-2025 JetBrains s.r.o. and contributors). The merge fragments are
+// `MergeRange`s, so `convertIntoMergeLineFragments` without a range has nothing to do.
 
-//! The comparison of two lists of lines.
+//! The comparison of two or three lists of lines.
 
 use crate::cancellation::{Deadline, DiffTooBig};
 use crate::change_corrector::{ChangeCorrector, SmartLineChangeCorrector};
 use crate::chunk_optimizer::optimize_line_chunks;
+use crate::comparison_merge_util::{build_merge, build_simple};
 use crate::comparison_util::{hash_code, is_equals, unimportant_line_char_count};
 use crate::iterables::diff_iterable::DiffIterable;
 use crate::iterables::diff_iterable_util::{ExpandChangeBuilder, create, diff, fair};
+use crate::merge_range::MergeRange;
 use crate::policy::ComparisonPolicy;
 use crate::trim_util::{expand, is_space_enter_or_tab};
 use std::hash::{Hash, Hasher};
@@ -18,6 +20,36 @@ use std::hash::{Hash, Hasher};
 pub fn compare(lines1: &[&[u16]], lines2: &[&[u16]], policy: ComparisonPolicy, deadline: &Deadline) -> Result<DiffIterable, DiffTooBig> {
   deadline.check_canceled()?;
   do_compare(&get_lines(lines1, policy), &get_lines(lines2, policy), policy, deadline)
+}
+
+/// Compares three lists of lines, the base in the middle: a change wherever a side differs from the base under the
+/// policy
+pub fn compare_three(lines1: &[&[u16]], lines2: &[&[u16]], lines3: &[&[u16]], policy: ComparisonPolicy, deadline: &Deadline) -> Result<Vec<MergeRange>, DiffTooBig> {
+  deadline.check_canceled()?;
+  do_compare_three(&get_lines(lines1, policy), &get_lines(lines2, policy), &get_lines(lines3, policy), policy, deadline, false)
+}
+
+/// As `compare_three`, for a merge: a change that the policy ignores stays a change of its own, outside the conflicts
+pub fn merge(lines1: &[&[u16]], lines2: &[&[u16]], lines3: &[&[u16]], policy: ComparisonPolicy, deadline: &Deadline) -> Result<Vec<MergeRange>, DiffTooBig> {
+  deadline.check_canceled()?;
+  do_compare_three(&get_lines(lines1, policy), &get_lines(lines2, policy), &get_lines(lines3, policy), policy, deadline, true)
+}
+
+/// The merge ranges of a part of the texts, shifted to the lines of the whole texts
+pub fn convert_into_merge_line_fragments(conflicts: &[MergeRange], range: MergeRange) -> Vec<MergeRange> {
+  conflicts
+    .iter()
+    .map(|conflict| {
+      MergeRange::new(
+        conflict.start1 + range.start1,
+        conflict.end1 + range.start1,
+        conflict.start2 + range.start2,
+        conflict.end2 + range.start2,
+        conflict.start3 + range.start3,
+        conflict.end3 + range.start3,
+      )
+    })
+    .collect()
 }
 
 //
@@ -39,6 +71,44 @@ pub(crate) fn do_compare(lines1: &[Line<'_>], lines2: &[Line<'_>], policy: Compa
     let iw_changes = optimize_line_chunks(lines1, lines2, &iw_changes);
     Ok(correct_changes_second_step(lines1, lines2, &iw_changes))
   }
+}
+
+/// The three-way comparison; with `keep_ignored_changes`, a change the policy ignores is not dropped, but it is not part
+/// of a conflict either
+pub(crate) fn do_compare_three(
+  lines1: &[Line<'_>],
+  lines2: &[Line<'_>],
+  lines3: &[Line<'_>],
+  policy: ComparisonPolicy,
+  deadline: &Deadline,
+  keep_ignored_changes: bool,
+) -> Result<Vec<MergeRange>, DiffTooBig> {
+  deadline.check_canceled()?;
+
+  let iw_lines1 = convert_mode(lines1, ComparisonPolicy::IgnoreWhitespaces);
+  let iw_lines2 = convert_mode(lines2, ComparisonPolicy::IgnoreWhitespaces);
+  let iw_lines3 = convert_mode(lines3, ComparisonPolicy::IgnoreWhitespaces);
+
+  let iw_changes1 = compare_smart(&iw_lines2, &iw_lines1, deadline)?;
+  let iw_changes1 = optimize_line_chunks(lines2, lines1, &iw_changes1);
+  let iterable1 = correct_changes_second_step(lines2, lines1, &iw_changes1);
+
+  let iw_changes2 = compare_smart(&iw_lines2, &iw_lines3, deadline)?;
+  let iw_changes2 = optimize_line_chunks(lines2, lines3, &iw_changes2);
+  let iterable2 = correct_changes_second_step(lines2, lines3, &iw_changes2);
+
+  Ok(if keep_ignored_changes && policy != ComparisonPolicy::Default {
+    build_merge(&iterable1, &iterable2, &|index1, index2, index3| {
+      equals_default_policy(lines1, lines2, lines3, index1, index2, index3)
+    })
+  } else {
+    build_simple(&iterable1, &iterable2)
+  })
+}
+
+fn equals_default_policy(lines1: &[Line<'_>], lines2: &[Line<'_>], lines3: &[Line<'_>], index1: usize, index2: usize, index3: usize) -> bool {
+  let (content1, content2, content3) = (lines1[index1].content, lines2[index2].content, lines3[index3].content);
+  is_equals(content2, content1, ComparisonPolicy::Default) && is_equals(content2, content3, ComparisonPolicy::Default)
 }
 
 fn correct_changes_second_step(lines1: &[Line<'_>], lines2: &[Line<'_>], changes: &DiffIterable) -> DiffIterable {

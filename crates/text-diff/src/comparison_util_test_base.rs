@@ -2,8 +2,8 @@
 // `community/platform/diff-impl/tests/testSrc/com/intellij/diff/comparison/ComparisonUtilTestBase.kt` of IntelliJ
 // Platform (Apache License 2.0, Copyright 2000-2020 JetBrains s.r.o. and contributors). The Kotlin builder DSL is a
 // builder with methods: `("x_y" - "x_z")` is `text("x_y", "x_z")`, `("--_  " - "--_  ").default()` is
-// `default_matching("--_  ", "--_  ")`, and `default(mod(0, 0, 1, 1))` is `default(&[modify(0, 0, 1, 1)])`. Left out:
-// the three-side word tests of the merge.
+// `default_matching("--_  ", "--_  ")`, and `default(mod(0, 0, 1, 1))` is `default(&[modify(0, 0, 1, 1)])`. The
+// three-side word tests of the merge are in `comparison_merge_util_test_base.rs`.
 
 //! The test builder of the comparison tests: two texts, and the expected changes or changed chars under each policy.
 

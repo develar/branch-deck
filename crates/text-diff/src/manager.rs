@@ -1,7 +1,6 @@
-// Ported and modified from the two-way half of
-// `community/platform/diff-impl/src/com/intellij/diff/comparison/ComparisonManagerImpl.java` of IntelliJ Platform
-// (Apache License 2.0, Copyright 2000-2024 JetBrains s.r.o. and contributors). Left out: the three-way comparison and
-// the merge, and the registry switch `diff.by.word.deprioritize.line.differences` (off by default), which would take
+// Ported and modified from `community/platform/diff-impl/src/com/intellij/diff/comparison/ComparisonManagerImpl.java`
+// of IntelliJ Platform (Apache License 2.0, Copyright 2000-2024 JetBrains s.r.o. and contributors). Left out: the
+// registry switch `diff.by.word.deprioritize.line.differences` (off by default), which would take
 // `compare_lines_word_first` for the words; that function is ported.
 
 //! The comparison of two texts into changed blocks of lines, the changes inside them, and the post-processing of the
@@ -18,6 +17,7 @@ use crate::iterables::diff_iterable::DiffIterable;
 use crate::iterables::diff_iterable_util::{ChangeBuilder, create, fair};
 use crate::lcs::diff::MAX_BAD_LINES;
 use crate::line_offsets::LineOffsets;
+use crate::merge_range::MergeRange;
 use crate::policy::{ComparisonPolicy, InnerFragmentsPolicy};
 use crate::range::Range;
 use crate::text::Utf16Text;
@@ -28,6 +28,52 @@ use fixedbitset::FixedBitSet;
 pub fn compare_lines(text1: &Utf16Text, text2: &Utf16Text, policy: ComparisonPolicy, deadline: &Deadline) -> Result<Vec<LineFragment>, DiffTooBig> {
   let boundary_range = full_range(text1, text2);
   compare_lines_in_range(boundary_range, text1, text2, policy, deadline)
+}
+
+/// Compares three texts by line, `text2` the base: a change wherever a side differs from the base
+pub fn compare_lines_three(text1: &Utf16Text, text2: &Utf16Text, text3: &Utf16Text, policy: ComparisonPolicy, deadline: &Deadline) -> Result<Vec<MergeRange>, DiffTooBig> {
+  let (line_texts1, line_texts2, line_texts3) = (all_line_contents(text1), all_line_contents(text2), all_line_contents(text3));
+  by_line::compare_three(&line_texts1, &line_texts2, &line_texts3, policy, deadline)
+}
+
+/// Merges three texts by line, `text2` the base: as `compare_lines_three`, but a change the policy ignores stays a
+/// change of its own, outside the conflicts
+pub fn merge_lines(text1: &Utf16Text, text2: &Utf16Text, text3: &Utf16Text, policy: ComparisonPolicy, deadline: &Deadline) -> Result<Vec<MergeRange>, DiffTooBig> {
+  let (line_texts1, line_texts2, line_texts3) = (all_line_contents(text1), all_line_contents(text2), all_line_contents(text3));
+  by_line::merge(&line_texts1, &line_texts2, &line_texts3, policy, deadline)
+}
+
+/// `merge_lines` of the lines of `boundary_range` only, in the lines of the whole texts
+pub fn merge_lines_within_range(
+  text1: &Utf16Text,
+  text2: &Utf16Text,
+  text3: &Utf16Text,
+  policy: ComparisonPolicy,
+  boundary_range: MergeRange,
+  deadline: &Deadline,
+) -> Result<Vec<MergeRange>, DiffTooBig> {
+  let line_texts1 = get_line_contents(boundary_range.start1, boundary_range.end1, text1);
+  let line_texts2 = get_line_contents(boundary_range.start2, boundary_range.end2, text2);
+  let line_texts3 = get_line_contents(boundary_range.start3, boundary_range.end3, text3);
+  let ranges = by_line::merge(&line_texts1, &line_texts2, &line_texts3, policy, deadline)?;
+  Ok(by_line::convert_into_merge_line_fragments(&ranges, boundary_range))
+}
+
+/// The lines that `text1` and `text3` share, joined by `\n`: the base of a merge of two texts that only add lines
+pub fn merge_lines_additions(text1: &Utf16Text, text3: &Utf16Text, policy: ComparisonPolicy, deadline: &Deadline) -> Result<Vec<u16>, DiffTooBig> {
+  let (line_texts1, line_texts3) = (all_line_contents(text1), all_line_contents(text3));
+  let diff = by_line::compare(&line_texts1, &line_texts3, policy, deadline)?;
+
+  let mut base: Vec<u16> = Vec::new();
+  for range in diff.unchanged() {
+    for line in &line_texts1[range.start1..range.end1] {
+      if !base.is_empty() {
+        base.push(u16::from(b'\n'));
+      }
+      base.extend_from_slice(line);
+    }
+  }
+  Ok(base)
 }
 
 /// Compares the lines `[start1, end1)` of `text1` with the lines `[start2, end2)` of `text2`
@@ -415,6 +461,10 @@ fn extract_inner_fragments(line_fragment: &LineFragment) -> Vec<DiffFragment> {
 
 const fn full_range(text1: &Utf16Text, text2: &Utf16Text) -> Range {
   Range::new(0, text1.line_offsets().line_count(), 0, text2.line_offsets().line_count())
+}
+
+fn all_line_contents(text: &Utf16Text) -> Vec<&[u16]> {
+  get_line_contents(0, text.line_offsets().line_count(), text)
 }
 
 fn get_line_contents(start: usize, end: usize, text: &Utf16Text) -> Vec<&[u16]> {

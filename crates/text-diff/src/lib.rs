@@ -13,6 +13,7 @@ pub mod cancellation;
 pub mod change_corrector;
 pub mod character_utils;
 pub mod chunk_optimizer;
+pub mod comparison_merge_util;
 pub mod comparison_util;
 pub mod fragments;
 pub mod inline;
@@ -21,6 +22,11 @@ pub mod lcs;
 pub mod line_fragment_splitter;
 pub mod line_offsets;
 pub mod manager;
+pub mod merge_conflict_type;
+pub mod merge_model;
+pub mod merge_range;
+pub mod merge_range_util;
+pub mod merge_resolve_util;
 pub mod model;
 pub mod policy;
 pub mod provider;
@@ -34,7 +40,11 @@ mod apply_test;
 #[cfg(test)]
 mod blocks_comparison_util_test;
 #[cfg(test)]
+mod char_comparison_merge_util_test;
+#[cfg(test)]
 mod char_comparison_util_test;
+#[cfg(test)]
+mod comparison_merge_util_test_base;
 #[cfg(test)]
 mod comparison_util_auto_test;
 #[cfg(test)]
@@ -46,9 +56,15 @@ mod ignore_comparison_util_test;
 #[cfg(test)]
 mod inline_test;
 #[cfg(test)]
+mod line_comparison_merge_util_test;
+#[cfg(test)]
 mod line_comparison_util_test;
 #[cfg(test)]
 mod line_uplifter_test;
+#[cfg(test)]
+mod merge_model_test;
+#[cfg(test)]
+mod merge_resolve_util_test;
 #[cfg(test)]
 mod model_test;
 #[cfg(test)]
@@ -59,3 +75,5 @@ mod test_support;
 mod trim_util_test;
 #[cfg(test)]
 mod word_comparison_util_test;
+#[cfg(test)]
+mod word_merge_comparison_util_test;

@@ -1,7 +1,7 @@
 // Ported and modified from `community/platform/util/diff/src/com/intellij/diff/comparison/ByWordRt.kt` of IntelliJ
-// Platform (Apache License 2.0, Copyright 2000-2025 JetBrains s.r.o. and contributors). Left out: the three-side
-// comparison of the merge and its correctors, and the conversion into merge fragments. A `Vec<u16>` of both texts
-// replaces `MergingCharSequence`.
+// Platform (Apache License 2.0, Copyright 2000-2025 JetBrains s.r.o. and contributors). A `Vec<u16>` of both texts
+// replaces `MergingCharSequence`; the merge fragments are `MergeRange`s, so `convertIntoMergeWordFragments` has nothing
+// to do.
 
 //! The comparison of two texts by word: words and newlines are matched first, then the punctuation and the
 //! whitespace between them.
@@ -10,17 +10,20 @@ use crate::by_char;
 use crate::cancellation::{Deadline, DiffTooBig};
 use crate::character_utils::{char_count, code_point_at};
 use crate::chunk_optimizer::optimize_word_chunks;
+use crate::comparison_merge_util::build_simple;
 use crate::comparison_util::{is_equal_texts, is_equals as is_equals_policy};
 use crate::fragments::DiffFragment;
 use crate::iterables::diff_iterable::DiffIterable;
 use crate::iterables::diff_iterable_util::{ChangeBuilder, create, create_unchanged, diff, fair};
 use crate::line_fragment_splitter::{LineFragmentSplitter, WordBlock};
 use crate::line_offsets::LineOffsets;
+use crate::merge_range::MergeRange;
 use crate::policy::ComparisonPolicy;
 use crate::range::Range;
 use crate::trim_util::{
-  expand_whitespaces, expand_whitespaces_backward, expand_whitespaces_forward, is_alpha, is_continuous_script, is_equals, is_equals_ignore_whitespaces, is_space_enter_or_tab,
-  trim_end, trim_range, trim_start,
+  expand_whitespaces, expand_whitespaces_backward, expand_whitespaces_backward_merge, expand_whitespaces_forward, expand_whitespaces_forward_merge, expand_whitespaces_merge,
+  is_alpha, is_continuous_script, is_equals, is_equals_ignore_whitespaces, is_equals_ignore_whitespaces_merge, is_equals_merge, is_space_enter_or_tab, trim_end, trim_merge_range,
+  trim_range, trim_start,
 };
 use std::hash::{Hash, Hasher};
 
@@ -50,6 +53,27 @@ pub fn compare_chunks(
   let iterable = match_adjustment_whitespaces(text1, text2, &delimiters_iterable, policy);
 
   Ok(convert_into_diff_fragments(&iterable))
+}
+
+/// Compares three texts by word, `text2` the base: a change wherever a side differs from the base, in offsets of the
+/// three texts
+pub fn compare_three(text1: &[u16], text2: &[u16], text3: &[u16], policy: ComparisonPolicy, deadline: &Deadline) -> Result<Vec<MergeRange>, DiffTooBig> {
+  deadline.check_canceled()?;
+
+  let words1 = get_inline_chunks(text1);
+  let words2 = get_inline_chunks(text2);
+  let words3 = get_inline_chunks(text3);
+
+  let word_changes1 = diff(&words2, &words1, deadline)?;
+  let word_changes1 = optimize_word_chunks(text2, text1, &words2, &words1, &word_changes1);
+  let iterable1 = match_adjustment_delimiters(text2, text1, &words2, &words1, &word_changes1, 0, 0, deadline)?;
+
+  let word_changes2 = diff(&words2, &words3, deadline)?;
+  let word_changes2 = optimize_word_chunks(text2, text3, &words2, &words3, &word_changes2);
+  let iterable2 = match_adjustment_delimiters(text2, text3, &words2, &words3, &word_changes2, 0, 0, deadline)?;
+
+  let word_conflicts = build_simple(&iterable1, &iterable2);
+  Ok(match_adjustment_whitespaces_merge(text1, text2, text3, &word_conflicts, policy))
 }
 
 /// Compares two texts by word and splits them into blocks of lines at the matched words
@@ -442,6 +466,17 @@ fn match_adjustment_whitespaces(text1: &[u16], text2: &[u16], iterable: &DiffIte
   }
 }
 
+fn match_adjustment_whitespaces_merge(text1: &[u16], text2: &[u16], text3: &[u16], conflicts: &[MergeRange], policy: ComparisonPolicy) -> Vec<MergeRange> {
+  match policy {
+    ComparisonPolicy::Default => merge_default_correct(conflicts, text1, text2, text3),
+    ComparisonPolicy::TrimWhitespaces => {
+      let default_conflicts = merge_default_correct(conflicts, text1, text2, text3);
+      merge_trim_spaces_correct(&default_conflicts, text1, text2, text3)
+    }
+    ComparisonPolicy::IgnoreWhitespaces => merge_ignore_spaces_correct(conflicts, text1, text2, text3),
+  }
+}
+
 /// The changed ranges as fragments
 pub fn convert_into_diff_fragments(changes: &DiffIterable) -> Vec<DiffFragment> {
   changes.changes().iter().map(|ch| DiffFragment::new(ch.start1, ch.end1, ch.start2, ch.end2)).collect()
@@ -791,6 +826,71 @@ fn default_correct(iterable: &DiffIterable, text1: &[u16], text2: &[u16]) -> Dif
   }
 
   create(changes, text1.len(), text2.len())
+}
+
+/// Moves the whitespace that all three sides share out of the conflicts (`MergeDefaultCorrector`)
+fn merge_default_correct(conflicts: &[MergeRange], text1: &[u16], text2: &[u16], text3: &[u16]) -> Vec<MergeRange> {
+  let mut changes = Vec::new();
+  for range in conflicts {
+    let end_cut = expand_whitespaces_backward_merge(text1, text2, text3, range.start1, range.start2, range.start3, range.end1, range.end2, range.end3);
+    let start_cut = expand_whitespaces_forward_merge(
+      text1,
+      text2,
+      text3,
+      range.start1,
+      range.start2,
+      range.start3,
+      range.end1 - end_cut,
+      range.end2 - end_cut,
+      range.end3 - end_cut,
+    );
+
+    let expand = MergeRange::new(
+      range.start1 + start_cut,
+      range.end1 - end_cut,
+      range.start2 + start_cut,
+      range.end2 - end_cut,
+      range.start3 + start_cut,
+      range.end3 - end_cut,
+    );
+
+    if !expand.is_empty() {
+      changes.push(expand);
+    }
+  }
+  changes
+}
+
+/// Matches whitespace where it can and ignores it where it cannot, on three sides (`MergeIgnoreSpacesCorrector`)
+fn merge_ignore_spaces_correct(conflicts: &[MergeRange], text1: &[u16], text2: &[u16], text3: &[u16]) -> Vec<MergeRange> {
+  conflicts
+    .iter()
+    .map(|range| trim_merge_range(text1, text2, text3, expand_whitespaces_merge(text1, text2, text3, *range)))
+    .filter(|trimmed| !trimmed.is_empty() && !is_equals_ignore_whitespaces_merge(text1, text2, text3, *trimmed))
+    .collect()
+}
+
+/// Drops the leading and trailing whitespace of the lines from the conflicts (`MergeTrimSpacesCorrector`)
+fn merge_trim_spaces_correct(conflicts: &[MergeRange], text1: &[u16], text2: &[u16], text3: &[u16]) -> Vec<MergeRange> {
+  let trim_side = |text: &[u16], mut start: usize, mut end: usize| {
+    if is_leading_trailing_space(text, Some(start)) {
+      start = trim_start(text, start, end);
+    }
+    if is_leading_trailing_space(text, end.checked_sub(1)) {
+      end = trim_end(text, start, end);
+    }
+    (start, end)
+  };
+  conflicts
+    .iter()
+    .map(|range| {
+      let (start1, end1) = trim_side(text1, range.start1, range.end1);
+      let (start2, end2) = trim_side(text2, range.start2, range.end2);
+      let (start3, end3) = trim_side(text3, range.start3, range.end3);
+      MergeRange::new(start1, end1, start2, end2, start3, end3)
+    })
+    .filter(|trimmed| !trimmed.is_empty() && !is_equals_merge(text1, text2, text3, *trimmed))
+    .collect()
 }
 
 /// Matches whitespace where it can and ignores it where it cannot (`IgnoreSpacesCorrector`)

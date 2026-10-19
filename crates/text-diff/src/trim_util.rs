@@ -1,12 +1,13 @@
 // Ported and modified from `community/platform/util/diff/src/com/intellij/diff/comparison/TrimUtil.kt` of IntelliJ
-// Platform (Apache License 2.0, Copyright 2000-2025 JetBrains s.r.o. and contributors). Left out: the three-side forms
-// of the merge. A slice stands for both a `CharSequence` and a `List`, so one generic function replaces each pair of
-// overloads; a form that takes a `Range` replaces the form that takes its four values.
+// Platform (Apache License 2.0, Copyright 2000-2025 JetBrains s.r.o. and contributors). A slice stands for both a
+// `CharSequence` and a `List`, so one generic function replaces each pair of overloads; a form that takes a `Range` or
+// a `MergeRange` replaces the form that takes its values.
 
 //! Trims ignored elements off a range, and expands a range over equal elements at its ends.
 
 use crate::character_utils::{is_alphabetic, is_bmp_code_point, is_decimal_digit, is_hiragana_script, is_ideographic, is_javanese_script, is_katakana_script, is_thai_script};
 use crate::comparison_util::is_equal_texts;
+use crate::merge_range::MergeRange;
 use crate::policy::ComparisonPolicy;
 use crate::range::Range;
 
@@ -146,6 +147,103 @@ pub fn is_equals(text1: &[u16], text2: &[u16], range: Range) -> bool {
 /// Whether both sides of `range` hold the same chars besides whitespace
 pub fn is_equals_ignore_whitespaces(text1: &[u16], text2: &[u16], range: Range) -> bool {
   is_equal_texts(&text1[range.start1..range.end1], &text2[range.start2..range.end2], ComparisonPolicy::IgnoreWhitespaces)
+}
+
+/// The three sides of `range` without their whitespace at the ends
+pub fn trim_merge_range(text1: &[u16], text2: &[u16], text3: &[u16], range: MergeRange) -> MergeRange {
+  let (start1, end1) = trim(text1, range.start1, range.end1);
+  let (start2, end2) = trim(text2, range.start2, range.end2);
+  let (start3, end3) = trim(text3, range.start3, range.end3);
+  MergeRange::new(start1, end1, start2, end2, start3, end3)
+}
+
+/// The range without the whitespace at its start and at its end that all three sides share
+pub const fn expand_whitespaces_merge(text1: &[u16], text2: &[u16], text3: &[u16], range: MergeRange) -> MergeRange {
+  let MergeRange {
+    mut start1,
+    mut end1,
+    mut start2,
+    mut end2,
+    mut start3,
+    mut end3,
+  } = range;
+  let count1 = expand_whitespaces_forward_merge(text1, text2, text3, start1, start2, start3, end1, end2, end3);
+  start1 += count1;
+  start2 += count1;
+  start3 += count1;
+
+  let count2 = expand_whitespaces_backward_merge(text1, text2, text3, start1, start2, start3, end1, end2, end3);
+  end1 -= count2;
+  end2 -= count2;
+  end3 -= count2;
+
+  MergeRange::new(start1, end1, start2, end2, start3, end3)
+}
+
+/// The count of whitespace chars at the starts that all three sides share
+#[expect(clippy::too_many_arguments, reason = "the three texts and the six bounds of the source")]
+pub const fn expand_whitespaces_forward_merge(
+  text1: &[u16],
+  text2: &[u16],
+  text3: &[u16],
+  mut start1: usize,
+  mut start2: usize,
+  mut start3: usize,
+  end1: usize,
+  end2: usize,
+  end3: usize,
+) -> usize {
+  let old_start1 = start1;
+  while start1 < end1 && start2 < end2 && start3 < end3 {
+    if text1[start1] != text2[start2] || text1[start1] != text3[start3] || !is_space_enter_or_tab(text1[start1]) {
+      break;
+    }
+    start1 += 1;
+    start2 += 1;
+    start3 += 1;
+  }
+  start1 - old_start1
+}
+
+/// The count of whitespace chars at the ends that all three sides share
+#[expect(clippy::too_many_arguments, reason = "the three texts and the six bounds of the source")]
+pub const fn expand_whitespaces_backward_merge(
+  text1: &[u16],
+  text2: &[u16],
+  text3: &[u16],
+  start1: usize,
+  start2: usize,
+  start3: usize,
+  mut end1: usize,
+  mut end2: usize,
+  mut end3: usize,
+) -> usize {
+  let old_end1 = end1;
+  while start1 < end1 && start2 < end2 && start3 < end3 {
+    if text1[end1 - 1] != text2[end2 - 1] || text1[end1 - 1] != text3[end3 - 1] || !is_space_enter_or_tab(text1[end1 - 1]) {
+      break;
+    }
+    end1 -= 1;
+    end2 -= 1;
+    end3 -= 1;
+  }
+  old_end1 - end1
+}
+
+/// Whether the three sides of `range` hold the same chars
+pub fn is_equals_merge(text1: &[u16], text2: &[u16], text3: &[u16], range: MergeRange) -> bool {
+  let (sequence1, sequence2, sequence3) = merge_sequences(text1, text2, text3, range);
+  is_equal_texts(sequence2, sequence1, ComparisonPolicy::Default) && is_equal_texts(sequence2, sequence3, ComparisonPolicy::Default)
+}
+
+/// Whether the three sides of `range` hold the same chars besides whitespace
+pub fn is_equals_ignore_whitespaces_merge(text1: &[u16], text2: &[u16], text3: &[u16], range: MergeRange) -> bool {
+  let (sequence1, sequence2, sequence3) = merge_sequences(text1, text2, text3, range);
+  is_equal_texts(sequence2, sequence1, ComparisonPolicy::IgnoreWhitespaces) && is_equal_texts(sequence2, sequence3, ComparisonPolicy::IgnoreWhitespaces)
+}
+
+fn merge_sequences<'a>(text1: &'a [u16], text2: &'a [u16], text3: &'a [u16], range: MergeRange) -> (&'a [u16], &'a [u16], &'a [u16]) {
+  (&text1[range.start1..range.end1], &text2[range.start2..range.end2], &text3[range.start3..range.end3])
 }
 
 //

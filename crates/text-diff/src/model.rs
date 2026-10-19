@@ -256,7 +256,7 @@ fn block_of(view: &ViewFragment, old: &SourceText, new: &SourceText) -> DiffBloc
 }
 
 /// The ranges inside each line of `lines`, from ranges of text offsets; a range is cut at the line ends
-fn line_ranges(source: &SourceText, lines: Range<usize>, ranges: &[Range<usize>]) -> Vec<LineRanges> {
+pub(crate) fn line_ranges(source: &SourceText, lines: Range<usize>, ranges: &[Range<usize>]) -> Vec<LineRanges> {
   let offsets = source.text().line_offsets();
   lines
     .map(|line| {
@@ -276,11 +276,11 @@ fn line_ranges(source: &SourceText, lines: Range<usize>, ranges: &[Range<usize>]
     .collect()
 }
 
-fn flat_ranges(line: &LineRanges) -> Vec<u32> {
+pub(crate) fn flat_ranges(line: &LineRanges) -> Vec<u32> {
   line.ranges.iter().flat_map(|&(start, end)| [to_u32(start), to_u32(end)]).collect()
 }
 
 /// A line index or an offset; the texts are far below 4 GiB
-fn to_u32(value: usize) -> u32 {
+pub(crate) fn to_u32(value: usize) -> u32 {
   u32::try_from(value).expect("a text below 4 GiB")
 }

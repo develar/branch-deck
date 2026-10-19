@@ -76,6 +76,11 @@ flowchart TD
 | `manager.rs` | `diff-impl/.../comparison/ComparisonManagerImpl.java`, the two-way half |
 | `provider.rs` | `diff-impl/.../tools/util/text/TwosideTextDiffProviderBase.java`, `SimpleTextDiffProvider.java` |
 | `text.rs` | Branch Deck's own: `Utf16Text`, the UTF-16 code units of a text and its lines |
+| `merge_range.rs` | `util/MergeRange.kt`, `util/ThreeSide.kt`, `fragments/MergeLineFragment*.kt`, `MergeWordFragment*.kt` |
+| `comparison_merge_util.rs` | `diff/comparison/ComparisonMergeUtil.kt` |
+| `merge_conflict_type.rs` | `diff/util/MergeConflictType.kt`, `MergeConflictResolutionStrategy.kt` |
+| `merge_range_util.rs` | `diff/util/MergeRangeUtil.kt` |
+| `merge_resolve_util.rs` | `diff/comparison/MergeResolveUtil.kt` |
 | `model.rs` | Branch Deck's own: `TextDiff`, the model of the views, and `diff_texts` |
 | `inline.rs` | Branch Deck's own: the inline pairs and the dropped ranges of a block |
 
@@ -118,6 +123,49 @@ flowchart TD
 - **Proof.** A property test checks, under every policy and with and without inner ranges, that the blocks partition
   both texts, that the lines between them are equal under `Default`, that each range is inside its line, and that the
   counts are the lines of the blocks.
+
+### Merge
+
+The three-way part of the source is ported too, and `merge_model::merge_texts` builds the model of the conflict view
+from it.
+
+- **Three-way comparison.** `manager::compare_lines_three(left, base, right, policy)` compares each side with the base
+  by line (`by_line::compare_three`, the steps of a two-way comparison on each pair) and joins the two comparisons into
+  `MergeRange`s (`comparison_merge_util::build_simple`): a block wherever a side differs from the base. Its lines are
+  0-based on each side, the end exclusive.
+- **Merge.** `manager::merge_lines` is the same, but under `Trim` and `Ignore` a run of lines that differs only in what
+  the policy ignores stays a block of its own (`build_merge`), outside the conflicts, as the merge view of IntelliJ
+  shows it. `merge_lines_within_range` merges a part of the texts, `merge_lines_additions` the lines two texts share.
+- **Words.** `by_word::compare_three` gives the word blocks inside a block of lines, in offsets of the three texts,
+  with the whitespace correctors of the merge.
+- **Types.** `merge_range_util::get_line_merge_type` gives the `MergeConflictType` of a block: inserted, deleted,
+  modified or conflict, which side changed it, and whether it can be resolved: by the side that changed (`Default`),
+  or by its words (`Text`). `get_line_three_way_diff_type` is the same for a three-way comparison, and
+  `get_line_left_to_right_three_side_diff_type` the type for a left-to-right view through the base.
+- **Resolve.** `comparison_merge_util::try_resolve_conflict` merges a conflict when the changes of the two sides do not
+  overlap at the word level (`merge_resolve_util::try_resolve`, the default policy first, then ignoring whitespace).
+  The greedy resolve (`try_greedy_resolve`) applies deletions and insertions of both sides; the source keeps it off
+  (`USE_GREEDY_MERGE_MAGIC_RESOLVE`), and so does the port.
+- **Model.** `merge_texts(left, base, right, policy, &budget)` gives a `TextMerge`: left is ours (the target as built),
+  base is stage 1, right is theirs (the commit being picked), as in IntelliJ. Each `MergeBlock` has the lines of each
+  side, its kind, `leftChanged` and `rightChanged`, `ignored` (below; only under `Ignore`), its resolution (`default`: the
+  side that changed; `text`: by words, with `resolvedText`; none: the user decides) and the word ranges of each line of
+  each side. `conflicts` and `unresolved` count the conflicts; `conflicts > 0` with `unresolved == 0` is a conflict of
+  git that its words resolve. `lineEnds` and `finalNewline` name the sides when they differ. `budget.inner` bounds the
+  words and the resolves of a file (after it, `lineLevelOnly` and no resolve by words), `budget.lines` the line merge
+  (after it, one block). A property test checks that the blocks partition the three texts.
+- **Ignored blocks of a merge.** IntelliJ's merge viewer drops no block under any policy. It offers `Default`, `Trim`
+  and `Ignore`, and `IgnoreBlankLines` merges here as `Ignore`, with nothing cut off. Every block is a change that a
+  side applies and the navigation stops at. The merge keeps a block equal under the policy, so that a side can still
+  apply it (`MergeRangeUtil.getMergeType` picks the changed side by the true equality). `ignored` is IntelliJ's
+  shortcut in `DiffUtil.compareThreesideInner`: under `Ignore`, the changed sides of the block are equal ignoring
+  whitespace, with an unchanged or an empty side as "" (a blank line added or removed). IntelliJ gives such a block
+  empty inner lists and paints it pale without words (`DiffViewerHighlighters.createHighlighter`, `withIgnored`).
+  Any other block with word ranges, also an empty list per line, is painted pale too, the changed words in the full
+  colour. An insertion or a deletion without the shortcut has no word ranges and is painted in the full colour.
+- **Proof.** The tests of `LineComparisonMergeUtilTest`, `CharComparisonMergeUtilTest`, `WordMergeComparisonUtilTest`
+  and `MergeResolveUtilTest` are ported as they are. The merge parts of `ComparisonUtilAutoTest` are property tests on
+  three generated texts (the source passes the base as the right text too), and they also take the type of each block.
 
 ### Policies
 
@@ -206,8 +254,9 @@ blocks of `ComparisonUtilAutoTest` come from `compare_lines` instead of the VCS 
 
 ## Left Out
 
-- The three-way comparison and the merge (`ComparisonMergeUtil.kt`, `MergeResolveUtil.kt`, the merge parts of
-  `ByLineRt.kt`, `ByWordRt.kt` and `TrimUtil.kt`) and their tests: Branch Deck shows two-way diffs.
+- `MergeImportUtil.kt`: it finds the import block of a file through the PSI (`ImportBlockRangeProvider`). Its text
+  part is three `merge_lines_within_range` calls, which are ported.
+- `LangSpecificMergeConflictResolver` (the `Semantic` resolution): it needs a language model.
 - `IgnorePolicy.FORMATTING` and `IGNORE_LANGUAGE_SPECIFIC_CHANGES`: they need a language model. The comparison with
   ignored ranges that the second one uses is ported (`compare_lines_with_ignored_ranges`).
 - `HighlightPolicy.DO_NOT_HIGHLIGHT`: a caller that does not want a comparison does not call one.
