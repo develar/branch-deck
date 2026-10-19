@@ -1,5 +1,7 @@
-use crate::lease::{glob_matches, repository_name, seed_candidates};
+use crate::lease::{glob_matches, repository_name, seed_candidates, stop_servers};
+use crate::process_scan::{ProcessInfo, is_running, process_started};
 use std::path::Path;
+use std::time::Duration;
 
 #[test]
 fn a_glob_matches_by_stars_question_marks_and_classes() {
@@ -51,4 +53,41 @@ fn the_repository_name_is_the_directory_of_its_main_worktree() {
   assert_eq!(repository_name(Path::new("/projects/idea-1/.git")), "idea-1");
   assert_eq!(repository_name(Path::new("/srv/ultimate.git")), "ultimate");
   assert_eq!(repository_name(Path::new("/srv/bare")), "bare");
+}
+
+/// A fake Bazel server of `pid` with the start time `started`
+#[cfg(unix)]
+fn server(pid: u32, started: Option<u64>) -> ProcessInfo {
+  ProcessInfo {
+    pid,
+    parent: 0,
+    name: "bazel(fake)".to_string(),
+    cwd: None,
+    argv: vec!["bazel(fake)".to_string(), "--workspace_directory=/slot".to_string()],
+    started,
+  }
+}
+
+/// A server whose start time is unknown is never signalled and stays running; one whose pid now has another start time
+/// (the system reused the pid) is gone, and the process with that pid is not signalled either
+#[cfg(unix)]
+#[test]
+fn a_server_is_signalled_only_while_its_pid_has_the_start_time_of_the_scan() {
+  let mut child = std::process::Command::new("sleep").arg("30").spawn().unwrap();
+  let pid = child.id();
+  let started = process_started(pid);
+  assert!(started.is_some());
+
+  let unknown = server(pid, None);
+  assert_eq!(stop_servers(&[&unknown], Duration::from_millis(200)), Vec::new());
+  assert!(child.try_wait().unwrap().is_none(), "a server without a start time was signalled");
+
+  let reused = server(pid, started.map(|started| started + 1));
+  let stopped = stop_servers(&[&reused], Duration::from_millis(200));
+  assert_eq!(stopped.iter().map(|stopped| stopped.pid).collect::<Vec<_>>(), [pid], "the scanned server is gone");
+  assert!(child.try_wait().unwrap().is_none(), "the process that got the pid was signalled");
+  assert!(is_running(pid, started));
+
+  child.kill().unwrap();
+  child.wait().unwrap();
 }

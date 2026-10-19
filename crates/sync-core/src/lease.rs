@@ -1049,19 +1049,28 @@ pub struct StoppedServer {
   pub output_base: Option<String>,
 }
 
-/// Ask each Bazel server to exit with SIGTERM and wait up to `timeout` for them; the ones that exited. No other
-/// process is ever signalled: the caller passes only processes with `--workspace_directory` in the slot
+/// Ask each Bazel server to exit with SIGTERM and wait up to `timeout` for them; the ones that are gone. No other
+/// process is ever signalled: the caller passes only processes with `--workspace_directory` in the slot, and each is
+/// signalled only while its pid still has the start time of the scan, checked right before its `kill`. Between the
+/// scan and the signal a server can exit and the system can give its pid to an unrelated process. A server without a
+/// known start time is never signalled and stays running, so the slot stays busy
 fn stop_servers(servers: &[&ProcessInfo], timeout: Duration) -> Vec<StoppedServer> {
   if servers.is_empty() {
     return Vec::new();
   }
+  let running = |server: &ProcessInfo| server.started.is_none_or(|started| is_running(server.pid, Some(started)));
   for server in servers {
-    debug!(pid = server.pid, argv = ?server.argv, "stopping a Bazel server of the slot");
-    terminate(server.pid);
+    let Some(started) = server.started else {
+      debug!(pid = server.pid, "a Bazel server without a start time is not signalled");
+      continue;
+    };
+    if is_running(server.pid, Some(started)) {
+      debug!(pid = server.pid, argv = ?server.argv, "stopping a Bazel server of the slot");
+      terminate(server.pid);
+    }
   }
   let deadline = std::time::Instant::now() + timeout;
-  let running = |server: &&&ProcessInfo| server.started.is_none_or(|started| is_running(server.pid, Some(started)));
-  while servers.iter().any(|server| running(&server)) && std::time::Instant::now() < deadline {
+  while servers.iter().any(|server| running(server)) && std::time::Instant::now() < deadline {
     std::thread::sleep(Duration::from_millis(50));
   }
   servers
