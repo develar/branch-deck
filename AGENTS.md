@@ -490,10 +490,11 @@ headers of `crates/git-ops/src/lib.rs` and `crates/sync-core/src/lib.rs` map the
 | `changed_paths`, `commits_touching` | `git_ops::paths` | the paths two trees differ in, as bytes; the commits that change some paths |
 | `replay_range`, `replay_range_with_env`, `merge_trees` | `git_ops::replay` | `git replay` of a range, a merge of three trees, objects only |
 | `read_notes`, `notes_ref`, `write_commit_notes` | `git_ops::notes` | the notes of many commits from one `log --no-walk --stdin`; the mapping notes |
-| `get_commits_info`, `find_commit`, `empty_tree`, `blob_id` | `git_ops::commit_utils` | commits by id from one `log --no-walk --stdin`; ids without a process |
+| `get_commits_info`, `find_commit`, `empty_tree`, `blob_id`, `object_id_of` | `git_ops::commit_utils` | commits by id from one `log --no-walk --stdin`; ids without a process |
 | `get_commit_list_with_handler` | `git_ops::commit_list` | the commits ahead of the baseline, streamed |
 | `read_commit_files_cached`, `read_diff_files` | `git_ops::commit_files` | files and line counts of many commits from one `diff-tree --stdin`, of a range from one `diff-tree` |
 | `read_attributes` | `git_ops::attributes` | the attributes of many paths, one `check-attr --stdin -z` |
+| `resolve_by_words`, `RESOLVE_VERSION` | `git_ops::word_resolve` | a conflicting cherry-pick that its words resolve, all or nothing: the files and the tree |
 | `read_descriptions`, `write_description`, `clear_description` | `git_ops::branch_description` | the pull request text of a branch |
 | `to_final_branch_name`, `qualified_branch_name`, `strip_branch_namespace`, `sanitize_branch_name` | `git_ops::branch_names` | `{prefix}/virtual/<name>` and the other namespaces under the prefix; a group name valid in a ref |
 | `RepoFacts`, `read_baseline_listing` | `sync_core::repo_facts` | the baseline, HEAD, upstream and the branches under the prefix, read once per sync |

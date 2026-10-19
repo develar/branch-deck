@@ -67,7 +67,7 @@ fn file_name(path: &str) -> &str {
 pub fn generated_paths<'a>(git: &GitCommandExecutor, repository: &str, paths: impl IntoIterator<Item = &'a str>) -> Result<HashSet<String>> {
   let (locks, others): (Vec<&str>, Vec<&str>) = paths.into_iter().partition(|path| is_lock_file(path));
   let mut generated: HashSet<String> = locks.into_iter().map(str::to_string).collect();
-  for attribute in read_attributes(git, repository, "HEAD", &["linguist-generated", "diff"], others)? {
+  for attribute in read_attributes(git, repository, Some("HEAD"), &["linguist-generated", "diff"], others)? {
     if matches!(
       (attribute.attribute.as_str(), attribute.value.as_str()),
       ("linguist-generated", "set" | "true") | ("diff", "unset")

@@ -1158,6 +1158,35 @@ Code: `crates/git-ops/src/copy_commit.rs`, `crates/git-ops/src/cherry_pick.rs`, 
 `crates/sync-core/src/branch_processor.rs`. The integration-detection cache writes its notes in one `fast-import` as
 well (`crates/branch-integration/src/detection_notes.rs`).
 
+#### Resolve by words
+
+A conflict of git whose every conflicting file the engine merges without a conflict that its words leave resolves, as
+IntelliJ's merge viewer resolves the simple conflicts (`resolve_by_words`, `crates/git-ops/src/word_resolve.rs`). All
+or nothing: one file that does not resolve, or one conflict that is not of the contents of a text, and the
+cherry-pick stays the conflict of git.
+
+- **Which conflicts.** A path with the stages 1, 2 and 3, regular files whose modes merge as git merges them (a side
+  that changed the mode wins; two other changes stay a conflict), only `CONFLICT (contents)` messages, the `merge`
+  attribute unspecified, set or `text` (as git finds it for a merge: `check-attr` without `--source`), and UTF-8 text
+  without NUL on every side. An add/add (no stage 1), a modify/delete, a rename/rename, a rename/delete, a
+  file/directory and a binary file (`CONFLICT (binary)`, also by `merge=binary`) stay conflicts.
+- **The merge.** `merge_texts` of the stages (left: stage 2, ours, the target; base: stage 1; right: stage 3, theirs,
+  the commit) under `Default`, without a deadline, so that every machine resolves alike; the size limits of the
+  engine (`MAX_INNER_LINES`, `MAX_INNER_BYTES`) still hold, and a file over them stays a conflict. Every block must
+  resolve: a side that changed alone, the same change of both, or a conflict of both that the words resolve
+  (`MergeResolveUtil.tryResolve`, the simple resolve; the greedy one stays off).
+- **The result.** `compose_merge` of the three blobs, which must keep every line end (`exact`, see [Text Diff
+  Engine](text-diff.md), "Merge"). It replaces the file with the markers in the tree of the merge, with the merged
+  mode; the rest of the tree is git's, renames and clean files as git placed them.
+- **The tree id** is computed without a process: the trees on the paths of the resolved files, read with the stages,
+  each entry replaced where it is, so the order stays git's, and hashed bottom-up (`object_id_of`, SHA-1 or SHA-256 as
+  the repository). The blobs and the trees exist only once the commit that holds them is written.
+- **The count.** The conflicts of a file are those of git: the `<<<<<<<` lines of the file with the markers.
+- **Processes.** One `check-attr` and one `cat-file --batch` (the stages, the files with the markers, the trees),
+  none when a path fails before; the merges stop at the first file that does not resolve.
+- **`RESOLVE_VERSION`** names the way of the resolve: bump it when the merge, the resolve or the composition can give
+  another result.
+
 #### Stack branch
 
 With stacked branches on, a stack that forks (a branch of it has two children or more) also builds as one more virtual

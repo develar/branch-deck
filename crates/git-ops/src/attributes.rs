@@ -14,12 +14,13 @@ pub struct PathAttribute {
 }
 
 /// The values of `attributes` of each of `paths`, as the attribute files of the tree-ish `source` (`HEAD`) set them, not
-/// those of the working tree: one `git check-attr --source=<source> --stdin -z`; none without paths
+/// those of the working tree; without `source`, as git finds them for a merge (the working tree and the index, or
+/// `attr.tree`). One `git check-attr [--source=<source>] --stdin -z`; none without paths
 #[instrument(skip(git, attributes, paths))]
 pub fn read_attributes<'a>(
   git: &GitCommandExecutor,
   repository_path: &str,
-  source: &str,
+  source: Option<&str>,
   attributes: &[&str],
   paths: impl IntoIterator<Item = &'a str>,
 ) -> Result<Vec<PathAttribute>> {
@@ -31,8 +32,10 @@ pub fn read_attributes<'a>(
   if input.is_empty() {
     return Ok(Vec::new());
   }
-  let source = format!("--source={source}");
-  let mut args = vec!["check-attr", source.as_str(), "--stdin", "-z"];
+  let source = source.map(|source| format!("--source={source}"));
+  let mut args = vec!["check-attr"];
+  args.extend(source.as_deref());
+  args.extend_from_slice(&["--stdin", "-z"]);
   args.extend_from_slice(attributes);
   let output = git.cmd(&args, repository_path).stdin(input.as_bytes()).bytes()?;
   // `<path>` NUL `<attribute>` NUL `<value>` NUL

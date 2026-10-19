@@ -33,6 +33,7 @@
 //! - `merge_memo`: `MergeOutcome` and the `MergeMemo` of merges, commit trees and conflict views
 //! - `merge_conflict`: the report of a conflicting cherry-pick, its markers and its view
 //! - `conflict_analysis`: the missing commits, the divergence and the file contents of a conflict view
+//! - `word_resolve`: the resolve by words of a conflicting cherry-pick, all or nothing
 //!
 //! Rewrites of the checked out branch:
 //! - `rewrite_guard`: the guards of a rewrite, `HeadMoved`, `IndexUpdate` of the user's index
@@ -86,6 +87,7 @@ pub mod tree_archive;
 pub mod tree_id_cache;
 pub mod update_branch;
 pub mod update_resolve;
+pub mod word_resolve;
 pub mod worktree_update;
 
 #[cfg(test)]

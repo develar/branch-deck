@@ -20,7 +20,7 @@ fn reads_the_attributes_of_the_source_tree() {
   std::fs::write(repo.path().join(".gitattributes"), "*.md linguist-generated\n").unwrap();
   let (git, path) = (repo.git_executor(), repo.path_str());
   let paths = ["gen/a b.rs", "x\ty.bin", "ü.txt", "README.md"];
-  let attributes = read_attributes(git, path, "HEAD", &["linguist-generated", "diff", "eol"], paths).unwrap();
+  let attributes = read_attributes(git, path, Some("HEAD"), &["linguist-generated", "diff", "eol"], paths).unwrap();
   assert_eq!(
     attributes,
     [
@@ -38,5 +38,5 @@ fn reads_the_attributes_of_the_source_tree() {
       attribute("README.md", "eol", "unspecified"),
     ]
   );
-  assert_eq!(read_attributes(git, path, "HEAD", &["diff"], []).unwrap(), []);
+  assert_eq!(read_attributes(git, path, Some("HEAD"), &["diff"], []).unwrap(), []);
 }

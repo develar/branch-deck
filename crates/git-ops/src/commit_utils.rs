@@ -67,6 +67,13 @@ pub const fn empty_tree(object_id: &str) -> &'static str {
 /// `hash-object --stdin` computes it (no filters), without a process: the hash of `blob <length>\0<content>`
 #[must_use]
 pub fn blob_id(object_id: &str, content: &[u8]) -> String {
+  object_id_of(object_id, "blob", content)
+}
+
+/// The id of an object of `kind` (`blob`, `tree`) with `content` in the hash algorithm of `object_id`, a full id of the
+/// same repository: the hash of `<kind> <length>\0<content>`
+#[must_use]
+pub fn object_id_of(object_id: &str, kind: &str, content: &[u8]) -> String {
   fn hex<D: Digest>(header: &[u8], content: &[u8]) -> String {
     let digest = D::new().chain_update(header).chain_update(content).finalize();
     digest.iter().fold(String::with_capacity(digest.len() * 2), |mut hex, byte| {
@@ -74,7 +81,7 @@ pub fn blob_id(object_id: &str, content: &[u8]) -> String {
       hex
     })
   }
-  let header = format!("blob {}\0", content.len());
+  let header = format!("{kind} {}\0", content.len());
   if object_id.len() == 64 {
     hex::<Sha256>(header.as_bytes(), content)
   } else {
