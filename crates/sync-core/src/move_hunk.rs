@@ -1,20 +1,22 @@
 //! Moving the changes of one file from one commit ahead of the baseline into another (`bd move-hunk`): the checks of
-//! the request against the commits ahead of the baseline and the patch of `from` (the hunks numbered as
-//! `bd commits --patch` prints them), under the repository lock, then the rewrite of `git_ops::move_hunk`, which keeps
-//! HEAD's tree (docs/design/git-operations.md, "Move a hunk")
+//! the request against the commits ahead of the baseline and the blocks of the file in `from` (the ids that
+//! `bd commits --patch` prints), under the repository lock, then the rewrite of `git_ops::move_hunk`, which keeps HEAD's
+//! tree (docs/design/git-operations.md, "Move a hunk")
 
 use crate::commit_ids::{IdMatch, match_commit_id};
-use crate::diff_scan::{PatchHunk, file_patch, read_commit_patches};
+use crate::diff_scan::{blob_pair, read_commit_changes};
 use crate::regroup::RegroupError;
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, ensure_expected_head, lock_repository};
 use crate::snapshot::CommitsAhead;
+use file_diffs::patch::BlockPatch;
+use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::move_hunk::{MoveHunkMode, MoveHunkRequest, MovedChange, move_hunk};
 use git_ops::revs::{DetachedHead, current_branch, short_id};
 use git_ops::rewrite_guard::ensure_no_operation_in_progress;
-use object_cache::commit_diff::Hunk;
-use std::collections::BTreeSet;
+use object_cache::cache::ObjectCache;
 use std::time::Duration;
+use text_diff::apply::{BlockId, LineBlock};
 use tracing::instrument;
 
 #[derive(Debug, Clone, Default)]
@@ -25,8 +27,9 @@ pub struct MoveHunkParams {
   pub to: String,
   /// The file, relative to the repository root, as `bd commits --patch` prints it
   pub path: String,
-  /// The hunks of the file's patch in `from`, numbered from 1; empty for the whole change of the file
-  pub hunks: Vec<usize>,
+  /// The ids of the blocks of the file in `from` (`12,3:12,5@1a2b3c4d`, as `bd commits --patch` prints them); empty for
+  /// the whole change of the file
+  pub blocks: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -62,8 +65,8 @@ pub struct MoveHunkResult {
   pub from: String,
   pub to: String,
   pub path: String,
-  /// The hunks that moved (every hunk of the file when the whole change moved; none for a binary file)
-  pub hunks: Vec<PatchHunk>,
+  /// The blocks that moved (every block of the file when the whole change moved; none for a binary file)
+  pub blocks: Vec<BlockPatch>,
   /// Old -> new id of every recreated commit, oldest first; empty for a dry run
   pub commits: Vec<(String, String)>,
   /// The tree of each commit of `commits`, in their order
@@ -75,12 +78,14 @@ pub struct MoveHunkResult {
 #[derive(Debug, thiserror::Error)]
 pub enum MoveHunkError {
   /// The request can't be applied: the same commit twice, a file the commit doesn't change, a rename, a mode change, a
-  /// symlink or submodule, hunks of a binary file, a move that leaves a commit without changes
+  /// symlink or submodule, blocks of a binary file, a block id that does not parse, a move that leaves a commit without
+  /// changes
   #[error("{0}")]
   InvalidArguments(String),
-  /// `--hunk` names a hunk the file's patch doesn't have
-  #[error("{0}")]
-  HunkNotFound(String),
+  /// A block id names no block of the file in `from`: the file changed since the id was read; `blocks` are the ids of
+  /// the file's blocks now
+  #[error("{message}")]
+  BlockNotFound { message: String, blocks: Vec<String> },
   /// The change doesn't apply to `commit`, a commit between the two; nothing was written
   #[error("{message}")]
   Conflict { message: String, commit: String, path: String },
@@ -96,10 +101,17 @@ impl From<anyhow::Error> for MoveHunkError {
   }
 }
 
-/// Move the change of `params.path` (all of it, or the hunks `params.hunks`) from commit `from` into commit `to`, both
-/// ahead of the baseline on the checked out branch, in one rewrite that keeps HEAD's tree
-#[instrument(skip(git_executor, options), fields(mode = ?options.mode))]
-pub fn move_hunk_core(git_executor: &GitCommandExecutor, repository_path: &str, params: &MoveHunkParams, options: &MoveHunkOptions) -> Result<MoveHunkResult, MoveHunkError> {
+/// Move the change of `params.path` (all of it, or the blocks `params.blocks`) from commit `from` into commit `to`, both
+/// ahead of the baseline on the checked out branch, in one rewrite that keeps HEAD's tree. `cache` gives the blocks
+/// that the diff views showed, so that the ids are the ones they printed
+#[instrument(skip(git_executor, cache, options), fields(mode = ?options.mode))]
+pub fn move_hunk_core(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  cache: &ObjectCache,
+  params: &MoveHunkParams,
+  options: &MoveHunkOptions,
+) -> Result<MoveHunkResult, MoveHunkError> {
   ensure_no_operation_in_progress(git_executor, repository_path).map_err(|e| RegroupError::OperationInProgress(format!("{e:#}")))?;
   let branch = current_branch(git_executor, repository_path)?.ok_or_else(|| RegroupError::DetachedHead(DetachedHead.to_string()))?;
   let _lock = if options.mode != MoveHunkMode::Apply || options.held_lock.is_some() {
@@ -124,45 +136,13 @@ pub fn move_hunk_core(git_executor: &GitCommandExecutor, repository_path: &str, 
   }
 
   let path = params.path.as_str();
-  let patch = read_commit_patches(git_executor, repository_path, std::slice::from_ref(&from))?
-    .pop()
-    .map_or_default(|(_, patch)| patch);
-  let file = file_patch(&patch, path).ok_or_else(|| MoveHunkError::InvalidArguments(format!("Commit {} doesn't change {path}", short_id(&from))))?;
-  if file.renamed || file.copied {
-    return Err(MoveHunkError::InvalidArguments(format!(
-      "Commit {} {} {} to {}: only the changes of a file that keeps its path move",
-      short_id(&from),
-      if file.renamed { "renames" } else { "copies" },
-      file.old_path.as_deref().unwrap_or_default(),
-      file.new_path.as_deref().unwrap_or_default()
-    )));
-  }
-
-  let selected: BTreeSet<usize> = params.hunks.iter().copied().collect();
-  let count = file.hunks.len();
-  if !selected.is_empty() && count == 0 {
-    let what = if file.binary { "a binary file" } else { "changed without hunks" };
-    return Err(MoveHunkError::InvalidArguments(format!(
-      "{path} is {what} in commit {}: omit --hunk to move its whole change",
-      short_id(&from)
-    )));
-  }
-  if let Some(unknown) = selected.iter().find(|&&number| number == 0 || number > count) {
-    let has = if count == 1 { "1 hunk".to_string() } else { format!("{count} hunks") };
-    return Err(MoveHunkError::HunkNotFound(format!(
-      "{path} has {has} in commit {}, no hunk {unknown}; `bd commits {} --patch` numbers them from 1",
-      short_id(&from),
-      short_id(&from)
-    )));
-  }
-  let partial = !selected.is_empty() && selected.len() < count;
-  let ranges: Vec<Hunk> = selected.iter().map(|&number| file.hunks[number - 1].range).collect();
-  let change = if partial { MovedChange::Hunks(&ranges) } else { MovedChange::WholeFile };
-  let moved_hunks: Vec<PatchHunk> = if partial {
-    selected.iter().map(|&number| file.hunks[number - 1].clone()).collect()
-  } else {
-    file.hunks
-  };
+  let blocks = file_blocks(git_executor, repository_path, cache, &from, path)?;
+  let selected = selected_blocks(&params.blocks, blocks.as_deref(), path, &from)?;
+  let all = blocks.unwrap_or_default();
+  let partial = !selected.is_empty() && selected.len() < all.len();
+  let ranges: Vec<LineBlock> = selected.iter().map(|&index| all[index].id.block).collect();
+  let change = if partial { MovedChange::Blocks(&ranges) } else { MovedChange::WholeFile };
+  let moved_blocks: Vec<BlockPatch> = if partial { selected.iter().map(|&index| all[index].clone()).collect() } else { all };
 
   let request = MoveHunkRequest {
     from: &from,
@@ -189,9 +169,67 @@ pub fn move_hunk_core(git_executor: &GitCommandExecutor, repository_path: &str, 
     from,
     to,
     path: path.to_string(),
-    hunks: moved_hunks,
+    blocks: moved_blocks,
     commits: outcome.commits,
     trees: outcome.trees,
     changed: outcome.changed,
   })
+}
+
+/// The blocks of `path` in `from`; `None` for a file without text
+fn file_blocks(git_executor: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, from: &str, path: &str) -> Result<Option<Vec<BlockPatch>>, MoveHunkError> {
+  let files = read_commit_changes(git_executor, repository_path, &[from.to_string()])?
+    .pop()
+    .map_or_default(|diff| diff.files);
+  let change = files
+    .iter()
+    .find(|change| change.path == path || change.old_path.as_deref() == Some(path))
+    .ok_or_else(|| MoveHunkError::InvalidArguments(format!("Commit {} doesn't change {path}", short_id(from))))?;
+  if let Some(old_path) = &change.old_path {
+    return Err(MoveHunkError::InvalidArguments(format!(
+      "Commit {} renames {old_path} to {}: only the changes of a file that keeps its path move",
+      short_id(from),
+      change.path
+    )));
+  }
+  // a symlink, a submodule and a type change have no blobs to compare; git-ops refuses them
+  if change.status == 'T' || (change.old_blob.is_none() && change.new_blob.is_none()) {
+    return Ok(None);
+  }
+  Ok(FileDiffs::default().patches_of(git_executor, repository_path, cache, &[blob_pair(change)])?.pop().flatten())
+}
+
+/// The indices of the blocks that `ids` name, in the order of the file, each once; empty for none named
+fn selected_blocks(ids: &[String], blocks: Option<&[BlockPatch]>, path: &str, from: &str) -> Result<Vec<usize>, MoveHunkError> {
+  if ids.is_empty() {
+    return Ok(Vec::new());
+  }
+  let Some(blocks) = blocks.filter(|blocks| !blocks.is_empty()) else {
+    let what = if blocks.is_none() {
+      "a file without text (binary)"
+    } else {
+      "changed without blocks (the mode or the line ends only)"
+    };
+    return Err(MoveHunkError::InvalidArguments(format!(
+      "{path} is {what} in commit {}: omit --block to move its whole change",
+      short_id(from)
+    )));
+  };
+  let mut selected = Vec::with_capacity(ids.len());
+  for id in ids {
+    let parsed = BlockId::parse(id).ok_or_else(|| MoveHunkError::InvalidArguments(format!("{id} is no block id: `bd commits --patch` prints them, as 12,3:12,5@1a2b3c4d")))?;
+    let Some(index) = blocks.iter().position(|block| block.id == parsed) else {
+      return Err(MoveHunkError::BlockNotFound {
+        message: format!(
+          "{path} has no block {id} in commit {}: the file changed since the id was read; `blocks` are its ids now",
+          short_id(from)
+        ),
+        blocks: blocks.iter().map(|block| block.id.to_string()).collect(),
+      });
+    };
+    selected.push(index);
+  }
+  selected.sort_unstable();
+  selected.dedup();
+  Ok(selected)
 }

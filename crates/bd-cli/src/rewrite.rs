@@ -418,12 +418,8 @@ pub fn regroup_error(error: RegroupError) -> CliError {
     RegroupError::Other(_) => ErrorCode::GitError,
   };
   CliError {
-    code,
-    message,
     commits: error.commits().to_vec(),
-    branches: Vec::new(),
-    paths: Vec::new(),
-    review: None,
+    ..CliError::new(code, message)
   }
 }
 

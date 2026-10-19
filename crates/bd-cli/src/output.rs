@@ -5,9 +5,9 @@ use std::borrow::Cow;
 use std::io::Write;
 
 /// The version of the output contract
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
-/// The `"schema": 1` field every output object starts with
+/// The `"schema": 2` field every output object starts with
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SchemaVersion;
 

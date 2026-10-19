@@ -11,6 +11,7 @@ git-executor = { path = "../git-executor" }
 object-cache = { path = "../object-cache" }
 # the cut of the lists a check reports (`list_cut::kept`)
 sync-utils = { path = "../sync-utils" }
+text-diff = { path = "../text-diff" }
 
 # Core utilities (shared via workspace)
 anyhow.workspace = true

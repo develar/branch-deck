@@ -56,7 +56,7 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   page (Windows PowerShell 5.1) still reads every path and subject. A plan or a body that bd reads (`--plan`, stdin,
   `--body-file`; `-` is stdin) is UTF-8, with or without a byte order mark, or UTF-16 with one. A pipe of Windows
   PowerShell 5.1 turns other characters into `?` before bd reads them, so pass a file there.
-- Every object starts with `"schema": 1`. The version goes up only when a field changes meaning or disappears. New
+- Every object starts with `"schema": 2`. The version goes up only when a field changes meaning or disappears. New
   optional fields don't change it.
 - Optional fields are left out when they are empty. `group` is the exception: it is always present and is `null` for
   an unassigned commit. In a `--brief` view a field is also left out when another field says it: `issue_key` when it
@@ -75,13 +75,13 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
 An error looks like this:
 
 ```json
-{"schema":1,"error":{"code":"no_branch_prefix","message":"No branch prefix: ...","commits":[],"retryable":false}}
+{"schema":2,"error":{"code":"no_branch_prefix","message":"No branch prefix: ...","commits":[],"retryable":false}}
 ```
 
 `uncommitted_overlap` also has `paths`, the local files that block an update, a pick or their undo:
 
 ```json
-{"schema":1,"error":{"code":"uncommitted_overlap","message":"…","commits":[],"paths":["src/app.txt"],"retryable":false}}
+{"schema":2,"error":{"code":"uncommitted_overlap","message":"…","commits":[],"paths":["src/app.txt"],"retryable":false}}
 ```
 
 A refused resolution of `bd update --continue` has `paths` too, the conflicting files; `lease_rejected` and
@@ -93,7 +93,7 @@ A refused resolution of `bd update --continue` has `paths` too, the conflicting 
 |---|---|---|
 | 0 | ok | |
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
-| 2 | invalid input | `invalid_arguments`, `hunk_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution` |
+| 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `round_moved`, `locked` |
 | 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `landed`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error` |
@@ -134,7 +134,7 @@ started since and polls the running ones, as the app does; `bd push`, `bd safe-p
 what they listed.
 
 ```json
-{"schema":1,"repository":"/repo","prefix":"develar","head":{"id":"ff366ae0","branch":"master"},
+{"schema":2,"repository":"/repo","prefix":"develar","head":{"id":"ff366ae0","branch":"master"},
  "baseline":"origin/master","branch_count":2,"unassigned_count":1,
  "branches":[{"name":"auth","ref":"refs/heads/develar/virtual/auth","latest_time":1700000400,"commit_count":2,
    "tip":"2c1d0e93","commits":[{"id":"9f3a2b1c","subject":"Add logout"},{"id":"41c7d00e","subject":"Add login"}]},
@@ -231,7 +231,7 @@ what they listed.
   - It works with `--unassigned`, `--limit` and `--offset`, but not with `--branch` or `--stats`.
 
   ```json
-  {"schema":1,…,"head":{"id":"ff366ae0","branch":"master"},"baseline":"origin/master","branch_count":2,
+  {"schema":2,…,"head":{"id":"ff366ae0","branch":"master"},"baseline":"origin/master","branch_count":2,
    "unassigned_count":1,"branches":[{"name":"auth","commit_count":2,"newest":"Add logout"},
     {"name":"ABC-12","commit_count":1,"newest":"ABC-12 Fix crash"}],
    "unassigned":[{"id":"77e01aa4","subject":"Tidy up"}]}
@@ -242,7 +242,7 @@ what they listed.
 Prints every commit ahead of the baseline, oldest first, which is the order they are applied in.
 
 ```json
-{"schema":1,"repository":"/repo","prefix":"develar","head":"77e01aa4","baseline":"origin/master",
+{"schema":2,"repository":"/repo","prefix":"develar","head":"77e01aa4","baseline":"origin/master",
  "commits":[{"id":"41c7d00e","subject":"(auth) Add login","body":"...","author":"Name <mail>","time":1700000100,
    "group":"auth","files":[{"path":"auth.rs","status":"A","additions":12,"deletions":0}]},
   {"id":"5e2f9c3b","subject":"fixup! (auth) Add login","group":"auth",
@@ -255,9 +255,25 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
 - `fixup` is set on a `fixup!`, `squash!` or `amend!` commit. Its `target` is resolved with `git rebase --autosquash`
   rules (`plan_autosquash`), and is `null` when no older commit matches.
 - `--files` lists the changed files of each commit. `status` is `A`, `M`, `D`, `R` (`old_path` is set) or `T`.
-  `additions` and `deletions` match `--numstat`. A binary file has `"binary": true` and no counts.
-- `--patch` adds the patch of each listed commit, with three lines of context. Its hunks are the ones
-  `bd move-hunk --hunk` numbers: per file from 1, in the order of the patch.
+  `additions` and `deletions` count the changed lines of the diff views. They differ from `--numstat` for a change of
+  the line ends alone, which counts no line. A binary file has `"binary": true` and no counts.
+- `--patch` adds `patch`, the changed files of each listed commit with their blocks: the blocks of the diff views of
+  the app, never merged with a neighbour.
+
+  ```json
+  "patch":[{"path":"auth.rs","status":"M","blocks":[{"id":"27,1:27,1@656914d1","old_start":27,"old_lines":1,
+    "new_start":27,"new_lines":1,"kind":"changed","header":"@@ -24,7 +24,7 @@ Auth › login",
+    "text":" line 24\n line 25\n line 26\n-old\n+new\n line 28\n line 29\n line 30"}]}]
+  ```
+
+  - `id` is what `bd move-hunk --block` takes: the lines of the block as in a git hunk header, and a hash of its lines.
+    An id of a block that changed since does not match.
+  - `old_start` and `new_start` are 1-based. A side without lines names the line before them, as git does.
+  - `kind` is `changed`, or `whitespace_only` for lines that differ in whitespace or in the final line end only.
+  - `header` counts the lines of `text` and names the declaration that holds the block, when the language is known.
+  - `text` has the lines of the block between up to three lines of context. The context stops at the next block.
+    A final line end added or removed is a block on the empty last line.
+  - A file without text (`binary`: a binary file, a symlink, a submodule, a type change, over 8 MiB) has no blocks.
 - `--branch` keeps only the commits of that branch, and the edges and overlaps that involve it. `--unassigned` keeps
   the unassigned commits, and `<id>…` the commits with these ids: full, or abbreviated to at least 4 characters, as in
   a plan. An id that matches no commit ahead of the baseline is `not_ahead_of_baseline`, one that matches several is
@@ -274,7 +290,7 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
   `--files` and `--patch` don't go with it; the filters do.
 
   ```json
-  {"schema":1,…,"head":"77e01aa4","baseline":"origin/master",
+  {"schema":2,…,"head":"77e01aa4","baseline":"origin/master",
    "commits":[{"id":"41c7d00e","subject":"Add login","group":"auth","areas":[{"dir":"src/auth","lines":12}]},
     {"id":"5e2f9c3b","subject":"fixup! Add login","group":"auth","fixup":{"kind":"fixup","target":"41c7d00e"},
      "areas":[{"dir":"src/auth","lines":2}]},
@@ -310,9 +326,10 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
 All changes, the file lists and the dependencies come from one `git log --no-walk=unsorted --stdin -z --raw
 --no-abbrev` process and one `cat-file --batch` of the blobs, for the commits the object cache misses. The raw part
 gives the full ids of each file's blobs before and after. The line counts and the line ranges of the dependencies are
-the blocks of the diff views under `Default`, so `bd commits` and the app count the same lines. `--patch` adds one more process, with `-U3`. Both pass explicit diff options (`-M`, `--no-ext-diff`,
-`--no-textconv`, `a/`/`b/` prefixes), so the user's diff config doesn't change the output; `--patch` also pins where its
-hunks start and end (`--diff-algorithm=myers --inter-hunk-context=0 --indent-heuristic`), for `bd move-hunk`.
+the blocks of the diff views under `Default`, so `bd commits` and the app count the same lines. `--patch` adds one
+`cat-file --batch` of the blobs of the listed commits. The log passes explicit diff options (`-M`, `--no-ext-diff`,
+`--no-textconv`), and the blocks come from the diff engine of the app, so the user's diff config doesn't change the
+output.
 
 #### Lock files and generated files
 
@@ -435,7 +452,7 @@ rebuilds the virtual branches, under the same repository lock.
   `detached_head` (exit 4).
 
 ```json
-{"schema":1,"repository":"/repo","prefix":"develar","operation":"group","dry_run":false,
+{"schema":2,"repository":"/repo","prefix":"develar","operation":"group","dry_run":false,
  "previous_head":"77e01aa4","new_head":"c0ffee12","rewritten":3,"undo_token":"<full previous>..<full new>",
  "groups":{"auth":["1b2c3d4e","5f6a7b8c"],"login":["9d0e1f2a"]},"unassigned":["c0ffee12"]}
 ```
@@ -482,7 +499,7 @@ Moves the branch back from the token's new HEAD to its previous HEAD, and the is
 from the token's new commit to its previous one (or away), in one transaction with CAS on each, under the lock:
 `undo_stale` (exit 4) once anything else changed the branch or a store, since the token can never succeed again. Give the token as it was printed: a token with abbreviated ids, or whose store commit is not a
 write on its previous one, is `invalid_arguments`. Prints
-`{"schema":1,…,"previous_head":"<undone>","new_head":"<restored>","undone_issue_groups":"<undone>","undone_stack_parents":"<undone>"}`;
+`{"schema":2,…,"previous_head":"<undone>","new_head":"<restored>","undone_issue_groups":"<undone>","undone_stack_parents":"<undone>"}`;
 `previous_head` and each `undone…` are left out for a token without that part.
 
 An `update:<previous>..<new>` token of `bd update` moves the branch back and the files with it (see `bd update`); a
@@ -496,7 +513,7 @@ The app's Update Project (`sync_core::update_project::update_project_with`, "Upd
 lock, checks again and applies a clean update. The fetch runs before the lock, so a slow fetch blocks no other writer.
 
 ```json
-{"schema":1,…,"branch":"master","upstream":"origin/master","state":"rebase","dry_run":false,"fetched_at":1760500000,
+{"schema":2,…,"branch":"master","upstream":"origin/master","state":"rebase","dry_run":false,"fetched_at":1760500000,
  "previous_head":"77e01aa4","new_head":"c0ffee12","upstream_head":"5f6a7b8c","replayed":2,"dropped_already_upstream":1,
  "undo_token":"update:<full previous>..<full new>",
  "landed":[{"branch":"auth","commits":[{"commit":"1b2c3d4e","subject":"Add login","upstream":"9d0e1f2a"}],"remaining":0}]}
@@ -539,7 +556,7 @@ ref `refs/branch-deck/resolve/<worktree id>`. Peers' commits on top of HEAD join
 session open prints the open round again, fetches nothing and writes the missing copies.
 
 ```json
-{"schema":1,…,"state":"conflict","session":{"worktree":"main","state":"resolving","round":1,"replayed":0,"total":1,
+{"schema":2,…,"state":"conflict","session":{"worktree":"main","state":"resolving","round":1,"replayed":0,"total":1,
  "dir":"/repo/.git/branch-deck/resolve",
  "commit":{"commit":"d88f5726","subject":"(auth) Change line 2","author":"Me","patch":"/repo/.git/branch-deck/resolve/r1/commit.patch"},
  "files":[{"path":"shared.txt","kind":"content","edit":"/repo/.git/branch-deck/resolve/r1/edit/1-shared.txt",
@@ -574,7 +591,7 @@ with `git replay`, and under the repository lock, which every worktree shares, t
 through the guarded update. `--follow` moves the source worktree onto the new tip the same way.
 
 ```json
-{"schema":1,…,"branch":"master","state":"picked","dry_run":false,"source_worktree":"/Users/me/.treehouse/repo/3/repo","base":"5f6a7b8c",
+{"schema":2,…,"branch":"master","state":"picked","dry_run":false,"source_worktree":"/Users/me/.treehouse/repo/3/repo","base":"5f6a7b8c",
  "previous_head":"77e01aa4","new_head":"c0ffee12",
  "picked":[{"commit":"1b2c3d4e","new_id":"9d0e1f2a","subject":"(lane) Add the probe","group":"lane","grouped_by":"prefix"}],
  "already_present":[{"commit":"2c3d4e5f","subject":"(lane) Fix the build","on":"aa11bb22"}],
@@ -614,7 +631,7 @@ Folds the `fixup!`, `squash!` and `amend!` commits into their targets, as the ap
 tree stay as they are.
 
 ```json
-{"schema":1,…,"dry_run":false,"previous_head":"77e01aa4","new_head":"c0ffee12",
+{"schema":2,…,"dry_run":false,"previous_head":"77e01aa4","new_head":"c0ffee12",
  "folded":[{"commit":"1b2c3d4e","subject":"(auth) Add login","new_id":"2c3d4e5f","fixups":["9d0e1f2a"]}],
  "orphans":["5f6a7b8c"],"undo_token":"<full previous>..<full new>"}
 ```
@@ -625,34 +642,38 @@ tree stay as they are.
   commits and the history it rewrites end at the planned head, and moves the branch only from it (compare-and-swap).
 - `bd undo <undo_token>` restores the previous head.
 
-### `bd move-hunk <from> <to> <path> [--hunk N]… [--expect-head <id>] [--dry-run | --sync]`
+### `bd move-hunk <from> <to> <path> [--block <id>]… [--expect-head <id>] [--dry-run | --sync]`
 
 Moves the changes of the file `path` from commit `from` into commit `to`, older or newer, both ahead of the baseline:
-the fix for a hunk that landed in the wrong commit, without `commit-tree` plumbing. Without `--hunk` the whole change
-of the file moves (also of a binary file, an added or a deleted one); `--hunk N` (repeatable) moves the hunks of the
-file's patch in `from`, numbered from 1 as `bd commits <from> --patch` prints them. One rewrite under the repository
-lock that keeps HEAD's tree, so the index and the working tree stay as they are
+the fix for a change that landed in the wrong commit, without `commit-tree` plumbing. Without `--block` the whole
+change of the file moves (also of a binary file, an added or a deleted one). `--block <id>` (repeatable) moves only
+the blocks with the ids that `bd commits <from> --patch` prints. One rewrite under the repository lock that keeps
+HEAD's tree, so the index and the working tree stay as they are
 ([Git Operations](../design/git-operations.md#move-a-hunk)).
 
 ```json
-{"schema":1,…,"dry_run":false,"previous_head":"77e01aa4","new_head":"c0ffee12",
- "moved":{"path":"src/Host.kt","from":"9d0e1f2a","to":"1b2c3d4e","hunks":[{"header":"@@ -1,3 +1,3 @@","text":" a\n-b\n+B\n c\n"}]},
+{"schema":2,…,"dry_run":false,"previous_head":"77e01aa4","new_head":"c0ffee12",
+ "moved":{"path":"src/Host.kt","from":"9d0e1f2a","to":"1b2c3d4e","blocks":[{"id":"2,1:2,1@1a2b3c4d","old_start":2,
+   "old_lines":1,"new_start":2,"new_lines":1,"kind":"changed","header":"@@ -1,3 +1,3 @@","text":" a\n-b\n+B\n c"}]},
  "commits":[{"commit":"1b2c3d4e","new_id":"2c3d4e5f"},…],"changed":2,"undo_token":"<full previous>..<full new>"}
 ```
 
 - Into an older commit, the change is added to the trees of `[to, from)`, and `from` keeps its tree, so it holds only
-  the rest; into a newer one, it is taken out of the trees of `[from, to)`, and `to` keeps its tree. A hunk applies by
+  the rest; into a newer one, it is taken out of the trees of `[from, to)`, and `to` keeps its tree. A block applies by
   its line ranges, so a commit between that only shifts the lines takes it; one that changes the same lines, or lacks
   the file, is `hunk_conflict` (exit 4, `commits` and `paths` name it), and nothing changed: bd can't move it.
+- An id holds a hash of the lines of its block. When the file changed since `bd commits --patch`, an id matches no
+  block: `block_not_found` (exit 2), with `error.blocks`, the ids of the file's blocks now.
 - `commits` maps every recreated commit, oldest first. `changed` counts the commits whose changes differ: `from`,
   `to` and the commits between whose diff of the file changed. They get the current user as committer and lose their
   mapping note, so the next sync copies them again; the others keep author, committer and note, and their virtual
   commits stay.
-- Refused with `invalid_arguments`: the same commit twice, a file `from` doesn't change, renames or copies, a mode
-  change, a symlink or submodule, `--hunk` of a binary, added or deleted file, and a move that leaves a commit without
-  changes (squash it instead). `hunk_not_found` names a hunk the file doesn't have, `not_ahead_of_baseline` an id.
+- Refused with `invalid_arguments`: the same commit twice, a file `from` doesn't change, a rename, a mode change, a
+  symlink or submodule, `--block` of a file without blocks (binary, or only the mode or the line ends changed), an id
+  that does not parse, and a move that leaves a commit without changes (squash it instead). All blocks named is the
+  whole file. `not_ahead_of_baseline` names a commit id.
 - `--expect-head` refuses with `head_moved` unless HEAD is still that commit; a held lock is `locked`.
-- `--dry-run` prints the hunks and checks the rewrite (the merges and the empty commits); it writes only git objects.
+- `--dry-run` prints the blocks and checks the rewrite (the merges and the empty commits); it writes only git objects.
   `--sync` syncs under the same lock, as `bd group --sync` does. `bd undo <undo_token>` restores the previous head.
 
 ### `bd check [--plan FILE | < plan.json] [--build COMMAND [--build-paths PATH…] [--rebuild]] [--fix]`
@@ -664,7 +685,7 @@ commit objects and the object cache only: no ref, note, config, HEAD or working 
 repository lock.
 
 ```json
-{"schema":1,…,"head":"77e01aa4","baseline":"origin/master","base_commit":"3c0ffee1","rewritten":1,"ok":false,
+{"schema":2,…,"head":"77e01aa4","baseline":"origin/master","base_commit":"3c0ffee1","rewritten":1,"ok":false,
  "branches":[{"name":"a","built_on":null,"commit_count":1,"result":"ok"},
   {"name":"b","built_on":null,"commit_count":1,"result":"conflict",
    "conflict":{"commit":"5e2f9c3b","subject":"(b) Change shared","files":["shared.txt"],"missing_commits":["41c7d00e"]}}],
@@ -685,7 +706,7 @@ repository lock.
   what the branch adds (as in a move of a constant into a new class), means no stack builds both, and `fix` says how
   the change gets into the branch: `{kind: "move_commit", branches}` when `fixed_by` changes only `file` (add
   `branches` to the plan), else `{kind: "move_hunk", command}`, a ready `bd move-hunk <fixed_by> <removed_by> <file>`
-  that moves the whole change of the file (add `--hunk N` to move less). A `fix` is there only when a trial build of
+  that moves the whole change of the file (add `--block <id>` to move less). A `fix` is there only when a trial build of
   the plan with it proves it: the branch builds and no branch that built breaks (a hunk move is tried on commits
   written as objects only, at most two per check); without one, `--fix` searches the regroups. A use that no commit here changes, or one that the baseline got after the base (Patronus
   merges onto its tip), is `warnings[]` `{kind: "possible_dangling_reference", branch, identifier, file, line,
@@ -742,7 +763,7 @@ repository lock.
   (run it again: the merges of the first run are cached). See [Conflict Fix](../../spec/branch/conflict-fix.spec.md).
 
 ```json
-{"schema":1,…,"ok":false,"branches":[…],
+{"schema":2,…,"ok":false,"branches":[…],
  "fix":{"search":"complete","trials":3,"components":[{"steps":[{"kind":"move","commits":["e1b77cc1"],
    "from":["IJAI-3852"],"to":"IJAI-4047","fixes":"IJAI-3852"}],
    "plan":{"branches":{"IJAI-4047":["e1b77cc1"]},"unassign":[]},"fixed":["IJAI-3852"],"rewritten":1}]}}
@@ -831,7 +852,7 @@ stays. With stacked branches, a conflict on a commit of another cluster first st
 same conflict comes again does the next round join their units.
 
 ```json
-{"schema":1,…,"head":"77e01aa4","baseline":"origin/master",
+{"schema":2,…,"head":"77e01aa4","baseline":"origin/master",
  "plan":{"branches":{"vm":["41c7d00e","5e2f9c3b"]},"unassign":[],"issue_groups":{"parser-parse":["ABC-1","ABC-2"]}},
  "clusters":[{"name":"vm","commit_count":2,"change":"new","current_branches":[],"kept":[],"new_path":[],
    "moved":[{"commit":"41c7d00e","leaves":null},{"commit":"5e2f9c3b","leaves":null}],
@@ -886,7 +907,7 @@ rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress
 (exit 4), and changes nothing: a half-done history would archive the branches it lacks; finish the operation first.
 
 ```json
-{"schema":1,"repository":"/repo","prefix":"develar","baseline":"origin/master","unassigned_count":3,
+{"schema":2,"repository":"/repo","prefix":"develar","baseline":"origin/master","unassigned_count":3,
  "branches":[{"name":"auth","ref":"refs/heads/develar/virtual/auth","state":"created","commit_count":2,
    "tip":"1b2c3d4e","remote":{"exists":false,"unpushed":2,"behind":0,"head":null},"push":"bd -C /repo push auth"},
   {"name":"login","ref":"…","state":"conflict","commit_count":1,"tip":null,
@@ -960,7 +981,7 @@ branches, which carry their parents' commits; `--expect-remote` does too. After 
 requests of the pushed branches whose base is a virtual branch to the baseline (`retargeted`).
 
 ```json
-{"schema":1,…,"remote":"origin","dry_run":false,
+{"schema":2,…,"remote":"origin","dry_run":false,
  "branches":[{"name":"auth","remote_branch":"develar/virtual/auth","commit":"1b2c3d4e","state":"new",
    "lease":null,"lease_source":"absent",
    "pull_request":{"base":"master","head":"develar/virtual/auth","title":"Add login","body":"The login form.",
@@ -1056,7 +1077,7 @@ A stacked branch lands with every branch it is built on, in one robot, as the ap
 lands them all. The branches built on it stay; after the merge the next sync builds them on the target.
 
 ```json
-{"schema":1,…,"branch":"login","mode":"safe_push","target":"master","lands":["auth","login"],
+{"schema":2,…,"branch":"login","mode":"safe_push","target":"master","lands":["auth","login"],
  "profile":{"id":"lsc","name":"Large Scale Change","description":"All the tests"},
  "profiles":[{"id":"default","name":"Default"},{"id":"lsc","name":"Large Scale Change","description":"All the tests"}],
  "review":{"required":false,"skipped":false,"counts_in":"space_merge_request",
@@ -1085,7 +1106,7 @@ lands them all. The branches built on it stay; after the merge the next sync bui
   waits for it ("A Safe Push of the whole auth stack is running: it lands login with it").
 
   ```json
-  {"schema":1,…,"branch":"login","mode":"safe_push","target":"master","lands":["auth","login","session"],
+  {"schema":2,…,"branch":"login","mode":"safe_push","target":"master","lands":["auth","login","session"],
    "whole_stack":{"root":"auth","source":"develar/stack/auth","state":"built"},
    "push_needed":true,"pushed":[{"name":"auth","remote_branch":"develar/stack/auth","state":"new",…}],
    "started_via":"api","robot":{"id":"r2",…}}
@@ -1187,7 +1208,7 @@ Asks GitHub users to review the open pull request of the virtual branch, as the 
 owners in that pull request, so one that asks no member of a missing group waits for nobody.
 
 ```json
-{"schema":1,…,"branch":"auth","pull_request":{"number":7,"url":"https://github.com/acme/monorepo/pull/7"},
+{"schema":2,…,"branch":"auth","pull_request":{"number":7,"url":"https://github.com/acme/monorepo/pull/7"},
  "readiness":"missing","reviewers":[{"login":"ikorennoy","full_name":"Ilya Korennoy"}],
  "requested":[{"login":"ikorennoy","full_name":"Ilya Korennoy"}],
  "waiting_for":[{"login":"ikorennoy","full_name":"Ilya Korennoy"}]}
@@ -1219,7 +1240,7 @@ learns why and which local commits it tested. Read only: no repository lock, no 
 token and the repository on Space are needed as for `bd safe-push` (`not_logged_in`, `not_on_space`).
 
 ```json
-{"schema":1,…,"branch":"auth",
+{"schema":2,…,"branch":"auth",
  "robot":{"id":"r1","name":"Add login","state":"failure","mode":"safe_push","commit":"1b2c3d4e",
    "url":"https://patronus.labs.jb.gg/robot/r1","running":false,"profile":{"id":"lsc","name":"Large Scale Change"},
    "target":"master","started_at":1791970200,"finished_at":1791973800},
@@ -1281,14 +1302,14 @@ branch name, in the branch table and the branch preview.
 
 ### `bd schema`
 
-Prints `{"schema":1,"outputs":{"<name>":<JSON Schema>,…}}`, one schema per output, every output named by the test
+Prints `{"schema":2,"outputs":{"<name>":<JSON Schema>,…}}`, one schema per output, every output named by the test
 `schema_lists_every_output`;
 `rewrite` is the output of `group`, `rename`, `restack` and `unstack`, `commits_brief` and `status_brief` the
 outputs of `--brief`, and `update_status` and `update_abort` those of `bd update --status` and `--abort`.
 
 ### `bd version`, `bd --version`
 
-Both print `{"schema":1,"version":"0.11.0","git":"2.56.0"}` and need no repository. `version` is the version of
+Both print `{"schema":2,"version":"0.11.0","git":"2.56.0"}` and need no repository. `version` is the version of
 Branch Deck, the one the app shows: `build.rs` of `crates/bd-cli` reads it from the root `package.json`, which
 release-please updates and `src-tauri/tauri.conf.json` names (`"version": "../package.json"`). The workspace version of the crates stays 0.1.0, so `CARGO_PKG_VERSION` is not it. `git` is
 the version of the git bd finds (see Invocation), also of one older than 2.54, and `null` without one: never an
@@ -1319,7 +1340,7 @@ How an agent learns that bd exists. `bd install`, or Help → Install Agent CLI�
   runs every bd command without a permission prompt, also `bd group`, which rewrites the checked out branch, and
   `bd push`. The approval of a push or a Safe Push is the rule of the skill's body, not a prompt.
 
-It prints `{"schema":1,"bd":"/Users/me/.local/bin/bd","on_path":true,"skills":[…],"uninstalled":false}`. `on_path`
+It prints `{"schema":2,"bd":"/Users/me/.local/bin/bd","on_path":true,"skills":[…],"uninstalled":false}`. `on_path`
 says whether `bd` on `PATH` is this one; the app asks the user's login shell for `PATH`, since an app started from the
 Finder has a minimal one. `--uninstall` removes the skills and the symlink if it points at this app (or at a removed
 `branch-deck`). `bd help skill` prints the skill as text, for an agent that reads skills from elsewhere. Without the

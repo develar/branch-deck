@@ -139,7 +139,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### Output contract
 
-- stdout must hold exactly one JSON object per run, and every object must have `"schema": 1`.
+- stdout must hold exactly one JSON object per run, and every object must have `"schema": 2`.
   [@test] ../../crates/bd-cli/src/version_test.rs (`version_and_dash_dash_version`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
 - The JSON must be ASCII: every other character is a `\uXXXX` escape (a UTF-16 pair above the BMP), so a reader that
@@ -164,7 +164,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
   [@test] ../../crates/bd-cli/src/update_test.rs (`dry_run_neither_fetches_nor_writes`)
   [@test] ../../crates/bd-cli/src/robot_test.rs (`a_failed_robot_says_why_and_which_local_commits_it_tested`)
-- A failure must print `{"schema":1,"error":{"code","message","commits","retryable"}}` with a stable snake_case code,
+- A failure must print `{"schema":2,"error":{"code","message","commits","retryable"}}` with a stable snake_case code,
   and `paths` for `uncommitted_overlap` (the local files) and for a refused resolution of `bd update --continue` (the
   conflicting files).
   A write whose step after the write failed must print its output with that error as `after_error`, never the error
@@ -264,18 +264,19 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - It must print every commit ahead of the baseline, oldest first: id, subject, body, author, time, group (or `null`),
   issue key, and for a fixup its kind and the target autosquash resolves.
   [@test] ../../crates/bd-cli/src/commits_test.rs (`entries_groups_and_fixups`)
-- `--files` must list each changed file with its status (`A`, `M`, `D`, `R` with the old path, `T`) and the counts
-  `--numstat` reports; a binary file must have `"binary": true` and no counts.
+- `--files` must list each changed file with its status (`A`, `M`, `D`, `R` with the old path, `T`) and the counts of
+  the changed lines of the diff views; a binary file must have `"binary": true` and no counts.
   [@test] ../../crates/bd-cli/src/commits_test.rs (`files_with_renames_binaries_and_deletions`)
-  [@test] ../../crates/sync-core/src/diff_scan_test.rs (`parses_raw_and_patch_parts`)
-- `--patch` must add each commit's patch with three lines of context, its hunks fixed whatever the user's diff config
-  (`--diff-algorithm=myers --inter-hunk-context=0 --indent-heuristic`, no external diff or textconv), so that hunk N
-  of a file is hunk N of `bd move-hunk --hunk N`; `--branch` must keep the commits of one branch and the edges and
-  overlaps that involve it.
-  [@test] ../../crates/sync-core/src/diff_scan_test.rs (`file_patch_numbers_the_hunks_of_one_file`, `file_patch_tells_renames_binaries_added_files_and_modes`)
+  [@test] ../../crates/sync-core/src/diff_scan_test.rs (`parses_raw_and_patch_parts`, `read_commit_diffs_takes_the_blocks_of_the_views`)
+- `--patch` must add per changed file the blocks of the diff views under `Default`, each with its id for
+  `bd move-hunk --block` (the lines as in a git hunk header and a hash of them), its kind, a header with the label of
+  its scope, and its lines between up to three lines of context that stop at the next block; `--branch` must keep the
+  commits of one branch and the edges and overlaps that involve it.
+  [@test] ../../crates/bd-cli/src/commits_test.rs (`dependency_edges_and_cluster_overlap`)
+  [@test] ../../crates/file-diffs/src/patch_test.rs (`each_block_has_its_own_context`, `an_insertion_and_a_final_line_end`, `the_header_names_the_scope`, `the_ids_of_a_commit_apply`)
 - `dependencies` must list `{from, to, files}` where `from` touches lines `to` added, adjacent lines included, plus the
-  file-level rules for created, deleted, renamed and binary files; the hunks fixed as for `--patch`, so the user's
-  `diff.algorithm`, `diff.interHunkContext` or `diff.indentHeuristic` changes no edge.
+  file-level rules for created, deleted, renamed and binary files; the lines are the blocks of the diff views, so the
+  user's `diff.algorithm`, `diff.interHunkContext` or `diff.indentHeuristic` changes no edge.
   [@test] ../../crates/sync-core/src/dependencies_test.rs (`overlapping_and_separate_hunks`, `lines_move_with_earlier_insertions`, `several_hunks_in_one_change`, `adjacent_changes_depend`, `created_renamed_deleted_and_binary_files`)
   [@test] ../../crates/sync-core/src/diff_scan_test.rs (`the_diff_config_of_the_user_changes_neither_the_hunks_nor_the_edges`)
 - Unless `branchdeck.symbols` is `off`, `dependencies` must also list the edges by symbols
@@ -424,14 +425,14 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### `bd move-hunk`
 
 - `bd move-hunk <from> <to> <path>` must move the changes of the file `path` in commit `from` (all of them, or with
-  `--hunk N`, repeatable, the hunks numbered from 1 as in `bd commits <from> --patch`) into commit `to`, older or
+  `--block <id>`, repeatable, the blocks with the ids of `bd commits <from> --patch`) into commit `to`, older or
   newer, both ahead of the baseline on the checked out branch, in one rewrite under the repository lock. HEAD's tree
   must stay, and so the index and the working tree: into an older commit the change is added to the trees of
   `[to, from)` and `from` keeps its tree; into a newer one it is taken out of the trees of `[from, to)` and `to` keeps
   its tree. The commits above the newer one get new parents only.
-  [@test] ../../crates/git-ops/src/move_hunk_test.rs (`moves_a_file_change_into_an_older_commit`, `moves_a_file_change_into_a_newer_commit`, `moves_one_hunk_of_three`, `keeps_dirty_and_staged_changes_byte_for_byte`)
+  [@test] ../../crates/git-ops/src/move_hunk_test.rs (`moves_a_file_change_into_an_older_commit`, `moves_a_file_change_into_a_newer_commit`, `moves_one_block_of_three`, `moves_a_block_of_a_crlf_file_and_of_a_lone_cr_file`, `keeps_dirty_and_staged_changes_byte_for_byte`)
   [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch`)
-- A hunk must apply by its line ranges to the file as each commit between has it, through one
+- A block must apply by its line ranges to the file as each commit between has it, through one
   `merge-tree --write-tree --stdin`: a commit that shifts the lines still takes it; one that changes the same lines, or
   lacks the file, is `hunk_conflict` (exit 4) with `commits` and `paths`, and nothing is written but git objects.
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_commit_between_that_shifts_the_lines_still_applies`, `a_commit_between_that_changes_the_same_lines_conflicts`)
@@ -441,19 +442,19 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   keep author and committer byte for byte, and its mapping note: with the new trees as its source for a commit
   between, as it was above. So the sync rebuilds the branches of `from` and `to` and keeps the others.
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_commit_between_that_shifts_the_lines_still_applies`, `moves_a_file_change_into_an_older_commit`)
-- It must print the moved hunks (`moved.hunks`, header and text), `commits` (`{commit, new_id}` of every recreated commit),
-  `changed` (the commits whose changes differ) and an undo token `<previous head>..<new head>` for `bd undo`;
-  `--sync` must sync under the same lock (`sync`, or `after_error` with the token kept); `--dry-run` must print the hunks
-  and check the rewrite, writing nothing but git objects.
-  [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_hunk_number_is_the_one_of_bd_commits_patch`)
+- It must print the moved blocks (`moved.blocks`, as `bd commits --patch` prints them), `commits` (`{commit, new_id}`
+  of every recreated commit), `changed` (the commits whose changes differ) and an undo token
+  `<previous head>..<new head>` for `bd undo`; `--sync` must sync under the same lock (`sync`, or `after_error` with
+  the token kept); `--dry-run` must print the blocks and check the rewrite, writing nothing but git objects.
+  [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_block_id_is_the_one_of_bd_commits_patch`)
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_dry_run_writes_no_ref_and_no_note`)
 - It must refuse with `invalid_arguments` (exit 2) the same commit twice, a file the commit doesn't change, a file it
-  renames or copies, a mode change, a symlink or submodule, `--hunk` of a binary file or of an added or deleted
-  file, and a move that leaves a commit without changes ("squash it instead"); an unknown hunk number is
-  `hunk_not_found` (exit 2), an id that is no commit ahead of the baseline `not_ahead_of_baseline`; `--expect-head`
-  is `head_moved` on another HEAD, a held lock `locked`.
+  renames, a mode change, a symlink or submodule, `--block` of a file without blocks, an id that does not parse,
+  and a move that leaves a commit without changes ("squash it instead"); an id whose lines or hash match no block of
+  the file now is `block_not_found` (exit 2) with `blocks`, the ids of now; an id that is no commit ahead of the
+  baseline is `not_ahead_of_baseline`; `--expect-head` is `head_moved` on another HEAD, a held lock `locked`.
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`refuses_a_move_that_leaves_a_commit_empty_or_names_no_change`)
-  [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_hunk_number_is_the_one_of_bd_commits_patch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`, `a_fix_that_is_the_whole_commit_is_refused_as_a_squash`)
+  [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_block_id_is_the_one_of_bd_commits_patch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`, `a_fix_that_is_the_whole_commit_is_refused_as_a_squash`)
 - It must run a fixed number of git processes, whatever the number of commits between.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_move_hunk`)
 
@@ -978,7 +979,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd version`
 
-- `bd version` and `bd --version` must print `{"schema":1,"version","git"}` without a repository: the version of the
+- `bd version` and `bd --version` must print `{"schema":2,"version","git"}` without a repository: the version of the
   app (the root `package.json`, which `tauri.conf.json` names), and the version of the git bd finds, `null` without one.
   [@test] ../../crates/bd-cli/src/version_test.rs (`version_and_dash_dash_version`)
 

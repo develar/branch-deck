@@ -540,9 +540,9 @@ Code: `crates/sync-core/src/autosquash.rs`, `crates/sync-core/src/commit_grouper
 
 #### Move a hunk
 
-`bd move-hunk <from> <to> <path> [--hunk N]…` moves the change of one file, or some of its hunks, from commit `from`
-into commit `to`, both ahead of the baseline on the checked out branch: the fix for a hunk that landed in the wrong
-commit. HEAD's tree never changes, by construction, so the index and the working tree need nothing:
+`bd move-hunk <from> <to> <path> [--block <id>]…` moves the change of one file, or some of its blocks, from commit
+`from` into commit `to`, both ahead of the baseline on the checked out branch: the fix for a change that landed in the
+wrong commit. HEAD's tree never changes, by construction, so the index and the working tree need nothing:
 
 - forward (`to` older than `from`): the trees of `[to, from)` get the change Δ added; `from` keeps its tree, which now
   holds only the rest of its change;
@@ -552,17 +552,19 @@ commit. HEAD's tree never changes, by construction, so the index and the working
 The steps, a fixed number of processes whatever the range (`crates/git-ops/src/move_hunk.rs`):
 
 1. Under the repository lock (none for `--dry-run`): the guards, the commits ahead of the baseline, `--expect-head`
-   (prefix match), and the patch of `from` through `read_commit_patches` (`sync_core::diff_scan`), whose options pin
-   the hunks (`-U3 --diff-algorithm=myers --inter-hunk-context=0 --indent-heuristic`, no external diff or textconv), so
-   hunk N is hunk N of `bd commits --patch`. A rename or copy of the path is refused, as are `--hunk` of a binary file
-   and an unknown hunk (`hunk_not_found`); all hunks named is the whole file.
+   (prefix match), the files of `from` from one `log --raw` (`read_commit_changes`), and the blocks of the path from
+   `FileDiffs::patches_of` (one `cat-file --batch` of its two blobs; the blocks of the diff views, so an id is the one
+   of `bd commits --patch`). A rename of the path is refused, as are `--block` of a file without blocks, an id that
+   does not parse, and an id whose lines or hash match no block now (`block_not_found`, with the ids of now); all
+   blocks named is the whole file.
 2. One `log --first-parent --boundary` of the history with trees and mapping notes, the rewrite guard
    (`check_rewrite` from the older of the two), one `cat-file --batch` of the commits, one
    `diff-tree --raw --no-renames` of the path in `from`: a mode change, a type change, a symlink or a submodule is
    refused.
-3. "Theirs", the merge base with Δ: forward `from^`'s tree with the path as the selected hunks applied to
-   `from^:<path>`, backward `from`'s tree with them taken out of `from:<path>`. The hunks apply by their line ranges
-   to the blobs (one `cat-file --batch -Z`), byte for byte, in Rust; the whole file moves its blob, its mode or its
+3. "Theirs", the merge base with Δ: forward `from^`'s tree with the path as the selected blocks applied to
+   `from^:<path>`, backward `from`'s tree with them taken out of `from:<path>`. The blocks apply by their line ranges
+   to the blobs (one `cat-file --batch -Z`, `text_diff::apply::apply_blocks`), byte for byte: a line ends with `\n`,
+   `\r\n` or a lone `\r`, as the diff views split it, and keeps its own line end; the whole file moves its blob, its mode or its
    deletion as they are, also for a binary file. `write_edited_commit` writes the tree with one `fast-import` (a
    commit on a temporary ref).
 4. One `merge-tree --write-tree --stdin -z --no-messages -X no-renames`, a line `<base> -- <commit tree> <theirs>` per

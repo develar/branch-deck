@@ -457,6 +457,7 @@ dependencies = [
  "clap",
  "code-symbols",
  "dirs",
+ "file-diffs",
  "git-executor",
  "git-ops",
  "github",
@@ -474,6 +475,7 @@ dependencies = [
  "tempfile",
  "test-log",
  "test-utils",
+ "text-diff",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2219,6 +2221,7 @@ dependencies = [
  "tempfile",
  "test-log",
  "test-utils",
+ "text-diff",
  "thiserror 2.0.21",
  "tracing",
 ]

@@ -44,8 +44,8 @@ Rules
   arguments or the plan. 3 stale: read again and retry. 4 refused: do what this help says for the code, else stop and
   show `message` to the user. 5 git or network error: show it. Retry when `retryable` is true, whatever the exit code,
   and never when it is false.
-- An error is {\"schema\":1,\"error\":{\"code\",\"message\",\"commits\",\"paths\",\"branches\",\"review\",\"retryable\"}};
-  `paths`, `branches` and `review` only where they apply.
+- An error is {\"schema\":2,\"error\":{\"code\",\"message\",\"commits\",\"paths\",\"branches\",\"review\",\"blocks\",\"retryable\"}};
+  `paths`, `branches`, `review` and `blocks` only where they apply.
 - `bd fold --expect-head <id>`, as every write that takes it, refuses unless HEAD is still the `head` (or `new_head`)
   you read last: `head_moved` (exit 3). Every write prints `previous_head`, `new_head` and an `undo_token` (full ids:
   pass it as printed). A write whose step after it failed (a sync) keeps its output with `after_error`: retry that
@@ -72,7 +72,8 @@ Workflow: the commits into pull requests
    `bd status --brief`, `bd status --stats` (the size of each branch), `bd commits --brief` (per commit its group,
    issue key, fixup target and `areas`; `units`, the commits that must stay together; `dependencies` {from, to, via}:
    `from` touches lines `to` added, or with `via` `symbols` uses a name `to` adds, which a stack satisfies too), and
-   `bd commits <id>... --patch` or `bd commits --unassigned` for unclear commits.
+   `bd commits <id>... --patch` (the blocks of each file, with their ids) or `bd commits --unassigned` for unclear
+   commits.
 2. Plan and check. A plan is {\"branches\": {\"<path>\": [ids]}, \"unassign\": [ids], \"issue_groups\": {\"<name>\":
    [keys]}, \"ungroup_issues\": [keys], \"unstack\": [branches], \"descriptions\": {\"<branch>\": {\"title\", \"body\"}}};
    a path is a branch, or `parent/leaf` for a stacked one. Fixups follow their targets; a commit goes with, or stacks
@@ -198,12 +199,12 @@ Other tasks
   worktree here (or `bd pick <rev>`, `<a>..<b>`; --expect-head, --dry-run); `bd help worktrees` explains it.
 - Fixups: `bd fold` (--branch, --expect-head, --dry-run) folds the fixup!, squash! and amend! commits into their
   targets and keeps HEAD's tree.
-- A change in the wrong commit: `bd move-hunk <from> <to> <path>` (--hunk <n>, repeatable; --expect-head, --dry-run;
+- A change in the wrong commit: `bd move-hunk <from> <to> <path>` (--block <id>, repeatable; --expect-head, --dry-run;
   --sync rebuilds the virtual branches at once, else the next sync does) moves the changes of the file `path`, or
-  only its hunks as the patch of `from` numbers them, into the commit `to`, older or newer; HEAD's tree, the index
-  and the working tree stay, and the commits between keep their diff. `hunk_conflict` (exit 4): a commit between
-  changes the same lines, or lacks the file: bd can't move it; `hunk_not_found` (exit 2). `bd commits <from> --patch`
-  numbers the hunks.
+  only its blocks by the ids that `bd commits <from> --patch` prints, into the commit `to`, older or newer; HEAD's
+  tree, the index and the working tree stay, and the commits between keep their diff. `hunk_conflict` (exit 4): a
+  commit between changes the same lines, or lacks the file: bd can't move it; `block_not_found` (exit 2): the file
+  changed since the id was read, `error.blocks` are its ids now.
 - `bd install` puts `bd` into ~/.local/bin (macOS, Linux; on Windows `bd.exe` is next to the app) and the skill into
   ~/.claude/skills and ~/.agents/skills; `bd help skill` prints the skill.
 "

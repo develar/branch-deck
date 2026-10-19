@@ -15,6 +15,7 @@ path = "src/main.rs"
 test = false
 
 [dependencies]
+file-diffs = { path = "../file-diffs" }
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops", features = ["schemars"] }
 object-cache = { path = "../object-cache" }
@@ -24,6 +25,7 @@ sync-core = { path = "../sync-core" }
 code-symbols = { path = "../code-symbols" }
 sync-types = { path = "../sync-types" }
 sync-utils = { path = "../sync-utils" }
+text-diff = { path = "../text-diff" }
 anyhow.workspace = true
 clap = { version = "4.6", features = ["derive"] }
 dirs = "7"

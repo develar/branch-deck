@@ -460,7 +460,7 @@ fn the_dump_hides_every_name() {
   );
   let (exit_code, output) = run_in(&repo, &["suggest", "--dump-input"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["schema"], json!(1));
+  assert_eq!(output["schema"], json!(2));
   let input: ClusterInput = serde_json::from_value(output["input"].clone()).unwrap();
   assert_eq!(input.commits.len(), 2);
   let text = output.to_string();

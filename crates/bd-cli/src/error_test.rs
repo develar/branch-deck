@@ -15,7 +15,7 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::StackConflict, 4, false),
   (ErrorCode::StackNotBuilt, 4, false),
   (ErrorCode::HunkConflict, 4, false),
-  (ErrorCode::HunkNotFound, 2, false),
+  (ErrorCode::BlockNotFound, 2, false),
   (ErrorCode::HeadMoved, 3, true),
   (ErrorCode::GroupsMoved, 3, true),
   (ErrorCode::StacksMoved, 3, true),

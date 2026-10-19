@@ -54,7 +54,7 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     output,
-    json!({ "schema": 1, "bd": link.to_str().unwrap(), "on_path": true, "skills": skill_files(&home), "uninstalled": false })
+    json!({ "schema": 2, "bd": link.to_str().unwrap(), "on_path": true, "skills": skill_files(&home), "uninstalled": false })
   );
   assert_eq!(std::fs::read_link(&link).unwrap(), app);
   let (_, schema) = run_install(&home, &app, &["schema"]);

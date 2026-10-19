@@ -86,7 +86,7 @@ pub(crate) fn assert_refused_during(repo: &TestRepo, operation: &str, run: impl 
 
 /// `fields` after the `schema`, `repository` and `prefix` every output of `bd` in `repo` starts with
 pub(crate) fn with_header(repo: &TestRepo, fields: Value) -> Value {
-  let mut output = serde_json::json!({ "schema": 1, "repository": repository(repo), "prefix": PREFIX });
+  let mut output = serde_json::json!({ "schema": 2, "repository": repository(repo), "prefix": PREFIX });
   let Value::Object(fields) = fields else { panic!("fields must be an object") };
   output.as_object_mut().unwrap().extend(fields);
   output

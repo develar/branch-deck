@@ -360,7 +360,7 @@ pub struct DanglingReferenceSummary {
 pub struct DanglingFix {
   /// `move_commit`: `fixed_by` changes only `file`, so it moves into the branch (`branches`, to add to the plan of
   /// `bd group`); `move_hunk`: `command` moves the change of `file` from `fixed_by` into `removed_by` (the whole change
-  /// of the file; narrow it with `--hunk`)
+  /// of the file; narrow it with `--block`)
   pub kind: String,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub command: Option<String>,

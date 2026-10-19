@@ -46,7 +46,7 @@ fn schema_lists_every_output() {
   let directory = tempfile::tempdir().unwrap();
   let (exit_code, output) = run_json(&environment(directory.path()), &["schema"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["schema"], json!(1));
+  assert_eq!(output["schema"], json!(2));
   let outputs = output["outputs"].as_object().unwrap();
   assert_eq!(
     outputs.keys().map(String::as_str).collect::<Vec<_>>(),
@@ -77,7 +77,7 @@ fn schema_lists_every_output() {
     ]
   );
   for (name, schema) in outputs {
-    assert_eq!(schema["properties"]["schema"]["const"], json!(1), "{name}");
+    assert_eq!(schema["properties"]["schema"]["const"], json!(2), "{name}");
     assert!(schema["required"].as_array().unwrap().contains(&json!("schema")), "{name}");
   }
 

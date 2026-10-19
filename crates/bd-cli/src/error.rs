@@ -38,9 +38,8 @@ pub enum ErrorCode {
   /// `bd move-hunk`: the change doesn't apply to a commit between the two, which changes the same lines or lacks the
   /// file; `commits` and `paths` name it. Nothing was written: move it by hand, or not at all
   HunkConflict,
-  /// `bd move-hunk --hunk` names a hunk the file's patch in the commit doesn't have; `bd commits <id> --patch` numbers
-  /// them from 1
-  HunkNotFound,
+  /// `bd move-hunk --block` names a block the file in the commit doesn't have now; `blocks` are the ids it has
+  BlockNotFound,
   /// HEAD moved since the caller read it; read again and retry
   HeadMoved,
   /// The issue groups (`refs/branch-deck/issue-groups`) changed since the caller read them; read again and retry
@@ -142,7 +141,7 @@ impl ErrorCode {
   pub const fn exit_code(self) -> i32 {
     match self {
       Self::InvalidArguments
-      | Self::HunkNotFound
+      | Self::BlockNotFound
       | Self::NotARepository
       | Self::NoBranchPrefix
       | Self::UnknownBranch
@@ -205,6 +204,8 @@ pub struct CliError {
   pub branches: Vec<ErrorBranch>,
   /// The files the error is about, if any
   pub paths: Vec<String>,
+  /// The block ids of `block_not_found`; boxed, as every command returns this error
+  pub blocks: Option<Box<Vec<String>>>,
   /// The review of `approvals_missing`; boxed, as every command returns this error
   pub review: Option<Box<ReviewSummary>>,
 }
@@ -217,6 +218,7 @@ impl CliError {
       commits: Vec::new(),
       branches: Vec::new(),
       paths: Vec::new(),
+      blocks: None,
       review: None,
     }
   }
@@ -230,6 +232,7 @@ impl CliError {
         commits: self.commits.clone(),
         branches: self.branches.clone(),
         paths: self.paths.clone(),
+        blocks: self.blocks.as_deref().cloned().unwrap_or_default(),
         review: self.review.as_deref().cloned(),
         retryable: self.code.retryable(),
       },
@@ -260,7 +263,7 @@ impl From<anyhow::Error> for CliError {
   }
 }
 
-/// `{"schema": 1, "error": {...}}`, printed on stdout with the exit code of the error code
+/// `{"schema": 2, "error": {...}}`, printed on stdout with the exit code of the error code
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ErrorOutput {
   pub schema: SchemaVersion,
@@ -281,6 +284,9 @@ pub struct ErrorBody {
   /// conflicting files of a refused resolution
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub paths: Vec<String>,
+  /// The ids of the blocks the file has now, for `block_not_found`: pass one of them to `bd move-hunk --block`
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub blocks: Vec<String>,
   /// The code-owner review of `approvals_missing`: the groups whose approval is missing, their files, and where the
   /// approvals count
   #[serde(skip_serializing_if = "Option::is_none")]

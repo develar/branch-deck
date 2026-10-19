@@ -13,6 +13,7 @@ use crate::dangling_references::DanglingReference;
 use crate::move_hunk::{MoveHunkOptions, MoveHunkParams, move_hunk_core};
 use crate::regroup::RegroupPlan;
 use git_ops::move_hunk::MoveHunkMode;
+use object_cache::cache::ObjectCache;
 use std::collections::{HashMap, HashSet};
 use tracing::debug;
 
@@ -85,14 +86,14 @@ impl<'a> DanglingFixProver<'a> {
       from: fixed_by.to_string(),
       to: reference.removed_by.clone(),
       path: reference.file.clone(),
-      hunks: Vec::new(),
+      blocks: Vec::new(),
     };
     let options = MoveHunkOptions {
       expect_head: Some(self.report.head.clone()),
       mode: MoveHunkMode::Trial,
       ..MoveHunkOptions::default()
     };
-    let moved = move_hunk_core(self.session.git_executor(), self.session.repository_path(), &params, &options)
+    let moved = move_hunk_core(self.session.git_executor(), self.session.repository_path(), &ObjectCache::disabled(), &params, &options)
       .inspect_err(|error| debug!(%error, "the trial of moving the hunk failed"))
       .ok()?;
     let session = self.session.with_rewrite(&moved.commits, &moved.trees);

@@ -64,7 +64,7 @@ fn entries_groups_and_fixups() {
 
   let (exit_code, output) = run_in(&repo, &["commits"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(output["schema"], json!(1));
+  assert_eq!(output["schema"], json!(2));
   assert_eq!(output["prefix"], json!("test-user"));
   assert_eq!(output["baseline"], json!("origin/master"));
   assert_eq!(output["head"], json!(short_id(&orphan)));
@@ -133,9 +133,16 @@ fn dependency_edges_and_cluster_overlap() {
   let commits = output["commits"].as_array().unwrap();
   assert_eq!(commits.len(), 1);
   assert_eq!(commits[0]["id"], json!(short_id(&c)));
-  let patch = commits[0]["patch"].as_str().unwrap();
-  assert!(patch.starts_with("diff --git a/shared.txt b/shared.txt\n"), "{patch}");
-  assert!(patch.contains("-line 25\n+line twenty-five\n"), "{patch}");
+  let patch = &commits[0]["patch"];
+  assert_eq!(patch.as_array().unwrap().len(), 1, "{patch}");
+  assert_eq!((&patch[0]["path"], &patch[0]["status"]), (&json!("shared.txt"), &json!("M")));
+  let block = &patch[0]["blocks"][0];
+  assert!(block["id"].as_str().unwrap().starts_with("27,1:27,1@"), "{block}");
+  assert_eq!((&block["kind"], &block["header"]), (&json!("changed"), &json!("@@ -24,7 +24,7 @@")));
+  assert_eq!(
+    block["text"],
+    json!(" line 22\n line 23\n line 24\n-line 25\n+line twenty-five\n line 26\n line 27\n line 28")
+  );
   assert_eq!(output["dependencies"], json!([]));
   assert_eq!(output["cluster_overlap"].as_array().unwrap().len(), 2);
 }

@@ -17,9 +17,9 @@ use crate::revs::{checked_out_branch, short_id};
 use crate::rewrite_guard::HeadMoved;
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
-use object_cache::commit_diff::Hunk;
 use std::collections::HashMap;
 use std::fmt::Write as _;
+use text_diff::apply::{LineBlock, apply_blocks};
 use tracing::{info, instrument};
 
 /// The reflog message of the branch move (`branch-deck: move hunk`)
@@ -31,9 +31,9 @@ pub enum MovedChange<'a> {
   /// The whole change of the file: its content and its existence (an added or a deleted file moves as one), also of a
   /// binary file
   WholeFile,
-  /// These hunks of the file's patch (three lines of context, as `sync_core::diff_scan::read_commit_patches` numbers
-  /// them), not all of them, in any order. The file exists on both sides of `from`
-  Hunks(&'a [Hunk]),
+  /// These blocks of the diff of the file's two sides in `from` (`text_diff::model::diff_texts`, as the diff views and
+  /// `bd commits --patch` show them), not all of them, in any order. The file exists on both sides of `from`
+  Blocks(&'a [LineBlock]),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -170,53 +170,6 @@ fn read_blobs(git_executor: &GitCommandExecutor, repo_path: &str, ids: &[&str]) 
   .collect()
 }
 
-/// `old` with the line ranges of `hunks` replaced by the lines of `new` they name: the change of the hunks applied, the
-/// rest of `old` kept. The hunks come from a diff of exactly `old` and `new`, don't overlap, and count lines as git does
-/// (`\n` ends a line, the last one may have none)
-pub fn apply_hunks(old: &[u8], new: &[u8], hunks: &[Hunk]) -> anyhow::Result<Vec<u8>> {
-  let old_lines: Vec<&[u8]> = old.split_inclusive(|&b| b == b'\n').collect();
-  let new_lines: Vec<&[u8]> = new.split_inclusive(|&b| b == b'\n').collect();
-  // a hunk of 0 lines starts after the line it names, else at it
-  let range = |start: u32, count: u32| {
-    let start = usize::try_from(start).unwrap_or(usize::MAX);
-    let count = usize::try_from(count).unwrap_or(usize::MAX);
-    let first = if count == 0 { start } else { start.saturating_sub(1) };
-    first..first.saturating_add(count)
-  };
-  let mut sorted = hunks.to_vec();
-  sorted.sort_by_key(|hunk| hunk.old_start);
-  let mut result = Vec::with_capacity(old.len().max(new.len()));
-  let mut next_old = 0;
-  for hunk in &sorted {
-    let old_range = range(hunk.old_start, hunk.old_lines);
-    let new_range = range(hunk.new_start, hunk.new_lines);
-    if old_range.start < next_old || old_range.end > old_lines.len() || new_range.end > new_lines.len() {
-      return Err(anyhow!(
-        "Hunk @@ -{},{} +{},{} @@ doesn't fit the file",
-        hunk.old_start,
-        hunk.old_lines,
-        hunk.new_start,
-        hunk.new_lines
-      ));
-    }
-    old_lines[next_old..old_range.start].iter().for_each(|line| result.extend_from_slice(line));
-    new_lines[new_range].iter().for_each(|line| result.extend_from_slice(line));
-    next_old = old_range.end;
-  }
-  old_lines[next_old..].iter().for_each(|line| result.extend_from_slice(line));
-  Ok(result)
-}
-
-/// The hunk the other way round: applied to the new side, it takes the change back
-const fn reversed(hunk: &Hunk) -> Hunk {
-  Hunk {
-    old_start: hunk.new_start,
-    old_lines: hunk.new_lines,
-    new_start: hunk.old_start,
-    new_lines: hunk.old_lines,
-  }
-}
-
 /// Move the change, as `request` names it, from one commit into another, in one rewrite of the checked out branch that
 /// keeps HEAD's tree. Refused, with nothing written but git objects, if the change conflicts with a commit of the range,
 /// if a commit would be left without changes, or if HEAD is not `expected_head`
@@ -225,8 +178,8 @@ pub fn move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &M
   if request.from == request.to {
     return Err(MoveHunkError::Refused("The change is already in that commit: name two different commits".to_string()));
   }
-  if let MovedChange::Hunks([]) = request.change {
-    return Err(MoveHunkError::Refused("Name at least one hunk".to_string()));
+  if let MovedChange::Blocks([]) = request.change {
+    return Err(MoveHunkError::Refused("Name at least one block".to_string()));
   }
   let history = History::read_ahead_of(git_executor, repo_path, request.baseline_branch, true)?;
   let head = history.head().unwrap_or_default().to_string();
@@ -274,7 +227,7 @@ pub fn move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &M
       },
       None => TreeEdit::Delete { path: request.path },
     },
-    MovedChange::Hunks(hunks) => {
+    MovedChange::Blocks(blocks) => {
       let (Some(old), Some(new)) = (&old_entry, &new_entry) else {
         return Err(MoveHunkError::Refused(format!(
           "Commit {} adds or deletes {}: move the whole file",
@@ -283,12 +236,14 @@ pub fn move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &M
         )));
       };
       let blobs = read_blobs(git_executor, repo_path, &[&old.id, &new.id])?;
-      content = if forward {
-        apply_hunks(&blobs[0], &blobs[1], hunks)?
+      // backward the blocks are taken back out of the new side
+      let applied = if forward {
+        apply_blocks(&blobs[0], &blobs[1], blocks)
       } else {
-        let reversed: Vec<Hunk> = hunks.iter().map(reversed).collect();
-        apply_hunks(&blobs[1], &blobs[0], &reversed)?
+        let reversed: Vec<LineBlock> = blocks.iter().map(|block| block.reversed()).collect();
+        apply_blocks(&blobs[1], &blobs[0], &reversed)
       };
+      content = applied.map_err(|error| anyhow!("{error}"))?;
       TreeEdit::Content {
         path: request.path,
         mode: &old.mode,

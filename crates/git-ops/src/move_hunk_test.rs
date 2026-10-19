@@ -1,12 +1,14 @@
-use super::move_hunk::{MoveHunkError, MoveHunkMode, MoveHunkOutcome, MoveHunkRequest, MovedChange, apply_hunks, move_hunk};
+use super::move_hunk::{MoveHunkError, MoveHunkMode, MoveHunkOutcome, MoveHunkRequest, MovedChange, move_hunk};
 use super::notes::{MappingNote, NoteSource, write_commit_notes};
 use super::rewrite_test_utils::{assert_no_temp_refs, log_format, repo_path, show, stage_file, worktree_snapshot, write_file};
 use super::squash_commits::restore_branch_head;
 use anyhow::Result;
-use object_cache::commit_diff::Hunk;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use text_diff::apply::LineBlock;
+use text_diff::model::{DiffBudget, diff_texts};
+use text_diff::policy::WhitespacePolicy;
 
 /// Lines `line 1` ..= `line n`, with `changes` (line number, text) replacing some of them
 fn lines(n: usize, changes: &[(usize, &str)]) -> String {
@@ -40,39 +42,14 @@ fn commit(repo: &TestRepo, message: &str, files: &[(&str, &str)], timestamp: i64
   repo.head()
 }
 
-/// The hunks of `path` in `commit`, with the options of `sync_core::diff_scan::read_commit_patches`
-fn hunks_of(repo: &TestRepo, commit: &str, path: &str) -> Vec<Hunk> {
-  let patch = git(
-    repo,
-    &[
-      "show",
-      "--format=",
-      "-U3",
-      "--diff-algorithm=myers",
-      "--inter-hunk-context=0",
-      "--no-ext-diff",
-      commit,
-      "--",
-      path,
-    ],
-  );
-  patch
-    .lines()
-    .filter_map(|line| line.strip_prefix("@@ -"))
-    .map(|line| {
-      let mut ranges = line.split(' ').take(2).map(|range| {
-        let range = range.trim_start_matches('+');
-        let (start, count) = range.split_once(',').unwrap_or((range, "1"));
-        (start.parse().unwrap(), count.parse().unwrap())
-      });
-      let ((old_start, old_lines), (new_start, new_lines)) = (ranges.next().unwrap(), ranges.next().unwrap());
-      Hunk {
-        old_start,
-        old_lines,
-        new_start,
-        new_lines,
-      }
-    })
+/// The blocks of `path` in `commit`, as the diff views show them; a side without the file is empty
+fn blocks_of(repo: &TestRepo, commit: &str, path: &str) -> Vec<LineBlock> {
+  let text = |rev: String| String::from_utf8_lossy(&repo.git_executor().cmd(&["cat-file", "blob", &rev], repo_path(repo)).bytes().unwrap_or_default()).into_owned();
+  let (old, new) = (text(format!("{commit}^:{path}")), text(format!("{commit}:{path}")));
+  diff_texts(&old, &new, WhitespacePolicy::Default, &DiffBudget::NONE)
+    .blocks
+    .iter()
+    .map(LineBlock::from)
     .collect()
 }
 
@@ -182,26 +159,26 @@ fn moves_a_file_change_into_a_newer_commit() -> Result<()> {
 }
 
 #[test]
-fn moves_one_hunk_of_three() -> Result<()> {
+fn moves_one_block_of_three() -> Result<()> {
   let repo = TestRepo::new();
   commit(&repo, "Base", &[("f.txt", &lines(40, &[]))], 1_600_000_000);
   let a = commit(&repo, "(a) A", &[("a.txt", "a\n")], 1_600_000_100);
   let b = commit(&repo, "(b) B", &[("f.txt", &lines(40, &[(2, "two"), (20, "twenty"), (38, "thirty-eight")]))], 1_600_000_200);
-  let hunks = hunks_of(&repo, &b, "f.txt");
-  assert_eq!(hunks.len(), 3);
+  let blocks = blocks_of(&repo, &b, "f.txt");
+  assert_eq!(blocks.len(), 3);
   let tree = git(&repo, &["rev-parse", "HEAD^{tree}"]);
 
-  let outcome = run(&repo, &request(&repo, &b, &a, "f.txt", MovedChange::Hunks(&hunks[1..2])))?;
+  let outcome = run(&repo, &request(&repo, &b, &a, "f.txt", MovedChange::Blocks(&blocks[1..2])))?;
 
   assert_eq!(git(&repo, &["rev-parse", "HEAD^{tree}"]), tree);
   let (new_a, new_b) = (new_id(&outcome, &a).to_string(), new_id(&outcome, &b).to_string());
   assert_eq!(show(&repo, &new_a, "f.txt")?, lines(40, &[(20, "twenty")]).trim_end());
   assert_eq!(added_lines(&repo, &new_a, &new_b, "f.txt"), ["+two", "+thirty-eight"]);
 
-  // and back: the hunk out of A into B again, by its number in A
-  let hunks = hunks_of(&repo, &new_a, "f.txt");
-  assert_eq!(hunks.len(), 1);
-  let back = run(&repo, &request(&repo, &new_a, &new_b, "f.txt", MovedChange::Hunks(&hunks)))?;
+  // and back: the block out of A into B again, as A's diff has it
+  let blocks = blocks_of(&repo, &new_a, "f.txt");
+  assert_eq!(blocks.len(), 1);
+  let back = run(&repo, &request(&repo, &new_a, &new_b, "f.txt", MovedChange::Blocks(&blocks)))?;
   assert_eq!(files_of(&repo, new_id(&back, &new_a)), "a.txt");
   assert_eq!(git(&repo, &["rev-parse", "HEAD^{tree}"]), tree);
   assert_no_temp_refs(&repo)
@@ -351,7 +328,7 @@ fn refuses_a_move_that_leaves_a_commit_empty_or_names_no_change() {
   refused(&request(&repo, &x, &a, "x.txt", MovedChange::WholeFile), "squash it instead");
   refused(&request(&repo, &x, &a, "f.txt", MovedChange::WholeFile), "doesn't change f.txt");
   refused(&request(&repo, &a, &a, "f.txt", MovedChange::WholeFile), "two different commits");
-  refused(&request(&repo, &b, &a, "b.txt", MovedChange::Hunks(&hunks_of(&repo, &b, "b.txt"))), "move the whole file");
+  refused(&request(&repo, &b, &a, "b.txt", MovedChange::Blocks(&blocks_of(&repo, &b, "b.txt"))), "move the whole file");
 
   let error = run(
     &repo,
@@ -364,22 +341,25 @@ fn refuses_a_move_that_leaves_a_commit_empty_or_names_no_change() {
   assert!(matches!(error, MoveHunkError::HeadMoved(_)), "{error}");
 }
 
+/// A block moves with the line ends of its file: CRLF lines, and lone CR lines, which git does not count as lines
 #[test]
-fn apply_hunks_keeps_the_bytes_outside_the_hunks() -> Result<()> {
-  let hunk = |old_start, old_lines, new_start, new_lines| Hunk {
-    old_start,
-    old_lines,
-    new_start,
-    new_lines,
-  };
-  let (old, new) = (b"a\nb\nc\r\nd\ne".as_slice(), b"a\nB\nc\r\nd\nE".as_slice());
-  let hunks = [hunk(2, 1, 2, 1), hunk(5, 1, 5, 1)];
-  assert_eq!(apply_hunks(old, new, &hunks[1..])?, b"a\nb\nc\r\nd\nE");
-  assert_eq!(apply_hunks(old, new, &hunks)?, new);
-  // an insertion after line 1, and a deletion
-  assert_eq!(apply_hunks(b"a\nb\n", b"a\nx\nb\n", &[hunk(1, 0, 2, 1)])?, b"a\nx\nb\n");
-  assert_eq!(apply_hunks(b"a\nx\nb\n", b"a\nb\n", &[hunk(2, 1, 1, 0)])?, b"a\nb\n");
-  assert!(apply_hunks(b"a\n", b"a\nb\n", &[hunk(3, 1, 3, 1)]).is_err(), "a hunk past the end");
+fn moves_a_block_of_a_crlf_file_and_of_a_lone_cr_file() -> Result<()> {
+  for end in ["\r\n", "\r"] {
+    let repo = TestRepo::new();
+    let text = |lines: &[&str]| lines.iter().flat_map(|line| [*line, end]).collect::<String>();
+    commit(&repo, "Base", &[("f.txt", &text(&["a", "b", "c", "d", "e", "f", "g", "h", "i"]))], 1_600_000_000);
+    let a = commit(&repo, "(a) A", &[("a.txt", "a\n")], 1_600_000_100);
+    let b = commit(&repo, "(b) B", &[("f.txt", &text(&["a", "B", "c", "d", "e", "f", "g", "H", "i"]))], 1_600_000_200);
+    let blocks = blocks_of(&repo, &b, "f.txt");
+    assert_eq!(blocks.len(), 2, "{end:?}");
+
+    let outcome = run(&repo, &request(&repo, &b, &a, "f.txt", MovedChange::Blocks(&blocks[1..])))?;
+
+    let new_a = new_id(&outcome, &a);
+    let blob = repo.git_executor().cmd(&["cat-file", "blob", &format!("{new_a}:f.txt")], repo_path(&repo)).bytes()?;
+    assert_eq!(String::from_utf8(blob)?, text(&["a", "b", "c", "d", "e", "f", "g", "H", "i"]), "{end:?}");
+    assert_no_temp_refs(&repo)?;
+  }
   Ok(())
 }
 

@@ -141,7 +141,7 @@ fn prefix_from_git_config() {
 }
 
 fn assert_error(output: &Value, code: &str) {
-  assert_eq!(output["schema"], json!(1));
+  assert_eq!(output["schema"], json!(2));
   assert_eq!(output["error"]["code"], json!(code), "{output}");
   assert!(output["error"]["message"].as_str().is_some_and(|message| !message.is_empty()));
   assert_eq!(output["error"]["commits"], json!([]));

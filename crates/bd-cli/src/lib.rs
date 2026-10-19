@@ -1,8 +1,9 @@
 //! `bd`, the agent command line of Branch Deck (docs/guidelines/agent-cli.md): `branch-deck cli <command>`.
-//! JSON on stdout, every object with `"schema": 1`; logs on stderr; the exit code of an error is fixed by its code.
+//! JSON on stdout, every object with `"schema": 2`; logs on stderr; the exit code of an error is fixed by its code.
 
 pub mod agent_help;
 pub mod areas;
+pub mod block_patch;
 pub mod branch_stats;
 pub mod check_command;
 pub mod clustering;
@@ -134,7 +135,7 @@ enum Command {
   Fold(FoldArgs),
   /// Move the changes of one file from one commit into another, keeping HEAD's tree
   ///
-  /// All of its changes, or the hunks --hunk names; both commits ahead of the baseline. `hunk_conflict` (exit 4) when a
+  /// All of its changes, or the blocks --block names; both commits ahead of the baseline. `hunk_conflict` (exit 4) when a
   /// commit between changes the same lines
   MoveHunk(MoveHunkArgs),
   /// Would the branches build with this plan? A trial sync

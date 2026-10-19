@@ -60,7 +60,7 @@ fn the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch(
     (&output["previous_head"], &output["moved"]["path"], &output["moved"]["from"], &output["moved"]["to"]),
     (&json!(short_id(&head)), &json!(ACP_HOST), &json!(short_id(&b)), &json!(short_id(&a)))
   );
-  assert_eq!(output["moved"]["hunks"].as_array().map(Vec::len), Some(1), "the import and the use: one hunk");
+  assert_eq!(output["moved"]["blocks"].as_array().map(Vec::len), Some(2), "the import and the use: two blocks");
   assert_eq!(output["changed"], json!(2), "A and B; the docs commit keeps its diff");
   assert_eq!(output["commits"].as_array().unwrap().len(), 3);
   // the sync rebuilt `fake-agent` with the fix and kept `docs`, whose mapping note followed it
@@ -79,8 +79,21 @@ fn the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch(
   assert_undo_restores(&repo, &output, &head);
 }
 
+/// The blocks of `path` in `commit`, as `bd commits <commit> --patch` prints them
+fn patch_blocks(repo: &TestRepo, commit: &str, path: &str) -> Vec<serde_json::Value> {
+  let (exit_code, commits) = run_in(repo, &["commits", commit, "--patch"]);
+  assert_eq!(exit_code, 0, "{commits}");
+  let files = commits["commits"][0]["patch"].as_array().unwrap();
+  let file = files.iter().find(|file| file["path"] == path).unwrap_or_else(|| panic!("no {path} in {commits}"));
+  file["blocks"].as_array().unwrap().clone()
+}
+
+fn block_id(block: &serde_json::Value) -> &str {
+  block["id"].as_str().unwrap()
+}
+
 #[test_log::test]
-fn the_hunk_number_is_the_one_of_bd_commits_patch() {
+fn the_block_id_is_the_one_of_bd_commits_patch() {
   let repo = repo_with_baseline(&[("f.txt", &numbered_lines(40))]);
   write(&repo, "a.txt", "a\n");
   let a = commit_all(&repo, "(a) Add a", 1_700_000_100);
@@ -91,27 +104,19 @@ fn the_hunk_number_is_the_one_of_bd_commits_patch() {
   write(&repo, "f.txt", &changed);
   write(&repo, "b.txt", "b\n");
   let b = commit_all(&repo, "(b) Add b", 1_700_000_200);
+  let blocks = patch_blocks(&repo, &b, "f.txt");
+  assert_eq!(blocks.len(), 3, "{blocks:?}");
 
-  let (exit_code, commits) = run_in(&repo, &["commits", &b, "--patch"]);
-  assert_eq!(exit_code, 0, "{commits}");
-  let patch = commits["commits"][0]["patch"].as_str().unwrap();
-  let section = &patch[patch.find("diff --git a/f.txt").unwrap()..];
-  let headers: Vec<&str> = section.lines().filter(|line| line.starts_with("@@ ")).collect();
-  assert_eq!(headers.len(), 3, "{patch}");
-
-  let (exit_code, preview) = run_in(&repo, &["move-hunk", &b, &a, "f.txt", "--hunk", "2", "--dry-run"]);
+  let (exit_code, preview) = run_in(&repo, &["move-hunk", &b, &a, "f.txt", "--block", block_id(&blocks[1]), "--dry-run"]);
   assert_eq!(exit_code, 0, "{preview}");
-  assert_eq!(
-    preview["moved"]["hunks"],
-    json!([{ "header": headers[1], "text": " line 17\n line 18\n line 19\n-line 20\n+twenty\n line 21\n line 22\n line 23\n" }])
-  );
+  assert_eq!(preview["moved"]["blocks"], json!([blocks[1]]));
   assert_eq!(
     (&preview["dry_run"], &preview["new_head"], preview.get("undo_token")),
     (&json!(true), &json!(short_id(&b)), None)
   );
   assert_eq!(repo.head(), b);
 
-  let (exit_code, output) = run_in(&repo, &["move-hunk", &b, &a, "f.txt", "--hunk", "2"]);
+  let (exit_code, output) = run_in(&repo, &["move-hunk", &b, &a, "f.txt", "--block", block_id(&blocks[1])]);
   assert_eq!(exit_code, 0, "{output}");
   let new_a = output["commits"][0]["new_id"].as_str().unwrap();
   assert_eq!(
@@ -119,13 +124,18 @@ fn the_hunk_number_is_the_one_of_bd_commits_patch() {
     numbered_lines(40).replace("line 20\n", "twenty\n").trim_end()
   );
 
-  let (exit_code, output) = run_in(&repo, &["move-hunk", "HEAD", &a, "f.txt", "--hunk", "1"]);
+  let (exit_code, output) = run_in(&repo, &["move-hunk", "HEAD", &a, "f.txt", "--block", block_id(&blocks[0])]);
   assert_error(&output, exit_code, (2, "not_ahead_of_baseline"));
+  // the moved block is gone from the newest commit: the error lists the ids the file has now, which did not change
   let head = repo.head();
-  let (exit_code, output) = run_in(&repo, &["move-hunk", &head, new_a, "f.txt", "--hunk", "3"]);
-  assert_error(&output, exit_code, (2, "hunk_not_found"));
-  let (exit_code, output) = run_in(&repo, &["move-hunk", &head, new_a, "b.txt", "--hunk", "1", "--hunk", "1"]);
-  assert_eq!(exit_code, 0, "the whole file, named by its only hunk: {output}");
+  let (exit_code, output) = run_in(&repo, &["move-hunk", &head, new_a, "f.txt", "--block", block_id(&blocks[1])]);
+  assert_error(&output, exit_code, (2, "block_not_found"));
+  assert_eq!(output["error"]["blocks"], json!([block_id(&blocks[0]), block_id(&blocks[2])]));
+  let (exit_code, output) = run_in(&repo, &["move-hunk", &head, new_a, "f.txt", "--block", "2"]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+  let added = patch_blocks(&repo, &head, "b.txt");
+  let (exit_code, output) = run_in(&repo, &["move-hunk", &head, new_a, "b.txt", "--block", block_id(&added[0]), "--block", block_id(&added[0])]);
+  assert_eq!(exit_code, 0, "the whole file, named by its only block: {output}");
   let head = repo.head();
   let (exit_code, output) = run_in(&repo, &["move-hunk", &head, &head, "f.txt"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
@@ -173,7 +183,7 @@ fn a_fix_that_is_the_whole_commit_is_refused_as_a_squash() {
   let (removed_by, fixed_by) = commit_dangling_reference(&repo);
 
   // the commit changes nothing else: moving its change would leave it empty
-  let (exit_code, output) = run_in(&repo, &["move-hunk", &fixed_by, &removed_by, ACP_HOST, "--hunk", "1", "--dry-run"]);
+  let (exit_code, output) = run_in(&repo, &["move-hunk", &fixed_by, &removed_by, ACP_HOST, "--dry-run"]);
 
   assert_error(&output, exit_code, (2, "invalid_arguments"));
   assert!(output["error"]["message"].as_str().unwrap().contains("squash it instead"), "{output}");

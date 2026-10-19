@@ -1,4 +1,5 @@
 use crate::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
+use crate::block_patch::{PatchFile, read_patches};
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::generated::generated_paths;
@@ -14,7 +15,7 @@ use sync_core::autosquash::{FixupKind, plan_autosquash};
 use sync_core::commit_grouper::{AUTOSQUASH_MARKERS, GroupingInputs, parse_subject};
 use sync_core::commit_ids::{ResolvedIds, resolve_commit_ids};
 use sync_core::dependencies::{Dependency, compute_dependencies, connected_components, with_symbols};
-use sync_core::diff_scan::{CommitDiff, read_commit_diffs_cached, read_commit_patches};
+use sync_core::diff_scan::{CommitDiff, read_commit_diffs_cached};
 use sync_core::grouping::BranchGrouping;
 use sync_core::move_commits::with_branch_prefix;
 use sync_core::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
@@ -30,7 +31,8 @@ pub struct CommitsArgs {
   /// The changed files of each commit: status, path, added and deleted lines
   #[arg(long, conflicts_with = "brief")]
   pub files: bool,
-  /// The patch of each commit, with three lines of context
+  /// The changed files of each commit with their blocks, as the diff views show them: the ids for `bd move-hunk
+  /// --block`, and the lines with three lines of context
   #[arg(long, conflicts_with = "brief")]
   pub patch: bool,
   /// Only the commits of this branch, and the edges and overlaps that involve it
@@ -104,9 +106,9 @@ pub struct CommitEntry {
   /// With --files
   #[serde(skip_serializing_if = "Option::is_none")]
   pub files: Option<Vec<FileEntry>>,
-  /// With --patch
+  /// With --patch: the changed files with their blocks
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub patch: Option<String>,
+  pub patch: Option<Vec<PatchFile>>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -446,15 +448,16 @@ pub fn commits(context: &RepoContext, args: &CommitsArgs) -> Result<CommitsOutpu
   let group_of = group_by_id(&ordered);
   let listed: Vec<(&Commit, Option<&str>)> = ordered.iter().copied().filter(|(commit, group)| reading.scope.contains(&commit.id, *group)).collect();
 
-  let mut patches: HashMap<String, String> = if args.patch {
-    let ids: Vec<String> = listed.iter().map(|(commit, _)| commit.id.clone()).collect();
-    read_commit_patches(&context.git, &context.repository, &ids)?.into_iter().collect()
-  } else {
-    HashMap::new()
-  };
   let short = reading.short_ids(context);
   let diffs = &reading.diffs.diffs;
   let diff_of: HashMap<&str, &CommitDiff> = diffs.iter().map(|diff| (diff.id.as_str(), diff)).collect();
+  let mut patches: HashMap<&str, Vec<PatchFile>> = if args.patch {
+    let listed_diffs: Vec<&CommitDiff> = listed.iter().filter_map(|(commit, _)| diff_of.get(commit.id.as_str()).copied()).collect();
+    let files = read_patches(&context.git, &context.repository, &context.cache(), &listed_diffs)?;
+    listed_diffs.iter().map(|diff| diff.id.as_str()).zip(files).collect()
+  } else {
+    HashMap::new()
+  };
 
   let commits = listed
     .iter()
@@ -478,7 +481,7 @@ pub fn commits(context: &RepoContext, args: &CommitsArgs) -> Result<CommitsOutpu
             diff.files.iter().map(|change| file_entry(change, reading.diffs.is_generated(change))).collect()
           })
         }),
-        patch: patches.remove(&commit.id),
+        patch: patches.remove(commit.id.as_str()).or_else(|| args.patch.then(Vec::new)),
       }
     })
     .collect();

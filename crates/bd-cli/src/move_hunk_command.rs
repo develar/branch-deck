@@ -1,7 +1,8 @@
-//! `bd move-hunk`: move the changes of one file, or some of its hunks, from one commit ahead of the baseline into
+//! `bd move-hunk`: move the changes of one file, or some of its blocks, from one commit ahead of the baseline into
 //! another (`sync_core::move_hunk`), under the repository lock. One rewrite that keeps HEAD's tree, so the index and the
 //! working tree stay as they are; `bd undo` takes it back, --sync rebuilds the virtual branches under the same lock
 
+use crate::block_patch::PatchBlock;
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorBody, ErrorCode};
 use crate::output::SchemaVersion;
@@ -21,14 +22,14 @@ pub struct MoveHunkArgs {
   pub to: String,
   /// The file, relative to the repository root, as `bd commits --patch` prints it
   pub path: String,
-  /// Move only this hunk of the file's patch in <FROM>, numbered from 1 as `bd commits <FROM> --patch` prints them;
-  /// repeatable. Default: the whole change of the file
-  #[arg(long = "hunk", value_name = "N")]
-  pub hunks: Vec<usize>,
+  /// Move only this block of the file in <FROM>, by the id that `bd commits <FROM> --patch` prints
+  /// (`12,3:12,5@1a2b3c4d`); repeatable. Default: the whole change of the file
+  #[arg(long = "block", value_name = "ID")]
+  pub blocks: Vec<String>,
   /// Move only if HEAD is still this commit (the `head` that `bd status` printed)
   #[arg(long, value_name = "ID")]
   pub expect_head: Option<String>,
-  /// Print the hunks that would move and check the rewrite; write nothing but git objects
+  /// Print the blocks that would move and check the rewrite; write nothing but git objects
   #[arg(long)]
   pub dry_run: bool,
   /// Then rebuild the virtual branches as `bd sync` does, under the same repository lock
@@ -78,16 +79,9 @@ pub struct MovedSummary {
   /// The commit the change was in, and the one it moved into (ids before the move)
   pub from: String,
   pub to: String,
-  /// The hunks that moved, every hunk of the file when the whole change moved (none for a binary file)
-  pub hunks: Vec<MovedHunk>,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-pub struct MovedHunk {
-  /// `@@ -a,b +c,d @@ …`, as in the patch of `from`
-  pub header: String,
-  /// The lines after the header, each ended by a newline
-  pub text: String,
+  /// The blocks that moved, as `bd commits <from> --patch` printed them; every block of the file when the whole change
+  /// moved (none for a binary file)
+  pub blocks: Vec<PatchBlock>,
 }
 
 pub fn move_hunk(context: &RepoContext, args: &MoveHunkArgs) -> Result<MoveHunkOutput, CliError> {
@@ -96,7 +90,7 @@ pub fn move_hunk(context: &RepoContext, args: &MoveHunkArgs) -> Result<MoveHunkO
     from: args.from.clone(),
     to: args.to.clone(),
     path: args.path.clone(),
-    hunks: args.hunks.clone(),
+    blocks: args.blocks.clone(),
   };
   let options = MoveHunkOptions {
     expect_head: args.expect_head.clone(),
@@ -104,7 +98,7 @@ pub fn move_hunk(context: &RepoContext, args: &MoveHunkArgs) -> Result<MoveHunkO
     lock_timeout: context.lock_timeout,
     held_lock: held_lock.as_ref(),
   };
-  let result = move_hunk_core(&context.git, &context.repository, &params, &options).map_err(|error| move_hunk_error(context, error))?;
+  let result = move_hunk_core(&context.git, &context.repository, &context.cache(), &params, &options).map_err(|error| move_hunk_error(context, error))?;
   let mut output = move_hunk_output(context, args.dry_run, &result);
   if args.sync {
     (output.sync, output.after_error) = sync_after_rewrite(context);
@@ -116,7 +110,10 @@ fn move_hunk_error(context: &RepoContext, error: MoveHunkError) -> CliError {
   let message = error.to_string();
   match error {
     MoveHunkError::InvalidArguments(_) => CliError::new(ErrorCode::InvalidArguments, message),
-    MoveHunkError::HunkNotFound(_) => CliError::new(ErrorCode::HunkNotFound, message),
+    MoveHunkError::BlockNotFound { blocks, .. } => CliError {
+      blocks: Some(Box::new(blocks)),
+      ..CliError::new(ErrorCode::BlockNotFound, message)
+    },
     MoveHunkError::Conflict { commit, path, .. } => CliError {
       commits: vec![context.short_ids([commit.as_str()]).get(&commit).to_string()],
       paths: vec![path],
@@ -152,14 +149,7 @@ fn move_hunk_output(context: &RepoContext, dry_run: bool, result: &MoveHunkResul
       path: result.path.clone(),
       from: short.get(&result.from).to_string(),
       to: short.get(&result.to).to_string(),
-      hunks: result
-        .hunks
-        .iter()
-        .map(|hunk| MovedHunk {
-          header: hunk.header.clone(),
-          text: hunk.text(),
-        })
-        .collect(),
+      blocks: result.blocks.iter().map(PatchBlock::from).collect(),
     },
     commits: result
       .commits
