@@ -101,3 +101,28 @@ function islandsTheme(name: string, type: "light" | "dark", palette: EditorPalet
 
 export const ISLANDS_LIGHT_THEME = islandsTheme("bd-islands-light", "light", LIGHT)
 export const ISLANDS_DARK_THEME = islandsTheme("bd-islands-dark", "dark", DARK)
+
+/**
+ * The roles of a token after the default foreground (role 0), in the order of their ids; the class of a role is
+ * `t-<role>`, its colours `--syntax-<role>` of `src/index.css`
+ */
+export const SYNTAX_ROLES = ["keyword", "string", "escape", "number", "comment", "functionDeclaration", "field", "annotation", "tag", "attribute"] as const
+
+/** The colour that stands for a role in `ROLE_THEME`: no real colour, an id */
+export function roleColor(role: number): string {
+  return `#0000${(role + 1).toString(16).padStart(2, "0").toUpperCase()}`
+}
+
+/**
+ * One theme of roles for the highlight worker (docs/design/diff-view.md, "One theme of roles"): the scope rules of the
+ * Islands themes, each colour a role id. One tokenization serves both schemes; the colours are CSS.
+ */
+export const ROLE_THEME: ThemeRegistration = {
+  name: "bd-syntax-roles",
+  type: "light",
+  colors: { "editor.foreground": roleColor(0), "editor.background": "#FFFFFF" },
+  tokenColors: tokenColors({
+    foreground: roleColor(0),
+    ...(Object.fromEntries(SYNTAX_ROLES.map((role, index) => [role, roleColor(index + 1)])) as Omit<EditorPalette, "foreground">),
+  }),
+}
