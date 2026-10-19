@@ -225,20 +225,26 @@ fn view_state(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
   })
 }
 
+/// The subject of each of `ids` by id, from one `log --no-walk`; empty when git can't read them: a subject is only shown
+fn subjects_of(git_executor: &GitCommandExecutor, repo_path: &str, ids: &[&str]) -> HashMap<String, String> {
+  let mut args = vec!["log", "--no-walk=unsorted", "--format=%H%x00%s"];
+  args.extend_from_slice(ids);
+  args.push("--");
+  git_executor
+    .execute_command_lines(&args, repo_path)
+    .unwrap_or_default()
+    .into_iter()
+    .filter_map(|line| line.split_once('\0').map(|(id, subject)| (id.to_string(), subject.to_string())))
+    .collect()
+}
+
 /// The commits of `state.landed_dropped` with their subjects, with one `log --no-walk` when there are any
 fn landed_dropped(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState) -> Vec<(String, String, String)> {
   if state.landed_dropped.is_empty() {
     return Vec::new();
   }
-  let mut args = vec!["log", "--no-walk=unsorted", "--format=%H%x00%s"];
-  args.extend(state.landed_dropped.iter().map(|drop| drop.commit.as_str()));
-  args.push("--");
-  let subjects: HashMap<String, String> = git_executor
-    .execute_command_lines(&args, repo_path)
-    .unwrap_or_default()
-    .into_iter()
-    .filter_map(|line| line.split_once('\0').map(|(id, subject)| (id.to_string(), subject.to_string())))
-    .collect();
+  let ids: Vec<&str> = state.landed_dropped.iter().map(|drop| drop.commit.as_str()).collect();
+  let subjects = subjects_of(git_executor, repo_path, &ids);
   state
     .landed_dropped
     .iter()
@@ -398,7 +404,7 @@ fn outcome(git_executor: &GitCommandExecutor, repo_path: &str, step: Step, previ
         base: state.base.clone(),
         state: UpdateState::Clean { kind: UpdateKind::Rebase },
         fetched_at: None,
-        resolved_by_words: state.resolutions.iter().filter_map(words_commit).collect(),
+        resolved_by_words: words_commits(git_executor, repo_path, &state.resolutions),
       };
       // a commit that a resolution dropped is not on the upstream; one that the words left empty is, as `git replay` drops it
       let dropped: Vec<String> = state
@@ -435,10 +441,25 @@ fn outcome(git_executor: &GitCommandExecutor, repo_path: &str, step: Step, previ
   }
 }
 
-/// The commit of a round that resolved itself by words, as an update check reports it
-fn words_commit(resolution: &Resolution) -> Option<UpdateResolvedCommit> {
+/// The commits of the rounds that resolved themselves by words, as an update check reports them, with their subjects
+/// from one `log --no-walk` when there are any
+fn words_commits(git_executor: &GitCommandExecutor, repo_path: &str, resolutions: &[Resolution]) -> Vec<UpdateResolvedCommit> {
+  let words: Vec<&Resolution> = resolutions.iter().filter(|resolution| resolution.by_words() && resolution.resolved.is_some()).collect();
+  if words.is_empty() {
+    return Vec::new();
+  }
+  let ids: Vec<&str> = words.iter().map(|resolution| resolution.commit.as_str()).collect();
+  let subjects = subjects_of(git_executor, repo_path, &ids);
+  words
+    .into_iter()
+    .filter_map(|resolution| words_commit(resolution, subjects.get(&resolution.commit).cloned().unwrap_or_default()))
+    .collect()
+}
+
+fn words_commit(resolution: &Resolution, subject: String) -> Option<UpdateResolvedCommit> {
   Some(UpdateResolvedCommit {
     commit: resolution.commit.clone(),
+    subject,
     new_id: resolution.resolved.clone()?,
     conflicts: resolution.words?,
     files: resolution

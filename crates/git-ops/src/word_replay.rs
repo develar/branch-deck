@@ -25,6 +25,7 @@ use tracing::{debug, instrument};
 pub struct UpdateResolvedCommit {
   /// The local commit
   pub commit: String,
+  pub subject: String,
   /// The commit the update writes for it; a preview check writes it with a fixed committer date
   pub new_id: String,
   /// The conflicts of git that the words resolved: the `<<<<<<<` lines git would have left
@@ -33,9 +34,11 @@ pub struct UpdateResolvedCommit {
 }
 
 impl UpdateResolvedCommit {
-  fn of(commit: &str, written: &WrittenEdit, resolution: &WordResolution) -> Self {
+  fn of(commit: &str, resolved: &WordsResolved) -> Self {
+    let WordsResolved { written, resolution, subject } = resolved;
     Self {
       commit: commit.to_string(),
+      subject: subject.clone(),
       new_id: written.commit.clone(),
       conflicts: resolution.conflicts(),
       files: resolution
@@ -66,6 +69,8 @@ impl UpdateResolvedCommit {
 pub(crate) struct WordsResolved {
   pub written: WrittenEdit,
   pub resolution: WordResolution,
+  /// The subject of the local commit
+  pub subject: String,
 }
 
 /// The cherry-pick of `commit` (onto its parent) onto `onto` resolved by words: one `merge-tree` with the messages, the
@@ -127,7 +132,8 @@ pub(crate) fn resolve_merge_onto(
     bail!("fast-import wrote the tree {} for the resolve by words of {commit}, not {}", written.tree, resolution.tree);
   }
   debug!(commit, conflicts = resolution.conflicts(), "a commit of the update resolves by words");
-  Ok(Some(WordsResolved { written, resolution }))
+  let subject = String::from_utf8_lossy(raw.message.split(|&byte| byte == b'\n').next().unwrap_or_default()).into_owned();
+  Ok(Some(WordsResolved { written, resolution, subject }))
 }
 
 /// The local commits replayed onto the upstream with the commits that the words resolved
@@ -193,17 +199,17 @@ fn replay_words(
     }
     let start = replay.tip.clone();
     let (index, clean) = first_conflict(from, last, start.clone(), |end| replay_to(&start, end))?;
-    let Some(WordsResolved { written: edit, resolution }) = resolve_commit_onto(git_executor, repo_path, &local[index], &clean, committer)? else {
+    let Some(resolved) = resolve_commit_onto(git_executor, repo_path, &local[index], &clean, committer)? else {
       debug!(commit = %local[index], "a commit of the update does not resolve by words");
       return Ok(None);
     };
-    if edit.tree == edit.parent_tree {
+    if resolved.written.tree == resolved.written.parent_tree {
       replay.tip = clean;
     } else {
-      replay.resolved.push(UpdateResolvedCommit::of(&local[index], &edit, &resolution));
-      replay.tip.clone_from(&edit.commit);
+      replay.resolved.push(UpdateResolvedCommit::of(&local[index], &resolved));
+      replay.tip.clone_from(&resolved.written.commit);
     }
-    written.push(edit);
+    written.push(resolved.written);
     next = index + 1;
   }
   Ok(Some(replay))

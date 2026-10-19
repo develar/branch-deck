@@ -132,6 +132,13 @@ The header shows whether an update would apply cleanly, from a check that every 
   date; a clean outcome is never shared).
   [@test] ../../crates/sync-core/src/update_project_test.rs (`update_after_the_sync_found_a_conflict_does_not_replay_again`)
   [@test] ../../crates/sync-core/src/update_project_test.rs (`sync_after_a_conflicting_update_does_not_replay_again`)
+- With `branchdeck.resolveByWords` on (the default), a replay that conflicts must be tried again commit by commit, each
+  conflict of git resolved by words as the sync resolves it ([Git Operations](../../docs/design/git-operations.md),
+  "Resolve by words"). All or nothing: the state is a clean rebase only when every conflicting commit resolves, and
+  it lists them (`resolvedByWords`: the commit, its subject, the conflicts and the files). The replay of the sync's
+  check and of the update are cached apart by the mode.
+  [@test] ../../crates/git-ops/src/update_resolve_test.rs (`an_update_whose_every_conflict_resolves_by_words_applies_without_a_session`)
+  [@test] ../../crates/git-ops/src/word_replay_test.rs (`a_conflict_that_resolves_by_words_is_committed_and_the_rest_replays_onto_it`, `a_commit_whose_words_conflict_too_stops_the_replay`, `a_commit_that_the_words_leave_without_a_change_is_dropped`)
 - A file that the upstream replaces by a directory (or the reverse) must not block.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`file_replaced_by_a_directory_upstream_is_not_in_the_way`)
 
@@ -158,6 +165,14 @@ The header shows whether an update would apply cleanly, from a check that every 
 - Uncommitted, staged and untracked changes on paths the update doesn't change must survive byte for byte, the staged
   version staged.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`dirty_and_staged_files_on_untouched_paths_survive_byte_identical`)
+- A rebase that resolved conflicts of git by words must keep the author and the message of each resolved commit, and
+  write a note per resolved commit on `refs/notes/branch-deck/resolve`. Its toast and its Activity entry must end with
+  "Resolved 1 conflict by words in “<subject>”" (or "… in 2 commits"); the tooltip and the footer of the check say
+  "Rebases onto origin/master, resolving 1 conflict by words". Undo takes it back as any update.
+  [@test] ../../crates/git-ops/src/update_resolve_test.rs (`an_update_whose_every_conflict_resolves_by_words_applies_without_a_session`)
+  [@test] ../../src/lib/landed.test.ts (`ends with the conflicts of git that the update resolved by words`)
+  [@test] ../../src/lib/update-state.test.ts (`says that a rebase resolves conflicts of git by words: it is not clean to git`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should rebase an update whose conflict of git resolves by words, and say so`)
 - A local commit whose changes are already upstream is dropped and reported, not an error. When the replay conflicts
   because a robot folded fixups into their target, the landed commits are left out if nothing local is lost
   ([Landed Commits](landed-commits.spec.md)).

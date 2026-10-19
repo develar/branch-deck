@@ -103,6 +103,20 @@ describe("appliedUpdateToast", () => {
     const fastForward: AppliedUpdate = { kind: "fastForward", newHead: "n", replayed: 0, droppedAlreadyUpstream: 0 }
     expect(appliedUpdateToast(check, fastForward, []).title).toBe("Updated master: fast-forwarded to origin/master")
   })
+
+  it("ends with the conflicts of git that the update resolved by words", () => {
+    const resolved = (subject: string, conflicts: number) => ({ commit: subject, subject, newId: `n-${subject}`, conflicts, files: [{ path: "a.txt", conflicts }] })
+    const one = { ...check, resolvedByWords: [resolved("Capitalize line 2", 1)] }
+    expect(appliedUpdateToast(one, rebase, [])).toEqual({
+      title: "Updated master: rebased 116 commits onto origin/master",
+      description: "Resolved 1 conflict by words in “Capitalize line 2”",
+    })
+    const two = { ...check, resolvedByWords: [resolved("One", 1), resolved("Two", 2)] }
+    expect(appliedUpdateToast(two, rebase, [branch("wsm", 5)])).toEqual({
+      title: "wsm landed in origin/master",
+      description: "Updated master: rebased 116 commits · resolved 3 conflicts by words in 2 commits",
+    })
+  })
 })
 
 describe("mergeLandedReport", () => {

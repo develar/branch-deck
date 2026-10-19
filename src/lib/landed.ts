@@ -1,5 +1,7 @@
 import type { AppliedUpdate, LandedBranch, UpdateCheck } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
+import { capitalize } from "@/lib/move-summary"
+import { updateResolvedWords } from "@/lib/resolved-by-words"
 import { joinNames } from "@/lib/text"
 
 /*
@@ -149,21 +151,22 @@ export function landedNews(landed: readonly LandedBranch[], upstream: string): U
 
 /**
  * The toast after an applied update. What landed is the news and leads; how the branch was updated follows. Without
- * anything landed, the title says how the branch was updated, as before.
+ * anything landed, the title says how the branch was updated, as before. The conflicts of git that the update resolved
+ * by words come last: "Resolved 1 conflict by words in “Capitalize line 2”".
  */
 export function appliedUpdateToast(check: UpdateCheck, applied: AppliedUpdate, landed: readonly LandedBranch[]): UpdateToast {
   const { branch, upstream } = check
   const news = landedNews(landed, upstream)
+  const words = updateResolvedWords(check.resolvedByWords)
   if (news === null) {
     return {
       title:
         applied.kind === "fastForward" ? `Updated ${branch}: fast-forwarded to ${upstream}` : `Updated ${branch}: rebased ${formatCommitCount(applied.replayed)} onto ${upstream}`,
+      ...(words === null ? {} : { description: capitalize(words) }),
     }
   }
-  return {
-    title: news.title,
-    description: news.description === undefined ? `Updated ${branch}: ${appliedWords(applied)}` : `${news.description} · ${appliedWords(applied)}`,
-  }
+  const updated = news.description === undefined ? `Updated ${branch}: ${appliedWords(applied)}` : `${news.description} · ${appliedWords(applied)}`
+  return { title: news.title, description: words === null ? updated : `${updated} · ${words}` }
 }
 
 /** The report of a new update merged into the undismissed one, as the backend merges it: by branch name, new commits added */

@@ -1,5 +1,6 @@
-import type { UpdateCheck, UpdateState } from "@/lib/bindings"
+import type { UpdateCheck, UpdateResolvedCommit, UpdateState } from "@/lib/bindings"
 import { formatFileCount } from "@/lib/commit-files"
+import { resolvingWords } from "@/lib/resolved-by-words"
 import { cutList } from "@/lib/text"
 import { formatRelativeTime } from "@/lib/time"
 import { transferAmount } from "@/lib/transfer-progress"
@@ -30,15 +31,21 @@ function formatFileList(files: readonly string[], count: number): string {
   return more > 0 ? `${named} and ${more} more` : named
 }
 
-/** The words for a checked update. Deliberately without a count of upstream commits: only conflicts matter. */
-export function describeUpdateState(state: UpdateState, upstream: string): UpdateStateDescription {
+/**
+ * The words for a checked update. Deliberately without a count of upstream commits: only conflicts matter. A rebase
+ * whose conflicts of git the words resolve (`resolved`, `branchdeck.resolveByWords`) says so: it is not clean to git.
+ */
+export function describeUpdateState(state: UpdateState, upstream: string, resolved: readonly UpdateResolvedCommit[] = []): UpdateStateDescription {
   switch (state.status) {
     case "upToDate":
       return { tone: "muted", summary: `Up to date with ${upstream}`, short: "nothing new" }
     case "clean":
-      return state.kind === "fastForward"
-        ? { tone: "success", summary: `Fast-forwards to ${upstream}`, short: "fast-forwards" }
-        : { tone: "success", summary: `Rebases cleanly onto ${upstream}`, short: "rebases cleanly" }
+      if (state.kind === "fastForward") {
+        return { tone: "success", summary: `Fast-forwards to ${upstream}`, short: "fast-forwards" }
+      }
+      return resolved.length === 0
+        ? { tone: "success", summary: `Rebases cleanly onto ${upstream}`, short: "rebases cleanly" }
+        : { tone: "success", summary: `Rebases onto ${upstream}, ${resolvingWords(resolved)}`, short: `rebases, ${resolvingWords(resolved)}` }
     case "conflict":
       return {
         tone: "warning",

@@ -25,6 +25,15 @@ describe("describeUpdateState", () => {
     expect(describeUpdateState({ status: "clean", kind: "fastForward" }, "origin/main").summary).toBe("Fast-forwards to origin/main")
   })
 
+  it("says that a rebase resolves conflicts of git by words: it is not clean to git", () => {
+    const resolved = [{ commit: "c", subject: "Capitalize line 2", newId: "n", conflicts: 2, files: [{ path: "a.txt", conflicts: 2 }] }]
+    expect(describeUpdateState({ status: "clean", kind: "rebase" }, "origin/master", resolved)).toEqual({
+      tone: "success",
+      summary: "Rebases onto origin/master, resolving 2 conflicts by words",
+      short: "rebases, resolving 2 conflicts by words",
+    })
+  })
+
   it("names at most three files, four of four: never 'and 1 more'", () => {
     const one = describeUpdateState({ status: "conflict", files: ["a.txt"], fileCount: 1, commits: [], upstreamCommits: [] }, "origin/master")
     expect(one).toEqual({ tone: "warning", summary: "Conflicts in 1 file: a.txt", short: "conflicts in 1 file" })

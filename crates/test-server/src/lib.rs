@@ -251,6 +251,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
   spawn("archived_branches", |path| templates::archived_branches().build(path));
   spawn("behind_upstream", |path| templates::behind_upstream().build(path));
   spawn("update_conflict", |path| templates::update_conflict().build(path));
+  spawn("update_words", |path| templates::update_words().build(path));
   spawn("update_conflict_wide", |path| templates::update_conflict_wide().build(path));
   spawn("update_blocked", |path| templates::update_blocked().build(path));
   spawn("landed_upstream", |path| templates::landed_upstream().build(path));
@@ -334,6 +335,8 @@ pub enum RepositoryTemplate {
   BehindUpstream,
   #[serde(rename = "update_conflict")]
   UpdateConflict,
+  #[serde(rename = "update_words")]
+  UpdateWords,
   #[serde(rename = "update_conflict_wide")]
   UpdateConflictWide,
   #[serde(rename = "update_blocked")]
@@ -385,6 +388,7 @@ impl RepositoryTemplate {
       Self::AmendChanges => "amend_changes",
       Self::BehindUpstream => "behind_upstream",
       Self::UpdateConflict => "update_conflict",
+      Self::UpdateWords => "update_words",
       Self::UpdateConflictWide => "update_conflict_wide",
       Self::UpdateBlocked => "update_blocked",
       Self::LandedUpstream => "landed_upstream",

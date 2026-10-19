@@ -1223,8 +1223,10 @@ In Update Project and `bd update`, with the same setting (`crates/git-ops/src/wo
   (a preview has the fixed date). A commit that the words leave without a change is dropped, as `replay` drops one. The
   first commit that does not resolve makes the check a conflict, as before. All or nothing: the check is `Clean` only
   when every conflicting commit resolves.
-- **What is told.** `UpdateCheck.resolved_by_words` lists the resolved commits with their conflicts and files. The
-  replay key of the preview cache holds the mode, so a preview of the other mode replays again.
+- **What is told.** `UpdateCheck.resolved_by_words` lists the resolved commits with their subjects, conflicts and
+  files. The replay key of the preview cache holds the mode, so a preview of the other mode replays again. The app says
+  it in the tooltip of Update ("Rebases onto origin/master, resolving 1 conflict by words"), in the toast and in
+  Activity; `bd update` in `resolved`.
 - **The apply** moves the branch as any clean update, so the undo of Update Project restores it. Then it writes a note
   per resolved commit on `refs/notes/branch-deck/resolve` (`branch-deck resolve`, `commit: <c>`, `resolved-by-words:
   <version> <conflicts>`, a `words\t<path>` line per file); a failure only leaves the notes out.

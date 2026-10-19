@@ -43,6 +43,20 @@ test.describe("Update Project", () => {
     await verifyCommitCount(findBranchRow(page, "feature-auth"), "1 commit")
   })
 
+  test("should rebase an update whose conflict of git resolves by words, and say so", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // `update_words`: the local commit capitalizes line 2, to which the upstream adds a word; git conflicts, the words resolve
+    await setupRepo("update_words")
+    await syncAndWaitForBranches()
+    const button = updateButton(page)
+    await expect(button).toHaveAttribute("data-status", "clean")
+    await expectTooltip(page, "Rebases onto origin/master, resolving 1 conflict by words")
+
+    await button.click()
+    await expect(page.getByText("Updated master: rebased 2 commits onto origin/master")).toBeVisible()
+    await expect(page.getByText("Resolved 1 conflict by words in “(feature-auth) Capitalize line 2”")).toBeVisible()
+    await expect(button).toHaveAttribute("data-status", "upToDate")
+  })
+
   test("should age the last sync next to the Update button while it is shown", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the fetch time of the templates is the real one (FETCH_HEAD), not the page's clock: the last sync shows the tick
     await setupRepo("behind_upstream")

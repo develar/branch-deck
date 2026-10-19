@@ -48,6 +48,7 @@ fn a_conflict_that_resolves_by_words_is_committed_and_the_rest_replays_onto_it()
     replay.resolved,
     vec![UpdateResolvedCommit {
       commit: local[1].clone(),
+      subject: "Change f".to_string(),
       new_id: resolved_id.clone(),
       conflicts: 1,
       files: vec![ResolvedFileSummary {

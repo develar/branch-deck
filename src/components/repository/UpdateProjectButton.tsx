@@ -39,7 +39,7 @@ function describeStatus(status: BaselineStatus, fetchTime: number | null): Updat
   if (status.update === null) {
     return { tone: "muted", summary: `Cannot check the update: ${status.checkError ?? "unknown error"}`, short: "not checked" }
   }
-  return describeAsFetched(describeUpdateState(status.update.state, status.update.upstream), status.update.upstream, fetchTime)
+  return describeAsFetched(describeUpdateState(status.update.state, status.update.upstream, status.update.resolvedByWords), status.update.upstream, fetchTime)
 }
 
 /** The baseline status if there is something to update from: null for a local baseline or before the first sync */

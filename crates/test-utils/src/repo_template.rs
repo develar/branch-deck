@@ -1063,6 +1063,8 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
     BehindUpstream,
     /// A local commit changes the line that the upstream changed
     Conflict,
+    /// A local commit changes another word of the line that the upstream changed: git conflicts, the words resolve
+    ResolvesByWords,
     /// A local commit adds the `WIDE_CONFLICT_FILES` files that each of 7 upstream commits changes: more files than a
     /// check reports, more upstream commits per file than the dialog lists
     WideConflict,
@@ -1085,6 +1087,10 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
 
   pub const fn update_conflict() -> UpdateTemplate {
     UpdateTemplate(UpdateScenario::Conflict)
+  }
+
+  pub const fn update_words() -> UpdateTemplate {
+    UpdateTemplate(UpdateScenario::ResolvesByWords)
   }
 
   pub const fn update_conflict_wide() -> UpdateTemplate {
@@ -1216,6 +1222,9 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       if scenario == UpdateScenario::Conflict {
         commit("(feature-auth) Change line 2", &[(UPDATE_APP_FILE, "line 1\nline 2 local\nline 3\n")], 1704118800)?;
       }
+      if scenario == UpdateScenario::ResolvesByWords {
+        commit("(feature-auth) Capitalize line 2", &[(UPDATE_APP_FILE, "line 1\nLine 2\nline 3\n")], 1704118800)?;
+      }
       if scenario == UpdateScenario::WideConflict {
         commit("(feature-auth) Add the wide files", &as_refs(&wide_files("local\n")), 1704118800)?;
       }
@@ -1229,7 +1238,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       match scenario {
         UpdateScenario::BehindUpstream => write("src/config.txt", "debug=true\n")?,
         UpdateScenario::Blocked => write(UPDATE_APP_FILE, "line 1\nline 2\nline 3\nlocal edit\n")?,
-        UpdateScenario::Conflict | UpdateScenario::WideConflict | UpdateScenario::Landed => {}
+        UpdateScenario::Conflict | UpdateScenario::ResolvesByWords | UpdateScenario::WideConflict | UpdateScenario::Landed => {}
       }
       Ok(())
     }

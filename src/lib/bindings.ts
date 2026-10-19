@@ -3295,6 +3295,7 @@ export type UpdateProjectResult = {
 export type UpdateResolvedCommit = {
 	/**  The local commit */
 	commit: string,
+	subject: string,
 	/**  The commit the update writes for it; a preview check writes it with a fixed committer date */
 	newId: string,
 	/**  The conflicts of git that the words resolved: the `<<<<<<<` lines git would have left */
