@@ -100,6 +100,16 @@ describe("the push of the branch menu", () => {
     expect(pushItems("auth")).toEqual([expect.objectContaining({ id: "push", label: "Create Remote (1)", disabled: false })])
   })
 
+  it("offers the push of the branch alone after the push of the stack, as the description of the button does", () => {
+    setBranches(synced("auth", null, unpushed), synced("login", "auth", unpushed))
+    const items = menuOf("login")
+    const push = items.findIndex(item => item.id === "push")
+    expect(items[push + 1]).toMatchObject({ id: "push-branch-only", label: "Push login Only", disabled: false })
+    expect(items[push + 1]?.kbds).toBeUndefined()
+    // a branch whose button pushes it alone has no second way in the menu
+    expect(menuOf("auth").some(item => item.id === "push-branch-only")).toBe(false)
+  })
+
   it("pushes the branch alone above an ancestor whose push drops remote commits: that one asks first in its own row", () => {
     const dropping = testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 1, fastForward: false, unpushedCommits: ["c"] })
     setBranches(synced("auth", null, dropping), synced("login", "auth", unpushed))

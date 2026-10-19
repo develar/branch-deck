@@ -457,7 +457,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   "Name This Branch…", "Move to…", "Ungroup"), the stack ("Stack On…", "Unstack from …", "Collapse Stack" `⌥←` or
   "Expand Stack" `⌥→`), the commits ("Add Issue Reference…", "Amend Changes…",
   "Unapply…"), the history ("Review Changes", "Squash N Fixups…", "Open Pull Request" or "Create Pull Request…") and the
-  remote: the push of the branch, named as its push button, on a branch with branches stacked on it "Push with
+  remote: the push of the branch, named as its push button, "Push oauth Only" after it while it pushes the stack
+  ([Stacked Branches](stacked-branches.spec.md#pull-requests)), on a branch with branches stacked on it "Push with
   Children (4 branches)" beside it (disabled with the reason while it pushes nothing beyond the branch:
   [Stacked Branches](stacked-branches.spec.md#pull-requests)), then where Patronus answers "Safe Push" (`S`; "Safe Push · 3" for a stacked branch), "Safe
   Push With Profile…" (always the popover, its profile to choose; disabled for a start that comments on a pull request,

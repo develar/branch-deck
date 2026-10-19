@@ -521,6 +521,18 @@ test.describe("Stacked branches", () => {
     await expect(page.getByRole("menuitem", { name: "Push Stack (2 branches) P" })).toBeVisible()
   })
 
+  test("should push a stacked branch alone from its menu, the second way after the push of the stack", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+    const pushes = await routePush(page, {})
+
+    await openContextMenu(page, findBranchRow(page, "oauth"))
+    await expect(page.getByRole("menuitem", { name: "Push Stack (3 branches) P" })).toBeVisible()
+    await page.getByRole("menuitem", { name: "Push oauth Only" }).click()
+    await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["oauth"])
+    await expect(pushedToast(page, "oauth")).toBeVisible()
+  })
+
   test("should push a parent with its children", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_branches")
     await syncAndWaitForBranches()

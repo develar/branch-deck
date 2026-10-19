@@ -272,7 +272,9 @@ menu stacks, unstacks and renames branches.
   auth's commits", "session · 1 commit · force push, drops 1 remote commit". Below a rule, "login isn't on the remote
   yet. Pushing oauth alone works: its pull request includes login's commits either way." ("login has commits the
   remote lacks. Pushing oauth alone works: its pull request includes them either way, and the remote branch of login
-  stays as it is." for a parent on the remote, the nearest ancestor with work) and a `Push oauth Only` button. Preview
+  stays as it is." for a parent on the remote, the nearest ancestor with work) and a `Push oauth Only` button, which is
+  also the item after the push in the branch menu (`push-branch-only`, no key; its "⋯" in the preview and the review
+  window too): the second way, never the lead ([Landing](../../docs/design/landing.md)). Preview
   `P` pushes as the button does. While the stack push runs, the button names it ("Pushing 3 branches 45%"), the rows of
   the branches it pushes show the same progress on their own push buttons, and a second click does nothing. The row
   doesn't name the parent: the stack graph shows it, and the description of the button explains Push Stack.
@@ -280,7 +282,8 @@ menu stacks, unstacks and renames branches.
   [@test] ../../src/lib/remote-status.test.ts (`names it in the line of a stack push in the same words, or the remote commits the push drops`)
   [@test] ../../src/lib/git/push.test.ts (`pushes nothing more from a row whose stack push runs`)
   [@test] ../../src/lib/stack.test.ts (`names what a stack push sends while it runs: its one push of several branches, or the one branch`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`, `should push a stacked branch alone from the description of its button`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`, `should push a stacked branch alone from the description of its button`, `should push a stacked branch alone from its menu, the second way after the push of the stack`)
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`offers the push of the branch alone after the push of the stack, as the description of the button does`)
 - The button pushes the branch alone, and its description offers `Push Stack (3 branches)` instead, while the branch's own push drops remote commits (it asks first, Force Push) and while the stack above
   the nearest ancestor whose push drops remote commits has only the branch: that ancestor asks first in its own row,
   and a stack pushed around it would leave a stale branch in the middle.

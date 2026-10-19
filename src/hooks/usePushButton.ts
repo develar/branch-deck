@@ -71,6 +71,11 @@ export interface PushButtonState {
 }
 
 export interface PushButtonAction {
+  /**
+   * The item of the branch's menu with this push (`getBranchContextMenuItems`): the description of the button and the
+   * menus offer one action
+   */
+  id: "push-branch-only" | "push-stack" | "push-with-children"
   /** The choice between the push of the button and this one, above the action button */
   description: string
   label: string
@@ -253,12 +258,14 @@ export function getPushButtonState(
       tooltip = describeStackPush(stack)
       color = stackPushColor(branch, stack)
       action = {
+        id: "push-branch-only",
         description: describeUnpushedParent(branch.name, unpushedParent),
         label: `Push ${branch.name} Only`,
         run: () => void pushBranch(branch.name),
       }
     } else if (unpushedParent !== null) {
       action = {
+        id: "push-stack",
         description: describeUnpushedParent(branch.name, unpushedParent),
         label: formatPushStackLabel(unpushedParent.stackSize),
         run: () => void pushStack(branch.name),
@@ -299,6 +306,7 @@ function childrenActionOf(branchName: string, unpushedChildren: UnpushedChildren
   }
   const stackBranch = unpushedChildren.stackBranch ?? null
   return {
+    id: "push-with-children",
     description: describeUnpushedChildren(branchName, unpushedChildren.names, stackBranch),
     label: formatPushWithChildrenLabel(unpushedChildren.pushOrder, stackBranch !== null),
     run: () => void pushWithChildren(branchName),

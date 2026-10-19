@@ -241,7 +241,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   historyActions.push(...getCreatePullRequestItems(branch))
   groups.push(historyActions)
 
-  const remoteActions: MenuItem[] = [getPushMenuItem(branch)]
+  const remoteActions: MenuItem[] = getPushMenuItems(branch)
   // the push of the branches stacked on it, beside the push of the branch: offered on every branch with children
   const pushWithChildrenItem = getPushWithChildrenItem(branch.name)
   if (pushWithChildrenItem !== null) {
@@ -261,9 +261,10 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
  * branches)", `getPushButtonNow`) and pushing as a click on it (`pushOrConfirm`: the stack while a parent has work for
  * the remote, a push that drops remote commits asks in the button's description); enabled as the button
  * (`canPushNow`), else with the reason. One item for the push of the branch and of its stack: the menu never pushes
- * past the confirmation the button asks for.
+ * past the confirmation the button asks for. After it, while the button pushes the stack, the second way its
+ * description offers: "Push oauth Only".
  */
-function getPushMenuItem(branch: Branch): MenuItem {
+function getPushMenuItems(branch: Branch): MenuItem[] {
   const stackPushing = isStackPushing(branch.name)
   const isPushing = isBranchPushing(branch.name) || stackPushing
   const processing = isProcessing(branch.name)
@@ -275,7 +276,7 @@ function getPushMenuItem(branch: Branch): MenuItem {
   } else if (button.pushesStack) {
     description = `Pushes ${joinNames(buttonStackPushOrder(branch.name, getBranch, name => getPushHold(name) !== null))}, parents first`
   }
-  return {
+  const push: MenuItem = {
     id: "push",
     label: button.text,
     icon: UploadIcon,
@@ -284,6 +285,22 @@ function getPushMenuItem(branch: Branch): MenuItem {
     ...(description !== undefined && { description }),
     onSelect: () => pushOrConfirm(branch.name, "row"),
   }
+  // the second way the description of the button offers while it pushes the stack: the branch alone. Its Push Stack
+  // while the button pushes the branch alone stays in the description, beside the confirmation an ancestor asks for
+  const other = button.action
+  if (other?.id !== "push-branch-only") {
+    return [push]
+  }
+  return [
+    push,
+    {
+      id: other.id,
+      label: other.label,
+      disabled: !enabled,
+      description: enabled ? other.description : description,
+      onSelect: other.run,
+    },
+  ]
 }
 
 /**
@@ -423,7 +440,8 @@ export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
     items.push(getSafePushMenuItem(branch))
   }
   if (hasPush) {
-    const push = getPushMenuItem(branch)
+    // the push of the button alone: its second way is in "⋯"
+    const push = getPushMenuItems(branch)[0]!
     items.push({ ...push, kbds: undefined })
   }
   return items
