@@ -1,5 +1,6 @@
 use crate::check::{CheckOutcome, CheckSession};
 use crate::conflict_fix::{ConflictFix, FixBudget, FixRun, FixStep, FixStepKind, SearchState};
+use crate::regroup::RegroupPlan;
 use crate::regroup::regroup_test::repo;
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
@@ -321,4 +322,43 @@ fn each_trial_is_a_line_of_progress() {
     lines.iter().any(|line| line.starts_with("trial 1/24: move 1 commit of other to feature … verified (")),
     "{lines:?}"
   );
+}
+
+#[test]
+fn a_leaf_on_a_parent_of_its_own_keeps_it_and_the_parent_is_restacked_on_what_the_leaf_needs() {
+  let repo = repo(true);
+  repo.create_commit("(root) Add lib", "lib.txt", "1\n2\n3\n4\n5\n");
+  repo.create_commit("(root/a) Change the first line", "lib.txt", "one\n2\n3\n4\n5\n");
+  repo.create_commit("(root/p) Change the last line", "lib.txt", "one\n2\n3\n4\nfive\n");
+  // c, stacked on p, changes the lines of p and of a, a sibling of p: c on a would lose p
+  repo.create_commit("(p/c) Change both lines", "lib.txt", "ONE\n2\n3\n4\nFIVE\n");
+
+  let fix = find_fix(&repo, FixBudget::default());
+
+  assert_eq!(fix.trials, 1, "{fix:?}");
+  assert_eq!(fix.components[0].steps, [step(FixStepKind::Restack, &[], &["root"], "a", "p")]);
+  assert_eq!(fix.components[0].fixed, ["c"]);
+  assert_applies(&repo, &fix);
+}
+
+#[test]
+fn a_restack_on_top_of_a_plan_keeps_the_parent_the_plan_gives() {
+  let repo = repo(true);
+  repo.create_commit("(root) Add lib", "lib.txt", "1\n2\n3\n4\n5\n");
+  repo.create_commit("(root/a) Change the first line", "lib.txt", "one\n2\n3\n4\n5\n");
+  repo.create_commit("(root/p) Change the last line", "lib.txt", "one\n2\n3\n4\nfive\n");
+  let leaf = repo.create_commit("(c) Change both lines", "lib.txt", "ONE\n2\n3\n4\nFIVE\n");
+  // the user's plan stacks c on p, as `bd check --fix --plan` gets it
+  let plan = RegroupPlan {
+    branches: std::iter::once(("p/c".to_string(), vec![leaf])).collect(),
+    ..RegroupPlan::default()
+  };
+
+  let fix = session(&repo).find_conflict_fix(Some(&plan), None, &run(FixBudget::default())).unwrap();
+
+  assert_eq!(fix.trials, 1, "{fix:?}");
+  assert_eq!(fix.components[0].steps, [step(FixStepKind::Restack, &[], &["root"], "a", "p")]);
+  let paths: Vec<&String> = fix.components[0].plan.branches.keys().collect();
+  assert_eq!(paths, ["a/p", "p/c"]);
+  assert_applies(&repo, &fix);
 }

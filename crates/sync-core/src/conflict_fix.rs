@@ -425,7 +425,18 @@ impl CheckSession {
       merge_plan(&mut plan, plan_move(self.snapshot(), &ids, Some(&path))?);
     }
     for (child, parent) in &change.restacks {
-      plan.branches.entry(format!("{parent}/{child}")).or_default();
+      // the restack replaces a parent that the base plan gave the child: its commits go to the new path
+      let new_path = format!("{parent}/{child}");
+      let replaced: Vec<String> = plan
+        .branches
+        .keys()
+        .filter(|path| **path != new_path && path.rsplit('/').next() == Some(child.as_str()) && path.contains('/'))
+        .cloned()
+        .collect();
+      let mut ids: Vec<String> = replaced.iter().filter_map(|path| plan.branches.remove(path)).flatten().collect();
+      let entry = plan.branches.entry(new_path).or_default();
+      ids.retain(|id| !entry.contains(id));
+      entry.extend(ids);
     }
     Ok(plan)
   }
@@ -765,7 +776,9 @@ fn describe_change(change: &Change) -> String {
 }
 
 /// The restack of `branch` on the branch that holds every owner of what it needs (`stack_top`), or else on a chain of
-/// the owners: each stacked on the one with the older commits, when it stays in its stack, and `branch` on the last
+/// the owners: each stacked on the one with the older commits, when it stays in its stack, and `branch` on the last.
+/// A branch stacked on a parent of its own (not on the stack of the top) keeps it: the ancestor that leaves the top's
+/// stack is restacked instead (`fork_child`), so the branch gets what it needs and keeps what its parents give it
 fn restack_on_owners(facts: &Facts, graph: &Graph, branch: &BranchCheck, owners: &BTreeSet<&str>) -> Option<Change> {
   let restack = |change: &mut Change, child: &str, parent: &str, from: Option<&String>| {
     change.restacks.insert(child.to_string(), parent.to_string());
@@ -782,7 +795,8 @@ fn restack_on_owners(facts: &Facts, graph: &Graph, branch: &BranchCheck, owners:
   }
   let mut change = Change::default();
   if let Some(top) = stack_top(facts, owners, true) {
-    restack(&mut change, &branch.name, top, branch.built_on.as_ref());
+    let moved = fork_child(facts, branch, top)?;
+    restack(&mut change, &moved.name, top, moved.built_on.as_ref());
     return Some(change);
   }
   // the owners in the order of their oldest commits
@@ -808,8 +822,23 @@ fn restack_on_owners(facts: &Facts, graph: &Graph, branch: &BranchCheck, owners:
     restack(&mut change, child, parent, child_check.built_on.as_ref());
   }
   let last = chain.last()?;
-  restack(&mut change, &branch.name, last, branch.built_on.as_ref());
+  let moved = fork_child(facts, branch, last)?;
+  restack(&mut change, &moved.name, last, moved.built_on.as_ref());
   Some(change)
+}
+
+/// `branch`, or the ancestor of it whose parent is in the stack of `target` (none: the root of its stack): the branch
+/// a restack on `target` moves, so that `branch` keeps the parents it has above that stack; `None` when that ancestor is
+/// `target` itself or built on it
+fn fork_child<'a>(facts: &Facts<'a>, branch: &'a BranchCheck, target: &str) -> Option<&'a BranchCheck> {
+  let below_target: HashSet<&str> = facts.chain(target).into_iter().collect();
+  let moved = facts
+    .chain(&branch.name)
+    .into_iter()
+    .filter_map(|name| facts.branch(name))
+    .find(|check| check.built_on.as_deref().is_none_or(|parent| below_target.contains(parent)))
+    .unwrap_or(branch);
+  (moved.name != target && !facts.is_built_on(&moved.name, target)).then_some(moved)
 }
 
 /// The direct answer for the conflict of `branch` at `commit`: the branch restacked on what holds the commits it needs,

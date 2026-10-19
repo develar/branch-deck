@@ -71,7 +71,9 @@ rewrite.
   to the branch whose stack has what it needs; pull what it needs into the branch, at most 6 commits, from a branch
   stacked on it, from the unassigned commits, or from a branch where no commit that stays depends on them; restack the
   branch on that branch, or, when no owner is built on every other, on a chain of the owners (each restacked on the
-  one with the older commits, when it stays in its stack).
+  one with the older commits, when it stays in its stack). A branch on a parent of its own keeps it: the ancestor that
+  leaves the stack of that branch is restacked instead, and a parent the `--plan` gives is replaced, never doubled.
+  [@test] ../../crates/sync-core/src/conflict_fix_test.rs (`a_leaf_on_a_parent_of_its_own_keeps_it_and_the_parent_is_restacked_on_what_the_leaf_needs`, `a_restack_on_top_of_a_plan_keeps_the_parent_the_plan_gives`)
   [@test] ../../crates/sync-core/src/conflict_fix_test.rs (`a_commit_moves_to_the_branch_whose_stack_has_what_it_needs`, `a_single_commit_branch_is_restacked_on_the_branch_it_needs`, `an_unassigned_commit_the_branch_needs_is_pulled_in`, `a_parent_that_needs_a_commit_of_its_child_gives_its_own_commit_to_the_child`, `the_fixes_are_the_same_with_the_symbols_off`)
 - For a proven dangling reference (the branch removes a declaration that a commit of another branch stops using): pull
   that commit into the branch, or move the removing commits to the branch whose stack has it.
