@@ -7,7 +7,7 @@
 //! with `option no-deref`.
 
 use crate::paths::{COMMIT_FORMAT, changed_paths, parse_commits};
-use crate::replay::{first_conflict, replay_range_with_env};
+use crate::replay::{conflicting_files, first_conflict, replay_range_with_env};
 use crate::revs::{RepositoryDirs, fork_point, is_ancestor, merge_base, repository_dirs, resolve_commit};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges};
 use crate::update_branch::{
@@ -15,7 +15,6 @@ use crate::update_branch::{
 };
 use crate::update_resolve::pair_by_patch_id;
 use anyhow::{Result, anyhow, bail};
-use bstr::ByteSlice;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_utils::list_cut::kept;
 use tracing::{debug, info, instrument};
@@ -530,23 +529,7 @@ impl Replay<'_> {
   fn conflict(&self, onto: &str, first: usize, last: usize) -> Result<PickConflict> {
     let (index, clean_tip) = first_conflict(first, last, onto.to_string(), |prefix_last| self.segment(onto, first, prefix_last))?;
     let commit = &self.range[index].commit;
-    let merge_base = format!("--merge-base={}^", commit.id);
-    // `<tree>\0<file>\0...`, exit code 1 on conflicts
-    let output = self
-      .git_executor
-      .cmd(
-        &["merge-tree", "--write-tree", "--name-only", "-z", "--no-messages", &merge_base, &clean_tip, &commit.id],
-        self.target,
-      )
-      .accept(&[1])
-      .bytes()?;
-    let mut files: Vec<String> = output
-      .split(|&b| b == 0)
-      .skip(1)
-      .filter(|file| !file.is_empty())
-      .map(|file| file.to_str_lossy().into_owned())
-      .collect();
-    files.dedup();
+    let mut files = conflicting_files(self.git_executor, self.target, &clean_tip, &commit.id)?;
     let file_count = u32::try_from(files.len()).unwrap_or(u32::MAX);
     files.truncate(kept(files.len(), MAX_BLOCKED_PATHS));
     debug!(commit = %commit.id, file_count, "the pick conflicts");

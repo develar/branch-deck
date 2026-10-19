@@ -2098,6 +2098,8 @@ other `bd` writer waiting. A stacked
 branch lands with its ancestors in one robot ([Landing](landing.md)): the push takes the ancestors with work for the
 remote along, and the robot starts on the branch's virtual branch, which carries their commits (`lands`).
 
+0. Before the lock, the fetch of the target for the target conflict check (below, "Target conflict check"): a fetch
+   never runs under the lock. `--create-pull-request` starts no robot and fetches nothing.
 1. The Space repository from the push URL of `origin` (`RepoContext::origin_url`, the one read the push and the
    GitHub repository share), the target branch from the upstream of the baseline the sync read (`SyncReport::upstream`,
    `target_branch_of`: no process), the stack and the tips from the sync's report, as for `bd push`.
@@ -2113,6 +2115,8 @@ remote along, and the robot starts on the branch's virtual branch, which carries
    trial build of a stacked
    branch alone (`alone`, `stack_independence`) runs in the same session: its build and, for the names it uses, the
    changes of the commits; a start runs no trial.
+   The target conflict check replays the tip of the branch (or of the stack branch) onto the baseline commit that the
+   sync read after the fetch (`check_target`, one `replay` when it applies).
 3. Then the push; the lock is released before the robot starts, as a start from a pull request comment waits up to a
    minute for the answer of Patronus.
    With `--whole-stack` the robot starts from the stack branch of the root (a straight chain: from its leaf, as
@@ -2136,6 +2140,38 @@ remote along, and the robot starts on the branch's virtual branch, which carries
 Code: `crates/bd-cli/src/safe_push_command.rs`, `crates/sync-core/src/review_readiness.rs`,
 `crates/sync-core/src/patronus_review.rs`, `crates/sync-core/src/patronus_start.rs`,
 `crates/sync-core/src/stack_pull_request.rs`.
+
+#### Target conflict check
+
+A sync builds each virtual branch on the base of the checked out branch: the parent of the oldest commit ahead of the
+baseline, not the tip of the baseline. A fetch of the baseline (by Branch Deck or by any `git fetch`) moves the
+baseline, but the branches stay on the old base until Update Project moves the checked out branch. Patronus rebases
+the branch onto the newest target before any check (`REBASE_AUTOSQUASH`), and a conflict fails the robot at once:
+"Rebase … onto master is impossible". The target of a monorepo moves every minute, so the check runs at each start,
+of `bd safe-push` and of the app (`sync_core::target_conflict`, one core for both).
+
+1. The fetch of the target's remote branch only (`fetch_target`, through `fetch_baseline_core`, as Update Project
+   fetches it): `remote`, `for-each-ref`, `symbolic-ref` and `rev-parse` for the baseline and its upstream, then one
+   `fetch`. Never under the repository lock. A failed fetch is no error: the check uses the last fetched tip, and the
+   result says why the fetch failed (`fetch_error`).
+2. The replay of what the robot lands onto the target tip, as a plain `git rebase` replays it, with no resolution by
+   words, because Patronus can't resolve by words (`git_ops::trial_rebase`): one `git replay --onto=<target>
+   <tip> ^<target>`, objects only, never a ref. The app resolves both tips first (one `rev-parse`); `bd safe-push`
+   has them from the sync.
+3. Only on a conflict: the commits of the range (one `log`), the first conflicting commit by a binary search over the
+   prefixes (⌈log₂ n⌉ `replay`, `first_conflict`), its files from one `merge-tree --write-tree --name-only -z` onto
+   the longest clean prefix, the base (one `merge-base`), and the commits of the target after the base that change
+   the files (one `log --literal-pathspecs … -- <files>`, the newest 10).
+
+A conflict refuses the start: `target_conflict` (exit 4) in `bd`, the error toast "Cannot start the Safe Push" with
+Update Project in the app; nothing is pushed or started. Update Project resolves the conflict locally (a resolve
+session), and the next start replays cleanly. A replay that fails for another reason holds nothing back (`NotRun`).
+The E2E server checks without the fetch: most templates name the repository itself as `origin`. The check replays a
+`fixup!` commit as a commit of its own, but `REBASE_AUTOSQUASH` folds it into its target first. In a rare case the fold
+removes the conflict (the fixup undoes the conflicting change); then the check refuses a start that Patronus would
+take. `bd fold` (Squash Fixups in the app) before the start removes the difference.
+
+Code: `crates/sync-core/src/target_conflict.rs`, `crates/git-ops/src/trial_rebase.rs`, `src/lib/target-conflict.ts`.
 
 #### Agent robot status (`bd robot`)
 
@@ -2595,11 +2631,12 @@ the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and
 | App stack push of two branches (`push_branches`; first a push per branch) | `an_atomic_push_of_a_stack` * | 8 | 4 |
 | The text of the app's pull request of the whole stack (`read_new_stack_pull_request`) | `the_text_of_a_new_pull_request_of_the_whole_stack` ** | 1 | 1 |
 | What a merged robot landed after a change below its commit (`robot_landings`, 2026-10-18) | `the_landing_of_a_merged_robot_after_a_change_below_its_commit` | 8 | 8 |
+| The target conflict check of a Safe Push start without its fetch, clean / one conflicting commit (2026-10-19) | `a_target_conflict_check` | 2 / 6 | 2 / 6 |
 | `bd check`, with `--build` of two paths | `a_check`, `a_check_with_a_build` | 20, 26 | 20, 23 |
 | `bd push --dry-run` | `a_push` | 54 | 25 |
-| `bd safe-push --check` | `a_safe_push_check` * | 57 | 32 |
-| `bd safe-push --check` of a stacked branch, with its trial build alone | `a_safe_push_check_of_a_stacked_branch` § | 40 | 35 |
-| `bd safe-push --whole-stack --check` of a stack that forks (three branches and the stack branch) | `a_safe_push_check_of_the_whole_stack` ¶ | 39 | 39 |
+| `bd safe-push --check` (the fetch and the replay of the target conflict check since 2026-10-19: 8 more) | `a_safe_push_check` * | 57 | 40 |
+| `bd safe-push --check` of a stacked branch, with its trial build alone | `a_safe_push_check_of_a_stacked_branch` § | 40 | 43 |
+| `bd safe-push --whole-stack --check` of a stack that forks (three branches and the stack branch) | `a_safe_push_check_of_the_whole_stack` ¶ | 39 | 47 |
 | `bd fold` | `a_fold` | 36 | 30 |
 | `bd pick --from --follow` (2026-10-18; the grouping before the move, 2026-10-19) | `a_pick` | 54 | 55 |
 | `bd pick --dry-run` of a fast-forward into a branch the target has: the dependency check (2026-10-19) | `a_pick_into_a_branch_the_target_has` | 28 | 28 |

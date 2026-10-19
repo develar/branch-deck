@@ -461,11 +461,27 @@ fn a_pick_into_a_branch_the_target_has() {
   );
 }
 
+/// The processes of the target conflict check of `bd safe-push`: before the lock, the fetch of the target reads the
+/// baseline and its upstream (`remote`, `for-each-ref`, `symbolic-ref`, `rev-parse`), then fetches it (`fetch`); after
+/// the sync, one `replay` of the branch onto the target tip that the sync read
+const TARGET_CHECK: &[(&str, u32)] = &[("fetch", 1), ("for-each-ref", 2), ("remote", 2), ("replay", 1), ("rev-parse", 1), ("symbolic-ref", 1)];
+
+/// `assert_processes` of a `bd safe-push` that runs `expected` and the target conflict check (`TARGET_CHECK`)
+#[track_caller]
+fn assert_safe_push_processes(context: &RepoContext, expected: &[(&str, u32)]) {
+  let mut all: BTreeMap<&str, u32> = expected.iter().copied().collect();
+  for (subcommand, count) in TARGET_CHECK {
+    *all.entry(subcommand).or_default() += count;
+  }
+  let all: Vec<(&str, u32)> = all.into_iter().collect();
+  assert_processes(context, &all);
+}
+
 /// `bd safe-push auth --check` on Space: the sync, then what the start is decided on, nothing pushed. The target, the
 /// stack and the tips come from the sync's report, the Space and the GitHub repository from one push URL of `origin`
 /// (`remote`) and the Space settings (`cat-file`); the dangling references take the grouping from the report too and
 /// read the commits with their new mapping notes (`log`) and the branch tips (`for-each-ref`) for the trial; the review
-/// (`log`, `diff-tree`) reads its own
+/// (`log`, `diff-tree`) reads its own; and the target conflict check (`TARGET_CHECK`)
 #[test]
 fn a_safe_push_check() {
   let space = Space::new(&["(auth) Add login", "(ui) Add form"]);
@@ -484,7 +500,7 @@ fn a_safe_push_check() {
   };
   let output = safe_push(&context, &args, &environment).unwrap();
   assert!(output.push_needed && output.robot.is_none(), "{output:?}");
-  assert_processes(
+  assert_safe_push_processes(
     &context,
     &[
       ("cat-file", 2),
@@ -526,7 +542,7 @@ fn a_safe_push_check_of_a_stacked_branch() {
   let output = safe_push(&context, &args, &environment).unwrap();
   assert_eq!(output.lands, ["auth", "form"]);
   assert!(output.alone.as_ref().is_some_and(|alone| alone.result == "builds"), "{output:?}");
-  assert_processes(
+  assert_safe_push_processes(
     &context,
     &[
       ("cat-file", 3),
@@ -570,7 +586,7 @@ fn a_safe_push_check_of_the_whole_stack() {
   let output = safe_push(&context, &args, &environment).unwrap();
   assert_eq!(output.lands, ["auth", "form", "side"]);
   assert!(output.refusals.is_empty() && output.push_needed && output.alone.is_none(), "{output:?}");
-  assert_processes(
+  assert_safe_push_processes(
     &context,
     &[
       ("cat-file", 2),

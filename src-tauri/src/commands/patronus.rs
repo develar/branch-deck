@@ -16,6 +16,7 @@ use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_br
 use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
 use sync_core::robot_commits::robot_failure_report;
 use sync_core::robot_landing::robot_landings;
+use sync_core::target_conflict::{TargetCheck, TargetConflictParams, target_conflict_core};
 use sync_types::patronus::{
   BranchReviewReadiness, GetBranchReviewReadinessParams, GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability,
   PatronusCommandComment, PatronusCommandReply, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus,
@@ -203,6 +204,15 @@ pub async fn start_patronus_robot(
     )
     .await
     .map_err(CommandError::new)
+}
+
+/// Whether Patronus can rebase the branch a start pushes onto the newest target, as `bd safe-push` checks it: the fetch
+/// of the target, then the replay of the branch onto its tip; a failed fetch or replay is in the result, never an error
+#[tauri::command]
+#[specta::specta]
+pub async fn check_target_conflict(git_executor: State<'_, GitCommandExecutor>, params: TargetConflictParams) -> Result<TargetCheck, CommandError> {
+  let git = git_executor.inner().clone();
+  run_blocking(move || Ok::<_, CommandError>(target_conflict_core(&git, &params))).await
 }
 
 /// Starts the robot again on the newest commit of its branch; the new robot

@@ -93,6 +93,7 @@
 //! - `review_readiness`: the review readiness of branches, shared by the app and `bd safe-push`
 //! - `robot_commits`: the commits a robot checked, by the hashes of the checked out branch
 //! - `robot_landing`: what a merged robot landed of the branches, by content: the commits it tested, and those after
+//! - `target_conflict`: the check that Patronus can rebase what a robot lands onto the newest target
 //!
 //! The lease pool:
 //! - `lease`: the slots agent sessions lease (`bd lease`), their state and lock in `$GIT_COMMON_DIR/branch-deck/`
@@ -185,6 +186,7 @@ pub mod symbol_dependencies;
 pub mod symbol_scan;
 pub mod sync;
 pub mod sync_inputs;
+pub mod target_conflict;
 pub mod transfer_progress;
 pub mod unapply_branch;
 pub mod uncommitted_changes;

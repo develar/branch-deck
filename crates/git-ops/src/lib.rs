@@ -52,6 +52,9 @@
 //! - `word_replay`: the local commits replayed onto the upstream, each conflict resolved by words, all or nothing
 //! - `pick`: the commits of another worktree landed on the checked out branch (`bd pick`), the worktree following
 //!
+//! Safe Push:
+//! - `trial_rebase`: the rebase of a branch onto the target tip that Patronus runs, tried on objects only
+//!
 //! The lease pool:
 //! - `lease_slot`: the git of a slot of `bd lease`, the one other writer of a working tree: a slot is pool property
 
@@ -90,6 +93,7 @@ pub mod rewrite_plan;
 pub mod squash_commits;
 pub mod tree_archive;
 pub mod tree_id_cache;
+pub mod trial_rebase;
 pub mod update_branch;
 pub mod update_resolve;
 pub mod word_replay;

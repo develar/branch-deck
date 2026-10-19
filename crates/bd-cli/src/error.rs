@@ -35,6 +35,10 @@ pub enum ErrorCode {
   /// `bd safe-push --whole-stack`: the stack branch is not the build of the stack's commits: a branch of it is blocked or
   /// failed, or the ref is stale (another process moved it); `bd sync` says why. Nothing was pushed or started
   StackNotBuilt,
+  /// `bd safe-push`: Patronus can't rebase what the robot lands onto the newest target: a commit (`commits`) conflicts
+  /// in files (`paths`) that the target changed after the base of the branch. Nothing was pushed or started; `bd update`
+  /// resolves it locally, then start again
+  TargetConflict,
   /// `bd move-hunk`: the change doesn't apply to a commit between the two, which changes the same lines or lacks the
   /// file; `commits` and `paths` name it. Nothing was written: move it by hand, or not at all
   HunkConflict,
@@ -185,6 +189,7 @@ impl ErrorCode {
       | Self::LeaseRejected
       | Self::StackConflict
       | Self::StackNotBuilt
+      | Self::TargetConflict
       | Self::HunkConflict
       | Self::RangeUnknown
       | Self::SourceOnNewerBaseline

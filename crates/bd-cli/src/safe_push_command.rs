@@ -13,6 +13,11 @@
 //! then starts from it with a `/patronus` comment. An open pull request of the branch, or of a branch the push takes
 //! along, whose base is a virtual branch is retargeted to the target first (`pull_request_retarget`).
 //!
+//! Before the lock, the target's remote branch is fetched, and the check before the push replays what the robot lands
+//! onto its tip, as Patronus rebases it (`sync_core::target_conflict`): a conflict refuses the start
+//! (`target_conflict`), and `bd update` resolves it locally. A failed fetch doesn't stop the check: it replays onto the
+//! last fetched tip and says so (`target_check`).
+//!
 //! The sync, the checks before the push and the push run under the repository lock; the start, which can wait up to a
 //! minute for the answer to a pull request comment, after it.
 
@@ -54,6 +59,7 @@ use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_messa
 use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef};
 use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
+use sync_core::target_conflict::{TargetCheck, TargetConflict, TargetFetch, TargetOutcome, check_target, fetch_target};
 use sync_types::patronus::{
   MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusCommandReply, PatronusCommandSubject, PatronusMergeRequest, PatronusProfile, PatronusPushMode,
   PatronusReviewRequirement, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart, ReviewerApprovalState, UnavailableReadinessReason,
@@ -152,6 +158,9 @@ pub struct SafePushOutput {
   /// With `--check`: what refuses a start, each with the error code the start would fail with
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub refusals: Vec<Refusal>,
+  /// Whether Patronus can rebase what the robot lands onto the newest target; `null` with `--create-pull-request`
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub target_check: Option<TargetCheckSummary>,
   /// With `--check`, for a stacked branch: the trial build of the branch alone, as a root, whether it could land
   /// without the branches it is built on. A second way for the user to choose, never the lead; a start runs no trial
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -199,6 +208,23 @@ pub struct ProfileSummary {
 pub struct Refusal {
   pub code: ErrorCode,
   pub message: String,
+}
+
+/// The replay of what the robot lands onto the newest target, as Patronus rebases it before its checks: a plain rebase,
+/// with no resolution by words
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct TargetCheckSummary {
+  /// `clean`: every commit applies; `conflict`: a commit conflicts, refused as `target_conflict`; `not_run`: the check
+  /// did not run to its end (`message` says why), and it holds nothing back
+  pub result: String,
+  /// The tip of the target the commits were replayed onto; `null` with `not_run`
+  pub target_tip: Option<String>,
+  /// Whether the fetch of the target before the check succeeded; `false`: the check used the last fetched tip, and
+  /// `message` says why the fetch failed
+  pub fetched: bool,
+  /// With `conflict` and `not_run`, or after a failed fetch: what it means, to tell the user
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub message: Option<String>,
 }
 
 /// The trial build of a stacked branch alone (`stack_independence` in `crates/sync-core/src/check.rs`): the branch as a
@@ -426,6 +452,8 @@ struct Plan {
   risky_robot: Option<PatronusRobot>,
   /// The whole stack of a stack that forks: its stack branch, the only branch pushed
   stack: Option<StackPush>,
+  /// The replay onto the newest target and what it means; `None` with `--create-pull-request`
+  target_check: Option<(TargetCheck, TargetCheckSummary)>,
 }
 
 /// The stack branch a Safe Push of the whole stack pushes and starts from
@@ -458,6 +486,9 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   let github = github_service(context, environment);
   let runtime = context.runtime()?;
 
+  // the target moves every minute: its remote branch is fetched for the target conflict check, before the lock, which
+  // no fetch runs under; a pull request starts no robot and needs no check
+  let target_fetch = (!args.create_pull_request).then(|| fetch_target(&context.git, &context.repository));
   let lock = lock(context)?;
   let synced = sync_locked(context)?;
   // a check writes nothing after its sync: the trial builds and Patronus don't keep the other bd writers waiting
@@ -473,7 +504,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     Some(WholeStack::Chain { leaf, .. }) => Subject::Branch(leaf.clone()),
     Some(WholeStack::Forking(update)) => Subject::Stack(update),
   };
-  let plan = plan(context, args, &service, &github, runtime, &synced, mode, &subject)?;
+  let plan = plan(context, args, &service, &github, runtime, &synced, mode, &subject, target_fetch)?;
   let mut output = SafePushOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
@@ -488,6 +519,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     review: plan.review.as_ref().map(|review| review_summary(review, plan.github.is_some(), plan.pull_request.as_ref())),
     push_needed: plan.push_needed,
     refusals: Vec::new(),
+    target_check: plan.target_check.as_ref().map(|(_, summary)| summary.clone()),
     alone: None,
     warnings: plan.warnings.clone(),
     pushed: Vec::new(),
@@ -522,6 +554,13 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
       && let Some(conflict) = &update.conflict
     {
       error.commits = vec![context.short_ids(std::iter::once(conflict.commit.as_str())).get(&conflict.commit).to_string()];
+      error.paths.clone_from(&conflict.files);
+    }
+    if let (ErrorCode::TargetConflict, Some((check, _))) = (refusal.code, &plan.target_check)
+      && let TargetOutcome::Conflict(conflict) = &check.outcome
+    {
+      let commit = original_commit(&synced, conflict);
+      error.commits = vec![context.short_ids(std::iter::once(commit)).get(commit).to_string()];
       error.paths.clone_from(&conflict.files);
     }
     return Err(error);
@@ -833,6 +872,7 @@ fn plan(
   synced: &SyncOutput,
   mode: PatronusPushMode,
   subject: &Subject<'_>,
+  target_fetch: Option<TargetFetch>,
 ) -> Result<Plan, CliError> {
   if let Subject::Branch(name) = subject {
     let branch = synced
@@ -946,6 +986,34 @@ fn plan(
       message: dangling_reference_message(of, &dangling),
     });
   }
+  // Patronus rebases what it lands onto the newest target before any check, and fails the robot on a conflict
+  let rerun = if stack_push.is_some() {
+    format!("bd safe-push {name} --whole-stack")
+  } else {
+    format!("bd safe-push {name}")
+  };
+  let target_check = target_fetch.map(|fetch| {
+    let fetch_error = fetch.into_error();
+    let check = match local_tip.as_deref() {
+      Some(tip) => check_target(&context.git, &context.repository, &synced.baseline, &synced.report.baseline_commit, tip, fetch_error),
+      None => TargetCheck {
+        baseline: synced.baseline.clone(),
+        fetch_error,
+        outcome: TargetOutcome::NotRun {
+          error: format!("{full_name} has no tip"),
+        },
+      },
+    };
+    let summary = target_check_summary(context, synced, &what, &rerun, &check);
+    if let TargetOutcome::Conflict(_) = &check.outcome {
+      refusals.push(Refusal {
+        code: ErrorCode::TargetConflict,
+        message: summary.message.clone().unwrap_or_default(),
+      });
+    }
+    (check, summary)
+  });
+
   // the second way, for the user to choose: the branch alone, in the same trial session; a start never asks
   let alone = match (&stack_push, lands.len().checked_sub(2).and_then(|parent| lands.get(parent))) {
     (None, Some(parent)) if args.check => Some(alone_build(context, &session, name, parent)),
@@ -1061,11 +1129,6 @@ fn plan(
     // Patronus judges the approvals of the pull request the robot starts from; an older Patronus that doesn't say
     // whose count leaves the start to the robot
     if matches!(review.readiness, ReviewReadiness::Missing { .. }) && !args.without_approvals && !args.create_pull_request {
-      let rerun = if stack_push.is_some() {
-        format!("bd safe-push {name} --whole-stack")
-      } else {
-        format!("bd safe-push {name}")
-      };
       refusals.push(Refusal {
         code: ErrorCode::ApprovalsMissing,
         message: approvals_missing_message(&what, &rerun, &review, github.as_ref(), pull_request.as_ref()),
@@ -1103,7 +1166,81 @@ fn plan(
     warnings,
     risky_robot,
     stack: stack_push,
+    target_check,
   })
+}
+
+/// What the target conflict check found, in words: the conflicting commit by the id of the checked out branch, its
+/// files, the commits of the target that change them, and the way out
+fn target_check_summary(context: &RepoContext, synced: &SyncOutput, what: &str, rerun: &str, check: &TargetCheck) -> TargetCheckSummary {
+  let baseline = &check.baseline;
+  let fetch_note = check
+    .fetch_error
+    .as_ref()
+    .map(|error| format!("The fetch of {baseline} failed, so the check used the last fetched {baseline}: {error}"));
+  let (result, target_tip, message) = match &check.outcome {
+    TargetOutcome::Clean => ("clean", Some(synced.report.baseline_commit.as_str()), fetch_note),
+    TargetOutcome::Conflict(conflict) => {
+      let message = target_conflict_message(context, synced, what, rerun, conflict);
+      let message = match fetch_note {
+        Some(note) => format!("{message}. {note}"),
+        None => message,
+      };
+      ("conflict", Some(conflict.target_tip.as_str()), Some(message))
+    }
+    TargetOutcome::NotRun { error } => {
+      let message = format!("The check whether Patronus can rebase {what} onto {baseline} did not run: {error}. It holds nothing back");
+      let message = match fetch_note {
+        Some(note) => format!("{message}. {note}"),
+        None => message,
+      };
+      ("not_run", None, Some(message))
+    }
+  };
+  TargetCheckSummary {
+    result: result.to_string(),
+    target_tip: target_tip.map(|tip| context.short_ids(std::iter::once(tip)).get(tip).to_string()),
+    fetched: check.fetch_error.is_none(),
+    message,
+  }
+}
+
+/// "Nothing was pushed or started: Patronus can't rebase auth onto origin/master: …": the commit and its files, the
+/// commits of the target that change them (hash, author, subject), and the way out
+fn target_conflict_message(context: &RepoContext, synced: &SyncOutput, what: &str, rerun: &str, conflict: &TargetConflict) -> String {
+  let baseline = &synced.baseline;
+  let commit = original_commit(synced, conflict);
+  let short = context.short_ids(std::iter::once(commit).chain(conflict.target_commits.iter().map(|target| target.id.as_str())));
+  let more = usize::try_from(conflict.file_count).unwrap_or(usize::MAX).saturating_sub(conflict.files.len());
+  let files = if more > 0 {
+    format!("{} and {more} more files", conflict.files.join(", "))
+  } else {
+    join_names(&conflict.files)
+  };
+  let commits: Vec<String> = conflict
+    .target_commits
+    .iter()
+    .map(|target| format!("{} ({}: {})", short.get(&target.id), target.author, target.subject))
+    .collect();
+  let changed_by = if commits.is_empty() { String::new() } else { format!(": {}", commits.join(", ")) };
+  format!(
+    "Nothing was pushed or started: Patronus can't rebase {what} onto {baseline}: {} ({}) conflicts in {files}, which {baseline} changed after the base of {what}{changed_by}. `bd update` (the app's Update Project) brings the checked out branch onto {baseline} and resolves the conflict locally; then run `{rerun}` again",
+    short.get(commit),
+    conflict.commit.subject
+  )
+}
+
+/// The commit of the checked out branch that the conflicting copy of the virtual branch copies, by its author time and
+/// its subject without the prefix; the copy itself when none matches
+fn original_commit<'a>(synced: &'a SyncOutput, conflict: &'a TargetConflict) -> &'a str {
+  let copy = &conflict.commit;
+  synced
+    .report
+    .branches
+    .iter()
+    .flat_map(|branch| &branch.commits)
+    .find(|commit| commit.author_timestamp == copy.author_time && commit.stripped_subject == copy.subject)
+    .map_or(copy.id.as_str(), |commit| commit.id.as_str())
 }
 
 /// Pushes the stack branch alone, leased on the remote head its remote status compared with, as `bd push` pushes a

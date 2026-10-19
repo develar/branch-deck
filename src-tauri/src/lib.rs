@@ -37,7 +37,7 @@ use commands::file_diffs::{get_blob_syntax, get_blob_texts, get_file_diffs, get_
 use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_status, sign_out_of_github, start_github_sign_in, wait_github_sign_in};
 use commands::move_commits::move_commits_to_branch;
 use commands::patronus::{
-  PatronusState, cancel_patronus_robot, get_branch_review_readiness, get_patronus_failing_robots, get_patronus_robot_details, get_patronus_robot_problems,
+  PatronusState, cancel_patronus_robot, check_target_conflict, get_branch_review_readiness, get_patronus_failing_robots, get_patronus_robot_details, get_patronus_robot_problems,
   get_patronus_robot_status, get_patronus_robots, get_patronus_start_options, get_patronus_target_branch, get_robot_failure, get_robot_landings, poll_patronus_robots,
   post_patronus_command, read_patronus_command_reply, restart_patronus_robot, start_patronus_robot,
 };
@@ -113,6 +113,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
     get_patronus_robot_details,
     get_patronus_start_options,
     start_patronus_robot,
+    check_target_conflict,
     restart_patronus_robot,
     cancel_patronus_robot,
     get_patronus_robot_status,

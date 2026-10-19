@@ -487,6 +487,20 @@ pub async fn fetch_baseline(
   .await
 }
 
+/// The target conflict check of a Safe Push start, on the same core but without its fetch: most templates name the
+/// repository itself as `origin` (`.`), and a fetch would put the baseline on the checked out branch
+pub async fn check_target_conflict(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::target_conflict::TargetConflictParams>,
+) -> CommandResult<sync_core::target_conflict::TargetCheck> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("check the target", move || {
+    anyhow::Ok(sync_core::target_conflict::check_branch_target(&git_executor, &params, None))
+  })
+  .await
+}
+
 /// The app's stack push, on the same core. Most templates name the repository itself as `origin` (`.`), so a test of a
 /// push answers it in the page (`routePushBranches`); the progress stays there too
 pub async fn push_branches(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::push::PushBranchesParams>) -> CommandResult<sync_core::push::PushBranchesOutcome> {

@@ -45,6 +45,9 @@ targets:
   - ../../src/hooks/useSafePush.ts
   - ../../src/lib/safe-push-decision.ts
   - ../../src/lib/safe-push-start.ts
+  - ../../src/lib/target-conflict.ts
+  - ../../crates/sync-core/src/target_conflict.rs
+  - ../../crates/git-ops/src/trial_rebase.rs
   - ../../src/stores/safe-push.ts
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../src/hooks/useDismissesStaleReviews.ts
@@ -493,8 +496,9 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   it; while it runs the slot button shows it ("Pushing 45%", "Pushing 2 branches 45%" for the one push of a stack), the
   one indicator of it: the push button of the row is disabled without its spinner and percent; then "Starting…". A
   branch whose remote branch has the same commits, only rebuilt since on a newer baseline (every sync onto a newer
-  baseline does it), is not pushed: Patronus rebases the remote branch itself; a push would replace it with copies of
-  the same commits and move the head of its pull request for nothing. While the remote status of the branch is not
+  baseline does it), is not pushed: Patronus rebases the remote branch itself, and the target conflict check below
+  proves that the rebase applies; a push would replace it with copies of the same commits and move the head of its
+  pull request for nothing. While the remote status of the branch is not
   loaded, the start waits: "Checking auth…". A dry run pushes the branch too: only the push into the target is left out.
   [@test] ../../src/lib/patronus.test.ts (`pushes before a start only what the remote lacks by content, and waits for the remote status`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a branch whose remote branch has its commits under other hashes without a push`, `should wait to start until the remote status of the branch is loaded`)
@@ -514,6 +518,22 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should refuse the click with the push alone in its toast`, `should say in the popover why it can't start, and push alone from it`)
   [@test] ../../crates/sync-core/src/branch_rules_test.rs (`a_pull_request_rule_that_dismisses_stale_reviews_on_push_is_found_among_the_rules_of_the_branch`, `a_branch_without_such_a_rule_keeps_the_approvals`, `a_failed_answer_is_an_error_not_a_guess`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should warn before a push that dismisses the approvals of the pull request`)
+- Patronus rebases what a robot lands onto the newest target before any check, and a conflict fails the robot at once
+  ("Rebase … onto master is impossible"). A branch is built on the base of the checked out branch, not on the newest
+  target, and the target moves every minute. So the start checks the rebase first, before the push
+  (`checkTargetBeforeStart`, the core of `bd safe-push`, `check_target_conflict`). It fetches only the target's remote
+  branch, as Update Project does, then replays what lands onto its tip as a plain `git rebase` does, with no resolution
+  by words, because Patronus can't resolve by words. Meanwhile the slot button says "Checking…". A conflict starts
+  nothing and pushes nothing: the error toast "Cannot start the Safe Push" says "Patronus can't rebase auth onto
+  origin/master: 1a2b3c4d (Add auth) conflicts in a.txt, which origin/master changed after the base of auth: 9e8d7c6b
+  (Alice: Change a). Update Project resolves it locally; then start again.", with "Update Project" as its action. The
+  commit is the one of the row, the target commits are the newest 10 that change the files. A failed fetch doesn't
+  stop the check: it replays onto the last fetched tip, and the start's toast says so after its description ("The
+  fetch of origin/master failed, so the check used the last fetched origin/master: …"). A check that can't run holds
+  nothing back, and the toast says "Not checked whether Patronus can rebase auth onto origin/master: …".
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should refuse a Safe Push that conflicts with the newest target, nothing pushed or started, with Update Project`)
+  [@test] ../../src/lib/target-conflict.test.ts (`refuses a conflict with the commit as the row shows it, its files, the target commits that change them, and Update Project`, `starts a clean one without a word, and says when the check used the last fetched target or did not run`, `names the files beyond the first ones by their count, and the target without commits that change them`)
+  [@test] ../../crates/sync-core/src/target_conflict_test.rs (`a_target_that_moved_with_a_conflicting_change_after_the_last_sync_conflicts`, `a_target_that_moved_without_a_conflict_is_clean`, `a_failed_fetch_checks_the_last_fetched_target_and_says_so`)
 - The push is a step of the start (`startSafePush`): it has no toast of its own (Activity records it), the start's
   toast is the one toast of the action. A failed push starts nothing. The push is `pushForAction`, the push of every action
   that needs the remote (the pull request dialog, Request Review): it never drops someone's remote commits for the

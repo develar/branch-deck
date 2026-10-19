@@ -2,6 +2,7 @@
 
 use crate::copy_commit::CopyCommitError;
 use anyhow::anyhow;
+use bstr::ByteSlice;
 use git_executor::git_command_executor::GitCommandExecutor;
 use tracing::instrument;
 
@@ -55,6 +56,25 @@ pub(crate) fn first_conflict(mut low: usize, mut high: usize, mut tip: String, m
     }
   }
   Ok((low, tip))
+}
+
+/// The files whose merge conflicts when `commit` is cherry-picked onto `onto`, each once, in the order of
+/// `merge-tree --name-only` (one process)
+pub(crate) fn conflicting_files(git_executor: &GitCommandExecutor, repo_path: &str, onto: &str, commit: &str) -> anyhow::Result<Vec<String>> {
+  let merge_base = format!("--merge-base={commit}^");
+  // `<tree>\0<file>\0...`, exit code 1 on conflicts
+  let output = git_executor
+    .cmd(&["merge-tree", "--write-tree", "--name-only", "-z", "--no-messages", &merge_base, onto, commit], repo_path)
+    .accept(&[1])
+    .bytes()?;
+  let mut files: Vec<String> = output
+    .split(|&b| b == 0)
+    .skip(1)
+    .filter(|file| !file.is_empty())
+    .map(|file| file.to_str_lossy().into_owned())
+    .collect();
+  files.dedup();
+  Ok(files)
 }
 
 /// Replay the commits of `from..to` onto `onto`, see `replay_range`

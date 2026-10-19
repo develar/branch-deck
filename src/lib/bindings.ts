@@ -137,6 +137,11 @@ export const commands = {
 	 *  stack; the frontend pushes it first. The new robot.
 	 */
 	startPatronusRobot: (params: StartPatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("start_patronus_robot", { params })),
+	/**
+	 *  Whether Patronus can rebase the branch a start pushes onto the newest target, as `bd safe-push` checks it: the fetch
+	 *  of the target, then the replay of the branch onto its tip; a failed fetch or replay is in the result, never an error
+	 */
+	checkTargetConflict: (params: TargetConflictParams) => typedError<TargetCheck, CommandError>(__TAURI_INVOKE("check_target_conflict", { params })),
 	/**  Starts the robot again on the newest commit of its branch; the new robot */
 	restartPatronusRobot: (params: PatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("restart_patronus_robot", { params })),
 	/**  Asks Patronus to cancel the robot; it answers it canceling */
@@ -3085,6 +3090,61 @@ export type SyncInputsParams = {
 	repositoryPath: string,
 	branchPrefix: string,
 };
+
+/**  What the check found */
+export type TargetCheck = {
+	/**  The baseline the commits were replayed onto, e.g. `origin/master` */
+	baseline: string,
+	/**  Why the fetch of the target failed; the check then used the last fetched tip. `None` after a fetch */
+	fetchError: string | null,
+	outcome: TargetOutcome,
+};
+
+export type TargetCommit = {
+	id: string,
+	author: string,
+	/**  Unix seconds */
+	authorTime: number,
+	subject: string,
+};
+
+/**  The first commit whose replay onto the target conflicts */
+export type TargetConflict = {
+	/**  The tip of the target the commits were replayed onto */
+	targetTip: string,
+	/**  The commit of the branch the robot starts from: a copy of the virtual branch, its subject without the prefix */
+	commit: TargetCommit,
+	/**  The conflicting files, at most 50 (all of them when only one more) */
+	files: string[],
+	/**  How many files conflict */
+	fileCount: number,
+	/**  The commits of the target after the base of the branch that change `files`, the newest 10, oldest first */
+	targetCommits: TargetCommit[],
+};
+
+export type TargetConflictParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	/**  As the sync detected it, e.g. `origin/master`: the robot pushes into the branch it tracks */
+	baselineBranch: string,
+	/**
+	 *  The virtual branch the robot starts from, without the `{prefix}/virtual/` namespace; with `stack`, the root of the
+	 *  stack
+	 */
+	branchName: string,
+	/**  The whole stack of the root `branch_name`: the robot starts from its stack branch `{prefix}/stack/<root>` */
+	stack?: boolean,
+};
+
+export type TargetOutcome = 
+/**  Every commit applies onto the target tip */
+({ kind: "clean" }) & { error?: never } | 
+/**  A commit conflicts: Patronus fails the robot before any check */
+{
+	kind: "conflict",
+} & TargetConflict | 
+/**  The check did not run to its end: nothing is known */
+{ kind: "notRun"; error: string };
 
 /**  The diff of two texts */
 export type TextDiff = {

@@ -15,6 +15,7 @@ use crate::squash::{SquashCommitsParams, squash_commits_core};
 use crate::stack_branch::forget_builds;
 use crate::stack_pull_request::{GetNewStackPullRequestParams, StackMemberSubjects, read_new_stack_pull_request};
 use crate::sync::{SyncOptions, sync_branches};
+use crate::target_conflict::{TargetConflictParams, TargetOutcome, check_branch_target};
 use crate::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
 use crate::update_project::{UpdateProjectParams, check_baseline_update, update_project_core};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -908,4 +909,39 @@ async fn the_landing_of_a_merged_robot_after_a_change_below_its_commit() {
   let after: Vec<usize> = landings[0].branches.iter().map(|branch| branch.after.len()).collect();
   assert_eq!(after, [1, 0]);
   assert_processes(&git, &[("cat-file", 2), ("config", 1), ("diff-tree", 1), ("log", 1), ("patch-id", 1), ("rev-list", 2)]);
+}
+
+/// The target conflict check of a Safe Push start without its fetch: the tips of the baseline and the branch
+/// (`rev-parse`) and one `replay` when the branch applies. On a conflict, the commits of the range (`log`), the binary
+/// search over them (no more `replay` for one commit), the files of its merge (`merge-tree`), the base of the branch
+/// (`merge-base`) and the commits of the target that change the files (`log`)
+#[tokio::test]
+async fn a_target_conflict_check() {
+  let repo = repo_on_origin();
+  let initial = repo.head();
+  repo.create_commit("(alpha) Alpha", "README.md", "# Alpha\n");
+  sync(&GitCommandExecutor::new(), &repo).await;
+  let params = TargetConflictParams {
+    repository_path: path(&repo),
+    branch_prefix: PREFIX.to_string(),
+    baseline_branch: "origin/master".to_string(),
+    branch_name: "alpha".to_string(),
+    stack: false,
+  };
+  let move_target = |file: &str| {
+    repo.git(&["checkout", "--quiet", "--detach", &initial]);
+    let target = repo.create_commit("Target change", file, "# Target\n");
+    repo.git(&["update-ref", "refs/remotes/origin/master", &target]);
+    repo.git(&["checkout", "--quiet", "master"]);
+  };
+
+  move_target("other.md");
+  let git = counting();
+  assert_eq!(check_branch_target(&git, &params, None).outcome, TargetOutcome::Clean);
+  assert_processes(&git, &[("replay", 1), ("rev-parse", 1)]);
+
+  move_target("README.md");
+  let git = counting();
+  assert!(matches!(check_branch_target(&git, &params, None).outcome, TargetOutcome::Conflict(_)));
+  assert_processes(&git, &[("log", 2), ("merge-base", 1), ("merge-tree", 1), ("replay", 1), ("rev-parse", 1)]);
 }

@@ -71,7 +71,7 @@ export function SafePushButton({ branch, variant = "ghost", shortcut, icon = tru
       ? (item?.label ?? "Safe Push")
       : starting.step === "pushing"
         ? transferLabel(wholeStack === undefined ? formatStackPushing(branch.name, stackPush) : "Pushing", pushProgress)
-        : starting.step === "checking"
+        : starting.step === "checking" || starting.step === "target"
           ? "Checking…"
           : "Starting…"
   return (

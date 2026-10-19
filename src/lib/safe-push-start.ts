@@ -6,11 +6,13 @@ import { pushWholeStack } from "@/lib/git/stack-push"
 import type { PullRequestStart } from "@/lib/patronus"
 import { canCancelRobot, describeRobot, formatPushMode, openRobot } from "@/lib/patronus"
 import { runRobotAction } from "@/lib/patronus-actions"
+import { checkTargetBeforeStart } from "@/lib/target-conflict"
 import { ACTION_TOAST_TIMEOUT_MS } from "@/lib/toast-message"
 import { recordRobot } from "@/stores/activity"
 import { startPatronusFromPullRequest, startPatronusRobot } from "@/stores/patronus"
 import type { SafePushMode } from "@/stores/safe-push"
 import { getSafePushStarting, setSafePushStarting } from "@/stores/safe-push"
+import { runUpdateProject } from "@/stores/update-project"
 
 /** What a start runs, as `getSafePushDecision` let it */
 export interface SafePushStart {
@@ -34,12 +36,14 @@ export interface SafePushStart {
 }
 
 /**
- * Starts a Safe Push or a Dry Run: the push of what the remote lacks first (`pushForAction`: the stack root first, a
+ * Starts a Safe Push or a Dry Run: first the target conflict check (`checkTargetBeforeStart`: the fetch of the target and
+ * the replay of what lands onto its tip, as Patronus rebases it), whose conflict starts nothing and says "Cannot start the
+ * Safe Push" with Update Project; then the push of what the remote lacks (`pushForAction`: the stack root first, a
  * running Safe Push of an older commit canceled for it; of the whole stack its stack branch alone), then the robot, from the pull request (a `/patronus` comment)
  * or through the API with the profile. Its steps show in the button of the slot (`SafePushStarting`); the one toast of
- * the action is the start's ("Safe Push started", with Open in Patronus and Cancel Safe Push), the push has none
- * (Activity records it). A failure is "Cannot start the Safe Push" with the reason; a failed push starts nothing.
- * Resolves to whether the robot started.
+ * the action is the start's ("Safe Push started", with Open in Patronus and Cancel Safe Push, and a sentence when the
+ * check did not run or used the last fetched target), the push has none (Activity records it). A failure is "Cannot
+ * start the Safe Push" with the reason; a failed push starts nothing. Resolves to whether the robot started.
  */
 export async function startSafePush(start: SafePushStart): Promise<boolean> {
   const { branchName, mode } = start
@@ -51,6 +55,12 @@ export async function startSafePush(start: SafePushStart): Promise<boolean> {
   const errorTitle = `Cannot start the ${modeName}`
   const root = start.wholeStack
   try {
+    setSafePushStarting(branchName, { mode, step: "target" })
+    const target = await checkTargetBeforeStart(branchName, root)
+    if (target.kind === "refuse") {
+      notifyError(errorTitle, target.reason, { children: "Update Project", onClick: () => void runUpdateProject() })
+      return false
+    }
     if (start.needsPush) {
       setSafePushStarting(branchName, { mode, step: "pushing" })
       if (!(await pushFirst(start, errorTitle))) {
@@ -64,7 +74,7 @@ export async function startSafePush(start: SafePushStart): Promise<boolean> {
       start.fromPullRequest === null
         ? await startPatronusRobot(root ?? branchName, mode, start.profile?.id ?? null, start.mergeRequest, start.profile?.name ?? null, root !== null)
         : await startPatronusFromPullRequest(start.fromPullRequest.number, mode)
-    announceStart(`${modeName} started`, robot, start.fromPullRequest === null ? (start.profile?.name ?? null) : null)
+    announceStart(`${modeName} started`, robot, start.fromPullRequest === null ? (start.profile?.name ?? null) : null, target.note)
     return true
   } catch (error) {
     notifyError(errorTitle, error)
@@ -93,10 +103,11 @@ function pushFirst(start: SafePushStart, errorTitle: string): Promise<boolean> {
 
 /**
  * The toast of a started robot, as `announceRobot` says it, with "Cancel Safe Push" below the text: a start asked by
- * mistake costs only the robot (the push and the comment stay); Activity records it
+ * mistake costs only the robot (the push and the comment stay); Activity records it. `note` follows the description:
+ * the target conflict check did not run, or used the last fetched target
  */
-function announceStart(title: string, robot: PatronusRobot, profileName: string | null): void {
-  const description = describeRobot(robot, profileName)
+function announceStart(title: string, robot: PatronusRobot, profileName: string | null, note: string | null): void {
+  const description = note === null ? describeRobot(robot, profileName) : `${describeRobot(robot, profileName)}. ${note}`
   recordRobot(title, description, robot)
   const mode = formatPushMode(robot.pushMode)
   const id = toast.add({

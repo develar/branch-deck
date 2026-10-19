@@ -28,8 +28,11 @@ export interface SafePushAsk {
  */
 export interface SafePushStarting {
   readonly mode: SafePushMode
-  /** `checking`: the facts the decision needs (the review, the profiles, the rules); then the push and the start */
-  readonly step: "checking" | "pushing" | "starting"
+  /**
+   * `checking`: the facts the decision needs (the review, the profiles, the rules); `target`: the target conflict check
+   * of the start, "Checking…" too (the fetch of the target and the replay onto its tip); then the push and the start
+   */
+  readonly step: "checking" | "target" | "pushing" | "starting"
 }
 
 export interface SafePushState {

@@ -93,6 +93,27 @@ impl Space {
   fn last_start(&self) -> Value {
     self.fake.last_start.lock().unwrap().clone()
   }
+
+  /// Puts the baseline on the remote's `master`, the target the robots push into
+  fn publish_target(&self) {
+    git(&self.repo, &["push", "--quiet", "origin", "refs/remotes/origin/master:refs/heads/master"]);
+  }
+
+  /// A commit of another developer on the remote's `master`, which the repository hasn't fetched
+  fn land_on_target(&self, file: &str, content: &str, subject: &str) -> String {
+    let clone = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| {
+      let output = git_command().args(args).current_dir(clone.path()).output().unwrap();
+      assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+      String::from_utf8(output.stdout).unwrap().trim().to_string()
+    };
+    run(&["clone", "--quiet", self.remote.path().to_str().unwrap(), "."]);
+    std::fs::write(clone.path().join(file), content).unwrap();
+    run(&["add", "-A"]);
+    run(&["-c", "user.name=Alice", "-c", "user.email=alice@example.com", "commit", "--quiet", "-m", subject]);
+    run(&["push", "--quiet", "origin", "HEAD:master"]);
+    run(&["rev-parse", "HEAD"])
+  }
 }
 
 /// `bd safe-push` with `args`
@@ -1111,4 +1132,74 @@ fn a_check_frees_the_repository_lock_after_its_sync_and_a_start_holds_it() {
 
   // the check writes nothing after its sync; the start pushes after the options, under the lock it synced with
   assert_eq!(*taken.lock().unwrap(), [true, false]);
+}
+
+/// The target moved after the last sync with a change of the lines a commit of the branch changes: Patronus could not
+/// rebase it and would fail the robot at once. The check fetches the target, replays the branch onto it and refuses the
+/// start (`target_conflict`, exit 4), nothing pushed or started; `--check` lists it in `refusals`
+#[test_log::test]
+fn a_target_that_moved_with_a_conflicting_change_after_the_last_sync_refuses_the_start() {
+  let space = Space::new(&["(auth) Add auth"]);
+  space.publish_target();
+  let (exit_code, output) = space.run(&["auth", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["target_check"]["result"], json!("clean"), "{output}");
+  let original = git(&space.repo, &["rev-parse", "HEAD"])[..8].to_string();
+  let target = space.land_on_target("f0.txt", "theirs", "Change f0")[..8].to_string();
+
+  let (exit_code, output) = space.run(&["auth", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (
+      output["refusals"][0]["code"].clone(),
+      output["target_check"]["result"].clone(),
+      output["target_check"]["fetched"].clone()
+    ),
+    (json!("target_conflict"), json!("conflict"), json!(true)),
+    "{output}"
+  );
+  assert_eq!(output["target_check"]["target_tip"], json!(target));
+  let (exit_code, output) = space.run(&["auth"]);
+  assert_error(&output, exit_code, (4, "target_conflict"));
+  assert_eq!(
+    (output["error"]["commits"].clone(), output["error"]["paths"].clone()),
+    (json!([original]), json!(["f0.txt"]))
+  );
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(
+    message.starts_with(&format!(
+      "Nothing was pushed or started: Patronus can't rebase auth onto origin/master: {original} (Add auth) conflicts in f0.txt, which origin/master changed after the base of auth: {target} (Alice: Change f0)"
+    )),
+    "{message}"
+  );
+  assert!(message.contains("`bd update`") && message.contains("`bd safe-push auth` again"), "{message}");
+  assert_eq!((space.fake.start_calls.load(Ordering::SeqCst), space.remote_tip(AUTH)), (0, String::new()));
+}
+
+/// The target moved after the last sync with a change of other files: the replay applies, and the start goes on. A
+/// fetch that fails doesn't stop the check: it replays onto the last fetched target and says so
+#[test_log::test]
+fn a_target_that_moved_without_a_conflict_starts() {
+  let space = Space::new(&["(auth) Add auth"]);
+  // no target on the remote: the fetch fails, the check uses the last fetched target
+  let (exit_code, output) = space.run(&["auth", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (output["target_check"]["result"].clone(), output["target_check"]["fetched"].clone()),
+    (json!("clean"), json!(false)),
+    "{output}"
+  );
+  let message = output["target_check"]["message"].as_str().unwrap();
+  assert!(
+    message.starts_with("The fetch of origin/master failed, so the check used the last fetched origin/master: "),
+    "{message}"
+  );
+
+  space.publish_target();
+  let target = space.land_on_target("other.txt", "theirs", "Add other")[..8].to_string();
+  let (exit_code, output) = space.run(&["auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["target_check"], json!({"result": "clean", "target_tip": target, "fetched": true}), "{output}");
+  assert_eq!(output["robot"]["id"], json!("started"));
+  assert_eq!(space.remote_tip(AUTH), space.local_tip(AUTH));
 }

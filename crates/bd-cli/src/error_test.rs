@@ -14,6 +14,7 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::NotAheadOfBaseline, 2, false),
   (ErrorCode::StackConflict, 4, false),
   (ErrorCode::StackNotBuilt, 4, false),
+  (ErrorCode::TargetConflict, 4, false),
   (ErrorCode::HunkConflict, 4, false),
   (ErrorCode::BlockNotFound, 2, false),
   (ErrorCode::HeadMoved, 3, true),

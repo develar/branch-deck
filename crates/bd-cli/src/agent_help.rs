@@ -157,6 +157,8 @@ Workflow: the commits into pull requests
      `paths`, `waiting_for` (asked, not approved yet), `not_counted` (a bot's approval counts for nothing),
      `merge_request`; Patronus judges the approvals of the GitHub pull request;
    - `push_needed` and the `refusals` a start would meet;
+   - `target_check`: bd fetches the target and replays what lands onto its tip, as Patronus rebases it before its
+     checks: `result` `clean`, `conflict` or `not_run`; `fetched: false` means the check used the last fetched tip;
    - `lands`, what the one robot lands into the target, root first: a stacked branch lands the branches it is built
      on with it, and the branches built on it stay. `alone` (a stacked branch): `builds` (it could land alone once
      unstacked, unless `uses` names a name of its stack) or `needs` (the commits of its parents it needs, `movable`
@@ -180,6 +182,9 @@ Workflow: the commits into pull requests
      whole stack, or lands a branch it is built on; --cancel-running cancels a Safe Push of an older commit.
    - `dangling_reference` (exit 4, also in `refusals`): what the check of step 2 reports for the branch or a branch it
      lands: fix it there, or, when the user says it is a false alarm, --allow-dangling.
+   - `target_conflict` (exit 4, `error.commits`, `error.paths`, also in `refusals`): Patronus can't rebase what lands
+     onto the newest target; the message names the commits of the target that change the files. `bd update` resolves
+     it locally (after the user approves), then run the Safe Push again.
    - `stack_conflict` (exit 4, `error.commits`, `error.paths`): the stack branch conflicts though each branch builds;
      `stack_not_built` (exit 4): a branch of it is blocked or failed, or the stack branch is stale. Land the stack in
      pieces.

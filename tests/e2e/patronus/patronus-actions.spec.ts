@@ -1,6 +1,14 @@
 // @spec spec/branch/patronus.spec.md
 import type { Locator, Page } from "@playwright/test"
-import type { PatronusMergeRequest, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, PullRequest } from "../../../src/lib/bindings"
+import type {
+  PatronusMergeRequest,
+  PatronusReviewRequirement,
+  PatronusRobot,
+  PatronusRobotDetails,
+  PatronusStartOptions,
+  PullRequest,
+  TargetCheck,
+} from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
 import { APPROVED_BY_CODE_OWNER, availableRobots, robot, routeReviewRequirement, setupRobots } from "../helpers/patronus-helpers"
@@ -22,7 +30,7 @@ import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { rewriteNextRemoteStatus, syncFromMenu } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { routeCommand } from "../helpers/wait-helpers"
+import { holdWithProgress, routeCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 const RUNNING = robot("JIRA-456", "running-robot")
@@ -199,6 +207,42 @@ test.describe("Patronus actions", () => {
     await expect.poll(() => cancels).toEqual([expect.objectContaining({ robotId: "started-robot" })])
     await expect(started).toHaveCount(0)
     await expect(chip(page, "JIRA-456")).toHaveText("Canceling")
+  })
+
+  test("should refuse a Safe Push that conflicts with the newest target, nothing pushed or started, with Update Project", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRobots(page, setupRepo, syncAndWaitForBranches)
+    const pushes = await routePush(page, {})
+    await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+    const starts = await routeCommand(page, "start_patronus_robot", () => STARTED)
+    // the target moved after the last sync with a change of the lines a commit of the branch changes
+    const conflict: TargetCheck = {
+      baseline: "origin/master",
+      fetchError: null,
+      outcome: {
+        kind: "conflict",
+        targetTip: "faebba53ecd77000",
+        commit: { id: "e90c2bf606405000", author: "Test User", authorTime: 1, subject: "Change the palette popup" },
+        files: ["src/PalettePopup.kt"],
+        fileCount: 1,
+        targetCommits: [{ id: "6fddca13ab01cd02", author: "Alice", authorTime: 2, subject: "IJAI-4233 Change the popup" }],
+      },
+    }
+    const checks = await routeCommand(page, "check_target_conflict", () => conflict)
+    const update = await holdWithProgress(page, "update_project")
+
+    await safePushFromMenu(page, "JIRA-456")
+    // the error of a failed start, with the way out: Patronus would fail the robot before any check
+    const refused = toastWith(page, "Cannot start the Safe Push")
+    await expect(refused.locator("[data-slot=toast-description]")).toHaveText(
+      "Patronus can't rebase JIRA-456 onto origin/master: e90c2bf6 (Change the palette popup) conflicts in src/PalettePopup.kt, which origin/master changed after the base of JIRA-456: 6fddca13 (Alice: IJAI-4233 Change the popup). Update Project resolves it locally; then start again.",
+    )
+    expect(checks).toEqual([expect.objectContaining({ branchName: "JIRA-456", baselineBranch: "origin/master" })])
+    expect({ pushes, starts }).toEqual({ pushes: [], starts: [] })
+    await expect(slotSafePush(page, "JIRA-456")).toHaveText("Safe Push")
+
+    await refused.getByRole("button", { name: "Update Project" }).click()
+    await expect(page.getByTestId("update-project-button")).toHaveAttribute("aria-busy", "true")
+    update.release()
   })
 
   test("should start a Safe Push with the profile chosen in the popover of S and of Safe Push With Profile…", async ({ page, setupRepo, syncAndWaitForBranches }) => {

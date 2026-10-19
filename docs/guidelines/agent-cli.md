@@ -90,6 +90,7 @@ A refused resolution of `bd update --continue` has `paths` too, the conflicting 
 `push_refused` have `branches`, the branches with their remote status.
 
 `approvals_missing` of `bd safe-push` has `review`, the code-owner review the Safe Push lacks (see `bd safe-push`).
+`target_conflict` has `commits` and `paths`: the commit that Patronus can't rebase onto the newest target and its files.
 
 | Exit | Meaning | Codes |
 |---|---|---|
@@ -97,7 +98,7 @@ A refused resolution of `bd update --continue` has `paths` too, the conflicting 
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
 | 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `round_moved`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `landed`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `landed`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
@@ -1215,8 +1216,25 @@ lands them all. The branches built on it stay; after the merge the next sync bui
   ```
 
 - `--check` syncs and prints the same object without pushing or starting anything: what it `lands`, the profiles, the
-  review, `push_needed`, and `refusals`, each `{code, message}` a start would fail with. The agent shows it to the user
-  and starts only after the user approves.
+  review, `push_needed`, `target_check`, and `refusals`, each `{code, message}` a start would fail with. The agent shows
+  it to the user and starts only after the user approves.
+- The target conflict check (`target_check`, the core of the app's start too, `sync_core::target_conflict`): Patronus
+  rebases what it lands onto the newest target before any check, and a conflict fails the robot at once. A branch is
+  built on the base of the checked out branch, not on the newest target, and the target of a monorepo moves every
+  minute. So before the lock bd fetches only the target's remote branch (as `bd update` does), then replays what lands
+  onto its tip as a plain `git rebase` does, with no resolution by words. `result` is `clean`, `conflict` or `not_run`
+  (the check did not run to its end; it holds nothing back), with the `target_tip`. A failed fetch doesn't stop the
+  check: `fetched` is false, the check used the last fetched tip, and `message` says why. A conflict refuses the start
+  with `target_conflict` (exit 4), nothing pushed or started: `error.commits` names the commit by the id of the checked
+  out branch, `error.paths` the files, and the message names the commits of the target after the base of the branch
+  that change them (hash, author, subject). The fix is `bd update`, which resolves it locally (a resolve session); then
+  the agent starts again. `--create-pull-request` starts no robot and checks nothing.
+
+  ```json
+  "target_check":{"result":"conflict","target_tip":"faebba53","fetched":true,
+    "message":"Nothing was pushed or started: Patronus can't rebase composer-kind onto origin/master: e90c2bf6 (Add the composer kind) conflicts in AgentPromptPalettePopup.kt, which origin/master changed after the base of composer-kind: 6fddca13 (Alice: IJAI-4233 Change the palette popup). `bd update` (the app's Update Project) brings the checked out branch onto origin/master and resolves the conflict locally; then run `bd safe-push composer-kind` again"}
+  ```
+
 - `lands` is what the robot takes, root first, ending with the branch: the branches it is built on, then the branch
   (only the branch for a root). A Safe Push lands them all into the target; a dry run checks the same commits; with
   `--create-pull-request` its pull request holds them. There is no refusal and no flag for it: the obsolete

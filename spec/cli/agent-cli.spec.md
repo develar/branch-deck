@@ -897,6 +897,21 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   start anyway, and the possible ones are `warnings`.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_dangling_reference_refuses_the_safe_push_unless_allowed`)
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_dangling_reference_message_names_the_kind`, `a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
+- Patronus rebases what a robot lands onto the newest target before any check, and a conflict fails the robot at once.
+  So before the lock, `bd safe-push` must fetch only the target's remote branch (as Update Project does). Then it must
+  replay what the robot lands onto the tip that the sync read, as a plain `git rebase` replays it, with no resolution
+  by words (`sync_core::target_conflict`, the check of the app's start too). A conflict must refuse the start with
+  `target_conflict` (exit 4), nothing pushed or started. The error names the commit by the id of the checked out branch
+  (`error.commits`), the files (`error.paths`), and the commits of the target after the base of the branch that change
+  these files (hash, author, subject). The message tells the fix: `bd update` resolves it locally, then start again.
+  `--check` must list it in `refusals`, and `target_check` must say `result` (`clean`, `conflict`, `not_run`) and the
+  `target_tip`. A failed fetch must not stop the check: it replays onto the last fetched tip, `fetched` is false, and
+  `message` says why. A check that can't run holds nothing back. `--create-pull-request` starts no robot and checks
+  nothing.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_target_that_moved_with_a_conflicting_change_after_the_last_sync_refuses_the_start`, `a_target_that_moved_without_a_conflict_starts`)
+  [@test] ../../crates/sync-core/src/target_conflict_test.rs (`a_target_that_moved_with_a_conflicting_change_after_the_last_sync_conflicts`, `a_target_that_moved_without_a_conflict_is_clean`, `a_failed_fetch_checks_the_last_fetched_target_and_says_so`, `a_branch_that_does_not_resolve_is_not_checked`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`)
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_target_conflict_check`)
 - A Safe Push of a stacked branch must land it with every branch it is built on, in one robot, as the app's start does
   ([Landing](../../docs/design/landing.md)): no refusal and no flag, the parents with commits for the remote pushed
   first, the robot started on the branch's own virtual branch, which carries their commits. `lands` must name what the
