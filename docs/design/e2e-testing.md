@@ -185,7 +185,7 @@ State isolation:
 - **Port**: `E2E_PORT` (default 3030, `tests/e2e/helpers/test-server-url.ts`) sets the port of the server, the
   Playwright `baseURL` and the helpers; the mock script calls its page's origin. `/health` answers the checkout the
   server serves, and global setup refuses a server of another checkout: Playwright reuses whatever listens on the port
-  (`reuseExistingServer`), and another treehouse worktree's server serves that worktree's `dist/` and code
+  (`reuseExistingServer`), and another lease worktree's server serves that worktree's `dist/` and code
 - **Time**: `base-test.ts` installs the Playwright clock at a fixed time; it runs at real speed. A test that waits for
   a timer of the app (the 2 s "Copied" state of `useCopyToClipboard`) runs the clock past it with
   `page.clock.fastForward` instead of a real wait, which a loaded machine overruns

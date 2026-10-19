@@ -40,7 +40,7 @@ pnpm exec vp check        # Formatting, lint and types without fixing (what CI c
 pnpm lint:backend         # Format and lint Rust code (clippy --fix)
 pnpm lint:frontend        # `vp check --fix` (Oxfmt, type-aware Oxlint) + tsc of the React/TypeScript code and the E2E tests
 pnpm lint:cpd             # jscpd copy/paste detection (config in .jscpd.json); fails on any clone
-pnpm prune:target --pool  # Dry run: stale cargo units of this checkout and the free treehouse slots (`--yes` deletes)
+pnpm prune:target --pool  # Dry run: stale cargo units of this checkout and the free lease slots (`--yes` deletes)
 pnpm perf:monorepo pin|measure|summarize|compare  # bd's git processes and times on a pinned large clone (git-operations.md)
 cargo run -p branch-deck -- cli status -C <repo>  # agent CLI, JSON on stdout (docs/guidelines/agent-cli.md)
 ```
@@ -298,19 +298,20 @@ How agents commit to this repository; "Git Operations" below is about the git th
 - Never `--no-ff`, never `--no-verify`, never `commit-tree` with two `-p`.
 
 ### Worktrees
-Parallel work runs in a worktree from the [treehouse](https://github.com/kunchenguid/treehouse) pool
-(`~/.treehouse/<repo>-<hash>/`); never `git worktree add`, `EnterWorktree` or `isolation: "worktree"`.
+Parallel work runs in a worktree of the `bd lease` pool (`~/.branch-deck/pool/<repo>-<hash>/`,
+[bd lease](spec/cli/lease.spec.md)); never `git worktree add`, `EnterWorktree` or `isolation: "worktree"`.
 - **Every session edits in its own lease**, the main session and a background job too, not only a spawned agent: other
   sessions work in this repository at the same time. A harness default such as "edit files directly in your working
   directory" does not override this rule. The main checkout is only for `git merge --ff-only <branch>` into `master`
   ("commit right away" means: commit in the lease, then fast-forward `master`).
-- **Acquire**: `treehouse get --lease --lease-holder <agent-name> -b <branch>` fetches origin, creates `<branch>` and
-  prints only the worktree path (`--json` adds the lease id, `--no-fetch` skips the fetch). A leased worktree is never
-  handed out again or pruned.
-- **Base**: the branch starts at local `master`, which may be ahead of `origin/master` (a local branch wins over
-  `origin/<base>`); `--base <integration-branch>` cuts it from another branch. Without `-b` the worktree is detached.
+- **Acquire**: `bd lease get --holder <agent-name> -b <branch>` in the main checkout creates `<branch>` at its HEAD
+  and prints the lease as JSON (`path`, `lease_id`). It does not fetch. A leased worktree is never handed out again.
+- **Base**: the branch starts at the HEAD of the checkout that runs the get, local `master` in the main checkout,
+  which may be ahead of `origin/master`. Run it with `-C <worktree>` to cut from another branch. Without `-b` the
+  worktree is detached.
 - **Inside**: the rules of the main checkout apply (`.githooks/` via the shared `core.hooksPath`, `cargo nextest`).
-  `node_modules` and `target/` survive a reuse; run `pnpm install` when `pnpm-lock.yaml` changed.
+  `node_modules` and `target/` survive a reuse. On macOS a new slot is an APFS clone of a free slot or of the main
+  checkout, so it starts with them too. Run `pnpm install` when `pnpm-lock.yaml` changed.
 - **Rust cache**: every checkout keeps its own `target/`; never a shared `CARGO_TARGET_DIR` or `build.build-dir`: the
   unit hash of a workspace crate does not depend on the checkout's path, so worktrees would overwrite each other's
   units. Cargo never deletes a stale unit, so `pnpm prune:target --pool --yes` trims the free slots (dry run without
@@ -320,9 +321,12 @@ Parallel work runs in a worktree from the [treehouse](https://github.com/kunchen
   Playwright reuses whatever listens on the port.
 - **Integrate** as in "Commits and History": `git rebase master` in the worktree, `git merge --ff-only <branch>` in
   the main checkout.
-- **Release**: commit, then `treehouse return` inside the worktree (or `treehouse return <path>`); it cleans and
-  resets the worktree, the branch survives.
-  `treehouse status` lists the pool; `treehouse prune` and `treehouse destroy` are dry runs without `--yes`.
+- **Release**: commit, land, stop the processes you started in the worktree (the e2e mock server, `cargo watch`),
+  then `bd lease return --workspace <path>`. It refuses local changes, a commit that no branch holds and that
+  `master` lacks by content, or a process inside. `--confirm-preserved` discards the changes and commits it reports, so pass it only
+  when they are preserved elsewhere. The branch survives; the next get moves the worktree.
+  `bd lease status` lists the pool. A worktree leased from the old Treehouse pool (`~/.treehouse/<repo>-<hash>/`)
+  goes back with `treehouse return <path>`.
 
 ### Git Operations
 Hard rules; rationale and per-operation flows in [Git Operations](docs/design/git-operations.md).

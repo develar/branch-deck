@@ -1,10 +1,10 @@
 // Removes stale cargo units from target/. Cargo never deletes a unit whose hash went out of use (another Cargo.lock,
-// profile, clippy/test/build, the hash of a dependency), so a reused treehouse slot piles up dozens of copies of every
+// profile, clippy/test/build, the hash of a dependency), so a reused lease slot piles up dozens of copies of every
 // workspace crate within hours. A target dir is not shared between checkouts instead: the unit hash of a path crate
 // does not depend on the checkout's path, so two worktrees would overwrite each other's units.
 //
 //   pnpm prune:target                 dry run for target/ of this checkout
-//   pnpm prune:target --pool          also every available treehouse slot of this repository
+//   pnpm prune:target --pool          also every free `bd lease` slot (and old Treehouse slot) of this repository
 //   pnpm prune:target --pool --yes    delete
 //   pnpm prune:target <checkout>...   the given checkouts instead of this one
 //
@@ -29,8 +29,20 @@ const checkouts = args.filter(arg => !arg.startsWith("--")).map(arg => path.reso
 
 const targets = checkouts.length === 0 ? [process.env.CARGO_TARGET_DIR || path.join(root, "target")] : checkouts.map(checkout => path.join(checkout, "target"))
 if (pool) {
-  const slots = JSON.parse(execFileSync("treehouse", ["status", "--json"], { cwd: root, encoding: "utf8" }))
+  const { slots } = JSON.parse(execFileSync("bd", ["lease", "status", "--processes"], { cwd: root, encoding: "utf8" }))
   for (const slot of slots) {
+    if (slot.state === "free" && !slot.missing && (slot.processes ?? []).length === 0) {
+      targets.push(path.join(slot.path, "target"))
+    }
+  }
+  // the old Treehouse pool, while its slots exist
+  let treehouseSlots = []
+  try {
+    treehouseSlots = JSON.parse(execFileSync("treehouse", ["status", "--json"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }))
+  } catch {
+    // no treehouse installed
+  }
+  for (const slot of treehouseSlots) {
     if (slot.status === "available" && slot.processes.length === 0) {
       targets.push(path.join(slot.path, "target"))
     }

@@ -22,7 +22,7 @@ Date: 2026-10-18
 
 ## Summary
 
-Several agent sessions share one checkout. Each one commits in a worktree of its own (a Treehouse lease, a detached
+Several agent sessions share one checkout. Each one commits in a worktree of its own (a `bd lease` worktree, a detached
 HEAD that shares the git dir), and its work counts once it is on the branch of the shared checkout, which one owner
 rewrites with `bd update`, `bd fold` and `bd group`. `bd pick --from <worktree>` lands the commits of that worktree on
 the branch checked out at `-C`. It replays them in memory with `git replay` and leaves out a commit whose change the

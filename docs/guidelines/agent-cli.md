@@ -596,16 +596,16 @@ the contract is the spec. The mechanics behind it:
 Lands the commits of another worktree on the branch checked out at `-C`, without `git cherry-pick`
 (`sync_core::pick::pick_core`, "Pick" in [Git Operations](../design/git-operations.md), the contract
 [bd pick](../../spec/cli/pick.spec.md)). Agent sessions that share a checkout commit in worktrees of their own (a
-Treehouse lease, detached HEAD) and land each commit on the shared branch this way: the commits are replayed in memory
+`bd lease` worktree, detached HEAD) and land each commit on the shared branch this way: the commits are replayed in memory
 with `git replay`, and under the repository lock, which every worktree shares, the branch moves and the files follow
 through the guarded update. `--follow` moves the source worktree onto the new tip the same way.
 
 ```json
-{"schema":2,…,"branch":"master","state":"picked","dry_run":false,"source_worktree":"/Users/me/.treehouse/repo/3/repo","base":"5f6a7b8c",
+{"schema":2,…,"branch":"master","state":"picked","dry_run":false,"source_worktree":"/Users/me/.branch-deck/pool/repo-1a2b3c4d/3/repo","base":"5f6a7b8c",
  "previous_head":"77e01aa4","new_head":"c0ffee12",
  "picked":[{"commit":"1b2c3d4e","new_id":"9d0e1f2a","subject":"(lane) Add the probe","group":"lane","grouped_by":"prefix"}],
  "already_present":[{"commit":"2c3d4e5f","subject":"(lane) Fix the build","on":"aa11bb22"}],
- "followed":{"worktree":"/Users/me/.treehouse/repo/3/repo","previous_head":"3d4e5f60","new_head":"c0ffee12","state":"moved"},
+ "followed":{"worktree":"/Users/me/.branch-deck/pool/repo-1a2b3c4d/3/repo","previous_head":"3d4e5f60","new_head":"c0ffee12","state":"moved"},
  "undo_token":"pick:<full previous>..<full new>+follow:3:<full previous>..<full new>"}
 ```
 

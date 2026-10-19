@@ -44,7 +44,7 @@ async function waitForServer(url: string, name: string, maxRetries = 30, delay =
 
 /**
  * Refuses a server of another checkout: Playwright reuses whatever listens on the port (`reuseExistingServer`), and the
- * test-server of another treehouse worktree serves that worktree's `dist/` and code
+ * test-server of another lease worktree serves that worktree's `dist/` and code
  */
 async function checkServerCheckout() {
   const health = await (await fetch(`${TEST_SERVER_URL}/health`)).text()

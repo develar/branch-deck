@@ -1007,7 +1007,7 @@ agent".
 
 `bd pick` (`pick_core` in `crates/sync-core/src/pick.rs`, `check_pick` and `apply_pick` in
 `crates/git-ops/src/pick.rs`) lands the commits of another worktree on the branch checked out here: the way agent
-sessions that commit in worktrees of their own (a Treehouse lease, detached HEAD, shared git dir) land their work on
+sessions that commit in worktrees of their own (a `bd lease` worktree, detached HEAD, shared git dir) land their work on
 the shared branch without `git cherry-pick`, which writes the working tree, leaves `CHERRY_PICK_HEAD` behind on an empty
 pick, and interleaves with a fold or an update of the owner.
 
@@ -2586,7 +2586,7 @@ pnpm perf:monorepo compare <work>/before <work>/after
 - `compare` checks that the first run of each step printed the same in two measurements, the path of the binary in the
   push hints aside: a change of the git layer must not change what `bd` says.
 - Use a release build (`cargo build --release -p bd-cli --bin bd`); build the base commit's `bd` in another checkout
-  or a treehouse slot.
+  or a `bd lease` slot.
 
 ## Follow-ups
 
