@@ -433,7 +433,9 @@
 .t4 {
   color: var(--syntax-number);
 }
+/* a comment is italic in the light scheme only, as in IntelliJ's */
 .t5 {
+  font-style: var(--syntax-comment-style);
   color: var(--syntax-comment);
 }
 .t6 {
@@ -451,9 +453,57 @@
 .t10 {
   color: var(--syntax-attribute);
 }
+.t11 {
+  font-weight: var(--syntax-label-weight);
+  color: var(--syntax-label);
+  text-decoration: var(--syntax-label-decoration);
+  text-decoration-color: var(--syntax-mutable-underline);
+}
+.t12 {
+  font-style: italic;
+  color: var(--syntax-doc-comment);
+}
+.t13 {
+  font-style: var(--syntax-doc-tag-style);
+  color: var(--syntax-doc-tag);
+  text-decoration: underline;
+}
+.t14 {
+  font-style: var(--syntax-doc-tag-value-style);
+  color: var(--syntax-doc-tag-value);
+}
+.t15 {
+  color: var(--syntax-named-argument);
+}
+.t16 {
+  color: var(--syntax-macro);
+}
+.t17 {
+  font-style: italic;
+  color: var(--syntax-lifetime);
+}
+.t18 {
+  color: var(--syntax-type-parameter);
+}
+.t19 {
+  color: var(--syntax-self);
+}
+.t20 {
+  font-style: italic;
+  color: var(--syntax-enum-variant);
+}
+.t21 {
+  font-weight: bold;
+  color: var(--syntax-question);
+}
 .ti {
   font-style: italic;
 }
 .tb {
   font-weight: bold;
+}
+/* a mutable binding: a Kotlin `var`, a Rust `mut` */
+.tu {
+  text-decoration: underline;
+  text-decoration-color: var(--syntax-mutable-underline);
 }

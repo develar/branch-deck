@@ -1,11 +1,14 @@
+import { BackendSyntax } from "@/lib/diff/highlight/backend-syntax"
 import { HighlightClient, inProcessPort, workerPort } from "@/lib/diff/highlight/client"
 import { createGrammarSource } from "@/lib/diff/highlight/grammars"
 import HighlightWorker from "@/lib/diff/highlight/highlight.worker.ts?worker"
 import { logError } from "@/lib/errors"
+import { getDiffRepositoryPath } from "@/stores/repository"
 
 /*
  * The highlighting of the window (docs/design/diff-view.md, "Syntax highlighting"): created with the first diff and
- * never stopped. The main window has two workers, a review window one. A worker that does not start is replaced by
+ * never stopped. The backend colours the languages it reads with tree-sitter; the main window has two workers for the
+ * others, a review window one. A worker that does not start is replaced by
  * the engine on the main thread, in idle slices of 4 ms.
  */
 
@@ -35,6 +38,14 @@ export function getHighlightClient(): HighlightClient {
       logError("Cannot highlight a diff", `${blobId}: ${reason}`)
     }
   })
+  // Kotlin, Java, Rust, TypeScript and JavaScript are coloured by the backend with tree-sitter, as IntelliJ colours them
+  created.useBackend(
+    new BackendSyntax(
+      created.cache,
+      () => getDiffRepositoryPath() || null,
+      group => created.fallBack(group),
+    ),
+  )
   workers.forEach((worker, index) => {
     worker.addEventListener("error", event => {
       logError("Cannot start the diff highlighter", event.error ?? event.message)

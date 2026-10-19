@@ -4,7 +4,7 @@
 use crate::highlight::lex::Lex;
 use crate::highlight::paint::{Cx, Paint, Rules, comment, type_parameter};
 use crate::highlight::scopes::Scopes;
-use crate::highlight::{COMMENT, FIELD, Role, STATIC_FIELD, is_constant_name, named_child};
+use crate::highlight::{COMMENT, FIELD, Role, STATIC_FIELD, UNDERLINE, is_constant_name, named_child};
 use tree_sitter::Node;
 
 pub(crate) struct Kotlin;
@@ -75,9 +75,14 @@ impl Rules for Kotlin {
         } else {
           Some(STATIC_FIELD)
         };
+        // a local `var` is underlined wherever it is used, as IntelliJ's mutable variables
+        let mutable = named_child(node, "binding_pattern_kind").is_some_and(|it| cx.text_of(it) == "var");
         for name in declared_names(node) {
           if let Some(style) = style {
             cx.mark(name, style);
+          } else if mutable {
+            scopes.bind_styled(cx.text_of(name), UNDERLINE);
+            cx.mark(name, UNDERLINE);
           } else {
             scopes.bind(cx.text_of(name));
           }
@@ -148,7 +153,10 @@ fn name_style(scopes: &Scopes, cx: &Cx<'_, '_>, node: Node<'_>) -> Option<u32> {
   if parent.is_some_and(|parent| is_callee_name(parent, node) || matches!(parent.kind(), "identifier" | "import_alias" | "infix_expression")) {
     return None;
   }
-  if name == "field" && !scopes.is_local(name) && cx.ancestors().any(|it| matches!(it.kind(), "getter" | "setter")) {
+  if let Some(style) = scopes.local(name) {
+    return (style != 0).then_some(style);
+  }
+  if name == "field" && cx.ancestors().any(|it| matches!(it.kind(), "getter" | "setter")) {
     return Some(FIELD);
   }
   scopes.member(name)

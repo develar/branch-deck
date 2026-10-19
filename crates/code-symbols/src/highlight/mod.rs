@@ -31,7 +31,7 @@ mod typescript;
 use lines::LineRuns;
 
 /// The version of the highlighting rules; bump it on any rule change, so that cached highlightings are made again
-pub const RULES_VERSION: u32 = 1;
+pub const RULES_VERSION: u32 = 2;
 /// Files above this size are not highlighted: `MAX_BLOB_BYTES` of the texts the view reads
 pub const MAX_BYTES: usize = 8 << 20;
 /// The progress callbacks of a parse per KiB of text; the densest files of the IntelliJ monorepo take 19
@@ -43,10 +43,11 @@ const MIN_PARSE_BUDGET: usize = 50_000;
 pub const ROLE_BITS: u32 = 6;
 pub const ITALIC: u32 = 1 << ROLE_BITS;
 pub const BOLD: u32 = 2 << ROLE_BITS;
+/// A mutable binding (a Kotlin `var`, a Rust `mut`): underlined, as IntelliJ's mutable variables
 pub const UNDERLINE: u32 = 4 << ROLE_BITS;
 
-/// A comment: italic, as in the IntelliJ schemes
-pub(crate) const COMMENT: u32 = Role::Comment.style() | ITALIC;
+/// A comment; the view gives it the font style of the scheme (italic in the light one)
+pub(crate) const COMMENT: u32 = Role::Comment.style();
 /// An instance field or property
 pub(crate) const FIELD: u32 = Role::Field.style();
 /// A static field, a constant, an enum entry: italic
@@ -62,6 +63,7 @@ pub enum Role {
   String,
   Escape,
   Number,
+  /// A line or block comment: italic in the light scheme only, as IntelliJ's
   Comment,
   FunctionDeclaration,
   Field,
@@ -69,17 +71,23 @@ pub enum Role {
   Tag,
   Attribute,
   Label,
+  DocComment,
   DocTag,
   DocTagValue,
   NamedArgument,
   Macro,
   Lifetime,
   TypeParameter,
+  /// Rust's `self`, coloured apart from the keywords in `RustRover`
+  SelfValue,
+  EnumVariant,
+  /// Rust's `?`
+  QuestionOperator,
 }
 
 impl Role {
   /// The names of the view, in the order of the ids after the default foreground
-  pub const NAMES: [&'static str; 17] = [
+  pub const NAMES: [&'static str; 21] = [
     "keyword",
     "string",
     "escape",
@@ -91,12 +99,16 @@ impl Role {
     "tag",
     "attribute",
     "label",
+    "docComment",
     "docTag",
     "docTagValue",
     "namedArgument",
     "macro",
     "lifetime",
     "typeParameter",
+    "selfValue",
+    "enumVariant",
+    "questionOperator",
   ];
 
   pub const fn style(self) -> u32 {

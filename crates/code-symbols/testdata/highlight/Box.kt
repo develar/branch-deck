@@ -13,6 +13,8 @@ class Box<T : Any>(val size: Int, private var name: String) : Base(), Comparable
 
   fun add(item: T, times: Int = 1): Boolean {
     count++
+    var total = times
+    total += 1
     items.add(item)
     val text = "x=$count, ${items.size} items\n"
     loop@ for (i in 0 until times) { if (i > LIMIT) break@loop }

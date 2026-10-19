@@ -3,7 +3,7 @@
 
 use crate::highlight::paint::{Cx, Paint, Rules, comment, function, label, type_parameter};
 use crate::highlight::scopes::Scopes;
-use crate::highlight::{FIELD, ITALIC, Role, STATIC_FIELD, is_constant_name, is_type_name};
+use crate::highlight::{FIELD, Role, STATIC_FIELD, is_constant_name, is_type_name};
 use tree_sitter::Node;
 
 pub(crate) struct TypeScript;
@@ -67,8 +67,6 @@ impl Rules for TypeScript {
           let name = cx.text_of(property);
           if !callee {
             cx.mark(property, if on_type || is_constant_name(name) { STATIC_FIELD } else { FIELD });
-          } else if on_type {
-            cx.mark(property, Role::Foreground.style() | ITALIC);
           }
         }
         Paint::Inherit

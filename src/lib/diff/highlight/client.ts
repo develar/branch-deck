@@ -1,3 +1,5 @@
+import { TREE_SITTER_LANGUAGES } from "@/lib/diff/highlight/backend-syntax"
+import type { BackendSyntax, BackendWant } from "@/lib/diff/highlight/backend-syntax"
 import { HighlightEngine } from "@/lib/diff/highlight/engine"
 import type { GrammarSource } from "@/lib/diff/highlight/engine"
 import type { HighlightAnswer, HighlightRequest, PageWant, Priority } from "@/lib/diff/highlight/protocol"
@@ -5,7 +7,9 @@ import { TokenCache } from "@/lib/diff/highlight/token-cache"
 
 /*
  * The main-thread side of the highlighting (docs/design/diff-view.md, "Syntax highlighting"): pins each blob to one
- * worker, sends its text once, asks for the pages a view lacks, and keeps the answers in the token cache.
+ * worker, sends its text once, asks for the pages a view lacks, and keeps the answers in the token cache. A blob of a
+ * language the backend reads with tree-sitter goes to the backend instead (`backend-syntax.ts`), and to the workers when
+ * the backend cannot colour its file.
  */
 
 /** A worker, or the engine on the main thread when no worker starts */
@@ -22,6 +26,12 @@ export interface BlobWant {
   text: string
   pages: readonly number[]
   priority: Priority
+  /** The path whose extension tells the grammar of the backend: the old path for the old side of a rename */
+  filePath?: string
+  /** The path of the file in the working tree, for a blob of the working tree */
+  worktreePath?: string | null
+  /** The file of the blob: when the backend cannot colour one side, the worker colours all of them */
+  group?: string
 }
 
 export class HighlightClient {
@@ -37,6 +47,9 @@ export class HighlightClient {
   private readonly failed = new Set<string>()
   /** A port can stand for several, e.g. the main thread for every worker that did not start: it is listened to once */
   private readonly listening = new WeakSet<HighlightPort>()
+  /** The files the backend cannot colour: the workers colour all their sides */
+  private readonly fallbackGroups = new Set<string>()
+  private backend: BackendSyntax | null = null
 
   constructor(
     ports: readonly HighlightPort[],
@@ -45,6 +58,19 @@ export class HighlightClient {
   ) {
     this.cache = cache
     ports.forEach((port, index) => this.replacePort(index, port))
+  }
+
+  /** The tree-sitter highlighting of the backend for its languages; without it the workers colour every language */
+  useBackend(backend: BackendSyntax): void {
+    this.backend = backend
+  }
+
+  /** The backend cannot colour a file: the workers colour all its sides, the views ask again */
+  fallBack(group: string): void {
+    this.fallbackGroups.add(group)
+    for (const [view, wants] of this.lastWants) {
+      this.want(view, wants)
+    }
   }
 
   /** Puts a port in place of another, e.g. the main thread for a worker that did not start; its blobs pin again */
@@ -70,8 +96,22 @@ export class HighlightClient {
   want(view: string, wants: readonly BlobWant[]): void {
     this.lastWants.set(view, wants)
     const byPort = this.ports.map((): PageWant[] => [])
+    const toBackend: BackendWant[] = []
     for (const want of wants) {
       if (want.language === "text" || this.failed.has(want.blobId)) {
+        continue
+      }
+      const group = want.group ?? want.blobId
+      if (this.backend !== null && want.filePath !== undefined && TREE_SITTER_LANGUAGES.has(want.language) && !this.fallbackGroups.has(group)) {
+        toBackend.push({
+          blobId: want.blobId,
+          text: want.text,
+          pages: want.pages,
+          priority: want.priority,
+          filePath: want.filePath,
+          worktreePath: want.worktreePath ?? null,
+          group,
+        })
         continue
       }
       const pages = want.pages.filter(page => this.cache.get(want.blobId, page)?.exact !== true)
@@ -81,12 +121,14 @@ export class HighlightClient {
     }
     // every port gets the view's list, an empty one too: it drops the work the view asked for before
     this.ports.forEach((port, index) => port.post({ type: "tokens", view, wants: byPort[index]! }))
+    this.backend?.want(view, toBackend)
   }
 
   /** The view is gone: its work is dropped */
   release(view: string): void {
     this.want(view, [])
     this.lastWants.delete(view)
+    this.backend?.release(view)
   }
 
   private pin(want: BlobWant): number {

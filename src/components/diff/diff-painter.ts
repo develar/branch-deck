@@ -31,7 +31,12 @@ export interface PainterFile {
   cells: RowCells | null
   /** The rows shown; null when the file is collapsed or shows none */
   rows: FileRows | null
-  language: string
+  /** The Shiki language of each side: the old side of a rename by its old path */
+  languages: readonly string[]
+  /** The path of each side, whose extension tells the grammar of the backend */
+  paths: readonly string[]
+  /** The path in the working tree of each side that is a file of the working tree */
+  worktreePaths: readonly (string | null)[]
   /** The width of the code of each side, in CSS px, for the soft wraps */
   codeWidths: readonly number[]
 }
@@ -95,6 +100,9 @@ function partClass(part: LinePart): string {
   }
   if ((fontStyle & 2) !== 0) {
     className += " tb"
+  }
+  if ((fontStyle & 4) !== 0) {
+    className += " tu"
   }
   if (part.marker === true) {
     className += ` dv-marker dv-change-${part.change}`
@@ -462,12 +470,22 @@ export class DiffPainter {
         value.lines.forEach((line, side) => {
           const id = ids[side]
           const table = tables[side]
-          if (line === null || id == null || table == null || painterFile.language === "text") {
+          const language = painterFile.languages[side] ?? "text"
+          if (line === null || id == null || table == null || language === "text") {
             return
           }
           let want = wants.get(id)
           if (want === undefined) {
-            want = { blobId: id, language: painterFile.language, text: table.text, pages: [], priority: 1 }
+            want = {
+              blobId: id,
+              language,
+              text: table.text,
+              pages: [],
+              priority: 1,
+              filePath: painterFile.paths[side],
+              worktreePath: painterFile.worktreePaths[side] ?? null,
+              group: painterFile.key,
+            }
             wants.set(id, want)
           }
           const page = Math.floor(line / PAGE_LINES)

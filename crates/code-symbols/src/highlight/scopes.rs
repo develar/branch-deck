@@ -86,15 +86,6 @@ impl Scopes {
     None
   }
 
-  /// Whether `name` is bound as a local or a parameter
-  pub(crate) fn is_local(&self, name: &str) -> bool {
-    for frame in self.frames.iter().rev() {
-      if frame.names.iter().any(|it| it.0 == name) {
-        return !frame.class;
-      }
-    }
-    false
-  }
 
   pub(crate) fn is_type_parameter(&self, name: &str) -> bool {
     self.frames.iter().any(|frame| frame.type_parameters.iter().any(|it| it == name))

@@ -5,7 +5,7 @@
      keyword "import" · keyword "as"
   4: 
   5: /** Doc with [Link] and @param x the value */
-     comment+italic "/** Doc with [" · docTagValue "Link" · comment+italic "] and " · docTag "@param" · comment+italic " " · docTagValue "x" · comment+italic " the value */"
+     docComment "/** Doc with [" · docTagValue "Link" · docComment "] and " · docTag "@param" · docComment " " · docTagValue "x" · docComment " the value */"
   6: @Suppress("UNUSED") @get:JvmName("n")
      annotation "@Suppress" · string "\"UNUSED\"" · annotation "@get:JvmName" · string "\"n\""
   7: class Box<T : Any>(val size: Int, private var name: String) : Base(), Comparable<Box<T>> {
@@ -25,26 +25,30 @@
      keyword "fun" · functionDeclaration "add" · typeParameter "T" · number "1"
  15:     count++
      field "count"
- 16:     items.add(item)
+ 16:     var total = times
+     keyword "var" · plain+underline "total"
+ 17:     total += 1
+     plain+underline "total" · number "1"
+ 18:     items.add(item)
      field "items"
- 17:     val text = "x=$count, ${items.size} items\n"
+ 19:     val text = "x=$count, ${items.size} items\n"
      keyword "val" · string "\"x=" · keyword "$" · field "count" · string ", " · keyword "${" · field "items" · field "size" · keyword "}" · string " items" · escape "\\n" · string "\""
- 18:     loop@ for (i in 0 until times) { if (i > LIMIT) break@loop }
+ 20:     loop@ for (i in 0 until times) { if (i > LIMIT) break@loop }
      label "loop@" · keyword "for" · keyword "in" · number "0" · keyword "if" · field+italic "LIMIT" · keyword "break" · label "@loop"
- 19:     run(block = { it -> it.toString() })
+ 21:     run(block = { it -> it.toString() })
      namedArgument "block" · namedArgument "="
- 20:     return items.isNotEmpty() && text.length > 0x1F
+ 22:     return items.isNotEmpty() && text.length > 0x1F
      keyword "return" · field "items" · field "length" · number "0x1F"
- 21:   }
- 22: 
- 23:   override fun compareTo(other: Box<T>): Int = size.compareTo(other.size)
+ 23:   }
+ 24: 
+ 25:   override fun compareTo(other: Box<T>): Int = size.compareTo(other.size)
      keyword "override" · keyword "fun" · functionDeclaration "compareTo" · typeParameter "T" · field "size" · field "size"
- 24: }
- 25: 
- 26: enum class Color { RED, GREEN }
+ 26: }
+ 27: 
+ 28: enum class Color { RED, GREEN }
      keyword "enum" · keyword "class" · field+italic "RED" · field+italic "GREEN"
- 27: typealias Name = String
+ 29: typealias Name = String
      keyword "typealias"
- 28: fun interface Action { fun run() }
+ 30: fun interface Action { fun run() }
      keyword "fun" · keyword "interface" · keyword "fun"
- 29: 
+ 31: 

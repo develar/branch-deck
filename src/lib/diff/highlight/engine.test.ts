@@ -54,7 +54,7 @@ describe("HighlightEngine", () => {
     expect(line("@Service", "@")).toBe("annotation")
     expect(line("class A {", "class")).toBe("keyword")
     const third = "  fun get(): Int = compute(42) // why"
-    expect([line(third, "get"), line(third, "compute"), line(third, "42"), line(third, "//")]).toEqual(["functionDeclaration", "foreground", "number", "comment italic"])
+    expect([line(third, "get"), line(third, "compute"), line(third, "42"), line(third, "//")]).toEqual(["functionDeclaration", "foreground", "number", "comment"])
     // the brace of the last line is the default foreground: no run
     expect(page!.lineStarts[4]! - page!.lineStarts[3]!).toBe(0)
   })
@@ -79,7 +79,7 @@ describe("HighlightEngine", () => {
     expect(["const", "50"].map(needle => styleAt(pageOf("ts"), 0, typescript.indexOf(needle)))).toEqual(["keyword", "number"])
   })
 
-  it("leaves a Java or Rust call, a package, an import and a class used as a type plain, as IntelliJ does", async () => {
+  it("leaves a Java call, a package, an import and a class used as a type plain, and colours a Rust call, as IntelliJ and RustRover do", async () => {
     const { engine, answers } = engineOf()
     const java = [
       "package com.example.app;",
@@ -117,8 +117,8 @@ describe("HighlightEngine", () => {
       "annotation",
       "annotation",
       "functionDeclaration",
-      "foreground",
-      "foreground",
+      "functionDeclaration",
+      "functionDeclaration",
     ])
   })
 
@@ -164,7 +164,7 @@ describe("HighlightEngine", () => {
     const [provisional, exact] = pages(answers)
     expect([provisional?.exact, exact?.exact]).toEqual([false, true])
     expect(styleAt(provisional!, 0, 0)).toBe("foreground")
-    expect(styleAt(exact!, 0, 0)).toBe("comment italic")
+    expect(styleAt(exact!, 0, 0)).toBe("comment")
   })
 
   it("asks for a text it does not have, and says when a language has no grammar", async () => {

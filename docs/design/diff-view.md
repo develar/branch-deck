@@ -326,8 +326,12 @@ The offset is per file, as in IntelliJ's combined diff. A long line in one file 
 
 ### Syntax highlighting
 
-**A worker per window, two in the main window.** The view pins a blob to one worker: the worker with the fewest queued
-lines when the view first asks for the blob. The worker keeps the text and the grammar states of its blobs, so a later
+**Two engines.** Kotlin, Java, Rust, TypeScript and JavaScript are coloured by the backend from a tree-sitter tree, as
+IntelliJ colours them without resolving names ("Tree-sitter highlighting" below); the other languages by Shiki in a
+worker. The two sides of a file always share an engine: a file the backend cannot colour goes to the worker whole.
+
+**A worker per window, two in the main window.** The view pins a blob to one worker: the worker with the least pinned
+text when the view first asks for the blob. The worker keeps the text and the grammar states of its blobs, so a later
 page of the same blob costs only its own lines.
 
 **Tokenization.** The worker uses the TextMate grammars of Shiki with the JavaScript regex engine, as now. It calls
@@ -341,7 +345,8 @@ scopes to roles, IntelliJ's view of what is coloured: a call (`meta.function-cal
 `meta.function.call`), a package, an import and a class used as a type in Java are plain text, a Rust attribute is an
 annotation. The colours of the IntelliJ Light and Dark schemes move to CSS variables in
 `src/index.css` (`--syntax-keyword` and the others). So one tokenization serves both themes, and a theme switch
-changes only CSS. Pierre highlights each token for both themes.
+changes only CSS. A font style that differs between the schemes (a comment is italic in the light one only) is in CSS
+too, so the italic bit of a style is only for what both schemes put in italic (a static member).
 
 **Compact runs.** The worker answers per page of 256 lines:
 - `lineStarts: Uint32Array(257)`: where the runs of each line start;
@@ -360,8 +365,8 @@ states of every earlier line. The worker works in this order:
    a checkpoint. When it reaches a provisional page, it sends the exact runs only if they differ.
 3. The pages one viewport around the view, then the other shown lines of the files in view, then the next files.
 
-The worker works in slices of 8 ms and yields between them, so a new request of the view goes first. Each request has
-a generation, and the worker drops the work of an older viewport. A line over 1,000 characters stays plain text. A
+The worker works in slices of 8 ms and yields between them, so a new request of the view goes first. A request of a
+view replaces its last one, and the worker drops the work the view asked for before. A line over 1,000 characters stays plain text. A
 line gets at most 20 ms, the time limit of `tokenizeLine2`.
 
 **Token cache on the main thread.** The runs go into a cache by blob id and page. It has a budget of 32 MiB of
@@ -370,7 +375,7 @@ window costs nothing. A review window has its own cache and worker.
 
 **Protocol.**
 - `text { blobId, language, text }`: once per blob and worker.
-- `tokens { blobId, pages, generation }`: the pages the view needs.
+- `tokens { view, wants: [{ blobId, pages, priority }] }`: the pages a view needs now, replacing its last request.
 - The answer `page { blobId, page, exact, lineStarts, runs }`, transferred.
 - The answer `missing { blobId }`: the worker dropped the text from its LRU (64 MiB). The main thread sends the text
   again.
@@ -404,6 +409,13 @@ are coloured as the IntelliJ editor colours them without resolving a name, from 
 - what a leaf holds and the grammar does not split is lexed: the escapes of a Kotlin string, the tags of a doc comment
   (`@param` and its name, a KDoc `[link]`), the keyword and the `@` of `return@label`;
 - a leaf inside a parse error keeps what its kind tells (a keyword), the rest of the error stays plain;
+- the roles are IntelliJ's colours that the syntax shows, from the IntelliJ Light and Islands Dark schemes and the
+  schemes of the Kotlin and RustRover plugins (`--syntax-*` of `src/index.css`): a property and a field, a static one
+  and a constant italic, a static Java method in the colour of a declaration and italic, a Rust call in the colour of
+  its function (RustRover colours calls, IntelliJ does not), a type parameter, a label, a named argument, a doc comment,
+  its tag and the name a tag documents, a macro, a lifetime, Rust's `self`, an enum variant, Rust's `?`; a Kotlin `var`
+  and a Rust `mut` binding are underlined (`UNDERLINE`). What needs a resolve stays out: an extension or a top-level
+  call, a smart cast, a field read without a syntax that tells it;
 - the answer is the format of the worker: the lines as `buildLineTable` splits them, runs of (UTF-16 offset, style) per
   line, a style the role in its low 6 bits and the font style above; the roles are `SYNTAX_ROLES` in their order
   (`roles_match_the_view` checks it);
@@ -418,6 +430,10 @@ The view asks for it with `get_blob_syntax` (`crates/file-diffs/src/syntax.rs`),
   work waits for it, and at most half the cores parse at once, beside the workers of the diffs. It is not stored: a
   reopened review parses again (2–15 ms for a typical file), cheaper than a write to the object cache, whose overflow
   clears its whole environment;
+- the view (`src/lib/diff/highlight/backend-syntax.ts`) asks for a run of the pages a view needs and the page after it,
+  at most 6 calls at once, the pages in view first, and puts the answer into the token cache as exact pages; it sends
+  the text of a blob whose id is not git's (the result of a merge) with the first call. A `Fallback` sends every side of
+  the file to the worker (`HighlightClient.fallBack`);
 - the answer is raw bytes (`tauri::ipc::Response`, an `ArrayBuffer` in the view, `application/octet-stream` from the
   e2e server): `u32`s of a header (format, status, line count, the lines answered, the run count), the line starts of
   the lines asked for from 0, then their runs. The status says `Runs`, `Fallback` (no grammar, a binary or too large
@@ -438,7 +454,7 @@ A code cell can show up to four layers:
 - the hits of the find, on the find colour.
 
 The painter merges the boundaries of the layers into one list of spans per line. A span has one class per role
-(`t-keyword`) and one per layer (`range`, `hit`). The deleted parts of an Inline row take the syntax runs of the old
+(`t<id>`, `t1` a keyword; `ti`, `tb`, `tu` for italic, bold and the underline of a mutable binding) and one per layer (`range`, `hit`). The deleted parts of an Inline row take the syntax runs of the old
 line. The rule of `composeInlineLine.ts` aligns the ranges of the two lines by index. That rule moves into the
 painter.
 

@@ -81,10 +81,39 @@ async function reviewPoolSizeCommit(page: Page): Promise<OpenedSubWindow<BranchR
   return await openedReview(page, 1)
 }
 
+/** D on the preview of the tree commit: its review window, shown in the page */
+async function openTreeReview(page: Page): Promise<Locator> {
+  await openTreePreview(page)
+  await page.keyboard.press("d")
+  return showReviewWindow(page, await openedReview(page, 1))
+}
+
+/** The colour a `--syntax-*` token of the theme resolves to, as `getComputedStyle` gives a colour */
+async function tokenColor(review: Locator, token: string): Promise<string> {
+  return review.evaluate((element, name) => {
+    const probe = document.createElement("span")
+    probe.style.color = `var(${name})`
+    element.append(probe)
+    const color = getComputedStyle(probe).color
+    probe.remove()
+    return color
+  }, token)
+}
+
 simpleTest.describe("Commit review", () => {
   simpleTest.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("commit_tree")
     await syncAndWaitForBranches()
+  })
+
+  simpleTest("should colour Kotlin as IntelliJ does: a property as a field, a declaration, an annotation, a keyword", async ({ page }) => {
+    const window = await openTreeReview(page)
+    const code = window.getByTestId("commit-review-code")
+    // the tree-sitter highlighting of the backend: what IntelliJ resolves and the syntax shows, `field1` a property
+    await expect(code.getByText("field1", { exact: true }).first()).toHaveCSS("color", await tokenColor(window, "--syntax-field"))
+    await expect(code.getByText("map", { exact: true }).first()).toHaveCSS("color", await tokenColor(window, "--syntax-function-declaration"))
+    await expect(code.getByText("@Test", { exact: true })).toHaveCSS("color", await tokenColor(window, "--syntax-annotation"))
+    await expect(code.getByText("fun", { exact: true }).first()).toHaveCSS("color", await tokenColor(window, "--syntax-keyword"))
   })
 
   simpleTest("should show the tree beside the diffs of all files and follow J, K, N, P and the tree", async ({ page }) => {
@@ -153,9 +182,7 @@ simpleTest.describe("Commit review", () => {
 
   simpleTest("should give the sidebar the width of its names, and hide and show it with F and its button, the choice kept", async ({ page }) => {
     await page.setViewportSize({ width: 2000, height: 1000 })
-    await openTreePreview(page)
-    await page.keyboard.press("d")
-    const window = await showReviewWindow(page, await openedReview(page, 1))
+    const window = await openTreeReview(page)
     const sidebar = window.getByTestId("review-sidebar")
     const toggle = window.getByTestId("review-sidebar-toggle")
     // 19rem in a maximized window, not a share of it
@@ -178,9 +205,7 @@ simpleTest.describe("Commit review", () => {
 
   simpleTest("should drag the divider of the sides of Split, keep its share, and make the sides equal with a double click", async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 900 })
-    await openTreePreview(page)
-    await page.keyboard.press("d")
-    const window = await showReviewWindow(page, await openedReview(page, 1))
+    const window = await openTreeReview(page)
     const row = window.locator(".dv-row[data-kind=changed]").first()
     await expect(row).toBeVisible()
     const share = () => row.evaluate(element => element.children[0]!.getBoundingClientRect().width / element.getBoundingClientRect().width)
@@ -207,9 +232,7 @@ simpleTest.describe("Commit review", () => {
   })
 
   simpleTest("should copy the lines of a selection of the diffs from the model, one side in Split, without the line numbers", async ({ page }) => {
-    await openTreePreview(page)
-    await page.keyboard.press("d")
-    const window = await showReviewWindow(page, await openedReview(page, 1))
+    const window = await openTreeReview(page)
     const code = window.getByTestId("commit-review-code")
     const newSide = code.locator('.dv-half[data-side="1"] .dv-code[data-side]')
     await expect(newSide.nth(2)).toBeVisible()
@@ -231,9 +254,7 @@ simpleTest.describe("Commit review", () => {
   })
 
   simpleTest("should find a text in the diffs from the model, also in the folded lines, with ⌘F, Enter and Escape", async ({ page }) => {
-    await openTreePreview(page)
-    await page.keyboard.press("d")
-    const window = await showReviewWindow(page, await openedReview(page, 1))
+    const window = await openTreeReview(page)
     const code = window.getByTestId("commit-review-code")
     await expect(code).toContainText("SessionRowMapper")
     await code.locator("[aria-label='Changes of the commit']").focus()

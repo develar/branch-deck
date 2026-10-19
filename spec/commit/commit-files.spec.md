@@ -229,7 +229,20 @@ The views show the typed diff of each file instead of the patch ([Reading the di
   a paragraph whose `*` is an emphasis, a fenced block by the language it names, a block of Vue or Svelte by its own.
   [@test] ../../src/lib/diff/bundled-languages.test.ts (`keeps only the bundled entries of Shiki's language list, so the other grammars leave the build`, `fails the build for an id Shiki does not have`, `highlights %s with a bundled grammar`, `maps the extension table and our custom extensions to bundled grammars only`, `shows a file of a grammar the build leaves out as plain text`)
   [@test] ../../src/lib/diff/file-languages.test.ts (`maps our custom extensions to grammars Shiki has`, `highlights %s as %s`, `shows a file without a known name as plain text`)
-  [@test] ../../src/lib/diff/highlight/engine.test.ts (`gives each token the role of the Islands themes, in runs that change only with the style`, `gives Rust and TypeScript tokens the roles of the Islands themes too`, `leaves a Java or Rust call, a package, an import and a class used as a type plain, as IntelliJ does`, `reads the front matter of a Markdown file as YAML and a fenced block by its language, never as emphasis`, `loads the grammars a grammar embeds before it, so a file of one of them later leaves its grammar as it is`)
+  [@test] ../../src/lib/diff/highlight/engine.test.ts (`gives each token the role of the Islands themes, in runs that change only with the style`, `gives Rust and TypeScript tokens the roles of the Islands themes too`, `leaves a Java call, a package, an import and a class used as a type plain, and colours a Rust call, as IntelliJ and RustRover do`, `reads the front matter of a Markdown file as YAML and a fenced block by its language, never as emphasis`, `loads the grammars a grammar embeds before it, so a file of one of them later leaves its grammar as it is`)
+- Kotlin, Java, Rust, TypeScript and JavaScript must be coloured as the IntelliJ editor (and RustRover) colours them
+  without resolving a name, from their syntax tree: a property, a field and an unqualified use of one as a field, a
+  static member, a constant and an enum entry italic, a static method in the colour of a declaration and italic, a
+  Rust call in the colour of the function it calls (a Java or Kotlin call plain), a type parameter, a label, a named
+  argument, a doc comment with its tags, the code of a string template as code, a macro, a lifetime and Rust's `self`
+  and `?` in their own colours, a Kotlin `var` and a Rust `mut` binding underlined; the colours are those of the
+  IntelliJ Light and Islands Dark schemes, a comment italic in the light one only. The two sides of a file are always
+  coloured alike: a file the syntax tree cannot colour (over 8 MiB, a parse over its budget) is coloured by its Shiki
+  grammar, both sides.
+  [@test] ../../crates/code-symbols/src/highlight_test.rs (`every_fixture_matches_its_golden_file`, `splits_lines_and_counts_utf16_offsets_as_the_view`, `has_no_highlighting_over_the_limit`, `chooses_the_typescript_grammar_for_ts_and_tsx_for_the_rest`, `roles_match_the_view`)
+  [@test] ../../crates/file-diffs/src/syntax_test.rs (`answers_the_runs_of_the_lines_asked_for_with_the_line_starts_from_zero`, `parses_a_blob_once_from_the_blobs_a_diff_read_and_reads_a_cold_one_with_one_cat_file`, `says_missing_for_a_blob_it_cannot_read_and_highlights_the_text_a_view_sends`, `falls_back_to_the_worker_for_a_file_without_a_grammar`)
+  [@test] ../../src/lib/diff/highlight/backend-syntax.test.ts (`asks the backend for a run of pages and the next one, and keeps its answer as exact pages`, `sends the text of a blob the backend lacks, and of one the view made, with the first call`, `colours both sides of a file the backend cannot colour in the worker`, `leaves every language to the worker without a backend`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should colour Kotlin as IntelliJ does: a property as a field, a declaration, an annotation, a keyword`)
 - A diff must show the blocks of the diff engine with 4 lines of context (IntelliJ's), changes whose context touches
   without a fold between them, and the changed ranges of the engine instead of a word diff, also on a changed line
   without a line beside it. The tints are IntelliJ's: a block with inner ranges draws its lines pale and its ranges
@@ -253,9 +266,10 @@ The views show the typed diff of each file instead of the patch ([Reading the di
   [@test] ../../src/lib/diff/rows.test.ts (`labels a fold with the innermost scope around its lines, the new side first`, `nests the folds at 4, 8 and 16 lines of context, then shows all lines`)
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should group the files by directory and expand the unchanged lines of a diff`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
-- Highlighting must not block the window: it runs in a worker, which starts with the first diff shown and lives as
-  long as the window, and a row shows plain text until its tokens arrive. When the workers cannot start, the diff is
-  highlighted on the main thread in idle slices.
+- Highlighting must not block the window: the backend colours the languages of the syntax tree off the main thread,
+  each blob parsed once while the app runs, and a worker colours the others; it starts with the first diff shown and
+  lives as long as the window, and a row shows plain text until its tokens arrive. When the workers cannot start, the
+  diff is highlighted on the main thread in idle slices.
   [@test] ../../src/lib/diff/highlight/engine.test.ts (`answers a page far into a file first as provisional, then exact, and confirms equal runs without arrays`)
   [@test] ../../src/lib/diff/highlight/client.test.ts (`keeps the pages the engine on the main thread answers, a provisional one confirmed exact`)
 - The section must offer the split, the unified and the inline view. The choice is one setting of every diff view (the

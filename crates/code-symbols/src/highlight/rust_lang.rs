@@ -1,9 +1,9 @@
 //! The highlighting rules of Rust (`tree-sitter-rust`), after `RsColor` of `RustRover`: what its lexer and its annotators
 //! colour that a syntax tree shows without resolving a name.
 
-use crate::highlight::paint::{Cx, Paint, Rules, function};
+use crate::highlight::paint::{Cx, Paint, Rules, comment, function};
 use crate::highlight::scopes::Scopes;
-use crate::highlight::{COMMENT, FIELD, ITALIC, Role, UNDERLINE, is_constant_name, named_child};
+use crate::highlight::{FIELD, ITALIC, Role, UNDERLINE, is_constant_name, named_child};
 use tree_sitter::Node;
 
 pub(crate) struct Rust;
@@ -15,11 +15,20 @@ const MUTABLE: u32 = Role::Foreground.style() | UNDERLINE;
 impl Rules for Rust {
   fn node(&mut self, scopes: &mut Scopes, cx: &mut Cx<'_, '_>, node: Node<'_>) -> Option<Paint> {
     Some(match node.kind() {
-      "line_comment" | "block_comment" => Paint::Leaf(COMMENT),
+      "line_comment" | "block_comment" => comment(cx, node),
       "string_literal" | "raw_string_literal" | "char_literal" => Paint::Style(Role::String.style()),
       "escape_sequence" => Paint::Leaf(Role::Escape.style()),
       "integer_literal" | "float_literal" => Paint::Leaf(Role::Number.style()),
-      "boolean_literal" | "self" | "crate" | "super" | "primitive_type" | "mutable_specifier" => Paint::Leaf(Role::Keyword.style()),
+      "boolean_literal" | "crate" | "super" | "primitive_type" | "mutable_specifier" => Paint::Leaf(Role::Keyword.style()),
+      "self" => Paint::Leaf(Role::SelfValue.style()),
+      "?" => Paint::Leaf(Role::QuestionOperator.style()),
+      // RustRover colours a call as the function it calls: `f()`, `item.clone()`, `Vec::new()`
+      "call_expression" => {
+        if let Some(name) = node.child_by_field_name("function").and_then(callee_name) {
+          cx.mark(name, Role::FunctionDeclaration.style());
+        }
+        Paint::Inherit
+      }
       "lifetime" => Paint::Leaf(Role::Lifetime.style()),
       "attribute_item" | "inner_attribute_item" => Paint::Style(Role::Annotation.style()),
       "macro_invocation" => {
@@ -63,9 +72,15 @@ impl Rules for Rust {
         Paint::Inherit
       }
       "field_identifier" | "shorthand_field_identifier" => Paint::Leaf(FIELD),
+      // a constant is italic, a static not, as in RustRover
       "const_item" | "static_item" | "enum_variant" => {
         if let Some(name) = node.child_by_field_name("name") {
-          cx.mark(name, CONSTANT);
+          let style = match node.kind() {
+            "const_item" => CONSTANT,
+            "static_item" => FIELD,
+            _ => Role::EnumVariant.style(),
+          };
+          cx.mark(name, style);
         }
         Paint::Inherit
       }
@@ -87,6 +102,17 @@ impl Rules for Rust {
       "identifier" => name_style(scopes, cx, node).map_or(Paint::Inherit, Paint::Leaf),
       _ => return None,
     })
+  }
+}
+
+/// The name a call shows: the function, the method of a field expression, the last segment of a path
+fn callee_name(callee: Node<'_>) -> Option<Node<'_>> {
+  match callee.kind() {
+    "identifier" => Some(callee),
+    "field_expression" => callee.child_by_field_name("field"),
+    "scoped_identifier" => callee.child_by_field_name("name"),
+    "generic_function" => callee.child_by_field_name("function").and_then(callee_name),
+    _ => None,
   }
 }
 

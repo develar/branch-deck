@@ -62,13 +62,11 @@ pub(crate) fn function(scopes: &mut Scopes, cx: &mut Cx<'_, '_>, node: Node<'_>,
   Paint::Inherit
 }
 
-/// A comment; a doc comment (`/**`) has its tags
+/// A comment; a doc comment (`/**`, Rust's `///` and `//!`) has a colour of its own and its tags
 pub(crate) fn comment(cx: &Cx<'_, '_>, node: Node<'_>) -> Paint {
-  if cx.text_of(node).starts_with("/**") {
-    Paint::Lexed(COMMENT, Lex::Doc)
-  } else {
-    Paint::Leaf(COMMENT)
-  }
+  let text = cx.text_of(node);
+  let doc = (text.starts_with("/**") && text != "/**/") || (text.starts_with("///") && !text.starts_with("////")) || text.starts_with("//!");
+  if doc { Paint::Lexed(Role::DocComment.style(), Lex::Doc) } else { Paint::Leaf(COMMENT) }
 }
 
 /// A type parameter: its name in its style, and in scope for its uses

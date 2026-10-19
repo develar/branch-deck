@@ -2,7 +2,7 @@
      keyword "import" · keyword "type" · keyword "from" · string "\"./model\""
   2: 
   3: /** A box of items. @param T the type of an item */
-     comment+italic "/** A box of items. " · docTag "@param" · comment+italic " " · docTagValue "T" · comment+italic " the type of an item */"
+     docComment "/** A box of items. " · docTag "@param" · docComment " " · docTagValue "T" · docComment " the type of an item */"
   4: @sealed
      annotation "@sealed"
   5: export class Box<T extends Item> {

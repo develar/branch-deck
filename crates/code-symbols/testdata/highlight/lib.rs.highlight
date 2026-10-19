@@ -1,12 +1,12 @@
   1: //! A crate of boxes
-     comment+italic "//! A crate of boxes"
+     docComment "//! A crate of boxes"
   2: use std::collections::HashMap;
      keyword "use"
   3: use crate::model::{Item, Kind::Small};
      keyword "use" · keyword "crate"
   4: 
   5: /// A box of `T`
-     comment+italic "/// A box of `T`"
+     docComment "/// A box of `T`"
   6: #[derive(Debug, Clone)]
      annotation "#[derive(Debug, Clone)]"
   7: pub struct Box<'a, T: Clone> {
@@ -20,25 +20,25 @@
  12: pub const LIMIT: usize = 10;
      keyword "pub" · keyword "const" · field+italic "LIMIT" · keyword "usize" · number "10"
  13: static mut CREATED: u32 = 0;
-     keyword "static" · keyword "mut" · field+italic "CREATED" · keyword "u32" · number "0"
+     keyword "static" · keyword "mut" · field "CREATED" · keyword "u32" · number "0"
  14: 
  15: pub enum Kind { Small, Large(u8) }
-     keyword "pub" · keyword "enum" · field+italic "Small" · field+italic "Large" · keyword "u8"
+     keyword "pub" · keyword "enum" · enumVariant "Small" · enumVariant "Large" · keyword "u8"
  16: 
  17: impl<'a, T: Clone> Box<'a, T> {
      keyword "impl" · lifetime "'a" · lifetime "'a"
  18:   pub fn add(&mut self, item: T, times: usize) -> bool {
-     keyword "pub" · keyword "fn" · functionDeclaration "add" · keyword "mut" · keyword "self" · keyword "usize" · keyword "bool"
+     keyword "pub" · keyword "fn" · functionDeclaration "add" · keyword "mut" · selfValue "self" · keyword "usize" · keyword "bool"
  19:     let mut count = 0;
      keyword "let" · keyword "mut" · plain+underline "count" · number "0"
  20:     let text = format!("x={} \"q\"\n", self.name);
-     keyword "let" · macro "format!" · string "\"x={} " · escape "\\\"" · string "q" · escape "\\\"\\n" · string "\"" · keyword "self"
+     keyword "let" · macro "format!" · string "\"x={} " · escape "\\\"" · string "q" · escape "\\\"\\n" · string "\"" · selfValue "self"
  21:     'outer: for i in 0..times {
      label "'outer" · keyword "for" · keyword "in" · number "0"
  22:       if i > LIMIT { break 'outer; }
      keyword "if" · field+italic "LIMIT" · keyword "break" · label "'outer"
  23:       self.items.push(item.clone());
-     keyword "self" · field "items"
+     selfValue "self" · field "items" · functionDeclaration "push" · functionDeclaration "clone"
  24:       count += 1;
      plain+underline "count" · number "1"
  25:     }
@@ -49,7 +49,7 @@
  28:     println!("{text} {count} {x} {}", b'c' as u32 + 0x1F);
      macro "println!" · string "\"{text} {count} {x} {}\"" · string "b'c'" · keyword "as" · keyword "u32" · number "0x1F"
  29:     matches!(Kind::Small, Small) && !self.items.is_empty() && true
-     macro "matches!" · keyword "self" · field "items" · keyword "true"
+     macro "matches!" · selfValue "self" · field "items" · functionDeclaration "is_empty" · keyword "true"
  30:   }
  31: }
  32: 

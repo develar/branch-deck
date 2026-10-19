@@ -318,6 +318,29 @@
   --syntax-tag: #0033b3;
   --syntax-attribute: #174ad4;
   /*
+   * The roles of the tree-sitter highlighting, from IntelliJ Light (`themes/Light.xml` and its parent `Default`) and the
+   * light schemes of the Kotlin and RustRover plugins: a comment is italic, a doc comment too, its tag underlined, a
+   * label bold and underlined in the text colour, a named argument plain
+   */
+  --syntax-comment-style: italic;
+  --syntax-doc-comment: #8c8c8c;
+  --syntax-doc-tag: #8c8c8c;
+  --syntax-doc-tag-style: italic;
+  --syntax-doc-tag-value: #3d3d3d;
+  --syntax-doc-tag-value-style: italic;
+  --syntax-label: var(--syntax-foreground);
+  --syntax-label-weight: bold;
+  --syntax-label-decoration: underline;
+  --syntax-named-argument: var(--syntax-foreground);
+  --syntax-macro: #c27203;
+  --syntax-lifetime: #02906d;
+  --syntax-type-parameter: #007e8a;
+  --syntax-self: #1c5dfe;
+  --syntax-enum-variant: #0e7fc5;
+  --syntax-question: #1c5dfe;
+  /* the underline of a mutable binding (`DEFAULT_REASSIGNED_LOCAL_VARIABLE`) */
+  --syntax-mutable-underline: #909090;
+  /*
    * The diff colours of IntelliJ's Light scheme (Islands Light): DIFF_INSERTED, DIFF_DELETED, DIFF_MODIFIED and
    * DIFF_CONFLICT, each with its pale form (`TextDiffTypeImpl.getIgnoredColor`: the colour mixed 0.6 with the editor
    * background #FFFFFF); the line numbers, the separators of the folds, the selection and the search results
@@ -394,6 +417,24 @@
     --syntax-annotation: #b3ae60;
     --syntax-tag: #d5b778;
     --syntax-attribute: #bababa;
+    /* Islands Dark (`themes/islands/IslandSchemeDark.xml`) and the dark schemes of the Kotlin and RustRover plugins */
+    --syntax-comment-style: normal;
+    --syntax-doc-comment: #5f826b;
+    --syntax-doc-tag: #67a37c;
+    --syntax-doc-tag-style: normal;
+    --syntax-doc-tag-value: #abadb3;
+    --syntax-doc-tag-value-style: normal;
+    --syntax-label: #32b8af;
+    --syntax-label-weight: normal;
+    --syntax-label-decoration: none;
+    --syntax-named-argument: #56c1d6;
+    --syntax-macro: #4eade5;
+    --syntax-lifetime: #20999d;
+    --syntax-type-parameter: #16baac;
+    --syntax-self: #d98eb3;
+    --syntax-enum-variant: #6da1ab;
+    --syntax-question: #cc7832;
+    --syntax-mutable-underline: #84868c;
     /* the diff colours of Islands Dark and its parent Darcula, pale against the editor background #191A1C */
     --diff-inserted: #294436;
     --diff-inserted-pale: #1f2b26;

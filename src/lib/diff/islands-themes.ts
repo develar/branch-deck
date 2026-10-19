@@ -16,12 +16,39 @@ interface EditorPalette {
   annotation: string
   tag: string
   attribute: string
+  label: string
+  docComment: string
+  docTag: string
+  docTagValue: string
+  namedArgument: string
+  macro: string
+  lifetime: string
+  typeParameter: string
+  selfValue: string
+  enumVariant: string
+  questionOperator: string
 }
 
 /** TextMate scopes by palette role; a later rule wins over an earlier one for the same token */
 function tokenColors(palette: EditorPalette): ThemeRegistration["tokenColors"] {
   return [
-    { scope: ["comment", "punctuation.definition.comment", "string.quoted.docstring"], settings: { foreground: palette.comment, fontStyle: "italic" } },
+    // the font style of a comment is the scheme's, in CSS (`.t5`): italic in the light one only
+    { scope: ["comment", "punctuation.definition.comment", "string.quoted.docstring"], settings: { foreground: palette.comment } },
+    {
+      scope: ["comment.block.documentation", "comment.block.javadoc", "comment.line.documentation", "comment.block.documentation punctuation.definition.comment"],
+      settings: { foreground: palette.docComment },
+    },
+    {
+      scope: [
+        "storage.type.class.jsdoc",
+        "keyword.other.documentation.javadoc",
+        "storage.type.class.javadoc",
+        "punctuation.definition.block.tag.jsdoc",
+        "punctuation.definition.block.tag.javadoc",
+      ],
+      settings: { foreground: palette.docTag },
+    },
+    { scope: ["variable.other.jsdoc", "variable.parameter.javadoc"], settings: { foreground: palette.docTagValue } },
     { scope: ["string", "punctuation.definition.string", "markup.inline.raw", "markup.fenced_code"], settings: { foreground: palette.string } },
     { scope: ["constant.character.escape", "constant.other.placeholder", "constant.character.format.placeholder"], settings: { foreground: palette.escape } },
     { scope: ["constant.numeric"], settings: { foreground: palette.number } },
@@ -40,11 +67,15 @@ function tokenColors(palette: EditorPalette): ThemeRegistration["tokenColors"] {
         "meta.function-call support.function",
         "meta.method-call entity.name.function",
         "meta.method-call support.function",
-        "meta.function.call entity.name.function",
-        "meta.function.call support.function",
       ],
       settings: { foreground: palette.foreground },
     },
+    // RustRover colours a call as the function: `meta.function.call` of the Rust grammar keeps `entity.name.function`
+    { scope: ["entity.name.function.macro", "support.function.macro"], settings: { foreground: palette.macro } },
+    { scope: ["entity.name.type.lifetime", "storage.modifier.lifetime", "punctuation.definition.lifetime"], settings: { foreground: palette.lifetime } },
+    { scope: ["variable.language.self.rust"], settings: { foreground: palette.selfValue } },
+    { scope: ["keyword.operator.question.rust"], settings: { foreground: palette.questionOperator } },
+    { scope: ["entity.name.label", "punctuation.definition.label"], settings: { foreground: palette.label } },
     // a package, an import and a class used as a type are plain text in IntelliJ; a primitive (`storage.type.primitive`)
     // and `var` (`storage.type.local`) stay keywords
     {
@@ -84,10 +115,33 @@ function tokenColors(palette: EditorPalette): ThemeRegistration["tokenColors"] {
 }
 
 /**
- * The roles of a token after the default foreground (role 0), in the order of their ids; the class of a role is
- * `t-<role>`, its colours `--syntax-<role>` of `src/index.css`
+ * The roles of a token after the default foreground (role 0), in the order of their ids, the same as `Role` of the
+ * tree-sitter highlighting of the backend (`crates/code-symbols/src/highlight/mod.rs`, `roles_match_the_view`); the
+ * class of a role is `t<id>` (`diff-view.css`), its colours `--syntax-*` of `src/index.css`
  */
-export const SYNTAX_ROLES = ["keyword", "string", "escape", "number", "comment", "functionDeclaration", "field", "annotation", "tag", "attribute"] as const
+export const SYNTAX_ROLES = [
+  "keyword",
+  "string",
+  "escape",
+  "number",
+  "comment",
+  "functionDeclaration",
+  "field",
+  "annotation",
+  "tag",
+  "attribute",
+  "label",
+  "docComment",
+  "docTag",
+  "docTagValue",
+  "namedArgument",
+  "macro",
+  "lifetime",
+  "typeParameter",
+  "selfValue",
+  "enumVariant",
+  "questionOperator",
+] as const
 
 /** The colour that stands for a role in `ROLE_THEME`: no real colour, an id */
 export function roleColor(role: number): string {

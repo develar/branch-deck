@@ -3,18 +3,18 @@
 
 use crate::highlight::paint::{Cx, Paint, Rules, comment, label, type_parameter};
 use crate::highlight::scopes::Scopes;
-use crate::highlight::{COMMENT, FIELD, ITALIC, Role, STATIC_FIELD, is_constant_name, is_type_name};
+use crate::highlight::{FIELD, ITALIC, Role, STATIC_FIELD, is_constant_name, is_type_name};
 use tree_sitter::Node;
 
 pub(crate) struct Java;
 
-const STATIC_CALL: u32 = Role::Foreground.style() | ITALIC;
+/// A static method, declared or called: the colour of a declaration, italic, as IntelliJ's `STATIC_METHOD`
+const STATIC_METHOD: u32 = Role::FunctionDeclaration.style() | ITALIC;
 
 impl Rules for Java {
   fn node(&mut self, scopes: &mut Scopes, cx: &mut Cx<'_, '_>, node: Node<'_>) -> Option<Paint> {
     Some(match node.kind() {
-      "line_comment" => Paint::Leaf(COMMENT),
-      "block_comment" => comment(cx, node),
+      "line_comment" | "block_comment" => comment(cx, node),
       "string_literal" | "character_literal" => Paint::Style(Role::String.style()),
       "escape_sequence" => Paint::Leaf(Role::Escape.style()),
       "decimal_integer_literal" | "hex_integer_literal" | "octal_integer_literal" | "binary_integer_literal" | "decimal_floating_point_literal" | "hex_floating_point_literal" => {
@@ -22,14 +22,8 @@ impl Rules for Java {
       }
       "true" | "false" | "null_literal" | "this" | "super" | "integral_type" | "floating_point_type" | "boolean_type" | "void_type" => Paint::Leaf(Role::Keyword.style()),
       "marker_annotation" | "annotation" => Paint::Style(Role::Annotation.style()),
-      // the arguments of an annotation are code, the names of its elements are coloured as in IntelliJ
+      // the arguments of an annotation are code, the names of its elements too
       "annotation_argument_list" => Paint::Style(Role::Foreground.style()),
-      "element_value_pair" => {
-        if let Some(key) = node.child_by_field_name("key") {
-          cx.mark(key, Role::Attribute.style());
-        }
-        Paint::Inherit
-      }
       "class_declaration" | "interface_declaration" | "enum_declaration" | "record_declaration" | "annotation_type_declaration" | "object_creation_expression" => {
         scopes.push_class(node.id(), members(cx, node));
         Paint::Inherit
@@ -39,7 +33,11 @@ impl Rules for Java {
         if let Some(name) = node.child_by_field_name("name")
           && node.kind() != "lambda_expression"
         {
-          cx.mark(name, Role::FunctionDeclaration.style());
+          let mut cursor = node.walk();
+          let is_static = node
+            .children(&mut cursor)
+            .any(|it| it.kind() == "modifiers" && cx.text_of(it).split_whitespace().any(|word| word == "static"));
+          cx.mark(name, if is_static { STATIC_METHOD } else { Role::FunctionDeclaration.style() });
         }
         if node.kind() == "lambda_expression"
           && let Some(parameters) = node.child_by_field_name("parameters")
@@ -116,7 +114,7 @@ impl Rules for Java {
             .child_by_field_name("object")
             .is_some_and(|it| it.kind() == "identifier" && is_type_name(cx.text_of(it)))
         {
-          cx.mark(name, STATIC_CALL);
+          cx.mark(name, STATIC_METHOD);
         }
         Paint::Inherit
       }

@@ -7,13 +7,13 @@
      keyword "import" · keyword "static"
   5: 
   6: /**
-     comment+italic "/**"
+     docComment "/**"
   7:  * A box of items. See {@link List#add(Object)} and {@code size}.
-     comment+italic " * A box of items. See {" · docTag "@link" · comment+italic " List#add(Object)} and {" · docTag "@code" · comment+italic " size}."
+     docComment " * A box of items. See {" · docTag "@link" · docComment " List#add(Object)} and {" · docTag "@code" · docComment " size}."
   8:  * @param <T> the type of an item
-     comment+italic " * " · docTag "@param" · comment+italic " " · docTagValue "<T>" · comment+italic " the type of an item"
+     docComment " * " · docTag "@param" · docComment " " · docTagValue "<T>" · docComment " the type of an item"
   9:  */
-     comment+italic " */"
+     docComment " */"
  10: @SuppressWarnings({"unchecked", "rawtypes"})
      annotation "@SuppressWarnings" · string "\"unchecked\"" · string "\"rawtypes\""
  11: public final class Box<T extends Comparable<T>> implements Iterable<T> {
@@ -28,7 +28,7 @@
      keyword "private" · keyword "int" · field "count"
  16: 
  17:   /** @throws IllegalStateException when full */
-     comment+italic "/** " · docTag "@throws" · comment+italic " " · docTagValue "IllegalStateException" · comment+italic " when full */"
+     docComment "/** " · docTag "@throws" · docComment " " · docTagValue "IllegalStateException" · docComment " when full */"
  18:   public boolean add(T item, int times) {
      keyword "public" · keyword "boolean" · functionDeclaration "add" · typeParameter "T" · keyword "int"
  19:     count++;
@@ -36,7 +36,7 @@
  20:     this.count += times;
      keyword "this" · field "count"
  21:     created = Math.max(created, LIMIT);
-     field+italic "created" · plain+italic "max" · field+italic "created" · field+italic "LIMIT"
+     field+italic "created" · functionDeclaration+italic "max" · field+italic "created" · field+italic "LIMIT"
  22:     String text = "x=" + count + ", \"quoted\"\n" + 'c' + '\t';
      string "\"x=\"" · field "count" · string "\", " · escape "\\\"" · string "quoted" · escape "\\\"\\n" · string "\"" · string "'c'" · string "'\\t'"
  23:     outer:

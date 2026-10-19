@@ -134,6 +134,10 @@ interface PreparedFile {
   rows: FileRows | null
   /** The blob id of the text of each side the rows show; the result of a merge is a text the view composes */
   ids: readonly (string | null)[]
+  /** The path of each side: the old path for the old side of a rename */
+  paths: readonly string[]
+  /** The path in the working tree of each side that is a file of it */
+  worktreePaths: readonly (string | null)[]
   /** The texts the view reads: the blobs of the sides, the new side of an uncommitted change by its path too */
   reads: readonly BlobRequest[]
   collapsed: boolean
@@ -174,6 +178,8 @@ function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds,
       cells: text === null ? null : mergeCells(text, middle),
       rows,
       ids,
+      paths: ids.map(() => entry.path),
+      worktreePaths: ids.map(() => null),
       reads,
       collapsed: false,
       gutterColumns: digits + 2,
@@ -204,6 +210,9 @@ function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds,
     cells: text === null ? null : diffCells(text, mode),
     rows,
     ids,
+    // the old side of a rename has the grammar of its old path
+    paths: diff === undefined ? [] : [diff.oldPath ?? diff.path, diff.path],
+    worktreePaths: diff === undefined ? [] : [null, worktree ? diff.path : null],
     reads,
     collapsed,
     gutterColumns: digits + 2,
@@ -363,7 +372,9 @@ export function DiffView({
       ids: file.ids,
       cells: file.cells,
       rows: layout.files[index]!.rows,
-      language: languageOf(file.path),
+      languages: file.paths.map(path => languageOf(path)),
+      paths: file.paths,
+      worktreePaths: file.worktreePaths,
       codeWidths: codeWidthsOf(file, width, metrics.columnWidth, split),
     }))
     painter.setModel({ files: painterFiles, layout, softWraps, textMetrics: metrics.text, hits: hitLines })

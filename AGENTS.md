@@ -471,7 +471,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Stacked branches, the stack island, the whole stack | `branch/stacked-branches`, `branch/stack-island`, `branch/whole-stack`, `branch/branch-row` | `src/stores/stack-view.ts`, `src/lib/git/stack-push.ts`, `crates/sync-core/src/stack_branch.rs` |
 | Stack parents (`bd restack`, `bd unstack`) | `branch/stack-parents` | `crates/sync-core/src/stack_parents.rs` |
 | Activity log | `repository/activity` | `src/stores/activity.ts` |
-| Commit files, diffs, the commit review (`D`) | `commit/commit-files`, `commit/commit-review` ([Diff View](docs/design/diff-view.md)) | `crates/file-diffs/`, `src/components/diff/` |
+| Commit files, diffs, the commit review (`D`), the tree-sitter highlighting | `commit/commit-files`, `commit/commit-review` ([Diff View](docs/design/diff-view.md)) | `crates/file-diffs/`, `crates/code-symbols/src/highlight/`, `src/components/diff/` |
 | Title bar and main menu | `repository/title-bar` | `src-tauri/src/title_bar.rs`, `src/components/shared/WindowTitleBar.tsx` |
 | Your Turn (review requests, the pull request review) | `repository/review-requests`, `repository/robots-indicator` | `src/components/review/` |
 | Settings window | `repository/settings` | `src/components/settings/`, `crates/sync-core/src/repository_config.rs` |
@@ -549,7 +549,7 @@ crates/
 ├── branch-integration/ # Integration detection: rebase, merge and squash strategies
 ├── bd-cli/          # `bd` agent CLI (docs/guidelines/agent-cli.md)
 ├── object-cache/    # LMDB cache keyed by git object ids, shared by the app and bd
-├── code-symbols/    # Declarations, imports and references of a Kotlin/Java/Rust/TS/JS file on tree-sitter, no git
+├── code-symbols/    # Declarations, imports and references of a Kotlin/Java/Rust/TS/JS file on tree-sitter, no git; the highlighting of the diffs (`highlight/`)
 ├── text-diff/       # Line, word and char comparison of two texts, ported from IntelliJ (Apache-2.0, NOTICE)
 ├── file-diffs/      # The typed diff of each file of a commit, a range or the working tree, and blob texts by id
 ├── patronus/        # Patronus REST client, Space token of the Safe Push CLI, request policy
