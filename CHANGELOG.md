@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.20.0](https://github.com/develar/branch-deck/compare/v0.19.0...v0.20.0) (2026-10-19)
+
+
+### Features
+
+* **bd:** bd push leaves out a named branch a merged Safe Push landed and pushes the others ([fbb62d9](https://github.com/develar/branch-deck/commit/fbb62d9cdd21218f7218e814f2d3abb741ae61be))
+* **bd:** bd status keeps the user's robots in the object cache and asks Patronus as the app does ([3792f24](https://github.com/develar/branch-deck/commit/3792f24031143606c5b302515bb2e59d00414de0))
+* **bd:** bd status names the branches a merged Safe Push landed, and bd push and bd safe-push refuse one landed whole ([9bd9313](https://github.com/develar/branch-deck/commit/9bd9313961b8593c4daf63e3bf33ad34585feca3))
+* **branch-row:** the node of a branch says where it is on its way into master ([2d19329](https://github.com/develar/branch-deck/commit/2d1932906208becfeac421eafd3e0d49094d5795))
+* **header:** one button says where the work is on its way into master, instead of the commits to push and the robots ([73e676d](https://github.com/develar/branch-deck/commit/73e676d82d886327678860954a1a44ee1dbc052c))
+* **patronus:** a branch a merged Safe Push landed says so until the update, and offers no Safe Push ([18c98ae](https://github.com/develar/branch-deck/commit/18c98ae907be093880e12349970c7cfc6fbfcc52))
+* **push:** Push with Children takes the whole stack's branch along once it is on the remote ([e330c69](https://github.com/develar/branch-deck/commit/e330c695125011cfe60ebceb8a7a003ad8328aca))
+
+
+### Bug Fixes
+
+* **bd:** bd pick fast-forwards a worktree cut at the tip, and its copies get the newest committer date, not now ([561dfc7](https://github.com/develar/branch-deck/commit/561dfc714d7c79524a0f76a2ee2ff0587e44275b))
+* **e2e:** the conflict test of the stack island waits for the button's description to fade before the menu item's ([74e749a](https://github.com/develar/branch-deck/commit/74e749a8af6edeb7adbf7bcbb53a4d1e3e80b31f))
+* **e2e:** the Request Review… test of a small stack hovers the item once the readiness of the whole stack is known ([eb21188](https://github.com/develar/branch-deck/commit/eb21188d8c97dda68e1d2ef039da5ef606b2499d))
+* **e2e:** the snapshots of the welcome card wait for the suggested prefix in its field ([be54839](https://github.com/develar/branch-deck/commit/be5483991ebe9d542d5941aa8636e359b334360f))
+* **next-step:** no "Ready to land" without a judge of the approvals; the wait GitHub tells while Patronus can't judge ([46d4b94](https://github.com/develar/branch-deck/commit/46d4b942875083a8d22f56731492d4555fd5790f))
+* **patronus:** a merge whose commit the table has is told at once, also while a sync runs ([54863e3](https://github.com/develar/branch-deck/commit/54863e3f36d542bbb79f2a61a18978c47beaed55))
+* **patronus:** a merged Safe Push holds its own branch too, and what it landed is decided by content after a change below its commit ([e761e25](https://github.com/develar/branch-deck/commit/e761e259f138910aed73d913793008f58f570f8c))
+* **patronus:** a robot whose branch, or every branch of its whole stack, landed restarts no more ([876899e](https://github.com/develar/branch-deck/commit/876899ef0b90f88f103f72044798971cbdcfcd5a))
+* **patronus:** the merge closes the pull requests of what it landed by content after a change below its commit ([2d64627](https://github.com/develar/branch-deck/commit/2d646274c5ac4824c6e153566a607a1eff79b055))
+* **prompt:** a cut list never leaves out only one, in the prompts for an agent, the app and bd ([d25d003](https://github.com/develar/branch-deck/commit/d25d0034c2765f44fcc57203e5874a6b38e91518))
+* **pull-request:** Create Pull Request… of a branch that landed is disabled with the reason of its next step ([cb80079](https://github.com/develar/branch-deck/commit/cb80079b8b51d77f367ae5c154b3ac1ed1d5a9ff))
+* **pull-request:** Request Review… opens its popover in a repository without Patronus ([fe7b05f](https://github.com/develar/branch-deck/commit/fe7b05fffb92140665d7b9f832934e32bc9d26c5))
+* **review:** Your Turn keeps its count in the collapsed header and says 50 of 63 without Show More ([9c695e6](https://github.com/develar/branch-deck/commit/9c695e693859024c581ead39510687b04ced6fa6))
+* **settings:** the main window writes settings.json one write at a time, in the order of the changes ([da2a8b9](https://github.com/develar/branch-deck/commit/da2a8b97be825d92ac0a934739081ca1f1cc5712))
+* **stack:** a second request of the push of the stack branch alone joins the one that runs ([e04bb02](https://github.com/develar/branch-deck/commit/e04bb02f58565d4adeeb5275ee9cd385b1d855f4))
+* **stack:** a small forking stack asks for the whole stack's approvals, and its root's popover offers it ([09a8c59](https://github.com/develar/branch-deck/commit/09a8c59aa2acbf057367048b99a2ac1fc9136fb1))
+* **stack:** Push Up to Here offers nothing for a landed commit on every surface, and leaves out a branch a merged Safe Push landed ([49d0edf](https://github.com/develar/branch-deck/commit/49d0edf70ab3bc49d12f4bd4617b381c4720df4b))
+* **stack:** Request Review… of the whole stack's pull request is in its actions, at the header or the root's row ([0a9c9b2](https://github.com/develar/branch-deck/commit/0a9c9b292ba35026cf7c70df99e625cb99ca5a06))
+* **stack:** the push of the whole stack branch alone shows its progress where the pushes of the stack show ([6939eaa](https://github.com/develar/branch-deck/commit/6939eaae273d7d2fae3e349bb766b535f6f433b7))
+* **stack:** the stack branch is held once every branch of its stack landed, and a landed branch is only left out of Push with Children ([aa00eb9](https://github.com/develar/branch-deck/commit/aa00eb9e7260ca1f7999637b18159b268a7d900c))
+* **stack:** the stack's texts say only what holds ([58ea248](https://github.com/develar/branch-deck/commit/58ea2484d3f29447db4cfae0d0bb7b2ae5c0e923))
+* **stack:** the start of a small stack's whole stack shows its steps in the root's slot, where it was asked ([9b2a11d](https://github.com/develar/branch-deck/commit/9b2a11d9d8eb7dc53e851be9cd9b7791607cf103))
+* **test:** bd update tests import serde_json::Value on Windows too ([1d40d6c](https://github.com/develar/branch-deck/commit/1d40d6c56bb95a4c64fd42a068ff7845ae0364c6))
+* **text:** every cut list keeps the rule of d25d0034, in bd check, the failed checks, the dropped commits and the app's lists ([4caeb5b](https://github.com/develar/branch-deck/commit/4caeb5bc81d06e5b24bcdbd341020c88687502b7))
+* **text:** the input of the branch naming and a failed check without a name keep the cut rule of d25d0034 ([79c472f](https://github.com/develar/branch-deck/commit/79c472ff061cf756b6d9dee09ecb5809be5c0fb2))
+
 ## [0.19.0](https://github.com/develar/branch-deck/compare/v0.18.0...v0.19.0) (2026-10-18)
 
 
