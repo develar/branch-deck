@@ -117,6 +117,14 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   `bd pick --from <dir> --follow`), and local changes (`dirty_worktree`, exit 4, `paths`). The commits of the commit
   the slot was leased at never count as unlanded, also after a rewrite of master made them unreachable.
   [@test] ../../crates/bd-cli/src/lease_test.rs (`a_free_slot_is_reused_after_master_was_rewritten_past_its_commit`)
+- The question of the unlanded check is whether the branch of the source has every change of the slot. The get must
+  record the source checkout and its branch (none for a detached HEAD). When reachability finds commits, a dry run of
+  the pick from the slot onto that branch must decide (`commits_to_pick`: the fork point in the reflog of the branch,
+  `git replay` onto its tip, on git objects only, without the lock and without the index of the shared checkout), and
+  only the commits it would pick are unlanded. Reachability decides when it finds nothing (the fast path), when the
+  source had no branch, when the branch is gone, and when the pick can't tell; the output says which check decided
+  (`landed_check`, `landed_branch`), and the refusal says so too.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`a_return_after_a_follow_and_a_rewrite_of_master_finds_the_work_landed_by_content`, `a_return_refuses_only_the_commit_that_the_source_branch_lacks`)
   [@test] ../../crates/bd-cli/src/lease_test.rs (`a_return_refuses_unlanded_commits_a_dirty_tree_and_a_busy_slot`)
 - `--confirm-preserved` must give up the unlanded commits (`given_up`) and discard the local changes (`discarded`)
   with `reset --hard HEAD` and `clean -fd`: the ignored files stay.

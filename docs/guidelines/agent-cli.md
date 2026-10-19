@@ -656,8 +656,10 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
 - `bd lease return [--workspace <dir>] [--lease-id <id>] [--confirm-preserved]` frees the slot of `--workspace`, `-C`
   or the current directory: the seeded paths go, a branch is detached (`detached_branch`; it stays), the slot stays at
   its commit. Refused with nothing changed: `no_lease`, `lease_mismatch`, `slot_busy` (a process other than bd and its
-  ancestors in it), `unlanded_commits` (`commits` that no branch, tag or remote branch holds: land them with
-  `bd pick --from <dir> --follow`), `dirty_worktree` (`paths`). `--confirm-preserved` gives the commits up
+  ancestors in it), `unlanded_commits` (`commits` that no branch, tag or remote branch holds and that a dry run of
+  the pick onto the branch of the source would pick: land them with `bd pick --from <dir> --follow`),
+  `dirty_worktree` (`paths`). `landed_check` says which check found the work landed: `reachability` or `content`
+  (`landed_branch`). `--confirm-preserved` gives the commits up
   (`given_up`) and discards the changes (`discarded`) with `reset --hard` and `clean -fd`.
 - `bd lease status [--processes]` lists the slots from the state alone: `state` `free`, `preparing`, `ready`,
   `templating` (a get clones it into a new slot) or `abandoned` (a get died while preparing or cloning it), `dirty`, `missing`, `lease`; no `git status`. `--processes` adds the

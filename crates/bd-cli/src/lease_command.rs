@@ -15,7 +15,7 @@ use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use sync_core::lease::{
-  Adopted, CreatedBy, LeaseGetParams, LeaseRefusal, LeaseReturnParams, SkipReason, SlotState, canonical_path, lease_adopt_core, lease_get_core, lease_return_core,
+  Adopted, CreatedBy, LandedCheck, LeaseGetParams, LeaseRefusal, LeaseReturnParams, SkipReason, SlotState, canonical_path, lease_adopt_core, lease_get_core, lease_return_core,
   lease_status_core, pool_dir,
 };
 use sync_core::repository_lock::RepositoryLocked;
@@ -266,6 +266,12 @@ pub struct LeaseReturnOutput {
   /// them until git expires it
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub given_up: Vec<GivenUpOutput>,
+  /// Which check found the work landed: `reachability` (a branch, tag or remote branch holds every commit) or
+  /// `content` (a pick onto `landed_branch` would pick nothing, after a rewrite of that branch)
+  pub landed_check: LandedCheckOutput,
+  /// The branch of the source that `content` checked
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub landed_branch: Option<String>,
   /// The seeded paths removed
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub removed: Vec<String>,
@@ -274,6 +280,13 @@ pub struct LeaseReturnOutput {
   pub detached_branch: Option<String>,
   /// Whether the processes were checked; false where bd can't see them (Windows)
   pub processes_checked: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LandedCheckOutput {
+  Reachability,
+  Content,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -312,6 +325,14 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
         subject: commit.subject.clone(),
       })
       .collect(),
+    landed_check: match returned.landed_check {
+      LandedCheck::Reachability { .. } => LandedCheckOutput::Reachability,
+      LandedCheck::Content { .. } => LandedCheckOutput::Content,
+    },
+    landed_branch: match &returned.landed_check {
+      LandedCheck::Content { branch } => Some(branch.clone()),
+      LandedCheck::Reachability { .. } => None,
+    },
     removed: returned.removed.clone(),
     detached_branch: returned.detached_branch.clone(),
     processes_checked: returned.process_scan,

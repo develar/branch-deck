@@ -133,7 +133,7 @@ pub fn pick_core(git_executor: &GitCommandExecutor, params: &PickParams, options
 }
 
 /// The remote-tracking ref of the target's baseline, `None` for a local baseline or none
-fn baseline_tracking_ref(git_executor: &GitCommandExecutor, target: &str) -> Result<Option<String>> {
+pub(crate) fn baseline_tracking_ref(git_executor: &GitCommandExecutor, target: &str) -> Result<Option<String>> {
   let baseline = match detect_baseline_branch(git_executor, target) {
     Ok(baseline) => baseline,
     Err(e) if e.downcast_ref::<NoBaseline>().is_some() => return Ok(None),

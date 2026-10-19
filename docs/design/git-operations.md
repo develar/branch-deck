@@ -1115,7 +1115,15 @@ same tree takes several minutes.
 
 Return: one process scan, then `log HEAD --not --branches --tags --remotes <leased commit>` (not `--all`, which holds
 the HEAD of every worktree; the leased commit keeps out what the slot started with, which a rewrite of master may have
-left unreachable), then one `status`. Unlanded commits, local changes and a process in the slot refuse it; with
+left unreachable), then one `status`. When `log` finds commits, the question is whether the branch the source had
+checked out at the get (recorded with the source in the lease) has every change of the slot. After `bd pick
+--follow` and a rewrite of that branch (`bd update`, a fold), the slot's HEAD is reachable from nothing, yet every
+commit is there by content. So a dry run of the pick decides (`commits_to_pick` in `crates/git-ops/src/pick.rs`): the
+fork point of the slot in the reflog of the branch, `git replay` onto its tip, and only the commits that do not drop
+are unlanded. It runs on git objects only: `check_pick` needs a worktree on the branch, its index for the dry run of
+the files, and the guards, none of which a return may take from the shared checkout. Reachability stays the fast
+path, and decides alone without a recorded branch, when the branch is gone, or when the pick can't tell
+(`range_unknown`, a merge in the range); the output names the check (`landed_check`). Unlanded commits, local changes and a process in the slot refuse it; with
 `--confirm-preserved` the changes go with `reset --hard HEAD` and `clean -fd`, and the ignored build outputs stay
 for the next lease. The seeded paths are removed, and a branch HEAD is on is detached with a `RefTransaction` (`option
 no-deref`, `branch-deck: lease return`). The slot stays at its commit: the next get moves it.

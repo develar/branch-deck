@@ -347,6 +347,49 @@ fn resolve_revisions(git_executor: &GitCommandExecutor, target: &str, text: &str
   }
 }
 
+/// The commits of the worktree of `source_dir` that a pick onto `branch` would pick, checked on git objects only, from
+/// any worktree of the repository: the range of `check_pick` (the fork point of the source in the reflog of `branch`),
+/// replayed onto the tip of `branch`. A commit whose change the branch has, by its patch or by its content, drops.
+/// Unlike `check_pick` it needs no worktree on `branch`, no index and no lock, and it writes no worktree: the return of a
+/// lease asks it (`bd lease return`). A range that conflicts is picked whole, as nothing of it is proven present
+pub fn commits_to_pick(git_executor: &GitCommandExecutor, repo_path: &str, branch: &str, source_dir: &str, upstream: Option<&str>) -> Result<Vec<PickCommit>> {
+  let tip = format!("refs/heads/{branch}");
+  let head_line = git_executor.execute_command(&["log", "-1", "--date=raw", "--format=%H%x00%cd", &tip, "--"], repo_path)?;
+  let (head, head_date) = head_line.split_once('\0').ok_or_else(|| anyhow!("Unexpected tip of {branch}: {head_line:?}"))?;
+  let upstream_head = match upstream {
+    Some(upstream) => resolve_commit(git_executor, repo_path, upstream)?,
+    None => None,
+  };
+  let source_head = git_executor.execute_command(&["rev-parse", "HEAD^{commit}"], source_dir)?;
+  let base = worktree_base(git_executor, repo_path, branch, head, &source_head, upstream_head.as_deref(), source_dir)?;
+  let mut excluded = vec![head, base.as_str()];
+  excluded.extend(upstream_head.as_deref());
+  ensure_no_merges(git_executor, repo_path, &source_head, &excluded)?;
+  let revs: Vec<String> = std::iter::once(source_head).chain(excluded.iter().map(|rev| format!("^{rev}"))).collect();
+  let range = range_of(git_executor, repo_path, &revs)?;
+  if range.is_empty() || range[0].parent == head {
+    return Ok(range.iter().map(|commit| pick_commit(&commit.commit)).collect());
+  }
+  let date = committer_date(head_date, &range);
+  let env: Vec<(&str, &str)> = date.iter().map(|date| ("GIT_COMMITTER_DATE", date.as_str())).collect();
+  let commits: Vec<UpdateCommit> = range.into_iter().map(|commit| commit.commit).collect();
+  let rev_args: Vec<&str> = revs.iter().map(String::as_str).collect();
+  let Some(new_head) = replay_range_with_env(git_executor, repo_path, head, &rev_args, &env)? else {
+    return Ok(commits.iter().map(pick_commit).collect());
+  };
+  let replayed = commits_of(git_executor, repo_path, &[new_head, format!("^{head}")])?;
+  let (picked, _present) = match_replayed(&commits, &replayed);
+  Ok(
+    picked
+      .into_iter()
+      .map(|commit| PickCommit {
+        id: commit.commit,
+        subject: commit.subject,
+      })
+      .collect(),
+  )
+}
+
 /// The commits of `revs`, oldest first, with their authors (one `log`)
 fn commits_of(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[String]) -> Result<Vec<UpdateCommit>> {
   let mut args = vec!["log", "--reverse", "-z", COMMIT_FORMAT];

@@ -329,8 +329,8 @@ adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a 
    commit.
 5. Return your worktree once your commits landed: `bd lease return` inside it (or --workspace <dir>; --lease-id <id>
    refuses another lease). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
-   change nothing: `unlanded_commits` (exit 4, `commits`): HEAD has commits that no branch holds, land them with step 2
-   first (also when the owner rewrote them since: the pick finds them present and moves your worktree); `dirty_worktree` (exit 4, `paths`): commit and land them, or ask the user; `slot_busy` (exit 4): a process
+   change nothing: `unlanded_commits` (exit 4, `commits`): commits that the branch of the shared checkout lacks by
+   content (a dry run of the pick decides, also after the owner rewrote the branch); land them with step 2 first; `dirty_worktree` (exit 4, `paths`): commit and land them, or ask the user; `slot_busy` (exit 4): a process
    works in it (a build daemon, a shell); stop it or wait. --confirm-preserved discards the changes and gives up the
    commits, only when the user said so. `bd lease status` lists the slots and their leases from the pool state
    (--processes adds the processes in each); `bd lease adopt <dir>...` adds clean linked worktrees of the repository as

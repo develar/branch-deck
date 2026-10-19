@@ -395,6 +395,65 @@ fn a_clone_that_fails_falls_back_to_a_checkout() {
   assert_eq!(std::fs::read_to_string(Path::new(&path).join("b.txt")).unwrap(), "b\n");
 }
 
+/// Commit `file` in the slot at `path`
+fn commit_in(path: &str, subject: &str, file: &str) -> String {
+  std::fs::write(Path::new(path).join(file), format!("{subject}\n")).unwrap();
+  slot_git(path, &["add", file]);
+  slot_git(path, &["commit", "-q", "-m", subject]);
+  slot_git(path, &["rev-parse", "HEAD"])
+}
+
+/// A lease whose commits landed by `bd pick --follow`, on master with a peer commit, after which a peer rewrote master:
+/// the slot's HEAD is reachable from no branch. Returns the fixture and the slot
+fn followed_then_rewritten() -> (Fixture, String) {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  commit_in(&path, "(lane) Add a", "lane-a.txt");
+  commit_in(&path, "(lane) Add b", "lane-b.txt");
+  fixture.repo.create_commit("(peer) Add p", "p.txt", "p\n");
+  let (exit_code, picked) = crate::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path, "--follow"]);
+  assert_eq!((exit_code, &picked["followed"]["state"]), (0, &json!("moved")), "{picked}");
+  let followed = slot_git(&path, &["rev-parse", "HEAD"]);
+  git(&fixture.repo, &["commit", "-q", "--amend", "-m", "(lane) Add b, reworded"]);
+  let (_, reachable) = fixture
+    .repo
+    .git_executor()
+    .execute_command_with_status(&["merge-base", "--is-ancestor", &followed, "master"], fixture.repo.path_str())
+    .unwrap();
+  assert_ne!(reachable, 0, "the followed tip is no longer in master");
+  (fixture, path)
+}
+
+/// After a follow and a rewrite of master, the slot's commits are landed by content: the return decides by a dry run
+/// of the pick onto the source branch, not by reachability
+#[test_log::test]
+fn a_return_after_a_follow_and_a_rewrite_of_master_finds_the_work_landed_by_content() {
+  let (fixture, path) = followed_then_rewritten();
+  let returned = fixture.give_back(&path);
+  assert_eq!((&returned["landed_check"], &returned["landed_branch"]), (&json!("content"), &json!("master")), "{returned}");
+  assert_eq!(returned.get("given_up"), None);
+}
+
+/// A commit that master lacks is refused, and the refusal names only it: not the followed, landed commits that the
+/// rewrite left unreachable
+#[test_log::test]
+fn a_return_refuses_only_the_commit_that_the_source_branch_lacks() {
+  let (fixture, path) = followed_then_rewritten();
+  let unlanded = commit_in(&path, "(lane) Add c", "lane-c.txt");
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return"]);
+  assert_error(&output, exit_code, (4, "unlanded_commits"));
+  assert_eq!(output["error"]["commits"], json!([unlanded]));
+  assert!(output["error"]["message"].as_str().unwrap().contains("master lacks by content"), "{output}");
+  // a source without a branch: reachability decides, and says why
+  let mut state: Value = serde_json::from_slice(&std::fs::read(fixture.state_file()).unwrap()).unwrap();
+  state["slots"][0]["lease"].as_object_mut().unwrap().remove("source_branch");
+  std::fs::write(fixture.state_file(), state.to_string()).unwrap();
+  let (exit_code, output) = fixture.run_in(Path::new(&path), &["lease", "return"]);
+  assert_error(&output, exit_code, (4, "unlanded_commits"));
+  assert!(output["error"]["commits"].as_array().unwrap().len() > 1, "{output}");
+  assert!(output["error"]["message"].as_str().unwrap().contains("detached HEAD"), "{output}");
+}
+
 /// Concurrent gets reserve their slots under the pool lock: never one slot twice, whether reused or new
 #[test_log::test]
 fn two_leases_never_get_the_same_slot() {

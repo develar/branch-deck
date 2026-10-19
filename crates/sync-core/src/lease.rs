@@ -5,6 +5,7 @@
 //! writes a slot: two gets never wait for each other's checkouts, and no get waits for an update.
 
 use crate::clone_dir::clone_directory;
+use crate::pick::baseline_tracking_ref;
 use crate::process_scan::{ProcessInfo, ProcessScan, is_running, process_started};
 use crate::repository_lock::{RepositoryLock, lock_file};
 use crate::resolve_copies::display_path;
@@ -14,7 +15,8 @@ use git_ops::lease_slot::{
   CheckoutWorkers, LeaseConfig, UnlandedCommit, add_slot, checkout_slot, clean_cloned_slot, detach_slot_head, discard_slot_changes, ignored_paths, is_valid_branch_name,
   lease_config, linked_worktree, refresh_cloned_index, register_slot, slot_changes, unlanded_commits,
 };
-use git_ops::revs::{RepositoryDirs, read_head, ref_exists, resolve_commit};
+use git_ops::pick::commits_to_pick;
+use git_ops::revs::{RepositoryDirs, read_head, ref_exists};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -68,6 +70,13 @@ pub struct Lease {
   pub process_started: Option<u64>,
   /// The commit of the source that the slot was moved to
   pub source_head: String,
+  /// The source checkout of the get, its top level
+  #[serde(default, skip_serializing_if = "String::is_empty")]
+  pub source: String,
+  /// The branch checked out in the source at the get; `None` for a detached HEAD. The return asks whether this branch
+  /// has every change of the slot (`commits_to_pick`)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub source_branch: Option<String>,
   /// The branch the get created at `source_head`
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub branch: Option<String>,
@@ -109,10 +118,11 @@ pub enum LeaseRefusal {
   #[error("Processes work in {path}: {}; stop them, or wait until they are done", describe_processes(.processes))]
   SlotBusy { path: String, processes: Vec<(u32, String)> },
   #[error(
-    "HEAD of {path} has {} commit(s) that no branch, tag or remote branch holds; land them first (`bd pick --from {path} --follow` in the shared checkout), or pass --confirm-preserved to give them up",
-    .commits.len()
+    "HEAD of {path} has {} commit(s) that {}; land them first (`bd pick --from {path} --follow` in the shared checkout), or pass --confirm-preserved to give them up",
+    .commits.len(),
+    .check.describe()
   )]
-  UnlandedCommits { path: String, commits: Vec<UnlandedCommit> },
+  UnlandedCommits { path: String, commits: Vec<UnlandedCommit>, check: LandedCheck },
   #[error("{path} has local changes; commit or land them, or pass --confirm-preserved to discard them")]
   DirtyWorktree { path: String, paths: Vec<String> },
   #[error("{path} has local changes; a slot of the pool must be clean")]
@@ -294,7 +304,7 @@ enum Reserved {
 pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> Result<LeaseGot> {
   let source = &params.source.top_level;
   let git_common_dir = PathBuf::from(canonical_path(Path::new(&params.source.git_common_dir)));
-  let Some(source_head) = resolve_commit(git_executor, source, "HEAD")? else {
+  let Some((source_head, source_branch)) = read_head(git_executor, source)? else {
     bail!(LeaseRefusal::NoCommits(source.clone()));
   };
   if let Some(branch) = &params.branch {
@@ -321,6 +331,8 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
     pid,
     process_started: process_started(pid),
     source_head: source_head.clone(),
+    source: source.clone(),
+    source_branch,
     branch: params.branch.clone(),
     seeded: Vec::new(),
     reused: false,
@@ -850,6 +862,64 @@ pub struct LeaseReturnParams<'a> {
   pub lock_timeout: Duration,
 }
 
+/// Which check of a return decided what is unlanded
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LandedCheck {
+  /// No branch, tag or remote branch lacks a commit of HEAD (beyond the leased commit); or, with `reason`, the check by
+  /// content could not run
+  Reachability { reason: Option<String> },
+  /// The dry run of a pick onto the branch of the source (`commits_to_pick`): what it would pick is unlanded
+  Content { branch: String },
+}
+
+impl LandedCheck {
+  /// The words of the refusal
+  fn describe(&self) -> String {
+    match self {
+      Self::Reachability { reason: None } => "no branch, tag or remote branch holds".to_string(),
+      Self::Reachability { reason: Some(reason) } => format!("no branch, tag or remote branch holds (no check by content: {reason})"),
+      Self::Content { branch } => format!("{branch} lacks by content, as `bd pick --dry-run` would pick them"),
+    }
+  }
+}
+
+/// The unlanded commits of the slot at `path`. The fast path: `unlanded_commits`, reachability; nothing found is
+/// landed. Else, when the lease recorded the branch of its source and the branch is there, the dry run of a pick onto
+/// it decides: a rewrite of the branch (`bd update`, a fold) leaves the commits of a follow unreachable, yet present by
+/// content. Without the branch, or when the pick can't tell (`range_unknown`, a merge), reachability decides
+fn unlanded_work(git_executor: &GitCommandExecutor, path: &str, lease: &Lease) -> Result<(Vec<UnlandedCommit>, LandedCheck)> {
+  let reachable = unlanded_commits(git_executor, path, Some(&lease.source_head), UNLANDED_LIMIT)?;
+  let reachability = |reason: Option<String>| LandedCheck::Reachability { reason };
+  if reachable.is_empty() {
+    return Ok((reachable, reachability(None)));
+  }
+  let Some(branch) = &lease.source_branch else {
+    return Ok((reachable, reachability(Some("the source had a detached HEAD".to_string()))));
+  };
+  if !ref_exists(git_executor, path, &format!("refs/heads/{branch}")) {
+    return Ok((reachable, reachability(Some(format!("the branch {branch} is gone")))));
+  }
+  let upstream = baseline_tracking_ref(git_executor, path).unwrap_or_default();
+  match commits_to_pick(git_executor, path, branch, path, upstream.as_deref()) {
+    Ok(commits) => {
+      let mut unlanded: Vec<UnlandedCommit> = commits
+        .into_iter()
+        .rev()
+        .map(|commit| UnlandedCommit {
+          id: commit.id,
+          subject: commit.subject,
+        })
+        .collect();
+      unlanded.truncate(UNLANDED_LIMIT);
+      Ok((unlanded, LandedCheck::Content { branch: branch.clone() }))
+    }
+    Err(error) => {
+      debug!(slot = %path, error = %format!("{error:#}"), "no check by content");
+      Ok((reachable, reachability(Some(format!("{error:#}")))))
+    }
+  }
+}
+
 /// What a return did
 #[derive(Debug, Clone)]
 pub struct LeaseReturned {
@@ -859,6 +929,8 @@ pub struct LeaseReturned {
   pub discarded: Vec<String>,
   /// The unlanded commits `--confirm-preserved` gave up; they stay in the reflog of the slot's HEAD
   pub given_up: Vec<UnlandedCommit>,
+  /// Which check decided what is unlanded
+  pub landed_check: LandedCheck,
   /// The seeded paths removed
   pub removed: Vec<String>,
   /// The branch the slot was on; it stays
@@ -898,9 +970,13 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
   if !processes.is_empty() {
     bail!(LeaseRefusal::SlotBusy { path, processes });
   }
-  let unlanded = unlanded_commits(git_executor, &path, Some(&lease.source_head), UNLANDED_LIMIT)?;
+  let (unlanded, landed_check) = unlanded_work(git_executor, &path, &lease)?;
   if !unlanded.is_empty() && !params.confirm_preserved {
-    bail!(LeaseRefusal::UnlandedCommits { path, commits: unlanded });
+    bail!(LeaseRefusal::UnlandedCommits {
+      path,
+      commits: unlanded,
+      check: landed_check,
+    });
   }
   let changes = slot_changes(git_executor, &path)?;
   if !changes.is_empty() {
@@ -924,6 +1000,7 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
     slot,
     discarded: changes,
     given_up: unlanded,
+    landed_check,
     removed,
     detached_branch,
     process_scan: scan.is_available(),
