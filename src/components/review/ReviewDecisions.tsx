@@ -68,14 +68,23 @@ export interface ReviewDecisionsProps {
 /**
  * The decisions on the pull request, the primary last: Request Changes… (R), Approve and Safe Push… (M) where Patronus
  * merges, and Approve (A), the primary. Once the user approved the commit, "Approved" says so and Safe Push…, the next
- * step, is the primary.
+ * step, is the primary. They end the title bar of the window: in a narrow one the keys hide and Request Changes… is its
+ * icon.
  */
 export function ReviewDecisions(props: ReviewDecisionsProps) {
   const { request, actions, busy, commitId, requestChangesRef, approveRef, safePushRef } = props
   const safePushNext = actions.approved && actions.safePush !== null && actions.safePush.disabled !== true
   return (
-    <div className="ml-auto flex flex-wrap items-center justify-end gap-2" data-testid="review-decisions">
-      <MenuItemButton item={actions.requestChanges} ref={requestChangesRef} variant="outline" size="sm" pending={busy === "requestChanges"} data-testid="review-request-changes" />
+    <div className="ml-2 flex items-center gap-2" data-testid="review-decisions">
+      <MenuItemButton
+        item={actions.requestChanges}
+        ref={requestChangesRef}
+        variant="outline"
+        size="sm"
+        narrow="label"
+        pending={busy === "requestChanges"}
+        data-testid="review-request-changes"
+      />
       <RequestChangesPopover
         request={request}
         commitId={commitId}
@@ -91,6 +100,7 @@ export function ReviewDecisions(props: ReviewDecisionsProps) {
             ref={safePushRef}
             variant={safePushNext ? "default" : "outline"}
             size="sm"
+            narrow="key"
             pending={busy === "safePush"}
             data-testid="review-safe-push"
           />
@@ -109,7 +119,7 @@ export function ReviewDecisions(props: ReviewDecisionsProps) {
       {actions.approved ? (
         <ApprovedBadge description={actions.approve.description} />
       ) : (
-        <MenuItemButton item={actions.approve} ref={approveRef} variant="default" size="sm" pending={busy === "approve"} data-testid="review-approve" />
+        <MenuItemButton item={actions.approve} ref={approveRef} variant="default" size="sm" narrow="key" pending={busy === "approve"} data-testid="review-approve" />
       )}
     </div>
   )

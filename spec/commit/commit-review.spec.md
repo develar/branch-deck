@@ -200,7 +200,8 @@ where a dialog would cover it.
 - The diffs come from `get_file_diffs` and their texts from `get_blob_texts`
   ([Commit Files](commit-files.spec.md#file-diffs)): N and P step through the blocks that are not `Ignored`.
 - The Split/Unified/Inline toggle must switch the layout; it is the setting of the Files section, Split by default. It is in
-  the header of the block whose diffs it switches: the title bar of a review window, the toolbar of a pull request.
+  the header of the block whose diffs it switches: the title bar of a review window, the end of the tabs of a pull
+  request review, beside Changes.
   Soft wraps follow the setting of Settings → Diffs & Merge ([Commit Files](commit-files.spec.md#soft-wraps)).
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 - A review may show a part of its files (the branch review filters by code owner: by the path or the old path of a

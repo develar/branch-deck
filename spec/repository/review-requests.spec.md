@@ -273,9 +273,10 @@ Safe Push it allows.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
   [@test] ../../src/lib/pull-request-review.test.ts (`keeps its review for a plain open of the request it shows, and starts over for another request or an intent`)
 - The window opens at once with what the search returned. Its title bar ([Title Bar](title-bar.spec.md)): ↑ ↓ (in the
-  tooltips) and the window title "Your Turn › 2 of 5" on the left; the Split/Unified/Inline toggle while the changes show, GitHub (`O`) and "⋯"
-  (Copy Pull Request Link, Copy Branch Name) on the right (`ActionButton`s: in a title bar narrower than 48rem only
-  their icons). Then, in one island:
+  tooltips) and the window title "Your Turn › 2 of 5" on the left; GitHub (`O`), "⋯" (Copy Pull Request Link, Copy
+  Branch Name) and the decisions ([Reviews](#reviews)) on the right, Approve last, in the corner. In a title bar
+  narrower than 48rem GitHub is its icon; narrower than 56rem the decisions drop their keys and Request Changes… is its
+  icon, named on hover; one 40px line down to the window's minimum width. Then, in one island:
   - who asks and for how long: an initials avatar, "dave asks for your review of carol's pull request" (the author named
     when someone else asked) · "waiting 2 days" (`warning` when old, the clock leaf of the card);
   - the title (`text-base font-medium`, as the subject of a commit preview), then the chips: `#101` (opens GitHub), `master ← alice/feature` (copies the
@@ -283,8 +284,10 @@ Safe Push it allows.
     GitHub's decision ("approved", "changes requested"), and "approved by you" / "changes requested by you".
   ↑/↓ show the previous or next request; the window tells the main window (`shown`: the request is read, its refs stay).
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`, `should review a commit of the pull request in the changes, step through the commits, and show the next request with ↓`)
-- Below them the tabs Overview and Changes (`D`, with the file count) on the left and the decisions on the right
-  ([Reviews](#reviews)). The overview, in an island of its own, has the description (as a commit body) beside a rail:
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should hold the decisions of a pull request review on its one line, and its diff view at the end of the tabs`)
+- Below them the tabs Overview and Changes (`D`, with the file count) on the left; while the changes show, the sidebar
+  toggle and the Split/Unified/Inline toggle with Whitespace at the end of the tabs, in the header of the block they
+  switch. The overview, in an island of its own, has the description (as a commit body) beside a rail:
   "Files 4" with the muted sum of the line counts, then the files of the range (status letter, name, directory,
   `+a −d`; the name first, the directory giving way, as every list of changed files names a file; a click
   reviews all changes at that file, the right click and ⌘C copy its path, [Commit Files](../commit/commit-files.spec.md#the-actions-on-a-file))
@@ -307,7 +310,7 @@ Safe Push it allows.
   ([Branch Review](../branch/branch-review.spec.md)): the commits ("All Changes" `base..head`, then the commits newest
   first) above the file tree in the sidebar, beside all diffs, J/K files, N/P changes, ⌥↑/⌥↓ the items of the list, "All Changes
   · File 3 / 12" or "Commit 2 / 5 · File 1 / 3" in the footer; a chosen commit shows its subject, author, time and
-  message above its diffs, never a nested commit preview. The header shrinks to the title, the tabs and the decisions.
+  message above its diffs, never a nested commit preview. The header shrinks to the title and the tabs with the diff view.
   A re-requested review whose last review is on a commit of the pull request below its head offers "Since Your
   Review" (`<reviewed>..head`) in the list, the reviewed commit under the line "Your review · a1b2c3d"; once there is
   nothing after it (the user approved the head) or a commit left the range, the review shows all changes, at the same
@@ -354,7 +357,7 @@ Safe Push it allows.
 
 ### Reviews
 
-- The decisions are in the header, in the overview and in Changes alike, the primary last: Request Changes… (`R`,
+- The decisions are in the title bar, in the overview and in Changes alike, the primary last: Request Changes… (`R`,
   outline), Approve and Safe Push… (`M`, outline, where Patronus merges, see below), and **Approve** (`A`, the
   primary). Once the user approved the shown commit, Approve is "✓ Approved" (`success`, "You approved <hash>" on hover;
   `A` does nothing), and Safe Push…, the next step, is the primary while it can start. The keys work in both views; a
@@ -391,7 +394,7 @@ Safe Push it allows.
 
 ### Safe Push of a reviewed pull request
 
-- Where Patronus guards the repository, the header has Approve and Safe Push… (`M`), an outline button before Approve,
+- Where Patronus guards the repository, the title bar has Approve and Safe Push… (`M`), an outline button before Approve,
   the primary (the decision comes first, the merge after it), and the row's menu has it after Approve…. It is enabled only for a pull request into the branch
   Patronus pushes into for the baseline (`get_patronus_target_branch`); another base is disabled with "#103 merges into
   release/253: Patronus would merge it there, not into master" (a stacked pull request would land in its parent). The
@@ -470,10 +473,12 @@ Safe Push it allows.
   inset. The unread dot is `size-1.5 bg-primary`, the checks dots are `StatusChipDot`. The status line of a failure is
   the footer, `text-xs`.
 - `UserCheckIcon` means "a review for the user" (the card, the Activity entry, the Review menu item).
-- The review is a "decision header" (GitHub, Graphite, Linear): the window-level actions in a toolbar of `sm` ghost
-  buttons with icon, label and key; the decisions as `sm` buttons (`MenuItemButton size="sm"`: the icon, the label, the
-  key last, the reason of a disabled action in a tooltip), Approve the primary, last button; the footer is key hints
-  only. A key inside a primary button is `PRIMARY_KBD_CLASS_NAME` (it would vanish on the primary colour). The tabs are
+- The decisions on the pull request are in the title bar, as the actions of every review window are on its object
+  ([Title Bar](title-bar.spec.md)): the window-level actions as `sm` ghost buttons with icon, label and key, then the
+  decisions as `sm` buttons (`MenuItemButton size="sm"`: the icon, the label, the key last, the reason of a disabled
+  action in a tooltip; `narrow` drops the key or the label in a narrow title bar), Approve the primary, last button,
+  in the corner; the island below holds the pull request and the tabs, the view of the diffs at their end; the footer
+  is key hints only. A key inside a primary button is `PRIMARY_KBD_CLASS_NAME` (it would vanish on the primary colour). The tabs are
   `TabsList variant="line"`. The window lies on `bg-canvas` with two `Card` islands.
 
 ## Testing / Local Run

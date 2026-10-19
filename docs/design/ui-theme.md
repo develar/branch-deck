@@ -1,7 +1,7 @@
 # UI Theme: Islands Layering, Palette and the Radius Scale
 
 **Status:** Implemented  
-**Updated:** 2026-10-15  
+**Updated:** 2026-10-19  
 **Tags:** [ui, theme, shadcn, tailwind, radius, palette]
 
 ## Problem
@@ -183,8 +183,12 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   the request), on the right the view of the window (Split/Unified/Inline) and the actions on its object (`ActionButton`). A
   sub-window is a `WindowPage`: the row, the islands, the footer with the position and the keys only. A preview dialog
   keeps its actions in its footer. A review is a window, never a dialog: a review is a task of minutes beside the
-  branch table, a dialog would cover it; a preview is a glance (Quick Look), a dialog. The Split/Unified/Inline toggle is in
-  the title bar of the window whose diffs it switches.
+  branch table, a dialog would cover it; a preview is a glance (Quick Look), a dialog. The actions on the object are in
+  the row in every review window, the decisions on a pull request (Request Changes…, Approve and Safe Push…, Approve)
+  too: what the window is for stays in one place in each tab, as the branch review's push and Safe Push do. The
+  Split/Unified/Inline toggle is in the header of the block whose diffs it switches: the title bar of a window that
+  is its diffs (the branch and the commit review), the end of the tabs of the pull request review, where it shows
+  only with the changes and leaves the row to the decisions.
 - **Window buttons** are the platform's, never a generic set: Windows' caption buttons (46×40, Segoe Fluent), GNOME's
   and KDE's as IntelliJ draws them (a 47×40 cell, its icons; the `window-button-*` tokens of `src/index.css` are their
   colours, the one exception to the semantic palette), in the order and on the sides of the desktop's layout; they dim

@@ -221,13 +221,15 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
     login · a1b2c3d" when it opened at a commit ([Branch Review](../branch/branch-review.spec.md)).
   - `commit-review`: "Unassigned › 11346cdf", the list and the commit (the hash in `font-mono`), of a commit no branch
     review shows; Split/Unified/Inline ([Commit Review](../commit/commit-review.spec.md)).
-  - `pull-request-review`: the toolbar of the review, ↑ ↓ and "Your Turn › 2 of 5"; Split/Unified/Inline while the changes
-    show, GitHub and "⋯" ([Review Requests](review-requests.spec.md#review-window)).
+  - `pull-request-review`: ↑ ↓ and "Your Turn › 2 of 5"; GitHub, "⋯" and the decisions on the pull request, Approve
+    last; its Split/Unified/Inline is at the end of its tabs, the header of the changes it switches
+    ([Review Requests](review-requests.spec.md#review-window)).
   - `conflicting-files`, `missing-commits`: "bug-fix › Conflicting files", the islands scrolling under the row.
   - `settings`: "Settings", the sidebar of its pages and the page ([Settings](settings.spec.md)).
-  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should start the row of a review window after the traffic lights, its empty parts dragging the window`, `should end the row of a review window with the window buttons of a custom title bar`, `should keep the row of a conflict window above the islands, which scroll under it`)
+  [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should start the row of a review window after the traffic lights, its empty parts dragging the window`, `should end the row of a review window with the window buttons of a custom title bar`, `should keep the row of a conflict window above the islands, which scroll under it`, `should hold the decisions of a pull request review on its one line, and its diff view at the end of the tabs`)
 - A sub-window is at least 800×500 (wider above a 125% zoom: 640 CSS px for the review, `sub_window_min_size`), so
-  its row fits one line; an action with an icon shows only the icon in a row narrower than 48rem (`ActionButton`).
+  its row fits one line; an action with an icon shows only the icon in a row narrower than 48rem (`ActionButton`), a
+  decision of the pull request review its icon or its label without the key below 56rem (`MenuItemButton narrow`).
   Settings, whose row holds only its title, is at least 600×420 (wider above 107%: 560 CSS px for a page).
   [@test] ../../src-tauri/src/zoom_test.rs (`a_zoom_above_125_percent_widens_the_minimum_sub_window`, `the_settings_window_is_smaller_and_widens_above_107_percent`)
 - One window per kind, reused: an open of an open kind retitles it, brings it to the front and hands its page the new

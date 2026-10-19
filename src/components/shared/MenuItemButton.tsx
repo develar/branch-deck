@@ -1,4 +1,5 @@
 import type { RefObject } from "react"
+import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
@@ -19,6 +20,11 @@ export interface MenuItemButtonProps {
   /** The action runs: a spinner in place of the key */
   pending?: boolean
   /**
+   * At `sm` in a narrow title bar (its `@container` below 56rem): `key` hides the key hint, `label` the label and the
+   * key, the icon left alone and named by the hover
+   */
+  narrow?: "key" | "label"
+  /**
    * The key of this button as the surface that starts the action (`SelectContext.surface`): while the action it started
    * runs, the button shows its spinner and its busy state ("Unstacking tool-events…"); without one the row shows it
    */
@@ -34,12 +40,12 @@ export interface MenuItemButtonProps {
  * the key last; the key only where it works, the reason it is disabled in a tooltip, so the button and the menus of the
  * object say the same. The action it started shows here while it runs (`surface`).
  */
-export function MenuItemButton({ item, variant = "ghost", size = "xs", pending = false, surface, className, ref, "data-testid": testId }: MenuItemButtonProps) {
+export function MenuItemButton({ item, variant = "ghost", size = "xs", pending = false, narrow, surface, className, ref, "data-testid": testId }: MenuItemButtonProps) {
   useIndicatorClaim(surface)
   const busy = useSurfaceBusy(surface)
   const running = pending || busy !== null
   const key = item.kbds?.at(-1)
-  const kbd = key !== undefined && <Kbd className={variant === "default" ? PRIMARY_KBD_CLASS_NAME : undefined}>{key.toUpperCase()}</Kbd>
+  const kbd = key !== undefined && <Kbd className={cn(variant === "default" && PRIMARY_KBD_CLASS_NAME, narrow !== undefined && "hidden @4xl:inline-flex")}>{key.toUpperCase()}</Kbd>
   const Icon = item.icon
   const label = busy === null ? item.label : `${busy}…`
   const onClick = () => item.onSelect({ surface: surface ?? null })
@@ -63,19 +69,23 @@ export function MenuItemButton({ item, variant = "ghost", size = "xs", pending =
     ) : (
       <Button {...common} size="sm">
         {running ? <Spinner data-icon="inline-start" /> : Icon !== undefined && <Icon data-icon="inline-start" />}
-        {label}
+        {narrow === "label" ? <span className="sr-only @4xl:not-sr-only">{label}</span> : label}
         {kbd}
       </Button>
     )
-  // the busy state is the label: no reason to hover for
-  if (item.description === undefined || busy !== null) {
+  // the busy state is the label: no reason to hover for; an icon left alone is named by its hover
+  const description = item.description ?? (narrow === "label" ? item.label : undefined)
+  if (description === undefined || busy !== null) {
     return button
   }
   return (
     <Tooltip>
       {/* a span: a disabled button gets no pointer events */}
       <TooltipTrigger render={<span className="inline-flex" />}>{button}</TooltipTrigger>
-      <TooltipContent className="max-w-xs">{item.description}</TooltipContent>
+      <TooltipContent className="flex max-w-xs items-center gap-2">
+        {description}
+        {item.description === undefined && key !== undefined && <Kbd>{key.toUpperCase()}</Kbd>}
+      </TooltipContent>
     </Tooltip>
   )
 }

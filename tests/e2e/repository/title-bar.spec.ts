@@ -3,11 +3,13 @@ import type { Page } from "@playwright/test"
 import { expect, test, testWithConflicts } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
 import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, MIN_WINDOW } from "../helpers/header-helpers"
+import { availableRobots } from "../helpers/patronus-helpers"
+import { availableReviewRequests, getYourTurnCard, openReviewWindow, reviewRequest } from "../helpers/review-request-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import { getEmittedEvents, getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import { TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
-import { waitForConflictViewer } from "../helpers/wait-helpers"
+import { routeCommand, waitForConflictViewer } from "../helpers/wait-helpers"
 
 /** The empty part of the main window's row, between the repository and the actions: it drags the window */
 async function emptyPartOfRow(page: Page): Promise<{ x: number; y: number }> {
@@ -128,6 +130,67 @@ test.describe("Title bar of a sub-window", () => {
     await expect(controls).toBeVisible()
     await controls.getByRole("button", { name: "Close" }).click()
     expect(await windowCalls(page)).toContain("close")
+  })
+
+  test("should hold the decisions of a pull request review on its one line, and its diff view at the end of the tabs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // Patronus merges into master: Approve and Safe Push… is the third decision
+    await routeCommand(page, "get_patronus_target_branch", () => "master")
+    await setupRepo("issue_links", {
+      reviewRequests: availableReviewRequests([reviewRequest("ABC-123", 101, 2, { title: "Rework the session store" })]),
+      patronus: availableRobots(),
+    })
+    await syncAndWaitForBranches()
+    await expect(getYourTurnCard(page)).toBeVisible()
+    // the minimum size of a sub-window
+    const { window, review } = await openReviewWindow(page, 101, {
+      beforeLoad: async it => {
+        await useTitleBar(it, TITLE_BARS.macos)
+        await it.setViewportSize({ width: 800, height: 500 })
+      },
+    })
+    await expect(review.getByTestId("review-commit").first()).toBeVisible()
+
+    const titleBar = window.getByRole("banner")
+    const decisions = titleBar.getByTestId("review-decisions")
+    const buttons = decisions.getByRole("button")
+    await expect(buttons).toHaveCount(3)
+    // Approve is the primary, last, in the corner
+    await expect(buttons.nth(1)).toHaveAccessibleName("Approve and Safe Push…")
+    await expect(buttons.last()).toHaveAccessibleName("Approve")
+    await expect(buttons.last()).toHaveAttribute("data-variant", "default")
+    // the narrow row drops the keys, and Request Changes… is its icon, named for the reader
+    await expect(buttons.first()).toHaveAccessibleName("Request Changes…")
+    expect((await boxOf(buttons.first())).width).toBeLessThan(40)
+    await expect(buttons.last().getByText("A", { exact: true })).toBeHidden()
+    // one 40px line: the title whole, then GitHub, "⋯" and the decisions up to the edge of the window
+    const bar = await boxOf(titleBar)
+    expect(bar.height).toBe(40)
+    const title = await boxOf(titleBar.getByTestId("window-title"))
+    expect(await titleBar.getByTestId("window-title").evaluate(it => it.scrollWidth <= it.clientWidth)).toBe(true)
+    expect(title.x + title.width).toBeLessThanOrEqual((await boxOf(titleBar.getByTestId("review-open-pull-request"))).x)
+    const approve = await boxOf(buttons.last())
+    expect(approve.x + approve.width).toBeLessThanOrEqual(bar.x + bar.width)
+    expect(approve.y + approve.height).toBeLessThanOrEqual(bar.y + bar.height)
+    // the icon opens its form
+    await buttons.first().click()
+    await expect(window.getByTestId("review-request-changes-form")).toBeVisible()
+    await window.keyboard.press("Escape")
+    await expect(window.getByTestId("review-request-changes-form")).toBeHidden()
+
+    // the view of the diffs comes with the changes, at the end of the tabs, never in the row
+    await review.getByTestId("review-dialog-review").click()
+    const view = review.getByTestId("review-view")
+    await expect(view.getByRole("button", { name: "Split" })).toBeVisible()
+    await expect(titleBar.getByRole("button", { name: "Split" })).toHaveCount(0)
+    const tabs = await boxOf(review.getByTestId("review-tabs"))
+    expect((await boxOf(view)).y).toBeLessThan(tabs.y + tabs.height)
+    await view.getByRole("button", { name: "Unified" }).click()
+    await expect(view.getByRole("button", { name: "Unified" })).toHaveAttribute("aria-pressed", "true")
+    // back in the overview it goes, the decisions stay
+    await review.getByTestId("review-tab-overview").click()
+    await expect(review.getByTestId("review-tabs")).toBeVisible()
+    await expect(view).toHaveCount(0)
+    await expect(buttons.last()).toHaveAccessibleName("Approve")
   })
 
   testWithConflicts("should keep the row of a conflict window above the islands, which scroll under it", async ({ page, setupConflictRepo }) => {

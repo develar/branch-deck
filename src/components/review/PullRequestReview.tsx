@@ -11,7 +11,9 @@ import { ReviewDecisions, ReviewTabs } from "@/components/review/ReviewDecisions
 import { ReviewHeader, ReviewNavigation, ReviewToolbarActions } from "@/components/review/ReviewHeader"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { ReviewRail } from "@/components/review/ReviewRail"
+import { ReviewSidebarToggle } from "@/components/review/ReviewSidebarToggle"
 import { Callout } from "@/components/shared/Callout"
+import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
 import { WindowPage } from "@/components/shared/WindowPage"
 import type { ReviewRange, ReviewRequest } from "@/lib/bindings"
@@ -64,11 +66,12 @@ export interface PullRequestReviewProps {
 
 /**
  * The review of a pull request that waits for the user (spec/repository/review-requests.spec.md), in its own window.
- * The title bar (↑ ↓ of Your Turn, Open on GitHub, "⋯"), who asks and how long,
- * the title and the chips, then Overview / Changes (D) and the decisions: Request Changes… (R), Approve and Safe Push…
- * (M) where Patronus merges, Approve (A), the primary. The overview has the description beside the files and commits of
- * the fetched range; Changes is the review of `base..head` (the tree beside all diffs, J/K, N/P). A write is on the
- * fetched head, the commit the user sees; the keys work in both views (`getReviewRequestActions`, as the row's menu).
+ * The title bar: ↑ ↓ of Your Turn, then Open on GitHub, "⋯" and the decisions, Request Changes… (R), Approve and Safe
+ * Push… (M) where Patronus merges, Approve (A), the primary, last. The header island: who asks and how long, the title
+ * and the chips, then Overview / Changes (D), and while the changes show the sidebar and the diff view at the end of
+ * the tabs. The overview has the description beside the files and commits of the fetched range; Changes is the review
+ * of `base..head` (the tree beside all diffs, J/K, N/P). A write is on the fetched head, the commit the user sees; the
+ * keys work in both views (`getReviewRequestActions`, as the row's menu).
  */
 export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
   const { request, repositoryPath, requests, index } = host
@@ -281,7 +284,6 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
     onPrevious: previousOf(host) === null ? null : () => showRequest(previousOf(host)!),
     onNext: nextOf(host) === null ? null : () => showRequest(nextOf(host)!),
     actions,
-    reviewing,
   }
   const top = (
     <div className="flex min-w-0 flex-col">
@@ -299,21 +301,13 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
             onTabChange={next => showTab(next)}
             fileCount={range === null ? null : (files?.files.length ?? request.changedFiles)}
           />
-          <ReviewDecisions
-            request={request}
-            actions={actions}
-            busy={host.busy}
-            commitId={reviewedCommit.id}
-            requestChangesRef={requestChangesRef}
-            approveRef={approveRef}
-            safePushRef={safePushRef}
-            isRequestingChanges={isRequestingChanges}
-            onRequestingChangesChange={setRequestingChanges}
-            isConfirmingSafePush={isConfirmingSafePush}
-            onConfirmingSafePushChange={setConfirmingSafePush}
-            onRequestChanges={body => (reviewedCommit.id === null ? Promise.resolve(false) : host.requestChanges(reviewedCommit.id, body))}
-            onSafePush={() => (reviewedCommit.id === null ? Promise.resolve(false) : host.startSafePush(reviewedCommit.id))}
-          />
+          {/* the view of the diffs, at the end of the tabs, in the header of the block it switches */}
+          {reviewing && (
+            <div className="ml-auto flex items-center gap-2" data-testid="review-view">
+              <ReviewSidebarToggle />
+              <DiffViewToggle />
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -399,7 +393,7 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
     </PreviewDialogFooter>
   )
 
-  // the window: the toolbar is its title bar, the islands on the canvas, the key hints below them; a click anywhere keeps
+  // the window: the toolbar with the decisions is its title bar, the islands on the canvas, the key hints below them; a click anywhere keeps
   // the focus in the page, so the keys work
   return (
     <WindowPage
@@ -412,6 +406,21 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
       titleEnd={
         <div className="flex items-center gap-1" data-testid="review-toolbar">
           <ReviewToolbarActions {...toolbarProps} />
+          <ReviewDecisions
+            request={request}
+            actions={actions}
+            busy={host.busy}
+            commitId={reviewedCommit.id}
+            requestChangesRef={requestChangesRef}
+            approveRef={approveRef}
+            safePushRef={safePushRef}
+            isRequestingChanges={isRequestingChanges}
+            onRequestingChangesChange={setRequestingChanges}
+            isConfirmingSafePush={isConfirmingSafePush}
+            onConfirmingSafePushChange={setConfirmingSafePush}
+            onRequestChanges={body => (reviewedCommit.id === null ? Promise.resolve(false) : host.requestChanges(reviewedCommit.id, body))}
+            onSafePush={() => (reviewedCommit.id === null ? Promise.resolve(false) : host.startSafePush(reviewedCommit.id))}
+          />
         </div>
       }
       footer={footer}

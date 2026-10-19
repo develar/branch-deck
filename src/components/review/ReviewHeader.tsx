@@ -9,10 +9,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { StatusChipDot } from "@/components/branch/StatusChip"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { WaitingAge } from "@/components/repository/ReviewRequestRow"
-import { ReviewSidebarToggle } from "@/components/review/ReviewSidebarToggle"
 import { ActionButton } from "@/components/shared/ActionButton"
 import { CopyButton } from "@/components/shared/CopyButton"
-import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { WindowTitle } from "@/components/shared/WindowTitleBar"
 import type { ReviewRequest } from "@/lib/bindings"
@@ -30,8 +28,6 @@ export interface ReviewToolbarProps {
   onPrevious: (() => void) | null
   onNext: (() => void) | null
   actions: ReviewRequestActions
-  /** The changes show: Unified/Split switches their diffs */
-  reviewing: boolean
 }
 
 /** ↑ ↓ and "Your Turn › 2 of 5": where the request is in the list, the start of the title bar of the review window */
@@ -45,12 +41,10 @@ export function ReviewNavigation({ index, count, onPrevious, onNext }: Pick<Revi
   )
 }
 
-/** The diff view while the changes show, Open on GitHub and "⋯" (the copy actions): the end of the title bar */
-export function ReviewToolbarActions({ request, actions, reviewing }: Pick<ReviewToolbarProps, "request" | "actions" | "reviewing">) {
+/** Open on GitHub and "⋯" (the copy actions), the window-level actions before the decisions at the end of the title bar */
+export function ReviewToolbarActions({ request, actions }: Pick<ReviewToolbarProps, "request" | "actions">) {
   return (
     <>
-      {reviewing && <ReviewSidebarToggle />}
-      {reviewing && <DiffViewToggle />}
       <MenuItemAction item={actions.openPullRequest} label="GitHub" data-testid="review-open-pull-request" />
       <DropdownMenu>
         <Tooltip>
