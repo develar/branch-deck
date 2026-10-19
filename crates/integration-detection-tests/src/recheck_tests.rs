@@ -15,7 +15,6 @@ use sync_types::SyncEvent;
 use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus};
 use sync_utils::timestamp::format_utc_date;
 use test_log::test;
-use test_utils::env_vars::EnvVars;
 use test_utils::git_test_utils::TestRepo;
 
 const RETENTION_DAYS: u64 = 7;
@@ -83,10 +82,9 @@ fn detect(repo: &TestRepo) -> (Vec<SyncEvent>, Vec<String>) {
     strategy: DetectionStrategy::Rebase,
     retention_days: RETENTION_DAYS,
   };
-  let env = EnvVars::set(&[("GIT_TRACE2_EVENT", &trace)]);
-  let result = detect_integrated_branches(repo.git_executor(), path(repo), "user", "origin/master", config);
-  drop(env);
-  result.unwrap();
+  // the trace of this detection's git only: the process environment is shared with the tests that run beside it
+  let git = repo.git_executor().with_env("GIT_TRACE2_EVENT", trace.to_str().unwrap());
+  detect_integrated_branches(&git, path(repo), "user", "origin/master", config).unwrap();
   let scans = std::fs::read_to_string(&trace)
     .unwrap_or_default()
     .lines()

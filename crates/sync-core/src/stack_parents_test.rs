@@ -12,7 +12,6 @@ use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap};
 use sync_types::stack::{DeclaredParent, ParentSource, ParentState, StackProblem};
 use test_log::test;
-use test_utils::env_vars::EnvVars;
 use test_utils::git_test_utils::TestRepo;
 
 fn stack_parents(repo: &TestRepo) -> StoreLines {
@@ -101,9 +100,9 @@ fn the_stack_setting_and_both_maps_cost_two_git_processes() {
   regroup(&repo, &plan(&[("auth/ABC-1", &[&ids[1]])], &[])).unwrap();
   let trace_dir = tempfile::tempdir().unwrap();
   let trace = trace_dir.path().join("trace.json");
-  let env = EnvVars::set(&[("GIT_TRACE2_EVENT", &trace)]);
-  let inputs = read_grouping_inputs(repo.git_executor(), path(&repo)).unwrap();
-  drop(env);
+  // the trace of this test's git only: the process environment is shared with the tests that run beside it
+  let git = repo.git_executor().with_env("GIT_TRACE2_EVENT", trace.to_str().unwrap());
+  let inputs = read_grouping_inputs(&git, path(&repo)).unwrap();
   let started: Vec<String> = std::fs::read_to_string(&trace)
     .unwrap()
     .lines()

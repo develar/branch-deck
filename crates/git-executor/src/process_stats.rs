@@ -43,6 +43,11 @@ impl ProcessStats {
     self.by_command.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
   }
 
+  /// The number of processes of each subcommand, sorted by the subcommand: what a test pins
+  pub fn counts(&self) -> Vec<(String, u32)> {
+    self.by_command().into_iter().map(|(command, stats)| (command, stats.count)).collect()
+  }
+
   /// The processes of every subcommand
   pub fn total(&self) -> u32 {
     self

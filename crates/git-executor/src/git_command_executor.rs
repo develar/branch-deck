@@ -43,6 +43,8 @@ pub struct GitCommandExecutor {
   info: Arc<OnceLock<GitInfo>>,
   /// Counts the processes of one operation (`with_process_stats`)
   stats: Option<Arc<ProcessStats>>,
+  /// Variables every process of this executor gets (`with_env`)
+  env: Arc<[(String, String)]>,
 }
 
 impl GitCommandExecutor {
@@ -57,6 +59,7 @@ impl GitCommandExecutor {
     Self {
       info: Arc::new(OnceLock::from(info)),
       stats: None,
+      env: Arc::default(),
     }
   }
 
@@ -71,7 +74,18 @@ impl GitCommandExecutor {
     Self {
       info: Arc::clone(&self.info),
       stats: Some(Arc::new(ProcessStats::new(operation))),
+      env: Arc::clone(&self.env),
     }
+  }
+
+  /// A clone whose git processes, and those of its clones, also get `name=value`, after the base environment and before
+  /// the variables of a call. A test traces its own processes this way (`GIT_TRACE2_EVENT`), never through the process
+  /// environment, which the tests of one process share
+  #[must_use]
+  pub fn with_env(&self, name: &str, value: &str) -> Self {
+    let mut env = self.env.to_vec();
+    env.push((name.to_string(), value.to_string()));
+    Self { env: env.into(), ..self.clone() }
   }
 
   /// The stats of `with_process_stats`
@@ -117,6 +131,7 @@ impl GitCommandExecutor {
       .args(args)
       .current_dir(repository_path)
       .envs(BASE_ENV)
+      .envs(self.env.iter().map(|(name, value)| (name.as_str(), value.as_str())))
       .envs(env.iter().copied())
       .stdin(Stdio::null());
     Ok(cmd)

@@ -18,7 +18,6 @@ use std::time::Duration;
 use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
 use test_log::test;
-use test_utils::env_vars::EnvVars;
 use test_utils::git_test_utils::TestRepo;
 
 /// An upstream repository with `shared.txt` and `other.txt`, and a clone of it whose `master` tracks `origin/master`
@@ -658,7 +657,9 @@ fn preview_reuses_the_replay_of_an_unchanged_state() {
     let _ = fs::remove_file(&trace);
     replays
   };
-  let _env = EnvVars::set(&[("GIT_TRACE2_EVENT", &trace)]);
+  // the trace of this test's git only: the process environment is shared with the tests that run beside it
+  let traced = clone.git_executor().with_env("GIT_TRACE2_EVENT", trace.to_str().unwrap());
+  let preview = |repo: &TestRepo| check_baseline_update(&traced, path(repo), "origin/master").unwrap().unwrap().check.state;
   assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::Rebase });
   assert_eq!(replays(), 1);
   assert_eq!(preview(&clone), UpdateState::Clean { kind: UpdateKind::Rebase });
