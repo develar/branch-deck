@@ -1,10 +1,11 @@
 // @spec spec/commit/commit-review.spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { CommitReviewWindowData } from "../../../src/lib/commit-review-window"
+import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, expandBranch, getBranchCommitRow } from "../helpers/branch-helpers"
+import { findBranchRow, expandBranch, getBranchCommitRow, getUnassignedCommitRow } from "../helpers/branch-helpers"
 import { chooseWhitespace, getCommitPreview, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
-import { getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
+import { getOpenedSubWindows, getSubWindowReadyOpen, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import type { OpenedSubWindow } from "../helpers/sub-window-helpers"
 import { holdCommand } from "../helpers/wait-helpers"
 
@@ -20,27 +21,46 @@ function selectedFile(review: Locator): Locator {
   return review.getByRole("tree", { name: "Changed files" }).locator("[role=treeitem][aria-selected=true]")
 }
 
-/** The `count`-th review window the page opened (`open_sub_window`), once it is recorded */
-async function openedReview(page: Page, count: number): Promise<OpenedSubWindow<CommitReviewWindowData>> {
+/** The `count`-th window the page opened (`open_sub_window`), once it is recorded */
+async function openedWindow<T>(page: Page, count: number): Promise<OpenedSubWindow<T>> {
   await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count)
-  const opened = (await getOpenedSubWindows<CommitReviewWindowData>(page))[count - 1]!
+  return (await getOpenedSubWindows<T>(page))[count - 1]!
+}
+
+/** The `count`-th open, the review of a commit of a branch: the review window of the branch, at the commit */
+async function openedReview(page: Page, count: number): Promise<OpenedSubWindow<BranchReviewWindowData>> {
+  const opened = await openedWindow<BranchReviewWindowData>(page, count)
+  expect(opened).toMatchObject({ windowId: "branch-review", url: "/branch-review" })
+  return opened
+}
+
+/** The `count`-th open, the review window of a commit of no branch it can be reviewed with */
+async function openedCommitReview(page: Page, count: number): Promise<OpenedSubWindow<CommitReviewWindowData>> {
+  const opened = await openedWindow<CommitReviewWindowData>(page, count)
   expect(opened).toMatchObject({ windowId: "commit-review", url: "/commit-review" })
   return opened
 }
 
-/** Shows the review window in the page, as the app opens it */
-async function showReviewWindow(page: Page, opened: OpenedSubWindow<CommitReviewWindowData>): Promise<Locator> {
+/** Shows the review window of a branch in the page, as the app opens it */
+async function showReviewWindow(page: Page, opened: OpenedSubWindow<BranchReviewWindowData>): Promise<Locator> {
   await openSubWindowPage(page, opened)
-  const window = page.getByTestId("commit-review-window")
+  const window = page.getByTestId("branch-review")
   await expect(window).toBeVisible()
   return window
+}
+
+/** The commit a review of a branch opens at: the copy of the commit in the virtual branch */
+function focusedCommit(opened: OpenedSubWindow<BranchReviewWindowData>): string {
+  const commitId = opened.data.focus.commitId
+  expect(commitId).toMatch(/^[0-9a-f]{40}$/)
+  return commitId!
 }
 
 /**
  * D in the preview of "perf db: increase pool size to 50" of JIRA-456: the `issue_links` template has three commits
  * there, each changing one file under db/, and this is the second
  */
-async function reviewPoolSizeCommit(page: Page): Promise<OpenedSubWindow<CommitReviewWindowData>> {
+async function reviewPoolSizeCommit(page: Page): Promise<OpenedSubWindow<BranchReviewWindowData>> {
   await expandBranch(page, findBranchRow(page, "JIRA-456"))
   await openCommitPreview(page, getBranchCommitRow(page, "JIRA-456", "perf db: increase pool size to 50"))
   await page.keyboard.press("d")
@@ -59,11 +79,14 @@ simpleTest.describe("Commit review", () => {
     // D in the preview: the review in its window, at the first file; the preview closes
     await expect(preview).toBeHidden()
     const opened = await openedReview(page, 1)
-    expect(opened.title).toMatch(new RegExp(`^Review [0-9a-f]{8} ${SUBJECT}$`))
-    expect(opened.data).toMatchObject({ index: 0, path: null, listLabel: "session" })
+    expect(opened.title).toMatch(/^Review session · [0-9a-f]{8}$/)
+    expect(opened.data).toMatchObject({ chain: ["session"], focus: { range: "own", path: null } })
+    focusedCommit(opened)
 
     const window = await showReviewWindow(page, opened)
-    const position = window.getByTestId("commit-review-position")
+    // the branch of the commit in the title bar, with its actions
+    await expect(window.getByTestId("branch-review-segment")).toHaveAttribute("data-name", "session")
+    const position = window.getByTestId("branch-review-position")
     const code = window.getByTestId("commit-review-code")
     // the files in the order of the tree, the first one selected
     await expect(position).toHaveText("File 1 / 5")
@@ -171,16 +194,16 @@ simpleTest.describe("Commit review", () => {
     await page.keyboard.press("Enter")
     await expect(preview).toBeHidden()
     const atFile = await openedReview(page, 1)
-    expect(atFile.data.path).toBe("plugins/air/backend/session/catalog/testSrc/RowMapperTest.kt")
+    expect(atFile.data.focus.path).toBe("plugins/air/backend/session/catalog/testSrc/RowMapperTest.kt")
 
     // the footer button: the first file
     await openCommitPreview(page, getBranchCommitRow(page, "session", SUBJECT))
     await preview.getByTestId("commit-review-toggle").click()
     await expect(preview).toBeHidden()
-    expect((await openedReview(page, 2)).data.path).toBeNull()
+    expect((await openedReview(page, 2)).data.focus.path).toBeNull()
 
     const window = await showReviewWindow(page, atFile)
-    await expect(window.getByTestId("commit-review-position")).toHaveText("File 2 / 5")
+    await expect(window.getByTestId("branch-review-position")).toHaveText("File 2 / 5")
     await expect(selectedFile(window)).toHaveAttribute("aria-label", "RowMapperTest.kt")
   })
 })
@@ -209,12 +232,12 @@ simpleTest("should strike a deleted file through, never its status letter, in th
 
 testWithIssueLinks("should switch the commit of a review with Alt and the arrows", async ({ page }) => {
   const opened = await reviewPoolSizeCommit(page)
-  // the list as it was, the commit of it
-  expect(opened.data).toMatchObject({ index: 1, path: null, listLabel: "JIRA-456" })
-  expect(opened.data.commits).toHaveLength(3)
+  // the branch, at the commit
+  expect(opened.data).toMatchObject({ chain: ["JIRA-456"], focus: { range: "own", path: null } })
+  focusedCommit(opened)
 
   const window = await showReviewWindow(page, opened)
-  const position = window.getByTestId("commit-review-position")
+  const position = window.getByTestId("branch-review-position")
   await expect(position).toHaveText("Commit 2 / 3 · File 1 / 1")
   await expect(window.getByTestId("range-review-commit-header")).toContainText("perf db: increase pool size to 50")
   await expect(window.getByTestId("commit-review-code")).toContainText("size: 50")
@@ -222,7 +245,7 @@ testWithIssueLinks("should switch the commit of a review with Alt and the arrows
   await page.keyboard.press("Alt+ArrowDown")
   await expect(window.getByTestId("range-review-commit-header")).toContainText("Fix database connection pool timeout")
   await expect(position).toHaveText("Commit 3 / 3 · File 1 / 1")
-  await expect(window.getByTestId("commit-review-window-footer")).toContainText("EscClose")
+  await expect(window.getByTestId("branch-review-footer")).toContainText("EscClose")
 })
 
 testWithIssueLinks("should show the files while the patch is read, settle with the diffs, and step to a commit read beside it", async ({ page }) => {
@@ -268,8 +291,8 @@ testWithIssueLinks("should review a commit of a row in its window with D and wit
   await row.hover()
   await page.keyboard.press("d")
   const byKey = await openedReview(page, 1)
-  expect(byKey.title).toMatch(/^Review [0-9a-f]{8} perf db: increase pool size to 50$/)
-  expect(byKey.data).toMatchObject({ index: 1, path: null })
+  expect(byKey.title).toMatch(/^Review JIRA-456 · [0-9a-f]{8}$/)
+  const commitId = focusedCommit(byKey)
   await expect(preview).toBeHidden()
 
   // Review Changes, the only review item of the row's menu, first
@@ -277,7 +300,7 @@ testWithIssueLinks("should review a commit of a row in its window with D and wit
   await expect(page.getByRole("menuitem").first()).toHaveText("Review ChangesD")
   await expect(page.getByRole("menuitem", { name: "Open in Window" })).toHaveCount(0)
   await page.getByRole("menuitem", { name: "Review Changes" }).click()
-  expect((await openedReview(page, 2)).data).toMatchObject({ index: 1, path: null })
+  expect((await openedReview(page, 2)).data.focus).toMatchObject({ commitId, path: null })
   await expect(page.getByRole("menu")).toBeHidden()
 
   // an open menu keeps its keys: D reviews nothing; right after Escape, D reviews the row
@@ -308,12 +331,12 @@ testWithIssueLinks("should give the focus to the list after the preview, its key
 
   // D: the window of the commit shown; the list has the focus again
   await page.keyboard.press("d")
-  expect((await openedReview(page, 1)).data).toMatchObject({ index: 2 })
+  const shown = focusedCommit(await openedReview(page, 1))
   await expect(preview).toBeHidden()
   await expect(first.locator("xpath=ancestor::table[1]")).toBeFocused()
   // D and Space act on that commit, not on the clicked one
   await page.keyboard.press("d")
-  expect((await openedReview(page, 2)).data).toMatchObject({ index: 2 })
+  expect(focusedCommit(await openedReview(page, 2))).toBe(shown)
   await page.keyboard.press("Space")
   await expect(preview.getByRole("heading", { level: 2 })).toHaveText("Fix database connection pool timeout")
 
@@ -322,7 +345,11 @@ testWithIssueLinks("should give the focus to the list after the preview, its key
   await first.click()
   await page.mouse.move(1, 1)
   await page.keyboard.press("d")
-  expect((await openedReview(page, 3)).data).toMatchObject({ index: 1 })
+  const clicked = await openedReview(page, 3)
+  expect(focusedCommit(clicked)).not.toBe(shown)
+  // the review shows the clicked one
+  const window = await showReviewWindow(page, clicked)
+  await expect(window.getByTestId("range-review-commit-header")).toContainText("perf db: increase pool size to 50")
 })
 
 simpleTest("should filter the files of a review by their path, with / from the diffs, Escape and Clear Filter", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -338,7 +365,7 @@ simpleTest("should filter the files of a review by their path, with / from the d
   const files = tree.locator("[role=treeitem]:not([aria-expanded])")
   const code = window.getByTestId("commit-review-code")
   const diffs = code.locator("[aria-label='Changes of the commit']")
-  const position = window.getByTestId("commit-review-position")
+  const position = window.getByTestId("branch-review-position")
   const header = window.getByTestId("review-files-header")
   await expect(files).toHaveCount(9)
   await expect(header).toHaveText("Files9")
@@ -397,7 +424,7 @@ simpleTest.describe("Commit review of a re-indented file", () => {
     await openCommitPreview(page, getBranchCommitRow(page, "format", "indent the block of first and return 4"))
     await page.keyboard.press("d")
     const window = await showReviewWindow(page, await openedReview(page, 1))
-    const position = window.getByTestId("commit-review-position")
+    const position = window.getByTestId("branch-review-position")
     const code = window.getByTestId("commit-review-code")
     await expect(position).toHaveText("File 1 / 2")
     await expect(code).toContainText("fun second() = 4")
@@ -432,4 +459,76 @@ simpleTest.describe("Commit review of a re-indented file", () => {
     await choose("Ignore Whitespace and Blank Lines", "modified, +1 −1")
     await stepThrough(1)
   })
+})
+
+simpleTest.describe("A commit with its branch", () => {
+  // the `stack_push_alone` template: `perf-part-2`, one commit, stacked on `IJPL-257337`, two commits
+  simpleTest.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stack_push_alone")
+    await syncAndWaitForBranches()
+  })
+
+  simpleTest("should review a commit of a stacked branch with its stack and its actions, and move to a commit of the chain", async ({ page }) => {
+    await expandBranch(page, findBranchRow(page, "perf-part-2"))
+    const own = getBranchCommitRow(page, "perf-part-2", "Cache the parsed icon")
+    await own.hover()
+    await page.keyboard.press("d")
+    const opened = await openedReview(page, 1)
+    expect(opened.data).toMatchObject({ chain: ["IJPL-257337", "perf-part-2"], move: false })
+    focusedCommit(opened)
+
+    const window = await openLinkedSubWindow(page, opened)
+    // the stack of the commit's branch, the branch selected; its push in the title bar
+    const segments = window.getByTestId("branch-review-segment")
+    await expect(segments).toHaveCount(2)
+    await expect(segments.nth(1)).toHaveAttribute("aria-pressed", "true")
+    await expect(window.getByTestId("range-review-commit-header")).toContainText("Cache the parsed icon")
+    await expect(window.getByTestId("branch-review-actions").getByRole("button", { name: /^Push/ })).toBeVisible()
+
+    // From Root, then D on a commit of the parent in the main window: the window keeps the part, which has it
+    await window.getByRole("button", { name: "From Root" }).click()
+    await expect(window.getByRole("button", { name: "From Root" })).toHaveAttribute("aria-pressed", "true")
+    await expandBranch(page, findBranchRow(page, "IJPL-257337"))
+    await getBranchCommitRow(page, "IJPL-257337", "Load icons lazily").hover()
+    await page.keyboard.press("d")
+    const moved = await openedReview(page, 2)
+    expect(moved.data).toMatchObject({ chain: ["IJPL-257337", "perf-part-2"], move: true, startedAt: opened.data.startedAt })
+    await reopenLinkedSubWindow(window, moved)
+    await expect(window.getByTestId("range-review-commit-header")).toContainText("Load icons lazily")
+    await expect(window.getByRole("button", { name: "From Root" })).toHaveAttribute("aria-pressed", "true")
+
+    // the own part of the child: a commit of the parent shows the parent's segment
+    await segments.nth(1).click()
+    await expect(window.getByRole("button", { name: "From Root" })).toHaveAttribute("aria-pressed", "false")
+    await getBranchCommitRow(page, "IJPL-257337", "Parse the icon off the EDT").hover()
+    await page.keyboard.press("d")
+    await reopenLinkedSubWindow(window, await openedReview(page, 3))
+    await expect(window.getByTestId("range-review-commit-header")).toContainText("Parse the icon off the EDT")
+    await expect(segments.nth(0)).toHaveAttribute("aria-pressed", "true")
+    await expect(segments.nth(1)).toHaveAttribute("aria-pressed", "false")
+  })
+})
+
+simpleTest("should review an unassigned commit in the review window of the commit", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  await setupRepo("single_unassigned")
+  await syncAndWaitForBranches()
+  await getUnassignedCommitRow(page, "Fix critical bug").hover()
+  await page.keyboard.press("d")
+  const opened = await openedCommitReview(page, 1)
+  expect(opened.data).toMatchObject({ listLabel: "Unassigned", index: 0 })
+})
+
+simpleTest("should review a commit of a branch in conflict and of a blocked one in the review window of the commit", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  // the `stacked_conflict` template: the copy of `auth` conflicts, so `login`, stacked on it, is blocked
+  await setupRepo("stacked_conflict")
+  await syncAndWaitForBranches()
+  await expandBranch(page, findBranchRow(page, "login"))
+  await getBranchCommitRow(page, "login", "Add login form").hover()
+  await page.keyboard.press("d")
+  expect((await openedCommitReview(page, 1)).data).toMatchObject({ listLabel: "login" })
+
+  await expandBranch(page, findBranchRow(page, "auth"))
+  await getBranchCommitRow(page, "auth", "Read the auth config").hover()
+  await page.keyboard.press("d")
+  expect((await openedCommitReview(page, 2)).data).toMatchObject({ listLabel: "auth" })
 })

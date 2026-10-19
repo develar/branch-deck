@@ -28,6 +28,12 @@ import { useDiffViewMode, useDiffWhitespacePolicy } from "@/stores/settings/diff
 // the highlight worker starts with the page of a review, beside the reads of its files and diffs, not after them
 getHighlightClient()
 
+/** The files a review shows (the filters of its sidebar applied) and all of them */
+export interface FilesCount {
+  readonly shown: number
+  readonly total: number
+}
+
 export interface CommitReviewProps {
   /** A commit, or the range of a pull request */
   subject: DiffSubject
@@ -45,8 +51,11 @@ export interface CommitReviewProps {
   rangeNoun?: string
   /** Above the files in the sidebar: the commits of a range (`RangeReview`) */
   sidebarTop?: ReactNode
-  /** The header of the files in the sidebar: "18 files" by default, the owner chips of a branch review */
-  filesHeader?: ReactNode
+  /**
+   * The header of the files in the sidebar, of the number of files shown and of all of them (null while none show):
+   * "Files 3 of 9" by default, the owner chips of a branch review
+   */
+  filesHeader?: (count: FilesCount | null) => ReactNode
   /** Above the diffs: the commit a range shows */
   codeTop?: ReactNode
   /** What ⌥↑/⌥↓ show next: read once the subject is, so the step is instant */
@@ -262,7 +271,7 @@ interface ReviewLayoutProps {
   onPositionChange: (position: ReviewPosition) => void
   fileOwners: ReadonlyMap<string, string> | undefined
   sidebarTop: ReactNode
-  filesHeader: ReactNode
+  filesHeader: CommitReviewProps["filesHeader"]
   codeTop: ReactNode
   search: FileSearch | null
 }
@@ -426,10 +435,11 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
               className="flex min-h-10 shrink-0 flex-wrap items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground"
               data-testid="review-files-header"
             >
-              {filesHeader ??
-                (loaded !== null && (
-                  <SectionLabel title="Files" count={loaded.files.length} of={loaded.files.length === loaded.totalCount ? undefined : loaded.totalCount} className="flex-1" />
-                ))}
+              {filesHeader !== undefined
+                ? filesHeader(loaded === null ? null : { shown: loaded.files.length, total: loaded.totalCount })
+                : loaded !== null && (
+                    <SectionLabel title="Files" count={loaded.files.length} of={loaded.files.length === loaded.totalCount ? undefined : loaded.totalCount} className="flex-1" />
+                  )}
             </div>
             <div ref={tree} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
               {loaded !== null && (

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { CommitHeading } from "@/components/commit/CommitHeading"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { CommitReview } from "@/components/commit/CommitReview"
+import type { CommitReviewProps } from "@/components/commit/CommitReview"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import { useCommitFileStats } from "@/hooks/useCommitFiles"
 import type { ReviewCommit } from "@/lib/bindings"
@@ -32,7 +33,7 @@ export interface RangeReviewProps {
   /** What the range is, in the error: "Cannot read the changes of the branch" */
   rangeNoun: string
   /** The header of the files: the owner chips of a branch review */
-  filesHeader?: ReactNode
+  filesHeader?: CommitReviewProps["filesHeader"]
 }
 
 /**

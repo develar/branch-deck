@@ -138,8 +138,9 @@ The commit hash popover shows the same header and body.
 - Without a row under the pointer, Space must open the preview of the last clicked row of the focused list.
 - The preview must not change the selection.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the preview of the last clicked unassigned row with Space and keep the selection`)
-- D over a row reviews its commit in the review window, as Space opens its preview; the row's menu starts with
-  "Review Changes" (D) ([Commit Review](commit-review.spec.md)).
+- D over a row reviews its commit, as Space opens its preview: a commit of a branch in the review window of its
+  branch, at the commit, another one in the review window of the commit; the row's menu starts with "Review Changes"
+  (D) ([Commit Review](commit-review.spec.md)).
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a row in its window with D and with the item of its menu`)
 - Space must keep its own meaning in a text field, a menu and another dialog.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should keep Space in a text field`)

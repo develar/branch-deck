@@ -3,6 +3,7 @@ import { GitPullRequestCreateIcon, GitPullRequestIcon, InfoIcon, ShieldAlertIcon
 import type { LucideIcon } from "lucide-react"
 import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import type { FilesCount } from "@/components/commit/CommitReview"
 import { BranchReviewStackBar } from "@/components/review/BranchReviewStackBar"
 import { RangeReview } from "@/components/review/RangeReview"
 import { ActionButton } from "@/components/shared/ActionButton"
@@ -56,7 +57,7 @@ export function BranchReviewGone({ model }: { model: BranchReviewModel }) {
 }
 
 /** The header of the files: the owner chips, or the owner of them all ("18 files · Air Plugin") */
-function BranchReviewFilesHeader({ model }: { model: BranchReviewModel }) {
+function BranchReviewFilesHeader({ model, count }: { model: BranchReviewModel; count: FilesCount | null }) {
   const { loaded } = model
   if (loaded === null || loaded.files === undefined) {
     return null
@@ -68,7 +69,7 @@ function BranchReviewFilesHeader({ model }: { model: BranchReviewModel }) {
   const owner = soleOwner(loaded.files, loaded.owners)
   return (
     <span data-testid="branch-review-files" className="flex min-w-0 flex-1">
-      <SectionLabel title="Files" count={loaded.files.length} className="flex-1">
+      <SectionLabel title="Files" count={count?.shown ?? loaded.files.length} of={count === null || count.shown === count.total ? undefined : count.total} className="flex-1">
         {owner ?? undefined}
       </SectionLabel>
     </span>
@@ -109,7 +110,7 @@ export function BranchReviewBody({ model }: { model: BranchReviewModel }) {
       filteredEmptyText={filterEmptyText(filter)}
       fileOwners={loaded.owners}
       rangeNoun="branch"
-      filesHeader={<BranchReviewFilesHeader model={model} />}
+      filesHeader={count => <BranchReviewFilesHeader model={model} count={count} />}
     />
   )
 }

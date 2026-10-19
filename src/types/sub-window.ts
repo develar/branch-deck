@@ -119,8 +119,12 @@ export interface BranchReviewWindowData {
   wholeStack?: boolean
   /** Where the review starts: the part of the stack, the files, the commit, the file ("Review Changes" of the Safe Push popover) */
   focus: Omit<BranchReviewFocus, "groups">
-  /** A new value on every open: the same branch opened again resets the window */
+  /** A new value on every open: a move to a commit of the chain on screen shows it (`move`) */
   openedAt: number
+  /** The open that started the review (`planReviewOpen`): the window starts over when it changes */
+  startedAt: number
+  /** A move to `focus.commitId`, a commit of the chain on screen: the review keeps its part (when it has the commit) and filter */
+  move: boolean
   /** What the main window knows of the chain at the open; it sends what changed over the link */
   state: BranchReviewWindowState
 }

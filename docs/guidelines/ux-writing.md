@@ -138,7 +138,8 @@ indicator could cancel a robot but not restart it.
   key), and the chip of the object keeps its own state, so the row doesn't say it twice.
 - **The review keys of every object**: D reviews it in its window ("Review Changes": the commit, the branch, the pull
   request; one action, no "Open in Window"), from the row, its menu and its preview (D, the footer button, Enter on a
-  file of the tree, which closes the preview); Space previews it, Escape closes the window. On a row D follows the
+  file of the tree, which closes the preview); a commit of a branch is reviewed in the window of its branch, at the
+  commit, where the stack and the actions are; Space previews it, Escape closes the window. On a row D follows the
   pointer as Space does; the keys that act (P, S, O, M) need the focused row. Inside a review J/K are the files, N/P
   the changes, ⌥↑/⌥↓ the commits.
 - **No verb on a verb**: an action named by a verb is its own button ("Safe Push", never "Start Safe Push"; "Dry

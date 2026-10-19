@@ -37,7 +37,15 @@ export function BranchReviewPage() {
 function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
   // what the main window says of the chain: the heads a sync built, the actions of each branch
   const linked = useLinkedState(BRANCH_REVIEW_WINDOW, data.state)
-  const model = useBranchReview(data, data.focus, { known: linked.selected, tips: linked.tips })
+  // the "Create pull request" dialog of a branch of the chain: in this window, its context from the main window; a move
+  // to a commit waits until it closes
+  const [dialog, setDialog] = useState<{ branchName: string; generation: number } | null>(null)
+  const model = useBranchReview(
+    data,
+    data.focus,
+    { known: linked.selected, tips: linked.tips },
+    { openedAt: data.openedAt, focus: data.move ? data.focus : null, held: dialog !== null },
+  )
   // the actions of each branch while the main window showed the repository and had it: they stay (those that need the
   // main window disabled) while it shows another one, and for a branch that left
   const [seenItems, setSeenItems] = useState(data.state.items)
@@ -54,8 +62,6 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
     const url = feedback.pullRequestUrl
     showToast({ ...feedback.toast, ...(url !== null && { action: { children: "Open Pull Request", onClick: () => openPullRequestUrl(url) } }) })
   })
-  // the "Create pull request" dialog of a branch of the chain: in this window, its context from the main window
-  const [dialog, setDialog] = useState<{ branchName: string; generation: number } | null>(null)
   // loaded on the first open, then kept mounted (the dialog animates and returns the focus when it closes)
   const [isDialogLoaded, setDialogLoaded] = useState(false)
   if (dialog !== null && !isDialogLoaded) {

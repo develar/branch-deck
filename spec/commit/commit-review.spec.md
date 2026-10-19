@@ -28,6 +28,7 @@ targets:
   - ../../src/pages/BranchReviewPage.tsx
   - ../../src/pages/CommitReviewPage.tsx
   - ../../src/lib/commit-review-window.ts
+  - ../../src/lib/branch-review-window.ts
   - ../../src/components/commit/CommitList.tsx
   - ../../src/hooks/useCommitReviewActions.ts
   - ../../src/hooks/usePreviewHotkeys.ts
@@ -51,7 +52,11 @@ Date: 2026-10-15
 ## Summary
 
 The commit preview shows a commit, as Quick Look shows a file; the review reads it, in a window of its own, as ⌘O
-opens a file: D on a row, the item of its menu or D in the preview opens the window `commit-review`. A sidebar with
+opens a file: D on a row, the item of its menu or D in the preview opens the review. A commit lands in master with its
+branch ([Landing](../../docs/design/landing.md)), so a commit of a branch is reviewed in the review window of its
+branch, at the commit, with the stack, the actions and the other commits of the branch beside it
+([Branch Review](../branch/branch-review.spec.md)); a commit no branch review shows (unassigned, archived, of a branch
+not built on its parents, of a conflict) opens the window `commit-review`. A sidebar with
 the directory tree of the files on the left, the diffs of all of them in one scrolling view on the right, a sticky
 header per file, as a code review in Space, GitHub or IntelliJ shows a change. The tree follows the diffs as they
 scroll, a file chosen in the tree scrolls the diffs to it, J and K step through the files and N and P through the
@@ -77,9 +82,18 @@ where a dialog would cover it.
 
 ### Opening and closing
 
-- The review is only in the window `commit-review` (`/commit-review`, one window, reused, titled "Review a1b2c3d
-  <subject>" and retitled as it steps; [Title Bar](../repository/title-bar.spec.md) for how it opens). There is no
-  review dialog, no W and no "Open in Window": one action, "Review Changes" (D).
+- The review of a commit is in a window: the review window of its branch, at the commit, or the window
+  `commit-review` (`/commit-review`, one window, reused, titled "Review a1b2c3d <subject>" and retitled as it steps;
+  [Title Bar](../repository/title-bar.spec.md) for how it opens). There is no review dialog, no W and no "Open in
+  Window": one action, "Review Changes" (D).
+- A commit of a branch must open the review window of the branch at the commit (`reviewBranchCommit`: the copy of the
+  commit in the virtual branch, `focus.commitId`, and the file, `focus.path`), titled "Review login · a1b2c3d", from
+  every surface below; a commit of no branch, of a branch the branch review can't show (blocked, failed, in conflict:
+  `branchReviewBlocker`) or one its virtual branch doesn't have yet (no copy, a conflicting or blocked commit) opens
+  the window `commit-review`. Only the main window decides: a list in a sub-window opens `commit-review`.
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a stacked branch with its stack and its actions, and move to a commit of the chain`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review an unassigned commit in the review window of the commit`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a branch in conflict and of a blocked one in the review window of the commit`)
 - D on a commit row (the focused row while the pointer hasn't moved, else the row under it, `usePreviewHotkeys`) and
   "Review Changes" (D), the first item of the row's menu, must open the window at the first file; no preview opens. A
   commit without files gets its preview, which says so; the menu item is disabled with "The commit changes no files",
@@ -103,7 +117,7 @@ where a dialog would cover it.
 - The window shows the commits of the list above its files (the commits of a range review, without a scope), the
   commit above its diffs as the branch preview heads one (`CommitHeading`: the subject `text-md font-medium`, the meta
   line with the committer time on hover and the coloured line counts, the reading body, three lines until Show More), the footer "Commit 2 / 3 · File 1 / 1" and
-  `Esc Close`. Its title bar names the list and the commit ("session › 11346cdf", `listLabel` of the window data: the
+  `Esc Close`. Its title bar names the list and the commit ("Unassigned › 11346cdf", `listLabel` of the window data: the
   branch, or "Unassigned") and ends with the Unified/Inline/Split toggle. Nothing is edited there.
 - ⌥↑/⌥↓ (Alt+↑/↓) must show the previous or next commit of the list.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should switch the commit of a review with Alt and the arrows`)

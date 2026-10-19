@@ -18,6 +18,7 @@ import { usePreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import { rewordCommit } from "@/hooks/useRewordCommit"
 import type { RowSelection } from "@/hooks/useRowSelection"
 import { describeFixupTarget, getFixupTarget } from "@/lib/autosquash"
+import { reviewBranchCommit } from "@/lib/branch-review-window"
 import type { CommitUnion } from "@/lib/commit"
 import { getCommitFileCount, getCommitHash, getCommitSubject, getSubjectLine, hasCommitMessageBody, parseSubject, stripLeadingIssueKey, toReviewCommit } from "@/lib/commit"
 import { openCommitReviewWindow } from "@/lib/commit-review-window"
@@ -173,8 +174,9 @@ export function CommitList<T extends CommitUnion>({
     lastPreviewedRef.current = preview?.hash ?? null
     setPreview(null)
   }
-  // D reviews the commit in its window, also from a list in a sub-window (the missing commits); a commit without files
-  // gets its preview, which says so. Resolves to whether the window opened
+  // D reviews the commit: a commit of a branch in the review window of its branch, at the commit; another one (unassigned,
+  // archived, of a branch the review can't show, of a list in a sub-window: the missing commits) in its own window. A
+  // commit without files gets its preview, which says so. Resolves to whether the window opened
   const review = async (hash: string, path: string | null = null): Promise<boolean> => {
     const index = commits.findIndex(it => getCommitHash(it) === hash)
     if (index === -1) {
@@ -184,7 +186,9 @@ export function CommitList<T extends CommitUnion>({
       openPreview(hash)
       return false
     }
-    return openCommitReviewWindow(commits.map(toReviewCommit), listLabel ?? branchName ?? null, index, path)
+    // a commit of a branch is reviewed with its branch: the stack, the actions, the commits beside it
+    const inBranch = branchName === undefined ? null : reviewBranchCommit(branchName, hash, path)
+    return inBranch ?? openCommitReviewWindow(commits.map(toReviewCommit), listLabel ?? branchName ?? null, index, path)
   }
   const reviewRow = (commit: CommitUnion) => void review(getCommitHash(commit))
   usePreviewHotkeys(tableRef, () => lastPreviewedRef.current ?? latestRef.current.selection?.getAnchorId() ?? null, {

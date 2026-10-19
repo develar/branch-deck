@@ -3,12 +3,12 @@ import type { Page } from "@playwright/test"
 import type { PatronusStartOptions } from "../../../src/lib/bindings"
 import type { BranchReviewFeedback, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData, BranchReviewWindowState } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow } from "../helpers/branch-helpers"
+import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
 import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots } from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { routePush } from "../helpers/push-helpers"
 import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
-import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
+import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus } from "../helpers/sync-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
 
@@ -482,6 +482,45 @@ test.describe("Branch review window", () => {
       .poll(async () => (await getEmittedEvents<{ id: string; ok: boolean }>(page, "branch-review/reply")).filter(it => it.id === "elsewhere"))
       .toEqual([{ id: "elsewhere", ok: false }])
     expect(created).toHaveLength(1)
+  })
+
+  test("should keep the Create pull request dialog of the window while a commit is reviewed, and move to the commit once it closes", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await setupAuthWithoutPullRequest(page, setupRepo, syncAndWaitForBranches)
+    const reviewPage = await openLinkedSubWindow(page, await openReviewWindow(page, "login"), { beforeLoad: window => routeNewPullRequest(window) })
+    await expect(reviewPage.getByTestId("range-review-commit-header")).toHaveCount(0)
+    await reviewPage.getByTestId("branch-review-actions").getByRole("button", { name: "Create Pull Request…" }).click()
+    const dialog = createPullRequestDialog(reviewPage)
+    const title = dialog.getByTestId("create-pull-request-title")
+    await expect(title).toBeFocused()
+    await reviewPage.keyboard.type(" so")
+    const typed = await title.inputValue()
+    expect(typed).toMatch(/ so$/)
+
+    // D on a commit of the chain on screen: a move, which waits for the dialog
+    await expandBranch(page, findBranchRow(page, "login"))
+    await getBranchCommitRow(page, "login", "Add the login form").hover()
+    await page.keyboard.press("d")
+    const moved = await openedReview(page, 2)
+    expect(moved.data).toMatchObject({ move: true, chain: ["auth", "login"] })
+    await reopenLinkedSubWindow(reviewPage, moved)
+    await expect(title).toHaveValue(typed)
+    await expect(reviewPage.getByTestId("range-review-commit-header")).toHaveCount(0)
+
+    // the review of another chain would start the window over: refused, the dialog keeps what was typed
+    await findBranchRow(page, "auth").click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Review Changes" }).click()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Cannot review auth" })).toBeVisible()
+    expect(await getOpenedSubWindows(page)).toHaveLength(2)
+    await expect(title).toHaveValue(typed)
+
+    // the dialog closes: the window shows the commit
+    await reviewPage.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
+    await expect(reviewPage.getByTestId("range-review-commit-header")).toContainText("Add the login form")
   })
 
   test("should start the Safe Push without review the window's dialog offers in the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -5,14 +5,16 @@ import type { BranchReviewSource } from "@/hooks/useBranchReview"
 import { getCreatePullRequestContext } from "@/hooks/useCreatePullRequestContext"
 import type { BranchReviewPart, PatronusReviewRequirement } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { BRANCH_REVIEW_WINDOW, branchGoneReason, requestAction } from "@/lib/branch-review"
-import type { BranchReviewFocus } from "@/lib/branch-review"
+import { BRANCH_REVIEW_WINDOW, branchGoneReason, branchReviewBlocker, planReviewOpen, requestAction } from "@/lib/branch-review"
+import type { BranchReviewFocus, ShownBranchReview } from "@/lib/branch-review"
 import { continueOnGitHub, submitPullRequest } from "@/lib/create-pull-request-context"
 import { logError, notifyError, recordError } from "@/lib/errors"
+import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
 import { showRepository } from "@/lib/show-repository"
 import { stackAncestors } from "@/lib/stack"
 import { createWindowLink } from "@/lib/sub-window-link"
+import { showToast } from "@/lib/toast-message"
 import { formatWholeStack } from "@/lib/whole-stack"
 import { branchSyncStore, getBranch, getStackBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
@@ -74,7 +76,7 @@ function releaseChain(): void {
 }
 
 /** The open review window: the repository and the chain it shows, or the whole stack of its root */
-const link = createWindowLink<{ repositoryPath: string; chain: readonly string[]; wholeStack: boolean }, BranchReviewWindowState>({
+const link = createWindowLink<ShownBranchReview, BranchReviewWindowState>({
   label: BRANCH_REVIEW_WINDOW,
   buildState: shown => (shown.wholeStack ? buildStackState(shown.repositoryPath, shown.chain[0] ?? "") : buildState(shown.repositoryPath, shown.chain)),
   onClose: () => {
@@ -142,25 +144,46 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
   if (source === null) {
     return false
   }
-  const { repositoryPath, chain } = source
+  const { repositoryPath } = source
+  // the window is one, reused: a commit of the chain on screen moves there, the branch on screen comes to the front
+  const open = planReviewOpen(link.shown(), { repositoryPath, branchName, chain: source.chain, focus }, Date.now())
+  const restarts = open.startedAt !== link.shown()?.startedAt
+  // a start over would drop what is typed into the "Create pull request" dialog of the window
+  if (restarts && dialog !== null) {
+    tellDialogOpen(branchName, dialog.branchName)
+    return false
+  }
+  const chain = open.chain
   // git reads while the window starts
   prefetchBranchReview(branchName, focus)
-  // the window is one, reused: the main window keeps the state of the last opened chain up to date
-  const shown = { repositoryPath, chain, wholeStack: false }
-  // the window starts over: no dialog is open in it
-  closeDialog()
+  // the main window keeps the state of the last opened chain up to date
+  const shown: ShownBranchReview = { repositoryPath, chain, wholeStack: false, startedAt: open.startedAt }
+  if (restarts) {
+    // the window starts over: no dialog is open in it
+    closeDialog()
+    // its Safe Push of each branch reads the next step, as a row does
+    showChain(chain)
+  }
   link.setShown(shown)
-  // its Safe Push of each branch reads the next step, as a row does
-  showChain(chain)
   const data: BranchReviewWindowData = {
     ...source,
     chain: [...chain],
-    groups: [...source.groups],
-    focus: { range: focus.range ?? "own", filter: focus.filter ?? { kind: "all" }, commitId: focus.commitId ?? null, path: focus.path ?? null },
+    groups: open.move ? reviewGroupsOf(chain.at(-1)!) : [...source.groups],
+    // a move falls back to the part of the commit's branch when the part on screen doesn't have it
+    focus: {
+      range: open.move ? { from: branchName, to: branchName } : (focus.range ?? "own"),
+      filter: focus.filter ?? { kind: "all" },
+      commitId: focus.commitId ?? null,
+      path: focus.path ?? null,
+    },
     openedAt: Date.now(),
+    startedAt: open.startedAt,
+    move: open.move,
     state: link.takeState()!,
   }
-  return link.open(shown, { url: "/branch-review", title: `Review ${branchName}`, data }).then(
+  const commitId = focus.commitId
+  const title = commitId == null ? `Review ${branchName}` : `Review ${branchName} · ${formatShortHash(commitId)}`
+  return link.open(shown, { url: "/branch-review", title, data }).then(
     () => true,
     (error: unknown) => {
       // the link forgets a window that failed to open: nothing shows its chain
@@ -171,6 +194,33 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
       return false
     },
   )
+}
+
+/**
+ * Reviews a commit of a branch in the review window of the branch, at the commit (and `path`): the stack, its actions
+ * and the commits of the branch beside it. Null when the branch review can't show it: the branch is not built on its
+ * parents (blocked, failed, in conflict) or its virtual branch doesn't have the commit yet; the review window of the
+ * commit shows it then.
+ */
+export function reviewBranchCommit(branchName: string, commitHash: string, path: string | null): Promise<boolean> | null {
+  const branch = getBranch(branchName)
+  if (branch === undefined || branchReviewBlocker(branch) !== null || branch.status === "MergeConflict" || branch.status === "AnalyzingConflict") {
+    return null
+  }
+  const copy = branch.commits.find(it => it.originalHash === commitHash)
+  if (copy?.hash === undefined || copy.status === "Error" || copy.status === "Blocked") {
+    return null
+  }
+  return openBranchReviewWindow(branchName, { commitId: copy.hash, path })
+}
+
+/** An open that would start the window over while its "Create pull request" dialog holds what the user typed */
+function tellDialogOpen(subject: string, dialogBranch: string): void {
+  showToast({
+    type: "info",
+    title: `Cannot review ${subject}`,
+    description: `The review window has the pull request of ${dialogBranch} open: create it or close the dialog first`,
+  })
 }
 
 /**
@@ -185,9 +235,13 @@ export async function openWholeStackReviewWindow(root: string): Promise<boolean>
   }
   const { repositoryPath } = source
   const chain = [root]
-  closeDialog()
+  if (dialog !== null) {
+    tellDialogOpen(formatWholeStack(root), dialog.branchName)
+    return false
+  }
   releaseChain()
-  const shown = { repositoryPath, chain, wholeStack: true }
+  const startedAt = Date.now()
+  const shown: ShownBranchReview = { repositoryPath, chain, wholeStack: true, startedAt }
   link.setShown(shown)
   const data: BranchReviewWindowData = {
     ...source,
@@ -195,7 +249,9 @@ export async function openWholeStackReviewWindow(root: string): Promise<boolean>
     groups: [],
     wholeStack: true,
     focus: { range: "own", filter: { kind: "all" }, commitId: null, path: null },
-    openedAt: Date.now(),
+    openedAt: startedAt,
+    startedAt,
+    move: false,
     state: link.takeState()!,
   }
   const subject = formatWholeStack(root)

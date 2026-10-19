@@ -102,12 +102,27 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should review the whole stack in the window of its stack branch, from the island's menu and the root's menu`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
   [@test] ../../crates/sync-core/src/branch_review_test.rs (`the_whole_stack_is_one_part_of_its_stack_branch`)
+- D on a commit row of a branch, the "Review Changes" of its menu and the D, the footer button and Enter in the
+  Files tree of its preview must open the window at the commit (`reviewBranchCommit`, `focus.commitId` the copy of
+  the commit in the virtual branch), its branch's own part, titled "Review <branch> · a1b2c3d"
+  ([Commit Review](../commit/commit-review.spec.md#opening-and-closing): a commit the branch review can't show opens
+  the review window of the commit).
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a stacked branch with its stack and its actions, and move to a commit of the chain`)
 - The window is one sub-window (`branch-review`, titled "Review <branch>", [Title Bar](../repository/title-bar.spec.md)
   for how it opens), reused for the next branch: opening it again replaces what it shows, its title too. Another
   branch or an open at a place (the Safe Push popover) starts it over; a plain open of the branch it shows only brings
-  it to the front, where the review is. It reads the repository it was opened for, not the one selected later in the
+  it to the front, where the review is (`planReviewOpen`, the window keyed by the open that started it,
+  `startedAt`). An open that would start it over while its "Create pull request" dialog is open is refused with
+  "Cannot review login" and the reason, an `info` toast: the dialog holds what the user typed. It reads the repository it was opened for, not the one selected later in the
   main window (`getDiffRepositoryPath`).
   [@test] ../../src/lib/branch-review.test.ts (`keeps its review for a plain open of the branch it shows, and starts over for another branch or a place`)
+- A commit of a branch of the chain on screen must move the window there, not start it over (`move` of the window
+  data): the part stays when it has the commit, else it is the commit's segment; the owner filter stays unless it
+  hides every file of the commit; the file of `path` shows. A move waits while the "Create pull request" dialog of
+  the window is open, and the dialog keeps what was typed.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should keep the Create pull request dialog of the window while a commit is reviewed, and move to the commit once it closes`)
+  [@test] ../../src/lib/branch-review.test.ts (`moves to a commit of a branch of the chain on screen, and starts over for a commit of another branch`, `keeps the part that has the commit, else shows the commit's segment`, `shows all changes of the commit's branch when the segments don't have the commit`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a stacked branch with its stack and its actions, and move to a commit of the chain`)
 - The review gets the chain of the branch (its stack ancestors by `effectiveBase`, root first), the baseline, where
   to start (`BranchReviewFocus`: the branch itself, or the whole stack from the Safe Push popover and the island; the
   filter, the commit, the file), the reviewer groups of the last code-owner check of the branch at its current head.
