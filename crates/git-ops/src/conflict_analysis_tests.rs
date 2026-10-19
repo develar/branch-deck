@@ -28,13 +28,7 @@ fn count_commits(git_executor: &GitCommandExecutor, repo_path: &str, from_commit
 
 /// The processes `git` ran, by subcommand
 fn process_counts(git: &GitCommandExecutor) -> Vec<(String, u32)> {
-  git
-    .process_stats()
-    .unwrap()
-    .by_command()
-    .into_iter()
-    .map(|(command, stats)| (command, stats.count))
-    .collect()
+  git.process_stats().unwrap().counts()
 }
 
 /// The diffs of the files of commits, by commit

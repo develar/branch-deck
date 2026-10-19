@@ -1,0 +1,292 @@
+//! The types that the app reads (specta): what a diff compares, the diff of each file, and the texts of blobs.
+
+use object_cache::commit_files::FileStatus;
+use serde::{Deserialize, Serialize};
+use text_diff::merge_model::TextMerge;
+use text_diff::model::{Scope, TextDiff};
+use text_diff::policy::WhitespacePolicy;
+
+/// The parameters of `get_file_diffs`
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct GetFileDiffsParams {
+  pub repository_path: String,
+  pub source: DiffSource,
+  pub policy: WhitespacePolicy,
+  /// The files in view, whose diffs come first; then the others in the order of the tree
+  pub priority_paths: Vec<String>,
+}
+
+/// The parameters of `get_blob_texts`
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct GetBlobTextsParams {
+  pub repository_path: String,
+  /// At most `MAX_BLOB_REQUESTS`
+  pub blobs: Vec<BlobRequest>,
+}
+
+/// What a diff compares
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum DiffSource {
+  /// A commit with its first parent
+  Commit { id: String },
+  /// Two commits, as `git diff base head`
+  Range { base: String, head: String },
+  /// The working tree with `HEAD`: staged, unstaged and untracked files
+  Uncommitted,
+}
+
+/// The diff of one changed file, as `FileDiffs::read` gives it at once (the tests and the command line; the app
+/// streams `FileDiffEvent`s)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct DiffFile {
+  pub path: String,
+  /// The path before a rename or copy
+  pub old_path: Option<String>,
+  pub status: FileStatus,
+  /// The blob id of the old text; `None` for an added file and a submodule, whose commits are in its content
+  pub old_id: Option<String>,
+  /// The blob id of the new text; `None` for a deleted file and a submodule. A file of the working tree has the id
+  /// that git would give its bytes (`git hash-object --no-filters`).
+  pub new_id: Option<String>,
+  pub content: DiffContent,
+}
+
+/// A changed file before its content: the first event of `get_file_diffs` lists them
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct DiffFileHeader {
+  pub path: String,
+  /// The path before a rename or copy
+  pub old_path: Option<String>,
+  pub status: FileStatus,
+  /// The blob id of the old text; `None` for an added file and a submodule, whose commits are in its content
+  pub old_id: Option<String>,
+  /// The blob id of the new text; `None` for a deleted file and a submodule. A file of the working tree has the id
+  /// that git would give its bytes (`git hash-object --no-filters`).
+  pub new_id: Option<String>,
+}
+
+/// What `get_file_diffs` sends through its channel: `files` once, then one `content` for each file, the files in view
+/// first, and a `scopes` after the `content` of a text that the caches did not have
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum FileDiffEvent {
+  /// The changed files in the order of git; `index` of the other events points into this list
+  Files { files: Vec<DiffFileHeader> },
+  /// The content of a file. A `TextDiff` that the caches did not have comes with empty scopes, which a `scopes` event
+  /// of the same file fills later: the parse costs more than the comparison
+  Content { index: u32, content: DiffContent },
+  /// The scopes of the text of a file, for the labels of its hunks
+  #[serde(rename_all = "camelCase")]
+  Scopes { index: u32, old_scopes: Vec<Scope>, new_scopes: Vec<Scope> },
+}
+
+/// What the views show of a file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum DiffContent {
+  Text(TextDiff),
+  /// A side is binary: a NUL in its first 8000 bytes, or git counts no lines
+  Binary,
+  /// A side is over `MAX_BLOB_BYTES`; the sizes in bytes, 0 for a missing side
+  #[serde(rename_all = "camelCase")]
+  TooLarge {
+    old_bytes: u32,
+    new_bytes: u32,
+  },
+  /// A submodule: the commit it points to on each side, `None` for a side without it, as git writes
+  /// `Subproject commit <id>`
+  #[serde(rename_all = "camelCase")]
+  Submodule {
+    old_commit: Option<String>,
+    new_commit: Option<String>,
+  },
+  /// Git cannot read a blob of the file, as in a partial or a shallow clone
+  Missing,
+}
+
+/// A blob that the views ask for: by its id, and for a file of the working tree, by its path too
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct BlobRequest {
+  pub id: String,
+  /// The path of the file in the working tree, relative to the repository, when the id is of a working tree file
+  pub path: Option<String>,
+}
+
+/// The text of a blob
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum BlobText {
+  /// The bytes as UTF-8, an invalid sequence replaced with U+FFFD
+  Text {
+    id: String,
+    text: String,
+  },
+  Binary {
+    id: String,
+  },
+  /// Over `MAX_BLOB_BYTES`
+  TooLarge {
+    id: String,
+    size: u32,
+  },
+  /// No blob of the repository and no file of the working tree has the id
+  Missing {
+    id: String,
+  },
+}
+
+impl BlobText {
+  pub fn id(&self) -> &str {
+    match self {
+      Self::Text { id, .. } | Self::Binary { id } | Self::TooLarge { id, .. } | Self::Missing { id } => id,
+    }
+  }
+
+  /// The size of the blob in bytes, for the weight of a cache and for `DiffContent::TooLarge`
+  pub fn size(&self) -> u32 {
+    match self {
+      Self::Text { text, .. } => u32::try_from(text.len()).unwrap_or(u32::MAX),
+      Self::TooLarge { size, .. } => *size,
+      Self::Binary { .. } | Self::Missing { .. } => 0,
+    }
+  }
+}
+
+/// The parameters of `get_file_merges`
+#[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct GetFileMergesParams {
+  pub repository_path: String,
+  pub source: MergeSource,
+  pub policy: WhitespacePolicy,
+  /// The files in view, whose merges come first; then the others in the order of the tree
+  pub priority_paths: Vec<String>,
+}
+
+/// What a merge merges
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum MergeSource {
+  /// The cherry-pick of `commit` onto `target`: `parent` is the base, `target` ours (left), `commit` theirs (right),
+  /// as the sync merges it
+  CherryPick { parent: String, target: String, commit: String },
+}
+
+/// The conflict type of a path, as `merge-tree` names it (`CONFLICT (<type>)`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum GitConflictKind {
+  Content,
+  AddAdd,
+  ModifyDelete,
+  RenameDelete,
+  RenameRename,
+  Binary,
+  Other,
+}
+
+/// A conflicting file before its content: the first event of `get_file_merges` lists them
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct FileMergeHeader {
+  pub path: String,
+  pub kind: GitConflictKind,
+  /// The blob ids of the stages: base (1), left (2, ours, the target) and right (3, theirs, the picked commit); `None`
+  /// for a stage that the path does not have, and for a submodule, whose commits are in its content
+  pub base_id: Option<String>,
+  pub left_id: Option<String>,
+  pub right_id: Option<String>,
+}
+
+/// What the conflict view shows of a file
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum MergeContent {
+  Text(TextMerge),
+  /// A side is binary
+  Binary,
+  /// A side is over `MAX_BLOB_BYTES`; the sizes in bytes, 0 for a missing side
+  #[serde(rename_all = "camelCase")]
+  TooLarge {
+    base_bytes: u32,
+    left_bytes: u32,
+    right_bytes: u32,
+  },
+  /// A submodule: the commit of each stage
+  #[serde(rename_all = "camelCase")]
+  Submodule {
+    base_commit: Option<String>,
+    left_commit: Option<String>,
+    right_commit: Option<String>,
+  },
+  /// Git cannot read a blob of the file
+  Missing,
+  /// One side deleted the file and the other changed it: the diff of the base to the changed side, as two-way
+  OneSided {
+    deleted: MergeSide,
+    diff: TextDiff,
+  },
+}
+
+/// A side of a merge besides the base
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum MergeSide {
+  Left,
+  Right,
+}
+
+/// What `get_file_merges` sends through its channel: `files` once, then one `content` for each file, the files in view
+/// first, and a `scopes` after the `content` of a text merge that the caches did not have
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum FileMergeEvent {
+  /// The conflicting files in the order of git; `index` of the other events points into this list
+  Files {
+    files: Vec<FileMergeHeader>,
+  },
+  Content {
+    index: u32,
+    content: MergeContent,
+  },
+  /// The scopes of the three sides of a text merge
+  #[serde(rename_all = "camelCase")]
+  Scopes {
+    index: u32,
+    left_scopes: Vec<Scope>,
+    base_scopes: Vec<Scope>,
+    right_scopes: Vec<Scope>,
+  },
+}
+
+/// The merge of one conflicting file, as `FileDiffs::read_merges` gives it at once (the tests and the command line)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct FileMerge {
+  #[serde(flatten)]
+  pub header: FileMergeHeader,
+  pub content: MergeContent,
+}

@@ -114,12 +114,16 @@ flowchart TD
   noise and are dropped. The three thresholds come from the inline diff of Space and are to be tuned on real commits.
 - **Line ends.** When the line ends of the files differ (`lf`, `crlf`, `cr`, `mixed`), `line_ends` names them for a
   notice, as Space's `lineEndingDiff`, and `only` says that nothing else differs.
+- **Final line end.** When only one text ends with a line end, `final_newline` says which, for the notice "Newline at
+  end of file added" or "removed". The change itself is a `WhitespaceOnly` block on the empty last line. An added or
+  a deleted file (an empty side) has none.
 - **Counts.** `additions` and `deletions` count the lines of the blocks that are not `Ignored`. The empty line after a
   final line end does not count, so the counts are git's, except for a change of the final line end alone.
 - **Budget.** A side over `MAX_INNER_LINES` (20,000) or `MAX_INNER_BYTES` (1 MiB), or an inner comparison out of
   time (`DiffBudget::inner`), gives `line_level_only`: the comparison runs again by line, and the blocks stay exact.
   When the line comparison runs out of time too (`DiffBudget::lines`), the diff is one block of both whole texts.
-  `old_scopes` and `new_scopes` stay empty here: the caller fills them.
+  `old_scopes` and `new_scopes` stay empty here: the file-diffs service fills them ([Git Operations](git-operations.md),
+  "File diffs").
 - **Proof.** A property test checks, under every policy and with and without inner ranges, that the blocks partition
   both texts, that the lines between them are equal under `Default`, that each range is inside its line, and that the
   counts are the lines of the blocks.

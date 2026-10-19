@@ -669,6 +669,7 @@ crates/
 ├── object-cache/    # LMDB cache keyed by git object ids, shared by the app and bd
 ├── code-symbols/    # Declarations, imports and references of a Kotlin/Java/Rust/TS file on tree-sitter, no git
 ├── text-diff/       # Line, word and char comparison of two texts, ported from IntelliJ (Apache-2.0, NOTICE)
+├── file-diffs/      # The typed diff of each file of a commit, a range or the working tree, and blob texts by id
 ├── patronus/        # Patronus REST client, Space token of the Safe Push CLI, request policy
 ├── github/          # GitHub REST and GraphQL client (rate limits, SSO, conditional GETs), fake GitHub for tests
 ├── test-server/     # E2E mock server

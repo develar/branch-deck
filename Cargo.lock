@@ -1780,6 +1780,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "file-diffs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "code-symbols",
+ "git-executor",
+ "git-ops",
+ "moka",
+ "object-cache",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "specta",
+ "tempfile",
+ "test-log",
+ "test-utils",
+ "text-diff",
+ "tracing",
+]
+
+[[package]]
 name = "filetime"
 version = "0.2.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"

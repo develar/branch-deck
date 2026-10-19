@@ -1,0 +1,33 @@
+[package]
+name = "file-diffs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The typed diffs of the files of a commit, a range or the working tree, for the views of the app"
+
+[dependencies]
+code-symbols = { path = "../code-symbols" }
+git-executor = { path = "../git-executor" }
+git-ops = { path = "../git-ops" }
+object-cache = { path = "../object-cache" }
+text-diff = { path = "../text-diff" }
+
+anyhow.workspace = true
+moka.workspace = true
+serde.workspace = true
+specta = { workspace = true, optional = true }
+tracing.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+test-log.workspace = true
+test-utils = { path = "../test-utils" }
+
+[features]
+default = []
+specta = ["dep:specta", "object-cache/specta", "text-diff/specta"]
+
+[lints]
+workspace = true

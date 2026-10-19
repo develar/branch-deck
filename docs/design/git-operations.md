@@ -1519,6 +1519,50 @@ Code: `crates/git-ops/src/commit_files.rs`, `crates/git-ops/src/cat_file_batch.r
 `crates/object-cache/src/commit_files.rs`, `crates/object-cache/src/commit_patch.rs`, `src-tauri/src/commands/commit_files.rs`,
 `src-tauri/src/patch_cache.rs`, `src-tauri/src/repository_state.rs`.
 
+#### File diffs
+
+The views get the diff of each file as typed JSON, never as patch text ([Text Diff Engine](text-diff.md), "Model").
+`FileDiffs` (`crates/file-diffs`) reads a subject and compares each file with `text-diff`. It is a crate of its own
+above `git-ops`, because it joins the git reads with the comparison and the declarations of `code-symbols`, which the
+git plumbing does not depend on.
+
+- **The file list.** A commit and a range take the files of "Commit files": the raw entries name the blob ids of both
+  sides. A commit that the `commit_files` store has costs no process. The working tree is one
+  `status --porcelain=v2 -z --untracked-files=all`: each tracked entry names its `HEAD` blob id, and the new side is
+  the file on the disk. Its id is the blob id of its bytes, as `git hash-object --no-filters` gives it. A symlink is
+  its target. A file with a conflict compares its `ours` stage with the working tree.
+- **The stream.** `get_file_diffs` sends events through a Tauri `Channel`: `files` once (the headers in the order of
+  git), then a `content` for each file, then a `scopes` for a text that the caches did not have. The files in view
+  (`priority_paths`) come first, then the others in the order of the tree, for the cache reads, the blob reads and
+  the work; the events go out as the results come. `FileDiffs::read` collects the same events, for the tests and the
+  command line.
+- **The blobs and the workers.** One `cat-file --batch` reads the blobs that no cache has, at most `MAX_BLOB_BYTES`
+  (8 MiB) each. A file goes to a worker as soon as both its sides are read: the cores but one run the comparisons and
+  the parses (`std::thread::scope`), while the thread of the caller reads the blobs and sends the events. A file holds
+  its texts only until its worker has it, so memory holds the files in flight, not the subject. A diff of a commit
+  costs two processes, and none when the caches have every diff.
+- **The content.** A side that git counts no lines for, or a side with a NUL in its first 8000 bytes, gives `Binary`. A
+  side over 8 MiB gives `TooLarge` with the sizes. A submodule gives `Submodule` with the commit of each side, as git
+  writes `Subproject commit <id>`; in the working tree its new side is the commit in the index. A blob that git cannot
+  read (a pruned object, a partial clone) gives `Missing`, which no cache keeps. Else the diff is a `TextDiff`; a text
+  that is not UTF-8 is compared as decoded, with U+FFFD for each bad byte.
+- **Budgets.** Each file has 100 ms for its inner ranges; after that, it is compared by line (`line_level_only`). Its
+  line comparison has 1 s; after that, it is one block. These budgets catch a pathological file only. No budget spans
+  the subject, so the result does not depend on the load of the machine or the order of the files.
+- **Scopes.** The types, functions and modules of each side are its scopes, with the label `Outer › inner`, for the
+  hunk headers of a view. They come from the summary of the blob in the `blob_summary` store, which the sync of the
+  branches made already for most commits. A side without one is parsed (`code_symbols::extract::summarize`), and its
+  summary goes to the store. The parse costs more than the comparison (8.1 s against 0.9 s over 300 commits of Branch
+  Deck, one thread), so the `content` of a text goes out before its `scopes`.
+- **Caches.** A diff is keyed by its blob pair, the whitespace policy and the languages of the scopes. Blobs never
+  change, so one entry serves every commit, range and window that shows the pair. Memory first (64 MiB), then the
+  `file_diff` store (`MODEL_VERSION`). The store never keeps a diff that the time cut short; memory keeps it for
+  the run. The blobs that a diff read stay in a memory cache (128 MiB), so the texts that a view asks for next
+  (`blob_texts`) cost no process. A text of the working tree is read again by its path, and only when its bytes still
+  have the id.
+
+Code: `crates/file-diffs/src/service.rs`, `crates/file-diffs/src/worktree.rs`, `crates/object-cache/src/file_diff.rs`.
+
 #### Review fetch
 
 The review of a pull request someone asked the user for ([Review Requests](../../spec/repository/review-requests.spec.md))
