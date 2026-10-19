@@ -15,7 +15,7 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import type { BlobText } from "../../src/lib/bindings"
-import type { CommitReviewWindowData } from "../../src/lib/commit-review-window"
+import type { BranchReviewWindowData } from "../../src/types/sub-window"
 import { test, expect } from "../e2e/fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../e2e/helpers/branch-helpers"
 import { openCommitPreview } from "../e2e/helpers/preview-helpers"
@@ -203,17 +203,23 @@ async function routeCommit(window: Page, commitId: string, files: SyntheticFile[
   })
 }
 
-async function openReviewData(page: Page): Promise<OpenedSubWindow<CommitReviewWindowData>> {
+/** D on the preview of the commit: a commit of a branch is reviewed in the window of its branch, at the commit */
+async function openReviewData(page: Page): Promise<OpenedSubWindow<BranchReviewWindowData>> {
   await expandBranch(page, findBranchRow(page, "session"))
-  await openCommitPreview(page, getBranchCommitRow(page, "session", "a prompt that waits for its turn keeps the session row running"))
+  const subject = "a prompt that waits for its turn keeps the session row running"
+  const preview = await openCommitPreview(page, getBranchCommitRow(page, "session", subject))
+  await expect(preview.getByRole("heading", { level: 2 })).toHaveText(subject)
   await page.keyboard.press("d")
   await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
-  return (await getOpenedSubWindows<CommitReviewWindowData>(page))[0]!
+  const [opened] = await getOpenedSubWindows<BranchReviewWindowData>(page)
+  expect(opened?.windowId).toBe("branch-review")
+  return opened!
 }
 
 /** Opens the review of `files`, then expands the unchanged lines above the second hunk of `expandPath` */
-async function runScenario(page: Page, opened: OpenedSubWindow<CommitReviewWindowData>, files: SyntheticFile[], expandPath: string, measureBytes: boolean) {
-  const commitId = opened.data.commits[opened.data.index]!.id
+async function runScenario(page: Page, opened: OpenedSubWindow<BranchReviewWindowData>, files: SyntheticFile[], expandPath: string, measureBytes: boolean) {
+  // the copy of the commit in the virtual branch, which the review shows
+  const commitId = opened.data.focus.commitId!
   const window = await openLinkedSubWindow(page, opened, {
     beforeLoad: async target => {
       await target.addInitScript(installProbes, measureBytes)
