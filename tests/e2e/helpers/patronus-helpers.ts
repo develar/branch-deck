@@ -11,6 +11,8 @@ import type {
   ReviewReadinessBranch,
 } from "../../../src/lib/bindings"
 import { expect } from "../fixtures/test-fixtures"
+import { findBranchRow } from "./branch-helpers"
+import type { SetupRepoOptions } from "./setup-options"
 import { emitTauriEvent } from "./sync-helpers"
 import type { TestRepositoryBuilder } from "./test-repository"
 import { routeCommand } from "./wait-helpers"
@@ -48,7 +50,8 @@ export async function mergeRunningRobot(page: Page, repo: TestRepositoryBuilder,
 /**
  * The running `robots` merged in turn, an hour apart from `finishTime`, answered by one poll (`mergeRunningRobot`):
  * returned as the poll answered them, their commits kept in every later answer. `others` stay in every answer as they
- * are (a robot that finished before)
+ * are (a robot that finished before). The page shows the robots running first (a `landing-span`): the focus polls only
+ * the running robots the page knows, so a focus before the list of the robots answered polls nothing
  */
 export async function mergeRunningRobots(
   page: Page,
@@ -76,6 +79,24 @@ export function availableRobots(...robots: PatronusRobot[]): PatronusRobotsResul
 
 export function unavailableRobots(availability: PatronusAvailability): PatronusRobotsResult {
   return { availability, robots: [] }
+}
+
+/**
+ * `template` with the `running` robot, synced, and the robot shown running: the `landing-span` of `landed`, a branch it
+ * lands with it. A merge of it (`mergeRunningRobot`) polls it then
+ */
+export async function setupRunningRobot(
+  page: Page,
+  setupRepo: (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<unknown>,
+  template: string,
+  running: PatronusRobot,
+  landed: string,
+): Promise<TestRepositoryBuilder> {
+  const repo = await setupRepo(template, { patronus: availableRobots(running) })
+  await syncAndWaitForBranches()
+  await expect(findBranchRow(page, landed).getByTestId("landing-span")).toHaveText(`lands with ${running.branchName}`)
+  return repo
 }
 
 /** The issue_links repository with these robots */

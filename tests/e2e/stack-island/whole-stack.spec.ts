@@ -13,6 +13,7 @@ import {
   mergeRunningRobots,
   robot,
   routeReviewRequirement,
+  setupRunningRobot,
 } from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import type { PushRequest } from "../helpers/push-helpers"
@@ -854,8 +855,7 @@ test.describe("Whole stack", () => {
   }) => {
     // auth forks: login and oauth on one side, session on the other; the Safe Push of oauth runs
     const running = robot("oauth", "oauth-robot")
-    const repo = await setupRepo("stacked_branches", { patronus: availableRobots(running) })
-    await syncAndWaitForBranches()
+    const repo = await setupRunningRobot(page, setupRepo, syncAndWaitForBranches, "stacked_branches", running, "login")
     const { stackPushes, started, starts } = await routeWholeStackStart(page)
 
     // it merged: auth, login and oauth are in master, session is what is left of the whole stack
@@ -956,6 +956,7 @@ test.describe("Whole stack", () => {
       pullRequests: withStackPullRequests(availablePullRequests(), { auth: stackPullRequest("auth", 12) }),
     })
     await syncAndWaitForBranches()
+    await expect(findBranchRow(page, "auth").getByTestId("landing-span")).toHaveText("lands with login")
     const closes = await routeCommand(page, "close_pull_request", () => null)
 
     // the Safe Push of login lands auth, the root: the pull request of the whole stack shows a stack that is no more
@@ -992,6 +993,7 @@ test.describe("Whole stack", () => {
       pullRequests: withStackPullRequests(availablePullRequests(), { air: stackPullRequest("air", 12) }),
     })
     await syncAndWaitForBranches()
+    await expect(findBranchRow(page, "air").getByTestId("landing-span")).toHaveText("lands with bazel")
     // the Safe Push of bazel lands air, the root: the pull request of the whole stack shows a stack that is no more
     await repo.setPatronus(availableRobots({ ...running, status: "success", finishTime: 1704142800 }))
     await emitTauriEvent(page, "tauri://focus")

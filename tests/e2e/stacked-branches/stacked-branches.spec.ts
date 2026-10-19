@@ -4,7 +4,16 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { collapseBranch, expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, getStackChip, verifyCommitCount } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
-import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots, mergeRunningRobot, mergeRunningRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
+import {
+  AWAITING_CODE_OWNER,
+  NO_REVIEW_NEEDED,
+  availableRobots,
+  mergeRunningRobot,
+  mergeRunningRobots,
+  robot,
+  routeReviewRequirement,
+  setupRunningRobot,
+} from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { confirmForcePush, expectPushedToast, PUSH_TIME, pushedToast, pushOutcome, routeHeldPush, routePush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, landingRow, openBranchPreview, openLandingOverview } from "../helpers/review-status-helpers"
@@ -1324,9 +1333,7 @@ test.describe("Stacked branches", () => {
       syncAndWaitForBranches,
     }) => {
       const running = robot("oauth", "oauth-robot")
-      const repo = await setupRepo("stacked_branches", { patronus: availableRobots(running) })
-      await syncAndWaitForBranches()
-      await expect(findBranchRow(page, "login").getByTestId("landing-span")).toHaveText("lands with oauth")
+      const repo = await setupRunningRobot(page, setupRepo, syncAndWaitForBranches, "stacked_branches", running, "login")
       // it merged on oauth as the table has it
       await mergeRunningRobot(page, repo, running)
       await expect(page.locator("[data-slot=toast]").filter({ hasText: "oauth merged into master" })).toBeVisible()

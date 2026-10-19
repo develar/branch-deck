@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow, getStackChip } from "../helpers/branch-helpers"
-import { NO_REVIEW_NEEDED, availableRobots, mergeRunningRobot, mergeRunningRobots, robot, routeReviewRequirement } from "../helpers/patronus-helpers"
+import { NO_REVIEW_NEEDED, availableRobots, mergeRunningRobot, mergeRunningRobots, robot, routeReviewRequirement, setupRunningRobot } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { pushOutcome, routeHeldPush, routePush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
 import { DEFAULT_CHECKS_ONLY, closeRefusal, expectDisabledItems, expectPopoverAtSlot, openSafePushWithKey, popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
@@ -471,8 +471,7 @@ test.describe("Stack island", () => {
   test("should show no push arrow on the commits a merged Safe Push landed, only on a commit added after them", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the Safe Push of bazel lands air with it
     const running = robot("bazel", "bazel-robot")
-    const repo = await setupRepo("stack_island", { patronus: availableRobots(running) })
-    await syncAndWaitForBranches()
+    const repo = await setupRunningRobot(page, setupRepo, syncAndWaitForBranches, "stack_island", running, "air")
     const marks = (name: string) => page.locator(`[data-testid=branch-commit-lines-row][data-branch-of="${name}"] [data-testid=commit-push-mark]`)
     await expect(marks("air")).toHaveCount(2)
     await expect(marks("bazel")).toHaveCount(2)
@@ -518,8 +517,7 @@ test.describe("Stack island", () => {
   }) => {
     // the Safe Push of bazel lands air with it
     const running = robot("bazel", "bazel-robot")
-    const repo = await setupRepo("stack_island", { patronus: availableRobots(running) })
-    await syncAndWaitForBranches()
+    const repo = await setupRunningRobot(page, setupRepo, syncAndWaitForBranches, "stack_island", running, "air")
     const pushes = await routePush(page, {})
     await expandBranch(page, findBranchRow(page, "bazel"))
     const commitRows = getBranchDetailsRow(page, "bazel").locator("tr[data-row-id]")
