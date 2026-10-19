@@ -306,6 +306,8 @@ test.describe("Whole stack", () => {
     await expect(push).toBeDisabled()
     await push.hover()
     await expect(page.getByTestId("stack-island-push-description")).toHaveText("Writing objects:  45% (2/4)")
+    // one indicator: the root's push (it takes the stack branch of the open pull request of the whole stack along) is
+    // its own
     await expect(rootPush).toBeVisible()
     await expect(rootPush).not.toHaveAttribute("aria-busy", "true")
     await page.mouse.move(0, 0)

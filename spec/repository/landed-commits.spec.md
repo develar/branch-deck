@@ -134,7 +134,7 @@ by the next sync the same way.
   [@test] ../../src/lib/landed.test.ts (`says it in fewer words on the chip, "Landed" when the baseline has all of the branch`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
 - A branch the fetched baseline has all of has nothing left to push: the update archives it. Its status reads
-  "landed" after an `info` dot, its push button keeps its label (`Create Remote (1)`) but is neutral, and both
+  "landed" after an `info` dot, its push button keeps its label (`Push (1)`) but is neutral, and both
   descriptions say "Already in origin/master. Update to archive the branch."; it is not outgoing, so the indicator of
   [Outgoing Commits](outgoing.spec.md#what-is-outgoing) leaves it out ("3 commits to push in 2 branches"). A part that
   landed changes nothing of this: the branch still has commits to push.

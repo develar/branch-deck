@@ -1,7 +1,7 @@
 // @spec spec/branch/pull-requests.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
+import { findBranchRow, getBranchCells, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import {
   availablePullRequests,
@@ -55,7 +55,7 @@ const test = baseTest.extend<{ repo: TestRepositoryBuilder }>({
 
 /** Pushes feature-auth and opens the "Create pull request" dialog from the push toast */
 async function openDialogAfterPush(page: Page): Promise<Locator> {
-  await getPushButton(findBranchRow(page, "feature-auth")).click()
+  await pushFromRowMenu(page, "feature-auth")
   await pushedToast(page, "feature-auth").getByRole("button", { name: "Create Pull Request…" }).click()
   return createPullRequestDialog(page)
 }
@@ -184,7 +184,14 @@ test.describe("Pull request chip", () => {
     await expect(dialog).toHaveCount(0)
     expect(pushes).toEqual([])
 
-    await getPushButton(row).click()
+    // the dialog pushes it on Create: the row and the preview offer no push of their own, the menu does
+    await expect(getPushButton(row)).toHaveCount(0)
+    const firstPreview = await openBranchPreview(page, "feature-auth")
+    await expect(firstPreview.getByRole("button", { name: "Create Pull Request…" })).toBeVisible()
+    await expect(firstPreview.getByTestId("push-button")).toHaveCount(0)
+    await page.keyboard.press("Escape")
+    await expect(firstPreview).toHaveCount(0)
+    await pushFromRowMenu(page, "feature-auth")
     const toast = pushedToast(page, "feature-auth")
     await toast.getByRole("button", { name: "Create Pull Request…" }).click()
     await expect(dialog).toBeVisible()
@@ -370,11 +377,12 @@ test.describe("Request Review without Patronus", () => {
     const row = findBranchRow(page, "ABC-123")
     const popover = page.getByTestId("request-review-popover")
     // no next step where Patronus doesn't answer; the anchor of the popover takes no room: the push of the row stands
-    // where it stands in a row without a pull request
+    // where the place of the push stands in a row without a pull request (its first push is a step of Create)
     await expect(row.getByTestId("request-review-anchor")).toHaveCount(1)
     await expect(page.getByTestId("next-step-slot")).toHaveCount(0)
-    const pushX = async (branchName: string) => (await getPushButton(findBranchRow(page, branchName)).boundingBox())!.x
-    expect(await pushX("ABC-123")).toBe(await pushX("feature-auth"))
+    const pushBox = await getPushButton(row).boundingBox()
+    const placeBox = await getBranchCells(findBranchRow(page, "feature-auth")).actions.getByTestId("push-placeholder").boundingBox()
+    expect(pushBox!.x).toBe(placeBox!.x)
 
     // the right-click: the popover at the row; no code owner without Patronus, the search finds whom to ask
     await row.click({ button: "right" })

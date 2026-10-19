@@ -77,17 +77,24 @@ export function getCopyButton(branchRow: Locator): Locator {
   return actions.locator("button").first()
 }
 
-/**
- * Get the push button from a branch row's actions cell: "↑ 3", named by its label ("Create Remote (3)")
- */
 /** The chip after the name of a stack root: its size, the toggle of its collapse */
 export function getStackChip(row: Locator): Locator {
   return row.getByTestId("stack-chip")
 }
 
+/** The push button of a branch row's actions cell: "↑ 3", named by its label ("Push (3)") */
 export function getPushButton(branchRow: Locator): Locator {
   const { actions } = getBranchCells(branchRow)
   return actions.getByTestId("push-button")
+}
+
+/**
+ * Pushes a branch with the push of its row's menu ("Push (2)"): the first push of a branch whose Safe Push or Create
+ * Pull Request pushes it has no button on the row, only this item
+ */
+export async function pushFromRowMenu(page: Page, branchName: string): Promise<void> {
+  await findBranchRow(page, branchName).click({ button: "right" })
+  await page.getByRole("menuitem", { name: /^Push \(\d+\)/ }).click()
 }
 
 /** A pushed branch: its row has no push button, only its empty place, as the status says it is up to date */

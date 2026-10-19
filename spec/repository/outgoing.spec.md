@@ -85,7 +85,8 @@ is outgoing compares content, not hashes: the question is whether the remote has
   [@test] ../../src/lib/push-summary.test.ts (`skips a branch the fetched baseline has all of: the update archives it`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
 - The state of a branch must follow the label of its push button:
-  - "create" for a branch not on the remote (`Create Remote (3)`);
+  - "create" for a branch not on the remote (`Push (3)`, its description "The branch isn't on the remote yet: the push
+    creates it."); one name for every push that sends the commits as they are;
   - "force" for a push that is not a fast-forward: the remote has commits the branch lacks, older versions of commits
     amended or restacked (below), or the branch was rebased onto a newer baseline (`Force Push`). It follows the
     remote branch and the local one, not the result of the last sync, so it stays the same across syncs and restarts;
@@ -157,8 +158,7 @@ A push replaces exactly the remote state the user saw: the row's remote status, 
 of a part of a branch, up to one of its commits, is Push Up to Here
 ([Stacked Branches](../branch/stacked-branches.spec.md#push-up-to-here)).
 
-- A push label must count the commits the push sends, whoever authored them: `Push (2)`, `Create Remote (3)`,
-  `Force Push (1)`; a force push that sends none is `Force Push`. The user's share is in the description: "1 commit to
+- A push label must count the commits the push sends, whoever authored them: `Push (2)`, `Force Push (1)`; a force push that sends none is `Force Push`. The user's share is in the description: "1 commit to
   push." when all are theirs, "2 of 3 commits to push are yours.", "3 commits to push, none of them yours.".
   [@test] ../../src/hooks/usePushButton.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
   [@test] ../../src/lib/remote-status.test.ts (`repeats the count in parentheses only when some commits to push are others'`)
@@ -199,7 +199,7 @@ of a part of a branch, up to one of its commits, is Push Up to Here
 - A remote branch that moved since the row's status (a newer commit, a branch created or deleted elsewhere) must not
   be overwritten: nothing is pushed, the branch alone is fetched, and its row shows the fetched remote status. A
   warning toast stays until the user acts: "login changed on the remote", "3 commits you don't have (by Ann and Bob).
-  Nothing was pushed.", with the push the row now offers ("Force Push", "Push", "Create Remote") as its action,
+  Nothing was pushed.", with the push the row now offers ("Force Push", "Push") as its action,
   leased on the fetched head; a push that drops the commits the remote has now confirms first, as below, and it asks
   before a push into a running Safe Push as any push does ([Patronus](../branch/patronus.spec.md)). A remote that
   moved without commits the branch lacks (deleted, rebuilt older versions, a branch created there with the same
@@ -221,7 +221,7 @@ of a part of a branch, up to one of its commits, is Push Up to Here
 - A push that drops remote commits (the `warning` hue, `· 2↓`), someone else's work, must ask first: the click opens its
   description with the dropped commits and a `Force Push (1)` button below them, which pushes. Leaving the button keeps
   the question open; Escape, a click elsewhere or on the push button again dismisses it, and nothing is pushed. A safe
-  push (Push, Create Remote, the Force Push of a rebased, amended or restacked branch) pushes on the click. The action
+  push (Push, the first one too, the Force Push of a rebased, amended or restacked branch) pushes on the click. The action
   of the remote-moved toast and P in the [branch preview](../branch/branch-preview.spec.md) ask the same way: the toast
   opens the question of the row's push button (scrolled into view), P that of the preview's footer.
   [@test] ../../src/hooks/usePushButton.test.ts (`asks first only for a push that drops remote commits`, `says what a force push of an amended or restacked branch replaces, and pushes it on the click in the push colour`)

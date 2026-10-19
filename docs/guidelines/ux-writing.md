@@ -134,6 +134,10 @@ indicator could cancel a robot but not restart it.
   that drops someone's remote commits, one that dismisses approvals, a start that cancels a running robot. The row of
   an unpushed branch once offered a disabled "Create Pull Request…" ("Push first: a pull request needs the remote
   branch") beside its own push button.
+- **A step is not a button beside its action**: a surface that offers the action doesn't offer its step too. The row,
+  the preview and the review window of a branch the remote lacks show Create Pull Request… and Safe Push, which push
+  it, and no "Push" of their own; the menu keeps the push, so it stays reachable. One name per action: the first push
+  is "Push (3)" like every other, its description says that it creates the remote branch.
 - **Never offer an action whose failure is known**: disable it with the reason; a wait is a quiet step that opens its
   object. "Safe Push" of a branch whose code owner is still asked is disabled with "Waits for the approval of IJPL
   Code Platform: Ilya Korennoy is requested on #1078", and the row shows the wait, not the doomed action

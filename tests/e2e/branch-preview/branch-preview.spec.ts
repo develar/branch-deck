@@ -139,7 +139,7 @@ test.describe("Branch preview", () => {
     const pushes = await routePush(page, {})
 
     const preview = await openPreviewOfHoveredBranch(page, BRANCH)
-    const pushButton = preview.getByRole("button", { name: /Create Remote/ })
+    const pushButton = preview.getByRole("button", { name: /Push \(\d+\)/ })
     await expect(pushButton).toBeEnabled()
 
     await page.keyboard.press("p")
@@ -220,6 +220,6 @@ testWithConflicts.describe("Branch preview of a conflicting branch", () => {
     await expect(preview.getByTestId("conflict-fix")).toHaveAttribute("data-state", "found")
     await expect(preview.getByTestId("branch-preview-commit").first()).toContainText("Merge conflict")
     // a branch with a conflict has nothing to push
-    await expect(preview.getByRole("button", { name: /Push|Create Remote/ })).toHaveCount(0)
+    await expect(preview.getByRole("button", { name: /Push/ })).toHaveCount(0)
   })
 })

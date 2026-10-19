@@ -222,7 +222,8 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   of the branch's menu (`getBranchReviewItems`), their keys working in the whole window: `O Open Pull Request` when it has a pull request, `Create Pull Request…` for a
   branch on GitHub without a live one, pushed or not (its dialog opens in the window, [below](#the-create-pull-request-dialog), and the main window pushes the branch on Create or "Continue on GitHub"), `S Safe Push` where Patronus is on the repository and the branch has work, and the push for
   a branch with work, named as the push button of its row (`Push (2)`, `Push Stack (2 branches)`), without a key: P is
-  the previous change. "⋯" after them is the whole menu of the branch's row (`BranchReviewWindowState.menus`, its
+  the previous change. A first push whose landing pushes the branch (`isFirstPushInLanding`) is a step of Create Pull
+  Request… and Safe Push: only "⋯" offers it. "⋯" after them is the whole menu of the branch's row (`BranchReviewWindowState.menus`, its
   items without their submenus): the main window runs the item it asks for (`menuItemId`), comes to the front and
   shows the row (a rename or an amend is a form of the row); disabled with the reason while it shows another
   repository or the branch left.

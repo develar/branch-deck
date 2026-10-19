@@ -139,11 +139,11 @@ describe("buildRemoteMovedTexts", () => {
     })
   })
 
-  it("offers to create a branch deleted on the remote", () => {
+  it("offers to push a branch deleted on the remote again", () => {
     expect(buildRemoteMovedTexts("login", testRemoteStatus({ exists: false, commitsAhead: 1 }))).toEqual({
       title: "login was deleted on the remote",
       description: "Nothing was pushed.",
-      action: "Create Remote",
+      action: "Push",
     })
   })
 })

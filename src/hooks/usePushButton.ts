@@ -4,12 +4,13 @@ import { useShallow } from "zustand/react/shallow"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import type { DroppedCommit } from "@/lib/bindings"
 import type { PushRetarget } from "@/lib/git/new-pull-request"
-import { describePushRetargets, getPushRetargets } from "@/lib/git/new-pull-request"
+import { describePushRetargets, getBranchesGitHubRepository, getPushRetargets } from "@/lib/git/new-pull-request"
 import { pushBranch } from "@/lib/git/push"
 import { pushStack, pushWithChildren } from "@/lib/git/stack-push"
 import { landedBranchDescription } from "@/lib/landed"
 import type { PushHold } from "@/lib/patronus"
 import { formatPushHoldReason } from "@/lib/patronus"
+import { gitHubRepositoryOf } from "@/lib/pull-request"
 import { dropsRemoteCommits, getPushAction, getPushColor } from "@/lib/push-summary"
 import { formatStackPushLine } from "@/lib/push-up-to"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
@@ -30,8 +31,8 @@ import type { StackBranchAlong } from "@/lib/whole-stack"
 import { getStackBranchAlong, stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 import { getBranch, stackDescendantsIn, useBranchSync, useIsStackBranchPushing, useStackBranch } from "@/stores/branch-sync"
-import { getPushHold, usePushHold, usePushHolds, useStackBranchHoldReason } from "@/stores/patronus"
-import { pullRequestsStore, useStackPullRequest } from "@/stores/pull-requests"
+import { getPushHold, isPatronusAvailable, usePatronusAvailable, usePushHold, usePushHolds, useStackBranchHoldReason } from "@/stores/patronus"
+import { getPullRequest, pullRequestsStore, usePullRequest, usePullRequestAvailability, useStackPullRequest } from "@/stores/pull-requests"
 import { useSafePushStarting } from "@/stores/safe-push"
 
 export interface PushButtonState {
@@ -225,7 +226,8 @@ export function getPushButtonState(
       count = commitsAhead
     }
     if (pushAction === "create") {
-      text = withCount("Create Remote")
+      // one name for every push of the branch: that it creates the remote branch, the description says
+      text = withCount("Push")
     } else if (pushAction === "force") {
       text = withCount("Force Push")
       tooltip = buildRemoteStatusTexts(remoteStatus, parent, { forcePush: true }).tooltip
@@ -320,6 +322,35 @@ function childrenActionOf(branchName: string, unpushedChildren: UnpushedChildren
  */
 export function canPushNow(branch: Branch, { isPushing, processing }: { isPushing: boolean; processing: boolean }): boolean {
   return !branch.hasError && branch.commitCount > 0 && !processing && !getPushButtonState(branch, { isPushing, hold: getPushHold(branch.name) }).disabled
+}
+
+/**
+ * The first push of a branch is a step of its landing: Safe Push and Create Pull Request push the branch themselves
+ * (`pushForAction`), so the row, the preview and the review window offer no push of a branch the remote lacks, only
+ * its menu does, with Push with Children of a root. A push stays while it runs, while a Safe Push holds the branch
+ * (the disabled push says why and offers the robot), for a branch with a live pull request, which the push updates
+ * (`useLandingPushes`; a root whose Push with Children updates the open pull request of its whole stack, the callers),
+ * and in a repository with neither Patronus nor GitHub, where it is the one way to share the branch.
+ */
+export function isFirstPushInLanding(branch: Branch, { landingPushes, held = false }: { landingPushes: boolean; held?: boolean }): boolean {
+  return landingPushes && !held && getPushAction(branch) === "create"
+}
+
+/**
+ * Safe Push or Create Pull Request is there to push the branch, and no live pull request shows it: a push of a branch
+ * with one updates it (`isFirstPushInLanding`)
+ */
+export function useLandingPushes(branchName: string): boolean {
+  const patronus = usePatronusAvailable()
+  const gitHub = gitHubRepositoryOf(usePullRequestAvailability()) !== null
+  const pullRequest = usePullRequest(branchName)
+  return (patronus || gitHub) && (pullRequest === undefined || pullRequest.state === "closed")
+}
+
+/** `useLandingPushes` outside a component, for the items built on demand */
+export function isLandingPushAvailable(branchName: string): boolean {
+  const pullRequest = getPullRequest(branchName)
+  return (isPatronusAvailable() || getBranchesGitHubRepository() !== null) && (pullRequest === undefined || pullRequest.state === "closed")
 }
 
 /** The push button of a branch row and of the branch preview */

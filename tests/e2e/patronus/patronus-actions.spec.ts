@@ -2,7 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import type { PatronusMergeRequest, PatronusReviewRequirement, PatronusRobot, PatronusRobotDetails, PatronusStartOptions, PullRequest } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
+import { findBranchRow, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
 import { APPROVED_BY_CODE_OWNER, availableRobots, robot, routeReviewRequirement, setupRobots } from "../helpers/patronus-helpers"
 import {
   availablePullRequests,
@@ -990,7 +990,7 @@ test.describe("Patronus actions", () => {
         await syncAndWaitForBranches()
         await routePush(page, {})
         await routeNewPullRequest(page, { viewerLogin: null })
-        await getPushButton(findBranchRow(page, "JIRA-456")).click()
+        await pushFromRowMenu(page, "JIRA-456")
         await pushedToast(page, "JIRA-456").getByRole("button", { name: "Create Pull Request…" }).click()
         const dialog = createPullRequestDialog(page)
         await expect(dialog.getByTestId("create-pull-request-unavailable")).toContainText("No GitHub token to see pull requests: GitHub's form opens the pull request instead.")

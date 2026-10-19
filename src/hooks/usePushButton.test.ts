@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { PushButtonContext } from "@/hooks/usePushButton"
-import { getPushButtonState } from "@/hooks/usePushButton"
+import { getPushButtonState, isFirstPushInLanding } from "@/hooks/usePushButton"
 import type { DroppedCommit, PatronusRobot } from "@/lib/bindings"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
@@ -45,7 +45,7 @@ describe("getPushButtonState", () => {
     // the count of the compact button in the row
     expect(state({ commitsAhead: 3, myCommitsAhead: 2 })).toMatchObject({ text: "Push (3)", count: 3, tooltip: "2 of 3 commits to push are yours." })
     expect(state({ exists: false, commitsAhead: 3, myCommitsAhead: 0 })).toMatchObject({
-      text: "Create Remote (3)",
+      text: "Push (3)",
       tooltip: "3 commits to push, none of them yours.\nThe branch isn't on the remote yet: the push creates it.",
     })
     expect(state({ commitsAhead: 3, myCommitsAhead: 1, commitsBehind: 1, fastForward: false, droppedCommits: commits(1) })).toMatchObject({
@@ -108,7 +108,7 @@ describe("getPushButtonState", () => {
 
   it("is quiet for a branch the baseline has all of: the update archives it", () => {
     expect(state({ exists: false, commitsAhead: 1, myCommitsAhead: 1 }, { landedIn: "origin/master" })).toMatchObject({
-      text: "Create Remote (1)",
+      text: "Push (1)",
       color: "neutral",
       tooltip: "Already in origin/master. Update to archive the branch.",
       disabled: false,
@@ -174,7 +174,7 @@ describe("getPushButtonState", () => {
       label: "Push Stack (2 branches)",
     })
     // login asks first in its own row: nothing above it to push with oauth
-    expect(stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 2, buttonStack: [] } })).toMatchObject({ text: "Create Remote (1)", pushesStack: false })
+    expect(stacked({ unpushedParent: { name: "login", onRemote: true, stackSize: 2, buttonStack: [] } })).toMatchObject({ text: "Push (1)", pushesStack: false })
   })
 
   it("says which pull requests into a virtual branch the push retargets first, and warns when GitHub may dismiss approvals", () => {
@@ -203,7 +203,7 @@ describe("getPushButtonState", () => {
   it("offers Push with Children while branches stacked on it have work for the remote", () => {
     const push = state({ exists: false, commitsAhead: 1, myCommitsAhead: 1 }, { unpushedChildren: { names: ["oauth"], pushOrder: ["login", "oauth"] } })
     // the push alone stays as it is
-    expect(push).toMatchObject({ text: "Create Remote (1)", disabled: false, action: null })
+    expect(push).toMatchObject({ text: "Push (1)", disabled: false, action: null })
     expect(push.childrenAction).toMatchObject({ description: "oauth is stacked on login and has commits to push.", label: "Push with Children (2 branches)" })
     expect(state({ commitsAhead: 1 }, { unpushedChildren: { names: ["oauth", "session"], pushOrder: ["login", "oauth", "session"] } }).childrenAction?.description).toBe(
       "oauth and session are stacked on login and have commits to push.",
@@ -271,5 +271,25 @@ describe("getPushButtonState", () => {
     })
     expect(push.action?.label).toBe("Push oauth Only")
     expect(push.childrenAction?.label).toBe("Push with Children (2 branches)")
+  })
+})
+
+describe("isFirstPushInLanding", () => {
+  const remote = (status: Partial<RemoteStatus>): Branch => testBranch("login", null, { stack: null, remoteStatus: testRemoteStatus(status) })
+
+  it("leaves the first push of a branch to its landing where Safe Push or Create Pull Request pushes it", () => {
+    expect(isFirstPushInLanding(remote({ exists: false, commitsAhead: 2 }), { landingPushes: true })).toBe(true)
+  })
+
+  it("keeps a push that updates the remote branch, and the first push where nothing else pushes", () => {
+    // the remote branch is what the pull request and the other people see
+    expect(isFirstPushInLanding(remote({ commitsAhead: 2 }), { landingPushes: true })).toBe(false)
+    expect(isFirstPushInLanding(remote({ commitsAhead: 1, commitsBehind: 1, fastForward: false }), { landingPushes: true })).toBe(false)
+    // neither Patronus nor GitHub: the push is the one way to share the branch
+    expect(isFirstPushInLanding(remote({ exists: false, commitsAhead: 2 }), { landingPushes: false })).toBe(false)
+  })
+
+  it("keeps the push of a branch a Safe Push holds: its description says why it won't land and offers the robot", () => {
+    expect(isFirstPushInLanding(remote({ exists: false, commitsAhead: 2 }), { landingPushes: true, held: true })).toBe(false)
   })
 })

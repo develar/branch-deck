@@ -49,7 +49,7 @@ export interface BranchPushButtonProps {
 }
 
 /**
- * Push button of an active branch ("Push (2)", "Create Remote", "Force Push (1)", "Push Stack (3)" for a stacked branch
+ * Push button of an active branch ("Push (2)", "Force Push (1)", "Push Stack (3)" for a stacked branch
  * whose ancestors have work for the remote); the full description is shown on hover, also while the button is disabled
  * ("Everything is pushed.", why it is blocked), with the remote commits a force push drops and the other push of a
  * stacked branch (the branch alone, or Push Stack), and the pull requests into a virtual branch it retargets to the

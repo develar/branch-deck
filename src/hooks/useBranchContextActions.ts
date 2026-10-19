@@ -30,7 +30,7 @@ import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getBranchNextStepNow, getBranchNextStepOf, getGatedRobotActions, nextStepSources, useNextStepStores } from "@/hooks/useBranchNextStep"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
-import { canPushNow, getPushButtonNow } from "@/hooks/usePushButton"
+import { canPushNow, getPushButtonNow, isFirstPushInLanding, isLandingPushAvailable } from "@/hooks/usePushButton"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { restackBranch } from "@/hooks/useStackActions"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
@@ -443,7 +443,8 @@ export interface BranchActionItem extends MenuItem {
 /**
  * The actions on a branch in its review window: its pull request (Open; Create without a live one, also beside a
  * closed one, as the menu offers both), "Safe Push" where Patronus is and the branch has work, "Push" for a branch
- * with work. The same items as the menu; Push has no key, P is the previous change there.
+ * with work, unless its first push is a step of its landing (`isFirstPushInLanding`: "⋯" offers it). The same items as
+ * the menu; Push has no key, P is the previous change there.
  */
 export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
   const items: BranchActionItem[] = []
@@ -458,7 +459,9 @@ export function getBranchReviewItems(branch: Branch): BranchActionItem[] {
   if (hasPush && isPatronusAvailable()) {
     items.push(getSafePushMenuItem(branch))
   }
-  if (hasPush) {
+  // the first push of a branch is a step of Safe Push and Create Pull Request: "⋯" offers it
+  const landingPushes = isLandingPushAvailable(branch.name)
+  if (hasPush && (isBranchPushing(branch.name) || !isFirstPushInLanding(branch, { landingPushes, held: getPushHold(branch.name) !== null }))) {
     // the push of the button alone: its second way is in "⋯"
     const push = getPushMenuItems(branch)[0]!
     items.push({ ...push, kbds: undefined })

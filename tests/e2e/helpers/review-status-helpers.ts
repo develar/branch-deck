@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test"
 import { expect } from "../fixtures/test-fixtures"
-import { findBranchRow, getPushButton } from "./branch-helpers"
+import { findBranchRow, pushFromRowMenu } from "./branch-helpers"
 import type { PushResult } from "./push-helpers"
 import { expectPushedToast, routePush } from "./push-helpers"
 
@@ -8,15 +8,16 @@ import { expectPushedToast, routePush } from "./push-helpers"
 export const EARLIER_COMMIT = "0123456789abcdef0123456789abcdef01234567"
 
 /**
- * Pushes the branch with its push button and waits for it; the remote answers with `result` (`routePush`), e.g. the
- * remote status of a branch whose remote is at `EARLIER_COMMIT`
+ * Pushes the branch with the push of its row's menu and waits for it; the remote answers with `result` (`routePush`),
+ * e.g. the remote status of a branch whose remote is at `EARLIER_COMMIT`. The menu, not the push button: the first push
+ * of a branch whose landing pushes it has no button on the row (`isFirstPushInLanding`).
  */
 export async function pushBranchFromRow(page: Page, branchName: string, result: PushResult = {}): Promise<void> {
   await routePush(page, { [branchName]: result })
-  await getPushButton(findBranchRow(page, branchName)).click()
+  await pushFromRowMenu(page, branchName)
   await expectPushedToast(page, branchName)
-  // the click opened the description of the push button, which stays open (the progress, then the result) until Escape
-  // or a click elsewhere; left open, it competes with the next hover of a review chip
+  // a branch with a push button on the row shows the progress, then the result, in its description until Escape or a
+  // click elsewhere; left open, it competes with the next hover of a review chip
   await page.keyboard.press("Escape")
   await expect(page.getByTestId("push-description")).toBeHidden()
   await page.mouse.move(0, 0)

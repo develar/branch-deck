@@ -400,8 +400,9 @@ test.describe("Branch review window", () => {
     // the window opens with the actions of each branch of its chain, the items of its menu
     const opened = await openReviewWindow(page, "login")
     const repositoryPath = opened.data.repositoryPath
-    // auth has no pull request: its Create pushes it first, on the remote or not
-    expect(itemSummary(opened.data.state.items)).toEqual({ auth: ["create-pull-request", "safe-push", "push"], login: ["open-pull-request", "safe-push", "push"] })
+    // auth has no pull request: its Create pushes it first, on the remote or not; the remote lacks auth, so its first
+    // push is a step of Create and Safe Push, only "⋯" offers it. login's push updates its pull request
+    expect(itemSummary(opened.data.state.items)).toEqual({ auth: ["create-pull-request", "safe-push"], login: ["open-pull-request", "safe-push", "push"] })
     expect(opened.data.state.items.login![0]).toMatchObject({ label: "Open Pull Request", kbds: ["o"], url: LOGIN_PULL_REQUEST.url })
     // the Safe Push of login lands auth with it: the count of the branches it lands
     expect(opened.data.state.items.login![1]).toMatchObject({ label: "Safe Push · 2", kbds: ["s"] })
@@ -432,6 +433,9 @@ test.describe("Branch review window", () => {
     // the parent alone: its actions, without a pull request
     await page.getByTestId("branch-review-segment").first().click()
     await expect(actions.getByRole("button", { name: "Open Pull Request" })).toHaveCount(0)
+    // the remote lacks auth: its first push is a step of its Safe Push, the title bar offers no push of its own
+    await expect(actions.getByRole("button", { name: /^Safe Push/ })).toBeVisible()
+    await expect(actions.getByRole("button", { name: /^Push/ })).toHaveCount(0)
     await page.keyboard.press("s")
     // the whole stack: the reviewed branch
     await page.getByRole("button", { name: "From Root" }).click()

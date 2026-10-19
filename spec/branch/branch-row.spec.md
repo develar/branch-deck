@@ -340,14 +340,25 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should copy via copy button in actions column`, `should handle branch with commits state`)
 - The push button must follow [Outgoing Commits](../repository/outgoing.spec.md), compact: an up arrow and the count of
   the commits it sends ("↑ 3", the arrow alone without a count), "45%" after the spinner while it pushes. Its label
-  ("Push (2)", "Create Remote (3)", "Force Push (1)", "Push Stack (3 branches)", "Pushing 45%") is its accessible name and the
+  ("Push (2)", "Force Push (1)", "Push Stack (3 branches)", "Pushing 45%"; one name for the first push too, whose description
+  says "The branch isn't on the remote yet: the push creates it.") is its accessible name and the
   first line of its description on hover, which shows also while it is disabled, with the remote commits a force push
   drops, the question before a push that drops them, and the progress of a running push. Its colour is the push colour
   of the branch as the text of a ghost button (the arrow for `primary`), neutral when landed. A branch up to date with
   its remote has an empty place of the button's width instead: the status text says it, and a disabled arrow in every
   pushed row would only repeat it; so has a branch a running Safe Push holds, whose Status cell shows the robot or
   "lands with oauth", and its Safe Push slot is empty too ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs));
-  a running push keeps its button until it finished, and a blocked branch keeps the
+  and so has a branch the remote lacks whose landing pushes it (`isFirstPushInLanding`): where Patronus answers or
+  GitHub lists the pull requests and the branch has no live pull request, its Safe Push and Create Pull Request push
+  it first, so its first push is a step of them, not a move of its own; the menu and P offer it, and Push with Children
+  of a root. A branch with a live pull request keeps its button, as the push updates it, and so does a root whose
+  Push with Children takes the stack branch of the open pull request of its whole stack along, and every branch of a
+  repository with neither Patronus nor GitHub.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should take the whole stack branch along in Push with Children of the root once its pull request is open, from the push and the menu`)
+  [@test] ../../src/hooks/usePushButton.test.ts (`leaves the first push of a branch to its landing where Safe Push or Create Pull Request pushes it`, `keeps a push that updates the remote branch, and the first push where nothing else pushes`, `keeps the push of a branch a Safe Push holds: its description says why it won't land and offers the robot`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`)
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`)
+  A running push keeps its button until it finished, and a blocked branch keeps the
   disabled button with its reason. The focus in the button or its description when it leaves goes to the row, so P and
   Space keep working.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the percent on the push button and git's last line on hover while the push runs`, `should describe a disabled push on hover`) The preview footer keeps the labelled button. A branch with
@@ -505,8 +516,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   issue reference"); it is left out only where it never applies (no pull request, no robot). Every item has a stable
   `id`, what the surfaces and the review window name it by.
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`says why an item doesn't apply in its description, never in its name, and names every item by a stable id`)
-- The push item must be the push button of the row as a menu item (`getPushButtonNow`): its name ("Push (2)", "Create
-  Remote (3)", "Force Push (1)", "Push Stack (3 branches)" with "Pushes auth, login and oauth, parents first" on
+- The push item must be the push button of the row as a menu item (`getPushButtonNow`), also where the row has no
+  button for a first push: its name ("Push (2)", "Force Push (1)", "Push Stack (3 branches)" with "Pushes auth, login and oauth, parents first" on
   hover), what it pushes (`pushOrConfirm`: the stack only where the button pushes it, the question in the button's
   description before a push that drops remote commits), enabled as that button (`canPushNow`), else disabled with the
   reason ("The remote branch is up to date", the blocked parent, the running Safe Push that holds it, "The stack is

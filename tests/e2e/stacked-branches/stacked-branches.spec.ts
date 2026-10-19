@@ -1,7 +1,17 @@
 // @spec spec/branch/stacked-branches.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
-import { collapseBranch, expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getPushButton, getStackChip, verifyCommitCount } from "../helpers/branch-helpers"
+import {
+  collapseBranch,
+  expandBranch,
+  findBranchRow,
+  getBranchCells,
+  getBranchCommitRow,
+  getBranchDetailsRow,
+  getPushButton,
+  getStackChip,
+  verifyCommitCount,
+} from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
 import {
@@ -498,29 +508,17 @@ test.describe("Stacked branches", () => {
     // the E2E server has no remote: answer the pushes and record their order
     const pushes = await routePush(page, {})
 
-    // login isn't pushed yet: the button of oauth pushes the stack, its description offers oauth alone
+    // login isn't pushed yet: the push of oauth pushes the stack, the menu offers oauth alone too. The remote lacks
+    // oauth and its Create Pull Request pushes it: the row offers no push of its own
     const oauth = findBranchRow(page, "oauth")
     await expect(oauth.getByTestId("branch-status-dot")).toHaveAttribute("data-color", "primary")
-    const button = getPushButton(oauth)
-    // the menu names it alike, the arrow counts the commits
-    await expect(button).toHaveAccessibleName("Push Stack (3 branches)")
-    await expect(button).toHaveText("3")
-    await expect(button).toBeEnabled()
-    // the menu has the one push of the button, no second Push Stack
+    await expect(getBranchCells(oauth).actions.getByTestId("push-placeholder")).toHaveCount(1)
+    await expect(getPushButton(oauth)).toHaveCount(0)
+    // the menu has the one push of the stack, no second Push Stack, and the push of oauth alone after it
     await openContextMenu(page, oauth)
     await expect(page.getByRole("menuitem", { name: /^Push Stack/ })).toHaveCount(1)
-    await expect(page.getByRole("menuitem", { name: "Push Stack (3 branches) P" })).toBeEnabled()
-    await page.keyboard.press("Escape")
-    await button.hover()
-    const description = page.getByTestId("push-description")
-    await expect(description).toContainText(
-      "Pushes 3 branches, parents first: auth · 1 commit · creates the remote branch login · 1 commit · creates the remote branch oauth · 1 commit · creates the remote branch",
-    )
-    const alternative = description.getByTestId("push-alternative")
-    await expect(alternative).toContainText("login isn't on the remote yet. Pushing oauth alone works: its pull request includes login's commits either way.")
-    await expect(alternative.getByRole("button", { name: "Push oauth Only" })).toBeVisible()
-
-    await button.click()
+    await expect(page.getByRole("menuitem", { name: "Push oauth Only" })).toBeVisible()
+    await page.getByRole("menuitem", { name: "Push Stack (3 branches) P" }).click()
     await expect.poll(() => pushes.map(push => push.branchName)).toEqual(["auth", "login", "oauth"])
     expect(pushes.map(push => push.parentBranch ?? null)).toEqual([null, "auth", "login"])
     // the stack is on the remote: the dots of their status are neutral
@@ -624,7 +622,7 @@ test.describe("Stacked branches", () => {
 
     // auth alone may go; its description offers its children too
     const button = getPushButton(findBranchRow(page, "auth"))
-    await expect(button).toHaveAccessibleName("Create Remote (1)")
+    await expect(button).toHaveAccessibleName("Push (1)")
     await button.hover()
     const alternative = page.getByTestId("push-description").getByTestId("push-alternative")
     await expect(alternative).toHaveCount(1)
@@ -903,18 +901,15 @@ test.describe("Stacked branches", () => {
       await expect(start).toHaveAttribute("aria-busy", "true")
       releaseOptions()
       await expectWholeAuthStackPopover(page)
-      // Enter: only the stack branch is pushed, its progress in the button of the start, the one indicator: the push of
-      // the root's row is the root's own; then the robot starts from it
+      // Enter: only the stack branch is pushed, its progress in the button of the start, the one indicator: the rows of
+      // the root and of the branches show no push (the remote lacks them, their first push is a step of their landing);
+      // then the robot starts from it
       await page.keyboard.press("Enter")
       await expect(start).toHaveText("Pushing 45%")
       await expect(start).toHaveAttribute("aria-busy", "true")
-      const rootPush = findBranchRow(page, "auth").getByTestId("push-button")
-      await expect(rootPush).toBeVisible()
-      await expect(rootPush).not.toHaveAttribute("aria-busy", "true")
-      await expect(rootPush).not.toHaveAccessibleName(/^Pushing/)
+      await expect(findBranchRow(page, "auth").getByTestId("push-button")).toHaveCount(0)
       // no branch of the stack is pushed
-      await expect(findBranchRow(page, "login").getByTestId("push-button")).toBeVisible()
-      await expect(findBranchRow(page, "login").getByTestId("push-button")).not.toHaveAttribute("aria-busy", "true")
+      await expect(findBranchRow(page, "login").getByTestId("push-button")).toHaveCount(0)
       release()
       await expect(start).toHaveText("Starting…")
       expect(starts).toEqual([])
@@ -1353,11 +1348,15 @@ test.describe("Stacked branches", () => {
         await repo.commit("(auth) Check the token", { "token.js": "export const token = null\n" }, 1704128400)
         await page.getByTestId("sync-button").click()
       })
-      // by content: auth landed but for the new commit, the only work left of it, which its Safe Push and push send
+      // by content: auth landed but for the new commit, the only work left of it, which its Safe Push sends: the remote
+      // lacks auth, its first push is a step of it, in the menu only
       const authChip = authRow.getByTestId("landed-with")
       await expect(authChip).toHaveText("Landed with oauth · 1 commit after it")
       await expect(slotSafePush(page, "auth")).toHaveText("Safe Push")
-      await expect(getPushButton(authRow)).toHaveCount(1)
+      await expect(getPushButton(authRow)).toHaveCount(0)
+      await openContextMenu(page, authRow)
+      await expect(page.getByRole("menuitem", { name: "Push (2) P" })).toBeEnabled()
+      await page.keyboard.press("Escape")
       await authChip.hover()
       await expect(page.getByTestId("landed-with-after")).toHaveText("1 commit added since, not in master yet")
       await page.mouse.move(0, 0)

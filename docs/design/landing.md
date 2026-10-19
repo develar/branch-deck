@@ -1,7 +1,7 @@
 # Landing Work into Master
 
 **Status:** Implemented  
-**Updated:** 2026-10-18  
+**Updated:** 2026-10-19  
 **Tags:** [product, stacks, patronus, pull-requests]
 
 ## Problem
@@ -39,7 +39,10 @@ Two words are used for what lands, never for anything else:
   as one branch of all its commits, `{prefix}/stack/<root>`. It has its own pull request into master and lands in
   one robot. Its Safe Push is in the stack's header, and its popover opens at the header.
 - **A push serves the landing.** Git pushes put on the remote what a Safe Push or a pull request needs. A stack
-  pushes in one atomic push.
+  pushes in one atomic push. The first push of a branch is a step of its Safe Push and its Create Pull Request, which
+  push it themselves: the row, the preview and the review window offer no push of a branch the remote lacks, only its
+  menu does (`isFirstPushInLanding`). A push stays a move of its own where it changes what other people see: a remote
+  branch that lags, the commits of a live pull request, a force push the landing refuses to make.
 
 The specs are the contract of each part:
 [Stacked Branches](../../spec/branch/stacked-branches.spec.md), [Patronus](../../spec/branch/patronus.spec.md),

@@ -7,7 +7,7 @@ import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
 import { useBranchMenu } from "@/hooks/useBranchContextActions"
-import { useStackBranchPushAlone, useUnpushedChildren } from "@/hooks/usePushButton"
+import { isFirstPushInLanding, useLandingPushes, useStackBranchPushAlone, useUnpushedChildren } from "@/hooks/usePushButton"
 import type { MenuItemGroups } from "@/lib/menu"
 import { getPushAction } from "@/lib/push-summary"
 import type { Branch } from "@/stores/branch-sync"
@@ -27,8 +27,8 @@ export interface BranchActionsProps {
  * Actions column of an active branch row: copy the full branch name (on the row hover or focus: every row has it), then,
  * at the end of the cell so they line up across the rows, the compact push ("↑ 3", disabled for a blocked stacked
  * branch; its place stays empty while the remote branch is up to date, unless a branch stacked on it has work: its
- * description offers Push with Children then, and while a Safe Push holds the branch, `PushHold`, which the status
- * says), the next step on
+ * description offers Push with Children then, while a Safe Push holds the branch, `PushHold`, which the status
+ * says, and while the remote lacks the branch and its landing pushes it, `isFirstPushInLanding`), the next step on
  * Space (`NextStepSlot`: "Safe Push", a restart, a wait for approvals, one width in every row) and "⋯" with the branch
  * menu. A click in the
  * cell, on a disabled button too, doesn't toggle the row.
@@ -50,8 +50,13 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
   const idle = !isPushing && stackPush === null && !stackBranchPush
   // the root of a pushed stack keeps its push while a child has work: its description offers Push with Children; the
   // island header offers it for an island root
-  const childrenToPush = useUnpushedChildren(branch.name) !== null && !stackPushInHeader
-  const upToDate = idle && ((getPushAction(branch) === "upToDate" && branch.status !== "Blocked" && !childrenToPush) || hold !== null)
+  const unpushedChildren = useUnpushedChildren(branch.name)
+  const childrenToPush = unpushedChildren !== null && !stackPushInHeader
+  // the first push is a step of Safe Push and Create Pull Request: only the menu offers it; unless Push with Children
+  // takes the stack branch of the whole stack along, whose open pull request it updates
+  const landingPushes = useLandingPushes(branch.name) && (unpushedChildren?.stackBranch ?? null) === null
+  const firstPush = isFirstPushInLanding(branch, { landingPushes })
+  const upToDate = idle && ((getPushAction(branch) === "upToDate" && branch.status !== "Blocked" && !childrenToPush) || hold !== null || firstPush)
   return (
     <RowActions>
       <CopyButton
@@ -73,7 +78,8 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
 }
 
 /**
- * The compact push, or its empty place while the remote branch is up to date. The focus in the button or its
+ * The compact push, or its empty place while the row offers none (`upToDate`: the remote branch is up to date, a Safe
+ * Push holds the branch, or its first push is a step of its landing). The focus in the button or its
  * description (pushed with a click or P) goes to the row when the push is done and the button leaves: the row keeps
  * its keys, Space included.
  */

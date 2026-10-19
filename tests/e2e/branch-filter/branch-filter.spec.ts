@@ -33,9 +33,23 @@ function chip(page: Page, name: "all" | "toPush" | "running" | "attention"): Loc
   return page.getByRole("group", { name: "Branch state" }).locator(`[data-chip=${name}]`)
 }
 
-/** The rows whose push is offered: work for the remote, To Push's rule (the row's push button, not up to date) */
+/**
+ * The rows with work for the remote, To Push's rule: the push of the row's menu is enabled, as P is. The menu, not the
+ * push button: the first push of a branch whose Safe Push pushes it has no button on the row
+ */
 async function outgoingBranchCount(page: Page): Promise<number> {
-  return page.getByTestId("branch-row").getByTestId("push-button").and(page.locator(":not([aria-disabled=true])")).count()
+  let count = 0
+  for (const name of ROW_ORDER) {
+    await findBranchRow(page, name).click({ button: "right" })
+    const push = page.getByRole("menuitem", { name: /^(Force Push|Push|Push Stack) \(\d+/ })
+    await expect(page.getByRole("menuitem", { name: /^Copy Branch Name/ })).toBeVisible()
+    if ((await push.count()) === 1 && (await push.getAttribute("aria-disabled")) !== "true") {
+      count++
+    }
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("menu")).toHaveCount(0)
+  }
+  return count
 }
 
 /** The `branch_filter` repository with these robots, synced; the unassigned commits card renders after the branches */
@@ -160,8 +174,8 @@ test.describe("Branch filter", () => {
     const pushes = await routePush(page, {})
     const row = findBranchRow(page, "docs")
     // named as the push button of the row, then the key of the focused row
-    const create = page.getByRole("menuitem", { name: /^Create Remote \(1\) ?P?$/ })
-    await expect(getPushButton(row)).toHaveAccessibleName("Create Remote (1)")
+    const create = page.getByRole("menuitem", { name: /^Push \(1\) ?P?$/ })
+    await expect(getPushButton(row)).toHaveAccessibleName("Push (1)")
 
     await row.click({ button: "right" })
     await expect(create.locator("[data-slot=kbd]")).toHaveText("P")

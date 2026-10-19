@@ -105,7 +105,11 @@ its row.
 ### Push
 
 - P or the push button in the footer must push the shown branch, as the push button of the row does, with the same
-  label ("Push (2)", "Create Remote (3)", "Force Push (1)").
+  label ("Push (2)", "Force Push (1)"). The footer has the button where the row has it: a first push whose landing
+  pushes the branch (`isFirstPushInLanding`, [Branch Row](branch-row.spec.md#actions-cell)) is P and "⋯" only, beside
+  Create Pull Request… and Safe Push; a branch a Safe Push holds keeps its disabled push, whose description offers the
+  robot.
+  [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`)
 - P must work in any keyboard layout (the physical key). P on the focused row of the table pushes by the same rule
   (`canPushNow`, [Branch Row](branch-row.spec.md#keyboard)).
 - The push must be disabled while a sync or a push of the branch runs, while an inline action runs on the row, and when

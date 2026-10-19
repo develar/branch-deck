@@ -24,7 +24,7 @@ test.describe("Push progress", () => {
     const button = getPushButton(row)
     // the row shows the count, the label is its name and leads its description
     await expect(button).toHaveText("3")
-    await expect(button).toHaveAccessibleName("Create Remote (3)")
+    await expect(button).toHaveAccessibleName("Push (3)")
 
     await button.click()
     await expect(button).toHaveText("55%")
@@ -135,7 +135,7 @@ test.describe("Force push", () => {
 test.describe("Push button", () => {
   test("should keep the colour of the push while its description is open", async ({ page }) => {
     const button = getPushButton(findBranchRow(page, "JIRA-456"))
-    await expect(button).toHaveAccessibleName("Create Remote (3)")
+    await expect(button).toHaveAccessibleName("Push (3)")
     await button.hover()
     await expect(page.getByTestId("push-description")).toBeVisible()
     await expect(button).toHaveAttribute("aria-expanded", "true")

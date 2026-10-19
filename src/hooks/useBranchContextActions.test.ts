@@ -117,7 +117,7 @@ describe("the push of the branch menu", () => {
     expect(pushItems("login")).toEqual([
       expect.objectContaining({ id: "push", label: "Push Stack (2 branches)", description: "Pushes auth and login, parents first", disabled: false }),
     ])
-    expect(pushItems("auth")).toEqual([expect.objectContaining({ id: "push", label: "Create Remote (1)", disabled: false })])
+    expect(pushItems("auth")).toEqual([expect.objectContaining({ id: "push", label: "Push (1)", disabled: false })])
   })
 
   it("offers the push of the branch alone after the push of the stack, as the description of the button does", () => {
@@ -133,7 +133,7 @@ describe("the push of the branch menu", () => {
   it("pushes the branch alone above an ancestor whose push drops remote commits: that one asks first in its own row", () => {
     const dropping = testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsBehind: 1, fastForward: false, unpushedCommits: ["c"] })
     setBranches(synced("auth", null, dropping), synced("login", "auth", unpushed))
-    expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", label: "Create Remote (1)" })])
+    expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", label: "Push (1)" })])
     expect(pushItems("auth")).toEqual([expect.objectContaining({ id: "push", label: "Force Push (1)" })])
   })
 
