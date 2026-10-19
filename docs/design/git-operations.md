@@ -1778,6 +1778,9 @@ The conflict view gets the merge of each conflicting file as typed JSON (`FileDi
 - **The engine merges each file again**, as IntelliJ's merge view does: `merge_texts` on the three blobs
   ([Text Diff Engine](text-diff.md), "Merge"). So it can find that a conflict of git resolves by its words (the
   `text` resolution), or that it covers fewer lines than the hunk of git.
+- **A resolved copy.** A commit whose conflict the sync resolved by words (see "Resolve by words") opens the same
+  merge with `resolved`, its copy: each file then names its blob in the copy (`resolved_id`, one `cat-file
+  --batch-check` of `<copy>:<path>`), which the view shows as the result, what the sync committed.
 - **The content.** A `TextMerge`. `OneSided` for a modify/delete or a rename/delete: the two-way diff of the base to
   the side that changed the file. `Binary`, `TooLarge`, `Submodule` (the commit of each stage), or `Missing`, which no
   cache keeps.

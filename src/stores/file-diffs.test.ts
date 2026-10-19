@@ -135,7 +135,7 @@ type MergeEvents = { onmessage: (event: FileMergeEvent) => void }
 const SOURCE: MergeSource = { kind: "cherryPick", parent: "p", target: "t", commit: "c" }
 
 function mergeHeader(path: string): FileMergeHeader {
-  return { path, kind: "content", baseId: "1", leftId: "2", rightId: "3" }
+  return { path, kind: "content", baseId: "1", leftId: "2", rightId: "3", resolvedId: null }
 }
 
 const mergeEntryOf = (policy: Parameters<typeof fileMergesKey>[2] = "default") => fileMergesStore.getState().byKey.get(fileMergesKey("/repo", SOURCE, policy))

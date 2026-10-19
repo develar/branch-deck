@@ -43,7 +43,15 @@ fn conflicts() -> (TestRepo, MergeSource) {
   write(&repo, "bin.dat", &[0, 1, 4]);
   write(&repo, "crlf.txt", b"a\nC\n");
   let commit = commit_all(&repo, "Commit");
-  (repo, MergeSource::CherryPick { parent: base, target, commit })
+  (
+    repo,
+    MergeSource::CherryPick {
+      parent: base,
+      target,
+      commit,
+      resolved: None,
+    },
+  )
 }
 
 fn params(repo: &TestRepo, source: &MergeSource) -> GetFileMergesParams {
@@ -187,4 +195,26 @@ fn the_model_is_json_with_a_kind() {
   assert_eq!(json["content"]["blocks"][0]["resolution"], "text");
   let source: MergeSource = serde_json::from_value(serde_json::json!({ "kind": "cherryPick", "parent": "a", "target": "b", "commit": "c" })).unwrap();
   assert!(matches!(source, MergeSource::CherryPick { .. }));
+}
+
+/// With the copy that resolved the conflict by words, each file names its blob in the copy, which the view shows as the
+/// result; a path the copy lacks names none
+#[test]
+fn a_resolved_copy_names_the_blob_of_each_file() {
+  let (repo, source) = conflicts();
+  assert!(read(&repo, &source).iter().all(|merge| merge.header.resolved_id.is_none()));
+  let MergeSource::CherryPick { parent, target, commit, .. } = source;
+  // a stand-in for the copy: the target has some of the paths
+  let resolved = MergeSource::CherryPick {
+    parent,
+    target: target.clone(),
+    commit,
+    resolved: Some(target.clone()),
+  };
+  let merges = read(&repo, &resolved);
+  assert_eq!(
+    file(&merges, "content.txt").header.resolved_id,
+    Some(repo.git(&["rev-parse", &format!("{target}:content.txt")]).trim().to_string())
+  );
+  assert_eq!(file(&merges, "gone.txt").header.resolved_id, None);
 }

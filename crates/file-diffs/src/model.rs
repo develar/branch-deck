@@ -185,8 +185,16 @@ pub struct GetFileMergesParams {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum MergeSource {
   /// The cherry-pick of `commit` onto `target`: `parent` is the base, `target` ours (left), `commit` theirs (right),
-  /// as the sync merges it
-  CherryPick { parent: String, target: String, commit: String },
+  /// as the sync merges it. `resolved` is the copy that the sync committed when the words resolved the conflict: each
+  /// file then names its blob in the copy (`FileMergeHeader::resolved_id`)
+  CherryPick {
+    parent: String,
+    target: String,
+    commit: String,
+    #[serde(default)]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    resolved: Option<String>,
+  },
 }
 
 /// The conflict type of a path, as `merge-tree` names it (`CONFLICT (<type>)`)
@@ -215,6 +223,9 @@ pub struct FileMergeHeader {
   pub base_id: Option<String>,
   pub left_id: Option<String>,
   pub right_id: Option<String>,
+  /// The blob of the file in the copy that resolved the conflict by words (`MergeSource::CherryPick::resolved`): what
+  /// the sync committed, which the view shows as the result; `None` without that copy or for a path it lacks
+  pub resolved_id: Option<String>,
 }
 
 /// What the conflict view shows of a file

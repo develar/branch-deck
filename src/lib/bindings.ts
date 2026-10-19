@@ -1040,6 +1040,11 @@ export type FileMergeHeader = {
 	baseId: string | null,
 	leftId: string | null,
 	rightId: string | null,
+	/**
+	 *  The blob of the file in the copy that resolved the conflict by words (`MergeSource::CherryPick::resolved`): what
+	 *  the sync committed, which the view shows as the result; `None` without that copy or for a path it lacks
+	 */
+	resolvedId: string | null,
 };
 
 /**  The owner of a path and the rule that names it */
@@ -1538,9 +1543,10 @@ export type MergeSide = "left" | "right";
 export type MergeSource = 
 /**
  *  The cherry-pick of `commit` onto `target`: `parent` is the base, `target` ours (left), `commit` theirs (right),
- *  as the sync merges it
+ *  as the sync merges it. `resolved` is the copy that the sync committed when the words resolved the conflict: each
+ *  file then names its blob in the copy (`FileMergeHeader::resolved_id`)
  */
-{ kind: "cherryPick"; parent: string; target: string; commit: string };
+{ kind: "cherryPick"; parent: string; target: string; commit: string; resolved?: string | null };
 
 /**  Why the approvals are missing */
 export type MissingApprovalsReason = 

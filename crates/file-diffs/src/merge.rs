@@ -15,6 +15,7 @@ use anyhow::{Result, bail};
 use code_symbols::language::language_of;
 use code_symbols::summary::FileSummary;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::cat_file_batch::object_ids_and_types;
 use git_ops::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use git_ops::revs::is_object_id;
 use object_cache::cache::ObjectCache;
@@ -47,6 +48,8 @@ pub(crate) struct ConflictPath {
   /// The id of each stage: base, left, right
   pub ids: [Option<String>; 3],
   pub submodule: bool,
+  /// The blob of the path in the copy that resolved the conflict by words
+  pub resolved: Option<String>,
 }
 
 /// What the store keeps of a merge: postcard needs the default enum form, not the tagged form of the views
@@ -215,14 +218,22 @@ impl FileDiffs {
     if let Some(paths) = self.conflicts.get(&key) {
       return Ok(paths);
     }
-    let MergeSource::CherryPick { parent, target, commit } = source;
-    if let Some(id) = [parent, target, commit].into_iter().find(|id| !is_object_id(id)) {
+    let MergeSource::CherryPick { parent, target, commit, resolved } = source;
+    if let Some(id) = [parent, target, commit].into_iter().chain(resolved).find(|id| !is_object_id(id)) {
       bail!("Not an object id: {id}");
     }
     let args = ["merge-tree", "--write-tree", "-z", "--merge-base", parent, target, commit];
     // exit code 1 is a merge with conflicts
     let output = git.cmd(&args, repository_path).accept(&[1]).bytes()?;
-    let paths = Arc::new(conflict_paths_of(&parse_merge_tree_output(&output)?));
+    let mut paths = conflict_paths_of(&parse_merge_tree_output(&output)?);
+    if let Some(copy) = resolved {
+      // the blobs the sync committed: one `cat-file --batch-check`
+      let names: Vec<String> = paths.iter().map(|path| format!("{copy}:{}", path.path)).collect();
+      for (path, found) in paths.iter_mut().zip(object_ids_and_types(git, repository_path, &names)?) {
+        path.resolved = found.filter(|(_, kind)| *kind == "blob").map(|(id, _)| id);
+      }
+    }
+    let paths = Arc::new(paths);
     self.conflicts.insert(key, Arc::clone(&paths));
     Ok(paths)
   }
@@ -240,6 +251,7 @@ fn conflict_paths_of(merge: &MergeTreeOutput) -> Vec<ConflictPath> {
         kind,
         ids: [None, None, None],
         submodule: false,
+        resolved: None,
       });
     }
     let current = paths.last_mut().expect("a path for the stage");
@@ -284,6 +296,7 @@ fn header(path: &ConflictPath) -> FileMergeHeader {
     base_id: id(0),
     left_id: id(1),
     right_id: id(2),
+    resolved_id: path.resolved.clone(),
   }
 }
 
