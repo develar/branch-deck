@@ -1,5 +1,5 @@
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
-import { findBranchRobot, isRobotActive, needsRobotAttention } from "@/lib/patronus"
+import { findBranchRobot, isRobotActive, needsBranchRobotAttention } from "@/lib/patronus"
 import { formatAuthorAttention } from "@/lib/pull-request"
 import { summarizePushState } from "@/lib/push-summary"
 import { matchesAllWords, searchWords } from "@/lib/text-search"
@@ -39,15 +39,17 @@ export function matchesBranchText(branch: SearchedBranch, text: string): boolean
 
 /**
  * A branch that waits for the user: an error or a conflict, blocked by its stack parent, a failed robot of the branch as
- * it is (also one that failed for missing approvals), or an open pull request with changes requested or failing checks
- * (`needsRobotAttention` and `formatAuthorAttention`, the moves of the landing overview)
+ * it is (also one that failed for missing approvals) unless another robot holds or landed it or the baseline has it
+ * (`carried`), or an open pull request with changes requested or failing checks (`needsBranchRobotAttention` and
+ * `formatAuthorAttention`, the moves of the landing overview)
  */
-export function needsAttention(branch: Branch, robot: PatronusRobot | undefined, pullRequest: PullRequest | undefined): boolean {
+export function needsAttention(branch: Branch, robot: PatronusRobot | undefined, pullRequest: PullRequest | undefined, carried: boolean): boolean {
   if (branch.hasError || branch.status === "Error" || branch.status === "MergeConflict" || branch.status === "Blocked") {
     return true
   }
   return (
-    (robot !== undefined && needsRobotAttention(robot, branch.commits[0]?.hash, branch.remoteStatus)) || (pullRequest !== undefined && formatAuthorAttention(pullRequest) !== null)
+    (robot !== undefined && needsBranchRobotAttention(robot, branch.commits[0]?.hash, branch.remoteStatus, carried)) ||
+    (pullRequest !== undefined && formatAuthorAttention(pullRequest) !== null)
   )
 }
 
@@ -84,7 +86,7 @@ export function collectChipMatches(names: readonly string[], sources: BranchStat
     if (robot !== undefined && isRobotActive(robot)) {
       running.add(branch.name)
     }
-    if (needsAttention(branch, robot, sources.pullRequests[branch.name])) {
+    if (needsAttention(branch, robot, sources.pullRequests[branch.name], sources.isHeld?.(branch.name) === true || sources.isLanded(branch.name))) {
       attention.add(branch.name)
     }
   }

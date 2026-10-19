@@ -253,6 +253,26 @@ export function needsRobotAttention(robot: PatronusRobot, localTip: string | und
   return robot.status === "failure" && onBranch
 }
 
+/**
+ * A failed robot of the branch as it is (`needsRobotAttention`) that nothing else carries: once a running Safe Push of a
+ * branch built on it or of the whole stack holds the branch, a merged one landed it whole (`PushHold`), or the baseline
+ * has all of it (`carried`), its row waits (`isSettled` of the next step), and so the landing overview, the island,
+ * Attention and the Dock badge ask nothing for its old failure.
+ */
+export function needsBranchRobotAttention(robot: PatronusRobot, localTip: string | undefined, remote: RemoteStatus | null, carried: boolean): boolean {
+  return !carried && needsRobotAttention(robot, localTip, remote)
+}
+
+/**
+ * A failed robot of the whole stack on its stack branch as it is (`needsRobotAttention`), only while the sync built it:
+ * a stack branch not rebuilt (kept for its remote branch once the stack no longer forks, blocked, a conflict) is not the
+ * stack's commits, its restart is refused (`getStackBranchBlocker`) and the stack lands in pieces, so its old failure
+ * asks for nothing.
+ */
+export function needsStackRobotAttention(robot: PatronusRobot, stack: Pick<StackBranch, "state" | "tip" | "remoteStatus">): boolean {
+  return stack.state === "Built" && needsRobotAttention(robot, stack.tip ?? undefined, stack.remoteStatus)
+}
+
 const pushModeNames: Readonly<Record<PatronusPushMode, string>> = {
   dryRun: "Dry Run",
   rebase: "Safe Push (rebase)",

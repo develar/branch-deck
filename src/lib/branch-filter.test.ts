@@ -122,6 +122,16 @@ describe("branch filter", () => {
     expect([...matches.attention]).toEqual(["broken", "conflict", "blocked", "failed", "review"])
   })
 
+  it("leaves out of Attention the failed robot of a branch another robot holds or landed, or the baseline has, not its pull request", () => {
+    const branches = [branch("held"), branch("landed"), branch("review")]
+    const robots = Object.fromEntries([robot("held", "failure"), robot("landed", "failure"), robot("review", "failure")].map(it => [it.id, it]))
+    const pullRequests = { review: pullRequest("review", { reviewDecision: "changesRequested" }) }
+    const names = branches.map(it => it.name)
+    expect([...collectChipMatches(names, sources(branches, { robots, pullRequests })).attention]).toEqual(["held", "landed", "review"])
+    const carried = collectChipMatches(names, { ...sources(branches, { robots, pullRequests }), isHeld: name => name !== "landed", isLanded: name => name === "landed" })
+    expect([...carried.attention]).toEqual(["review"])
+  })
+
   it("shows the branches of the chosen chip that match the text, in table order; an inactive filter shows all", () => {
     const branches = [branch("auth"), branch("api", { remoteStatus: testRemoteStatus() }), branch("docs", {}, "Document the API")]
     const all = sources(branches)

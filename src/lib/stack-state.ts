@@ -1,7 +1,7 @@
 import type { PatronusRobot } from "@/lib/bindings"
-import { findBranchRobot, findStackRobot, isRobotActive, needsRobotAttention } from "@/lib/patronus"
+import { findBranchRobot, findStackRobot, isRobotActive, needsBranchRobotAttention, needsStackRobotAttention } from "@/lib/patronus"
 import { summarizePushState } from "@/lib/push-summary"
-import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
+import type { Branch, StackBranch } from "@/stores/branch-sync"
 
 /** What the branches of a stack hold, each counted by the rule of the surface that tells it for all branches */
 export interface StackState {
@@ -40,12 +40,12 @@ export type StackStateKey = Exclude<keyof StackState, "toPush">
 
 /**
  * The stack branch of a stack that forks (`StackBranch`): the robot of the whole stack runs on it (`findStackRobot`),
- * no branch's, and lands every branch of the stack
+ * no branch's, and lands every branch of the stack; its failure counts only while the sync built it (`state`)
  */
-export type WholeStackSource = Pick<StackBranch, "root" | "tip" | "remoteStatus">
+export type WholeStackSource = Pick<StackBranch, "root" | "state" | "tip" | "remoteStatus">
 
-/** The state of a robot on the tips it is matched by: failing, running, or failed on them as they are */
-function robotState(robot: PatronusRobot | undefined, localTip: string | undefined, remote: RemoteStatus | null, sources: StackStateSources): StackStateKey | null {
+/** The state of a robot: failing, running, or failed on what it is matched by as it is (`needsAttention`) */
+function robotState(robot: PatronusRobot | undefined, needsAttention: (robot: PatronusRobot) => boolean, sources: StackStateSources): StackStateKey | null {
   if (robot === undefined) {
     return null
   }
@@ -55,10 +55,15 @@ function robotState(robot: PatronusRobot | undefined, localTip: string | undefin
   if (isRobotActive(robot)) {
     return "running"
   }
-  if (needsRobotAttention(robot, localTip, remote)) {
+  if (needsAttention(robot)) {
     return sources.needsReview[robot.id] === true ? "needsReview" : "failed"
   }
   return null
+}
+
+/** Another robot holds or landed the branch, or the baseline has it (`needsBranchRobotAttention`) */
+function isCarried(name: string, sources: StackStateSources): boolean {
+  return sources.isHeld?.(name) === true || sources.isLanded(name)
 }
 
 /** The states of `StackState` the branch is in, but the push: a sync failure, a block, its robot */
@@ -73,20 +78,27 @@ function branchStates(branch: Branch, sources: StackStateSources): StackStateKey
     states.push("blocked")
   }
   const localTip = branch.commits[0]?.hash
-  const robot = robotState(findBranchRobot(sources.robots, branch.name, localTip, branch.remoteStatus?.remoteTip ?? null), localTip, branch.remoteStatus, sources)
+  const robot = robotState(
+    findBranchRobot(sources.robots, branch.name, localTip, branch.remoteStatus?.remoteTip ?? null),
+    it => needsBranchRobotAttention(it, localTip, branch.remoteStatus, isCarried(branch.name, sources)),
+    sources,
+  )
   if (robot !== null) {
     states.push(robot)
   }
   return states
 }
 
-/** The state of the robot of the whole stack, on its stack branch as it is; none for a stack without a stack branch */
+/**
+ * The state of the robot of the whole stack, on its stack branch as it is, its failure only on one the sync built
+ * (`needsStackRobotAttention`); none for a stack without a stack branch
+ */
 function wholeStackState(stack: WholeStackSource | undefined, sources: StackStateSources): StackStateKey | null {
   if (stack === undefined) {
     return null
   }
   const robot = findStackRobot(sources.robots, stack.root, stack.tip, stack.remoteStatus?.remoteTip ?? null)
-  return robotState(robot, stack.tip ?? undefined, stack.remoteStatus, sources)
+  return robotState(robot, it => needsStackRobotAttention(it, stack), sources)
 }
 
 /**

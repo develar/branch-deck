@@ -1,10 +1,11 @@
 import { useMemo } from "react"
+import { useIsFullyLanded } from "@/hooks/useLandedIn"
 import { useNow } from "@/hooks/useNow"
 import type { RobotOverview } from "@/lib/robot-overview"
 import { collectRobotOverview } from "@/lib/robot-overview"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
 import { useBranchSync, useBranchTableRows } from "@/stores/branch-sync"
-import { useFailingRobots, useRepositoryRobots, useRobotsNeedingReview, useWatchedRobots } from "@/stores/patronus"
+import { useFailingRobots, usePushHolds, useRepositoryRobots, useRobotsNeedingReview, useWatchedRobots } from "@/stores/patronus"
 
 /** The last day of finished robots moves on by the minute: a robot that finished 24 hours ago drops out within one */
 const FINISHED_TICK_MS = 60_000
@@ -25,9 +26,13 @@ export function useRobotOverview(): RobotOverview {
   const needsReview = useRobotsNeedingReview()
   const watched = useWatchedRobots()
   const failing = useFailingRobots()
+  const holds = usePushHolds()
+  const isLanded = useIsFullyLanded()
   const now = useNow(FINISHED_TICK_MS)
   return useMemo(() => {
     const order = rows.flatMap(row => (row.kind === "branch" ? [row.name] : []))
-    return collectRobotOverview(order, branches, robots, needsReview, now, watched, failing, stacks)
-  }, [rows, branches, robots, needsReview, now, watched, failing, stacks])
+    // another robot holds or landed it, or the baseline has it: its old failure asks for nothing
+    const isCarried = (name: string) => holds.has(name) || isLanded(name)
+    return collectRobotOverview(order, branches, robots, needsReview, now, watched, failing, stacks, isCarried)
+  }, [rows, branches, robots, needsReview, now, watched, failing, stacks, holds, isLanded])
 }

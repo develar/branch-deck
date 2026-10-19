@@ -1,4 +1,5 @@
 import type { KeyboardEvent, RefObject } from "react"
+import { getLandedIn } from "@/hooks/useBranchNextStep"
 import { canPushNow } from "@/hooks/usePushButton"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { needsAttention } from "@/lib/branch-filter"
@@ -11,7 +12,7 @@ import type { BranchTableRow } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getBranchTableOrder, isBranchPushing, isStackPushing } from "@/stores/branch-sync"
 import { selectBranches, setBranchTargetOpen } from "@/stores/commit-move"
 import { isProcessing } from "@/stores/inline-row-action"
-import { getBranchRobot } from "@/stores/patronus"
+import { getBranchRobot, getPushHold } from "@/stores/patronus"
 import { getPullRequest } from "@/stores/pull-requests"
 import { expandStackOf, getCollapsedSideStacks, isStackIsland, sideStackToCollapse, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
 
@@ -111,7 +112,7 @@ function moveRow(name: string): void {
 /** The branch waits for the user, as Attention of the filter bar counts it */
 function isAttentionRow(name: string): boolean {
   const branch = getBranch(name)
-  return branch !== undefined && needsAttention(branch, getBranchRobot(name), getPullRequest(name))
+  return branch !== undefined && needsAttention(branch, getBranchRobot(name), getPullRequest(name), getPushHold(name) !== null || getLandedIn(name) !== null)
 }
 
 export function useBranchRowKeys({ rows, expandedKeys, setExpanded, toggleExpanded, lastFocusedRef, unfoldedNames }: BranchRowKeysOptions): BranchRowKeys {

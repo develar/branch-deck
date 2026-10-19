@@ -1,6 +1,6 @@
 import type { PatronusRobot } from "@/lib/bindings"
 import type { PatronusChipState } from "@/lib/patronus"
-import { findBranchRobot, findStackRobot, getPatronusChipState, isFailingChip, isRobotActive, needsRobotAttention } from "@/lib/patronus"
+import { findBranchRobot, findStackRobot, getPatronusChipState, isFailingChip, isRobotActive, needsBranchRobotAttention, needsStackRobotAttention } from "@/lib/patronus"
 import type { RobotTiming } from "@/lib/robot-eta"
 import { formatWholeStackStart } from "@/lib/whole-stack"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
@@ -46,9 +46,10 @@ export const EMPTY_ROBOT_OVERVIEW: RobotOverview = { running: [], attention: [],
  * that finished in the last day, and the branches whose robot failed on the branch as it is. Only the robots already
  * listed: the overview asks Patronus nothing, and only the robots of branches, of the whole stacks and the watched ones
  * are polled, so a running robot of no branch is left out unless the app watches it (`watched`: a Safe Push of a
- * reviewed pull request, listed by what it tests, after the branches). The robot of the whole stack of a stack branch
+ * reviewed pull request, listed by what it tests, after the branches; a failure only of the newest of a label). The robot of the whole stack of a stack branch
  * (`stacks`, by root) comes after the branches, as "Whole air stack", on its stack branch as it is. `order` is the table
- * order, `needsReview` the robots that failed for missing approvals, `failing` the running ones that will fail.
+ * order, `needsReview` the robots that failed for missing approvals, `failing` the running ones that will fail,
+ * `isCarried` the branches another robot holds or landed, or the baseline has (`needsBranchRobotAttention`).
  */
 export function collectRobotOverview(
   order: readonly string[],
@@ -59,6 +60,7 @@ export function collectRobotOverview(
   watched: Readonly<Record<string, string>> = {},
   failing: Readonly<Record<string, true>> = {},
   stacks: Readonly<Record<string, StackBranch>> = {},
+  isCarried: (name: string) => boolean = () => false,
 ): RobotOverview {
   if (robots === undefined) {
     return EMPTY_ROBOT_OVERVIEW
@@ -93,13 +95,13 @@ export function collectRobotOverview(
     }
     if (isRobotActive(robot)) {
       running.push(entry(name, robot))
-    } else if (needsRobotAttention(robot, localTip, remote)) {
+    } else if (needsBranchRobotAttention(robot, localTip, remote, isCarried(name))) {
       attention.push(entry(name, robot))
     }
   }
 
   const since = (now - FINISHED_ROBOTS_MS) / 1000
-  // the whole stack: its robot on its stack branch as it is, a click shows the root
+  // the whole stack: its robot on its stack branch as it is, its failure only on one the sync built; a click shows the root
   const stackFinished: RobotOverviewEntry[] = []
   for (const stack of Object.values(stacks)) {
     const robot = findStackRobot(robots, stack.root, stack.tip, stack.remoteStatus?.remoteTip ?? null)
@@ -116,13 +118,22 @@ export function collectRobotOverview(
     }
     if (isRobotActive(robot)) {
       running.push(stackEntry)
-    } else if (needsRobotAttention(robot, tip, stack.remoteStatus)) {
+    } else if (needsStackRobotAttention(robot, stack)) {
       attention.push(stackEntry)
     } else if (robot.finishTime !== null && robot.finishTime >= since) {
       stackFinished.push(stackEntry)
     }
   }
   const watchedFinished: RobotOverviewEntry[] = []
+  // a pull request started again is acted on by its newest robot: the failure of an older one is history
+  const newestWatched = new Map<string, PatronusRobot>()
+  for (const [id, label] of Object.entries(watched)) {
+    const robot = robots[id]
+    const known = newestWatched.get(label)
+    if (robot !== undefined && (known === undefined || known.startTime < robot.startTime)) {
+      newestWatched.set(label, robot)
+    }
+  }
   for (const [id, label] of Object.entries(watched)) {
     const robot = robots[id]
     if (robot === undefined) {
@@ -132,7 +143,7 @@ export function collectRobotOverview(
     const watchedEntry: RobotOverviewEntry = { branchName: label, hasRow: false, robot, chip: getPatronusChipState(robot, robot.sourceRevision ?? undefined, null, flagsOf(id)) }
     if (isRobotActive(robot)) {
       running.push(watchedEntry)
-    } else if (robot.status === "failure") {
+    } else if (robot.status === "failure" && newestWatched.get(label) === robot) {
       attention.push(watchedEntry)
     } else if (robot.finishTime !== null && robot.finishTime >= since) {
       watchedFinished.push(watchedEntry)

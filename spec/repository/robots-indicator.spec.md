@@ -52,7 +52,9 @@ the last day are sections of the [Landing Overview](landing-overview.spec.md), a
   [@test] ../../src/lib/robot-overview.test.ts (`shows the running robot nearest to finishing, indeterminate without an estimate, nothing while none runs`)
   [@test] ../../tests/e2e/patronus/dock.spec.ts (`should show the progress of the robot nearest to finishing, and a badge only for what needs the user`, `should show an indeterminate progress without history, and no badge for a running robot`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show one progress from the click to the end of its sync, its steps in the tooltip`)
-- The badge counts what needs the user: the robots that failed on the branch as it is, "Needs review" too, the running
+- The badge counts what needs the user: the robots that failed on the branch as it is, "Needs review" too, unless
+  another robot holds or landed the branch or the baseline has it ([Patronus](../branch/patronus.spec.md)), the robot
+  of the whole stack only on a stack branch the sync built ([Whole Stack](../branch/whole-stack.spec.md#the-whole-stack-in-the-app)), the running
   robots that will fail (failing: cancel one, or wait for its failure, which keeps the count), and the
   branches the last sync left with a conflict ("Count failed robots and conflicts", `attentionBadge`), plus the pull
   requests that wait for the user's review ("Count review requests", `reviewBadge`,
@@ -60,10 +62,12 @@ the last day are sections of the [Landing Overview](landing-overview.spec.md), a
   count (`setBadgeSource` in `src/lib/dock.ts`, the only `setBadgeCount` caller), the badge shows their sum. Never a
   running robot otherwise; no badge at 0. Windows has no badge count: it is left out there, and so is the Dock group of Settings → Notifications.
   [@test] ../../src/lib/robot-overview.test.ts (`counts the conflicts of the last sync for the badge`)
+  [@test] ../../src/lib/robot-overview.test.ts (`lists the robot of the whole stack as the whole stack after the branches, on its stack branch as it is, a click showing the root, its failure on one not built as finished`, `asks nothing for the failure of a branch another robot holds or landed, or the baseline has: it is finished history`)
   [@test] ../../src/lib/dock.test.ts (`shows the sum of its sources, set only on a change, none at 0`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the review requests, behind its switch`)
   [@test] ../../tests/e2e/patronus/dock.spec.ts (`should show the progress, without a badge on Windows`)
   [@test] ../../tests/e2e/patronus/dock.spec.ts (`should count a running robot that will fail in the badge, and not show its progress`)
+  [@test] ../../tests/e2e/patronus/dock.spec.ts (`should count the failed robot of the whole stack only while the sync built its stack branch`, `should not count the failed robot of a branch while the Safe Push of a branch built on it lands it`)
 - A call goes out only on a change; a failed one is logged and otherwise ignored. The capability of the main window
   allows `core:window:allow-set-progress-bar` and `core:window:allow-set-badge-count`.
 

@@ -44,6 +44,16 @@ describe("summarizeStackState", () => {
     expect(summarizeStackState(branches, { robots: undefined, needsReview: {}, failing: {}, isLanded: () => false })).toEqual(NONE)
   })
 
+  it("counts no failure of a branch another robot holds or landed, or the baseline has: the Safe Push of a branch built on it lands it", () => {
+    const branches = [branch("session"), branch("oauth")]
+    const robots = robotsById(failed("session-failed", "session"), failed("oauth-review", "oauth"))
+    const sources = { robots, needsReview: { "oauth-review": true }, failing: {}, isLanded: () => false }
+    expect(summarizeStackState(branches, sources)).toEqual({ ...NONE, failed: 1, needsReview: 1 })
+    expect(summarizeStackState(branches, { ...sources, isHeld: name => name === "session" })).toEqual({ ...NONE, needsReview: 1 })
+    expect(summarizeStackState(branches, { ...sources, isLanded: name => name === "oauth" })).toEqual({ ...NONE, failed: 1 })
+    expect(firstBranchOfEachState(branches, { ...sources, isHeld: () => true })).toEqual({})
+  })
+
   it("counts the push by the rule of the outgoing counts: not a landed branch, nor one without commits", () => {
     const ahead = testRemoteStatus({ commitsAhead: 2, myCommitsAhead: 2 })
     const branches = [
@@ -58,7 +68,7 @@ describe("summarizeStackState", () => {
 
   it("counts the robot of the whole stack, which runs on its stack branch, as the root's: running, failing or failed on it as it is", () => {
     const branches = [branch("air"), branch("bazel"), branch("side-fix")]
-    const stack = { root: "air", tip: "stack-tip", remoteStatus: testRemoteStatus({ remoteTip: "stack-tip" }) }
+    const stack = { root: "air", state: "Built" as const, tip: "stack-tip", remoteStatus: testRemoteStatus({ remoteTip: "stack-tip" }) }
     const sources = (...robots: PatronusRobot[]) => ({ robots: robotsById(...robots), needsReview: {}, failing: {}, isLanded: () => false })
     const whole = testRobot("whole", null, { stackRoot: "air", sourceRevision: "stack-tip" })
     expect(summarizeStackState(branches, sources(whole), stack)).toEqual({ ...NONE, running: 1 })
@@ -70,6 +80,22 @@ describe("summarizeStackState", () => {
     const failedOn = (sourceRevision: string) => failed("whole", "air", { branchName: null, stackRoot: "air", sourceRevision })
     expect(summarizeStackState(branches, sources(failedOn("stack-tip")), stack)).toEqual({ ...NONE, failed: 1 })
     expect(summarizeStackState(branches, sources(failedOn("old-stack")), stack)).toEqual(NONE)
+  })
+
+  it("counts no failure of the robot of the whole stack on a stack branch the sync did not build: its restart is refused, the stack lands in pieces", () => {
+    const branches = [branch("air"), branch("bazel")]
+    const sources = (...robots: PatronusRobot[]) => ({ robots: robotsById(...robots), needsReview: {}, failing: {}, isLanded: () => false })
+    const failedRobot = failed("whole", "air", { branchName: null, stackRoot: "air", sourceRevision: "stack-tip" })
+    const running = testRobot("whole", null, { stackRoot: "air", sourceRevision: "stack-tip" })
+    for (const state of ["Stale", "Blocked", "Conflict"] as const) {
+      // kept for its remote branch once the stack no longer forks, or not rebuilt: its tip is not the stack's commits
+      const stack = { root: "air", state, tip: "stack-tip", remoteStatus: testRemoteStatus({ remoteTip: "stack-tip" }) }
+      expect(summarizeStackState(branches, sources(failedRobot), stack)).toEqual(NONE)
+      expect(summarizeStackState(branches, { ...sources(failedRobot), needsReview: { whole: true } }, stack)).toEqual(NONE)
+      expect(firstBranchOfEachState(branches, sources(failedRobot), stack)).toEqual({})
+      // a robot that still runs on it lands the stack: counted
+      expect(summarizeStackState(branches, sources(running), stack)).toEqual({ ...NONE, running: 1 })
+    }
   })
 
   it("tells a conflict from another sync error", () => {

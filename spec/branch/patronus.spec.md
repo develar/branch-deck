@@ -1062,8 +1062,13 @@ explicit choice of the user, offered only where the approvals count in a pull re
 - A robot that failed on the branch as it is (the local tip, or the same commits before a sync rebuilt them on a newer
   baseline, [above](#robot-of-a-row)) needs the user: the [landing indicator](../repository/landing-overview.spec.md#indicator) counts it as a move, the
   overview shows it once, as the move of its row with the robot's actions, the Dock its badge
-  ([Robots in the Dock](../repository/robots-indicator.spec.md#dock)). A branch changed since (a fix) needs no attention.
+  ([Robots in the Dock](../repository/robots-indicator.spec.md#dock)). A branch changed since (a fix) needs no attention,
+  nor one that something else carries (`needsBranchRobotAttention`): a running Safe Push of a branch built on it or of
+  the whole stack holds it, a merged one landed it whole (`PushHold`), or the baseline has all of it; its row waits
+  ([Next Step](next-step.spec.md)), and the old failure is in "Last 24 hours".
   [@test] ../../src/lib/patronus.test.ts (`needs the user for a failed robot of the branch as it is, also after a sync rebuilt the branch`)
+  [@test] ../../src/lib/robot-overview.test.ts (`asks nothing for the failure of a branch another robot holds or landed, or the baseline has: it is finished history`)
+  [@test] ../../tests/e2e/patronus/dock.spec.ts (`should not count the failed robot of a branch while the Safe Push of a branch built on it lands it`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show a robot that failed on the branch tip once, as the move it is, with the chips of the other rows`)
 - The footer has a line "Patronus checked just now" (it ages while shown, as every relative time:
   [Update Project](../repository/update-project.spec.md)) with a Refresh button (a full list), named "Refresh

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test"
+import type { PatronusRobot } from "@/lib/bindings"
 import { getRobotTiming } from "@/lib/robot-eta"
 import { collectRobotOverview, countConflicts, getDockProgress } from "@/lib/robot-overview"
 import { testRobot, robotsById } from "@/lib/test-robot"
@@ -22,13 +23,13 @@ const order = ["auth", "login", "docs", "api", "cache"]
 const branches = Object.fromEntries(order.map(name => [name, branchAtTip(name)]))
 
 describe("collectRobotOverview", () => {
-  it("lists the robot of the whole stack as the whole stack after the branches, on its stack branch as it is, a click showing the root", () => {
-    const stack = (root: string, tip: string): StackBranch => ({
+  it("lists the robot of the whole stack as the whole stack after the branches, on its stack branch as it is, a click showing the root, its failure on one not built as finished", () => {
+    const stack = (root: string, tip: string, state: StackBranch["state"] = "Built"): StackBranch => ({
       root,
       branchName: `user/stack/${root}`,
-      members: [root, "login"],
+      members: state === "Stale" ? [] : [root, "login"],
       commitCount: 2,
-      state: "Built",
+      state,
       tip,
       blockedBy: null,
       conflict: null,
@@ -41,6 +42,8 @@ describe("collectRobotOverview", () => {
       testRobot("whole-failed", null, { stackRoot: "docs", sourceRevision: "docs-stack-tip", status: "failure", finishTime: NOW_SECONDS - 60 }),
       // failed on a stack branch rebuilt since: nothing to act on
       testRobot("whole-old", null, { stackRoot: "api", sourceRevision: "old", status: "failure", finishTime: NOW_SECONDS - 60 }),
+      // failed on a stack branch kept for its remote branch once the stack no longer forks: the stack lands in pieces
+      testRobot("whole-stale", null, { stackRoot: "cache", sourceRevision: "cache-stack-tip", status: "failure", finishTime: NOW_SECONDS - 120 }),
     )
     const overview = collectRobotOverview(
       order,
@@ -54,6 +57,7 @@ describe("collectRobotOverview", () => {
         auth: stack("auth", "stack-tip"),
         docs: stack("docs", "docs-stack-tip"),
         api: stack("api", "api-stack-tip"),
+        cache: stack("cache", "cache-stack-tip", "Stale"),
       },
     )
     expect(overview.running.map(it => [it.branchName, it.stackRoot, it.hasRow])).toEqual([
@@ -61,7 +65,7 @@ describe("collectRobotOverview", () => {
       ["Whole auth stack", "auth", true],
     ])
     expect(overview.attention.map(it => [it.branchName, it.chip.kind])).toEqual([["Whole docs stack", "failed"]])
-    expect(overview.finished.map(it => it.branchName)).toEqual(["Whole api stack"])
+    expect(overview.finished.map(it => it.branchName)).toEqual(["Whole api stack", "Whole cache stack"])
   })
 
   it("lists a watched robot of no branch by what it tests, after the branches, also once it failed or merged", () => {
@@ -87,6 +91,19 @@ describe("collectRobotOverview", () => {
     expect(overview.finished.map(it => [it.branchName, it.chip.kind])).toEqual([["#103 Backport", "merged"]])
   })
 
+  it("asks nothing for the failure of a watched robot once its pull request was started again: the newest robot is the one to act on", () => {
+    const label = "#102 Add OAuth login"
+    const failed = testRobot("pr-failed", null, { status: "failure", startTime: NOW_SECONDS - 3600, finishTime: NOW_SECONDS - 600 })
+    const watched = { "pr-failed": label, "pr-again": label }
+    const again = (patch: Partial<PatronusRobot>) =>
+      collectRobotOverview(order, branches, robotsById(failed, testRobot("pr-again", null, { startTime: NOW_SECONDS - 300, ...patch })), {}, NOW, watched)
+    expect(again({}).running.map(it => it.robot.id)).toEqual(["pr-again"])
+    expect(again({}).attention).toEqual([])
+    expect(again({}).finished.map(it => it.robot.id)).toEqual(["pr-failed"])
+    // the new one failed too: one failure to act on, its own
+    expect(again({ status: "failure", finishTime: NOW_SECONDS - 60 }).attention.map(it => it.robot.id)).toEqual(["pr-again"])
+  })
+
   it("lists the running robots of the branches in the table order, and the branches whose robot failed on them as they are", () => {
     const robots = robotsById(
       testRobot("login-run", "login"),
@@ -108,6 +125,15 @@ describe("collectRobotOverview", () => {
     // a branch is listed once
     expect(overview.finished.map(it => it.branchName)).toEqual(["cache"])
     expect(collectRobotOverview(order, branches, undefined, {}, NOW).running).toEqual([])
+  })
+
+  it("asks nothing for the failure of a branch another robot holds or landed, or the baseline has: it is finished history", () => {
+    // docs failed on itself; then a Safe Push of a branch built on it took it along, or merged it, or master has it
+    const robots = robotsById(testRobot("docs-failed", "docs", { status: "failure", finishTime: NOW_SECONDS - 60 }))
+    expect(collectRobotOverview(order, branches, robots, {}, NOW).attention.map(it => it.branchName)).toEqual(["docs"])
+    const overview = collectRobotOverview(order, branches, robots, {}, NOW, {}, {}, {}, name => name === "docs")
+    expect(overview.attention).toEqual([])
+    expect(overview.finished.map(it => [it.branchName, it.chip.kind])).toEqual([["docs", "failed"]])
   })
 
   it("lists the robots that finished in the last day, the newest of each branch, also of a branch archived since", () => {

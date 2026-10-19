@@ -209,10 +209,15 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   the OS notification), failed ("Safe Push of the whole air stack failed", its pull request the step when it needs
   review) or will fail, listed in the landing overview as "Whole air stack", a click showing the root, and counted in
   the header of its island as the root's ("1 running" with its ring, [Stack Island](stack-island.spec.md#header)).
+  Its failure asks for the user (the landing overview's attention, "1 failed" of the island, the Dock badge) only on a
+  stack branch the sync built (`needsStackRobotAttention`): on one not rebuilt (`Stale`, kept for its remote branch
+  once the stack no longer forks; `Blocked`; `Conflict`) its restart is refused and the stack lands in pieces, so the
+  overview lists it as finished, and the island and the badge count nothing for it.
+  [@test] ../../tests/e2e/patronus/dock.spec.ts (`should count the failed robot of the whole stack only while the sync built its stack branch`)
   [@test] ../../src/lib/patronus.test.ts (`belongs to the root of its stack by its stack branch, or as a robot of a temporary ref by the tips of the stack branch`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should count the robot of the whole stack in the header of its island, a click on it showing the root`)
   [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the branches the whole stack landed`)
-  [@test] ../../src/lib/robot-overview.test.ts (`lists the robot of the whole stack as the whole stack after the branches, on its stack branch as it is, a click showing the root`)
+  [@test] ../../src/lib/robot-overview.test.ts (`lists the robot of the whole stack as the whole stack after the branches, on its stack branch as it is, a click showing the root, its failure on one not built as finished`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the robot of the whole stack on the rows of a small stack, hold their pushes and cancel it from the root's menu`)
 - While it runs and pushes into the target, it must hold every branch of the stack (`PushHold.wholeStack`, by the
   source ref: its stack branch, not by a branch's revision) and land them: their rows say "lands with the whole air

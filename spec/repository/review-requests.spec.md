@@ -410,12 +410,14 @@ Safe Push it allows.
   meanwhile. The 👍 is the start: the robot is looked for in the user's robots for 10 s more; found, it is announced as
   any robot ("Safe Push started" with Open in Patronus) and watched for the session (`watchRobot`): polled while it
   runs, listed in the landing overview by "#101 <title>", its merge told ("#101 <title> merged into master",
-  [Landing Overview](landing-overview.spec.md#overview)); not found (Patronus may count it as the author's),
+  [Landing Overview](landing-overview.spec.md#overview)), its failure a move (and in the Dock badge) only while it is
+  the newest robot of "#101 <title>": once the pull request is started again, the old failure is in "Last 24 hours"; not found (Patronus may count it as the author's),
   the toast "Safe Push started" / "#101 <title>" opens the pull request, and Activity says "Safe Push started on #101".
   A 👎 is "Cannot start the Safe Push" with the bot's reason; the approval stays.
   [@test] ../../src/stores/review-requests.test.ts (`approves, checks the head GitHub shows and asks Patronus; its thumbs up is the start`, `refuses a pull request that got commits since the review, and says the reason of the bot`)
   [@test] ../../src/stores/patronus.test.ts (`starts a reviewed pull request of someone else with its thumbs up, the robot only if the user's robots list it`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should watch the robot of a reviewed pull request: listed by what it tests, its merge told`)
+  [@test] ../../src/lib/robot-overview.test.ts (`asks nothing for the failure of a watched robot once its pull request was started again: the newest robot is the one to act on`)
 
 ### Fetch and refs
 

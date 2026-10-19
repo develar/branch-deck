@@ -1,7 +1,10 @@
 // @spec spec/repository/robots-indicator.spec.md
+import type { PatronusRobotsResult } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
+import { findBranchRow } from "../helpers/branch-helpers"
 import { getDockCalls } from "../helpers/header-helpers"
-import { DAY_ROBOTS, setupRobots } from "../helpers/patronus-helpers"
+import { DAY_ROBOTS, availableRobots, robot, setupRobots } from "../helpers/patronus-helpers"
+import { emitTauriEvent, rewriteNextSyncEvents, runAndWaitForSync } from "../helpers/sync-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
 
 const { running: RUNNING, failed: FAILED, merged: MERGED } = DAY_ROBOTS
@@ -30,6 +33,56 @@ test.describe("Dock", () => {
     await setupRobots(page, setupRepo, syncAndWaitForBranches, RUNNING)
     await expect.poll(async () => (await getDockCalls(page)).at(-1)).toEqual({ badgeCount: 1 })
     expect((await getDockCalls(page)).filter(call => "progressBar" in call).at(-1) ?? { progressBar: { status: "none" } }).toMatchObject({ progressBar: { status: "none" } })
+  })
+
+  test("should count the failed robot of the whole stack only while the sync built its stack branch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const failed = robot("air", "whole", {
+      name: "Safe Push of the whole air stack",
+      branchName: null,
+      stackRoot: "air",
+      status: "failure",
+      sourceRevision: "stack-tip",
+      finishTime: 1704142800,
+    })
+    // the robot failed on the stack branch as the sync built it
+    await rewriteNextSyncEvents(page, event => (event.type === "stackBranchUpdate" && event.data.root === "air" ? { ...event, data: { ...event.data, tip: "stack-tip" } } : event))
+    await setupRepo("stack_island", { patronus: availableRobots(failed) })
+    await syncAndWaitForBranches()
+    const states = page.locator(`[data-testid="stack-island"][data-stack-root="air"]`).getByTestId("stack-island-states")
+    await expect(states.getByRole("button")).toHaveText(["1 failed", "7 to push"])
+    await expect.poll(async () => (await getDockCalls(page)).at(-1)).toEqual({ badgeCount: 1 })
+
+    // the stack no longer forks: its stack branch stays for its remote branch, not rebuilt, and the stack lands in pieces
+    await rewriteNextSyncEvents(page, event =>
+      event.type === "stackBranchUpdate" && event.data.root === "air"
+        ? {
+            ...event,
+            data: { ...event.data, state: "Stale", members: [], tip: "stack-tip", error: "Not rebuilt: air heads no stack that forks; the ref stays for its remote branch" },
+          }
+        : event,
+    )
+    await runAndWaitForSync(page, () => page.getByTestId("sync-button").click())
+    await expect.poll(async () => (await getDockCalls(page)).at(-1)).toEqual({ badgeCount: null })
+    // the header keeps what the branches hold
+    await expect(states.getByRole("button")).toHaveText(["7 to push"])
+  })
+
+  test("should not count the failed robot of a branch while the Safe Push of a branch built on it lands it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const loginFailed = robot("login", "login-failed", { status: "failure", finishTime: 1704139300 })
+    const oauth = robot("oauth", "oauth-robot")
+    const repo = await setupRepo("stacked_branches", { patronus: availableRobots(loginFailed, oauth) })
+    await syncAndWaitForBranches()
+    // oauth is built on login: its Safe Push lands login, whose old failure asks for nothing
+    await expect(findBranchRow(page, "login").getByTestId("landing-span")).toHaveText("lands with oauth")
+    await expect.poll(() => getDockCalls(page)).toEqual([{ progressBar: { status: "indeterminate", progress: 0 } }])
+
+    // canceled, it lands nothing: the failure of login is the user's move again
+    const polled = page.waitForResponse(response => response.url().endsWith("/invoke/poll_patronus_robots"))
+    await repo.setPatronus(availableRobots(loginFailed, { ...oauth, status: "canceled", finishTime: 1704142800 }))
+    await emitTauriEvent(page, "tauri://focus")
+    expect(((await (await polled).json()) as PatronusRobotsResult).robots.find(it => it.id === oauth.id)?.status).toBe("canceled")
+    // the badge comes only now, after the progress of oauth ended: none before it
+    await expect.poll(() => getDockCalls(page)).toEqual([{ progressBar: { status: "indeterminate", progress: 0 } }, { progressBar: { status: "none" } }, { badgeCount: 1 }])
   })
 })
 

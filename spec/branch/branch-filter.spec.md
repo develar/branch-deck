@@ -86,10 +86,12 @@ that stops matching while the user looks at it (pushed, its robot done) stays un
 - Running must take the branches whose robot (`findBranchRobot`) runs or cancels (`isRobotActive`).
   [@test] ../../src/lib/branch-filter.test.ts (`puts a branch whose robot runs or cancels into Running`)
 - Attention must take what waits for the user: an error or a conflict, a branch blocked by its stack parent, a failed
-  robot of the branch as it is (also one that failed for missing approvals; `needsRobotAttention`), and an open pull
+  robot of the branch as it is (also one that failed for missing approvals) that nothing else carries (another robot
+  holds or landed it, or the baseline has it; `needsBranchRobotAttention`), and an open pull
   request with changes requested or failing checks (`formatAuthorAttention`), a fix of the
   [landing overview](../repository/landing-overview.spec.md#overview).
   [@test] ../../src/lib/branch-filter.test.ts (`puts an error, a conflict, a blocked branch, a failed robot of the branch as it is and a pull request waiting for its author into Attention`)
+  [@test] ../../src/lib/branch-filter.test.ts (`leaves out of Attention the failed robot of a branch another robot holds or landed, or the baseline has, not its pull request`)
   The tooltip of Attention, while it counts a branch, tells F2 and Shift+F2, which step through its rows from anywhere
   in the window ([Branch Row](branch-row.spec.md#keyboard)).
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should filter by a state chip, with the counts of all branches`)
