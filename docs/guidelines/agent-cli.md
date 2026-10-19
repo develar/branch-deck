@@ -143,7 +143,8 @@ what they listed.
 ```
 
 - Branches are listed newest first, the same order as the UI. The commits of a branch are newest first too, and
-  their subjects have the `(prefix)` stripped.
+  their subjects have the `(prefix)` stripped. `resolved_by_words` (`{"conflicts","file_count"}`, from the mapping
+  note) marks a commit whose virtual copy resolved a conflict of git by words (see `bd sync`).
 - `tip` is the tip of the existing virtual branch, or `null` if the branch was never synced.
 - `origin` says what groups the commits: `prefix` (a commit has the `(prefix)`), `issue_group` (the issue groups put
   commits of other keys into it) or `issue`. `issue_keys` lists the keys whose issue group the branch is.
@@ -252,6 +253,7 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
 ```
 
 - `group` is the branch the commit is grouped into, or `null`. `issue_key` is the issue key of the subject.
+- `resolved_by_words` marks a commit whose virtual copy resolved a conflict of git by words, as in `bd status`.
 - `fixup` is set on a `fixup!`, `squash!` or `amend!` commit. Its `target` is resolved with `git rebase --autosquash`
   rules (`plan_autosquash`), and is `null` when no older commit matches.
 - `--files` lists the changed files of each commit. `status` is `A`, `M`, `D`, `R` (`old_path` is set) or `T`.
@@ -922,6 +924,14 @@ rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress
   commit whose cherry-pick conflicts, the files, and the commits the change likely needs: the older commits that change
   a conflicting file and are neither in the branch nor in the branches it is built on, as `bd check` names them).
   `blocked` lists the commits not synced after an earlier failure.
+- `resolved` lists the commits whose conflict of git the sync resolved by words, oldest first:
+  `{"commit","conflicts","file_count","files":[{"path","conflicts"}]}`, the conflicts counted as git counts them (its
+  `<<<<<<<` lines). With `git config branchdeck.resolveByWords` on (the default), a cherry-pick that git stops at is
+  committed with the result of the engine when every conflicting file resolves: a content conflict of UTF-8 text whose
+  blocks each take the side that changed or resolve by words (IntelliJ's simple resolve, never the greedy one). One
+  file that does not, or another kind of conflict (modify/delete, add/add, rename, binary, a merge driver), and the
+  commit stays a conflict of git. The copy keeps the author, the date and the message; its mapping note records the
+  counts, so a reused copy has `files` left out. `bd check` builds alike, and `bd move-hunk` never resolves.
 - `remote` compares with the remote-tracking branch of `origin` by content: `unpushed` commits it lacks, `behind`
   commits it has that the branch doesn't (a push drops them), and `head`, the remote commit the counts compare with
   (`null` without a remote branch). `dropped_commits` lists the newest ten of the `behind` commits, newest first:

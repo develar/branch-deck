@@ -5,7 +5,7 @@
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::install::shell_word;
-use crate::output::{SchemaVersion, ShortIds};
+use crate::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use crate::stack_summary::StackSummary;
 use crate::status::placement;
 use git_ops::branch_names::to_final_branch_name;
@@ -107,6 +107,9 @@ pub struct SyncedBranch {
   /// Commits not synced because an earlier commit of the branch failed
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub blocked: Vec<String>,
+  /// The commits whose conflict of git the sync resolved by words, oldest first: the branch built where git stopped
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub resolved: Vec<ResolvedCommit>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub remote: Option<RemoteSummary>,
   /// The `bd push` that brings the remote branch up to date, to run only after the user approves: with
@@ -115,6 +118,15 @@ pub struct SyncedBranch {
   /// sync
   #[serde(skip_serializing_if = "Option::is_none")]
   pub push: Option<String>,
+}
+
+/// A commit whose conflict of git the sync resolved by words (`branchdeck.resolveByWords`)
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ResolvedCommit {
+  /// The original commit
+  pub commit: String,
+  #[serde(flatten)]
+  pub resolved: ResolvedByWords,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -358,6 +370,7 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
   let mut unassigned_count = 0;
   let mut statuses: HashMap<String, (BranchSyncStatus, Option<BranchError>)> = HashMap::new();
   let mut blocked: HashMap<String, Vec<String>> = HashMap::new();
+  let mut resolved: HashMap<String, Vec<(String, ResolvedByWords)>> = HashMap::new();
   let mut remotes: HashMap<String, RemoteStatusUpdate> = HashMap::new();
   let mut archived: BTreeMap<String, ArchivedBranch> = BTreeMap::new();
   let mut update = None;
@@ -428,6 +441,12 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
           (None, None) => None,
         };
       }
+      SyncEvent::CommitSynced {
+        branch_name,
+        commit_hash,
+        resolved: Some(summary),
+        ..
+      } => resolved.entry(branch_name).or_default().push((commit_hash, ResolvedByWords::of_summary(&summary))),
       // the report has them
       SyncEvent::StackBranchUpdate(_)
       | SyncEvent::BranchesGrouped { .. }
@@ -440,6 +459,7 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
 
   let mut ids: Vec<&str> = report.tips.values().map(String::as_str).collect();
   ids.extend(blocked.values().flatten().map(String::as_str));
+  ids.extend(resolved.values().flatten().map(|(commit, _)| commit.as_str()));
   let conflicts: Vec<&str> = statuses
     .values()
     .filter_map(|(_, error)| match error {
@@ -486,6 +506,15 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
         error,
         conflict,
         blocked: blocked.remove(&name).unwrap_or_default().iter().map(|id| short.get(id).to_string()).collect(),
+        resolved: resolved
+          .remove(&name)
+          .unwrap_or_default()
+          .into_iter()
+          .map(|(commit, resolved)| ResolvedCommit {
+            commit: short.get(&commit).to_string(),
+            resolved,
+          })
+          .collect(),
         remote: remotes.remove(&name).map(|remote| RemoteSummary::new(&remote, commit_count, &short)),
         push: None,
         name,

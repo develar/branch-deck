@@ -3,7 +3,7 @@ use crate::block_patch::{PatchFile, read_patches};
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::generated::generated_paths;
-use crate::output::{SchemaVersion, ShortIds};
+use crate::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use crate::status::read_grouping;
 use clap::builder::RangedU64ValueParser;
 use git_ops::commit_list::Commit;
@@ -109,6 +109,9 @@ pub struct CommitEntry {
   /// With --patch: the changed files with their blocks
   #[serde(skip_serializing_if = "Option::is_none")]
   pub patch: Option<Vec<PatchFile>>,
+  /// The conflict of git that its virtual copy resolved by words, as its mapping note says; omitted otherwise
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub resolved_by_words: Option<ResolvedByWords>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -482,6 +485,7 @@ pub fn commits(context: &RepoContext, args: &CommitsArgs) -> Result<CommitsOutpu
           })
         }),
         patch: patches.remove(commit.id.as_str()).or_else(|| args.patch.then(Vec::new)),
+        resolved_by_words: ResolvedByWords::of_commit(commit),
       }
     })
     .collect();

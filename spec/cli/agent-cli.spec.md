@@ -434,7 +434,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch`)
 - A block must apply by its line ranges to the file as each commit between has it, through one
   `merge-tree --write-tree --stdin`: a commit that shifts the lines still takes it; one that changes the same lines, or
-  lacks the file, is `hunk_conflict` (exit 4) with `commits` and `paths`, and nothing is written but git objects.
+  lacks the file, is `hunk_conflict` (exit 4) with `commits` and `paths`, and nothing is written but git objects. Such
+  a conflict is never resolved by words: the move must not change the user's commits in a way git does not.
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_commit_between_that_shifts_the_lines_still_applies`, `a_commit_between_that_changes_the_same_lines_conflicts`)
   [@test] ../../crates/git-ops/src/merge_tree_output.rs (`parses_the_merges_of_a_stdin_run`)
 - `from`, `to` and the commits between whose diff of the file changed (`patch-id --stable`) must keep their author
@@ -661,6 +662,16 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   another tip meanwhile must keep that tip and be `error` ("Not updated: another process moved …; sync again"), while
   the other branches are written; one moved to the head the sync built (the copies are deterministic) is written.
   [@test] ../../crates/sync-core/src/branch_processor_test.rs (`a_branch_moved_since_the_listing_is_not_overwritten`, `a_new_branch_created_meanwhile_is_not_overwritten`)
+- With `branchdeck.resolveByWords` on (the default), a cherry-pick that git stops at must be committed when the words
+  resolve every conflicting file (IntelliJ's simple resolve, all or nothing per commit; only content conflicts of UTF-8
+  text), with the author, the date and the message of the commit, and the branch built. `resolved` of the branch must
+  list such commits with git's conflicts and the files; the mapping note keeps the counts, and `bd status` and
+  `bd commits` must show them as `resolved_by_words` of the commit. `bd check` must build alike. With the setting off,
+  or one file that does not resolve, the commit must stay a conflict of git; a copy that resolved must be copied again
+  and conflict once the setting is off. The same commits must give the same copy in every repository.
+  [@test] ../../crates/bd-cli/src/sync_test.rs (`a_conflict_that_its_words_resolve_builds_and_says_so`)
+  [@test] ../../crates/sync-core/src/word_resolve_sync_test.rs (`a_conflict_that_its_words_resolve_is_copied_with_the_author_and_the_message_of_the_commit`, `the_next_sync_reuses_the_resolved_copy_and_says_so_from_its_note`, `the_setting_off_gives_the_conflict_of_git_and_on_again_the_resolved_copy`, `a_file_with_a_conflict_that_its_words_leave_keeps_the_commit_a_conflict`, `crlf_lines_keep_their_ends`, `a_stack_of_commits_builds_on_the_resolved_copy`, `the_same_commits_give_the_same_copy_in_another_repository`, `a_check_resolves_as_the_sync_does`)
+  [@test] ../../crates/git-ops/src/word_resolve_test.rs (`a_modify_delete_beside_a_resolvable_file_keeps_the_commit_a_conflict`, `an_add_add_and_a_binary_file_stay_conflicts`, `a_merge_driver_keeps_the_conflict_of_git`, `text_that_is_not_utf8_stays_a_conflict`)
 - The `conflict` of a branch in `conflict` must list in `missing_commits` the older commits that change a conflicting file
   and are neither in the branch nor in the branches it is built on, never the copies of its own or its ancestors'
   commits.

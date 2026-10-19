@@ -2,7 +2,7 @@ use crate::branch_stats::{BranchInput, BranchStats, branch_stats};
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
 use crate::landed::{LandedBySummary, LandingTable, find_landed};
-use crate::output::{SchemaVersion, ShortIds};
+use crate::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use crate::robot_list::read_robots;
 use crate::stack_summary::StackSummary;
 use git_ops::branch_names::to_final_branch_name;
@@ -340,6 +340,9 @@ pub struct DescriptionTitle {
 pub struct CommitSummary {
   pub id: String,
   pub subject: String,
+  /// The conflict of git that its virtual copy resolved by words, as its mapping note says; omitted otherwise
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub resolved_by_words: Option<ResolvedByWords>,
 }
 
 /// The stack problems of a branch, with their commits
@@ -440,6 +443,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
   let summary = |commit: &git_ops::commit_list::Commit| CommitSummary {
     id: short.get(&commit.id).to_string(),
     subject: commit.stripped_subject.clone(),
+    resolved_by_words: ResolvedByWords::of_commit(commit),
   };
 
   // --branch and --unassigned page the commits they list, else the branches are paged

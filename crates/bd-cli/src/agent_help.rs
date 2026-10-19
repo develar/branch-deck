@@ -81,7 +81,10 @@ Workflow: the commits into pull requests
    pipe turns non-ASCII into `?`). After any change of `branches`, `unassign`, `issue_groups` or `ungroup_issues`, run
    `bd check --plan plan.json`: exit 1 until the `result` of every branch is `ok`.
    - `conflict` {commit, subject, files, missing_commits}: move the missing commits into the branch, or stack it on
-     the branch that has them.
+     the branch that has them. A conflict of git whose every file the words resolve is no conflict: with `git config
+     branchdeck.resolveByWords` on (the default) the sync commits the result as IntelliJ resolves it, all or nothing
+     per commit, and the branch is `ok`. `bd sync` lists such commits in `resolved` of the branch, `bd status` and
+     `bd commits` in `resolved_by_words` of the commit; nothing to do.
    - `dangling_reference` (`dangling_references` {kind, identifier, file, line, removed_by, fixed_by, mutual}): git
      merges it, the build fails. The branch removes (`removed_declaration`) or changes (`changed_declaration`, e.g.
      made `suspend`) a declaration its tree still uses, or declares one its tree has in another file
@@ -203,7 +206,7 @@ Other tasks
   --sync rebuilds the virtual branches at once, else the next sync does) moves the changes of the file `path`, or
   only its blocks by the ids that `bd commits <from> --patch` prints, into the commit `to`, older or newer; HEAD's
   tree, the index and the working tree stay, and the commits between keep their diff. `hunk_conflict` (exit 4): a
-  commit between changes the same lines, or lacks the file: bd can't move it; `block_not_found` (exit 2): the file
+  commit between changes the same lines, or lacks the file, also when the words would resolve it: bd can't move it; `block_not_found` (exit 2): the file
   changed since the id was read, `error.blocks` are its ids now.
 - `bd install` puts `bd` into ~/.local/bin (macOS, Linux; on Windows `bd.exe` is next to the app) and the skill into
   ~/.claude/skills and ~/.agents/skills; `bd help skill` prints the skill.

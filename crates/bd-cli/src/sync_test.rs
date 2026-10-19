@@ -182,3 +182,36 @@ fn a_branch_that_is_not_built_is_exit_1() {
   .collect();
   assert_eq!(built, [true, true, true, false, false, false]);
 }
+
+/// `b` changes the third argument of the call whose first one `a` changed: git stops, but the words resolve. The sync
+/// builds `b` and says what it resolved; `bd status` and `bd commits` tell it from the mapping note; `bd check` agrees
+#[test_log::test]
+fn a_conflict_that_its_words_resolve_builds_and_says_so() {
+  let repo = repo_with_baseline(&[("Call.kt", "call(a, b, c)\nend\n")]);
+  write(&repo, "Call.kt", "call(A, b, c)\nend\n");
+  commit_all(&repo, "(a) Change the first argument", 1_700_000_100);
+  write(&repo, "Call.kt", "call(A, b, C)\nend\n");
+  let resolved = commit_all(&repo, "(b) Change the third argument", 1_700_000_200);
+
+  let (exit_code, output) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let b = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("b")).unwrap();
+  assert_eq!(b["state"], json!("created"));
+  assert_eq!(
+    b["resolved"],
+    json!([{ "commit": short_id(&resolved), "conflicts": 1, "file_count": 1, "files": [{ "path": "Call.kt", "conflicts": 1 }] }])
+  );
+  assert_eq!(git(&repo, &["show", "refs/heads/test-user/virtual/b:Call.kt"]), "call(a, b, C)\nend");
+
+  let (exit_code, status) = run_in(&repo, &["status"]);
+  assert_eq!(exit_code, 0, "{status}");
+  let b = status["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("b")).unwrap();
+  assert_eq!(b["commits"][0]["resolved_by_words"], json!({ "conflicts": 1, "file_count": 1 }));
+  let (_, commits) = run_in(&repo, &["commits", "--branch", "b"]);
+  assert_eq!(commits["commits"][0]["resolved_by_words"], json!({ "conflicts": 1, "file_count": 1 }), "{commits}");
+
+  let (exit_code, check) = run_in(&repo, &["check"]);
+  assert_eq!(exit_code, 0, "{check}");
+  let b = check["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!("b")).unwrap();
+  assert_eq!(b["result"], json!("ok"), "{check}");
+}

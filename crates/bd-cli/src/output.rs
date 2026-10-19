@@ -1,3 +1,5 @@
+use git_ops::commit_list::Commit;
+use git_ops::model::WordResolutionSummary;
 use git_ops::revs::short_id;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Serialize, Serializer};
@@ -28,6 +30,52 @@ impl JsonSchema for SchemaVersion {
 
   fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
     json_schema!({ "type": "integer", "const": SCHEMA_VERSION })
+  }
+}
+
+/// The conflict of git that the copy of a commit resolved by words (`branchdeck.resolveByWords`): the sync committed the
+/// result of the engine where git stopped, and the branch builds
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+pub struct ResolvedByWords {
+  /// The conflicts of git that the words resolved
+  pub conflicts: u32,
+  pub file_count: u32,
+  /// The resolved files with their conflicts, from the sync that resolved them; omitted for a copy a sync reused, whose
+  /// mapping note keeps the counts only
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub files: Vec<ResolvedFileEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+pub struct ResolvedFileEntry {
+  pub path: String,
+  pub conflicts: u32,
+}
+
+impl ResolvedByWords {
+  /// What a sync tells of a copy
+  pub fn of_summary(summary: &WordResolutionSummary) -> Self {
+    Self {
+      conflicts: summary.conflicts,
+      file_count: summary.file_count,
+      files: summary
+        .files
+        .iter()
+        .map(|file| ResolvedFileEntry {
+          path: file.path.clone(),
+          conflicts: file.conflicts,
+        })
+        .collect(),
+    }
+  }
+
+  /// What the mapping note of a commit records of its copy
+  pub fn of_commit(commit: &Commit) -> Option<Self> {
+    commit.mapped_resolution.map(|resolved| Self {
+      conflicts: resolved.conflicts,
+      file_count: resolved.files,
+      files: Vec::new(),
+    })
   }
 }
 
