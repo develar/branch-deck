@@ -78,10 +78,7 @@ export function unavailableRobots(availability: PatronusAvailability): PatronusR
   return { availability, robots: [] }
 }
 
-/**
- * The issue_links repository with these robots; the unassigned commits card renders after the branches and would move
- * the rows away from the pointer
- */
+/** The issue_links repository with these robots */
 export async function setupRobots(
   page: Page,
   setupRepo: (template: string, options: { patronus: unknown }) => Promise<unknown>,
@@ -90,7 +87,6 @@ export async function setupRobots(
 ): Promise<void> {
   await setupRepo("issue_links", { patronus: availableRobots(...robots) })
   await syncAndWaitForBranches()
-  await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
   // the robots load after the sync, with the answer that shows the Safe Push slots (empty while a robot runs): a push
   // before they did would not know that one runs
   await expect(page.getByTestId("next-step-slot").first()).toBeAttached()

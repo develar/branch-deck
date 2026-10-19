@@ -236,7 +236,9 @@ HTML snapshots (`captureHtmlSnapshot`, `tests/e2e/helpers/aria-snapshot-helpers.
   for the event a state comes with, never for one assertion to span two of them. A rewrite (move, rename, reword,
   squash, stack, undo) shows its result with the sync it starts: `runAndWaitForSync` (`data-sync-count`). What loads
   after a sync shows with its own element: the autosquash plan with the fixup count of a row. Sync is enabled while
-  the branch prefix still loads: the "Ready to Sync" card says it is loaded
+  the branch prefix still loads: the "Ready to Sync" card says it is loaded. The unassigned commits card is a lazy
+  chunk above the table: it can render seconds after the rows and move them away from the pointer of a hover, so
+  `syncBranches` waits until its fallback (`unassigned-commits-loading`) is gone
 - **Logging**: a green run prints no warning or error. The server logs warnings and errors only
   (`TEST_SERVER_LOG=warn`): an error of the server is a bug, not the error of a command. The console errors and
   uncaught exceptions of the pages are attached to a failed test only (`page errors` in `base-test.ts`): an

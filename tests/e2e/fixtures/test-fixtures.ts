@@ -1,5 +1,4 @@
 import type { Page } from "@playwright/test"
-import { expect } from "@playwright/test"
 import { setupClipboardPermissions } from "../helpers/clipboard-helpers"
 import { setupTestRepository, cleanupTestRepository } from "../helpers/common-setup"
 import type { SetupRepoOptions } from "../helpers/setup-options"
@@ -151,11 +150,9 @@ export { expect } from "@playwright/test"
  */
 export const testWithIssueLinks = test.extend<{ issueLinksRepo: TestRepositoryBuilder }>({
   issueLinksRepo: [
-    async ({ page, setupRepo, syncAndWaitForBranches }, use) => {
+    async ({ setupRepo, syncAndWaitForBranches }, use) => {
       const repo = await setupRepo("issue_links")
       await syncAndWaitForBranches()
-      // the unassigned commits card can render after the branches and push the commit list down
-      await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
       await use(repo)
     },
     { auto: true },

@@ -101,7 +101,8 @@ export function BranchCreator() {
       {hasSynced && <YourTurnCard />}
 
       {unassignedCommitCount > 0 && (
-        <Suspense fallback={null}>
+        // the card comes after the table and moves it down: the marker says it is still to come (the E2E sync waits)
+        <Suspense fallback={<span hidden data-testid="unassigned-commits-loading" />}>
           <UnassignedCommitListCard commits={unassignedCommits} />
         </Suspense>
       )}
