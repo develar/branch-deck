@@ -1983,7 +1983,8 @@ It reads nothing of the working tree and writes nothing; the worktree safety sca
 
 #### Repository settings
 
-Settings → Repository shows and writes five keys of the repository's git config (`crates/sync-core/src/repository_config.rs`):
+Settings → Repository shows and writes four keys of the repository's git config, and Settings → Diffs & Merge the
+fifth, `branchdeck.resolveByWords` (`crates/sync-core/src/repository_config.rs`):
 `branchdeck.stacks`, `branchdeck.symbols`, `branchdeck.githubRepository`, `branchdeck.branchPrefix` and
 `branchdeck.resolveByWords` (a git boolean, on when unset: whether a sync resolves a conflict of git by words, see
 "Resolve by words"). `bd` reads the same keys, so the app keeps nothing of them in its own settings.

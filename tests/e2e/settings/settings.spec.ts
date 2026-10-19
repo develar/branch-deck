@@ -14,7 +14,8 @@ const SIGNED_OUT: GitHubAuthStatus = { signInAvailable: true, signedInAs: null, 
 
 /**
  * Every line a row of Settings → Repository can show at once: a source, Use Default or Use Global, the reason that
- * stacked branches can't be turned off, a value of the worktree config, an invalid value
+ * stacked branches can't be turned off, a value of the worktree config, an invalid value; on Diffs & Merge a value of
+ * the repository with Use Global and an invalid one
  */
 const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
   stacks: { value: true, scope: "local", localSet: true, invalid: null, fallbackValue: false, fallbackScope: "global" },
@@ -28,7 +29,7 @@ const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
     fallbackValue: null,
     fallbackScope: null,
   },
-  resolveByWords: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
+  resolveByWords: { value: true, scope: "local", localSet: true, invalid: "maybe is not a boolean (true or false)", fallbackValue: false, fallbackScope: "global" },
   detectedGithubRepository: { fullName: "acme/app", source: "spaceMirror" },
   stacksOffClashes: [
     { branch: "auth/login", beside: "auth" },
@@ -86,6 +87,10 @@ async function expectEveryPageFits(window: Page, pages: string[]): Promise<void>
     await expect(settingsTab(window, name)).toHaveAttribute("aria-selected", "true")
     if (name === "Notifications") {
       await expect(window.getByTestId("notification-permission")).toHaveAttribute("data-status", "denied")
+    }
+    if (name === "Diffs & Merge") {
+      await expect(window.getByTestId("setting-resolveByWords-source").getByRole("button", { name: "Use Global" })).toBeVisible()
+      await expect(window.getByText("maybe is not a boolean (true or false)")).toBeVisible()
     }
     if (name === "Repository") {
       // the reason that stacked branches can't be turned off, a value from the global config with its button

@@ -4,6 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { expectSettingsOpened, openSettingsWindow, settingsTab } from "../helpers/settings-helpers"
 import { emitTauriEvent, finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
+import { TEST_SERVER_URL } from "../helpers/test-server-url"
 import { windowCalls } from "../helpers/title-bar-helpers"
 import { routeCommandError } from "../helpers/wait-helpers"
 
@@ -284,5 +285,52 @@ test.describe("Settings → Repository", () => {
     const window = await openSettingsWindow(page, { page: "repository" })
     await expect(window.getByTestId("repository-settings-empty")).toHaveText("Select a repository to see its settings")
     await expect(settingsTab(window, "Repository")).toHaveAttribute("aria-selected", "true")
+  })
+})
+
+test.describe("Settings → Diffs & Merge", () => {
+  test("should resolve conflicts by words in the global config, and say where the repository's own value wins", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("simple", { prepopulateStore: true })
+    await syncAndWaitForBranches()
+    const window = await openSettingsWindow(page, { page: "diffs" })
+    const writes = recordWrites(window)
+    const setting = window.getByTestId("setting-resolveByWords")
+    const toggle = setting.getByRole("switch")
+    const source = window.getByTestId("setting-resolveByWords-source")
+    await expect(source).toHaveText("On by default. A change goes to your global Git config, which bd reads too")
+    await expect(setting).toContainText("branchdeck.resolveByWords")
+    await expect(toggle).toBeChecked()
+
+    // off for every repository: the global config of the test repository (its own file), and the main window syncs
+    const syncs = await finishedSyncCount(page)
+    await setting.click()
+    await expect(toggle).not.toBeChecked()
+    await expect(source).toHaveText("Set in your global Git config, which bd reads too")
+    await waitForSyncComplete(page, syncs)
+    expect(writes).toEqual([{ repositoryPath: repo.path, change: { key: "resolveByWords", value: false }, scope: "global" }])
+
+    // `git config branchdeck.resolveByWords true` in the repository meanwhile: read again when the window gets the focus
+    const local = await page.request.post(`${TEST_SERVER_URL}/invoke/set_repository_config`, {
+      headers: { "x-repository-id": repo.id },
+      data: { repositoryPath: repo.path, change: { key: "resolveByWords", value: true } },
+    })
+    expect(local.ok()).toBe(true)
+    await emitTauriEvent(window, "tauri://focus")
+    await expect(source).toHaveText(`Set in .git/config of ${nameOf(repo.path)}, which overrides your global Git configUse Global`)
+    await expect(toggle).toBeChecked()
+
+    // the switch changes the repository's own value, not the global one
+    await setting.click()
+    await expect(toggle).not.toBeChecked()
+    await expect.poll(() => writes.at(-1)).toEqual({ repositoryPath: repo.path, change: { key: "resolveByWords", value: false }, scope: "local" })
+
+    // Use Global removes it from .git/config: the global value applies again
+    const reset = source.getByRole("button", { name: "Use Global" })
+    await reset.hover()
+    await expect(window.getByRole("tooltip")).toHaveText("Removes it from .git/config: back to Off, set in your global Git config")
+    await reset.click()
+    await expect(source).toHaveText("Set in your global Git config, which bd reads too")
+    await expect(toggle).not.toBeChecked()
+    expect(writes.at(-1)).toEqual({ repositoryPath: repo.path, change: { key: "resolveByWords", value: null }, scope: "local" })
   })
 })

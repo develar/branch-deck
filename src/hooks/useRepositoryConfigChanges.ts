@@ -6,9 +6,10 @@ import { refreshPullRequests } from "@/stores/pull-requests"
 import { getSelectedProject, triggerBranchPrefixLoad } from "@/stores/repository"
 
 /**
- * The main window after a write of Settings → Repository (`repository_config_changed`, sent by the backend): what the
- * key changes for the selected repository, nothing for another one. A repository synced before syncs again, as the
- * branches are grouped, named or reviewed by the key; one never synced waits for the user's first sync.
+ * The main window after a write of Settings → Repository or → Diffs & Merge (`repository_config_changed`, sent by the
+ * backend): what the key changes for the selected repository, nothing for another one. A repository synced before
+ * syncs again, as the branches are grouped, named, reviewed or merged by the key; one never synced waits for the
+ * user's first sync.
  */
 export function useRepositoryConfigChanges(): void {
   useTauriListen<RepositoryConfigChanged>("repository_config_changed", ({ repositoryPath, key }) => {
@@ -38,6 +39,10 @@ export function useRepositoryConfigChanges(): void {
       case "githubRepository":
         resync()
         void refreshPullRequests("manual")
+        break
+      case "resolveByWords":
+        // a conflict of git that its words resolve is a commit of the sync, or a conflict again
+        resync()
         break
     }
   })

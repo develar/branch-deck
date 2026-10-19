@@ -31,7 +31,7 @@ export function SettingRow({
 }: {
   testId: string
   label: string
-  description?: string
+  description?: ReactNode
   checked: boolean
   disabled?: boolean
   onCheckedChange: (checked: boolean) => void

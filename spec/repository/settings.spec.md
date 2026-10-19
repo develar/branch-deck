@@ -81,8 +81,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 ## Non-goals
 
 - A search over the settings, Reset All.
-- A write of the global or the worktree git config: Repository writes `.git/config` only, and says where a value of
-  another config comes from.
+- A write of the worktree or the system git config. Repository writes `.git/config` only, and says where a value of
+  another config comes from; Diffs & Merge writes one key to the global config.
 - A Light/Dark choice: the theme follows the system.
 - A settings dialog inside another window.
 
@@ -165,6 +165,23 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   their own leaves room for the merge.
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should break a long line with Soft Wraps on in Settings, and scroll it with them off`)
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should set every diff from Diffs & Merge, the Whitespace menu naming its choice`)
+- Diffs & Merge, "Merge": "Resolve conflicts by words", the git key `branchdeck.resolveByWords`, on by default (the
+  sync, Update Project and `bd update` commit a conflict of git that its words resolve,
+  [Git Operations](../../docs/design/git-operations.md#resolve-by-words)). It is one value for every repository, so
+  the switch writes the global git config (`set_repository_config` with `scope: "global"`), which `bd` reads too. The
+  line under it says where the value comes from and where a change goes: "On by default. A change goes to your global
+  Git config, which bd reads too", "Set in your global Git config, which bd reads too", "Set in the system Git config.
+  A change goes to your global Git config, which wins over it". A repository whose `.git/config` sets the key keeps
+  its own value, as git reads it: the line says "Set in .git/config of <repository>, which overrides your global Git
+  config" (or "…, for this repository only"), the switch changes that value, and "Use Global" (or "Use Default")
+  removes it, with the result in its tooltip. The worktree config and the command line disable the switch with the
+  reason of Repository; an invalid value says why. The page reads the key for the selected repository
+  (`get_repository_config`), again when the window gets the focus; without a repository the backend reads the global
+  config alone. After a write the main window syncs a repository synced before (`repository_config_changed`). A failed
+  write is a toast: "Cannot change how every repository resolves conflicts by words", or for the local value "Cannot
+  change how <repository> resolves conflicts by words".
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should resolve conflicts by words in the global config, and say where the repository's own value wins`)
+  [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
 - Notifications: the four switches of the OS notifications, the permission of the OS, and "Dock icon" (not Windows)
   ([Review Requests](review-requests.spec.md#settings)). The permission is asked when the page shows, on each open of
   the window and when the window gets the focus.
@@ -309,8 +326,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 ## User Experience
 
 - Window title "Settings"; pages "General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "Repository";
-  sections in sentence case ("Branches", "Sync", "AI", "Zoom", "Title bar", "Diffs", "Notifications", "Dock icon",
-  "GitHub").
+  sections in sentence case ("Branches", "Sync", "AI", "Zoom", "Title bar", "Diffs", "Merge", "Notifications",
+  "Dock icon", "GitHub").
 - Menu item "Settings…", buttons "Notification Settings…", "Sign In…", "GitHub Settings…", "Set GitHub Repository…",
   "Open Repository Settings", "Use Default", "Use Global", "Retry"; the modes "Off", "Report Only", "On".
 - A failed open is "Cannot open Settings" with the reason (`notifyError`).
