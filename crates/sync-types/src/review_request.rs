@@ -22,7 +22,12 @@ pub struct ReviewRequest {
   /// Unix seconds
   pub updated_at: u32,
   /// Unix seconds: when the user was asked for the review the last time, else when the pull request was opened
+  pub requested_at: u32,
+  /// Unix seconds: since when it is the user's turn: `requested_at`, or the move of the other side after the user
+  /// answered with a comment (`back_to_you`)
   pub waiting_since: u32,
+  /// The user answered the request with a comment and the other side moved since; None otherwise
+  pub back_to_you: Option<BackToYou>,
   pub additions: u32,
   pub deletions: u32,
   pub changed_files: u32,
@@ -53,7 +58,8 @@ pub struct ReviewRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ReviewRequestsResult {
   pub availability: PullRequestAvailability,
-  /// All pull requests waiting for the user, also those beyond `requests` (GitHub's `issueCount`)
+  /// All pull requests waiting for the user, also those beyond `requests`: GitHub's `issueCount` without the requests
+  /// of the answer that don't wait (reviewed, or answered with a comment)
   pub total_count: u32,
   /// At most 50, as GitHub returns them; empty unless available
   pub requests: Vec<ReviewRequest>,
@@ -183,4 +189,15 @@ pub struct GetRangeParams {
   pub repository_path: String,
   pub base: String,
   pub head: String,
+}
+
+/// The first move of the other side after the user answered a request with a comment: the turn is the user's again
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct BackToYou {
+  /// Unix seconds
+  pub at: u32,
+  /// The login of who replied (a comment or a review); None for new commits
+  pub replied_by: Option<String>,
 }

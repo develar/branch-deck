@@ -466,6 +466,14 @@ export type AutosquashScope = { type: "all" } |
 /**  Only this fixup commit, into its target */
 { type: "fixup"; value: string };
 
+/**  The first move of the other side after the user answered a request with a comment: the turn is the user's again */
+export type BackToYou = {
+	/**  Unix seconds */
+	at: number,
+	/**  The login of who replied (a comment or a review); None for new commits */
+	repliedBy: string | null,
+};
+
 /**  A blob that the views ask for: by its id, and for a file of the working tree, by its path too */
 export type BlobRequest = {
 	id: string,
@@ -2522,7 +2530,14 @@ export type ReviewRequest = {
 	/**  Unix seconds */
 	updatedAt: number,
 	/**  Unix seconds: when the user was asked for the review the last time, else when the pull request was opened */
+	requestedAt: number,
+	/**
+	 *  Unix seconds: since when it is the user's turn: `requested_at`, or the move of the other side after the user
+	 *  answered with a comment (`back_to_you`)
+	 */
 	waitingSince: number,
+	/**  The user answered the request with a comment and the other side moved since; None otherwise */
+	backToYou: BackToYou | null,
 	additions: number,
 	deletions: number,
 	changedFiles: number,
@@ -2550,7 +2565,10 @@ export type ReviewRequest = {
 
 export type ReviewRequestsResult = {
 	availability: PullRequestAvailability,
-	/**  All pull requests waiting for the user, also those beyond `requests` (GitHub's `issueCount`) */
+	/**
+	 *  All pull requests waiting for the user, also those beyond `requests`: GitHub's `issueCount` without the requests
+	 *  of the answer that don't wait (reviewed, or answered with a comment)
+	 */
 	totalCount: number,
 	/**  At most 50, as GitHub returns them; empty unless available */
 	requests: ReviewRequest[],

@@ -3,7 +3,7 @@ use crate::review_requests::{REVIEW_REQUESTS_QUERY, list_review_requests};
 use github::fake_github::{FakeAnswer, FakeRequest, start_fake_service};
 use pretty_assertions::assert_eq;
 use sync_types::pull_request::{ChecksState, PullRequestAvailability, ReviewDecision, TokenSource};
-use sync_types::review_request::{ReviewRequest, ReviewRequestsResult};
+use sync_types::review_request::{BackToYou, ReviewRequest, ReviewRequestsResult};
 use test_log::test;
 
 /// The answer to the review requests query, trimmed to what the parser reads
@@ -136,8 +136,8 @@ async fn maps_the_review_requests_of_the_search() {
   let (result, _) = list(fixture()).await;
 
   assert_eq!(result.availability, available());
-  // all the search found, also beyond the first 50
-  assert_eq!(result.total_count, 63);
+  // all the search found, also beyond the first 50, without the lagging #820
+  assert_eq!(result.total_count, 62);
   // the lagging #820 is dropped, the issue and the null node are skipped
   assert_eq!(result.requests.iter().map(|request| request.number).collect::<Vec<_>>(), vec![840, 830, 810]);
 
@@ -153,7 +153,9 @@ async fn maps_the_review_requests_of_the_search() {
       requested_by: Some("bob".to_string()),
       created_at: 1791185666,
       updated_at: 1791363781,
+      requested_at: 1791363781,
       waiting_since: 1791363781,
+      back_to_you: None,
       additions: 24,
       deletions: 10,
       changed_files: 1,
@@ -252,4 +254,150 @@ async fn classifies_the_other_failures() {
       message: "Unexpected GitHub answer: no data".to_string(),
     })
   );
+}
+
+/// One pull request of alice that asked carol (the viewer) at 10:00 of 2026-10-19, with this `activity` timeline
+fn answered(activity: &serde_json::Value) -> FakeAnswer {
+  FakeAnswer::ok(serde_json::json!({"data": {
+    "viewer": {"login": "carol"},
+    "repository": {"viewerPermission": "READ"},
+    "search": {"issueCount": 1, "nodes": [{
+      "number": 1097,
+      "title": "Sign in through the CLI",
+      "author": {"login": "alice"},
+      "createdAt": "2026-10-19T09:00:00Z",
+      "viewerLatestReview": null,
+      "timelineItems": {"nodes": [
+        {"createdAt": "2026-10-19T10:00:00Z", "actor": {"login": "alice"}, "requestedReviewer": {"login": "carol"}}
+      ]},
+      "activity": {"nodes": activity}
+    }]}
+  }}))
+}
+
+/// 2026-10-19T10:00:00Z, when carol was asked
+const REQUESTED_AT: u32 = 1_792_404_000;
+
+fn comment(at: &str, viewer: bool, body: &str, author: &serde_json::Value) -> serde_json::Value {
+  serde_json::json!({"__typename": "IssueComment", "createdAt": at, "viewerDidAuthor": viewer, "bodyText": body, "author": author})
+}
+
+/// Since when each request waits, and what gave the turn back
+fn turns(result: &ReviewRequestsResult) -> Vec<(u32, Option<BackToYou>)> {
+  result.requests.iter().map(|request| (request.waiting_since, request.back_to_you.clone())).collect()
+}
+
+fn user(login: &str) -> serde_json::Value {
+  serde_json::json!({"__typename": "User", "login": login})
+}
+
+fn bot(login: &str) -> serde_json::Value {
+  serde_json::json!({"__typename": "Bot", "login": login})
+}
+
+#[test(tokio::test)]
+async fn a_request_the_user_answered_with_a_comment_is_not_their_turn() {
+  let (result, _) = list(answered(&serde_json::json!([
+    {"__typename": "PullRequestCommit", "commit": {"committedDate": "2026-10-19T08:00:00Z"}},
+    comment("2026-10-19T10:01:00Z", true, "/patronus dry-run", &user("carol")),
+    comment("2026-10-19T10:05:00Z", false, "Address comments before merging", &bot("junie")),
+    comment("2026-10-19T11:00:00Z", true, "Waiting for the fix of the AI review", &user("carol")),
+    // bots don't move: a comment, a review, a force push
+    comment("2026-10-19T11:01:00Z", false, "Dry Run success", &bot("patronus")),
+    {"__typename": "PullRequestReview", "submittedAt": "2026-10-19T11:02:00Z", "viewerDidAuthor": false, "author": bot("air")},
+    {"__typename": "HeadRefForcePushedEvent", "createdAt": "2026-10-19T11:03:00Z", "actor": bot("updater")},
+    // the user's own review that is not submitted yet, and a later comment of the user
+    {"__typename": "PullRequestReview", "submittedAt": null, "viewerDidAuthor": true, "author": user("carol")},
+    comment("2026-10-19T11:30:00Z", true, "One more thing", &user("carol")),
+    {"__typename": "AssignedEvent"}
+  ])))
+  .await;
+  assert_eq!(result.requests, Vec::<ReviewRequest>::new());
+  // the count is what waits
+  assert_eq!(result.total_count, 0);
+
+  // a command alone is no answer
+  let (result, _) = list(answered(&serde_json::json!([comment("2026-10-19T10:01:00Z", true, "/patronus dry-run", &user("carol"))]))).await;
+  assert_eq!(turns(&result), vec![(REQUESTED_AT, None)]);
+  assert_eq!(result.total_count, 1);
+}
+
+#[test(tokio::test)]
+async fn a_move_of_the_other_side_after_the_answer_makes_it_the_user_s_turn_again() {
+  let answer = comment("2026-10-19T11:00:00Z", true, "Please split it", &user("carol"));
+  let back = async |activity: serde_json::Value| {
+    let (result, _) = list(answered(&activity)).await;
+    assert_eq!(result.requests.len(), 1, "{result:?}");
+    let request = &result.requests[0];
+    // the request stays the same request, its age counts from the move
+    assert_eq!(request.requested_at, REQUESTED_AT);
+    assert_eq!(request.back_to_you.as_ref().map(|back| back.at), Some(request.waiting_since));
+    request.back_to_you.clone().unwrap()
+  };
+
+  // new commits, by their date, whatever their place in the timeline
+  let commits = back(serde_json::json!([
+    {"__typename": "PullRequestCommit", "commit": {"committedDate": "2026-10-19T12:30:00Z"}},
+    {"__typename": "PullRequestCommit", "commit": {"committedDate": "2026-10-19T12:00:00Z"}},
+    answer.clone()
+  ]))
+  .await;
+  assert_eq!(
+    commits,
+    BackToYou {
+      at: REQUESTED_AT + 2 * 3600,
+      replied_by: None
+    }
+  );
+
+  // a force push of a person
+  let pushed = back(serde_json::json!([answer.clone(), {"__typename": "HeadRefForcePushedEvent", "createdAt": "2026-10-19T13:00:00Z", "actor": user("alice")}])).await;
+  assert_eq!(
+    pushed,
+    BackToYou {
+      at: REQUESTED_AT + 3 * 3600,
+      replied_by: None
+    }
+  );
+
+  // the first reply of a person, a comment or a submitted review; one before the answer does not count
+  let replied = back(serde_json::json!([
+    comment("2026-10-19T10:30:00Z", false, "Ready", &user("alice")),
+    answer.clone(),
+    {"__typename": "PullRequestReview", "submittedAt": "2026-10-19T14:00:00Z", "viewerDidAuthor": false, "author": user("dave")},
+    comment("2026-10-19T15:00:00Z", false, "Done", &user("alice"))
+  ]))
+  .await;
+  assert_eq!(
+    replied,
+    BackToYou {
+      at: REQUESTED_AT + 4 * 3600,
+      replied_by: Some("dave".to_string()),
+    }
+  );
+}
+
+#[test(tokio::test)]
+async fn an_answer_counts_only_after_a_request_by_name() {
+  // a comment before the newest request (asked again after the answer) waits since the request
+  let (result, _) = list(answered(&serde_json::json!([comment("2026-10-19T09:30:00Z", true, "Looks risky", &user("carol"))]))).await;
+  assert_eq!(turns(&result), vec![(REQUESTED_AT, None)]);
+
+  // without the user's request event (a team request) a comment hides nothing
+  let team = serde_json::json!({"data": {
+    "viewer": {"login": "carol"},
+    "repository": {"viewerPermission": "READ"},
+    "search": {"issueCount": 1, "nodes": [{
+      "number": 1098,
+      "createdAt": "2026-10-19T09:00:00Z",
+      "timelineItems": {"nodes": []},
+      "activity": {"nodes": [comment("2026-10-19T11:00:00Z", true, "Not mine to review", &user("carol"))]}
+    }]}
+  }});
+  let (result, _) = list(FakeAnswer::ok(team)).await;
+  assert_eq!(
+    result.requests.iter().map(|request| (request.number, request.back_to_you.clone())).collect::<Vec<_>>(),
+    vec![(1098, None)]
+  );
+  assert_eq!(result.total_count, 1);
 }

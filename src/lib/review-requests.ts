@@ -63,9 +63,16 @@ function formatDuration(since: number, now: number): string {
   return days === 1 ? "1 day" : `${days} days`
 }
 
-/** "waiting 2 days", or "re-requested 3 hours ago" after an earlier review of the user */
-export function formatWaiting(request: Pick<ReviewRequest, "waitingSince" | "reRequested">, now: number): string {
+/**
+ * "waiting 2 days"; "alice replied 10 minutes ago" or "new commits 10 minutes ago" when the other side moved after the
+ * user's comment; "re-requested 3 hours ago" after an earlier review of the user
+ */
+export function formatWaiting(request: Pick<ReviewRequest, "waitingSince" | "reRequested" | "backToYou">, now: number): string {
   const since = request.waitingSince * 1000
+  const back = request.backToYou
+  if (back !== null) {
+    return `${back.repliedBy === null ? "new commits" : `${back.repliedBy} replied`} ${formatRelativeTime(back.at * 1000, now)}`
+  }
   return request.reRequested ? `re-requested ${formatRelativeTime(since, now)}` : `waiting ${formatDuration(since, now)}`
 }
 
@@ -74,21 +81,22 @@ export function formatOldestWaiting(oldest: Pick<ReviewRequest, "waitingSince">,
   return `oldest waiting ${formatDuration(oldest.waitingSince * 1000, now)}`
 }
 
-/** A request as the user was asked: a re-request is a new one */
-export function reviewRequestKey(request: Pick<ReviewRequest, "number" | "waitingSince">): string {
-  return `${request.number}@${request.waitingSince}`
+/** A request as the user was asked: a re-request is a new one, a move of the other side after the user's answer is not */
+export function reviewRequestKey(request: Pick<ReviewRequest, "number" | "requestedAt">): string {
+  return `${request.number}@${request.requestedAt}`
 }
 
 /**
- * The requests of `next` the user was not told about yet: those whose key (`reviewRequestKey`) `previous` lacks.
- * `previous` is null for the first answer after a start or a repository switch, which is silent: nothing is new then.
+ * The requests of `next` the user was not told about yet: those whose key (`reviewRequestKey`) `previous` lacks; one
+ * back to the user after their answer (`backToYou`) is no request. `previous` is null for the first answer after a
+ * start or a repository switch, which is silent: nothing is new then.
  */
 export function findNewRequests(previous: readonly ReviewRequest[] | null, next: readonly ReviewRequest[]): ReviewRequest[] {
   if (previous === null) {
     return []
   }
   const known = new Set(previous.map(reviewRequestKey))
-  return next.filter(request => !known.has(reviewRequestKey(request)))
+  return next.filter(request => request.backToYou === null && !known.has(reviewRequestKey(request)))
 }
 
 /** The new requests one toast names; one more is named too (`cutList`) */

@@ -183,6 +183,20 @@ describe("answers", () => {
     expect(gh.toasts.map(it => it.title)).toEqual(["bob requested your review"])
   })
 
+  it("tells nothing when a request the user answered comes back by a reply, read as it was", async () => {
+    gh.result = available(request(1), request(2))
+    await refreshReviewRequests("sync")
+    // the user answered #2 with a comment: gone
+    gh.result = available(request(1))
+    await refreshReviewRequests("manual")
+    gh.result = available(request(1), request(2, { requestedAt: 1_002, waitingSince: 9_000, backToYou: { at: 9_000, repliedBy: "alice" } }))
+    await refreshReviewRequests("manual")
+    expect(entry().requests.map(it => it.number)).toEqual([1, 2])
+    expect(gh.toasts).toEqual([])
+    expect(gh.activity).toEqual([])
+    expect([...entry().unread]).toEqual([])
+  })
+
   it("tells in the background by an OS notification, and in a toast on focus", async () => {
     await refreshReviewRequests("sync")
     setWindowFocus(false)

@@ -5,7 +5,16 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest, reviewer } from "../helpers/pull-request-helpers"
-import { availableReviewRequests, getReviewRow, getYourTurnCard, openedReviewWindow, openReviewWindow, reviewRequest, routeReviewFetch } from "../helpers/review-request-helpers"
+import {
+  NOW,
+  availableReviewRequests,
+  getReviewRow,
+  getYourTurnCard,
+  openedReviewWindow,
+  openReviewWindow,
+  reviewRequest,
+  routeReviewFetch,
+} from "../helpers/review-request-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
@@ -18,7 +27,8 @@ const OLD = reviewRequest("ABC-123", 101, 50, { title: "Rework the session store
 const RECENT = reviewRequest("feature-auth", 102, 3, { title: "Add OAuth login", reRequested: true, reviewedCommit: null })
 const RELEASE = reviewRequest("JIRA-456", 103, 2, { title: "Backport the pool fix", baseRefName: "release/253", baseIsDefault: false, checksState: "pending" })
 const FOURTH = reviewRequest("feature-docs", 104, 1, { title: "Document the CLI" })
-const FIFTH = reviewRequest("feature-db", 105, 0.5, { title: "Migrate the schema" })
+// asked 5 hours ago, the user commented, carol replied half an hour ago: the turn is the user's again
+const FIFTH = reviewRequest("feature-db", 105, 0.5, { title: "Migrate the schema", requestedAt: NOW - 5 * 3600, backToYou: { at: NOW - 1800, repliedBy: "carol" } })
 
 type SetupRepo = (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>
 
@@ -123,6 +133,8 @@ test.describe("Your Turn card", () => {
     await card.getByTestId("review-requests-show-more").click()
     await expect(rows).toHaveCount(5)
     await expect(card.getByTestId("review-requests-show-more")).toHaveText("Show Less")
+    // answered by the user with a comment: what the other side did since, sorted by it
+    await expect(getReviewRow(page, 105).getByTestId("review-request-age")).toHaveText("carol replied 30 minutes ago")
 
     // collapsed: the count stays, as on every island, the oldest age after it, per repository
     await card.getByTestId("your-turn-header").click()

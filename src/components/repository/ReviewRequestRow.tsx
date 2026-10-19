@@ -136,7 +136,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, reposi
             </TooltipTrigger>
             <TooltipContent>Open Pull Request</TooltipContent>
           </Tooltip>
-          <WaitingAge waitingSince={request.waitingSince} reRequested={request.reRequested} />
+          <WaitingAge waitingSince={request.waitingSince} reRequested={request.reRequested} backToYou={request.backToYou} />
         </span>
       </ContextMenuTrigger>
       <ContextMenuContent>
@@ -147,15 +147,20 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, reposi
 })
 
 /**
- * "waiting 2 days", "re-requested 3 hours ago": muted, `warning` after a working day; the leaf on the shared clock, so a
- * tick re-renders only it
+ * "waiting 2 days", "alice replied 10 minutes ago", "re-requested 3 hours ago": muted, `warning` after a working day;
+ * the leaf on the shared clock, so a tick re-renders only it
  */
-export function WaitingAge({ waitingSince, reRequested, testId = "review-request-age" }: Pick<ReviewRequest, "waitingSince" | "reRequested"> & { testId?: string }) {
+export function WaitingAge({
+  waitingSince,
+  reRequested,
+  backToYou,
+  testId = "review-request-age",
+}: Pick<ReviewRequest, "waitingSince" | "reRequested" | "backToYou"> & { testId?: string }) {
   const now = useNow(RELATIVE_TIME_TICK_MS)
   const old = hasWaitedWorkingDay(waitingSince * 1000, now)
   return (
     <span data-testid={testId} data-old={old || undefined} className={cn("text-xs whitespace-nowrap tabular-nums", old ? "text-warning" : "text-muted-foreground")}>
-      {formatWaiting({ waitingSince, reRequested }, now)}
+      {formatWaiting({ waitingSince, reRequested, backToYou }, now)}
     </span>
   )
 }

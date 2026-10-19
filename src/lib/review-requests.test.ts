@@ -40,11 +40,16 @@ describe("working-day age", () => {
 
   it("says how long a request waits, or when the user was asked again", () => {
     const now = at(19, 12)
-    expect(formatWaiting({ waitingSince: (now - 30_000) / 1000, reRequested: false }, now)).toBe("waiting 1 minute")
-    expect(formatWaiting({ waitingSince: (now - 5 * 60_000) / 1000, reRequested: false }, now)).toBe("waiting 5 minutes")
-    expect(formatWaiting({ waitingSince: (now - 3 * 3_600_000) / 1000, reRequested: false }, now)).toBe("waiting 3 hours")
-    expect(formatWaiting({ waitingSince: (now - 50 * 3_600_000) / 1000, reRequested: false }, now)).toBe("waiting 2 days")
-    expect(formatWaiting({ waitingSince: (now - 3 * 3_600_000) / 1000, reRequested: true }, now)).toBe("re-requested 3 hours ago")
+    const ago = (ms: number) => (now - ms) / 1000
+    expect(formatWaiting({ waitingSince: ago(30_000), reRequested: false, backToYou: null }, now)).toBe("waiting 1 minute")
+    expect(formatWaiting({ waitingSince: ago(5 * 60_000), reRequested: false, backToYou: null }, now)).toBe("waiting 5 minutes")
+    expect(formatWaiting({ waitingSince: ago(3 * 3_600_000), reRequested: false, backToYou: null }, now)).toBe("waiting 3 hours")
+    expect(formatWaiting({ waitingSince: ago(50 * 3_600_000), reRequested: false, backToYou: null }, now)).toBe("waiting 2 days")
+    expect(formatWaiting({ waitingSince: ago(3 * 3_600_000), reRequested: true, backToYou: null }, now)).toBe("re-requested 3 hours ago")
+    // the user answered with a comment, the other side moved since: what it did, also after an earlier review
+    const replied = { at: ago(10 * 60_000), repliedBy: "alice" }
+    expect(formatWaiting({ waitingSince: replied.at, reRequested: true, backToYou: replied }, now)).toBe("alice replied 10 minutes ago")
+    expect(formatWaiting({ waitingSince: replied.at, reRequested: false, backToYou: { ...replied, repliedBy: null } }, now)).toBe("new commits 10 minutes ago")
     expect(formatOldestWaiting(request(1, { waitingSince: (now - 4 * 86_400_000) / 1000 }), now)).toBe("oldest waiting 4 days")
   })
 })
@@ -98,6 +103,13 @@ describe("new requests", () => {
     const reRequested = request(2, { waitingSince: 9_000, reRequested: true })
     expect(findNewRequests(previous, [request(1), reRequested, request(3)]).map(it => it.number)).toEqual([2, 3])
     expect(findNewRequests(previous, [request(1)])).toEqual([])
+  })
+
+  it("tells no request back to the user after their answer, which keeps its key", () => {
+    const back = request(2, { requestedAt: 1_002, waitingSince: 9_000, backToYou: { at: 9_000, repliedBy: "alice" } })
+    expect(reviewRequestKey(back)).toBe(reviewRequestKey(request(2)))
+    // answered, so gone from the last answer: its move is no request
+    expect(findNewRequests([request(1)], [request(1), back])).toEqual([])
   })
 
   it("tells one request by who asked, several in one notice", () => {

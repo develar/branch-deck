@@ -115,6 +115,21 @@ there, in the preview and in the review alike, on the commit the review shows; t
   is older than that; a pending review is no review. A request whose latest review is newer than the event is dropped
   (the search index lags behind a review).
   [@test] ../../crates/sync-core/src/review_requests_test.rs (`maps_the_review_requests_of_the_search`)
+- A comment in the conversation is no review, and GitHub keeps the request: a request the user answered with a comment
+  after the newest request event of the user is dropped until the other side moves. A second timeline of the same
+  query, `activity` (`last: 30` comments, reviews, commits and force pushes; its own connection, so bot comments don't
+  push the request events out; the query still costs 1 point), tells it: the user's newest comment (`viewerDidAuthor`)
+  not older than the event, a command such as `/patronus dry-run` (which the app posts as the user) no answer. A move
+  after it gives the turn back: a commit (by its date), a force push, a comment or a submitted review of someone else
+  than the user; a bot (`Bot`) never moves. The request waits since the first move then, and says what it was
+  (`backToYou`: who replied, or new commits). Without a request event of the user (a team request, an event beyond the
+  last 20) a comment hides nothing. Only the times are compared, not the order of the timeline; a commit made before
+  the answer and pushed after it is missed, as a plain push has no event.
+  [@test] ../../crates/sync-core/src/review_requests_test.rs (`a_request_the_user_answered_with_a_comment_is_not_their_turn`, `a_move_of_the_other_side_after_the_answer_makes_it_the_user_s_turn_again`, `an_answer_counts_only_after_a_request_by_name`)
+- The count is GitHub's `issueCount` without the requests of the answer that don't wait (a lagging review, an answer
+  by comment); GitHub's own search, "Open All on GitHub", still lists the answered ones. A request dropped while its
+  review window is open there says "No longer waiting for your review".
+  [@test] ../../crates/sync-core/src/review_requests_test.rs (`maps_the_review_requests_of_the_search`, `a_request_the_user_answered_with_a_comment_is_not_their_turn`)
 - A partial answer (`data` with `errors`) is read; GitHub's rate limit is `rateLimited`; every other failure is
   classified as for the pull requests and never thrown.
   [@test] ../../crates/sync-core/src/review_requests_test.rs (`a_partial_answer_is_read`, `a_rate_limit_is_rate_limited`, `classifies_the_other_failures`)
@@ -142,10 +157,12 @@ there, in the preview and in the review alike, on the commit the review shows; t
 
 ### New requests
 
-- A request is new when its number and the time it waits since are not in the last answer: a re-request is new. The
-  first answer after a start, and the first one after a repository switch, are silent.
-  [@test] ../../src/lib/review-requests.test.ts (`is silent for the first answer after a start or a repository switch`, `tells the requests not known yet, a re-request too`)
-  [@test] ../../src/stores/review-requests.test.ts (`is silent for the first answer after a repository switch`)
+- A request is new when its number and the time of its request event (`requestedAt`) are not in the last answer: a
+  re-request is new. A request back to the user after their answer is not new, and keeps its key, read or unread as
+  the user left it: the user commented, they know it. The first answer after a start, and the first one after a
+  repository switch, are silent.
+  [@test] ../../src/lib/review-requests.test.ts (`is silent for the first answer after a start or a repository switch`, `tells the requests not known yet, a re-request too`, `tells no request back to the user after their answer, which keeps its key`)
+  [@test] ../../src/stores/review-requests.test.ts (`is silent for the first answer after a repository switch`, `tells nothing when a request the user answered comes back by a reply, read as it was`)
 - While a Branch Deck window has the focus (a conflict window counts), one toast tells the new requests of an answer:
   "dave requested your review" / "#104 Document the CLI", or "3 reviews requested" / "#1 … · #2 … · #3 …" (four of
   four named, from five on the first three and "2 more", `cutList`), with the action "Review", which opens the first
@@ -204,9 +221,9 @@ Safe Push it allows.
   repository it keeps its rows with the hint.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should stay hidden off GitHub, and not ask again on focus`, `should stay hidden while GitHub rejects the token or nothing waits, and show once something does`, `should show the island for a returned pull request alone`)
 - A `CollapsibleCard`, open by default; collapsed per repository (`reviewRequestsCollapsed` of the recent projects).
-  The header: `UserCheckIcon`, "Your Turn", the count (all that wait, GitHub's total of the requests, and the returned
+  The header: `UserCheckIcon`, "Your Turn", the count (all that wait: the count of the requests, and the returned
   pull requests), open and collapsed alike, as every island keeps its count; collapsed, "oldest waiting 2 days · 1
-  returned" after it ("1 returned" alone), the age in `warning` when old. The help popover after the count says what is shown (direct requests only, then the returned pull requests),
+  returned" after it ("1 returned" alone), the age in `warning` when old. The help popover after the count says what is shown (direct requests only, not an answered one, then the returned pull requests),
   how the ages colour, and where from; the "⋯" menu has
   "Refresh" (when GitHub was asked on its hover: "Checked 2 minutes ago"), "Open All on GitHub" (the search of the
   repository, while requests wait) and "Notification Settings…".
@@ -214,7 +231,8 @@ Safe Push it allows.
 - A row, 36 px: the unread dot, the title (`font-medium`), the meta "#101 · carol · 2 files · +12 −3" (muted line
   counts, as in every row; "#830 · agent-bot · requested by dave · …" when someone else than the author asked, as for a pull request a
   bot opened: that one waits for the user; "· → release/253" when the base is not the default branch; hidden below `sm`), a `destructive` dot for failing
-  and a `warning` dot for running checks, and "waiting 2 days" or "re-requested 3 hours ago". The age is muted, `warning`
+  and a `warning` dot for running checks, and "waiting 2 days", "re-requested 3 hours ago", or, back to the user after
+  their comment, "carol replied 30 minutes ago" / "new commits 30 minutes ago". The age is muted, `warning`
   after one working day (Saturdays and Sundays don't count); never `destructive`. The age is a leaf on the shared clock.
   [@test] ../../src/lib/review-requests.test.ts (`is old after a day of working time, the weekend skipped`, `says how long a request waits, or when the user was asked again`, `names who asked for the review when it is not the author`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the oldest three first, the rest behind Show More, and say how long each waits`)

@@ -131,7 +131,7 @@ function AskedBy({ request }: { request: ReviewRequest }) {
         {` asks for your review${ofAuthor}`}
       </span>
       <span aria-hidden>·</span>
-      <WaitingAge waitingSince={request.waitingSince} reRequested={request.reRequested} testId="review-dialog-age" />
+      <WaitingAge waitingSince={request.waitingSince} reRequested={request.reRequested} backToYou={request.backToYou} testId="review-dialog-age" />
     </div>
   )
 }

@@ -18,7 +18,7 @@ async fn fixture_calls(client: &reqwest::Client, addr: SocketAddr, id: &str) -> 
 fn request(head_ref_oid: &str) -> Value {
   json!({
     "number": 7, "title": "Add login", "url": "https://github.com/acme/monorepo/pull/7", "bodyText": "", "author": "alice",
-    "requestedBy": "alice", "createdAt": 1, "updatedAt": 1, "waitingSince": 1, "additions": 1, "deletions": 0, "changedFiles": 1,
+    "requestedBy": "alice", "createdAt": 1, "updatedAt": 1, "requestedAt": 1, "waitingSince": 1, "backToYou": null, "additions": 1, "deletions": 0, "changedFiles": 1,
     "checksState": null, "reviewDecision": null, "reRequested": false, "reviewedCommit": null, "headRefName": "alice/login",
     "headRefOid": head_ref_oid, "baseRefName": "master", "baseRefOid": "", "isCrossRepository": false, "baseIsDefault": true,
   })

@@ -76,7 +76,7 @@ export function YourTurnCard() {
 }
 
 /**
- * The title and the count of both kinds (GitHub's total of the requests, which may be more than it lists), open or
+ * The title and the count of both kinds (the requests that wait, which may be more than GitHub lists), open or
  * collapsed, as every island keeps its count; collapsed, "oldest waiting 4 days · 1 returned" after it
  */
 function YourTurnHeader({ requests, returned }: { requests: readonly ReviewRequest[]; returned: number }) {
@@ -107,7 +107,7 @@ function YourTurnHelpPopover() {
     <HelpPopover title="Your Turn" data-testid="your-turn-help">
       <p>
         The open pull requests that ask for your review by name, the longest waiting first, then your own ones a reviewer handed back. Requests of a team you are in and drafts are
-        not shown.
+        not shown, nor a request you answered with a comment until the other side replies or pushes.
       </p>
       <HelpSection title="Ages">
         <HelpList>
@@ -117,6 +117,7 @@ function YourTurnHelpPopover() {
             {" after one working day; weekends don't count."}
           </li>
           <li>&quot;re-requested&quot;: you reviewed it before and were asked again.</li>
+          <li>&quot;replied&quot;, &quot;new commits&quot;: you commented, and the other side answered since.</li>
         </HelpList>
       </HelpSection>
       <p>GitHub is asked every five minutes, for the repository of this checkout or the one it is mirrored to.</p>
