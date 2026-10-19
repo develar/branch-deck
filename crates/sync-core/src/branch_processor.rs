@@ -12,11 +12,12 @@ use git_ops::branch_names::to_final_branch_name;
 use git_ops::commit_chain::CommitChain;
 use git_ops::commit_list::Commit;
 use git_ops::copy_commit::{CopiedCommit, CopyCommitError, CreateCommitParams, RememberedCopy, VirtualCommit, create_or_update_commit, read_virtual_commits};
-use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus};
-use git_ops::notes::MappingNote;
+use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, WordResolutionSummary};
+use git_ops::notes::{MappingNote, NoteResolution};
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::{resolve_commit, short_id};
 use git_ops::tree_id_cache::TreeIdCache;
+use git_ops::word_resolve::{ResolveMode, note_resolution};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
@@ -53,6 +54,8 @@ pub(crate) struct BranchSyncContext<P: ProgressReporter> {
   pub conflict_chains: Option<ChainMemo>,
   /// Ref -> tip of the refs that keep those copies (`conflict_chain::CONFLICT_REFS`), read once per sync
   pub conflict_tips: HashMap<String, String>,
+  /// Whether a conflict of git resolves by words (`branchdeck.resolveByWords`)
+  pub resolve: ResolveMode,
 }
 
 /// The commits of every existing virtual branch above the base of the sync, read with one `log` by the first branch
@@ -156,6 +159,7 @@ enum CommitProcessingResult {
     new_commit_hash: String,
     sync_status: CommitSyncStatus,
     mapping_info: Option<MappingNote>,
+    resolved: Option<WordResolutionSummary>,
   },
   BranchError(BlockReason),
 }
@@ -195,6 +199,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
     owners,
     conflict_chains,
     conflict_tips,
+    resolve,
     ..
   } = ctx;
   let total_branches = *total_branches;
@@ -245,6 +250,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
       })
     });
   let mut copies: Vec<(String, String)> = Vec::new();
+  let mut resolutions: Vec<Option<NoteResolution>> = Vec::new();
 
   let mut current_parent_hash = base_commit.clone();
   // a copy is never older than the commits below it, and its date depends only on the originals and the base
@@ -292,10 +298,14 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
       existing_virtual_commits: existing_virtual_commits.as_ref(),
       verify_notes: *verify_mapping_notes,
       committer_timestamp,
-      remembered: remembered
-        .as_ref()
-        .and_then(|chain| chain.copies.get(current_commit_idx))
-        .map(|(id, tree)| RememberedCopy { id, tree }),
+      remembered: remembered.as_ref().and_then(|chain| {
+        chain.copies.get(current_commit_idx).map(|(id, tree)| RememberedCopy {
+          id,
+          tree,
+          resolved: chain.resolutions.get(current_commit_idx).copied().flatten(),
+        })
+      }),
+      resolve: *resolve,
     };
 
     match process_single_commit(
@@ -311,6 +321,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
         new_commit_hash,
         sync_status,
         mapping_info,
+        resolved,
       } => {
         if sync_status == CommitSyncStatus::Created {
           is_any_commit_changed = true;
@@ -320,6 +331,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
         // every path to a copy leaves its tree in the cache
         let tree = tree_id_cache.get_tree_id(git_executor, repository_path, &new_commit_hash)?;
         copies.push((new_commit_hash.clone(), tree));
+        resolutions.push(resolved.as_ref().map(note_resolution));
 
         current_parent_hash.clone_from(&new_commit_hash);
         last_commit_hash = new_commit_hash;
@@ -332,6 +344,7 @@ pub(crate) fn build_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, job:
         let chain = ConflictChain {
           originals: commits[..current_commit_idx].iter().map(|commit| commit.id.clone()).collect(),
           copies,
+          resolutions,
         };
         let last_copy = chain
           .last()
@@ -531,6 +544,7 @@ fn process_single_commit<P: ProgressReporter>(
       hash: new_commit_hash,
       status: sync_status,
       note: mapping_info,
+      resolved,
     }) => {
       // Send success event with status
       let _ = progress.send(SyncEvent::CommitSynced {
@@ -538,12 +552,14 @@ fn process_single_commit<P: ProgressReporter>(
         commit_hash: original_hash.to_string(),
         new_hash: new_commit_hash.clone(),
         status: sync_status,
+        resolved: resolved.clone(),
       });
 
       Ok(CommitProcessingResult::Success {
         new_commit_hash,
         sync_status,
         mapping_info,
+        resolved,
       })
     }
     Err(CopyCommitError::BranchError(mut branch_error)) => {

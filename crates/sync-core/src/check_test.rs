@@ -410,6 +410,7 @@ fn check_does_not_reuse_a_stale_copy() {
           parent_tree: git(&["rev-parse", "HEAD~1^{tree}"]),
           tree: git(&["rev-parse", "HEAD^{tree}"]),
         },
+        resolved: None,
       }
       .content(),
     )

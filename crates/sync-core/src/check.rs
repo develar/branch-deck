@@ -12,6 +12,7 @@ use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, Existi
 use crate::cache_memo::CacheMemo;
 use crate::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
 use crate::commit_ids::{IdMatch, match_commit_id};
+use crate::config_snapshot::ConfigSnapshot;
 use crate::dangling_references::{DanglingInput, DanglingReference, SyntaxMemo, find_dangling_references, read_commit_lines};
 use crate::dependencies::compute_dependencies;
 use crate::diff_scan::{CommitDiff, read_commit_diffs_cached};
@@ -23,7 +24,7 @@ use crate::stack::{PendingDetection, empty_parent_states, place_branches, read_o
 use crate::stack::{StackForest, describe_problem};
 use crate::symbol_dependencies::declaration_checks::{AddedKeys, DeclarationFacts};
 use crate::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
-use crate::symbol_scan::{SymbolInput, SymbolMode, read_symbol_input, read_symbol_mode};
+use crate::symbol_scan::{SymbolInput, SymbolMode, read_symbol_input};
 use crate::sync::{SyncReport, seeded_tree_cache};
 use code_symbols::language::language_of as symbols_language_of;
 use file_diffs::service::FileDiffs;
@@ -34,6 +35,7 @@ use git_ops::commit_list::Commit;
 use git_ops::model::BranchError;
 use git_ops::revs::resolve_commit;
 use git_ops::tree_id_cache::TreeIdCache;
+use git_ops::word_resolve::ResolveMode;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_lines::FileLines;
 use serde::Serialize;
@@ -212,6 +214,8 @@ pub struct CheckSession {
   dangling_input: OnceLock<Result<DanglingFacts, String>>,
   /// `branchdeck.symbols`
   symbols: SymbolMode,
+  /// `branchdeck.resolveByWords`: the trial builds resolve the conflicts of git by words as the sync does
+  resolve: ResolveMode,
   /// The syntax trees of the blobs the dangling-reference checks read, shared with the sessions of `with_rewrite`
   syntax: Arc<SyntaxMemo>,
   /// The summaries of the files the commits ahead of the baseline change, with the module structure above them, read by
@@ -297,8 +301,10 @@ impl CheckSession {
   #[instrument(skip(git_executor, cache))]
   pub fn open(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, cache: &ObjectCache) -> Result<Self, RegroupError> {
     let snapshot = Snapshot::read(git_executor, repository_path)?;
-    let symbols = read_symbol_mode(git_executor, repository_path).map_err(RegroupError::from)?;
-    Self::open_with(git_executor, repository_path, branch_prefix, cache, snapshot, symbols)
+    let config = ConfigSnapshot::read(git_executor, repository_path).map_err(RegroupError::from)?;
+    let symbols = config.symbol_mode().map_err(RegroupError::from)?;
+    let resolve = config.resolve_mode().map_err(RegroupError::from)?;
+    Self::open_with(git_executor, repository_path, branch_prefix, cache, snapshot, (symbols, resolve))
   }
 
   /// The session after the sync of `report`, on what it read (`Snapshot::of_sync`, its config): the commits with the
@@ -306,8 +312,9 @@ impl CheckSession {
   #[instrument(skip(git_executor, cache, report))]
   pub fn of_sync(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, cache: &ObjectCache, report: &SyncReport) -> Result<Self, RegroupError> {
     let symbols = report.config.symbol_mode().map_err(RegroupError::from)?;
+    let resolve = report.config.resolve_mode().map_err(RegroupError::from)?;
     let snapshot = Snapshot::of_sync(git_executor, repository_path, report)?;
-    Self::open_with(git_executor, repository_path, branch_prefix, cache, snapshot, symbols)
+    Self::open_with(git_executor, repository_path, branch_prefix, cache, snapshot, (symbols, resolve))
   }
 
   fn open_with(
@@ -316,7 +323,7 @@ impl CheckSession {
     branch_prefix: &str,
     cache: &ObjectCache,
     snapshot: Snapshot,
-    symbols: SymbolMode,
+    (symbols, resolve): (SymbolMode, ResolveMode),
   ) -> Result<Self, RegroupError> {
     let tips = if snapshot.commits.is_empty() {
       HashMap::new()
@@ -333,6 +340,7 @@ impl CheckSession {
       verify_mapping_notes: false,
       dangling_input: OnceLock::new(),
       symbols,
+      resolve,
       syntax: Arc::default(),
       symbol_input: Arc::default(),
       added_keys: Arc::default(),
@@ -404,6 +412,7 @@ impl CheckSession {
       verify_mapping_notes: self.verify_mapping_notes,
       dangling_input: OnceLock::new(),
       symbols: self.symbols,
+      resolve: self.resolve,
       syntax: Arc::clone(&self.syntax),
       symbol_input: Arc::clone(&self.symbol_input),
       added_keys: Arc::clone(&self.added_keys),
@@ -561,6 +570,7 @@ impl CheckSession {
       verify_mapping_notes: self.verify_mapping_notes,
       // conflicts are light, without missing commits: `missing_commits` finds them in the report
       owners: CommitOwners::default(),
+      resolve: self.resolve,
     };
 
     // the branches to check in stack order, a parent before its children

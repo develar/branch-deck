@@ -97,6 +97,7 @@ fn write_mapping_note(repo: &TestRepo, original: &str, mapped: &str) -> Result<(
       parent_tree: tree_of(&format!("{original}^")),
       tree: tree_of(original),
     },
+    resolved: None,
   };
   write_commit_notes(repo.git_executor(), repo_path(repo), &[note])
 }
@@ -223,6 +224,7 @@ fn a_commit_between_that_shifts_the_lines_still_applies() -> Result<()> {
       parent_tree: tree_of(new_a),
       tree: tree_of(new_x),
     },
+    resolved: None,
   };
   assert_eq!(git(&repo, &["notes", "show", new_x]), expected_note.content());
   assert_no_temp_refs(&repo)

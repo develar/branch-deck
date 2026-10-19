@@ -2,11 +2,13 @@
 //! copy of the same trees on the same parent, else a cherry-pick written in the branch's `CommitChain`; and the commits
 //! of the existing virtual branches from one `git log`.
 
+use crate::cherry_pick::PickedTree;
 use crate::commit_chain::{ChainCommit, CommitChain};
 use crate::commit_list::Commit;
-use crate::model::{BranchError, BranchSyncStatus, CommitSyncStatus};
-use crate::notes::{MappingNote, NoteSource};
+use crate::model::{BranchError, BranchSyncStatus, CommitSyncStatus, WordResolutionSummary};
+use crate::notes::{MappingNote, NoteResolution, NoteSource};
 use crate::tree_id_cache::TreeIdCache;
+use crate::word_resolve::{RESOLVE_VERSION, ResolveMode, Resolved, note_resolution};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::cell::RefCell;
@@ -121,13 +123,17 @@ pub struct CreateCommitParams<'a> {
   /// The copy an earlier sync wrote of this commit onto `new_parent_oid`, which it remembers for a branch that
   /// conflicts after it (`sync_core::conflict_chain`): taken without a merge and without a write
   pub remembered: Option<RememberedCopy<'a>>,
+  /// Whether a conflict of git resolves by words (`branchdeck.resolveByWords`); off, a copy whose note records a
+  /// resolve is stale
+  pub resolve: ResolveMode,
 }
 
-/// A copy of a commit an earlier sync wrote, and its tree
+/// A copy of a commit an earlier sync wrote, its tree, and the resolve by words it took
 #[derive(Debug, Clone, Copy)]
 pub struct RememberedCopy<'a> {
   pub id: &'a str,
   pub tree: &'a str,
+  pub resolved: Option<NoteResolution>,
 }
 
 /// Result of copying one commit onto the virtual branch
@@ -137,6 +143,9 @@ pub struct CopiedCommit {
   pub status: CommitSyncStatus,
   /// The mapping note to record: for a created commit, and for a reused one whose note had no source yet
   pub note: Option<MappingNote>,
+  /// The conflict of git that the copy resolved by words: with its files when the copy was written now, the counts of
+  /// its mapping note when it was reused
+  pub resolved: Option<WordResolutionSummary>,
 }
 
 /// The message of the copy: the subject without the grouping prefix, then the body
@@ -173,6 +182,7 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     verify_notes,
     committer_timestamp,
     remembered,
+    resolve,
   } = params;
 
   // the commit list read the tree with the commit
@@ -196,28 +206,39 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
     debug!(commit_id = %commit.id, copy = copy.id, "taking the copy the sync remembers");
     // the next commit of the branch is copied onto this one
     tree_id_cache.insert(copy.id, copy.tree);
-    return Ok(copied(commit, copy.id.to_string(), new_parent_oid, existing_virtual_commits, source));
+    let resolved = copy.resolved.map(|resolved| summary_of_note(&resolved));
+    return Ok(copied(commit, copy.id.to_string(), new_parent_oid, existing_virtual_commits, source, resolved));
   }
   let commit_message = virtual_message(commit);
 
   // the tree of the copy: the original's tree on the same parent tree, else a 3-way merge with conflict handling
-  let copied_tree = || -> Result<String, CopyCommitError> {
+  let copied_tree = || -> Result<PickedTree, CopyCommitError> {
     let new_parent_tree_id = tree_id_cache.get_tree_id(git_executor, repo_path, new_parent_oid)?;
     if original_parent_tree_id == new_parent_tree_id {
       debug!(commit_id = %commit.id, "parent tree matches, reusing original commit tree");
-      return Ok(original_tree_id.clone());
+      return Ok(PickedTree::clean(original_tree_id.clone()));
     }
     debug!(commit_id = %commit.id, "parent tree differs, performing merge");
     let parent_id = commit
       .parent_id
       .as_deref()
       .ok_or_else(|| CopyCommitError::Other(anyhow!("Cannot cherry-pick root commit {}: it has no parent", commit.id)))?;
-    perform_fast_cherry_pick_with_context(git_executor, repo_path, &commit.id, parent_id, new_parent_oid, on_status, tree_id_cache, Some(chain))
+    perform_fast_cherry_pick_with_context(
+      git_executor,
+      repo_path,
+      &commit.id,
+      parent_id,
+      new_parent_oid,
+      on_status,
+      tree_id_cache,
+      Some(chain),
+      resolve,
+    )
   };
 
   // the commit the note maps to is reused while it is still in the virtual branch, on the same parent, and is still a
   // copy of this commit: a note copied onto another commit (`git notes copy`, `notes.rewriteRef`) names another source
-  let mut tree_id = None;
+  let mut picked = None;
   if reuse_if_possible
     && let Some(mapped_id) = &commit.mapped_commit_id
     && let Some(virtual_commit) = existing_virtual_commits.and_then(|commits| commits.get(mapped_id))
@@ -230,11 +251,15 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
         hash: mapped_id.clone(),
         status: CommitSyncStatus::Unchanged,
         note,
+        resolved: commit.mapped_resolution.as_ref().map(summary_of_note),
       }
     };
     match &commit.mapped_source {
       _ if !same_metadata(virtual_commit, commit, &commit_message) => {
         warn!(original_id = %commit.id, mapped_id = %mapped_id, "mapping note is stale: the message or the author changed since the commit was copied");
+      }
+      _ if resolve == ResolveMode::Off && commit.mapped_resolution.is_some() => {
+        debug!(original_id = %commit.id, mapped_id = %mapped_id, "the copy resolved a conflict by words, which the setting turns off");
       }
       Some(recorded) if *recorded != source => {
         warn!(original_id = %commit.id, mapped_id = %mapped_id, "mapping note is stale: the commit changed since it was copied");
@@ -243,30 +268,38 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
         debug!(original_id = %commit.id, mapped_id = %mapped_id, "reusing existing commit from git note");
         return Ok(reused(None));
       }
+      Some(recorded) if *recorded == source && commit.mapped_resolution.is_some_and(|resolved| resolved.version != RESOLVE_VERSION) => {
+        // another resolve may resolve otherwise: the copy holds while its inputs do, and changes only with them
+        debug!(original_id = %commit.id, mapped_id = %mapped_id, "reusing a copy that another resolve by words wrote");
+        return Ok(reused(None));
+      }
       recorded => {
         // a note without a source, or one not trusted: the mapped commit must have the tree a copy would get
-        let tree = copied_tree()?;
-        if tree == virtual_commit.tree {
+        let copy = copied_tree()?;
+        if copy.tree == virtual_commit.tree {
           debug!(original_id = %commit.id, mapped_id = %mapped_id, "the mapped commit is a copy of this commit");
-          let note = (recorded.as_ref() != Some(&source)).then(|| MappingNote {
+          let resolved = copy.resolved.as_ref().map(Resolved::summary);
+          let note = (recorded.as_ref() != Some(&source) || resolved.as_ref().map(note_resolution) != commit.mapped_resolution).then(|| MappingNote {
             original: commit.id.clone(),
             mapped: mapped_id.clone(),
             source: source.clone(),
+            resolved: resolved.as_ref().map(note_resolution),
           });
-          return Ok(reused(note));
+          return Ok(CopiedCommit { resolved, ..reused(note) });
         }
         warn!(original_id = %commit.id, mapped_id = %mapped_id, "mapping note is stale: the mapped commit has another tree");
-        tree_id = Some(tree);
+        picked = Some(copy);
       }
     }
   } else if reuse_if_possible && let Some(mapped_id) = &commit.mapped_commit_id {
     debug!(original_id = %commit.id, mapped_id = %mapped_id, "mapped commit is gone or has another parent, will re-copy");
   }
 
-  let tree_id = match tree_id {
-    Some(tree_id) => tree_id,
+  let picked = match picked {
+    Some(picked) => picked,
     None => copied_tree()?,
   };
+  let tree_id = picked.tree;
 
   // the author of the original with its timezone; the committer is branch-deck with the author's email
   let new_commit_hash = chain
@@ -283,17 +316,35 @@ pub fn create_or_update_commit(params: CreateCommitParams<'_>) -> Result<CopiedC
       committer_timestamp,
       committer_timezone: &commit.committer_timezone,
       message: &commit_message,
+      resolution: picked.resolved.as_ref().and_then(Resolved::to_write),
     })
     .map_err(|e| CopyCommitError::Other(anyhow!("Failed to create commit: {e}")))?;
   // the next commit of the branch is copied onto this one; its tree is known, so don't ask git for it
   tree_id_cache.insert(&new_commit_hash, &tree_id);
-  Ok(copied(commit, new_commit_hash, new_parent_oid, existing_virtual_commits, source))
+  let resolved = picked.resolved.as_ref().map(Resolved::summary);
+  Ok(copied(commit, new_commit_hash, new_parent_oid, existing_virtual_commits, source, resolved))
+}
+
+/// The resolve a mapping note records, without the files, which the note does not keep
+const fn summary_of_note(resolved: &NoteResolution) -> WordResolutionSummary {
+  WordResolutionSummary {
+    conflicts: resolved.conflicts,
+    file_count: resolved.files,
+    files: Vec::new(),
+  }
 }
 
 /// The copy `new_commit_hash` of `commit` onto `new_parent_oid`, written now or remembered: a re-copy that writes the
 /// commit the note maps to (the same input gives the same commit) keeps the branch as it is; the note is recorded for a
 /// created copy and for one whose note had another source
-fn copied(commit: &Commit, new_commit_hash: String, new_parent_oid: &str, existing_virtual_commits: Option<&HashMap<String, VirtualCommit>>, source: NoteSource) -> CopiedCommit {
+fn copied(
+  commit: &Commit,
+  new_commit_hash: String,
+  new_parent_oid: &str,
+  existing_virtual_commits: Option<&HashMap<String, VirtualCommit>>,
+  source: NoteSource,
+  resolved: Option<WordResolutionSummary>,
+) -> CopiedCommit {
   let status = if commit.mapped_commit_id.as_deref() == Some(new_commit_hash.as_str())
     && existing_virtual_commits.is_some_and(|commits| commits.get(&new_commit_hash).is_some_and(|existing| existing.parent == new_parent_oid))
   {
@@ -301,14 +352,17 @@ fn copied(commit: &Commit, new_commit_hash: String, new_parent_oid: &str, existi
   } else {
     CommitSyncStatus::Created
   };
-  let note = (status == CommitSyncStatus::Created || commit.mapped_source.as_ref() != Some(&source)).then(|| MappingNote {
+  let note_resolved = resolved.as_ref().map(note_resolution);
+  let note = (status == CommitSyncStatus::Created || commit.mapped_source.as_ref() != Some(&source) || commit.mapped_resolution != note_resolved).then(|| MappingNote {
     original: commit.id.clone(),
     mapped: new_commit_hash.clone(),
     source,
+    resolved: note_resolved,
   });
   CopiedCommit {
     hash: new_commit_hash,
     status,
     note,
+    resolved,
   }
 }

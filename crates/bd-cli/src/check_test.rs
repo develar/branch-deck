@@ -311,6 +311,8 @@ fn a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names() {
 #[test_log::test]
 fn a_move_hunk_fix_that_breaks_another_branch_is_not_offered() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  // the conflict after the move resolves by its words; without the resolve it stays a conflict of git
+  git(&repo, &["config", "branchdeck.resolveByWords", "false"]);
   let (removed_by, fixed_by) = dangling_reference_in_two_files(&repo);
   let host = std::fs::read_to_string(repo.path().join(ACP_HOST)).unwrap();
   write(&repo, ACP_HOST, host.replace("CONTROL_URL_ENV to url", "CONTROL_URL_ENV to url, \"mode\" to \"lane\""));

@@ -12,9 +12,10 @@
 //! commits stay on no ref (`reset` without `from` before `done`): the sync's ref transaction makes them reachable, as
 //! it did the commits of `commit-tree`.
 
-use crate::commit_writer::complete_line;
+use crate::commit_writer::{complete_line, quote_path};
 use crate::merge_memo::MergeOutcome;
 use crate::merge_tree_output::parse_batch_merge;
+use crate::word_resolve::WordResolution;
 use anyhow::{Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::interactive_command::InteractiveCommand;
@@ -44,6 +45,9 @@ pub struct ChainCommit<'a> {
   pub committer_timestamp: u32,
   pub committer_timezone: &'a str,
   pub message: &'a str,
+  /// The resolve by words whose `tree` is `tree` and does not exist yet (`word_resolve`): the commit writes the
+  /// resolved files onto the tree of the merge, and with them the trees that hold them
+  pub resolution: Option<&'a WordResolution>,
 }
 
 pub struct CommitChain {
@@ -99,8 +103,21 @@ impl CommitChain {
     let mut stream = Vec::with_capacity(256 + message.len());
     stream.extend_from_slice(format!("commit {WRITER_REF}\nmark :{mark}\nauthor {author}\ncommitter {committer}\ndata {}\n", message.len()).as_bytes());
     stream.extend_from_slice(&message);
+    // the tree of the merge, whose files with the markers the resolved files replace
+    let base_tree = commit.resolution.map_or(commit.tree, |resolution| resolution.merge_tree.as_str());
+    let resolved_files = commit.resolution.map_or(&[][..], |resolution| resolution.files.as_slice());
     // a tree at the empty path replaces the whole tree of the commit
-    stream.extend_from_slice(format!("\nfrom {from}\nM 040000 {} \"\"\n\nget-mark :{mark}\n", commit.tree).as_bytes());
+    stream.extend_from_slice(format!("\nfrom {from}\nM 040000 {base_tree} \"\"\n").as_bytes());
+    for file in resolved_files {
+      stream.extend_from_slice(format!("M {} inline {}\ndata {}\n", file.mode, quote_path(&file.path), file.content.len()).as_bytes());
+      stream.extend_from_slice(&file.content);
+      stream.push(b'\n');
+    }
+    stream.extend_from_slice(format!("\nget-mark :{mark}\n").as_bytes());
+    if commit.resolution.is_some() {
+      // the tree fast-import built must be the one the resolve computed, which the next merge of the chain reads
+      stream.extend_from_slice(format!("ls :{mark} \"\"\n").as_bytes());
+    }
 
     let writer = match &mut self.writer {
       Some(writer) => writer,
@@ -115,6 +132,20 @@ impl CommitChain {
     let id = writer.read_line(REPLY_TIMEOUT)?;
     if id.len() < 40 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
       bail!("fast-import answered {id:?} for a commit");
+    }
+    if commit.resolution.is_some() {
+      // `040000 tree <id>\t`
+      let listed = writer.read_line(REPLY_TIMEOUT)?;
+      if listed.split_whitespace().nth(2) != Some(commit.tree) {
+        bail!("fast-import built the tree {listed:?} for a resolve by words of the tree {}", commit.tree);
+      }
+      // the next merge of the chain, another process, reads the tree: the objects so far go to a pack it finds. The
+      // commands run in order, so the answer to `progress` comes once the pack is written
+      writer.send("checkpoint\nprogress checkpointed\n")?;
+      let progress = writer.read_line(REPLY_TIMEOUT)?;
+      if progress != "progress checkpointed" {
+        bail!("fast-import answered {progress:?} to a checkpoint");
+      }
     }
     self.marks.insert(id.clone(), mark);
     Ok(id)

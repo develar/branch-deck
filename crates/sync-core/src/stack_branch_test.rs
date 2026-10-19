@@ -4,6 +4,7 @@ use crate::stack_branch::{BuildResult, StackBranchPlan, StackBranchSync, StackBu
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::tree_id_cache::TreeIdCache;
+use git_ops::word_resolve::ResolveMode;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
 use sync_types::stack::{BlockReason, StackBranchConflict, StackBranchState, StackMemberBlock};
@@ -27,6 +28,7 @@ fn commit(index: usize, subject: &str, email: &str) -> Commit {
     note: None,
     mapped_commit_id: None,
     mapped_source: None,
+    mapped_resolution: None,
   }
 }
 
@@ -149,7 +151,7 @@ fn a_conflicting_build_names_the_commit_and_keeps_the_ref() {
   let git = GitCommandExecutor::new();
   let commits: Vec<Commit> = get_commit_list(&git, &path, &base).unwrap().into_iter().filter(|commit| commit.id == changed).collect();
 
-  let build = build_stack_branch(&git, &path, "test/stack/auth", &TreeIdCache::new(), &base, &commits).unwrap();
+  let build = build_stack_branch(&git, &path, "test/stack/auth", &TreeIdCache::new(), &base, &commits, ResolveMode::Off).unwrap();
 
   let conflict = StackBuild::Conflict {
     commit: changed.clone(),

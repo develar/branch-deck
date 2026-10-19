@@ -11,7 +11,7 @@ use crate::commit_utils::empty_tree;
 use crate::commit_writer::{EditedCommit, NewCommit, NewParent, RawCommit, TreeEdit, WrittenEdit, current_committer, discard_temp_refs, read_raw_commits, write_edited_commit};
 use crate::history::{History, HistoryCommit};
 use crate::merge_tree_output::parse_merge_tree_batch;
-use crate::notes::{MappingNote, NoteSource, mapped_commit_id, mapped_source, write_commits_with_mapping_notes};
+use crate::notes::{MappingNote, NoteSource, mapped_commit_id, mapped_resolution, mapped_source, write_commits_with_mapping_notes};
 use crate::ref_transaction::RefTransaction;
 use crate::revs::{checked_out_branch, short_id};
 use crate::rewrite_guard::HeadMoved;
@@ -424,6 +424,7 @@ fn rewrite(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHun
         original: commit.id.clone(),
         mapped: mapped.to_string(),
         source,
+        resolved: mapped_resolution(note),
       };
       notes.push((index, note.content()));
     }

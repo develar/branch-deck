@@ -7,6 +7,7 @@
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::Commit;
 use git_ops::merge_memo::CONFLICT_CHAIN_VERSION;
+use git_ops::notes::NoteResolution;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::ref_tips;
 use git_ops::word_resolve::ResolveMode;
@@ -31,11 +32,13 @@ pub(crate) fn conflict_ref(full_branch_name: &str) -> String {
   })
 }
 
-/// The commits of a branch before its conflict, in order, and their copies `(id, tree)`
+/// The commits of a branch before its conflict, in order, their copies `(id, tree)`, and the resolve by words each copy
+/// took, which its mapping note records
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ConflictChain {
   pub originals: Vec<String>,
   pub copies: Vec<(String, String)>,
+  pub resolutions: Vec<Option<NoteResolution>>,
 }
 
 impl ConflictChain {

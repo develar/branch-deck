@@ -19,5 +19,6 @@ pub(crate) fn commit(id: &str, message: &str) -> Commit {
     note: None,
     mapped_commit_id: None,
     mapped_source: None,
+    mapped_resolution: None,
   }
 }

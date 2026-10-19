@@ -961,7 +961,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     ))
   });
   let stack_branches = Arc::new(stack_branches);
-  let stack_builds = Arc::new(StackBuilds::new(object_cache.clone()));
+  let stack_builds = Arc::new(StackBuilds::new(object_cache.clone(), resolve));
   // the stack branches are built beside the virtual branches, from the same originals and trees
   let stack_building = build_stack_branches(
     git_executor.clone(),
@@ -991,6 +991,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       existing_tips,
       remote_statuses: context_statuses,
       conflict_chains: object_cache.is_enabled().then(|| ChainMemo::new(object_cache, resolve)),
+      resolve,
       conflict_tips,
       ancestor_keys: ancestor_keys(&branches, stacks.as_ref()),
       verify_mapping_notes,

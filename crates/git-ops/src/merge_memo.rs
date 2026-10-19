@@ -5,6 +5,7 @@
 use crate::merge_tree_output::BatchMerge;
 use crate::model::MergeConflictInfo;
 use object_cache::merge_result::MergeResult;
+use object_cache::word_resolution::WordResolutionResult;
 
 /// The version of a remembered `MergeConflictInfo`: bump it when the type or how `build_merge_conflict_info` computes it
 /// change, so no view of the old analysis is read
@@ -96,4 +97,10 @@ pub trait MergeMemo: Send + Sync {
     None
   }
   fn remember_conflict(&self, _commits: CherryCommits<'_>, _info: &MergeConflictInfo) {}
+  /// Whether the conflicting cherry-pick of `trees` resolved by words (`word_resolve`), when it is remembered: a
+  /// `Resolved` tree counts only while it exists
+  fn word_resolution(&self, _trees: &MergeTrees) -> Option<WordResolutionResult> {
+    None
+  }
+  fn remember_word_resolution(&self, _trees: &MergeTrees, _result: &WordResolutionResult) {}
 }

@@ -40,6 +40,30 @@ pub enum CommitSyncStatus {
   Blocked,
 }
 
+/// A copy whose cherry-pick conflicted in git and resolved by words (`word_resolve`): what its mapping note records and
+/// the commit row says ("Resolved 3 conflicts by words")
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(Type))]
+#[serde(rename_all = "camelCase")]
+pub struct WordResolutionSummary {
+  /// The conflicts of git that the words resolved: the `<<<<<<<` lines git would have left
+  pub conflicts: u32,
+  /// The resolved files
+  pub file_count: u32,
+  /// The resolved files with their conflicts, in git's order; empty for a copy reused by its mapping note, which records
+  /// the counts only. The conflict view merges the commit again for them (`get_file_merges`)
+  pub files: Vec<ResolvedFileSummary>,
+}
+
+/// A file of `WordResolutionSummary`
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedFileSummary {
+  pub path: String,
+  pub conflicts: u32,
+}
+
 /// A conflicting file of a cherry-pick, as a conflict is reported: what the view lists before it reads the contents
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(Type))]

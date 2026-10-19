@@ -1,6 +1,6 @@
 use crate::issue_navigation::IssueNavigationConfig;
 use git_ops::commit_list::Commit;
-use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus};
+use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus, WordResolutionSummary};
 use git_ops::update_branch::UpdateCheck;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -100,6 +100,9 @@ pub enum SyncEvent {
     commit_hash: String,
     new_hash: String,
     status: CommitSyncStatus,
+    /// The conflict of git that the copy resolved by words (`branchdeck.resolveByWords`); null for a copy without one
+    #[cfg_attr(feature = "specta", specta(optional))]
+    resolved: Option<WordResolutionSummary>,
   },
   /// Sent when a commit fails to cherry-pick
   #[serde(rename_all = "camelCase")]

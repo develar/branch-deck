@@ -23,6 +23,7 @@ fn create_test_commit(id: &str, subject: &str) -> Commit {
     note: None,
     mapped_commit_id: None,
     mapped_source: None,
+    mapped_resolution: None,
   }
 }
 

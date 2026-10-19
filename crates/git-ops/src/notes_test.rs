@@ -18,6 +18,7 @@ fn mapping_notes(pairs: &[(String, String)]) -> Vec<MappingNote> {
         parent_tree: PARENT_TREE.to_string(),
         tree: TREE.to_string(),
       },
+      resolved: None,
     })
     .collect()
 }

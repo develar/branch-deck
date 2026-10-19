@@ -7,7 +7,7 @@ use crate::commit_utils::{find_commit, get_commits_info};
 use crate::conflict_analysis::{ConflictAnalysis, find_divergence, get_files_content_at_revisions, list_missing_commits};
 use crate::copy_commit::CopyCommitError;
 use crate::merge_memo::CherryCommits;
-use crate::merge_tree_output::parse_merge_tree_output;
+use crate::merge_tree_output::{MergeTreeOutput, parse_merge_tree_output};
 use crate::model::{ConflictCommit, ConflictFile, MergeConflictInfo};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -119,8 +119,9 @@ pub(crate) fn build_complete_conflict_info(ctx: ConflictContext<'_>) -> Result<(
 }
 
 /// The cherry-pick of `commits` by one `merge-tree --write-tree` with the commits, its markers in the `zdiff3` style
-/// (the base included): the merged tree and the unique conflicted paths, none for a clean merge
-pub(crate) fn merge_with_markers(git_executor: &GitCommandExecutor, repo_path: &str, commits: CherryCommits<'_>) -> Result<(String, Vec<PathBuf>), CopyCommitError> {
+/// (the base included): the merged tree, the stages of the conflicted paths (none for a clean merge) and the messages,
+/// which the resolve by words reads
+pub(crate) fn merge_with_markers(git_executor: &GitCommandExecutor, repo_path: &str, commits: CherryCommits<'_>) -> Result<MergeTreeOutput, CopyCommitError> {
   let args = [
     "-c",
     "merge.conflictStyle=zdiff3",
@@ -140,13 +141,16 @@ pub(crate) fn merge_with_markers(git_executor: &GitCommandExecutor, repo_path: &
     .bytes()
     .map_err(|e| CopyCommitError::Other(anyhow!("Failed to execute git merge-tree: {e}")))?;
   debug!(output_length = output.len(), "git merge-tree completed");
-  let merge = parse_merge_tree_output(&output).map_err(CopyCommitError::Other)?;
-  let conflict_files = merge
+  parse_merge_tree_output(&output).map_err(CopyCommitError::Other)
+}
+
+/// The unique conflicted paths of a merge, a path that is not UTF-8 with U+FFFD for its bytes that are not
+pub(crate) fn conflict_files(merge: &MergeTreeOutput) -> Vec<PathBuf> {
+  merge
     .conflicted_paths()
     .into_iter()
     .map(|path| PathBuf::from(String::from_utf8_lossy(path).into_owned()))
-    .collect();
-  Ok((merge.tree, conflict_files))
+    .collect()
 }
 
 /// How many conflicts a merged file has: its `<<<<<<<` marker lines, exactly 7 characters, alone or before a space

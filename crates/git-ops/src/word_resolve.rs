@@ -21,6 +21,8 @@ use crate::commit_files::MAX_BLOB_BYTES;
 use crate::commit_utils::{blob_id, object_id_of};
 use crate::merge_conflict::count_conflicts;
 use crate::merge_tree_output::MergeTreeOutput;
+use crate::model::{ResolvedFileSummary, WordResolutionSummary};
+use crate::notes::NoteResolution;
 use crate::object_texts::is_binary;
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -62,6 +64,8 @@ impl ResolveMode {
 pub struct WordResolution {
   /// The tree of the merge with the resolved files; its trees and blobs exist only once the commit is written
   pub tree: String,
+  /// The tree of the merge with the markers, which `tree` changes
+  pub merge_tree: String,
   /// The resolved files, in git's order
   pub files: Vec<ResolvedFile>,
 }
@@ -70,6 +74,60 @@ impl WordResolution {
   /// The conflicts of git that the words resolved, in all files
   pub fn conflicts(&self) -> u32 {
     self.files.iter().map(|file| file.conflicts).sum()
+  }
+}
+
+/// How the conflict of git of a cherry-pick resolved by words
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Resolved {
+  /// Resolved now: the commit writes the files with the tree, which does not exist yet
+  Now(WordResolution),
+  /// Remembered (`word_resolution` of the object cache), with a tree that exists: each file with the conflicts of git
+  Remembered { files: Vec<(String, u32)> },
+}
+
+impl Resolved {
+  /// The resolution whose files and trees the commit writes: none for a remembered one, whose tree exists
+  pub const fn to_write(&self) -> Option<&WordResolution> {
+    match self {
+      Self::Now(resolution) => Some(resolution),
+      Self::Remembered { .. } => None,
+    }
+  }
+
+  /// What the commit row and the mapping note say of it
+  pub fn summary(&self) -> WordResolutionSummary {
+    let files: Vec<ResolvedFileSummary> = match self {
+      Self::Now(resolution) => resolution
+        .files
+        .iter()
+        .map(|file| ResolvedFileSummary {
+          path: file.path.clone(),
+          conflicts: file.conflicts,
+        })
+        .collect(),
+      Self::Remembered { files } => files
+        .iter()
+        .map(|(path, conflicts)| ResolvedFileSummary {
+          path: path.clone(),
+          conflicts: *conflicts,
+        })
+        .collect(),
+    };
+    WordResolutionSummary {
+      conflicts: files.iter().map(|file| file.conflicts).sum(),
+      file_count: u32::try_from(files.len()).unwrap_or(u32::MAX),
+      files,
+    }
+  }
+}
+
+/// The line of the mapping note of a copy that took `summary`
+pub const fn note_resolution(summary: &WordResolutionSummary) -> NoteResolution {
+  NoteResolution {
+    version: RESOLVE_VERSION,
+    conflicts: summary.conflicts,
+    files: summary.file_count,
   }
 }
 
@@ -200,7 +258,11 @@ pub fn resolve_by_words(git: &GitCommandExecutor, repository_path: &str, merge: 
     })
     .collect::<Result<_>>()?;
   let tree = tree_with(&merge.tree, &trees, &files)?;
-  Ok(WordResolveOutcome::Resolved(WordResolution { tree, files }))
+  Ok(WordResolveOutcome::Resolved(WordResolution {
+    tree,
+    merge_tree: merge.tree.clone(),
+    files,
+  }))
 }
 
 fn not_resolved(path: &str, reason: NotResolved) -> WordResolveOutcome {

@@ -4,13 +4,18 @@
 
 use crate::commit_writer::{NewCommit, NotesOfWritten, StoreCommit, WrittenCommits, write_commits_with_notes, write_notes_to_refs};
 use git_executor::git_command_executor::GitCommandExecutor;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use tracing::instrument;
 
 pub const PREFIX: &str = "v-commit-v1:";
 /// The line of a mapping note that names what the virtual commit was copied from: `<parent tree> <tree>` of the
 /// original. A note copied onto a commit with other trees (`git notes copy`, `notes.rewriteRef`) no longer matches it.
 pub const SOURCE_PREFIX: &str = "v-commit-source-v1:";
+/// The line of a mapping note whose virtual commit resolved a conflict of git by words (`word_resolve`):
+/// `<resolve version> <conflicts> <files>`
+pub const RESOLVED_PREFIX: &str = "v-commit-resolved-v1:";
 
 /// The trees a virtual commit was copied from: the original's parent tree and its tree
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,18 +24,32 @@ pub struct NoteSource {
   pub tree: String,
 }
 
-/// A mapping note to write: `original` is copied as `mapped` from `source`
+/// The resolve by words that a virtual commit took (`RESOLVED_PREFIX`): the version of the resolve, the conflicts of
+/// git it resolved and in how many files
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NoteResolution {
+  pub version: u32,
+  pub conflicts: u32,
+  pub files: u32,
+}
+
+/// A mapping note to write: `original` is copied as `mapped` from `source`, with the resolve by words it took
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MappingNote {
   pub original: String,
   pub mapped: String,
   pub source: NoteSource,
+  pub resolved: Option<NoteResolution>,
 }
 
 impl MappingNote {
-  /// The note text: the mapping line, then the source line (old binaries read only the first)
+  /// The note text: the mapping line, then the source line (old binaries read only the first), then the resolve line
   pub fn content(&self) -> String {
-    format!("{PREFIX}{}\n{SOURCE_PREFIX}{} {}", self.mapped, self.source.parent_tree, self.source.tree)
+    let mut content = format!("{PREFIX}{}\n{SOURCE_PREFIX}{} {}", self.mapped, self.source.parent_tree, self.source.tree);
+    if let Some(resolved) = self.resolved {
+      let _ = write!(content, "\n{RESOLVED_PREFIX}{} {} {}", resolved.version, resolved.conflicts, resolved.files);
+    }
+    content
   }
 }
 
@@ -49,12 +68,23 @@ pub fn mapped_source(note: &str) -> Option<NoteSource> {
   })
 }
 
+/// The resolve by words a mapping note records (`{RESOLVED_PREFIX}<version> <conflicts> <files>`); `None` for a copy
+/// that resolved nothing, or a line this binary cannot read
+pub fn mapped_resolution(note: &str) -> Option<NoteResolution> {
+  let line = note.lines().find_map(|line| line.trim().strip_prefix(RESOLVED_PREFIX))?;
+  let mut numbers = line.split_whitespace().map(str::parse::<u32>);
+  match (numbers.next(), numbers.next(), numbers.next()) {
+    (Some(Ok(version)), Some(Ok(conflicts)), Some(Ok(files))) => Some(NoteResolution { version, conflicts, files }),
+    _ => None,
+  }
+}
+
 /// The mapping lines of a note, to copy them onto a rewritten commit without the lines of other notes
 pub fn mapping_lines(note: &str) -> Option<String> {
   let lines: Vec<&str> = note
     .lines()
     .map(str::trim)
-    .filter(|line| line.starts_with(PREFIX) || line.starts_with(SOURCE_PREFIX))
+    .filter(|line| line.starts_with(PREFIX) || line.starts_with(SOURCE_PREFIX) || line.starts_with(RESOLVED_PREFIX))
     .collect();
   lines.iter().any(|line| line.starts_with(PREFIX)).then(|| lines.join("\n"))
 }

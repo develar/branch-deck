@@ -45,6 +45,7 @@ fn commit<'a>(tree: &'a str, parent: &'a str, message: &'a str) -> ChainCommit<'
     committer_timestamp: 1_700_000_100,
     committer_timezone: "-0130",
     message,
+    resolution: None,
   }
 }
 

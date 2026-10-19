@@ -572,7 +572,9 @@ The steps, a fixed number of processes whatever the range (`crates/git-ops/src/m
    only in the path, so every other path keeps the commit's version, and the path gets Δ applied to the commit's own
    version of it: a commit that only shifts the lines takes it, one that changes the same lines, or lacks the file,
    conflicts (`hunk_conflict`, naming the commit and the path, nothing written but objects). Without renames, a file
-   that doesn't exist in a commit is a conflict, not a guess.
+   that doesn't exist in a commit is a conflict, not a guess. A conflict here is never resolved by words (see "Resolve
+   by words"): HEAD's tree is the same by construction, so a conflict says that the move splits a change of the
+   user's own commits wrongly, which a resolve would hide.
 5. Checks in memory: no commit of the range or the one above it becomes empty (moving all of `from`'s only change
    is "squash it instead"), and the last tree is HEAD's.
 6. One `diff-tree --stdin -p -U0 -- <path>` of the old and the new tree pair of each commit between the two, one
@@ -1076,7 +1078,8 @@ branches and the tips from the report (`SyncOutput::report`), so a command that 
 `bd safe-push`) need not read them again.
 
 1. Each group's commits are copied onto the baseline one after another. A commit whose parent tree did not change
-   reuses its tree. Otherwise it is merged, and a conflict produces the conflict view.
+   reuses its tree. Otherwise it is merged, and a conflict resolves by words (see "Resolve by words") or produces the
+   conflict view.
 2. **One merge and one commit process per branch** (`crates/git-ops/src/commit_chain.rs`). A cherry-pick needs only
    trees: the commit's parent tree, the commit's tree and the tree of the copy below it. So the merges of a branch go
    to one `merge-tree --write-tree --stdin -z --no-messages`, a line `<base tree> -- <target tree> <commit tree>` per
@@ -1187,6 +1190,28 @@ cherry-pick stays the conflict of git.
 - **`RESOLVE_VERSION`** names the way of the resolve: bump it when the merge, the resolve or the composition can give
   another result.
 
+In the sync (`perform_fast_cherry_pick_with_context`, `crates/git-ops/src/cherry_pick.rs`), with
+`branchdeck.resolveByWords` on (the default; `ResolveMode` of `ConfigSnapshot::resolve_mode`):
+
+- **Where.** A conflict of the chain's `merge-tree --stdin` is merged again with the commits and its messages
+  (`merge_with_markers`, as before). The resolve runs on that output, before the analysis; a resolved commit has no
+  analysis (four processes fewer) and costs one `check-attr` and one `cat-file`. One that does not resolve goes on to
+  the analysis as before.
+- **The commit.** The author, the committer, the date and the message are those of any copy; only the tree differs.
+  The chain's `fast-import` writes the resolved files inline onto the tree of the merge (`M <mode> inline <path>`),
+  answers the tree it built (`ls :<mark> ""`), which must be the computed one, and makes it readable for the next merge
+  of the chain with a `checkpoint`, whose end a `progress` line answers. The commits above it merge onto it as onto
+  any copy.
+- **What is told.** `CommitSynced.resolved` (`WordResolutionSummary`): the conflicts of git and the files, each with
+  its conflicts; a copy reused by its note has the counts only. The mapping note keeps the counts (see "Virtual commit
+  reuse"); the commit message says nothing of it.
+- **The same verdict everywhere.** The trial builds of `bd check`, of the conflict fix and of the stack branches build
+  through the same cherry-pick. The memo of a check remembers each resolve (`word_resolution`), a resolved tree only
+  while it exists, as a clean merge. The keys of the conflict views, of the chains of a conflicting branch and of the
+  stack builds hold the resolve mode, and the chain keeps the resolve of each copy for its note.
+- **The same commit on every machine.** No deadline, the size limits, the committer date of the inputs: the same
+  originals on the same base give the same copy.
+
 #### Stack branch
 
 With stacked branches on, a stack that forks (a branch of it has two children or more) also builds as one more virtual
@@ -1276,6 +1301,12 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
   commit's, makes the note stale, and the commit is copied again (`warn!` "mapping note is stale"). The trees come from
   the commit list (`%T` of every commit ahead of the baseline seeds the tree cache) and the listing of the branch, so
   the check runs no git.
+- **A resolve by words is in the note.** A copy whose conflict of git resolved by words has a third line,
+  `v-commit-resolved-v1:<resolve version> <conflicts> <files>` (`mapped_resolution`); the reuse gives the commit row
+  its counts, and `mapping_lines` copies it with the other two. With `branchdeck.resolveByWords` off, such a note is
+  stale, so the commit is copied again and gets the conflict of git. A note of another resolve version is taken as it
+  is while its source holds, also with `verify_mapping_notes`: the copy changes only with its inputs, not with an
+  upgrade of the engine.
 - **Older notes are checked by the tree.** A note without the source line, written before it, or any note with
   `SyncOptions::verify_mapping_notes` (`bd --no-cache`), is checked against the copy itself: the copy's tree must be
   the tree a copy would get (the original's tree on the same parent tree, else the merge the copy runs). A match keeps

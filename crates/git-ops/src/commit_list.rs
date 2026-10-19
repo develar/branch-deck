@@ -2,7 +2,7 @@
 //! `git log` streams (`COMMIT_RECORD_FORMAT`): what a sync and every read of the grouping start from.
 
 use crate::commit_utils::COMMIT_RECORD_FORMAT;
-use crate::notes::NoteSource;
+use crate::notes::{NoteResolution, NoteSource};
 use crate::revs::current_branch;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -48,6 +48,9 @@ pub struct Commit {
   /// The trees the virtual commit of `mapped_commit_id` was copied from (`notes::SOURCE_PREFIX`); `None` for an older note
   #[serde(skip)]
   pub mapped_source: Option<NoteSource>,
+  /// The resolve by words the virtual commit of `mapped_commit_id` took (`notes::RESOLVED_PREFIX`)
+  #[serde(skip)]
+  pub mapped_resolution: Option<NoteResolution>,
 }
 
 /// Collects the commits ahead of `baseline_branch` into a Vec (prefer `get_commit_list_with_handler` for large ranges)
@@ -178,6 +181,7 @@ pub fn parse_single_commit(record: &str) -> Result<Commit> {
   let note = note_field.map(str::trim).filter(|note| !note.is_empty());
   let mapped_commit_id = note.and_then(crate::notes::mapped_commit_id).map(str::to_string);
   let mapped_source = note.and_then(crate::notes::mapped_source);
+  let mapped_resolution = note.and_then(crate::notes::mapped_resolution);
   let note = note.map(str::to_string);
 
   Ok(Commit {
@@ -196,6 +200,7 @@ pub fn parse_single_commit(record: &str) -> Result<Commit> {
     note,
     mapped_commit_id,
     mapped_source,
+    mapped_resolution,
   })
 }
 

@@ -320,7 +320,7 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
     .collect();
   // the stack branches as they stand, without a sync (no git): the whole stack of a stack that forks
   let stacks = if has_row {
-    read_stack_branches(&context.prefix, &grouping, &context.cache())
+    read_stack_branches(&context.prefix, &grouping, &context.cache(), context.config()?.resolve_mode()?)
   } else {
     Vec::new()
   };

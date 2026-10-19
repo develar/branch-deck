@@ -10,6 +10,7 @@ use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::model::{BranchError, BranchSyncStatus, CommitSyncStatus};
 use git_ops::notes::write_commit_notes;
 use git_ops::tree_id_cache::TreeIdCache;
+use git_ops::word_resolve::ResolveMode;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -78,6 +79,7 @@ fn sync_context(test_repo: &TestRepo, progress: TestReporter) -> BranchSyncConte
     ancestor_keys: HashMap::new(),
     verify_mapping_notes: false,
     owners: CommitOwners::default(),
+    resolve: ResolveMode::On,
   }
 }
 

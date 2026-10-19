@@ -30,6 +30,7 @@ use git_ops::model::{BranchError, BranchSyncStatus};
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::short_id;
 use git_ops::tree_id_cache::TreeIdCache;
+use git_ops::word_resolve::ResolveMode;
 use indexmap::{IndexMap, IndexSet};
 use object_cache::cache::ObjectCache;
 use serde::{Deserialize, Serialize};
@@ -177,9 +178,10 @@ pub enum StackBuild {
   },
 }
 
-/// The key of a build: a hash of the base and the ids of the original commits in their order. A commit id covers its
-/// tree, its parent, its author, its committer and its message, everything its copy is made of
-pub fn build_key(base: &str, commits: &[Commit]) -> [u8; 32] {
+/// The key of a build: a hash of the base, the ids of the original commits in their order and the resolve mode. A
+/// commit id covers its tree, its parent, its author, its committer and its message, everything its copy is made of; the
+/// resolve by words decides whether a conflict of git stays one
+pub fn build_key(base: &str, commits: &[Commit], resolve: ResolveMode) -> [u8; 32] {
   let mut hasher = Sha256::new();
   hasher.update(b"stack_branch\0");
   hasher.update(base.as_bytes());
@@ -187,6 +189,7 @@ pub fn build_key(base: &str, commits: &[Commit]) -> [u8; 32] {
     hasher.update([0]);
     hasher.update(commit.id.as_bytes());
   }
+  hasher.update(resolve.key().to_be_bytes());
   hasher.finalize().into()
 }
 
@@ -199,15 +202,21 @@ fn remembered() -> std::sync::MutexGuard<'static, HashMap<[u8; 32], StackBuild>>
 }
 
 /// The builds of stack branches one operation knows: from the memory of the process, else from the object cache; the
-/// new ones go to both, to the object cache in one write when the memo is dropped
+/// new ones go to both, to the object cache in one write when the memo is dropped. The builds are those of one resolve
+/// mode, which their keys hold
 pub struct StackBuilds {
   cache: ObjectCache,
+  resolve: ResolveMode,
   pending: Mutex<Vec<([u8; 32], StackBuild)>>,
 }
 
 impl StackBuilds {
-  pub fn new(cache: ObjectCache) -> Self {
-    Self { cache, pending: Mutex::default() }
+  pub fn new(cache: ObjectCache, resolve: ResolveMode) -> Self {
+    Self {
+      cache,
+      resolve,
+      pending: Mutex::default(),
+    }
   }
 
   /// The build of `key`, when one is remembered
@@ -260,6 +269,7 @@ pub fn build_stack_branch(
   tree_id_cache: &TreeIdCache,
   base: &str,
   commits: &[Commit],
+  resolve: ResolveMode,
 ) -> Result<StackBuild> {
   let tree_id_cache = tree_id_cache.with_other_memo(Arc::new(LightConflicts));
   let chain = RefCell::new(CommitChain::new(git_executor, repository_path));
@@ -290,6 +300,7 @@ pub fn build_stack_branch(
       committer_timestamp,
       // a stack branch remembers its whole build (`StackBuilds`), not the copies before a conflict
       remembered: None,
+      resolve,
     });
     match copied {
       // its mapping note names the copy of its own branch
@@ -408,7 +419,7 @@ pub(crate) fn build_planned(
   if plan.blocked_by.is_some() {
     return None;
   }
-  let key = build_key(base, &plan.commits);
+  let key = build_key(base, &plan.commits, builds.resolve);
   match builds.get(&key) {
     Some(StackBuild::Built { tip }) if listed_tip != Some(tip.as_str()) => {
       debug!(stack = %plan.full_name, "the remembered build is not where the ref is, building it again");
@@ -420,7 +431,7 @@ pub(crate) fn build_planned(
     None => {}
   }
   Some(
-    match build_stack_branch(git_executor, repository_path, &plan.full_name, tree_id_cache, base, &plan.commits) {
+    match build_stack_branch(git_executor, repository_path, &plan.full_name, tree_id_cache, base, &plan.commits, builds.resolve) {
       Ok(build) => {
         builds.remember(key, &build);
         BuildResult::Built(build)
@@ -592,7 +603,7 @@ fn delete_obsolete(git_executor: &GitCommandExecutor, repository_path: &str, obs
 /// statuses: a stack blocked by its placement is `Blocked`; else what the build of its commits gave when it is
 /// remembered (the memory of the process, `cache`) and the ref is at it; else `Stale`, the ref is not known to be the
 /// build of these commits (or there is none). No git
-pub fn read_stack_branches(branch_prefix: &str, grouping: &BranchGrouping, cache: &ObjectCache) -> Vec<StackBranchUpdate> {
+pub fn read_stack_branches(branch_prefix: &str, grouping: &BranchGrouping, cache: &ObjectCache, resolve: ResolveMode) -> Vec<StackBranchUpdate> {
   let (Some(forest), Some(placements), Some(base)) = (&grouping.forest, &grouping.placements, &grouping.base) else {
     return Vec::new();
   };
@@ -600,7 +611,7 @@ pub fn read_stack_branches(branch_prefix: &str, grouping: &BranchGrouping, cache
   let positions: HashMap<&str, usize> = grouping.commit_ids.iter().enumerate().map(|(index, id)| (id.as_str(), index)).collect();
   let plans = plan_stack_branches(branch_prefix, &forest.order, placements, &commits, &positions);
   let sync = StackBranchSync::new(plans, &grouping.listed, branch_prefix, &grouping.remote_tips);
-  let builds = StackBuilds::new(cache.clone());
+  let builds = StackBuilds::new(cache.clone(), resolve);
   let mut updates: Vec<StackBranchUpdate> = sync
     .plans
     .iter()
@@ -612,7 +623,7 @@ pub fn read_stack_branches(branch_prefix: &str, grouping: &BranchGrouping, cache
         update.blocked_by = Some(block.clone());
         return update;
       }
-      match builds.get(&build_key(base, &plan.commits)) {
+      match builds.get(&build_key(base, &plan.commits, resolve)) {
         Some(StackBuild::Built { tip }) if update.tip.as_ref() == Some(&tip) => update.state = StackBranchState::Built,
         Some(StackBuild::Conflict { commit, files }) => {
           update.state = StackBranchState::Conflict;

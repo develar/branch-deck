@@ -2289,6 +2289,12 @@ export type RequestedReviewers = {
 	refused: RefusedReviewer[],
 };
 
+/**  A file of `WordResolutionSummary` */
+export type ResolvedFileSummary = {
+	path: string,
+	conflicts: number,
+};
+
 export type RestackBranchParams = {
 	repositoryPath: string,
 	branchName: string,
@@ -3012,6 +3018,8 @@ export type SyncEvent =
 	commitHash: string,
 	newHash: string,
 	status: CommitSyncStatus,
+	/**  The conflict of git that the copy resolved by words (`branchdeck.resolveByWords`); null for a copy without one */
+	resolved?: WordResolutionSummary | null,
 } } | 
 /**  Sent when a commit fails to cherry-pick */
 { type: "commitError"; data: {
@@ -3332,6 +3340,22 @@ export type WhitespacePolicy =
  *  (`IGNORE_WHITESPACES_CHUNKS`)
  */
 "ignoreBlankLines";
+
+/**
+ *  A copy whose cherry-pick conflicted in git and resolved by words (`word_resolve`): what its mapping note records and
+ *  the commit row says ("Resolved 3 conflicts by words")
+ */
+export type WordResolutionSummary = {
+	/**  The conflicts of git that the words resolved: the `<<<<<<<` lines git would have left */
+	conflicts: number,
+	/**  The resolved files */
+	fileCount: number,
+	/**
+	 *  The resolved files with their conflicts, in git's order; empty for a copy reused by its mapping note, which records
+	 *  the counts only. The conflict view merges the commit again for them (`get_file_merges`)
+	 */
+	files: ResolvedFileSummary[],
+};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

@@ -1,21 +1,39 @@
 //! The cherry-pick of a commit onto a virtual branch as a tree, by `merge-tree --write-tree` in the branch's
-//! `CommitChain`, one process for the whole branch; a conflict is merged again on its own, with the commits, for its
-//! report.
+//! `CommitChain`, one process for the whole branch; a conflict is merged again on its own, with the commits, for the
+//! resolve by words and for its report.
 
 use crate::commit_chain::CommitChain;
 use crate::copy_commit::CopyCommitError;
-use crate::merge_conflict::{ConflictContext, build_complete_conflict_info, merge_with_markers};
+use crate::merge_conflict::{ConflictContext, build_complete_conflict_info, conflict_files, merge_with_markers};
 use crate::merge_memo::{CherryCommits, MergeMemo, MergeOutcome, MergeTrees};
 use crate::model::{BranchError, BranchSyncStatus, MergeConflictInfo};
 use crate::revs::is_object_id;
 use crate::tree_id_cache::TreeIdCache;
+use crate::word_resolve::{ResolveMode, Resolved, WordResolveOutcome, resolve_by_words};
 use git_executor::git_command_executor::GitCommandExecutor;
+use object_cache::word_resolution::WordResolutionResult;
 use std::cell::RefCell;
 use tracing::{debug, instrument};
 
+/// The tree of a cherry-pick, and the resolve by words of its conflict of git
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PickedTree {
+  pub tree: String,
+  /// The conflict of git that its words resolved (`word_resolve`): the files the commit writes with the tree
+  pub resolved: Option<Resolved>,
+}
+
+impl PickedTree {
+  /// A tree without a resolve: clean in git, or the commit's own tree
+  pub const fn clean(tree: String) -> Self {
+    Self { tree, resolved: None }
+  }
+}
+
 /// The tree of `cherry_commit_id` cherry-picked onto `target_commit_id` with `git merge-tree --write-tree`, without
 /// touching the working directory. With `chain`, the merge runs in the chain's `merge-tree --stdin` process of the
-/// branch; a conflict is merged again on its own, with the commits, for the conflict analysis
+/// branch; a conflict is merged again on its own, with the commits, for the resolve by words (with `resolve` on) and
+/// for the conflict analysis
 #[expect(clippy::too_many_arguments, reason = "the context of one cherry-pick of a sync")]
 #[instrument(skip(git_executor, on_status, tree_id_cache, chain), fields(cherry_id = %cherry_commit_id, target_id = %target_commit_id))]
 pub fn perform_fast_cherry_pick_with_context(
@@ -27,14 +45,15 @@ pub fn perform_fast_cherry_pick_with_context(
   on_status: &dyn Fn(BranchSyncStatus),
   tree_id_cache: &TreeIdCache,
   chain: Option<&RefCell<CommitChain>>,
-) -> Result<String, CopyCommitError> {
+  resolve: ResolveMode,
+) -> Result<PickedTree, CopyCommitError> {
   // Fast path: check if parent tree matches target tree
   let cherry_parent_tree_id = tree_id_cache.get_tree_id(git_executor, repo_path, cherry_parent_id)?;
   let target_tree_id = tree_id_cache.get_tree_id(git_executor, repo_path, target_commit_id)?;
 
   if cherry_parent_tree_id == target_tree_id {
     debug!("parent tree matches target tree, reusing commit tree");
-    return tree_id_cache.get_tree_id(git_executor, repo_path, cherry_commit_id);
+    return tree_id_cache.get_tree_id(git_executor, repo_path, cherry_commit_id).map(PickedTree::clean);
   }
 
   let memo = tree_id_cache.merge_memo();
@@ -65,11 +84,32 @@ pub fn perform_fast_cherry_pick_with_context(
     debug!("the conflict of these commits is remembered");
     return Err(CopyCommitError::BranchError(BranchError::MergeConflict(Box::new(info))));
   }
+  // a conflict of git: what the resolve by words remembers of it, a tree only while it exists
+  let remembered_resolve = |files: &[String]| -> Option<Result<PickedTree, CopyCommitError>> {
+    if resolve == ResolveMode::Off {
+      return None;
+    }
+    let (memo, trees) = (memo?, trees.as_ref()?);
+    match memo.word_resolution(trees)? {
+      WordResolutionResult::Resolved { tree, files } => Some(Ok(PickedTree {
+        tree,
+        resolved: Some(Resolved::Remembered { files }),
+      })),
+      WordResolutionResult::NotResolved => memo.light_conflicts().then(|| Err(light_conflict(files.to_vec()))),
+    }
+  };
   if let (Some(memo), Some(trees)) = (memo, &trees) {
     match memo.merge(trees) {
-      Some(MergeOutcome::Clean { tree }) => return Ok(tree),
-      Some(MergeOutcome::Conflict { files }) if memo.light_conflicts() => return Err(light_conflict(files)),
-      _ => {}
+      Some(MergeOutcome::Clean { tree }) => return Ok(PickedTree::clean(tree)),
+      Some(MergeOutcome::Conflict { files }) => {
+        if let Some(picked) = remembered_resolve(&files) {
+          return picked;
+        }
+        if memo.light_conflicts() && resolve == ResolveMode::Off {
+          return Err(light_conflict(files));
+        }
+      }
+      None => {}
     }
   }
 
@@ -79,10 +119,17 @@ pub fn perform_fast_cherry_pick_with_context(
       memo.remember_merge(trees, &merged);
     }
     match merged {
-      MergeOutcome::Clean { tree } => return Ok(tree),
-      MergeOutcome::Conflict { files } if memo.is_some_and(MergeMemo::light_conflicts) => return Err(light_conflict(files)),
-      // the analysis below reads the target commit, which may still be in the chain's writer
-      MergeOutcome::Conflict { .. } => chain.borrow_mut().flush()?,
+      MergeOutcome::Clean { tree } => return Ok(PickedTree::clean(tree)),
+      MergeOutcome::Conflict { files } => {
+        if let Some(picked) = remembered_resolve(&files) {
+          return picked;
+        }
+        if memo.is_some_and(MergeMemo::light_conflicts) && resolve == ResolveMode::Off {
+          return Err(light_conflict(files));
+        }
+        // the merge below and the analysis read the target commit, which may still be in the chain's writer
+        chain.borrow_mut().flush()?;
+      }
     }
   }
 
@@ -92,15 +139,36 @@ pub fn perform_fast_cherry_pick_with_context(
     cherry_commit = %cherry_commit_id,
     "running git merge-tree"
   );
-  let (tree_oid, conflict_files) = merge_with_markers(git_executor, repo_path, commits)?;
+  let merge = merge_with_markers(git_executor, repo_path, commits)?;
+  let conflict_files = conflict_files(&merge);
 
   if !conflict_files.is_empty() {
+    let files: Vec<String> = conflict_files.iter().map(|file| file.to_string_lossy().into_owned()).collect();
     if let (Some(memo), Some(trees)) = (memo, &trees) {
-      let files: Vec<String> = conflict_files.iter().map(|file| file.to_string_lossy().into_owned()).collect();
       memo.remember_merge(trees, &MergeOutcome::Conflict { files: files.clone() });
-      if memo.light_conflicts() {
-        return Err(light_conflict(files));
+    }
+    if resolve == ResolveMode::On {
+      let outcome = resolve_by_words(git_executor, repo_path, &merge).map_err(CopyCommitError::Other)?;
+      let remembered = match &outcome {
+        WordResolveOutcome::Resolved(resolution) => WordResolutionResult::Resolved {
+          tree: resolution.tree.clone(),
+          files: resolution.files.iter().map(|file| (file.path.clone(), file.conflicts)).collect(),
+        },
+        WordResolveOutcome::NotResolved { .. } => WordResolutionResult::NotResolved,
+      };
+      if let (Some(memo), Some(trees)) = (memo, &trees) {
+        memo.remember_word_resolution(trees, &remembered);
       }
+      if let WordResolveOutcome::Resolved(resolution) = outcome {
+        debug!(files = resolution.files.len(), conflicts = resolution.conflicts(), "the conflict of git resolves by words");
+        return Ok(PickedTree {
+          tree: resolution.tree.clone(),
+          resolved: Some(Resolved::Now(resolution)),
+        });
+      }
+    }
+    if memo.is_some_and(MergeMemo::light_conflicts) {
+      return Err(light_conflict(files));
     }
     // Conflict analysis takes a while; let the UI show it
     on_status(BranchSyncStatus::AnalyzingConflict);
@@ -109,7 +177,7 @@ pub fn perform_fast_cherry_pick_with_context(
       git_executor,
       repo_path,
       conflict_files: &conflict_files,
-      merge_tree_oid: &tree_oid,
+      merge_tree_oid: &merge.tree,
       parent_commit_id: cherry_parent_id,
       target_commit_id,
       cherry_commit_id,
@@ -122,7 +190,7 @@ pub fn perform_fast_cherry_pick_with_context(
 
   // No conflicts, return the merged tree ID
   if let (Some(memo), Some(trees)) = (memo, &trees) {
-    memo.remember_merge(trees, &MergeOutcome::Clean { tree: tree_oid.clone() });
+    memo.remember_merge(trees, &MergeOutcome::Clean { tree: merge.tree.clone() });
   }
-  Ok(tree_oid)
+  Ok(PickedTree::clean(merge.tree))
 }

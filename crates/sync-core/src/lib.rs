@@ -241,3 +241,5 @@ mod symbol_dependencies_test;
 
 #[cfg(test)]
 mod symbol_scan_test;
+#[cfg(test)]
+mod word_resolve_sync_test;

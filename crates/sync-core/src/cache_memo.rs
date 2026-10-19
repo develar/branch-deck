@@ -7,10 +7,11 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::interactive_command::InteractiveCommand;
 use git_ops::merge_memo::{CONFLICT_INFO_VERSION, CherryCommits, MergeMemo, MergeOutcome, MergeTrees};
 use git_ops::model::MergeConflictInfo;
-use git_ops::word_resolve::ResolveMode;
+use git_ops::word_resolve::{RESOLVE_VERSION, ResolveMode};
 use object_cache::cache::ObjectCache;
 use object_cache::conflict_info::ConflictKey;
 use object_cache::merge_result::{MergeKey, MergeResult};
+use object_cache::word_resolution::WordResolutionResult;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -46,6 +47,8 @@ struct PendingWrites {
   /// By key: a check asks for every merge before it runs it
   merges: HashMap<MergeKey, MergeResult>,
   trees: Vec<(String, String)>,
+  /// The resolves by words of the conflicts of git, by the trees of the merge
+  resolutions: HashMap<MergeKey, WordResolutionResult>,
 }
 
 impl CacheMemo {
@@ -93,9 +96,10 @@ impl CacheMemo {
 
   /// Write what the check learned; the lock is not held while LMDB writes
   pub(crate) fn flush(&self) {
-    let PendingWrites { merges, trees } = std::mem::take(&mut *self.pending());
+    let PendingWrites { merges, trees, resolutions } = std::mem::take(&mut *self.pending());
     self.cache.put_merge_results(&merges.into_iter().collect::<Vec<_>>());
     self.cache.put_commit_trees(&trees);
+    self.cache.put_word_resolutions(RESOLVE_VERSION, &resolutions.into_iter().collect::<Vec<_>>());
   }
 }
 
@@ -148,6 +152,26 @@ impl MergeMemo for CacheMemo {
 
   fn light_conflicts(&self) -> bool {
     true
+  }
+
+  /// A resolved tree remembered by an earlier check counts only while it exists, as a clean merge does
+  fn word_resolution(&self, trees: &MergeTrees) -> Option<WordResolutionResult> {
+    let key = merge_key(trees);
+    if let Some(result) = self.pending().resolutions.get(&key) {
+      return Some(result.clone());
+    }
+    let result = self.cache.get_word_resolutions(RESOLVE_VERSION, &[key]).pop().flatten()?;
+    if let WordResolutionResult::Resolved { tree, .. } = &result
+      && !self.tree_exists(tree)
+    {
+      debug!(tree, "a remembered resolve by words names a tree that is gone, resolving again");
+      return None;
+    }
+    Some(result)
+  }
+
+  fn remember_word_resolution(&self, trees: &MergeTrees, result: &WordResolutionResult) {
+    self.pending().resolutions.insert(merge_key(trees), result.clone());
   }
 }
 
