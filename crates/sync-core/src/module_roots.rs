@@ -6,7 +6,7 @@
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::object_texts::{TreeEntry, read_trees};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use tracing::instrument;
 
 /// The build files that make a directory the root of a JVM or Bazel module
@@ -30,6 +30,8 @@ struct DirFacts {
 pub struct ModuleRoots {
   /// Directory (`""` for the root, else without a trailing `/`) -> its facts; a directory HEAD lacks is absent
   dirs: HashMap<String, DirFacts>,
+  /// Every directory above the paths `read` was given, those HEAD lacks too (a module a commit deletes)
+  looked_up: HashSet<String>,
 }
 
 /// The directories above `path`, the nearest first, the root (`""`) last
@@ -45,6 +47,7 @@ impl ModuleRoots {
     let names: Vec<String> = dirs.iter().map(|dir| format!("HEAD:{dir}")).collect();
     let trees = read_trees(git, repository_path, &names)?;
     Ok(Self {
+      looked_up: dirs.iter().cloned().collect(),
       dirs: dirs.into_iter().zip(trees).filter_map(|(dir, entries)| Some((dir, facts_of(&entries?)))).collect(),
     })
   }
@@ -54,6 +57,7 @@ impl ModuleRoots {
   pub(crate) fn from_entries(entries: &[(&str, &[TreeEntry])]) -> Self {
     Self {
       dirs: entries.iter().map(|&(dir, entries)| (dir.to_string(), facts_of(entries))).collect(),
+      looked_up: entries.iter().map(|&(dir, _)| dir.to_string()).collect(),
     }
   }
 
@@ -73,11 +77,12 @@ impl ModuleRoots {
     self.nearest(path, |facts| facts.cargo.is_some())
   }
 
-  /// `crate_of` of a path whose directory `read` was given: `None` for a path in no crate, and for a path of a
-  /// directory not read (a path of the baseline after the base), whose crate is not known
+  /// `crate_of` of a path `read` was given: `None` for a path in no crate, and for a path of a directory not looked up (a
+  /// path of the baseline after the base), whose crate is not known. A path of a directory HEAD lacks (a module a
+  /// commit deletes) is in the crate of its nearest directory HEAD has
   pub fn read_crate_of(&self, path: &str) -> Option<&str> {
     let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
-    self.dirs.contains_key(dir).then(|| self.crate_of(path)).flatten()
+    self.looked_up.contains(dir).then(|| self.crate_of(path)).flatten()
   }
 
   /// The root of the TypeScript or JavaScript package of `path`: the nearest directory with a `package.json`

@@ -131,9 +131,10 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   `ModuleRoots::read_crate_of`, its name from `SymbolInput::crates`), the dangling-reference check must count a use of a
   removed `pub` Rust item in a file of another crate only through the item's crate: a path that starts with the crate's
   name or with a name a `use` of the crate binds, or a bare name where such a `use` names the item or a glob. A use in
-  the item's own crate must count as before. Where the crate is not known (`report`, `off`, a path of no `Cargo.toml`,
-  a path of the baseline after the base), every file of the language must be searched.
-  [@test] ../../crates/sync-core/src/dangling_references_test.rs (`a_free_call_in_another_crate_without_a_use_is_no_use`, `a_free_call_in_the_same_crate_is_a_use_with_removed_by_and_declared_in`)
+  the item's own crate must count as before. A file in a directory HEAD lacks (a module a commit deletes) must be in
+  the crate of its nearest directory HEAD has. Where the crate is not known (`report`, `off`, a path of no
+  `Cargo.toml`, a path of the baseline after the base), every file of the language must be searched.
+  [@test] ../../crates/sync-core/src/dangling_references_test.rs (`a_free_call_in_another_crate_without_a_use_is_no_use`, `a_free_call_in_the_same_crate_is_a_use_with_removed_by_and_declared_in`, `a_crate_item_of_a_deleted_module_is_not_searched_in_another_crate`)
 - A `pub(crate)`, `pub(super)` or `pub(in …)` Rust item must be searched in its own crate only (with the crates known),
   and a `pub(self)` one as a private one, in its own file.
   [@test] ../../crates/sync-core/src/dangling_references_test.rs (`a_pub_crate_function_is_not_searched_in_another_crate`)

@@ -609,3 +609,35 @@ fn a_call_on_an_expression_is_a_use_of_an_extension_only() {
   assert_eq!(found("off"), found_by(&[("controlUrl", "src/flow/Connect.kt"), ("shout", "src/flow/Start.kt")]));
   assert_eq!(found("on"), found_by(&[("shout", "src/flow/Start.kt")]));
 }
+
+/// The IntelliJ checkout, 2026-10-19: `(stage)` deletes the module `stage/` of `avl-guest` with its `pub(crate) fn
+/// collect`, so HEAD has no directory of the removed file; a test of `avl-vm` calls a `collect` of its own module
+/// (`record::collect`) and an iterator's `.collect()`, and a commit outside the branch changes the call. The crate of
+/// the removed file is still known, by its nearest directory HEAD has
+#[test]
+fn a_crate_item_of_a_deleted_module_is_not_searched_in_another_crate() {
+  let repo = TestRepo::new();
+  let gc = "crates/avl-guest/src/stage/gc.rs";
+  let tests = "crates/avl-vm/src/bench/tests.rs";
+  let uses = |call: &str| format!("fn run() {{\n  let run = {call};\n  let names: Vec<u32> = (0..2).collect();\n}}\n");
+  repo.create_commit_with_files(
+    "Initial commit",
+    &[
+      ("crates/avl-guest/Cargo.toml", "[package]\nname = \"avl-guest\"\n"),
+      ("crates/avl-guest/src/lib.rs", "mod stage;\n"),
+      (gc, "pub(crate) fn collect(root: &str) -> u32 {\n  1\n}\n"),
+      ("crates/avl-vm/Cargo.toml", "[package]\nname = \"avl-vm\"\n"),
+      (tests, &uses("record::collect(\"session\")")),
+    ],
+  );
+  repo.git(&["rm", "-q", "--", gc]);
+  repo.create_commit_with_files("(stage) The guest has no stage", &[("crates/avl-guest/src/lib.rs", "pub mod fs;\n")]);
+  repo.create_commit_with_files("(bench) Rank a plugin", &[(tests, &uses("record::read(\"session\")"))]);
+  for mode in ["on", "off"] {
+    repo.set_config("branchdeck.symbols", mode).unwrap();
+    let found: Vec<String> = check(&repo).dangling.get("stage").into_iter().flatten().map(|reference| reference.file.clone()).collect();
+    // with the symbols off the crates are not known, and `record::collect` is a call of the name
+    let expected: Vec<String> = if mode == "on" { Vec::new() } else { vec![tests.to_string()] };
+    assert_eq!(found, expected, "branchdeck.symbols {mode}");
+  }
+}

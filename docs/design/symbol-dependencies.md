@@ -508,7 +508,8 @@ flowchart TD
     crates, and a Kotlin top-level function by its receiver. A Rust name after a single `.` is a field or a method,
     never an item (`..` is a range), a rule of the lines that holds with the symbols off. With `branchdeck.symbols on`
     the module roots know the crate of each path of the commits (`ModuleRoots::read_crate_of`, the nearest
-    `Cargo.toml`) and `SymbolInput::crates` its name: a `pub(crate)`, `pub(super)` or `pub(in …)` item is searched in
+    `Cargo.toml`; a module a commit deletes, which HEAD lacks, is in the crate of its nearest directory HEAD has) and
+    `SymbolInput::crates` its name: a `pub(crate)`, `pub(super)` or `pub(in …)` item is searched in
     its own crate only, `pub(self)` as a private one, and a file of another crate uses a `pub` item only through its
     crate (`Reached`): a path that starts with the crate's name or with a name a `use` of the crate binds, or a bare
     name where such a `use` names the item or a glob. A Kotlin top-level function that is no extension (no receiver
