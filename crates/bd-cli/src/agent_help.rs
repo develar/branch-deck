@@ -44,7 +44,9 @@ Rules
   output says what conflicts (`state: \"conflict\"`, a branch not built, `ok: false`). 2 invalid input: fix the
   arguments or the plan. 3 stale: read again and retry. 4 refused: do what this help says for the code, else stop and
   show `message` to the user. 5 git or network error: show it. Retry when `retryable` is true, whatever the exit code,
-  and never when it is false.
+  and never when it is false. A `git_error` \"not updating refs/branch-deck/tmp/chain (… does not contain …)\" is the
+  ref a Branch Deck 0.21 or older left behind: `git update-ref -d refs/branch-deck/tmp/chain`, then retry; a newer sync
+  deletes it itself.
 - An error is {\"schema\":2,\"error\":{\"code\",\"message\",\"commits\",\"paths\",\"branches\",\"review\",\"blocks\",\"retryable\"}};
   `paths`, `branches`, `review` and `blocks` only where they apply.
 - `bd fold --expect-head <id>`, as every write that takes it, refuses unless HEAD is still the `head` (or `new_head`)
