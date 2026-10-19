@@ -15,7 +15,13 @@
 //!   applied cleanly before fails. Among them the best by what the user notices: the failing branches, then the emptied
 //!   branches, the commits that change branch or base (a restack changes the base of all its commits), the rewritten
 //!   subjects.
-//! - **Bounded.** A number of trials per problem and in all, and a time; a search cut short says so (`SearchState`).
+//! - **The direct answer first.** A conflicting branch that would move whole (every commit of it depends on the
+//!   conflicting one) is restacked on the branch that holds what it needs, or on a chain of the branches that do: one
+//!   trial, by the line dependencies alone, before the symbols are read.
+//! - **Conflicts before dangling references.** The trials of the conflicts look for no dangling reference, so a dangling
+//!   reference never fails them; the dangling references are searched once the conflicts are done and time is left.
+//! - **Bounded.** A number of trials per problem and in all, and a time from the start of the command; a trial cut by the
+//!   time is thrown away, and a search cut short says so (`SearchState`) with the best plan so far.
 
 use crate::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
 use crate::dangling_references::uses_added_declarations;
@@ -42,17 +48,48 @@ pub struct FixBudget {
   pub trials: usize,
   /// Trial builds for one problem, its extensions included
   pub trials_per_problem: usize,
-  /// The time of the trials; the first check and the line dependencies before them don't count
+  /// The time of the whole search from `FixRun::started`, the first check and the dependencies included
   pub time: Duration,
 }
 
 impl Default for FixBudget {
+  /// The app's: a minute, which its Cancel can cut short
   fn default() -> Self {
     Self {
       trials: 24,
       trials_per_problem: 8,
-      time: Duration::from_secs(20),
+      time: Duration::from_mins(1),
     }
+  }
+}
+
+/// How a search runs: its budget, from when its time counts, what stops it and what it says on the way
+pub struct FixRun<'a> {
+  pub budget: FixBudget,
+  /// The start of the time of the budget: the start of the command
+  pub started: Instant,
+  /// Stops the search before the next branch build
+  pub cancel: &'a AtomicBool,
+  /// A line for each phase and each trial (`bd check --fix` prints them on stderr)
+  pub progress: &'a (dyn Fn(&str) + Sync),
+}
+
+impl FixRun<'_> {
+  fn stopped(&self) -> bool {
+    self.cancel.load(Ordering::Relaxed) || self.started.elapsed() >= self.budget.time
+  }
+
+  /// Why the search stops now
+  fn stop_state(&self) -> SearchState {
+    if self.cancel.load(Ordering::Relaxed) {
+      SearchState::Canceled
+    } else {
+      SearchState::Budget
+    }
+  }
+
+  fn say(&self, line: &str) {
+    (self.progress)(&format!("{line} ({} s)", self.started.elapsed().as_secs()));
   }
 }
 
@@ -200,6 +237,8 @@ struct Graph {
 struct Facts<'a> {
   report: &'a CheckReport,
   group_of: HashMap<&'a str, Option<&'a str>>,
+  /// Only the conflicts count: the trials of the conflicts look for no dangling reference
+  conflicts_only: bool,
 }
 
 impl<'a> Facts<'a> {
@@ -207,6 +246,14 @@ impl<'a> Facts<'a> {
     Self {
       report,
       group_of: report.regroup.commits.iter().map(|commit| (commit.id.as_str(), commit.group.as_deref())).collect(),
+      conflicts_only: false,
+    }
+  }
+
+  fn of_conflicts(report: &'a CheckReport) -> Self {
+    Self {
+      conflicts_only: true,
+      ..Self::new(report)
     }
   }
 
@@ -235,7 +282,7 @@ impl<'a> Facts<'a> {
   }
 
   fn is_clean(&self, check: &BranchCheck) -> bool {
-    matches!(check.outcome, CheckOutcome::Ok { .. }) && self.confirmed_dangling(&check.name).is_empty()
+    matches!(check.outcome, CheckOutcome::Ok { .. }) && (self.conflicts_only || self.confirmed_dangling(&check.name).is_empty())
   }
 
   /// `(removed_by, fixed_by)` of the dangling references of `branch` that a commit proves
@@ -263,7 +310,7 @@ impl<'a> Facts<'a> {
       .report
       .branches
       .iter()
-      .filter(|check| matches!(check.outcome, CheckOutcome::Ok { .. }) && !self.confirmed_dangling(&check.name).is_empty());
+      .filter(|check| !self.conflicts_only && matches!(check.outcome, CheckOutcome::Ok { .. }) && !self.confirmed_dangling(&check.name).is_empty());
     conflicts.chain(dangling).collect()
   }
 
@@ -294,103 +341,41 @@ type Score = (usize, usize, usize, usize);
 // the search of a fix lives in its own module: it only runs the trial builds of the session (`check.rs`)
 impl CheckSession {
   /// The regroup after which the branches that conflict now (or have a proven dangling reference) apply cleanly, as far
-  /// as `budget` lets the search go; on top of `base_plan` when given. Trial builds only: writes commit objects and the
-  /// object cache
-  #[instrument(skip(self, base_plan, cancel))]
-  pub fn find_conflict_fix(&self, base_plan: Option<&RegroupPlan>, budget: FixBudget, cancel: &AtomicBool) -> Result<ConflictFix, RegroupError> {
+  /// as the budget of `run` lets the search go; on top of `base_plan` when given, whose check `base_report` is when the
+  /// caller has it. Trial builds only: writes commit objects and the object cache
+  #[instrument(skip_all)]
+  pub fn find_conflict_fix(&self, base_plan: Option<&RegroupPlan>, base_report: Option<CheckReport>, run: &FixRun<'_>) -> Result<ConflictFix, RegroupError> {
     let base_plan = base_plan.cloned().unwrap_or_default();
-    let base_report = self.check_only(Some(&base_plan), None, None)?;
-    let mut trials: u32 = 0;
-    if Facts::new(&base_report).problems().is_empty() {
-      return Ok(ConflictFix {
-        head: base_report.head.clone(),
-        fingerprint: fingerprint(self.snapshot()),
-        components: Vec::new(),
-        unresolved: Vec::new(),
-        search: SearchState::Complete,
-        trials,
-      });
+    let base_report = match base_report {
+      Some(report) => report,
+      None => self.check_only(Some(&base_plan), None, None)?,
+    };
+    let mut search = Search {
+      session: self,
+      base_plan: &base_plan,
+      run,
+      lines: self.changed_lines()?,
+      graph: None,
+      change: Change::default(),
+      report: base_report.clone(),
+      trials: 0,
+      state: SearchState::Complete,
+    };
+    let base_facts = Facts::new(&base_report);
+    if base_facts.problems().is_empty() {
+      return Ok(search.finish(&base_report, Vec::new()));
     }
-    let graph = self.dependency_graph()?;
-    let lines = self.changed_lines()?;
-    let started = Instant::now();
-
-    let mut change = Change::default();
-    let mut report = base_report.clone();
-    // the problems no candidate fixed, by branch and commit: not tried again while the report keeps them
-    let mut given_up: HashSet<(String, String)> = HashSet::new();
-    let mut search = SearchState::Complete;
-    'rounds: loop {
-      let facts = Facts::new(&report);
-      let problem = facts
-        .problems()
-        .into_iter()
-        .find(|check| !given_up.contains(&(check.name.clone(), problem_commit(&facts, check))));
-      let Some(problem) = problem else { break };
-      let key = (problem.name.clone(), problem_commit(&facts, problem));
-      let mut best: Option<(Score, Change, CheckReport)> = None;
-      let mut problem_trials = 0;
-      let mut pending: Vec<Change> = candidates(&facts, problem, &graph, lines, &change);
-      while let Some(candidate) = pending.pop() {
-        if cancel.load(Ordering::Relaxed) {
-          search = SearchState::Canceled;
-          break 'rounds;
-        }
-        if trials as usize >= budget.trials || started.elapsed() >= budget.time {
-          search = SearchState::Budget;
-          break 'rounds;
-        }
-        if problem_trials >= budget.trials_per_problem {
-          search = SearchState::Budget;
-          break;
-        }
-        let Some(merged) = change.merged(&candidate) else { continue };
-        let Ok(plan) = self.plan_of(&base_plan, &merged) else { continue };
-        trials += 1;
-        problem_trials += 1;
-        // the dangling references of the branches the change can't alter stay as they are
-        let affected = facts.affected_by(&merged);
-        let Ok(mut trial) = self.check_only(Some(&plan), None, Some(&affected)) else { continue };
-        for (branch, references) in &report.dangling {
-          if !affected.contains(branch) {
-            trial.dangling.insert(branch.clone(), references.clone());
-          }
-        }
-        let trial_facts = Facts::new(&trial);
-        // what the branch it fills still needs, a dangling reference's fix or a new conflict's commits: take it along
-        if let Some(extension) = extension(&trial_facts, &candidate, &merged, &graph) {
-          pending.push(extension);
-        }
-        let Some(score) = score_of(&facts, &trial_facts, &merged) else { continue };
-        debug!(branch = %problem.name, ?score, steps = merged.steps.len(), elapsed = ?started.elapsed(), "verified a candidate");
-        if best.as_ref().is_none_or(|(best_score, _, _)| score < *best_score) {
-          best = Some((score, merged, trial));
-        }
-      }
-      match best {
-        Some((_, merged, trial)) => {
-          change = merged;
-          report = trial;
-        }
-        None => {
-          given_up.insert(key);
-        }
-      }
-    }
-
-    let components = self.components(&base_plan, &base_report, &report, &change, &mut trials)?;
-    let final_facts = Facts::new(&report);
-    Ok(ConflictFix {
-      head: base_report.head.clone(),
-      fingerprint: fingerprint(self.snapshot()),
-      components,
-      unresolved: final_facts.problems().iter().map(|check| check.name.clone()).collect(),
-      search,
-      trials,
-    })
+    run.say(&format!("base check: {}", describe_problems(&base_facts)));
+    search.direct()?;
+    search.rounds(true)?;
+    search.dangling()?;
+    let components = self.components(&base_plan, &base_report, &search.report, &search.change, &mut search.trials, run)?;
+    Ok(search.finish(&base_report, components))
   }
 
-  fn dependency_graph(&self) -> Result<Graph, RegroupError> {
+  /// The dependencies of the commits ahead of the baseline by their lines, and with `symbols` by the names they declare
+  /// and use (`branchdeck.symbols on`, read once per session)
+  fn dependency_graph(&self, symbols: bool) -> Result<Graph, RegroupError> {
     let commits = &self.snapshot().commits;
     let ids: Vec<String> = commits.iter().map(|commit| commit.id.clone()).collect();
     let position: HashMap<String, usize> = ids.iter().enumerate().map(|(index, id)| (id.clone(), index)).collect();
@@ -409,7 +394,7 @@ impl CheckSession {
     }
     let mut uses: Vec<Vec<usize>> = vec![Vec::new(); ids.len()];
     let mut used_by: Vec<Vec<usize>> = vec![Vec::new(); ids.len()];
-    let symbols = self.symbol_graph()?;
+    let symbols = if symbols { self.symbol_graph()? } else { None };
     for edge in symbols.iter().flat_map(|graph| &graph.edges).filter(|edge| edge.from < ids.len() && edge.to < ids.len()) {
       uses[edge.from].push(edge.to);
       used_by[edge.to].push(edge.from);
@@ -446,8 +431,17 @@ impl CheckSession {
   }
 
   /// The steps grouped into components by the branches they touch; each component's plan alone is checked when there
-  /// are several, and the components merge into one when one alone doesn't keep its result
-  fn components(&self, base_plan: &RegroupPlan, base: &CheckReport, report: &CheckReport, change: &Change, trials: &mut u32) -> Result<Vec<FixComponent>, RegroupError> {
+  /// are several and the budget has room for their trials, and the components merge into one when one alone doesn't keep
+  /// its result
+  fn components(
+    &self,
+    base_plan: &RegroupPlan,
+    base: &CheckReport,
+    report: &CheckReport,
+    change: &Change,
+    trials: &mut u32,
+    run: &FixRun<'_>,
+  ) -> Result<Vec<FixComponent>, RegroupError> {
     if change.steps.is_empty() {
       return Ok(Vec::new());
     }
@@ -473,12 +467,18 @@ impl CheckSession {
     if groups.len() == 1 {
       return Ok(vec![whole(groups.remove(0))?]);
     }
+    // out of budget: the whole change is one component, unverified in parts
+    if run.stopped() || *trials as usize + groups.len() > run.budget.trials {
+      return Ok(vec![whole(change.steps.clone())?]);
+    }
     let fixed_by_all = component(base, report, Vec::new(), RegroupPlan::default()).fixed;
     let mut components = Vec::with_capacity(groups.len());
     for steps in groups {
       let plan = self.plan_of(base_plan, &change_of(&steps, change))?;
       *trials += 1;
-      let alone = self.check_only(Some(&plan), None, None)?;
+      let Some(alone) = self.check_until(Some(&plan), None, None, &|| run.stopped())? else {
+        return Ok(vec![whole(change.steps.clone())?]);
+      };
       let part = component(base, &alone, steps, plan);
       // a part that alone doesn't fix what it fixes with the others is no part
       let lost = part.steps.iter().any(|step| fixed_by_all.contains(&step.fixes) && !part.fixed.contains(&step.fixes));
@@ -489,6 +489,348 @@ impl CheckSession {
     }
     Ok(components)
   }
+}
+
+/// What a trial gave
+enum Trial {
+  Report(Box<CheckReport>),
+  /// The candidate has no plan: not tried
+  Unplanned,
+  /// The check failed: tried, and no answer
+  Failed,
+  /// The time or a cancel cut it; the search stops
+  Stopped,
+}
+
+/// A search in progress: the change so far, the report of its last taken trial, the trials it ran
+struct Search<'s> {
+  session: &'s CheckSession,
+  base_plan: &'s RegroupPlan,
+  run: &'s FixRun<'s>,
+  lines: &'s HashMap<String, Vec<FileLines>>,
+  /// The dependencies with the symbols, read when the direct answer is not enough
+  graph: Option<Graph>,
+  change: Change,
+  report: CheckReport,
+  trials: u32,
+  state: SearchState,
+}
+
+/// The facts of `report` as the phase counts them
+fn facts_of(report: &CheckReport, conflicts_only: bool) -> Facts<'_> {
+  if conflicts_only { Facts::of_conflicts(report) } else { Facts::new(report) }
+}
+
+impl Search<'_> {
+  /// The trial build of `merged`; a trial of the conflicts looks for no dangling reference, one of the dangling
+  /// references only in `affected`. The dangling references it doesn't look for stay as the current report has them
+  fn trial(&self, merged: &Change, conflicts_only: bool, affected: &[String]) -> Trial {
+    if self.run.stopped() {
+      return Trial::Stopped;
+    }
+    let Ok(plan) = self.session.plan_of(self.base_plan, merged) else {
+      return Trial::Unplanned;
+    };
+    let dangling_of: &[String] = if conflicts_only { &[] } else { affected };
+    let run = self.run;
+    match self.session.check_until(Some(&plan), None, Some(dangling_of), &|| run.stopped()) {
+      Ok(Some(mut trial)) => {
+        for (branch, references) in &self.report.dangling {
+          if conflicts_only || !affected.contains(branch) {
+            trial.dangling.insert(branch.clone(), references.clone());
+          }
+        }
+        Trial::Report(Box::new(trial))
+      }
+      Ok(None) => Trial::Stopped,
+      Err(_) => Trial::Failed,
+    }
+  }
+
+  /// The line of a trial of `candidate` for the problem of `branch`
+  fn say_trial(&self, branch: &str, candidate: &Change, current: &Facts, trial: Option<&Facts>, verified: bool) {
+    let outcome = match trial {
+      None => "failed".to_string(),
+      Some(_) if verified => "verified".to_string(),
+      Some(trial) => match trial.branch(branch).map(|check| &check.outcome) {
+        Some(CheckOutcome::Conflict { files, .. }) => format!("{branch} conflicts in {} {}", files.len(), plural(files.len(), "file", "files")),
+        _ => current
+          .report
+          .branches
+          .iter()
+          .find(|check| current.is_clean(check) && trial.branch(&check.name).is_some_and(|after| !trial.is_clean(after)))
+          .map_or_else(|| "no better".to_string(), |broken| format!("breaks {}", broken.name)),
+      },
+    };
+    self
+      .run
+      .say(&format!("trial {}/{}: {} … {outcome}", self.trials, self.run.budget.trials, describe_change(candidate)));
+  }
+
+  /// The direct answer: each conflicting branch that would move whole restacked on the branch that holds the commits it
+  /// needs (or on a chain of them), by the line dependencies alone, in one trial
+  fn direct(&mut self) -> Result<(), RegroupError> {
+    let graph = self.session.dependency_graph(false)?;
+    let facts = Facts::of_conflicts(&self.report);
+    let mut direct = Change::default();
+    let mut fixes: Vec<&str> = Vec::new();
+    for problem in facts.problems() {
+      let CheckOutcome::Conflict { commit, files } = &problem.outcome else { continue };
+      if let Some(restack) = whole_restack(&facts, problem, commit, files, &graph, self.lines)
+        && let Some(merged) = direct.merged(&restack)
+      {
+        direct = merged;
+        fixes.push(&problem.name);
+      }
+    }
+    if direct.steps.is_empty() {
+      return Ok(());
+    }
+    if self.trials as usize >= self.run.budget.trials {
+      self.state = SearchState::Budget;
+      return Ok(());
+    }
+    let affected = facts.affected_by(&direct);
+    let trial = match self.trial(&direct, true, &affected) {
+      Trial::Report(trial) => *trial,
+      Trial::Unplanned => return Ok(()),
+      Trial::Failed => {
+        self.trials += 1;
+        self.say_trial(fixes.first().copied().unwrap_or_default(), &direct, &facts, None, false);
+        return Ok(());
+      }
+      Trial::Stopped => {
+        self.state = self.run.stop_state();
+        return Ok(());
+      }
+    };
+    self.trials += 1;
+    let trial_facts = Facts::of_conflicts(&trial);
+    let verified = score_of(&facts, &trial_facts, &direct).is_some();
+    self.say_trial(fixes.first().copied().unwrap_or_default(), &direct, &facts, Some(&trial_facts), verified);
+    if verified {
+      debug!(?fixes, "verified the direct answer");
+      self.change = direct;
+      self.report = trial;
+    }
+    Ok(())
+  }
+
+  /// The search of the problems the direct answer left: of the conflicts, or of the dangling references
+  fn rounds(&mut self, conflicts_only: bool) -> Result<(), RegroupError> {
+    if self.state != SearchState::Complete || facts_of(&self.report, conflicts_only).problems().is_empty() {
+      return Ok(());
+    }
+    let graph = match self.graph.take() {
+      Some(graph) => graph,
+      None => self.session.dependency_graph(true)?,
+    };
+    self.rounds_with(&graph, conflicts_only);
+    self.graph = Some(graph);
+    Ok(())
+  }
+
+  fn rounds_with(&mut self, graph: &Graph, conflicts_only: bool) {
+    let budget = self.run.budget;
+    // the problems no candidate fixed, by branch and commit: not tried again while the report keeps them
+    let mut given_up: HashSet<(String, String)> = HashSet::new();
+    'rounds: loop {
+      let facts = facts_of(&self.report, conflicts_only);
+      let problem = facts
+        .problems()
+        .into_iter()
+        .find(|check| !given_up.contains(&(check.name.clone(), problem_commit(&facts, check))));
+      let Some(problem) = problem else { break };
+      let key = (problem.name.clone(), problem_commit(&facts, problem));
+      let mut best: Option<(Score, Change, CheckReport)> = None;
+      let mut problem_trials = 0;
+      let mut pending: Vec<Change> = candidates(&facts, problem, graph, self.lines, &self.change);
+      while let Some(candidate) = pending.pop() {
+        if self.trials as usize >= budget.trials {
+          self.state = SearchState::Budget;
+          break 'rounds;
+        }
+        if problem_trials >= budget.trials_per_problem {
+          self.state = SearchState::Budget;
+          break;
+        }
+        let Some(merged) = self.change.merged(&candidate) else { continue };
+        let affected = facts.affected_by(&merged);
+        let trial = match self.trial(&merged, conflicts_only, &affected) {
+          Trial::Report(trial) => *trial,
+          Trial::Unplanned => continue,
+          Trial::Failed => {
+            self.trials += 1;
+            problem_trials += 1;
+            self.say_trial(&problem.name, &candidate, &facts, None, false);
+            continue;
+          }
+          Trial::Stopped => {
+            self.state = self.run.stop_state();
+            break 'rounds;
+          }
+        };
+        self.trials += 1;
+        problem_trials += 1;
+        let trial_facts = facts_of(&trial, conflicts_only);
+        // what the branch it fills still needs, a dangling reference's fix or a new conflict's commits: take it along
+        if let Some(extension) = extension(&trial_facts, &candidate, &merged, graph) {
+          pending.push(extension);
+        }
+        let score = score_of(&facts, &trial_facts, &merged);
+        self.say_trial(&problem.name, &candidate, &facts, Some(&trial_facts), score.is_some());
+        let Some(score) = score else { continue };
+        debug!(branch = %problem.name, ?score, steps = merged.steps.len(), elapsed = ?self.run.started.elapsed(), "verified a candidate");
+        if best.as_ref().is_none_or(|(best_score, _, _)| score < *best_score) {
+          best = Some((score, merged, trial));
+        }
+      }
+      match best {
+        Some((_, merged, trial)) => {
+          self.change = merged;
+          self.report = trial;
+        }
+        None => {
+          given_up.insert(key);
+        }
+      }
+    }
+  }
+
+  /// The dangling references, once the conflicts are done and time is left: the trials of the conflicts did not look
+  /// for them, so the report of the change so far gets them (no build again), then their rounds
+  fn dangling(&mut self) -> Result<(), RegroupError> {
+    if self.state != SearchState::Complete {
+      return Ok(());
+    }
+    if !self.change.steps.is_empty() {
+      if self.run.stopped() {
+        self.state = self.run.stop_state();
+        return Ok(());
+      }
+      self.report.dangling = self.session.dangling_of_report(&self.report)?;
+    }
+    let facts = Facts::new(&self.report);
+    if facts.problems().iter().any(|check| matches!(check.outcome, CheckOutcome::Ok { .. })) {
+      self.run.say(&format!("dangling references: {}", describe_problems(&facts)));
+    }
+    self.rounds(false)
+  }
+
+  fn finish(self, base: &CheckReport, components: Vec<FixComponent>) -> ConflictFix {
+    let facts = Facts::new(&self.report);
+    ConflictFix {
+      head: base.head.clone(),
+      fingerprint: fingerprint(self.session.snapshot()),
+      components,
+      unresolved: facts.problems().iter().map(|check| check.name.clone()).collect(),
+      search: self.state,
+      trials: self.trials,
+    }
+  }
+}
+
+const fn plural<'a>(count: usize, one: &'a str, many: &'a str) -> &'a str {
+  if count == 1 { one } else { many }
+}
+
+/// "2 conflicting branches, 1 with a dangling reference"
+fn describe_problems(facts: &Facts) -> String {
+  let problems = facts.problems();
+  let conflicts = problems.iter().filter(|check| matches!(check.outcome, CheckOutcome::Conflict { .. })).count();
+  let dangling = problems.len() - conflicts;
+  let mut parts = Vec::new();
+  if conflicts > 0 {
+    parts.push(format!("{conflicts} conflicting {}", plural(conflicts, "branch", "branches")));
+  }
+  if dangling > 0 {
+    parts.push(format!("{dangling} {} a dangling reference", plural(dangling, "branch with", "branches with")));
+  }
+  parts.join(", ")
+}
+
+/// "restack live-lane on lane-run-on-teamcity, move 2 commits of other to feature"
+fn describe_change(change: &Change) -> String {
+  let commits = |count: usize| format!("{count} {}", plural(count, "commit", "commits"));
+  change
+    .steps
+    .iter()
+    .map(|step| match step.kind {
+      FixStepKind::Restack => format!("restack {} on {}", step.fixes, step.to),
+      FixStepKind::Move => format!("move {} of {} to {}", commits(step.commits.len()), step.from.join(", "), step.to),
+      FixStepKind::PullIn => format!("pull {} into {}", commits(step.commits.len()), step.to),
+    })
+    .collect::<Vec<_>>()
+    .join(", ")
+}
+
+/// The restack of `branch` on the branch that holds every owner of what it needs (`stack_top`), or else on a chain of
+/// the owners: each stacked on the one with the older commits, when it stays in its stack, and `branch` on the last
+fn restack_on_owners(facts: &Facts, graph: &Graph, branch: &BranchCheck, owners: &BTreeSet<&str>) -> Option<Change> {
+  let restack = |change: &mut Change, child: &str, parent: &str, from: Option<&String>| {
+    change.restacks.insert(child.to_string(), parent.to_string());
+    change.steps.push(FixStep {
+      kind: FixStepKind::Restack,
+      commits: Vec::new(),
+      from: from.into_iter().cloned().collect(),
+      to: parent.to_string(),
+      fixes: child.to_string(),
+    });
+  };
+  if owners.is_empty() || owners.contains(branch.name.as_str()) || owners.iter().any(|owner| facts.is_built_on(owner, &branch.name)) {
+    return None;
+  }
+  let mut change = Change::default();
+  if let Some(top) = stack_top(facts, owners, true) {
+    restack(&mut change, &branch.name, top, branch.built_on.as_ref());
+    return Some(change);
+  }
+  // the owners in the order of their oldest commits
+  let oldest = |owner: &str| {
+    facts
+      .branch(owner)
+      .and_then(|check| check.commits.iter().filter_map(|id| graph.position.get(id)).min().copied())
+      .unwrap_or(usize::MAX)
+  };
+  let mut chain: Vec<&str> = owners.iter().copied().collect();
+  chain.sort_by_key(|owner| oldest(owner));
+  for pair in chain.windows(2) {
+    let (parent, child) = (pair[0], pair[1]);
+    if facts.is_built_on(child, parent) {
+      continue;
+    }
+    let child_check = facts.branch(child)?;
+    // the child stays in its stack: what it is built on is below the parent
+    let stays = child_check.built_on.as_deref().is_none_or(|old| facts.chain(parent).contains(&old));
+    if !stays || facts.is_built_on(parent, child) {
+      return None;
+    }
+    restack(&mut change, child, parent, child_check.built_on.as_ref());
+  }
+  let last = chain.last()?;
+  restack(&mut change, &branch.name, last, branch.built_on.as_ref());
+  Some(change)
+}
+
+/// The direct answer for the conflict of `branch` at `commit`: the branch restacked on what holds the commits it needs,
+/// when every commit of it depends on `commit` (a move would take the whole branch) and an owner holds each of them
+fn whole_restack(facts: &Facts, branch: &BranchCheck, commit: &str, files: &[String], graph: &Graph, lines: &HashMap<String, Vec<FileLines>>) -> Option<Change> {
+  if !facts.report.stacks {
+    return None;
+  }
+  let present: HashSet<&str> = facts.chain(&branch.name).into_iter().collect();
+  let mut needed = needed_commits(facts, graph, commit, &present);
+  if needed.is_empty() {
+    needed = missing_commits(facts.report, branch, commit, files, &graph.files_of);
+  }
+  if needed.is_empty() || needed.iter().any(|id| facts.group(id).is_none()) {
+    return None;
+  }
+  if dependents_in(graph, lines, branch, commit).len() < branch.commits.len() {
+    return None;
+  }
+  let owners: BTreeSet<&str> = needed.iter().filter_map(|id| facts.group(id)).collect();
+  restack_on_owners(facts, graph, branch, &owners)
 }
 
 /// The commit a problem is about: the conflicting commit, or the first commit a dangling reference names
@@ -584,22 +926,12 @@ fn candidates(facts: &Facts, branch: &BranchCheck, graph: &Graph, lines: &HashMa
       let unassigned: Vec<String> = needed.iter().filter(|id| facts.group(id).is_none()).cloned().collect();
       let top = stack_top(facts, &owners, stacks);
 
-      // restack the branch on the branch that has what it needs: no rewrite, but the base of its pull request changes
+      // restack the branch on the branch that has what it needs, or on a chain of the branches that do: no rewrite, but
+      // the base of its pull request changes
       if stacks
         && unassigned.is_empty()
-        && let Some(top) = top
-        && top != branch.name
-        && !facts.is_built_on(top, &branch.name)
+        && let Some(change) = restack_on_owners(facts, graph, branch, &owners)
       {
-        let mut change = Change::default();
-        change.restacks.insert(branch.name.clone(), top.to_string());
-        change.steps.push(FixStep {
-          kind: FixStepKind::Restack,
-          commits: Vec::new(),
-          from: branch.built_on.iter().cloned().collect(),
-          to: top.to_string(),
-          fixes: branch.name.clone(),
-        });
         candidates.push(change);
       }
 
@@ -873,11 +1205,17 @@ pub struct FindConflictFixParams {
 }
 
 /// The fix of the conflicts of the current grouping (`find_conflict_fix`): trial builds only, without the repository
-/// lock; `cancel` stops it between trials
+/// lock; `cancel` stops it before the next branch build
 #[instrument(skip(git_executor, cache, cancel))]
 pub fn find_conflict_fix_core(git_executor: &GitCommandExecutor, cache: &ObjectCache, params: &FindConflictFixParams, cancel: &AtomicBool) -> Result<ConflictFix> {
+  let run = FixRun {
+    budget: FixBudget::default(),
+    started: Instant::now(),
+    cancel,
+    progress: &|line| debug!(line, "conflict fix"),
+  };
   let session = CheckSession::open(git_executor, &params.repository_path, &params.branch_prefix, cache)?;
-  Ok(session.find_conflict_fix(None, FixBudget::default(), cancel)?)
+  Ok(session.find_conflict_fix(None, None, &run)?)
 }
 
 #[derive(Debug, Deserialize)]

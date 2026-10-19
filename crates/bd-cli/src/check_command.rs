@@ -16,10 +16,12 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
+use std::time::{Duration, Instant};
 use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
-use sync_core::conflict_fix::{ConflictFix, FixBudget, FixStepKind, SearchState};
+use sync_core::conflict_fix::{ConflictFix, FixBudget, FixRun, FixStepKind, SearchState};
 use sync_core::dangling_fix::{DanglingFixProver, ProvenFix};
 use sync_core::dangling_references::{DanglingKind, DanglingReference};
 use sync_core::inverted_stack::{InvertedStackFixKind, inverted_stack};
@@ -48,10 +50,22 @@ pub struct CheckArgs {
   #[arg(long, requires = "build")]
   pub rebuild: bool,
   /// Also find the regroup after which the conflicting branches apply cleanly, by trial builds (`fix`); nothing is
-  /// applied
+  /// applied. Each trial is a line on stderr
   #[arg(long)]
   pub fix: bool,
+  /// With --fix: the trial builds in all [default: 12]
+  #[arg(long, value_name = "N", requires = "fix")]
+  pub max_trials: Option<usize>,
+  /// With --fix: the seconds of the whole command, its first check included [default: 180]; then the fix is the best
+  /// plan so far, with `"search": "budget"`
+  #[arg(long, value_name = "SECONDS", requires = "fix")]
+  pub time_budget: Option<u64>,
 }
+
+/// The trial builds of `bd check --fix` without --max-trials
+const DEFAULT_MAX_TRIALS: usize = 12;
+/// The seconds of `bd check --fix` without --time-budget: a trial of a large stack takes a minute
+const DEFAULT_TIME_BUDGET: u64 = 180;
 
 /// `bd check`
 #[derive(Debug, Serialize, JsonSchema)]
@@ -385,6 +399,7 @@ pub struct CheckConflict {
 }
 
 pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, CliError> {
+  let started = Instant::now();
   let plan = read_plan(args.plan.as_ref())?;
   let cache = context.cache();
   let session = CheckSession::open(&context.git, &context.repository, &context.prefix, &cache)
@@ -461,9 +476,20 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
   }
 
   let fix = if args.fix {
-    let found = session
-      .find_conflict_fix(Some(&user_plan), FixBudget::default(), &AtomicBool::new(false))
-      .map_err(regroup_error)?;
+    let run = FixRun {
+      budget: FixBudget {
+        trials: args.max_trials.unwrap_or(DEFAULT_MAX_TRIALS),
+        time: Duration::from_secs(args.time_budget.unwrap_or(DEFAULT_TIME_BUDGET)),
+        ..FixBudget::default()
+      },
+      started,
+      cancel: &AtomicBool::new(false),
+      // the JSON goes to stdout at the end; an agent that waits sees each trial at once
+      progress: &|line| {
+        let _ = writeln!(std::io::stderr().lock(), "{line}");
+      },
+    };
+    let found = session.find_conflict_fix(Some(&user_plan), Some(report.clone()), &run).map_err(regroup_error)?;
     Some(fix_output(&found, &short))
   } else {
     None

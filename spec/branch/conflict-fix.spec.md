@@ -70,7 +70,8 @@ rewrite.
   the edges by symbols with `branchdeck.symbols on`, the declaration patterns for the other languages and modes)
   to the branch whose stack has what it needs; pull what it needs into the branch, at most 6 commits, from a branch
   stacked on it, from the unassigned commits, or from a branch where no commit that stays depends on them; restack the
-  branch on that branch.
+  branch on that branch, or, when no owner is built on every other, on a chain of the owners (each restacked on the
+  one with the older commits, when it stays in its stack).
   [@test] ../../crates/sync-core/src/conflict_fix_test.rs (`a_commit_moves_to_the_branch_whose_stack_has_what_it_needs`, `a_single_commit_branch_is_restacked_on_the_branch_it_needs`, `an_unassigned_commit_the_branch_needs_is_pulled_in`, `a_parent_that_needs_a_commit_of_its_child_gives_its_own_commit_to_the_child`, `the_fixes_are_the_same_with_the_symbols_off`)
 - For a proven dangling reference (the branch removes a declaration that a commit of another branch stops using): pull
   that commit into the branch, or move the removing commits to the branch whose stack has it.
@@ -83,11 +84,21 @@ rewrite.
 - A candidate must be taken only when its trial build has more branches that apply cleanly and no branch that applied
   cleanly before fails. Among the verified ones the least by the failing branches, the emptied branches, the commits
   that change branch or base (a restack changes the base of every commit of its branch), the rewritten subjects.
+- The direct answer must come first, in one trial, by the line dependencies alone (before the symbols are read): every
+  conflicting branch whose commits all depend on the conflicting one (a move would take the whole branch, as a branch
+  of one commit) restacked on the branch, or the chain of branches, that holds what it needs. The search goes on for
+  what it leaves.
+  [@test] ../../crates/sync-core/src/conflict_fix_test.rs (`a_leaf_whose_commit_needs_two_other_leaves_is_restacked_on_their_chain_in_one_trial`, `a_single_commit_branch_is_restacked_on_the_branch_it_needs`)
 - The conflicts must be fixed before the dangling references, each in build order (parents first); a fix builds on
-  the fixes before it.
-- The search must stop at a number of trials (24, 8 per problem) or a time (20 s of trials); then `search` says
-  `budget`. Nothing to fix is a complete search without trials.
-  [@test] ../../crates/sync-core/src/conflict_fix_test.rs (`a_search_out_of_trials_says_so`, `nothing_to_fix_is_a_complete_search_without_components`)
+  the fixes before it. A trial of a conflict looks for no dangling reference, so a dangling reference never fails it;
+  the dangling references of the plan so far are read once the conflicts are done and time is left (no build again),
+  then searched.
+  [@test] ../../crates/sync-core/src/conflict_fix_test.rs (`a_dangling_reference_moves_the_removal_to_the_branch_that_fixes_the_use`)
+- The search must stop at a number of trials (the app's 24, 8 per problem; `bd`'s 12 or --max-trials) or a time from
+  the start of the command, its first check included (the app's 60 s; `bd`'s 180 s or --time-budget), checked before
+  every branch build of a trial: a trial the time cuts is thrown away, the components are not checked in parts, and
+  `search` says `budget` with the best plan so far. Nothing to fix is a complete search without trials.
+  [@test] ../../crates/sync-core/src/conflict_fix_test.rs (`a_search_out_of_trials_says_so`, `a_search_out_of_budget_ends_with_the_best_plan_so_far`, `a_search_out_of_time_stops_before_its_first_trial`, `nothing_to_fix_is_a_complete_search_without_components`)
 - A conflict that no candidate fixes must be in `unresolved`.
   [@test] ../../crates/sync-core/src/conflict_fix_test.rs (`a_commit_that_needs_two_long_branches_without_stacks_has_no_fix`)
 - The steps must be grouped into components by the branches they touch; with several, each component's plan alone
@@ -97,7 +108,10 @@ rewrite.
 
 - `bd check --fix` must add `fix` `{search, trials, components, unresolved}`, each component with its `steps`, the
   whole `plan` (the `--plan` included) for `bd group`, and what it fixes, unblocks and empties; it writes objects and
-  the object cache only.
+  the object cache only. It prints a line on stderr for the first check and for each trial (`trial 3/12: restack
+  <branch> on <parent> … verified (41 s)`, or the conflict it leaves, the branch it breaks), the JSON stays on stdout.
+  [@test] ../../crates/sync-core/src/conflict_fix_test.rs (`each_trial_is_a_line_of_progress`)
+  [@test] ../../crates/bd-cli/src/check_test.rs (`a_fix_out_of_time_says_budget_and_the_trial_limit_needs_fix`)
   [@test] ../../crates/bd-cli/src/check_test.rs (`fix_finds_the_regroup_after_which_the_plan_applies_and_writes_nothing`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`outputs_match_schema`)
 
@@ -123,7 +137,7 @@ rewrite.
   the fix".
   [@test] ../../tests/e2e/conflict-fix/conflict-fix.spec.ts (`should offer the move a trial build verified, apply it and undo it`)
 - Without a fix the callout says "Branch Deck found no regroup that applies this commit cleanly" (after a cut-short
-  search "Stopped looking for a fix after 20 s" with Look Again) and offers "Copy Prompt for Agent": the conflict, the
+  search "Branch Deck stopped looking for a fix" with Look Again) and offers "Copy Prompt for Agent": the conflict, the
   explanation, the files and bd's trial builds (`bd check --fix`, `bd check --plan`), with a `bd group` only after the
   user approves.
   [@test] ../../src/lib/conflict-fix.test.ts (`hands a conflict without a fix to bd's trial builds and asks before a rewrite`, `works without bd`)

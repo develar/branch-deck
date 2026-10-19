@@ -483,8 +483,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/sync-core/src/check_test.rs (`children_of_a_conflicting_branch_are_blocked`)
 - With `--fix` it must add `fix`, the regroup after which the conflicting branches apply cleanly as the trial builds of
   [Conflict Fix](../branch/conflict-fix.spec.md) find it, each component's `plan` the whole plan for `bd group`;
-  nothing is applied.
-  [@test] ../../crates/bd-cli/src/check_test.rs (`fix_finds_the_regroup_after_which_the_plan_applies_and_writes_nothing`)
+  nothing is applied. `--max-trials N` (12) and `--time-budget SECONDS` (180, the whole command) bound the search,
+  each only with `--fix`; a search they stop says `search: budget` with the best plan so far. Each trial is a line on
+  stderr.
+  [@test] ../../crates/bd-cli/src/check_test.rs (`fix_finds_the_regroup_after_which_the_plan_applies_and_writes_nothing`, `a_fix_out_of_time_says_budget_and_the_trial_limit_needs_fix`)
 - With `branchdeck.symbols on`, `missing_declarations` must name each use, by a commit of a built branch, of a name
   that a commit outside the branch and the branches it is built on adds or gives the form the use needs (an edge by
   symbols), an override of it included, with the evidence; it must not change `ok` or the exit code.

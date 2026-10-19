@@ -754,3 +754,24 @@ fn a_dangling_reference_message_names_the_kind() {
     )
   );
 }
+
+#[test_log::test]
+fn a_fix_out_of_time_says_budget_and_the_trial_limit_needs_fix() {
+  let (repo, ids) = repo();
+  let file = tempfile::NamedTempFile::new().unwrap();
+  std::fs::write(file.path(), json!({ "branches": { "b": [ids[1]] } }).to_string()).unwrap();
+  let plan = file.path().to_str().unwrap();
+  let (exit_code, output) = run_in(&repo, &["check", "--fix", "--time-budget", "0", "--plan", plan]);
+  assert_eq!(exit_code, 1, "{output}");
+  assert_eq!((&output["fix"]["search"], &output["fix"]["trials"]), (&json!("budget"), &json!(0)), "{output}");
+  assert_eq!(output["fix"]["unresolved"], json!(["b"]), "{output}");
+  assert_check_schema(&repo, &output);
+
+  // the first candidate is not the fix: the search stops after it
+  let (exit_code, output) = run_in(&repo, &["check", "--fix", "--max-trials", "1", "--plan", plan]);
+  assert_eq!(exit_code, 1, "{output}");
+  assert_eq!((&output["fix"]["search"], &output["fix"]["trials"]), (&json!("budget"), &json!(1)), "{output}");
+
+  let (exit_code, output) = run_in(&repo, &["check", "--max-trials", "1", "--plan", plan]);
+  assert_eq!((exit_code, &output["error"]["code"]), (2, &json!("invalid_arguments")), "{output}");
+}

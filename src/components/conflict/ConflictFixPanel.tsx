@@ -51,7 +51,7 @@ export function ConflictFixPanel(props: ConflictFixPanelProps) {
   if (component === undefined) {
     const complete = fix.search === "complete"
     return (
-      <FixCallout title={complete ? "Branch Deck found no regroup that applies this commit cleanly" : "Stopped looking for a fix after 20 s"} state="none">
+      <FixCallout title={complete ? "Branch Deck found no regroup that applies this commit cleanly" : "Branch Deck stopped looking for a fix"} state="none">
         <p>Move its change with the menu of the commit (Move to…), or hand the conflict to a coding agent.</p>
         <div className="flex flex-wrap items-center gap-2">
           {!complete && <LookAgain />}

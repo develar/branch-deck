@@ -76,8 +76,7 @@ fn run_check(repo: &TestRepo, build: Option<&str>, build_paths: &[&str]) -> Repo
     plan: Some(plan.path().to_path_buf()),
     build: build.map(str::to_string),
     build_paths: build_paths.iter().map(|path| (*path).to_string()).collect(),
-    rebuild: false,
-    fix: false,
+    ..CheckArgs::default()
   };
   let output = check(&context, &args).unwrap();
   assert!(output.ok, "{output:?}");

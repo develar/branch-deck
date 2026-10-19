@@ -1947,18 +1947,29 @@ Code: `crates/file-diffs/src/merge.rs`, `crates/text-diff/src/merge_model.rs`, `
 The fix of a sync conflict (`conflict_fix.rs`, [Conflict Fix](../../spec/branch/conflict-fix.spec.md)) is a search over
 trial builds of one `CheckSession`: it writes commit objects and the object cache, no ref, and takes no lock.
 1. One check of the current grouping finds the problems: the conflicts, then the proven dangling references, each in
-   build order. The changes of every commit ahead of the baseline (the object cache, one `log` for the misses) give the
-   line dependencies, with the fixup units, read once.
-2. For each problem the candidates are plans of `plan_move` (a whole issue by the issue groups, a part by a prefix):
-   move the conflicting commit with what depends on it to the branch whose stack has what it needs, pull what it needs
-   in, restack the branch. A move also takes a commit of the branch that uses a name the moved ones declare: by the
-   edges by symbols with `branchdeck.symbols on` (`CheckSession::symbol_graph`, read once per session), by the
+   build order (`bd check --fix` reuses the check it just printed). The changes of every commit ahead of the baseline
+   (the object cache, one `log` for the misses) give the line dependencies, with the fixup units, read once.
+2. The direct answer, one trial by the line dependencies alone: every conflicting branch whose commits all depend on the
+   conflicting one is restacked on the branch that holds what it needs, or on a chain of those branches. Only when
+   problems are left are the edges by symbols read.
+3. For each problem left the candidates are plans of `plan_move` (a whole issue by the issue groups, a part by a
+   prefix): move the conflicting commit with what depends on it to the branch whose stack has what it needs, pull what
+   it needs in, restack the branch. A move also takes a commit of the branch that uses a name the moved ones declare: by
+   the edges by symbols with `branchdeck.symbols on` (`CheckSession::symbol_graph`, read once per session), by the
    declaration patterns of the dangling references (`uses_added_declarations`) for the languages without a grammar
    and with the symbols not on. The same edges keep a commit from leaving a branch whose staying commits use it.
-3. Each candidate is one more check of the plan built so far, with the dangling references of the branches it can
-   alter only (the others keep theirs). A dangling reference or a new conflict in a branch the candidate fills extends
-   it. The best candidate that breaks no clean branch and leaves fewer failing ones is kept.
-4. The steps form components by the branches they touch; with several, each component's plan is checked alone.
+4. Each candidate is one more check of the plan built so far (`check_until`). A trial of a conflict looks for no
+   dangling reference; once the conflicts are done, the dangling references of the plan so far are read from its
+   report (no build again), and a trial of a dangling reference looks at the branches it can alter only (the others
+   keep theirs). A dangling reference or a new conflict in a branch the candidate fills extends it. The best candidate
+   that breaks no clean branch and leaves fewer failing ones is kept.
+5. The steps form components by the branches they touch; with several, each component's plan is checked alone, when
+   the budget has room for it.
+
+The budget (`FixBudget`, `FixRun`) counts the trials and the time from the start of the command, the first check
+included: the app's 24 trials and 60 s (Cancel stops it), `bd check --fix`'s 12 and 180 s (--max-trials,
+--time-budget). The time and a cancel are checked before every branch build of a trial; a trial cut short is thrown
+away, its merges stay in the memo. Each trial is a line of progress, which `bd check --fix` prints on stderr.
 
 Merges are memoized (`merge_result`), so the trials repeat no `merge-tree` of a tree pair; on the IntelliJ checkout a
 trial took 0.5–2.5 s and the search 9 trials. Apply (`apply_conflict_fix`) is a regroup (`regroup_planned`): under the

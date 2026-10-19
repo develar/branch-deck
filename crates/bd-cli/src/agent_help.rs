@@ -96,7 +96,11 @@ Workflow: the commits into pull requests
    - `blocked` (`blocked_by`: the parent it can't be built on), `problems`, `error`; `build_failed` (below).
    `bd check --fix` searches, by trial builds, the regroup that fixes the conflicts and dangling references: each
    `fix.components[].plan` is a whole plan for the next step, and its `steps` say what moves where (show them before
-   applying one); `fix.search: budget`: run it again, the cache makes it faster. `inverted_stack` {branch, child,
+   applying one). A branch that conflicts as a whole is restacked on the branch (or a chain of the branches) that
+   holds the commits it needs, in one trial; dangling references are searched after the conflicts. Each trial is a
+   line on stderr (`trial 3/12: restack <branch> on <parent> … verified (41 s)`); --max-trials N (12) and
+   --time-budget SECONDS (180, the whole command) bound it, and `fix.search: budget` is the best plan so far: run it
+   again, the cache makes it faster. `inverted_stack` {branch, child,
    fixes, reason}: the branch needs a commit of a branch stacked on it; each fix (`move_to_child`, `swap`) is
    `branches`/`unstack` for the plan, checked by a trial build; `reason` when none builds. `warnings`: a
    `possible_dangling_reference` (or `possible_changed_declaration`, `possible_duplicate_declaration`) that no commit

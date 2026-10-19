@@ -1,10 +1,11 @@
 use crate::check::{CheckOutcome, CheckSession};
-use crate::conflict_fix::{ConflictFix, FixBudget, FixStep, FixStepKind, SearchState};
+use crate::conflict_fix::{ConflictFix, FixBudget, FixRun, FixStep, FixStepKind, SearchState};
 use crate::regroup::regroup_test::repo;
 use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use std::sync::atomic::AtomicBool;
+use std::time::Instant;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -27,8 +28,17 @@ fn session(repo: &TestRepo) -> CheckSession {
   CheckSession::open(repo.git_executor(), repo.path().to_str().unwrap(), PREFIX, &ObjectCache::disabled()).unwrap()
 }
 
+fn run(budget: FixBudget) -> FixRun<'static> {
+  FixRun {
+    budget,
+    started: Instant::now(),
+    cancel: Box::leak(Box::new(AtomicBool::new(false))),
+    progress: &|_| {},
+  }
+}
+
 fn find_fix(repo: &TestRepo, budget: FixBudget) -> ConflictFix {
-  session(repo).find_conflict_fix(None, budget, &AtomicBool::new(false)).unwrap()
+  session(repo).find_conflict_fix(None, None, &run(budget)).unwrap()
 }
 
 fn step(kind: FixStepKind, commits: &[&String], from: &[&str], to: &str, fixes: &str) -> FixStep {
@@ -219,10 +229,96 @@ fn the_trials_of_a_search_detect_a_parent_without_commits_once() {
 
   let git = repo.git_executor().with_process_stats("test");
   let session = CheckSession::open(&git, path, PREFIX, &ObjectCache::disabled()).unwrap();
-  let fix = session.find_conflict_fix(None, FixBudget::default(), &AtomicBool::new(false)).unwrap();
+  let fix = session.find_conflict_fix(None, None, &run(FixBudget::default())).unwrap();
 
   assert_eq!(fix.components[0].steps, [step(FixStepKind::Move, &[&again], &["other"], "feature", "other")]);
   assert!(fix.trials >= 3, "{fix:?}");
   // the baseline of the detection resolved once, its notes read once, and one `log -p` for the changes of the commits
   assert_eq!((processes(&git, "rev-parse"), processes(&git, "log")), (check.0, check.1 + 1));
+}
+
+#[test]
+fn a_leaf_whose_commit_needs_two_other_leaves_is_restacked_on_their_chain_in_one_trial() {
+  let repo = repo(true);
+  repo.create_commit("(root) Add lib", "lib.txt", "1\n2\n3\n4\n5\n");
+  repo.create_commit("(root/a) Change the first line", "lib.txt", "one\n2\n3\n4\n5\n");
+  repo.create_commit("(root/b) Change the last line", "lib.txt", "one\n2\n3\n4\nfive\n");
+  // c's one commit changes the lines of both a and b: no branch holds both, a chain of them does
+  repo.create_commit("(root/c) Change both lines", "lib.txt", "ONE\n2\n3\n4\nFIVE\n");
+
+  let fix = find_fix(&repo, FixBudget::default());
+
+  assert_eq!(fix.search, SearchState::Complete);
+  assert_eq!(fix.trials, 1, "the direct answer verified at once: {fix:?}");
+  assert_eq!(
+    fix.components[0].steps,
+    [step(FixStepKind::Restack, &[], &["root"], "a", "b"), step(FixStepKind::Restack, &[], &["root"], "b", "c")]
+  );
+  assert_eq!(fix.unresolved, Vec::<String>::new());
+  assert_applies(&repo, &fix);
+}
+
+#[test]
+fn a_search_out_of_budget_ends_with_the_best_plan_so_far() {
+  let (repo, _) = other_needs_feature(&[("(other) Add other", "other.txt", "other\n")]);
+  // a second conflict, of a branch of one commit: the direct answer restacks it
+  repo.create_commit("(base2) Add lib2", "lib2.txt", "a\nb\nc\n");
+  repo.create_commit("(base2/feature2) Change lib2", "lib2.txt", "a\nB\nc\n");
+  repo.create_commit("(other2) Change lib2 again", "lib2.txt", "a\nBB\nc\n");
+
+  let fix = find_fix(
+    &repo,
+    FixBudget {
+      trials: 1,
+      ..FixBudget::default()
+    },
+  );
+
+  assert_eq!(fix.search, SearchState::Budget);
+  assert_eq!(fix.trials, 1);
+  assert_eq!(fix.components.len(), 1, "{fix:?}");
+  assert_eq!(fix.components[0].steps, [step(FixStepKind::Restack, &[], &[], "feature2", "other2")]);
+  assert_eq!(fix.unresolved, ["other"]);
+}
+
+#[test]
+fn a_search_out_of_time_stops_before_its_first_trial() {
+  let (repo, _) = other_needs_feature(&[]);
+  let lines = std::sync::Mutex::new(Vec::new());
+  let run = FixRun {
+    budget: FixBudget {
+      time: std::time::Duration::ZERO,
+      ..FixBudget::default()
+    },
+    started: Instant::now(),
+    cancel: &AtomicBool::new(false),
+    progress: &|line| lines.lock().unwrap().push(line.to_string()),
+  };
+
+  let fix = session(&repo).find_conflict_fix(None, None, &run).unwrap();
+
+  assert_eq!((fix.search, fix.trials), (SearchState::Budget, 0));
+  assert_eq!(fix.unresolved, ["other"]);
+  let lines = lines.into_inner().unwrap();
+  assert_eq!(lines.len(), 1, "{lines:?}");
+  assert!(lines[0].starts_with("base check: 1 conflicting branch ("), "{lines:?}");
+}
+
+#[test]
+fn each_trial_is_a_line_of_progress() {
+  let (repo, _) = other_needs_feature(&[("(other) Add other", "other.txt", "other\n")]);
+  let lines = std::sync::Mutex::new(Vec::new());
+  let run = FixRun {
+    progress: &|line| lines.lock().unwrap().push(line.to_string()),
+    ..run(FixBudget::default())
+  };
+
+  let fix = session(&repo).find_conflict_fix(None, None, &run).unwrap();
+
+  let lines = lines.into_inner().unwrap();
+  assert_eq!(lines.len(), 1 + fix.trials as usize, "{lines:?}");
+  assert!(
+    lines.iter().any(|line| line.starts_with("trial 1/24: move 1 commit of other to feature … verified (")),
+    "{lines:?}"
+  );
 }

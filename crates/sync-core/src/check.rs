@@ -504,6 +504,19 @@ impl CheckSession {
   /// The check of `plan`; with `only`, of that branch and the branches it is built on, the others are not built and
   /// not in the report
   pub(crate) fn check_only(&self, plan: Option<&RegroupPlan>, only: Option<&str>, dangling_of: Option<&[String]>) -> Result<CheckReport, RegroupError> {
+    let report = self.check_until(plan, only, dangling_of, &|| false)?;
+    Ok(report.expect("a check that is never stopped has a report"))
+  }
+
+  /// `check_only` that `stop` ends before the next branch build and before the dangling references: `None` then, the
+  /// builds so far are thrown away (their merges stay in the memo). An empty `dangling_of` skips the dangling references
+  pub(crate) fn check_until(
+    &self,
+    plan: Option<&RegroupPlan>,
+    only: Option<&str>,
+    dangling_of: Option<&[String]>,
+    stop: &(dyn Fn() -> bool + Sync),
+  ) -> Result<Option<CheckReport>, RegroupError> {
     let (git_executor, repository_path, branch_prefix) = (&self.git_executor, self.repository_path.as_str(), self.branch_prefix.as_str());
     let no_plan = RegroupPlan::default();
     let regroup = plan_in_memory(&self.snapshot, plan.unwrap_or(&no_plan))?;
@@ -616,7 +629,12 @@ impl CheckSession {
       let _ = context.tree_id_cache.get_committer_timestamp(git_executor, repository_path, base);
     }
     let built_on_base = AtomicBool::new(false);
+    let stopped = AtomicBool::new(false);
     let outcomes = run_builds(&planned, base.as_deref(), ProcessPermits::for_operation().capacity(), |index, base_commit, on_parent| {
+      if stopped.load(Ordering::Relaxed) || stop() {
+        stopped.store(true, Ordering::Relaxed);
+        return CheckOutcome::Error { message: "Stopped".to_string() };
+      }
       if !on_parent {
         built_on_base.store(true, Ordering::Relaxed);
       }
@@ -633,12 +651,15 @@ impl CheckSession {
       self.remember_base(&context.tree_id_cache, base);
     }
 
-    let dangling = if only.is_some() {
+    if stopped.into_inner() || stop() {
+      return Ok(None);
+    }
+    let dangling = if only.is_some() || dangling_of.is_some_and(<[String]>::is_empty) {
       BTreeMap::new()
     } else {
       self.dangling_references(&regroup.previous_head, base.as_deref(), &checks, dangling_of)?
     };
-    Ok(CheckReport {
+    Ok(Some(CheckReport {
       head: regroup.previous_head.clone(),
       baseline_branch,
       base,
@@ -647,7 +668,13 @@ impl CheckSession {
       branches: checks,
       unassigned: unassigned.len(),
       dangling,
-    })
+    }))
+  }
+
+  /// The dangling references of the built branches of `report`, a check that looked for none (an empty `dangling_of`):
+  /// no build again
+  pub(crate) fn dangling_of_report(&self, report: &CheckReport) -> Result<BTreeMap<String, Vec<DanglingReference>>, RegroupError> {
+    self.dangling_references(&report.head, report.base.as_deref(), &report.branches, None)
   }
 
   /// `tree_id_cache` with the tree and committer date of `base`, when an earlier check learned them

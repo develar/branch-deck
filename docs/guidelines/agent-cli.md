@@ -724,7 +724,7 @@ HEAD's tree, so the index and the working tree stay as they are
 - `--dry-run` prints the blocks and checks the rewrite (the merges and the empty commits); it writes only git objects.
   `--sync` syncs under the same lock, as `bd group --sync` does. `bd undo <undo_token>` restores the previous head.
 
-### `bd check [--plan FILE | < plan.json] [--build COMMAND [--build-paths PATH…] [--rebuild]] [--fix]`
+### `bd check [--plan FILE | < plan.json] [--build COMMAND [--build-paths PATH…] [--rebuild]] [--fix [--max-trials N] [--time-budget SECONDS]]`
 
 A trial sync of a plan (`sync_core::check`), or of the current grouping without one. The plan is applied in memory
 and validated as `bd group --dry-run` does, `descriptions` included (an invalid plan is exit 2), the branches are
@@ -807,8 +807,13 @@ repository lock.
   rewritten}`; `plan` is the whole plan (the `--plan` included) for `bd group --plan … --expect-head <head> --sync`.
   A step is `move` (`commits` leave `from` for `to`, the branch whose stack has what they need), `pull_in` (what `to`
   needs comes into it from `from`; none for unassigned commits) or `restack` (`fixes` is stacked on `to`). `unresolved`
-  names the branches no candidate fixed; `search` is `complete`, or `budget` when the trial or time limit stopped it
-  (run it again: the merges of the first run are cached). See [Conflict Fix](../../spec/branch/conflict-fix.spec.md).
+  names the branches no candidate fixed; `search` is `complete`, or `budget` when the trial or time limit stopped it,
+  with the best plan so far (run it again: the merges of the first run are cached). `--max-trials N` (12) and
+  `--time-budget SECONDS` (180, from the start of the command) set the limits. A branch that conflicts as a whole is
+  restacked first, in one trial, on the branch (or the chain of branches) that holds what it needs; the dangling
+  references come after the conflicts. The search prints a line per trial on stderr (`trial 3/12: restack
+  control-runtime-peer-cancel on cloud-spawner-exit … verified (41 s)`). See
+  [Conflict Fix](../../spec/branch/conflict-fix.spec.md).
 
 ```json
 {"schema":2,…,"ok":false,"branches":[…],
