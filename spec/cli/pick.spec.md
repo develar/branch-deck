@@ -70,10 +70,24 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   the user sets wins.
   [@test] ../../crates/git-ops/src/pick_test.rs (`the_copies_get_the_newest_committer_date_so_the_check_names_the_commits_the_pick_writes`)
 - A commit whose change the branch has already must be listed in `already_present`, with `on`, the branch's commit of
-  the same patch id, or `null` when the branch has the change in another form; it must never become an empty commit.
-  When every commit is present, the state must be `up_to_date` and nothing must move.
+  the same patch id, or `null` when the branch has the change in another form, and `by`: `patch_id` or `empty`; it
+  must never become an empty commit. When every commit is present, the state must be `up_to_date` and nothing must
+  move.
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_commit_the_target_has_already_is_present_with_the_target_commit_of_its_patch`)
   [@test] ../../crates/bd-cli/src/pick_test.rs (`a_dry_run_writes_no_ref_and_a_pick_again_finds_every_commit_present`)
+- A commit of the range with the patch id of a branch commit above the base must be left out before the replay
+  (`by: "patch_id"`; the range's `log --cherry-mark --right-only <branch>...<source HEAD> ^<base> ^<upstream>`), so a
+  commit the branch has in a form that no longer applies (the branch changed the same lines since) never conflicts.
+  The rest must be replayed in segments between the left out commits, each onto the tip of the one before, so the
+  child of a left out commit lands on the copy before it: one chain, never a fork onto the branch's HEAD (as
+  `git replay --cherry-pick` would replay it). A commit the replay drops as empty is `by: "empty"`. Without a left out
+  commit the pick runs one `replay`, one more per segment otherwise.
+  [@test] ../../crates/git-ops/src/pick_test.rs (`a_commit_with_the_patch_id_of_a_target_commit_is_left_out_and_its_child_lands_on_the_copy_before_it`)
+- A conflict after a left out commit must be searched in its segment only, list the left out commits in
+  `already_present` and not in `clean`; `conflict.next` must say never to `git cherry-pick` in the shared checkout (it
+  leaves `CHERRY_PICK_HEAD`).
+  [@test] ../../crates/git-ops/src/pick_test.rs (`a_conflict_after_a_commit_left_out_by_its_patch_id_names_the_commit_and_lists_the_left_out_one`)
+  [@test] ../../crates/bd-cli/src/pick_test.rs (`a_conflict_changes_nothing_and_says_what_to_do`)
 - The range of a worktree must be `<source HEAD> ^<branch> ^<upstream> ^<base>`, the base being the fork point of the
   source in the reflog of the branch, so that a branch folded, regrouped or redated after the worktree was cut gives
   none of its old commits back.
@@ -161,6 +175,9 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   commits: the branch fast-forwards to them and the source does not move (`at_tip`).
 - The range of revisions (`<a>..<b>`) excludes the branch's history but not by the reflog: it names exactly the
   commits to pick.
+- The patch ids are compared with the branch's commits above the base and the upstream only (`^<upstream>` limits
+  both sides of the range): a commit that already reached the upstream in another form is not found by its patch id.
+  It drops as empty at the replay (`by: "empty"`) or conflicts.
 
 ## References
 

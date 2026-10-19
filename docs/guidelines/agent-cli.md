@@ -605,7 +605,7 @@ through the guarded update. `--follow` moves the source worktree onto the new ti
 {"schema":2,…,"branch":"master","state":"picked","dry_run":false,"source_worktree":"/Users/me/.branch-deck/pool/repo-1a2b3c4d/3/repo","base":"5f6a7b8c",
  "previous_head":"77e01aa4","new_head":"c0ffee12",
  "picked":[{"commit":"1b2c3d4e","new_id":"9d0e1f2a","subject":"(lane) Add the probe","group":"lane","grouped_by":"prefix"}],
- "already_present":[{"commit":"2c3d4e5f","subject":"(lane) Fix the build","on":"aa11bb22"}],
+ "already_present":[{"commit":"2c3d4e5f","subject":"(lane) Fix the build","on":"aa11bb22","by":"patch_id"}],
  "followed":{"worktree":"/Users/me/.branch-deck/pool/repo-1a2b3c4d/3/repo","previous_head":"3d4e5f60","new_head":"c0ffee12","state":"moved"},
  "undo_token":"pick:<full previous>..<full new>+follow:3:<full previous>..<full new>"}
 ```
@@ -619,7 +619,12 @@ through the guarded update. `--follow` moves the source worktree onto the new ti
   names the first commit that does not apply, the `clean` ones before it, its `files` and `next`, what to do: move the
   worktree onto the branch, redo the commit there, regenerate a generated file, never keep one side of a code hunk).
 - `already_present`: the commits whose change the branch has, with `on`, its commit of the same patch id (`null`: the
-  change is there in another form); never an empty commit, never a `CHERRY_PICK_HEAD`. `--dry-run` takes no lock and
+  change is there in another form), and `by`: `patch_id`, a commit of the branch above the base has its patch id and
+  it is left out before the replay (the commits after it replay onto the copy before it), or `empty`, the replay
+  dropped it; never an empty commit, never a `CHERRY_PICK_HEAD`. A commit that reached the upstream in another form is
+  not found by patch id (the upstream is outside the range): it drops as `empty` or conflicts. With `conflict`, only
+  the `patch_id` ones are listed. Never resolve a conflict with `git cherry-pick` in the shared checkout: it leaves
+  `CHERRY_PICK_HEAD`, which blocks every rewrite. `--dry-run` takes no lock and
   writes at most git objects: it answers "does the branch hold my commits?" by content, never by date.
 - `picked[].group` is the branch Branch Deck groups the copy into, `grouped_by` `prefix`, `issue_group`, `issue` or
   `none`: a subject without a prefix or an issue key lands unassigned. Write the `(branch)` prefix when you commit.

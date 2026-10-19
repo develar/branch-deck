@@ -95,7 +95,10 @@ fn a_dry_run_writes_no_ref_and_a_pick_again_finds_every_commit_present() {
   let (exit_code, again) = run_in(&repo, &["--full-ids", "pick", "--from", &lane.path]);
   assert_eq!(exit_code, 0, "{again}");
   assert_eq!(again["state"], json!("up_to_date"));
-  assert_eq!(again["already_present"], json!([{ "commit": lane_head, "subject": "(lane) Add b", "on": repo.head() }]));
+  assert_eq!(
+    again["already_present"],
+    json!([{ "commit": lane_head, "subject": "(lane) Add b", "on": repo.head(), "by": "patch_id" }])
+  );
   assert!(again.get("undo_token").is_none(), "{again}");
 }
 
@@ -114,7 +117,7 @@ fn a_conflict_changes_nothing_and_says_what_to_do() {
   );
   let next = output["conflict"]["next"].as_str().unwrap();
   assert!(
-    next.contains(&format!("rebase --onto {own}")) && next.contains(&format!("pick --from {} --follow", lane.path)),
+    next.contains(&format!("rebase --onto {own}")) && next.contains(&format!("pick --from {} --follow", lane.path)) && next.contains("Never `git cherry-pick`"),
     "{next}"
   );
   assert_eq!(repo.head(), own);
@@ -210,4 +213,14 @@ fn pick_outputs_match_the_schema() {
   assert_covered(pick_schema, pick_schema, &picked, "pick");
   let (_, undo) = run_in(&repo, &["undo", picked["undo_token"].as_str().unwrap()]);
   assert_covered(&schema["outputs"]["undo"], &schema["outputs"]["undo"], &undo, "undo of a pick");
+
+  // the branch has the commit by its patch: it is present, left out before the replay
+  git(&repo, &["cherry-pick", "-x", &lane.git(&["rev-parse", "HEAD"])]);
+  let (_, present) = run_in(&repo, &["pick", "--from", &lane.path, "--dry-run"]);
+  assert_eq!(
+    (&present["state"], &present["already_present"][0]["by"]),
+    (&json!("up_to_date"), &json!("patch_id")),
+    "{present}"
+  );
+  assert_covered(pick_schema, pick_schema, &present, "pick of a present commit");
 }

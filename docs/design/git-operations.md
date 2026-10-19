@@ -1034,7 +1034,9 @@ pick, and interleaves with a fold or an update of the owner.
 2. Guards: `check_update_guards` in the target; with `--follow`, no rebase, merge, cherry-pick or revert in progress
    in the source (the state files are per worktree). The source must be another worktree of the same repository
    (`repository_dirs`: the same common dir, another git dir).
-3. The range: `<source HEAD> ^<target HEAD> ^<upstream> ^<base>`. The base is `merge-base --fork-point
+3. The range: `<source HEAD> ^<target HEAD> ^<upstream> ^<base>`, read as `log --cherry-mark --right-only <target
+   HEAD>...<source HEAD> ^<base> ^<upstream>` with `%m`: one process gives the range and, by `=`, the commits that a
+   target commit above the base and the upstream has the patch id of. The base is `merge-base --fork-point
    refs/heads/<target> <source HEAD>`: the reflog of the target holds the commit the worktree was cut from, also after
    a fold, a regroup or new dates rewrote the target, so the target's old commits never come back. A source on a newer
    baseline (its merge base with the upstream is not in the target) is refused; without a fork point, a local shared
@@ -1046,11 +1048,19 @@ pick, and interleaves with a fold or an update of the owner.
    user sets it. This is a stated deviation from invariant 5, as the fixed committer of the resolve session is: the
    committer is still the current user, but the same pick writes the same commits (the dry run reports the tip the
    pick writes, a pick a second later too), a copy is never older than its parent, and the worktree's dates carry
-   over. A commit whose change the target has becomes empty and drops: the copies are matched back to the range by author, author time and subject, and the dropped ones
-   are `already_present`, each with the target's commit of the same patch id (`rev-list --cherry-mark --left-only` of
-   the target's side, then `pair_by_patch_id`, shared with the resolve session). A conflict: the first conflicting
-   commit by a binary search over the prefixes (`replay::first_conflict`, shared with the resolve session), its files
-   from one `merge-tree --write-tree --name-only -z` onto the longest clean prefix; nothing moves.
+   over. A commit marked `=` is left out before the replay (`already_present`, `by: patch_id`): the target has it in a
+   form that may no longer apply. The rest replays in segments between the left out commits, each `--onto` the tip
+   the one before printed (`<last> ^<target HEAD> ^<base> ^<upstream> ^<the left out commit before it>`): `git replay
+   --cherry-pick` is no fit, it replays the child of a filtered commit onto `--onto`, and the chain forks without a
+   word. One `replay` without a left out commit, one per segment otherwise. A commit whose change the target has in
+   another form becomes empty and drops: the copies are matched back to the kept commits by author, author time and
+   subject, and the dropped ones are `already_present` with `by: empty`. Only when something is present, each gets the
+   target's commit of the same patch id (`rev-list --cherry-mark --left-only` of the target's side, then
+   `pair_by_patch_id`, shared with the resolve session). A conflict: the first conflicting commit by a binary search
+   over the prefixes of the segment that conflicts, onto the tip before it (`replay::first_conflict`, shared with the
+   resolve session), its files from one `merge-tree --write-tree --name-only -z` onto the longest clean prefix;
+   nothing moves. The upstream bounds both sides: a commit that reached the upstream in another form is not found by
+   patch id, it drops as empty or conflicts.
 5. Both dry runs before either move: `blocking_paths` of the target (HEAD → new tip) and of the source (its HEAD →
    new tip), each on its own index copy and working tree.
 6. The target moves through `move_branch_and_files` (`branch-deck: pick`, the mark, CAS, rollback), then the source

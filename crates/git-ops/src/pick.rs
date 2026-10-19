@@ -1,6 +1,7 @@
 //! `bd pick`: land the commits of another worktree (or of a range) on the branch checked out here, without
-//! `git cherry-pick` (docs/design/git-operations.md, "Pick"). The commits are replayed in memory with `git replay` onto
-//! the target's HEAD, where a commit whose change the target has already becomes empty and drops; a dry run on a copy of
+//! `git cherry-pick` (docs/design/git-operations.md, "Pick"). A commit with the patch id of a target commit is left out
+//! before the replay; the others are replayed in memory with `git replay` onto the target's HEAD, in segments between
+//! the left out ones, where a commit whose change the target has already becomes empty and drops; a dry run on a copy of
 //! the index of each worktree proves its files can follow, and only then does the branch move, through the guarded
 //! update of `update_branch`. With `follow`, the source worktree moves onto the new tip the same way, a detached HEAD
 //! with `option no-deref`.
@@ -55,13 +56,23 @@ pub struct PickedCommit {
   pub subject: String,
 }
 
-/// A commit of the range whose change the target has already: `git replay` dropped it as empty
+/// How the target has the change of a commit of the range
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PresentBy {
+  /// A target commit has its patch id (`log --cherry-mark` of the range): left out before the replay
+  PatchId,
+  /// `git replay` dropped it as empty: the target has the change in another form
+  Empty,
+}
+
+/// A commit of the range whose change the target has already
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresentCommit {
   pub commit: String,
   pub subject: String,
   /// The target's commit with the same patch id; `None` when the target has the change in another form
   pub on: Option<String>,
+  pub by: PresentBy,
 }
 
 /// The first commit of the range that does not apply onto the target
@@ -114,6 +125,7 @@ pub struct PickCheck {
   /// HEAD after the pick; `head` on a conflict and when every commit is on the target already
   pub new_head: String,
   pub picked: Vec<PickedCommit>,
+  /// In the order of the range; on a conflict only those left out by patch id
   pub present: Vec<PresentCommit>,
   pub follow: Option<FollowCheck>,
   pub state: PickState,
@@ -157,6 +169,11 @@ pub enum PickRefusal {
 /// The range of a worktree is `<source HEAD> ^<target HEAD> ^<upstream> ^<base>`, the base being the fork point of the
 /// source in the reflog of the target branch: it sees through a fold, a regroup or new dates that the target got since
 /// the worktree was cut from it, so the target's old commits are never picked back.
+///
+/// A commit of the range with the patch id of a target commit above the base (and the upstream) is left out, and the
+/// rest is replayed in segments between the left out ones, each onto the tip of the one before: `git replay
+/// --cherry-pick` would replay the child of a left out commit onto `--onto`, a fork of the chain. One more replay per
+/// left out commit, none when nothing is left out.
 ///
 /// A range that starts at the target's HEAD is a fast-forward: the commits land as they are. Otherwise the copies keep
 /// their authors, the committer is the current user, and the committer date is the newest of the range's and HEAD's
@@ -205,8 +222,7 @@ pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &Pic
   excluded.extend(upstream_head.as_deref());
   ensure_no_merges(git_executor, target, &source_head, &excluded)?;
   let negated: Vec<String> = excluded.iter().map(|rev| format!("^{rev}")).collect();
-  let revs_to = |tip: &str| -> Vec<String> { std::iter::once(tip.to_string()).chain(negated.iter().cloned()).collect() };
-  let range = range_of(git_executor, target, &revs_to(&source_head))?;
+  let range = range_of(git_executor, target, &head, &source_head, &negated[1..])?;
 
   let mut check = PickCheck {
     branch,
@@ -220,7 +236,9 @@ pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &Pic
     follow: follow.as_ref().map(|(check, _)| check.clone()),
     state: PickState::Clean,
   };
+  let by_patch_id: Vec<PickCommit> = range.iter().filter(|commit| commit.same_patch).map(|commit| pick_commit(&commit.commit)).collect();
   if range.first().is_some_and(|oldest| oldest.parent == head) {
+    // the target is an ancestor of the source: it has no commit of its own to share a patch id with one of the range
     check.picked = range
       .iter()
       .map(|commit| PickedCommit {
@@ -230,25 +248,43 @@ pub fn check_pick(git_executor: &GitCommandExecutor, target: &str, request: &Pic
       })
       .collect();
     check.new_head.clone_from(&source_head);
-  } else if !range.is_empty() {
+  } else if range.iter().any(|commit| !commit.same_patch) {
     let date = committer_date(head_date, &range);
     let env: Vec<(&str, &str)> = date.iter().map(|date| ("GIT_COMMITTER_DATE", date.as_str())).collect();
-    let range: Vec<UpdateCommit> = range.into_iter().map(|commit| commit.commit).collect();
-    let revs = revs_to(&source_head);
-    let revs: Vec<&str> = revs.iter().map(String::as_str).collect();
-    let Some(new_head) = replay_range_with_env(git_executor, target, &head, &revs, &env)? else {
-      check.state = PickState::Conflict(conflict(git_executor, target, &head, &range, &revs_to, &env)?);
-      return Ok(PickPlan {
-        check,
-        files_change: false,
-        follow: None,
-      });
+    let replay = Replay {
+      git_executor,
+      target,
+      range: &range,
+      negated: &negated,
+      env: &env,
     };
-    let replayed = commits_of(git_executor, target, &[new_head.clone(), format!("^{head}")])?;
-    let (picked, present) = match_replayed(&range, &replayed);
-    check.present = present_on(git_executor, target, &head, &source_head, present)?;
+    let mut tip = head.clone();
+    for (first, last) in segments(&range) {
+      let Some(new_tip) = replay.segment(&tip, first, last)? else {
+        check.state = PickState::Conflict(replay.conflict(&tip, first, last)?);
+        check.present = present_on(git_executor, target, &head, &source_head, by_patch_id, &[])?;
+        return Ok(PickPlan {
+          check,
+          files_change: false,
+          follow: None,
+        });
+      };
+      tip = new_tip;
+    }
+    let kept: Vec<UpdateCommit> = range.iter().filter(|commit| !commit.same_patch).map(|commit| commit.commit.clone()).collect();
+    let replayed = commits_of(git_executor, target, &[tip.clone(), format!("^{head}")])?;
+    let (picked, dropped) = match_replayed(&kept, &replayed);
+    let present: Vec<PickCommit> = range
+      .iter()
+      .filter(|commit| commit.same_patch || dropped.iter().any(|dropped| dropped.id == commit.commit.id))
+      .map(|commit| pick_commit(&commit.commit))
+      .collect();
+    let dropped: Vec<&str> = dropped.iter().map(|commit| commit.id.as_str()).collect();
+    check.present = present_on(git_executor, target, &head, &source_head, present, &dropped)?;
     check.picked = picked;
-    check.new_head = new_head;
+    check.new_head = tip;
+  } else {
+    check.present = present_on(git_executor, target, &head, &source_head, by_patch_id, &[])?;
   }
 
   let changed = changed_paths(git_executor, target, &head, &check.new_head)?;
@@ -365,20 +401,31 @@ pub fn commits_to_pick(git_executor: &GitCommandExecutor, repo_path: &str, branc
   let mut excluded = vec![head, base.as_str()];
   excluded.extend(upstream_head.as_deref());
   ensure_no_merges(git_executor, repo_path, &source_head, &excluded)?;
-  let revs: Vec<String> = std::iter::once(source_head).chain(excluded.iter().map(|rev| format!("^{rev}"))).collect();
-  let range = range_of(git_executor, repo_path, &revs)?;
-  if range.is_empty() || range[0].parent == head {
-    return Ok(range.iter().map(|commit| pick_commit(&commit.commit)).collect());
+  let negated: Vec<String> = excluded.iter().map(|rev| format!("^{rev}")).collect();
+  let range = range_of(git_executor, repo_path, head, &source_head, &negated[1..])?;
+  // a commit with the patch id of a commit of the branch is there already
+  let kept: Vec<UpdateCommit> = range.iter().filter(|commit| !commit.same_patch).map(|commit| commit.commit.clone()).collect();
+  if range.is_empty() || range[0].parent == head || kept.is_empty() {
+    return Ok(kept.iter().map(pick_commit).collect());
   }
   let date = committer_date(head_date, &range);
   let env: Vec<(&str, &str)> = date.iter().map(|date| ("GIT_COMMITTER_DATE", date.as_str())).collect();
-  let commits: Vec<UpdateCommit> = range.into_iter().map(|commit| commit.commit).collect();
-  let rev_args: Vec<&str> = revs.iter().map(String::as_str).collect();
-  let Some(new_head) = replay_range_with_env(git_executor, repo_path, head, &rev_args, &env)? else {
-    return Ok(commits.iter().map(pick_commit).collect());
+  let replay = Replay {
+    git_executor,
+    target: repo_path,
+    range: &range,
+    negated: &negated,
+    env: &env,
   };
-  let replayed = commits_of(git_executor, repo_path, &[new_head, format!("^{head}")])?;
-  let (picked, _present) = match_replayed(&commits, &replayed);
+  let mut tip = head.to_string();
+  for (first, last) in segments(&range) {
+    let Some(new_tip) = replay.segment(&tip, first, last)? else {
+      return Ok(kept.iter().map(pick_commit).collect());
+    };
+    tip = new_tip;
+  }
+  let replayed = commits_of(git_executor, repo_path, &[tip, format!("^{head}")])?;
+  let (picked, _present) = match_replayed(&kept, &replayed);
   Ok(
     picked
       .into_iter()
@@ -399,21 +446,27 @@ fn commits_of(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[String
   Ok(parse_commits(&output))
 }
 
-/// A commit of the range: also its parent, which tells a fast-forward, and its committer date
+/// A commit of the range: also its parent, which tells a fast-forward, its committer date, and whether a target commit
+/// has its patch id
 #[derive(Debug)]
 struct RangeCommit {
   commit: UpdateCommit,
   parent: String,
   /// Raw, `<seconds> <offset>`
   committer_date: String,
+  /// `=` of `--cherry-mark`: a commit of the target's side has its patch id
+  same_patch: bool,
 }
 
-/// The commits of `revs`, oldest first, with their parents and committer dates (one `log`)
-fn range_of(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[String]) -> Result<Vec<RangeCommit>> {
-  // `COMMIT_FORMAT`, then the parent and the raw committer date
-  let format = format!("{COMMIT_FORMAT}%x00%P%x00%cd");
-  let mut args = vec!["log", "--reverse", "-z", "--date=raw", &format];
-  args.extend(revs.iter().map(String::as_str));
+/// The commits that `source_head` has and `head` lacks, without `excluded` (`^<base>`, `^<upstream>`), oldest first,
+/// with their parents, committer dates and patch id marks: one `log --cherry-mark --right-only <head>...<source_head>`,
+/// whose target side is the target's commits above the base and the upstream
+fn range_of(git_executor: &GitCommandExecutor, repo_path: &str, head: &str, source_head: &str, excluded: &[String]) -> Result<Vec<RangeCommit>> {
+  // `COMMIT_FORMAT`, then the parent, the raw committer date and the mark, `=` or `>`
+  let format = format!("{COMMIT_FORMAT}%x00%P%x00%cd%x00%m");
+  let symmetric = format!("{head}...{source_head}");
+  let mut args = vec!["log", "--reverse", "-z", "--date=raw", "--cherry-mark", "--right-only", &format, &symmetric];
+  args.extend(excluded.iter().map(String::as_str));
   args.push("--");
   let output = git_executor.execute_command(&args, repo_path)?;
   output
@@ -422,8 +475,8 @@ fn range_of(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[String])
     .map(|record| {
       // `-z` ends every record but the last with a NUL
       let record = record.trim_end_matches('\0');
-      let mut fields = record.rsplitn(3, '\0');
-      let (Some(committer_date), Some(parent), Some(commit)) = (fields.next(), fields.next(), fields.next()) else {
+      let mut fields = record.rsplitn(4, '\0');
+      let (Some(mark), Some(committer_date), Some(parent), Some(commit)) = (fields.next(), fields.next(), fields.next(), fields.next()) else {
         bail!("Unexpected log record {record:?}");
       };
       let commit = parse_commits(&format!("\x01{commit}")).pop().ok_or_else(|| anyhow!("Unexpected log record {record:?}"))?;
@@ -431,9 +484,83 @@ fn range_of(git_executor: &GitCommandExecutor, repo_path: &str, revs: &[String])
         commit,
         parent: parent.to_string(),
         committer_date: committer_date.to_string(),
+        same_patch: mark == "=",
       })
     })
     .collect()
+}
+
+/// The runs of the range between the commits left out by patch id, as `(first, last)` indices, oldest first
+fn segments(range: &[RangeCommit]) -> Vec<(usize, usize)> {
+  let mut segments: Vec<(usize, usize)> = Vec::new();
+  for (index, commit) in range.iter().enumerate() {
+    if commit.same_patch {
+      continue;
+    }
+    match segments.last_mut() {
+      Some((_, last)) if *last + 1 == index => *last = index,
+      _ => segments.push((index, index)),
+    }
+  }
+  segments
+}
+
+/// The replay of segments of the range
+struct Replay<'a> {
+  git_executor: &'a GitCommandExecutor,
+  target: &'a str,
+  range: &'a [RangeCommit],
+  /// `^<target HEAD> ^<base> [^<upstream>]`
+  negated: &'a [String],
+  env: &'a [(&'a str, &'a str)],
+}
+
+impl Replay<'_> {
+  /// Replay the commits `first..=last` of the range onto `onto`; `None` on a conflict
+  fn segment(&self, onto: &str, first: usize, last: usize) -> Result<Option<String>> {
+    let mut revs: Vec<&str> = vec![&self.range[last].commit.id];
+    revs.extend(self.negated.iter().map(String::as_str));
+    let before = first.checked_sub(1).map(|before| format!("^{}", self.range[before].commit.id));
+    revs.extend(before.as_deref());
+    Ok(replay_range_with_env(self.git_executor, self.target, onto, &revs, self.env)?)
+  }
+
+  /// The first conflicting commit of the segment `first..=last`, which conflicts onto `onto`: a binary search over its
+  /// prefixes, then the files of its merge onto the longest clean prefix
+  fn conflict(&self, onto: &str, first: usize, last: usize) -> Result<PickConflict> {
+    let (index, clean_tip) = first_conflict(first, last, onto.to_string(), |prefix_last| self.segment(onto, first, prefix_last))?;
+    let commit = &self.range[index].commit;
+    let merge_base = format!("--merge-base={}^", commit.id);
+    // `<tree>\0<file>\0...`, exit code 1 on conflicts
+    let output = self
+      .git_executor
+      .cmd(
+        &["merge-tree", "--write-tree", "--name-only", "-z", "--no-messages", &merge_base, &clean_tip, &commit.id],
+        self.target,
+      )
+      .accept(&[1])
+      .bytes()?;
+    let mut files: Vec<String> = output
+      .split(|&b| b == 0)
+      .skip(1)
+      .filter(|file| !file.is_empty())
+      .map(|file| file.to_str_lossy().into_owned())
+      .collect();
+    files.dedup();
+    let file_count = u32::try_from(files.len()).unwrap_or(u32::MAX);
+    files.truncate(kept(files.len(), MAX_BLOCKED_PATHS));
+    debug!(commit = %commit.id, file_count, "the pick conflicts");
+    Ok(PickConflict {
+      commit: pick_commit(commit),
+      clean: self.range[..index]
+        .iter()
+        .filter(|commit| !commit.same_patch)
+        .map(|commit| pick_commit(&commit.commit))
+        .collect(),
+      files,
+      file_count,
+    })
+  }
 }
 
 /// The committer date of the copies, as `GIT_COMMITTER_DATE`: the newest committer date of the range and of `head`,
@@ -479,9 +606,10 @@ fn match_replayed(range: &[UpdateCommit], replayed: &[UpdateCommit]) -> (Vec<Pic
   (picked, present)
 }
 
-/// The commits the replay dropped, each with the target commit of the same patch id: one `rev-list --cherry-mark
-/// --left-only` of the target's side, then `pair_by_patch_id`
-fn present_on(git_executor: &GitCommandExecutor, target: &str, head: &str, source_head: &str, present: Vec<PickCommit>) -> Result<Vec<PresentCommit>> {
+/// The commits the target has already, each with the target commit of the same patch id: one `rev-list --cherry-mark
+/// --left-only` of the target's side, then `pair_by_patch_id`. `dropped` are those the replay dropped as empty, the
+/// others were left out by patch id
+fn present_on(git_executor: &GitCommandExecutor, target: &str, head: &str, source_head: &str, present: Vec<PickCommit>, dropped: &[&str]) -> Result<Vec<PresentCommit>> {
   if present.is_empty() {
     return Ok(Vec::new());
   }
@@ -497,57 +625,16 @@ fn present_on(git_executor: &GitCommandExecutor, target: &str, head: &str, sourc
       .into_iter()
       .map(|commit| {
         let on = pairs.iter().find(|pair| pair.commit == commit.id).map(|pair| pair.upstream.clone());
+        let by = if dropped.contains(&commit.id.as_str()) { PresentBy::Empty } else { PresentBy::PatchId };
         PresentCommit {
           commit: commit.id,
           subject: commit.subject,
           on,
+          by,
         }
       })
       .collect(),
   )
-}
-
-/// The first conflicting commit of the range: a binary search over its prefixes, then the files of its merge onto the
-/// longest clean prefix
-fn conflict(
-  git_executor: &GitCommandExecutor,
-  target: &str,
-  head: &str,
-  range: &[UpdateCommit],
-  revs_to: &dyn Fn(&str) -> Vec<String>,
-  env: &[(&str, &str)],
-) -> Result<PickConflict> {
-  let (index, clean_tip) = first_conflict(0, range.len() - 1, head.to_string(), |last| {
-    let revs = revs_to(&range[last].id);
-    let revs: Vec<&str> = revs.iter().map(String::as_str).collect();
-    Ok(replay_range_with_env(git_executor, target, head, &revs, env)?)
-  })?;
-  let commit = &range[index];
-  let merge_base = format!("--merge-base={}^", commit.id);
-  // `<tree>\0<file>\0...`, exit code 1 on conflicts
-  let output = git_executor
-    .cmd(
-      &["merge-tree", "--write-tree", "--name-only", "-z", "--no-messages", &merge_base, &clean_tip, &commit.id],
-      target,
-    )
-    .accept(&[1])
-    .bytes()?;
-  let mut files: Vec<String> = output
-    .split(|&b| b == 0)
-    .skip(1)
-    .filter(|file| !file.is_empty())
-    .map(|file| file.to_str_lossy().into_owned())
-    .collect();
-  files.dedup();
-  let file_count = u32::try_from(files.len()).unwrap_or(u32::MAX);
-  files.truncate(kept(files.len(), MAX_BLOCKED_PATHS));
-  debug!(commit = %commit.id, file_count, "the pick conflicts");
-  Ok(PickConflict {
-    commit: pick_commit(commit),
-    clean: range[..index].iter().map(pick_commit).collect(),
-    files,
-    file_count,
-  })
 }
 
 fn blocked_state(worktree: &str, mut paths: Vec<String>) -> PickState {

@@ -7,7 +7,7 @@ use crate::context::{Environment, RepoContext};
 use crate::error::{CONFLICT_EXIT, CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
 use crate::update_command::{core_error, uncommitted_overlap};
-use git_ops::pick::{FollowState, PickRefusal, PickState};
+use git_ops::pick::{FollowState, PickRefusal, PickState, PresentBy};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -56,7 +56,8 @@ pub struct PickOutput {
   pub new_head: String,
   /// The commits replayed onto the branch, oldest first
   pub picked: Vec<PickedOutput>,
-  /// The commits whose change the branch has already: left out, never an empty commit
+  /// The commits whose change the branch has already: left out, never an empty commit; with `conflict` only those left
+  /// out by their patch id
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub already_present: Vec<PresentOutput>,
   /// With --follow: how the worktree of --from followed
@@ -140,6 +141,25 @@ pub struct PresentOutput {
   pub subject: String,
   /// The branch's commit with the same patch; `null` when the branch has the change in another form
   pub on: Option<String>,
+  /// `patch_id`: a commit of the branch has its patch id, so it was left out before the replay; `empty`: the replay
+  /// dropped it as empty, the branch has the change in another form
+  pub by: PresentByOutput,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PresentByOutput {
+  PatchId,
+  Empty,
+}
+
+impl From<PresentBy> for PresentByOutput {
+  fn from(by: PresentBy) -> Self {
+    match by {
+      PresentBy::PatchId => Self::PatchId,
+      PresentBy::Empty => Self::Empty,
+    }
+  }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -284,6 +304,7 @@ fn output(context: &RepoContext, result: &PickResult, dry_run: bool) -> Result<P
         commit: short.get(&commit.commit).to_string(),
         subject: commit.subject.clone(),
         on: commit.on.as_deref().map(|on| short.get(on).to_string()),
+        by: commit.by.into(),
       })
       .collect(),
     followed,
@@ -292,20 +313,22 @@ fn output(context: &RepoContext, result: &PickResult, dry_run: bool) -> Result<P
   })
 }
 
-/// What an agent does with a conflict: the source is moved onto the branch and the commit made again there
+/// What an agent does with a conflict: the source is moved onto the branch and the commit made again there, never with
+/// a `git cherry-pick` in the shared checkout
 fn next_step(context: &RepoContext, result: &PickResult, short: &ShortIds) -> String {
   let check = &result.check;
   let onto = short.get(&check.head);
   let base = short.get(&check.base);
   let resolve = "resolve it there: regenerate a generated file, never keep one side of a code hunk";
+  let no_cherry_pick = "Never `git cherry-pick` here: it leaves CHERRY_PICK_HEAD, which blocks every bd rewrite";
   match &check.follow {
     Some(follow) => format!(
       "Move the worktree onto {onto} (`git -C {worktree} rebase --onto {onto} {base}`), {resolve}, then run `{bd} pick --from {worktree} --follow` \
-       again",
+       again. {no_cherry_pick}",
       worktree = follow.worktree,
       bd = context.bd,
     ),
-    None => format!("Rebase the commits onto {onto} where they were made, {resolve}, then pick them again"),
+    None => format!("Rebase the commits onto {onto} where they were made, {resolve}, then pick them again. {no_cherry_pick}"),
   }
 }
 

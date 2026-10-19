@@ -316,10 +316,12 @@ adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a 
    it; the files follow, and --follow moves your worktree onto the new tip (its local changes on other paths stay).
    - `picked[]`: the copies, each with the `group` it lands in; `grouped_by: none` is a commit without a prefix: fix
      the subject before the owner groups it.
-   - `already_present[]`: commits whose change the branch has already (`on`: its commit with the same patch); never an
-     empty commit. `state: up_to_date`: nothing was left to pick.
+   - `already_present[]`: commits whose change the branch has already (`on`: its commit with the same patch; `by`:
+     `patch_id`, left out before the replay, or `empty`, the change in another form); never an empty commit.
+     `state: up_to_date`: nothing was left to pick.
    - `state: conflict` (exit 1): nothing changed. Do what `conflict.next` says: move your worktree onto the branch,
      make the commit again there, regenerate a generated file, never keep one side of a code hunk; then pick again.
+     Never `git cherry-pick` it into the shared checkout: it leaves `CHERRY_PICK_HEAD`, which blocks every rewrite.
    - `uncommitted_overlap` (exit 4): local files of the named worktree sit on paths the pick writes; ask the user.
      `range_unknown` or `source_on_newer_baseline` (exit 4): name the commits (`bd pick <first>^..<last>`), or let the
      owner update the branch first.

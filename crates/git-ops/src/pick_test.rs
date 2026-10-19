@@ -1,4 +1,4 @@
-use crate::pick::{FollowState, PickRefusal, PickRequest, PickSource, PickState, apply_pick, check_pick, check_pick_undo};
+use crate::pick::{FollowState, PickPlan, PickRefusal, PickRequest, PickSource, PickState, PresentBy, apply_pick, check_pick, check_pick_undo};
 use crate::revs::ref_exists;
 use crate::rewrite_guard::HeadMoved;
 use crate::update_branch::{GuardRefusal, PENDING_UPDATE_PREFIX, UndoCheck, apply_update_undo, finish_pending_update};
@@ -43,6 +43,17 @@ fn commit_at(repo: &TestRepo, worktree: &TestWorktree, message: &str, file: &str
   let env = [("GIT_AUTHOR_DATE", date.as_str()), ("GIT_COMMITTER_DATE", date.as_str())];
   repo.git_executor().cmd(&["commit", "-q", "-m", message], &worktree.path).env(&env).text().unwrap();
   worktree.head()
+}
+
+/// The conflict of `plan`, which must name `commit` on `a.txt` after the clean `(lane) clean`, nothing moved
+fn assert_conflict_on_a(plan: &PickPlan, commit: &str, head: &str) {
+  let PickState::Conflict(conflict) = &plan.check.state else {
+    panic!("not a conflict: {:?}", plan.check.state);
+  };
+  assert_eq!(conflict.commit.id, commit);
+  assert_eq!(conflict.clean.iter().map(|commit| commit.subject.as_str()).collect::<Vec<_>>(), ["(lane) clean"]);
+  assert_eq!(conflict.files, ["a.txt"]);
+  assert_eq!(plan.check.new_head, head);
 }
 
 /// Delete the reflog of the target branch: its fork points are gone
@@ -170,10 +181,74 @@ fn a_commit_the_target_has_already_is_present_with_the_target_commit_of_its_patc
   let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, false)).unwrap();
   assert_eq!(plan.check.state, PickState::Clean);
   assert_eq!(plan.check.picked.iter().map(|commit| commit.subject.as_str()).collect::<Vec<_>>(), ["(lane) new"]);
-  let present: Vec<(&str, Option<&str>)> = plan.check.present.iter().map(|commit| (commit.commit.as_str(), commit.on.as_deref())).collect();
-  assert_eq!(present, [(landed.as_str(), Some(copy.as_str())), (same_content.as_str(), None)]);
+  let present: Vec<(&str, Option<&str>, PresentBy)> = plan.check.present.iter().map(|commit| (commit.commit.as_str(), commit.on.as_deref(), commit.by)).collect();
+  assert_eq!(
+    present,
+    [(landed.as_str(), Some(copy.as_str()), PresentBy::PatchId), (same_content.as_str(), None, PresentBy::Empty)]
+  );
   apply_pick(repo.git_executor(), repo.path_str(), &plan).unwrap();
   assert_eq!(read(&repo, "d.txt"), "d\n");
+}
+
+#[test]
+fn a_commit_with_the_patch_id_of_a_target_commit_is_left_out_and_its_child_lands_on_the_copy_before_it() {
+  let repo = TestRepo::new();
+  repo.create_commit("base", "a.txt", "a\n");
+  let worktree = TestWorktree::detached(&repo);
+  worktree.commit("(lane) first", "b.txt", "b\n");
+  let landed = worktree.commit("(lane) landed", "a.txt", "lane\n");
+  let child = worktree.commit("(lane) child", "c.txt", "c\n");
+  // the target has the second by its patch, and changed the same line since: replayed, it would conflict
+  repo.git(&["cherry-pick", "-x", &landed]);
+  let copy = repo.head();
+  repo.create_commit("(own) same line", "a.txt", "own\n");
+
+  let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, false)).unwrap();
+  assert_eq!(plan.check.state, PickState::Clean);
+  assert_eq!(
+    plan
+      .check
+      .present
+      .iter()
+      .map(|commit| (commit.commit.as_str(), commit.on.as_deref(), commit.by))
+      .collect::<Vec<_>>(),
+    [(landed.as_str(), Some(copy.as_str()), PresentBy::PatchId)]
+  );
+  let picked: Vec<&str> = plan.check.picked.iter().map(|commit| commit.subject.as_str()).collect();
+  assert_eq!(picked, ["(lane) first", "(lane) child"]);
+  // one chain: the child's copy stands on the copy of the first, not on the target's HEAD
+  let child_copy = &plan.check.picked[1];
+  assert_eq!((child_copy.commit.as_str(), child_copy.new_id.as_str()), (child.as_str(), plan.check.new_head.as_str()));
+  assert_eq!(repo.git(&["rev-parse", &format!("{}^", plan.check.new_head)]), plan.check.picked[0].new_id);
+
+  apply_pick(repo.git_executor(), repo.path_str(), &plan).unwrap();
+  assert_eq!(subjects(&repo, "HEAD~2..HEAD"), ["(lane) first", "(lane) child"]);
+  assert_eq!(
+    (read(&repo, "a.txt"), read(&repo, "b.txt"), read(&repo, "c.txt")),
+    ("own\n".into(), "b\n".into(), "c\n".into())
+  );
+  let state_file = repo.git(&["rev-parse", "--path-format=absolute", "--git-path", "CHERRY_PICK_HEAD"]);
+  assert!(!std::path::Path::new(&state_file).exists());
+  assert_eq!(repo.git(&["status", "--porcelain", "--untracked-files=no"]), "");
+}
+
+#[test]
+fn a_conflict_after_a_commit_left_out_by_its_patch_id_names_the_commit_and_lists_the_left_out_one() {
+  let repo = TestRepo::new();
+  repo.create_commit("base", "a.txt", "a\n");
+  let worktree = TestWorktree::detached(&repo);
+  let landed = worktree.commit("(lane) landed", "b.txt", "b\n");
+  worktree.commit("(lane) clean", "c.txt", "c\n");
+  let conflicting = worktree.commit("(lane) conflicting", "a.txt", "lane\n");
+  repo.git(&["cherry-pick", "-x", &landed]);
+  let head = repo.create_commit("(own) same line", "a.txt", "own\n");
+
+  let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, false)).unwrap();
+  assert_conflict_on_a(&plan, &conflicting, &head);
+  assert_eq!(
+    plan.check.present.iter().map(|commit| (commit.commit.as_str(), commit.by)).collect::<Vec<_>>(),
+    [(landed.as_str(), PresentBy::PatchId)]
+  );
 }
 
 #[test]
@@ -252,13 +327,7 @@ fn a_conflict_names_the_first_conflicting_commit_and_moves_nothing() {
   let head = repo.create_commit("(own) same line", "a.txt", "own\n");
 
   let plan = check_pick(repo.git_executor(), repo.path_str(), &from(&worktree, true)).unwrap();
-  let PickState::Conflict(conflict) = &plan.check.state else {
-    panic!("not a conflict: {:?}", plan.check.state);
-  };
-  assert_eq!(conflict.commit.id, conflicting);
-  assert_eq!(conflict.clean.iter().map(|commit| commit.subject.as_str()).collect::<Vec<_>>(), ["(lane) clean"]);
-  assert_eq!(conflict.files, ["a.txt"]);
-  assert_eq!(plan.check.new_head, head);
+  assert_conflict_on_a(&plan, &conflicting, &head);
   apply_pick(repo.git_executor(), repo.path_str(), &plan).unwrap_err();
   assert_eq!(repo.head(), head);
 }
