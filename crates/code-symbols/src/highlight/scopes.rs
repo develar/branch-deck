@@ -86,7 +86,6 @@ impl Scopes {
     None
   }
 
-
   pub(crate) fn is_type_parameter(&self, name: &str) -> bool {
     self.frames.iter().any(|frame| frame.type_parameters.iter().any(|it| it == name))
   }
