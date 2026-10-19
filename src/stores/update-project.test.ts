@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { FetchBaselineResult, TransferProgress, UpdateCheck, UpdateProjectResult } from "@/lib/bindings"
+import { getOperationBlocker, getOperations, operationsStore, runOperation } from "@/stores/operations"
 import { runFetchBaseline, runUpdateProject, selectRunningUpdate, updateProjectStore } from "@/stores/update-project"
 
 /** A command of the backend that runs until the test finishes it */
@@ -102,6 +103,7 @@ function commandOf(repositoryPath: string): RunningCommand {
 
 beforeEach(() => {
   updateProjectStore.setState({ running: {}, refused: null })
+  operationsStore.setState({ running: [], claims: {} })
   backend.commands = []
   selection.path = "/a"
   syncs.count = 0
@@ -111,6 +113,26 @@ beforeEach(() => {
 })
 
 describe("the running update", () => {
+  it("waits for a rewrite of the repository that runs, and the rewrites wait for it: one rewrite at a time", async () => {
+    let finishRewrite!: () => void
+    const rewrite = runOperation(
+      { id: "unstack", subject: "branch:auth", objects: ["auth"], kind: "rewrite", label: "Unstacking auth", repositoryPath: "/a" },
+      () => new Promise<void>(resolve => (finishRewrite = resolve)),
+    )
+    await runUpdateProject()
+    expect(backend.commands).toEqual([])
+    expect(runningIn("/a")).toBeUndefined()
+    finishRewrite()
+    await rewrite
+
+    const update = runUpdateProject()
+    const move = { id: "move-to", subject: "branch:login", objects: ["login"], kind: "rewrite", repositoryPath: "/a" } as const
+    expect(getOperationBlocker(getOperations(), move)?.label).toBe("Updating the project")
+    commandOf("/a").finish({ status: "ok", data: UP_TO_DATE })
+    await update
+    expect(getOperations()).toEqual([])
+  })
+
   it("belongs to its repository: switching repositories never shows the other repository's phase", async () => {
     // the Fetch of a merge toast of /a
     const fetch = runFetchBaseline("/a")

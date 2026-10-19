@@ -12,6 +12,8 @@ import { advanceRun, finishRun, learnTimings, startRun } from "@/lib/update-prog
 import { recordUpdate } from "@/stores/activity"
 import { branchSyncStore, requestSync, setBaselineUpdate, syncBranches } from "@/stores/branch-sync"
 import { addLandedUpdate } from "@/stores/landed"
+import type { OperationKey } from "@/stores/operations"
+import { runOperation } from "@/stores/operations"
 import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
 import { getRecentProjects, updateProject } from "@/stores/settings/repositorySettings"
 
@@ -148,15 +150,30 @@ function applyProgress(run: UpdateRun, { phase, fetch }: UpdateProgress): Update
   return advanceRun(run, step, step === "apply" ? APPLYING_PLAN : run.plan, Date.now(), finishedDetail(run))
 }
 
+/** The operation of an update of the selected repository: a rewrite of it, as a regroup or a squash */
+export const UPDATE_OPERATION: OperationKey = { id: "update-project", subject: "repository", objects: [], kind: "rewrite" }
+
 /**
  * Fetches the baseline, checks the update and applies it if it is clean (Update Project, ⌘T). A conflict or a block
  * opens the dialog that explains it; nothing changed then. A sync follows every update whose fetch finished: the sync
  * of an applied update is the last step of its progress, the others show on Sync (`syncFetched`). One update at a time
- * in a repository.
+ * in a repository. A rewrite of the repository (`runOperation`): it waits for a
+ * running regroup or squash, said in a toast, and they wait for it; its progress is the run of this store.
  */
 export async function runUpdateProject(): Promise<void> {
   const repositoryPath = getSelectedProject()?.path
-  if (repositoryPath === undefined || !startRunning(repositoryPath, "update", initialPlan(repositoryPath))) {
+  if (repositoryPath === undefined) {
+    return
+  }
+  await runOperation(
+    { ...UPDATE_OPERATION, label: "Updating the project", repositoryPath },
+    () => updateProjectOf(repositoryPath),
+    reason => toast.add({ type: "info", title: "Cannot update the project", description: reason }),
+  )
+}
+
+async function updateProjectOf(repositoryPath: string): Promise<void> {
+  if (!startRunning(repositoryPath, "update", initialPlan(repositoryPath))) {
     return
   }
   // the steps that ended; the one that failed says nothing about its usual time

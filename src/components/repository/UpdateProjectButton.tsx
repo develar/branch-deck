@@ -26,9 +26,10 @@ import {
 import type { BaselineStatus } from "@/stores/branch-sync"
 import { useBaselineStatus } from "@/stores/branch-sync"
 import { useLanding } from "@/stores/landed"
+import { useOperationBlocker } from "@/stores/operations"
 import { useSelectedProjectField } from "@/stores/repository"
 import type { RunningUpdate } from "@/stores/update-project"
-import { runUpdateProject, useShownUpdate } from "@/stores/update-project"
+import { runUpdateProject, UPDATE_OPERATION, useShownUpdate } from "@/stores/update-project"
 
 /**
  * The state of the check as of the last fetch (`fetchTime`). A check that failed (e.g. a rebase in progress) says why:
@@ -179,6 +180,8 @@ export function UpdateProjectButton() {
 
 function UpdateProjectButtonContent({ status, shown }: ShownRun & { status: BaselineStatus }) {
   const running = activeRun(shown)
+  // a regroup or a squash runs: the update, a rewrite too, waits for it ("Unstacking oauth…")
+  const waitsFor = useOperationBlocker(UPDATE_OPERATION)
   const fetchTime = useFetchTime(status)
   const description = describeStatus(status, fetchTime)
   const landing = useLanding()
@@ -195,7 +198,7 @@ function UpdateProjectButtonContent({ status, shown }: ShownRun & { status: Base
               variant="ghost"
               size="sm"
               className={cn("tabular-nums", description.tone === "muted" && running === undefined && "text-muted-foreground")}
-              disabled={running !== undefined}
+              disabled={running !== undefined || waitsFor !== null}
               // the tooltip with the steps stays reachable while the update runs
               focusableWhenDisabled
               aria-busy={running !== undefined || undefined}
@@ -214,7 +217,7 @@ function UpdateProjectButtonContent({ status, shown }: ShownRun & { status: Base
         <TooltipContent data-testid="update-project-tooltip">
           {running === undefined ? (
             <div className="flex flex-col gap-0.5">
-              <span>{summary}</span>
+              <span>{waitsFor ?? summary}</span>
               <span className="flex items-center gap-1.5 opacity-70">
                 <FetchAndUpdateLine fetchTime={fetchTime} />
                 <Kbd>{isMac ? "⌘T" : "Ctrl+T"}</Kbd>

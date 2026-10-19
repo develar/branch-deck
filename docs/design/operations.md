@@ -127,10 +127,25 @@ an action that is an operation itself (rename, ungroup, squash fixups, close the
 The next step reads the operation on its row (`NextStepFacts.busy`): the slot's own action runs (`running`), the
 others wait with its busy state.
 
-### Not in the registry yet
+- **Update Project** (`runUpdateProject`, `UPDATE_OPERATION`): a rewrite of the repository for its whole run, the fetch
+  included: the backend lock would only queue its apply behind a regroup, and a regroup behind it; its steps and
+  percent stay in its own store (`update-progress.ts`), which ticks too often for the registry's subscribers.
 
-Push and stack push (`pushingBranches`, `stackPushes`), Safe Push and Dry Run (`safePushStore.starting`) and Update
-Project keep their own state; push already joins a second click itself.
+### Outside the registry
+
+Two runs keep their own record, each one place for every surface of it:
+
+- **Push and stack push** (`pushingBranches`, `stackPushes` in `branch-sync.ts`, the percent in `pushProgressStore`):
+  a stack push carries the branches it sends, learned after the sync it waits for; a push of the stack branch joins a
+  stack push that takes it along instead of waiting; a push never holds its row (its menu stays open, its button shows
+  the percent). A second click joins the running push (`pushOne`, `pushTogether`). A push inside an operation (the
+  creation of a pull request, a Safe Push start) is a step of it, not an operation of its own.
+- **The start of a Safe Push or a Dry Run** (`safePushStore.starting`): its steps (checking, pushing, starting) span
+  the check, the popover the user answers, and the start; the next step reads it as the row's busy state
+  (`busyFact`), the slot shows its step.
+
+Both are read where the registry is: the next step, the menus and the keys see a push or a start as they see an
+operation.
 
 ## Key Decisions
 
@@ -148,3 +163,6 @@ Project keep their own state; push already joins a second click itself.
 5. **Decision**: the identical error toast updates in place (`notifyError` passes an id of the title and the
    description; Base UI updates the open toast of that id).
    **Rationale**: a poll or two surfaces must not stack copies of one error; Activity still records each.
+6. **Decision**: the push and the start of a Safe Push keep their own record.
+   **Rationale**: what they hold (the branches a stack push sends, its percent, a start's step across a popover) is not
+   an operation's; their surfaces already read one record each, join a second click and show one indicator.
