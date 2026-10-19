@@ -6,7 +6,7 @@
 
 use crate::context::RepoContext;
 use crate::error::{CONFLICT_EXIT, CliError, ErrorCode};
-use crate::output::{SchemaVersion, ShortIds};
+use crate::output::{ResolvedByWords, ResolvedFileEntry, SchemaVersion, ShortIds};
 use crate::sync_command::{LandedSummary, is_zero, landed_ids, landed_summary};
 use git_ops::revs::short_id;
 use git_ops::rewrite_guard::HeadMoved;
@@ -15,6 +15,7 @@ use git_ops::update_branch::{
   pending_update,
 };
 use git_ops::update_resolve::{ConflictKind, Outcome, RefusalKind, Resolution, ResolveError, SessionState, SessionStatus, Side};
+use git_ops::word_replay::UpdateResolvedCommit;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt::Write as _;
@@ -153,6 +154,25 @@ pub struct UpdateOutput {
   /// one to the user
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub resolutions: Vec<UpdateResolution>,
+  /// The local commits whose conflict of git the update resolved by words (`branchdeck.resolveByWords`), oldest first:
+  /// the update replayed them where git stopped (with --dry-run: would replay them). Tell the user
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub resolved: Vec<UpdateResolvedByWords>,
+}
+
+/// A local commit whose conflict of git the update resolved by words
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct UpdateResolvedByWords {
+  /// The local commit
+  pub commit: String,
+  /// The commit the update wrote for it; omitted with --dry-run, whose replay is a preview
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub new_id: Option<String>,
+  /// The round of the resolve session that resolved itself by words; omitted for an update without a session
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub round: Option<u32>,
+  #[serde(flatten)]
+  pub resolved: ResolvedByWords,
 }
 
 impl UpdateOutput {
@@ -189,6 +209,10 @@ pub struct UpdateSession {
   /// output), so a long session doesn't repeat every earlier round
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub resolutions: Vec<UpdateResolution>,
+  /// The rounds so far that resolved themselves by words (`branchdeck.resolveByWords`), in every round and in
+  /// `--status`: no agent saw them, so `round` counts them too
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub resolved: Vec<UpdateResolvedByWords>,
   /// Uncommitted, staged or untracked files on paths the update likely writes: they block the finish. Ask the user about
   /// them before you resolve. At most the first 100 (all 101 rather than one left out)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -285,17 +309,25 @@ pub struct UpdateResolution {
   pub commit: String,
   /// The commit written for it; `null` when `--drop-empty` dropped the commit
   pub new_id: Option<String>,
-  /// The resolution changes nothing: `kept` (an empty commit, `--allow-empty`) or `dropped` (`--drop-empty`)
+  /// The resolution changes nothing: `kept` (an empty commit, `--allow-empty`) or `dropped` (`--drop-empty`, or a round
+  /// that the words left without a change: the baseline has it)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub empty: Option<String>,
+  /// The round resolved itself by words (`branchdeck.resolveByWords`): the conflicts of git that the words resolved. No
+  /// agent saw it; omitted for a round you resolved
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub words: Option<u32>,
   pub files: Vec<ResolvedFile>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ResolvedFile {
   pub path: String,
-  /// `edited`, `onto`, `commit` or `deleted`
+  /// `edited`, `onto`, `commit`, `deleted` or `words` (the round resolved itself by words)
   pub how: String,
+  /// With `words`: the conflicts of git in the file that the words resolved
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub conflicts: Option<u32>,
   /// Lines the new parent added in a conflict block that the resolution dropped: show them to the user
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub dropped_upstream_lines: Vec<String>,
@@ -576,6 +608,7 @@ fn session_of(view: &SessionView, short: &ShortIds, bd: &str, history: bool) -> 
     commit,
     files,
     resolutions: if history { resolutions_of(&state.resolutions, short) } else { Vec::new() },
+    resolved: resolved_rounds(&state.resolutions, short),
     blocked_paths: view.blocked_paths.iter().take(kept(view.blocked_paths.len(), MAX_BLOCKED_PATHS)).cloned().collect(),
     blocked_paths_omitted: omitted(view.blocked_paths.len(), kept(view.blocked_paths.len(), MAX_BLOCKED_PATHS)),
     landed_dropped: landed_dropped_of(view, short),
@@ -629,6 +662,7 @@ fn resolutions_of(resolutions: &[Resolution], short: &ShortIds) -> Vec<UpdateRes
       commit: short.get(&resolution.commit).to_string(),
       new_id: resolution.resolved.as_deref().map(|id| short.get(id).to_string()),
       empty: resolution.empty.then(|| if resolution.dropped() { "dropped" } else { "kept" }.to_string()),
+      words: resolution.words,
       files: resolution
         .paths
         .iter()
@@ -644,8 +678,61 @@ fn resolutions_of(resolutions: &[Resolution], short: &ShortIds) -> Vec<UpdateRes
           .to_string(),
           dropped_upstream_lines: path.dropped_upstream_lines.clone(),
           dropped_commit_lines: path.dropped_commit_lines.clone(),
+          conflicts: path.conflicts,
         })
         .collect(),
+    })
+    .collect()
+}
+
+/// The rounds of a session that resolved themselves by words
+fn resolved_rounds(resolutions: &[Resolution], short: &ShortIds) -> Vec<UpdateResolvedByWords> {
+  resolutions
+    .iter()
+    .filter_map(|resolution| {
+      let conflicts = resolution.words?;
+      let files: Vec<ResolvedFileEntry> = resolution
+        .paths
+        .iter()
+        .map(|path| ResolvedFileEntry {
+          path: path.path.clone(),
+          conflicts: path.conflicts.unwrap_or_default(),
+        })
+        .collect();
+      Some(UpdateResolvedByWords {
+        commit: short.get(&resolution.commit).to_string(),
+        new_id: resolution.resolved.as_deref().map(|id| short.get(id).to_string()),
+        round: Some(resolution.round),
+        resolved: ResolvedByWords {
+          conflicts,
+          file_count: u32::try_from(files.len()).unwrap_or(u32::MAX),
+          files,
+        },
+      })
+    })
+    .collect()
+}
+
+/// The commits an update check resolved by words; without the new ids for a dry run
+fn resolved_commits(resolved: &[UpdateResolvedCommit], short: &ShortIds, dry_run: bool) -> Vec<UpdateResolvedByWords> {
+  resolved
+    .iter()
+    .map(|commit| UpdateResolvedByWords {
+      commit: short.get(&commit.commit).to_string(),
+      new_id: (!dry_run).then(|| short.get(&commit.new_id).to_string()),
+      round: None,
+      resolved: ResolvedByWords {
+        conflicts: commit.conflicts,
+        file_count: u32::try_from(commit.files.len()).unwrap_or(u32::MAX),
+        files: commit
+          .files
+          .iter()
+          .map(|file| ResolvedFileEntry {
+            path: file.path.clone(),
+            conflicts: file.conflicts,
+          })
+          .collect(),
+      },
     })
     .collect()
 }
@@ -709,6 +796,7 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
     conflict: None,
     session: None,
     resolutions: resolution.map_or_else(Vec::new, |resolution| resolutions_of(&[resolution], &short)),
+    resolved: Vec::new(),
   };
   match applied {
     Some((previous_head, new_head, (replayed, dropped, dropped_by_resolution), landed)) => {
@@ -722,6 +810,7 @@ fn session_output(context: &RepoContext, outcome: SessionOutcome, dry_run: bool,
       output.undo_token = Some(UpdateUndoToken { previous_head, new_head }.to_string());
       output.landed = landed_summary(landed, &short);
       output.resolutions = resolutions_of(&state.resolutions, &short);
+      output.resolved = resolved_rounds(&state.resolutions, &short);
     }
     None => output.session = Some(session_of(&view, &short, bd, false)),
   }
@@ -805,6 +894,7 @@ fn output(context: &RepoContext, check: &UpdateCheck, applied: Option<(&str, u32
   if let UpdateState::Conflict { commits, upstream_commits, .. } = &check.state {
     ids.extend(commits.iter().chain(upstream_commits).map(|commit| commit.id.as_str()));
   }
+  ids.extend(check.resolved_by_words.iter().flat_map(|commit| [commit.commit.as_str(), commit.new_id.as_str()]));
   let short = context.short_ids(ids);
   let conflict = match &check.state {
     UpdateState::Conflict {
@@ -845,6 +935,7 @@ fn output(context: &RepoContext, check: &UpdateCheck, applied: Option<(&str, u32
     conflict,
     session: None,
     resolutions: Vec::new(),
+    resolved: resolved_commits(&check.resolved_by_words, &short, dry_run),
     dropped_by_resolution: None,
     landed_dropped: Vec::new(),
   })

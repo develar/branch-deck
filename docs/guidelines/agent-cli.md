@@ -523,6 +523,9 @@ lock, checks again and applies a clean update. The fetch runs before the lock, s
 
 - `state` is `up_to_date`, `fast_forward` or `rebase`; `replayed`, `dropped_already_upstream` and `undo_token` come
   only with a change. `landed` lists the local commits the baseline has, which the update dropped.
+- `resolved` lists the local commits whose conflict of git the update resolved by words (`branchdeck.resolveByWords`,
+  as in `bd sync`): `commit`, `new_id` (not for a dry run), `conflicts`, `file_count` and `files`. An update whose
+  every conflict resolves so is a `rebase` without a session.
 - A conflict starts a resolve session (below): `state` `conflict`, exit 1. With `--dry-run`, nothing starts: `conflict`
   lists the likely conflicting `files` (the first 50; `files_omitted` counts the rest), the local `commits` and the
   `upstream_commits` that change them (`commit`, `subject`, `author`, `files`).
@@ -576,6 +579,9 @@ the contract is the spec. The mechanics behind it:
   heading, is text.
 - A round prints its own files only: the rounds resolved so far are in the `resolutions` of the finish and of
   `bd update --status`, not repeated in every round, so a long session stays as small as its open round.
+- A round that resolves by words resolves itself (see "Resolve by words" in [Git Operations](../design/git-operations.md)):
+  it counts in `round`, and `session.resolved` of every round lists it, so the number of the open round is never a
+  surprise. Its resolution has `words`, and its files `how: "words"`.
 - A refusal names the round and its commit and changes nothing: the round stays open, and the copies keep the edits;
   `edited` per file says whether a copy differs from bd's merge result.
 - The copies live in `branch-deck/resolve/r<n>/{edit,before,onto,commit}/<key>-<basename>` of the worktree's git dir,

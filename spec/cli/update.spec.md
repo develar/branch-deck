@@ -68,6 +68,14 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   change nothing, and exit with 1. The output goes into an agent's context: `files` lists the first 50, the ones
   with their commits, and `files_omitted` counts the rest; never one left out: 51 are all listed, with their commits.
   [@test] ../../crates/bd-cli/src/update_test.rs (`dry_run_neither_fetches_nor_writes`, `a_dry_run_reports_the_files_and_commits_of_a_conflict_and_changes_nothing`, `a_dry_run_of_a_wide_conflict_lists_the_first_files_and_counts_the_rest`)
+- With `branchdeck.resolveByWords` on (the default), an update whose every conflict of git resolves by words must
+  apply as a clean `rebase`, with no session. The commit that the words resolve keeps the author and the message of
+  the local commit. The output must list each one in `resolved`: the `commit`, its `new_id` (omitted for a dry run),
+  `conflicts`, `file_count` and `files` with their conflicts. Each one must get a note in
+  `refs/notes/branch-deck/resolve` with `resolved-by-words` and a `words` line per file.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`an_update_whose_conflict_resolves_by_words_applies_and_names_the_commit`)
+  [@test] ../../crates/git-ops/src/update_resolve_test.rs (`an_update_whose_every_conflict_resolves_by_words_applies_without_a_session`)
+  [@test] ../../crates/git-ops/src/word_replay_test.rs (`a_conflict_that_resolves_by_words_is_committed_and_the_rest_replays_onto_it`, `a_commit_whose_words_conflict_too_stops_the_replay`)
 - A rebase, merge, cherry-pick or revert in progress must be `operation_in_progress` (exit 4) for the update and its
   dry run, moving neither the branch nor the files.
   [@test] ../../crates/bd-cli/src/update_test.rs (`update_and_its_dry_run_are_refused_during_a_cherry_pick`)
@@ -173,6 +181,13 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`binary_and_file_directory_conflicts_are_refused_and_start_no_session`, `a_rename_and_a_delete_resolve_with_a_take`)
   [@test] ../../crates/git-ops/src/update_resolve_test.rs (`only_text_and_modify_delete_conflicts_are_supported`)
   [@test] ../../crates/git-ops/src/merge_tree_output.rs (`parses_the_tree_the_stages_and_the_messages`, `a_clean_merge_has_only_the_tree`)
+- With `branchdeck.resolveByWords` on, a conflicting commit whose conflict of git its words resolve must be a round
+  that resolves itself: it counts in `round`, and the agent gets the next round that does not resolve. Every round
+  and `--status` must list these rounds in `session.resolved` (`round`, `commit`, `new_id`, `conflicts`, `files`), so
+  a round number never skips without a reason. Their resolution has `words` (the conflicts), and each file `how:
+  "words"` with its `conflicts`. A commit that the words leave without a change is dropped, as `git replay` drops one.
+  [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_round_that_resolves_by_words_is_named_in_the_next_round_the_status_and_the_finish`)
+  [@test] ../../crates/git-ops/src/update_resolve_test.rs (`a_round_that_its_words_resolve_counts_and_the_agent_gets_the_next_one`, `a_later_round_that_its_words_resolve_resolves_in_the_continue_and_the_finish_notes_it`)
 - A second conflicting commit must open a new round with its own directory; the copies of the closed round are
   removed. `--round <n>` of another round must be `round_moved` (exit 3, retryable: read the open round and retry): its message says that
   `bd update` prints the open round.
@@ -261,10 +276,12 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 - The finish must move the branch from the session's HEAD to the replayed tip with the reflog message
   `branch-deck: update project`, the files following through the guarded update, and print `state: "rebase"`, the
   `undo_token` and `resolutions`: per round the `commit`, its `new_id` and per file `how` (`edited`, `onto`,
-  `commit`, `deleted`) with the dropped lines. The session ref and the copies must be gone afterwards.
+  `commit`, `deleted`, `words`) with the dropped lines. The rounds that resolved themselves are in `resolved` too. The
+  session ref and the copies must be gone afterwards.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`)
 - Each resolved commit must get a note in `refs/notes/branch-deck/resolve` (the session, the round, the original
-  commit, the outcome per path), written only by the finish, in its ref transaction.
+  commit, `resolved-by-words` for a round that resolved itself, the outcome per path), written only by the finish, in
+  its ref transaction.
   [@test] ../../crates/bd-cli/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`)
 - Local changes on paths the finish writes must be `uncommitted_overlap` (exit 4) with the `paths`, and keep the
   session `ready` with its resolutions; a later `--continue` only finishes.

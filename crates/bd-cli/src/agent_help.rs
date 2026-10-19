@@ -227,7 +227,9 @@ Exit 1: a commit conflicts, and a resolve session opens, one round per conflicti
 and branch, and keeps the baseline it started with; peers' commits on top of HEAD join it as more rounds. Running
 `bd update` again prints the open round (and writes its missing copies); `state: pending` (exit 1) means every
 commit is resolved and `session.next` finishes. Local commits whose patch the baseline has already (`git cherry`) are left out
-as `git rebase` does: `landed_dropped`.
+as `git rebase` does: `landed_dropped`. A conflict of git that its words resolve (`branchdeck.resolveByWords`, on by
+default) needs no round: the update commits the result and lists the commit in `resolved` (`commit`, `new_id`,
+`conflicts`, `files`); tell the user. When every conflict resolves so, the update applies with exit 0.
 
 A round (`state: conflict`, `session`):
 - `session.commit`: the local commit being replayed, its `subject`, `body` and `patch` (the commit as a patch: the
@@ -239,7 +241,8 @@ A round (`state: conflict`, `session`):
   `session.marker_labels` names the ids after the markers. `session.blocked_paths`: local changes that will block the
   finish (the first 100, all 101 rather than one left out; `blocked_paths_omitted` counts the rest); ask the user
   about them first. `session.next` is the command that continues. A round prints only its own files;
-  `bd update --status` adds the rounds resolved so far.
+  `bd update --status` adds the rounds resolved so far. `session.resolved` lists the rounds that resolved
+  themselves by words: they count in `round`, so round 3 can be your first.
 - Edit only the files at `edit`, never the same path in the working tree. Keep the change of `onto` and reapply the
   intent of the commit; change only the lines between the markers, keep the line ends, and remove every marker. A
   change that the commit needs outside the blocks or in another file goes into a `fixup! <subject>` commit after the
@@ -259,7 +262,8 @@ open and the copies keep your edits (`edited` in the round). `round_moved` (exit
 another round is open; `bd update` prints it. `empty_resolution` (exit 2): the resolution leaves the commit without
 changes; ask the user, then add --allow-empty (keep an empty commit) or --drop-empty <commit> (drop it).
 At exit 0, `resolutions[]` lists per round the `commit`, its `new_id` (`empty`: kept or dropped) and per file
-`how` (edited, onto, commit, deleted) with `dropped_upstream_lines` and `dropped_commit_lines`: the lines of a side's
+`how` (edited, onto, commit, deleted; words for a round that resolved itself, with `words` on the round) with
+`dropped_upstream_lines` and `dropped_commit_lines`: the lines of a side's
 change that the result lost. Report each resolution to the user, these lines first. Then build and test: on a failure
 commit the fix as `fixup! <subject>` and run `bd fold`, or take the update back with `bd undo <undo_token>`.
 

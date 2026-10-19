@@ -1060,3 +1060,69 @@ fn field_shaped_conflicts_resolve_as_the_hints_say() {
   let (exit_code, done) = run_in(&clone, &["update"]);
   assert_eq!((exit_code, &done["state"]), (0, &json!("rebase")), "{done}");
 }
+
+/// A clone whose `(auth)` commit changes the first word of line 2 and an upstream that changes its last word: git
+/// conflicts, the words resolve
+fn words_clone() -> (TestRepo, TestRepo) {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("shared.txt", "one\nalpha beta gamma\nthree\n"), ("other.txt", "other\n")]);
+  clone.create_commit("(auth) Change alpha", "shared.txt", "one\nALPHA beta gamma\nthree\n");
+  upstream.create_commit("Change gamma upstream", "shared.txt", "one\nalpha beta GAMMA\nthree\n");
+  (upstream, clone)
+}
+
+#[test_log::test]
+fn an_update_whose_conflict_resolves_by_words_applies_and_names_the_commit() {
+  let (upstream, clone) = words_clone();
+  let local = clone.head();
+  git(&clone, &["fetch", "-q"]);
+  let (exit_code, preview) = run_in(&clone, &["--full-ids", "update", "--dry-run"]);
+  assert_eq!((exit_code, &preview["state"]), (0, &json!("rebase")), "{preview}");
+  assert_eq!(
+    preview["resolved"],
+    json!([{ "commit": local, "conflicts": 1, "file_count": 1, "files": [{ "path": "shared.txt", "conflicts": 1 }] }])
+  );
+
+  let (exit_code, done) = run_in(&clone, &["--full-ids", "update"]);
+  assert_eq!((exit_code, &done["state"]), (0, &json!("rebase")), "{done}");
+  let new_id = clone.head();
+  assert_eq!(
+    done["resolved"],
+    json!([{ "commit": local, "new_id": new_id, "conflicts": 1, "file_count": 1, "files": [{ "path": "shared.txt", "conflicts": 1 }] }])
+  );
+  assert_eq!(done.get("session"), None, "{done}");
+  assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
+  assert_eq!(read(clone.path().join("shared.txt").to_str().unwrap()), "one\nALPHA beta GAMMA\nthree\n");
+  assert!(git(&clone, &["notes", "--ref=refs/notes/branch-deck/resolve", "show", "HEAD"]).contains("words\tshared.txt"));
+}
+
+#[test_log::test]
+fn a_round_that_resolves_by_words_is_named_in_the_next_round_the_status_and_the_finish() {
+  let (upstream, clone) = words_clone();
+  let words = clone.head();
+  // a second commit with a conflict that the words leave
+  clone.create_commit("(auth) Change other", "other.txt", "mine\n");
+  upstream.create_commit("Change other upstream", "other.txt", "theirs\n");
+
+  let (exit_code, round) = run_in(&clone, &["--full-ids", "update"]);
+  assert_eq!((exit_code, &round["session"]["round"], &round["session"]["replayed"]), (1, &json!(2), &json!(1)), "{round}");
+  assert_eq!(round["session"]["commit"]["subject"], json!("(auth) Change other"));
+  let resolved = &round["session"]["resolved"];
+  assert_eq!(
+    (&resolved[0]["round"], &resolved[0]["commit"], &resolved[0]["conflicts"]),
+    (&json!(1), &json!(words), &json!(1)),
+    "{round}"
+  );
+
+  let (_, status) = run_in(&clone, &["--full-ids", "update", "--status"]);
+  assert_eq!(status["session"]["resolved"], *resolved, "{status}");
+  let first = &status["session"]["resolutions"][0];
+  assert_eq!((&first["round"], &first["words"]), (&json!(1), &json!(1)), "{status}");
+  assert_eq!(first["files"][0], json!({ "path": "shared.txt", "how": "words", "conflicts": 1 }));
+
+  std::fs::write(edit_of(&round, "other.txt"), "theirs mine\n").unwrap();
+  let (exit_code, done) = run_in(&clone, &["--full-ids", "update", "--continue", "--round", "2"]);
+  assert_eq!((exit_code, done["resolutions"].as_array().map(Vec::len)), (0, Some(2)), "{done}");
+  assert_eq!(done["resolved"][0]["round"], json!(1), "{done}");
+  assert_eq!(done["resolutions"][1]["words"], Value::Null, "{done}");
+  assert_eq!(read(clone.path().join("shared.txt").to_str().unwrap()), "one\nALPHA beta GAMMA\nthree\n");
+}
