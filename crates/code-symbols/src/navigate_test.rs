@@ -1,7 +1,7 @@
 //! The name at a place and its declaration in the same file, by the scopes of each grammar
 
 use crate::highlight::Grammar;
-use crate::navigate::{Position, ReferenceAt, ReferenceKind, reference_at};
+use crate::navigate::{Access, Position, ReferenceAt, ReferenceKind, Usage, reference_at, usages_at, usages_of};
 use pretty_assertions::assert_eq;
 
 /// The reference at the first `needle` of the text, its `skip`-th occurrence on its line counted from 0
@@ -100,4 +100,66 @@ fn finds_a_called_function_declared_later_in_the_file() {
   let text = "fun run() = outsider() + inner()\n\nfun inner() = 2\n";
   let inner = at(Grammar::Kotlin, text, "inner", 0);
   assert_eq!((inner.kind, local(&inner)), (ReferenceKind::Call, Some((2, 4))));
+}
+
+/// The line, column and access of each usage
+fn places(usages: &[Usage]) -> Vec<(u32, u32, Access)> {
+  usages.iter().map(|it| (it.start.line, it.start.column, it.access)).collect()
+}
+
+/// Whether the usages at the `occurrence`-th `needle` are of a local, and where they are
+fn usages(grammar: Grammar, text: &str, needle: &str, occurrence: usize) -> (bool, Vec<(u32, u32, Access)>) {
+  let reference = at(grammar, text, needle, occurrence);
+  let found = usages_at(grammar, text, reference.start).unwrap();
+  assert_eq!(found.name, needle);
+  (found.local, places(&found.usages))
+}
+
+#[test]
+fn finds_the_usages_of_a_kotlin_parameter_apart_from_the_property_it_shadows() {
+  // the parameter `count`: its declaration, its read on the right of `+=` and in the lambda
+  assert_eq!(
+    usages(Grammar::Kotlin, KOTLIN, "count", 3),
+    (true, vec![(2, 24, Access::Declaration), (3, 18, Access::Read), (6, 18, Access::Read)])
+  );
+  // the property: its declaration and the write through `this`, which other files may use too
+  assert_eq!(
+    usages(Grammar::Kotlin, KOTLIN, "count", 0),
+    (false, vec![(1, 14, Access::Declaration), (3, 9, Access::Write)])
+  );
+  // a call of a member
+  assert_eq!(usages(Grammar::Kotlin, KOTLIN, "add", 0), (false, vec![(2, 6, Access::Declaration), (4, 10, Access::Call)]));
+}
+
+#[test]
+fn tells_a_java_write_an_increment_and_an_import() {
+  let text = "import app.Store;\n\nclass Uses {\n  int total;\n  void run(Store store) {\n    total = 1;\n    total++;\n    store.add(total);\n  }\n}\n";
+  assert_eq!(
+    usages(Grammar::Java, text, "total", 0),
+    (
+      false,
+      vec![(3, 6, Access::Declaration), (5, 4, Access::Write), (6, 4, Access::Write), (7, 14, Access::Read)]
+    )
+  );
+  assert_eq!(usages(Grammar::Java, text, "Store", 0).1, [(0, 11, Access::Import), (4, 11, Access::Read)]);
+  // the parameter is a local
+  assert_eq!(usages(Grammar::Java, text, "store", 0), (true, vec![(4, 17, Access::Declaration), (7, 4, Access::Read)]));
+}
+
+#[test]
+fn finds_the_usages_of_a_rust_binding_and_of_an_imported_function() {
+  let text = "use crate::util::helper;\n\nfn run() -> u32 {\n  let mut total = 0;\n  total += helper();\n  total\n}\n";
+  assert_eq!(
+    usages(Grammar::Rust, text, "total", 0),
+    (true, vec![(3, 10, Access::Declaration), (4, 2, Access::Write), (5, 2, Access::Read)])
+  );
+  assert_eq!(usages(Grammar::Rust, text, "helper", 1), (false, vec![(0, 17, Access::Import), (4, 11, Access::Call)]));
+}
+
+#[test]
+fn finds_the_usages_of_a_name_in_another_file_without_the_locals_that_shadow_it() {
+  let text = "import { helper } from \"./util\"\n\nexport function run(items: string[]) {\n  const helper2 = helper(items)\n  return items.map(helper => helper.length)\n}\n";
+  // the arrow function's parameter `helper` and its use are not the imported function
+  assert_eq!(places(&usages_of(Grammar::TypeScript, text, "helper")), [(0, 9, Access::Import), (3, 18, Access::Call)]);
+  assert_eq!(usages_of(Grammar::TypeScript, text, "absent"), []);
 }

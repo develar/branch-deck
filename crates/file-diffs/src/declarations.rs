@@ -13,13 +13,13 @@
 //!   the review becomes one of the review, any other one names its blob (one `cat-file --batch-check`) for the view of
 //!   its file.
 
-use crate::accio::{SymbolHit, SymbolIndex};
+use crate::accio::{Lenient, SymbolHit, SymbolIndex};
 use crate::model::{BlobRequest, BlobText, DeclarationTarget, DiffSide, FindDeclarationParams, FoundDeclarations, OutsideFile, ReviewFileSides};
 use crate::service::{FileDiffs, read_summaries, write_summaries};
 use crate::worktree::read_worktree_blob;
 use anyhow::Result;
 use code_symbols::extract::summarize;
-use code_symbols::highlight::grammar_of;
+use code_symbols::highlight::{Grammar, grammar_of};
 use code_symbols::language::{Language, language_of};
 use code_symbols::navigate::{Position, ReferenceKind, reference_at};
 use code_symbols::summary::{DeclKind, FileSummary};
@@ -33,10 +33,10 @@ use tracing::instrument;
 const MAX_TARGETS: usize = 20;
 
 /// A side of a file of the review to search
-struct Candidate<'a> {
-  path: &'a str,
-  request: BlobRequest,
-  language: Language,
+pub(crate) struct Candidate<'a> {
+  pub(crate) path: &'a str,
+  pub(crate) request: BlobRequest,
+  pub(crate) language: Language,
 }
 
 impl FileDiffs {
@@ -44,21 +44,15 @@ impl FileDiffs {
   #[instrument(skip(self, git, cache, index, params), fields(path = %params.site.path, line = params.site.line))]
   pub fn find_declaration(&self, git: &GitCommandExecutor, cache: &ObjectCache, index: Option<&dyn SymbolIndex>, params: &FindDeclarationParams) -> Result<FoundDeclarations> {
     let site = &params.site;
-    let empty = |name: String| FoundDeclarations { name, targets: Vec::new() };
-    let (Some(grammar), Some(language)) = (grammar_of(&site.path), language_of(&site.path)) else {
+    let empty = |name: String| FoundDeclarations {
+      name,
+      targets: Vec::new(),
+      index_error: None,
+    };
+    let Some((grammar, language, text)) = self.site_text(git, params)? else {
       return Ok(empty(String::new()));
     };
-    let Some(text) = self.text_of(git, &params.repository_path, &site.blob)? else {
-      return Ok(empty(String::new()));
-    };
-    let Some(reference) = reference_at(
-      grammar,
-      &text,
-      Position {
-        line: site.line,
-        column: site.column,
-      },
-    ) else {
+    let Some(reference) = reference_at(grammar, &text, site_position(params)) else {
       return Ok(empty(String::new()));
     };
     if reference.kind == ReferenceKind::Declaration {
@@ -79,6 +73,7 @@ impl FileDiffs {
       return Ok(FoundDeclarations {
         name: reference.name,
         targets: vec![target],
+        index_error: None,
       });
     }
 
@@ -143,10 +138,19 @@ impl FileDiffs {
     if targets.is_empty()
       && let Some(index) = index
     {
-      let targets = self.outside_targets(git, index, params, &reference.name, reference.kind, owner.as_deref(), &site_summary, language)?;
-      return Ok(FoundDeclarations { name: reference.name, targets });
+      let index = Lenient::new(index);
+      let targets = self.outside_targets(git, &index, params, &reference.name, reference.kind, owner.as_deref(), &site_summary, language)?;
+      return Ok(FoundDeclarations {
+        name: reference.name,
+        targets,
+        index_error: index.error(),
+      });
     }
-    Ok(FoundDeclarations { name: reference.name, targets })
+    Ok(FoundDeclarations {
+      name: reference.name,
+      targets,
+      index_error: None,
+    })
   }
 
   /// The declarations the index of the repository knows, at the revision of the side, ranked by the imports of the file
@@ -154,7 +158,7 @@ impl FileDiffs {
   fn outside_targets(
     &self,
     git: &GitCommandExecutor,
-    index: &dyn SymbolIndex,
+    index: &Lenient<'_>,
     params: &FindDeclarationParams,
     name: &str,
     kind: ReferenceKind,
@@ -163,17 +167,14 @@ impl FileDiffs {
     language: Language,
   ) -> Result<Vec<DeclarationTarget>> {
     let site = &params.site;
-    let revision = match site.side {
-      DiffSide::Old => params.revisions.old.as_deref(),
-      DiffSide::New => params.revisions.new.as_deref(),
-    };
+    let revision = revision_of(params);
     let qualified = owner.map(|owner| format!("{owner}.{name}"));
     let mut hits = match &qualified {
-      Some(query) => index.symbols(&params.repository_path, query, revision)?.unwrap_or_default(),
+      Some(query) => index.symbols(&params.repository_path, query, revision),
       None => Vec::new(),
     };
     if hits.is_empty() {
-      hits = index.symbols(&params.repository_path, name, revision)?.unwrap_or_default();
+      hits = index.symbols(&params.repository_path, name, revision);
     }
     let packages = imported_directories(site_summary, name);
     let mut hits: Vec<(i32, SymbolHit)> = hits
@@ -196,12 +197,7 @@ impl FileDiffs {
     hits.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.path.cmp(&b.1.path)));
     hits.truncate(MAX_TARGETS);
     // the files of the review keep their place in it; the others are read at the revision
-    let in_review = |path: &str| {
-      params.files.iter().find(|file| match site.side {
-        DiffSide::Old => file.old_id.is_some() && file.old_path.as_deref().unwrap_or(&file.path) == path,
-        DiffSide::New => file.new_id.is_some() && file.path == path,
-      })
-    };
+    let in_review = |path: &str| in_review(params, path);
     let outside_paths: Vec<&str> = hits.iter().map(|it| it.1.path.as_str()).filter(|path| in_review(path).is_none()).collect();
     let ids = self.outside_ids(git, &params.repository_path, revision, &outside_paths)?;
     // the blob of the side of a file of the review, else the one at the revision
@@ -229,11 +225,7 @@ impl FileDiffs {
           let text = texts.get(&id)?;
           let line = hit.line.saturating_sub(1);
           let column = column_of(text, line, name).unwrap_or(0);
-          let outside = file.is_none().then(|| OutsideFile {
-            revision: revision.map(str::to_string),
-            blob_id: id.clone(),
-            line_count: u32::try_from(text.split('\n').count()).unwrap_or(u32::MAX),
-          });
+          let outside = file.is_none().then(|| outside_file(revision, &id, text));
           Some(DeclarationTarget {
             path: file.map_or_else(|| hit.path.clone(), |it| it.path.clone()),
             side: site.side,
@@ -250,7 +242,7 @@ impl FileDiffs {
   }
 
   /// The blob ids of `paths` at `revision` (one `cat-file --batch-check`), or of the files of the working tree
-  fn outside_ids(&self, git: &GitCommandExecutor, repository_path: &str, revision: Option<&str>, paths: &[&str]) -> Result<HashMap<String, String>> {
+  pub(crate) fn outside_ids(&self, git: &GitCommandExecutor, repository_path: &str, revision: Option<&str>, paths: &[&str]) -> Result<HashMap<String, String>> {
     if paths.is_empty() {
       return Ok(HashMap::new());
     }
@@ -275,7 +267,7 @@ impl FileDiffs {
   }
 
   /// The texts of the blobs of `requests` by id, without the binary and missing ones
-  fn texts_by_id(&self, git: &GitCommandExecutor, repository_path: &str, requests: &[BlobRequest]) -> Result<HashMap<String, String>> {
+  pub(crate) fn texts_by_id(&self, git: &GitCommandExecutor, repository_path: &str, requests: &[BlobRequest]) -> Result<HashMap<String, String>> {
     Ok(
       self
         .blob_texts(git, repository_path, requests)?
@@ -288,8 +280,17 @@ impl FileDiffs {
     )
   }
 
+  /// The grammar, the language and the text of the file of the name; none for a file no grammar reads
+  pub(crate) fn site_text(&self, git: &GitCommandExecutor, params: &FindDeclarationParams) -> Result<Option<(Grammar, Language, String)>> {
+    let site = &params.site;
+    let (Some(grammar), Some(language)) = (grammar_of(&site.path), language_of(&site.path)) else {
+      return Ok(None);
+    };
+    Ok(self.text_of(git, &params.repository_path, &site.blob)?.map(|text| (grammar, language, text)))
+  }
+
   /// The text of a blob, from memory, the working tree or one `cat-file`
-  fn text_of(&self, git: &GitCommandExecutor, repository_path: &str, blob: &BlobRequest) -> Result<Option<String>> {
+  pub(crate) fn text_of(&self, git: &GitCommandExecutor, repository_path: &str, blob: &BlobRequest) -> Result<Option<String>> {
     Ok(self.blob_texts(git, repository_path, std::slice::from_ref(blob))?.into_iter().find_map(|it| match it {
       BlobText::Text { text, .. } => Some(text),
       _ => None,
@@ -322,7 +323,40 @@ impl FileDiffs {
 }
 
 /// The side of a file to search: on the side of the name, in a language that sees its declarations
-fn candidate(file: &ReviewFileSides, side: DiffSide, language: Language) -> Option<Candidate<'_>> {
+/// Where the name is in its text
+pub(crate) const fn site_position(params: &FindDeclarationParams) -> Position {
+  Position {
+    line: params.site.line,
+    column: params.site.column,
+  }
+}
+
+/// The revision of the side of the name: a declaration or a usage outside the review is read there
+pub(crate) fn revision_of(params: &FindDeclarationParams) -> Option<&str> {
+  match params.site.side {
+    DiffSide::Old => params.revisions.old.as_deref(),
+    DiffSide::New => params.revisions.new.as_deref(),
+  }
+}
+
+/// The file of the review whose side of the name is at `path`
+pub(crate) fn in_review<'a>(params: &'a FindDeclarationParams, path: &str) -> Option<&'a ReviewFileSides> {
+  params.files.iter().find(|file| match params.site.side {
+    DiffSide::Old => file.old_id.is_some() && file.old_path.as_deref().unwrap_or(&file.path) == path,
+    DiffSide::New => file.new_id.is_some() && file.path == path,
+  })
+}
+
+/// A file outside the review, for the view of its file
+pub(crate) fn outside_file(revision: Option<&str>, blob_id: &str, text: &str) -> OutsideFile {
+  OutsideFile {
+    revision: revision.map(str::to_string),
+    blob_id: blob_id.to_string(),
+    line_count: u32::try_from(text.split('\n').count()).unwrap_or(u32::MAX),
+  }
+}
+
+pub(crate) fn candidate(file: &ReviewFileSides, side: DiffSide, language: Language) -> Option<Candidate<'_>> {
   let (path, id, worktree) = match side {
     DiffSide::Old => (file.old_path.as_deref().unwrap_or(&file.path), file.old_id.as_ref()?, false),
     DiffSide::New => (file.path.as_str(), file.new_id.as_ref()?, file.worktree),
@@ -390,9 +424,14 @@ fn directory_of(path: &str) -> &str {
 
 /// The UTF-16 column of `name` as a whole word on `line` of `text`
 fn column_of(text: &str, line: u32, name: &str) -> Option<u32> {
-  let content = text.split('\n').nth(line as usize)?;
+  word_columns(text, line, name).next()
+}
+
+/// The UTF-16 columns of `name` as a whole word on `line` of `text`
+pub(crate) fn word_columns<'a>(text: &'a str, line: u32, name: &'a str) -> impl Iterator<Item = u32> + 'a {
+  let content = text.split('\n').nth(line as usize).unwrap_or_default();
   let is_word = |it: char| it.is_alphanumeric() || it == '_' || it == '$';
-  content.match_indices(name).find_map(|(index, _)| {
+  content.match_indices(name).filter_map(move |(index, _)| {
     let before = content[..index].chars().next_back();
     let after = content[index + name.len()..].chars().next();
     (!before.is_some_and(is_word) && !after.is_some_and(is_word)).then(|| u32::try_from(content[..index].encode_utf16().count()).unwrap_or(0))

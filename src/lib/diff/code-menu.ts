@@ -1,4 +1,4 @@
-import { CodeIcon } from "lucide-react"
+import { CodeIcon, ListTreeIcon } from "lucide-react"
 import type { MenuItem } from "@/lib/menu"
 
 /*
@@ -10,10 +10,12 @@ export interface CodeMenuContext {
   /** The name under the pointer or at the selection; null where no name is */
   name: string | null
   goToDeclaration: () => void
+  /** Null where the view has no Find Usages */
+  findUsages: (() => void) | null
 }
 
-export function codeMenuItems({ name, goToDeclaration }: CodeMenuContext): MenuItem[] {
-  return [
+export function codeMenuItems({ name, goToDeclaration, findUsages }: CodeMenuContext): MenuItem[] {
+  const items: MenuItem[] = [
     {
       id: "go-to-declaration",
       label: "Go to Declaration",
@@ -24,4 +26,16 @@ export function codeMenuItems({ name, goToDeclaration }: CodeMenuContext): MenuI
       onSelect: () => goToDeclaration(),
     },
   ]
+  if (findUsages !== null) {
+    items.push({
+      id: "find-usages",
+      label: "Find Usages",
+      icon: ListTreeIcon,
+      kbds: ["alt", "f7"],
+      disabled: name === null,
+      description: name === null ? "No name here" : `Find the usages of ${name}`,
+      onSelect: () => findUsages(),
+    })
+  }
+  return items
 }

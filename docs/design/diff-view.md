@@ -458,7 +458,12 @@ repository) at the commit of its side. A declaration in another file opens `Decl
 changed background, so the file has the colours, the find and the navigation of a diff without a mode of its own.
 `CommitReviewCode` keeps a stack of these views with the name each jump started from; Back of the first view returns
 to that name, a declaration of the review reached from a view closes them all, and the tree and the keys of the review
-close them too, through the handle it forwards to the review's view.
+close them too, through the handle it forwards to the review's view. **Find Usages** (⌥F7, the same menu) goes through the same
+callback shape to `find_usages` (`crates/file-diffs/src/usages.rs`): the names of the trees of the review
+(`code_symbols::navigate::usages_at`, `usages_of`: a local by the binding of its scopes, any other name by its text and
+no local binding it), then `accio references` for the files outside the review. `SymbolChooser` shows both the choice
+of declarations and the list of usages; a choice moves the focus to the view at the place it shows, Escape gives it
+back to where it was.
 
 ### Painting the layers of a line
 

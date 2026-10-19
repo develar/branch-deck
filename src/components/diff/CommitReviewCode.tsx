@@ -4,14 +4,14 @@ import { UnfoldVerticalIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LineCounts } from "@/components/commit/CommitMetadata"
-import { DeclarationChooser } from "@/components/diff/DeclarationChooser"
 import { DeclarationFileView } from "@/components/diff/DeclarationFileView"
 import { DiffView } from "@/components/diff/DiffView"
 import type { DeclarationPlace, DiffHeaderProps, DiffViewFile, DiffViewHandle } from "@/components/diff/DiffView"
+import { SymbolChooser } from "@/components/diff/SymbolChooser"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FileHeaderChevron, FileHeaderCopyButton } from "@/components/files/FileHeaderParts"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
-import { placeOf, useGoToDeclaration } from "@/hooks/useGoToDeclaration"
+import { placeOf, useSymbolNavigation } from "@/hooks/useSymbolNavigation"
 import type { DeclarationTarget, DiffRevisions } from "@/lib/bindings"
 import type { CommitFile } from "@/lib/bindings"
 import { formatCommitFilePath } from "@/lib/commit-files"
@@ -72,7 +72,7 @@ export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisi
     focus: () => review.current?.focus(),
     revealDeclaration: (place, from) => review.current?.revealDeclaration(place, from) ?? false,
   }))
-  const inReview = useGoToDeclaration(files, revisions, openFile)
+  const inReview = useSymbolNavigation(files, revisions, openFile)
   const shownFile = fileViews.at(-1)?.target
   const back = () => {
     const from = fileViews.length === 1 ? fileViews[0]!.from : null
@@ -81,7 +81,7 @@ export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisi
       review.current?.revealDeclaration(from, null)
     }
   }
-  const inFile = useGoToDeclaration(files, { old: null, new: shownFile?.outside?.revision ?? null }, openFile)
+  const inFile = useSymbolNavigation(files, { old: null, new: shownFile?.outside?.revision ?? null }, openFile)
   return (
     <div className="relative h-full">
       <DiffView
@@ -94,12 +94,19 @@ export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisi
         onVisibleFileChange={onVisibleFileChange}
         onFirstScreen={onFirstScreen}
         onGoToDeclaration={inReview.goToDeclaration}
+        onFindUsages={inReview.findUsages}
         renderHeader={header => <ReviewFileHeader {...header} owner={fileOwners?.get(header.file.path)} />}
       />
       {shownFile !== undefined && (
-        <DeclarationFileView key={`${fileViews.length}:${shownFile.path}:${shownFile.line}`} target={shownFile} onBack={back} onGoToDeclaration={inFile.goToDeclaration} />
+        <DeclarationFileView
+          key={`${fileViews.length}:${shownFile.path}:${shownFile.line}`}
+          target={shownFile}
+          onBack={back}
+          onGoToDeclaration={inFile.goToDeclaration}
+          onFindUsages={inFile.findUsages}
+        />
       )}
-      <DeclarationChooser
+      <SymbolChooser
         choice={inReview.choice ?? inFile.choice}
         onClose={() => {
           inReview.closeChoice()

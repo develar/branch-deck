@@ -14,6 +14,7 @@ pub mod patch;
 mod scopes;
 pub mod service;
 pub mod syntax;
+pub mod usages;
 mod worktree;
 
 #[cfg(test)]
@@ -32,3 +33,5 @@ mod scopes_test;
 mod service_test;
 #[cfg(test)]
 mod syntax_test;
+#[cfg(test)]
+mod usages_test;

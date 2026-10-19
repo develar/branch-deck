@@ -126,6 +126,8 @@ export interface DiffViewProps {
    * selection, the item of the menu of the code; `at` is where to show a choice of declarations
    */
   onGoToDeclaration?: (site: DeclarationSite, at: { x: number; y: number }, reveal: (place: DeclarationPlace) => boolean, from: DeclarationPlace) => void
+  /** Find Usages: ⌥F7 (Alt+F7 off macOS) on the selection, the item of the menu of the code; the arguments as above */
+  onFindUsages?: (site: DeclarationSite, at: { x: number; y: number }, reveal: (place: DeclarationPlace) => boolean, from: DeclarationPlace) => void
   /** A place shown once the view mounts: the declaration a view of a file outside the review opens at */
   initialPlace?: DeclarationPlace
   /** Back with no jump left to return along: the view of a file outside the review closes */
@@ -274,6 +276,7 @@ export function DiffView({
   scroll = "own",
   worktree = false,
   onGoToDeclaration,
+  onFindUsages,
   initialPlace,
   onHistoryEnd,
   plain = false,
@@ -683,11 +686,11 @@ export function DiffView({
     return true
   }
 
-  const goTo = (word: CodeWord | null, at: { x: number; y: number }) => {
+  /** Go to Declaration or Find Usages of a word: the reveal of a target keeps the place of the name for Back */
+  const goTo = (word: CodeWord | null, at: { x: number; y: number }, action = onGoToDeclaration) => {
     const found = word === null ? null : siteOf(word)
     if (found !== null) {
-      // a reveal of a declaration keeps the place of the name for Back
-      onGoToDeclaration?.(
+      action?.(
         found.site,
         at,
         place => {
@@ -727,7 +730,13 @@ export function DiffView({
     const at = pointer.current ?? { x: 0, y: 0 }
     const word = painter.wordAtSelection() ?? painter.wordAt(at.x, at.y)
     const target = word === null ? null : siteOf(word)
-    setCodeMenu(codeMenuItems({ name: target === null ? null : word!.text, goToDeclaration: () => goTo(word, at) }))
+    setCodeMenu(
+      codeMenuItems({
+        name: target === null ? null : word!.text,
+        goToDeclaration: () => goTo(word, at),
+        findUsages: onFindUsages === undefined ? null : () => goTo(word, at, onFindUsages),
+      }),
+    )
   }
 
   // the place the view opens at, once its file is laid out
@@ -752,6 +761,8 @@ export function DiffView({
     const side = place.side === "old" ? OLD : NEW
     const top = layout.rowTop(index, rowOfLine(rows, side, place.line)) - layout.stickyTop - headerHeight - (scroller.current?.clientHeight ?? 0) / 3
     painter.scrollTo(Math.max(top, layout.fileTop(index)))
+    // the keys of the view (Back) work at the place shown, whether a choice closed or a view of a file opened
+    scroller.current?.focus({ preventScroll: true })
     // the row of the name is painted in a frame or two
     const select = (attempt: number) => {
       if (!painter.selectWord(index, side, place.line, place.column, place.endColumn) && attempt < 10) {
@@ -785,11 +796,12 @@ export function DiffView({
       return
     }
     const command = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
-    if (command && !event.altKey && !event.shiftKey && event.code === "KeyB") {
+    const findsUsages = event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.code === "F7" && onFindUsages !== undefined
+    if ((command && !event.altKey && !event.shiftKey && event.code === "KeyB") || findsUsages) {
       const word = painter.wordAtSelection()
       const rect = word?.rects()[0]
       event.preventDefault()
-      goTo(word, rect === undefined ? (pointer.current ?? { x: 0, y: 0 }) : { x: rect.left, y: rect.bottom })
+      goTo(word, rect === undefined ? (pointer.current ?? { x: 0, y: 0 }) : { x: rect.left, y: rect.bottom }, findsUsages ? onFindUsages : onGoToDeclaration)
     } else if (isMac && command && !event.altKey && (event.code === "BracketLeft" || event.code === "BracketRight")) {
       event.preventDefault()
       stepHistory(event.code === "BracketLeft" ? "back" : "forward")

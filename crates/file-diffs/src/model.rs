@@ -209,6 +209,8 @@ pub struct ReviewFileSides {
 pub struct FoundDeclarations {
   pub name: String,
   pub targets: Vec<DeclarationTarget>,
+  /// Why the index of the repository did not answer, when it was asked
+  pub index_error: Option<String>,
 }
 
 /// A declaration in a side of a file of the review
@@ -414,4 +416,30 @@ pub struct FileMerge {
   #[serde(flatten)]
   pub header: FileMergeHeader,
   pub content: MergeContent,
+}
+
+/// The usages of a name (`usages.rs`): those of the file of the name, of the other files of the review, then those
+/// outside the review that the index knows
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct FoundUsages {
+  pub name: String,
+  pub usages: Vec<UsageTarget>,
+  /// The index knows more usages outside the review than it answered
+  pub more_outside: bool,
+  /// Why the index of the repository did not answer, when it was asked
+  pub index_error: Option<String>,
+}
+
+/// A usage: its place (`kind` is how it uses the name: `declaration`, `import`, `call`, `write`, `read`) and its line
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct UsageTarget {
+  pub target: DeclarationTarget,
+  /// The text of its line, without the indent
+  pub text: String,
+  /// Where the name starts in `text`, in UTF-16
+  pub text_column: u32,
 }

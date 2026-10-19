@@ -2,7 +2,7 @@ use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use crate::repository_state::RepositoryStateCache;
 use file_diffs::model::{
-  BlobText, FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams,
+  BlobText, FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, FoundUsages, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams,
 };
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -129,6 +129,20 @@ pub async fn find_declaration(
     // outside the review: accio, when this machine has it and the repository an index
     let index = file_diffs::accio::AccioCli::discover().map(|accio| accio as &dyn file_diffs::accio::SymbolIndex);
     file_diffs.find_declaration(&git, &cache, index, &params)
+  })
+  .await
+}
+
+/// The usages of a name in a diff of a review (`file_diffs::usages`): in its file, in the files of the review from the
+/// blobs the diffs read, then outside the review in the index of the repository (`accio`)
+#[tauri::command]
+#[instrument(skip(git_executor, file_diffs, params), fields(path = %params.site.path, line = params.site.line))]
+#[specta::specta]
+pub async fn find_usages(git_executor: State<'_, GitCommandExecutor>, file_diffs: State<'_, FileDiffs>, params: FindDeclarationParams) -> Result<FoundUsages, CommandError> {
+  let (git, file_diffs) = ((*git_executor).clone(), (*file_diffs).clone());
+  run_blocking(move || {
+    let index = file_diffs::accio::AccioCli::discover().map(|accio| accio as &dyn file_diffs::accio::SymbolIndex);
+    file_diffs.find_usages(&git, index, &params)
   })
   .await
 }

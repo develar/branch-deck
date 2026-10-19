@@ -1,7 +1,7 @@
 //! Going to a declaration in a review: by the scopes of the file, in the other files of the review ranked by the owner,
 //! from the texts the diffs read
 
-use crate::accio::{SymbolHit, SymbolIndex};
+use crate::accio::{References, SymbolHit, SymbolIndex};
 use crate::fixture_test::{commit_all, process_counts, repo_path, write};
 use crate::model::{BlobRequest, DeclarationSite, DiffFile, DiffRevisions, DiffSide, DiffSource, FindDeclarationParams, ReviewFileSides};
 use crate::service::FileDiffs;
@@ -16,7 +16,7 @@ const STORE: &str = "package app\n\nclass Store {\n  fun add(value: Int) {}\n}\n
 const OTHER: &str = "package other\n\nclass Queue {\n  fun add(value: Int) {}\n}\n";
 
 /// A commit that adds the three files, and the diffs a review of it read
-fn review() -> (TestRepo, FileDiffs, Vec<DiffFile>) {
+pub(crate) fn review() -> (TestRepo, FileDiffs, Vec<DiffFile>) {
   let repo = TestRepo::new();
   write(&repo, "README.md", b"root\n");
   commit_all(&repo, "Initial");
@@ -41,7 +41,7 @@ fn review() -> (TestRepo, FileDiffs, Vec<DiffFile>) {
 }
 
 /// The params of a name on `line` at the start of `needle` in the new side of `path`
-fn params(repo: &TestRepo, files: &[DiffFile], path: &str, line: u32, needle: &str) -> FindDeclarationParams {
+pub(crate) fn params(repo: &TestRepo, files: &[DiffFile], path: &str, line: u32, needle: &str) -> FindDeclarationParams {
   let file = files.iter().find(|it| it.path == path).unwrap();
   let text = match path {
     "src/Uses.kt" => USES,
@@ -145,6 +145,10 @@ impl SymbolIndex for FakeIndex {
       .push((query.to_string(), revision.map(str::to_string)));
     Ok(Some(self.hits.iter().filter(|(name, _)| *name == query).map(|(_, hit)| hit.clone()).collect()))
   }
+
+  fn references(&self, _repository_root: &str, _name: &str, _revision: Option<&str>) -> anyhow::Result<Option<References>> {
+    Ok(None)
+  }
 }
 
 fn hit(path: &str, line: u32, kind: &str, name: &str) -> SymbolHit {
@@ -179,31 +183,8 @@ fn goes_outside_the_review_through_the_index_at_the_revision_of_the_side() {
     hits: vec![("outsider", hit("lib/Outside.kt", 3, "function", "outsider"))],
     queries: std::sync::Mutex::default(),
   };
-  let file = &files[0];
-  let mut params = FindDeclarationParams {
-    repository_path: repo_path(&repo).to_string(),
-    site: DeclarationSite {
-      path: "Uses.kt".to_string(),
-      side: DiffSide::New,
-      blob: BlobRequest {
-        id: file.new_id.clone().unwrap(),
-        path: None,
-      },
-      line: 0,
-      column: 13,
-    },
-    files: vec![ReviewFileSides {
-      path: file.path.clone(),
-      old_path: None,
-      old_id: None,
-      new_id: file.new_id.clone(),
-      worktree: false,
-    }],
-    revisions: DiffRevisions {
-      old: Some(format!("{commit}^")),
-      new: Some(commit.clone()),
-    },
-  };
+  let mut params = single_file_params(&repo, &files, &commit);
+  params.site.column = 13;
   let counting = repo.git_executor().with_process_stats("test");
   let found = diffs.find_declaration(&counting, &ObjectCache::disabled(), Some(&index), &params).unwrap();
   // the blob at the revision (`cat-file --batch-check`) and its text for the column (`cat-file --batch`)
@@ -233,4 +214,33 @@ fn knows_where_accio_keeps_the_index_of_a_repository() {
     crate::accio::index_dir("/Users/develar/projects/branch-deck"),
     Some(std::path::PathBuf::from("/tmp/accio-home/551c076cbbdc6d5b"))
   );
+}
+
+/// The params of the name at the start of the first line of `Uses.kt`, the only file of the review of `commit`
+pub(crate) fn single_file_params(repo: &TestRepo, files: &[DiffFile], commit: &str) -> FindDeclarationParams {
+  let file = &files[0];
+  FindDeclarationParams {
+    repository_path: repo_path(repo).to_string(),
+    site: DeclarationSite {
+      path: "Uses.kt".to_string(),
+      side: DiffSide::New,
+      blob: BlobRequest {
+        id: file.new_id.clone().unwrap(),
+        path: None,
+      },
+      line: 0,
+      column: 0,
+    },
+    files: vec![ReviewFileSides {
+      path: file.path.clone(),
+      old_path: None,
+      old_id: None,
+      new_id: file.new_id.clone(),
+      worktree: false,
+    }],
+    revisions: DiffRevisions {
+      old: Some(format!("{commit}^")),
+      new: Some(commit.to_string()),
+    },
+  }
 }

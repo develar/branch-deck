@@ -1,17 +1,18 @@
 ---
 name: Symbol Navigation
-description: Requirements for going to the declaration of a name in the diffs of a review, as in IntelliJ: ⌘-click, ⌘B and the menu of the code, a choice of declarations, Back and Forward, and a declaration outside the review, found by accio, in a view of its file.
+description: Requirements for going to the declaration of a name in the diffs of a review and finding its usages, as in IntelliJ: ⌘-click, ⌘B, ⌥F7 and the menu of the code, a choice of declarations, a list of usages, Back and Forward, and what lies outside the review, found by accio, in a view of its file.
 style: plain-1
 targets:
   - ../../src/components/diff/DiffView.tsx
   - ../../src/components/diff/diff-painter.ts
-  - ../../src/components/diff/DeclarationChooser.tsx
+  - ../../src/components/diff/SymbolChooser.tsx
   - ../../src/components/diff/DeclarationFileView.tsx
   - ../../src/components/diff/CommitReviewCode.tsx
-  - ../../src/hooks/useGoToDeclaration.ts
+  - ../../src/hooks/useSymbolNavigation.ts
   - ../../src/lib/diff/code-menu.ts
   - ../../crates/code-symbols/src/navigate.rs
   - ../../crates/file-diffs/src/declarations.rs
+  - ../../crates/file-diffs/src/usages.rs
   - ../../crates/file-diffs/src/accio.rs
   - ../../src-tauri/src/commands/file_diffs.rs
 ---
@@ -31,7 +32,9 @@ Back and Forward return along the jumps. The backend reads the names from the sy
 and the declarations from the summaries the sync already made, from the blobs the diffs read: a jump costs no git. A
 name the review does not declare is looked for in the index of the repository that
 [accio](https://github.com/JetBrains/accio) keeps, when accio is installed and has indexed the repository, at the
-commit of the side; its file opens over the review at that commit, coloured and navigable as the diffs.
+commit of the side; its file opens over the review at that commit, coloured and navigable as the diffs. ⌥F7 lists the
+usages of a name, as IntelliJ's "Show Usages": those the syntax trees of the review show, then those the index knows
+outside it.
 
 ## Goals
 
@@ -41,9 +44,9 @@ commit of the side; its file opens over the review at that commit, coloured and 
 
 ## Non-Goals
 
-- Find Usages: a later step.
 - Building an index: a repository accio has not indexed is searched in the review only.
-- Resolution as the compiler does it: what the syntax and the declarations of the review tell, not the types.
+- Resolution as the compiler does it: what the syntax and the declarations of the review tell, not the types. The usages
+  of a name that is not a local are the names of that text, as the index of accio answers them too.
 
 ## Requirements
 
@@ -86,3 +89,25 @@ commit of the side; its file opens over the review at that commit, coloured and 
 - Back (the key or the button "Back" of the file) must close the file and return to the name the jump started from; a
   file of the tree, J and K, or N and P show in the review and close the files over it.
   [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should open a declaration outside the review that the index of the repository knows, go back to the review, and from that file to a declaration of the review`)
+- ⌥F7 (Alt+F7 off macOS) on the selection and the item "Find Usages" of the menu of the code must list the usages of
+  the name at the name: "N usages of X" (the declarations not counted), the usages in the review, then those outside
+  it, each with how it uses the name (declaration, import, call, write, read), its line with the name in bold, and its
+  file and line; ↑ and ↓ and Enter or a click show one, in the review or in the view of its file, and Back returns to
+  the name; Escape gives the focus back to the view. A name with no usage but its declarations says so in a toast ("No
+  usages of version found"); the item is disabled, with the reason, where no name is.
+  [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should list the usages of a name in the review and outside it, from ⌥F7 and from the menu of the code, and show the one chosen`, `should say when a name has no usage but its declaration`)
+- The usages of a local (a parameter, a local of a function) are the names its scopes bind to its declaration, in its
+  file; those of any other name are the names of that text that no local binds, in its file and in the same side of
+  the other files of the review in a language that sees it, from the texts the diffs read: no git process.
+  [@test] ../../crates/code-symbols/src/navigate_test.rs (`finds_the_usages_of_a_kotlin_parameter_apart_from_the_property_it_shadows`, `tells_a_java_write_an_increment_and_an_import`, `finds_the_usages_of_a_rust_binding_and_of_an_imported_function`, `finds_the_usages_of_a_name_in_another_file_without_the_locals_that_shadow_it`)
+  [@test] ../../crates/file-diffs/src/usages_test.rs (`finds_a_word_in_the_files_of_the_review_without_git_and_a_local_in_its_file_only`)
+- The usages outside the review must come from the index of accio at the commit of the side (100 at most), only in the
+  files the review lacks and in a language that sees the name; one `cat-file --batch-check` and one `cat-file --batch`
+  read their files, for their lines and the view of each. A cut answer says "The index has more usages outside the
+  review"; nothing runs when accio is missing or has no index of the repository.
+  [@test] ../../crates/file-diffs/src/usages_test.rs (`adds_the_usages_outside_the_review_that_the_index_knows_at_the_revision_of_the_side`)
+- An index that fails or does not answer in 5 s must take nothing from what the review knows: the usages of the review
+  stay, with "accio did not answer: <why>" under them, and a name without a declaration in the review says why in its
+  toast.
+  [@test] ../../crates/file-diffs/src/usages_test.rs (`an_index_that_does_not_answer_takes_nothing_from_the_review_and_says_why`)
+  [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should keep what the review knows and say why when the index of the repository does not answer`)

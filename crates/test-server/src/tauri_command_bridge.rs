@@ -7,7 +7,7 @@ use axum::{
   },
 };
 use file_diffs::model::{
-  BlobText, FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams,
+  BlobText, FileDiffEvent, FileMergeEvent, FindDeclarationParams, FoundDeclarations, FoundUsages, GetBlobSyntaxParams, GetBlobTextsParams, GetFileDiffsParams, GetFileMergesParams,
 };
 use file_diffs::service::FileDiffs;
 use git_ops::commit_files::{CommitFiles, DiffSubject, GetCommitFilesParams, GetCommitsFilesParams, read_commit_files_cached, read_diff_files};
@@ -1157,6 +1157,15 @@ pub async fn find_declaration(State(state): State<Arc<AppState>>, Json(params): 
   // the index of a test repository is its fixture (`.git/branch-deck-accio.json`), as accio answers
   run_command("find a declaration", move || {
     FileDiffs::default().find_declaration(&git_executor, &ObjectCache::disabled(), Some(&file_diffs::accio::FixtureIndex), &params)
+  })
+  .await
+}
+
+pub async fn find_usages(State(state): State<Arc<AppState>>, Json(params): Json<FindDeclarationParams>) -> CommandResult<FoundUsages> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("find the usages", move || {
+    FileDiffs::default().find_usages(&git_executor, Some(&file_diffs::accio::FixtureIndex), &params)
   })
   .await
 }

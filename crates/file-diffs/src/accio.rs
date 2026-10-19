@@ -1,12 +1,13 @@
-//! `accio` (github.com/JetBrains/accio), an index of the declarations of a repository, for a declaration the files of a
-//! review lack (spec/commit/symbol-navigation.spec.md): `accio symbol <Name|Owner.name> --ref <revision>` answers from
-//! the tree of a revision without a checkout.
+//! `accio` (github.com/JetBrains/accio), an index of the declarations of a repository, for a declaration and the usages
+//! the files of a review lack (spec/commit/symbol-navigation.spec.md): `accio symbol <Name|Owner.name>` and
+//! `accio references <name>`, with `--ref <revision>`, answer from the tree of a revision without a checkout.
 //!
 //! - **Never an index build**: a query in a repository without an index builds one (up to 90 s), so the index is
 //!   looked for first, without a process: accio keeps it in `<home>/<the first 16 hex of the blob id of the root path>`
 //!   (`index_dir` of its `index.rs`), `home` being `ACCIO_HOME`, `$XDG_CACHE_HOME/accio`, `%LOCALAPPDATA%\accio` on
 //!   Windows, else `~/.cache/accio`. A changed layout reads as no index: the review then looks only at its files.
-//! - **Bounded**: one process per lookup, a null stdin, killed after `TIMEOUT`.
+//! - **Bounded**: one process per lookup, a null stdin, killed after `TIMEOUT`. An index that fails or does not answer
+//!   fails no lookup: the review answers what it has, and says why the index did not (`Lenient`).
 //! - **Found** on `PATH` (the login shell's for an app started from the Finder), else in `~/.local/bin`, `~/.cargo/bin`
 //!   and Homebrew's directories.
 
@@ -17,12 +18,15 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 use std::time::Duration;
-use sync_utils::child_process::{cached_login_shell_path, find_executable, run_child};
+use sync_utils::child_process::{ChildProcessError, cached_login_shell_path, find_executable, run_child};
 
-/// The time a lookup may take: a warm query of the IntelliJ monorepo takes 0.2–0.4 s
-const TIMEOUT: Duration = Duration::from_secs(3);
+/// The time a lookup may take: a warm query of the IntelliJ monorepo takes 0.03–0.4 s, one at a revision far from the
+/// commit of its index reads the changed files first (2.8 s for 535 of them)
+const TIMEOUT: Duration = Duration::from_secs(5);
 /// The declarations a lookup answers at most
 const LIMIT: &str = "20";
+/// The usages a lookup answers at most
+const REFERENCES_LIMIT: &str = "100";
 
 /// A declaration an index knows: a path of the repository and a line from 1
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -36,11 +40,40 @@ pub struct SymbolHit {
   pub parent: Option<String>,
 }
 
-/// The declarations of a repository by name: accio in the app, a fixture in the e2e server
+/// A usage an index knows: a path, a line and a column from 1, the text of the line, and how it uses the name
+/// (`call`, `write`, `argument`, `read`, `declaration`, `import`)
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ReferenceHit {
+  #[serde(rename = "file")]
+  pub path: String,
+  pub line: u32,
+  pub column: u32,
+  #[serde(default)]
+  pub snippet: String,
+  pub kind: String,
+}
+
+/// The usages of a name an index answered
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct References {
+  pub hits: Vec<ReferenceHit>,
+  /// False when the limit cut the answer
+  #[serde(default = "complete_by_default")]
+  pub complete: bool,
+}
+
+const fn complete_by_default() -> bool {
+  true
+}
+
+/// The declarations and the usages of a repository by name: accio in the app, a fixture in the e2e server
 pub trait SymbolIndex: Send + Sync {
   /// The declarations of `query` (`Name`, `Owner.name`) in the tree of `revision` (the working tree for `None`);
   /// `None` when the repository has no index
   fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> Result<Option<Vec<SymbolHit>>>;
+
+  /// The whole-word usages of `name` in the tree of `revision`; `None` when the repository has no index
+  fn references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> Result<Option<References>>;
 }
 
 /// The `accio` executable of this machine
@@ -106,35 +139,109 @@ struct Answer {
   hits: Vec<SymbolHit>,
 }
 
-impl SymbolIndex for AccioCli {
-  fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> Result<Option<Vec<SymbolHit>>> {
+impl AccioCli {
+  /// The JSON answer of `accio <command> … -- <query>` at `revision`; `None` without an index of the repository
+  fn query<T: serde::de::DeserializeOwned>(&self, command_name: &str, limit: &str, repository_root: &str, query: &str, revision: Option<&str>) -> Result<Option<T>> {
     if !index_dir(repository_root).is_some_and(|dir| dir.join("meta.json").is_file()) {
       return Ok(None);
     }
     let mut command = Command::new(&self.executable);
-    command.args(["symbol", "--format", "json", "--limit", LIMIT, "--project", repository_root]);
+    command.args([command_name, "--format", "json", "--limit", limit, "--project", repository_root]);
     if let Some(revision) = revision {
       command.args(["--ref", revision]);
     }
     command.arg("--").arg(query);
-    let output = run_child(&mut command, None, TIMEOUT, &|| false).map_err(|error| anyhow::anyhow!("accio: {error:?}"))?;
+    let output = run_child(&mut command, None, TIMEOUT, &|| false).map_err(|error| match error {
+      ChildProcessError::TimedOut => anyhow::anyhow!("no answer in {} s", TIMEOUT.as_secs()),
+      other => anyhow::anyhow!("{other:?}"),
+    })?;
     if !output.status.success() {
       bail!("{}", output.failure_message("accio"));
     }
-    let answer: Answer = serde_json::from_slice(&output.stdout).context("the answer of accio")?;
-    Ok(Some(answer.hits))
+    serde_json::from_slice(&output.stdout).context("the answer of accio").map(Some)
   }
 }
 
-/// The declarations of a fixture, for the e2e server: `<git dir>/branch-deck-accio.json`, a map from a query to its
-/// hits; a repository without the file has no index
+impl SymbolIndex for AccioCli {
+  fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> Result<Option<Vec<SymbolHit>>> {
+    Ok(self.query::<Answer>("symbol", LIMIT, repository_root, query, revision)?.map(|answer| answer.hits))
+  }
+
+  fn references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> Result<Option<References>> {
+    self.query("references", REFERENCES_LIMIT, repository_root, name, revision)
+  }
+}
+
+/// An index whose failures fail no lookup: a failed query answers nothing, and the first failure is kept for the answer
+pub(crate) struct Lenient<'a> {
+  index: &'a dyn SymbolIndex,
+  error: std::cell::RefCell<Option<String>>,
+}
+
+impl<'a> Lenient<'a> {
+  pub(crate) fn new(index: &'a dyn SymbolIndex) -> Self {
+    Self {
+      index,
+      error: std::cell::RefCell::default(),
+    }
+  }
+
+  pub(crate) fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> Vec<SymbolHit> {
+    self.answered(self.index.symbols(repository_root, query, revision)).unwrap_or_default()
+  }
+
+  pub(crate) fn references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> References {
+    self.answered(self.index.references(repository_root, name, revision)).unwrap_or_default()
+  }
+
+  /// Why the index did not answer, as the review says it: none when it answered every query
+  pub(crate) fn error(self) -> Option<String> {
+    self.error.into_inner().map(|error| format!("accio did not answer: {error}"))
+  }
+
+  fn answered<T>(&self, result: Result<Option<T>>) -> Option<T> {
+    result.unwrap_or_else(|error| {
+      tracing::warn!(error = %format!("{error:#}"), "the index of the repository did not answer");
+      self.error.borrow_mut().get_or_insert_with(|| format!("{error:#}"));
+      None
+    })
+  }
+}
+
+/// The index of a fixture, for the e2e server: `<git dir>/branch-deck-accio.json`, the hits of each query of `symbol`
+/// and of `references`, or the `error` every query fails with; a repository without the file has no index
 pub struct FixtureIndex;
+
+#[derive(Deserialize)]
+struct Fixture {
+  #[serde(default)]
+  symbol: std::collections::HashMap<String, Vec<SymbolHit>>,
+  #[serde(default)]
+  references: std::collections::HashMap<String, Vec<ReferenceHit>>,
+  error: Option<String>,
+}
+
+impl FixtureIndex {
+  fn read(repository_root: &str) -> Result<Option<Fixture>> {
+    let path = Path::new(repository_root).join(".git/branch-deck-accio.json");
+    let Ok(text) = std::fs::read_to_string(&path) else { return Ok(None) };
+    let fixture: Fixture = serde_json::from_str(&text).with_context(|| format!("{}", path.display()))?;
+    if let Some(error) = fixture.error {
+      bail!("{error}");
+    }
+    Ok(Some(fixture))
+  }
+}
 
 impl SymbolIndex for FixtureIndex {
   fn symbols(&self, repository_root: &str, query: &str, _revision: Option<&str>) -> Result<Option<Vec<SymbolHit>>> {
-    let path = Path::new(repository_root).join(".git/branch-deck-accio.json");
-    let Ok(text) = std::fs::read_to_string(&path) else { return Ok(None) };
-    let mut fixture: std::collections::HashMap<String, Vec<SymbolHit>> = serde_json::from_str(&text).with_context(|| format!("{}", path.display()))?;
-    Ok(Some(fixture.remove(query).unwrap_or_default()))
+    Ok(Self::read(repository_root)?.map(|mut fixture| fixture.symbol.remove(query).unwrap_or_default()))
+  }
+
+  fn references(&self, repository_root: &str, name: &str, _revision: Option<&str>) -> Result<Option<References>> {
+    Ok(Self::read(repository_root)?.map(|mut fixture| References {
+      hits: fixture.references.remove(name).unwrap_or_default(),
+      complete: true,
+    }))
   }
 }

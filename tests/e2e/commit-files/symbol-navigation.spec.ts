@@ -60,6 +60,24 @@ async function wordIn(view: Locator, path: string, word: string): Promise<{ x: n
   }, word)
 }
 
+/** `helper` is shown at its declaration in Store.kt, out of its fold; Back returns to its call in Uses.kt */
+async function expectHelperShownAndBack(code: Locator): Promise<void> {
+  const page = code.page()
+  await expect(code).toContainText("fun helper(value: Int)")
+  await expect.poll(() => selected(page)).toEqual({ text: "helper", path: "src/Store.kt" })
+  await page.keyboard.press(BACK)
+  await expect.poll(() => selected(page)).toEqual({ text: "helper", path: "src/Uses.kt" })
+}
+
+/** ⌥F7 on `word` of the file `path`, selected by a double click */
+async function findUsagesOf(code: Locator, path: string, word: string): Promise<void> {
+  const page = code.page()
+  const at = await pointOf(code, path, word)
+  await page.mouse.dblclick(at.x, at.y)
+  await expect.poll(async () => (await selected(page)).text).toBe(word)
+  await page.keyboard.press("Alt+F7")
+}
+
 /** The selected text and the file of the view it is in */
 async function selected(page: Page): Promise<{ text: string; path: string | null }> {
   return page.evaluate(() => {
@@ -91,11 +109,8 @@ test.describe("Go to Declaration", () => {
     await expect(scroller).toHaveCSS("cursor", "pointer")
     await page.mouse.click(at.x, at.y)
     await page.keyboard.up(MODIFIER)
-    await expect(code).toContainText("fun helper(value: Int)")
-    await expect.poll(() => selected(page)).toEqual({ text: "helper", path: "src/Store.kt" })
     // Back: the name the jump started from
-    await page.keyboard.press(BACK)
-    await expect.poll(() => selected(page)).toEqual({ text: "helper", path: "src/Uses.kt" })
+    await expectHelperShownAndBack(code)
   })
 
   test("should offer the declarations of an ambiguous name and show the one chosen, from ⌘B and from the menu of the code", async ({ page }) => {
@@ -133,7 +148,10 @@ test.describe("Go to Declaration", () => {
     page,
   }) => {
     // the index of the repository, as accio answers `symbol outsider`
-    writeFileSync(path.join(repositoryPath, ".git", "branch-deck-accio.json"), JSON.stringify({ outsider: [{ file: "src/Base.kt", line: 1, kind: "function", name: "outsider" }] }))
+    writeFileSync(
+      path.join(repositoryPath, ".git", "branch-deck-accio.json"),
+      JSON.stringify({ symbol: { outsider: [{ file: "src/Base.kt", line: 1, kind: "function", name: "outsider" }] } }),
+    )
     const code = await openNavigationReview(page)
     const fileView = page.getByTestId("declaration-file-view")
     await expect(fileView).toBeHidden()
@@ -186,5 +204,82 @@ test.describe("Go to Declaration", () => {
       await page.keyboard.press(key)
       await expect(fileView).toBeHidden()
     }
+  })
+})
+
+test.describe("Find Usages", () => {
+  /** The test repository of the test, for its fixture of the index */
+  let repositoryPath = ""
+  test.beforeEach(async ({ setupRepo, syncAndWaitForBranches }) => {
+    repositoryPath = (await setupRepo("symbol_navigation")).path
+    await syncAndWaitForBranches()
+  })
+
+  test("should list the usages of a name in the review and outside it, from ⌥F7 and from the menu of the code, and show the one chosen", async ({ page }) => {
+    // the index of the repository, as accio answers `references helper`: the call of Base.kt, outside the review
+    const snippet = "fun outsider(value: Int) = helper(value)"
+    writeFileSync(
+      path.join(repositoryPath, ".git", "branch-deck-accio.json"),
+      JSON.stringify({ references: { helper: [{ file: "src/Base.kt", line: 1, column: 28, snippet, kind: "call" }] } }),
+    )
+    const code = await openNavigationReview(page)
+    const chooser = page.getByTestId("symbol-chooser")
+    const usages = page.getByRole("listbox", { name: "Usages of helper" })
+    // ⌥F7 on the selection: the call, the declaration in Store.kt, then the call outside the review
+    await findUsagesOf(code, "src/Uses.kt", "helper")
+    await expect(usages.getByRole("option")).toHaveText(["callhelper(2)src/Uses.kt:4", "declarationfun helper(value: Int) = valuesrc/Store.kt:36", `call${snippet}src/Base.kt:1`])
+    await expect(chooser).toContainText("2 usages of helper")
+    await expect(usages.getByRole("group", { name: "Outside the review" })).toContainText("src/Base.kt:1")
+    await usages.getByRole("option", { name: /src\/Store\.kt/ }).click()
+    await expect(chooser).toBeHidden()
+    // Back: the name the list was asked for
+    await expectHelperShownAndBack(code)
+    // Escape closes the list and gives the focus back to the view: ⌥F7 opens it again
+    await page.keyboard.press("Alt+F7")
+    await expect(usages).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(chooser).toBeHidden()
+    await page.keyboard.press("Alt+F7")
+    await expect(usages).toBeVisible()
+    await page.keyboard.press("Escape")
+
+    // the item of the menu of the code; ↓ to the usage outside the review, Enter opens its file
+    const again = await pointOf(code, "src/Uses.kt", "helper")
+    await page.mouse.click(again.x, again.y, { button: "right" })
+    await page.getByRole("menuitem", { name: "Find Usages" }).click()
+    await expect(usages.getByRole("option").first()).toBeFocused()
+    await page.keyboard.press("ArrowDown")
+    await page.keyboard.press("ArrowDown")
+    await expect(usages.getByRole("option").last()).toBeFocused()
+    await page.keyboard.press("Enter")
+    const fileView = page.getByTestId("declaration-file-view")
+    await expect(fileView).toContainText("outside the review")
+    await expect.poll(() => selected(page)).toEqual({ text: "helper", path: "src/Base.kt" })
+  })
+
+  test("should keep what the review knows and say why when the index of the repository does not answer", async ({ page }) => {
+    writeFileSync(path.join(repositoryPath, ".git", "branch-deck-accio.json"), JSON.stringify({ error: "no answer in 5 s" }))
+    const code = await openNavigationReview(page)
+    await findUsagesOf(code, "src/Uses.kt", "helper")
+    await expect(page.getByRole("listbox", { name: "Usages of helper" }).getByRole("option")).toHaveText([
+      "callhelper(2)src/Uses.kt:4",
+      "declarationfun helper(value: Int) = valuesrc/Store.kt:36",
+    ])
+    await expect(page.getByTestId("symbol-chooser")).toContainText("accio did not answer: no answer in 5 s: the usages outside the review are missing")
+    await page.keyboard.press("Escape")
+    // a name the review does not declare: no declaration, and why
+    const outsider = await pointOf(code, "src/Uses.kt", "outsider")
+    await page.keyboard.down(MODIFIER)
+    await page.mouse.click(outsider.x, outsider.y)
+    await page.keyboard.up(MODIFIER)
+    await expect(page.getByText("No declaration of outsider found")).toBeVisible()
+    await expect(page.getByText("accio did not answer: no answer in 5 s")).toBeVisible()
+  })
+
+  test("should say when a name has no usage but its declaration", async ({ page }) => {
+    const code = await openNavigationReview(page)
+    await findUsagesOf(code, "src/Store.kt", "version")
+    await expect(page.getByText("No usages of version found")).toBeVisible()
+    await expect(page.getByTestId("symbol-chooser")).toBeHidden()
   })
 })

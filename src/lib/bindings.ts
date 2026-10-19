@@ -357,6 +357,11 @@ export const commands = {
 	 */
 	findDeclaration: (params: FindDeclarationParams) => typedError<FoundDeclarations, CommandError>(__TAURI_INVOKE("find_declaration", { params })),
 	/**
+	 *  The usages of a name in a diff of a review (`file_diffs::usages`): in its file, in the files of the review from the
+	 *  blobs the diffs read, then outside the review in the index of the repository (`accio`)
+	 */
+	findUsages: (params: FindDeclarationParams) => typedError<FoundUsages, CommandError>(__TAURI_INVOKE("find_usages", { params })),
+	/**
 	 *  Checks Auto-sync on Focus of the native menu as the setting is, whichever window changed it: the main window calls it
 	 *  for every value of `appSettings.autoSyncOnFocus` (`useMenuSync`). Without a native menu (a custom title bar on
 	 *  Windows and Linux, whose main menu reads the setting itself) there is nothing to check.
@@ -1199,6 +1204,21 @@ export type FlatNameClash = {
 export type FoundDeclarations = {
 	name: string,
 	targets: DeclarationTarget[],
+	/**  Why the index of the repository did not answer, when it was asked */
+	indexError: string | null,
+};
+
+/**
+ *  The usages of a name (`usages.rs`): those of the file of the name, of the other files of the review, then those
+ *  outside the review that the index knows
+ */
+export type FoundUsages = {
+	name: string,
+	usages: UsageTarget[],
+	/**  The index knows more usages outside the review than it answered */
+	moreOutside: boolean,
+	/**  Why the index of the repository did not answer, when it was asked */
+	indexError: string | null,
 };
 
 export type GetAutosquashPlanParams = {
@@ -3521,6 +3541,15 @@ export type UpstreamCommit = {
 	committer: string,
 	/**  Commit time, Unix seconds */
 	time: number,
+};
+
+/**  A usage: its place (`kind` is how it uses the name: `declaration`, `import`, `call`, `write`, `read`) and its line */
+export type UsageTarget = {
+	target: DeclarationTarget,
+	/**  The text of its line, without the indent */
+	text: string,
+	/**  Where the name starts in `text`, in UTF-16 */
+	textColumn: number,
 };
 
 export type ValidateRepositoryPathParams = {

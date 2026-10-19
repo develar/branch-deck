@@ -43,13 +43,14 @@ export interface DeclarationFileViewProps {
   /** Back to the review, or to the file view before this one */
   onBack: () => void
   onGoToDeclaration: (site: DeclarationSite, at: { x: number; y: number }, reveal: (place: DeclarationPlace) => boolean, from: DeclarationPlace) => void
+  onFindUsages: (site: DeclarationSite, at: { x: number; y: number }, reveal: (place: DeclarationPlace) => boolean, from: DeclarationPlace) => void
 }
 
 /**
  * A file outside the review that holds a declaration (spec/commit/symbol-navigation.spec.md): the whole file at the
  * revision of its side, coloured and navigable as the diffs, over the review, which keeps its place under it
  */
-export function DeclarationFileView({ target, onBack, onGoToDeclaration }: DeclarationFileViewProps) {
+export function DeclarationFileView({ target, onBack, onGoToDeclaration, onFindUsages }: DeclarationFileViewProps) {
   const softWraps = useDiffSoftWraps()
   const revision = target.outside?.revision
   const place: DeclarationPlace = { path: target.path, side: "new", line: target.line, column: target.column, endColumn: target.endColumn }
@@ -76,6 +77,7 @@ export function DeclarationFileView({ target, onBack, onGoToDeclaration }: Decla
           label={`File ${target.path}`}
           plain
           onGoToDeclaration={onGoToDeclaration}
+          onFindUsages={onFindUsages}
           onHistoryEnd={onBack}
         />
       </div>
