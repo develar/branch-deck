@@ -250,7 +250,7 @@ The views show the typed diff of each file instead of the patch ([Reading the di
   highlighted on the main thread in idle slices.
   [@test] ../../src/lib/diff/highlight/engine.test.ts (`answers a page far into a file first as provisional, then exact, and confirms equal runs without arrays`)
   [@test] ../../src/lib/diff/highlight/client.test.ts (`keeps the pages the engine on the main thread answers, a provisional one confirmed exact`)
-- The section must offer the unified, the inline and the split view. The choice is one setting of every diff view (the
+- The section must offer the split, the unified and the inline view. The choice is one setting of every diff view (the
   section, the reviews, the uncommitted changes, the conflicts and the missing commits), also in Settings →
   Appearance, "Diffs". Split is the default, as in IntelliJ; a stored choice keeps winning over it.
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should list the files of the commit in the preview and load a diff when a file is expanded`)
@@ -340,7 +340,7 @@ The views show the typed diff of each file instead of the patch ([Reading the di
 - A `border-border` rule above the section separates it from the message. Its header is a button: a `ChevronRightIcon`
   (`size-3.5` muted, turned down when open, as a tree row's) and the label "Files 4", muted `text-xs font-medium`
   (`SectionLabel` with the count, as the files of a review), `hover:bg-muted rounded-md`, `aria-expanded`; the
-  `Unified`/`Inline`/`Split` toggle on its right while it is open.
+  `Split`/`Unified`/`Inline` toggle on its right while it is open.
 - The tree rows are `h-6 rounded-md text-sm`, `hover:bg-muted`, indented by 0.75rem per level, a `ring-2 ring-ring/50`
   inset on the focused row. A row starts with a `ChevronRightIcon` (`size-3.5` muted, turned down when open). A 1px
   `border` guide per level runs under the chevron of each parent, on the rows only (not on a diff under a row).

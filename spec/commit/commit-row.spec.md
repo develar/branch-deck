@@ -349,7 +349,7 @@ The commit hash popover shows the same header and body.
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should load the contents of the conflict in the windows of its files and missing commits`)
 - The diffs of the missing commits must be the diffs of the engine of their commit (one
   `get_file_diffs` per commit, its texts by blob id), so the unchanged lines between hunks expand. The missing commits
-  header has the unified/inline/split toggle, persisted: a stored choice keeps winning over the Split default.
+  header has the split/unified/inline toggle, persisted: a stored choice keeps winning over the Split default.
   [@test] ../../src/lib/diff/view-files.test.ts (`says why a file shows no lines: binary, too large, a submodule, a blob git cannot read, a text that cannot be read, no changed lines`)
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should keep a stored diff view mode over the Split default`)
 - A row with a generic error must show the error text in a destructive alert.

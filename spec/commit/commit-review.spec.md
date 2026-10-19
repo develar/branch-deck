@@ -118,7 +118,7 @@ where a dialog would cover it.
   commit above its diffs as the branch preview heads one (`CommitHeading`: the subject `text-md font-medium`, the meta
   line with the committer time on hover and the coloured line counts, the reading body, three lines until Show More), the footer "Commit 2 / 3 · File 1 / 1" and
   `Esc Close`. Its title bar names the list and the commit ("Unassigned › 11346cdf", `listLabel` of the window data: the
-  branch, or "Unassigned") and ends with the Unified/Inline/Split toggle. Nothing is edited there.
+  branch, or "Unassigned") and ends with the Split/Unified/Inline toggle. Nothing is edited there.
 - ⌥↑/⌥↓ (Alt+↑/↓) must show the previous or next commit of the list.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should switch the commit of a review with Alt and the arrows`)
 
@@ -184,7 +184,7 @@ where a dialog would cover it.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should find a text in the diffs from the model, also in the folded lines, with ⌘F, Enter and Escape`)
 - The diffs come from `get_file_diffs` and their texts from `get_blob_texts`
   ([Commit Files](commit-files.spec.md#file-diffs)): N and P step through the blocks that are not `Ignored`.
-- The Unified/Inline/Split toggle must switch the layout; it is the setting of the Files section, Split by default. It is in
+- The Split/Unified/Inline toggle must switch the layout; it is the setting of the Files section, Split by default. It is in
   the header of the block whose diffs it switches: the title bar of a review window, the toolbar of a pull request.
   Soft wraps follow the setting of Settings → Appearance ([Commit Files](commit-files.spec.md#soft-wraps)).
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)

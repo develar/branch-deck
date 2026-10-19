@@ -9,7 +9,7 @@ import { createPersistentStore } from "./persistent-store"
  */
 const DiffViewSettingsSchema = z.object({
   // Split first, as IntelliJ's diff and its VCS log; Inline is Unified with a lightly edited line as one row
-  mode: z.enum(["unified", "inline", "split"]).default("split"),
+  mode: z.enum(["split", "unified", "inline"]).default("split"),
   // off, as IntelliJ's USE_SOFT_WRAPS: a long line keeps its shape and scrolls
   softWraps: z.boolean().default(false),
   // what the diff engine ignores; IntelliJ's default compares every character

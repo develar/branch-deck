@@ -273,7 +273,7 @@ Safe Push it allows.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
   [@test] ../../src/lib/pull-request-review.test.ts (`keeps its review for a plain open of the request it shows, and starts over for another request or an intent`)
 - The window opens at once with what the search returned. Its title bar ([Title Bar](title-bar.spec.md)): ↑ ↓ (in the
-  tooltips) and the window title "Your Turn › 2 of 5" on the left; the Unified/Inline/Split toggle while the changes show, GitHub (`O`) and "⋯"
+  tooltips) and the window title "Your Turn › 2 of 5" on the left; the Split/Unified/Inline toggle while the changes show, GitHub (`O`) and "⋯"
   (Copy Pull Request Link, Copy Branch Name) on the right (`ActionButton`s: in a title bar narrower than 48rem only
   their icons). Then, in one island:
   - who asks and for how long: an initials avatar, "dave asks for your review of carol's pull request" (the author named

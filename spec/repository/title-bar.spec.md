@@ -217,11 +217,11 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
 - A sub-window (`WindowPage`) is its row, then its islands, then its footer (the position and the keys). The row says
   where the user is on the left and holds the view and the actions on the right; the native title stays set
   (`useWindowTitle`) for the Window menu, Mission Control and screen readers.
-  - `branch-review`: the stack bar; Unified/Inline/Split and the actions on the branch; the native title "Review login", "Review
+  - `branch-review`: the stack bar; Split/Unified/Inline and the actions on the branch; the native title "Review login", "Review
     login · a1b2c3d" when it opened at a commit ([Branch Review](../branch/branch-review.spec.md)).
   - `commit-review`: "Unassigned › 11346cdf", the list and the commit (the hash in `font-mono`), of a commit no branch
-    review shows; Unified/Inline/Split ([Commit Review](../commit/commit-review.spec.md)).
-  - `pull-request-review`: the toolbar of the review, ↑ ↓ and "Your Turn › 2 of 5"; Unified/Inline/Split while the changes
+    review shows; Split/Unified/Inline ([Commit Review](../commit/commit-review.spec.md)).
+  - `pull-request-review`: the toolbar of the review, ↑ ↓ and "Your Turn › 2 of 5"; Split/Unified/Inline while the changes
     show, GitHub and "⋯" ([Review Requests](review-requests.spec.md#review-window)).
   - `conflicting-files`, `missing-commits`: "bug-fix › Conflicting files", the islands scrolling under the row.
   - `settings`: "Settings", the sidebar of its pages and the page ([Settings](settings.spec.md)).

@@ -155,10 +155,10 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
     window.
 - **Every window's top row is its title bar** (`WindowTitleBar`, [Title Bar](../../spec/repository/title-bar.spec.md)),
   on the canvas, never an island: on the left where the user is (the repository, the stack, the list and the commit,
-  the request), on the right the view of the window (Unified/Inline/Split) and the actions on its object (`ActionButton`). A
+  the request), on the right the view of the window (Split/Unified/Inline) and the actions on its object (`ActionButton`). A
   sub-window is a `WindowPage`: the row, the islands, the footer with the position and the keys only. A preview dialog
   keeps its actions in its footer. A review is a window, never a dialog: a review is a task of minutes beside the
-  branch table, a dialog would cover it; a preview is a glance (Quick Look), a dialog. The Unified/Inline/Split toggle is in
+  branch table, a dialog would cover it; a preview is a glance (Quick Look), a dialog. The Split/Unified/Inline toggle is in
   the title bar of the window whose diffs it switches.
 - **Window buttons** are the platform's, never a generic set: Windows' caption buttons (46×40, Segoe Fluent), GNOME's
   and KDE's as IntelliJ draws them (a 47×40 cell, its icons; the `window-button-*` tokens of `src/index.css` are their
