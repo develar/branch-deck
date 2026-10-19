@@ -2016,7 +2016,7 @@ Settings → Repository shows and writes five keys of the repository's git confi
   `stacks_enabled`, `read_symbol_mode` and the configured GitHub repository of the pull requests are one snapshot each,
   for a caller that needs one key. `get_branch_prefix_from_git_config_sync` keeps its own read for the app, with its
   errors (a repository that is not accessible).
-- **Write**: only the local config (`.git/config`, shared by every linked worktree): `git config --local
+- **Write**: the local config (`.git/config`, shared by every linked worktree): `git config --local
   --replace-all <key> <value>`, or `--unset-all` (exit 5, nothing to unset, is a success). A boolean is written as
   `true` or `false`, never left to an absent key, so a local `false` wins over a global `true`. The read before the
   write refuses a key that the worktree config or the command line (`git -c`, `GIT_CONFIG_*`) sets: they win over
@@ -2024,11 +2024,17 @@ Settings → Repository shows and writes five keys of the repository's git confi
   (`git_ops::branch_names::is_valid_branch_prefix`), a GitHub repository is `owner/name` without whitespace; an empty
   text unsets. The answer is the settings read again, and the main window gets `repository_config_changed`
   (`{repositoryPath, key}`) to sync.
+- **Global write**: `set_repository_config` with `scope: "global"` (`WriteScope`, local when omitted) writes the same
+  key to the user's global config instead: `git config --global --replace-all`, or `--unset-all`, with the same
+  validation. No scope refuses it, because it is the value of every repository; a repository whose local, worktree or
+  command value sets the key keeps that value, and the answer, the settings read again, shows that scope. Without a
+  repository the answer is the global config alone. The test server refuses a global write, so that no test changes
+  the config of the developer.
 - **Branch prefix**: the backend's order (`resolve_branch_prefix`, used by `bd`) puts the specific prefix first: the
   repository's own (local, worktree or command scope), then the app's `globalUserBranchPrefix`, then the global or system one.
   `get_branch_prefix_from_git_config_sync` reads the value with its scope in one `git config -z --show-scope --get`.
 
-No other git config is written by the app, except the branch descriptions of `bd describe`.
+No other git config is written by the app, except the branch descriptions of `bd describe` and the global write above.
 
 #### Push lease
 

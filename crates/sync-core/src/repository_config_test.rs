@@ -1,7 +1,7 @@
 use crate::pull_requests::GitHubRepositorySource;
 use crate::repository_config::{
-  ConfigEntry, ConfigScope, ConfigSetting, DetectedGitHubRepository, FlatNameClash, RepositoryConfigChange, parse_config_entries, parse_git_bool, read_config_entries,
-  read_repository_config, repository_config_from_entries, set_repository_config,
+  ConfigEntry, ConfigScope, ConfigSetting, DetectedGitHubRepository, FlatNameClash, RepositoryConfigChange, WriteScope, parse_config_entries, parse_git_bool, read_config_entries,
+  read_repository_config, repository_config_from_entries, set_config, set_repository_config,
 };
 use crate::symbol_scan::SymbolMode;
 use pretty_assertions::assert_eq;
@@ -379,4 +379,37 @@ fn with_stacks_off_the_read_groups_nothing() {
   let config = read_repository_config(test_repo.git_executor(), test_repo.path_str()).unwrap();
 
   assert_eq!(config.stacks_off_clashes, []);
+}
+
+#[test]
+fn a_global_write_goes_to_the_global_config_and_a_local_value_still_wins() {
+  let test_repo = TestRepo::new();
+  let global = tempfile::NamedTempFile::new().unwrap();
+  // the global config of this test alone, never the developer's
+  let git = test_repo.git_executor().with_env("GIT_CONFIG_GLOBAL", global.path().to_str().unwrap());
+  let path = test_repo.path_str();
+
+  let config = set_config(&git, path, &RepositoryConfigChange::ResolveByWords(Some(false)), WriteScope::Global).unwrap();
+  assert_eq!((config.resolve_by_words.value, config.resolve_by_words.scope), (false, Some(ConfigScope::Global)));
+  assert_eq!(std::fs::read_to_string(global.path()).unwrap(), "[branchdeck]\n\tresolveByWords = false\n");
+  // the global config alone, as Settings reads it without a repository
+  assert!(
+    !set_config(&git, "", &RepositoryConfigChange::ResolveByWords(Some(false)), WriteScope::Global)
+      .unwrap()
+      .resolve_by_words
+      .value
+  );
+
+  let config = set_config(&git, path, &RepositoryConfigChange::ResolveByWords(Some(true)), WriteScope::Local).unwrap();
+  assert_eq!((config.resolve_by_words.value, config.resolve_by_words.scope), (true, Some(ConfigScope::Local)));
+  assert_eq!(
+    (config.resolve_by_words.fallback_value, config.resolve_by_words.fallback_scope),
+    (false, Some(ConfigScope::Global))
+  );
+
+  // an unset of the global value, twice: a key that is not set is fine
+  set_config(&git, path, &RepositoryConfigChange::ResolveByWords(None), WriteScope::Global).unwrap();
+  let config = set_config(&git, path, &RepositoryConfigChange::ResolveByWords(None), WriteScope::Global).unwrap();
+  assert_eq!(config.resolve_by_words.fallback_scope, None);
+  assert_eq!(std::fs::read_to_string(global.path()).unwrap(), "");
 }

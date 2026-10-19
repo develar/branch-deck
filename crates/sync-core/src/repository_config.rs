@@ -168,6 +168,18 @@ impl RepositoryConfigKey {
   }
 }
 
+/// The config file a write of Settings goes to
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum WriteScope {
+  /// `.git/config` of the repository
+  #[default]
+  Local,
+  /// The global config of the user (`git config --global`): every repository without a local value takes it
+  Global,
+}
+
 /// A write of one key to the local config; `None` unsets it there (the global value or the default applies again)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -459,6 +471,39 @@ pub fn set_repository_config(git: &GitCommandExecutor, repository_path: &str, ch
   read_repository_config(git, repository_path)
 }
 
+/// The write of `scope`: `set_repository_config` for the local config; for the global one `write_global_config`, then
+/// the settings of the repository read again (of the global config alone for an empty `repository_path`)
+#[instrument(skip(git))]
+pub fn set_config(git: &GitCommandExecutor, repository_path: &str, change: &RepositoryConfigChange, scope: WriteScope) -> Result<RepositoryConfig> {
+  match scope {
+    WriteScope::Local => set_repository_config(git, repository_path, change),
+    WriteScope::Global => {
+      write_global_config(git, change)?;
+      read_repository_config(git, repository_path)
+    }
+  }
+}
+
+/// Write one key to the global config of the user (`git config --global --replace-all`, or `--unset-all`). A local
+/// value of a repository still wins there; the read of its settings shows that scope
+pub fn write_global_config(git: &GitCommandExecutor, change: &RepositoryConfigChange) -> Result<()> {
+  run_config_write(git, ".", "--global", change.key().config_key(), change.config_value()?.as_deref())
+}
+
+/// `git config <file option> --replace-all <key> <value>`, or `--unset-all` for `None`: a key that is not set is no
+/// error to unset
+fn run_config_write(git: &GitCommandExecutor, repository_path: &str, file: &str, config_key: &str, value: Option<&str>) -> Result<()> {
+  let (output, exit_code) = match value {
+    Some(value) => git.execute_command_with_status(&["config", file, "--replace-all", config_key, value], repository_path)?,
+    None => git.execute_command_with_status(&["config", file, "--unset-all", config_key], repository_path)?,
+  };
+  // 5: the key to unset is not set
+  if !(exit_code == 0 || (value.is_none() && exit_code == 5)) {
+    bail!("git config {config_key} failed: {output}");
+  }
+  Ok(())
+}
+
 /// Write one key to the local config of the repository (`git config --local --replace-all`, or `--unset-all`), after
 /// one read of the scopes: refused when the worktree config or the command line sets the key, as the write would not
 /// change the effective value
@@ -481,13 +526,5 @@ pub fn write_repository_config(git: &GitCommandExecutor, repository_path: &str, 
     bail!("{config_key} is set {place}");
   }
 
-  let (output, exit_code) = match &value {
-    Some(value) => git.execute_command_with_status(&["config", "--local", "--replace-all", config_key, value], repository_path)?,
-    None => git.execute_command_with_status(&["config", "--local", "--unset-all", config_key], repository_path)?,
-  };
-  // 5: the key to unset is not set
-  if !(exit_code == 0 || (value.is_none() && exit_code == 5)) {
-    bail!("git config {config_key} failed: {output}");
-  }
-  Ok(())
+  run_config_write(git, repository_path, "--local", config_key, value.as_deref())
 }

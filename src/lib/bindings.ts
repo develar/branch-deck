@@ -193,7 +193,10 @@ export const commands = {
 	checkGitSetup: (params: GetBranchPrefixParams) => typedError<GitSetup, CommandError>(__TAURI_INVOKE("check_git_setup", { params })),
 	/**  The `branchdeck.*` settings of the repository with their scopes, and the detected GitHub repository */
 	getRepositoryConfig: (params: GetRepositoryConfigParams) => typedError<RepositoryConfig, CommandError>(__TAURI_INVOKE("get_repository_config", { params })),
-	/**  Writes one key to the local config of the repository and answers the settings read again */
+	/**
+	 *  Writes one key to the local config of the repository, or to the global config of the user, and answers the settings
+	 *  read again
+	 */
 	setRepositoryConfig: (params: SetRepositoryConfigParams) => typedError<RepositoryConfig, CommandError>(__TAURI_INVOKE("set_repository_config", { params })),
 	/**  Opens a native file dialog to browse for a git repository */
 	browseRepository: () => typedError<BrowseResult, CommandError>(__TAURI_INVOKE("browse_repository")),
@@ -2688,6 +2691,8 @@ export type SearchState = "complete" |
 export type SetRepositoryConfigParams = {
 	repositoryPath: string,
 	change: RepositoryConfigChange,
+	/**  The local config when omitted */
+	scope?: WriteScope,
 };
 
 /**  A value of each of the three sides of a merge */
@@ -3383,6 +3388,13 @@ export type WordResolutionSummary = {
 	 */
 	files: ResolvedFileSummary[],
 };
+
+/**  The config file a write of Settings goes to */
+export type WriteScope = 
+/**  `.git/config` of the repository */
+"local" | 
+/**  The global config of the user (`git config --global`): every repository without a local value takes it */
+"global";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

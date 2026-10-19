@@ -2,7 +2,7 @@ use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
-use sync_core::repository_config::{RepositoryConfig, RepositoryConfigChange, RepositoryConfigKey, read_repository_config, set_repository_config as write_repository_config};
+use sync_core::repository_config::{RepositoryConfig, RepositoryConfigChange, RepositoryConfigKey, WriteScope, read_repository_config, set_config};
 use tauri::{AppHandle, Emitter, State};
 
 /// Sent to the main window after a write of Settings → Repository: the main window syncs, or reloads the branch prefix
@@ -27,6 +27,10 @@ pub struct GetRepositoryConfigParams {
 pub struct SetRepositoryConfigParams {
   pub repository_path: String,
   pub change: RepositoryConfigChange,
+  /// The local config when omitted
+  #[serde(default)]
+  #[specta(optional)]
+  pub scope: WriteScope,
 }
 
 /// The `branchdeck.*` settings of the repository with their scopes, and the detected GitHub repository
@@ -37,15 +41,16 @@ pub async fn get_repository_config(git_executor: State<'_, GitCommandExecutor>, 
   run_blocking(move || read_repository_config(&git, &params.repository_path)).await
 }
 
-/// Writes one key to the local config of the repository and answers the settings read again
+/// Writes one key to the local config of the repository, or to the global config of the user, and answers the settings
+/// read again
 #[tauri::command]
 #[specta::specta]
 pub async fn set_repository_config(app: AppHandle, git_executor: State<'_, GitCommandExecutor>, params: SetRepositoryConfigParams) -> Result<RepositoryConfig, CommandError> {
   let git = (*git_executor).clone();
-  let SetRepositoryConfigParams { repository_path, change } = params;
+  let SetRepositoryConfigParams { repository_path, change, scope } = params;
   let key = change.key();
   let path = repository_path.clone();
-  let config = run_blocking(move || write_repository_config(&git, &path, &change)).await?;
+  let config = run_blocking(move || set_config(&git, &path, &change, scope)).await?;
   app.emit_to("main", REPOSITORY_CONFIG_CHANGED_EVENT, RepositoryConfigChanged { repository_path, key })?;
   Ok(config)
 }

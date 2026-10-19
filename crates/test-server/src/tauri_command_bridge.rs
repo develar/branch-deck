@@ -18,7 +18,7 @@ use sync_core::branch_name_suggestion::clean_names;
 use sync_core::branch_prefix::GitBranchPrefix;
 use sync_core::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
 use sync_core::repository_config::{
-  ConfigScope, RepositoryConfig, RepositoryConfigChange, detect_github_repository, read_config_entries, repository_config_from_entries, with_stacks_off_clashes,
+  ConfigScope, RepositoryConfig, RepositoryConfigChange, WriteScope, detect_github_repository, read_config_entries, repository_config_from_entries, with_stacks_off_clashes,
   write_repository_config,
 };
 use sync_core::repository_lock::RewriteOptions;
@@ -207,13 +207,17 @@ pub async fn get_repository_config(State(state): State<Arc<AppState>>, Json(requ
 pub struct SetRepositoryConfigRequest {
   repository_path: String,
   change: RepositoryConfigChange,
+  #[serde(default)]
+  scope: WriteScope,
 }
 
-/// The production write; the answer is the local read of `get_repository_config`
+/// The production write of the local config; the answer is the local read of `get_repository_config`. A write of the
+/// global config is refused: it would change the config of the developer who runs the tests
 pub async fn set_repository_config(State(state): State<Arc<AppState>>, Json(request): Json<SetRepositoryConfigRequest>) -> CommandResult<RepositoryConfig> {
   ensure_repository_exists(&state, &request.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("change the repository settings", move || {
+    anyhow::ensure!(request.scope == WriteScope::Local, "The test server writes no global config");
     write_repository_config(&git_executor, &request.repository_path, &request.change)?;
     read_local_repository_config(&git_executor, &request.repository_path)
   })
