@@ -430,10 +430,10 @@ Safe Push it allows.
   or the index ([Git Operations](../../docs/design/git-operations.md)). Ids and names that could be options are refused.
   [@test] ../../crates/sync-core/src/review_fetch_test.rs (`fetches_the_pull_ref_from_a_github_origin`, `commits_that_are_local_need_no_fetch_and_no_ref`, `fetches_the_branch_from_the_mirror_without_touching_its_remote_tracking_refs`, `a_mirror_behind_the_pull_request_falls_back_to_github`, `a_fork_is_fetched_from_github`, `a_missing_base_is_fetched_in_the_same_fetch`, `refuses_ids_and_names_that_could_be_options`)
 - The range is `merge-base(head, base)..head`; no merge base is "The pull request has no common history with master".
-  Its files and its patch are those of all its commits, by one `diff-tree` of the two commits; anything but an object id
-  is refused.
+  Its files are those of all its commits, by one `diff-tree` of the two commits, and its diffs those of `get_file_diffs`
+  for the range; anything but an object id is refused.
   [@test] ../../crates/sync-core/src/review_fetch_test.rs (`a_pull_request_without_common_history_is_an_error`)
-  [@test] ../../crates/git-ops/src/commit_files_test.rs (`range_files_are_the_changes_of_all_its_commits`, `the_files_of_a_commit_subject_are_those_of_the_commit`, `range_patch_has_a_section_per_file_of_the_range`, `a_range_refuses_what_is_not_an_object_id`)
+  [@test] ../../crates/git-ops/src/commit_files_test.rs (`range_files_are_the_changes_of_all_its_commits`, `the_files_of_a_commit_subject_are_those_of_the_commit`, `a_range_refuses_what_is_not_an_object_id`)
 - The review refs are pruned (`prune_review_refs`, one CAS transaction) after an answer with the requests, once per
   repository per start and after a fetch wrote one, and when the review window closes; never after a failed answer;
   the refs of the request the window shows stay. A CAS failure is tried again the next time; across app instances it is best effort.

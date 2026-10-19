@@ -1,8 +1,7 @@
-//! The uncommitted files of the working tree (one `status --porcelain -z`) and, for a file the user expands, its diff
-//! and its contents; read-only.
+//! The uncommitted files of the working tree, from one `status --porcelain -z`; read-only. Their diffs come from
+//! `file_diffs` (`DiffSource::Uncommitted`).
 
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::conflict_analysis::{FileDiff, FileInfo};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
@@ -11,14 +10,6 @@ use tracing::instrument;
 #[serde(rename_all = "camelCase")]
 pub struct GetUncommittedChangesParams {
   pub repository_path: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct GetFileContentForDiffParams {
-  pub repository_path: String,
-  pub file_path: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -121,52 +112,4 @@ pub fn get_uncommitted_changes(git_executor: &GitCommandExecutor, params: GetUnc
   }
 
   Ok(UncommittedChangesResult { has_changes: true, files })
-}
-
-/// Get file content for diff display when user expands a file in the UI
-#[instrument(skip(git_executor), fields(repository_path = %params.repository_path, file_path = %params.file_path))]
-pub fn get_file_content_for_diff(git_executor: &GitCommandExecutor, params: GetFileContentForDiffParams) -> Result<FileDiff, String> {
-  let repo_path = params.repository_path;
-  let file_path = params.file_path;
-
-  // Determine file language from extension
-  let file_lang = std::path::Path::new(&file_path).extension().and_then(|ext| ext.to_str()).unwrap_or("txt").to_string();
-
-  // the patch the diff view parses: literal pathspec, fixed prefixes, no external diff or textconv of the user's config;
-  // untrimmed, the last line may be a context line of a blank line, a single space
-  let diff_output = git_executor
-    .cmd(
-      &[
-        "--literal-pathspecs",
-        "diff",
-        "HEAD",
-        "-U3",
-        "--no-color",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--src-prefix=a/",
-        "--dst-prefix=b/",
-        "--",
-        &file_path,
-      ],
-      &repo_path,
-    )
-    .bytes()
-    .map_err(|e| format!("Failed to get diff for file {file_path}: {e}"))?;
-  let diff_output = String::from_utf8_lossy(&diff_output).into_owned();
-
-  // the contents are not read: the patch has the changed lines and their context
-  Ok(FileDiff {
-    old_file: FileInfo {
-      file_name: file_path.clone(),
-      file_lang: file_lang.clone(),
-      content: String::new(),
-    },
-    new_file: FileInfo {
-      file_name: file_path,
-      file_lang,
-      content: String::new(),
-    },
-    hunks: if diff_output.trim().is_empty() { Vec::new() } else { vec![diff_output] },
-  })
 }

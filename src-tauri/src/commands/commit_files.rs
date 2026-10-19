@@ -1,13 +1,8 @@
 use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
-use crate::patch_cache::PatchCache;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_files::{
-  BlobContents, CommitFiles, CommitPatch, DiffSubject, GetBlobContentsParams, GetCommitFilesParams, GetCommitPatchParams, GetCommitsFilesParams, patch_warm_ids,
-  read_blob_contents, read_commit_files_cached,
-};
-use std::sync::Arc;
+use git_ops::commit_files::{CommitFiles, GetCommitFilesParams, GetCommitsFilesParams, read_commit_files_cached};
 use tauri::State;
 use tracing::instrument;
 
@@ -28,21 +23,17 @@ pub async fn get_commit_files(
 }
 
 /// The changed files of many commits (in the order of the ids), with one `diff-tree` for the ids the cache misses; the
-/// meta line of every list. Their patches are then warmed in the background, so the first review of one reads the store
+/// meta line of every list. The first view of a commit then needs no `diff-tree` (`get_file_diffs` reads the list here)
 // `instrument` must come before `specta::specta`: specta parses the remaining attributes and rejects `%` in `fields`
 #[tauri::command]
-#[instrument(skip(git_executor, repository_state, patch_cache, params), fields(repository_path = %params.repository_path, commits = params.commit_ids.len()))]
+#[instrument(skip(git_executor, repository_state, params), fields(repository_path = %params.repository_path, commits = params.commit_ids.len()))]
 #[specta::specta]
 pub async fn get_commits_files(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
-  patch_cache: State<'_, PatchCache>,
   params: GetCommitsFilesParams,
 ) -> Result<Vec<CommitFiles>, CommandError> {
-  let repository_path = params.repository_path.clone();
-  let files = read_files(&git_executor, &repository_state, params.repository_path, params.commit_ids).await?;
-  patch_cache.warm(&repository_path, patch_warm_ids(&files));
-  Ok(files)
+  read_files(&git_executor, &repository_state, params.repository_path, params.commit_ids).await
 }
 
 /// The files of `ids` through the object cache of the repository, off the async runtime
@@ -59,48 +50,4 @@ async fn read_files(
     read_commit_files_cached(&git, &repository_path, &cache, &ids)
   })
   .await
-}
-
-/// The patch of a commit, when the preview first shows a diff of it: from the memory cache, the object cache, or one
-/// `diff-tree -p`, cut into files
-#[tauri::command]
-#[specta::specta]
-#[instrument(skip(git_executor, repository_state, patch_cache))]
-pub async fn get_commit_patch(
-  git_executor: State<'_, GitCommandExecutor>,
-  repository_state: State<'_, RepositoryStateCache>,
-  patch_cache: State<'_, PatchCache>,
-  params: GetCommitPatchParams,
-) -> Result<Arc<CommitPatch>, CommandError> {
-  read_patch(
-    &git_executor,
-    &repository_state,
-    &patch_cache,
-    params.repository_path,
-    DiffSubject::Commit(params.commit_id),
-  )
-  .await
-}
-
-/// The patch of `subject` through `PatchCache::read`, off the async runtime
-pub async fn read_patch(
-  git_executor: &GitCommandExecutor,
-  repository_state: &RepositoryStateCache,
-  patch_cache: &PatchCache,
-  repository_path: String,
-  subject: DiffSubject,
-) -> Result<Arc<CommitPatch>, CommandError> {
-  let git = git_executor.clone();
-  let repository_state = repository_state.clone();
-  let patch_cache = patch_cache.clone();
-  run_blocking(move || patch_cache.read(&git, &repository_state, &repository_path, &subject)).await
-}
-
-/// The contents of blobs, when a diff expands the unchanged lines between its hunks: one `cat-file --batch`
-#[tauri::command]
-#[specta::specta]
-#[instrument(skip(git_executor))]
-pub async fn get_blob_contents(git_executor: State<'_, GitCommandExecutor>, params: GetBlobContentsParams) -> Result<Vec<BlobContents>, CommandError> {
-  let git = (*git_executor).clone();
-  run_blocking(move || read_blob_contents(&git, &params.repository_path, &params.object_ids)).await
 }

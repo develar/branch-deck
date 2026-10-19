@@ -404,8 +404,7 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   commits stay; `from`, `to` and the commits whose diff of the file changed get committer = current user and no mapping
   note. Signatures are stripped.
 - **Batch**: one process per phase, not per item (`--stdin`, `cat-file --batch`, `fast-import` for commits and notes,
-  `update-ref --stdin`); the patches of a list are warmed by one `diff-tree --stdin -p`, cut at its commit id lines
-  (`warm_patches`). A chain whose next step needs the answer of the one before keeps one interactive process per
+  `update-ref --stdin`). A chain whose next step needs the answer of the one before keeps one interactive process per
   chain: a sync merges a branch in one `merge-tree --stdin` and writes its copies with one `fast-import`
   (`commit_chain.rs`), never `commit-tree` per commit; `with_process_stats` counts the processes of an operation. A
   resolve session finds the first conflicting commit with a binary search over prefixes:
@@ -441,7 +440,7 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   remote-tracking ref moves; never under the repository lock; no fetch at all when both commits are local; killed on
   cancel or 120 s of silence (`execute_remote_command_with_progress_until`). Pruning is one `for-each-ref` plus one
   CAS `update-ref --stdin`. Range diffs (`DiffSubject::Range`) are never written to the object cache: the app keeps
-  them in memory only (`PatchCache`), the files and the patch of a range from one `diff-tree`.
+  the files of a range in memory only (`RangeFilesCache`), from one `diff-tree`.
 - **Symbols** (`symbol_scan.rs`): source blobs by id from the `--raw --no-abbrev` of the commit diffs; one
   `cat-file --batch` of the directories above them at HEAD, one for the blobs the `blob_summary` cache misses and the
   manifests; the declarations the range adds or changes are the index, never the whole tree. The summaries of trial
@@ -493,7 +492,7 @@ headers of `crates/git-ops/src/lib.rs` and `crates/sync-core/src/lib.rs` map the
 | `read_notes`, `notes_ref`, `write_commit_notes` | `git_ops::notes` | the notes of many commits from one `log --no-walk --stdin`; the mapping notes |
 | `get_commits_info`, `find_commit`, `empty_tree`, `blob_id` | `git_ops::commit_utils` | commits by id from one `log --no-walk --stdin`; ids without a process |
 | `get_commit_list_with_handler` | `git_ops::commit_list` | the commits ahead of the baseline, streamed |
-| `read_commit_files_cached`, `read_patches`, `warm_patches`, `read_patch_cached` | `git_ops::commit_files` | files and line counts of many commits from one `diff-tree --stdin`, patches cut as they stream |
+| `read_commit_files_cached`, `read_diff_files` | `git_ops::commit_files` | files and line counts of many commits from one `diff-tree --stdin`, of a range from one `diff-tree` |
 | `read_attributes` | `git_ops::attributes` | the attributes of many paths, one `check-attr --stdin -z` |
 | `read_descriptions`, `write_description`, `clear_description` | `git_ops::branch_description` | the pull request text of a branch |
 | `to_final_branch_name`, `qualified_branch_name`, `strip_branch_namespace`, `sanitize_branch_name` | `git_ops::branch_names` | `{prefix}/virtual/<name>` and the other namespaces under the prefix; a group name valid in a ref |

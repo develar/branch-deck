@@ -1,4 +1,4 @@
-use crate::cache::{CacheConfig, DEFAULT_CONFLICT_MAP_SIZE, DEFAULT_MAP_SIZE, DEFAULT_MERGE_MAP_SIZE, ObjectCache, STORES, Store, is_env_open, open_env};
+use crate::cache::{CacheConfig, DEFAULT_CONFLICT_MAP_SIZE, DEFAULT_MAP_SIZE, DEFAULT_MERGE_MAP_SIZE, DEFAULT_PATCH_MAP_SIZE, ObjectCache, STORES, Store, is_env_open, open_env};
 use crate::commit_diff::{FileChange, Hunk};
 use crate::commit_files::{CommitFile, FileStatus};
 use crate::conflict_info::{ConflictKey, MAX_CONFLICT_INFO_BYTES};
@@ -379,25 +379,6 @@ fn blob_summaries_are_read_by_the_extractor_version_that_wrote_them() {
 }
 
 #[test_log::test]
-fn patches_are_read_by_the_limits_version_that_cut_them() {
-  let dir = tempfile::tempdir().unwrap();
-  let cache = open(dir.path());
-  let patch = vec!["diff --git a/a b/a\n".to_string()];
-  let ids = ["c1".to_string(), "c2".to_string()];
-  cache.put_commit_patches(1, &[("c1", &patch)]);
-  assert_eq!(cache.get_commit_patch::<Vec<String>>(1, "c1"), Some(patch.clone()));
-  assert_eq!(cache.get_commit_patch::<Vec<String>>(1, "c2"), None);
-  assert_eq!(cache.has_commit_patches(1, &ids), [true, false]);
-  assert_eq!(cache.has_commit_patches(2, &ids), [false, false], "a patch of other limits is never read");
-
-  // the first write of another version clears the store
-  cache.put_commit_patches(2, &[("c2", &patch)]);
-  assert_eq!(cache.has_commit_patches(1, &ids), [false, false]);
-  assert_eq!(cache.has_commit_patches(2, &ids), [false, true]);
-  assert_eq!(ObjectCache::disabled().has_commit_patches(2, &ids), [false, false]);
-}
-
-#[test_log::test]
 fn file_diffs_are_read_by_their_blob_pair_policy_and_version() {
   let dir = tempfile::tempdir().unwrap();
   let cache = open(dir.path());
@@ -447,7 +428,7 @@ fn cache_with_a_merge(dir: &Path, config: &CacheConfig) -> (ObjectCache, MergeKe
   (cache, key, clean)
 }
 
-/// The patches have their own environment: a full one clears only the patches, never the merges
+/// The diffs of the views have their own environment: a full one clears only the diffs, never the merges
 #[test_log::test]
 fn a_full_patch_store_keeps_the_other_stores() {
   let dir = tempfile::tempdir().unwrap();
@@ -460,13 +441,21 @@ fn a_full_patch_store_keeps_the_other_stores() {
   );
   assert!(dir.path().join("patches").join("data.mdb").exists());
   let big = "x".repeat(100 * 1024);
-  for batch in 0..30 {
-    cache.put_commit_patches(1, &[(id("p", batch).as_str(), &big)]);
-  }
   let ids: Vec<String> = (0..30).map(|batch| id("p", batch)).collect();
-  let found = cache.has_commit_patches(1, &ids);
-  assert!(found[29]);
-  assert!(found.iter().filter(|found| **found).count() < 30);
+  let keys: Vec<DiffKey<'_>> = ids
+    .iter()
+    .map(|id| DiffKey {
+      policy: 0,
+      old_id: "",
+      new_id: id,
+    })
+    .collect();
+  for key in &keys {
+    cache.put_file_diffs(1, &[(*key, &big)]);
+  }
+  let found = cache.get_file_diffs::<String>(1, &keys);
+  assert!(found[29].is_some());
+  assert!(found.iter().filter(|found| found.is_some()).count() < 30);
   assert_eq!(cache.get_merge_results(std::slice::from_ref(&key)), [Some(clean)]);
 }
 
@@ -524,10 +513,38 @@ fn the_merges_of_the_main_environment_are_dropped() {
   assert_eq!(database_names(&merges), ["commit_tree.v1", "merge_result.v1"]);
 }
 
-/// The conflict views and their contents are read by the analysis version that wrote them, each part by itself, in their
-/// own environment; a part too big to keep is left out, and its view stays
+/// A retired store (`commit_patch`, the patches of the old diff views) is dropped from its environment on open
 #[test_log::test]
-fn conflict_views_are_read_by_their_version_and_big_contents_are_not_kept() {
+fn a_retired_store_is_dropped() {
+  let dir = tempfile::tempdir().unwrap();
+  let patches = open_env(&dir.path().join("patches"), DEFAULT_PATCH_MAP_SIZE).unwrap();
+  let mut txn = patches.write_txn().unwrap();
+  let database = patches.create_database::<Bytes, Bytes>(&mut txn, Some("commit_patch.v1")).unwrap();
+  database.put(&mut txn, b"key", b"value").unwrap();
+  txn.commit().unwrap();
+
+  let cache = open(dir.path());
+  cache.put_file_diffs(
+    1,
+    &[(
+      DiffKey {
+        policy: 0,
+        old_id: "a",
+        new_id: "b",
+      },
+      &1u32,
+    )],
+  );
+
+  let names = database_names(&patches);
+  assert!(!names.iter().any(|name| name.starts_with("commit_patch")), "{names:?}");
+  assert!(names.iter().any(|name| name.starts_with("file_diff")), "{names:?}");
+}
+
+/// The conflict views are read by the analysis version that wrote them, in their own environment; a view too big to
+/// keep is left out
+#[test_log::test]
+fn conflict_views_are_read_by_their_version_and_big_views_are_not_kept() {
   let dir = tempfile::tempdir().unwrap();
   let cache = open(dir.path());
   let key = |commit: &str| ConflictKey {
@@ -536,13 +553,10 @@ fn conflict_views_are_read_by_their_version_and_big_contents_are_not_kept() {
     target: "t".to_string(),
   };
   let view = vec!["a.txt".to_string()];
-  let contents = vec!["<<<<<<< a".to_string()];
-  cache.put_conflict_infos(1, &[(key("c1"), &view, &contents)]);
+  cache.put_conflict_infos(1, &[(key("c1"), &view)]);
   assert_eq!(cache.get_conflict_info::<Vec<String>>(1, &key("c1")), Some(view.clone()));
-  assert_eq!(cache.get_conflict_contents::<Vec<String>>(1, &key("c1")), Some(contents.clone()));
   assert_eq!(cache.get_conflict_info::<Vec<String>>(1, &key("c2")), None);
   assert_eq!(cache.get_conflict_info::<Vec<String>>(2, &key("c1")), None, "a view of another analysis is never read");
-  assert_eq!(cache.get_conflict_contents::<Vec<String>>(2, &key("c1")), None);
   let other_target = ConflictKey {
     target: "t2".to_string(),
     ..key("c1")
@@ -550,19 +564,13 @@ fn conflict_views_are_read_by_their_version_and_big_contents_are_not_kept() {
   assert_eq!(cache.get_conflict_info::<Vec<String>>(1, &other_target), None);
 
   let big = vec!["x".repeat(MAX_CONFLICT_INFO_BYTES)];
-  cache.put_conflict_infos(1, &[(key("big"), &view, &big), (key("c3"), &view, &contents)]);
-  assert_eq!(
-    cache.get_conflict_info::<Vec<String>>(1, &key("big")),
-    Some(view.clone()),
-    "the view of big contents is kept"
-  );
-  assert_eq!(cache.get_conflict_contents::<Vec<String>>(1, &key("big")), None);
-  assert_eq!(cache.get_conflict_contents::<Vec<String>>(1, &key("c3")), Some(contents.clone()));
+  cache.put_conflict_infos(1, &[(key("big"), &big), (key("c3"), &view)]);
+  assert_eq!(cache.get_conflict_info::<Vec<String>>(1, &key("big")), None);
+  assert_eq!(cache.get_conflict_info::<Vec<String>>(1, &key("c3")), Some(view.clone()));
 
   // the first write of another version clears the store
-  cache.put_conflict_infos(2, &[(key("c2"), &view, &contents)]);
+  cache.put_conflict_infos(2, &[(key("c2"), &view)]);
   assert_eq!(cache.get_conflict_info::<Vec<String>>(1, &key("c1")), None);
-  assert_eq!(cache.get_conflict_contents::<Vec<String>>(1, &key("c1")), None);
   assert_eq!(cache.get_conflict_info::<Vec<String>>(2, &key("c2")), Some(view));
   let names = database_names(&open_env(&dir.path().join("conflicts"), DEFAULT_CONFLICT_MAP_SIZE).unwrap());
   assert_eq!(names, ["conflict_chain.v1", "conflict_info.v1"]);
@@ -594,17 +602,17 @@ fn a_full_conflict_store_keeps_the_merges() {
       ..CacheConfig::default()
     },
   );
-  let contents = "x".repeat(100 * 1024);
+  let view = "x".repeat(100 * 1024);
   let conflict = |index: usize| ConflictKey {
     commit: id("c", index),
     parent: "p".to_string(),
     target: "t".to_string(),
   };
   for index in 0..30 {
-    cache.put_conflict_infos(1, &[(conflict(index), &"view", &contents)]);
+    cache.put_conflict_infos(1, &[(conflict(index), &view)]);
   }
-  assert_eq!(cache.get_conflict_contents::<String>(1, &conflict(29)), Some(contents));
-  assert!((0..30).filter(|index| cache.get_conflict_contents::<String>(1, &conflict(*index)).is_some()).count() < 30);
+  assert_eq!(cache.get_conflict_info::<String>(1, &conflict(29)), Some(view));
+  assert!((0..30).filter(|index| cache.get_conflict_info::<String>(1, &conflict(*index)).is_some()).count() < 30);
   assert_eq!(cache.get_merge_results(std::slice::from_ref(&key)), [Some(clean)]);
 }
 

@@ -105,7 +105,7 @@ pub fn perform_fast_cherry_pick_with_context(
     // Conflict analysis takes a while; let the UI show it
     on_status(BranchSyncStatus::AnalyzingConflict);
 
-    let (conflict_info, contents, complete) = build_complete_conflict_info(ConflictContext {
+    let (conflict_info, complete) = build_complete_conflict_info(ConflictContext {
       git_executor,
       repo_path,
       conflict_files: &conflict_files,
@@ -115,7 +115,7 @@ pub fn perform_fast_cherry_pick_with_context(
       cherry_commit_id,
     })?;
     if let Some(memo) = remembers_conflicts.filter(|_| complete) {
-      memo.remember_conflict(commits, &conflict_info, contents);
+      memo.remember_conflict(commits, &conflict_info);
     }
     return Err(CopyCommitError::BranchError(BranchError::MergeConflict(Box::new(conflict_info))));
   }

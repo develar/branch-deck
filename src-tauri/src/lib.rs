@@ -4,8 +4,8 @@ pub mod command_error;
 pub mod commands;
 pub mod legacy_model_cache;
 pub mod menu;
-pub mod patch_cache;
 pub mod progress;
+pub mod range_files;
 pub mod repository_state;
 pub mod title_bar;
 pub mod zoom;
@@ -15,7 +15,7 @@ mod bindings_test;
 #[cfg(test)]
 mod menu_test;
 #[cfg(test)]
-mod patch_cache_test;
+mod range_files_test;
 #[cfg(test)]
 mod repository_state_test;
 #[cfg(test)]
@@ -30,8 +30,7 @@ use commands::amend_to_branch::amend_uncommitted_to_branch;
 use commands::archived_branches::{delete_archived_branch, get_archived_branch_commits};
 use commands::branch_prefix::{check_git_setup, get_branch_prefix_from_git_config};
 use commands::branch_review::{get_branch_review, get_file_owners, prefetch_branch_review};
-use commands::commit_files::{get_blob_contents, get_commit_files, get_commit_patch, get_commits_files};
-use commands::conflict_contents::get_conflict_contents;
+use commands::commit_files::{get_commit_files, get_commits_files};
 use commands::conflict_fix::{apply_conflict_fix, cancel_conflict_fix, find_conflict_fix};
 use commands::fetch_baseline::fetch_baseline;
 use commands::file_diffs::{get_blob_texts, get_file_diffs, get_file_merges};
@@ -49,7 +48,7 @@ use commands::pull_requests::{
 use commands::push::{push_branch, push_branches};
 use commands::repository_browser::{browse_repository, validate_repository_path};
 use commands::repository_config::{get_repository_config, set_repository_config};
-use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, get_range_patch, get_review_requests, prune_review_refs};
+use commands::review_requests::{ReviewFetchState, cancel_review_fetch, fetch_review_head, get_range_files, get_review_requests, prune_review_refs};
 use commands::reword_commit::reword_commits;
 use commands::squash_commits::{restore_branch_head, squash_commits};
 use commands::squash_fixups::{get_autosquash_plan, squash_fixup_commits};
@@ -58,7 +57,7 @@ use commands::suggest_branch_names::{BranchNameSuggestionState, suggest_branch_n
 use commands::sync_branches::sync_branches;
 use commands::sync_inputs::get_sync_inputs_fingerprint;
 use commands::unapply_branch::unapply_branch;
-use commands::uncommitted_changes::{get_file_content_for_diff, get_uncommitted_changes};
+use commands::uncommitted_changes::get_uncommitted_changes;
 use commands::update_project::{dismiss_landed, update_project};
 use commands::window_management::{SubWindowState, open_sub_window, sub_window_loaded, sub_window_ready};
 use commands::window_menu::show_window_menu;
@@ -66,7 +65,7 @@ use tauri_specta::{Builder, collect_commands};
 
 use git_executor::git_command_executor::GitCommandExecutor;
 use menu::{configure_app_menu, handle_menu_event, set_auto_sync_menu_checked};
-use patch_cache::PatchCache;
+use range_files::RangeFilesCache;
 use repository_state::RepositoryStateCache;
 use sync_core::branch_review::BranchReviewMemo;
 use tauri::Manager;
@@ -106,7 +105,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
     cancel_review_fetch,
     prune_review_refs,
     get_range_files,
-    get_range_patch,
     get_branch_review,
     get_file_owners,
     prefetch_branch_review,
@@ -165,15 +163,11 @@ fn specta_builder() -> Builder<tauri::Wry> {
     delete_archived_branch,
     unapply_branch,
     get_uncommitted_changes,
-    get_file_content_for_diff,
     get_commit_files,
     get_commits_files,
-    get_commit_patch,
-    get_blob_contents,
     get_file_diffs,
     get_file_merges,
     get_blob_texts,
-    get_conflict_contents,
     set_auto_sync_menu_checked,
     install_agent_cli,
     agent_cli_command,
@@ -244,10 +238,7 @@ pub fn run() {
       app.manage(GitCommandExecutor::new());
       app.manage(RepositoryStateCache::new());
       app.manage(BranchReviewMemo::new());
-      app.manage(PatchCache::new(
-        app.state::<GitCommandExecutor>().inner().clone(),
-        app.state::<RepositoryStateCache>().inner().clone(),
-      ));
+      app.manage(RangeFilesCache::default());
       app.manage(file_diffs::service::FileDiffs::default());
       app.manage(BranchNameSuggestionState::default());
       app.manage(ReviewFetchState::default());

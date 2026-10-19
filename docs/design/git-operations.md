@@ -1126,37 +1126,29 @@ branches and the tips from the report (`SyncOutput::report`), so a command that 
    task as before. One transaction per branch, in its finish task, so its status and its remote status don't wait for
    the other branches.
 
-**The report of a conflict** (`build_merge_conflict_info`, `crates/git-ops/src/merge_conflict.rs`): the commits, the
-merged file with zdiff3 markers, the change of the commit in each conflicting file and the missing commits, the older
-commits of the source that change a conflicting file and are not in the target. It comes in two parts: the view a sync
-reports (`MergeConflictInfo`: the commits, each conflicting file with its number of conflicts, the `<<<<<<<` lines of
-the merged file, and the analysis with the missing commits) and the contents (`ConflictContents`: the merged files, the
-change of the commit and the diffs of the missing commits), which the app reads only when a view shows the conflict
-(`get_conflict_contents`, `crates/sync-core/src/conflict_contents.rs`): from the object cache where the sync left
-them, else by the merge and the report again (`rebuild_merge_conflict`, six processes, `opening_a_conflict`). A view of
+**The report of a conflict** (`build_merge_conflict_info`, `crates/git-ops/src/merge_conflict.rs`): the commits, each
+conflicting file with its number of conflicts (the `<<<<<<<` lines of the merged file, which the report counts and
+does not keep), and the missing commits, the older commits of the source that change a conflicting file and are not
+in the target (`MergeConflictInfo`). The views read the merges and the diffs from the engine (`get_file_merges`,
+`get_file_diffs`, [Diff View](diff-view.md)), not from the report. A view of
 a conflict in big files is megabytes (a 5.6 MiB file: 28 MiB of JSON), and the sync sends each conflict twice (the
 error of the commit and the status of the branch) at every run; without the contents an event is about 1.3 KiB
-(`a_sync_reports_a_conflict_without_the_contents_of_its_files`). After the merge again with the commits
-(`merge-tree`, for the markers), five processes, whatever the number of files and missing commits:
+(`a_sync_reports_a_conflict_without_the_contents_of_its_files`). After the merge with markers (`merge_with_markers`,
+one `merge-tree`), four processes, whatever the number of files and missing commits:
 1. One `rev-list --left-right --boundary <parent>...<target>` (`find_divergence`) counts the commits of each side, and
    its boundary, the commits outside both sides that a commit of a side has as a parent, holds every merge base (the
    child of a merge base on the way to a side is on that side), so a boundary of one commit is the merge base. Any
    other boundary (criss-cross merges, unrelated histories) asks `merge-base` once more; without a merge base there is
    no analysis.
 2. One `log --no-walk --stdin` reads the parent, the target, the commit and the merge base.
-3. One `log -z --name-only --no-renames --no-merges <parent> ^<target>` lists the missing commits with their first
-   parents, their whole messages and the conflicting paths they change, NUL-separated and never quoted (`%B` is the
+3. One `log -z --name-only --no-renames --no-merges <parent> ^<target>` lists the missing commits with their whole
+   messages and the conflicting paths they change, NUL-separated and never quoted (`%B` is the
    last field, so a body line is never read as a path).
-4. One `cat-file --batch` reads the conflicting files at the merge base, the commit and the merge tree, and the files
-   of each missing commit at it and at its parent (a root commit has none: its files are added), as texts, as the diff
-   view takes them: a binary file and one over 8 MiB (`MAX_BLOB_BYTES`, its bytes skipped) have no contents.
-5. One `diff-tree --stdin -p --root` (`read_conflict_patches`) gives the change of the commit from the merge base (a
-   line `<commit> <merge base>`) and the change of each missing commit (a line `<commit>`), streamed into the splitter
-   of the commit patches (`split_patches`, `PatchSplitter`), which keys the sections by the path of their `diff --git`
-   line: a file whose patch passes 8 MiB keeps only its header (`CONFLICT_PATCH_LIMITS`).
+4. One `cat-file --batch` reads the conflicting files in the merge tree, as texts, to count their markers: a binary
+   file and one over 8 MiB (`MAX_BLOB_BYTES`, its bytes skipped) count none.
 
-The conflicting paths go to both logs and the `diff-tree` as names: `--literal-pathspecs`, so `a*.txt` matches no
-`ab.txt` and `:name` is no pathspec magic. `the_report_of_a_conflict_costs_five_processes` pins the count.
+The conflicting paths go to the log of the missing commits as names: `--literal-pathspecs`, so `a*.txt` matches no
+`ab.txt` and `:name` is no pathspec magic. `the_report_of_a_conflict_costs_four_processes` pins the count.
 
 Before the copies, a sync with branches takes their descriptions (`bd describe`) from its `ConfigSnapshot`, the one
 `git config` of the sync that also gives the stack setting (see "Repository settings"; `bd` reads them with
@@ -1328,13 +1320,14 @@ under `Default` (`file_diffs::blocks`).
   transaction in a loop. The sync stays: without it (`MDB_NOSYNC`) a power loss can leave a wrong but readable tree
   id in `merge_result`, and a check would build a branch from it.
 - **Never in the way.** The map size caps each environment; a full map clears the stores of that environment and the
-  write is retried. What is bulky and cheap to read again never evicts what is costly: the patches of `commit_patch`
-  in `cache/patches/` (512 MiB); the merges of `merge_result` and the trees of `commit_tree` in `cache/merges/`
+  write is retried. What is bulky and cheap to read again never evicts what is costly: the diffs and merges of
+  `file_diff` and `file_merge` in `cache/patches/` (512 MiB); the merges of `merge_result` and the trees of `commit_tree` in `cache/merges/`
   (256 MiB: about 250 and 130 bytes an entry, the merges and trees of some 700,000 commit copies); the conflict views
-  of `conflict_info` in `cache/conflicts/` (512 MiB: the contents of a view, 20 KiB to 40 MiB each in the monorepo,
-  whose 16 conflicts take 133 MiB; a part above 64 MiB encoded is not kept), so the diffs, lines and summaries of the
+  of `conflict_info` and the chains of `conflict_chain` in `cache/conflicts/` (512 MiB; a view is a few kilobytes,
+  one above 64 MiB encoded is not kept), so the diffs, lines and summaries of the
   main environment (`cache/`, 1 GiB) and the conflict views never clear the merges a check costs most to learn again. A
-  store moved to another environment is dropped from the old one on open. Any error is a miss,
+  store moved to another environment is dropped from the old one on open, and a retired store (`RETIRED_STORES`:
+  `commit_patch`, the patches of the old diff views) from every environment. Any error is a miss,
   never a failed command, and `--no-cache` bypasses it. `--no-cache` also makes a sync and a check verify every mapping
   note against the tree of its copy (see "Virtual commit reuse"). The cache holds only derived data: no ref, index or working
   tree is read or written through it.
@@ -1349,22 +1342,17 @@ under `Default` (`file_diffs::blocks`).
   one `cat-file --batch-check=%(objecttype)` per check, started at the first such hit, answers `tree` for it; a
   missing tree, or a failure to ask, is a miss, and the merge runs again and overwrites the entry. A conflict names
   only paths and needs no check.
-- `conflict_info` ((view version, part, commit, its parent, the commit it is applied onto), full ids → a part of the
-  conflict view: the view, `MergeConflictInfo`, or its contents, `ConflictContents`) is written by the sync of the app
-  and of `bd` through the `ConflictMemo` of its tree cache (`crates/sync-core/src/cache_memo.rs`,
-  `SyncOptions::object_cache`), both parts in one transaction. The sync reads only the views, so an unchanged
-  conflicting branch decodes no contents; the app reads the contents when a view shows the conflict
-  (`get_conflict_contents`), and writes both parts when it had to analyse the conflict again. Contents above 64 MiB
-  are not kept, their view is. The view of a conflict reads only those
+- `conflict_info` ((view version, commit, its parent, the commit it is applied onto), full ids → the conflict view,
+  `MergeConflictInfo`) is written and read by the sync of the app and of `bd` through the `ConflictMemo` of its tree
+  cache (`crates/sync-core/src/cache_memo.rs`, `SyncOptions::object_cache`). The view of a conflict reads only those
   commits and what they reach, so it is the same at every sync of the unchanged branch, whose copies are
   deterministic: the cherry-pick returns the remembered view before it merges (`MergeMemo::conflict`), and the
   branch runs neither its own `merge-tree` nor the analysis (`an_unchanged_sync_of_a_conflicting_branch`; 7 processes
   per conflicting branch: an unchanged `bd sync` of the monorepo clone with 16 of them ran 150 processes, now 41). The
   view is remembered before the sync names the branches of its missing commits, which it does again on each read; a
-  view whose analysis fell back (a failed divergence walk, list of missing commits or read of the contents) is not
+  view whose analysis fell back (a failed divergence walk, list of missing commits or read of the merged files) is not
   remembered. The views wait in memory and are written in one transaction when the sync's tree cache drops. `CONFLICT_INFO_VERSION`
-  (`merge_memo.rs`) is part of the key: a change of `MergeConflictInfo`, `ConflictContents` or of
-  `build_merge_conflict_info` bumps it,
+  (`merge_memo.rs`) is part of the key: a change of `MergeConflictInfo` or of `build_merge_conflict_info` bumps it,
   and its first write clears the store. A check reports light conflicts and reads none; `--no-cache` analyses every
   conflict.
 - `conflict_chain` ((chain version, a hash of the branch's full name and its base) → the originals before the conflict
@@ -1379,9 +1367,6 @@ under `Default` (`file_diffs::blocks`).
   commit rows (see "Commit files" below) and by the review pre-check for the paths of the commits (see "Patronus
   review pre-check"). It is a store of its own: an entry without hunks in `commit_diff` would read as "no hunks" to
   `bd`.
-- `commit_patch` ((limits version, subject id) → the patch cut into file sections) is read and written by the app for
-  the diff views (see "Commit files" below); a range is keyed by `<base>..<head>`, as immutable as a commit id. The
-  version of `PATCH_LIMITS` is part of the key, and its first write of another version clears the store.
 - `remote_status` ((status version, a hash of the branch's tip, its remote tip, the baseline commit, a stacked
   branch's parent head, where the parent's commits came from and the user's email) → the remote status without its
   push time) is read and written by the sync of the app and of `bd`, and by `bd push --remote`, through
@@ -1457,38 +1442,11 @@ The commit rows show "3 files · +42 −7", and the commit preview lists the fil
   back, so a commit seen once costs no process again, also in a later session. A commit the output doesn't list (no
   changes, or not fetched yet) is not cached. The app resolves `--git-common-dir` once per repository
   (`RepositoryStateCache`) to open the cache; outside a repository the cache is disabled and the read still runs.
-- **The patch of a commit, once.** `get_commit_patch` runs one `diff-tree -p --no-commit-id --full-index -U3
-  --src-prefix=a/ --dst-prefix=b/` with the options above, without a pathspec, when the preview first shows a diff of
-  the commit: every other file of the commit then costs nothing. The output streams into a splitter that cuts it at
-  the `diff --git` lines (inside a hunk every line starts with ` `, `+`, `-` or `\`, so a cut never falls into a
-  file's content). A file over 1 MiB or 10 000 lines, and every file after the first 16 MiB, keeps only its header
-  and the count of the lines left out, so memory is bounded by the limits, not by the commit. The paths are not
-  parsed in Rust: the diff view reads them from the `---`/`+++` lines, C-quoted where git quotes them. The patch is
-  read untrimmed: trimming would drop a last context line of a blank line. The frontend keeps the patches of the last
-  8 commits per window (at most 32 MiB of text, `src/stores/commit-patch.ts`).
-- **Patches through two caches.** `get_commit_patch` and `get_range_patch` read through `PatchCache`
-  (`src-tauri/src/patch_cache.rs`, shared by every window): memory first (96 MiB of patch text, LRU, by repository and
-  subject id; the readers of one patch at the same time run one load), then the `commit_patch` store
-  (`read_patch_cached`, a commit only), then the `diff-tree -p` above. What git read is written back to both, to the
-  store only up to 2 MiB; a range only to memory. In the monorepo one patch costs 0.13–1.7 s of git depending on the load, a store hit about a millisecond.
-  The debug log names the source (memory, disk, git) and the time of each read.
-- **The warm of a list.** After `get_commits_files` answers, the ids of its commits (not a range, not one without
-  changes, nor one over 5,000 changed lines or 300 files by its `CommitFiles`) go to one background warm per
-  repository on a thread of its own (`PatchWarmer`: one at a time, the ids that come while it runs queued for the
-  next, an id once while the repository is among the last four warmed: a fifth drops the idle one warmed longest ago,
-  so a long session keeps no ids of the repositories it left). `warm_patches` drops the ids the store has (a key check, no value read), then
-  runs one `diff-tree --stdin -p --full-index -U3` with the options of the patch above, but without `--no-commit-id`:
-  git prints the id of each commit on a line of its own before its patch (nothing for a commit without changes, the
-  first-parent diff for a merge), and `read_patches` cuts the stream at the lines that are a requested id, a
-  `PatchSplitter` per commit with the same limits, so each patch is the one `read_patch` gives. A line inside a patch
-  never is a bare id: a hunk line starts with ` `, `+`, `-` or `\`, a header line with its keyword. The patches are
-  written in one transaction per 32 MiB. One process per list; after it, only new commits cost anything. In the
-  monorepo the 51 commits of a branch (1 MB of patches) took 0.35–0.75 s.
-- **The unchanged lines, by blob id.** `--full-index` puts both blob ids on the `index` line. When a diff expands the
-  lines between its hunks, `get_blob_contents` reads both sides with one `cat-file --batch --buffer -Z`, by id, at most
-  16 ids: no path to quote, and a root commit needs no `<commit>^`. A blob with a NUL in its first 8000 bytes (git's
-  test) is binary, one over 8 MiB is too large, an id that is not a blob is missing; only text is sent, decoded as
-  UTF-8 with invalid sequences replaced.
+- **No warm.** With the files of a list in the store, the first view of a commit needs no `diff-tree`: `get_file_diffs`
+  reads its blobs with one `cat-file` and compares them ([Diff View](diff-view.md)). Measured on the last 100 commits
+  with the list cached and an empty `file_diff` store, the first content of a view came after 16 ms (p50) and 39 ms
+  (max) in Branch Deck, 8 ms and 29 ms in the monorepo, so nothing reads the diffs of the listed commits ahead. The old
+  patch warm saved a `diff-tree -p`, 146 ms (p50) in the monorepo.
 - **One reader of `cat-file --batch`.** `for_each_object` and `read_objects` (`crates/git-ops/src/cat_file_batch.rs`)
   write the names NUL-terminated (`--buffer -Z`, so a `<rev>:<path>` may hold a space or a newline) and parse the
   output as it streams: each header gives the size, so the content of an object over the caller's limit is skipped
@@ -1499,27 +1457,21 @@ The commit rows show "3 files · +42 −7", and the commit preview lists the fil
   `is_binary`), the raw commits of a rewrite (`read_raw_commits`), the line maps (`store_lines.rs`), the blobs of a
   hunk move (`move_hunk.rs`), the `OWNERSHIP` files (`ownership.rs`) and the session and round objects of a resolve
   session (`update_resolve.rs`) read through it; no other parser of its output exists.
-- **Uncommitted file.** `get_file_content_for_diff` (the amend card) runs `--literal-pathspecs diff HEAD -U3
-  --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ -- <path>`, untrimmed: the user's diff config must not change the patch the
-  diff view parses.
 - The frontend keeps the files by commit id in memory (`src/stores/commit-files.ts`) and asks only for the ids it
   doesn't have; a second request for an id waits for the one in flight.
-- **A range** (`DiffSubject::Range`, the review of a pull request or of a branch, see "Review fetch"): its files and
-  its patch come from one `diff-tree --raw --numstat -z -p --no-commit-id` with the options of both, `-l1000` and
-  `--end-of-options <base> <head>`, never `--stdin` (`read_patch_and_files`): git prints the files NUL-separated, then
-  an empty field, then the patch from its first `diff --git` line, so the first two NULs in a row end the files; each
-  is what its own read gives. One process reads every blob once. The review asks for both at once
-  (`get_range_files`, `get_range_patch`), and the two meet in `PatchCache::get`: one read answers both, the files kept
-  beside the patch (`range_files`, 16 MiB weighed by the paths and 64 bytes a file), in memory only. It passes
-  `-c core.bigFileThreshold=8m` (= `MAX_BLOB_BYTES`): a range may change thousands of files, and a file the diff view
-  can't show is diffed as binary instead of read. A commit keeps exactly its arguments. Both ids must be full object
+- **A range** (`DiffSubject::Range`, the review of a pull request or of a branch, see "Review fetch"): its files come
+  from one `diff-tree --raw --numstat -z --no-commit-id` with `-l1000` and `--end-of-options <base> <head>`, never
+  `--stdin` (`read_diff_files`). `get_range_files` keeps them in memory only (`RangeFilesCache`,
+  `src-tauri/src/range_files.rs`: 16 MiB weighed by the paths and 64 bytes a file), and the readers of one range at
+  the same time run one read. It passes `-c core.bigFileThreshold=8m` (= `MAX_BLOB_BYTES`): a range may change
+  thousands of files, and a file the diff view can't show is counted as binary instead of read. A commit keeps exactly its arguments. Both ids must be full object
   ids, as for a commit. The returned `commitId` is `"<base>..<head>"` (`DiffSubject::id`), which the frontend keys
   by. A range is never written to the object cache: a `commit_files` entry is keyed by one commit, and a range on the
-  head's key would answer the commit's files with the range's; the `commit_patch` store is keyed by commits too.
+  head's key would answer the commit's files with the range's.
 
 Code: `crates/git-ops/src/commit_files.rs`, `crates/git-ops/src/cat_file_batch.rs`,
-`crates/object-cache/src/commit_files.rs`, `crates/object-cache/src/commit_patch.rs`, `src-tauri/src/commands/commit_files.rs`,
-`src-tauri/src/patch_cache.rs`, `src-tauri/src/repository_state.rs`.
+`crates/object-cache/src/commit_files.rs`, `src-tauri/src/commands/commit_files.rs`, `src-tauri/src/range_files.rs`,
+`src-tauri/src/repository_state.rs`.
 
 #### File diffs
 
@@ -1773,8 +1725,6 @@ The conflict view gets the merge of each conflicting file as typed JSON (`FileDi
   Deck, 141 merges and 886 files: p50 47 ms, of which 26 ms are the `merge-tree`. In the monorepo, 62 merges and 392
   files: p50 77 ms, of which 57 ms are the `merge-tree`. 142 of the 709 text merges of Branch Deck and 38 of the 328
   of the monorepo are conflicts of git that their words resolve.
-
-The text with zdiff3 markers (`ConflictContents`) stays for `bd` and the agents, until the view moves to the merges.
 
 Code: `crates/file-diffs/src/merge.rs`, `crates/text-diff/src/merge_model.rs`, `crates/object-cache/src/file_merge.rs`.
 
@@ -2108,11 +2058,11 @@ of the chain (root first) for their tips, then one `git log --first-parent --max
 and cuts it at the tips: a child is built on the head of its parent (`release_children` of the sync), so the log
 passes through every parent's tip. The base of the root is the first parent of the oldest commit, the range the
 pre-check reads. A tip missing from the log is a child built on an older head of its parent: an error that asks for a
-sync. The diffs of a part are `DiffSubject::Range` (`get_range_files` and `get_range_patch`, one read in memory, see
-"Commit files"). The whole stack (`whole_stack`, the chain its root alone) is the same two processes on the stack
+sync. The files of a part are `DiffSubject::Range` (`get_range_files`, kept in memory, see "Commit files"), and its
+diffs come from `get_file_diffs`. The whole stack (`whole_stack`, the chain its root alone) is the same two processes on the stack
 branch `{prefix}/stack/<root>`: one part of every commit of the stack.
 - **Read ahead.** `prefetch_branch_review` reads what the window asks for first in the background: the review (through
-  the memo) and the files and the patch of the part it shows (the branch on its parent, or the whole stack), so the
+  the memo) and the files of the part it shows (the branch on its parent, or the whole stack), so the
   window finds them in memory. The main window asks once per state of the branch (the chain and its heads): when the
   pointer rests on its row for 200 ms or the row gets the focus (`intent` of `usePreviewHotkeys`), and on the open,
   beside the start of the window. The test server answers it with nothing: the E2E read git on every read.
@@ -2340,7 +2290,6 @@ the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and
 | Unchanged sync of a pushed and a fetched branch in a new process (`bd sync`): the first, each next one | `an_unchanged_sync_of_pushed_branches_in_a_new_process` † | 16, 16 | 15, 13 |
 | First sync of a stack that forks (three branches and the stack branch) | `a_first_sync_of_a_forking_stack` ‡ | 30 | 30 |
 | Unchanged sync of a stack that forks, the same process / a new one with the object cache | `an_unchanged_sync_of_a_forking_stack` ‡ | 12 / 12 | 12 / 12 |
-| Open a conflict view, from the object cache / without it | `opening_a_conflict` * | 0 / 6 | 0 / 6 |
 | Trial sync (the core of `bd check`), empty / filled object cache | `a_check` | 18 / 16 | 18 / 16 |
 | Trial sync after a sync | `a_check_of_synced_branches` * | 16 | 15 |
 | The checks of a session after its open: the first, each next one | `the_second_check_of_a_session` * | 4, 0 | 4, 0 |

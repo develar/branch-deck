@@ -10,7 +10,6 @@ pub mod cache;
 pub mod commit_diff;
 pub mod commit_files;
 pub mod commit_lines;
-pub mod commit_patch;
 pub mod commit_tree;
 pub mod conflict_chain;
 pub mod conflict_info;

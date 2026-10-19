@@ -1,6 +1,6 @@
 use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
-use crate::patch_cache::PatchCache;
+use crate::range_files::RangeFilesCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_files::DiffSubject;
 use git_ops::ownership::{FileOwner, GetFileOwnersParams, read_file_owners};
@@ -52,19 +52,19 @@ pub async fn get_file_owners(git_executor: State<'_, GitCommandExecutor>, params
 }
 
 /// Reads in the background what the review window of a branch asks for first: its parts (`get_branch_review`) and the
-/// files and the patch of `part` (one `diff-tree`, `PatchCache::read_range_files`), so the window finds them in the
-/// caches. Answers at once; a failure is the window's to tell
+/// files of `part` (one `diff-tree`, `RangeFilesCache::read`), so the window finds them in the caches. Answers at once;
+/// a failure is the window's to tell
 #[tauri::command]
 #[specta::specta]
 pub async fn prefetch_branch_review(
   git_executor: State<'_, GitCommandExecutor>,
   memo: State<'_, BranchReviewMemo>,
-  patch_cache: State<'_, PatchCache>,
+  range_files: State<'_, RangeFilesCache>,
   params: PrefetchBranchReviewParams,
 ) -> Result<(), CommandError> {
   let git = (*git_executor).clone();
   let memo = memo.inner().clone();
-  let patch_cache = (*patch_cache).clone();
+  let range_files = (*range_files).clone();
   tokio::task::spawn_blocking(move || {
     let review = match memo.get(&git, &params.review) {
       Ok(review) => review,
@@ -84,7 +84,7 @@ pub async fn prefetch_branch_review(
       base: base.clone(),
       head: last.head.clone(),
     };
-    if let Err(e) = patch_cache.read_range_files(&git, &params.review.repository_path, &subject) {
+    if let Err(e) = range_files.read(&git, &params.review.repository_path, &subject) {
       debug!(error = %e, "cannot prefetch the changes of a branch");
     }
   });

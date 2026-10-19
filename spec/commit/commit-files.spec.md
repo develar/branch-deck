@@ -5,8 +5,7 @@ style: plain-1
 targets:
   - ../../crates/git-ops/src/commit_files.rs
   - ../../crates/object-cache/src/commit_files.rs
-  - ../../crates/object-cache/src/commit_patch.rs
-  - ../../src-tauri/src/patch_cache.rs
+  - ../../src-tauri/src/range_files.rs
   - ../../src-tauri/src/commands/commit_files.rs
   - ../../src-tauri/src/repository_state.rs
   - ../../src/stores/commit-files.ts
@@ -105,13 +104,13 @@ Everything is read with read-only plumbing, one git process for a whole list, an
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`refuses_what_is_not_an_object_id`)
 - Nothing must write to a ref, the index or the working tree.
 - The files of a range `base..head` (the review of a pull request,
-  [Review Requests](../repository/review-requests.spec.md#review-window), or of a branch) and its patch are one
-  `diff-tree --raw --numstat -z -p` of the two commits (never `--stdin`, so a range never lands in the disk cache entry
-  of its head), each the same as its own read, kept in memory only: the two reads of a review that asks for both run
-  one process. Its id is `<base>..<head>`, both ids validated; the app keys it by that id and drops it when the review
-  closes.
-  [@test] ../../crates/git-ops/src/commit_files_test.rs (`one_read_gives_the_patch_and_the_files_of_a_range_as_the_two_reads_do`)
-  [@test] ../../src-tauri/src/patch_cache_test.rs (`the_files_of_a_range_come_with_its_patch_and_stay_in_memory`)
+  [Review Requests](../repository/review-requests.spec.md#review-window), or of a branch) are one
+  `diff-tree --raw --numstat -z` of the two commits (never `--stdin`, so a range never lands in the disk cache entry
+  of its head), kept in memory only, at most 16 MiB by their paths, whatever the number of ranges: the reads of a
+  review and its prefetch run one process. Its id is `<base>..<head>`, both ids validated; the app keys it by that id
+  and drops it when the review closes.
+  [@test] ../../crates/git-ops/src/commit_files_test.rs (`range_files_are_the_changes_of_all_its_commits`, `a_range_refuses_what_is_not_an_object_id`)
+  [@test] ../../src-tauri/src/range_files_test.rs (`the_files_of_a_range_stay_in_memory`)
   [@test] ../../src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
 
 ### Reading the diffs
@@ -365,7 +364,7 @@ The views show the typed diff of each file instead of the patch ([Reading the di
 ## Testing / Local Run
 
 - `pnpm test:backend`: `crates/git-ops/src/commit_files_test.rs`, `crates/object-cache/src/cache_test.rs`,
-  `src-tauri/src/repository_state_test.rs`, `src-tauri/src/patch_cache_test.rs`.
+  `src-tauri/src/repository_state_test.rs`, `src-tauri/src/range_files_test.rs`.
 - `pnpm test:unit`: `src/lib/commit-files.test.ts`, `src/lib/file-tree.test.ts`, `src/stores/commit-files.test.ts`,
   `src/stores/file-diffs.test.ts`, `src/stores/blob-texts.test.ts`, `src/lib/diff/*.test.ts`.
 - `pnpm e2e`: `tests/e2e/commit-files`, on the `issue_links` and `commit_tree` templates (nested directories, a Kotlin
@@ -376,11 +375,10 @@ The views show the typed diff of each file instead of the patch ([Reading the di
 
 - A commit with thousands of files renders a row per file in the preview, its directories collapsed; the tree is not
   virtualized.
-- The patch of a commit is read whole for its first diff. One `diff-tree -p` of a large commit costs more than the
-  patch of one file did, but every other file of the commit costs nothing.
-- The warm reads the patches of every listed commit the store misses, also of those never reviewed: one process per
-  list, then nothing for the commits it has (in the monorepo the 51 commits of a branch, 1 MB of patches, took
-  0.35–0.75 s, a single commit 0.13–0.3 s). A commit over the skip limits still costs its first review a git read.
+- Nothing warms the diffs of the listed commits ahead of their first view: with the files of the list in the object
+  cache, a first view costs one `cat-file` and the comparison. Measured on the last 100 commits, the first content
+  came after 16 ms (p50) and 39 ms (max) in Branch Deck, 8 ms and 29 ms in the monorepo; the whole commit 27–31 ms
+  (p50) and 59–274 ms (max). The old patch warm saved a `diff-tree -p`, 146 ms (p50) in the monorepo.
 - The counts are those of the original commit. A virtual copy that git merged differently may differ slightly.
 - No e2e test covers a rename, a binary file or a failed read: the templates have none.
 - The Activity entry of a push does not count files yet.

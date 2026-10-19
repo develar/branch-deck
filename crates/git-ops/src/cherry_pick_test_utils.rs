@@ -1,8 +1,9 @@
 use crate::cherry_pick::perform_fast_cherry_pick_with_context;
+use crate::conflict_analysis::get_files_content_at_revisions;
 use crate::copy_commit::CopyCommitError;
-use crate::merge_conflict::rebuild_merge_conflict;
+use crate::merge_conflict::merge_with_markers;
 use crate::merge_memo::CherryCommits;
-use crate::model::{BranchError, ConflictContents, MergeConflictInfo};
+use crate::model::{BranchError, MergeConflictInfo};
 use crate::tree_id_cache::TreeIdCache;
 use test_utils::git_test_utils::{ConflictScenario, TestRepo};
 
@@ -29,20 +30,34 @@ pub(crate) fn expect_merge_conflict(test_repo: &TestRepo, scenario: &ConflictSce
   }
 }
 
-/// Cherry-picks the scenario and returns the merge conflict it must produce, with the contents its view reads when it
-/// opens (`rebuild_merge_conflict`, as `get_conflict_contents` reads a conflict whose view is not remembered)
-pub(crate) fn expect_conflict_with_contents(test_repo: &TestRepo, scenario: &ConflictScenario) -> (Box<MergeConflictInfo>, ConflictContents) {
+/// A conflicting file as the merge with markers leaves it
+#[derive(Debug)]
+pub(crate) struct MergedFile {
+  pub file: String,
+  pub content: String,
+}
+
+/// Cherry-picks the scenario and returns the merge conflict it must produce, with the files of the merge with markers
+/// (`merge_with_markers`, in the `zdiff3` style), read from its tree
+pub(crate) fn expect_conflict_with_merged_files(test_repo: &TestRepo, scenario: &ConflictScenario) -> (Box<MergeConflictInfo>, Vec<MergedFile>) {
   let info = expect_merge_conflict(test_repo, scenario);
   let commits = CherryCommits {
     commit: &info.commit.hash,
     parent: &info.original_parent.hash,
     target: &info.target_branch.hash,
   };
-  let (rebuilt, contents, complete) = rebuild_merge_conflict(test_repo.git_executor(), test_repo.path_str(), commits)
-    .unwrap()
-    .expect("the commits conflict again");
-  assert!(complete);
-  let files = |info: &MergeConflictInfo| info.conflicting_files.iter().map(|file| (file.file.clone(), file.conflict_count)).collect::<Vec<_>>();
-  assert_eq!(files(&rebuilt), files(&info), "the conflict again is the one the cherry-pick reported");
-  (info, contents)
+  let (tree, files) = merge_with_markers(test_repo.git_executor(), test_repo.path_str(), commits).unwrap();
+  let paths: Vec<String> = files.iter().map(|file| file.display().to_string()).collect();
+  let reported: Vec<String> = info.conflicting_files.iter().map(|file| file.file.clone()).collect();
+  assert_eq!(paths, reported, "the merge again conflicts in the files the cherry-pick reported");
+  let mut contents = get_files_content_at_revisions(test_repo.git_executor(), test_repo.path_str(), &[(tree.as_str(), paths.as_slice())]).unwrap();
+  let mut merged = contents.remove(&tree).unwrap_or_default();
+  let files = paths
+    .into_iter()
+    .map(|file| MergedFile {
+      content: merged.remove(&file).unwrap_or_default(),
+      file,
+    })
+    .collect();
+  (info, files)
 }

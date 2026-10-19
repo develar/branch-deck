@@ -3,12 +3,12 @@
 //! commit onto another always conflicts the same way
 
 use crate::merge_tree_output::BatchMerge;
-use crate::model::{ConflictContents, MergeConflictInfo};
+use crate::model::MergeConflictInfo;
 use object_cache::merge_result::MergeResult;
 
-/// The version of a remembered `MergeConflictInfo` and its `ConflictContents`: bump it when the types or how
-/// `build_merge_conflict_info` computes them change, so no view of the old analysis is read
-pub const CONFLICT_INFO_VERSION: u32 = 2;
+/// The version of a remembered `MergeConflictInfo`: bump it when the type or how `build_merge_conflict_info` computes it
+/// change, so no view of the old analysis is read
+pub const CONFLICT_INFO_VERSION: u32 = 4;
 
 /// The version of a remembered chain of copies of a conflicting branch (`sync_core::conflict_chain`): bump it when how a
 /// commit is copied changes (`copy_commit`: its tree, message, author, committer or date), so no copy of the old way is
@@ -91,9 +91,9 @@ pub trait MergeMemo: Send + Sync {
     false
   }
   /// The conflict view of a cherry-pick of `commits` (before the sync names the branches of its missing commits), when
-  /// it is remembered; its contents are read only when a view shows it
+  /// it is remembered
   fn conflict(&self, _commits: CherryCommits<'_>) -> Option<MergeConflictInfo> {
     None
   }
-  fn remember_conflict(&self, _commits: CherryCommits<'_>, _info: &MergeConflictInfo, _contents: ConflictContents) {}
+  fn remember_conflict(&self, _commits: CherryCommits<'_>, _info: &MergeConflictInfo) {}
 }

@@ -6,7 +6,6 @@
 use crate::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
 use crate::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
 use crate::check::{CheckSession, check_plan};
-use crate::conflict_contents::{GetConflictContentsParams, read_conflict_contents};
 use crate::pull_request_create::read_new_pull_request;
 use crate::push::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
 use crate::remote_status::forget_statuses;
@@ -167,8 +166,8 @@ async fn sync_with_cache(git: &GitCommandExecutor, repo: &TestRepo, cache: &Obje
   sync_events(git, repo, cache).await;
 }
 
-/// What a view reads the contents of the first conflict of a sync by, from its `events`
-fn conflict_params(repo: &TestRepo, events: Vec<SyncEvent>) -> GetConflictContentsParams {
+/// The commit the first conflict of a sync is applied onto, from its `events`: a view merges onto it
+fn conflict_target(events: Vec<SyncEvent>) -> String {
   let conflict = events
     .into_iter()
     .find_map(|event| match event {
@@ -179,23 +178,18 @@ fn conflict_params(repo: &TestRepo, events: Vec<SyncEvent>) -> GetConflictConten
       _ => None,
     })
     .expect("a branch conflicts");
-  GetConflictContentsParams {
-    repository_path: path(repo),
-    commit: conflict.commit.hash.clone(),
-    parent: conflict.original_parent.hash.clone(),
-    target: conflict.target_branch.hash.clone(),
-  }
+  conflict.target_branch.hash.clone()
 }
 
 /// The conflict of an unchanged branch costs its merge (in its own `merge-tree`) and the analysis (`rev-list`, two
-/// `log`, `cat-file`, `diff-tree`) at every sync without the object cache, and none of them with it
+/// `log`, `cat-file`) at every sync without the object cache, and none of them with it
 #[tokio::test]
 async fn an_unchanged_sync_of_a_conflicting_branch() {
   let repo = repo_with_a_conflict();
   sync(&GitCommandExecutor::new(), &repo).await;
   let git = counting();
   sync(&git, &repo).await;
-  let mut analysed = vec![("cat-file", 2), ("diff-tree", 1), ("log", 6), ("merge-tree", 2), ("rev-list", 1)];
+  let mut analysed = vec![("cat-file", 2), ("log", 6), ("merge-tree", 2), ("rev-list", 1)];
   analysed.extend(UNCHANGED_SYNC.iter().filter(|(command, _)| !["cat-file", "log"].contains(command)));
   analysed.sort_unstable();
   assert_processes(&git, &analysed);
@@ -328,27 +322,6 @@ async fn an_unchanged_sync_of_pushed_branches_in_a_new_process() {
   assert_eq!(second, first);
 }
 
-/// The contents of a conflict, when a view shows it (`get_conflict_contents`): none from the object cache a sync left
-/// them in; else the merge with the commits and the analysis, once, after which the cache has them
-#[tokio::test]
-async fn opening_a_conflict() {
-  let repo = repo_with_a_conflict();
-  let (_dir, cache) = empty_cache();
-  let params = conflict_params(&repo, sync_events(&GitCommandExecutor::new(), &repo, &cache).await);
-
-  let git = counting();
-  read_conflict_contents(&git, &cache, &params).unwrap();
-  assert_eq!(processes(&git), []);
-
-  let (_dir, empty) = empty_cache();
-  let analysed = [("cat-file", 1), ("diff-tree", 1), ("log", 2), ("merge-tree", 1), ("rev-list", 1)];
-  let git = counting();
-  read_conflict_contents(&git, &empty, &params).unwrap();
-  assert_processes(&git, &analysed);
-  read_conflict_contents(&git, &empty, &params).unwrap();
-  assert_processes(&git, &analysed);
-}
-
 /// `repo` with a branch whose clean first commit is copied with a merge (its parent tree is not the base's) before its
 /// second commit conflicts: `delta` conflicts at every sync onto the copy of its first commit
 pub(crate) fn repo_with_a_conflict_after_a_clean_commit() -> TestRepo {
@@ -392,7 +365,6 @@ async fn an_unchanged_sync_of_a_conflict_after_a_clean_commit() {
     &[
       ("cat-file", 2),
       ("config", 1),
-      ("diff-tree", 1),
       ("fast-import", 5),
       ("for-each-ref", 1),
       ("log", 4),
@@ -424,17 +396,17 @@ async fn an_unchanged_sync_of_a_conflict_after_a_clean_commit() {
   assert_processes(&git, &UNCHANGED_SYNC);
 }
 
-/// The view of a conflict onto the copy of an earlier commit of the branch opens after `git gc`, also from a sync
-/// without the object cache: `refs/branch-deck/conflict/` keeps that copy while the branch conflicts
+/// The commit a conflict is applied onto, the copy of an earlier commit of the branch, survives `git gc`, also after a
+/// sync without the object cache: `refs/branch-deck/conflict/` keeps that copy while the branch conflicts, so the view
+/// can still merge onto it (`get_file_merges`)
 #[tokio::test]
-async fn opening_a_conflict_after_gc() {
+async fn the_target_of_a_conflict_survives_gc() {
   let repo = repo_with_a_conflict_after_a_clean_commit();
-  let params = conflict_params(&repo, sync_events(&GitCommandExecutor::new(), &repo, &ObjectCache::disabled()).await);
+  let target = conflict_target(sync_events(&GitCommandExecutor::new(), &repo, &ObjectCache::disabled()).await);
   // the target is the copy of delta's first commit, on no branch
-  assert_ne!(params.target, repo.rev_parse("test/virtual/delta").unwrap_or_default());
+  assert_ne!(target, repo.rev_parse("test/virtual/delta").unwrap_or_default());
   repo.git(&["gc", "--prune=now", "--quiet"]);
-  let (_dir, empty) = empty_cache();
-  read_conflict_contents(&GitCommandExecutor::new(), &empty, &params).unwrap();
+  repo.git(&["cat-file", "-e", &format!("{target}^{{commit}}")]);
 }
 
 /// `bd check` without a plan before the first sync, with an empty object cache and then with the one it filled

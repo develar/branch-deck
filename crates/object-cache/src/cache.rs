@@ -2,12 +2,13 @@
 //!
 //! - **Keys are object ids**, so an entry never becomes stale: it is only evicted. The cap is the map size; a write that
 //!   hits `MDB_MAP_FULL` clears every database of its environment and is retried once.
-//! - **Four environments**, so that what is bulky never evicts what is small and costly: the patches of `commit_patch`
-//!   and the diffs and merges of `file_diff` and `file_merge` in `patches/` (`CacheConfig::patch_map_size`); the merges of `merge_result` and the trees of `commit_tree`, small
+//! - **Four environments**, so that what is bulky never evicts what is small and costly: the diffs and merges of
+//!   `file_diff` and `file_merge` in `patches/` (`CacheConfig::patch_map_size`); the merges of `merge_result` and the trees of `commit_tree`, small
 //!   entries a check costs most to learn again, in `merges/` (`CacheConfig::merge_map_size`); the conflict views of
 //!   `conflict_info`, a few that may each hold megabytes of file contents, and the chains of `conflict_chain`, in
 //!   `conflicts/` (`CacheConfig::conflict_map_size`); the other stores (the diffs, lines and summaries of commits and
-//!   blobs) in the cache directory itself. A store moved to another environment is dropped from the old one on open.
+//!   blobs) in the cache directory itself. A store moved to another environment is dropped from the old one on open,
+//!   and a retired store (`RETIRED_STORES`) from every environment.
 //! - **The exceptions are `review_answer`, `patronus_robots` and `build_result`**, keyed by a hash of what they decide
 //!   on. An answer of Patronus (the changed paths, the target, the reviews of a pull request; the user's robots of a
 //!   repository), which the target's ownership rules or a robot that starts or finishes can outdate: its value carries
@@ -56,8 +57,8 @@ pub const DEFAULT_PATCH_MAP_SIZE: usize = 512 << 20;
 /// ids, a tree id or a few paths, the B-tree's overhead), one of `commit_tree` about 130, so it holds the merges and
 /// trees of some 700,000 commit copies; a check of 200 commits writes at most 200 of each
 pub const DEFAULT_MERGE_MAP_SIZE: usize = 256 << 20;
-/// The default map size of the conflict environment: the contents of a conflict view are the conflicting files and the
-/// files of its missing commits, 20 KiB to 40 MiB each in the monorepo (16 conflicts, 140 MiB together)
+/// The default map size of the conflict environment: the conflict views (a few kilobytes each) and the chains of the
+/// conflicting branches. It was sized for the contents of the views, which are no longer kept
 pub const DEFAULT_CONFLICT_MAP_SIZE: usize = 512 << 20;
 
 /// An LMDB environment of the cache: a directory with its own map size
@@ -105,7 +106,6 @@ pub(crate) enum Store {
   CommitLines,
   BlobSummary,
   ReviewAnswer,
-  CommitPatch,
   ConflictInfo,
   RemoteStatus,
   BuildResult,
@@ -117,7 +117,10 @@ pub(crate) enum Store {
 }
 
 /// How many stores there are
-const STORE_COUNT: usize = 16;
+const STORE_COUNT: usize = 15;
+
+/// The stores that no binary writes any more: `commit_patch`, the patches of the old diff views (now `file_diff`)
+const RETIRED_STORES: [&str; 1] = ["commit_patch"];
 
 /// The version each store was checked for by this process (`keep_only_version`), by `Store::index`; 0 before a check
 static CHECKED_VERSIONS: [AtomicU64; STORE_COUNT] = [const { AtomicU64::new(0) }; STORE_COUNT];
@@ -130,7 +133,6 @@ pub(crate) const STORES: [Store; STORE_COUNT] = [
   Store::CommitLines,
   Store::BlobSummary,
   Store::ReviewAnswer,
-  Store::CommitPatch,
   Store::ConflictInfo,
   Store::RemoteStatus,
   Store::BuildResult,
@@ -160,7 +162,6 @@ impl Store {
       | Self::MergeResult
       | Self::BlobSummary
       | Self::ReviewAnswer
-      | Self::CommitPatch
       | Self::ConflictInfo
       | Self::RemoteStatus
       | Self::BuildResult
@@ -174,7 +175,7 @@ impl Store {
 
   pub(crate) const fn environment(self) -> Environment {
     match self {
-      Self::CommitPatch | Self::FileDiff | Self::FileMerge => Environment::Patches,
+      Self::FileDiff | Self::FileMerge => Environment::Patches,
       Self::MergeResult | Self::CommitTree => Environment::Merges,
       Self::ConflictInfo | Self::ConflictChain => Environment::Conflicts,
       Self::CommitDiff
@@ -203,7 +204,6 @@ impl Store {
       Self::CommitLines => "commit_lines",
       Self::BlobSummary => "blob_summary",
       Self::ReviewAnswer => "review_answer",
-      Self::CommitPatch => "commit_patch",
       Self::ConflictInfo => "conflict_info",
       Self::RemoteStatus => "remote_status",
       Self::BuildResult => "build_result",
@@ -220,7 +220,7 @@ impl Store {
 pub struct CacheConfig {
   /// The LMDB map size in bytes, rounded up to the page size: the cap of the cache
   pub map_size: usize,
-  /// The map size of the patch environment (`commit_patch`, `file_diff`, `file_merge`)
+  /// The map size of the patch environment (`file_diff`, `file_merge`)
   pub patch_map_size: usize,
   /// The map size of the merge environment (`merge_result`, `commit_tree`)
   pub merge_map_size: usize,
@@ -555,7 +555,8 @@ fn open_databases(env: &Env, environment: Environment, stores: &[Store], version
 }
 
 /// The names of our databases in `env`, the environment `environment`, with an older version than their store's in
-/// `versions`, or of a store of another environment, from the unnamed database that lists all of them
+/// `versions`, of a store of another environment, or of a retired store, from the unnamed database that lists all of
+/// them
 fn stale_database_names(env: &Env, environment: Environment, txn: &heed::RoTxn, versions: &[u32; STORE_COUNT]) -> heed::Result<Vec<String>> {
   let Some(main) = env.open_database::<Bytes, DecodeIgnore>(txn, None)? else {
     return Ok(Vec::new());
@@ -565,10 +566,11 @@ fn stale_database_names(env: &Env, environment: Environment, txn: &heed::RoTxn, 
     let (name, ()) = item?;
     let Ok(name) = std::str::from_utf8(name) else { continue };
     let dropped = name.rsplit_once(".v").is_some_and(|(base, version)| {
-      STORES
-        .iter()
-        .find(|store| store.base_name() == base)
-        .is_some_and(|store| store.environment() != environment || version.parse::<u32>().is_ok_and(|version| version < versions[store.index()]))
+      RETIRED_STORES.contains(&base)
+        || STORES
+          .iter()
+          .find(|store| store.base_name() == base)
+          .is_some_and(|store| store.environment() != environment || version.parse::<u32>().is_ok_and(|version| version < versions[store.index()]))
     });
     if dropped {
       stale.push(name.to_string());

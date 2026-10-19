@@ -1,4 +1,3 @@
-use super::commit_files::PatchSplitter;
 use super::conflict_analysis::*;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -31,63 +30,10 @@ fn process_counts(git: &GitCommandExecutor) -> Vec<(String, u32)> {
   git.process_stats().unwrap().counts()
 }
 
-/// The diffs of the files of commits, by commit
-type DiffsByCommit = HashMap<String, Vec<FileDiff>>;
-
-/// The diffs of the files of `changes` as the conflict report reads them: one `cat-file` for the contents, one
-/// `diff-tree` for the patches
-fn read_file_diffs(git: &GitCommandExecutor, repo_path: &str, changes: &[CommitChange<'_>]) -> DiffsByCommit {
-  let requests = content_requests(changes);
-  let requests: Vec<(&str, &[String])> = requests.iter().map(|(rev, files)| (*rev, files.as_slice())).collect();
-  let contents = get_files_content_at_revisions(git, repo_path, &requests).unwrap();
-  let diffs: Vec<(&str, Option<&str>)> = changes.iter().map(|change| (change.id, None)).collect();
-  let mut files: Vec<String> = changes.iter().flat_map(|change| change.files.iter().cloned()).collect();
-  files.sort();
-  files.dedup();
-  let patches = read_conflict_patches(git, repo_path, &diffs, &files).unwrap();
-  file_diffs_of(changes, &contents, &patches)
-}
-
 /// The missing commits of `source` for `target`, as the conflict report lists them
 fn find_missing_commits_for_conflicts(git: &GitCommandExecutor, repo_path: &str, source: &str, target: &str, conflicting_files: &[PathBuf]) -> Result<Vec<MissingCommit>> {
-  Ok(find_missing_commits_with_diffs(git, repo_path, source, target, conflicting_files)?.0)
-}
-
-/// The missing commits of `source` for `target` with their diffs by commit, as the conflict report reads them: the
-/// listing, then `read_file_diffs`
-fn find_missing_commits_with_diffs(
-  git: &GitCommandExecutor,
-  repo_path: &str,
-  source: &str,
-  target: &str,
-  conflicting_files: &[PathBuf],
-) -> Result<(Vec<MissingCommit>, DiffsByCommit)> {
   let files: Vec<String> = conflicting_files.iter().map(|path| path.to_string_lossy().into_owned()).collect();
-  let listed = list_missing_commits(git, repo_path, source, target, &files)?;
-  let diffs = read_file_diffs(git, repo_path, &CommitChange::of(&listed));
-  Ok((listed.into_iter().map(|(commit, _)| commit).collect(), diffs))
-}
-
-/// The diffs of `files` of each of `commits`, each commit with its first parent
-fn diffs_of_commits(test_repo: &TestRepo, commits: &[(&str, Vec<String>)]) -> HashMap<String, Vec<FileDiff>> {
-  let parents: Vec<Option<String>> = commits.iter().map(|(commit, _)| test_repo.rev_parse(&format!("{commit}^")).ok()).collect();
-  let changes: Vec<CommitChange<'_>> = commits
-    .iter()
-    .zip(&parents)
-    .map(|((id, files), parent)| CommitChange {
-      id,
-      parent: parent.as_deref(),
-      files,
-    })
-    .collect();
-  read_file_diffs(test_repo.git_executor(), test_repo.path_str(), &changes)
-}
-
-/// Diffs of `files` in `commit`, which must be the only commit with diffs
-fn commit_file_diffs(test_repo: &TestRepo, commit: &str, files: &[&str]) -> Vec<FileDiff> {
-  let mut all_diffs = diffs_of_commits(test_repo, &[(commit, files.iter().map(ToString::to_string).collect())]);
-  assert_eq!(all_diffs.len(), 1);
-  all_diffs.remove(commit).unwrap()
+  list_missing_commits(git, repo_path, source, target, &files)
 }
 
 #[test]
@@ -130,105 +76,6 @@ fn test_get_files_content_at_commit_missing_file() {
   let contents = result.unwrap();
   assert_eq!(contents.len(), 1);
   assert_eq!(&contents["does_not_exist.txt"], "");
-}
-
-#[test]
-fn test_batch_get_file_diffs_single_commit() {
-  let test_repo = TestRepo::new();
-
-  // Create initial commit
-  let _commit1 = test_repo.create_commit("Initial commit", "test.kt", "class Test {}");
-
-  // Create second commit with modified file
-  let commit2 = test_repo.create_commit("Add method", "test.kt", "class Test {\n  fun hello() {}\n}");
-
-  // Get file diffs using batch function
-  let diffs = commit_file_diffs(&test_repo, &commit2, &["test.kt"]);
-  assert_eq!(diffs.len(), 1);
-
-  let diff = &diffs[0];
-  assert_eq!(diff.old_file.file_name, "test.kt");
-  assert_eq!(diff.new_file.file_name, "test.kt");
-  assert_eq!(diff.old_file.file_lang, "kt");
-  assert_eq!(diff.new_file.file_lang, "kt");
-  assert_eq!(diff.old_file.content, "class Test {}");
-  assert_eq!(diff.new_file.content, "class Test {\n  fun hello() {}\n}");
-}
-
-#[test]
-fn test_batch_get_file_diffs_with_hunk_format() {
-  let test_repo = TestRepo::new();
-
-  // Create initial commit
-  let _commit1 = test_repo.create_commit("Initial commit", "test.rs", "fn main() {\n    println!(\"Hello\");\n}");
-
-  // Create second commit with modified file
-  let commit2 = test_repo.create_commit("Add more prints", "test.rs", "fn main() {\n    println!(\"Hello, World!\");\n    println!(\"Goodbye\");\n}");
-
-  // Get file diffs using batch function
-  let diffs = commit_file_diffs(&test_repo, &commit2, &["test.rs"]);
-  assert_eq!(diffs.len(), 1);
-
-  let diff = &diffs[0];
-
-  // Check that hunks are not empty
-  assert_ne!(diff.hunks, Vec::<String>::new());
-
-  // Check that the hunk contains proper diff format
-  let hunk = &diff.hunks[0];
-  assert!(hunk.contains("diff --git"), "Hunk should contain diff header");
-  assert!(hunk.contains("--- a/test.rs"), "Hunk should contain old file header");
-  assert!(hunk.contains("+++ b/test.rs"), "Hunk should contain new file header");
-  assert!(hunk.contains("@@"), "Hunk should contain hunk markers");
-  assert!(hunk.contains("-    println!(\"Hello\");"), "Hunk should contain removed line");
-  assert!(hunk.contains("+    println!(\"Hello, World!\");"), "Hunk should contain added line");
-}
-
-#[test]
-fn test_get_file_diffs_multiple_files() {
-  let test_repo = TestRepo::new();
-
-  // Create initial commit with both files
-  test_repo.create_commit_with_files("Initial commit with both files", &[("file1.txt", "Content 1"), ("file2.txt", "Content 2")]);
-
-  // Modify both files and commit
-  let commit_hash = test_repo.create_commit_with_files("Modify both files", &[("file1.txt", "Modified Content 1"), ("file2.txt", "Modified Content 2")]);
-
-  // Get parent commit hash for debugging
-  let parent_hash = test_repo.rev_parse("HEAD^").unwrap();
-  tracing::debug!(commit_hash, "Current commit");
-  tracing::debug!(parent_hash, "Parent commit");
-
-  // Check what files exist in each commit
-  tracing::debug!("Files in current commit:");
-  let current_files = test_repo.get_files_in_commit(&commit_hash).unwrap();
-  for file in &current_files {
-    tracing::debug!(file, "  File in current commit");
-  }
-
-  tracing::debug!("Files in parent commit:");
-  let parent_files = test_repo.get_files_in_commit(&parent_hash).unwrap();
-  for file in &parent_files {
-    tracing::debug!(file, "  File in current commit");
-  }
-
-  // Get diffs for both files
-  let diffs = commit_file_diffs(&test_repo, &commit_hash, &["file1.txt", "file2.txt"]);
-  assert_eq!(diffs.len(), 2);
-
-  // Check first file
-  let diff1 = diffs.iter().find(|d| d.old_file.file_name == "file1.txt").unwrap();
-  assert_eq!(diff1.old_file.content, "Content 1");
-  assert_eq!(diff1.new_file.content, "Modified Content 1");
-  assert_ne!(diff1.hunks, Vec::<String>::new());
-
-  // Check second file
-  let diff2 = diffs.iter().find(|d| d.old_file.file_name == "file2.txt").unwrap();
-  tracing::debug!(old_content = ?diff2.old_file.content, "file2.txt old content");
-  tracing::debug!(new_content = ?diff2.new_file.content, "file2.txt new content");
-  assert_eq!(diff2.old_file.content, "Content 2");
-  assert_eq!(diff2.new_file.content, "Modified Content 2");
-  assert_ne!(diff2.hunks, Vec::<String>::new());
 }
 
 /// The merge base and the commits of each side from one walk: the boundary of a fork is its merge base
@@ -287,27 +134,6 @@ fn a_criss_cross_history_asks_merge_base() {
   test_repo.git(&["checkout", "-q", "--orphan", "unrelated"]);
   let unrelated = test_repo.create_commit("Unrelated", "unrelated.txt", "unrelated\n");
   assert!(find_divergence(&git, test_repo.path_str(), &source, &unrelated).unwrap().is_none());
-}
-
-#[test]
-fn test_get_file_diffs_new_file() {
-  let test_repo = TestRepo::new();
-
-  // Create initial commit
-  let _commit1 = test_repo.create_commit("Initial commit", "existing.txt", "existing content");
-
-  // Add a new file in second commit
-  let commit_hash = test_repo.create_commit("Add new file", "new_file.txt", "New file content");
-
-  // Get diff for the new file
-  // Should succeed with empty old content
-  let diffs = commit_file_diffs(&test_repo, &commit_hash, &["new_file.txt"]);
-  assert_eq!(diffs.len(), 1);
-
-  let diff = &diffs[0];
-  assert_eq!(diff.old_file.content, ""); // Empty in parent commit
-  assert_eq!(diff.new_file.content, "New file content");
-  assert_ne!(diff.hunks, Vec::<String>::new());
 }
 
 #[test]
@@ -802,37 +628,6 @@ fn test_author_names_with_spaces() {
 }
 
 #[test]
-fn the_sections_of_a_patch_by_path() {
-  let diff = "diff --git a/file with spaces.txt b/file with spaces.txt\n\
-index 1..2 100644\n\
---- a/file with spaces.txt\n\
-+++ b/file with spaces.txt\n\
-@@ -1 +1 @@\n\
--old\n\
-+new\n\
-diff --git a/a b/a b b/a b/a b\n\
-new file mode 100644\n\
---- /dev/null\n\
-+++ b/a b/a b\n\
-@@ -0,0 +1 @@\n\
-+diff --git a/x b/x\n\
-diff --git \"a/tab\\tname\" \"b/tab\\tname\"\n\
-@@ -1 +1 @@\n\
--\\303\\251\n";
-
-  let mut splitter = PatchSplitter::new(CONFLICT_PATCH_LIMITS);
-  splitter.push(diff.as_bytes());
-  let sections = sections_by_path(splitter.finish());
-  let mut paths: Vec<&str> = sections.keys().map(String::as_str).collect();
-  paths.sort_unstable();
-  assert_eq!(paths, ["a b/a b", "file with spaces.txt", "tab\tname"]);
-  assert!(sections["file with spaces.txt"].starts_with("diff --git a/file with spaces.txt"));
-  assert!(sections["file with spaces.txt"].ends_with("+new\n"));
-  // An added line that looks like a header belongs to its file
-  assert!(sections["a b/a b"].ends_with("+diff --git a/x b/x\n"));
-}
-
-#[test]
 fn test_batch_cat_file_keeps_whitespace_and_non_utf8() {
   let test_repo = TestRepo::new();
   let git_executor = &GitCommandExecutor::new();
@@ -845,45 +640,6 @@ fn test_batch_cat_file_keeps_whitespace_and_non_utf8() {
   assert_eq!(&contents["last.txt"], "  trailing  \n");
 }
 
-#[test]
-fn the_diffs_of_several_commits_are_each_their_own() {
-  let test_repo = TestRepo::new();
-  test_repo.create_commit("Base", "README.md", "base\n");
-  let first = test_repo.create_commit("First", "shared.txt", "one\n");
-  let second = test_repo.create_commit_with_files("Second", &[("shared.txt", "one\ntwo\n"), ("own.txt", "own\n")]);
-  let third = test_repo.create_commit("Third", "shared.txt", "one\ntwo\nthree\n");
-  // a file all three change, each with its own patch, and a file one of them lacks
-  let diffs = diffs_of_commits(
-    &test_repo,
-    &[
-      (&first, vec!["shared.txt".to_string()]),
-      (&second, vec!["shared.txt".to_string()]),
-      (&third, vec!["shared.txt".to_string(), "own.txt".to_string()]),
-    ],
-  );
-  let added_lines = |commit: &str| -> Vec<(String, Vec<String>)> {
-    diffs[commit]
-      .iter()
-      .map(|diff| {
-        let added = diff
-          .hunks
-          .iter()
-          .flat_map(|hunk| hunk.lines())
-          .filter(|line| line.starts_with('+') && !line.starts_with("+++"))
-          .map(str::to_string)
-          .collect();
-        (diff.new_file.file_name.clone(), added)
-      })
-      .collect()
-  };
-  assert_eq!(added_lines(&first), [("shared.txt".to_string(), vec!["+one".to_string()])]);
-  assert_eq!(added_lines(&second), [("shared.txt".to_string(), vec!["+two".to_string()])]);
-  assert_eq!(
-    added_lines(&third),
-    [("shared.txt".to_string(), vec!["+three".to_string()]), ("own.txt".to_string(), Vec::new())]
-  );
-}
-
 /// The whole message of a missing commit, and the conflicting paths it changes as git stores them: a line of the body
 /// that names a path is no file, and a path with a space or a quote is one
 #[test]
@@ -894,17 +650,12 @@ fn a_missing_commit_has_its_whole_message_and_its_paths_verbatim() {
   let commit = test_repo.create_commit_in_index(message, &[("a b.txt", "1\n"), ("q\"uote.txt", "1\n")]);
   let conflicting: Vec<PathBuf> = ["a b.txt", "q\"uote.txt", "plain.txt"].iter().map(PathBuf::from).collect();
 
-  let (missing, diffs) = find_missing_commits_with_diffs(test_repo.git_executor(), test_repo.path_str(), &commit, &base, &conflicting).unwrap();
+  let missing = find_missing_commits_for_conflicts(test_repo.git_executor(), test_repo.path_str(), &commit, &base, &conflicting).unwrap();
 
   assert_eq!(missing.len(), 1);
   assert_eq!(missing[0].message, message);
   assert_eq!(missing[0].subject, "Change the files");
   assert_eq!(missing[0].files_touched, ["a b.txt", "q\"uote.txt"]);
-  let diffs: Vec<(&str, &str)> = diffs[&missing[0].hash]
-    .iter()
-    .map(|diff| (diff.new_file.file_name.as_str(), diff.new_file.content.as_str()))
-    .collect();
-  assert_eq!(diffs, [("a b.txt", "1\n"), ("q\"uote.txt", "1\n")]);
 }
 
 /// A conflicting path is a name, never a pattern: `:colon.txt` is no pathspec magic, and `a*.txt` matches no `ab.txt`
@@ -918,19 +669,17 @@ fn the_conflicting_paths_of_missing_commits_are_literal() {
   let conflicting: Vec<PathBuf> = [":colon.txt", "a*.txt"].iter().map(PathBuf::from).collect();
   let git = test_repo.git_executor().with_process_stats("test");
 
-  let (missing, diffs) = find_missing_commits_with_diffs(&git, test_repo.path_str(), &star, &base, &conflicting).unwrap();
+  let missing = find_missing_commits_for_conflicts(&git, test_repo.path_str(), &star, &base, &conflicting).unwrap();
 
   let found: Vec<(&str, &[String])> = missing.iter().map(|commit| (commit.hash.as_str(), commit.files_touched.as_slice())).collect();
   assert_eq!(found, [(star.as_str(), &["a*.txt".to_string()][..]), (colon.as_str(), &[":colon.txt".to_string()][..])]);
-  let hunks: Vec<&Vec<String>> = missing.iter().map(|commit| &diffs[&commit.hash][0].hunks).collect();
-  assert!(hunks.iter().all(|hunks| hunks.len() == 1), "every file has its patch: {hunks:?}");
-  // the commits and their parents from one log, the contents from one cat-file, the patches from one diff-tree
-  assert_eq!(process_counts(&git), [("cat-file".to_string(), 1), ("diff-tree".to_string(), 1), ("log".to_string(), 1)]);
+  // the commits and their files from one log
+  assert_eq!(process_counts(&git), [("log".to_string(), 1)]);
 }
 
-/// A root commit among the missing ones has no parent: its files are added, against nothing
+/// A root commit among the missing ones is listed with its files
 #[test]
-fn a_missing_root_commit_adds_its_files() {
+fn a_missing_root_commit_is_listed() {
   let test_repo = TestRepo::new();
   let root = test_repo.create_commit("Root", "file.txt", "one\n");
   let second = test_repo.create_commit("Second", "file.txt", "one\ntwo\n");
@@ -939,17 +688,9 @@ fn a_missing_root_commit_adds_its_files() {
   let target = test_repo.create_commit("Unrelated", "other.txt", "other\n");
   let git = test_repo.git_executor().with_process_stats("test");
 
-  let (missing, diffs) = find_missing_commits_with_diffs(&git, test_repo.path_str(), &second, &target, &[PathBuf::from("file.txt")]).unwrap();
+  let missing = find_missing_commits_for_conflicts(&git, test_repo.path_str(), &second, &target, &[PathBuf::from("file.txt")]).unwrap();
 
-  let contents: Vec<(&str, &str, &str)> = missing
-    .iter()
-    .map(|commit| {
-      let diff = &diffs[&commit.hash][0];
-      (commit.hash.as_str(), diff.old_file.content.as_str(), diff.new_file.content.as_str())
-    })
-    .collect();
-  assert_eq!(contents, [(second.as_str(), "one\n", "one\ntwo\n"), (root.as_str(), "", "one\n")]);
-  let root_hunks = &diffs[&missing[1].hash][0].hunks;
-  assert!(root_hunks[0].contains("+one"), "{root_hunks:?}");
-  assert_eq!(process_counts(&git), [("cat-file".to_string(), 1), ("diff-tree".to_string(), 1), ("log".to_string(), 1)]);
+  let found: Vec<(&str, &[String])> = missing.iter().map(|commit| (commit.hash.as_str(), commit.files_touched.as_slice())).collect();
+  assert_eq!(found, [(second.as_str(), &["file.txt".to_string()][..]), (root.as_str(), &["file.txt".to_string()][..])]);
+  assert_eq!(process_counts(&git), [("log".to_string(), 1)]);
 }

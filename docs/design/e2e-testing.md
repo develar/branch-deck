@@ -129,7 +129,7 @@ Mock implementation:
   counts of asks and fetches, and the `keep` of every prune). `fetch_review_head` never fetches: an empty `headRefOid`
   is the tip of the local branch `headRefName` (else of `HEAD`),
   an empty `baseRefOid` the baseline (`HEAD~2` when that is `HEAD`), so the real function finds both commits local and
-  answers a range of source `local`; `fetchError` fails it instead. `get_range_files`, `get_range_patch` and
+  answers a range of source `local`; `fetchError` fails it instead. `get_range_files` and
   `prune_review_refs` run the real functions, `cancel_review_fetch` does nothing (`review_requests_test.rs`)
 - **Code-owner review**: `get_branch_review_readiness` computes the readiness with the real
   `patronus::review_readiness` from the answer `POST /repositories/{id}/review-answers` sets per branch

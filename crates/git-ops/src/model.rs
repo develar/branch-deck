@@ -5,7 +5,6 @@ use crate::commit_list::Commit;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "specta")]
 use specta::Type;
-use std::collections::BTreeMap;
 
 /// Simple commit information with hash and message.
 /// Used for passing commit data between frontend and backend.
@@ -52,21 +51,9 @@ pub struct ConflictFile {
   pub conflict_count: u32,
 }
 
-/// What the conflict view shows of a conflicting file (`ConflictContents`)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(Type))]
-#[serde(rename_all = "camelCase")]
-pub struct ConflictDetail {
-  pub file: String,
-  /// The file as the merge left it, with its conflict markers (`zdiff3`); empty when one side deleted it
-  pub merged: crate::conflict_analysis::FileInfo,
-  /// The change of the commit: its parent's version to its own, with both contents, for a file without markers
-  pub commit_diff: crate::conflict_analysis::FileDiff,
-}
-
-/// A merge conflict of a cherry-pick, as a sync reports it: the commits, the conflicting files and the conflict
-/// analysis, without file contents and diffs. Those are `ConflictContents`, which a view reads when it shows the
-/// conflict (`get_conflict_contents`): a conflict in big files is megabytes, and the sync reports it at every run
+/// A merge conflict of a cherry-pick, as a sync reports it: the commits, the conflicting files with their conflict
+/// counts and the conflict analysis, without file contents and diffs, which the views read from `file_diffs`
+/// (`get_file_merges`, `get_file_diffs`): a conflict in big files is megabytes, and the sync reports it at every run
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(Type))]
 #[serde(rename_all = "camelCase")]
@@ -79,18 +66,6 @@ pub struct MergeConflictInfo {
   pub target_branch: ConflictCommit,
   pub conflicting_files: Vec<ConflictFile>,
   pub conflict_analysis: crate::conflict_analysis::ConflictAnalysis,
-}
-
-/// The contents of a conflict view, which `MergeConflictInfo` leaves out: the merged file and the change of the commit
-/// of each conflicting file, and the diffs of the missing commits
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(Type))]
-#[serde(rename_all = "camelCase")]
-pub struct ConflictContents {
-  /// In the order of `MergeConflictInfo::conflicting_files`
-  pub conflicting_files: Vec<ConflictDetail>,
-  /// By missing commit: the diffs of the conflicting files it changes, in the order of its `files_touched`
-  pub missing_commit_diffs: BTreeMap<String, Vec<crate::conflict_analysis::FileDiff>>,
 }
 
 impl MergeConflictInfo {

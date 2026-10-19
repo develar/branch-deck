@@ -1,12 +1,11 @@
 use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
-use crate::commands::commit_files::read_patch;
 use crate::commands::github::GitHubState;
 use crate::commands::pull_requests::github_repository;
-use crate::patch_cache::PatchCache;
+use crate::range_files::RangeFilesCache;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::commit_files::{CommitFiles, CommitPatch, DiffSubject};
+use git_ops::commit_files::{CommitFiles, DiffSubject};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -116,34 +115,18 @@ pub async fn prune_review_refs(git_executor: State<'_, GitCommandExecutor>, para
   run_blocking(move || core_prune_review_refs(&git, &params.repository_path, &params.keep)).await
 }
 
-/// The changed files of `base..head` with their line counts, read with its patch by one `diff-tree` of the two commits
-/// (`PatchCache::read_range_files`), kept in memory
+/// The changed files of `base..head` with their line counts, from one `diff-tree` of the two commits
+/// (`RangeFilesCache::read`), kept in memory
 #[tauri::command]
 #[specta::specta]
-pub async fn get_range_files(git_executor: State<'_, GitCommandExecutor>, patch_cache: State<'_, PatchCache>, params: GetRangeParams) -> Result<Arc<CommitFiles>, CommandError> {
-  let git = (*git_executor).clone();
-  let patch_cache = (*patch_cache).clone();
-  run_blocking(move || patch_cache.read_range_files(&git, &params.repository_path, &range_subject(params.base, params.head))).await
-}
-
-/// The patch of `base..head`: from the memory cache, or one `diff-tree -p` of the two commits that reads its files too,
-/// cut into files
-#[tauri::command]
-#[specta::specta]
-pub async fn get_range_patch(
+pub async fn get_range_files(
   git_executor: State<'_, GitCommandExecutor>,
-  repository_state: State<'_, RepositoryStateCache>,
-  patch_cache: State<'_, PatchCache>,
+  range_files: State<'_, RangeFilesCache>,
   params: GetRangeParams,
-) -> Result<Arc<CommitPatch>, CommandError> {
-  read_patch(
-    &git_executor,
-    &repository_state,
-    &patch_cache,
-    params.repository_path,
-    range_subject(params.base, params.head),
-  )
-  .await
+) -> Result<Arc<CommitFiles>, CommandError> {
+  let git = (*git_executor).clone();
+  let range_files = (*range_files).clone();
+  run_blocking(move || range_files.read(&git, &params.repository_path, &range_subject(params.base, params.head))).await
 }
 
 const fn range_subject(base: String, head: String) -> DiffSubject {

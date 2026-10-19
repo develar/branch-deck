@@ -1,29 +1,24 @@
-use super::cherry_pick_test_utils::{cherry_pick, expect_conflict_with_contents};
-use super::merge_conflict::{ConflictContext, build_merge_conflict_info, count_conflicts};
-use super::model::{ConflictContents, ConflictDetail};
+use super::cherry_pick_test_utils::{MergedFile, cherry_pick, expect_conflict_with_merged_files};
+use super::merge_conflict::{ConflictContext, build_complete_conflict_info, build_merge_conflict_info, count_conflicts};
 use pretty_assertions::assert_eq;
 use std::path::PathBuf;
 use test_log::test;
 use test_utils::git_test_utils::{ConflictScenario, ConflictTestBuilder, TestRepo, setup_deletion_conflict};
 
-/// The contents of the conflict the scenario must produce; the conflict count of each file is that of its markers
-fn expect_conflict_contents(test_repo: &TestRepo, scenario: &ConflictScenario) -> ConflictContents {
-  let (info, contents) = expect_conflict_with_contents(test_repo, scenario);
-  let counts: Vec<(&str, u32)> = contents
-    .conflicting_files
-    .iter()
-    .map(|detail| (detail.file.as_str(), count_conflicts(&detail.merged.content)))
-    .collect();
+/// The merged files of the conflict the scenario must produce; the conflict count of each file is that of its markers
+fn expect_conflict_contents(test_repo: &TestRepo, scenario: &ConflictScenario) -> Vec<MergedFile> {
+  let (info, files) = expect_conflict_with_merged_files(test_repo, scenario);
+  let counts: Vec<(&str, u32)> = files.iter().map(|file| (file.file.as_str(), count_conflicts(&file.content))).collect();
   let reported: Vec<(&str, u32)> = info.conflicting_files.iter().map(|file| (file.file.as_str(), file.conflict_count)).collect();
   assert_eq!(reported, counts);
-  contents
+  files
 }
 
-/// Expects the scenario to conflict in exactly one file and returns that file's conflict
-fn expect_single_file_conflict(test_repo: &TestRepo, scenario: &ConflictScenario) -> ConflictDetail {
-  let mut contents = expect_conflict_contents(test_repo, scenario);
-  assert_eq!(contents.conflicting_files.len(), 1);
-  contents.conflicting_files.remove(0)
+/// Expects the scenario to conflict in exactly one file and returns that file as merged
+fn expect_single_file_conflict(test_repo: &TestRepo, scenario: &ConflictScenario) -> MergedFile {
+  let mut files = expect_conflict_contents(test_repo, scenario);
+  assert_eq!(files.len(), 1);
+  files.remove(0)
 }
 
 /// The cherry side's `init` block in both `EternalEventStealer` conflicts: the event check moved to a new event type
@@ -58,14 +53,12 @@ fn test_conflict_hunks_extraction() {
   tracing::debug!(?conflict_detail, "Conflict detail");
 
   // the merged file carries the zdiff3 markers, the base included
-  let merged = &conflict_detail.merged.content;
+  let merged = &conflict_detail.content;
   for marker in ["<<<<<<<", "|||||||", "=======", ">>>>>>>"] {
     assert!(merged.contains(marker), "the merged file should contain {marker}: {merged}");
   }
   assert!(merged.contains("line2 modified by target"), "the merged file should contain the target change");
   assert!(merged.contains("line2 modified by cherry"), "the merged file should contain the cherry-pick change");
-  // the change of the commit, with both contents
-  assert!(conflict_detail.commit_diff.new_file.content.contains("line2 modified by cherry"));
 }
 
 #[test]
@@ -82,14 +75,11 @@ fn test_delete_modify_conflict() {
   assert_eq!(conflict_detail.file, "delete_me.txt");
 
   // the target deleted the file: git writes the cherry side without markers
-  let merged = &conflict_detail.merged.content;
+  let merged = &conflict_detail.content;
   assert!(
     merged.contains("modified content") || merged.contains("<<<<<<<"),
     "the merged file should hold the cherry side of a delete/modify conflict: {merged}"
   );
-  // the change of the commit is what the view shows for it, with both contents
-  assert!(!conflict_detail.commit_diff.hunks.is_empty(), "the commit changes the file");
-  assert!(conflict_detail.commit_diff.new_file.content.contains("modified content"));
 
   println!("Delete/modify conflict detail: {conflict_detail:?}");
 }
@@ -132,7 +122,7 @@ fn test_get_merge_conflict_content_with_markers() {
   let conflict_detail = &expect_single_file_conflict(&test_repo, &scenario);
 
   // The merged content should contain conflict markers
-  let conflict_content = &conflict_detail.merged.content;
+  let conflict_content = &conflict_detail.content;
 
   // Check for standard conflict markers
   assert!(conflict_content.contains("<<<<<<<"), "Should contain conflict start marker");
@@ -173,26 +163,14 @@ fn test_conflict_detail_structure() {
 
   // Perform cherry-pick
   let conflict_info = expect_conflict_contents(&test_repo, &scenario);
-  let conflict_detail = &conflict_info.conflicting_files[0];
+  let conflict_detail = &conflict_info[0];
 
-  // the merged file: its name and language, the markers and both sides
-  let merged = &conflict_detail.merged;
-  assert_eq!(merged.file_name, "main.js");
-  assert_eq!(merged.file_lang, "js");
+  // the merged file: its name, the markers and both sides
+  let merged = conflict_detail;
+  assert_eq!(merged.file, "main.js");
   assert!(merged.content.contains("<<<<<<<") && merged.content.contains(">>>>>>>"));
   assert!(merged.content.contains("let x = 10;")); // target content
   assert!(merged.content.contains("let x = 100;")); // cherry content
-
-  // the change of the commit, from its parent's version to its own
-  assert_eq!(
-    conflict_detail.commit_diff.old_file.content,
-    "// Main function\nfunction main() {\n  let x = 1;\n  let y = 2;\n  return x + y;\n}\n"
-  );
-  assert_eq!(
-    conflict_detail.commit_diff.new_file.content,
-    "// Main function\nfunction main() {\n  let x = 100;\n  let y = 200;\n  return x + y;\n}\n"
-  );
-  assert_ne!(conflict_detail.commit_diff.hunks, Vec::<String>::new());
 }
 
 #[test]
@@ -217,11 +195,11 @@ fn test_multiple_conflicting_files_with_markers() {
 
   // Perform cherry-pick
   let conflict_info = expect_conflict_contents(&test_repo, &scenario);
-  assert_eq!(conflict_info.conflicting_files.len(), 2);
+  assert_eq!(conflict_info.len(), 2);
 
   // Check both files have conflict markers
-  for conflict_detail in &conflict_info.conflicting_files {
-    let conflict_content = &conflict_detail.merged.content;
+  for conflict_detail in &conflict_info {
+    let conflict_content = &conflict_detail.content;
 
     assert!(conflict_content.contains("<<<<<<<"), "File {} should contain conflict markers", conflict_detail.file);
     assert!(conflict_content.contains("======="), "File {} should contain conflict separator", conflict_detail.file);
@@ -252,9 +230,9 @@ fn test_conflict_with_empty_file() {
 
   // Perform cherry-pick
   let conflict_info = expect_conflict_contents(&test_repo, &scenario);
-  let conflict_detail = &conflict_info.conflicting_files[0];
+  let conflict_detail = &conflict_info[0];
 
-  let conflict_content = &conflict_detail.merged.content;
+  let conflict_content = &conflict_detail.content;
 
   // Should have conflict markers and both contents
   assert!(conflict_content.contains("<<<<<<<"));
@@ -307,7 +285,7 @@ fun enable() {
 
   // Attempt cherry-pick
   let conflict_detail = &expect_single_file_conflict(&test_repo, &scenario);
-  let conflict_content = &conflict_detail.merged.content;
+  let conflict_content = &conflict_detail.content;
 
   // Verify zdiff3 style markers (includes base content with |||||||)
   assert!(conflict_content.contains("<<<<<<<"), "Should contain conflict start marker");
@@ -383,7 +361,7 @@ return result;
 
   // Attempt cherry-pick
   let conflict_detail = &expect_single_file_conflict(&test_repo, &scenario);
-  let conflict_content = &conflict_detail.merged.content;
+  let conflict_content = &conflict_detail.content;
 
   // Count conflict regions (each <<<<<<< marks a new conflict)
   let conflict_start_count = conflict_content.matches("<<<<<<<").count();
@@ -451,7 +429,7 @@ fun disable() {
 
   // Attempt cherry-pick
   let conflict_detail = &expect_single_file_conflict(&test_repo, &scenario);
-  let conflict_content = &conflict_detail.merged.content;
+  let conflict_content = &conflict_detail.content;
 
   // Verify specific patterns from the real conflict
   assert!(conflict_content.contains("enabled &&"), "Should contain target's enabled check");
@@ -467,10 +445,9 @@ fun disable() {
 
 // Tests for batch commit info functionality that's part of merge conflict handling
 
-/// A conflicting path is a name, never pathspec magic: the change of the commit in `:colon.txt` is git's patch, not a
-/// replacement of the whole file
+/// A conflicting path is a name, never pathspec magic: the merged file `:colon.txt` is read as git stores it
 #[test]
-fn the_change_of_a_file_named_like_pathspec_magic_is_its_patch() {
+fn a_file_named_like_pathspec_magic_is_read_by_its_name() {
   let test_repo = TestRepo::new();
   let base = test_repo.create_commit_in_index("Base", &[(":colon.txt", "1\n2\n3\n")]);
   let cherry = test_repo.create_commit_in_index("Change", &[(":colon.txt", "1\ntwo\n3\n")]);
@@ -485,10 +462,11 @@ fn the_change_of_a_file_named_like_pathspec_magic_is_its_patch() {
     cherry_commit_id: &cherry,
   };
 
-  let details = build_merge_conflict_info(ctx).unwrap().1.conflicting_files;
+  let (info, complete) = build_complete_conflict_info(ctx).unwrap();
 
-  assert_eq!(details[0].commit_diff.hunks, ["--- a/:colon.txt\n+++ b/:colon.txt\n@@ -1,3 +1,3 @@\n 1\n-2\n+two\n 3"]);
-  assert_eq!(details[0].commit_diff.old_file.content, "1\n2\n3\n");
+  // the read of the merged file is complete: the literal name found the file, which has no markers
+  assert!(complete);
+  assert_eq!((info.conflicting_files[0].file.as_str(), info.conflicting_files[0].conflict_count), (":colon.txt", 0));
 }
 
 /// A conflict whose commit needs an older commit the target lacks, all with fixed dates: the ids are the same in every
@@ -503,11 +481,11 @@ fn conflict_with_a_missing_commit(test_repo: &TestRepo) -> (String, String, Stri
   (missing, target, cherry)
 }
 
-/// The report of a conflict, its commits, contents, diffs and missing commits, from five processes whatever the
-/// number of conflicting files and missing commits: one walk for the merge base and the divergence, one `log` for the
-/// commits, one for the missing commits, one `cat-file` and one `diff-tree`
+/// The report of a conflict, its commits, merged files and missing commits, from four processes whatever the number of
+/// conflicting files and missing commits: one walk for the merge base and the divergence, one `log` for the commits,
+/// one for the missing commits, one `cat-file` for the merged files
 #[test]
-fn the_report_of_a_conflict_costs_five_processes() {
+fn the_report_of_a_conflict_costs_four_processes() {
   let test_repo = TestRepo::new();
   let (parent, target, cherry) = conflict_with_a_missing_commit(&test_repo);
   let merge_tree = test_repo
@@ -523,7 +501,7 @@ fn the_report_of_a_conflict_costs_five_processes() {
   let files = [PathBuf::from("f.txt")];
   let git = test_repo.git_executor().with_process_stats("test");
 
-  let (info, contents) = build_merge_conflict_info(ConflictContext {
+  let info = build_merge_conflict_info(ConflictContext {
     git_executor: &git,
     repo_path: test_repo.path_str(),
     conflict_files: &files,
@@ -541,7 +519,7 @@ fn the_report_of_a_conflict_costs_five_processes() {
     .into_iter()
     .map(|(command, stats)| (command, stats.count))
     .collect();
-  let expected = [("cat-file", 1), ("diff-tree", 1), ("log", 2), ("rev-list", 1)];
+  let expected = [("cat-file", 1), ("log", 2), ("rev-list", 1)];
   assert_eq!(processes, expected.map(|(command, count)| (command.to_string(), count)));
 
   assert_eq!(
@@ -551,19 +529,6 @@ fn the_report_of_a_conflict_costs_five_processes() {
   assert_eq!(
     info.conflicting_files.iter().map(|file| (file.file.as_str(), file.conflict_count)).collect::<Vec<_>>(),
     [("f.txt", 1)]
-  );
-  let detail = &contents.conflicting_files[0];
-  assert_eq!(
-    detail.merged.content,
-    format!("1\n<<<<<<< {target}\n2 target\n||||||| {parent}\n2\n=======\n2 cherry\n>>>>>>> {cherry}\n3\n4\n5\n")
-  );
-  assert_eq!(
-    (detail.commit_diff.old_file.content.as_str(), detail.commit_diff.new_file.content.as_str()),
-    ("1\n2\n3\n4\n5\n", "1\n2 cherry\n3\n4 missing\n5\n")
-  );
-  assert_eq!(
-    detail.commit_diff.hunks,
-    ["--- a/f.txt\n+++ b/f.txt\n@@ -1,5 +1,5 @@\n 1\n-2\n+2 cherry\n 3\n-4\n+4 missing\n 5"]
   );
 
   let analysis = &info.conflict_analysis;
@@ -580,15 +545,6 @@ fn the_report_of_a_conflict_costs_five_processes() {
     (missing.hash.as_str(), missing.message.as_str()),
     (parent.as_str(), "(a) Missing\n\nThe body of the missing commit.")
   );
-  let diffs: Vec<&str> = contents.missing_commit_diffs.keys().map(String::as_str).collect();
-  assert_eq!(diffs, [parent.as_str()]);
-  let diff = &contents.missing_commit_diffs[&missing.hash][0];
-  assert_eq!(
-    (diff.old_file.content.as_str(), diff.new_file.content.as_str()),
-    ("1\n2\n3\n4\n5\n", "1\n2\n3\n4 missing\n5\n")
-  );
-  assert!(diff.hunks[0].starts_with("diff --git a/f.txt b/f.txt\n"), "{:?}", diff.hunks);
-  assert!(diff.hunks[0].ends_with("@@ -1,5 +1,5 @@\n 1\n 2\n 3\n-4\n+4 missing\n 5\n"), "{:?}", diff.hunks);
 }
 
 /// A conflict is counted by its start marker, exactly 7 characters, alone or before a space

@@ -101,15 +101,10 @@ export const commands = {
 	/**  Deletes the review refs of the pull requests not in `keep` (one CAS transaction) */
 	pruneReviewRefs: (params: PruneReviewRefsParams) => typedError<null, CommandError>(__TAURI_INVOKE("prune_review_refs", { params })),
 	/**
-	 *  The changed files of `base..head` with their line counts, read with its patch by one `diff-tree` of the two commits
-	 *  (`PatchCache::read_range_files`), kept in memory
+	 *  The changed files of `base..head` with their line counts, from one `diff-tree` of the two commits
+	 *  (`RangeFilesCache::read`), kept in memory
 	 */
 	getRangeFiles: (params: GetRangeParams) => typedError<CommitFiles, CommandError>(__TAURI_INVOKE("get_range_files", { params })),
-	/**
-	 *  The patch of `base..head`: from the memory cache, or one `diff-tree -p` of the two commits that reads its files too,
-	 *  cut into files
-	 */
-	getRangePatch: (params: GetRangeParams) => typedError<CommitPatch, CommandError>(__TAURI_INVOKE("get_range_patch", { params })),
 	/**
 	 *  The parts of a branch for its review window: each branch of its stack from the root, with its base, head and
 	 *  commits, from one `for-each-ref` and one `git log`; the `log` only for tips and a baseline the memo hasn't seen
@@ -122,8 +117,8 @@ export const commands = {
 	getFileOwners: (params: GetFileOwnersParams) => typedError<FileOwner[], CommandError>(__TAURI_INVOKE("get_file_owners", { params })),
 	/**
 	 *  Reads in the background what the review window of a branch asks for first: its parts (`get_branch_review`) and the
-	 *  files and the patch of `part` (one `diff-tree`, `PatchCache::read_range_files`), so the window finds them in the
-	 *  caches. Answers at once; a failure is the window's to tell
+	 *  files of `part` (one `diff-tree`, `RangeFilesCache::read`), so the window finds them in the caches. Answers at once;
+	 *  a failure is the window's to tell
 	 */
 	prefetchBranchReview: (params: PrefetchBranchReviewParams) => typedError<null, CommandError>(__TAURI_INVOKE("prefetch_branch_review", { params })),
 	/**
@@ -324,22 +319,13 @@ export const commands = {
 	unapplyBranch: (params: UnapplyBranchParams) => typedError<UnapplyBranchResult, CommandError>(__TAURI_INVOKE("unapply_branch", { params })),
 	/**  Get uncommitted changes with only file metadata (no content or diffs) */
 	getUncommittedChanges: (params: GetUncommittedChangesParams) => typedError<UncommittedChangesResult, CommandError>(__TAURI_INVOKE("get_uncommitted_changes", { params })),
-	/**  Get file content for diff display when user expands a file in the UI */
-	getFileContentForDiff: (params: GetFileContentForDiffParams) => typedError<FileDiff, CommandError>(__TAURI_INVOKE("get_file_content_for_diff", { params })),
 	/**  The changed files of a commit with their line counts, from the object cache or one `diff-tree` */
 	getCommitFiles: (params: GetCommitFilesParams) => typedError<CommitFiles, CommandError>(__TAURI_INVOKE("get_commit_files", { params })),
 	/**
 	 *  The changed files of many commits (in the order of the ids), with one `diff-tree` for the ids the cache misses; the
-	 *  meta line of every list. Their patches are then warmed in the background, so the first review of one reads the store
+	 *  meta line of every list. The first view of a commit then needs no `diff-tree` (`get_file_diffs` reads the list here)
 	 */
 	getCommitsFiles: (params: GetCommitsFilesParams) => typedError<CommitFiles[], CommandError>(__TAURI_INVOKE("get_commits_files", { params })),
-	/**
-	 *  The patch of a commit, when the preview first shows a diff of it: from the memory cache, the object cache, or one
-	 *  `diff-tree -p`, cut into files
-	 */
-	getCommitPatch: (params: GetCommitPatchParams) => typedError<CommitPatch, CommandError>(__TAURI_INVOKE("get_commit_patch", { params })),
-	/**  The contents of blobs, when a diff expands the unchanged lines between its hunks: one `cat-file --batch` */
-	getBlobContents: (params: GetBlobContentsParams) => typedError<BlobContents[], CommandError>(__TAURI_INVOKE("get_blob_contents", { params })),
 	/**
 	 *  The typed diff of each changed file of a commit, a range or the working tree, for the diff views, through `events`:
 	 *  the files, then the content of each file as it is known, the files in view (`priority_paths`) first. Through the
@@ -356,12 +342,6 @@ export const commands = {
 	 *  `cat-file --batch`; a file of the working tree by its path, when its bytes still have the id
 	 */
 	getBlobTexts: (params: GetBlobTextsParams) => typedError<BlobText[], CommandError>(__TAURI_INVOKE("get_blob_texts", { params })),
-	/**
-	 *  The contents of a conflict view (the merged files, the change of the commit, the diffs of the missing commits),
-	 *  when a view shows the conflict: from the object cache, where the sync left them, else by the merge and the report
-	 *  again. The sync events carry the conflict without them
-	 */
-	getConflictContents: (params: GetConflictContentsParams) => typedError<ConflictContents, CommandError>(__TAURI_INVOKE("get_conflict_contents", { params })),
 	/**
 	 *  Checks Auto-sync on Focus of the native menu as the setting is, whichever window changed it: the main window calls it
 	 *  for every value of `appSettings.autoSyncOnFocus` (`useMenuSync`). Without a native menu (a custom title bar on
@@ -472,17 +452,6 @@ export type AutosquashScope = { type: "all" } |
 { type: "unassigned" } | 
 /**  Only this fixup commit, into its target */
 { type: "fixup"; value: string };
-
-/**  The contents of a blob for the diff view */
-export type BlobContents = 
-/**  The bytes as UTF-8, an invalid sequence replaced */
-{ kind: "text"; objectId: string; content: string } | 
-/**  A NUL in the first 8000 bytes, as git decides */
-{ kind: "binary"; objectId: string } | 
-/**  Over `MAX_BLOB_BYTES` */
-{ kind: "tooLarge"; objectId: string; size: number } | 
-/**  Not a blob of the repository */
-{ kind: "missing"; objectId: string };
 
 /**  A blob that the views ask for: by its id, and for a file of the working tree, by its path too */
 export type BlobRequest = {
@@ -748,14 +717,6 @@ export type CommitInfo = {
 	message: string,
 };
 
-/**  The patch of a commit against its first parent (or of a range), one section per file */
-export type CommitPatch = {
-	/**  The commit id, or `<base>..<head>` for a range (`DiffSubject::id`) */
-	commitId: string,
-	/**  In git's order (by path), a section per `diff --git` line */
-	files: FilePatch[],
-};
-
 export type CommitRewrite = {
 	/**  The commit on the current branch (the original commit of a virtual branch commit) */
 	commitId: string,
@@ -809,26 +770,6 @@ export type ConflictCommit = {
 	author: string,
 	authorTime: number,
 	committerTime: number,
-};
-
-/**
- *  The contents of a conflict view, which `MergeConflictInfo` leaves out: the merged file and the change of the commit
- *  of each conflicting file, and the diffs of the missing commits
- */
-export type ConflictContents = {
-	/**  In the order of `MergeConflictInfo::conflicting_files` */
-	conflictingFiles: ConflictDetail[],
-	/**  By missing commit: the diffs of the conflicting files it changes, in the order of its `files_touched` */
-	missingCommitDiffs: { [key in string]: FileDiff[] },
-};
-
-/**  What the conflict view shows of a conflicting file (`ConflictContents`) */
-export type ConflictDetail = {
-	file: string,
-	/**  The file as the merge left it, with its conflict markers (`zdiff3`); empty when one side deleted it */
-	merged: FileInfo,
-	/**  The change of the commit: its parent's version to its own, with both contents, for a file without markers */
-	commitDiff: FileDiff,
 };
 
 /**  A conflicting file of a cherry-pick, as a conflict is reported: what the view lists before it reads the contents */
@@ -1062,17 +1003,6 @@ export type FetchReviewHeadParams = {
 	isCrossRepository: boolean,
 };
 
-/**  Represents the diff between two versions of a file. */
-export type FileDiff = {
-	oldFile: FileInfo,
-	newFile: FileInfo,
-	/**
-	 *  The patch of the file: one `diff --git` section, or hunks that each repeat the `---`/`+++` header; the frontend
-	 *  joins them into one patch for the diff view
-	 */
-	hunks: string[],
-};
-
 /**
  *  What `get_file_diffs` sends through its channel: `files` once, then one `content` for each file, the files in view
  *  first, and a `scopes` after the `content` of a text that the caches did not have
@@ -1087,13 +1017,6 @@ export type FileDiffEvent =
 { kind: "content"; index: number; content: DiffContent } | 
 /**  The scopes of the text of a file, for the labels of its hunks */
 { kind: "scopes"; index: number; oldScopes: Scope[]; newScopes: Scope[] };
-
-/**  Information about a file including its content and metadata. */
-export type FileInfo = {
-	fileName: string,
-	fileLang: string,
-	content: string,
-};
 
 /**
  *  What `get_file_merges` sends through its channel: `files` once, then one `content` for each file, the files in view
@@ -1126,20 +1049,6 @@ export type FileOwner = {
 	rule: string,
 	/**  The `OWNERSHIP` file of the rule, e.g. `plugins/air/OWNERSHIP` */
 	sourceFile: string,
-};
-
-/**  The patch of one file of a commit */
-export type FilePatch = {
-	/**
-	 *  The section as git prints it, from its `diff --git` line; only the lines before the first hunk when
-	 *  `omitted_lines` is set
-	 */
-	patch: string,
-	/**
-	 *  The hunk lines left out: the file passed `PatchLimits::file_bytes` or `file_lines`, or the commit passed
-	 *  `total_bytes` before it
-	 */
-	omittedLines: number | null,
 };
 
 /**  How a file changed, from the status letter of `--raw` */
@@ -1217,12 +1126,6 @@ export type GetAutosquashPlanParams = {
 	repositoryPath: string,
 };
 
-export type GetBlobContentsParams = {
-	repositoryPath: string,
-	/**  Full blob ids, at most `MAX_BLOB_IDS` */
-	objectIds: string[],
-};
-
 /**  The parameters of `get_blob_texts` */
 export type GetBlobTextsParams = {
 	repositoryPath: string,
@@ -1272,30 +1175,9 @@ export type GetCommitFilesParams = {
 	commitId: string,
 };
 
-export type GetCommitPatchParams = {
-	repositoryPath: string,
-	commitId: string,
-};
-
 export type GetCommitsFilesParams = {
 	repositoryPath: string,
 	commitIds: string[],
-};
-
-/**  The cherry-pick whose conflict a view shows, by the full ids of its `MergeConflictInfo` */
-export type GetConflictContentsParams = {
-	repositoryPath: string,
-	/**  The commit being applied (`MergeConflictInfo::commit`) */
-	commit: string,
-	/**  Its original parent (`MergeConflictInfo::original_parent`) */
-	parent: string,
-	/**  The commit it is applied onto (`MergeConflictInfo::target_branch`) */
-	target: string,
-};
-
-export type GetFileContentForDiffParams = {
-	repositoryPath: string,
-	filePath: string,
 };
 
 /**  The parameters of `get_file_diffs` */
@@ -1611,9 +1493,9 @@ export type MergeBlock = {
 export type MergeBlockKind = "inserted" | "deleted" | "modified" | "conflict";
 
 /**
- *  A merge conflict of a cherry-pick, as a sync reports it: the commits, the conflicting files and the conflict
- *  analysis, without file contents and diffs. Those are `ConflictContents`, which a view reads when it shows the
- *  conflict (`get_conflict_contents`): a conflict in big files is megabytes, and the sync reports it at every run
+ *  A merge conflict of a cherry-pick, as a sync reports it: the commits, the conflicting files with their conflict
+ *  counts and the conflict analysis, without file contents and diffs, which the views read from `file_diffs`
+ *  (`get_file_merges`, `get_file_diffs`): a conflict in big files is megabytes, and the sync reports it at every run
  */
 export type MergeConflictInfo = {
 	/**  Commit being applied (cherry-picked) */
@@ -1670,7 +1552,7 @@ export type MissingApprovalsReason =
 
 /**
  *  Represents a commit that exists in the source branch but is missing from the target branch.
- *  These commits might be causing merge conflicts. Its diffs are in `ConflictContents::missing_commit_diffs`
+ *  These commits might be causing merge conflicts. The view reads their diffs with `get_file_diffs`
  */
 export type MissingCommit = {
 	hash: string,

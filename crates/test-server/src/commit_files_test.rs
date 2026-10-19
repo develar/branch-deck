@@ -47,23 +47,6 @@ async fn commit_files_routes_read_the_fixture_repository() {
   let one = invoke(&client, addr, "get_commit_files", json!({ "repositoryPath": repository_path, "commitId": ids[1] })).await;
   assert_eq!(one, all[1]);
 
-  let patch = invoke(&client, addr, "get_commit_patch", json!({ "repositoryPath": repository_path, "commitId": ids[1] })).await;
-  assert_eq!(patch["commitId"], ids[1]);
-  let section = patch["files"][0]["patch"].as_str().unwrap();
-  assert!(section.starts_with("diff --git a/file1.txt b/file1.txt\n"), "{section}");
-  assert!(section.contains("+Content 1"), "{section}");
-  assert_eq!(patch["files"][0]["omittedLines"], Value::Null);
-
-  // the blob the patch names on its index line
-  let blob_id = section
-    .lines()
-    .find_map(|line| line.strip_prefix("index "))
-    .and_then(|range| range.split("..").nth(1))
-    .unwrap();
-  let blob_id = blob_id.split(' ').next().unwrap();
-  let blobs = invoke(&client, addr, "get_blob_contents", json!({ "repositoryPath": repository_path, "objectIds": [blob_id] })).await;
-  assert_eq!(blobs, json!([{ "kind": "text", "objectId": blob_id, "content": "Content 1" }]));
-
   // the typed diffs, and the texts by blob id
   let source = json!({ "kind": "commit", "id": ids[1] });
   let params = json!({ "repositoryPath": repository_path, "source": source, "policy": "default", "priorityPaths": [] });

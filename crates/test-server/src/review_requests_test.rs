@@ -72,14 +72,6 @@ async fn review_routes_answer_the_fixture_without_a_network() {
   .await;
   assert_eq!(files["commitId"], format!("{}..{}", ids[1], ids[0]));
   assert_eq!(files["files"][0]["path"], "file2.txt");
-  let patch = post(
-    &client,
-    addr,
-    "/invoke/get_range_patch",
-    json!({ "repositoryPath": repository_path, "base": ids[1], "head": ids[0] }),
-  )
-  .await;
-  assert!(patch["files"][0]["patch"].as_str().unwrap().contains("+Content 2"), "{patch}");
 
   post(&client, addr, "/invoke/cancel_review_fetch", Value::Null).await;
   post(&client, addr, "/invoke/prune_review_refs", json!({ "repositoryPath": repository_path, "keep": [7] })).await;

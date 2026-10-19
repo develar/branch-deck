@@ -1,16 +1,14 @@
-//! The report of a conflicting cherry-pick (`MergeConflictInfo`) and the contents of its view (`ConflictContents`): the
-//! merge with its markers and the analysis of `conflict_analysis.rs`, five processes whatever the number of files and
-//! commits.
+//! The report of a conflicting cherry-pick (`MergeConflictInfo`): the merge with its markers, the conflicts counted in
+//! each file, and the analysis of `conflict_analysis.rs`, four processes whatever the number of files and commits. The
+//! views read the merges and the diffs from `file_diffs` (`get_file_merges`, `get_file_diffs`).
 
 use crate::commit_list::Commit;
 use crate::commit_utils::{find_commit, get_commits_info};
-use crate::conflict_analysis::{
-  CommitChange, ConflictAnalysis, FileDiff, FileInfo, content_requests, file_diffs_of, find_divergence, get_files_content_at_revisions, list_missing_commits, read_conflict_patches,
-};
+use crate::conflict_analysis::{ConflictAnalysis, find_divergence, get_files_content_at_revisions, list_missing_commits};
 use crate::copy_commit::CopyCommitError;
 use crate::merge_memo::CherryCommits;
 use crate::merge_tree_output::parse_merge_tree_output;
-use crate::model::{ConflictCommit, ConflictContents, ConflictDetail, ConflictFile, MergeConflictInfo};
+use crate::model::{ConflictCommit, ConflictFile, MergeConflictInfo};
 use anyhow::anyhow;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::HashMap;
@@ -34,19 +32,18 @@ pub struct ConflictContext<'a> {
   pub cherry_commit_id: &'a str,
 }
 
-/// Build the full conflict report: commit metadata and the conflict analysis, and the contents of the view (per-file
-/// contents and diffs), with five git processes whatever the number of conflicting files and missing commits: one
-/// `rev-list` for the merge base and the divergence (`merge-base` once more only when the boundary is not one commit),
-/// one `log` for the commits, one `log` for the missing commits, one `cat-file` for every content and one `diff-tree`
-/// for every patch.
+/// Build the full conflict report: commit metadata, the conflicts of each file and the conflict analysis, with four git
+/// processes whatever the number of conflicting files and missing commits: one `rev-list` for the merge base and the
+/// divergence (`merge-base` once more only when the boundary is not one commit), one `log` for the commits, one `log`
+/// for the missing commits, one `cat-file` for the merged files, whose markers are counted.
 #[instrument(skip_all, fields(conflict_files = ctx.conflict_files.len()))]
-pub fn build_merge_conflict_info(ctx: ConflictContext<'_>) -> Result<(MergeConflictInfo, ConflictContents), CopyCommitError> {
-  build_complete_conflict_info(ctx).map(|(info, contents, _complete)| (info, contents))
+pub fn build_merge_conflict_info(ctx: ConflictContext<'_>) -> Result<MergeConflictInfo, CopyCommitError> {
+  build_complete_conflict_info(ctx).map(|(info, _complete)| info)
 }
 
 /// `build_merge_conflict_info`, and whether every read of the analysis succeeded: a view with a fallback (no
-/// divergence walk, no missing commits, no contents) is not one to remember (`MergeMemo::remember_conflict`)
-pub(crate) fn build_complete_conflict_info(ctx: ConflictContext<'_>) -> Result<(MergeConflictInfo, ConflictContents, bool), CopyCommitError> {
+/// divergence walk, no missing commits, no merged files) is not one to remember (`MergeMemo::remember_conflict`)
+pub(crate) fn build_complete_conflict_info(ctx: ConflictContext<'_>) -> Result<(MergeConflictInfo, bool), CopyCommitError> {
   let ConflictContext {
     git_executor,
     repo_path,
@@ -83,47 +80,24 @@ pub(crate) fn build_complete_conflict_info(ctx: ConflictContext<'_>) -> Result<(
       })
       .ok()
   });
-  let changes = listed.as_deref().map_or_else(Vec::new, CommitChange::of);
 
-  // one cat-file: the conflicting files at the merge base, the commit and the merge tree (in the amend case the commit is
-  // the merge tree: read once), and the files of the missing commits at them and at their parents
-  let mut revisions = vec![merge_base_id, cherry_commit_id];
-  if merge_tree_oid != cherry_commit_id {
-    revisions.push(merge_tree_oid);
-  }
-  let missing_requests = content_requests(&changes);
-  let requests: Vec<(&str, &[String])> = revisions
-    .iter()
-    .map(|rev| (*rev, file_paths.as_slice()))
-    .chain(missing_requests.iter().map(|(rev, files)| (*rev, files.as_slice())))
-    .collect();
-  let contents = get_files_content_at_revisions(git_executor, repo_path, &requests).unwrap_or_else(|e| {
-    debug!(error = %e, "failed to read file contents, using empty content");
+  // one cat-file: the conflicting files in the merge tree, for the count of their markers; the text is not kept
+  let contents = get_files_content_at_revisions(git_executor, repo_path, &[(merge_tree_oid, file_paths.as_slice())]).unwrap_or_else(|e| {
+    debug!(error = %e, "failed to read file contents, counting no conflicts");
     complete = false;
     HashMap::new()
   });
-
-  // one diff-tree: the change of the commit from the merge base, and the change of each missing commit
-  let mut diffs: Vec<(&str, Option<&str>)> = Vec::with_capacity(changes.len() + 1);
-  if merge_base.id != cherry.id {
-    diffs.push((&cherry.id, Some(&merge_base.id)));
-  }
-  diffs.extend(changes.iter().map(|change| (change.id, None)));
-  let mut patches = read_conflict_patches(git_executor, repo_path, &diffs, &file_paths).map_err(|e| CopyCommitError::Other(anyhow!("git diff-tree failed: {e}")))?;
-  let commit_patches = patches.remove(&cherry.id).unwrap_or_default();
-
-  let details = conflict_details(file_paths, &contents, &commit_patches, [merge_base_id, cherry_commit_id, merge_tree_oid]);
-  let conflicting_files = details
-    .iter()
-    .map(|detail| ConflictFile {
-      file: detail.file.clone(),
-      conflict_count: count_conflicts(&detail.merged.content),
+  let merged = contents.get(merge_tree_oid);
+  let conflicting_files = file_paths
+    .into_iter()
+    .map(|file| ConflictFile {
+      conflict_count: merged.and_then(|merged| merged.get(&file)).map_or(0, |content| count_conflicts(content)),
+      file,
     })
     .collect();
-  let missing_commit_diffs = file_diffs_of(&changes, &contents, &patches).into_iter().collect();
   let conflict_analysis = match (divergence, listed) {
     (Some(divergence), Some(listed)) => ConflictAnalysis {
-      missing_commits: listed.into_iter().map(|(commit, _)| commit).collect(),
+      missing_commits: listed,
       merge_base_hash: merge_base.id.clone(),
       merge_base_subject: merge_base.subject.clone(),
       merge_base_message: merge_base.message.clone(),
@@ -141,35 +115,7 @@ pub(crate) fn build_complete_conflict_info(ctx: ConflictContext<'_>) -> Result<(
     conflicting_files,
     conflict_analysis,
   };
-  let contents = ConflictContents {
-    conflicting_files: details,
-    missing_commit_diffs,
-  };
-  Ok((info, contents, complete))
-}
-
-/// The conflict of the cherry-pick of `commits` again, when its view is not remembered: the merge with the commits (for
-/// the markers) and the report, six processes (`merge_with_markers`, `build_merge_conflict_info`). The report, its
-/// contents and whether it is complete (one to remember); `None` when the commits merge cleanly
-pub fn rebuild_merge_conflict(
-  git_executor: &GitCommandExecutor,
-  repo_path: &str,
-  commits: CherryCommits<'_>,
-) -> Result<Option<(MergeConflictInfo, ConflictContents, bool)>, CopyCommitError> {
-  let (tree, conflict_files) = merge_with_markers(git_executor, repo_path, commits)?;
-  if conflict_files.is_empty() {
-    return Ok(None);
-  }
-  build_complete_conflict_info(ConflictContext {
-    git_executor,
-    repo_path,
-    conflict_files: &conflict_files,
-    merge_tree_oid: &tree,
-    parent_commit_id: commits.parent,
-    target_commit_id: commits.target,
-    cherry_commit_id: commits.commit,
-  })
-  .map(Some)
+  Ok((info, complete))
 }
 
 /// The cherry-pick of `commits` by one `merge-tree --write-tree` with the commits, its markers in the `zdiff3` style
@@ -215,115 +161,4 @@ pub fn count_conflicts(content: &str) -> u32 {
 /// The commit of `commits` that `id` names, by full hash or by the abbreviated id the caller passed
 fn commit_of<'a>(commits: &'a HashMap<String, Commit>, id: &str) -> Result<&'a Commit, CopyCommitError> {
   find_commit(commits, id).ok_or_else(|| CopyCommitError::Other(anyhow!("Commit {id} not found")))
-}
-
-/// Parse one file's patch into hunks, each prefixed with its file header (`---`/`+++`); the frontend joins them into one patch.
-/// Only the lines before the first hunk are metadata; inside a hunk every line is content.
-fn parse_diff_hunks(file_patch: &str, file_path: &str) -> Vec<String> {
-  let mut hunks = Vec::new();
-  let mut old_side = format!("a/{file_path}");
-  let mut new_side = format!("b/{file_path}");
-  let mut current_hunk: Option<String> = None;
-
-  for line in file_patch.lines() {
-    if line.starts_with("@@") {
-      if let Some(hunk) = current_hunk.take() {
-        hunks.push(hunk);
-      }
-      current_hunk = Some(format!("--- {old_side}\n+++ {new_side}\n{line}"));
-    } else if let Some(hunk) = current_hunk.as_mut() {
-      hunk.push('\n');
-      hunk.push_str(line);
-    } else if line.starts_with("new file mode") {
-      "/dev/null".clone_into(&mut old_side);
-    } else if line.starts_with("deleted file mode") {
-      "/dev/null".clone_into(&mut new_side);
-    }
-  }
-  hunks.extend(current_hunk);
-  hunks
-}
-
-/// A single hunk showing `content` unchanged; empty content has no hunks
-fn context_hunks(file_path: &str, content: &str) -> Vec<String> {
-  let line_count = content.lines().count();
-  if line_count == 0 {
-    return vec![];
-  }
-  let mut hunk = format!("--- a/{file_path}\n+++ b/{file_path}\n@@ -1,{line_count} +1,{line_count} @@");
-  for line in content.lines() {
-    hunk.push_str("\n ");
-    hunk.push_str(line);
-  }
-  vec![hunk]
-}
-
-/// A single hunk replacing all of `from` with all of `to`, for changes git reports without hunks (e.g. binary files)
-fn replacement_hunk(file_path: &str, from: &str, to: &str) -> String {
-  let mut hunk = format!("--- a/{file_path}\n+++ b/{file_path}\n@@ -1,{} +1,{} @@", from.lines().count(), to.lines().count());
-  for (prefix, content) in [("\n-", from), ("\n+", to)] {
-    for line in content.lines() {
-      hunk.push_str(prefix);
-      hunk.push_str(line);
-    }
-  }
-  hunk
-}
-
-/// Diff of one file between two versions, with both contents. Identical versions show the whole file as context.
-fn version_diff(file_path: &str, file_lang: &str, from: String, to: String, file_patch: Option<&String>) -> FileDiff {
-  let hunks = if from == to {
-    context_hunks(file_path, &from)
-  } else {
-    let hunks = file_patch.map_or_else(Vec::new, |patch| parse_diff_hunks(patch, file_path));
-    if hunks.is_empty() { vec![replacement_hunk(file_path, &from, &to)] } else { hunks }
-  };
-  FileDiff {
-    old_file: file_info(file_path, file_lang, from),
-    new_file: file_info(file_path, file_lang, to),
-    hunks,
-  }
-}
-
-fn file_info(file_path: &str, file_lang: &str, content: String) -> FileInfo {
-  FileInfo {
-    file_name: file_path.to_string(),
-    file_lang: file_lang.to_string(),
-    content,
-  }
-}
-
-/// Per-file conflict details: the merged content with conflict markers and the change of the commit (the merge base's
-/// version to its own, with both contents), from the `contents` at `[merge base, commit, merge tree]` and the patches of
-/// the change of the commit by path
-fn conflict_details(
-  file_paths: Vec<String>,
-  contents: &HashMap<String, HashMap<String, String>>,
-  commit_patches: &HashMap<String, String>,
-  [merge_base_id, cherry_commit_id, merge_tree_oid]: [&str; 3],
-) -> Vec<ConflictDetail> {
-  let empty = HashMap::new();
-  let contents_at = |rev: &str| contents.get(rev).unwrap_or(&empty);
-  let base_contents = contents_at(merge_base_id);
-  let cherry_contents = contents_at(cherry_commit_id);
-  let conflict_contents = contents_at(merge_tree_oid);
-  let content_of = |contents: &HashMap<String, String>, file_path: &str| contents.get(file_path).cloned().unwrap_or_default();
-
-  let mut conflict_details = Vec::with_capacity(file_paths.len());
-  for file_path in file_paths {
-    let file_lang = file_path.split('.').next_back().unwrap_or("txt").to_string();
-    let commit_diff = version_diff(
-      &file_path,
-      &file_lang,
-      content_of(base_contents, &file_path),
-      content_of(cherry_contents, &file_path),
-      commit_patches.get(&file_path),
-    );
-    conflict_details.push(ConflictDetail {
-      merged: file_info(&file_path, &file_lang, content_of(conflict_contents, &file_path)),
-      commit_diff,
-      file: file_path,
-    });
-  }
-  conflict_details
 }

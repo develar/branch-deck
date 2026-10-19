@@ -1,11 +1,7 @@
 use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::conflict_analysis::FileDiff;
-use sync_core::uncommitted_changes::{
-  GetFileContentForDiffParams, GetUncommittedChangesParams, UncommittedChangesResult, get_file_content_for_diff as core_get_file_content_for_diff,
-  get_uncommitted_changes as core_get_uncommitted_changes,
-};
+use sync_core::uncommitted_changes::{GetUncommittedChangesParams, UncommittedChangesResult, get_uncommitted_changes as core_get_uncommitted_changes};
 use tauri::State;
 use tracing::instrument;
 
@@ -16,13 +12,4 @@ use tracing::instrument;
 pub async fn get_uncommitted_changes(git_executor: State<'_, GitCommandExecutor>, params: GetUncommittedChangesParams) -> Result<UncommittedChangesResult, CommandError> {
   let git = (*git_executor).clone();
   run_blocking(move || core_get_uncommitted_changes(&git, params)).await
-}
-
-/// Get file content for diff display when user expands a file in the UI
-#[tauri::command]
-#[specta::specta]
-#[instrument(skip(git_executor))]
-pub async fn get_file_content_for_diff(git_executor: State<'_, GitCommandExecutor>, params: GetFileContentForDiffParams) -> Result<FileDiff, CommandError> {
-  let git = (*git_executor).clone();
-  run_blocking(move || core_get_file_content_for_diff(&git, params)).await
 }
