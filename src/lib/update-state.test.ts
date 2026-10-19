@@ -111,18 +111,20 @@ describe("the labels of a running update", () => {
   it("names the running step in the tooltip, never the last state", () => {
     expect(runningStepSentence(fetching, "origin/master")).toBe("Fetching origin/master…")
     expect(runningStepSentence({ ...fetching, fetch: receiving }, "origin/master")).toBe(receiving.line)
-    const waiting = advanceRun(fetching, "waiting", fetching.plan, 1000)
+    const waiting = advanceRun(fetching, "waiting", 1000)
     expect(runningStepSentence(waiting, "origin/master")).toBe("Waiting for Branch Deck or bd to finish…")
-    expect(runningStepSentence(advanceRun(waiting, "check", fetching.plan, 2000), "origin/master")).toBe("Checking the update onto origin/master…")
+    expect(runningStepSentence(advanceRun(waiting, "check", 2000), "origin/master")).toBe("Checking the update onto origin/master…")
   })
 
   it("lists the steps done, the running one and those left, without a wait that ended", () => {
     const received = { ...fetching, fetch: receiving }
-    const waiting = advanceRun(received, "waiting", received.plan, 1000, "2.61 MiB")
-    const checking = advanceRun(waiting, "check", ["fetch", "check"], 2000)
+    const waiting = advanceRun(received, "waiting", 1000, "2.61 MiB")
+    const checking = advanceRun(waiting, "check", 2000)
     expect(runStepLines(checking, "origin/master")).toEqual([
       { step: "fetch", state: "done", text: "Fetched origin/master · 2.61 MiB" },
       { step: "check", state: "running", text: "Checking the update onto origin/master…" },
+      { step: "apply", state: "next", text: "Update to origin/master" },
+      { step: "sync", state: "next", text: "Sync branches" },
     ])
     expect(runStepLines(fetching, "origin/master").map(it => `${it.state} ${it.text}`)).toEqual([
       "running Fetching origin/master…",
@@ -135,6 +137,6 @@ describe("the labels of a running update", () => {
   it("says the step in the footer, the amount and the rate while the fetch receives", () => {
     expect(runFooterWords(fetching)).toBe("fetching…")
     expect(runFooterWords({ ...fetching, fetch: receiving })).toBe("2.61 MiB · 5.20 MiB/s")
-    expect(runFooterWords(advanceRun(fetching, "check", fetching.plan, 1000))).toBe("checking the update…")
+    expect(runFooterWords(advanceRun(fetching, "check", 1000))).toBe("checking the update…")
   })
 })

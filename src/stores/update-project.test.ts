@@ -38,7 +38,8 @@ vi.mock("@/lib/bindings", () => {
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
 vi.mock("@/components/ui/toast", () => ({ toast: { add: () => "toast", close: () => {} } }))
 vi.mock("@/stores/branch-sync", () => ({
-  branchSyncStore: { getState: () => ({ baselineStatus: null }) },
+  // the last check found the selected repository up to date
+  branchSyncStore: { getState: () => ({ baselineStatus: { repositoryPath: "/a", update: { state: { status: "upToDate" } } } }) },
   setBaselineUpdate: () => {},
   syncBranches: async () => {
     syncs.count++
@@ -240,6 +241,15 @@ describe("the running update", () => {
     command.progress.onmessage({ phase: "updating", fetch: null })
     expect(stepIn("/a")?.step).toBe("sync")
     syncs.requested[0]!.end()
+    await update
+  })
+
+  it("lists every step of an update from its start, also when the last check found the branch up to date", async () => {
+    const update = runUpdateProject()
+    expect(runningIn("/a")?.run.plan).toEqual(["fetch", "check", "apply", "sync"])
+    commandOf("/a").progress.onmessage({ phase: "checking", fetch: null })
+    expect(runningIn("/a")?.run.plan).toEqual(["fetch", "check", "apply", "sync"])
+    commandOf("/a").finish({ status: "ok", data: UP_TO_DATE })
     await update
   })
 

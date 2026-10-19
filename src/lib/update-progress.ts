@@ -60,7 +60,7 @@ export interface UpdateRun {
   readonly step: UpdateStep
   /** When the step started (ms) */
   readonly stepStartedAt: number
-  /** The steps with a share the run expects, in order, those done included; it changes with what the check found */
+  /** The steps with a share, in order, those done included: all of them from the start of the run */
   readonly plan: readonly TimedStep[]
   /** The progress when the step started, 0 to 1: the rest of the bar is shared among the steps left */
   readonly base: number
@@ -125,14 +125,13 @@ export function overallProgress(run: UpdateRun, now: number, syncFraction: numbe
 
 /**
  * The run at its next step, now: the step that ends is done with its detail, and the rest of the bar from where it
- * stands is shared among the steps of `plan` left
+ * stands is shared among the steps of the plan left
  */
-export function advanceRun(run: UpdateRun, step: UpdateStep, plan: readonly TimedStep[], now: number, detail: string | null = null, syncFraction: number | null = null): UpdateRun {
+export function advanceRun(run: UpdateRun, step: UpdateStep, now: number, detail: string | null = null, syncFraction: number | null = null): UpdateRun {
   return {
     ...run,
     step,
     stepStartedAt: now,
-    plan,
     base: overallProgress(run, now, syncFraction),
     done: [...run.done, { step: run.step, duration: now - run.stepStartedAt, detail }],
     fetch: null,

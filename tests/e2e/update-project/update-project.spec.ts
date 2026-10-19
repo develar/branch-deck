@@ -134,9 +134,19 @@ test.describe("Update Project", () => {
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
     await expect(updateButton(page)).toHaveText("Update")
 
-    // up to date now: the update ends with its check, the sync that follows it is Sync's
-    const releaseSync = await holdCommand(page, "sync_branches")
+    // up to date now: the tooltip still lists every step, the check decides what runs
+    const update = await holdWithProgress(page, "update_project")
     await updateButton(page).click()
+    await page.mouse.move(0, 0)
+    await updateButton(page).hover()
+    const steps = page.getByTestId("update-steps").getByRole("listitem")
+    await expect(steps).toHaveText(["Fetching origin/master…", "Check the update", "Update to origin/master", "Sync branches"])
+    await update.send({ phase: "checking", fetch: null })
+    await expect(steps).toHaveText(["Fetched origin/master", "Checking the update onto origin/master…", "Update to origin/master", "Sync branches"])
+
+    // the update ends with its check, the sync that follows it is Sync's
+    const releaseSync = await holdCommand(page, "sync_branches")
+    update.release()
     await expect(page.getByText("master is already up to date with origin/master")).toBeVisible()
     await expect(updateButton(page)).toHaveText("Update")
     await expect(updateButton(page)).not.toHaveAttribute("aria-busy")

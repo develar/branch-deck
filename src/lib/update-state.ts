@@ -170,7 +170,7 @@ function nextSentence(step: TimedStep, upstream: string): string {
 
 /**
  * The steps of the run for its tooltip: those done (a wait that ended is no step of its own), the running one, and
- * those the run still expects; a step the check made needless is not listed
+ * those left, every one from the start of the run: a check that finds nothing to apply ends the run instead
  */
 export function runStepLines(run: UpdateRun, upstream: string): RunStepLine[] {
   return [

@@ -300,14 +300,16 @@ The header shows whether an update would apply cleanly, from a check that every 
   0.8 s and 2 s before the first. Inside a step the progress is the fetch's percent of git, or the synced commits of
   the update's own sync run, when it is ahead of the time; else the time, `1 − e^(−t/usual)`: 63 % of the step at its
   usual time, never still. A step reaches at most 95 % of its share before it ends, and at each change of step the
-  rest of the bar is shared again among the steps left, from where it stands: the bar never jumps nor goes back, also
-  when the check finds nothing to apply. While the update waits for the lock the bar stands still. The update starts
-  with the steps the last check expects: without the update of the files when it found the branch up to date.
+  rest of the bar is shared again among the steps left, from where it stands: the bar never jumps nor goes back. While
+  the update waits for the lock the bar stands still. The update shares the bar among all its steps from its start,
+  also when the last check found the branch up to date; a check that finds nothing to apply ends the run with its
+  result, and the bar shows 100 %.
   [@test] ../../src/lib/update-progress.test.ts (`shares the bar by the usual time of each step in the repository: the median of the last five`)
   [@test] ../../src/lib/update-progress.test.ts (`moves with the time in a step that reports nothing, never standing still, and keeps the end of a step for its end`)
   [@test] ../../src/lib/update-progress.test.ts (`takes git's percent in the fetch when it is ahead of the time`)
   [@test] ../../src/lib/update-progress.test.ts (`goes on from where it stands at each change of step: no jump after a slow fetch, no stall after a fast one`)
-  [@test] ../../src/lib/update-progress.test.ts (`stands still while it waits for the lock, and shares the rest again when the check drops the update of the files`)
+  [@test] ../../src/lib/update-progress.test.ts (`stands still while it waits for the lock`)
+  [@test] ../../src/stores/update-project.test.ts (`lists every step of an update from its start, also when the last check found the branch up to date`)
   [@test] ../../src/lib/update-progress.test.ts (`takes the commits of its own sync, capped until the sync ends`)
   [@test] ../../src/lib/update-progress.test.ts (`learns what the steps took, without the wait for the lock and the sync, which learns from every sync`)
   [@test] ../../src/stores/update-project.test.ts (`changes the step only when the phase changes, and learns what the steps took once the update ends`)
@@ -316,11 +318,13 @@ The header shows whether an update would apply cleanly, from a check that every 
   those done ("Fetched origin/master · 5.79 MiB", "Checked the update onto origin/master"), the running one ("Fetching
   origin/master…", or git's last progress line once git reports a stage; "Waiting for Branch Deck or bd to finish…",
   "Checking the update onto origin/master…", "Updating to origin/master…", "Syncing branches…") and those left,
-  muted ("Check the update", "Update to origin/master", "Sync branches"). A step the check made needless is not
-  listed; a wait that ended is no step of its own.
+  muted ("Check the update", "Update to origin/master", "Sync branches"). Every step is listed from the start of the
+  run, the update of the files and the sync too, so one look shows the whole run: a check that finds nothing to apply
+  ends the run before them. A wait that ended is no step of its own.
   [@test] ../../src/lib/update-state.test.ts (`names the running step in the tooltip, never the last state`)
   [@test] ../../src/lib/update-state.test.ts (`lists the steps done, the running one and those left, without a wait that ended`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show one progress from the click to the end of its sync, its steps in the tooltip`)
+  [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should end the progress at the result when there is nothing to apply, its sync on Sync`)
 - The backend tells the wait for the lock as a step of its own (`waiting`), once, when another operation holds the
   lock as the update asks for it; the check starts once it has the lock. A progress message after the command answered
   changes nothing: the steps after it are the frontend's.

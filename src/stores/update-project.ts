@@ -10,7 +10,7 @@ import { appliedUpdateToast } from "@/lib/landed"
 import type { FinishedStep, TimedStep, UpdateRun, UpdateStep } from "@/lib/update-progress"
 import { advanceRun, finishRun, learnTimings, startRun } from "@/lib/update-progress"
 import { recordUpdate } from "@/stores/activity"
-import { branchSyncStore, requestSync, setBaselineUpdate, syncBranches } from "@/stores/branch-sync"
+import { requestSync, setBaselineUpdate, syncBranches } from "@/stores/branch-sync"
 import { addLandedUpdate } from "@/stores/landed"
 import type { OperationKey } from "@/stores/operations"
 import { runOperation } from "@/stores/operations"
@@ -123,18 +123,11 @@ const PHASE_STEPS: Readonly<Record<UpdatePhase, UpdateStep>> = {
   updating: "apply",
 }
 
-/** All steps of an update that applies: its files follow, and the sync rebuilds the rebased branches */
-const APPLYING_PLAN: readonly TimedStep[] = ["fetch", "check", "apply", "sync"]
-
 /**
- * The steps an update expects at its start: none to apply when the last check found the branch up to date, so the
- * tooltip doesn't list steps that drop out; the check decides
+ * Every step of an update, listed from its start whatever the last check found: the files follow, and the sync rebuilds
+ * the rebased branches. A check that finds nothing to apply ends the run with its result, the steps after it never run.
  */
-function initialPlan(repositoryPath: string): readonly TimedStep[] {
-  const { baselineStatus } = branchSyncStore.getState()
-  const upToDate = baselineStatus?.repositoryPath === repositoryPath && baselineStatus.update?.state.status === "upToDate"
-  return upToDate ? ["fetch", "check"] : APPLYING_PLAN
-}
+const UPDATE_PLAN: readonly TimedStep[] = ["fetch", "check", "apply", "sync"]
 
 /** What a step that ends did: the amount of the fetch, as git prints it */
 function finishedDetail(run: UpdateRun): string | null {
@@ -147,7 +140,7 @@ function applyProgress(run: UpdateRun, { phase, fetch }: UpdateProgress): Update
   if (step === run.step) {
     return step === "fetch" ? { ...run, fetch } : run
   }
-  return advanceRun(run, step, step === "apply" ? APPLYING_PLAN : run.plan, Date.now(), finishedDetail(run))
+  return advanceRun(run, step, Date.now(), finishedDetail(run))
 }
 
 /** The operation of an update of the selected repository: a rewrite of it, as a regroup or a squash */
@@ -173,7 +166,7 @@ export async function runUpdateProject(): Promise<void> {
 }
 
 async function updateProjectOf(repositoryPath: string): Promise<void> {
-  if (!startRunning(repositoryPath, "update", initialPlan(repositoryPath))) {
+  if (!startRunning(repositoryPath, "update", UPDATE_PLAN)) {
     return
   }
   // the steps that ended; the one that failed says nothing about its usual time
@@ -236,7 +229,7 @@ async function updateProjectOf(repositoryPath: string): Promise<void> {
       return
     }
     // the branches were rebased: their rows are rebuilt, the last step of the update
-    const syncing = advanceRun(run, "sync", APPLYING_PLAN, Date.now())
+    const syncing = advanceRun(run, "sync", Date.now())
     done = syncing.done
     patchRunning(repositoryPath, running => ({ ...running, run: syncing }))
     await requestSync({ autoScroll: false, autoExpand: false }, syncRun => {

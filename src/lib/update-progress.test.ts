@@ -41,7 +41,7 @@ describe("the progress of an update", () => {
   })
 
   it("moves with the time in a step that reports nothing, never standing still, and keeps the end of a step for its end", () => {
-    const checking = advanceRun(run(), "check", FULL, 3000)
+    const checking = advanceRun(run(), "check", 3000)
     const usual = samples(now => overallProgress(checking, now), 3000, 3000 + 1500)
     const late = samples(now => overallProgress(checking, now), 6000, 9000)
     expect(isNonDecreasing([...usual, ...late])).toBe(true)
@@ -62,26 +62,20 @@ describe("the progress of an update", () => {
     for (const fetchEnd of [500, 9000]) {
       const fetching = run()
       const before = overallProgress(fetching, fetchEnd)
-      const checking = advanceRun(fetching, "check", FULL, fetchEnd)
+      const checking = advanceRun(fetching, "check", fetchEnd)
       expect(overallProgress(checking, fetchEnd)).toBeCloseTo(before)
       expect(overallProgress(checking, fetchEnd + 200)).toBeGreaterThan(before)
     }
   })
 
-  it("stands still while it waits for the lock, and shares the rest again when the check drops the update of the files", () => {
-    const fetching = run()
-    const waiting = advanceRun(fetching, "waiting", FULL, 2000)
+  it("stands still while it waits for the lock", () => {
+    const waiting = advanceRun(run(), "waiting", 2000)
     const atWait = overallProgress(waiting, 2000)
     expect(overallProgress(waiting, 8000)).toBe(atWait)
-
-    // the last check found the branch up to date; this one finds something to apply
-    const upToDatePlan = advanceRun(startRun("update", ["fetch", "check"], undefined, 0), "check", ["fetch", "check"], 2000)
-    const applying = advanceRun(upToDatePlan, "apply", FULL, 3000)
-    expect(overallProgress(applying, 3000)).toBeCloseTo(overallProgress(upToDatePlan, 3000))
   })
 
   it("takes the commits of its own sync, capped until the sync ends", () => {
-    const syncing = advanceRun(advanceRun(advanceRun(run(), "check", FULL, 3000), "apply", FULL, 4500), "sync", FULL, 5300)
+    const syncing = advanceRun(advanceRun(advanceRun(run(), "check", 3000), "apply", 4500), "sync", 5300)
     const start = overallProgress(syncing, 5300, null)
     expect(overallProgress(syncing, 5300, 0.5)).toBeCloseTo(start + (1 - syncing.base) * 0.5)
     expect(overallProgress(syncing, 5300, 1)).toBeCloseTo(syncing.base + (1 - syncing.base) * STEP_CEILING)
@@ -90,9 +84,9 @@ describe("the progress of an update", () => {
 
   it("learns what the steps took, without the wait for the lock and the sync, which learns from every sync", () => {
     const fetching = run()
-    const waiting = advanceRun(fetching, "waiting", FULL, 2000)
-    const checking = advanceRun(waiting, "check", FULL, 5000)
-    const syncing = advanceRun(advanceRun(checking, "apply", FULL, 6000), "sync", FULL, 6500)
+    const waiting = advanceRun(fetching, "waiting", 2000)
+    const checking = advanceRun(waiting, "check", 5000)
+    const syncing = advanceRun(advanceRun(checking, "apply", 6000), "sync", 6500)
     expect(learnTimings(undefined, finishRun(syncing, 9000))).toEqual({ fetch: [2000], check: [1000], apply: [500] })
   })
 })
