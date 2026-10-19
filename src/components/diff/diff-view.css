@@ -48,11 +48,22 @@
 .dv-rows {
   position: relative;
   font-family: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-feature-settings: "calt" 0;
   font-size: 13px;
   tab-size: 4;
   color: var(--syntax-foreground);
   background: var(--card);
+}
+
+/* the ligatures of JetBrains Mono are on by default (Settings → Appearance, docs/design/ui-theme.md "Diffs") */
+[data-ligatures="off"] .dv-rows {
+  font-feature-settings:
+    "calt" 0,
+    "liga" 0;
+}
+
+/* the selection of the IntelliJ schemes, SELECTION_BACKGROUND */
+.dv-rows ::selection {
+  background: var(--diff-selection);
 }
 
 .dv-row {
@@ -75,12 +86,14 @@
   border-inline-start: 1px solid var(--border);
 }
 
+/* the line numbers of IntelliJ: a point smaller than the editor font, LINE_NUMBERS_COLOR */
 .dv-num {
   flex: none;
   width: var(--dv-gutter, 4ch);
   padding-inline-end: 1ch;
+  font-size: 12px;
   text-align: end;
-  color: var(--muted-foreground);
+  color: var(--diff-line-number);
   user-select: none;
 }
 
@@ -90,7 +103,6 @@
   min-width: 0;
   overflow: hidden;
   padding-inline-start: 1ch;
-  border-inline-start: 3px solid transparent;
 }
 
 .dv-text {
@@ -117,120 +129,138 @@
 }
 
 /*
- * The kinds of a cell: a deleted or an added line, a gap, a block the policy ignores (plain). The tints are IntelliJ's
- * (`SimpleDiffChangeUi`, `TextDiffTypeImpl.getIgnoredColor`): a block without inner ranges in the full colour; a block
- * with them pale, the change colour mixed 0.6 with the background, and its ranges in the full colour; a block that
- * differs only in whitespace pale, with a faded bar
+ * The cells of IntelliJ's diff types (TextDiffTypeFactory; the colours in src/index.css). A changed line has the
+ * full colour of its type; a block with inner ranges, also an empty list of them, has the pale form, and its ranges
+ * the full colour (`SimpleDiffChangeUi`, `TextDiffTypeImpl.getIgnoredColor`). The colour fills the line number too
+ * (`DiffLineMarkerRenderer`): no bar beside the code.
  */
-.dv-rows {
-  --dv-deleted: color-mix(in oklab, var(--destructive) 20%, var(--card));
-  --dv-added: color-mix(in oklab, var(--success) 20%, var(--card));
+[data-cell="inserted"] {
+  --dv-full: var(--diff-inserted);
+  --dv-pale: var(--diff-inserted-pale);
 }
 
 [data-cell="deleted"] {
-  background: var(--dv-deleted);
+  --dv-full: var(--diff-deleted);
+  --dv-pale: var(--diff-deleted-pale);
 }
 
-[data-cell="deleted"] > .dv-code {
-  border-inline-start-color: var(--destructive);
+[data-cell="modified"] {
+  --dv-full: var(--diff-modified);
+  --dv-pale: var(--diff-modified-pale);
 }
 
-[data-cell="added"] {
-  background: var(--dv-added);
+[data-cell="conflict"] {
+  --dv-full: var(--diff-conflict);
+  --dv-pale: var(--diff-conflict-pale);
 }
 
-[data-cell="added"] > .dv-code {
-  border-inline-start-color: var(--success);
+[data-cell="inserted"],
+[data-cell="deleted"],
+[data-cell="modified"],
+[data-cell="conflict"] {
+  background: var(--dv-full);
+}
+
+[data-tint][data-cell] {
+  background: var(--dv-pale);
 }
 
 [data-cell="filler"] {
   background: color-mix(in oklab, var(--foreground) 3%, var(--card));
 }
 
-[data-tint][data-cell="deleted"] {
-  background: color-mix(in oklab, var(--dv-deleted) 40%, var(--card));
+/* an inner range in the colour of its cell: Unified, Inline and a merge */
+.dv-changed {
+  background: var(--dv-full);
 }
 
-[data-tint][data-cell="added"] {
-  background: color-mix(in oklab, var(--dv-added) 40%, var(--card));
+/* Split: an inner range in the colour of its own type, on both sides */
+[data-typed] .dv-change-0 {
+  --dv-full: var(--diff-inserted);
 }
 
-[data-tint="whitespace"] > .dv-code {
-  border-inline-start-color: color-mix(in oklab, currentColor 30%, transparent);
+[data-typed] .dv-change-1 {
+  --dv-full: var(--diff-deleted);
 }
 
-[data-cell="deleted"] .dv-changed {
-  background: var(--dv-deleted);
-  border-radius: 2px;
+[data-typed] .dv-change-2 {
+  --dv-full: var(--diff-modified);
 }
 
-[data-cell="added"] .dv-changed {
-  background: var(--dv-added);
-  border-radius: 2px;
+/* the empty side of an inserted or a deleted range: a bar 2 px wide that takes no width (DiffEmptyHighlighterRenderer) */
+.dv-marker {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: var(--dv-row-height, 20px);
+  vertical-align: top;
+}
+
+.dv-marker::after {
+  position: absolute;
+  inset-block: 0;
+  left: -1px;
+  width: 2px;
+  content: "";
+  background: var(--dv-full);
 }
 
 /*
- * The cells of a merge, as IntelliJ's merge viewer colours them: inserted green, deleted grey, modified blue, conflict
- * red; in the middle and on each side that changed the block. The tints follow the rule of a diff.
+ * The result of a conflict that the engine resolves: no background, a dotted line of its colour above its first row
+ * and below its last one, 2 px on and 2 px off, as IntelliJ draws a resolved change (`BorderType.DOTTED`)
  */
-[data-cell="merge-inserted"] {
-  --dv-merge: var(--success);
+[data-cell][data-resolved] {
+  --dv-dots: repeating-linear-gradient(to right, var(--dv-full) 0 2px, transparent 2px 4px);
+  background: none;
 }
 
-[data-cell="merge-deleted"] {
-  --dv-merge: var(--muted-foreground);
+[data-cell][data-resolved="first"] {
+  background: var(--dv-dots) top / 100% 1px no-repeat;
 }
 
-[data-cell="merge-modified"] {
-  --dv-merge: var(--primary);
+[data-cell][data-resolved="last"] {
+  background: var(--dv-dots) bottom / 100% 1px no-repeat;
 }
 
-[data-cell="merge-conflict"] {
-  --dv-merge: var(--destructive);
+[data-cell][data-resolved="both"] {
+  background:
+    var(--dv-dots) top / 100% 1px no-repeat,
+    var(--dv-dots) bottom / 100% 1px no-repeat;
 }
 
-[data-cell^="merge-"] {
-  background: color-mix(in oklab, var(--dv-merge) 20%, var(--card));
-}
-
-[data-cell^="merge-"] > .dv-code {
-  border-inline-start-color: var(--dv-merge);
-}
-
-[data-tint][data-cell^="merge-"] {
-  background: color-mix(in oklab, var(--dv-merge) 8%, var(--card));
-}
-
-[data-cell^="merge-"] .dv-changed {
-  background: color-mix(in oklab, var(--dv-merge) 20%, var(--card));
-  border-radius: 2px;
-}
-
-/* the result of a conflict that the engine resolves: a dashed bar */
-[data-resolved] > .dv-code {
-  border-inline-start-style: dashed;
+[data-resolved] .dv-changed {
+  background: none;
 }
 
 /* the deleted parts of an Inline row: not selectable, so a copy gives the new line */
 [data-inline-deleted] {
   user-select: none;
-  border-radius: 2px;
-  background: var(--dv-deleted);
+  background: var(--diff-deleted);
 }
 
-/* the hits of the find, the current one stronger */
+/*
+ * The hits of the find, as IntelliJ's TEXT_SEARCH_RESULT_ATTRIBUTES (Islands Dark boxes them); the current one is
+ * selected, as the find of IntelliJ selects it
+ */
 .dv-hit {
-  border-radius: 2px;
-  background: color-mix(in oklab, var(--warning) 30%, var(--card));
+  background: var(--diff-search-result);
+  box-shadow: inset 0 0 0 1px var(--diff-search-result-border);
 }
 
 .dv-hit-current {
-  background: color-mix(in oklab, var(--warning) 60%, var(--card));
-  outline: 1px solid var(--warning);
+  background: var(--diff-selection);
+  box-shadow: none;
 }
 
+/*
+ * A fold: DIFF_SEPARATORS_BACKGROUND with a 1-px line of DIFF_SEPARATOR_WAVE above and below it, in place of the
+ * squiggle IntelliJ draws (the text of the fold stands where its wave would be)
+ */
 .dv-fold {
-  background: color-mix(in oklab, var(--foreground) var(--bd-tint), var(--card));
+  background: var(--diff-separator);
+  box-shadow:
+    inset 0 1px var(--diff-separator-wave),
+    inset 0 -1px var(--diff-separator-wave);
   user-select: none;
 }
 
@@ -242,31 +272,23 @@
 }
 
 /* a screen reader says what a changed line is; the generated content is not copied */
+[data-cell="inserted"] > .dv-code::before {
+  content: "" / "inserted";
+}
+
 [data-cell="deleted"] > .dv-code::before {
   content: "" / "deleted";
 }
 
-[data-cell="added"] > .dv-code::before {
-  content: "" / "added";
-}
-
-[data-cell="merge-inserted"] > .dv-code::before {
-  content: "" / "inserted";
-}
-
-[data-cell="merge-deleted"] > .dv-code::before {
-  content: "" / "deleted";
-}
-
-[data-cell="merge-modified"] > .dv-code::before {
+[data-cell="modified"] > .dv-code::before {
   content: "" / "modified";
 }
 
-[data-cell="merge-conflict"] > .dv-code::before {
+[data-cell="conflict"] > .dv-code::before {
   content: "" / "conflict";
 }
 
-[data-cell="merge-conflict"][data-resolved] > .dv-code::before {
+[data-cell="conflict"][data-resolved] > .dv-code::before {
   content: "" / "resolved conflict";
 }
 

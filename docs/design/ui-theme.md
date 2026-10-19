@@ -105,15 +105,36 @@ Rows are the shadcn utilities. Islands arcs are diameters, so an arc of 20 is a 
 
 ### Diffs
 
-A diff ([Diff View](diff-view.md)) renders in the light DOM with the classes of
-`src/components/diff/diff-view.css`, on the tokens of `src/index.css`:
+A diff ([Diff View](diff-view.md)) looks as IntelliJ's diff in Islands Light and Islands Dark, unless a difference
+below has its reason. It renders in the light DOM with the classes of `src/components/diff/diff-view.css`, on the
+`--diff-*` tokens of `src/index.css`, which are the values of IntelliJ's schemes (`expUI_lightScheme.xml`,
+`IslandSchemeDark.xml` and its parent Darcula in `DefaultColorSchemesManager.xml`):
 
-- the background is `--card`: our tokens already switch with the scheme;
-- added and deleted lines are `--success` and `--destructive`, line numbers `--muted-foreground`, the folds the
-  `--bd-tint` of the foreground. A merge colours its blocks as IntelliJ: inserted `--success`, deleted
-  `--muted-foreground`, modified `--primary`, conflict `--destructive`;
-- the code is JetBrains Mono at 13px without ligatures; the row height comes from the font metrics and the zoom: the
-  size of the IntelliJ editor and of the UI text beside it, at the cost of about 8% of the columns of a split view.
+- **Types.** IntelliJ's diff keys: inserted green, deleted grey, modified blue, conflict red. The pale form of each is
+  the colour mixed 0.6 with the editor background (`TextDiffTypeImpl.getIgnoredColor`); the tokens hold the computed
+  values. Split colours a block by its type on both sides, and each inner range by its own type
+  (`SimpleDiffChangeUi`). The empty side of an inserted or a deleted range is a bar 2 px wide, one line high, that
+  takes no width (`DiffEmptyHighlighterRenderer`). Unified and Inline colour a deleted line grey and an inserted line
+  green, their words likewise (`DiffDrawUtil.createUnifiedChunkHighlighters`). A merge colours a block by its kind; a
+  resolved conflict has no background, and a dotted line (2 px on, 2 px off) above and below it.
+- **Pale and full.** A block with inner ranges, also an empty list of them, has pale lines and full words; a block
+  without inner ranges has full lines; a whitespace-only block is pale with nothing strong.
+- **Gutter.** The colour of a line fills its line number as well (`DiffLineMarkerRenderer`): no bar beside the code.
+  The line numbers are a point smaller than the code, 12 px, in `LINE_NUMBERS_COLOR`.
+- **Folds.** `DIFF_SEPARATORS_BACKGROUND`, with a 1-px line of `DIFF_SEPARATOR_WAVE` above and below the row. IntelliJ
+  draws a squiggle across the middle; the text of our fold stands there, so the lines go to the edges.
+- **Selection and find.** `SELECTION_BACKGROUND` for a selection and for the current hit, as IntelliJ's find selects
+  it; `TEXT_SEARCH_RESULT_ATTRIBUTES` for the other hits, with the 1-px box of Islands Dark.
+- **Kept apart from IntelliJ** ([Diff View](diff-view.md)): Split aligns its sides with filler rows instead of the
+  24-px curved divider, and its sides have a 1-px divider.
+- **Font.** JetBrains Mono at 13 px, its real italic faces for the italic of the schemes; the row height comes from
+  the font metrics and the zoom: the size of the IntelliJ editor and of the UI text beside it, at the cost of about
+  8% of the columns of a split view.
+- **Ligatures** are on by default, with a switch in Settings → Appearance, "Diffs". IntelliJ has them off by default
+  (Settings → Editor → Font → Enable ligatures); on is the user's choice. It is safe in a diff: a ligature of
+  JetBrains Mono keeps the width of its cells, so the arithmetic of the layout and the wraps holds; and the bound of
+  a changed range inside a ligature splits the text run, so a changed character inside `!=` or `->` stays visible as
+  a character of its own. `tests/e2e/commit-files/diff-font.spec.ts` measures both, `!=` to `!==` included.
 
 The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `src/index.css`, by the roles of
 `src/lib/diff/islands-themes.ts`.

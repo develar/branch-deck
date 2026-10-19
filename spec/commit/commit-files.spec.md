@@ -231,10 +231,15 @@ The views show the typed diff of each file instead of the patch ([Reading the di
   without a fold between them, and the changed ranges of the engine instead of a word diff, also on a changed line
   without a line beside it. The tints are IntelliJ's: a block with inner ranges draws its lines pale and its ranges
   in the full colour; a block without them (line-level only, or ranges dropped) draws its lines in the full colour; a
-  whitespace-only block draws its lines pale with a faded bar. The line indices are the engine's: the empty line
-  after a final line end is a line, and it shows only when a block touches it.
+  whitespace-only block draws its lines pale with nothing strong. The colours are IntelliJ's diff types (inserted
+  green, deleted grey, modified blue): Split colours a block by its type on both sides and each changed range by its
+  own type, with a bar 2 px wide where a range has an empty side; Unified and Inline colour a deleted line grey and an
+  inserted line green. The colour of a line fills its line number; no bar stands beside the code. The line indices
+  are the engine's: the empty line after a final line end is a line, and it shows only when a block touches it.
   [@test] ../../src/lib/diff/rows.test.ts (`leaves out the empty line after a final line end, unless a block touches it`, `draws the lines of a block with inner ranges pale and the lines of a block without them in the full tint, as IntelliJ`, `keeps 4 lines of context next to a change, as IntelliJ, and folds the others`, `skips a level that shows no more lines, and folds no fewer than 2 lines`, `cuts the context at both ends of the file`, `fills the shorter side of a block in the split view`, `shows a new file and a deleted file as one block of one side`, `splits lines as IntelliJ: LF, CRLF and a lone CR end a line, and a text may end without one`)
-  [@test] ../../src/lib/diff/line-parts.test.ts (`cuts a line at each run of the tokens and each bound of a changed range`)
+  [@test] ../../src/lib/diff/line-parts.test.ts (`cuts a line at each run of the tokens and each bound of a changed range`, `types each changed part, and puts a marker part where the empty side of a change stands`)
+  [@test] ../../src/lib/diff/row-cells.test.ts (`gives the old and the new column in Split, one column with the ranges of the line otherwise`)
+  [@test] ../../crates/text-diff/src/model_test.rs (`an_inserted_word_is_typed_and_marks_its_empty_side`)
 - A file whose line ends changed must say so under its header ("Line endings: LF → CRLF"), and "Only line endings
   changed: …" when that is its only change.
   [@test] ../../src/lib/diff/view-files.test.ts (`names a change of the line ends, and says so when it is the only change`)
@@ -277,6 +282,9 @@ The views show the typed diff of each file instead of the patch ([Reading the di
 
 ### Soft Wraps
 
+- "Ligatures" in Settings → Appearance, "Diffs", must draw the ligatures of JetBrains Mono, on by default; each
+  character keeps its cell, and a changed character inside a ligature stays visible.
+  [@test] ../../tests/e2e/commit-files/diff-font.spec.ts (`keeps the cell width of each character with ligatures on, also where a changed range cuts a ligature`)
 - "Soft wraps" in Settings → Appearance, "Diffs", must break a long line at the edge of the diff. It is off by
   default, as IntelliJ's `USE_SOFT_WRAPS`: a long line keeps its shape and scrolls sideways. One setting for every
   diff view.

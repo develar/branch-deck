@@ -14,7 +14,7 @@ import { isMac } from "@/lib/platform"
 import { titleBar } from "@/lib/title-bar"
 import type { NativeTitleBarReason } from "@/lib/title-bar"
 import { setSystemTitleBar, useAppSettings } from "@/stores/settings/appSettings"
-import { setDiffSoftWraps, useDiffSoftWraps } from "@/stores/settings/diff-view-settings"
+import { setDiffLigatures, setDiffSoftWraps, useDiffLigatures, useDiffSoftWraps } from "@/stores/settings/diff-view-settings"
 
 /** Settings → Appearance: the zoom of every window, the diffs; off macOS, the system title bar */
 export function AppearancePage() {
@@ -84,13 +84,18 @@ function ZoomButton({ item }: { item: MenuItem }) {
   )
 }
 
-/** The layout of the diffs, the switch above every diff too, and soft wraps */
+/** The layout of the diffs, the switch above every diff too, soft wraps and ligatures */
 function DiffSettings() {
   const softWraps = useDiffSoftWraps()
+  const ligatures = useDiffLigatures()
   return (
     <div className="flex flex-col gap-3">
-      <div data-testid="setting-diffViewMode">
-        <DiffViewToggle />
+      {/* the ligatures beside the layout: the page fits the smallest window without a scroll */}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <div data-testid="setting-diffViewMode">
+          <DiffViewToggle />
+        </div>
+        <SettingRow testId="setting-ligatures" label="Ligatures" checked={ligatures} onCheckedChange={setDiffLigatures} />
       </div>
       <SettingRow
         testId="setting-softWraps"

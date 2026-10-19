@@ -126,8 +126,13 @@ empty last row and a fold counts only real lines.
 **Tints.** The tints are IntelliJ's (`SimpleDiffChangeUi`, `TextDiffTypeImpl.getIgnoredColor`). A block with inner
 ranges draws its lines pale (the change colour mixed 0.6 with the background) and its ranges in the full colour. A
 block without inner ranges (`lineLevelOnly`, or ranges dropped) draws its lines in the full colour. A
-`whitespaceOnly` block draws its lines pale with a faded bar. So a re-indent under `Default` shows pale lines with
+`whitespaceOnly` block draws its lines pale with nothing strong. So a re-indent under `Default` shows pale lines with
 the indentation in the full colour.
+
+**Types.** The cells take IntelliJ's diff types (`row-cells.ts`, the colours in [UI Theme](ui-theme.md#diffs)). Split
+types a block by its sides, inserted, deleted or modified, and its inner ranges by their own `RangeKind`
+(`data-typed`); the empty side of an inserted or a deleted range is a marker part, a bar 2 px wide that takes no
+width. Unified and Inline type a deleted line deleted and an inserted line inserted, their words too.
 
 **Context and folds.** The context is 4 lines, as IntelliJ's default. Two blocks whose context touches share one
 span. The unchanged lines outside the context become a fold. The label of a fold is the innermost scope around the

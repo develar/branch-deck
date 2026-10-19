@@ -312,17 +312,17 @@ simpleTest.describe("Merge of a conflicting file", () => {
 
     const conflict = file.locator(".dv-row[data-kind=merge]", { hasText: "limits" })
     const half = (row: typeof conflict, side: number) => row.locator(`.dv-half[data-side="${side}"]`)
-    await expect(half(conflict, 0)).toHaveAttribute("data-cell", "merge-conflict")
+    await expect(half(conflict, 0)).toHaveAttribute("data-cell", "conflict")
     await expect(half(conflict, 0)).toContainText("{ timeout: 10, retries: 1 }")
     await expect(half(conflict, 2)).toContainText("{ timeout: 30, retries: 3 }")
     // Result (proposed): the conflict resolved by its words, marked as resolved
     await expect(file.getByRole("button", { name: "Result (proposed)" })).toHaveAttribute("aria-pressed", "true")
     await expect(half(conflict, 1)).toContainText("{ timeout: 10, retries: 3 }")
-    await expect(half(conflict, 1)).toHaveAttribute("data-resolved", "")
+    await expect(half(conflict, 1)).toHaveAttribute("data-resolved", "both")
     // the line the commit added: inserted on its side and in the result, a gap on the left
     const inserted = file.locator(".dv-row[data-kind=merge]", { hasText: "verbose" })
-    await expect(half(inserted, 2)).toHaveAttribute("data-cell", "merge-inserted")
-    await expect(half(inserted, 1)).toHaveAttribute("data-cell", "merge-inserted")
+    await expect(half(inserted, 2)).toHaveAttribute("data-cell", "inserted")
+    await expect(half(inserted, 1)).toHaveAttribute("data-cell", "inserted")
     await expect(half(inserted, 0)).toHaveAttribute("data-cell", "filler")
 
     // Base: the lines before both changes; the base has no line where the commit added one

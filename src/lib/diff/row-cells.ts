@@ -13,7 +13,15 @@ import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 export interface RowCells {
   /** The sides that show a column; Unified and Inline show one column with both line numbers */
   readonly columns: readonly number[]
-  /** The kind of the cell of a side (`data-cell`) */
+  /**
+   * The inner ranges take the colour of their own kind (`data-typed`), as the Split of IntelliJ; otherwise the colour
+   * of their cell
+   */
+  readonly typed: boolean
+  /**
+   * The kind of the cell of a side (`data-cell`): IntelliJ's diff types `inserted`, `deleted`, `modified`,
+   * `conflict`, or `context` and `filler`
+   */
   cell: (row: LineRow, side: number) => string
   /** The inner ranges of the line of a side, `[start, end, kind, ...]` (`RANGE_STRIDE`); null for none */
   ranges: (row: LineRow, side: number) => readonly number[] | null
@@ -38,19 +46,29 @@ function typedMergeRanges(ranges: readonly number[] | undefined): readonly numbe
 /** `RangeKind::Modified` of the engine */
 const MODIFIED_RANGE = 2
 
-/** The cells of a diff: the old and the new side in Split, one column in Unified and Inline */
+/**
+ * The cells of a diff: the old and the new side in Split, one column in Unified and Inline. Split colours a block by
+ * its type on both sides, as IntelliJ's `SimpleDiffChangeUi`: inserted when it has new lines only, deleted when it has
+ * old lines only, modified when it has both. Unified and Inline colour a deleted line deleted and an inserted line
+ * inserted (`DiffDrawUtil.createUnifiedChunkHighlighters`).
+ */
 export function diffCells(diff: TextDiff, mode: DiffViewMode): RowCells {
   const split = mode === "split"
   return {
     columns: split ? [OLD, NEW] : [NEW],
+    typed: split,
     cell: (row, side) => {
       if (split) {
         if (row.lines[side] == null) {
           return "filler"
         }
-        return row.kind === "changed" ? (side === OLD ? "deleted" : "added") : "context"
+        const block = diff.blocks[row.block]
+        if (row.kind !== "changed" || block === undefined) {
+          return "context"
+        }
+        return block.oldStart === block.oldEnd ? "inserted" : block.newStart === block.newEnd ? "deleted" : "modified"
       }
-      return row.kind === "deleted" ? "deleted" : row.kind === "added" || row.kind === "inline" ? "added" : "context"
+      return row.kind === "deleted" ? "deleted" : row.kind === "added" || row.kind === "inline" ? "inserted" : "context"
     },
     ranges: (row, side) => {
       const block = row.block < 0 ? undefined : diff.blocks[row.block]
@@ -79,12 +97,14 @@ export function mergeCells(merge: TextMerge, middle: MergeMiddle): RowCells {
   }
   return {
     columns: [LEFT, MIDDLE, RIGHT],
+    // the words of a merge block take the colour of the block
+    typed: false,
     cell: (row, side) => {
       if (row.lines[side] == null) {
         return "filler"
       }
       const block = changes(row, side)
-      return block === null ? "context" : `merge-${block.kind}`
+      return block === null ? "context" : block.kind
     },
     ranges: (row, side) => {
       const block = changes(row, side)

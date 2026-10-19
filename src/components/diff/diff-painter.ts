@@ -506,11 +506,14 @@ export class DiffPainter {
     const cells: PaintedRow["cells"] = []
     const { ids } = painterFile
     const rowCells = painterFile.cells!
+    if (rowCells.typed) {
+      rowElement.dataset.typed = ""
+    }
     if (rowCells.columns.length > 1) {
       // a column per side: Split, a merge
       for (const side of rowCells.columns) {
         const line = value.lines[side] ?? null
-        const half = this.half(side, rowCells.cell(value, side), value.tint, rowCells.resolved(value, side))
+        const half = this.half(side, rowCells.cell(value, side), value.tint, rowCells.resolved(value, side) ? resolvedEdges(value) : null)
         half.append(this.number(line))
         half.append(this.code(file, painterFile, value, side, line, tables, height))
         rowElement.append(half)
@@ -522,7 +525,7 @@ export class DiffPainter {
     } else {
       // Unified and Inline: one side, both line numbers; a deleted row shows the old line
       const side = value.kind === "deleted" ? OLD : NEW
-      const half = this.half(NEW, rowCells.cell(value, side), value.tint, false)
+      const half = this.half(NEW, rowCells.cell(value, side), value.tint, null)
       half.append(this.number(value.lines[OLD] ?? null), this.number(value.lines[NEW] ?? null))
       half.append(this.code(file, painterFile, value, side, value.lines[side] ?? null, tables, height))
       rowElement.append(half)
@@ -537,15 +540,15 @@ export class DiffPainter {
     return { element: rowElement, cells, textsRead }
   }
 
-  private half(side: number, cell: string, tint: LineTint, resolved: boolean): HTMLElement {
+  private half(side: number, cell: string, tint: LineTint, resolved: string | null): HTMLElement {
     const half = element("div", "dv-half")
     half.dataset.side = String(side)
     half.dataset.cell = cell
     if (tint !== "full" && cell !== "context" && cell !== "filler") {
       half.dataset.tint = tint
     }
-    if (resolved) {
-      half.dataset.resolved = ""
+    if (resolved !== null) {
+      half.dataset.resolved = resolved
     }
     return half
   }
@@ -659,10 +662,17 @@ export class DiffPainter {
         const length = part.end - part.start
         const partStart = offset
         const partEnd = offset + length
+        if (length === 0 && partStart === end && end !== full.length) {
+          // a marker at a break stands at the start of the next visual line
+          break
+        }
         const cutStart = Math.max(partStart, start)
         const cutEnd = Math.min(partEnd, end)
         if (cutStart < cutEnd) {
           lineParts.push({ ...part, start: part.start + cutStart - partStart, end: part.start + cutEnd - partStart })
+        } else if (length === 0 && partStart >= start && (partStart < end || end === full.length)) {
+          // a marker of an empty side, in the visual line where its offset stands
+          lineParts.push(part)
         }
         if (partEnd > end) {
           break
@@ -949,6 +959,16 @@ function pointOf(node: Node | null, offset: number): (CopyPoint & { side: number
     offset: cell === null || !cell.contains(node) ? 0 : textOffset(cell, node!, offset),
     side: Number(cell?.dataset.side ?? NEW),
   }
+}
+
+/**
+ * The edges of a resolved block that a row draws (`data-resolved`): IntelliJ draws the border of a resolved change
+ * above its first line and below its last one
+ */
+function resolvedEdges(row: LineRow): string {
+  const first = row.blockRow === 0
+  const last = row.blockRow === row.blockRows - 1
+  return first && last ? "both" : first ? "first" : last ? "last" : "inside"
 }
 
 /** A file shows a column per side: Split, a merge */

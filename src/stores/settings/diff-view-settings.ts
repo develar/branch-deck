@@ -4,14 +4,17 @@ import type { WhitespacePolicy } from "@/lib/diff/file-diff-model"
 import { createPersistentStore } from "./persistent-store"
 
 /*
- * One choice for every diff view, as IntelliJ's diff settings: the layout (`DiffViewToggle`, Settings → Appearance) and
- * soft wraps. A default only fills a missing field, so a stored value wins over it.
+ * One choice for every diff view, as IntelliJ's diff settings: the layout (`DiffViewToggle`, Settings → Appearance),
+ * soft wraps and ligatures. A default only fills a missing field, so a stored value wins over it.
  */
 const DiffViewSettingsSchema = z.object({
   // Split first, as IntelliJ's diff and its VCS log; Inline is Unified with a lightly edited line as one row
   mode: z.enum(["split", "unified", "inline"]).default("split"),
   // off, as IntelliJ's USE_SOFT_WRAPS: a long line keeps its shape and scrolls
   softWraps: z.boolean().default(false),
+  // on, unlike IntelliJ's "Enable ligatures": a ligature of JetBrains Mono keeps the width of its cells
+  // (docs/design/ui-theme.md, "Diffs")
+  ligatures: z.boolean().default(true),
   // what the diff engine ignores; IntelliJ's default compares every character
   whitespacePolicy: z.enum(["default", "trim", "ignore", "ignoreBlankLines"] satisfies WhitespacePolicy[]).default("default"),
 })
@@ -29,6 +32,15 @@ export function useDiffViewMode(): DiffViewMode {
 /** Long lines break at the edge of the diff instead of scrolling */
 export function useDiffSoftWraps(): boolean {
   return useStore(diffViewStore, state => state.softWraps)
+}
+
+/** The ligatures of JetBrains Mono in the code of every diff view */
+export function useDiffLigatures(): boolean {
+  return useStore(diffViewStore, state => state.ligatures)
+}
+
+export function setDiffLigatures(ligatures: boolean): void {
+  diffViewStore.setState({ ligatures })
 }
 
 /** What the diff engine ignores in every diff view */

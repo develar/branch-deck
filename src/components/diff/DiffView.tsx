@@ -26,6 +26,7 @@ import type { TextMetrics } from "@/lib/diff/wrap"
 import { blobTextsStore, putDerivedText, requestBlobTexts } from "@/stores/blob-texts"
 import type { BlobTextEntry } from "@/stores/blob-texts"
 import { useAppSettings } from "@/stores/settings/appSettings"
+import { useDiffLigatures } from "@/stores/settings/diff-view-settings"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 import "./diff-view.css"
 
@@ -225,6 +226,7 @@ export function DiffView({
 }: DiffViewProps) {
   const headerHeight = renderHeader === undefined ? 0 : HEADER_HEIGHT
   const zoom = useAppSettings(state => state.zoom)
+  const ligatures = useDiffLigatures()
   // the files the user expanded or collapsed against the way they start
   const [toggled, setToggled] = useState<ReadonlySet<string>>(() => new Set())
   // the fold levels this view changed; `setFoldLevels` keeps them for the next view of the same diff
@@ -629,6 +631,7 @@ export function DiffView({
       aria-label={label}
       tabIndex={scroll === "own" ? 0 : undefined}
       className={scroll === "own" ? "dv-scroller min-h-0 flex-1" : "dv-embedded"}
+      data-ligatures={ligatures ? undefined : "off"}
       data-testid="diff-view"
     >
       <div className="dv-document" style={{ height: layout.height }}>
@@ -693,7 +696,7 @@ const DiffSection = memo(function DiffSection(props: DiffSectionProps) {
       aria-label={file.path}
       data-testid="diff-view-file"
       data-path={file.path}
-      style={{ top, height, "--dv-gutter": `${file.gutterColumns}ch`, "--dv-row-height": `${rowHeight}px` } as CSSProperties}
+      style={{ top, height, "--dv-gutter": `${file.gutterColumns * columnWidth}px`, "--dv-row-height": `${rowHeight}px` } as CSSProperties}
     >
       {renderHeader !== undefined && (
         <div className="dv-header">
@@ -797,7 +800,8 @@ function scrollParentOf(element: HTMLElement): HTMLElement | null {
  */
 function codeWidthsOf(file: PreparedFile, width: number, columnWidth: number): number[] {
   const gutter = file.gutterColumns * columnWidth
-  const chrome = 3 + columnWidth
+  // the padding before the code; the colour of a line fills its gutter, so no bar takes a width
+  const chrome = columnWidth
   const columns = file.cells?.columns.length ?? 1
   // a border of 1 px between two columns
   const code = columns > 1 ? (width - (columns - 1)) / columns - gutter - chrome : width - 2 * gutter - chrome

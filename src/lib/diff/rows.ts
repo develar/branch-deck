@@ -41,6 +41,8 @@ export interface LineRow {
   block: number
   /** The row of a merge block from its first one: every side shows line `start + blockRow` of the block */
   blockRow: number
+  /** The rows of the block in this mode; 0 for unchanged lines */
+  blockRows: number
   /**
    * The tint of a changed line, as IntelliJ's `SimpleDiffChangeUi`: `full` for a block without inner ranges, `pale` for
    * a block with them (the ranges carry the full colour), `whitespace` for a block that differs only in whitespace
@@ -204,18 +206,18 @@ function itemRowCount(item: Item, mode: RowsMode): number {
 /** Row `row` of an item in a mode */
 function itemRow(item: Item, row: number, mode: RowsMode): LineRow {
   if (item.kind === "equal") {
-    return { kind: "context", lines: item.starts.map(start => start + row), block: -1, blockRow: 0, tint: "full" }
+    return { kind: "context", lines: item.starts.map(start => start + row), block: -1, blockRow: 0, blockRows: 0, tint: "full" }
   }
   if (item.kind === "merge") {
     const { block, index, starts, counts } = item
     const lines = starts.map((start, side) => (row < counts[side]! ? start + row : null))
-    return { kind: "merge", lines, block: index, blockRow: row, tint: mergeTintOf(block) }
+    return { kind: "merge", lines, block: index, blockRow: row, blockRows: Math.max(...counts), tint: mergeTintOf(block) }
   }
   const { block, index } = item
   const deletions = block.oldEnd - block.oldStart
   const additions = block.newEnd - block.newStart
   const tint = tintOf(block)
-  const at = (kind: LineRowKind, lines: readonly (number | null)[]): LineRow => ({ kind, lines, block: index, blockRow: row, tint })
+  const at = (kind: LineRowKind, lines: readonly (number | null)[]): LineRow => ({ kind, lines, block: index, blockRow: row, blockRows: itemRowCount(item, mode), tint })
   if (mode === "split") {
     return at(block.kind === "ignored" ? "ignored" : "changed", [row < deletions ? block.oldStart + row : null, row < additions ? block.newStart + row : null])
   }

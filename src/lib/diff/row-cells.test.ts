@@ -23,8 +23,8 @@ describe("mergeCells", () => {
     const conflictRow = lineRow(rowAt(rows, 1))
     const addedRow = lineRow(rowAt(rows, 3))
     expect(cells.columns).toEqual([LEFT, MIDDLE, RIGHT])
-    expect([LEFT, MIDDLE, RIGHT].map(side => cells.cell(conflictRow, side))).toEqual(["merge-conflict", "merge-conflict", "merge-conflict"])
-    expect([LEFT, MIDDLE, RIGHT].map(side => cells.cell(addedRow, side))).toEqual(["filler", "merge-inserted", "merge-inserted"])
+    expect([LEFT, MIDDLE, RIGHT].map(side => cells.cell(conflictRow, side))).toEqual(["conflict", "conflict", "conflict"])
+    expect([LEFT, MIDDLE, RIGHT].map(side => cells.cell(addedRow, side))).toEqual(["filler", "inserted", "inserted"])
     expect(cells.cell(lineRow(rowAt(rows, 0)), MIDDLE)).toBe("context")
     expect([cells.resolved(conflictRow, MIDDLE), cells.resolved(conflictRow, LEFT)]).toEqual([true, false])
     // the result of a resolve by words has no ranges; the middle takes the ranges of the side whose lines it shows
@@ -38,7 +38,7 @@ describe("mergeCells", () => {
     const only = textMerge([3, 3, 4], [right])
     const row = lineRow(rowAt(buildMergeRows(only, "result"), 1))
     const cells = mergeCells(only, "result")
-    expect([LEFT, MIDDLE, RIGHT].map(side => cells.cell(row, side))).toEqual(["context", "merge-modified", "merge-modified"])
+    expect([LEFT, MIDDLE, RIGHT].map(side => cells.cell(row, side))).toEqual(["context", "modified", "modified"])
     expect(cells.ranges(row, LEFT)).toBeNull()
   })
 })
@@ -49,9 +49,21 @@ describe("diffCells", () => {
     const split = diffCells(diff, "split")
     const row = lineRow(rowAt(buildFileRows(diff, "split"), 1))
     expect(split.columns).toEqual([OLD, NEW])
-    expect([split.cell(row, OLD), split.cell(row, NEW), split.ranges(row, NEW)]).toEqual(["deleted", "added", [1, 2, 2]])
+    expect([split.cell(row, OLD), split.cell(row, NEW), split.ranges(row, NEW)]).toEqual(["modified", "modified", [1, 2, 2]])
     const unified = diffCells(diff, "unified")
     const added = lineRow(rowAt(buildFileRows(diff, "unified"), 2))
-    expect([unified.columns, unified.cell(added, NEW), unified.ranges(added, NEW)]).toEqual([[NEW], "added", [1, 2, 2]])
+    expect([unified.columns, unified.cell(added, NEW), unified.ranges(added, NEW)]).toEqual([[NEW], "inserted", [1, 2, 2]])
+    // Split types a block by its sides, as IntelliJ: modified above, inserted and deleted here; Unified types the lines
+    expect([split.typed, unified.typed]).toEqual([true, false])
+    const sides = textDiff(4, 4, [block(1, 1, 1, 2), block(2, 3, 3, 3)])
+    const splitSides = diffCells(sides, "split")
+    const rows = buildFileRows(sides, "split")
+    expect([splitSides.cell(lineRow(rowAt(rows, 1)), NEW), splitSides.cell(lineRow(rowAt(rows, 1)), OLD), splitSides.cell(lineRow(rowAt(rows, 3)), OLD)]).toEqual([
+      "inserted",
+      "filler",
+      "deleted",
+    ])
+    const deletedRow = lineRow(rowAt(buildFileRows(diff, "unified"), 1))
+    expect(unified.cell(deletedRow, OLD)).toBe("deleted")
   })
 })
