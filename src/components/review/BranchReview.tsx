@@ -146,7 +146,8 @@ export function BranchReviewBody({ model, moves }: { model: BranchReviewModel; m
           branch === undefined || source.wholeStack === true
             ? []
             : (moves.commitMenus[commit.id] ?? []).map(group => group.map(item => ({ ...item, onSelect: () => moves.onCommitMenuItem(branch, commit.id, item.id) })))
-        return [...groups, getReviewCommitCopyMenuItems(commit)]
+        // as the items of the main window, which come without their icons
+        return [...groups, getReviewCommitCopyMenuItems(commit).map(item => ({ ...item, icon: undefined }))]
       }}
       commitAction={item => {
         const branch = item.branch
