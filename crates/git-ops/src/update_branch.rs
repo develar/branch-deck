@@ -6,11 +6,15 @@
 //! (`pick::apply_pick`, a branch or a detached HEAD) and their undo (`apply_update_undo`).
 
 use crate::commit_utils::blob_id;
+use crate::commit_writer::{current_committer, write_notes_to_refs};
 use crate::paths::{COMMIT_FORMAT, ChangedPath, MAX_ATTRIBUTED_FILES, changed_paths, commits_touching, parse_commits};
 use crate::ref_transaction::{REFLOG_PREFIX, RefTransaction};
 use crate::replay::{merge_trees, replay_range_with_env};
 use crate::revs::{DetachedHead, Worktree, current_branch, current_worktree, fork_point, merge_base, resolve_commit};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges, ensure_no_operation_in_progress};
+use crate::update_resolve::RESOLVE_NOTES_REF;
+use crate::word_replay::{UpdateResolvedCommit, WordsReplay, replay_resolving_words};
+use crate::word_resolve::ResolveMode;
 use crate::worktree_update::{apply_worktree_update, dry_run_worktree_update};
 use anyhow::{Result, anyhow, bail};
 use bstr::ByteSlice;
@@ -113,6 +117,10 @@ pub struct UpdateCheck {
   pub state: UpdateState,
   /// When the upstream was last fetched (Unix seconds), if known
   pub fetched_at: Option<u32>,
+  /// The local commits whose conflict of git the replay resolved by words (`branchdeck.resolveByWords`), oldest first;
+  /// empty when the replay applies as it is or conflicts
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub resolved_by_words: Vec<UpdateResolvedCommit>,
 }
 
 /// What an applied update did
@@ -227,8 +235,16 @@ impl UpdatePlan {
 #[instrument(skip(git_executor, candidates))]
 ///
 /// A replay that conflicts is tried again without the commits `candidates` names, e.g. those a Safe Push robot pushed
-/// with their fixups folded in: the target alone then adds other content than the upstream has.
-pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream: UpstreamRef<'_>, purpose: CheckPurpose, candidates: LandedCandidates<'_>) -> Result<UpdatePlan> {
+/// with their fixups folded in: the target alone then adds other content than the upstream has. Then, with
+/// `ResolveMode::On`, commit by commit with each conflict of git resolved by words, all or nothing (`word_replay`).
+pub fn check_update(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  upstream: UpstreamRef<'_>,
+  purpose: CheckPurpose,
+  candidates: LandedCandidates<'_>,
+  resolve: ResolveMode,
+) -> Result<UpdatePlan> {
   let branch = check_update_guards(git_executor, repo_path)?;
   // one `rev-parse` of two revisions, which takes no `--end-of-options`: the name from the configuration is checked here
   let tracking_ref = full_ref_name(upstream.tracking_ref)?;
@@ -239,7 +255,7 @@ pub fn check_update(git_executor: &GitCommandExecutor, repo_path: &str, upstream
     head: &head,
     upstream_head: &upstream_head,
   };
-  check_update_of(git_executor, repo_path, checked, upstream, purpose, candidates)
+  check_update_of(git_executor, repo_path, checked, upstream, purpose, candidates, resolve)
 }
 
 /// `name` if it is a full ref name by git's rules (`refs/…`, `check-ref-format`): never an option, a range or a
@@ -273,6 +289,7 @@ pub fn check_update_of(
   upstream: UpstreamRef<'_>,
   purpose: CheckPurpose,
   candidates: LandedCandidates<'_>,
+  resolve: ResolveMode,
 ) -> Result<UpdatePlan> {
   let (branch, head, upstream_head) = (checked.branch.to_string(), checked.head.to_string(), checked.upstream_head.to_string());
   let Some(base) = merge_base(git_executor, repo_path, &head, &upstream_head)? else {
@@ -295,6 +312,7 @@ pub fn check_update_of(
       base: base.clone(),
       state: UpdateState::UpToDate,
       fetched_at: None,
+      resolved_by_words: Vec::new(),
     },
     purpose,
     new_head: None,
@@ -316,6 +334,7 @@ pub fn check_update_of(
     head: head.clone(),
     upstream_head,
     excluded: plan.excluded.clone(),
+    resolve,
   };
   let (outcome, mut probe) = match purpose {
     CheckPurpose::Preview => {
@@ -325,7 +344,7 @@ pub fn check_update_of(
           debug!("update check: the replay of this state is cached");
           outcome
         }
-        None => replay_outcome(git_executor, repo_path, &plan, kind, purpose, candidates)?,
+        None => replay_outcome(git_executor, repo_path, &plan, kind, purpose, candidates, resolve)?,
       };
       (outcome, probe)
     }
@@ -337,7 +356,7 @@ pub fn check_update_of(
         debug!("update check: the conflict of this state is cached");
         (outcome, probe)
       } else {
-        let outcome = replay_outcome(git_executor, repo_path, &plan, kind, purpose, candidates)?;
+        let outcome = replay_outcome(git_executor, repo_path, &plan, kind, purpose, candidates, resolve)?;
         if matches!(outcome, ReplayOutcome::Conflict { .. }) {
           preview_cache().put(key.clone(), outcome.clone(), probe);
         }
@@ -361,7 +380,8 @@ pub fn check_update_of(
       };
       (None, &[][..], Vec::new())
     }
-    ReplayOutcome::Applies { new_head, changed } => {
+    ReplayOutcome::Applies { new_head, changed, resolved } => {
+      plan.check.resolved_by_words.clone_from(resolved);
       let blocked = match purpose {
         _ if changed.is_empty() => Vec::new(),
         CheckPurpose::Preview => preview_blocking_paths(git_executor, repo_path, changed, &mut probe)?,
@@ -400,6 +420,8 @@ enum ReplayOutcome {
   Applies {
     new_head: String,
     changed: Vec<ChangedPath>,
+    /// The local commits that the words resolved, oldest first
+    resolved: Vec<UpdateResolvedCommit>,
   },
 }
 
@@ -411,8 +433,10 @@ fn replay_outcome(
   kind: UpdateKind,
   purpose: CheckPurpose,
   candidates: LandedCandidates<'_>,
+  resolve: ResolveMode,
 ) -> Result<ReplayOutcome> {
   let UpdateCheck { head, upstream_head, base, .. } = &plan.check;
+  let mut resolved = Vec::new();
   let new_head = match kind {
     UpdateKind::FastForward => upstream_head.clone(),
     UpdateKind::Rebase => {
@@ -427,10 +451,17 @@ fn replay_outcome(
         CheckPurpose::Preview => &PREVIEW_COMMITTER_DATE,
         CheckPurpose::Apply => &[],
       };
-      let replayed = match replay_range_with_env(git_executor, repo_path, upstream_head, &revs, env)? {
+      let mut replayed = match replay_range_with_env(git_executor, repo_path, upstream_head, &revs, env)? {
         Some(new_head) => Some(new_head),
         None => replay_without_landed(git_executor, repo_path, plan, &revs, env, candidates)?,
       };
+      if replayed.is_none()
+        && resolve == ResolveMode::On
+        && let Some(words) = replay_by_words(git_executor, repo_path, upstream_head, &revs, env, purpose)?
+      {
+        replayed = Some(words.tip);
+        resolved = words.resolved;
+      }
       let Some(new_head) = replayed else {
         let paths = conflicting_files(git_executor, repo_path, base, upstream_head, head)?;
         let file_count = u32::try_from(paths.len()).unwrap_or(u32::MAX);
@@ -451,7 +482,30 @@ fn replay_outcome(
     }
   };
   let changed = changed_paths(git_executor, repo_path, head, &new_head)?;
-  Ok(ReplayOutcome::Applies { new_head, changed })
+  Ok(ReplayOutcome::Applies { new_head, changed, resolved })
+}
+
+/// The replay of the local commits (`local_revs`) onto the upstream with each conflict of git resolved by words: the
+/// committer of `git replay`, with the fixed date of a preview. `None` when a commit does not resolve
+fn replay_by_words(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  upstream_head: &str,
+  local_revs: &[&str],
+  env: &[(&str, &str)],
+  purpose: CheckPurpose,
+) -> Result<Option<WordsReplay>> {
+  let mut args = vec!["rev-list", "--reverse"];
+  args.extend_from_slice(local_revs);
+  args.push("--");
+  let local = git_executor.execute_command_lines(&args, repo_path)?;
+  let committer = current_committer(git_executor, repo_path)?;
+  let committer = match purpose {
+    // `Name <email> <seconds> <tz>`: the date of `PREVIEW_COMMITTER_DATE`
+    CheckPurpose::Preview => format!("{} 0 +0000", committer.rsplitn(3, ' ').nth(2).unwrap_or(&committer)),
+    CheckPurpose::Apply => committer,
+  };
+  replay_resolving_words(git_executor, repo_path, upstream_head, &local, env, &committer)
 }
 
 /// For a replay that conflicts: replay again without a set of local commits that the upstream already has, trying the
@@ -546,6 +600,8 @@ struct ReplayKey {
   head: String,
   upstream_head: String,
   excluded: Vec<String>,
+  /// A replay that resolves by words gives another result than one that conflicts
+  resolve: ResolveMode,
 }
 
 /// Per repository: the replay of the last preview check, and what the local probe found. A sync on every window focus
@@ -692,6 +748,7 @@ pub fn apply_update(git_executor: &GitCommandExecutor, repo_path: &str, plan: &U
     plan.files_change,
     UPDATE_OPERATION,
   )?;
+  write_resolved_notes(git_executor, repo_path, &check.resolved_by_words);
 
   let (replayed, dropped_already_upstream) = match kind {
     UpdateKind::FastForward => (0, 0),
@@ -710,6 +767,15 @@ pub fn apply_update(git_executor: &GitCommandExecutor, repo_path: &str, plan: &U
     replayed,
     dropped_already_upstream,
   })
+}
+
+/// The notes of the commits an applied update resolved by words (`RESOLVE_NOTES_REF`), as a resolve session writes
+/// them: an audit record, so a failure only leaves them out
+fn write_resolved_notes(git_executor: &GitCommandExecutor, repo_path: &str, resolved: &[UpdateResolvedCommit]) {
+  let notes: Vec<(String, String)> = resolved.iter().map(|commit| (commit.new_id.clone(), commit.note())).collect();
+  if let Err(e) = write_notes_to_refs(git_executor, repo_path, &[(RESOLVE_NOTES_REF, &notes)]) {
+    tracing::warn!(error = %e, "failed to write the notes of the commits resolved by words");
+  }
 }
 
 /// The reflog message of the undo of an update, without `REFLOG_PREFIX`

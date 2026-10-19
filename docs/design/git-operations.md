@@ -668,7 +668,8 @@ Details:
   to 32K characters. The result names the files, the commits and the upstream commits with their authors and
   committers and both times (`%an %at %cn %ct`: the committer time of an upstream commit is about when it landed), with
   H, U and B, for the dialog and the agent prompt; nothing has changed. In `bd update` (not `--dry-run`), a conflict
-  starts a resolve session under the same lock instead ("Resolve session" below).
+  starts a resolve session under the same lock instead ("Resolve session" below). Before the conflict, the check
+  resolves the conflicts of git by words when `branchdeck.resolveByWords` is on ("Resolve by words" below).
 - **Dirty working tree.** Two-way `read-tree -m -u` updates a path only where `H` and `N` differ, and only if the index
   and the working tree still match `H` there. Uncommitted or staged changes on any other path stay byte for byte. A
   dirty or staged path that the update changes, an untracked file where it adds one, or an untracked file inside a
@@ -844,6 +845,7 @@ needs `--force` too; an id is letters, digits, `.`, `_` and `-` only.
 |---|---|
 | Start | the check of "Update project" conflicted under the lock, and the session reuses its landed candidates; `for-each-ref` sweeps stale temporary refs (also at `--abort` and in a recovery), `var GIT_COMMITTER_IDENT` (the fixed committer), `rev-list --reverse HEAD ^U ^<previous tips>` (the local commits), `rev-list --cherry-mark`, `diff-tree --stdin -p` and `patch-id --stable` (the landed ones, left out) |
 | Find the conflict | a binary search over the prefixes `<last> ^<first>^` with `replay --onto=<tip>`: `replay` stops at the first conflict, so ⌈log₂ n⌉ replays find it |
+| Resolve by words | with `branchdeck.resolveByWords` on, the merge of the round (below) resolved by words: one `check-attr`, one `cat-file --batch` and one `fast-import`; a resolved commit is a round that resolves itself, and the search goes on after it ("Resolve by words") |
 | Open a round | `-c merge.conflictStyle=zdiff3 merge-tree --write-tree -z --merge-base <c>^ <tip> <c>`, parsed as bytes: the stages and the messages; one `cat-file --batch -Z` of the commit, the merge result per path (`<merge tree>:<path>`) and the stage blobs, which also writes the copies |
 | The copies | one `log -1 --patch-with-stat` for `commit.patch`, one `log` of the upstream commits of the files, and the check of every sync for `blocked_paths` (two `diff-tree`, `rev-parse --git-path index`, `cat-file --batch-check -Z`, `hash-object --stdin-paths`) |
 | The state | one `fast-import` of the state commit on a temporary ref, one `update-ref --stdin` (create or CAS, the temporary ref deleted) |
@@ -1211,6 +1213,27 @@ In the sync (`perform_fast_cherry_pick_with_context`, `crates/git-ops/src/cherry
   stack builds hold the resolve mode, and the chain keeps the resolve of each copy for its note.
 - **The same commit on every machine.** No deadline, the size limits, the committer date of the inputs: the same
   originals on the same base give the same copy.
+
+In Update Project and `bd update`, with the same setting (`crates/git-ops/src/word_replay.rs`):
+
+- **The check.** When the replay of the local commits conflicts, also without the landed candidates, the check
+  replays them again commit by commit (`replay_resolving_words`). Each run that applies is one `replay`; a binary
+  search finds the commit that conflicts; its `merge-tree --write-tree -z --merge-base <c>^ <tip> <c>` is resolved,
+  and one `fast-import` writes the commit with the author and the message of `c` and the committer of the replay
+  (a preview has the fixed date). A commit that the words leave without a change is dropped, as `replay` drops one. The
+  first commit that does not resolve makes the check a conflict, as before. All or nothing: the check is `Clean` only
+  when every conflicting commit resolves.
+- **What is told.** `UpdateCheck.resolved_by_words` lists the resolved commits with their conflicts and files. The
+  replay key of the preview cache holds the mode, so a preview of the other mode replays again.
+- **The apply** moves the branch as any clean update, so the undo of Update Project restores it. Then it writes a note
+  per resolved commit on `refs/notes/branch-deck/resolve` (`branch-deck resolve`, `commit: <c>`, `resolved-by-words:
+  <version> <conflicts>`, a `words\t<path>` line per file); a failure only leaves the notes out.
+- **The rounds of a session.** In a resolve session (below), a conflicting commit that its words resolve is a round
+  that resolves itself: it counts in `round`, its resolution has `words` and the outcome `words` per path, and the
+  replay goes on. The agent sees only the rounds that do not resolve. `start_session` gets the mode with the check,
+  `continue_session` from the config at each step.
+- **The cost.** A check that conflicts in a commit whose words do not resolve replays the prefixes once more: one
+  binary search, then the session searches again. The trial without the words is unchanged.
 
 #### Stack branch
 

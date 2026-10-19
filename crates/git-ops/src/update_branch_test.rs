@@ -3,6 +3,7 @@ use crate::revs::ref_exists;
 use crate::update_branch::{
   CheckPurpose, PENDING_UPDATE_PREFIX, UpstreamRef, check_update, finish_pending_update, index_left_behind, no_landed_candidates, previous_upstream_tips,
 };
+use crate::word_resolve::ResolveMode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -42,7 +43,15 @@ fn a_history_git_cannot_read_is_an_error_with_its_message_not_unrelated_historie
   let unreadable = diverged(&repo);
   delete_object(&repo, &unreadable);
   // `merge-base` exits with 1 only when there is no common history; here it fails reading the upstream
-  let error = check_update(repo.git_executor(), repo.path_str(), upstream(TRACKING_REF), CheckPurpose::Preview, &no_landed_candidates).unwrap_err();
+  let error = check_update(
+    repo.git_executor(),
+    repo.path_str(),
+    upstream(TRACKING_REF),
+    CheckPurpose::Preview,
+    &no_landed_candidates,
+    ResolveMode::Off,
+  )
+  .unwrap_err();
   let message = format!("{error:#}");
   assert!(!message.contains("no common history"), "{message}");
   assert!(message.contains(&unreadable), "{message}");
@@ -55,7 +64,15 @@ fn a_tracking_ref_that_is_not_a_ref_name_is_refused() {
   let repo = TestRepo::new();
   diverged(&repo);
   for tracking_ref in ["--all", "refs/remotes/origin/master..HEAD", "refs/remotes/origin/master@{1}", "HEAD~1", "origin/master"] {
-    let error = check_update(repo.git_executor(), repo.path_str(), upstream(tracking_ref), CheckPurpose::Preview, &no_landed_candidates).unwrap_err();
+    let error = check_update(
+      repo.git_executor(),
+      repo.path_str(),
+      upstream(tracking_ref),
+      CheckPurpose::Preview,
+      &no_landed_candidates,
+      ResolveMode::Off,
+    )
+    .unwrap_err();
     let message = format!("{error:#}");
     assert!(message.contains("is not a full ref name"), "{tracking_ref}: {message}");
   }
@@ -69,7 +86,15 @@ fn unrelated_histories_have_no_common_history() {
   let other = repo.create_commit("other", "other.txt", "other\n");
   repo.git(&["update-ref", TRACKING_REF, &other]);
   repo.checkout("master").unwrap();
-  let error = check_update(repo.git_executor(), repo.path_str(), upstream(TRACKING_REF), CheckPurpose::Preview, &no_landed_candidates).unwrap_err();
+  let error = check_update(
+    repo.git_executor(),
+    repo.path_str(),
+    upstream(TRACKING_REF),
+    CheckPurpose::Preview,
+    &no_landed_candidates,
+    ResolveMode::Off,
+  )
+  .unwrap_err();
   assert_eq!(format!("{error:#}"), "master and origin/master have no common history");
 }
 

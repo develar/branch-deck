@@ -21,6 +21,8 @@ use crate::update_branch::{
   FileMove, HeadRef, UPDATE_OPERATION, UpdateCommit, UpdatePlan, blocking_paths, check_update_guards, files_follow, index_left_behind, likely_blocking_paths,
   move_branch_and_files_with,
 };
+use crate::word_replay::resolve_merge_onto;
+use crate::word_resolve::{RESOLVE_VERSION, ResolveMode};
 use anyhow::{Result, anyhow, bail};
 use bstr::BStr;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -196,6 +198,8 @@ pub enum Outcome {
   Commit,
   /// `--delete <path>`, or a take of a side that deleted it
   Deleted,
+  /// The resolve by words (`branchdeck.resolveByWords`): the round resolved itself, no agent saw it
+  Words,
 }
 
 impl Outcome {
@@ -205,6 +209,7 @@ impl Outcome {
       Self::Onto => "onto",
       Self::Commit => "commit",
       Self::Deleted => "deleted",
+      Self::Words => "words",
     }
   }
 }
@@ -221,6 +226,9 @@ pub struct ResolvedPath {
   /// (report only)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub dropped_commit_lines: Vec<String>,
+  /// The conflicts of git in the file that the words resolved (`Outcome::Words`)
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub conflicts: Option<u32>,
 }
 
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
@@ -236,16 +244,26 @@ pub struct Resolution {
   pub commit: String,
   /// The commit written for it; `None` when the result was empty and `--drop-empty` dropped the commit
   pub resolved: Option<String>,
-  /// The result changes nothing: kept as an empty commit (`--allow-empty`) or dropped (`--drop-empty`)
+  /// The result changes nothing: kept as an empty commit (`--allow-empty`) or dropped (`--drop-empty`); a round that
+  /// the words resolved drops it, as `git replay` drops a commit that becomes empty
   #[serde(default, skip_serializing_if = "is_false")]
   pub empty: bool,
   pub paths: Vec<ResolvedPath>,
+  /// The conflicts of git that the words resolved (`Outcome::Words`): the round resolved itself; `None` for a round of
+  /// the agent
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub words: Option<u32>,
 }
 
 impl Resolution {
   /// The resolution dropped the commit (`--drop-empty`)
   pub const fn dropped(&self) -> bool {
     self.empty && self.resolved.is_none()
+  }
+
+  /// The round resolved itself by words
+  pub const fn by_words(&self) -> bool {
+    self.words.is_some()
   }
 }
 
@@ -608,11 +626,14 @@ pub struct SessionStart<'a> {
   pub likely_landed: Vec<String>,
   pub dir: Option<String>,
   pub dir_created: bool,
+  /// A conflicting commit whose conflict of git resolves by words is resolved without a round of the agent
+  pub resolve: ResolveMode,
 }
 
 /// Start the session of the current worktree for an update whose replay conflicts: the first conflicting commit is
 /// found with a binary search over prefixes of the local commits (⌈log₂ n⌉ replays: `git replay` stops at the first
-/// conflict), and its round is stored in a new session ref. Nothing else moves. `Unsupported` when the first conflict
+/// conflict), and its round is stored in a new session ref. Nothing else moves. With `ResolveMode::On`, a conflicting
+/// commit that its words resolve is a round that resolves itself (`advance`). `Unsupported` when the first conflict
 /// can't be resolved in a round; then nothing is written but git objects
 #[instrument(skip(git_executor, start), fields(branch = start.plan.checked.branch))]
 pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: SessionStart<'_>) -> Result<Step> {
@@ -675,14 +696,23 @@ pub fn start_session(git_executor: &GitCommandExecutor, repo_path: &str, start: 
   }
   // the check replayed all of them and conflicted; without the landed ones it may not
   let known_conflict = state.landed_dropped.is_empty();
-  let objects = advance(git_executor, repo_path, &mut state, known_conflict)?;
+  let (objects, words_refs) = advance(git_executor, repo_path, &mut state, known_conflict, start.resolve)?;
   let session_ref = session_ref(&worktree.id);
-  let written = write_state(git_executor, repo_path, &state, None)?;
+  let written = match write_state(git_executor, repo_path, &state, None) {
+    Ok(written) => written,
+    Err(e) => {
+      discard(git_executor, repo_path, None, &words_refs);
+      return Err(e);
+    }
+  };
   let mut transaction = RefTransaction::new();
   transaction.create(&session_ref, &written.ids[0]);
   written.delete_temp_refs(&mut transaction);
+  for resolved_ref in &words_refs {
+    resolved_ref.delete(&mut transaction);
+  }
   if let Err(e) = transaction.commit(git_executor, repo_path, "resolve session") {
-    written.discard(git_executor, repo_path);
+    discard(git_executor, repo_path, Some(&written), &words_refs);
     return Err(e);
   }
   info!(round = state.round, replayed = state.replayed, total = state.total(), "started a resolve session");
@@ -729,9 +759,10 @@ pub struct RoundInput {
 /// `replay`, a binary search only when it conflicts), and finish when every commit is replayed. A finish blocked by local
 /// changes keeps the session ready; a later `--continue` only finishes. Peers' commits on top of the session's HEAD
 /// become more local commits; a rewritten HEAD is `ResolveError::Stale`. A result without changes is
-/// `ResolveError::EmptyResolution` unless the input decides it. With `dry_run`, only the checks run and nothing but git
-/// objects is written
+/// `ResolveError::EmptyResolution` unless the input decides it. With `resolve`, the later rounds that the words resolve
+/// resolve themselves (`advance`). With `dry_run`, only the checks run and nothing but git objects is written
 #[instrument(skip(git_executor, worktree, session, input))]
+#[expect(clippy::too_many_arguments, reason = "the step of a session: what the caller read and decided")]
 pub fn continue_session(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -740,6 +771,7 @@ pub fn continue_session(
   round: Option<u32>,
   input: &RoundInput,
   dry_run: bool,
+  resolve: ResolveMode,
 ) -> Result<Step> {
   let mut state = session.state.clone();
   if let Some(round) = round
@@ -827,9 +859,12 @@ pub fn continue_session(
     return Ok(Step::Checked { session, resolution });
   }
 
-  let resolved_refs: Vec<ResolvedRef> = resolved_ref.into_iter().collect();
-  let objects = match advance(git_executor, repo_path, &mut state, false) {
-    Ok(objects) => objects,
+  let mut resolved_refs: Vec<ResolvedRef> = resolved_ref.into_iter().collect();
+  let objects = match advance(git_executor, repo_path, &mut state, false, resolve) {
+    Ok((objects, words_refs)) => {
+      resolved_refs.extend(words_refs);
+      objects
+    }
     // e.g. a later round that can't be resolved: nothing is saved, and every rerun writes the same commit again
     Err(e) => {
       discard(git_executor, repo_path, None, &resolved_refs);
@@ -1180,6 +1215,7 @@ fn check_round(
       outcome,
       dropped_upstream_lines: dropped(&file.onto),
       dropped_commit_lines: dropped(&file.commit),
+      conflicts: None,
     });
     edits.push(edit);
   }
@@ -1210,6 +1246,7 @@ fn check_round(
     resolved: None,
     empty: false,
     paths,
+    words: None,
   };
   Ok((resolution, edits, objects))
 }
@@ -1300,10 +1337,37 @@ pub fn round_upstream_commits(git_executor: &GitCommandExecutor, repo_path: &str
 }
 
 /// Replay the local commits after `replayed` onto `tip`. With `known_conflict` (the replay of all of them conflicted
-/// already) or after one replay that conflicts, a binary search over the prefixes finds the first conflicting commit,
-/// whose round opens. Every replay runs with the session's committer, so the same input gives the same ids. Without a
-/// conflict the session is ready to finish. Returns the objects of the round it opened
-fn advance(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut SessionState, known_conflict: bool) -> Result<Option<RoundObjects>> {
+/// already) or after one replay that conflicts, a binary search over the prefixes finds the first conflicting commit.
+/// With `ResolveMode::On`, a commit whose conflict of git resolves by words is a round that resolves itself: it counts
+/// in `round`, its resolution has `words`, and the replay goes on. The first other one opens its round. Every replay runs
+/// with the session's committer, so the same input gives the same ids. Without a conflict the session is ready to
+/// finish. Returns the objects of the round it opened, and the temporary refs of the commits that the words resolved,
+/// which the caller deletes with the state write (on an error they are gone)
+fn advance(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  state: &mut SessionState,
+  known_conflict: bool,
+  resolve: ResolveMode,
+) -> Result<(Option<RoundObjects>, Vec<ResolvedRef>)> {
+  let mut words_refs = Vec::new();
+  match advance_resolving(git_executor, repo_path, state, known_conflict, resolve, &mut words_refs) {
+    Ok(objects) => Ok((objects, words_refs)),
+    Err(e) => {
+      discard(git_executor, repo_path, None, &words_refs);
+      Err(e)
+    }
+  }
+}
+
+fn advance_resolving(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  state: &mut SessionState,
+  mut known_conflict: bool,
+  resolve: ResolveMode,
+  words_refs: &mut Vec<ResolvedRef>,
+) -> Result<Option<RoundObjects>> {
   let env = state.committer_env()?;
   let env: Vec<(&str, &str)> = env.iter().map(|(name, value)| (*name, value.as_str())).collect();
   let total = state.local.len();
@@ -1313,40 +1377,76 @@ fn advance(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut Sessi
     let revs: Vec<&str> = revs.iter().map(String::as_str).collect();
     Ok(replay_range_with_env(git_executor, repo_path, &state.tip, &revs, &env)?)
   };
-  // one replay per run of consecutive commits; the first run that conflicts is searched
-  let high = loop {
-    if state.replayed == total {
-      state.status = SessionStatus::Ready;
-      return Ok(None);
-    }
-    let end = state.run_end(state.replayed);
-    // the check replayed all of them in one run and conflicted
-    if known_conflict && state.run_starts.is_empty() {
-      break end - 1;
-    }
-    match replay(state, end - 1)? {
-      Some(tip) => {
-        state.tip = tip;
-        state.replayed = end;
+  loop {
+    // one replay per run of consecutive commits; the first run that conflicts is searched
+    let high = loop {
+      if state.replayed == total {
+        state.status = SessionStatus::Ready;
+        return Ok(None);
       }
-      None => break end - 1,
+      let end = state.run_end(state.replayed);
+      // the check replayed all of them in one run and conflicted
+      if known_conflict && state.run_starts.is_empty() {
+        break end - 1;
+      }
+      match replay(state, end - 1)? {
+        Some(tip) => {
+          state.tip = tip;
+          state.replayed = end;
+        }
+        None => break end - 1,
+      }
+    };
+    known_conflict = false;
+    let (low, tip) = first_conflict(state.replayed, high, state.tip.clone(), |middle| replay(state, middle))?;
+    state.tip = tip;
+    state.replayed = low;
+    state.round += 1;
+    let merge = round_merge(git_executor, repo_path, state)?;
+    if resolve == ResolveMode::On
+      && let Some(words) = resolve_merge_onto(git_executor, repo_path, &state.local[low], &state.tip, &state.committer, &merge)?
+    {
+      let written = &words.written;
+      let empty = written.tree == written.parent_tree;
+      let resolution = Resolution {
+        round: state.round,
+        commit: state.local[low].clone(),
+        resolved: (!empty).then(|| written.commit.clone()),
+        empty,
+        paths: words
+          .resolution
+          .files
+          .iter()
+          .map(|file| ResolvedPath {
+            path: file.path.clone(),
+            outcome: Outcome::Words,
+            dropped_upstream_lines: Vec::new(),
+            dropped_commit_lines: Vec::new(),
+            conflicts: Some(file.conflicts),
+          })
+          .collect(),
+        words: Some(words.resolution.conflicts()),
+      };
+      if !empty {
+        state.tip.clone_from(&written.commit);
+      }
+      words_refs.push(ResolvedRef::of(written));
+      debug!(round = state.round, commit = %short_id(&state.local[low]), "a round resolves by words");
+      state.resolutions.push(resolution);
+      state.replayed += 1;
+      continue;
     }
-  };
-  let (low, tip) = first_conflict(state.replayed, high, state.tip.clone(), |middle| replay(state, middle))?;
-  state.tip = tip;
-  state.replayed = low;
-  state.round += 1;
-  state.status = SessionStatus::Resolving;
-  let (conflict, objects) = open_round(git_executor, repo_path, state)?;
-  state.conflict = Some(conflict);
-  debug!(round = state.round, commit = %short_id(&state.local[low]), "a round opens");
-  Ok(Some(objects))
+    state.status = SessionStatus::Resolving;
+    let (conflict, objects) = open_round(git_executor, repo_path, state, merge)?;
+    state.conflict = Some(conflict);
+    debug!(round = state.round, commit = %short_id(&state.local[low]), "a round opens");
+    return Ok(Some(objects));
+  }
 }
 
-/// The round of the local commit at `state.replayed` onto `state.tip`: one `merge-tree --write-tree -z` with zdiff3
-/// markers, then the supported conflict types only, and the objects of the round. A text conflict whose merge result
-/// has no block of bd's labels is refused too: its markers can't be checked
-fn open_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState) -> Result<(RoundConflict, RoundObjects)> {
+/// The merge of the local commit at `state.replayed` onto `state.tip`: one `merge-tree --write-tree -z` with zdiff3
+/// markers
+fn round_merge(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState) -> Result<MergeTreeOutput> {
   let commit = &state.local[state.replayed];
   let parent = format!("{commit}^");
   let output = git_executor
@@ -1370,6 +1470,14 @@ fn open_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
   if output.code == 0 || merge.entries.is_empty() {
     bail!("{} replays with a conflict, but merge-tree merges it cleanly", short_id(commit));
   }
+  Ok(merge)
+}
+
+/// The round of the local commit at `state.replayed` onto `state.tip` from its merge (`round_merge`): the supported
+/// conflict types only, and the objects of the round. A text conflict whose merge result has no block of bd's labels is
+/// refused too: its markers can't be checked
+fn open_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &SessionState, merge: MergeTreeOutput) -> Result<(RoundConflict, RoundObjects)> {
+  let commit = &state.local[state.replayed];
   let files = conflict_files(&merge).map_err(|e| name_the_commit(git_executor, repo_path, state, e))?;
   let conflict = RoundConflict {
     commit: commit.clone(),
@@ -1564,6 +1672,9 @@ fn note_of(state: &SessionState, resolution: &Resolution) -> String {
     resolution.round,
     resolution.commit
   );
+  if let Some(conflicts) = resolution.words {
+    let _ = writeln!(note, "resolved-by-words: {RESOLVE_VERSION} {conflicts}");
+  }
   for path in &resolution.paths {
     let _ = writeln!(note, "{}\t{}", path.outcome.as_str(), path.path);
   }

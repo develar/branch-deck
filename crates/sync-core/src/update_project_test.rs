@@ -10,6 +10,7 @@ use git_ops::update_branch::{
   BranchSwitched, CheckPurpose, NotAnUpdate, UndoCheck, UpdateCommit, UpdateKind, UpdatePlan, UpdateState, UpstreamRef, apply_update, apply_update_undo, check_update,
   check_update_undo, no_landed_candidates,
 };
+use git_ops::word_resolve::ResolveMode;
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 use std::fmt::Write;
@@ -97,7 +98,15 @@ fn fetched_rebase() -> Setup {
 fn checked_rebase() -> (Setup, String, UpdatePlan) {
   let setup = fetched_rebase();
   let head = setup.clone.head();
-  let plan = check_update(setup.clone.git_executor(), path(&setup.clone), ORIGIN_MASTER, CheckPurpose::Apply, &no_landed_candidates).unwrap();
+  let plan = check_update(
+    setup.clone.git_executor(),
+    path(&setup.clone),
+    ORIGIN_MASTER,
+    CheckPurpose::Apply,
+    &no_landed_candidates,
+    ResolveMode::Off,
+  )
+  .unwrap();
   assert_eq!(plan.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
   (setup, head, plan)
 }
@@ -413,12 +422,28 @@ fn preview_check_cannot_be_applied() {
   let Setup { upstream: _upstream, clone } = fetched_rebase();
   let upstream_ref = ORIGIN_MASTER;
 
-  let plan = check_update(clone.git_executor(), path(&clone), upstream_ref, CheckPurpose::Preview, &no_landed_candidates).unwrap();
+  let plan = check_update(
+    clone.git_executor(),
+    path(&clone),
+    upstream_ref,
+    CheckPurpose::Preview,
+    &no_landed_candidates,
+    ResolveMode::Off,
+  )
+  .unwrap();
   assert_eq!(plan.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
   apply_update(clone.git_executor(), path(&clone), &plan).unwrap_err();
   // the same state writes the same commits: no new objects on every sync
   let objects = git(&clone, &["count-objects"]);
-  check_update(clone.git_executor(), path(&clone), upstream_ref, CheckPurpose::Preview, &no_landed_candidates).unwrap();
+  check_update(
+    clone.git_executor(),
+    path(&clone),
+    upstream_ref,
+    CheckPurpose::Preview,
+    &no_landed_candidates,
+    ResolveMode::Off,
+  )
+  .unwrap();
   assert_eq!(git(&clone, &["count-objects"]), objects);
 }
 
@@ -1049,7 +1074,15 @@ fn update_after_the_sync_found_a_conflict_does_not_replay_again() {
   let objects = loose_objects(&clone);
 
   // the replay of the update writes the commits with the current committer date, other objects than the preview's
-  let plan = check_update(clone.git_executor(), path(&clone), ORIGIN_MASTER, CheckPurpose::Apply, &no_landed_candidates).unwrap();
+  let plan = check_update(
+    clone.git_executor(),
+    path(&clone),
+    ORIGIN_MASTER,
+    CheckPurpose::Apply,
+    &no_landed_candidates,
+    ResolveMode::On,
+  )
+  .unwrap();
   assert_eq!(plan.check.state, state);
   assert_eq!(loose_objects(&clone), objects);
 }
@@ -1057,7 +1090,15 @@ fn update_after_the_sync_found_a_conflict_does_not_replay_again() {
 #[test]
 fn sync_after_a_conflicting_update_does_not_replay_again() {
   let Setup { upstream: _upstream, clone } = conflict_after_a_replayed_commit();
-  let plan = check_update(clone.git_executor(), path(&clone), ORIGIN_MASTER, CheckPurpose::Apply, &no_landed_candidates).unwrap();
+  let plan = check_update(
+    clone.git_executor(),
+    path(&clone),
+    ORIGIN_MASTER,
+    CheckPurpose::Apply,
+    &no_landed_candidates,
+    ResolveMode::On,
+  )
+  .unwrap();
   assert!(matches!(plan.check.state, UpdateState::Conflict { .. }), "{:?}", plan.check.state);
   let objects = loose_objects(&clone);
 

@@ -3229,6 +3229,11 @@ export type UpdateCheck = {
 	state: UpdateState,
 	/**  When the upstream was last fetched (Unix seconds), if known */
 	fetchedAt: number | null,
+	/**
+	 *  The local commits whose conflict of git the replay resolved by words (`branchdeck.resolveByWords`), oldest first;
+	 *  empty when the replay applies as it is or conflicts
+	 */
+	resolvedByWords?: UpdateResolvedCommit[],
 };
 
 /**  A commit of a conflicting update: a local one that would be replayed, or an upstream one */
@@ -3284,6 +3289,17 @@ export type UpdateProjectResult = {
 	applied: AppliedUpdate | null,
 	/**  The local commits this update dropped because the upstream has them, by branch */
 	landed: LandedBranch[],
+};
+
+/**  A local commit whose conflict of git an update resolved by words */
+export type UpdateResolvedCommit = {
+	/**  The local commit */
+	commit: string,
+	/**  The commit the update writes for it; a preview check writes it with a fixed committer date */
+	newId: string,
+	/**  The conflicts of git that the words resolved: the `<<<<<<<` lines git would have left */
+	conflicts: number,
+	files: ResolvedFileSummary[],
 };
 
 /**  Whether the branch can be updated, relative to the last fetch of the upstream */

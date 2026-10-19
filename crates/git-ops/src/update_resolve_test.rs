@@ -1,10 +1,11 @@
 use crate::merge_tree_output::parse_merge_tree_output;
 use crate::revs::current_worktree;
-use crate::update_branch::{CheckPurpose, UpstreamRef, check_update, no_landed_candidates};
+use crate::update_branch::{CheckPurpose, UpdateKind, UpdateState, UpstreamRef, apply_update, check_update, no_landed_candidates};
 use crate::update_resolve::{
-  ConflictFile, ConflictKind, ResolveError, ResolvedRef, RoundInput, SessionStart, SessionState, SessionStatus, Side, Step, conflict_files, continue_session, discard, follow_head,
-  is_valid_tree_path, read_session, start_session, write_state,
+  ConflictFile, ConflictKind, Outcome, ResolveError, ResolvedRef, RoundInput, SessionStart, SessionState, SessionStatus, Side, Step, conflict_files, continue_session, discard,
+  follow_head, is_valid_tree_path, read_session, start_session, write_state,
 };
+use crate::word_resolve::ResolveMode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use test_utils::git_test_utils::TestRepo;
@@ -212,22 +213,9 @@ fn a_later_round_that_cannot_be_resolved_leaves_no_temporary_ref() {
   upstream.create_commit("Change f upstream", "f.txt", "theirs\n");
   upstream.create_commit("Change the binary upstream", "bin.dat", "\0theirs");
   clone.git(&["fetch", "-q"]);
+  assert!(matches!(start_with(&clone, ResolveMode::Off), Step::Round(_)));
   let (git, path) = (clone.git_executor(), clone.path_str());
-  let upstream_ref = UpstreamRef {
-    tracking_ref: "refs/remotes/origin/master",
-    name: "origin/master",
-    previous: None,
-  };
-  let plan = check_update(git, path, upstream_ref, CheckPurpose::Apply, &no_landed_candidates).unwrap();
   let worktree = current_worktree(git, path).unwrap();
-  let start = SessionStart {
-    plan: &plan,
-    worktree: &worktree,
-    likely_landed: Vec::new(),
-    dir: None,
-    dir_created: false,
-  };
-  assert!(matches!(start_session(git, path, start).unwrap(), Step::Round(_)));
   let session = read_session(git, path, &worktree.id).unwrap().unwrap();
   let input = RoundInput {
     takes: vec![(Side::Onto, "f.txt".to_string())],
@@ -235,7 +223,141 @@ fn a_later_round_that_cannot_be_resolved_leaves_no_temporary_ref() {
     ..RoundInput::default()
   };
   // the first round resolves; the binary conflict of the second refuses the step, and nothing is saved
-  let error = continue_session(git, path, &worktree, session, None, &input, false).unwrap_err();
+  let error = continue_session(git, path, &worktree, session, None, &input, false, ResolveMode::Off).unwrap_err();
   assert!(matches!(error.downcast_ref::<ResolveError>(), Some(ResolveError::Unsupported { .. })), "{error:#}");
   assert_eq!(clone.git(&["for-each-ref", "--format=%(refname)", "refs/branch-deck/"]), "refs/branch-deck/resolve/main");
+}
+
+/// A clone with two local commits, each conflicting with an upstream commit: `f.txt` in words that resolve, `g.txt` in a
+/// word that does not; `words_first` puts the commit of `f.txt` first. Returns (upstream, clone)
+fn words_and_real_conflict(words_first: bool) -> (TestRepo, TestRepo) {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("f.txt", "alpha beta gamma\n"), ("g.txt", "one\n")]);
+  let words = |clone: &TestRepo| clone.create_commit("Change f", "f.txt", "ALPHA beta gamma\n");
+  let real = |clone: &TestRepo| clone.create_commit("Change g", "g.txt", "mine\n");
+  if words_first {
+    words(&clone);
+    real(&clone);
+  } else {
+    real(&clone);
+    words(&clone);
+  }
+  upstream.create_commit("Change f upstream", "f.txt", "alpha beta GAMMA\n");
+  upstream.create_commit("Change g upstream", "g.txt", "theirs\n");
+  clone.git(&["fetch", "-q"]);
+  (upstream, clone)
+}
+
+const ORIGIN_MASTER: UpstreamRef<'static> = UpstreamRef {
+  tracking_ref: "refs/remotes/origin/master",
+  name: "origin/master",
+  previous: None,
+};
+
+fn start_with(clone: &TestRepo, resolve: ResolveMode) -> Step {
+  let (git, path) = (clone.git_executor(), clone.path_str());
+  let plan = check_update(git, path, ORIGIN_MASTER, CheckPurpose::Apply, &no_landed_candidates, resolve).unwrap();
+  let worktree = current_worktree(git, path).unwrap();
+  let start = SessionStart {
+    plan: &plan,
+    worktree: &worktree,
+    likely_landed: Vec::new(),
+    dir: None,
+    dir_created: false,
+    resolve,
+  };
+  start_session(git, path, start).unwrap()
+}
+
+fn resolve_note(clone: &TestRepo, commit: &str) -> String {
+  clone.git(&["notes", "--ref=refs/notes/branch-deck/resolve", "show", commit])
+}
+
+#[test]
+fn an_update_whose_every_conflict_resolves_by_words_applies_without_a_session() {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("f.txt", "alpha beta gamma\n")]);
+  let local = clone.create_commit("Change f", "f.txt", "ALPHA beta gamma\n");
+  upstream.create_commit("Change f upstream", "f.txt", "alpha beta GAMMA\n");
+  clone.git(&["fetch", "-q"]);
+  let (git, path) = (clone.git_executor(), clone.path_str());
+
+  // the preview of each mode is its own replay
+  let preview = check_update(git, path, ORIGIN_MASTER, CheckPurpose::Preview, &no_landed_candidates, ResolveMode::On).unwrap();
+  assert_eq!(preview.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
+  assert_eq!(preview.check.resolved_by_words.len(), 1);
+  let off = check_update(git, path, ORIGIN_MASTER, CheckPurpose::Preview, &no_landed_candidates, ResolveMode::Off).unwrap();
+  assert!(matches!(off.check.state, UpdateState::Conflict { .. }), "{:?}", off.check.state);
+  assert_eq!(off.check.resolved_by_words, Vec::new());
+
+  let plan = check_update(git, path, ORIGIN_MASTER, CheckPurpose::Apply, &no_landed_candidates, ResolveMode::On).unwrap();
+  assert_eq!(plan.check.state, UpdateState::Clean { kind: UpdateKind::Rebase });
+  let resolved = plan.check.resolved_by_words.clone();
+  assert_eq!(resolved.iter().map(|commit| commit.commit.as_str()).collect::<Vec<_>>(), [local.as_str()]);
+  // the preview wrote its commit with a fixed committer date
+  assert_ne!(preview.check.resolved_by_words[0].new_id, resolved[0].new_id);
+  let applied = apply_update(git, path, &plan).unwrap();
+  assert_eq!(applied.new_head, resolved[0].new_id);
+  assert_eq!(clone.head(), resolved[0].new_id);
+  assert_eq!(std::fs::read_to_string(clone.path().join("f.txt")).unwrap(), "ALPHA beta GAMMA\n");
+  assert_eq!(
+    resolve_note(&clone, &clone.head()),
+    format!("branch-deck resolve\ncommit: {local}\nresolved-by-words: 1 1\nwords\tf.txt")
+  );
+  assert_eq!(clone.git(&["for-each-ref", "--format=%(refname)", "refs/branch-deck/"]), "");
+}
+
+#[test]
+fn a_round_that_its_words_resolve_counts_and_the_agent_gets_the_next_one() {
+  let (_upstream, clone) = words_and_real_conflict(true);
+  let Step::Round(session) = start_with(&clone, ResolveMode::On) else {
+    panic!("a round must open");
+  };
+  let state = session.state();
+  assert_eq!(state.round, 2);
+  assert_eq!(state.replayed, 1);
+  let words = &state.resolutions[0];
+  assert_eq!((words.round, words.words, words.empty), (1, Some(1), false));
+  assert_eq!(
+    words.paths.iter().map(|path| (path.path.as_str(), path.outcome, path.conflicts)).collect::<Vec<_>>(),
+    [("f.txt", Outcome::Words, Some(1))]
+  );
+  let conflict = state.conflict.as_ref().unwrap();
+  assert_eq!(clone.git(&["log", "-1", "--format=%s", &conflict.commit]), "Change g");
+  assert_eq!(conflict.onto, words.resolved.clone().unwrap());
+  // no temporary ref is left: the state commit keeps the resolved commit
+  assert_eq!(clone.git(&["for-each-ref", "--format=%(refname)", "refs/branch-deck/"]), "refs/branch-deck/resolve/main");
+
+  // without the resolve by words, the first commit is the round of the agent
+  let (_upstream, clone) = words_and_real_conflict(true);
+  let Step::Round(session) = start_with(&clone, ResolveMode::Off) else {
+    panic!("a round must open");
+  };
+  assert_eq!((session.state().round, session.state().resolutions.len()), (1, 0));
+}
+
+#[test]
+fn a_later_round_that_its_words_resolve_resolves_in_the_continue_and_the_finish_notes_it() {
+  let (_upstream, clone) = words_and_real_conflict(false);
+  let Step::Round(session) = start_with(&clone, ResolveMode::On) else {
+    panic!("a round must open");
+  };
+  assert_eq!(session.state().round, 1);
+  let (git, path) = (clone.git_executor(), clone.path_str());
+  let worktree = current_worktree(git, path).unwrap();
+  let input = RoundInput {
+    takes: vec![(Side::Commit, "g.txt".to_string())],
+    ..RoundInput::default()
+  };
+  let Step::Applied { session, .. } = continue_session(git, path, &worktree, session, None, &input, false, ResolveMode::On).unwrap() else {
+    panic!("the session must finish");
+  };
+  let state = session.state();
+  assert_eq!(state.round, 2);
+  let words = &state.resolutions[1];
+  assert_eq!((words.round, words.words), (2, Some(1)));
+  let resolved = words.resolved.clone().unwrap();
+  assert_eq!(clone.head(), resolved);
+  assert_eq!(std::fs::read_to_string(clone.path().join("f.txt")).unwrap(), "ALPHA beta GAMMA\n");
+  let note = resolve_note(&clone, &resolved);
+  assert!(note.contains("\nround: 2\n"), "{note}");
+  assert!(note.ends_with(&format!("commit: {}\nresolved-by-words: 1 1\nwords\tf.txt", words.commit)), "{note}");
 }

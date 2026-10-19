@@ -370,7 +370,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     let known = facts.known_baseline();
     let grouping = grouping.clone();
     let progress = progress.clone();
-    move || send_baseline_status(&git_executor, &repository_path, baseline_branch, known.as_ref(), &grouping, &progress)
+    move || send_baseline_status(&git_executor, &repository_path, baseline_branch, known.as_ref(), &grouping, resolve, &progress)
   });
 
   // Use streaming commit processing; with stacked branches the order of the history too, for the stack branches
@@ -1094,10 +1094,13 @@ fn send_baseline_status(
   baseline_branch: String,
   known: Option<&KnownBaseline>,
   grouping: &GroupingInputs,
+  resolve: ResolveMode,
   progress: &dyn ProgressReporter,
 ) -> Result<()> {
   let start = std::time::Instant::now();
-  let result = known.map(|known| check_known_baseline_update(git_executor, repository_path, known, grouping)).transpose();
+  let result = known
+    .map(|known| check_known_baseline_update(git_executor, repository_path, known, grouping, resolve))
+    .transpose();
   info!(elapsed_ms = start.elapsed().as_millis(), ok = result.is_ok(), "update check done");
   let (baseline_check, check_error) = match result {
     Ok(baseline_check) => (baseline_check, None),

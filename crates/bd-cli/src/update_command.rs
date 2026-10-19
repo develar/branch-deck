@@ -639,6 +639,7 @@ fn resolutions_of(resolutions: &[Resolution], short: &ShortIds) -> Vec<UpdateRes
             Outcome::Onto => "onto",
             Outcome::Commit => "commit",
             Outcome::Deleted => "deleted",
+            Outcome::Words => "words",
           }
           .to_string(),
           dropped_upstream_lines: path.dropped_upstream_lines.clone(),

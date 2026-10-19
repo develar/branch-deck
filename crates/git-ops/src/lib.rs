@@ -49,6 +49,7 @@
 //! - `worktree_update`: the one write of the working tree, guarded
 //! - `update_resolve`: the resolve sessions of `bd update`, one round per conflicting commit
 //! - `resolve_check`: the checks of a resolved file of a round
+//! - `word_replay`: the local commits replayed onto the upstream, each conflict resolved by words, all or nothing
 //! - `pick`: the commits of another worktree landed on the checked out branch (`bd pick`), the worktree following
 
 pub mod amend_operations;
@@ -87,6 +88,7 @@ pub mod tree_archive;
 pub mod tree_id_cache;
 pub mod update_branch;
 pub mod update_resolve;
+pub mod word_replay;
 pub mod word_resolve;
 pub mod worktree_update;
 

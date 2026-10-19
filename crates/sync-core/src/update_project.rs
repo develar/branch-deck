@@ -4,12 +4,13 @@
 
 use crate::baseline::detect_baseline_branch;
 use crate::commit_grouper::GroupingInputs;
+use crate::config_snapshot::ConfigSnapshot;
 use crate::landed::{LandedQuery, find_landed, find_landing, landed_candidates, local_revs, record_update, remaining_revs, restore_before_update};
 use crate::remote_command::execute_remote_command_with_progress;
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository, lock_repository_with};
 use crate::resolve_copies::{Materialize, prepare_dir};
 use crate::resolve_session::{SessionOutcome, own_session, start_resolve, view_session};
-use crate::snapshot::read_grouping_inputs;
+use crate::snapshot::read_grouping_inputs_with;
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -18,6 +19,7 @@ use git_ops::update_branch::{
   AppliedUpdate, CheckPurpose, CheckedHead, LandedScope, UndoCheck, UpdateCheck, UpdatePlan, UpdateState, UpstreamRef, apply_update, apply_update_undo, check_update,
   check_update_guards, check_update_of, check_update_undo, finish_pending_update,
 };
+use git_ops::word_resolve::ResolveMode;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -174,12 +176,26 @@ pub struct BaselineCheck {
 /// Check the checked out branch against the last fetched state of its baseline, without the network.
 /// `None` for a local baseline: there is nothing to update from.
 pub fn check_baseline_update(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str) -> Result<Option<BaselineCheck>> {
-  check_baseline_update_with(git_executor, repo_path, baseline_branch, &read_grouping_inputs(git_executor, repo_path)?)
+  let (grouping, resolve) = read_check_inputs(git_executor, repo_path)?;
+  check_baseline_update_with(git_executor, repo_path, baseline_branch, &grouping, resolve)
 }
 
-/// `check_baseline_update` with the stack setting and the issue groups already read
+/// The inputs of an update check from one read of the config: the stack setting with the issue groups, and the resolve
+/// by words (`branchdeck.resolveByWords`)
+pub(crate) fn read_check_inputs(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<(GroupingInputs, ResolveMode)> {
+  let config = ConfigSnapshot::read(git_executor, repo_path)?;
+  Ok((read_grouping_inputs_with(git_executor, repo_path, config.stacks()?)?, config.resolve_mode()?))
+}
+
+/// `check_baseline_update` with the stack setting, the issue groups and the resolve mode already read
 #[instrument(skip(git_executor, grouping))]
-pub fn check_baseline_update_with(git_executor: &GitCommandExecutor, repo_path: &str, baseline_branch: &str, grouping: &GroupingInputs) -> Result<Option<BaselineCheck>> {
+pub fn check_baseline_update_with(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  baseline_branch: &str,
+  grouping: &GroupingInputs,
+  resolve: ResolveMode,
+) -> Result<Option<BaselineCheck>> {
   let Some(upstream) = resolve_baseline_upstream(git_executor, repo_path, baseline_branch)? else {
     return Ok(None);
   };
@@ -189,7 +205,7 @@ pub fn check_baseline_update_with(git_executor: &GitCommandExecutor, repo_path: 
     previous: None,
   };
   let candidates = |scope: LandedScope<'_>| landed_candidates(git_executor, repo_path, scope, grouping);
-  let mut plan = check_update(git_executor, repo_path, upstream_ref, CheckPurpose::Preview, &candidates)?;
+  let mut plan = check_update(git_executor, repo_path, upstream_ref, CheckPurpose::Preview, &candidates, resolve)?;
   plan.check.fetched_at = last_fetch_time(git_executor, repo_path);
   Ok(Some(with_landing(git_executor, repo_path, plan, grouping)))
 }
@@ -210,7 +226,13 @@ pub struct KnownBaseline {
 
 /// `check_baseline_update_with` of the state a sync read: no guard, branch, upstream or commit is read again
 #[instrument(skip(git_executor, grouping))]
-pub fn check_known_baseline_update(git_executor: &GitCommandExecutor, repo_path: &str, known: &KnownBaseline, grouping: &GroupingInputs) -> Result<BaselineCheck> {
+pub fn check_known_baseline_update(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  known: &KnownBaseline,
+  grouping: &GroupingInputs,
+  resolve: ResolveMode,
+) -> Result<BaselineCheck> {
   let upstream_ref = UpstreamRef {
     tracking_ref: &known.upstream.tracking_ref,
     name: &known.upstream.name,
@@ -222,7 +244,7 @@ pub fn check_known_baseline_update(git_executor: &GitCommandExecutor, repo_path:
     upstream_head: &known.upstream_head,
   };
   let candidates = |scope: LandedScope<'_>| landed_candidates(git_executor, repo_path, scope, grouping);
-  let mut plan = check_update_of(git_executor, repo_path, checked, upstream_ref, CheckPurpose::Preview, &candidates)?;
+  let mut plan = check_update_of(git_executor, repo_path, checked, upstream_ref, CheckPurpose::Preview, &candidates, resolve)?;
   plan.check.fetched_at = known.fetched_at;
   Ok(with_landing(git_executor, repo_path, plan, grouping))
 }
@@ -412,7 +434,7 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   on_progress(UpdatePhase::Checking.into());
   // an update or undo that a crash stopped before its files followed: they follow first
   finish_pending_update(git_executor, repo_path)?;
-  let grouping = read_grouping_inputs(git_executor, repo_path)?;
+  let (grouping, resolve_mode) = read_check_inputs(git_executor, repo_path)?;
   // a resolve session marks the same candidates as likely landed
   let candidates: RefCell<Option<Vec<Vec<String>>>> = RefCell::new(None);
   let mut plan = check_update(
@@ -429,12 +451,13 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
       candidates.replace(Some(found.clone()));
       Ok(found)
     },
+    resolve_mode,
   )?;
   plan.check.fetched_at = fetched_at;
 
   if let (UpdateState::Conflict { .. }, Resolve::Yes { dir, worktree }) = (&plan.check.state, resolve) {
     let dir = dir.map(|dir| prepare_dir(git_executor, repo_path, dir, &worktree.git_dir)).transpose()?;
-    let outcome = start_resolve(git_executor, repo_path, worktree, &plan, &grouping, candidates.take(), dir)?;
+    let outcome = start_resolve(git_executor, repo_path, worktree, &plan, &grouping, candidates.take(), dir, resolve_mode)?;
     return Ok(BdUpdate::Session(Box::new(outcome)));
   }
   let mut landed = Vec::new();

@@ -206,6 +206,8 @@ fn search_replays(n: usize) -> usize {
 fn the_first_conflict_is_found_with_a_binary_search() {
   for (n, conflict_at) in [(1, 1), (10, 7), (10, 1), (10, 10)] {
     let (upstream, clone) = clone_with_commits(n, conflict_at);
+    // the replays of the session alone: the check replays the commits once more to resolve them by words
+    git(&clone, &["config", "branchdeck.resolveByWords", "false"]);
     let wrapped = Wrapped::new(&clone, "");
     let (exit_code, round) = wrapped.run(&["update"]);
     assert_eq!(exit_code, 1, "{round}");
@@ -228,6 +230,8 @@ fn the_first_conflict_is_found_with_a_binary_search() {
 #[test_log::test]
 fn a_second_conflict_opens_a_second_round_with_its_own_copies() {
   let (_upstream, clone) = conflicting_clone();
+  // the words of the second conflict resolve it: a round of its own needs the resolve by words off
+  git(&clone, &["config", "branchdeck.resolveByWords", "false"]);
   clone.create_commit("(auth) Change line 2 again", "shared.txt", "one\nmine again\nthree\n");
   let (_, round1) = run_in(&clone, &["update"]);
   std::fs::write(edit_of(&round1, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
@@ -431,6 +435,8 @@ fn a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it() 
 #[test_log::test]
 fn peers_commits_on_top_become_more_rounds() {
   let (upstream, clone) = conflicting_clone();
+  // the words of the peer's conflict resolve it: a round of its own needs the resolve by words off
+  git(&clone, &["config", "branchdeck.resolveByWords", "false"]);
   let (_, round) = run_in(&clone, &["update"]);
   // a peer commits in the same tree while the agent resolves: one clean commit, one that conflicts again
   clone.create_commit("(peer) Add peer", "peer.txt", "peer\n");

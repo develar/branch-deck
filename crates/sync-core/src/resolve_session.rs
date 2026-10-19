@@ -4,6 +4,7 @@
 //! `git_ops::update_resolve`; this module adds the lock, the copies on disk and what the output shows.
 
 use crate::commit_grouper::GroupingInputs;
+use crate::config_snapshot::ConfigSnapshot;
 use crate::landed::landed_candidates;
 use crate::repository_lock::lock_repository;
 use crate::resolve_copies::{Materialize, PATCH_FILE, copy_path, display_path, read_edit_copy, remove_root, remove_round, round_dir, session_root, write_round};
@@ -12,6 +13,7 @@ use crate::update_project::record_landed_update;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::sweep_stale_temp_refs;
+use git_ops::model::ResolvedFileSummary;
 use git_ops::resolve_check::count_markers;
 use git_ops::revs::{Worktree, current_worktree};
 use git_ops::update_branch::{LandedScope, UpdateCheck, UpdateCommit, UpdateKind, UpdatePlan, UpdateState};
@@ -19,6 +21,8 @@ use git_ops::update_resolve::{
   ConflictKind, EditCopy, RefusalKind, Resolution, ResolveError, RoundInput, RoundObjects, STALE_TEMP_REF_AGE, Session, SessionStart, SessionState, SessionStatus, Side, Stage,
   Step, abort_session, commit_patch, continue_session, list_sessions, read_round_objects, read_session, round_upstream_commits, session_blocked_paths, start_session,
 };
+use git_ops::word_replay::UpdateResolvedCommit;
+use git_ops::word_resolve::ResolveMode;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -243,7 +247,8 @@ fn landed_dropped(git_executor: &GitCommandExecutor, repo_path: &str, state: &Se
 }
 
 /// Start the session of an update whose check conflicted, under the lock the update holds. `candidates` are the landed
-/// candidates the check found, when it asked for them
+/// candidates the check found, when it asked for them; `resolve` is the resolve by words of the check
+#[expect(clippy::too_many_arguments, reason = "what the update read under its lock, passed on")]
 pub(crate) fn start_resolve(
   git_executor: &GitCommandExecutor,
   repo_path: &str,
@@ -252,6 +257,7 @@ pub(crate) fn start_resolve(
   grouping: &GroupingInputs,
   candidates: Option<Vec<Vec<String>>>,
   dir: Option<(String, bool)>,
+  resolve: ResolveMode,
 ) -> Result<SessionOutcome> {
   let (check, excluded) = (&plan.check, plan.excluded());
   let candidates = candidates.unwrap_or_else(|| {
@@ -279,6 +285,7 @@ pub(crate) fn start_resolve(
       likely_landed,
       dir,
       dir_created,
+      resolve,
     },
   )?;
   outcome(git_executor, repo_path, step, None, Some(grouping))
@@ -321,8 +328,9 @@ pub fn continue_resolve(git_executor: &GitCommandExecutor, repo_path: &str, opti
     allow_empty: options.allow_empty,
     drop_empty: options.drop_empty.clone(),
   };
-  let step =
-    continue_session(git_executor, repo_path, &worktree, session, options.round, &input, options.dry_run).map_err(|e| explain_refusal(git_executor, repo_path, &previous, e))?;
+  let resolve = ConfigSnapshot::read(git_executor, repo_path)?.resolve_mode()?;
+  let step = continue_session(git_executor, repo_path, &worktree, session, options.round, &input, options.dry_run, resolve)
+    .map_err(|e| explain_refusal(git_executor, repo_path, &previous, e))?;
   outcome(git_executor, repo_path, step, Some(&previous), None)
 }
 
@@ -390,12 +398,13 @@ fn outcome(git_executor: &GitCommandExecutor, repo_path: &str, step: Step, previ
         base: state.base.clone(),
         state: UpdateState::Clean { kind: UpdateKind::Rebase },
         fetched_at: None,
+        resolved_by_words: state.resolutions.iter().filter_map(words_commit).collect(),
       };
-      // a commit that a resolution dropped is not on the upstream
+      // a commit that a resolution dropped is not on the upstream; one that the words left empty is, as `git replay` drops it
       let dropped: Vec<String> = state
         .resolutions
         .iter()
-        .filter(|resolution| resolution.dropped())
+        .filter(|resolution| resolution.dropped() && !resolution.by_words())
         .map(|resolution| resolution.commit.clone())
         .collect();
       let read;
@@ -424,6 +433,23 @@ fn outcome(git_executor: &GitCommandExecutor, repo_path: &str, step: Step, previ
       })
     }
   }
+}
+
+/// The commit of a round that resolved itself by words, as an update check reports it
+fn words_commit(resolution: &Resolution) -> Option<UpdateResolvedCommit> {
+  Some(UpdateResolvedCommit {
+    commit: resolution.commit.clone(),
+    new_id: resolution.resolved.clone()?,
+    conflicts: resolution.words?,
+    files: resolution
+      .paths
+      .iter()
+      .map(|path| ResolvedFileSummary {
+        path: path.path.clone(),
+        conflicts: path.conflicts.unwrap_or_default(),
+      })
+      .collect(),
+  })
 }
 
 fn count(git_executor: &GitCommandExecutor, repo_path: &str, head: &str, upstream_head: &str) -> Result<u32> {
