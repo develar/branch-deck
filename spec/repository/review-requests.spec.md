@@ -242,10 +242,12 @@ Safe Push it allows.
 - The user's own open pull requests with changes requested (`collectReturnedToYou`, in the table order; failing checks
   are the chip's and the landing overview's) are rows after the requests, 36 px as theirs: the title, the meta "#760 ·
   changes requested by alice" (the reviewers whose latest review asked for changes) and the branch, muted. A click and
-  Enter show the branch row, where the changes are made; ⌘-click, `O` and the button on hover open the pull request;
-  the menu has Open Pull Request (O) and Copy Pull Request Link. ↑/↓ move between them.
+  Enter show the branch row, where the changes are made; `D` reviews its branch in the review window of the branch
+  ([Branch Review](../branch/branch-review.spec.md)); ⌘-click, `O` and the button on hover open the pull request;
+  the menu has Review Changes (D, disabled with the reason of a branch it can't review), Open Pull Request (O) and Copy
+  Pull Request Link. ↑/↓ move between them.
   [@test] ../../src/lib/outgoing-attention.test.ts (`names only the open pull requests a reviewer handed back, in the table order`, `names the reviewers who asked for changes`)
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should list the own pull requests a reviewer handed back after the requests, and show the branch`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should list the own pull requests a reviewer handed back after the requests, show the branch and review it`)
 - No footer while GitHub answers: the island is its rows, Refresh and when it was checked are in "⋯". A failed refresh
   keeps the rows, and a footer says why and how old the rows are, with Refresh (`ReviewStatusLine`): "GitHub: offline
   · checked 5 minutes ago". The card never turns into an error.

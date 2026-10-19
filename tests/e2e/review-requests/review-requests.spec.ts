@@ -185,7 +185,7 @@ test.describe("Your Turn card", () => {
     await expect(getReviewRow(page, 102)).toBeFocused()
   })
 
-  test("should list the own pull requests a reviewer handed back after the requests, and show the branch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should list the own pull requests a reviewer handed back after the requests, show the branch and review it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("issue_links", {
       reviewRequests: availableReviewRequests([OLD]),
       pullRequests: availablePullRequests(
@@ -213,6 +213,13 @@ test.describe("Your Turn card", () => {
     await row.focus()
     await page.keyboard.press("o")
     expect(await getOpenedUrls(page)).toEqual(["https://github.com/JetBrains/ultimate/pull/760"])
+    // D, and Review Changes of its menu: the review of its branch, where the changes requested are read
+    await row.focus()
+    await page.keyboard.press("d")
+    await expect.poll(async () => (await getOpenedSubWindows(page)).map(window => [window.windowId, window.title])).toEqual([["branch-review", "Review JIRA-456"]])
+    await row.click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Review Changes" }).click()
+    await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(2)
   })
 
   test("should show the island for a returned pull request alone", async ({ page, setupRepo, syncAndWaitForBranches }) => {

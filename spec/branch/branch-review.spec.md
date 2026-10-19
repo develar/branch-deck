@@ -28,6 +28,7 @@ targets:
   - ../../src/hooks/useCommitCopyActions.ts
   - ../../src/stores/commit-move.ts
   - ../../src/components/branch/BranchPreviewDialog.tsx
+  - ../../src/components/repository/ReviewRequestRow.tsx
   - ../../src/components/branch/SafePushPopover.tsx
   - ../../src/components/branch/StackIslandCard.tsx
   - ../../src/hooks/useWholeStackActions.ts
@@ -114,6 +115,11 @@ actions on the branch: Open Pull Request, Safe Push and Push, which the main win
   ([Commit Review](../commit/commit-review.spec.md#opening-and-closing): a commit the branch review can't show opens
   the review window of the commit).
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a stacked branch with its stack and its actions, and move to a commit of the chain`)
+- The "Review Changes" button of each commit of the branch preview must open the window at that commit, and the
+  preview closes once the window opened; D on a row of Your Turn's own pull requests with changes requested opens the
+  review of its branch ([Review Requests](../repository/review-requests.spec.md)).
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a commit of the branch preview in the review of the branch, at the commit`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should list the own pull requests a reviewer handed back after the requests, show the branch and review it`)
 - The window is one sub-window (`branch-review`, titled "Review <branch>", [Title Bar](../repository/title-bar.spec.md)
   for how it opens), reused for the next branch: opening it again replaces what it shows, its title too. Another
   branch or an open at a place (the Safe Push popover) starts it over; a plain open of the branch it shows only brings

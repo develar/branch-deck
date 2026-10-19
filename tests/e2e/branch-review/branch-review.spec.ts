@@ -9,6 +9,7 @@ import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots } from "../helpe
 import { getCommitPreview } from "../helpers/preview-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { routePush, routePushBranches } from "../helpers/push-helpers"
+import { openBranchPreview } from "../helpers/review-status-helpers"
 import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus } from "../helpers/sync-helpers"
@@ -132,6 +133,23 @@ test.describe("Opening the review", () => {
     await page.keyboard.press("p")
     await expect(position).toHaveText(/File 1 \/ \d+$/)
     expect(await windowRequests(page)).toEqual([])
+  })
+})
+
+test.describe("A commit of the branch preview", () => {
+  test("should review a commit of the branch preview in the review of the branch, at the commit", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_ownership")
+    await syncAndWaitForBranches()
+    const preview = await openBranchPreview(page, "login")
+    const commit = preview.getByTestId("branch-preview-commit").filter({ hasText: "Add the login form" })
+    await commit.getByTestId("branch-preview-commit-review").click()
+    const opened = await openedReview(page, 1)
+    expect(opened.data).toMatchObject({ chain: ["auth", "login"], focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) } })
+    expect(opened.title).toMatch(/^Review login · [0-9a-f]{8}$/)
+    // the preview closes once the window opened
+    await expect(preview).toBeHidden()
+    await openSubWindowPage(page, opened)
+    await expect(page.getByTestId("range-review-commit-header")).toContainText("Add the login form")
   })
 })
 

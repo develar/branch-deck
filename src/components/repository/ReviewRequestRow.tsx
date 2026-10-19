@@ -1,7 +1,7 @@
 import { memo } from "react"
 import type { MouseEvent } from "react"
 import { cn } from "cn"
-import { ExternalLinkIcon, GitPullRequestIcon, LinkIcon } from "lucide-react"
+import { ExternalLinkIcon, FileDiffIcon, GitPullRequestIcon, LinkIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -10,6 +10,8 @@ import { LineCounts } from "@/components/commit/CommitMetadata"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { RELATIVE_TIME_TICK_MS, useNow } from "@/hooks/useNow"
 import type { ReviewRequest } from "@/lib/bindings"
+import { branchReviewBlocker } from "@/lib/branch-review"
+import { openBranchReviewWindow } from "@/lib/branch-review-window"
 import { copyText } from "@/lib/clipboard"
 import { formatFileCount } from "@/lib/commit-files"
 import type { MenuItemGroups } from "@/lib/menu"
@@ -21,6 +23,7 @@ import type { ReviewPatronus } from "@/lib/pull-request-review"
 import { getReviewSafePush } from "@/lib/pull-request-review"
 import { getReviewRequestActions, reviewRequestMenu } from "@/lib/review-request-actions"
 import { formatRequestMeta, formatWaiting, hasWaitedWorkingDay } from "@/lib/review-requests"
+import { useBranchSync } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { usePatronusAvailable } from "@/stores/patronus"
 import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
@@ -165,13 +168,33 @@ export interface ReturnedPullRequestRowProps {
 
 /**
  * An own pull request a reviewer handed back, one 36 px line as a request: the title, the muted meta ("#812 · changes
- * requested by alice") and its branch. A click and Enter show the branch row, where the changes are made; ⌘-click and O
- * open the pull request, as the button on hover does; the menu has Open Pull Request and Copy Pull Request Link.
+ * requested by alice") and its branch. A click and Enter show the branch row, where the changes are made; D reviews the
+ * branch in its window; ⌘-click and O open the pull request, as the button on hover does; the menu has Review Changes,
+ * Open Pull Request and Copy Pull Request Link.
  */
 export const ReturnedPullRequestRow = memo(function ReturnedPullRequestRow({ item, tabStop }: ReturnedPullRequestRowProps) {
   const { branchName, pullRequest } = item
   const showBranch = () => requestReveal({ branchName, commitIds: [] })
+  // the review of its branch, as D on the branch row opens it
+  const branch = useBranchSync(state => state.branches[branchName])
+  const reviewBlocker = branch === undefined ? `${branchName} is not in the table` : branchReviewBlocker(branch)
+  const reviewBranch = () => {
+    if (reviewBlocker === null) {
+      void openBranchReviewWindow(branchName)
+    }
+  }
   const menu: MenuItemGroups = [
+    [
+      {
+        id: "review-changes",
+        label: "Review Changes",
+        icon: FileDiffIcon,
+        kbds: ["d"],
+        disabled: reviewBlocker !== null,
+        ...(reviewBlocker !== null && { description: reviewBlocker }),
+        onSelect: reviewBranch,
+      },
+    ],
     [
       { id: "open-pull-request", label: "Open Pull Request", icon: GitPullRequestIcon, kbds: ["o"], onSelect: () => openPullRequest(pullRequest) },
       { id: "copy-pull-request-link", label: "Copy Pull Request Link", icon: LinkIcon, onSelect: () => void copyText(pullRequest.url) },
@@ -202,10 +225,13 @@ export const ReturnedPullRequestRow = memo(function ReturnedPullRequestRow({ ite
                 event.preventDefault()
                 showBranch()
               }
-              // the physical key, in any keyboard layout: the key of Open Pull Request in the row's menu
+              // the physical key, in any keyboard layout: the keys of Open Pull Request and Review Changes in the row's menu
               else if (event.code === "KeyO" && !event.shiftKey) {
                 event.preventDefault()
                 openPullRequest(pullRequest)
+              } else if (event.code === "KeyD" && !event.shiftKey) {
+                event.preventDefault()
+                reviewBranch()
               }
             }}
           />

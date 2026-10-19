@@ -1,7 +1,7 @@
 import { Fragment, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode } from "react"
 import { cn } from "cn"
-import { TriangleAlertIcon } from "lucide-react"
+import { FileDiffIcon, TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -32,9 +32,10 @@ import { getStatusBadge } from "@/hooks/useStatusBadge"
 import type { MissingCommit } from "@/lib/bindings"
 import { getBranchSummary } from "@/lib/branch"
 import { branchReviewBlocker } from "@/lib/branch-review"
-import { openBranchReviewWindow } from "@/lib/branch-review-window"
+import { openBranchReviewWindow, reviewBranchCommit } from "@/lib/branch-review-window"
 import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
 import { pushOrConfirm } from "@/lib/git/push"
+import { formatShortHash } from "@/lib/hash"
 import { formatMissingCommitsTitle } from "@/lib/merge-conflict"
 import { formatLandedWith } from "@/lib/patronus"
 import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
@@ -98,12 +99,13 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
 
   // the window opens: the preview stays until it did (a failure keeps it, and is told)
   const [isOpeningReview, setIsOpeningReview] = useState(false)
-  const review = () => {
+  // the branch, or one of its commits: the review of the branch at that commit
+  const review = (commit?: SyncedCommit) => {
     if (branch === undefined || !canReview || isOpeningReview) {
       return
     }
     setIsOpeningReview(true)
-    void openBranchReviewWindow(branch.name)
+    void ((commit === undefined ? null : reviewBranchCommit(branch.name, commit.originalHash, null)) ?? openBranchReviewWindow(branch.name))
       .then(opened => {
         if (opened) {
           onClose()
@@ -176,7 +178,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
               {renderReviewSections?.(branch)}
               <ol data-testid="branch-preview-commits" aria-busy={isLoadingFiles || undefined} className="flex flex-col divide-y divide-border">
                 {branch.commits.map(commit => (
-                  <BranchPreviewCommit key={getCommitHash(commit)} commit={commit} />
+                  <BranchPreviewCommit key={getCommitHash(commit)} commit={commit} onReview={canReview ? () => review(commit) : undefined} />
                 ))}
               </ol>
             </div>
@@ -198,7 +200,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
                     focusableWhenDisabled
                     className={cn(!canReview && "opacity-50")}
                     data-testid="branch-preview-review"
-                    onClick={review}
+                    onClick={() => review()}
                   />
                 }
               >
@@ -331,7 +333,7 @@ function lowerFirst(text: string): string {
   return text.startsWith("No ") ? `no ${text.slice(3)}` : text
 }
 
-function BranchPreviewCommit({ commit }: { commit: SyncedCommit }) {
+function BranchPreviewCommit({ commit, onReview }: { commit: SyncedCommit; onReview: (() => void) | undefined }) {
   const subject = getCommitSubject(commit)
   const hash = getCommitHash(commit)
   const fileStats = useCommitFileStats(hash)
@@ -339,7 +341,31 @@ function BranchPreviewCommit({ commit }: { commit: SyncedCommit }) {
     <li data-testid="branch-preview-commit" className="py-4 first:pt-0 last:pb-0">
       <CommitHeading
         subject={subject}
-        badge={commit.error?.MergeConflict != null && <Badge variant="destructive">Merge conflict</Badge>}
+        badge={
+          <>
+            {commit.error?.MergeConflict != null && <Badge variant="destructive">Merge conflict</Badge>}
+            {/* the commit in the review of the branch, as D on its row opens it */}
+            {onReview !== undefined && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      size="icon-xs"
+                      variant="ghost"
+                      className="ml-auto shrink-0 text-muted-foreground"
+                      aria-label={`Review Changes of ${formatShortHash(hash)}`}
+                      data-testid="branch-preview-commit-review"
+                      onClick={onReview}
+                    />
+                  }
+                >
+                  <FileDiffIcon />
+                </TooltipTrigger>
+                <TooltipContent>Review Changes</TooltipContent>
+              </Tooltip>
+            )}
+          </>
+        }
         hash={hash}
         newHash={commit.hash}
         authorTime={commit.authorTime}
