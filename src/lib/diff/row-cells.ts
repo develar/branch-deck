@@ -15,13 +15,28 @@ export interface RowCells {
   readonly columns: readonly number[]
   /** The kind of the cell of a side (`data-cell`) */
   cell: (row: LineRow, side: number) => string
-  /** The inner ranges of the line of a side, `[start, end, ...]`; null for none */
+  /** The inner ranges of the line of a side, `[start, end, kind, ...]` (`RANGE_STRIDE`); null for none */
   ranges: (row: LineRow, side: number) => readonly number[] | null
   /** The cell shows a conflict that the engine resolves (`data-resolved`) */
   resolved: (row: LineRow, side: number) => boolean
 }
 
 const nonEmpty = (ranges: readonly number[] | undefined): readonly number[] | null => (ranges === undefined || ranges.length === 0 ? null : ranges)
+
+/** The untyped `[start, end, ...]` ranges of a merge as typed ranges: a merge block has one kind, its words take it */
+function typedMergeRanges(ranges: readonly number[] | undefined): readonly number[] | null {
+  if (ranges === undefined || ranges.length === 0) {
+    return null
+  }
+  const typed: number[] = []
+  for (let index = 0; index + 1 < ranges.length; index += 2) {
+    typed.push(ranges[index]!, ranges[index + 1]!, MODIFIED_RANGE)
+  }
+  return typed
+}
+
+/** `RangeKind::Modified` of the engine */
+const MODIFIED_RANGE = 2
 
 /** The cells of a diff: the old and the new side in Split, one column in Unified and Inline */
 export function diffCells(diff: TextDiff, mode: DiffViewMode): RowCells {
@@ -79,11 +94,11 @@ export function mergeCells(merge: TextMerge, middle: MergeMiddle): RowCells {
       const source = side === LEFT ? "left" : side === RIGHT ? "right" : middle === "base" ? "base" : resultSourceOf(block)
       switch (source) {
         case "left":
-          return nonEmpty(block.leftRanges[row.blockRow])
+          return typedMergeRanges(block.leftRanges[row.blockRow])
         case "right":
-          return nonEmpty(block.rightRanges[row.blockRow])
+          return typedMergeRanges(block.rightRanges[row.blockRow])
         case "base":
-          return nonEmpty(block.baseRanges[row.blockRow])
+          return typedMergeRanges(block.baseRanges[row.blockRow])
         case "text":
           return null
       }

@@ -9,7 +9,7 @@ import { block, textDiff } from "@/test-support/diff-blocks"
 
 const OLD_TEXT = "a\nb\nc\nd\n"
 const NEW_TEXT = "a\nB\nc\nd\n"
-const DIFF = textDiff(4, 4, [block(1, 2, 1, 2, { inlinePairs: true, oldRanges: [[0, 1]], newRanges: [[0, 1]] })])
+const DIFF = textDiff(4, 4, [block(1, 2, 1, 2, { inlinePairs: true, oldRanges: [[0, 1, 2]], newRanges: [[0, 1, 2]] })])
 
 function file(mode: DiffViewMode): CopyFile {
   return { rows: buildFileRows(DIFF, mode), tables: [buildLineTable(OLD_TEXT), buildLineTable(NEW_TEXT)] }

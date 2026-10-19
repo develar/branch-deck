@@ -23,10 +23,10 @@ function codeLine(fileIndex: number, index: number, version: number): string {
   return `  val value${index} = compute(${index + version}, "file${fileIndex}") // line ${index}`
 }
 
-/** The offsets of the number argument of `codeLine`: the range the engine marks in a changed line */
-function numberRange(line: string): [number, number] {
+/** The offsets of the number argument of `codeLine`: the range the engine marks in a changed line, a modified one */
+function numberRange(line: string): [number, number, number] {
   const start = line.indexOf("(") + 1
-  return [start, line.indexOf(",", start)]
+  return [start, line.indexOf(",", start), 2]
 }
 
 function blobId(path: string, side: string): string {

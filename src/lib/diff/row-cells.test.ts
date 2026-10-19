@@ -28,8 +28,8 @@ describe("mergeCells", () => {
     expect(cells.cell(lineRow(rowAt(rows, 0)), MIDDLE)).toBe("context")
     expect([cells.resolved(conflictRow, MIDDLE), cells.resolved(conflictRow, LEFT)]).toEqual([true, false])
     // the result of a resolve by words has no ranges; the middle takes the ranges of the side whose lines it shows
-    expect([cells.ranges(conflictRow, LEFT), cells.ranges(conflictRow, MIDDLE), cells.ranges(addedRow, MIDDLE)]).toEqual([[0, 1], null, [0, 4]])
-    expect(mergeCells(merge, "base").ranges(conflictRow, MIDDLE)).toEqual([0, 2])
+    expect([cells.ranges(conflictRow, LEFT), cells.ranges(conflictRow, MIDDLE), cells.ranges(addedRow, MIDDLE)]).toEqual([[0, 1, 2], null, [0, 4, 2]])
+    expect(mergeCells(merge, "base").ranges(conflictRow, MIDDLE)).toEqual([0, 2, 2])
     expect(mergeCells(merge, "base").resolved(conflictRow, MIDDLE)).toBe(false)
   })
 
@@ -45,13 +45,13 @@ describe("mergeCells", () => {
 
 describe("diffCells", () => {
   it("gives the old and the new column in Split, one column with the ranges of the line otherwise", () => {
-    const diff = textDiff(3, 3, [block(1, 2, 1, 2, { oldRanges: [[0, 1]], newRanges: [[1, 2]] })])
+    const diff = textDiff(3, 3, [block(1, 2, 1, 2, { oldRanges: [[0, 1, 2]], newRanges: [[1, 2, 2]] })])
     const split = diffCells(diff, "split")
     const row = lineRow(rowAt(buildFileRows(diff, "split"), 1))
     expect(split.columns).toEqual([OLD, NEW])
-    expect([split.cell(row, OLD), split.cell(row, NEW), split.ranges(row, NEW)]).toEqual(["deleted", "added", [1, 2]])
+    expect([split.cell(row, OLD), split.cell(row, NEW), split.ranges(row, NEW)]).toEqual(["deleted", "added", [1, 2, 2]])
     const unified = diffCells(diff, "unified")
     const added = lineRow(rowAt(buildFileRows(diff, "unified"), 2))
-    expect([unified.columns, unified.cell(added, NEW), unified.ranges(added, NEW)]).toEqual([[NEW], "added", [1, 2]])
+    expect([unified.columns, unified.cell(added, NEW), unified.ranges(added, NEW)]).toEqual([[NEW], "added", [1, 2, 2]])
   })
 })

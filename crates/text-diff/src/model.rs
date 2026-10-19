@@ -60,11 +60,23 @@ pub struct DiffBlock {
   pub kind: BlockKind,
   /// The sides have the same number of lines and each pair is similar: the Inline view may draw pair i as one row
   pub inline_pairs: bool,
-  /// For each line of the old side, `[start, end, start, end, ...]`: UTF-16 offsets inside the line, the end
-  /// exclusive, never the line end. Empty when the block has no inner ranges: `Ignored`, `WhitespaceOnly`, ranges
-  /// dropped, or `line_level_only`.
+  /// For each line of the old side, `[start, end, kind, start, end, kind, ...]`: UTF-16 offsets inside the line, the
+  /// end exclusive, never the line end, and the `RangeKind` of the inner change, as IntelliJ types a fragment.
+  /// `start == end` marks the empty side of an inserted or a deleted change, which a view draws as a thin bar. Empty
+  /// when the block has no inner ranges: `Ignored`, `WhitespaceOnly`, ranges dropped, or `line_level_only`.
   pub old_ranges: Vec<Vec<u32>>,
   pub new_ranges: Vec<Vec<u32>>,
+}
+
+/// The kind of an inner change of a block by its sides, as IntelliJ's `DiffUtil.getDiffType` types a fragment; its
+/// number is the third value of each range of `DiffBlock`
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RangeKind {
+  /// The old side is empty
+  Inserted = 0,
+  /// The new side is empty
+  Deleted = 1,
+  Modified = 2,
 }
 
 /// How a view draws a block
@@ -247,8 +259,16 @@ fn block_of(view: &ViewFragment, old: &SourceText, new: &SourceText) -> DiffBloc
       let new_lines = line_ranges(new, fragment.start_line2..fragment.end_line2, &ranges2);
       if !ranges_dropped(&old_lines, &new_lines) {
         block.inline_pairs = inline_pairs(&old_lines, &new_lines);
-        block.old_ranges = old_lines.iter().map(flat_ranges).collect();
-        block.new_ranges = new_lines.iter().map(flat_ranges).collect();
+        let kinds: Vec<RangeKind> = inner
+          .iter()
+          .map(|it| match (it.start_offset1 == it.end_offset1, it.start_offset2 == it.end_offset2) {
+            (true, _) => RangeKind::Inserted,
+            (_, true) => RangeKind::Deleted,
+            _ => RangeKind::Modified,
+          })
+          .collect();
+        block.old_ranges = typed_line_ranges(old, fragment.start_line1..fragment.end_line1, &ranges1, &kinds);
+        block.new_ranges = typed_line_ranges(new, fragment.start_line2..fragment.end_line2, &ranges2, &kinds);
       }
     }
   }
@@ -272,6 +292,36 @@ pub(crate) fn line_ranges(source: &SourceText, lines: Range<usize>, ranges: &[Ra
         length: line_end - line_start,
         ranges,
       }
+    })
+    .collect()
+}
+
+/// The typed ranges of each line of `lines`, `[start, end, kind, ...]`: a range is cut at the line ends; an empty range
+/// (the empty side of an inserted or a deleted change) is a marker in the first line that holds its offset
+fn typed_line_ranges(source: &SourceText, lines: Range<usize>, ranges: &[Range<usize>], kinds: &[RangeKind]) -> Vec<Vec<u32>> {
+  let offsets = source.text().line_offsets();
+  let mut placed = vec![false; ranges.len()];
+  lines
+    .map(|line| {
+      let (line_start, line_end) = (offsets.line_start(line), offsets.line_end(line));
+      let mut typed = Vec::new();
+      for (index, (range, kind)) in ranges.iter().zip(kinds).enumerate() {
+        let (start, end) = if range.is_empty() {
+          if placed[index] || range.start < line_start || range.start > line_end {
+            continue;
+          }
+          placed[index] = true;
+          (range.start, range.start)
+        } else {
+          let (start, end) = (range.start.max(line_start), range.end.min(line_end));
+          if start >= end {
+            continue;
+          }
+          (start, end)
+        };
+        typed.extend([to_u32(start - line_start), to_u32(end - line_start), *kind as u32]);
+      }
+      typed
     })
     .collect()
 }

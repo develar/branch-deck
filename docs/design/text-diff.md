@@ -104,9 +104,13 @@ flowchart TD
   unchanged, it does not count, and the change navigation skips it. It stays in the model because its two sides can
   have other line counts, which a view must align. Under `Trim` a blank line stays `Changed`: its line end differs
   (`ComparisonUtil.equalsTrimWhitespaces` compares line by line).
-- **Ranges.** `old_ranges` and `new_ranges` hold one list for each line of the block: `[start, end, ...]` in UTF-16
-  units inside the line, never the line end. They are empty for an `Ignored` and a `WhitespaceOnly` block, for a
-  block without similar parts, and for a block whose ranges are dropped.
+- **Ranges.** `old_ranges` and `new_ranges` hold one list for each line of the block: `[start, end, kind, ...]` in
+  UTF-16 units inside the line, never the line end. `kind` is the `RangeKind` of the inner change, as IntelliJ's
+  `DiffUtil.getDiffType` types a fragment: 0 inserted (its old side is empty), 1 deleted (its new side is empty), 2
+  modified. The empty side of an inserted or a deleted change is a marker, `start == end`, in the first line that
+  holds its offset; a view draws it as IntelliJ's `DiffEmptyHighlighterRenderer`, a bar 2 px wide. The lists are
+  empty for an `Ignored` and a `WhitespaceOnly` block, for a block without similar parts, and for a block whose
+  ranges are dropped. The ranges of a merge keep the untyped form: a merge block has one kind.
 - **Inline pairs.** `inline_pairs` is set when both sides have the same number of lines and each pair is similar:
   less than `SIMILAR_PAIR_MAX_CHANGED` (1/3) of its chars changed, with at most `SIMILAR_PAIR_MAX_RANGES` (4) ranges
   in each line. A `WhitespaceOnly` block of n to n lines has inline pairs.

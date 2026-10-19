@@ -2,7 +2,7 @@
 //! blocks partition both texts.
 
 use crate::cancellation::Deadline;
-use crate::model::{BlockKind, DiffBlock, DiffBudget, EmptyLastLine, FinalNewline, LineEnds, MAX_INNER_LINES, TextDiff, diff_texts};
+use crate::model::{BlockKind, DiffBlock, DiffBudget, EmptyLastLine, FinalNewline, LineEnds, MAX_INNER_LINES, RangeKind, TextDiff, diff_texts};
 use crate::policy::WhitespacePolicy;
 use crate::test_support::{proptest_config, text_of_lines};
 use crate::text::{LineEndKind, SourceText};
@@ -11,6 +11,8 @@ use proptest::prelude::Strategy;
 use proptest::proptest;
 use std::fmt::Write;
 use std::time::Duration;
+
+const MODIFIED: u32 = RangeKind::Modified as u32;
 
 fn diff(old: &str, new: &str) -> TextDiff {
   diff_texts(old, new, WhitespacePolicy::Default, &DiffBudget::NONE)
@@ -41,8 +43,8 @@ fn a_changed_word_is_a_range_of_its_line() {
       new_end: 2,
       kind: BlockKind::Changed,
       inline_pairs: true,
-      old_ranges: vec![vec![6, 7]],
-      new_ranges: vec![vec![6, 7]],
+      old_ranges: vec![vec![6, 7, MODIFIED]],
+      new_ranges: vec![vec![6, 7, MODIFIED]],
     }]
   );
   assert_eq!((result.old_line_count, result.new_line_count, result.deletions, result.additions), (4, 4, 1, 1));
@@ -53,15 +55,37 @@ fn a_changed_word_is_a_range_of_its_line() {
 fn each_line_of_a_block_has_its_ranges() {
   let result = diff("a\nlet x = 1;\nlet y = 2;\nb\n", "a\nlet x = 10;\nlet z = 2;\nb\n");
   let block = &result.blocks[0];
-  assert_eq!(block.old_ranges, vec![vec![8, 9], vec![4, 5]]);
-  assert_eq!(block.new_ranges, vec![vec![8, 10], vec![4, 5]]);
+  assert_eq!(block.old_ranges, vec![vec![8, 9, MODIFIED], vec![4, 5, MODIFIED]]);
+  assert_eq!(block.new_ranges, vec![vec![8, 10, MODIFIED], vec![4, 5, MODIFIED]]);
   assert!(block.inline_pairs);
+}
+
+#[test]
+fn an_inserted_word_is_typed_and_marks_its_empty_side() {
+  // IntelliJ types a fragment by its sides, and draws the empty side as a thin bar at its offset
+  let result = diff("a\ncall(x)\nb\n", "a\ncall(x, y)\nb\n");
+  let block = &result.blocks[0];
+  let [start, end, kind] = block.new_ranges[0][..] else { panic!("{block:?}") };
+  assert_eq!(kind, RangeKind::Inserted as u32);
+  assert_eq!(
+    block.old_ranges,
+    vec![vec![start, start, RangeKind::Inserted as u32]],
+    "the marker of the empty old side at the insertion"
+  );
+  assert!(end > start);
+  let result = diff("a\ncall(x, y)\nb\n", "a\ncall(x)\nb\n");
+  let block = &result.blocks[0];
+  assert_eq!(block.old_ranges[0][2], RangeKind::Deleted as u32);
+  assert_eq!(
+    (block.new_ranges[0][0] == block.new_ranges[0][1], block.new_ranges[0][2]),
+    (true, RangeKind::Deleted as u32)
+  );
 }
 
 #[test]
 fn ranges_count_utf16_code_units() {
   let result = diff("😂 x\n", "😂 y\n");
-  assert_eq!(result.blocks[0].old_ranges, vec![vec![3, 4]]);
+  assert_eq!(result.blocks[0].old_ranges, vec![vec![3, 4, MODIFIED]]);
 }
 
 #[test]
@@ -143,7 +167,9 @@ fn the_whitespace_fixture_under_each_policy() {
 fn the_default_policy_never_ignores_a_block() {
   let result = diff("a\nb c\nd\n", "a\nb  c\nd\n");
   assert_eq!(shape(&result), vec![(1..2, 1..2, BlockKind::Changed)]);
-  assert_eq!(result.blocks[0].new_ranges, vec![vec![1, 2]]);
+  // the inserted space, and the marker of its empty old side
+  assert_eq!(result.blocks[0].new_ranges, vec![vec![1, 2, RangeKind::Inserted as u32]]);
+  assert_eq!(result.blocks[0].old_ranges, vec![vec![1, 1, RangeKind::Inserted as u32]]);
 }
 
 /// A text that ends with a lone `\r`, a `\r\n` or a `\n` ends with a line end, and its empty last line does not count:
@@ -319,8 +345,13 @@ fn check(old: &str, new: &str, policy: WhitespacePolicy, result: &TextDiff) {
       assert_eq!(ranges.len(), (end - start) as usize);
       for (line, line_ranges) in (start..end).zip(ranges) {
         let length = u32::try_from(lines[line as usize].encode_utf16().count()).unwrap();
-        for range in line_ranges.chunks(2) {
-          assert!(range[0] < range[1] && range[1] <= length, "line {line}: {range:?} of {length}");
+        for range in line_ranges.chunks(3) {
+          assert!(
+            range[0] <= range[1] && range[1] <= length && range[2] <= RangeKind::Modified as u32,
+            "line {line}: {range:?} of {length}"
+          );
+          // only the empty side of an inserted or a deleted change is a marker
+          assert!(range[0] < range[1] || range[2] != RangeKind::Modified as u32, "line {line}: {range:?}");
         }
       }
     }

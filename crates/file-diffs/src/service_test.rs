@@ -89,7 +89,7 @@ fn a_commit_has_a_typed_diff_of_each_kind_of_file() {
   // "2" became "20"
   assert_eq!(
     (diff.blocks[0].old_ranges.clone(), diff.blocks[0].new_ranges.clone()),
-    (vec![vec![14, 15]], vec![vec![14, 16]])
+    (vec![vec![14, 15, 2]], vec![vec![14, 16, 2]])
   );
   let labels: Vec<&str> = diff.new_scopes.iter().map(|scope| scope.label.as_str()).collect();
   assert_eq!(labels, ["A", "A › one", "A › two"]);
@@ -331,7 +331,7 @@ fn a_diff_out_of_time_is_by_line_and_not_stored() {
     .read(repo.git_executor(), repo_path(&repo), &cache, &commit(&second), WhitespacePolicy::Default)
     .unwrap();
   assert!(!text(&files[0]).line_level_only);
-  assert_eq!(text(&files[0]).blocks[0].new_ranges, vec![vec![2, 3]]);
+  assert_eq!(text(&files[0]).blocks[0].new_ranges, vec![vec![2, 3, 2]]);
 }
 
 #[test]

@@ -96,8 +96,10 @@ function partClass(part: LinePart): string {
   if ((fontStyle & 2) !== 0) {
     className += " tb"
   }
-  if (part.changed && !part.deleted) {
-    className += " dv-changed"
+  if (part.marker === true) {
+    className += ` dv-marker dv-change-${part.change}`
+  } else if (part.change >= 0 && !part.deleted) {
+    className += ` dv-changed dv-change-${part.change}`
   }
   if (part.hit !== undefined) {
     className += part.hit === 2 ? " dv-hit dv-hit-current" : " dv-hit"

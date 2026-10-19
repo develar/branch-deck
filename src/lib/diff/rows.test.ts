@@ -98,7 +98,7 @@ describe("buildFileRows", () => {
 
   it("draws the lines of a block with inner ranges pale and the lines of a block without them in the full tint, as IntelliJ", () => {
     // a re-indent under Do Not Ignore: the engine marks the indentation as inner ranges; a line-level block has none
-    const diff = textDiff(20, 20, [block(3, 4, 3, 4, { oldRanges: [[0, 2]], newRanges: [[0, 4]] }), block(12, 13, 12, 13)])
+    const diff = textDiff(20, 20, [block(3, 4, 3, 4, { oldRanges: [[0, 2, 2]], newRanges: [[0, 4, 2]] }), block(12, 13, 12, 13)])
     const rows = outline(buildFileRows(diff, "unified", [EXPANDED, EXPANDED, EXPANDED]))
     expect(rows[3]).toBe("-3 pale")
     expect(rows[4]).toBe("+3 pale")

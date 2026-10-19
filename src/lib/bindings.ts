@@ -861,9 +861,10 @@ export type DiffBlock = {
 	/**  The sides have the same number of lines and each pair is similar: the Inline view may draw pair i as one row */
 	inlinePairs: boolean,
 	/**
-	 *  For each line of the old side, `[start, end, start, end, ...]`: UTF-16 offsets inside the line, the end
-	 *  exclusive, never the line end. Empty when the block has no inner ranges: `Ignored`, `WhitespaceOnly`, ranges
-	 *  dropped, or `line_level_only`.
+	 *  For each line of the old side, `[start, end, kind, start, end, kind, ...]`: UTF-16 offsets inside the line, the
+	 *  end exclusive, never the line end, and the `RangeKind` of the inner change, as IntelliJ types a fragment.
+	 *  `start == end` marks the empty side of an inserted or a deleted change, which a view draws as a thin bar. Empty
+	 *  when the block has no inner ranges: `Ignored`, `WhitespaceOnly`, ranges dropped, or `line_level_only`.
 	 */
 	oldRanges: number[][],
 	newRanges: number[][],

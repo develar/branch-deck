@@ -46,7 +46,7 @@ use text_diff::policy::WhitespacePolicy;
 use tracing::{debug, instrument};
 
 /// The version of the diffs in the `file_diff` store: bump it when `TextDiff`, the comparison or the scopes change
-pub const MODEL_VERSION: u32 = 3;
+pub const MODEL_VERSION: u32 = 4;
 
 /// The diffs that memory keeps, weighed by the size of their model
 pub const DIFF_CACHE_BYTES: u64 = 64 << 20;
