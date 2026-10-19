@@ -1866,15 +1866,23 @@ a check, `find_dangling_references` looks for such uses without a compiler:
    not searched, nor a member moved with its class (a file of the same stem), nor a private declaration the branch
    declares elsewhere (its file imports it from there). Only a private declaration or a member is searched unqualified
    in its own file. On the 200 commits and 35 branches of the IntelliJ checkout these rules took the check from nine
-   false references to none, in 8 s, the trial builds included.
+   false references to none, in 8 s, the trial builds included. A Rust name after a single `.` is a field or a method
+   (`.collect()`), never an item; `..` is a range. With `branchdeck.symbols on`, whose module roots know the crate of
+   every path of the commits (`ModuleRoots::read_crate_of`, the names of `SymbolInput::crates`), a `pub(crate)`,
+   `pub(super)` or `pub(in …)` item is searched in its own crate only (`pub(self)` as a private one), and a file of
+   another crate uses a `pub` one only through its crate: a path that starts with the crate's name or with a name a
+   `use` of the crate binds, or a bare name where such a `use` names it or a glob. Without the symbols, or for a path
+   of no known crate (Bazel without a `Cargo.toml`), every file of the language is searched.
 3. A use the branch's tree has and HEAD's tree lacks can only be in a path where the two differ: one `diff-tree
    --stdin -r -z --raw` with a line `<virtual head> <HEAD>` per built branch (and `<baseline tip> <base>` for the uses
-   the baseline got after the base) lists them, one `cat-file --batch -Z` reads their blobs and the branches' versions
-   of the removing files, and the search runs in Rust. Paths where the trees differ are the other branches' changes,
+   the baseline got after the base) lists them, one `cat-file --batch -Z` reads their blobs, the branches' versions
+   of the removing files and the removing files before the commit (`<removed_by>^:<file>`, for the line of the
+   declaration, `declared_in`), and the search runs in Rust. Paths where the trees differ are the other branches' changes,
    a few hundred even in a monorepo.
 4. The syntax trees subtract (`code_symbols`, Kotlin, Java, Rust, TypeScript and JavaScript): a candidate line counts
    only where the tree of its blob has a reference to the name, so a word of a comment or a string, a local of the same
-   name, a key and the name of an `override` member (it declares one) are none; a name an import still binds in the
+   name, a key and the name of an `override` member (it declares one) are none, nor, for a Kotlin top-level function
+   that is no extension, a call on an expression (`client.name()`, an empty qualifier); a name an import still binds in the
    removing file (a Rust `pub use`, a Kotlin alias) is not removed. The lines found the candidates and the trees only
    take some away, so a use the regular expression finds (a Kotlin extension call) stays. Both sides of a path go by the
    same method: a side the parser can't read well keeps the lines on both. The summaries of these blobs, new in every
@@ -1901,7 +1909,7 @@ a check, `find_dangling_references` looks for such uses without a compiler:
    comes from the session, so only those of new blobs are parsed. The `kind` of the reference says which:
    `removed_declaration`, `changed_declaration`, `duplicate_declaration`.
 
-`bd check` reports a proven one as `dangling_reference`, `bd suggest` turns it into a repair edge (the removing commit
+`bd check` reports a proven one as `dangling_reference` (`--allow-dangling` keeps it and exits 0), `bd suggest` turns it into a repair edge (the removing commit
 needs `fixed_by`) unless it is mutual, and `bd safe-push` refuses it (`--allow-dangling`). The sync doesn't run it.
 
 The fix of a mutual one moves the change of the use into the branch: `fixed_by` itself when it changes only that file,

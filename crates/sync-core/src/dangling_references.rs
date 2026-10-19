@@ -19,10 +19,14 @@
 //! - **By the summaries** (`declaration_checks`, with `branchdeck.symbols on`): an instance or static member a branch
 //!   removes, a form it changes and a declaration it adds again, on the same `diff-tree` and `cat-file` (`TreeSearch`),
 //!   each a reference of its `DanglingKind`.
+//! - **Rust scope** (`RustScope`): a name after a single `.` is a field or a method, never an item; with
+//!   `branchdeck.symbols on`, which knows the crates (`SymbolInput::crates`), a file of another crate uses an item only
+//!   through that crate (`Reached`), and a `pub(crate)` one not at all.
 
 use crate::check::{BranchCheck, CheckOutcome};
 use crate::diff_scan::{Renames, blob_pair, read_commit_changes};
 use crate::symbol_dependencies::declaration_checks::{DeclarationFacts, DeclarationSearch, Fit, TreeForm, searches_of};
+use crate::symbol_scan::SymbolInput;
 use anyhow::{Result, anyhow};
 use code_symbols::extract::summarize;
 use code_symbols::language::language_of as symbols_language_of;
@@ -80,6 +84,16 @@ pub struct DanglingReference {
   /// The syntax trees of both sides confirmed the uses (`code_symbols`); `false` where the lines alone found them: a
   /// language without a grammar, or a file the parser can't read well
   pub by_syntax: bool,
+  /// Where the declaration is that `removed_by` removes, changes or adds
+  pub declared_in: DeclaredIn,
+}
+
+/// The place of the declaration of a dangling reference
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclaredIn {
+  pub file: String,
+  /// 1-based, in the file before `removed_by` (after it for a duplicate); `None` when that file can't be read
+  pub line: Option<u32>,
 }
 
 /// The syntax summaries of the blobs the checks of a session read, by their `cat-file` name, parsed once per session
@@ -110,13 +124,16 @@ impl SyntaxMemo {
 type SidesUses<'a> = (Vec<(usize, &'a str)>, Vec<(usize, &'a str)>, bool);
 
 /// The candidate lines of `uses` on which the syntax tree has a use of `name`: a comment, a string, a local of the
-/// same name, a key or a named argument and an `override` member are none. A subtraction only: what the tree can't
-/// place stays out, what the lines missed is not added
-fn on_syntax<'a>(uses: Vec<(usize, &'a str)>, summary: &FileSummary, name: &str) -> Vec<(usize, &'a str)> {
+/// same name, a key or a named argument and an `override` member are none, nor, for a function without a receiver
+/// (`receiverless`), a call on an expression (`x.name()`). A subtraction only: what the tree can't place stays out,
+/// what the lines missed is not added
+fn on_syntax<'a>(uses: Vec<(usize, &'a str)>, summary: &FileSummary, name: &str, receiverless: bool) -> Vec<(usize, &'a str)> {
   // `override fun name` declares a member: the line search takes it for a use, the syntax tree must not confirm it
   let lines: HashSet<usize> = summary
     .references_to(name)
     .filter(|reference| reference.role != Role::Override)
+    // an empty qualifier is an expression or a local before `.name`: a member or an extension, not this function
+    .filter(|reference| !(receiverless && reference.qualifier.as_ref().is_some_and(Vec::is_empty)))
     .filter_map(|reference| usize::try_from(reference.line).ok())
     .collect();
   uses.into_iter().filter(|(index, _)| lines.contains(&(index + 1))).collect()
@@ -158,6 +175,8 @@ enum Reach {
   TopLevel,
   /// A static member or a nested type: qualified by the stem of its file (`AcpScenarioAgent.CONTROL_URL_ENV`)
   Member,
+  /// A Rust item of `pub(crate)`, `pub(super)` or `pub(in …)`: by its name, in its own crate only
+  Crate,
   /// Visible in its own file only
   Private,
 }
@@ -166,6 +185,8 @@ enum Reach {
 struct Declaration {
   name: String,
   reach: Reach,
+  /// A Kotlin top-level function that is no extension: no expression calls it (`x.name()`)
+  receiverless: bool,
 }
 
 /// An annotation before a declaration (`@Deprecated`, `@JvmStatic`, `#[inline]`)
@@ -179,7 +200,7 @@ static JVM_TYPE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static KOTLIN_FUN: LazyLock<Regex> = LazyLock::new(|| {
   Regex::new(&format!(
-    r"^(?P<indent>\s*){ANNOTATIONS}(?P<mods>(?:(?:public|protected|private|internal|open|override|abstract|final|inline|suspend|tailrec|operator|infix|external|expect|actual)\s+)*)fun\s+(?:<[^>]*>\s*)?(?:[\w$.<>?, ]+\.)?(?P<name>[A-Za-z_$][\w$]*)\s*\("
+    r"^(?P<indent>\s*){ANNOTATIONS}(?P<mods>(?:(?:public|protected|private|internal|open|override|abstract|final|inline|suspend|tailrec|operator|infix|external|expect|actual)\s+)*)fun\s+(?:<[^>]*>\s*)?(?P<receiver>[\w$.<>?, ]+\.)?(?P<name>[A-Za-z_$][\w$]*)\s*\("
   ))
   .expect("valid regex")
 });
@@ -203,6 +224,8 @@ static RUST_ITEM: LazyLock<Regex> = LazyLock::new(|| {
   )
   .expect("valid regex")
 });
+/// A name in a Rust `use` tree
+static RUST_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[A-Za-z_]\w*").expect("valid regex"));
 static RUST_MACRO: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?P<indent>\s*)macro_rules!\s+(?P<name>[A-Za-z_]\w*)").expect("valid regex"));
 static SCRIPT_EXPORT: LazyLock<Regex> = LazyLock::new(|| {
   Regex::new(r"^(?P<indent>\s*)(?P<export>export\s+(?:default\s+)?)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function\*?|class|const|let|var|interface|type|enum|namespace)\s+(?P<name>[A-Za-z_$][\w$]*)").expect("valid regex")
@@ -224,7 +247,13 @@ const MAX_BASELINE_PATHS: usize = 2000;
 fn declaration_of(language: Language, line: &str) -> Option<Declaration> {
   let indented = |captures: &regex::Captures| captures.name("indent").is_some_and(|indent| !indent.as_str().is_empty());
   let has_mod = |captures: &regex::Captures, modifier: &str| captures.name("mods").is_some_and(|mods| mods.as_str().split_whitespace().any(|m| m == modifier));
-  let declaration = |name: &str, reach: Reach| (name.len() >= MIN_NAME_LENGTH).then(|| Declaration { name: name.to_string(), reach });
+  let declaration = |name: &str, reach: Reach| {
+    (name.len() >= MIN_NAME_LENGTH).then(|| Declaration {
+      name: name.to_string(),
+      reach,
+      receiverless: false,
+    })
+  };
   match language {
     Language::Jvm => {
       if let Some(captures) = JVM_TYPE.captures(line) {
@@ -237,11 +266,14 @@ fn declaration_of(language: Language, line: &str) -> Option<Declaration> {
         };
         return declaration(&captures["name"], reach);
       }
-      for regex in [&*KOTLIN_FUN, &*KOTLIN_PROPERTY] {
+      for (regex, function) in [(&*KOTLIN_FUN, true), (&*KOTLIN_PROPERTY, false)] {
         if let Some(captures) = regex.captures(line) {
           return match (has_mod(&captures, "private"), indented(&captures), has_mod(&captures, "const")) {
             (true, _, _) => declaration(&captures["name"], Reach::Private),
-            (false, false, _) => declaration(&captures["name"], Reach::TopLevel),
+            (false, false, _) => declaration(&captures["name"], Reach::TopLevel).map(|declaration| Declaration {
+              receiverless: function && captures.name("receiver").is_none(),
+              ..declaration
+            }),
             // a constant of an object or a companion; other members are instance members
             (false, true, true) => declaration(&captures["name"], Reach::Member),
             (false, true, false) => None,
@@ -263,10 +295,13 @@ fn declaration_of(language: Language, line: &str) -> Option<Declaration> {
       if indented(&captures) {
         return None;
       }
-      let reach = if captures.name("pub").is_some() || captures.get(0).is_some_and(|m| m.as_str().contains("macro_rules!")) {
-        Reach::TopLevel
-      } else {
-        Reach::Private
+      let visibility = captures.name("pub").map(|visibility| visibility.as_str().trim_end());
+      let reach = match visibility.and_then(|visibility| visibility.strip_prefix("pub(")) {
+        // `pub(self)` is private; `pub(crate)`, `pub(super)` and `pub(in path)` end at the crate
+        Some(scope) if scope.trim_start().starts_with("self") => Reach::Private,
+        Some(_) => Reach::Crate,
+        None if visibility.is_some() || captures.get(0).is_some_and(|m| m.as_str().contains("macro_rules!")) => Reach::TopLevel,
+        None => Reach::Private,
       };
       declaration(&captures["name"], reach)
     }
@@ -303,7 +338,7 @@ fn whole_word(pattern: &str) -> Regex {
 }
 
 /// How a removed declaration is searched
-struct Search {
+struct Search<'a> {
   name: String,
   /// The file it was removed from
   file: String,
@@ -317,6 +352,34 @@ struct Search {
   /// A top-level JVM declaration moved to other files: searched as `<old package>.<name>` once the packages are read,
   /// when they differ
   moved: Option<Moved>,
+  /// A Kotlin top-level function that is no extension: by the syntax trees, a call on an expression is none
+  receiverless: bool,
+  /// A Rust item of a known crate (`branchdeck.symbols on`): which files of other crates reach it
+  rust: Option<RustScope<'a>>,
+}
+
+/// The crate of a removed Rust item, which a file of another crate must name to use it
+struct RustScope<'a> {
+  symbols: &'a SymbolInput,
+  /// The directory of its crate
+  home: &'a str,
+  /// The name of its crate, as Rust code names it
+  crate_name: &'a str,
+  /// `pub(crate)`, `pub(super)`, `pub(in …)`: no file of another crate uses it
+  crate_only: bool,
+  /// A `use` of the crate, its tree in `tree`
+  use_of_crate: Regex,
+}
+
+/// How a file reaches a removed Rust item
+enum Reached {
+  /// It is in the item's crate, or its crate is not known: every use counts
+  Anywhere,
+  /// A file of another crate: a path that starts with the crate's name, or with a name its `use` trees of the crate
+  /// bind (`names`), counts, and a bare name where one of them names the item or a glob (`bare`)
+  Through { bare: bool, names: HashSet<String> },
+  /// A file of another crate, and the item is visible in its own crate only
+  Nowhere,
 }
 
 /// The `cat-file` names of the old file of a moved declaration and of the files it moved to
@@ -325,7 +388,7 @@ struct Moved {
   new_files: Vec<String>,
 }
 
-impl Search {
+impl Search<'_> {
   /// The regex for a use in `path`, or `None` when the path isn't searched
   fn pattern_for(&self, path: &str) -> Option<&Regex> {
     if path == self.file
@@ -337,17 +400,21 @@ impl Search {
   }
 
   /// The lines of `text` that use the name, without the lines that declare it
-  fn uses<'a>(&self, path: &str, text: &'a str) -> Vec<(usize, &'a str)> {
+  fn uses<'t>(&self, path: &str, text: &'t str) -> Vec<(usize, &'t str)> {
     // most blobs don't name it at all: one substring search instead of one per line
     if !text.contains(self.name.as_str()) {
       return Vec::new();
     }
     let Some(pattern) = self.pattern_for(path) else { return Vec::new() };
+    let reached = self.reached(path, text);
+    if matches!(reached, Reached::Nowhere) {
+      return Vec::new();
+    }
     let language = language_of(path);
     text
       .lines()
       .enumerate()
-      .filter(|(_, line)| line.contains(self.name.as_str()) && pattern.is_match(line))
+      .filter(|(_, line)| line.contains(self.name.as_str()) && pattern.is_match(line) && self.names_it(line, &reached))
       .filter(|(_, line)| {
         language
           .and_then(|language| declaration_of(language, line))
@@ -356,11 +423,93 @@ impl Search {
       .collect()
   }
 
-  /// How many of `lines` use the name
-  fn count_in<'a>(&self, path: &str, lines: impl IntoIterator<Item = &'a String>) -> usize {
+  /// How many of `lines` use the name, in a file `reached` as its text in the branch's tree is
+  fn count_in<'l>(&self, path: &str, lines: impl IntoIterator<Item = &'l String>, reached: &Reached) -> usize {
     let Some(pattern) = self.pattern_for(path) else { return 0 };
-    lines.into_iter().filter(|line| line.contains(self.name.as_str()) && pattern.is_match(line)).count()
+    lines
+      .into_iter()
+      .filter(|line| line.contains(self.name.as_str()) && pattern.is_match(line) && self.names_it(line, reached))
+      .count()
   }
+
+  /// How the file `path` of `text` reaches the removed item: of another crate only for a Rust item of a known crate,
+  /// and a file whose crate is known
+  fn reached(&self, path: &str, text: &str) -> Reached {
+    let Some(rust) = &self.rust else { return Reached::Anywhere };
+    match rust.symbols.roots.read_crate_of(path) {
+      Some(home) if home != rust.home => {}
+      _ => return Reached::Anywhere,
+    }
+    if rust.crate_only {
+      return Reached::Nowhere;
+    }
+    let mut bare = false;
+    let mut names = HashSet::new();
+    for captures in rust.use_of_crate.captures_iter(text) {
+      let tree = &captures["tree"];
+      bare |= tree.contains('*');
+      // `self`, `super` and `crate` before `::` name the file's own modules
+      for word in RUST_WORD
+        .find_iter(tree)
+        .map(|word| word.as_str())
+        .filter(|word| !matches!(*word, "self" | "super" | "crate" | "as"))
+      {
+        bare |= word == self.name;
+        names.insert(word.to_string());
+      }
+    }
+    Reached::Through { bare, names }
+  }
+
+  /// Whether `line`, which the pattern matches, names the declaration where it can mean it. In Rust a name after a
+  /// single `.` is a field or a method (`.collect()`), never an item (`..` is a range), and a file of another crate
+  /// names the item through its crate (`reached`)
+  fn names_it(&self, line: &str, reached: &Reached) -> bool {
+    if self.language != Language::Rust {
+      return true;
+    }
+    let is_word = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
+    line.match_indices(self.name.as_str()).any(|(start, _)| {
+      let (before, after) = (&line[..start], &line[start + self.name.len()..]);
+      if before.ends_with(is_word) || after.starts_with(is_word) {
+        return false;
+      }
+      let before = before.trim_end();
+      if before.ends_with('.') && !before.ends_with("..") {
+        return false;
+      }
+      match reached {
+        Reached::Anywhere => true,
+        Reached::Nowhere => false,
+        Reached::Through { bare, names } => match path_head(before) {
+          None => *bare,
+          Some(head) => self.rust.as_ref().is_some_and(|rust| head == rust.crate_name) || names.contains(head),
+        },
+      }
+    })
+  }
+}
+
+/// The first segment of the Rust path that ends at the end of `before` (`a` of `x = a::b::`), `None` for a bare name; a
+/// segment that is no name (`<T as Trait>::`, a leading `::`) ends the path
+fn path_head(before: &str) -> Option<&str> {
+  let mut rest = before.trim_end();
+  let mut head = None;
+  while let Some(path) = rest.strip_suffix("::") {
+    let path = path.trim_end();
+    let start = path
+      .char_indices()
+      .rev()
+      .take_while(|(_, c)| c.is_ascii_alphanumeric() || *c == '_')
+      .last()
+      .map_or(path.len(), |(index, _)| index);
+    if start == path.len() {
+      break;
+    }
+    head = Some(&path[start..]);
+    rest = path[..start].trim_end();
+  }
+  head
 }
 
 /// Whether an added line of `remaining` uses a name that the added lines of `moved` declare for other files (a top-level
@@ -372,8 +521,12 @@ pub(crate) fn uses_added_declarations<'a>(moved: impl IntoIterator<Item = &'a Fi
     let Some(language) = language_of(&file.path) else { continue };
     for line in &file.added {
       match declaration_of(language, line) {
-        Some(Declaration { name, reach: Reach::TopLevel }) => searches.push((language, name.clone(), whole_word(&regex::escape(&name)))),
-        Some(Declaration { name, reach: Reach::Member }) => {
+        Some(Declaration {
+          name,
+          reach: Reach::TopLevel | Reach::Crate,
+          ..
+        }) => searches.push((language, name.clone(), whole_word(&regex::escape(&name)))),
+        Some(Declaration { name, reach: Reach::Member, .. }) => {
           let pattern = whole_word(&format!(r"{}\s*\.\s*{}", regex::escape(stem(&file.path)), regex::escape(&name)));
           searches.push((language, name, pattern));
         }
@@ -478,7 +631,7 @@ pub fn find_dangling_references(
   struct Built<'a> {
     name: &'a str,
     head: &'a str,
-    searches: Vec<Search>,
+    searches: Vec<Search<'a>>,
     /// The commits in the virtual tree: the branch's and its ancestors'
     members: HashSet<&'a str>,
     /// The names its commits and its ancestors' declare
@@ -538,6 +691,7 @@ pub fn find_dangling_references(
       let language = language_of(&file).expect("a file with a declaration has a language");
       let moved_to: Vec<&String> = added.get(&name).map_or_default(|files| files.iter().filter(|other| **other != file).collect());
       let escaped = regex::escape(&name);
+      let by_name = matches!(declaration.reach, Reach::TopLevel | Reach::Crate);
       let (pattern, moved) = match declaration.reach {
         // a private declaration made visible elsewhere: its file imports it from there
         Reach::Private if !moved_to.is_empty() => continue,
@@ -545,7 +699,7 @@ pub fn find_dangling_references(
         // a member moved with its class (a file of the same stem elsewhere) keeps its qualified name
         Reach::Member if moved_to.iter().any(|other| stem(other) == stem(&file)) => continue,
         Reach::Member => (Some(whole_word(&format!(r"{}\s*\.\s*(?:Companion\s*\.\s*)?{escaped}", regex::escape(stem(&file))))), None),
-        Reach::TopLevel if moved_to.is_empty() => (Some(whole_word(&escaped)), None),
+        Reach::TopLevel | Reach::Crate if moved_to.is_empty() => (Some(whole_word(&escaped)), None),
         // a moved top-level declaration breaks the imports of its old package only
         Reach::TopLevel if language == Language::Jvm => {
           let moved = Moved {
@@ -556,16 +710,23 @@ pub fn find_dangling_references(
           packages_needed.extend(moved.new_files.iter().cloned());
           (None, Some(moved))
         }
-        Reach::TopLevel => continue,
+        Reach::TopLevel | Reach::Crate => continue,
+      };
+      let rust = if language == Language::Rust && by_name {
+        input.declarations.and_then(|facts| rust_scope(facts.input, &file, declaration.reach == Reach::Crate))
+      } else {
+        None
       };
       searches.push(Search {
-        local_pattern: (declaration.reach != Reach::TopLevel).then(|| whole_word(&escaped)),
+        local_pattern: (!by_name).then(|| whole_word(&escaped)),
         name,
         file,
         language,
         removed_by: removed_by.to_string(),
         pattern,
         moved,
+        receiverless: declaration.receiverless,
+        rust,
       });
     }
     if searches.is_empty() && declarations.is_empty() {
@@ -617,6 +778,8 @@ pub fn find_dangling_references(
     }
     for search in &branch.searches {
       want(format!("{}:{}", branch.head, search.file), &mut names);
+      // the file the declaration was removed from, for its line
+      want(format!("{}^:{}", search.removed_by, search.file), &mut names);
     }
     if let Some(facts) = input.declarations {
       for search in &branch.declarations {
@@ -669,8 +832,8 @@ pub fn find_dangling_references(
       },
       None => None,
     };
-    let their_uses = theirs_syntax.map_or_else(Vec::new, |summary| on_syntax(their_uses, &summary, &search.name));
-    Some((on_syntax(uses, &ours_syntax, &search.name), their_uses, true))
+    let their_uses = theirs_syntax.map_or_else(Vec::new, |summary| on_syntax(their_uses, &summary, &search.name, search.receiverless));
+    Some((on_syntax(uses, &ours_syntax, &search.name, search.receiverless), their_uses, true))
   };
   let package_of = |name: &str| text(name).and_then(|text| text.lines().find_map(|line| JVM_PACKAGE.captures(line).map(|c| c["name"].to_string())));
 
@@ -697,6 +860,16 @@ pub fn find_dangling_references(
       if redeclared {
         continue;
       }
+      let declared_in = DeclaredIn {
+        file: search.file.clone(),
+        line: text(&format!("{}^:{}", search.removed_by, search.file))
+          .and_then(|content| {
+            content
+              .lines()
+              .position(|line| declaration_of(search.language, line).is_some_and(|declaration| declaration.name == search.name))
+          })
+          .and_then(|index| u32::try_from(index + 1).ok()),
+      };
       for (path, (ours, theirs)) in &diff.paths {
         let Some((uses, their_uses, by_syntax)) = ours.as_deref().and_then(|ours| uses_of(search, path, ours, theirs.as_deref())) else {
           continue;
@@ -707,9 +880,10 @@ pub fn find_dangling_references(
         let their_lines: HashSet<&str> = their_uses.iter().map(|(_, line)| line.trim()).collect();
         let (line, _) = uses.iter().find(|(_, line)| !their_lines.contains(line.trim())).unwrap_or(&uses[0]);
         // the oldest commit outside the virtual tree whose patch removes the use
+        let reached = ours.as_deref().and_then(text).map_or(Reached::Anywhere, |ours| search.reached(path, ours));
         let fixed_by = input.commits.iter().filter(|id| !branch.members.contains(id.as_str())).find_map(|id| {
           let file = input.lines.get(id)?.iter().find(|file| file.path == *path)?;
-          (search.count_in(path, &file.removed) > search.count_in(path, &file.added)).then_some((id, file))
+          (search.count_in(path, &file.removed, &reached) > search.count_in(path, &file.added, &reached)).then_some((id, file))
         });
         let mutual = fixed_by.is_some_and(|(_, file)| {
           file.added.iter().any(|line| {
@@ -730,6 +904,7 @@ pub fn find_dangling_references(
           possible: false,
           mutual,
           by_syntax,
+          declared_in: declared_in.clone(),
         });
       }
       if let Some(diff) = baseline_diff {
@@ -751,6 +926,7 @@ pub fn find_dangling_references(
             possible: false,
             mutual: false,
             by_syntax,
+            declared_in: declared_in.clone(),
           });
         }
       }
@@ -781,6 +957,23 @@ pub fn find_dangling_references(
     }
   }
   Ok(result)
+}
+
+/// The crate of the Rust item a commit removed from `file`, when `symbols` knows it: the crate of a path of a commit is
+/// read (`ModuleRoots::read`)
+fn rust_scope<'a>(symbols: &'a SymbolInput, file: &str, crate_only: bool) -> Option<RustScope<'a>> {
+  let (home, crate_name) = symbols.crates.get_key_value(symbols.roots.read_crate_of(file)?)?;
+  // a virtual manifest of the workspace root names no crate
+  if crate_name.is_empty() {
+    return None;
+  }
+  Some(RustScope {
+    symbols,
+    home,
+    crate_name,
+    crate_only,
+    use_of_crate: Regex::new(&format!(r"\buse\s+(?:::\s*)?{}\s*::(?P<tree>[^;]*);", regex::escape(crate_name))).expect("an escaped name is a valid regex"),
+  })
 }
 
 /// The `cat-file` name of the branch's version of `file`: its blob where the branch's tree differs from HEAD's there,
@@ -909,6 +1102,10 @@ impl TreeSearch<'_, '_> {
         possible,
         mutual,
         by_syntax: true,
+        declared_in: DeclaredIn {
+          file: search.file.to_string(),
+          line: search.declared_line(),
+        },
       });
     }
     if search.kind == DanglingKind::Duplicate && declared < 2 {

@@ -1,5 +1,5 @@
 use crate::check::{CheckOutcome, CheckReport, check_plan};
-use crate::dangling_references::{DanglingKind, DanglingReference, read_commit_lines};
+use crate::dangling_references::{DanglingKind, DanglingReference, DeclaredIn, read_commit_lines};
 use file_diffs::service::FileDiffs;
 use object_cache::cache::ObjectCache;
 use object_cache::commit_lines::FileLines;
@@ -94,6 +94,10 @@ fn the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch() {
       // the fix uses `AcpControlProtocol`, which the branch adds: only moving the fix into the branch helps
       mutual: true,
       by_syntax: true,
+      declared_in: DeclaredIn {
+        file: AGENT.to_string(),
+        line: Some(4),
+      },
     }]
   );
   assert!(!report.dangling.contains_key("lane-document"), "{:?}", report.dangling);
@@ -273,6 +277,10 @@ fn a_removed_top_level_function_is_searched_by_its_name() {
       possible: false,
       mutual: false,
       by_syntax: true,
+      declared_in: DeclaredIn {
+        file: "src/util/Util.kt".to_string(),
+        line: Some(3),
+      },
     }]
   );
 }
@@ -449,4 +457,155 @@ fn a_local_val_shadows_a_private_member_of_another_class() {
   repo.create_commit_with_files("(handle) Drop the turn id", &[(dsl, &journey("", "    println(turnId)\n"))]);
   repo.create_commit_with_files("(turn) Print nothing", &[(dsl, &journey("", ""))]);
   assert_found_by_the_lines_only(&repo, "handle");
+}
+
+const GUEST_LIB: &str = "crates/avl-guest/src/lib.rs";
+const GUEST_SUM: &str = "crates/avl-guest/src/sum.rs";
+const VM_TESTS: &str = "crates/avl-vm/src/bench/classes/tests.rs";
+
+/// Two crates of a workspace (the IntelliJ checkout, 2026-10-19): `(cleanup)` removes `collect` (declared as
+/// `declaration`) from `avl-guest`, whose `sum.rs` calls it; `(vm)` changes `sum.rs` and the file `vm_tests` of
+/// `avl-vm`. Returns `(the commit that removes it, the commit that changes the uses)`
+fn two_crates(repo: &TestRepo, declaration: &str, vm_tests: &str) -> (String, String) {
+  let lib = format!("{declaration} {{\n  values.iter().sum()\n}}\n\npub fn other() {{}}\n");
+  repo.create_commit_with_files(
+    "Initial commit",
+    &[
+      ("crates/avl-guest/Cargo.toml", "[package]\nname = \"avl-guest\"\n"),
+      (GUEST_LIB, &lib),
+      (GUEST_SUM, "use crate::collect;\n\npub fn total() -> u32 {\n  collect(&[1, 2])\n}\n"),
+      ("crates/avl-vm/Cargo.toml", "[package]\nname = \"avl-vm\"\n"),
+      (VM_TESTS, vm_tests),
+    ],
+  );
+  let removed_by = repo.create_commit_with_files("(cleanup) Drop collect", &[(GUEST_LIB, "pub fn other() {}\n")]);
+  let fixed_by = repo.create_commit_with_files(
+    "(vm) Count without collect",
+    &[(GUEST_SUM, "pub fn total() -> u32 {\n  3\n}\n"), (VM_TESTS, "fn names() {}\n")],
+  );
+  (removed_by, fixed_by)
+}
+
+/// The files of the dangling references of `(cleanup)`
+fn files_of_cleanup(repo: &TestRepo) -> Vec<String> {
+  check(repo).dangling.get("cleanup").into_iter().flatten().map(|reference| reference.file.clone()).collect()
+}
+
+/// The incident of 2026-10-19: `.collect()` of an iterator in another crate is a method call, no use of the removed
+/// free function, by the lines alone too; the call in its own crate still is one
+#[test]
+fn a_method_call_is_no_use_of_a_removed_free_function() {
+  let repo = TestRepo::new();
+  let vm_tests = "fn names() -> Vec<String> {\n  let all: Vec<u32> = (0..3).collect();\n  let _ = all.iter().copied().collect::<Vec<_>>();\n  all\n    .iter()\n    .map(u32::to_string)\n    .collect()\n}\n";
+  two_crates(&repo, "pub fn collect(values: &[u32]) -> u32", vm_tests);
+  for mode in ["off", "on"] {
+    repo.set_config("branchdeck.symbols", mode).unwrap();
+    assert_eq!(files_of_cleanup(&repo), [GUEST_SUM], "branchdeck.symbols {mode}");
+  }
+}
+
+/// With the crates known (`branchdeck.symbols on`), a bare call in another crate uses the removed function only where
+/// the file has a `use` of its crate that names it or a glob; a path through the crate or a module that a `use` of it
+/// binds uses it too. With the symbols off the crates are not known, and the bare call counts
+#[test]
+fn a_free_call_in_another_crate_without_a_use_is_no_use() {
+  let found = |vm_tests: &str, mode: &str| {
+    let repo = TestRepo::new();
+    two_crates(&repo, "pub fn collect(values: &[u32]) -> u32", vm_tests);
+    repo.set_config("branchdeck.symbols", mode).unwrap();
+    files_of_cleanup(&repo)
+  };
+  let bare = "fn total() -> u32 {\n  collect(&[1])\n}\n";
+  assert_eq!(found(bare, "on"), [GUEST_SUM]);
+  assert_eq!(found(bare, "off"), [GUEST_SUM, VM_TESTS]);
+  for imported in [
+    format!("use avl_guest::*;\n\n{bare}"),
+    format!("use avl_guest::{{\n  collect,\n  other,\n}};\n\n{bare}"),
+    "fn total() -> u32 {\n  avl_guest::collect(&[1])\n}\n".to_string(),
+    "use avl_guest as guest;\nuse ::avl_guest::{self as lib};\n\nfn total() -> u32 {\n  lib::collect(&[1])\n}\n".to_string(),
+  ] {
+    assert_eq!(found(&imported, "on"), [GUEST_SUM, VM_TESTS], "{imported}");
+  }
+}
+
+/// A call in the crate of the removed function is a use: the reference names the commit that removes it and where it
+/// was declared
+#[test]
+fn a_free_call_in_the_same_crate_is_a_use_with_removed_by_and_declared_in() {
+  let repo = TestRepo::new();
+  let (removed_by, fixed_by) = two_crates(&repo, "pub fn collect(values: &[u32]) -> u32", "fn names() -> Vec<u32> {\n  Vec::new()\n}\n");
+  assert_eq!(
+    check(&repo).dangling.get("cleanup").cloned().unwrap_or_default(),
+    [DanglingReference {
+      kind: DanglingKind::Removed,
+      identifier: "collect".to_string(),
+      file: GUEST_SUM.to_string(),
+      line: 1,
+      removed_by,
+      fixed_by: Some(fixed_by),
+      on_baseline: false,
+      possible: false,
+      mutual: false,
+      by_syntax: true,
+      declared_in: DeclaredIn {
+        file: GUEST_LIB.to_string(),
+        line: Some(1),
+      },
+    }]
+  );
+}
+
+/// `pub(crate)` ends at its crate: another crate's `use` of it is no use of it; `pub(self)` is private
+#[test]
+fn a_pub_crate_function_is_not_searched_in_another_crate() {
+  let vm_tests = "use avl_guest::collect;\n\nfn total() -> u32 {\n  avl_guest::collect(&[1])\n}\n";
+  for (declaration, found) in [
+    ("pub(crate) fn collect(values: &[u32]) -> u32", vec![GUEST_SUM]),
+    ("pub(in crate) fn collect(values: &[u32]) -> u32", vec![GUEST_SUM]),
+    ("pub fn collect(values: &[u32]) -> u32", vec![GUEST_SUM, VM_TESTS]),
+    // searched in its own file only
+    ("pub(self) fn collect(values: &[u32]) -> u32", vec![]),
+  ] {
+    let repo = TestRepo::new();
+    two_crates(&repo, declaration, vm_tests);
+    assert_eq!(files_of_cleanup(&repo), found, "{declaration}");
+  }
+}
+
+/// A Kotlin extension is called on a receiver, so such a call stays a use; a top-level function without a receiver is
+/// never called on an expression (`client.controlUrl()` is a member of `Client`), which the syntax trees tell, not the
+/// lines
+#[test]
+fn a_call_on_an_expression_is_a_use_of_an_extension_only() {
+  let repo = TestRepo::new();
+  let util = "package util\n\nfun String.shout(): String = this\n\nfun controlUrl(): String = \"\"\n";
+  repo.create_commit_with_files(
+    "Initial commit",
+    &[
+      ("src/util/Util.kt", util),
+      ("src/flow/Start.kt", "package flow\n\nimport util.shout\n\nfun start(name: String) = name.shout()\n"),
+      ("src/flow/Connect.kt", "package flow\n\nfun connect(client: Client) = client.controlUrl()\n"),
+    ],
+  );
+  repo.create_commit_with_files("(cleanup) Drop the helpers", &[("src/util/Util.kt", "package util\n")]);
+  repo.create_commit_with_files(
+    "(flow) Start and connect plainly",
+    &[
+      ("src/flow/Start.kt", "package flow\n\nfun start(name: String) = name\n"),
+      ("src/flow/Connect.kt", "package flow\n\nfun connect(client: Client) = client\n"),
+    ],
+  );
+  let found = |mode: &str| -> Vec<(String, String)> {
+    repo.set_config("branchdeck.symbols", mode).unwrap();
+    check(&repo)
+      .dangling
+      .get("cleanup")
+      .into_iter()
+      .flatten()
+      .map(|reference| (reference.identifier.clone(), reference.file.clone()))
+      .collect()
+  };
+  let found_by = |pairs: &[(&str, &str)]| -> Vec<(String, String)> { pairs.iter().map(|(name, file)| ((*name).to_string(), (*file).to_string())).collect() };
+  assert_eq!(found("off"), found_by(&[("controlUrl", "src/flow/Connect.kt"), ("shout", "src/flow/Start.kt")]));
+  assert_eq!(found("on"), found_by(&[("shout", "src/flow/Start.kt")]));
 }

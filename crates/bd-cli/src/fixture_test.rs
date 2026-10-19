@@ -223,6 +223,7 @@ pub(crate) fn commit_override_of_overload(repo: &TestRepo) -> (String, String) {
 }
 
 pub(crate) const LEDGER_TEST: &str = "plugins/air/tests/contract/AcpJourneyLifecycleTest.kt";
+pub(crate) const LEDGER: &str = "plugins/air/tests/bridge/AcpOwnershipLedger.kt";
 
 /// The Safe Push failure of IJAI-4185 (2026-10-17) in `repo` (from `repo_with_baseline`): the baseline gets a ledger and
 /// a test that calls its `cleanup`; `(journey)` deletes the test, then `(suspend)` makes `cleanup` suspend. HEAD
@@ -235,7 +236,7 @@ pub(crate) fn commit_changed_declaration(repo: &TestRepo) -> (String, String) {
 /// `commit_changed_declaration` with `cleanup` changed to `header` instead
 pub(crate) fn commit_changed_member(repo: &TestRepo, header: &str) -> (String, String) {
   let ledger = |header: &str| format!("package bridge\n\nclass AcpOwnershipLedger {{\n  {header} {{\n  }}\n}}\n");
-  write(repo, "plugins/air/tests/bridge/AcpOwnershipLedger.kt", ledger("fun cleanup()"));
+  write(repo, LEDGER, ledger("fun cleanup()"));
   write(
     repo,
     LEDGER_TEST,
@@ -245,7 +246,7 @@ pub(crate) fn commit_changed_member(repo: &TestRepo, header: &str) -> (String, S
   git(repo, &["update-ref", "refs/remotes/origin/master", &base]);
   git(repo, &["rm", "-q", "--", LEDGER_TEST]);
   let deleted_by = commit_all(repo, "(journey) IJAI-4182 The journey support goes with its tests", 1_700_000_100);
-  write(repo, "plugins/air/tests/bridge/AcpOwnershipLedger.kt", ledger(header));
+  write(repo, LEDGER, ledger(header));
   let changed_by = commit_all(repo, "(suspend) IJAI-4185 The cleanups may suspend", 1_700_000_200);
   (deleted_by, changed_by)
 }

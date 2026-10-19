@@ -492,18 +492,24 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   symbols), an override of it included, with the evidence; it must not change `ok` or the exit code.
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration`, `an_override_of_another_branchs_overload_is_a_missing_declaration`)
 - A built branch that removes a declaration its virtual tree still uses where HEAD's tree doesn't must be
-  `dangling_reference` (exit 1) with `{kind, identifier, file, line, removed_by, fixed_by, mutual}`, when a commit outside
+  `dangling_reference` (exit 1) with `{kind, identifier, file, line, removed_by, fixed_by, mutual, declared_in}`
+  (`declared_in` the `{file, line}` of the declaration before `removed_by`), when a commit outside
   the branch and its ancestors changes the use (`fixed_by`); `mutual` when that change uses what the branch declares,
   with a `fix` only when a trial build of the plan with it proves it (the branch builds without a proven dangling
   reference, no branch that built breaks): the move of `fixed_by` into the branch when it changes only that file, else
   a `bd move-hunk` command, tried on commits written as objects only that no ref names, at most two per check.
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names`, `a_move_hunk_fix_that_breaks_another_branch_is_not_offered`, `a_branch_that_removes_a_used_declaration_is_dangling_reference`)
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_trial_writes_the_commits_and_moves_no_ref`)
+  With `--allow-dangling` the branch must keep its `result` `dangling_reference` and its references, and only `ok` and
+  the exit code must count it as building, as `bd safe-push --allow-dangling` starts anyway; any other failure must
+  still be exit 1.
+  [@test] ../../crates/bd-cli/src/check_test.rs (`allow_dangling_keeps_the_reference_and_exits_0`)
   A use no commit changes, and one the baseline got after the base, must be a `possible_dangling_reference` warning that
   leaves the exit code alone. A declaration still in its file, a private one used elsewhere, a use HEAD has as often, a
   use the branch changes itself, a member moved with its class, a declaration moved within its package and a private one
   the branch declares elsewhere must not count, nor, by the syntax trees, a word of a comment or a string, a local of
-  the same name, the name of an `override` member or a name a `use` or an import alias still binds; `via` must say
+  the same name, the name of an `override` member or a name a `use` or an import alias still binds, nor a Rust name after
+  a single `.`, nor the uses the Rust crates rule out ([Symbol Dependencies](../commit/symbol-dependencies.spec.md)); `via` must say
   whether the trees confirmed the uses (`syntax_tree`) or the lines alone found them (`lines`). Only the paths where the
   trees differ may be read.
   [@test] ../../crates/sync-core/src/dangling_references_test.rs (`the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch`, `a_use_changed_by_the_branch_itself_is_not_dangling`, `a_declaration_changed_in_place_is_not_dangling`, `a_reformatted_use_is_not_dangling`, `a_private_declaration_is_not_searched_outside_its_file`, `a_removed_top_level_function_is_searched_by_its_name`, `a_use_landed_on_the_baseline_is_a_possible_reference`, `a_member_moved_with_its_class_is_not_dangling`, `a_top_level_function_moved_within_its_package_is_not_dangling`, `a_private_declaration_moved_elsewhere_is_not_dangling`, `a_name_re_exported_by_a_use_is_not_removed`, `a_word_in_kdoc_is_no_use`, `an_override_line_is_no_use`, `a_local_val_shadows_a_private_member_of_another_class`)

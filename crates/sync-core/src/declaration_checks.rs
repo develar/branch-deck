@@ -524,6 +524,12 @@ impl DeclarationSearch<'_> {
     &self.words
   }
 
+  /// The line of its first declaration on the side the uses were written against, 1-based: before the commit, after it
+  /// for a duplicate
+  pub fn declared_line(&self) -> Option<u32> {
+    self.old.first().map(|&index| self.side.summary.declarations[index].name_line)
+  }
+
   /// Whether a file of `summary` may use it, by the names it has; `None`, a summary not known yet, may
   pub fn may_use(&self, summary: Option<&FileSummary>) -> bool {
     summary.is_none_or(|summary| self.words.iter().any(|word| summary.name_id(word).is_some()))

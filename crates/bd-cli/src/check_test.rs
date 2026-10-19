@@ -1,7 +1,7 @@
-use crate::check_command::{DanglingReferenceSummary, dangling_reference_message};
+use crate::check_command::{DanglingReferenceSummary, DeclarationPlace, dangling_reference_message};
 use crate::fixture_test::{
-  ACP_HOST, LEDGER_TEST, MANAGER_TEST, commit_all, commit_changed_declaration, commit_changed_member, commit_dangling_reference, commit_override_of_overload, git,
-  repo_with_baseline, run_in, with_header, write,
+  ACP_AGENT, ACP_HOST, LEDGER, LEDGER_TEST, MANAGER_TEST, commit_all, commit_changed_declaration, commit_changed_member, commit_dangling_reference, commit_override_of_overload,
+  git, repo_with_baseline, run_in, with_header, write,
 };
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
@@ -212,6 +212,7 @@ fn a_branch_that_removes_a_used_declaration_is_dangling_reference() {
         "fixed_by": short_id(&fixed_by),
         "mutual": true,
         "via": "syntax_tree",
+        "declared_in": { "file": ACP_AGENT, "line": 4 },
         "fix": { "kind": "move_commit", "branches": { "fake-agent": [short_id(&fixed_by)] } },
       }],
     })
@@ -223,6 +224,27 @@ fn a_branch_that_removes_a_used_declaration_is_dangling_reference() {
   let plan = json!({ "branches": { "fake-agent": [removed_by, fixed_by] } });
   let (exit_code, output) = check(&repo, &plan, &[]);
   assert_eq!(exit_code, 0, "{output}");
+}
+
+/// `--allow-dangling` counts a dangling reference as building, as `bd safe-push --allow-dangling` starts anyway: the
+/// branch keeps its `result` and the reference, `ok` and the exit code take it; a conflict still fails
+#[test_log::test]
+fn allow_dangling_keeps_the_reference_and_exits_0() {
+  let dangling = repo_with_baseline(&[("README.md", "readme\n")]);
+  let (removed_by, _) = commit_dangling_reference(&dangling);
+
+  let (exit_code, output) = run_in(&dangling, &["check", "--allow-dangling"]);
+  assert_eq!((exit_code, &output["ok"]), (0, &json!(true)), "{output}");
+  let fake_agent = branch(&output, "fake-agent");
+  assert_eq!(fake_agent["result"], json!("dangling_reference"), "{output}");
+  assert_eq!(fake_agent["dangling_references"][0]["removed_by"], json!(short_id(&removed_by)), "{output}");
+  assert_check_schema(&dangling, &output);
+
+  let (conflicting, ids) = repo();
+  let plan = tempfile::NamedTempFile::new().unwrap();
+  std::fs::write(plan.path(), json!({ "branches": { "b": [ids[1]] } }).to_string()).unwrap();
+  let (exit_code, output) = run_in(&conflicting, &["check", "--allow-dangling", "--plan", plan.path().to_str().unwrap()]);
+  assert_eq!((exit_code, &branch(&output, "b")["result"]), (1, &json!("conflict")), "{output}");
 }
 
 /// A branch that makes a function suspend, whose tree has a call of it that another branch deleted: the old form takes
@@ -248,6 +270,7 @@ fn a_branch_that_changes_a_used_declaration_is_dangling_reference() {
         "removed_by": short_id(&changed_by),
         "fixed_by": short_id(&deleted_by),
         "via": "syntax_tree",
+        "declared_in": { "file": LEDGER, "line": 4 },
       }],
     })
   );
@@ -280,6 +303,7 @@ fn a_changed_return_type_is_a_possible_changed_declaration() {
       "removed_by": short_id(&changed_by),
       "fixed_by": short_id(&deleted_by),
       "via": "syntax_tree",
+      "declared_in": { "file": LEDGER, "line": 4 },
     }])
   );
   assert_check_schema(&repo, &output);
@@ -373,6 +397,7 @@ fn a_possible_dangling_reference_is_a_warning_and_exit_0() {
       "removed_by": short_id(&removed_by),
       "on_baseline": true,
       "via": "syntax_tree",
+      "declared_in": { "file": "src/util/Util.kt", "line": 3 },
     }])
   );
 }
@@ -701,6 +726,10 @@ fn a_dangling_reference_message_describes_two_whole_and_counts_from_three_on() {
     fixed_by: fixed_by.to_string(),
     mutual: false,
     via: "syntax_tree",
+    declared_in: DeclarationPlace {
+      file: LEDGER.to_string(),
+      line: Some(4),
+    },
     fix: None,
   };
   let of = |references: &[(&str, &str)]| -> Vec<(String, DanglingReferenceSummary)> {
@@ -738,6 +767,10 @@ fn a_dangling_reference_message_names_the_kind() {
     fixed_by: "aa0fb473".to_string(),
     mutual: false,
     via: "syntax_tree",
+    declared_in: DeclarationPlace {
+      file: LEDGER.to_string(),
+      line: Some(4),
+    },
     fix: None,
   };
   let message = |kind| dangling_reference_message("suspend", &[("suspend".to_string(), reference(kind))]);

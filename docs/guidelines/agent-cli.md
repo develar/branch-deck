@@ -725,7 +725,7 @@ HEAD's tree, so the index and the working tree stay as they are
 - `--dry-run` prints the blocks and checks the rewrite (the merges and the empty commits); it writes only git objects.
   `--sync` syncs under the same lock, as `bd group --sync` does. `bd undo <undo_token>` restores the previous head.
 
-### `bd check [--plan FILE | < plan.json] [--build COMMAND [--build-paths PATH…] [--rebuild]] [--fix [--max-trials N] [--time-budget SECONDS]]`
+### `bd check [--plan FILE | < plan.json] [--build COMMAND [--build-paths PATH…] [--rebuild]] [--fix [--max-trials N] [--time-budget SECONDS]] [--allow-dangling]`
 
 A trial sync of a plan (`sync_core::check`), or of the current grouping without one. The plan is applied in memory
 and validated as `bd group --dry-run` does, `descriptions` included (an invalid plan is exit 2), the branches are
@@ -750,7 +750,9 @@ repository lock.
   one that has them.
 - `dangling_reference`: git merges the branch, but its build fails. It removes a declaration (a top-level type or
   function, a static member) that a file of its virtual tree still uses, and a commit outside it, `fixed_by`, changes
-  that use in HEAD. `dangling_references` lists `{kind, identifier, file, line, removed_by, fixed_by, mutual}`: move
+  that use in HEAD. `dangling_references` lists `{kind, identifier, file, line, removed_by, fixed_by, mutual,
+  declared_in}`, `declared_in` the `{file, line}` of the declaration before `removed_by`, for a reader to judge whether
+  the use means it: move
   `fixed_by` into the branch or stack the branch on the one that has it; `mutual`, when the change in `fixed_by` uses
   what the branch adds (as in a move of a constant into a new class), means no stack builds both, and `fix` says how
   the change gets into the branch: `{kind: "move_commit", branches}` when `fixed_by` changes only `file` (add
@@ -759,10 +761,16 @@ repository lock.
   the plan with it proves it: the branch builds and no branch that built breaks (a hunk move is tried on commits
   written as objects only, at most two per check); without one, `--fix` searches the regroups. A use that no commit here changes, or one that the baseline got after the base (Patronus
   merges onto its tip), is `warnings[]` `{kind: "possible_dangling_reference", branch, identifier, file, line,
-  removed_by, on_baseline, via}` and doesn't count for the exit code. The lines find the candidates (Java, Kotlin,
-  Groovy, Scala, Rust, TypeScript, JavaScript, Python, Go): instance members are not searched, and a use through an
-  alias or a star import is not seen. The syntax trees of Kotlin, Java, Rust, TypeScript and JavaScript then take away
-  a word of a comment or a string, a local of the same name and a name a `use` or an import alias still binds: `via`
+  removed_by, on_baseline, via, declared_in}` and doesn't count for the exit code. The lines find the candidates (Java,
+  Kotlin, Groovy, Scala, Rust, TypeScript, JavaScript, Python, Go): instance members are not searched, and a use through
+  an alias or a star import is not seen. A Rust name after a single `.` is a field or a method, no use; with
+  `branchdeck.symbols on` a Rust file of another crate uses a declaration only through its crate (its name, or a `use`
+  of it that names the declaration, a glob or the module of the path), and a `pub(crate)` one not at all.
+  `--allow-dangling` counts a branch whose
+  only failure is a dangling reference in `ok` and the exit code (its `result` stays), for a false alarm, as
+  `bd safe-push --allow-dangling` starts anyway. The syntax trees of Kotlin, Java, Rust, TypeScript and JavaScript then take away
+  a word of a comment or a string, a local of the same name, a name a `use` or an import alias still binds and a call
+  on an expression of a Kotlin top-level function that is no extension: `via`
   is `syntax_tree` where they confirmed the uses, `lines` where the lines alone found them. With `branchdeck.symbols
   on` the syntax summaries find three more kinds by themselves (`kind`; the lines' are `removed_declaration`):
   `removed_declaration` of an instance or static member, or an enum entry, used on a receiver of its type, by `this`,

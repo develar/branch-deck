@@ -1,5 +1,5 @@
 use crate::check::{CheckOutcome, CheckReport, CheckSession};
-use crate::dangling_references::{DanglingKind, DanglingReference};
+use crate::dangling_references::{DanglingKind, DanglingReference, DeclaredIn};
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -86,6 +86,10 @@ fn a_function_made_suspend_dangles_where_another_branch_removed_its_call() {
       possible: false,
       mutual: false,
       by_syntax: true,
+      declared_in: DeclaredIn {
+        file: LEDGER.to_string(),
+        line: Some(6),
+      },
     }]
   );
   assert!(!report.builds_cleanly("suspend"));
@@ -155,6 +159,10 @@ fn a_removed_instance_member_dangles_where_its_receiver_calls_it() {
       possible: false,
       mutual: false,
       by_syntax: true,
+      declared_in: DeclaredIn {
+        file: LEDGER.to_string(),
+        line: Some(6),
+      },
     }]
   );
 }
@@ -184,6 +192,10 @@ fn a_type_declared_again_in_the_same_package_is_a_duplicate() {
       possible: false,
       mutual: false,
       by_syntax: true,
+      declared_in: DeclaredIn {
+        file: NEW_PANE.to_string(),
+        line: Some(3),
+      },
     }]
   );
 }

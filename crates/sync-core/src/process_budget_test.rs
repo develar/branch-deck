@@ -526,17 +526,7 @@ fn the_checks_of_a_session_on_sources() {
     let report = session.check(None).unwrap();
     assert!(!report.builds_cleanly("suspend"), "{:?}", report.dangling);
   });
-  assert_eq!(
-    first,
-    [
-      ("cat-file".to_string(), 4),
-      ("diff-tree".to_string(), 1),
-      ("fast-import".to_string(), 2),
-      ("log".to_string(), 3),
-      ("merge-tree".to_string(), 1),
-      ("rev-parse".to_string(), 1),
-    ]
-  );
+  assert_eq!(first, counts(&FIRST_SOURCES_CHECK));
   let second = processes_of(&git, || {
     session.check(None).unwrap();
   });
@@ -547,6 +537,50 @@ fn the_checks_of_a_session_on_sources() {
     rewritten.check(None).unwrap();
   });
   assert_eq!(third, again);
+}
+
+/// The processes of the first check of a branch that removes a declaration of a source file: the blobs of the search
+/// and the summaries
+const FIRST_SOURCES_CHECK: [(&str, u32); 6] = [("cat-file", 4), ("diff-tree", 1), ("fast-import", 2), ("log", 3), ("merge-tree", 1), ("rev-parse", 1)];
+
+/// `expected` as `processes_of` gives it
+fn counts(expected: &[(&str, u32)]) -> Vec<(String, u32)> {
+  expected.iter().map(|(command, count)| ((*command).to_string(), *count)).collect()
+}
+
+/// The check of a Rust item a branch removes, with the crates known: the line search reads the file it was removed from
+/// for the line of the declaration (`declared_in`) in the same `cat-file` as the blobs of the search, and the crates
+/// come with the summaries
+#[test]
+fn the_check_of_a_removed_rust_item() {
+  let repo = repo_on_origin();
+  repo.create_commit_with_files(
+    "Add the crates",
+    &[
+      ("guest/Cargo.toml", "[package]\nname = \"guest\"\n"),
+      ("guest/src/lib.rs", "pub fn collect() -> u32 {\n  1\n}\n"),
+      ("guest/src/sum.rs", "pub fn total() -> u32 {\n  crate::collect()\n}\n"),
+      ("vm/Cargo.toml", "[package]\nname = \"vm\"\n"),
+      ("vm/src/lib.rs", "pub fn names() -> Vec<u32> {\n  (0..2).collect()\n}\n"),
+    ],
+  );
+  repo.git(&["update-ref", "refs/remotes/origin/master", "HEAD"]);
+  repo.create_commit_with_files("(cleanup) Drop collect", &[("guest/src/lib.rs", "pub fn other() {}\n")]);
+  repo.create_commit_with_files(
+    "(vm) Count plainly",
+    &[
+      ("guest/src/sum.rs", "pub fn total() -> u32 {\n  1\n}\n"),
+      ("vm/src/lib.rs", "pub fn names() -> Vec<u32> {\n  vec![0, 1]\n}\n"),
+    ],
+  );
+  let (_dir, cache) = empty_cache();
+  let (git, session) = counted_session(&repo, &cache);
+  let processes = processes_of(&git, || {
+    let report = session.check(None).unwrap();
+    let found: Vec<(&str, Option<u32>)> = report.dangling["cleanup"].iter().map(|it| (it.file.as_str(), it.declared_in.line)).collect();
+    assert_eq!(found, [("guest/src/sum.rs", Some(1))]);
+  });
+  assert_eq!(processes, counts(&FIRST_SOURCES_CHECK));
 }
 
 /// A change of the working tree amended into the oldest commit of alpha

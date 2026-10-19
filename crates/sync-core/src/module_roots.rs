@@ -73,6 +73,13 @@ impl ModuleRoots {
     self.nearest(path, |facts| facts.cargo.is_some())
   }
 
+  /// `crate_of` of a path whose directory `read` was given: `None` for a path in no crate, and for a path of a
+  /// directory not read (a path of the baseline after the base), whose crate is not known
+  pub fn read_crate_of(&self, path: &str) -> Option<&str> {
+    let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
+    self.dirs.contains_key(dir).then(|| self.crate_of(path)).flatten()
+  }
+
   /// The root of the TypeScript or JavaScript package of `path`: the nearest directory with a `package.json`
   pub fn package_of(&self, path: &str) -> Option<&str> {
     self.nearest(path, |facts| facts.package)

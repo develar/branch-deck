@@ -88,13 +88,14 @@ Workflow: the commits into pull requests
      branchdeck.resolveByWords` on (the default) the sync commits the result as IntelliJ resolves it, all or nothing
      per commit, and the branch is `ok`. `bd sync` lists such commits in `resolved` of the branch, `bd status` and
      `bd commits` in `resolved_by_words` of the commit; nothing to do.
-   - `dangling_reference` (`dangling_references` {kind, identifier, file, line, removed_by, fixed_by, mutual}): git
-     merges it, the build fails. The branch removes (`removed_declaration`) or changes (`changed_declaration`, e.g.
-     made `suspend`) a declaration its tree still uses, or declares one its tree has in another file
-     (`duplicate_declaration`), and `fixed_by` of another branch changes that use or deletes that file. Move `fixed_by`
-     into the branch, or stack it on that branch; `mutual`: that change needs the branch too, so `fix` moves it into
-     the branch, as `move_commit` (its `branches` into the plan) or `move_hunk` (a ready `command`, once the user
-     approved), each proven by a trial build; no `fix`: none builds.
+   - `dangling_reference` (`dangling_references` {kind, identifier, file, line, removed_by, fixed_by, mutual,
+     declared_in}): git merges it, the build fails. The branch removes (`removed_declaration`) or changes
+     (`changed_declaration`, e.g. made `suspend`) a declaration (`declared_in` {file, line}) its tree still uses, or
+     declares one its tree has in another file (`duplicate_declaration`), and `fixed_by` of another branch changes that
+     use or deletes that file. Move `fixed_by` into the branch, or stack it on that branch; `mutual`: that change needs
+     the branch too, so `fix` moves it into the branch, as `move_commit` (its `branches` into the plan) or `move_hunk`
+     (a ready `command`, once the user approved), each proven by a trial build; no `fix`: none builds. When the user
+     says the use means another declaration, `bd check --allow-dangling` keeps the `result` and exits 0.
    - `blocked` (`blocked_by`: the parent it can't be built on), `problems`, `error`; `build_failed` (below).
    `bd check --fix` searches, by trial builds, the regroup that fixes the conflicts and dangling references: each
    `fix.components[].plan` is a whole plan for the next step, and its `steps` say what moves where (show them before

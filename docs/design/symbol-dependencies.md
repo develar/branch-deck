@@ -504,6 +504,27 @@ flowchart TD
     Rust and TypeScript have no `changed` and no duplicates (a `#[cfg]` pair and the overload signatures of TypeScript
     declare a name twice on purpose).
 
+16. **Decision**: the line search of the dangling-reference check scopes a Rust item by the syntax of a use and by the
+    crates, and a Kotlin top-level function by its receiver. A Rust name after a single `.` is a field or a method,
+    never an item (`..` is a range), a rule of the lines that holds with the symbols off. With `branchdeck.symbols on`
+    the module roots know the crate of each path of the commits (`ModuleRoots::read_crate_of`, the nearest
+    `Cargo.toml`) and `SymbolInput::crates` its name: a `pub(crate)`, `pub(super)` or `pub(in …)` item is searched in
+    its own crate only, `pub(self)` as a private one, and a file of another crate uses a `pub` item only through its
+    crate (`Reached`): a path that starts with the crate's name or with a name a `use` of the crate binds, or a bare
+    name where such a `use` names the item or a glob. A Kotlin top-level function that is no extension (no receiver
+    in `KOTLIN_FUN`) counts, by the syntax trees, no call on an expression: an empty `qualifier`. Each reference names
+    its declaration (`declared_in`: the file and the line before `removed_by`), read in the same `cat-file`.
+    **Rationale**: a `bd check` of the IntelliJ checkout (2026-10-19) reported `.collect()` of an iterator in a test of
+    `avl-vm` as a use of a `fn collect` another branch removed from `avl-guest`: the whole word matched, and nothing
+    else said what the name was. A free function is never called on a receiver, and a crate sees another's items only
+    through its name, which the `use` trees show without a resolver; the crates are the module roots the summaries
+    read already, so the rule costs no process. The dot rule is Rust's only: `com.x.f()` in the JVM languages and
+    `pkg.f()` in Go are calls of `f`, and Kotlin's receiver is told by the tree, where an expression has an empty
+    qualifier, not by the text. A Rust qualifier in the summary doesn't tell `self.collect()` from `module::collect`
+    (both have segments), so the dot rule is of the text. Limits: a crate renamed in `Cargo.toml` (`package = …`) and
+    `extern crate … as …` are not followed; without the symbols, or for a path of no known crate (Bazel without a
+    `Cargo.toml`, the baseline after the base), every file of the language is searched, the dot rule kept.
+
 ### Implementation Notes
 
 - `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules and the grammars' node types);
@@ -540,7 +561,8 @@ flowchart TD
   the baseline; `receivers` and `imports_of_function` with `is_default_function` for both), the removals that need the
   removal of the uses, the entities each commit changes.
 - `crates/sync-core/src/dangling_references.rs`: `SyntaxMemo` and the subtraction; the name of an `override` member
-  is no use (`on_syntax`); `DanglingKind`, and `TreeSearch`, which runs the declaration searches on the same
+  and a call on an expression of a function without a receiver are no use (`on_syntax`); the Rust scope of decision 16
+  (`Search::names_it`, `Search::reached`, `RustScope`, `rust_scope`, `path_head`) and `DeclaredIn`; `DanglingKind`, and `TreeSearch`, which runs the declaration searches on the same
   `diff-tree` and `cat-file` (`branch_file`, the summaries of the commits' blobs before `SyntaxMemo`, `fixed_by`).
 - `crates/sync-core/src/declaration_checks.rs`, a child module of `symbol_dependencies` (decision 15):
   `searches_of` (the declarations on the changed lines of a branch's commits, `changed_form`, `constructor_forms`,

@@ -124,6 +124,28 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_reference_knows_its_coroutine_context`)
 - The dangling-reference check must take the name of an `override` member for no use: it declares one.
   [@test] ../../crates/sync-core/src/dangling_references_test.rs (`an_override_line_is_no_use`)
+- The dangling-reference check must take a Rust name after a single `.` (not `..`) for no use of a removed item: it is
+  a field or a method (`.collect()`). The rule is of the lines, so it must hold with `branchdeck.symbols` `off` too.
+  [@test] ../../crates/sync-core/src/dangling_references_test.rs (`a_method_call_is_no_use_of_a_removed_free_function`)
+- With `branchdeck.symbols on`, which knows the crate of each path of the commits (the nearest `Cargo.toml`,
+  `ModuleRoots::read_crate_of`, its name from `SymbolInput::crates`), the dangling-reference check must count a use of a
+  removed `pub` Rust item in a file of another crate only through the item's crate: a path that starts with the crate's
+  name or with a name a `use` of the crate binds, or a bare name where such a `use` names the item or a glob. A use in
+  the item's own crate must count as before. Where the crate is not known (`report`, `off`, a path of no `Cargo.toml`,
+  a path of the baseline after the base), every file of the language must be searched.
+  [@test] ../../crates/sync-core/src/dangling_references_test.rs (`a_free_call_in_another_crate_without_a_use_is_no_use`, `a_free_call_in_the_same_crate_is_a_use_with_removed_by_and_declared_in`)
+- A `pub(crate)`, `pub(super)` or `pub(in …)` Rust item must be searched in its own crate only (with the crates known),
+  and a `pub(self)` one as a private one, in its own file.
+  [@test] ../../crates/sync-core/src/dangling_references_test.rs (`a_pub_crate_function_is_not_searched_in_another_crate`)
+- By the syntax trees, a call on an expression (an empty qualifier: `client.controlUrl()`) must be no use of a removed
+  Kotlin top-level function that is no extension; a call of an extension on its receiver must stay one. No other
+  language drops a qualified use: `pkg.f()` is a call of `f`.
+  [@test] ../../crates/sync-core/src/dangling_references_test.rs (`a_call_on_an_expression_is_a_use_of_an_extension_only`)
+- A dangling reference must name where the declaration is (`declared_in`: its file and its 1-based line in the file
+  before `removed_by`, after it for a duplicate), read in the same `cat-file --batch` as the blobs of the search.
+  [@test] ../../crates/sync-core/src/dangling_references_test.rs (`a_free_call_in_the_same_crate_is_a_use_with_removed_by_and_declared_in`, `the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch`)
+  [@test] ../../crates/sync-core/src/declaration_checks_test.rs (`a_function_made_suspend_dangles_where_another_branch_removed_its_call`, `a_type_declared_again_in_the_same_package_is_a_duplicate`)
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`the_check_of_a_removed_rust_item`)
 - A rule must name only node kinds its grammar has.
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_spec_kind_exists_in_its_grammar`)
 - The commits' changes must carry the full ids of the blobs before and after each file, from the same `log --raw`

@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use sync_core::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
 use sync_core::conflict_fix::{ConflictFix, FixBudget, FixRun, FixStepKind, SearchState};
 use sync_core::dangling_fix::{DanglingFixProver, ProvenFix};
-use sync_core::dangling_references::{DanglingKind, DanglingReference};
+use sync_core::dangling_references::{DanglingKind, DanglingReference, DeclaredIn};
 use sync_core::inverted_stack::{InvertedStackFixKind, inverted_stack};
 use sync_core::missing_commits::{changed_files, missing_commits};
 use sync_core::missing_declarations::missing_declarations;
@@ -60,6 +60,11 @@ pub struct CheckArgs {
   /// plan so far, with `"search": "budget"`
   #[arg(long, value_name = "SECONDS", requires = "fix")]
   pub time_budget: Option<u64>,
+  /// Count a branch whose only failure is a dangling reference as building: its `result` stays `dangling_reference`,
+  /// `ok` and the exit code take it, as `bd safe-push --allow-dangling` starts anyway. For a reference the user says is
+  /// a false alarm
+  #[arg(long)]
+  pub allow_dangling: bool,
 }
 
 /// The trial builds of `bd check --fix` without --max-trials
@@ -79,7 +84,7 @@ pub struct CheckOutput {
   pub base_commit: Option<String>,
   /// The subjects the plan changes
   pub rewritten: usize,
-  /// Every branch builds
+  /// Every branch builds; with --allow-dangling a `dangling_reference` counts as building
   pub ok: bool,
   /// Parents before their children
   pub branches: Vec<CheckedBranch>,
@@ -237,6 +242,26 @@ pub struct CheckWarning {
   pub on_baseline: bool,
   /// As `via` of a dangling reference
   pub via: &'static str,
+  /// As `declared_in` of a dangling reference
+  pub declared_in: DeclarationPlace,
+}
+
+/// Where the declaration is that `removed_by` removes, changes or adds
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct DeclarationPlace {
+  pub file: String,
+  /// 1-based, in the file before `removed_by` (after it for `duplicate_declaration`); none when that file can't be read
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub line: Option<u32>,
+}
+
+impl DeclarationPlace {
+  fn of(declared_in: &DeclaredIn) -> Self {
+    Self {
+      file: declared_in.file.clone(),
+      line: declared_in.line,
+    }
+  }
 }
 
 /// How the uses of a dangling reference were found, for `via`
@@ -363,6 +388,8 @@ pub struct DanglingReferenceSummary {
   /// `syntax_tree`: the syntax trees of both sides confirmed the uses; `lines`: the lines alone found them (a language
   /// without a grammar, or a file the parser can't read well)
   pub via: &'static str,
+  /// Where the declaration is that `removed_by` removes, changes or adds: a reader judges by it whether the use means it
+  pub declared_in: DeclarationPlace,
   /// With `mutual`: how the change of the use gets into the branch, as a trial build of the plan with it proves it (the
   /// branch builds, no branch that built breaks); none when neither move builds, or `bd check` didn't try
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -503,7 +530,9 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
     baseline: report.baseline_branch.clone(),
     base_commit: report.base.as_deref().map(|base| short.get(base).to_string()),
     rewritten: report.regroup.changed_count(),
-    ok: branches.iter().all(|branch| branch.result == "ok"),
+    ok: branches
+      .iter()
+      .all(|branch| branch.result == "ok" || (args.allow_dangling && branch.result == "dangling_reference")),
     branches,
     unassigned_count: report.unassigned,
     warnings,
@@ -549,6 +578,7 @@ pub(crate) fn possible_dangling_references(report: &CheckReport, short: &ShortId
       fixed_by: reference.fixed_by.as_deref().filter(|_| !reference.on_baseline).map(|id| short.get(id).to_string()),
       on_baseline: reference.on_baseline,
       via: found_via(reference),
+      declared_in: DeclarationPlace::of(&reference.declared_in),
     })
     .collect()
 }
@@ -576,6 +606,7 @@ pub(crate) fn confirmed_dangling_references(report: &CheckReport, branch: &Branc
         fixed_by,
         mutual: reference.mutual,
         via: found_via(reference),
+        declared_in: DeclarationPlace::of(&reference.declared_in),
       })
     })
     .collect()
