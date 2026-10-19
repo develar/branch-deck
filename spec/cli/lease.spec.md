@@ -64,6 +64,9 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   later gets must try a dirty slot after the clean ones. With no free slot left, the get must add a new slot with
   `git worktree add --detach` (`reused: false`), after a `git worktree prune`.
   [@test] ../../crates/bd-cli/src/lease_test.rs (`a_dirty_free_slot_is_skipped_and_a_new_slot_is_added`)
+- The checkout of a reused slot and the `worktree add` of a new one must run with `-c checkout.workers=0` (one
+  worker per core), unless the repository config sets `checkout.workers`.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_sets_it`)
 - A new slot must be `<pool>/<n>/<repository name>`, so the leaf directory keeps the name of the repository. The pool
   directory is `~/.branch-deck/pool/<repository name>-<8 hex digits of the SHA-256 of the canonical common dir>`, or
   `branchdeck.leasePool` of the git config.

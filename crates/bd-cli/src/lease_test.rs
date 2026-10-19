@@ -188,6 +188,66 @@ fn a_busy_free_slot_is_skipped() {
   );
 }
 
+/// The `argv` of every git that started since the trace file was emptied, from its trace2 `start` events
+fn started_gits(trace: &Path) -> Vec<Vec<String>> {
+  let text = std::fs::read_to_string(trace).unwrap_or_default();
+  std::fs::write(trace, "").unwrap();
+  text
+    .lines()
+    .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+    .filter(|event| event["event"] == json!("start"))
+    .map(|event| event["argv"].as_array().unwrap().iter().map(|arg| arg.as_str().unwrap().to_string()).collect())
+    .collect()
+}
+
+/// The `argv` of the gits whose subcommand (after the `-c` options) is `subcommand`
+fn gits_of<'a>(gits: &'a [Vec<String>], subcommand: &str) -> Vec<&'a Vec<String>> {
+  gits
+    .iter()
+    .filter(|argv| {
+      argv
+        .iter()
+        .skip(1)
+        .filter(|arg| !arg.starts_with('-') && !arg.contains('='))
+        .take(1)
+        .any(|arg| arg == subcommand)
+    })
+    .collect()
+}
+
+/// The checkout of a new slot and of a reused one run with `checkout.workers=0`, one worker per core, unless the
+/// repository sets `checkout.workers` itself
+#[test_log::test]
+fn every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_sets_it() {
+  let fixture = Fixture::new();
+  let trace = fixture.home.path().join("trace2.json");
+  let _env = test_utils::env_vars::EnvVars::set(&[("GIT_TRACE2_EVENT", &trace)]);
+  let parallel = |argv: &&Vec<String>| argv.windows(2).any(|pair| pair[0] == "-c" && pair[1] == "checkout.workers=0");
+
+  let path = path_of(&fixture.get(&[]));
+  let gits = started_gits(&trace);
+  assert!(
+    gits_of(&gits, "worktree").iter().any(|argv| argv.contains(&"add".to_string()) && parallel(argv)),
+    "{gits:?}"
+  );
+  fixture.give_back(&path);
+  fixture.repo.create_commit("Add c", "c.txt", "c\n");
+  started_gits(&trace);
+  fixture.get(&[]);
+  let gits = started_gits(&trace);
+  let checkouts = gits_of(&gits, "checkout");
+  assert!(!checkouts.is_empty() && checkouts.iter().all(parallel), "{gits:?}");
+
+  fixture.give_back(&path);
+  fixture.repo.set_config("checkout.workers", "2").unwrap();
+  fixture.repo.create_commit("Add d", "d.txt", "d\n");
+  started_gits(&trace);
+  fixture.get(&[]);
+  let gits = started_gits(&trace);
+  let checkouts = gits_of(&gits, "checkout");
+  assert!(!checkouts.is_empty() && !checkouts.iter().any(parallel), "{gits:?}");
+}
+
 /// Concurrent gets reserve their slots under the pool lock: never one slot twice, whether reused or new
 #[test_log::test]
 fn two_leases_never_get_the_same_slot() {

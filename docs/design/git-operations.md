@@ -1078,6 +1078,10 @@ the state is read and written, never across a git that writes a slot.
    case-insensitive file system `status` does not see a case-only rename, and a plain checkout then refuses.
 3. No free slot: `worktree prune`, best effort, then `worktree add --detach <pool>/<n>/<repository name> <source
    HEAD>`, the only full checkout. The leaf keeps the name of the repository, which tools derive identity from.
+
+Both checkouts run with `-c checkout.workers=0`, one worker per core, unless the repository config sets
+`checkout.workers` (one `config --get-regexp` reads it with `branchdeck.leasePool`): git's default of one worker
+checked out 43,891 files of idea-1 in 12.2 s, 18 workers in 4.2 s.
 4. Seed: the ignored paths that `.worktreeinclude` at the source root names are copied into the slot. A pattern is a
    literal path or a glob in its last component, read from that one directory, never a walk of the tree; one
    `check-ignore -z --stdin` in the source keeps only the ignored ones.

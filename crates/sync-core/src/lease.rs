@@ -10,7 +10,7 @@ use crate::resolve_copies::display_path;
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{
-  UnlandedCommit, add_slot, checkout_slot, detach_slot_head, discard_slot_changes, ignored_paths, is_valid_branch_name, lease_pool_config, linked_worktree, slot_changes,
+  LeaseConfig, UnlandedCommit, add_slot, checkout_slot, detach_slot_head, discard_slot_changes, ignored_paths, is_valid_branch_name, lease_config, linked_worktree, slot_changes,
   unlanded_commits,
 };
 use git_ops::revs::{RepositoryDirs, read_head, ref_exists, resolve_commit};
@@ -202,10 +202,10 @@ pub fn repository_name(git_common_dir: &Path) -> String {
   leaf.strip_suffix(".git").unwrap_or(&leaf).to_string()
 }
 
-/// The directory of the new slots: `branchdeck.leasePool` (a relative one under the repository), else
+/// The directory of the new slots: `branchdeck.leasePool` of `config` (a relative one under the repository), else
 /// `~/.branch-deck/pool/<repository name>-<8 hex digits of the SHA-256 of the canonical common dir>`
-pub fn pool_dir(git_executor: &GitCommandExecutor, repository: &str, git_common_dir: &Path, home: Option<&Path>) -> Result<PathBuf> {
-  if let Some(configured) = lease_pool_config(git_executor, repository)? {
+pub fn pool_dir(config: &LeaseConfig, repository: &str, git_common_dir: &Path, home: Option<&Path>) -> Result<PathBuf> {
+  if let Some(configured) = &config.pool {
     return Ok(Path::new(repository).join(configured));
   }
   let home = home.ok_or_else(|| anyhow!("No home directory for the lease pool; set `git config branchdeck.leasePool <dir>`"))?;
@@ -282,7 +282,8 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
       bail!(LeaseRefusal::BranchExists(branch.clone()));
     }
   }
-  let pool_dir = pool_dir(git_executor, source, &git_common_dir, params.home)?;
+  let config = lease_config(git_executor, source)?;
+  let pool_dir = pool_dir(&config, source, &git_common_dir, params.home)?;
   std::fs::create_dir_all(&pool_dir).with_context(|| format!("Cannot create the pool directory {}", pool_dir.display()))?;
   let pool_dir = PathBuf::from(canonical_path(&pool_dir));
   let seeds = seed_paths(git_executor, source)?;
@@ -327,7 +328,8 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
           });
           continue;
         }
-        checkout_slot(git_executor, &path, &source_head, params.branch.as_deref()).map_err(|error| give_back(&pool, params.lock_timeout, &path, &lease.id, false, error))?;
+        checkout_slot(git_executor, &path, &source_head, params.branch.as_deref(), config.workers)
+          .map_err(|error| give_back(&pool, params.lock_timeout, &path, &lease.id, false, error))?;
         (path, true)
       }
       Reserved::New { path } => {
@@ -336,7 +338,7 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
           .parent()
           .map_or(Ok(()), std::fs::create_dir_all)
           .map_err(anyhow::Error::from)
-          .and_then(|()| add_slot(git_executor, source, &path, &source_head, params.branch.as_deref()));
+          .and_then(|()| add_slot(git_executor, source, &path, &source_head, params.branch.as_deref(), config.workers));
         if let Err(error) = added {
           // the number directory, when the add left it empty
           if let Some(parent) = path.parent() {

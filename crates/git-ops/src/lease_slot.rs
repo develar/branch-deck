@@ -10,9 +10,6 @@ use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::path::{Path, PathBuf};
 
-/// The git config key that moves the pool of a repository away from its default directory
-pub const LEASE_POOL_KEY: &str = "branchdeck.leasePool";
-
 /// A linked worktree, as its `.git` file and its admin directory name it
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkedWorktree {
@@ -64,26 +61,44 @@ pub fn slot_changes(git_executor: &GitCommandExecutor, slot: &str) -> Result<Vec
   Ok(paths)
 }
 
+/// What a checkout of the pool runs with: `checkout.workers=0`, one worker per core, unless the repository sets
+/// `checkout.workers` itself. git checks out with one worker by default
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CheckoutWorkers {
+  /// The repository's config sets `checkout.workers`: its value applies
+  pub configured: bool,
+}
+
+impl CheckoutWorkers {
+  /// The `-c` option before the subcommand; none when the repository sets the key
+  const fn config(self) -> &'static [&'static str] {
+    if self.configured { &[] } else { &["-c", "checkout.workers=0"] }
+  }
+}
+
 /// Move the clean `slot` to `commit`, detached, or on the new `branch` created there. Only the paths that differ between
 /// the two commits are written. `--force` is safe after `slot_changes` found nothing: a case-insensitive file system
 /// hides a case-only rename from `status`, and a checkout without it then refuses. A `branch` that exists fails
-pub fn checkout_slot(git_executor: &GitCommandExecutor, slot: &str, commit: &str, branch: Option<&str>) -> Result<()> {
-  match branch {
-    Some(branch) => git_executor.execute_command(&["checkout", "--quiet", "--force", "-b", branch, commit], slot)?,
-    None => git_executor.execute_command(&["checkout", "--quiet", "--force", "--detach", commit], slot)?,
+pub fn checkout_slot(git_executor: &GitCommandExecutor, slot: &str, commit: &str, branch: Option<&str>, workers: CheckoutWorkers) -> Result<()> {
+  let args = match branch {
+    Some(branch) => [workers.config(), &["checkout", "--quiet", "--force", "-b", branch, commit]].concat(),
+    None => [workers.config(), &["checkout", "--quiet", "--force", "--detach", commit]].concat(),
   };
+  git_executor.execute_command(&args, slot)?;
   Ok(())
 }
 
 /// A new slot at `path`, detached at `commit` or on the new `branch` created there: the only full checkout of the pool.
-/// `worktree prune` first, best effort, so the admin directory of a slot deleted by hand frees its name
-pub fn add_slot(git_executor: &GitCommandExecutor, repository: &str, path: &Path, commit: &str, branch: Option<&str>) -> Result<()> {
+/// `worktree prune` first, best effort, so the admin directory of a slot deleted by hand frees its name. The `-c` of
+/// `workers` reaches the checkout that `worktree add` starts, through `GIT_CONFIG_PARAMETERS`
+pub fn add_slot(git_executor: &GitCommandExecutor, repository: &str, path: &Path, commit: &str, branch: Option<&str>, workers: CheckoutWorkers) -> Result<()> {
   let _ = git_executor.cmd(&["worktree", "prune"], repository).status();
   let path = path.to_str().ok_or_else(|| anyhow!("The slot path is not UTF-8: {}", path.display()))?;
-  match branch {
-    Some(branch) => git_executor.execute_command(&["worktree", "add", "--quiet", "-b", branch, path, commit], repository)?,
-    None => git_executor.execute_command(&["worktree", "add", "--quiet", "--detach", path, commit], repository)?,
+  let args = match branch {
+    Some(branch) => [workers.config(), &["worktree", "add", "--quiet", "-b", branch, path, commit]].concat(),
+    None => [workers.config(), &["worktree", "add", "--quiet", "--detach", path, commit]].concat(),
   };
+  git_executor.execute_command(&args, repository)?;
   Ok(())
 }
 
@@ -163,12 +178,31 @@ pub fn ignored_paths(git_executor: &GitCommandExecutor, repository: &str, paths:
   )
 }
 
-/// `branchdeck.leasePool` of the repository, `~` expanded; `None` when it is not set: one `config --get --path`, which
-/// exits with 1 for a missing key
-pub fn lease_pool_config(git_executor: &GitCommandExecutor, repository: &str) -> Result<Option<String>> {
-  let output = git_executor.cmd(&["config", "--get", "--path", LEASE_POOL_KEY], repository).accept(&[1]).output()?;
-  let value = output.into_text();
-  Ok((!value.is_empty()).then_some(value))
+/// The git config of the pool, from one read
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LeaseConfig {
+  /// `branchdeck.leasePool`, `~` expanded
+  pub pool: Option<String>,
+  pub workers: CheckoutWorkers,
+}
+
+/// `branchdeck.leasePool` and whether `checkout.workers` is set: one `config --type=path --get-regexp`, which exits
+/// with 1 when neither key is set
+pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Result<LeaseConfig> {
+  let output = git_executor
+    .cmd(&["config", "--type=path", "--get-regexp", r"^(branchdeck\.leasepool|checkout\.workers)$"], repository)
+    .accept(&[1])
+    .output()?;
+  let mut config = LeaseConfig::default();
+  for line in output.into_text().lines() {
+    let (key, value) = line.split_once(' ').unwrap_or((line, ""));
+    match key {
+      "branchdeck.leasepool" if !value.is_empty() => config.pool = Some(value.to_string()),
+      "checkout.workers" => config.workers.configured = true,
+      _ => {}
+    }
+  }
+  Ok(config)
 }
 
 /// Whether `name` is a valid new branch name: one `check-ref-format --branch`, which exits with 128 for an invalid one

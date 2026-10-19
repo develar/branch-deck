@@ -7,6 +7,7 @@ use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
+use git_ops::lease_slot::lease_config;
 use git_ops::revs::{RepositoryDirs, repository_dirs};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -359,13 +360,9 @@ pub struct LeaseOutput {
 pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &LeaseStatusArgs) -> Result<LeaseStatusOutput, CliError> {
   let git_common_dir = Path::new(&context.dirs.git_common_dir);
   // the status reads the state only: a pool directory that can't be told is left out, never an error
-  let pool = pool_dir(
-    &context.git,
-    &context.dirs.top_level,
-    Path::new(&canonical_path(git_common_dir)),
-    environment.home.as_deref(),
-  )
-  .ok();
+  let pool = lease_config(&context.git, &context.dirs.top_level)
+    .ok()
+    .and_then(|config| pool_dir(&config, &context.dirs.top_level, Path::new(&canonical_path(git_common_dir)), environment.home.as_deref()).ok());
   let (slots, process_scan) = lease_status_core(git_common_dir, args.processes).map_err(lease_error)?;
   Ok(LeaseStatusOutput {
     schema: SchemaVersion,
