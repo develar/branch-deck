@@ -2,7 +2,8 @@
 macro_rules! read_only {
   () => {
     "Read only: `bd status`, `bd commits`, `bd suggest`, `bd check`, `bd robot`, `bd schema`, `bd version`,
-`bd describe <branch>` without a setter, `bd request-review --check`, `bd update --status` without --materialize, and
+`bd describe <branch>` without a setter, `bd request-review --check`, `bd update --status` without --materialize,
+`bd lease status`, and
 `bd group --dry-run`, `bd rename --dry-run`, `bd restack --dry-run`, `bd unstack --dry-run`, `bd update --dry-run`
 (also with --continue), `bd pick --dry-run`, `bd fold --dry-run` and `bd move-hunk --dry-run` write no ref, config,
 index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the object cache (none
@@ -198,8 +199,9 @@ Workflow: the commits into pull requests
 Other tasks
 - Update the branch onto its baseline: `bd update` (--no-fetch, --dry-run), the app's Update Project; a conflict opens
   a resolve session (exit 1), which `bd help update` explains.
-- Several sessions or worktrees on one branch: `bd pick --from <worktree> --follow` lands the commits of another
-  worktree here (or `bd pick <rev>`, `<a>..<b>`; --expect-head, --dry-run); `bd help worktrees` explains it.
+- Several sessions or worktrees on one branch: `bd lease get` leases a worktree of your own, `bd lease return` gives
+  it back; `bd pick --from <worktree> --follow` lands the commits of another worktree here (or `bd pick <rev>`,
+  `<a>..<b>`; --expect-head, --dry-run); `bd help worktrees` explains it.
 - Fixups: `bd fold` (--branch, --expect-head, --dry-run) folds the fixup!, squash! and amend! commits into their
   targets and keeps HEAD's tree.
 - A change in the wrong commit: `bd move-hunk <from> <to> <path>` (--block <id>, repeatable; --expect-head, --dry-run;
@@ -287,6 +289,13 @@ worktree, often a detached HEAD, sharing the git dir); its work counts once it i
 checkout. One owner rewrites that branch: `bd update`, `bd fold`, `bd group`, `bd rename`. Every other session only
 adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a reset in the shared checkout.
 
+0. Lease your worktree: `bd lease get --holder <your name>` in the shared checkout (or -C <shared checkout>). It
+   prints `path`, a worktree of the pool at the HEAD of the shared checkout, detached, and `lease_id`; work and commit
+   only there, never `git worktree add`. A free slot is moved to that HEAD (`reused`: only the diff is written); with
+   none free the pool adds one, a full checkout. --branch <name> (-b) creates a branch there. `skipped` names free slots with
+   local changes (`dirty`) or processes in them (`busy`). `seeded`: ignored local files that `.worktreeinclude` names,
+   copied from the shared checkout.
+
 1. Write the prefix when you commit, never later. A subject is `(branch) <one sentence>`. With stacked branches
    (`branchdeck.stacks`) a new stack is declared once, `(parent/leaf) <one sentence>`; once the stack parents know the
    leaf, `(leaf) <one sentence>` is enough, as a plan of `bd suggest` writes it. The branch is a readable name of a few words, never an issue
@@ -318,7 +327,15 @@ adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a 
    the shared checkout (`operation_in_progress`). After a rewrite, the owner tells the other sessions its new HEAD
    (`new_head`); they pick again or check with --dry-run. Nobody squashes, amends or redates another session's
    commit.
-5. The reflog of the branch tells who moved it: `branch-deck: pick`, `undo pick`, `update project`, `undo update`,
+5. Return your worktree once your commits landed: `bd lease return` inside it (or --workspace <dir>; --lease-id <id>
+   refuses another lease). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
+   change nothing: `unlanded_commits` (exit 4, `commits`): HEAD has commits that no branch holds, land them with step 2
+   first (also when the owner rewrote them since: the pick finds them present and moves your worktree); `dirty_worktree` (exit 4, `paths`): commit and land them, or ask the user; `slot_busy` (exit 4): a process
+   works in it (a build daemon, a shell); stop it or wait. --confirm-preserved discards the changes and gives up the
+   commits, only when the user said so. `bd lease status` lists the slots and their leases from the pool state
+   (--processes adds the processes in each); `bd lease adopt <dir>...` adds clean linked worktrees of the repository as
+   free slots, where they are.
+6. The reflog of the branch tells who moved it: `branch-deck: pick`, `undo pick`, `update project`, `undo update`,
    `squash fixups` (`bd fold` or the app's Squash Fixups), `reword <n> commits` (`bd group`, `bd rename`), `undo`,
    `squash <n> commits`, `drop <n> commits`, `amend <id>`, `move hunk`, each also with ` rolled back` when its files
    could not follow. A line without the `branch-deck: ` prefix came from outside Branch Deck.
@@ -340,8 +357,9 @@ each other, with the `bd` command line of Branch Deck; update a branch onto its 
 land the commits of a worktree onto a shared branch. Use when the user asks to split, group, cluster or reorganize \
 commits into branches or pull requests, to stack branches, to sync or push virtual branches, to fold fixup commits, to \
 move a change or a hunk into another commit, to update or rebase a branch onto master or main or resolve its update \
-conflicts, to land or pick the commits of a worktree or lease onto a shared branch, to start a Patronus Safe Push or \
-Dry Run or find out why one failed, to ask code owners to review a pull request, or mentions Branch Deck.
+conflicts, to land or pick the commits of a worktree or lease onto a shared branch, to lease a worktree for a session \
+or return it, to start a Patronus Safe Push or Dry Run or find out why one failed, to ask code owners to review a \
+pull request, or mentions Branch Deck.
 allowed-tools: {allowed_tools}
 ---
 

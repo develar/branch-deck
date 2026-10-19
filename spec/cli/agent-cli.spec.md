@@ -111,7 +111,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Keep the output contract stable: versioned JSON, fixed error codes and exit codes.
 - Stay fast on hundreds of commits: one git process per phase, and a cache for the per-commit data.
 - Reading changes nothing; a regroup changes commit messages only. A fold and `bd move-hunk` change the trees of
-  commits ahead of the baseline, never HEAD's tree, the index or the working tree. Only `bd update`, `bd pick` and their undo write the working tree, through the guarded update.
+  commits ahead of the baseline, never HEAD's tree, the index or the working tree. Only `bd update`, `bd pick` and their undo write the working tree, through the guarded update. `bd lease` writes only the slots of its pool.
 
 ## Non-goals
 
@@ -156,7 +156,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
   [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`)
 - `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `describe` without a setter,
-  `request-review --check`, `update --status` without `--materialize`, and the `--dry-run` of `group`, `rename`,
+  `request-review --check`, `update --status` without `--materialize`, `lease status`, and the `--dry-run` of `group`, `rename`,
   `restack`, `unstack`, `update` (also with `--continue`), `pick`, `fold` and `move-hunk` must write no ref, config,
   index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the object cache (none
   with `--no-cache`), and HEAD must stay; `bd --help` and `bd help agent` must say so, and that `push --dry-run` and
@@ -403,6 +403,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 - `bd pick` (the commits of another worktree onto the checked out branch, `--follow`) and `bd undo pick:`:
   [bd pick](pick.spec.md).
+
+### `bd lease`
+
+- `bd lease get`, `return`, `status` and `adopt` (the pool of worktrees that agent sessions lease):
+  [bd lease](lease.spec.md).
 
 ### `bd fold`
 
@@ -1049,7 +1054,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 ### `bd help worktrees`
 
-- It must say how sessions that share a checkout work in worktrees of their own: first the `(branch)` prefix written
+- It must say how sessions that share a checkout work in worktrees of their own: the lease of a worktree with
+  `bd lease get` and its return with `bd lease return` and their refusals, the `(branch)` prefix written
   when a commit is made (`(parent/leaf)` for a stacked branch, a readable name, an issue id never the name, no
   `fixup!` subject on the shared branch, `bd rename`, `bd suggest` only for commits without a prefix); one owner
   rewrites the shared branch and every other session only adds commits with `bd pick --from <worktree> --follow`,

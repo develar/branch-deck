@@ -1,7 +1,7 @@
 # Agent CLI (`bd`)
 
 **Status:** Active  
-**Updated:** 2026-10-17  
+**Updated:** 2026-10-19  
 **Tags:** [cli, agents, json]
 
 ## Summary
@@ -14,7 +14,8 @@ writing refs with `check`, pushes with `push`, asks the code owners to review a 
 starts a Patronus Safe Push with `safe-push` and reads its robot, and why it failed, with `robot`. `group --sync`
 applies a plan, its pull request texts and a sync in one call. `update` brings the checked out branch onto its
 baseline as the app's Update Project does, and resolves a conflict in a resolve session outside the working tree;
-`pick` lands the commits of another worktree on the checked out branch; `fold` folds the fixup commits, and
+`pick` lands the commits of another worktree on the checked out branch, and `lease` keeps the pool of worktrees that
+agent sessions work in; `fold` folds the fixup commits, and
 `move-hunk` moves the change of a file from one commit into another. `install` puts `bd` and its skill where agents
 find them; `help agent`, `help update` and `help worktrees` print the texts an agent follows.
 
@@ -65,12 +66,13 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
 - `bd schema` prints the JSON Schema of each output (see `bd schema` below). The schemas are generated from the Rust
   types with `schemars`, and `schema_test.rs` checks the real outputs against them.
 - Read only: `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `update --dry-run`, `update --status`,
-  `pick --dry-run`, `fold --dry-run` and `move-hunk --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
+  `lease status`, `pick --dry-run`, `fold --dry-run` and `move-hunk --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
   `suggest`, the replay of `update --dry-run` and `pick --dry-run`, the merged trees of `move-hunk --dry-run`) and the object cache (none with `--no-cache`). `bd --help` and
   `bd help agent` print the same line (`READ_ONLY` in `agent_help.rs`), and `agent_help_test.rs` checks the refs, the
   config, the index and the working tree around each of them.
 - The working tree: only `bd update`, `bd pick` and their undo write the working tree, through the guarded update of
-  the app's Update Project: only the files the move changes, and in a resolve session only at the finish.
+  the app's Update Project: only the files the move changes, and in a resolve session only at the finish. `bd lease`
+  writes only the slots of its pool, which are not the user's working tree (see `bd lease`).
 
 An error looks like this:
 
@@ -93,9 +95,9 @@ A refused resolution of `bd update --continue` has `paths` too, the conflicting 
 |---|---|---|
 | 0 | ok | |
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
-| 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution` |
+| 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `round_moved`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `landed`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `landed`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
@@ -631,6 +633,38 @@ through the guarded update. `--follow` moves the source worktree onto the new ti
   with `already_undone: true`.
 - A pick or a follow killed between the move and its files leaves the mark `refs/branch-deck/update-pending/<worktree
   id>`, as an update does; the next pick, update or undo lets the files follow first.
+
+### `bd lease get [--holder <label>] [-b <branch>]`, `return`, `status`, `adopt`
+
+The pool of worktrees that agent sessions work in, one session per slot (`sync_core::lease`, "Lease" in
+[Git Operations](../design/git-operations.md), the contract [bd lease](../../spec/cli/lease.spec.md)). A lease needs no
+branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the pool lock `leases.lock`.
+
+```json
+{"schema":2,"repository":"/Users/me/idea-1","pool":"/Users/me/.branch-deck/pool/idea-1-3f2a9c01",
+ "path":"/Users/me/.branch-deck/pool/idea-1-3f2a9c01/2/idea-1","lease_id":"<uuid>","holder":"lane-1","slot":"idea-12",
+ "source_head":"<full id>","leased_at":1792411982,"reused":true,"seeded":[".claude/settings.local.json"],
+ "skipped":[{"slot":"idea-1","path":"…/1/idea-1","reason":"dirty","paths":["left.txt"]}],"processes_checked":true}
+```
+
+- `bd lease get` leases a free slot at the exact HEAD of `-C`, detached (`-b <branch>` creates the branch there):
+  one `status` of the slot, then `checkout --force`, only the diff written (`reused: true`). A free slot with local
+  changes is skipped and marked dirty, one with a process in it is skipped as busy (`skipped`). No free slot: a new
+  one, `<pool>/<n>/<repository name>` (`reused: false`). The pool is `~/.branch-deck/pool/<name>-<hash>`, or
+  `git config branchdeck.leasePool <dir>`. The ignored files `.worktreeinclude` names are copied in (`seeded`).
+- `bd lease return [--workspace <dir>] [--lease-id <id>] [--confirm-preserved]` frees the slot of `--workspace`, `-C`
+  or the current directory: the seeded paths go, a branch is detached (`detached_branch`; it stays), the slot stays at
+  its commit. Refused with nothing changed: `no_lease`, `lease_mismatch`, `slot_busy` (a process other than bd and its
+  ancestors in it), `unlanded_commits` (`commits` that no branch, tag or remote branch holds: land them with
+  `bd pick --from <dir> --follow`), `dirty_worktree` (`paths`). `--confirm-preserved` gives the commits up
+  (`given_up`) and discards the changes (`discarded`) with `reset --hard` and `clean -fd`.
+- `bd lease status [--processes]` lists the slots from the state alone: `state` `free`, `preparing`, `ready` or
+  `abandoned` (a get died while preparing it), `dirty`, `missing`, `lease`; no `git status`. `--processes` adds the
+  processes in each slot.
+- `bd lease adopt <dir>...` adds clean linked worktrees of this repository as free slots where they are (`adopted`),
+  and lists the refused ones with their code (`refused`: `not_a_slot`, `slot_in_pool`, `slot_busy`,
+  `dirty_worktree`; exit 4).
+- `processes_checked: false`: the platform has no process scan (Windows), and nothing was refused for a process.
 
 ### `bd fold [--branch <b>] [--expect-head <id>] [--dry-run]`
 
@@ -1321,7 +1355,8 @@ branch name, in the branch table and the branch preview.
 Prints `{"schema":2,"outputs":{"<name>":<JSON Schema>,…}}`, one schema per output, every output named by the test
 `schema_lists_every_output`;
 `rewrite` is the output of `group`, `rename`, `restack` and `unstack`, `commits_brief` and `status_brief` the
-outputs of `--brief`, and `update_status` and `update_abort` those of `bd update --status` and `--abort`.
+outputs of `--brief`, `update_status` and `update_abort` those of `bd update --status` and `--abort`, and `lease_get`,
+`lease_return`, `lease_status` and `lease_adopt` those of `bd lease`.
 
 ### `bd version`, `bd --version`
 
@@ -1347,7 +1382,7 @@ How an agent learns that bd exists. `bd install`, or Help → Install Agent CLI�
   `~/.agents/skills/branch-deck/` (Codex and others). Its description tells an agent when to use bd (`bd help skill`
   prints it): grouping or splitting commits into branches or pull requests, stacked branches, fixups, a change in the
   wrong commit, an update or rebase onto the baseline and its conflicts, landing the commits of a worktree onto a
-  shared branch, a Safe Push or Dry Run and why it failed, a review request, Branch Deck. Its body names bd by its full
+  shared branch, the lease of a worktree for a session, a Safe Push or Dry Run and why it failed, a review request, Branch Deck. Its body names bd by its full
   path, so it works without `PATH`, and sends the agent to `bd help agent` first, to `bd help update` for an update,
   and to `bd help worktrees` when several sessions or worktrees work on one branch; it asks for the `(branch)` prefix
   when a commit is made, and for `bd safe-push <branch> --check` before a Safe Push, as the Safe Push of a stacked
@@ -1383,7 +1418,7 @@ command named last before it, and it must exist for that command.
 ### `bd help worktrees`
 
 Prints how agent sessions that share a checkout work beside each other, each committing in a worktree of its own
-(`WORKTREES_HELP`, about 40 lines): the `(branch)` prefix is written when a commit is made, never guessed later; one
+(`WORKTREES_HELP`, about 55 lines): the lease of that worktree with `bd lease get` and its return, the `(branch)` prefix is written when a commit is made, never guessed later; one
 owner rewrites the shared branch (`bd update`, `bd fold`, `bd group`, `bd rename`) and every other session only adds
 commits with `bd pick --from <worktree> --follow`, never a cherry-pick in the shared checkout; the outcomes of a pick
 and what to do with each; `bd pick --dry-run` as the check after a rewrite, never a comparison by date; the protocol

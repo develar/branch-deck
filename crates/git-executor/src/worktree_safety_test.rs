@@ -3,7 +3,8 @@
 //! resets or commits, and for `read-tree` with `-u` or `--reset`. Test files and test-utility crates create fixture
 //! repositories with porcelain commands and are exempt.
 //! The one exception, Update Project, writes the working tree in `WORKTREE_WRITE_EXEMPTIONS` only, with exactly the
-//! listed number of `read-tree -u` argument lists, so the exemption can't grow unnoticed.
+//! listed number of `read-tree -u` argument lists, so the exemption can't grow unnoticed. A slot of the lease pool is
+//! not the user's working tree: `SLOT_WRITE_EXEMPTIONS` allows its writes in one file, each subcommand with its count.
 
 use crate::source_scan_test::{argument_lists, production_part, production_sources};
 
@@ -28,6 +29,15 @@ const DENIED_SUBCOMMANDS: [&str; 14] = [
 /// Files allowed to update the working tree with `read-tree -u`, with the number of such argument lists in each: the dry
 /// run on a copy of the index and the update itself (docs/design/git-operations.md, "Update project")
 const WORKTREE_WRITE_EXEMPTIONS: [(&str, usize); 1] = [("crates/git-ops/src/worktree_update.rs", 2)];
+
+/// The file of the lease pool that writes a slot, pool property (docs/design/git-operations.md, "Lease"), with the number of
+/// argument lists of each subcommand: the checkout of a get (detached, or on a new branch), and the discard of a return
+/// that the agent confirmed
+const SLOT_WRITE_EXEMPTIONS: [(&str, &str, usize); 3] = [
+  ("crates/git-ops/src/lease_slot.rs", "checkout", 2),
+  ("crates/git-ops/src/lease_slot.rs", "reset", 1),
+  ("crates/git-ops/src/lease_slot.rs", "clean", 1),
+];
 
 /// A git argument list that writes the working tree
 #[derive(Debug, PartialEq, Eq)]
@@ -73,14 +83,26 @@ fn violations(source: &str) -> Vec<Violation> {
 fn production_code_never_writes_the_working_tree() {
   let mut report = Vec::new();
   let mut exempt_found = vec![0; WORKTREE_WRITE_EXEMPTIONS.len()];
+  let mut slot_found = vec![0; SLOT_WRITE_EXEMPTIONS.len()];
   for source in production_sources() {
     let exemption = WORKTREE_WRITE_EXEMPTIONS.iter().position(|(path, _)| source.path == *path);
     for violation in violations(&source.text) {
-      match (exemption, &violation) {
-        (Some(exemption), Violation::ReadTreeUpdate { .. }) => exempt_found[exemption] += 1,
+      let slot_write = match &violation {
+        Violation::Subcommand { subcommand, .. } => SLOT_WRITE_EXEMPTIONS.iter().position(|(path, exempt, _)| source.path == *path && subcommand == exempt),
+        Violation::ReadTreeUpdate { .. } => None,
+      };
+      match (exemption, slot_write, &violation) {
+        (_, Some(slot_write), _) => slot_found[slot_write] += 1,
+        (Some(exemption), _, Violation::ReadTreeUpdate { .. }) => exempt_found[exemption] += 1,
         _ => report.push(format!("{}: {violation}", source.path)),
       }
     }
+  }
+  for ((path, subcommand, expected), found) in SLOT_WRITE_EXEMPTIONS.iter().zip(slot_found) {
+    assert_eq!(
+      found, *expected,
+      "{path} must have exactly {expected} `{subcommand}` argument lists; a change to the slot writes needs a review of docs/design/git-operations.md"
+    );
   }
   for ((path, expected), found) in WORKTREE_WRITE_EXEMPTIONS.iter().zip(exempt_found) {
     assert_eq!(

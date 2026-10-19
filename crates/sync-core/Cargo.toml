@@ -28,6 +28,12 @@ specta = { workspace = true, optional = true }
 quick-xml = "0.42"
 regex = "1.13"
 tokio = { workspace = true, features = ["time"] }
+# the ids and the default holders of the leases (`lease`)
+uuid = { version = "1.28", features = ["v4"] }
+
+# the process scan of the lease pool (`process_scan`): the working directories of the processes through libproc
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2.190"
 
 [features]
 default = []

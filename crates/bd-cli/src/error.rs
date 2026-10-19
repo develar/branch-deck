@@ -125,6 +125,25 @@ pub enum ErrorCode {
   /// `bd request-review`: GitHub asked nobody, it refused every reviewer (the author, a user without access); the
   /// message names each with the reason
   ReviewRefused,
+  /// `bd lease return`: the worktree holds no lease of the pool, or its get still prepares it
+  NoLease,
+  /// `bd lease return --lease-id`: the worktree holds another lease
+  LeaseMismatch,
+  /// `bd lease adopt`: the directory is not the top level of a linked worktree of this repository
+  NotASlot,
+  /// `bd lease adopt`: the pool holds the worktree already
+  SlotInPool,
+  /// `bd lease return` and `adopt`: a process other than bd and its ancestors has its working directory in the worktree;
+  /// the message names it. Nothing was changed
+  SlotBusy,
+  /// `bd lease return`: HEAD has commits that no branch, tag or remote branch holds (`commits`): land them first
+  /// (`bd pick --from <worktree> --follow` in the shared checkout), or `--confirm-preserved` gives them up
+  UnlandedCommits,
+  /// `bd lease return` and `adopt`: the worktree has local changes (`paths`); `bd lease return --confirm-preserved`
+  /// discards them, once the user agreed
+  DirtyWorktree,
+  /// `bd lease get --branch`: the branch exists
+  BranchExists,
   /// No usable git executable
   GitNotFound,
   /// A git command failed
@@ -151,7 +170,11 @@ impl ErrorCode {
       | Self::UnresolvedMarkers
       | Self::ResolutionOutsideConflict
       | Self::MissingResolution
-      | Self::EmptyResolution => 2,
+      | Self::EmptyResolution
+      | Self::NoLease
+      | Self::LeaseMismatch
+      | Self::NotASlot
+      | Self::SlotInPool => 2,
       Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::RoundMoved | Self::Locked => 3,
       Self::NoBaseline
       | Self::OperationInProgress
@@ -179,7 +202,11 @@ impl ErrorCode {
       | Self::PatronusRefused
       | Self::NoPullRequest
       | Self::NoReviewer
-      | Self::ReviewRefused => 4,
+      | Self::ReviewRefused
+      | Self::SlotBusy
+      | Self::UnlandedCommits
+      | Self::DirtyWorktree
+      | Self::BranchExists => 4,
       Self::GitNotFound | Self::GitError | Self::NetworkError | Self::PatronusError => 5,
     }
   }

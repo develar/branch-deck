@@ -106,6 +106,10 @@ We use modern tools. For specific versions, see `package.json` and `Cargo.toml`.
   lease) on the checked out branch without a cherry-pick: one `git replay`, a commit the branch has left out
   (`already_present`), both worktrees moved under the repository lock through the guarded update, `bd undo pick:`
   (`spec/cli/pick.spec.md`).
+- **Lease pool**: `bd lease get` leases a worktree of a pool at the HEAD of a checkout, a free slot moved there (only the
+  diff written) or a new one; `bd lease return` frees it once its commits landed, refused while it has unlanded commits,
+  local changes or a process in it; the state in `$GIT_COMMON_DIR/branch-deck/leases.json` is the authority, no
+  ancestry check, `bd lease status` reads only it (`spec/cli/lease.spec.md`).
 - **Landed commits**: what of the user's work the baseline has, before and after an update (also one made elsewhere),
   matched by author, author time and subject; report in `branch-deck/landed.json` (`spec/repository/landed-commits.spec.md`).
 - **Landing overview and PR status**: the header button of the work on its way into master (the user's moves, the robots
@@ -351,7 +355,9 @@ Hard rules; rationale and per-operation flows in [Git Operations](docs/design/gi
   (`pick.rs` through the `pub(crate)` `move_branch_and_files`, to the tip its own check replayed, `PickPlan`; the
   worktree of `--follow` too, a detached HEAD with `option no-deref`; its undo by `check_pick_undo`). The scan counts
   its `-u` argument lists. Don't add another caller, another argument list, or a public way to build a move; see
-  "Update project" and "Pick" in the design doc.
+  "Update project" and "Pick" in the design doc. A slot of the lease pool is not the user's working tree: its
+  `checkout --force`, `reset --hard` and `clean -fd` live in `crates/git-ops/src/lease_slot.rs` only, each counted by
+  the scan ("Lease" in the design doc).
 - **The user's index** changes only where HEAD's tree changed (`IndexUpdate` in `crates/git-ops/src/rewrite_guard.rs`):
   a drop runs `read-tree -m -i <old> <new>` after a preflight on a copy of the index, an amend stages the amended files.
   Staged work on other paths survives; never `reset --mixed`, never ignore an index error.

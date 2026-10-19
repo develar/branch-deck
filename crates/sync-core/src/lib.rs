@@ -94,6 +94,10 @@
 //! - `robot_commits`: the commits a robot checked, by the hashes of the checked out branch
 //! - `robot_landing`: what a merged robot landed of the branches, by content: the commits it tested, and those after
 //!
+//! The lease pool:
+//! - `lease`: the slots agent sessions lease (`bd lease`), their state and lock in `$GIT_COMMON_DIR/branch-deck/`
+//! - `process_scan`: the processes whose working directory is inside a slot
+//!
 //! The rest:
 //! - `branch_review`: the stack and the commits of a branch review
 //! - `branch_name_suggestion`: branch names for commits from the user's Claude Code
@@ -131,6 +135,7 @@ pub mod inverted_stack;
 pub mod issue_groups;
 pub mod issue_navigation;
 pub mod landed;
+pub mod lease;
 pub mod missing_commits;
 pub mod missing_declarations;
 pub mod module_roots;
@@ -142,6 +147,7 @@ pub mod patronus_command;
 pub mod patronus_review;
 pub mod patronus_start;
 pub mod pick;
+pub mod process_scan;
 pub mod pull_request_create;
 pub mod pull_request_writes;
 pub mod pull_requests;

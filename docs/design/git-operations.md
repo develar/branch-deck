@@ -1,8 +1,8 @@
 # Git Operations: Working-Tree Safety, Exact Rewrites and Batching
 
 **Status:** Implemented  
-**Updated:** 2026-10-18  
-**Tags:** [git, safety, performance, rewrite, replay, fast-import]
+**Updated:** 2026-10-19  
+**Tags:** [git, safety, performance, rewrite, replay, fast-import, lease]
 
 ## Problem
 
@@ -101,6 +101,11 @@ written, except by Update Project and the finish of its resolve session (their o
    `bd pick` in `pick.rs`, which moves HEAD only to the tip its own check replayed (`PickPlan`, private fields), a
    detached HEAD with `option no-deref`. The safety scan allows `-u` there and asserts the
    number of such argument lists (two: the dry run and the update), so the exemption can't grow unnoticed.
+
+   **A slot of the lease pool is not the user's working tree** (see "Lease"). The pool owns it while it is free, and a
+   get replaces its content: `checkout --force` of a slot that one `status` found clean, and on a return that the
+   agent confirmed, `reset --hard HEAD` and `clean -fd`. These argument lists live in `crates/git-ops/src/lease_slot.rs`
+   only, and the safety scan asserts each count (`checkout` 2, `reset` 1, `clean` 1).
 2. **The user's index changes only where HEAD's tree changes** (see the index policy below). Staged changes on other
    paths survive. A conflict with staged work is detected before any ref moves. If the update fails afterwards, the
    error is returned, never ignored.
@@ -1044,6 +1049,58 @@ the range, since the fork point of N is N. The worktree path comes from `$GIT_CO
 
 Code: `crates/git-ops/src/pick.rs`, `crates/git-ops/src/update_branch.rs` (the moves, `HeadRef`, the undo check by
 operation), `crates/sync-core/src/pick.rs` (lock, baseline, grouping, the undo token), `crates/bd-cli/src/pick_command.rs`.
+
+#### Lease
+
+`bd lease` (`crates/sync-core/src/lease.rs`, the git of a slot in `crates/git-ops/src/lease_slot.rs`) keeps a pool of
+linked worktrees, one agent session per slot. It replaces the Treehouse pool for the IntelliJ monorepo (1.4M tracked
+files). There an acquire took 20 minutes or more, for two reasons measured on 2026-10-19:
+
+- Treehouse reuses a free slot only when its HEAD is an ancestor of `master`, and parks a returned slot at the local
+  `master` tip. `bd pick`, `bd update` and rebases rewrite that `master` often, so a parked commit soon becomes
+  unreachable, every free slot looks like unlanded work, and almost every acquire adds a full checkout.
+- It runs `git status --untracked-files=all` and three `git ls-tree -r` in every free slot on every acquire, and
+  `treehouse status` runs `git status` in every slot: about 7 minutes for 10 slots, 33 s for one.
+
+The pool state is the authority instead: `$GIT_COMMON_DIR/branch-deck/leases.json`, written as a temporary file and a
+rename. A free slot is pool property, and a get replaces its content, so no ancestry is checked. The pool lock is
+`leases.lock` next to it, not the repository lock: a get never waits for an update, and the lock is held only while
+the state is read and written, never across a git that writes a slot.
+
+1. Get: under the pool lock, a `preparing` lease whose process is gone (its pid and start time, `process_scan`) is
+   freed, and a free slot whose directory is gone is dropped. The first free slot that is a linked worktree of the same
+   common dir (its `.git` file and admin directory, no git process) and has no process in it is reserved, clean slots
+   before the ones marked dirty. The lease is recorded as `preparing`, with the pid and its start time, and the lock
+   is released.
+2. Without the lock: one `status --porcelain=v1 -z --untracked-files=normal` of that slot. A dirty slot is freed again,
+   marked dirty and skipped, and the next one is reserved. A clean one gets `checkout --force --detach <source HEAD>`
+   (or `-b <branch>`), which writes only the paths that differ. `--force` is safe after the clean status: on a
+   case-insensitive file system `status` does not see a case-only rename, and a plain checkout then refuses.
+3. No free slot: `worktree prune`, best effort, then `worktree add --detach <pool>/<n>/<repository name> <source
+   HEAD>`, the only full checkout. The leaf keeps the name of the repository, which tools derive identity from.
+4. Seed: the ignored paths that `.worktreeinclude` at the source root names are copied into the slot. A pattern is a
+   literal path or a glob in its last component, read from that one directory, never a walk of the tree; one
+   `check-ignore -z --stdin` in the source keeps only the ignored ones.
+5. Under the lock again the lease becomes `ready`, with the seeded paths. A failure after step 1 gives the slot back
+   (free, or dropped when it was never added), and the error says so.
+
+Return: one process scan, then `log HEAD --not --branches --tags --remotes <leased commit>` (not `--all`, which holds
+the HEAD of every worktree; the leased commit keeps out what the slot started with, which a rewrite of master may have
+left unreachable), then one `status`. Unlanded commits, local changes and a process in the slot refuse it; with
+`--confirm-preserved` the changes go with `reset --hard HEAD` and `clean -fd`, and the ignored build outputs stay
+for the next lease. The seeded paths are removed, and a branch HEAD is on is detached with a `RefTransaction` (`option
+no-deref`, `branch-deck: lease return`). The slot stays at its commit: the next get moves it.
+
+Status reads the state file only: one `rev-parse` and one `config` (`branchdeck.leasePool`), no git in any slot.
+Adopt registers existing linked worktrees (old Treehouse slots) where they are, after one `status` of each.
+
+The process scan (`crates/sync-core/src/process_scan.rs`) reads the working directory of every process of the user:
+on macOS through libproc (`proc_listallpids`, `proc_pidinfo` with `PROC_PIDVNODEPATHINFO`), on Linux from
+`/proc/<pid>/cwd`. It leaves out `bd` and its ancestors, and compares canonical paths by components. Windows has no
+scan: the outputs say `processes_checked: false`, and a lease never waits for it.
+
+Code: `crates/git-ops/src/lease_slot.rs`, `crates/sync-core/src/lease.rs`, `crates/sync-core/src/process_scan.rs`,
+`crates/bd-cli/src/lease_command.rs`.
 
 #### Virtual branch sync
 
@@ -2413,6 +2470,7 @@ the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and
 | `bd safe-push --whole-stack --check` of a stack that forks (three branches and the stack branch) | `a_safe_push_check_of_the_whole_stack` ¶ | 39 | 39 |
 | `bd fold` | `a_fold` | 36 | 30 |
 | `bd pick --from --follow` (2026-10-18) | `a_pick` | 54 | 54 |
+| `bd lease get` of a free slot, then `bd lease return` (2026-10-19) | `a_lease_get_and_return` | 5, 4 | 5, 4 |
 | `bd status` (the push URL of `origin` for `landed_by` since 2026-10-18) | `a_status` * | 10 | 8 |
 | `bd status` of a stack that forks | `a_status_of_a_forking_stack` ‡ | 7 | 8 |
 | `bd robot`, `bd request-review --check`, `bd group --dry-run` | `a_robot`, `a_request_review_check`, `a_group_dry_run_with_a_description` * | 8, 11, 11 | 8, 11, 11 |

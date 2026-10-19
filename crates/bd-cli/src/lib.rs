@@ -16,6 +16,7 @@ pub mod generated;
 pub mod group_plan;
 pub mod install;
 pub mod landed;
+pub mod lease_command;
 pub mod move_hunk_command;
 pub mod numstat;
 pub mod output;
@@ -46,6 +47,7 @@ use crate::describe::{DescribeArgs, describe};
 use crate::error::{CONFLICT_EXIT, CliError, ErrorCode};
 use crate::fold_command::{FoldArgs, fold};
 use crate::install::{InstallArgs, install, skill_command};
+use crate::lease_command::{LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, lease_adopt, lease_get, lease_return, lease_status};
 use crate::move_hunk_command::{MoveHunkArgs, MoveHunkOutput, move_hunk};
 use crate::output::write_json;
 use crate::pick_command::{PickArgs, PickOutput, pick};
@@ -131,6 +133,12 @@ enum Command {
   /// left out, the files following; --follow moves that worktree onto the new tip too. A conflict changes nothing
   /// (exit 1); `uncommitted_overlap` (exit 4) when local changes sit on files it writes
   Pick(PickArgs),
+  /// The worktrees of the lease pool, one per agent session: get, return, status, adopt (`bd help worktrees`)
+  ///
+  /// `get` leases a free slot moved to the HEAD of -C (only the diff written), else adds one; `return` frees it, refused
+  /// while it has unlanded commits, local changes or a process in it. The state is in
+  /// `$GIT_COMMON_DIR/branch-deck/leases.json`
+  Lease(LeaseArgs),
   /// Fold the `fixup!`, `squash!` and `amend!` commits into their targets, keeping HEAD's tree
   Fold(FoldArgs),
   /// Move the changes of one file from one commit into another, keeping HEAD's tree
@@ -239,6 +247,8 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     no_cache: cli.no_cache,
   };
   let context = || RepoContext::resolve(environment, &options);
+  // a lease needs no branch prefix: git and the worktree of `directory`, else of -C, else of the current directory
+  let lease_context = |directory: Option<&std::path::Path>| LeaseContext::resolve(environment, directory.or(options.repo));
   let result = match &cli.command {
     Command::Status(args) if args.brief => context()
       .and_then(|context| status_brief(&context, args, environment))
@@ -255,6 +265,28 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Undo(args) => context().and_then(|context| undo(&context, args)).and_then(|output| print(out, &output)),
     Command::Update(args) => return print_summary(out, context().and_then(|context| update(&context, args)), UpdateCommandOutput::exit_code),
     Command::Fold(args) => context().and_then(|context| fold(&context, args)).and_then(|output| print(out, &output)),
+    Command::Lease(LeaseArgs { command: LeaseCommand::Get(args) }) => lease_context(None)
+      .and_then(|context| lease_get(&context, environment, args))
+      .and_then(|output| print(out, &output)),
+    Command::Lease(LeaseArgs {
+      command: LeaseCommand::Return(args),
+    }) => lease_context(args.workspace.as_deref())
+      .and_then(|context| lease_return(&context, args))
+      .and_then(|output| print(out, &output)),
+    Command::Lease(LeaseArgs {
+      command: LeaseCommand::Status(args),
+    }) => lease_context(None)
+      .and_then(|context| lease_status(&context, environment, args))
+      .and_then(|output| print(out, &output)),
+    Command::Lease(LeaseArgs {
+      command: LeaseCommand::Adopt(args),
+    }) => {
+      return print_summary(
+        out,
+        lease_context(None).and_then(|context| lease_adopt(&context, environment, args)),
+        LeaseAdoptOutput::exit_code,
+      );
+    }
     Command::Pick(args) => return print_summary(out, context().and_then(|context| pick(&context, args, environment)), PickOutput::exit_code),
     Command::MoveHunk(args) => return print_summary(out, context().and_then(|context| move_hunk(&context, args)), MoveHunkOutput::exit_code),
     // the summary is the output either way; a branch that was not built only changes the exit code
@@ -341,6 +373,8 @@ mod fold_test;
 mod install_test;
 #[cfg(test)]
 mod landed_test;
+#[cfg(test)]
+mod lease_test;
 #[cfg(test)]
 mod move_hunk_test;
 #[cfg(test)]

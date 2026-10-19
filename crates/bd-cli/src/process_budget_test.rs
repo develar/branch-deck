@@ -6,6 +6,7 @@ use crate::check_command::{CheckArgs, check};
 use crate::context::{RepoContext, RepoOptions};
 use crate::fixture_test::{PREFIX, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline};
 use crate::fold_command::{FoldArgs, fold};
+use crate::lease_command::{LeaseContext, LeaseGetArgs, LeaseReturnArgs, lease_get, lease_return};
 use crate::move_hunk_command::{MoveHunkArgs, move_hunk};
 use crate::pick_command::{PickArgs, pick};
 use crate::push_command::{PushArgs, push};
@@ -39,8 +40,13 @@ fn context(repo: &TestRepo) -> RepoContext {
 /// The command of `context` counted exactly `expected`: `(subcommand, processes)`, sorted by subcommand
 #[track_caller]
 fn assert_processes(context: &RepoContext, expected: &[(&str, u32)]) {
-  let counted: Vec<(String, u32)> = context
-    .git
+  assert_git_processes(&context.git, expected);
+}
+
+/// `assert_processes` of the counting executor `git`
+#[track_caller]
+fn assert_git_processes(git: &GitCommandExecutor, expected: &[(&str, u32)]) {
+  let counted: Vec<(String, u32)> = git
     .process_stats()
     .expect("a counting executor")
     .by_command()
@@ -365,6 +371,29 @@ fn a_pick() {
       ("update-ref", 4),
     ],
   );
+}
+
+/// `bd lease get` of a free slot and its `bd lease return`: the repository, the source HEAD and the pool config, one
+/// `status` and one `checkout` of the slot; the return reads the unlanded commits, the `status` and HEAD. No `status`
+/// of another slot, no full checkout
+#[test]
+fn a_lease_get_and_return() {
+  let repo = repo_with_branches();
+  let home = tempfile::tempdir().unwrap();
+  let mut environment = environment(repo.path());
+  environment.home = Some(home.path().to_path_buf());
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  let added = lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
+  let slot = std::path::PathBuf::from(&added.path);
+  lease_return(&LeaseContext::resolve(&environment, Some(&slot)).unwrap(), &LeaseReturnArgs::default()).unwrap();
+
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  let got = lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
+  assert!(got.reused, "{got:?}");
+  assert_git_processes(&context.git, &[("checkout", 1), ("config", 1), ("rev-parse", 2), ("status", 1)]);
+  let context = LeaseContext::resolve(&environment, Some(&slot)).unwrap();
+  lease_return(&context, &LeaseReturnArgs::default()).unwrap();
+  assert_git_processes(&context.git, &[("log", 1), ("rev-parse", 2), ("status", 1)]);
 }
 
 /// `bd safe-push auth --check` on Space: the sync, then what the start is decided on, nothing pushed. The target, the

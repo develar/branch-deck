@@ -1,0 +1,159 @@
+---
+name: bd lease
+description: Requirements for bd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source or adds one, return frees it, status reads the state, adopt adds existing worktrees.
+style: plain-1
+targets:
+  - ../../crates/bd-cli/src/lease_command.rs
+  - ../../crates/bd-cli/src/agent_help.rs
+  - ../../crates/bd-cli/src/error.rs
+  - ../../crates/bd-cli/src/schema.rs
+  - ../../crates/sync-core/src/lease.rs
+  - ../../crates/sync-core/src/process_scan.rs
+  - ../../crates/sync-core/src/repository_lock.rs
+  - ../../crates/git-ops/src/lease_slot.rs
+  - ../../crates/git-executor/src/worktree_safety_test.rs
+---
+
+# bd lease
+
+Status: Implemented
+Date: 2026-10-19
+
+## Summary
+
+Agent sessions that share a checkout each work in a worktree of their own and land their commits with `bd pick`
+([bd pick](pick.spec.md)). `bd lease` keeps the pool of those worktrees. `bd lease get` leases a slot at the HEAD of
+the source checkout: a free slot is moved there, so only the diff between the two commits is written, and a new slot
+is added only when no slot is free. `bd lease return` frees the slot once its commits landed. The state in
+`$GIT_COMMON_DIR/branch-deck/leases.json` is the authority. A free slot is pool property, and the next get replaces
+its content, so no ancestry check decides whether a slot is free. How it works: "Lease" in
+[Git Operations](../../docs/design/git-operations.md). Working beside other sessions: `bd help worktrees`
+([Agent CLI](agent-cli.spec.md)).
+
+## Goals
+
+- A get in a repository of 1.4M files takes seconds when a slot is free: one `status` and one `checkout` of the
+  slot, never a full checkout and never a scan of the other slots.
+- A slot whose last commit a rewrite of master made unreachable is reused as any other free slot.
+- `bd lease status` answers from the state in milliseconds: no `git status` of any slot.
+- Concurrent gets never get the same slot, and never wait for each other's checkouts or for a `bd update`.
+- A return never loses work silently: unlanded commits, local changes and a process in the slot refuse it.
+
+## Non-goals
+
+- A fetch: the slot moves to the HEAD of the source as it is.
+- A reset of a returned slot to master: the next get moves it.
+- A walk of the tree for `.worktreeinclude`: only literal paths and globs in one directory are seeded.
+- The process scan on Windows: there it is reported as not checked, and a lease never waits for it.
+
+## Requirements
+
+### Get
+
+- `bd lease get` must lease a free slot of the pool of this repository, moved to the exact HEAD commit of `-C` (or the
+  current directory), detached, and print `path`, `lease_id` (a UUID), `holder` (`--holder`, default `agent-<uuid>`),
+  `slot` (the worktree id), `source_head`, `leased_at`, `reused`, `seeded` and `processes_checked`. A slot whose
+  commit master no longer holds, after a rewrite of master, must be reused like any free slot.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`a_free_slot_is_reused_after_master_was_rewritten_past_its_commit`)
+- A free slot must be a linked worktree of the same git common dir whose directory exists, and no process other than
+  `bd` and its ancestors may have its working directory in it; a busy free slot is skipped (`skipped`, `reason:
+  "busy"`). The source may itself be a leased slot.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`a_busy_free_slot_is_skipped`, `adopt_adds_clean_linked_worktrees_and_refuses_the_rest`)
+- A free slot with local changes (one `status --porcelain=v1 --untracked-files=normal`, the repository's own
+  `core.fsmonitor` applies) must be skipped (`skipped`, `reason: "dirty"`, `paths`), stay free, and be marked dirty;
+  later gets must try a dirty slot after the clean ones. With no free slot left, the get must add a new slot with
+  `git worktree add --detach` (`reused: false`), after a `git worktree prune`.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`a_dirty_free_slot_is_skipped_and_a_new_slot_is_added`)
+- A new slot must be `<pool>/<n>/<repository name>`, so the leaf directory keeps the name of the repository. The pool
+  directory is `~/.branch-deck/pool/<repository name>-<8 hex digits of the SHA-256 of the canonical common dir>`, or
+  `branchdeck.leasePool` of the git config.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`a_free_slot_is_reused_after_master_was_rewritten_past_its_commit`)
+  [@test] ../../crates/sync-core/src/lease_test.rs (`the_repository_name_is_the_directory_of_its_main_worktree`)
+- Two gets at the same time must never lease the same slot: each records its lease as `preparing` under the pool lock
+  (`leases.lock`, not the repository lock), then moves its slot without the lock.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`two_leases_never_get_the_same_slot`)
+- `--branch <name>` (`-b`) must create the branch at the source HEAD and check it out in the slot; a branch that
+  exists must be `branch_exists` (exit 4), an invalid name `invalid_arguments` (exit 2).
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`a_lease_on_a_new_branch_keeps_the_branch_after_the_return`)
+- The get must copy into the slot the ignored files and directories that `.worktreeinclude` at the root of the source
+  names (`#` comments; a literal path, or a glob of `*`, `?` and `[…]` in its last component; always relative to the
+  root), and record them in the lease (`seeded`). A tracked file or one that git does not ignore must not be seeded.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`the_seed_copies_the_included_ignored_files_and_the_return_removes_them`)
+  [@test] ../../crates/sync-core/src/lease_test.rs (`the_seed_candidates_are_literal_paths_and_globs_of_one_directory`, `a_glob_matches_by_stars_question_marks_and_classes`)
+- A get that fails after it recorded the lease must give the slot back (free, or dropped when it was never added) and
+  say so in the message; it must never leave the lease `preparing`. A `preparing` lease whose process (its pid and
+  start time) is gone must be taken as free by the next get.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`a_failed_get_rolls_the_lease_back`, `a_preparing_lease_of_a_gone_process_is_taken_by_the_next_get`)
+- A get of a free slot must run a fixed number of git processes: the repository, the source HEAD, the pool config,
+  one `status` and one `checkout` of the slot.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_get_and_return`)
+- The process scan must find a process by its working directory, compared by path components, and leave out `bd`
+  and its ancestors; a recorded start time must tell a process from a later one with the same pid.
+  [@test] ../../crates/sync-core/src/process_scan_test.rs (`a_process_in_a_directory_is_inside_it_and_this_process_is_left_out`, `a_process_runs_only_with_the_start_time_it_was_recorded_with`)
+
+### Return
+
+- `bd lease return` must free the lease of the worktree of `--workspace` (default: of `-C`, else of the current
+  directory): remove the seeded paths (`removed`), detach HEAD when it is on a branch (`detached_branch`, the branch
+  stays) and leave the slot at its commit.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`the_seed_copies_the_included_ignored_files_and_the_return_removes_them`, `a_lease_on_a_new_branch_keeps_the_branch_after_the_return`)
+- It must refuse, with nothing changed: a worktree without a lease (`no_lease`, exit 2), another `--lease-id`
+  (`lease_mismatch`, exit 2), a process other than `bd` and its ancestors in the worktree (`slot_busy`, exit 4), HEAD
+  with commits that no branch, tag or remote branch holds (`unlanded_commits`, exit 4, `commits`, the message naming
+  `bd pick --from <dir> --follow`), and local changes (`dirty_worktree`, exit 4, `paths`). The commits of the commit
+  the slot was leased at never count as unlanded, also after a rewrite of master made them unreachable.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`a_free_slot_is_reused_after_master_was_rewritten_past_its_commit`)
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`a_return_refuses_unlanded_commits_a_dirty_tree_and_a_busy_slot`)
+- `--confirm-preserved` must give up the unlanded commits (`given_up`) and discard the local changes (`discarded`)
+  with `reset --hard HEAD` and `clean -fd`: the ignored files stay.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`a_return_refuses_unlanded_commits_a_dirty_tree_and_a_busy_slot`)
+
+### Status
+
+- `bd lease status` must list every slot from the state alone, with its `path`, `state` (`free`, `preparing`,
+  `ready`, `abandoned`), `dirty`, `missing` and `lease`; it must run no `git status`. `--processes` must add the
+  processes in each slot. It writes nothing.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`the_status_reads_the_state_without_a_git_status`)
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
+
+### Adopt
+
+- `bd lease adopt <dir>...` must add each clean linked worktree of this repository as a free slot, where it is
+  (`adopted`), and list the refused ones with their code (`refused`, exit 4): not a linked worktree of this repository
+  (`not_a_slot`), held by the pool already (`slot_in_pool`), a process in it (`slot_busy`), local changes
+  (`dirty_worktree`).
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`adopt_adds_clean_linked_worktrees_and_refuses_the_rest`)
+
+### Error codes
+
+| Exit | Codes |
+|---|---|
+| 2 | `invalid_arguments`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool` |
+| 3 | `locked` (the pool lock, retryable) |
+| 4 | `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `no_baseline` (a source without commits) |
+
+- The outputs must match `bd schema` (`lease_get`, `lease_return`, `lease_status`, `lease_adopt`).
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`lease_outputs_match_the_schema`)
+  [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
+- The slot writes (`checkout` twice, `reset`, `clean`) must stay in `crates/git-ops/src/lease_slot.rs`, with their
+  exact counts in the worktree safety scan.
+  [@test] ../../crates/git-executor/src/worktree_safety_test.rs (`production_code_never_writes_the_working_tree`)
+
+## Testing / Local Run
+
+- `cargo nextest run -p bd-cli lease_test` runs the commands end to end on `TestRepo` fixtures, the pool in a
+  temporary home directory; `cargo nextest run -p sync-core lease_test process_scan_test` runs the seed patterns and
+  the process scan.
+
+## Open Questions / Risks
+
+- On Windows the scan of the processes is not available: a slot with a shell in it can be leased, and a `preparing`
+  lease of a get that died there stays until its record is edited. A lock file per lease would work on every platform.
+- A seeded path that a later commit tracks is removed by the return, and the slot shows a deletion; the next get skips
+  it as dirty.
+- A free slot left dirty stays in the pool, and each get that needs it pays one `status` of it.
+
+## References
+
+- [Git Operations](../../docs/design/git-operations.md): "Lease" and "Pick".
+- [Agent CLI guide](../../docs/guidelines/agent-cli.md): `bd lease`.

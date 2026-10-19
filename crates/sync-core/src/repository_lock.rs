@@ -47,7 +47,12 @@ pub fn lock_repository_with(git_executor: &GitCommandExecutor, repository_path: 
 /// `lock_repository_with` for a caller that knows `$GIT_COMMON_DIR` (absolute, `bd`'s context): no git process
 #[instrument(skip(on_wait))]
 pub fn lock_repository_in(git_common_dir: &Path, timeout: Duration, on_wait: &dyn Fn()) -> Result<RepositoryLock> {
-  let path = git_common_dir.join(LOCK_FILE_NAME);
+  lock_file(git_common_dir.join(LOCK_FILE_NAME), timeout, on_wait)
+}
+
+/// An exclusive lock on the file `path`, created when missing, as `lock_repository_in` takes it: the lease pool has a
+/// lock of its own (`lease`), so a lease never waits for a long update
+pub fn lock_file(path: PathBuf, timeout: Duration, on_wait: &dyn Fn()) -> Result<RepositoryLock> {
   let file = OpenOptions::new()
     .create(true)
     .truncate(false)
@@ -60,7 +65,7 @@ pub fn lock_repository_in(git_common_dir: &Path, timeout: Duration, on_wait: &dy
   loop {
     match file.try_lock() {
       Ok(()) => {
-        debug!(path = %path.display(), "locked the repository");
+        debug!(path = %path.display(), "locked");
         return Ok(RepositoryLock { _file: file });
       }
       Err(TryLockError::WouldBlock) if started.elapsed() < timeout => {

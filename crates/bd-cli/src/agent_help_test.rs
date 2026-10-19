@@ -30,8 +30,8 @@ const NOT_IN_AGENT_HELP: &[&str] = &[
 /// Commands that the help names "with the same options" as another one
 const SAME_OPTIONS_AS: &[(&str, &str)] = &[("rename", "group"), ("restack", "group"), ("unstack", "group")];
 
-/// The long options of the commands: the global ones, and per subcommand its own; without `--help`, `--version` and
-/// hidden options
+/// The long options of the commands: the global ones, and per subcommand its own, a nested one as `lease get`; without
+/// `--help`, `--version` and hidden options
 fn options_of_commands() -> (BTreeSet<String>, BTreeMap<String, BTreeSet<String>>) {
   let mut command = Cli::command();
   command.build();
@@ -43,16 +43,19 @@ fn options_of_commands() -> (BTreeSet<String>, BTreeMap<String, BTreeSet<String>
       .collect()
   };
   let global = longs(&command, true);
-  let commands = command
-    .get_subcommands()
-    .map(|subcommand| (subcommand.get_name().to_string(), &longs(subcommand, false) - &global))
-    .collect();
+  let mut commands = BTreeMap::new();
+  for subcommand in command.get_subcommands() {
+    commands.insert(subcommand.get_name().to_string(), &longs(subcommand, false) - &global);
+    for nested in subcommand.get_subcommands().filter(|nested| nested.get_name() != "help") {
+      commands.insert(format!("{} {}", subcommand.get_name(), nested.get_name()), &longs(nested, false) - &global);
+    }
+  }
   (global, commands)
 }
 
-/// The commands the help names (`` `bd <command> ``), and each `--option` with the command named last before it, `None`
-/// before the first
-fn named_in(text: &str) -> (BTreeSet<&str>, Vec<(Option<&str>, &str)>) {
+/// The commands the help names (`` `bd <command> ``, `` `bd lease get ``, after -C <dir> too), and each `--option` with
+/// the command named last before it, `None` before the first
+fn named_in<'a>(text: &'a str, commands_of: &BTreeMap<String, BTreeSet<String>>) -> (BTreeSet<&'a str>, Vec<(Option<&'a str>, &'a str)>) {
   let word = |rest: &str| -> usize { rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '-')).unwrap_or(rest.len()) };
   let mut command = None;
   let mut commands = BTreeSet::new();
@@ -63,7 +66,15 @@ fn named_in(text: &str) -> (BTreeSet<&str>, Vec<(Option<&str>, &str)>) {
     if let Some(after) = rest.strip_prefix("`bd ")
       && after.starts_with(|c: char| c.is_ascii_lowercase())
     {
-      command = Some(&after[..word(after)]);
+      let first = word(after);
+      // a nested command: its name and the word after it
+      let nested = after[first..].strip_prefix(' ').map(|next| first + 1 + word(next));
+      command = Some(match nested {
+        Some(end) if commands_of.contains_key(&after[..end]) => &after[..end],
+        _ => &after[..first],
+      });
+      // a nested command names its parent too
+      commands.insert(&after[..first]);
       commands.extend(command);
       index += 4;
     } else if let Some(after) = rest.strip_prefix("--")
@@ -84,7 +95,7 @@ fn agent_help_names_every_command_and_option_that_exists() {
   // `bd help update` holds the options of the session, `bd help worktrees` the work beside other sessions; together the
   // texts name everything
   let text = format!("{AGENT_HELP}\n{UPDATE_HELP}\n{WORKTREES_HELP}");
-  let (named_commands, named) = named_in(&text);
+  let (named_commands, named) = named_in(&text, &commands);
   let is_named = |command: Option<&str>, option: &str| named.iter().any(|&(c, o)| o == option && (command.is_none() || c == command));
 
   let mut missing = Vec::new();
@@ -217,6 +228,7 @@ fn read_only_commands_write_no_ref_config_index_or_working_tree() {
     &["describe", "a"],
     &["fold", "--dry-run"],
     &["move-hunk", &change, &first, "shared.txt", "--dry-run"],
+    &["lease", "status"],
   ];
   // with --no-cache first: no cache appears either
   for no_cache in [true, false] {

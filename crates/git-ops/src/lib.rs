@@ -51,6 +51,9 @@
 //! - `resolve_check`: the checks of a resolved file of a round
 //! - `word_replay`: the local commits replayed onto the upstream, each conflict resolved by words, all or nothing
 //! - `pick`: the commits of another worktree landed on the checked out branch (`bd pick`), the worktree following
+//!
+//! The lease pool:
+//! - `lease_slot`: the git of a slot of `bd lease`, the one other writer of a working tree: a slot is pool property
 
 pub mod amend_operations;
 pub mod attributes;
@@ -66,6 +69,7 @@ pub mod commit_writer;
 pub mod conflict_analysis;
 pub mod copy_commit;
 pub mod history;
+pub mod lease_slot;
 pub mod merge_conflict;
 pub mod merge_memo;
 pub mod merge_tree_output;
