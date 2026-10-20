@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.25.0](https://github.com/develar/branch-deck/compare/v0.24.0...v0.25.0) (2026-10-20)
+
+
+### Features
+
+* **bd:** bd reword changes the messages of commits under the lock, with undo ([fcce57d](https://github.com/develar/branch-deck/commit/fcce57dac78c359b774082cda957ad1b7c948c86))
+
+
+### Bug Fixes
+
+* **bd:** a stacked child whose parent was reworded needs a push ([f314504](https://github.com/develar/branch-deck/commit/f314504ba5069c9aa86685d1da48c1ea12b9eb8f))
+* **landing:** a branch leaves Your Move once its Safe Push starts ([902ecd0](https://github.com/develar/branch-deck/commit/902ecd0ffc1e883733e9ec6d7b07519524594cd7))
+* **spec:** every [[@test](https://github.com/test)] link names a test that exists, and pnpm lint:specs checks it ([a4a81a9](https://github.com/develar/branch-deck/commit/a4a81a983d21cf0a23938cc095d0885a3c70f052))
+
 ## [0.24.0](https://github.com/develar/branch-deck/compare/v0.23.0...v0.24.0) (2026-10-20)
 
 
