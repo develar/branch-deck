@@ -8,6 +8,7 @@ import { ActiveBranchExpanded, CommitRail } from "@/components/branch/ActiveBran
 import { BranchActions, BranchMenuItems } from "@/components/branch/BranchActions"
 import { ColumnTrack } from "@/components/branch/BranchColumns"
 import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
+import { StackOnDropChip } from "@/components/branch/BranchDropZones"
 import { BranchNameCell } from "@/components/branch/BranchNameCell"
 import { BranchRowStatus } from "@/components/branch/BranchRowStatus"
 import { LandedChip } from "@/components/branch/LandedChip"
@@ -29,7 +30,7 @@ import { formatCommitCount } from "@/lib/commit"
 import { isRobotActive } from "@/lib/patronus"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { branchRowDivider, dividerAttributes, laneContentInsetClass, rowBelowDivider } from "@/lib/stack-lanes"
-import { getBranchCommits, getBranchTableOrder, useBranch, useBranchSync, useParkedState } from "@/stores/branch-sync"
+import { getBranchCommits, getBranchTableOrder, getDraggableBranchOrder, useBranch, useBranchSync, useParkedState } from "@/stores/branch-sync"
 import {
   clearBranchSelection,
   endCommitDrag,
@@ -122,7 +123,8 @@ export const BranchRow = memo(function BranchRow({
   const robotRuns = robot !== undefined && isRobotActive(robot)
   const activeInline = useActiveInlineForRow(name)
   const { count: fixupCount } = useListFixups(name)
-  // commits and branches dragged from elsewhere move here; the rows of the branch below its row are the target too
+  // commits and branches dragged from elsewhere move here; the rows of the branch below its row are the target too. A
+  // dragged branch is stacked here instead when dropped on the chip over the Actions cell (`StackOnDropChip`)
   const dropTarget = useCommitDropTarget(name, drag => void moveCommits(drag.commits, name))
   const selected = useIsBranchSelected(name)
   const isSyncing = useBranchSync(state => state.isSyncing)
@@ -165,7 +167,8 @@ export const BranchRow = memo(function BranchRow({
   // a move is a rewrite: it waits for a running sync, also of a row that shows its last state meanwhile
   const canDrag = branch.commitCount > 0 && !processing && branch.status !== "Syncing" && !isSyncing
   const onDragStart = (event: DragEvent) => {
-    const order = getBranchTableOrder()
+    // a row of the Parked card drags too
+    const order = getDraggableBranchOrder()
     // what moves is what is selected: an unselected row dragged becomes the selection
     if (!getSelectedBranches().includes(name)) {
       selectBranches(name, "only", order)
@@ -272,8 +275,9 @@ export const BranchRow = memo(function BranchRow({
             </ColumnTrack>
           </div>
         </td>
-        <td className="w-px px-4 py-(--bd-cell-y) whitespace-nowrap">
+        <td className="relative w-px px-4 py-(--bd-cell-y) whitespace-nowrap">
           <BranchActions branch={branch} setExpanded={setExpanded} stackPushInHeader={stackPushInHeader} />
+          <StackOnDropChip name={name} rowOver={dropTarget.isOver} />
         </td>
       </BranchContextMenuRow>
 

@@ -718,6 +718,12 @@ export function getBranchTableOrder(visible: ReadonlySet<string> | null = null):
   return getBranchTableRows(visible).flatMap(row => (row.kind === "branch" ? [row.name] : []))
 }
 
+/** The branch rows of the table and of the Parked card, in their order: what a drag of the selected rows carries */
+export function getDraggableBranchOrder(): string[] {
+  const state = branchSyncStore.getState()
+  return [...branchTableRowsIn(state, null), ...parkedTableRowsIn(state)].flatMap(row => (row.kind === "branch" ? [row.name] : []))
+}
+
 function branchCommitsIn(state: BranchSyncState, names: readonly string[]): Commit[] {
   return names.flatMap(name => state.branches[name]?.commits ?? [])
 }

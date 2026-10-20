@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { ParkedCardDropZone } from "@/components/branch/BranchDropZones"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { HelpPopover } from "@/components/shared/HelpPopover"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
@@ -8,7 +9,8 @@ import { setParkedCollapsed, useRecentProjects } from "@/stores/settings/reposit
 /**
  * The Parked card, after the branch table and its islands: the branches the user keeps local
  * ([Parked Branches](../../../spec/branch/parked-branches.spec.md)), their rows as in the table, open by default and
- * collapsed per repository. None of them is a move of the user: the header, the chips and F2 leave them out.
+ * collapsed per repository. None of them is a move of the user: the header, the chips and F2 leave them out. A branch
+ * dragged here from the table is parked (`ParkedCardDropZone`).
  */
 export function ParkedBranchesCard({ count, children }: { count: number; children: ReactNode }) {
   const repositoryPath = useSelectedProjectPath()
@@ -24,6 +26,7 @@ export function ParkedBranchesCard({ count, children }: { count: number; childre
       }}
       header={<SectionCardHeader title="Parked" count={count} itemSingular="branch" itemPlural="branches" />}
       help={<ParkedBranchesHelpPopover />}
+      banner={<ParkedCardDropZone />}
     >
       {children}
     </CollapsibleCard>

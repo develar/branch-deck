@@ -300,12 +300,12 @@ export const commands = {
 	/**  Stacks a branch on another one, or makes it a root (`parent: null`), in one history rewrite. */
 	restackBranch: (params: RestackBranchParams) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("restack_branch", { params })),
 	/**
-	 *  Parks a branch with a note, or changes the note of a parked one: kept local, never pushed, until unparked. No
-	 *  rewrite: the store `refs/branch-deck/parked`, under the repository lock.
+	 *  Parks branches with their notes, or changes the notes of parked ones: kept local, never pushed, until unparked. No
+	 *  rewrite: one commit of the store `refs/branch-deck/parked`, under the repository lock.
 	 */
-	parkBranch: (params: ParkBranchParams) => typedError<ParkResult, CommandError>(__TAURI_INVOKE("park_branch", { params })),
-	/**  Unparks a branch: it can be pushed and landed again. */
-	unparkBranch: (params: UnparkBranchParams) => typedError<ParkResult, CommandError>(__TAURI_INVOKE("unpark_branch", { params })),
+	parkBranches: (params: ParkBranchesParams) => typedError<ParkResult, CommandError>(__TAURI_INVOKE("park_branches", { params })),
+	/**  Unparks branches: they can be pushed and landed again. */
+	unparkBranches: (params: UnparkBranchesParams) => typedError<ParkResult, CommandError>(__TAURI_INVOKE("unpark_branches", { params })),
 	/**
 	 *  Whether a stacked branch builds on the baseline without its parent: a trial build of it as a root, objects only,
 	 *  through the object cache of the repository.
@@ -1872,23 +1872,35 @@ export type ParentState =
 /**  No commit is grouped into the parent */
 "Missing";
 
-export type ParkBranchParams = {
-	repositoryPath: string,
+/**  A branch to park and its note */
+export type ParkBranchLine = {
 	/**  The branch (a leaf with stacked branches on) */
 	branchName: string,
 	/**  Why it is parked, one line; empty for none. Parking a parked branch changes its note */
 	note: string,
 };
 
+export type ParkBranchesParams = {
+	repositoryPath: string,
+	/**  Written in one store commit: an unknown branch parks none */
+	branches: ParkBranchLine[],
+};
+
 /**  What a park or an unpark did */
 export type ParkResult = {
+	/**  One per branch named, in the order named */
+	branches: ParkedBranchChange[],
+	/**  Whether the store changed */
+	changed: boolean,
+};
+
+/**  What a park or an unpark did to one branch */
+export type ParkedBranchChange = {
 	branchName: string,
 	/**  The note afterwards; `None` when the branch is not parked any more */
 	note: string | null,
-	/**  The note before; `None` when the branch was not parked */
+	/**  The note before; `None` when it was not parked */
 	previousNote: string | null,
-	/**  Whether the store changed */
-	changed: boolean,
 };
 
 /**  Whether Patronus can be asked for the repository */
@@ -3513,9 +3525,10 @@ export type UnknownReadinessReason =
 /**  The branch has too many commits to check, as in the IDE; the robot checks them anyway */
 "skipped";
 
-export type UnparkBranchParams = {
+export type UnparkBranchesParams = {
 	repositoryPath: string,
-	branchName: string,
+	/**  Dropped in one store commit: a branch that is not parked unparks none */
+	branchNames: string[],
 };
 
 /**  The result of checking the branch against its upstream */

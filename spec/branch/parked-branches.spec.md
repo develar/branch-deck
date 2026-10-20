@@ -28,6 +28,8 @@ targets:
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useParkBranch.ts
   - ../../src/components/branch/ParkedBranchesCard.tsx
+  - ../../src/components/branch/BranchDropZones.tsx
+  - ../../src/lib/branch-drop.ts
   - ../../src/components/branch/InlineParkBranchInput.tsx
   - ../../src/components/branch/BranchRowStatus.tsx
 ---
@@ -86,6 +88,11 @@ branch built on it carries its commits, so it is parked with it.
   compare-and-swap on the commit it read, and rewrite no commit. A park of a parked branch changes its note; the same
   line again writes nothing. The note is trimmed; two lines or more than 500 characters are refused.
   [@test] ../../crates/sync-core/src/parked_test.rs (`park_writes_a_line_without_a_rewrite_and_unpark_drops_it`, `park_refuses_an_unknown_branch_and_a_note_of_two_lines_unpark_one_not_parked`)
+- A park or an unpark of several branches (the app's drag of a selection, an undo) must write all their lines in one
+  store commit, or none: an unknown branch refuses the park of all, one that is not parked the unpark of all. The
+  processes don't grow with the number of branches.
+  [@test] ../../crates/sync-core/src/parked_test.rs (`several_branches_park_and_unpark_in_one_store_commit_or_not_at_all`)
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_park_and_an_unpark`)
 - A park must wait for the repository lock as a rewrite does, and fail with `locked` after the wait.
   [@test] ../../crates/sync-core/src/parked_test.rs (`park_waits_for_the_repository_lock`)
 - An unpark must drop the line, also of a branch that groups no commit here; a branch that is not parked is
@@ -158,6 +165,13 @@ branch built on it carries its commits, so it is parked with it.
   A park or an unpark is a write of the repository (it waits for a rewrite), followed by a sync, then a toast "Parked
   auth" or "Unparked auth" whose Undo puts the line back as it was.
   [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`, `should park a stack root with the branches built on it, edit its note and unpark it from the menus`)
+- Branches dragged from the table onto the park zone (at the top of the Parked card, or a card of its own while none
+  is parked) must be parked at once, without a note, in one write of the store and one toast "Parked core and docs",
+  whose Undo takes back every line; parked branches dragged onto the unpark zone above the table must be unparked the
+  same way. A branch parked with its parent is unparked only with it: dragged alone, the zone refuses it and says why.
+  A target refuses with the reason of the menu ([Move Commits](move-commits.spec.md#drag-and-drop)).
+  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch dragged onto the park zone, unpark it dragged onto the unpark zone, take both back with Undo, and drag the commits of a parked row onto a branch`, `should park the selected branches dropped on the Parked card at once with one Undo, and unpark a stack by its root, never by a branch parked with it`)
+  [@test] ../../src/lib/branch-drop.test.ts (`parks dragged branches that land, refuses one parked already or one a robot lands, and waits for the sync`, `unparks the dragged branches with a line of their own, the ones parked with them along, never one alone`)
 
 ## User Experience
 
@@ -165,6 +179,8 @@ branch built on it carries its commits, so it is parked with it.
   (optional)"), Enter parks → the row moves into the Parked card → toast "Parked docs" · Undo.
 - The Parked card: "Parked · 2 branches", a help popover, the rows; the node hollow and grey, Status "Parked", the
   note beside the name.
+- Drag a branch row → "Drop here to park" under the header of the Parked card (or where it would be) → drop → toast
+  "Parked docs" · Undo; drag a parked row → "Drop here to unpark" above the table.
 - `bd park docs --note '…'`, `bd unpark docs`; an agent never parks or unparks on its own.
 
 ## Open Questions / Risks

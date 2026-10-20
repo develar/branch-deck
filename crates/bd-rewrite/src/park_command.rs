@@ -6,7 +6,7 @@ use bd_core::error::{CliError, ErrorCode};
 use bd_core::output::SchemaVersion;
 use bd_core::sync_command::lock;
 use history_rewrite::baseline::NoBaseline;
-use history_rewrite::parked::{ParkError, ParkOutcome, park_core, unpark_core};
+use history_rewrite::parked::{ParkError, ParkLine, ParkOutcome, park_core, unpark_core};
 use history_rewrite::repository_lock::RewriteOptions;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -45,11 +45,21 @@ pub struct ParkOutput {
 }
 
 pub fn park(context: &RepoContext, args: &ParkArgs) -> Result<ParkOutput, CliError> {
-  locked(context, |options| park_core(&context.git, &context.repository, &args.branch, &args.note, options))
+  locked(context, |options| {
+    park_core(
+      &context.git,
+      &context.repository,
+      &[ParkLine {
+        branch: &args.branch,
+        note: &args.note,
+      }],
+      options,
+    )
+  })
 }
 
 pub fn unpark(context: &RepoContext, args: &UnparkArgs) -> Result<ParkOutput, CliError> {
-  locked(context, |options| unpark_core(&context.git, &context.repository, &args.branch, options))
+  locked(context, |options| unpark_core(&context.git, &context.repository, &[args.branch.as_str()], options))
 }
 
 /// `write` under the repository lock that bd takes (a wait for it reads the config again), and its output
@@ -61,14 +71,21 @@ fn locked(context: &RepoContext, write: impl FnOnce(&RewriteOptions) -> Result<P
     ..RewriteOptions::default()
   };
   let outcome = write(&options).map_err(park_error)?;
+  let changed = outcome.new_commit.is_some();
+  // one branch named, so one change
+  let change = outcome
+    .branches
+    .into_iter()
+    .next()
+    .ok_or_else(|| CliError::new(ErrorCode::GitError, "The park reported no branch"))?;
   Ok(ParkOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),
-    parked: outcome.note.is_some(),
-    changed: outcome.new_commit.is_some(),
-    branch: outcome.branch,
-    note: outcome.note,
-    previous_note: outcome.previous_note,
+    parked: change.note.is_some(),
+    changed,
+    branch: change.branch,
+    note: change.note,
+    previous_note: change.previous_note,
   })
 }
 

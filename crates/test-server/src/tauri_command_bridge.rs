@@ -346,16 +346,16 @@ pub async fn restack_branch(
   run_command("restack branch", move || sync_core::stack_operations::restack_branch(&git_executor, &params)).await
 }
 
-pub async fn park_branch(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::parked::ParkBranchParams>) -> CommandResult<sync_core::parked::ParkResult> {
+pub async fn park_branches(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::parked::ParkBranchesParams>) -> CommandResult<sync_core::parked::ParkResult> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_command("park branch", move || sync_core::parked::park_branch(&git_executor, &params)).await
+  run_command("park branches", move || sync_core::parked::park_branches(&git_executor, &params)).await
 }
 
-pub async fn unpark_branch(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::parked::UnparkBranchParams>) -> CommandResult<sync_core::parked::ParkResult> {
+pub async fn unpark_branches(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::parked::UnparkBranchesParams>) -> CommandResult<sync_core::parked::ParkResult> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_command("unpark branch", move || sync_core::parked::unpark_branch(&git_executor, &params)).await
+  run_command("unpark branches", move || sync_core::parked::unpark_branches(&git_executor, &params)).await
 }
 
 /// Without the object cache, as every command of the mock server

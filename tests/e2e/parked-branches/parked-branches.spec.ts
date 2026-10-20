@@ -2,6 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getMoreButton } from "../helpers/branch-helpers"
+import { dropOn, startDrag } from "../helpers/selection-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
 
 // the `branch_filter` template: the stack core → api → web with cli forked off core, and seven branches on their own;
@@ -134,5 +135,83 @@ test.describe("Parked branches", () => {
     await expect(parkedCard(page)).toHaveAttribute("data-state", "closed")
     await expect(findBranchRow(page, "lint")).toHaveCount(0)
     await expect(page.getByTestId("branch-row")).toHaveCount(BRANCH_COUNT - 1)
+  })
+
+  test("should park a branch dragged onto the park zone, unpark it dragged onto the unpark zone, take both back with Undo, and drag the commits of a parked row onto a branch", async ({
+    page,
+  }) => {
+    await expect(parkedCard(page)).toHaveCount(0)
+    // without a parked branch the zone stands where the card would, while a branch is dragged
+    await expect(page.getByTestId("park-drop-zone")).toHaveCount(0)
+    await startDrag(page, findBranchRow(page, "docs"))
+    const parkZone = page.getByTestId("park-drop-zone")
+    await expect(parkZone).toHaveAttribute("data-drop-target", "ready")
+    await expect(parkZone).toHaveText("Drop here to park")
+    // a branch that lands is no unpark
+    await expect(page.getByTestId("new-branch-drop-zone")).toBeVisible()
+    await expect(page.getByTestId("unpark-drop-zone")).toHaveCount(0)
+    await runAndWaitForSync(page, () => dropOn(page, parkZone))
+
+    expect(await parkedRows(page)).toEqual(["docs"])
+    await expect(findBranchRow(page, "docs").getByTestId("parked-status")).toHaveText("Parked")
+    await expect(toast(page, "Parked docs")).toBeVisible()
+
+    // out of the Parked card: no park zone for it, the unpark zone above the table
+    await startDrag(page, findBranchRow(page, "docs"))
+    const unparkZone = page.getByTestId("unpark-drop-zone")
+    await expect(unparkZone).toHaveAttribute("data-drop-target", "ready")
+    await expect(page.getByTestId("park-drop-zone")).toHaveCount(0)
+    await runAndWaitForSync(page, () => dropOn(page, unparkZone))
+    await expect(parkedCard(page)).toHaveCount(0)
+    await expect(findBranchRow(page, "docs").getByTestId("parked-status")).toHaveCount(0)
+
+    // Undo of the unpark parks it again
+    await runAndWaitForSync(page, () => toast(page, "Unparked docs").getByRole("button", { name: "Undo" }).click())
+    expect(await parkedRows(page)).toEqual(["docs"])
+
+    // a row of the Parked card drags its commits onto a branch of the table as any row
+    await startDrag(page, findBranchRow(page, "docs"))
+    await runAndWaitForSync(page, () => dropOn(page, findBranchRow(page, "lint")))
+    await expect(toast(page, "Moved 1 commit to lint")).toBeVisible()
+    await expect(parkedCard(page)).toHaveCount(0)
+  })
+
+  test("should park the selected branches dropped on the Parked card at once with one Undo, and unpark a stack by its root, never by a branch parked with it", async ({ page }) => {
+    await parkWithForm(page, () => findBranchRow(page, "lint").click({ button: "right" }), "")
+    expect(await parkedRows(page)).toEqual(["lint"])
+
+    // two branches dropped on the zone of the card: one park, one toast, one Undo
+    await findBranchRow(page, "core").click({ modifiers: ["ControlOrMeta"] })
+    await findBranchRow(page, "docs").click({ modifiers: ["ControlOrMeta"] })
+    await startDrag(page, findBranchRow(page, "docs"))
+    const parkZone = parkedCard(page).getByTestId("park-drop-zone")
+    await expect(parkZone).toHaveAttribute("data-drop-target", "ready")
+    await runAndWaitForSync(page, () => dropOn(page, parkZone))
+    expect((await parkedRows(page)).toSorted()).toEqual(["api", "cli", "core", "docs", "lint", "web"])
+    const parkedBoth = toast(page, "Parked ").filter({ hasText: "core" }).filter({ hasText: "docs" })
+    await runAndWaitForSync(page, () => parkedBoth.getByRole("button", { name: "Undo" }).click())
+    expect(await parkedRows(page)).toEqual(["lint"])
+
+    // a plain click selects no branch: the drag carries core alone
+    await findBranchRow(page, "core").click()
+    await startDrag(page, findBranchRow(page, "core"))
+    await runAndWaitForSync(page, () => dropOn(page, parkZone))
+    expect((await parkedRows(page)).toSorted()).toEqual(["api", "cli", "core", "lint", "web"])
+
+    // web carries the commits of core: alone it is refused, and says why
+    await startDrag(page, findBranchRow(page, "web"))
+    const unparkZone = page.getByTestId("unpark-drop-zone")
+    await expect(unparkZone).toHaveAttribute("data-drop-target", "refused")
+    await expect(unparkZone).toHaveText("Cannot unpark web: It carries the commits of parked core, drag core here")
+    await dropOn(page, unparkZone)
+    await expect(findBranchRow(page, "web").getByTestId("parked-status")).toHaveText("Parked with core")
+
+    // the root unparks its stack
+    await startDrag(page, findBranchRow(page, "core"))
+    await expect(unparkZone).toHaveAttribute("data-drop-target", "ready")
+    await runAndWaitForSync(page, () => dropOn(page, unparkZone))
+    expect(await parkedRows(page)).toEqual(["lint"])
+    await expect(findBranchRow(page, "web").getByTestId("parked-status")).toHaveCount(0)
+    await expect(toast(page, "Unparked core")).toBeVisible()
   })
 })

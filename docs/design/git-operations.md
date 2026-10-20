@@ -445,10 +445,11 @@ built on it, which carries its commits.
   the three maps still cost two processes, and a sync's budget is unchanged. The sync sends the whole map in
   `BranchesGrouped` (`parked`), the lines of branches without commits here too.
 - Park and unpark change no commit: `park_core` takes the repository lock, reads the grouping of the commits ahead
-  (the branch must group one), then writes the store with one `fast-import` and one `update-ref --stdin` with CAS on
+  (each branch must group one), then writes the store with one `fast-import` and one `update-ref --stdin` with CAS on
   the commit it read (`write_store_updates`); a ref that moved is `parked_moved`. `unpark_core` reads only the store
-  (one `cat-file --batch`) and drops a line also of a branch without commits here. Neither has an undo token: the
-  other one is the undo.
+  (one `cat-file --batch`) and drops a line also of a branch without commits here. Both take several branches (the
+  app's drag of a selection, the undo of one) and write all their lines in one store commit, or none when one of them
+  is refused; the processes are the same for one branch or many. Neither has an undo token: the other one is the undo.
 - A rename carries the line: the parked `old` becomes the parked `new` with its note, in the transaction of the rename
   (a third store of `regroup_with`; a parked `new`, a merge, keeps its own note). The undo token gets the part
   `parked:P1..P2` after `stacks:`; a failed transaction names the ref that moved in the order HEAD, issue groups,

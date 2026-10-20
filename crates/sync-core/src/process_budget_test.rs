@@ -18,7 +18,7 @@ use crate::update_project::{UpdateProjectParams, check_baseline_update, update_p
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::BranchError;
 use history_rewrite::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
-use history_rewrite::parked::{park_core, unpark_core};
+use history_rewrite::parked::{ParkLine, park_core, unpark_core};
 use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::RewriteOptions;
 use history_rewrite::reword::{CommitReword, RewordRequest, RewordText, reword_request_core};
@@ -723,12 +723,18 @@ fn the_app_reword() {
   // jscpd:ignore-end
 }
 
-/// A park of alpha, then its unpark: no rewrite, one store write each
+/// A park of alpha and beta, then their unpark: no rewrite, one store write each, whatever the number of branches
 #[test]
 fn a_park_and_an_unpark() {
   let (repo, _) = repo();
   let git = counting();
-  park_core(&git, &path(&repo), "alpha", "later", &RewriteOptions::default()).unwrap();
+  park_core(
+    &git,
+    &path(&repo),
+    &[ParkLine { branch: "alpha", note: "later" }, ParkLine { branch: "beta", note: "" }],
+    &RewriteOptions::default(),
+  )
+  .unwrap();
   // the grouping of the commits ahead (`config`, `remote`, `for-each-ref`, `log`, one `cat-file` for the stores), then
   // the store write
   assert_processes(
@@ -746,7 +752,7 @@ fn a_park_and_an_unpark() {
     ],
   );
   let git = counting();
-  unpark_core(&git, &path(&repo), "alpha", &RewriteOptions::default()).unwrap();
+  unpark_core(&git, &path(&repo), &["alpha", "beta"], &RewriteOptions::default()).unwrap();
   assert_processes(&git, &[("cat-file", 1), ("fast-import", 1), ("rev-parse", 1), ("update-ref", 1), ("var", 1)]);
 }
 

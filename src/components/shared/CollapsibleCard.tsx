@@ -12,6 +12,8 @@ export interface CollapsibleCardProps {
   help?: ReactNode
   /** Controls at the end of the header row, outside the toggle button */
   actions?: ReactNode
+  /** Under the header, also while collapsed (a drop zone of what the card holds); it draws its own divider */
+  banner?: ReactNode
   /** A key on the focused header (its toggle button): the keys of what the header stands for (S of a stack island) */
   onHeaderKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void
   children: ReactNode
@@ -37,6 +39,7 @@ export function CollapsibleCard({
   header,
   help,
   actions,
+  banner,
   onHeaderKeyDown,
   children,
   defaultOpen = false,
@@ -74,6 +77,7 @@ export function CollapsibleCard({
         {help}
         {actions !== undefined && <div className="ml-auto flex shrink-0 items-center gap-3">{actions}</div>}
       </div>
+      {banner}
 
       {open && (
         <CollapsibleContent data-state={state} className="animate-in overflow-x-auto duration-150 fade-in-0">

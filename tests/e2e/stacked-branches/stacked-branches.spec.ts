@@ -42,7 +42,7 @@ import {
   safePushPopover,
   slotSafePush,
 } from "../helpers/safe-push-helpers"
-import { clickContextMenuItem, clickGroupIntoBranchButton, closeMenus, openContextMenu, openSubmenu, selectCommit } from "../helpers/selection-helpers"
+import { clickContextMenuItem, clickGroupIntoBranchButton, closeMenus, dropOn, openContextMenu, openSubmenu, selectCommit, startDrag } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
 import { holdCommand, holdCommandCalls, routeCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
@@ -344,6 +344,46 @@ test.describe("Stacked branches", () => {
 
     await openContextMenu(page, findBranchRow(page, "docs"))
     await runAndWaitForSync(page, () => clickContextMenuItem(page, "Unstack from oauth"))
+    await expect.poll(() => tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+  })
+
+  test("should stack a dragged branch dropped on the Stack on chip of a row, refuse a cycle there, and unstack it on the unstack zone", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+    expect(await tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
+
+    // the chip shows over the row under the pointer, and a drop on it stacks instead of moving the commits
+    await startDrag(page, findBranchRow(page, "docs"))
+    await expect(page.getByTestId("stack-on-drop-chip")).toHaveCount(0)
+    // a root has no unstack
+    await expect(page.getByTestId("new-branch-drop-zone")).toBeVisible()
+    await expect(page.getByTestId("unstack-drop-zone")).toHaveCount(0)
+    await findBranchRow(page, "oauth").hover()
+    const chip = findBranchRow(page, "oauth").getByTestId("stack-on-drop-chip")
+    await expect(chip).toHaveText("Stack on oauth")
+    await runAndWaitForSync(page, () => dropOn(page, chip))
+    await expect(page.getByText("Stacked docs on oauth")).toBeVisible()
+    await expect.poll(() => tree(page)).toEqual(["auth@0", "session@1", "login@1", "oauth@2", "docs@3"])
+
+    // a branch stacked on the dragged one is refused, with the reason in the chip
+    await startDrag(page, findBranchRow(page, "auth"))
+    await findBranchRow(page, "oauth").hover()
+    const refused = findBranchRow(page, "oauth").getByTestId("stack-on-drop-chip")
+    await expect(refused).toHaveAttribute("data-drop-target", "refused")
+    await expect(refused).toHaveText("Cannot stack auth on oauth: oauth is stacked on it")
+    await dropOn(page, refused)
+    expect(await tree(page)).toEqual(["auth@0", "session@1", "login@1", "oauth@2", "docs@3"])
+
+    // the unstack zone makes it a root again
+    await startDrag(page, findBranchRow(page, "docs"))
+    const unstack = page.getByTestId("unstack-drop-zone")
+    await expect(unstack).toHaveText("Drop here to unstack")
+    await runAndWaitForSync(page, () => dropOn(page, unstack))
+    await expect(page.getByText("Unstacked docs")).toBeVisible()
     await expect.poll(() => tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
   })
 

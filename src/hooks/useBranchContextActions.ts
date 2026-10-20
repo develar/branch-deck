@@ -38,6 +38,7 @@ import { restackBranch } from "@/hooks/useStackActions"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import { formatSquashFixupsLabel, getListFixups } from "@/lib/autosquash"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
+import { parkBlocker, rewriteBlocker } from "@/lib/branch-drop"
 import type { BranchNextStep } from "@/lib/branch-next-step"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
@@ -317,21 +318,9 @@ function getParkMenuItems(branch: Branch, operations: Operations): MenuItem[] {
       writes({ id: "unpark", label: "Unpark Branch", icon: CirclePlayIcon, description: "It lands as any other branch again", onSelect: () => void unparkBranch(name) }),
     ]
   }
-  const hold = getPushHold(name)
-  if (hold !== null && hold.kind !== "landed") {
-    return [
-      {
-        id: "park",
-        label: "Park Branch…",
-        icon: CirclePauseIcon,
-        disabled: true,
-        description: `${formatPushHoldReason(name, hold)}: it lands whatever a park says`,
-        onSelect: () => {},
-      },
-    ]
-  }
-  if (branch.commits.length === 0) {
-    return [{ id: "park", label: "Park Branch…", icon: CirclePauseIcon, disabled: true, description: "The branch has no commits", onSelect: () => {} }]
+  const blocker = parkBlocker(branch, getPushHold(name), branchSyncStore.getState().isSyncing)
+  if (blocker !== null) {
+    return [{ id: "park", label: "Park Branch…", icon: CirclePauseIcon, disabled: true, description: blocker, onSelect: () => {} }]
   }
   const pullRequest = getPullRequest(name)
   const description =
@@ -399,22 +388,9 @@ function rewriteItem(branch: Branch, item: MenuItem, operations: Operations, blo
   return operationItem(operations, item, { id: item.id ?? item.label, subject: branchSubject(branch.name), objects: [branch.name], kind: "rewrite" })
 }
 
-/**
- * Why a rewrite of the branch (rename, move, ungroup, restack, amend, unapply, issue reference, squash) can't run now:
- * it has no commits, it failed to sync, or a sync rebuilds the branches (also a quiet resync of a row that shows its last
- * state); null when it can
- */
+/** Why a rewrite of the branch can't run now (`rewriteBlocker`); null when it can */
 function getRewriteBlocker(branch: Branch): string | null {
-  if (branch.commits.length === 0) {
-    return "The branch has no commits"
-  }
-  if (branch.hasError) {
-    return "The branch failed to sync"
-  }
-  if (branch.status === "Syncing" || branchSyncStore.getState().isSyncing) {
-    return "Wait for the sync to finish"
-  }
-  return null
+  return rewriteBlocker(branch, branchSyncStore.getState().isSyncing)
 }
 
 /**

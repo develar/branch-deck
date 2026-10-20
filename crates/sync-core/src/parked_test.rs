@@ -1,6 +1,6 @@
-use crate::parked::{ParkBranchParams, UnparkBranchParams, park_branch, parked_state, unpark_branch};
+use crate::parked::{ParkBranchLine, ParkBranchesParams, UnparkBranchesParams, park_branches, parked_state, unpark_branches};
 use crate::regroup_test::{commits, entries, path, plant_store, repo, sync};
-use history_rewrite::parked::{PARKED, PARKED_REF, ParkError, ParkOutcome, drop_integrated_parked, park_core, unpark_core};
+use history_rewrite::parked::{PARKED, PARKED_REF, ParkError, ParkLine, ParkOutcome, ParkedChange, drop_integrated_parked, park_core, unpark_core};
 use history_rewrite::regroup::{RegroupError, RegroupOptions, UndoToken, rename_branch_core, undo_regroup_core};
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions, lock_repository};
 use history_rewrite::snapshot::read_grouping_inputs;
@@ -23,11 +23,17 @@ fn history(repo: &TestRepo) -> usize {
 }
 
 fn park(repo: &TestRepo, branch: &str, note: &str) -> Result<ParkOutcome, ParkError> {
-  park_core(repo.git_executor(), path(repo), branch, note, &RewriteOptions::default())
+  park_core(repo.git_executor(), path(repo), &[ParkLine { branch, note }], &RewriteOptions::default())
 }
 
 fn unpark(repo: &TestRepo, branch: &str) -> Result<ParkOutcome, ParkError> {
-  unpark_core(repo.git_executor(), path(repo), branch, &RewriteOptions::default())
+  unpark_core(repo.git_executor(), path(repo), &[branch], &RewriteOptions::default())
+}
+
+/// The change of the one branch an outcome names
+fn only(outcome: &ParkOutcome) -> &ParkedChange {
+  assert_eq!(outcome.branches.len(), 1, "{outcome:?}");
+  &outcome.branches[0]
 }
 
 #[test]
@@ -36,7 +42,10 @@ fn park_writes_a_line_without_a_rewrite_and_unpark_drops_it() {
   commits(&repo, &["(auth) Add auth", "(login) Add login"]);
   let head = repo.head();
   let outcome = park(&repo, "auth", "  waits for the fix of IJPL-1 ").unwrap();
-  assert_eq!((outcome.previous_note, outcome.note.as_deref()), (None, Some("waits for the fix of IJPL-1")));
+  assert_eq!(
+    (only(&outcome).previous_note.as_deref(), only(&outcome).note.as_deref()),
+    (None, Some("waits for the fix of IJPL-1"))
+  );
   assert!(outcome.new_commit.is_some());
   assert_eq!(parked(&repo).entries, entries(&[("auth", "waits for the fix of IJPL-1")]));
   // no rewrite
@@ -46,12 +55,12 @@ fn park_writes_a_line_without_a_rewrite_and_unpark_drops_it() {
   assert_eq!(park(&repo, "auth", "waits for the fix of IJPL-1").unwrap().new_commit, None);
   park(&repo, "login", "").unwrap();
   let changed = park(&repo, "auth", "IJPL-2").unwrap();
-  assert_eq!(changed.previous_note.as_deref(), Some("waits for the fix of IJPL-1"));
+  assert_eq!(only(&changed).previous_note.as_deref(), Some("waits for the fix of IJPL-1"));
   assert_eq!(parked(&repo).entries, entries(&[("auth", "IJPL-2"), ("login", "")]));
   assert_eq!(history(&repo), 3);
 
   let outcome = unpark(&repo, "auth").unwrap();
-  assert_eq!((outcome.previous_note.as_deref(), outcome.note), (Some("IJPL-2"), None));
+  assert_eq!((only(&outcome).previous_note.as_deref(), only(&outcome).note.as_deref()), (Some("IJPL-2"), None));
   assert_eq!(parked(&repo).entries, entries(&[("login", "")]));
   assert_eq!(repo.head(), head);
 }
@@ -88,7 +97,7 @@ fn park_waits_for_the_repository_lock() {
     lock_timeout: Duration::from_millis(100),
     ..RewriteOptions::default()
   };
-  let error = park_core(repo.git_executor(), path(&repo), "auth", "", &options).unwrap_err();
+  let error = park_core(repo.git_executor(), path(&repo), &[ParkLine { branch: "auth", note: "" }], &options).unwrap_err();
   assert!(matches!(error, ParkError::Locked(_)), "{error}");
   assert_eq!(history(&repo), 0);
 }
@@ -96,26 +105,65 @@ fn park_waits_for_the_repository_lock() {
 #[test]
 fn the_app_wrapper_reports_the_notes() {
   let repo = repo(false);
-  commits(&repo, &["(auth) Add auth"]);
-  let parked_result = park_branch(
+  commits(&repo, &["(auth) Add auth", "(login) Add login"]);
+  let parked_result = park_branches(
     repo.git_executor(),
-    &ParkBranchParams {
+    &ParkBranchesParams {
       repository_path: path(&repo).to_string(),
-      branch_name: "auth".to_string(),
-      note: "later".to_string(),
+      branches: vec![ParkBranchLine {
+        branch_name: "auth".to_string(),
+        note: "later".to_string(),
+      }],
     },
   )
   .unwrap();
-  assert_eq!((parked_result.note.as_deref(), parked_result.changed), (Some("later"), true));
-  let unparked = unpark_branch(
+  assert!(parked_result.changed);
+  assert_eq!(parked_result.branches[0].note.as_deref(), Some("later"));
+  let unparked = unpark_branches(
     repo.git_executor(),
-    &UnparkBranchParams {
+    &UnparkBranchesParams {
       repository_path: path(&repo).to_string(),
-      branch_name: "auth".to_string(),
+      branch_names: vec!["auth".to_string()],
     },
   )
   .unwrap();
-  assert_eq!((unparked.note, unparked.previous_note.as_deref()), (None, Some("later")));
+  assert_eq!((unparked.branches[0].note.as_deref(), unparked.branches[0].previous_note.as_deref()), (None, Some("later")));
+}
+
+#[test]
+fn several_branches_park_and_unpark_in_one_store_commit_or_not_at_all() {
+  let repo = repo(false);
+  commits(&repo, &["(auth) Add auth", "(login) Add login", "(docs) Write"]);
+  let lines = |names: &[&'static str]| names.iter().map(|branch| ParkLine { branch, note: "" }).collect::<Vec<_>>();
+  // an unknown branch parks none
+  let refused = park_core(repo.git_executor(), path(&repo), &lines(&["auth", "ghost"]), &RewriteOptions::default());
+  assert!(matches!(refused, Err(ParkError::UnknownBranch(name)) if name == "ghost"));
+  assert_eq!(history(&repo), 0);
+
+  park(&repo, "docs", "mine").unwrap();
+  let outcome = park_core(
+    repo.git_executor(),
+    path(&repo),
+    &[ParkLine { branch: "auth", note: "later" }, ParkLine { branch: "docs", note: "theirs" }],
+    &RewriteOptions::default(),
+  )
+  .unwrap();
+  let notes: Vec<_> = outcome
+    .branches
+    .iter()
+    .map(|change| (change.branch.as_str(), change.previous_note.as_deref(), change.note.as_deref()))
+    .collect();
+  assert_eq!(notes, [("auth", None, Some("later")), ("docs", Some("mine"), Some("theirs"))]);
+  assert_eq!(parked(&repo).entries, entries(&[("auth", "later"), ("docs", "theirs")]));
+  assert_eq!(history(&repo), 2);
+
+  // a branch that is not parked unparks none
+  let refused = unpark_core(repo.git_executor(), path(&repo), &["auth", "login"], &RewriteOptions::default());
+  assert!(matches!(refused, Err(ParkError::NotParked(name)) if name == "login"));
+  let outcome = unpark_core(repo.git_executor(), path(&repo), &["auth", "docs"], &RewriteOptions::default()).unwrap();
+  assert!(outcome.new_commit.is_some());
+  assert_eq!(parked(&repo).entries, entries(&[]));
+  assert_eq!(history(&repo), 3);
 }
 
 #[test]

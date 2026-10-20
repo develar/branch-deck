@@ -1,6 +1,10 @@
+import type { ParkedBranchChange } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { showUndoToast } from "@/lib/command"
 import { runRewrite } from "@/lib/rewrite"
+import type { RewriteSpec } from "@/lib/rewrite"
+import { joinNames } from "@/lib/text"
+import { getParkedNotes } from "@/stores/branch-sync"
 import { branchSubject } from "@/stores/operations"
 import { getSelectedProject } from "@/stores/repository"
 
@@ -9,65 +13,86 @@ export interface ParkOptions {
   surface?: string | null
 }
 
+/** Parks `branchName` with `note` (empty for none), or changes the note of a parked one (`parkBranches`) */
+export function parkBranch(branchName: string, note: string, options: ParkOptions = {}): Promise<boolean> {
+  return parkBranches([branchName], note, options)
+}
+
 /**
- * Parks `branchName` with `note` (empty for none), or changes the note of a parked one: no rewrite, one line of
- * `refs/branch-deck/parked` under the repository lock, then the sync that moves the row into the Parked card, then the
- * toast with Undo, which puts the line back as it was. A rewrite of its own, so it waits for the other rewrites.
+ * Parks `names` with `note` (empty for none), or changes the notes of parked ones: no rewrite, one commit of
+ * `refs/branch-deck/parked` under the repository lock for all of them, then the sync that moves the rows into the Parked
+ * card, then the toast with Undo, which puts every line back as it was. A rewrite of its own, so it waits for the other
+ * rewrites.
  */
-export async function parkBranch(branchName: string, note: string, options: ParkOptions = {}): Promise<boolean> {
+export async function parkBranches(names: readonly string[], note: string, options: ParkOptions = {}): Promise<boolean> {
   const result = await runRewrite(
-    { id: "park", subject: branchSubject(branchName), objects: [branchName], label: `Parking ${branchName}`, surface: options.surface },
-    `Cannot park ${branchName}`,
-    () => commands.parkBranch({ repositoryPath: repositoryPath(), branchName, note }),
+    parkSpec("park", names, `Parking ${joinNames(names)}`, options),
+    `Cannot park ${joinNames(names)}`,
+    () => commands.parkBranches({ repositoryPath: repositoryPath(), branches: names.map(branchName => ({ branchName, note })) }),
     data => {
       if (!data.changed) {
         return { sync: false }
       }
-      const previous = data.previousNote
-      return {
-        sync: true,
-        after: () =>
-          showUndoToast(previous === null ? `Parked ${branchName}` : `Changed the park note of ${branchName}`, () =>
-            previous === null ? unparkQuietly(branchName) : parkQuietly(branchName, previous),
-          ),
-      }
+      const changed = data.branches.filter(change => change.previousNote !== change.note)
+      // a new note of a parked branch is no park
+      const [renoted] = changed.length === 1 && changed[0]?.previousNote !== null ? changed : []
+      const title = renoted === undefined ? `Parked ${joinNames(changed.map(change => change.branchName))}` : `Changed the park note of ${renoted.branchName}`
+      return { sync: true, after: () => showUndoToast(title, () => restoreQuietly(changed)) }
     },
   )
   return result !== null
 }
 
-/** Unparks `branchName`: it lands as any other branch again; the toast's Undo parks it again with its note */
-export async function unparkBranch(branchName: string, options: ParkOptions = {}): Promise<boolean> {
+/** Unparks `branchName`: it lands as any other branch again (`unparkBranches`) */
+export function unparkBranch(branchName: string, options: ParkOptions = {}): Promise<boolean> {
+  return unparkBranches([branchName], options)
+}
+
+/**
+ * Unparks `names` in one commit of the store: they land as any other branch again; the toast's Undo parks them again,
+ * each with its note
+ */
+export async function unparkBranches(names: readonly string[], options: ParkOptions = {}): Promise<boolean> {
   const result = await runRewrite(
-    { id: "unpark", subject: branchSubject(branchName), objects: [branchName], label: `Unparking ${branchName}`, surface: options.surface },
-    `Cannot unpark ${branchName}`,
-    () => commands.unparkBranch({ repositoryPath: repositoryPath(), branchName }),
-    data => {
-      const previous = data.previousNote ?? ""
-      return { sync: true, after: () => showUndoToast(`Unparked ${branchName}`, () => parkQuietly(branchName, previous)) }
-    },
+    parkSpec("unpark", names, `Unparking ${joinNames(names)}`, options),
+    `Cannot unpark ${joinNames(names)}`,
+    () => commands.unparkBranches({ repositoryPath: repositoryPath(), branchNames: [...names] }),
+    data => ({ sync: true, after: () => showUndoToast(`Unparked ${joinNames(names)}`, () => restoreQuietly(data.branches)) }),
   )
   return result !== null
 }
 
-/** The undo of an unpark or of a new note: the line as it was, without a toast of its own */
-async function parkQuietly(branchName: string, note: string): Promise<void> {
-  await runRewrite(
-    { id: "park", subject: branchSubject(branchName), objects: [branchName], label: `Parking ${branchName}` },
-    `Cannot park ${branchName}`,
-    () => commands.parkBranch({ repositoryPath: repositoryPath(), branchName, note }),
-    () => ({ sync: true }),
-  )
+/**
+ * The undo of a park, a new note or an unpark: every line of `changes` as it was before, without a toast of its own; the
+ * branches that had a line get it back in one park, those that had none and still have one are unparked in one unpark
+ * (an unpark since took the line already)
+ */
+async function restoreQuietly(changes: readonly ParkedBranchChange[]): Promise<void> {
+  const parks = changes.filter(change => change.previousNote !== null)
+  const lines = getParkedNotes()
+  const unparks = changes.filter(change => change.previousNote === null && lines[change.branchName] !== undefined).map(change => change.branchName)
+  if (parks.length > 0) {
+    const names = parks.map(change => change.branchName)
+    await runRewrite(
+      parkSpec("park", names, `Parking ${joinNames(names)}`),
+      `Cannot park ${joinNames(names)}`,
+      () => commands.parkBranches({ repositoryPath: repositoryPath(), branches: parks.map(change => ({ branchName: change.branchName, note: change.previousNote ?? "" })) }),
+      () => ({ sync: true }),
+    )
+  }
+  if (unparks.length > 0) {
+    await runRewrite(
+      parkSpec("unpark", unparks, `Unparking ${joinNames(unparks)}`),
+      `Cannot unpark ${joinNames(unparks)}`,
+      () => commands.unparkBranches({ repositoryPath: repositoryPath(), branchNames: unparks }),
+      () => ({ sync: true }),
+    )
+  }
 }
 
-/** The undo of a park, without a toast of its own */
-async function unparkQuietly(branchName: string): Promise<void> {
-  await runRewrite(
-    { id: "unpark", subject: branchSubject(branchName), objects: [branchName], label: `Unparking ${branchName}` },
-    `Cannot unpark ${branchName}`,
-    () => commands.unparkBranch({ repositoryPath: repositoryPath(), branchName }),
-    () => ({ sync: true }),
-  )
+function parkSpec(id: "park" | "unpark", names: readonly string[], label: string, options: ParkOptions = {}): RewriteSpec {
+  const [only] = names
+  return { id, subject: names.length === 1 && only !== undefined ? branchSubject(only) : `branches:${names.join("\n")}`, objects: names, label, surface: options.surface }
 }
 
 function repositoryPath(): string {
