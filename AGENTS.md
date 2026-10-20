@@ -129,6 +129,7 @@ E2E_PORT=3031 pnpm e2e    # On another port when another checkout's mock server 
 pnpm test-server:dev      # Optional: the E2E mock server with auto-restart (needs watchexec); `pnpm e2e` reuses it
 pnpm perf:diff            # The diff review performance test (playwright.perf.config.ts)
 pnpm perf:table           # The layout of the branch view at 141 rows (ui-theme.md#branch-columns); --project=webkit
+pnpm screenshots:readme   # The README images in docs/screenshots (tests/screenshots, the readme_showcase template)
 
 pnpm lint                 # Every lint:* script
 pnpm exec vp check        # Formatting, lint and types without fixing (what CI checks first)
@@ -170,7 +171,8 @@ Mistakes agents made here; each cost a session.
 - **Throwaway Playwright specs** (screenshots, debugging) go into `shots.local/` of the worktree (`*.local` is
   ignored), with a config there that spreads `../playwright.config` and sets `testDir: "."`, `globalSetup:
   "../tests/e2e/setup/global-setup.ts"` and `webServer[].cwd: ".."`; run `npx playwright test --config
-  shots.local/shots.config.ts`. Delete them before a commit: `pnpm lint:frontend` lints them too.
+  shots.local/shots.config.ts`. Delete them before a commit: `pnpm lint:frontend` lints them too. The README images
+  are no throwaway: `pnpm screenshots:readme` writes them.
 
 ## Development Rules
 
@@ -568,5 +570,6 @@ crates/
 └── …
 tests/
 ├── e2e/             # Playwright specs by feature, their HTML snapshots, fixtures/ and helpers/
-└── perf/            # Performance tests (`pnpm perf:diff`, `pnpm perf:table`)
+├── perf/            # Performance tests (`pnpm perf:diff`, `pnpm perf:table`)
+└── screenshots/     # The README images (`pnpm screenshots:readme`)
 ```

@@ -425,6 +425,9 @@ Every visual change gets before and after screenshots in light and dark:
   `setupRepo("archived_branches" | "unassigned" | "conflict_branches")`;
 - check that nothing vanishes on the canvas and that nested panels stay less round than the islands.
 
+A change the README images show (the main window, the review window) regenerates them: `pnpm screenshots:readme`
+(`tests/screenshots/readme.shot.ts`, WebKit at 2x) rewrites `docs/screenshots/`.
+
 Class changes also change the HTML snapshots. Run `pnpm e2e-up`, then review that the snapshot diff only touches classes.
 
 ## Alternatives Considered

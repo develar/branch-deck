@@ -690,6 +690,93 @@ pub mod templates {
       .commit_with_timestamp("(docs) Document the agent", &[("docs.md", "# Agent\n")], Some(time + 3600))
   }
 
+  /// The README images (`tests/screenshots/readme.shot.ts`): a notes app of `alex` with stacked branches on, the stack
+  /// `sync` of four branches of two commits, `conflicts/offline` and `presence` on `sync` (small enough to stay in the
+  /// table), the issue branches `ABC-123` (two commits) and `ABC-131`, `search` and `docs`: eight branches, so the filter
+  /// bar shows. Kotlin sources (`fixtures/readme`) for the colours of the review. The commits interleave the branches, as
+  /// the commits of a day of work do.
+  pub fn readme_showcase() -> RepoTemplate {
+    const ENGINE: &str = "src/sync/SyncEngine.kt";
+    const STATUS_BAR: &str = "src/editor/StatusBar.kt";
+    const SEARCH: &str = "src/search/FileSearch.kt";
+    let commits: [(&str, &[(&str, &str)]); 13] = [
+      (
+        "(sync) Download only the edits after the last sync",
+        &[(ENGINE, include_str!("../fixtures/readme/SyncEngine.cursor.kt"))],
+      ),
+      (
+        "(sync) Keep the sync cursor across restarts",
+        &[("src/sync/SyncCursorStore.kt", include_str!("../fixtures/readme/SyncCursorStore.kt"))],
+      ),
+      (
+        "ABC-123 Show the upload progress in the status bar",
+        &[(STATUS_BAR, include_str!("../fixtures/readme/StatusBar.progress.kt"))],
+      ),
+      (
+        "(sync/conflicts) Merge two edits of the same paragraph word by word",
+        &[("src/sync/ConflictResolver.kt", include_str!("../fixtures/readme/ConflictResolver.kt"))],
+      ),
+      (
+        "(conflicts) Resolve the remote edits against the local ones",
+        &[(ENGINE, include_str!("../fixtures/readme/SyncEngine.merge.kt"))],
+      ),
+      (
+        "(search) Rank the notes whose file name matches first",
+        &[(SEARCH, include_str!("../fixtures/readme/FileSearch.names.kt"))],
+      ),
+      (
+        "(conflicts/offline) Queue the edits made offline",
+        &[("src/sync/OfflineQueue.kt", include_str!("../fixtures/readme/OfflineQueue.kt"))],
+      ),
+      (
+        "(offline) Upload the queued edits once the connection is back",
+        &[("src/sync/ConnectionWatcher.kt", include_str!("../fixtures/readme/ConnectionWatcher.kt"))],
+      ),
+      (
+        "ABC-123 Hide the progress once the upload is done",
+        &[(STATUS_BAR, include_str!("../fixtures/readme/StatusBar.done.kt"))],
+      ),
+      (
+        "(sync/presence) Show who else has the document open",
+        &[("src/sync/Presence.kt", include_str!("../fixtures/readme/Presence.kt"))],
+      ),
+      (
+        "(presence) Hide the editors idle for ten minutes",
+        &[("src/sync/Presence.kt", include_str!("../fixtures/readme/Presence.idle.kt"))],
+      ),
+      (
+        "ABC-131 Keep the scroll position when the file reloads",
+        &[("src/editor/ScrollKeeper.kt", include_str!("../fixtures/readme/ScrollKeeper.kt"))],
+      ),
+      (
+        "(docs) Document the keyboard shortcuts",
+        &[("docs/shortcuts.md", "# Keyboard shortcuts\n\n- ⌘K: search the notes\n- ⌘S: sync now\n")],
+      ),
+    ];
+    // Jan 1, 2024 from 08:00 UTC, 35 minutes apart
+    let mut time = 1704096000;
+    let mut template = RepoTemplate::new("readme_showcase")
+      .branch_prefix("alex")
+      .config("branchdeck.stacks", "true")
+      .config("user.name", "Alex Morgan")
+      .config("user.email", "alex@example.com")
+      .commit_with_timestamp(
+        "Initial project setup",
+        &[
+          ("README.md", "# Notes\n"),
+          (ENGINE, include_str!("../fixtures/readme/SyncEngine.kt")),
+          (STATUS_BAR, include_str!("../fixtures/readme/StatusBar.kt")),
+          (SEARCH, include_str!("../fixtures/readme/FileSearch.kt")),
+        ],
+        Some(time),
+      );
+    for (subject, files) in commits {
+      time += 2100;
+      template = template.commit_with_timestamp(subject, files, Some(time));
+    }
+    template
+  }
+
   /// The branch view at scale, for `tests/perf/branch-table.perf.ts`: stacked branches on, 120 lone branches of one
   /// commit, their subjects of four lengths, then three stacks of `STACK_ISLAND_BRANCHES`, each an island of its own below
   /// the table

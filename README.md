@@ -10,7 +10,7 @@ and Linux (x86_64). Early: version 0.x, the builds are not signed yet.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/branch-deck-dark.png">
-  <img alt="Branch Deck: a stack of branches, push and pull request states, and an unassigned commit" src="docs/screenshots/branch-deck-light.png">
+  <img alt="Branch Deck: branches by feature and a stack of four, where each is on its way into master, their pull requests, and the review that waits for you" src="docs/screenshots/branch-deck-light.png">
 </picture>
 
 ## How It Works
@@ -134,6 +134,11 @@ publisher: choose More info → Run anyway.
   on a name going to its declaration, ⌥F7 listing its usages. Your Turn lists the pull requests that wait for your
   review and opens them in the same window to approve or request changes ([commit](spec/commit/commit-review.spec.md), [branch](spec/branch/branch-review.spec.md),
   [navigation](spec/commit/symbol-navigation.spec.md), [Your Turn](spec/repository/review-requests.spec.md)).
+
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/review-dark.png">
+    <img alt="The review window of a branch: its commits, the tree of its files and their diffs side by side, coloured as IntelliJ colours Kotlin" src="docs/screenshots/review-light.png">
+  </picture>
 - **History editing with Undo**: reword, amend uncommitted changes into a branch, squash commits even when others lie
   between them, fold fixup commits, unapply a branch. Activity lists what Branch Deck did, with Undo while it lasts
   ([squash](spec/commit/squash.spec.md), [fixups](spec/commit/fixups.spec.md), [activity](spec/repository/activity.spec.md)).
