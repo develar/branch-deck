@@ -24,7 +24,8 @@ as `bd`, the CLI runs without the subcommand. `src-tauri/src/main.rs` dispatches
 plugin is created. On Windows the app binary is a GUI-subsystem program without a console, so the installer puts a
 console `bd.exe` next to `branch-deck.exe`: the `bd` binary of `crates/bd-cli`, which `scripts/build-bd.mjs` builds
 for the Tauri `externalBin` of `src-tauri/tauri.windows-bd.conf.json` (passed with `--config` by the Windows CI jobs
-only, so other builds don't need the file). The code is in `crates/bd-cli`; the requirements are in the
+only, so other builds don't need the file). The code is in `crates/bd-cli` (the `Cli`, the dispatch, `bd schema`, the help texts) and the crates it
+builds on: `bd-core`, `bd-clustering`, `bd-lease`, `bd-update`, `bd-rewrite` and `bd-remote`; the requirements are in the
 [Agent CLI spec](../../spec/cli/agent-cli.spec.md).
 
 ## Invocation

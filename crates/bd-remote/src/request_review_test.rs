@@ -1,6 +1,6 @@
-use crate::fixture_test::assert_covered;
-use crate::fixture_test::{PREFIX, assert_error, run_json};
-use crate::remote_fixture_test::{evaluated_review, list_pull_requests, needs_code_owner, own_pull_request};
+use bd_cli::fixture_test::assert_covered;
+use bd_cli::fixture_test::{PREFIX, assert_error, run_json};
+use bd_cli::remote_fixture_test::{evaluated_review, list_pull_requests, needs_code_owner, own_pull_request};
 use bd_core::context::Environment;
 use github::fake_github::{FakeAnswer, FakeGitHub};
 use pretty_assertions::assert_eq;

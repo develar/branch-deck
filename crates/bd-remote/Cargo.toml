@@ -1,0 +1,40 @@
+[package]
+name = "bd-remote"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The bd commands of the remote: status, push, safe-push, request-review, robot, and the landed branches"
+publish = false
+
+[dependencies]
+bd-clustering = { path = "../bd-clustering" }
+bd-core = { path = "../bd-core" }
+bd-rewrite = { path = "../bd-rewrite" }
+git-ops = { path = "../git-ops", features = ["schemars"] }
+github = { path = "../github" }
+history-rewrite = { path = "../history-rewrite" }
+object-cache = { path = "../object-cache" }
+patronus = { path = "../patronus" }
+sync-core = { path = "../sync-core" }
+sync-types = { path = "../sync-types" }
+sync-utils = { path = "../sync-utils" }
+clap = { version = "4.6", features = ["derive"] }
+schemars.workspace = true
+serde.workspace = true
+sha2 = "0.10.9"
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+# the tests run bd through its Cli and share the fakes of bd-cli: a dev-dependency cycle, which cargo allows
+bd-cli = { path = "../bd-cli", features = ["fixtures"] }
+github = { path = "../github", features = ["fake"] }
+patronus = { path = "../patronus", features = ["fake"] }
+test-utils = { path = "../test-utils" }
+pretty_assertions.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+test-log.workspace = true
+
+[lints]
+workspace = true

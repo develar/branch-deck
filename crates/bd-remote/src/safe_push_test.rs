@@ -1,6 +1,6 @@
-use crate::fixture_test::assert_covered;
-use crate::fixture_test::{ACP_HOST, PREFIX, assert_error, commit_all, commit_dangling_reference, environment, git, run_in, run_json, write};
-use crate::remote_fixture_test::{
+use bd_cli::fixture_test::assert_covered;
+use bd_cli::fixture_test::{ACP_HOST, PREFIX, assert_error, commit_all, commit_dangling_reference, environment, git, run_in, run_json, write};
+use bd_cli::remote_fixture_test::{
   AUTH, LANDED_SUBJECTS, STACK, Space, evaluated_review, fake_github, forking_stack, land_auth_by_content, list_pull_requests, pull_request_json, push_from_elsewhere_to,
   reviewed_on_github, robot, safe_push, search_answer, stack_robot,
 };

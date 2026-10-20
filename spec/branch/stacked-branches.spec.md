@@ -66,7 +66,7 @@ targets:
   - ../../src/lib/git/new-pull-request.ts
   - ../../src/lib/create-pull-request-context.ts
   - ../../src/components/branch/CreatePullRequestDialog.tsx
-  - ../../crates/bd-cli/src/pull_request_retarget.rs
+  - ../../crates/bd-remote/src/pull_request_retarget.rs
   - ../../crates/sync-core/src/pull_request_writes.rs
 ---
 
@@ -169,7 +169,7 @@ menu stacks, unstacks and renames branches.
   [@test] ../../crates/history-rewrite/src/stack_test.rs (`a_parent_whose_virtual_branch_lost_its_commits_is_detected_before_the_placement`)
   [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`the_first_sync_after_the_parent_is_integrated_builds_the_child_on_the_baseline`)
   [@test] ../../crates/integration-detection-tests/src/recheck_tests.rs (`a_stale_note_on_the_virtual_tip_does_not_hide_an_integrated_parent`, `a_stale_note_on_the_archived_parent_does_not_hide_an_integrated_parent`)
-  [@test] ../../crates/bd-cli/src/status_test.rs (`a_parent_integrated_since_the_last_sync_is_integrated_before_the_next_one`)
+  [@test] ../../crates/bd-remote/src/status_test.rs (`a_parent_integrated_since_the_last_sync_is_integrated_before_the_next_one`)
 - A parent without commits, whatever its state, must move the child to its nearest active ancestor, or the baseline,
   with `prBaseChanged`: the local history is linear on the baseline, so the child's commits can be picked there like
   those of any flat branch (or conflict like them).
@@ -210,7 +210,7 @@ menu stacks, unstacks and renames branches.
   ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
   [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`a_child_of_an_amended_parent_is_restacked`, `a_child_of_a_reworded_parent_is_restacked`)
   [@test] ../../src/lib/stack.test.ts (`pushes an amended or restacked ancestor with the stack and asks nothing: its push replaces older versions`)
-  [@test] ../../crates/bd-cli/src/push_test.rs (`amended_and_restacked_commits_push_without_force`)
+  [@test] ../../crates/bd-remote/src/push_test.rs (`amended_and_restacked_commits_push_without_force`)
 
 ### Integration detection
 
@@ -369,7 +369,7 @@ menu stacks, unstacks and renames branches.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should take the whole stack branch along in the header's push once it is on the remote, and push it alone from the menu`, `should hold the push of the whole stack branch once every branch of the stack landed, and push what is left without the landed ones`)
   [@test] ../../src/hooks/usePushButton.test.ts (`offers no push while a Safe Push holds the branch, and says why; the children of a landed one push without it`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
-  [@test] ../../crates/bd-cli/src/landed_test.rs (`push_with_children_leaves_out_what_merged_safe_pushes_landed_and_refuses_once_nothing_else_is_left`)
+  [@test] ../../crates/bd-remote/src/landed_test.rs (`push_with_children_leaves_out_what_merged_safe_pushes_landed_and_refuses_once_nothing_else_is_left`)
   [@test] ../../src/lib/stack.test.ts (`pushes the branch and its children that have work for the remote, parents first`, `leaves out the branches a running Safe Push holds, and starts a stack push above them`, `names Push with Children by what it pushes, and offers it only beyond the branch itself`, `says why Push with Children pushes nothing beyond the branch: the stack is on the remote, only the branch has work, the children ask first, or they all landed`)
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`is offered beside the push on every branch with children, disabled with the reason while it would push nothing beyond the branch`, `is offered while a sync runs and while the root is on the remote: the push waits for the sync`)
   [@test] ../../src/lib/git/push.test.ts (`starts above the branches a running Safe Push holds`, `waits for the sync, then pushes the children as the sync leaves them`)

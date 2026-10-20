@@ -1,61 +1,10 @@
-use crate::fixture_test::assert_covered;
-use crate::fixture_test::writable_state;
-use crate::fixture_test::{PREFIX, assert_error, commit_all, environment, git, run_json, write};
-use crate::remote_fixture_test::{AUTH, STACK, Space, forking_stack, robot, stack_robot};
+use bd_cli::fixture_test::writable_state;
+use bd_cli::fixture_test::{PREFIX, assert_error, commit_all, git, run_json, write};
+use bd_cli::remote_fixture_test::{AUTH, STACK, Space, assert_schema, forking_stack, stack_robot};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use test_utils::fake_executable::fake_executable;
-
-impl Space {
-  /// `bd robot` with `args`
-  fn robot(&self, args: &[&str]) -> (i32, Value) {
-    let mut all_args = vec!["--prefix", PREFIX, "robot"];
-    all_args.extend_from_slice(args);
-    run_json(&self.environment(), &all_args)
-  }
-
-  /// `bd robot` with `args`, which succeeds with an output of its schema
-  fn robot_ok(&self, args: &[&str]) -> Value {
-    let (exit_code, output) = self.robot(args);
-    assert_eq!(exit_code, 0, "{output}");
-    assert_schema(self, &output);
-    output
-  }
-
-  fn sync(&self) {
-    let (exit_code, output) = run_json(&self.environment(), &["--prefix", PREFIX, "sync"]);
-    assert_eq!(exit_code, 0, "{output}");
-  }
-
-  /// A robot of the list and, as `GET /robots/{id}` answers for it, with the Large Scale Change profile, rebased onto
-  /// `bbb222` and built as `ccc111`
-  fn add_robot(&self, id: &str, status: &str, name: &str, revision: &str) {
-    self.add_listed_robot(id, robot(id, status, name, revision));
-  }
-
-  /// `add_robot` of the robot `listed` as the list has it
-  fn add_listed_robot(&self, id: &str, listed: Value) {
-    let status = listed["status"].as_str().unwrap_or_default().to_string();
-    let mut details = listed.clone();
-    details["options"] = json!({"patronus.merge.profile.id": "lsc", "patronus.merge.profile.name": "Large Scale Change"});
-    details["testReferenceRevision"] = json!("ccc111");
-    details["targetRevision"] = json!("bbb222");
-    if status != "RUNNING" {
-      details["finishDateTime"] = json!("2026-10-14T10:30:00Z");
-    }
-    self.fake.details.lock().unwrap().insert(id.to_string(), details);
-    let mut robots = self.fake.robots.lock().unwrap().take().unwrap_or_default();
-    robots.push(listed);
-    *self.fake.robots.lock().unwrap() = Some(robots);
-  }
-}
-
-/// The output matches the schema of `bd robot`
-fn assert_schema(space: &Space, output: &Value) {
-  let (_, schema) = run_json(&environment(space.repo.path()), &["schema"]);
-  assert_covered(&schema["outputs"]["robot"], &schema["outputs"]["robot"], output, "robot");
-}
 
 /// `(commit, state)` of each commit of the map
 fn commit_states(output: &Value) -> Vec<(Value, Value)> {

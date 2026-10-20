@@ -13,7 +13,7 @@ targets:
   - ../../crates/sync-core/src/robot_landing.rs
   - ../../crates/object-cache/src/review_answer.rs
   - ../../crates/object-cache/src/patronus_robots.rs
-  - ../../crates/bd-cli/src/robot_list.rs
+  - ../../crates/bd-remote/src/robot_list.rs
   - ../../crates/patronus/src/service.rs
   - ../../crates/patronus/src/token.rs
   - ../../crates/sync-core/src/patronus.rs
@@ -227,7 +227,7 @@ reports in it and closes it once merged.
   token is not sent again until it changes (another key); after a failure nothing is asked for 1 s, doubled up to 10
   minutes, reset by the next answer, and the kept robots stay. `bd push`, `bd safe-push` and `bd robot` decide on the
   robots: they list them fresh and keep the list. `--no-cache` asks every time.
-  [@test] ../../crates/bd-cli/src/robot_list_test.rs (`the_robots_are_kept_while_they_hold_then_the_new_ones_are_listed_and_the_running_ones_polled`, `a_rejected_token_and_a_failure_hold_the_requests_and_keep_the_robots`, `status_asks_patronus_once_while_the_kept_robots_hold`)
+  [@test] ../../crates/bd-remote/src/robot_list_test.rs (`the_robots_are_kept_while_they_hold_then_the_new_ones_are_listed_and_the_running_ones_polled`, `a_rejected_token_and_a_failure_hold_the_requests_and_keep_the_robots`, `status_asks_patronus_once_while_the_kept_robots_hold`)
 - An answer keeps the robot objects that did not change, so only the chips of changed robots render again; a failed
   answer keeps the robots shown and only changes the availability.
   [@test] ../../src/stores/patronus.test.ts (`keeps the objects of unchanged robots and the record when nothing changed`)
@@ -894,7 +894,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   `missing` refuses its start (`approvals_missing`) unless `--without-approvals`: an agent never sends a robot that
   fails for them. `unknown` lets it start, as the robot decides. It collects the approvals in the GitHub pull request
   (`--create-pull-request`), never a Space merge request ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
-  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`patronus_judges_the_approvals_of_the_pull_request`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`patronus_judges_the_approvals_of_the_pull_request`)
 - Space merge requests are deprecated: the approvals go into the GitHub pull request of the branch, and Branch Deck
   never creates a merge request. One Patronus finds open still counts: the start links it.
 - A repository only on Space (no GitHub repository of the branches) keeps the merge request path: its start is not

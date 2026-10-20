@@ -248,8 +248,8 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   `test_utils::git_test_utils::git_command()`, which removes the repository variables a hook or `rebase --exec`
   exports (`git_command_test.rs` fails on a raw `Command::new("git")`).
 - **Scan tests** (`crates/git-executor/src/git_usage_scan_test.rs`, on the sources as `source_scan_test.rs` reads them
-  for the worktree safety scan too): git starts only in `GitCommandExecutor` (and `git_info.rs`'s discovery); bd-cli
-  and src-tauri start no git of their own; no `--no-pager`, no `credential.helper=`; `update-ref` only in
+  for the worktree safety scan too): git starts only in `GitCommandExecutor` (and `git_info.rs`'s discovery); the bd
+  crates (`crates/bd-*`) and src-tauri start no git of their own; no `--no-pager`, no `credential.helper=`; `update-ref` only in
   `ref_transaction.rs`; `cat-file --batch*` only in `cat_file_batch.rs`; `--name-only`, `--name-status` and `--raw`
   only with `-z`; paths after `--` only with `--literal-pathspecs`; `push`, `fetch` and `ls-remote` only through
   `execute_remote_command*`. An exemption names its file, its reason and its exact number of hits.
@@ -364,7 +364,7 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
 
 ### Adding a git operation
 Read [Adding a Git Operation](docs/guidelines/adding-git-operation.md) (the layers in detail, the helper table) before
-you add or change git code in `crates/git-ops/`, `crates/history-rewrite/`, `crates/sync-core/`, `crates/bd-cli/` or
+you add or change git code in `crates/git-ops/`, `crates/history-rewrite/`, `crates/sync-core/`, `crates/bd-*/` or
 `src-tauri/src/commands/`.
 The checklist:
 - One name across the layers (`git_ops::move_hunk`, `sync_core::move_hunk`, `bd move-hunk`); the `//!` headers of
@@ -568,10 +568,11 @@ crates/
 ├── sync-types/      # Types shared by the cores, bd and the app
 ├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes, git booleans, the process scan)
 ├── branch-integration/ # Integration detection: rebase, merge and squash strategies
-├── bd-cli/          # `bd` agent CLI (docs/guidelines/agent-cli.md)
+├── bd-cli/          # `bd` agent CLI: the `Cli`, the dispatch, `bd schema`, the help texts, the process budgets (docs/guidelines/agent-cli.md)
 ├── bd-clustering/   # The clustering of `bd suggest`, the areas of a commit, the generated files; no CLI
 ├── bd-core/         # What every `bd` command builds on: the context, the errors, the output, the sync and its summaries
 ├── bd-lease/        # `bd lease`: the worktrees of the lease pool; its tests run bd through the fixtures of bd-cli
+├── bd-remote/       # The bd commands of the remote: status, push, safe-push, request-review, robot, the landed branches
 ├── bd-rewrite/      # The bd commands that read and rewrite the commits by their messages: group, reword, fold, check, suggest
 ├── bd-update/       # `bd update`, `bd pick` and `bd undo`; its tests run bd through the fixtures of bd-cli
 ├── object-cache/    # LMDB cache keyed by git object ids, shared by the app and bd

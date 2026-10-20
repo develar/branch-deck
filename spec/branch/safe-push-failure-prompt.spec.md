@@ -11,7 +11,7 @@ targets:
   - ../../crates/sync-core/src/robot_commits.rs
   - ../../crates/sync-core/src/commit_walk.rs
   - ../../src-tauri/src/commands/patronus.rs
-  - ../../crates/bd-cli/src/robot_command.rs
+  - ../../crates/bd-remote/src/robot_command.rs
   - ../../src/lib/robot-prompt.ts
   - ../../src/lib/robot-prompt-copy.ts
   - ../../src/lib/prompt-text.ts
@@ -112,7 +112,7 @@ with the user.
   code ([Agent CLI](../cli/agent-cli.spec.md#bd-robot)); the fast prompt names it for the details. A newer robot of a
   branch stacked on it wins over the branch's own (`robot_branch` names that branch): it built this branch too. The
   app shows a robot on its own branch's row, whose prompt has the commits of the whole stack.
-  [@test] ../../crates/bd-cli/src/robot_test.rs (`a_failed_robot_says_why_and_which_local_commits_it_tested`, `full_adds_the_failed_builds_their_tests_and_the_log_tails_of_the_teamcity_cli`, `a_newer_robot_of_a_stacked_branch_tells_the_parent_with_the_commits_of_the_whole_stack`)
+  [@test] ../../crates/bd-remote/src/robot_test.rs (`a_failed_robot_says_why_and_which_local_commits_it_tested`, `full_adds_the_failed_builds_their_tests_and_the_log_tails_of_the_teamcity_cli`, `a_newer_robot_of_a_stacked_branch_tells_the_parent_with_the_commits_of_the_whole_stack`)
 
 ### The prompt
 

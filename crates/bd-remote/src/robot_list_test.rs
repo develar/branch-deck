@@ -1,6 +1,6 @@
 use crate::landed_test::bd;
-use crate::remote_fixture_test::{Space, robot};
 use crate::robot_list::{IDLE_TTL_SECONDS, LIST_OVERLAP_SECONDS, RUNNING_TTL_SECONDS, RobotSource, read_robots_at};
+use bd_cli::remote_fixture_test::{Space, robot};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use patronus::client::PatronusClient;
 use patronus::fake_patronus::{FakePatronus, robot_json, start_fake};

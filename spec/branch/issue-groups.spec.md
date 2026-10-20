@@ -24,7 +24,7 @@ targets:
   - ../../crates/git-ops/src/squash_commits.rs
   - ../../crates/sync-types/src/lib.rs
   - ../../crates/bd-rewrite/src/rewrite.rs
-  - ../../crates/bd-cli/src/status.rs
+  - ../../crates/bd-remote/src/status.rs
   - ../../crates/bd-rewrite/src/suggest.rs
   - ../../crates/bd-clustering/src/clustering.rs
   - ../../crates/bd-core/src/error.rs
@@ -146,7 +146,7 @@ app, a move of a whole issue writes it ([Move Commits](move-commits.spec.md)): d
 
 - `bd status` must print the `origin` of each branch, the `issue_keys` of an issue group, `idle_issue_groups` (the
   keys that group no commit on this HEAD; they may group the commits of another branch) and `issue_group_problems`.
-  [@test] ../../crates/bd-cli/src/status_test.rs (`issue_groups_in_status`)
+  [@test] ../../crates/bd-remote/src/status_test.rs (`issue_groups_in_status`)
 - `bd suggest` must put a cluster of whole issue branches into `issue_groups` of its plan, so that it rewrites no
   commit; `--rewrite-issues` gives the commits a prefix instead. An issue group is an anchor, as a prefix is.
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`whole_issue_branches_become_an_issue_group`)
@@ -166,7 +166,7 @@ app, a move of a whole issue writes it ([Move Commits](move-commits.spec.md)): d
 
 ## Testing / Local Run
 
-- `pnpm test:backend`: `crates/sync-core/src/issue_groups_test.rs`, `crates/bd-cli/src/status_test.rs`,
+- `pnpm test:backend`: `crates/sync-core/src/issue_groups_test.rs`, `crates/bd-remote/src/status_test.rs`,
   `crates/bd-rewrite/src/suggest_test.rs`.
 - `pnpm test:unit`: `src/lib/commit.test.ts`, `src/hooks/useCommitMoveList.test.ts`.
 - `pnpm e2e`: `tests/e2e/issue-groups/issue-groups.spec.ts`, on the `issue_groups` template;

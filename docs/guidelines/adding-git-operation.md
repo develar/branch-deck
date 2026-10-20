@@ -7,7 +7,7 @@
 ## Summary
 
 Read this before you add or change a git operation in `crates/git-ops`, `crates/history-rewrite`, `crates/sync-core`,
-`crates/bd-cli` or `src-tauri/src/commands`. The checklist is in [AGENTS.md](../../AGENTS.md) ("Adding a git operation"), the hard rules
+`crates/bd-*` or `src-tauri/src/commands`. The checklist is in [AGENTS.md](../../AGENTS.md) ("Adding a git operation"), the hard rules
 in its "Git Operations", the flows and the reasons in [Git Operations](../design/git-operations.md).
 
 ## Layers
@@ -30,7 +30,8 @@ modules by area; the layers are the
   HEAD (`ensure_head`, `expected_full_head`), then git-ops. A step of a sync, or of a `bd` command after its sync, takes
   the facts `RepoFacts`, `ConfigSnapshot`, `Snapshot` or the `SyncReport` hold instead of reading them again; a remote
   only through `remote_command`. The params and results the app passes derive `specta::Type` (feature `specta`).
-- **bd** (usually `crates/bd-cli/src/<op>_command.rs`, a variant of `Command` in `lib.rs`): clap arguments, one JSON object with
+- **bd** (usually `<op>_command.rs` in the crate of its area, e.g. `crates/bd-rewrite/src/`, and a variant of `Command`
+  in `crates/bd-cli/src/lib.rs`): clap arguments, one JSON object with
   `schema` (`bd schema`, `schema_test.rs`), errors as `CliError` with an `ErrorCode` (its exit code in
   `docs/guidelines/agent-cli.md`), a read-only command in `read_only!` (`agent_help.rs`); bd's own lock goes to the core
   as `held_lock` only when bd writes more under it. No git of its own.

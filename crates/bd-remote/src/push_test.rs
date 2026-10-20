@@ -1,6 +1,6 @@
-use crate::fixture_test::assert_covered;
-use crate::fixture_test::{PREFIX, assert_error, branch, commit_all, git, run_in, write};
-use crate::remote_fixture_test::{LANDED_SUBJECTS, land_auth_by_content, push_from_elsewhere_to, remote_tip, repo_with_remote, their_change};
+use bd_cli::fixture_test::assert_covered;
+use bd_cli::fixture_test::{PREFIX, assert_error, branch, commit_all, git, run_in, write};
+use bd_cli::remote_fixture_test::{LANDED_SUBJECTS, land_auth_by_content, push_from_elsewhere_to, remote_tip, repo_with_remote, their_change};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};

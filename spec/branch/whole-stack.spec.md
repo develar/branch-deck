@@ -13,12 +13,12 @@ targets:
   - ../../crates/object-cache/src/stack_branch.rs
   - ../../crates/branch-integration/src/common.rs
   - ../../crates/bd-core/src/stack_summary.rs
-  - ../../crates/bd-cli/src/status.rs
+  - ../../crates/bd-remote/src/status.rs
   - ../../crates/bd-core/src/sync_command.rs
-  - ../../crates/bd-cli/src/safe_push_command.rs
-  - ../../crates/bd-cli/src/push_command.rs
-  - ../../crates/bd-cli/src/push_hold.rs
-  - ../../crates/bd-cli/src/robot_command.rs
+  - ../../crates/bd-remote/src/safe_push_command.rs
+  - ../../crates/bd-remote/src/push_command.rs
+  - ../../crates/bd-remote/src/push_hold.rs
+  - ../../crates/bd-remote/src/robot_command.rs
   - ../../crates/patronus/src/service.rs
   - ../../crates/sync-core/src/patronus_start.rs
   - ../../crates/sync-core/src/pull_requests.rs
@@ -158,7 +158,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   `stale`), `tip`, `member` and `reason` of a block, `conflict`, `error`, `commits`, `members`, and with `bd sync` the
   `remote` summary. `bd status` reads the state without a sync and without a git process: blocked by the placement,
   else the remembered build of the current commits when the ref is at it, else stale.
-  [@test] ../../crates/bd-cli/src/status_test.rs (`the_stack_branch_of_a_forking_stack_in_sync_and_status`)
+  [@test] ../../crates/bd-remote/src/status_test.rs (`the_stack_branch_of_a_forking_stack_in_sync_and_status`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status_of_a_forking_stack`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`outputs_match_schema`)
 - The app must keep the stack branches of the last sync by root (`useStackBranch`, `getStackBranch`; the full name by
@@ -174,10 +174,10 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   --with-children`, must take the stack branch along after the branches once it is on the remote or its pull request
   is open, only when the sync built it, so its pull request follows the branches
   ([Stacked Branches](stacked-branches.spec.md#pull-requests)); `bd robot --whole-stack` must print its robot.
-  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`, `the_whole_stack_of_a_straight_chain_lands_from_its_last_branch`, `a_whole_stack_that_conflicts_is_refused_with_the_conflict`, `push_with_children_takes_the_stack_branch_along_while_its_pull_request_is_open`)
-  [@test] ../../crates/bd-cli/src/push_test.rs (`with_children_takes_the_stack_branch_along_once_it_is_on_the_remote`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`, `the_whole_stack_of_a_straight_chain_lands_from_its_last_branch`, `a_whole_stack_that_conflicts_is_refused_with_the_conflict`, `push_with_children_takes_the_stack_branch_along_while_its_pull_request_is_open`)
+  [@test] ../../crates/bd-remote/src/push_test.rs (`with_children_takes_the_stack_branch_along_once_it_is_on_the_remote`)
   [@test] ../../src/lib/git/push.test.ts (`goes along after the branches once it is on the remote, leased on its remote head, in the one toast`, `stays local while it is neither on the remote nor in an open pull request, and while the sync didn't build it`)
-  [@test] ../../crates/bd-cli/src/robot_test.rs (`the_robot_of_the_whole_stack_is_found_from_any_branch_of_it`)
+  [@test] ../../crates/bd-remote/src/robot_test.rs (`the_robot_of_the_whole_stack_is_found_from_any_branch_of_it`)
 - A robot started on a stack branch must name the root of its stack (`PatronusRobot::stack_root`) and no branch, and
   must belong to no branch, not even by its revision, in `bd` (`find_branch_robot`) as in the app
   (`findBranchRobot`); `find_stack_robot` finds the robot of the whole stack.
@@ -187,7 +187,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 - The pull request of a stack branch must be the stack's, by its root (`PullRequestsResult::stack_pull_requests`),
   never a branch's; one that GitHub says exists must be found by its head.
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`the_pull_request_of_a_stack_branch_is_the_stacks_by_its_root`)
-  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_pull_request_of_the_whole_stack_is_its_stack_branchs_and_the_start_comments_on_it`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_pull_request_of_the_whole_stack_is_its_stack_branchs_and_the_start_comments_on_it`)
 - Its text must be the stack branch's own description, else the root's title with the count of the branches built on
   it and a section per branch, its description or the subjects of its commits, from what the sync read, cut to the
   65,536 characters of a body and the 256 of a title GitHub takes, naming the branches left out.
@@ -263,7 +263,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   lacks said as not synced; `bd robot --whole-stack` prints the same map.
   [@test] ../../crates/sync-core/src/robot_commits_test.rs (`a_robot_of_the_whole_stack_lists_the_commits_of_every_member_with_its_branch`)
   [@test] ../../src/lib/robot-prompt.test.ts (`names the stack branch and every branch of the whole stack for its robot: it built them all`)
-  [@test] ../../crates/bd-cli/src/robot_test.rs (`the_robot_of_the_whole_stack_is_found_from_any_branch_of_it`)
+  [@test] ../../crates/bd-remote/src/robot_test.rs (`the_robot_of_the_whole_stack_is_found_from_any_branch_of_it`)
 - When it merged, the open pull requests of every branch of the stack must be closed with a comment ("Landed in
   master with #12, the Safe Push of the whole air stack (user/stack/air), which holds this branch."), and the toast
   says it ("Safe Push · closes the pull requests of 6 branches: they landed with the whole stack"); while it ran on the
@@ -387,7 +387,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 ## Testing / Local Run
 
 - `pnpm test:backend`: `crates/sync-core/src/stack_sync_test.rs`, `stack_branch_test.rs`, `process_budget_test.rs`,
-  `patronus_start_test.rs`, `stack_pull_request_test.rs`; `crates/bd-cli/src/status_test.rs`, `safe_push_test.rs`,
+  `patronus_start_test.rs`, `stack_pull_request_test.rs`; `crates/bd-remote/src/status_test.rs`, `safe_push_test.rs`,
   `push_test.rs`, `robot_test.rs`.
 - `pnpm test:unit`: `src/stores/branch-sync.test.ts`, `src/lib/patronus.test.ts`, `src/lib/whole-stack.test.ts`,
   `src/lib/landed-stack.test.ts`, `src/stores/patronus.test.ts`, `src/hooks/useStackNextStep.test.ts`.

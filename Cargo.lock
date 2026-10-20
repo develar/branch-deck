@@ -457,6 +457,7 @@ dependencies = [
  "bd-clustering",
  "bd-core",
  "bd-lease",
+ "bd-remote",
  "bd-rewrite",
  "bd-update",
  "clap",
@@ -547,6 +548,35 @@ dependencies = [
  "tempfile",
  "test-log",
  "test-utils",
+]
+
+[[package]]
+name = "bd-remote"
+version = "0.1.0"
+dependencies = [
+ "bd-cli",
+ "bd-clustering",
+ "bd-core",
+ "bd-rewrite",
+ "clap",
+ "git-ops",
+ "github",
+ "history-rewrite",
+ "object-cache",
+ "patronus",
+ "pretty_assertions",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sync-core",
+ "sync-types",
+ "sync-utils",
+ "tempfile",
+ "test-log",
+ "test-utils",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

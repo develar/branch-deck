@@ -40,8 +40,8 @@ targets:
   - ../../src/components/branch/BranchPreviewActions.tsx
   - ../../crates/sync-core/src/pull_request_create.rs
   - ../../crates/sync-core/src/pull_request_writes.rs
-  - ../../crates/bd-cli/src/push_command.rs
-  - ../../crates/bd-cli/src/request_review_command.rs
+  - ../../crates/bd-remote/src/push_command.rs
+  - ../../crates/bd-remote/src/request_review_command.rs
   - ../../src/hooks/useReviewerSearch.ts
   - ../../src/components/shared/ReviewerPicker.tsx
   - ../../src/lib/request-review.ts

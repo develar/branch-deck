@@ -1714,7 +1714,7 @@ under `Default` (`file_diffs::blocks`).
   again and writes the answer for the app.
 - `patronus_robots` (a hash of the Patronus server and token, the Space repository and the branch prefix → the user's
   robots as last listed and polled, when, and a rejected token or a backoff) keeps what `bd status` would ask Patronus
-  on every call (`crates/bd-cli/src/robot_list.rs`): the reader decides how long it holds, a minute while a robot of it
+  on every call (`crates/bd-remote/src/robot_list.rs`): the reader decides how long it holds, a minute while a robot of it
   runs, five while none does, then a list of the robots started since and a poll of the running ones are merged into
   it ("Load on Patronus" in [Patronus](../../spec/branch/patronus.spec.md#load-on-patronus)). `bd push`, `bd
   safe-push` and `bd robot` list fresh and write it; the app keeps its robots in memory.
@@ -2164,7 +2164,7 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    branch (`{prefix}/virtual/…`) are retargeted to the baseline over HTTP (`pull_request_retarget.rs`: one search of
    the pull requests, one `PATCH pulls/<n>` each), as the app's push does; no git process.
 
-Code: `crates/bd-cli/src/push_command.rs`, `crates/sync-core/src/push.rs`, `crates/sync-core/src/push_lease.rs`,
+Code: `crates/bd-remote/src/push_command.rs`, `crates/sync-core/src/push.rs`, `crates/sync-core/src/push_lease.rs`,
 `crates/sync-core/src/remote_command.rs`.
 
 #### Agent Safe Push (`bd safe-push`)
@@ -2217,7 +2217,7 @@ sync, before anything is asked of Patronus.
    (`stack_pull_request_text`); its Create pushes the stack branch alone (below, "App stack push"), then creates the
    pull request of its head.
 
-Code: `crates/bd-cli/src/safe_push_command.rs`, `crates/sync-core/src/review_readiness.rs`,
+Code: `crates/bd-remote/src/safe_push_command.rs`, `crates/sync-core/src/review_readiness.rs`,
 `crates/sync-core/src/patronus_review.rs`, `crates/sync-core/src/patronus_start.rs`,
 `crates/sync-core/src/stack_pull_request.rs`.
 
@@ -2265,7 +2265,7 @@ Read-only, without the repository lock and without a sync: `bd robot` reads the 
 3. For a failed or failing robot, the [robot commit map](#robot-commit-map) and one `symbolic-ref --quiet HEAD`
    (`robot_failure_report`, the same as the app's `get_robot_failure`).
 
-Code: `crates/bd-cli/src/robot_command.rs`.
+Code: `crates/bd-remote/src/robot_command.rs`.
 
 #### GitHub credentials
 
@@ -2549,7 +2549,7 @@ The same phases run once per tip of that branch, never during a sync.
 
 Read-only. What a merged robot landed of the branches as the table has them ([Landing](landing.md), "Landed by
 content"), for the rows of the app (`get_robot_landings`) and for `bd status`, `bd push` and `bd safe-push`
-(`crates/bd-cli/src/landed.rs`): `robot_landings` (`crates/sync-core/src/robot_landing.rs`), the phases of the robot
+(`crates/bd-remote/src/landed.rs`): `robot_landings` (`crates/sync-core/src/robot_landing.rs`), the phases of the robot
 commit map for many robots at once.
 
 1. The commits of the branches on HEAD as the sync groups them (phase 2 above), read once for every robot; `bd` passes

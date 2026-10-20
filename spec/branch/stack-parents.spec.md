@@ -20,9 +20,9 @@ targets:
   - ../../crates/sync-types/src/lib.rs
   - ../../crates/sync-types/src/stack.rs
   - ../../crates/bd-rewrite/src/rewrite.rs
-  - ../../crates/bd-cli/src/status.rs
+  - ../../crates/bd-remote/src/status.rs
   - ../../crates/bd-rewrite/src/suggest.rs
-  - ../../crates/bd-cli/src/safe_push_command.rs
+  - ../../crates/bd-remote/src/safe_push_command.rs
   - ../../crates/bd-clustering/src/clustering.rs
   - ../../crates/bd-core/src/error.rs
   - ../../src/lib/commit.ts
@@ -110,7 +110,7 @@ only the stack parents ref.
   parents", which names the commits of each parent and the line of the map, and the `bd restack <branch> <parent>` of
   each that keeps it; `bd status` says the same (`<branch> has conflicting parents …`). The branch is not rebuilt.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`a_stored_parent_that_differs_from_a_prefix_is_a_conflict`)
-  [@test] ../../crates/bd-cli/src/status_test.rs (`stacks_in_status`)
+  [@test] ../../crates/bd-remote/src/status_test.rs (`stacks_in_status`)
 - A cycle through the map, or through the map and the prefixes, must be the cycle problem of every branch of the cycle,
   also through an ancestor without commits.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`a_cycle_through_the_map_marks_each_of_its_branches`)
@@ -134,7 +134,7 @@ only the stack parents ref.
   only write of a sync: one compare-and-swap write with its own message, only when a line goes, best effort (the next
   sync tries again).
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`the_newest_archive_of_a_child_decides_whether_it_is_integrated`, `a_sync_reads_the_map_and_never_writes_a_line_it_can_not_prove_dead`)
-  [@test] ../../crates/bd-cli/src/status_test.rs (`a_sync_drops_the_stack_parent_of_an_integrated_branch`)
+  [@test] ../../crates/bd-remote/src/status_test.rs (`a_sync_drops_the_stack_parent_of_an_integrated_branch`)
 
 ### Writing the map
 
@@ -226,7 +226,7 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
 
 - `bd status` must print for each stacked branch its `parent` and `parent_source`: `prefix` or `store`. It must also
   print `idle_stack_parents` and `stack_parent_problems`.
-  [@test] ../../crates/bd-cli/src/status_test.rs (`stored_parents_in_status`)
+  [@test] ../../crates/bd-remote/src/status_test.rs (`stored_parents_in_status`)
 - `bd suggest` must read the stored parents as declared parents. A restacked cluster names its path also when no
   commit moves (`"a/b": []`), a cluster unstacked from its stack parent goes into `unstack`, and a commit with the bare
   leaf stays where it is. Its trial sync must apply the plan as `bd group` does, so that `rewritten` counts only the
@@ -238,7 +238,7 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
 - `bd safe-push <branch> --check` of a stacked branch must print the trial build of the branch alone as `alone`:
   `builds` with "`bd unstack <branch>` makes it a root that lands alone", or the commits of its ancestors that it
   needs, with their branch. Its Safe Push lands it with its ancestors either way; the unstack is the user's choice.
-  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_stacked_branch_lands_its_parents_with_it`, `a_stacked_branch_that_needs_a_commit_of_its_parent_to_land_alone_names_it`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_stacked_branch_lands_its_parents_with_it`, `a_stacked_branch_that_needs_a_commit_of_its_parent_to_land_alone_names_it`)
 
 ### App
 
@@ -255,8 +255,8 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
 ## Testing / Local Run
 
 - `pnpm test:backend`: `crates/sync-core/src/stack_parents_test.rs`, `crates/sync-core/src/stack_operations_test.rs`,
-  `crates/sync-core/src/check_test.rs`, `crates/bd-cli/src/safe_push_test.rs`,
-  `crates/sync-core/src/move_commits_test.rs`, `crates/bd-cli/src/status_test.rs`, `crates/bd-rewrite/src/suggest_test.rs`,
+  `crates/sync-core/src/check_test.rs`, `crates/bd-remote/src/safe_push_test.rs`,
+  `crates/sync-core/src/move_commits_test.rs`, `crates/bd-remote/src/status_test.rs`, `crates/bd-rewrite/src/suggest_test.rs`,
   `crates/bd-rewrite/src/rewrite_test.rs`.
 - `pnpm test:unit`: `src/lib/commit.test.ts`, `src/lib/stack.test.ts`.
 - `pnpm e2e`: `tests/e2e/stacked-branches/stacked-branches.spec.ts` on the `stacked_issues` template.

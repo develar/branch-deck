@@ -2,28 +2,12 @@
 //! JSON on stdout, every object with `"schema": 2`; logs on stderr; the exit code of an error is fixed by its code.
 
 pub mod agent_help;
-pub mod branch_stats;
 pub mod install;
-pub mod landed;
-pub mod numstat;
-pub mod pull_request_retarget;
-pub mod push_command;
-pub mod push_hold;
-pub mod request_review_command;
-pub mod robot_command;
-pub mod robot_list;
-pub mod safe_push_command;
 pub mod schema;
-pub mod status;
 
 use crate::agent_help::{AGENT_HELP, READ_ONLY, UPDATE_HELP, WORKTREES_HELP, skill_text};
 use crate::install::{InstallArgs, install};
-use crate::push_command::{PushArgs, push};
-use crate::request_review_command::{RequestReviewArgs, request_review};
-use crate::robot_command::{RobotArgs, robot};
-use crate::safe_push_command::{SafePushArgs, safe_push};
 use crate::schema::schema_output;
-use crate::status::{StatusArgs, status, status_brief};
 use bd_core::bd_command::skill_command;
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::{CONFLICT_EXIT, CliError, ErrorCode};
@@ -31,6 +15,11 @@ use bd_core::output::write_json;
 use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
 use bd_lease::lease_command::{LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, lease_adopt, lease_clean, lease_get, lease_return, lease_status};
+use bd_remote::push_command::{PushArgs, push};
+use bd_remote::request_review_command::{RequestReviewArgs, request_review};
+use bd_remote::robot_command::{RobotArgs, robot};
+use bd_remote::safe_push_command::{SafePushArgs, safe_push};
+use bd_remote::status::{StatusArgs, status, status_brief};
 use bd_rewrite::check_command::{CheckArgs, check};
 use bd_rewrite::commits::{CommitsArgs, commits, commits_brief};
 use bd_rewrite::describe::{DescribeArgs, describe};
@@ -364,25 +353,11 @@ pub mod fixture_test;
 #[cfg(test)]
 mod install_test;
 #[cfg(test)]
-mod landed_test;
-#[cfg(test)]
 mod process_budget_test;
-#[cfg(test)]
-mod push_test;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod remote_fixture_test;
 #[cfg(test)]
-mod request_review_test;
-#[cfg(test)]
-mod robot_list_test;
-#[cfg(test)]
-mod robot_test;
-#[cfg(test)]
-mod safe_push_test;
-#[cfg(test)]
 mod schema_test;
-#[cfg(test)]
-mod status_test;
 #[cfg(test)]
 mod sync_test;
 #[cfg(test)]

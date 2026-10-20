@@ -3,16 +3,18 @@
 //! A command runs on the counting executor of its `RepoContext`, so its own reads count with those of the core.
 
 use crate::fixture_test::{PREFIX, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline};
-use crate::push_command::{PushArgs, push};
 use crate::remote_fixture_test::{Space, needs_code_owner, repo_with_remote};
-use crate::request_review_command::{RequestReviewArgs, request_review};
-use crate::robot_command::{RobotArgs, robot};
-use crate::safe_push_command::{SafePushArgs, safe_push};
-use crate::status::{StatusArgs, status};
 use bd_core::context::{RepoContext, RepoOptions};
 use bd_core::sync_command::sync;
+// jscpd:ignore-start: the budgets run the commands that lib.rs dispatches, so they import the same ones
 use bd_lease::lease_command::{LeaseContext, LeaseGetArgs, LeaseReturnArgs, lease_get, lease_return};
+use bd_remote::push_command::{PushArgs, push};
+use bd_remote::request_review_command::{RequestReviewArgs, request_review};
+use bd_remote::robot_command::{RobotArgs, robot};
+use bd_remote::safe_push_command::{SafePushArgs, safe_push};
+use bd_remote::status::{StatusArgs, status};
 use bd_rewrite::check_command::{CheckArgs, check};
+// jscpd:ignore-end
 use bd_rewrite::fold_command::{FoldArgs, fold};
 use bd_rewrite::move_hunk_command::{MoveHunkArgs, move_hunk};
 use bd_rewrite::reword_command::{RewordArgs, reword};

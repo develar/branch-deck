@@ -12,9 +12,9 @@ targets:
   - ../../crates/sync-core/src/sync_inputs.rs
   - ../../crates/sync-types/src/lib.rs
   - ../../crates/bd-rewrite/src/park_command.rs
-  - ../../crates/bd-cli/src/status.rs
-  - ../../crates/bd-cli/src/push_command.rs
-  - ../../crates/bd-cli/src/safe_push_command.rs
+  - ../../crates/bd-remote/src/status.rs
+  - ../../crates/bd-remote/src/push_command.rs
+  - ../../crates/bd-remote/src/safe_push_command.rs
   - ../../crates/bd-core/src/error.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../src-tauri/src/commands/parked_branches.rs
@@ -120,10 +120,10 @@ branch built on it carries its commits, so it is parked with it.
 - `bd push` must refuse a named parked branch, or one built on a parked branch, with `parked` (exit 4), nothing
   pushed; with `--all` or `--with-children` it leaves it out (`skipped`, `code: parked`) and pushes the others, and
   refuses only when nothing else is left. The stack branch of a stack with a parked member stays local.
-  [@test] ../../crates/bd-cli/src/push_test.rs (`a_parked_branch_and_what_is_built_on_it_are_never_pushed`)
+  [@test] ../../crates/bd-remote/src/push_test.rs (`a_parked_branch_and_what_is_built_on_it_are_never_pushed`)
 - `bd safe-push` must refuse a parked branch, a branch built on one and a whole stack with a parked member with
   `parked`, `--check` and `--patronus-dry-run` included, before Patronus is asked.
-  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_parked_branch_and_a_branch_built_on_it_start_nothing`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_parked_branch_and_a_branch_built_on_it_start_nothing`)
 - `bd help agent` and the skill must tell an agent never to push or unpark a parked branch on its own.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
 
