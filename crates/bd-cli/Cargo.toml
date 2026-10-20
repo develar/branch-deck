@@ -16,6 +16,8 @@ path = "src/main.rs"
 test = false
 
 [dependencies]
+# the repositories of the tests, for `fixtures`
+test-utils = { path = "../test-utils", optional = true }
 bd-core = { path = "../bd-core" }
 bd-clustering = { path = "../bd-clustering" }
 file-diffs = { path = "../file-diffs" }
@@ -42,6 +44,11 @@ tempfile.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[features]
+# `fixture_test`: the repositories and runs of bd that the tests of the crates bd-cli builds on share; only a
+# dev-dependency enables it, never a build of the app
+fixtures = ["dep:test-utils"]
 
 [build-dependencies]
 serde_json.workspace = true

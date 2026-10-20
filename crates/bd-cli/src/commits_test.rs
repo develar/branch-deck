@@ -370,7 +370,7 @@ fn an_edge_by_symbols_names_the_symbol_and_joins_no_unit() {
   assert_eq!(brief["dependencies"], json!([{ "from": short_id(&uses), "to": short_id(&declares), "via": "symbols" }]));
   assert_eq!(brief["units"], json!([]), "{brief}");
   let (_, schema) = run_in(&repo, &["schema"]);
-  crate::schema_test::assert_covered(&schema["outputs"]["commits"], &schema["outputs"]["commits"], &output, "commits");
+  crate::fixture_test::assert_covered(&schema["outputs"]["commits"], &schema["outputs"]["commits"], &output, "commits");
 
   git(&repo, &["config", "branchdeck.symbols", "report"]);
   let (_, reported) = run_in(&repo, &["commits"]);

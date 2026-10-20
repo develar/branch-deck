@@ -381,8 +381,8 @@ mod context_test;
 mod describe_test;
 #[cfg(test)]
 mod error_test;
-#[cfg(test)]
-mod fixture_test;
+#[cfg(any(test, feature = "fixtures"))]
+pub mod fixture_test;
 #[cfg(test)]
 mod fold_test;
 #[cfg(test)]

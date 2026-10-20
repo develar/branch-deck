@@ -1,5 +1,5 @@
+use crate::fixture_test::assert_covered;
 use crate::fixture_test::{PREFIX, assert_error, commit_all, commit_subjects, git, repo_with_baseline, run_in, write};
-use crate::schema_test::assert_covered;
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};

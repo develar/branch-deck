@@ -1,9 +1,9 @@
+#[cfg(unix)]
+use crate::fixture_test::assert_covered;
 use crate::fixture_test::assert_error;
 #[cfg(unix)]
 use crate::fixture_test::git;
 use crate::lease_test::{Fixture, path_of};
-#[cfg(unix)]
-use crate::schema_test::assert_covered;
 use pretty_assertions::assert_eq;
 #[cfg(unix)]
 use serde_json::{Value, json};

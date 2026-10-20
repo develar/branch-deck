@@ -692,18 +692,18 @@ fn session_outputs_match_the_schema() {
   let (_, schema) = crate::fixture_test::run_json(&crate::fixture_test::environment(clone.path()), &["schema"]);
   let outputs = &schema["outputs"];
   let (_, round) = run_in(&clone, &["update"]);
-  crate::schema_test::assert_covered(&outputs["update"], &outputs["update"], &round, "round");
+  crate::fixture_test::assert_covered(&outputs["update"], &outputs["update"], &round, "round");
   let (_, status) = run_in(&clone, &["update", "--status"]);
-  crate::schema_test::assert_covered(&outputs["update_status"], &outputs["update_status"], &status, "status");
+  crate::fixture_test::assert_covered(&outputs["update_status"], &outputs["update_status"], &status, "status");
   std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
   let (_, checked) = run_in(&clone, &["update", "--continue", "--dry-run"]);
-  crate::schema_test::assert_covered(&outputs["update"], &outputs["update"], &checked, "checked");
+  crate::fixture_test::assert_covered(&outputs["update"], &outputs["update"], &checked, "checked");
   let (_, aborted) = run_in(&clone, &["update", "--abort"]);
-  crate::schema_test::assert_covered(&outputs["update_abort"], &outputs["update_abort"], &aborted, "abort");
+  crate::fixture_test::assert_covered(&outputs["update_abort"], &outputs["update_abort"], &aborted, "abort");
   let (_, round) = run_in(&clone, &["update"]);
   std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
   let (_, done) = run_in(&clone, &["update", "--continue"]);
-  crate::schema_test::assert_covered(&outputs["update"], &outputs["update"], &done, "finish");
+  crate::fixture_test::assert_covered(&outputs["update"], &outputs["update"], &done, "finish");
 }
 
 /// The finish dies before it deletes the session ref (step 4): the branch moved and the files followed. A peer's commit

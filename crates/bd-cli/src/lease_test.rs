@@ -1,6 +1,6 @@
+use crate::fixture_test::assert_covered;
 use crate::fixture_test::{PREFIX, assert_error, canonical, environment, git, repo_with_baseline, run_json};
 use crate::lease_command::{LeaseContext, LeaseStatusArgs, lease_status};
-use crate::schema_test::assert_covered;
 use bd_core::context::Environment;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;

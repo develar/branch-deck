@@ -1,8 +1,8 @@
+use crate::fixture_test::assert_covered;
 use crate::fixture_test::{
   PREFIX, assert_dry_run, assert_error, assert_refused_during, assert_undo_restores, commit_all, commit_subjects, environment, git, hold_the_lock, repo_with_baseline, run_in,
   run_json, start_cherry_pick, write,
 };
-use crate::schema_test::assert_covered;
 use git_ops::revs::short_id;
 use serde_json::json;
 use std::io::Write;

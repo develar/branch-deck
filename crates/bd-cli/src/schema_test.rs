@@ -1,45 +1,6 @@
-use crate::fixture_test::{commit_all, environment, repo_with_baseline, run_in, run_json, write};
+use crate::fixture_test::{assert_covered, commit_all, environment, repo_with_baseline, run_in, run_json, write};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
-
-/// The object or array schema behind a `$ref` into `$defs` or the non-null alternative of an `anyOf` (an `Option`)
-fn resolve<'a>(root: &'a Value, schema: &'a Value) -> &'a Value {
-  if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
-    return resolve(root, &root["$defs"][reference.trim_start_matches("#/$defs/")]);
-  }
-  if let Some(alternatives) = schema.get("anyOf").and_then(Value::as_array)
-    && let Some(alternative) = alternatives.iter().find(|alternative| alternative["type"] != json!("null"))
-  {
-    return resolve(root, alternative);
-  }
-  schema
-}
-
-/// Every key of `value` is a property of `schema` (or a key of a map), and every key the schema requires is in `value`,
-/// recursively through objects and arrays
-pub(crate) fn assert_covered(root: &Value, schema: &Value, value: &Value, path: &str) {
-  let schema = resolve(root, schema);
-  match value {
-    Value::Object(object) => {
-      // an output leaves an empty optional field out, so the schema must not require it
-      for key in schema["required"].as_array().into_iter().flatten().filter_map(Value::as_str) {
-        assert!(object.contains_key(key), "{path}.{key} is required by the schema but missing");
-      }
-      for (key, child) in object {
-        // a map declares its values with `additionalProperties`
-        let property = schema["properties"].get(key).unwrap_or_else(|| &schema["additionalProperties"]);
-        assert!(!property.is_null(), "{path}.{key} is not in the schema {schema}");
-        assert_covered(root, property, child, &format!("{path}.{key}"));
-      }
-    }
-    Value::Array(items) => {
-      for (index, item) in items.iter().enumerate() {
-        assert_covered(root, &schema["items"], item, &format!("{path}[{index}]"));
-      }
-    }
-    _ => {}
-  }
-}
 
 #[test_log::test]
 fn schema_lists_every_output() {

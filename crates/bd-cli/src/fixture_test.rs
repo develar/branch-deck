@@ -10,10 +10,10 @@ use std::fmt::Write;
 use std::path::Path;
 use test_utils::git_test_utils::TestRepo;
 
-pub(crate) const PREFIX: &str = "test-user";
+pub const PREFIX: &str = "test-user";
 
 /// No app settings, git from `PATH`, started in `cwd`
-pub(crate) fn environment(cwd: &Path) -> Environment {
+pub fn environment(cwd: &Path) -> Environment {
   Environment {
     cwd: cwd.to_path_buf(),
     settings_file: None,
@@ -38,7 +38,7 @@ pub(crate) fn environment(cwd: &Path) -> Environment {
 
 /// Run `bd` and parse its single JSON line
 /// The context of `bd` without `--prefix` in `repo`, whose config sets `branchdeck.branchPrefix` to `PREFIX`
-pub(crate) fn context_with_the_config_prefix(repo: &TestRepo) -> RepoContext {
+pub fn context_with_the_config_prefix(repo: &TestRepo) -> RepoContext {
   repo.set_config("branchdeck.branchPrefix", PREFIX).unwrap();
   let options = RepoOptions {
     repo: None,
@@ -51,7 +51,7 @@ pub(crate) fn context_with_the_config_prefix(repo: &TestRepo) -> RepoContext {
   context
 }
 
-pub(crate) fn run_json(environment: &Environment, args: &[&str]) -> (i32, Value) {
+pub fn run_json(environment: &Environment, args: &[&str]) -> (i32, Value) {
   let mut out = Vec::new();
   let exit_code = run_with(args.iter().map(OsString::from), environment, &mut out);
   let text = String::from_utf8(out).expect("UTF-8 output");
@@ -61,12 +61,12 @@ pub(crate) fn run_json(environment: &Environment, args: &[&str]) -> (i32, Value)
 }
 
 /// The output is the error `expected.1` with the exit code `expected.0`
-pub(crate) fn assert_error(output: &Value, exit_code: i32, expected: (i32, &str)) {
+pub fn assert_error(output: &Value, exit_code: i32, expected: (i32, &str)) {
   assert_eq!((exit_code, &output["error"]["code"]), (expected.0, &serde_json::json!(expected.1)), "{output}");
 }
 
 /// A cherry-pick in progress in `worktree` of `repo`, as one that stopped leaves it: `CHERRY_PICK_HEAD` names its HEAD
-pub(crate) fn start_cherry_pick(repo: &TestRepo, worktree: &Path) {
+pub fn start_cherry_pick(repo: &TestRepo, worktree: &Path) {
   let git = repo.git_executor();
   let worktree_path = worktree.to_str().unwrap();
   // relative to the worktree in the main one, absolute in a linked one
@@ -77,7 +77,7 @@ pub(crate) fn start_cherry_pick(repo: &TestRepo, worktree: &Path) {
 
 /// `run(&[])` and its dry run `run(&["--dry-run"])` are refused as `operation_in_progress` (exit 4) naming
 /// `operation`, and HEAD stays
-pub(crate) fn assert_refused_during(repo: &TestRepo, operation: &str, run: impl Fn(&[&str]) -> (i32, Value)) {
+pub fn assert_refused_during(repo: &TestRepo, operation: &str, run: impl Fn(&[&str]) -> (i32, Value)) {
   let head = repo.head();
   for extra in [&[][..], &["--dry-run"]] {
     let (exit_code, output) = run(extra);
@@ -89,7 +89,7 @@ pub(crate) fn assert_refused_during(repo: &TestRepo, operation: &str, run: impl 
 }
 
 /// `fields` after the `schema`, `repository` and `prefix` every output of `bd` in `repo` starts with
-pub(crate) fn with_header(repo: &TestRepo, fields: Value) -> Value {
+pub fn with_header(repo: &TestRepo, fields: Value) -> Value {
   let mut output = serde_json::json!({ "schema": 2, "repository": repository(repo), "prefix": PREFIX });
   let Value::Object(fields) = fields else { panic!("fields must be an object") };
   output.as_object_mut().unwrap().extend(fields);
@@ -97,17 +97,17 @@ pub(crate) fn with_header(repo: &TestRepo, fields: Value) -> Value {
 }
 
 /// The repository path as `bd` prints it: the top level that git names, `C:/Users/...` on Windows
-pub(crate) fn repository(repo: &TestRepo) -> String {
+pub fn repository(repo: &TestRepo) -> String {
   git(repo, &["rev-parse", "--show-toplevel"])
 }
 
 /// `path` resolved like `std::fs::canonicalize`, without the `\\?\` prefix that it gives on Windows
-pub(crate) fn canonical(path: &Path) -> std::path::PathBuf {
+pub fn canonical(path: &Path) -> std::path::PathBuf {
   std::path::PathBuf::from(sync_core::resolve_copies::display_path(&std::fs::canonicalize(path).unwrap()))
 }
 
 /// The `undo_token` of `output` is `<head>..<HEAD now>`, and `bd undo` with it moves HEAD back to `head`
-pub(crate) fn assert_undo_restores(repo: &TestRepo, output: &Value, head: &str) {
+pub fn assert_undo_restores(repo: &TestRepo, output: &Value, head: &str) {
   let token = output["undo_token"].as_str().unwrap_or_else(|| panic!("no undo token: {output}"));
   assert_eq!(token, format!("{head}..{}", repo.head()));
   let (exit_code, undo) = run_in(repo, &["undo", token]);
@@ -116,7 +116,7 @@ pub(crate) fn assert_undo_restores(repo: &TestRepo, output: &Value, head: &str) 
 }
 
 /// `(name, status)` of every branch of the `sync` part of a rewrite output
-pub(crate) fn sync_statuses(output: &Value) -> Vec<(&Value, &Value)> {
+pub fn sync_statuses(output: &Value) -> Vec<(&Value, &Value)> {
   output["sync"]["branches"]
     .as_array()
     .unwrap_or_else(|| panic!("no sync: {output}"))
@@ -126,14 +126,14 @@ pub(crate) fn sync_statuses(output: &Value) -> Vec<(&Value, &Value)> {
 }
 
 /// Run `bd` in `repo` with `--prefix test-user`
-pub(crate) fn run_in(repo: &TestRepo, args: &[&str]) -> (i32, Value) {
+pub fn run_in(repo: &TestRepo, args: &[&str]) -> (i32, Value) {
   let mut all_args = vec!["--prefix", PREFIX];
   all_args.extend_from_slice(args);
   run_json(&environment(repo.path()), &all_args)
 }
 
 /// A repository whose `origin/master` is its first commit, so every later commit is ahead of the baseline
-pub(crate) fn repo_with_baseline(files: &[(&str, &str)]) -> TestRepo {
+pub fn repo_with_baseline(files: &[(&str, &str)]) -> TestRepo {
   let repo = TestRepo::new();
   let initial = repo.create_commit_with_files("Initial commit", files);
   git(&repo, &["remote", "add", "origin", "."]);
@@ -141,7 +141,7 @@ pub(crate) fn repo_with_baseline(files: &[(&str, &str)]) -> TestRepo {
   repo
 }
 
-pub(crate) fn git(repo: &TestRepo, args: &[&str]) -> String {
+pub fn git(repo: &TestRepo, args: &[&str]) -> String {
   repo
     .git_executor()
     .execute_command(args, repo.path().to_str().unwrap())
@@ -149,7 +149,7 @@ pub(crate) fn git(repo: &TestRepo, args: &[&str]) -> String {
 }
 
 /// Commit everything in the working tree, with a fixed author and committer time
-pub(crate) fn commit_all(repo: &TestRepo, message: &str, timestamp: i64) -> String {
+pub fn commit_all(repo: &TestRepo, message: &str, timestamp: i64) -> String {
   git(repo, &["add", "-A"]);
   let date = format!("{timestamp} +0000");
   repo
@@ -162,12 +162,12 @@ pub(crate) fn commit_all(repo: &TestRepo, message: &str, timestamp: i64) -> Stri
 }
 
 /// The repository lock, held as another process would hold it, until the guard is dropped
-pub(crate) fn hold_the_lock(repo: &TestRepo) -> RepositoryLock {
+pub fn hold_the_lock(repo: &TestRepo) -> RepositoryLock {
   lock_repository(repo.git_executor(), repo.path().to_str().unwrap(), std::time::Duration::from_millis(100)).unwrap()
 }
 
 /// A dry run's output: it says so, its `new_head` is `head` (abbreviated) and it has no undo token
-pub(crate) fn assert_dry_run(output: &Value, head: &str) {
+pub fn assert_dry_run(output: &Value, head: &str) {
   assert_eq!(
     (&output["dry_run"], &output["new_head"], output.get("undo_token")),
     (&json!(true), &json!(short_id(head)), None),
@@ -176,7 +176,7 @@ pub(crate) fn assert_dry_run(output: &Value, head: &str) {
 }
 
 /// One commit per subject, each adding its own file, 100 s apart; returns their ids
-pub(crate) fn commit_subjects(repo: &TestRepo, subjects: &[&str]) -> Vec<String> {
+pub fn commit_subjects(repo: &TestRepo, subjects: &[&str]) -> Vec<String> {
   let mut ids = Vec::new();
   for (index, subject) in subjects.iter().enumerate() {
     write(repo, &format!("f{index}.txt"), *subject);
@@ -185,14 +185,14 @@ pub(crate) fn commit_subjects(repo: &TestRepo, subjects: &[&str]) -> Vec<String>
   ids
 }
 
-pub(crate) fn write(repo: &TestRepo, path: &str, content: impl AsRef<[u8]>) {
+pub fn write(repo: &TestRepo, path: &str, content: impl AsRef<[u8]>) {
   let path = repo.path().join(path);
   std::fs::create_dir_all(path.parent().unwrap()).unwrap();
   std::fs::write(path, content).unwrap();
 }
 
 /// Lines `line 1` ..= `line n`
-pub(crate) fn numbered_lines(n: usize) -> String {
+pub fn numbered_lines(n: usize) -> String {
   (1..=n).fold(String::new(), |mut text, i| {
     let _ = writeln!(text, "line {i}");
     text
@@ -200,24 +200,24 @@ pub(crate) fn numbered_lines(n: usize) -> String {
 }
 
 /// The paths of `commit_dangling_reference`
-pub(crate) const ACP_AGENT: &str = "plugins/air/src/acp/AcpScenarioAgent.java";
-pub(crate) const ACP_PROTOCOL: &str = "plugins/air/src/acp/AcpControlProtocol.java";
-pub(crate) const ACP_HOST: &str = "plugins/air/tests/flow/AirFlowLaneHost.kt";
+pub const ACP_AGENT: &str = "plugins/air/src/acp/AcpScenarioAgent.java";
+pub const ACP_PROTOCOL: &str = "plugins/air/src/acp/AcpControlProtocol.java";
+pub const ACP_HOST: &str = "plugins/air/tests/flow/AirFlowLaneHost.kt";
 
 /// The Kotlin user of the constant, qualified by `class_name`; the use is on line 7
-pub(crate) fn acp_host(class_name: &str) -> String {
+pub fn acp_host(class_name: &str) -> String {
   format!(
     "package flow\n\nimport acp.{class_name}\n\nclass AirFlowLaneHost {{\n  fun environment(url: String): Map<String, String> {{\n    return mapOf({class_name}.CONTROL_URL_ENV to url)\n  }}\n}}\n"
   )
 }
 
-pub(crate) const MANAGER_TEST: &str = "impl/testSrc/p/ManagerTest.kt";
+pub const MANAGER_TEST: &str = "impl/testSrc/p/ManagerTest.kt";
 
 /// The Safe Push failure of 2026-10-17 (IJAI-4074) in `repo` (from `repo_with_baseline`): the baseline gets `Manager`
 /// with `buttons(window: Window)` in the module `impl`; `(abc)` adds the overload `buttons(paneId: String)`, and
 /// `(xyz)` adds a test in another file whose object expression overrides both, the new one on line 7. No line links
 /// the two. Returns `(the commit that adds the overload, the commit that overrides it)`
-pub(crate) fn commit_override_of_overload(repo: &TestRepo) -> (String, String) {
+pub fn commit_override_of_overload(repo: &TestRepo) -> (String, String) {
   let manager =
     |overload: &str| format!("package p\n\nopen class Manager {{\n  internal open fun buttons(window: Window): Buttons = Buttons()\n{overload}}}\n\nclass Window\nclass Buttons\n");
   write(repo, "impl/BUILD.bazel", "");
@@ -239,19 +239,19 @@ pub(crate) fn commit_override_of_overload(repo: &TestRepo) -> (String, String) {
   (declares, overrides)
 }
 
-pub(crate) const LEDGER_TEST: &str = "plugins/air/tests/contract/AcpJourneyLifecycleTest.kt";
-pub(crate) const LEDGER: &str = "plugins/air/tests/bridge/AcpOwnershipLedger.kt";
+pub const LEDGER_TEST: &str = "plugins/air/tests/contract/AcpJourneyLifecycleTest.kt";
+pub const LEDGER: &str = "plugins/air/tests/bridge/AcpOwnershipLedger.kt";
 
 /// The Safe Push failure of IJAI-4185 (2026-10-17) in `repo` (from `repo_with_baseline`): the baseline gets a ledger and
 /// a test that calls its `cleanup`; `(journey)` deletes the test, then `(suspend)` makes `cleanup` suspend. HEAD
 /// compiles, the tree of `(suspend)` has the call outside a coroutine. Returns `(the commit that deletes the test, the
 /// commit that changes the function)`
-pub(crate) fn commit_changed_declaration(repo: &TestRepo) -> (String, String) {
+pub fn commit_changed_declaration(repo: &TestRepo) -> (String, String) {
   commit_changed_member(repo, "suspend fun cleanup()")
 }
 
 /// `commit_changed_declaration` with `cleanup` changed to `header` instead
-pub(crate) fn commit_changed_member(repo: &TestRepo, header: &str) -> (String, String) {
+pub fn commit_changed_member(repo: &TestRepo, header: &str) -> (String, String) {
   let ledger = |header: &str| format!("package bridge\n\nclass AcpOwnershipLedger {{\n  {header} {{\n  }}\n}}\n");
   write(repo, LEDGER, ledger("fun cleanup()"));
   write(
@@ -271,7 +271,7 @@ pub(crate) fn commit_changed_member(repo: &TestRepo, header: &str) -> (String, S
 /// The Safe Push failure of 2026-10-16 in `repo` (from `repo_with_baseline`): the baseline gets a Java class with a
 /// constant and a Kotlin file that uses it; `(fake-agent)` moves the constant into a new class, and `(lane-document)`
 /// changes the use. Returns `(the commit that moves it, the commit that changes the use)`
-pub(crate) fn commit_dangling_reference(repo: &TestRepo) -> (String, String) {
+pub fn commit_dangling_reference(repo: &TestRepo) -> (String, String) {
   write(
     repo,
     ACP_AGENT,
@@ -290,4 +290,43 @@ pub(crate) fn commit_dangling_reference(repo: &TestRepo) -> (String, String) {
   write(repo, ACP_HOST, acp_host("AcpControlProtocol"));
   let fixed_by = commit_all(repo, "(lane-document) IJAI-3878 Use the control protocol", 1_700_000_200);
   (removed_by, fixed_by)
+}
+
+/// The object or array schema behind a `$ref` into `$defs` or the non-null alternative of an `anyOf` (an `Option`)
+fn resolve<'a>(root: &'a Value, schema: &'a Value) -> &'a Value {
+  if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
+    return resolve(root, &root["$defs"][reference.trim_start_matches("#/$defs/")]);
+  }
+  if let Some(alternatives) = schema.get("anyOf").and_then(Value::as_array)
+    && let Some(alternative) = alternatives.iter().find(|alternative| alternative["type"] != json!("null"))
+  {
+    return resolve(root, alternative);
+  }
+  schema
+}
+
+/// Every key of `value` is a property of `schema` (or a key of a map), and every key the schema requires is in `value`,
+/// recursively through objects and arrays
+pub fn assert_covered(root: &Value, schema: &Value, value: &Value, path: &str) {
+  let schema = resolve(root, schema);
+  match value {
+    Value::Object(object) => {
+      // an output leaves an empty optional field out, so the schema must not require it
+      for key in schema["required"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        assert!(object.contains_key(key), "{path}.{key} is required by the schema but missing");
+      }
+      for (key, child) in object {
+        // a map declares its values with `additionalProperties`
+        let property = schema["properties"].get(key).unwrap_or_else(|| &schema["additionalProperties"]);
+        assert!(!property.is_null(), "{path}.{key} is not in the schema {schema}");
+        assert_covered(root, property, child, &format!("{path}.{key}"));
+      }
+    }
+    Value::Array(items) => {
+      for (index, item) in items.iter().enumerate() {
+        assert_covered(root, &schema["items"], item, &format!("{path}[{index}]"));
+      }
+    }
+    _ => {}
+  }
 }

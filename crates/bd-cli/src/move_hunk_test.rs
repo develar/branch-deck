@@ -1,8 +1,8 @@
+use crate::fixture_test::assert_covered;
 use crate::fixture_test::{
   ACP_AGENT, ACP_HOST, ACP_PROTOCOL, acp_host, assert_error, assert_undo_restores, commit_all, commit_dangling_reference, environment, git, hold_the_lock, numbered_lines,
   repo_with_baseline, run_in, run_json, sync_statuses, write,
 };
-use crate::schema_test::assert_covered;
 use git_ops::revs::short_id;
 use serde_json::json;
 use test_utils::git_test_utils::TestRepo;

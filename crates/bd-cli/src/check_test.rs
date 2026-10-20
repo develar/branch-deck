@@ -41,7 +41,7 @@ fn check(repo: &TestRepo, plan: &Value, extra: &[&str]) -> (i32, Value) {
 /// The schema of `bd check` covers every field of `output`
 fn assert_check_schema(repo: &TestRepo, output: &Value) {
   let (_, schema) = run_in(repo, &["schema"]);
-  crate::schema_test::assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], output, "check");
+  crate::fixture_test::assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], output, "check");
 }
 
 /// The branch `name` of a `bd check` output
