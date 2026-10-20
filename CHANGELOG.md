@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.24.0](https://github.com/develar/branch-deck/compare/v0.23.0...v0.24.0) (2026-10-20)
+
+
+### Features
+
+* **auth:** the GitHub and YouTrack tokens of the sign-ins live in the login keychain on macOS, through /usr/bin/security ([2e00893](https://github.com/develar/branch-deck/commit/2e008938f3d0b4ab88132291698173d8153ad492))
+* **branch-row:** the columns of the table and its islands line up at the width of their content ([234e168](https://github.com/develar/branch-deck/commit/234e16828fbeeddcb6b13986ac9e1dd31190ccca))
+* **landing:** the overview tells the present and fits the window; Activity in a window of its own ([e94d4be](https://github.com/develar/branch-deck/commit/e94d4be7096e5998546da0011d36019ff6416e22))
+* **landing:** the steps of the overview line up in a grid of its own, without a reserved width ([8a1d85c](https://github.com/develar/branch-deck/commit/8a1d85c3a4ca8ae3e8f64c6bce4c51e0d1cc2535))
+* **next-step:** a step says it short in its column, and a start is no wider than at rest ([d6d6db4](https://github.com/develar/branch-deck/commit/d6d6db4b8365592b5ae801446a7867a6354741a6))
+* **patronus:** the rail of a branch shows which commits its running Safe Push covers ([55589d6](https://github.com/develar/branch-deck/commit/55589d6dc36cd168623ccafcb275c85700082d43))
+* **review:** ⌥F7 lists the usages of a name in a review and outside it, found by accio ([3daac0c](https://github.com/develar/branch-deck/commit/3daac0cec21d3ab06c59b7c58d67cf315a2c244b))
+* **row:** a robot's time is "47m · ~58m", and a Safe Push that starts keeps its width at rest ([59bba07](https://github.com/develar/branch-deck/commit/59bba074b659ef74d9ee967196e15a0045d8c49e))
+* **youtrack:** an issue key of the YouTrack signed in to shows the issue on hover, and Mark Fixed sets it Fixed with Undo ([ba4eb63](https://github.com/develar/branch-deck/commit/ba4eb635b12daa1ac12a0f757d13cdcf7c68f4b3))
+* **youtrack:** sign in to the YouTrack of the issue links in the browser, through its Hub, with a refresh token ([5cad5cd](https://github.com/develar/branch-deck/commit/5cad5cdabd38668bf3a9a9d604f836943f62c8a9))
+* **youtrack:** the YouTrack page says what the sign-in is for, that it opens the browser, and links the page that lists its token ([86207d2](https://github.com/develar/branch-deck/commit/86207d2343750f9a76df55c1ad8b55806e55c4c7))
+
+
+### Bug Fixes
+
+* **bd:** every status of the lease pool lists untracked files in the mode of status.showUntrackedFiles ([9e9cacf](https://github.com/develar/branch-deck/commit/9e9cacf6a53886a42d8da01757adf795364bc092))
+* **bd:** the status of a lease slot writes its index, and a get takes the free slot returned last first ([f1c8ee0](https://github.com/develar/branch-deck/commit/f1c8ee0372e489a54c47760dc2f5c28ceb89618c))
+* **diff:** the colours of Islands Light and Islands Dark as IntelliJ resolves them, and JavaScript names by their declaration ([d6559e8](https://github.com/develar/branch-deck/commit/d6559e8988db9216ec25f737a9c0fa5e65c5cf93))
+* **test:** the errors mock of the YouTrack store test has logError ([ef2021a](https://github.com/develar/branch-deck/commit/ef2021a3fde16db99875b2293231d916c8e532b9))
+
 ## [0.23.0](https://github.com/develar/branch-deck/compare/v0.22.0...v0.23.0) (2026-10-19)
 
 
