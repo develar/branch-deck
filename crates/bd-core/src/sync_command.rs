@@ -179,8 +179,8 @@ pub struct RemoteSummary {
   pub head_id: Option<String>,
 }
 
-#[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature serde's skip_serializing_if needs")]
-pub(crate) const fn is_zero(value: &u32) -> bool {
+/// By reference: the signature serde's `skip_serializing_if` needs
+pub const fn is_zero(value: &u32) -> bool {
   *value == 0
 }
 
@@ -231,7 +231,7 @@ impl RemoteSummary {
 
   /// A push of the branch would change its remote branch: the remote lacks it or commits of it, or has commits a push
   /// replaces or drops
-  pub(crate) const fn has_work(&self) -> bool {
+  pub const fn has_work(&self) -> bool {
     !self.exists || self.unpushed > 0 || self.behind > 0 || self.amended > 0 || self.restacked > 0 || self.landed > 0 || self.reworded > 0
   }
 
@@ -247,7 +247,7 @@ impl RemoteSummary {
 }
 
 /// The landed commits of `remote` (`RemoteSummary::landed_commits`), with the ids `RemoteSummary::ids` shortened
-pub(crate) fn landed_commits(remote: &RemoteStatusUpdate, short: &ShortIds) -> Vec<LandedRemoteCommitSummary> {
+pub fn landed_commits(remote: &RemoteStatusUpdate, short: &ShortIds) -> Vec<LandedRemoteCommitSummary> {
   remote
     .landed_commits
     .iter()

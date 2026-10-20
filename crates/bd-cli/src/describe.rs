@@ -1,11 +1,11 @@
 //! `bd describe`: the pull request text of a virtual branch, kept in git's own `branch.<name>.description` as
 //! `git branch --edit-description` writes it (the title, a blank line, the body)
 
-use crate::branch_view::read_grouping;
-use crate::context::RepoContext;
-use crate::error::{CliError, ErrorCode};
-use crate::output::SchemaVersion;
-use crate::text_input::read_text;
+use bd_core::branch_view::read_grouping;
+use bd_core::context::RepoContext;
+use bd_core::error::{CliError, ErrorCode};
+use bd_core::output::SchemaVersion;
+use bd_core::text_input::read_text;
 use git_ops::branch_description::{Description, clear_description};
 use git_ops::branch_names::to_final_branch_name;
 use schemars::JsonSchema;

@@ -1,7 +1,7 @@
 //! Repositories and helpers shared by the tests (named `_test` so the worktree safety scan treats it as test code)
 
-use crate::context::{Environment, RepoContext, RepoOptions};
 use crate::run_with;
+use bd_core::context::{Environment, RepoContext, RepoOptions};
 use git_ops::revs::short_id;
 use history_rewrite::repository_lock::{RepositoryLock, lock_repository};
 use serde_json::{Value, json};

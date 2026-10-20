@@ -1,7 +1,3 @@
-use crate::bd_command::app_binary_path;
-#[cfg(unix)]
-use crate::bd_command::{BdCommand, bd_command};
-use crate::error::ErrorCode;
 #[cfg(unix)]
 use crate::fixture_test::{environment, run_json};
 use crate::install::refuse_temporary_location;
@@ -9,6 +5,10 @@ use crate::install::refuse_temporary_location;
 use crate::install::{SKILL_DIRS, SKILL_NAME};
 #[cfg(unix)]
 use crate::schema_test::assert_covered;
+use bd_core::bd_command::app_binary_path;
+#[cfg(unix)]
+use bd_core::bd_command::{BdCommand, bd_command};
+use bd_core::error::ErrorCode;
 use pretty_assertions::assert_eq;
 #[cfg(unix)]
 use serde_json::{Value, json};

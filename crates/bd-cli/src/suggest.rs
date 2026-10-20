@@ -5,17 +5,17 @@
 
 use crate::check_command::{CheckedBranch, checked_branches, kind_verb, possible_dangling_references};
 use crate::commits::{CommitsHeader, LinkedDiffs, fixup_targets, read_linked_diffs};
-use crate::context::RepoContext;
-use crate::error::CliError;
-use crate::error::regroup_error;
-use crate::output::SchemaVersion;
-use crate::suggest_plan::SuggestPlan;
 use bd_clustering::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
 use bd_clustering::clustering::{
   Cluster, ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, MAX_REPAIR_ROUNDS, Placement, Restack, Warning,
   anonymize, cluster_change, cluster_with_repair, is_issue_only, leaf_of_path, name_clusters, place_clusters, stacked_without_need, subject_words, why,
 };
 use bd_clustering::generated::is_hub_file;
+use bd_core::context::RepoContext;
+use bd_core::error::CliError;
+use bd_core::error::regroup_error;
+use bd_core::output::SchemaVersion;
+use bd_core::suggest_plan::SuggestPlan;
 use clap::builder::RangedU64ValueParser;
 use git_ops::branch_names::{BranchKind, sanitize_branch_name, strip_branch_namespace};
 use git_ops::commit_list::Commit;

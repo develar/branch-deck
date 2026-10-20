@@ -318,7 +318,7 @@ struct SwitchSetup {
   head: String,
   new_head: String,
   directory: tempfile::TempDir,
-  environment: crate::context::Environment,
+  environment: bd_core::context::Environment,
   _upstream: TestRepo,
 }
 

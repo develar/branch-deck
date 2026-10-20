@@ -1,6 +1,6 @@
 use crate::commits::resolve_ids;
-use crate::error::ErrorCode;
 use crate::fixture_test::{MANAGER_TEST, commit_all, commit_override_of_overload, commit_subjects, git, numbered_lines, repo_with_baseline, run_in, write};
+use bd_core::error::ErrorCode;
 use git_ops::revs::short_id;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;

@@ -1,0 +1,35 @@
+[package]
+name = "bd-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "What every `bd` command builds on: the context, the errors, the output, the sync and its summaries"
+# build.rs reads the root package.json, outside the package
+publish = false
+
+[dependencies]
+file-diffs = { path = "../file-diffs" }
+git-executor = { path = "../git-executor" }
+git-ops = { path = "../git-ops", features = ["schemars"] }
+object-cache = { path = "../object-cache" }
+patronus = { path = "../patronus" }
+github = { path = "../github" }
+sync-core = { path = "../sync-core" }
+history-rewrite = { path = "../history-rewrite" }
+sync-types = { path = "../sync-types" }
+anyhow.workspace = true
+dirs = "7"
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[build-dependencies]
+serde_json.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true

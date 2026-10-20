@@ -2,15 +2,11 @@
 //! JSON on stdout, every object with `"schema": 2`; logs on stderr; the exit code of an error is fixed by its code.
 
 pub mod agent_help;
-pub mod bd_command;
 pub mod block_patch;
 pub mod branch_stats;
-pub mod branch_view;
 pub mod check_command;
 pub mod commits;
-pub mod context;
 pub mod describe;
-pub mod error;
 pub mod fold_command;
 pub mod group_plan;
 pub mod install;
@@ -18,43 +14,32 @@ pub mod landed;
 pub mod lease_command;
 pub mod move_hunk_command;
 pub mod numstat;
-pub mod output;
 pub mod park_command;
 pub mod pick_command;
 pub mod pull_request_retarget;
 pub mod push_command;
 pub mod push_hold;
 pub mod request_review_command;
-pub mod review_summary;
 pub mod reword_command;
 pub mod rewrite;
 pub mod robot_command;
 pub mod robot_list;
 pub mod safe_push_command;
 pub mod schema;
-pub mod stack_summary;
 pub mod status;
 pub mod suggest;
-pub mod suggest_plan;
 pub mod symbol_stats;
-pub mod sync_command;
-pub mod text_input;
 pub mod undo_command;
 pub mod update_command;
-pub mod version;
 
 use crate::agent_help::{AGENT_HELP, READ_ONLY, UPDATE_HELP, WORKTREES_HELP, skill_text};
-use crate::bd_command::skill_command;
 use crate::check_command::{CheckArgs, check};
 use crate::commits::{CommitsArgs, commits, commits_brief};
-use crate::context::{Environment, RepoContext, RepoOptions};
 use crate::describe::{DescribeArgs, describe};
-use crate::error::{CONFLICT_EXIT, CliError, ErrorCode};
 use crate::fold_command::{FoldArgs, fold};
 use crate::install::{InstallArgs, install};
 use crate::lease_command::{LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, lease_adopt, lease_clean, lease_get, lease_return, lease_status};
 use crate::move_hunk_command::{MoveHunkArgs, MoveHunkOutput, move_hunk};
-use crate::output::write_json;
 use crate::park_command::{ParkArgs, UnparkArgs, park, unpark};
 use crate::pick_command::{PickArgs, PickOutput, pick};
 use crate::push_command::{PushArgs, push};
@@ -67,10 +52,14 @@ use crate::schema::schema_output;
 use crate::status::{StatusArgs, status, status_brief};
 use crate::suggest::{SuggestArgs, suggest, suggest_input_dump};
 use crate::symbol_stats::symbol_stats;
-use crate::sync_command::sync;
 use crate::undo_command::{UndoArgs, undo};
 use crate::update_command::{UpdateArgs, UpdateCommandOutput, update};
-use crate::version::{VERSION, version};
+use bd_core::bd_command::skill_command;
+use bd_core::context::{Environment, RepoContext, RepoOptions};
+use bd_core::error::{CONFLICT_EXIT, CliError, ErrorCode};
+use bd_core::output::write_json;
+use bd_core::sync_command::sync;
+use bd_core::version::{VERSION, version};
 use clap::error::ErrorKind;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
 use serde::Serialize;
@@ -436,8 +425,6 @@ mod status_test;
 mod suggest_test;
 #[cfg(test)]
 mod sync_test;
-#[cfg(test)]
-mod text_input_test;
 #[cfg(test)]
 mod update_test;
 #[cfg(test)]

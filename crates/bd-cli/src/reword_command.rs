@@ -2,10 +2,10 @@
 //! `bd group` (`rewrite.rs`): the repository lock over the rewrite and, with --sync, the sync, `--expect-head`, the
 //! undo token, `--dry-run`
 
-use crate::context::RepoContext;
-use crate::error::{CliError, ErrorCode};
 use crate::rewrite::{RewriteArgs, RewriteOutput, rewrite};
-use crate::text_input::read_text;
+use bd_core::context::RepoContext;
+use bd_core::error::{CliError, ErrorCode};
+use bd_core::text_input::read_text;
 use history_rewrite::reword::{CommitReword, RewordText, reword_core};
 use serde::Deserialize;
 use std::collections::BTreeMap;

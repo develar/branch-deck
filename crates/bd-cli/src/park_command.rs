@@ -1,10 +1,10 @@
 //! `bd park` and `bd unpark`: keep a branch local (`refs/branch-deck/parked`), so that `bd push` and `bd safe-push` never
 //! send it and the app shows it apart from the branches to land (spec/branch/parked-branches.spec.md)
 
-use crate::context::RepoContext;
-use crate::error::{CliError, ErrorCode};
-use crate::output::SchemaVersion;
-use crate::sync_command::lock;
+use bd_core::context::RepoContext;
+use bd_core::error::{CliError, ErrorCode};
+use bd_core::output::SchemaVersion;
+use bd_core::sync_command::lock;
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::parked::{ParkError, ParkOutcome, park_core, unpark_core};
 use history_rewrite::repository_lock::RewriteOptions;

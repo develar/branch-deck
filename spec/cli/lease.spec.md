@@ -5,7 +5,7 @@ style: plain-1
 targets:
   - ../../crates/bd-cli/src/lease_command.rs
   - ../../crates/bd-cli/src/agent_help.rs
-  - ../../crates/bd-cli/src/error.rs
+  - ../../crates/bd-core/src/error.rs
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/sync-core/src/lease.rs
   - ../../crates/sync-core/src/lease_clean.rs

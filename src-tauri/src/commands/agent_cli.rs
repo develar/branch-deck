@@ -1,7 +1,7 @@
 use crate::command_error::CommandError;
-use bd_cli::bd_command::bd_command;
-use bd_cli::context::Environment;
 use bd_cli::install::{InstallArgs, install};
+use bd_core::bd_command::bd_command;
+use bd_core::context::Environment;
 use sync_utils::child_process::login_shell_path;
 use tracing::instrument;
 

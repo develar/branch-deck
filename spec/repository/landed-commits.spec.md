@@ -9,7 +9,7 @@ targets:
   - ../../crates/sync-core/src/update_project.rs
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/git-ops/src/update_branch.rs
-  - ../../crates/bd-cli/src/sync_command.rs
+  - ../../crates/bd-core/src/sync_command.rs
   - ../../src-tauri/src/commands/update_project.rs
   - ../../src/lib/landed.ts
   - ../../src/stores/landed.ts

@@ -24,7 +24,7 @@ targets:
   - ../../crates/bd-cli/src/suggest.rs
   - ../../crates/bd-cli/src/safe_push_command.rs
   - ../../crates/bd-clustering/src/clustering.rs
-  - ../../crates/bd-cli/src/error.rs
+  - ../../crates/bd-core/src/error.rs
   - ../../src/lib/commit.ts
   - ../../src/lib/stack.ts
   - ../../src/stores/branch-sync.ts

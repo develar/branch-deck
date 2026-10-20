@@ -3,18 +3,18 @@ name: Agent CLI
 description: Requirements for bd, the command line a coding agent uses to read the branches and commits Branch Deck sees and to regroup the commits, as JSON with a stable contract.
 style: plain-1
 targets:
-  - ../../crates/bd-cli/src/text_input.rs
+  - ../../crates/bd-core/src/text_input.rs
   - ../../src-tauri/src/main.rs
   - ../../crates/bd-cli/src/main.rs
   - ../../scripts/build-bd.mjs
   - ../../src-tauri/tauri.windows-bd.conf.json
   - ../../crates/bd-cli/src/lib.rs
-  - ../../crates/bd-cli/src/context.rs
+  - ../../crates/bd-core/src/context.rs
   - ../../crates/sync-core/src/branch_prefix.rs
-  - ../../crates/bd-cli/src/error.rs
-  - ../../crates/bd-cli/src/output.rs
+  - ../../crates/bd-core/src/error.rs
+  - ../../crates/bd-core/src/output.rs
   - ../../crates/bd-cli/src/status.rs
-  - ../../crates/bd-cli/src/branch_view.rs
+  - ../../crates/bd-core/src/branch_view.rs
   - ../../crates/bd-cli/src/branch_stats.rs
   - ../../crates/bd-cli/src/commits.rs
   - ../../crates/bd-clustering/src/areas.rs
@@ -23,15 +23,15 @@ targets:
   - ../../crates/sync-core/src/dependencies.rs
   - ../../crates/bd-clustering/src/generated.rs
   - ../../crates/bd-cli/src/schema.rs
-  - ../../crates/bd-cli/src/version.rs
-  - ../../crates/bd-cli/build.rs
+  - ../../crates/bd-core/src/version.rs
+  - ../../crates/bd-core/build.rs
   - ../../crates/bd-cli/src/rewrite.rs
   - ../../crates/bd-cli/src/undo_command.rs
   - ../../crates/bd-cli/src/group_plan.rs
   - ../../crates/bd-cli/src/describe.rs
   - ../../crates/git-ops/src/branch_description.rs
-  - ../../crates/bd-cli/src/sync_command.rs
-  - ../../crates/bd-cli/src/stack_summary.rs
+  - ../../crates/bd-core/src/sync_command.rs
+  - ../../crates/bd-core/src/stack_summary.rs
   - ../../crates/sync-core/src/branch_processor.rs
   - ../../crates/bd-cli/src/check_command.rs
   - ../../crates/git-ops/src/tree_archive.rs
@@ -44,7 +44,7 @@ targets:
   - ../../crates/git-ops/src/merge_tree_output.rs
   - ../../crates/history-rewrite/src/autosquash.rs
   - ../../crates/bd-cli/src/suggest.rs
-  - ../../crates/bd-cli/src/suggest_plan.rs
+  - ../../crates/bd-core/src/suggest_plan.rs
   - ../../crates/bd-clustering/src/clustering.rs
   - ../../crates/sync-utils/src/issue_pattern.rs
   - ../../crates/sync-utils/src/list_cut.rs
@@ -54,7 +54,7 @@ targets:
   - ../../crates/sync-core/src/push_lease.rs
   - ../../crates/sync-core/src/push.rs
   - ../../crates/bd-cli/src/safe_push_command.rs
-  - ../../crates/bd-cli/src/review_summary.rs
+  - ../../crates/bd-core/src/review_summary.rs
   - ../../crates/bd-cli/src/push_hold.rs
   - ../../crates/sync-core/src/stack_pull_request.rs
   - ../../crates/sync-core/src/patronus_review.rs
@@ -78,7 +78,7 @@ targets:
   - ../../crates/history-rewrite/src/repository_lock.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/bd-cli/src/install.rs
-  - ../../crates/bd-cli/src/bd_command.rs
+  - ../../crates/bd-core/src/bd_command.rs
   - ../../src-tauri/src/commands/agent_cli.rs
   - ../../src/hooks/useInstallAgentCli.ts
   - ../../crates/sync-core/src/grouping.rs
@@ -155,7 +155,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/describe_test.rs (`a_body_from_windows_powershell_is_read_and_printed_as_ascii`)
 - A plan, a body and a message (`--plan`, `--body-file`, `--message-file`; `-` is stdin) must be read as UTF-8 without a leading byte order
   mark, or as UTF-16 with one, which Windows PowerShell 5.1 writes.
-  [@test] ../../crates/bd-cli/src/text_input_test.rs (`a_bom_is_dropped_and_utf16_is_decoded`)
+  [@test] ../../crates/bd-core/src/text_input_test.rs (`a_bom_is_dropped_and_utf16_is_decoded`)
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_plan_with_a_byte_order_mark_is_read`)
 - `bd schema` must print the JSON Schema of every output (the list is the test's), and the real outputs must use only
   the properties it declares.

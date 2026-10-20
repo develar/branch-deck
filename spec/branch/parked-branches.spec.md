@@ -15,7 +15,7 @@ targets:
   - ../../crates/bd-cli/src/status.rs
   - ../../crates/bd-cli/src/push_command.rs
   - ../../crates/bd-cli/src/safe_push_command.rs
-  - ../../crates/bd-cli/src/error.rs
+  - ../../crates/bd-core/src/error.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../src-tauri/src/commands/parked_branches.rs
   - ../../src/lib/parked.ts

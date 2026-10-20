@@ -455,6 +455,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bd-clustering",
+ "bd-core",
  "clap",
  "code-symbols",
  "dirs",
@@ -497,6 +498,29 @@ dependencies = [
  "serde",
  "serde_json",
  "sync-utils",
+ "tracing",
+]
+
+[[package]]
+name = "bd-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "file-diffs",
+ "git-executor",
+ "git-ops",
+ "github",
+ "history-rewrite",
+ "object-cache",
+ "patronus",
+ "pretty_assertions",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "sync-core",
+ "sync-types",
+ "tokio",
  "tracing",
 ]
 
@@ -573,6 +597,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bd-cli",
+ "bd-core",
  "branch-integration",
  "file-diffs",
  "git-executor",

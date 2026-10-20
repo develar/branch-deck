@@ -168,7 +168,7 @@ fn no_cache_verifies_each_note() {
 /// `bd sync` exits with 1 for every branch it could not build, not only a conflict
 #[test]
 fn a_branch_that_is_not_built_is_exit_1() {
-  use crate::sync_command::SyncState;
+  use bd_core::sync_command::SyncState;
   let built: Vec<bool> = [
     SyncState::Created,
     SyncState::Updated,

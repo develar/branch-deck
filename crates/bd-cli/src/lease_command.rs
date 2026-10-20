@@ -2,9 +2,9 @@
 //! (spec/cli/lease.spec.md). The core (`sync_core::lease`) keeps the state in `$GIT_COMMON_DIR/branch-deck/leases.json`
 //! under a pool lock of its own; a lease needs no branch prefix, so these commands resolve only git and the repository
 
-use crate::context::Environment;
-use crate::error::{CliError, ErrorCode};
-use crate::output::SchemaVersion;
+use bd_core::context::Environment;
+use bd_core::error::{CliError, ErrorCode};
+use bd_core::output::SchemaVersion;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
 use git_ops::lease_slot::lease_config;
@@ -220,7 +220,7 @@ pub struct SkippedOutput {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub paths: Vec<String>,
   /// How many local changes `paths` leaves out
-  #[serde(default, skip_serializing_if = "crate::sync_command::is_zero")]
+  #[serde(default, skip_serializing_if = "bd_core::sync_command::is_zero")]
   pub paths_omitted: u32,
   /// The processes of a `busy` slot
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -317,7 +317,7 @@ pub struct LeaseReturnOutput {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub discarded: Vec<String>,
   /// How many discarded changes `discarded` leaves out
-  #[serde(default, skip_serializing_if = "crate::sync_command::is_zero")]
+  #[serde(default, skip_serializing_if = "bd_core::sync_command::is_zero")]
   pub discarded_omitted: u32,
   /// The unlanded commits --confirm-preserved gave up, newest first (at most 20); the reflog of the slot's HEAD keeps
   /// them until git expires it

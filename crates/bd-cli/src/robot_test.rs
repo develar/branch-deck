@@ -139,7 +139,7 @@ fn full_adds_the_failed_builds_their_tests_and_the_log_tails_of_the_teamcity_cli
   "run tests") echo '{"testOccurrence": [{"name": "com.intellij.FooTest.testBar", "firstFailed": {"build": {"id": 290}}}]}' ;;
 esac"#,
   );
-  let environment = crate::context::Environment {
+  let environment = bd_core::context::Environment {
     teamcity: Some(teamcity),
     ..space.environment()
   };
@@ -237,7 +237,7 @@ fn robot_takes_a_robot_by_id_of_the_branch_only() {
 #[test_log::test]
 fn robot_without_a_token_or_space_asks_nothing() {
   let space = Space::new(&["(auth) Add auth"]);
-  let environment = crate::context::Environment {
+  let environment = bd_core::context::Environment {
     home: Some(space.repo.path().join("no-home")),
     ..space.environment()
   };

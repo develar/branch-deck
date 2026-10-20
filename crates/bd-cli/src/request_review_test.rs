@@ -1,7 +1,7 @@
-use crate::context::Environment;
 use crate::fixture_test::{PREFIX, assert_error, run_json};
 use crate::safe_push_test::{Space, evaluated_review, fake_github, list_pull_requests, pull_request_json, reviewed_on_github};
 use crate::schema_test::assert_covered;
+use bd_core::context::Environment;
 use github::fake_github::{FakeAnswer, FakeGitHub};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};

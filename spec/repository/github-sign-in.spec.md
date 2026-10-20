@@ -11,7 +11,7 @@ targets:
   - ../../crates/sync-types/src/pull_request.rs
   - ../../src-tauri/src/commands/github.rs
   - ../../src-tauri/src/lib.rs
-  - ../../crates/bd-cli/src/context.rs
+  - ../../crates/bd-core/src/context.rs
   - ../../crates/test-server/src/tauri_command_bridge.rs
   - ../../src/stores/github-auth.ts
   - ../../src/components/settings/GitHubSettings.tsx

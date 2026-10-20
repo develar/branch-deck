@@ -3,12 +3,12 @@
 //! working tree stay as they are; `bd undo` takes it back, --sync rebuilds the virtual branches under the same lock
 
 use crate::block_patch::PatchBlock;
-use crate::context::RepoContext;
-use crate::error::regroup_error;
-use crate::error::{CliError, ErrorBody, ErrorCode};
-use crate::output::SchemaVersion;
 use crate::rewrite::{IdMapping, after_rewrite_exit_code, sync_after_rewrite};
-use crate::sync_command::{SyncOutput, lock};
+use bd_core::context::RepoContext;
+use bd_core::error::regroup_error;
+use bd_core::error::{CliError, ErrorBody, ErrorCode};
+use bd_core::output::SchemaVersion;
+use bd_core::sync_command::{SyncOutput, lock};
 use git_ops::move_hunk::MoveHunkMode;
 use history_rewrite::regroup::UndoToken;
 use schemars::JsonSchema;

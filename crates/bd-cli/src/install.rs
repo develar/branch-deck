@@ -3,12 +3,12 @@
 //! when to use bd and to start with `bd help agent`. The app's Help menu runs the same install.
 
 use crate::agent_help::skill_text;
-use crate::bd_command::{BdCommand, app_binary, display, io_error};
+use bd_core::bd_command::{BdCommand, app_binary, display, io_error};
 #[cfg(unix)]
-use crate::bd_command::{LINK_DIR, links_to};
-use crate::context::Environment;
-use crate::error::{CliError, ErrorCode};
-use crate::output::SchemaVersion;
+use bd_core::bd_command::{LINK_DIR, links_to};
+use bd_core::context::Environment;
+use bd_core::error::{CliError, ErrorCode};
+use bd_core::output::SchemaVersion;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::path::{Path, PathBuf};

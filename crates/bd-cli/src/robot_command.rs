@@ -4,13 +4,13 @@
 //! as the app's Copy Prompt for Agent. Read only: no repository lock and no sync; the commit map compares the virtual
 //! branch as the last sync built it.
 
-use crate::branch_view::{read_grouping, stack_ancestors};
-use crate::context::{Environment, RepoContext};
-use crate::error::{CliError, ErrorCode};
-use crate::output::{SchemaVersion, ShortIds};
 use crate::robot_list::list_robots;
 use crate::safe_push_command::{RobotSummary, patronus_error, patronus_service, robot_summary};
-use crate::stack_summary::{WholeStack, whole_stack_of};
+use bd_core::branch_view::{read_grouping, stack_ancestors};
+use bd_core::context::{Environment, RepoContext};
+use bd_core::error::{CliError, ErrorCode};
+use bd_core::output::{SchemaVersion, ShortIds};
+use bd_core::stack_summary::{WholeStack, whole_stack_of};
 use git_ops::branch_names::to_final_branch_name;
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::{PROCESS_TIMEOUT, TeamCityCli};

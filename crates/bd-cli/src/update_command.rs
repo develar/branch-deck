@@ -4,10 +4,10 @@
 //! `--status`): the rounds are resolved outside the working tree, which only the finish writes. A block changes
 //! nothing; bd never stashes
 
-use crate::context::RepoContext;
-use crate::error::{CONFLICT_EXIT, CliError, ErrorCode};
-use crate::output::{ResolvedByWords, ResolvedFileEntry, SchemaVersion, ShortIds};
-use crate::sync_command::{LandedSummary, is_zero, landed_ids, landed_summary};
+use bd_core::context::RepoContext;
+use bd_core::error::{CONFLICT_EXIT, CliError, ErrorCode};
+use bd_core::output::{ResolvedByWords, ResolvedFileEntry, SchemaVersion, ShortIds};
+use bd_core::sync_command::{LandedSummary, is_zero, landed_ids, landed_summary};
 use git_ops::revs::short_id;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::update_branch::{

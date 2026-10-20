@@ -1,6 +1,6 @@
 use crate::agent_help::AGENT_HELP;
 use crate::fixture_test::{environment, run_json};
-use crate::version::VERSION;
+use bd_core::version::VERSION;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 

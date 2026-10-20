@@ -1,10 +1,10 @@
 use crate::block_patch::{PatchFile, read_patches};
-use crate::branch_view::read_grouping;
-use crate::context::RepoContext;
-use crate::error::{CliError, ErrorCode};
-use crate::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use bd_clustering::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
 use bd_clustering::generated::generated_paths;
+use bd_core::branch_view::read_grouping;
+use bd_core::context::RepoContext;
+use bd_core::error::{CliError, ErrorCode};
+use bd_core::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use clap::builder::RangedU64ValueParser;
 use git_ops::commit_list::Commit;
 use history_rewrite::autosquash::{FixupKind, plan_autosquash};

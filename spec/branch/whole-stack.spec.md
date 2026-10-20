@@ -12,9 +12,9 @@ targets:
   - ../../crates/git-ops/src/tree_id_cache.rs
   - ../../crates/object-cache/src/stack_branch.rs
   - ../../crates/branch-integration/src/common.rs
-  - ../../crates/bd-cli/src/stack_summary.rs
+  - ../../crates/bd-core/src/stack_summary.rs
   - ../../crates/bd-cli/src/status.rs
-  - ../../crates/bd-cli/src/sync_command.rs
+  - ../../crates/bd-core/src/sync_command.rs
   - ../../crates/bd-cli/src/safe_push_command.rs
   - ../../crates/bd-cli/src/push_command.rs
   - ../../crates/bd-cli/src/push_hold.rs

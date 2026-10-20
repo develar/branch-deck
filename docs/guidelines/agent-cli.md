@@ -1502,7 +1502,7 @@ outputs of `--brief`, `update_status` and `update_abort` those of `bd update --s
 ### `bd version`, `bd --version`
 
 Both print `{"schema":2,"version":"0.11.0","git":"2.56.0"}` and need no repository. `version` is the version of
-Branch Deck, the one the app shows: `build.rs` of `crates/bd-cli` reads it from the root `package.json`, which
+Branch Deck, the one the app shows: `build.rs` of `crates/bd-core` (bd-cli runs it too) reads it from the root `package.json`, which
 release-please updates and `src-tauri/tauri.conf.json` names (`"version": "../package.json"`). The workspace version of the crates stays 0.1.0, so `CARGO_PKG_VERSION` is not it. `git` is
 the version of the git bd finds (see Invocation), also of one older than 2.54, and `null` without one: never an
 error. The first line of `bd help agent` names the version too.

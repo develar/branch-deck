@@ -3,7 +3,6 @@
 //! A command runs on the counting executor of its `RepoContext`, so its own reads count with those of the core.
 
 use crate::check_command::{CheckArgs, check};
-use crate::context::{RepoContext, RepoOptions};
 use crate::fixture_test::{PREFIX, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline};
 use crate::fold_command::{FoldArgs, fold};
 use crate::lease_command::{LeaseContext, LeaseGetArgs, LeaseReturnArgs, lease_get, lease_return};
@@ -19,7 +18,8 @@ use crate::robot_command::{RobotArgs, robot};
 use crate::safe_push_command::{SafePushArgs, safe_push};
 use crate::safe_push_test::Space;
 use crate::status::{StatusArgs, status};
-use crate::sync_command::sync;
+use bd_core::context::{RepoContext, RepoOptions};
+use bd_core::sync_command::sync;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -412,7 +412,7 @@ fn a_pick() {
 }
 
 /// The environment of bd in `repo` with the lease pool in a temporary home, which lives as long as the guard
-fn lease_environment(repo: &TestRepo) -> (tempfile::TempDir, crate::context::Environment) {
+fn lease_environment(repo: &TestRepo) -> (tempfile::TempDir, bd_core::context::Environment) {
   let home = tempfile::tempdir().unwrap();
   let mut environment = environment(repo.path());
   environment.home = Some(home.path().to_path_buf());
@@ -644,7 +644,7 @@ fn a_safe_push_check_of_the_whole_stack() {
 }
 
 /// The context of the environment of a Space fixture, after its sync
-fn space_context(environment: &crate::context::Environment) -> RepoContext {
+fn space_context(environment: &bd_core::context::Environment) -> RepoContext {
   let options = RepoOptions {
     repo: None,
     prefix: Some(PREFIX),

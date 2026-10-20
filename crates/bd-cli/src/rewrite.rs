@@ -2,14 +2,14 @@
 //! `history_rewrite::regroup`, which validates before it writes. bd holds the repository lock over the rewrite, the
 //! descriptions of a plan and, with --sync, the sync
 
-use crate::branch_view::ParentSourceName;
-use crate::context::RepoContext;
-use crate::error::regroup_error;
-use crate::error::{CONFLICT_EXIT, CliError, ErrorBody};
 use crate::group_plan::{DescriptionChange, changed_descriptions, check_descriptions, parse_group_plan, write_descriptions};
-use crate::output::SchemaVersion;
-use crate::sync_command::{SyncOutput, lock, sync_locked};
-use crate::text_input::read_text;
+use bd_core::branch_view::ParentSourceName;
+use bd_core::context::RepoContext;
+use bd_core::error::regroup_error;
+use bd_core::error::{CONFLICT_EXIT, CliError, ErrorBody};
+use bd_core::output::SchemaVersion;
+use bd_core::sync_command::{SyncOutput, lock, sync_locked};
+use bd_core::text_input::read_text;
 use git_ops::branch_description::Description;
 use history_rewrite::regroup::{
   RegroupError, RegroupOptions, RegroupOutcome, UndoToken, describe_problem, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core,

@@ -1,9 +1,9 @@
 //! The plan of `bd group` and `bd check`: a `RegroupPlan` plus the `descriptions` of the branches, which bd writes
 //! itself after the rewrite, under the same repository lock
 
-use crate::context::RepoContext;
 use crate::describe::{description_branch, write_description};
-use crate::error::{CliError, ErrorCode};
+use bd_core::context::RepoContext;
+use bd_core::error::{CliError, ErrorCode};
 use git_ops::branch_description::Description;
 use history_rewrite::regroup::{RegroupError, RegroupPlan, RegroupedCommit};
 use std::collections::{BTreeMap, BTreeSet};

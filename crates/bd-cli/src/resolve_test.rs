@@ -92,7 +92,7 @@ fn a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update() {
 #[cfg(unix)]
 struct Wrapped {
   directory: tempfile::TempDir,
-  environment: crate::context::Environment,
+  environment: bd_core::context::Environment,
 }
 
 #[cfg(unix)]

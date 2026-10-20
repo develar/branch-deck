@@ -3,11 +3,11 @@
 //! worktree shares, replays the commits in memory, and moves the branch (and, with --follow, the source worktree)
 //! through the guarded working-tree update; a conflict or local changes in the way change nothing
 
-use crate::context::{Environment, RepoContext};
-use crate::error::{CONFLICT_EXIT, CliError, ErrorCode};
-use crate::output::{SchemaVersion, ShortIds};
-use crate::suggest_plan::SuggestPlan;
 use crate::update_command::{core_error, uncommitted_overlap};
+use bd_core::context::{Environment, RepoContext};
+use bd_core::error::{CONFLICT_EXIT, CliError, ErrorCode};
+use bd_core::output::{SchemaVersion, ShortIds};
+use bd_core::suggest_plan::SuggestPlan;
 use git_ops::pick::{FollowState, PickRefusal, PickState, PresentBy};
 use history_rewrite::repository_lock::RewriteOptions;
 use schemars::JsonSchema;
@@ -215,7 +215,7 @@ pub struct PickConflictOutput {
   /// The files it conflicts on
   pub files: Vec<String>,
   /// How many files `files` leaves out
-  #[serde(default, skip_serializing_if = "crate::sync_command::is_zero")]
+  #[serde(default, skip_serializing_if = "bd_core::sync_command::is_zero")]
   pub files_omitted: u32,
   /// What to do: the conflict is resolved in the source, on top of the branch
   pub next: String,

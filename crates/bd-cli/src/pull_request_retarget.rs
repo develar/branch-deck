@@ -5,8 +5,8 @@
 //! for the pushed branches and by `bd safe-push` for the branch it starts and the branches its push takes along, as the
 //! app's push does. A pull request into any other base (a release branch) is left as it is: that base may be meant.
 
-use crate::context::RepoContext;
 use crate::request_review_command::availability_error;
+use bd_core::context::RepoContext;
 use git_ops::branch_names::{BranchKind, strip_branch_namespace};
 use github::service::GitHubService;
 use schemars::JsonSchema;

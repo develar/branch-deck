@@ -22,20 +22,20 @@
 //! minute for the answer to a pull request comment, after it.
 
 use crate::check_command::{CheckConflict, CheckWarning, dangling_reference_message, dangling_references_in, session_of_sync};
-use crate::context::{Environment, RepoContext};
-use crate::error::{CliError, ErrorBranch, ErrorCode};
 use crate::landed::{LandedBranch, LandingTable, every_branch_landed, find_landed};
-use crate::output::SchemaVersion;
 use crate::pull_request_retarget::{RetargetedPullRequest, is_virtual_branch_base, refusal_warning, retarget_one, virtual_base_retargets};
 use crate::push_command::{
   PullRequestDraft, PushArgs, PushedBranch, github_repository, has_work_for_remote, not_synced_reason, push_locked, pushed_branch, stack_pull_request_draft,
   unpushed_pull_request_draft,
 };
 use crate::push_hold::{PushHolds, StackRobots};
-use crate::review_summary::{MergeRequestSummary, PersonSummary, ReviewGroupSummary, ReviewSummary, ReviewerSummary};
 use crate::robot_list::list_robots;
-use crate::stack_summary::{WholeStack, WholeStackSummary, whole_stack_of};
-use crate::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
+use bd_core::context::{Environment, RepoContext};
+use bd_core::error::{CliError, ErrorBranch, ErrorCode};
+use bd_core::output::SchemaVersion;
+use bd_core::review_summary::{MergeRequestSummary, PersonSummary, ReviewGroupSummary, ReviewSummary, ReviewerSummary};
+use bd_core::stack_summary::{WholeStack, WholeStackSummary, whole_stack_of};
+use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
 use git_ops::branch_names::to_final_branch_name;
 use github::client::{GITHUB_URL, GitHubClient, GitHubError};
 use github::service::{GitHubFailure, GitHubService};
@@ -1301,7 +1301,7 @@ pub(crate) fn patronus_service(environment: &Environment) -> Result<PatronusServ
       "No Space token for Patronus, or it expired: run ./safePush.cmd once to log in, or set SPACE_TOKEN",
     ));
   }
-  let user_agent = format!("Branch Deck CLI/{} ({}; {})", crate::version::VERSION, std::env::consts::OS, std::env::consts::ARCH);
+  let user_agent = format!("Branch Deck CLI/{} ({}; {})", bd_core::version::VERSION, std::env::consts::OS, std::env::consts::ARCH);
   Ok(PatronusService::new(PatronusClient::new(environment.patronus_url.clone(), &user_agent), move |now| {
     find_token(home.as_deref(), space_token.clone(), now)
   }))
@@ -1376,7 +1376,7 @@ fn other_base_pull_request_start(existing: &PullRequest, target: &str) -> PullRe
 
 /// The GitHub service of `bd`: the token of `GH_TOKEN`/`GITHUB_TOKEN`, `gh auth token` or the git credentials
 pub(crate) fn github_service(context: &RepoContext, environment: &Environment) -> GitHubService {
-  let user_agent = format!("Branch Deck CLI/{} ({}; {})", crate::version::VERSION, std::env::consts::OS, std::env::consts::ARCH);
+  let user_agent = format!("Branch Deck CLI/{} ({}; {})", bd_core::version::VERSION, std::env::consts::OS, std::env::consts::ARCH);
   GitHubService::new(
     GitHubClient::with_urls(environment.github_api_url.clone(), GITHUB_URL, &user_agent),
     TokenChain::new(environment.github_tokens.clone(), context.git.clone()),
