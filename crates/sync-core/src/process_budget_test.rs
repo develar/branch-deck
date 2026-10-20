@@ -4,14 +4,11 @@
 //! repository, so the counts are the same on every run.
 
 use crate::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
-use crate::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
 use crate::check::{CheckSession, check_plan};
 use crate::pull_request_create::read_new_pull_request;
 use crate::push::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
 use crate::remote_status::forget_statuses;
-use crate::repository_lock::RewriteOptions;
 use crate::robot_landing::robot_landings;
-use crate::squash::{SquashCommitsParams, squash_commits_core};
 use crate::stack_branch::forget_builds;
 use crate::stack_pull_request::{GetNewStackPullRequestParams, StackMemberSubjects, read_new_stack_pull_request};
 use crate::sync::{SyncOptions, sync_branches};
@@ -20,6 +17,9 @@ use crate::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
 use crate::update_project::{UpdateProjectParams, check_baseline_update, update_project_core};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::BranchError;
+use history_rewrite::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
+use history_rewrite::repository_lock::RewriteOptions;
+use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap};

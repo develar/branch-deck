@@ -3,8 +3,8 @@
 //! compiler, so they don't fail the check.
 
 use crate::check::{CheckOutcome, CheckReport, CheckSession};
-use crate::regroup::RegroupError;
 use crate::symbol_dependencies::Evidence;
+use history_rewrite::regroup::RegroupError;
 use std::collections::{HashMap, HashSet};
 
 /// A name a commit of `branch` uses that a commit outside the branch and the branches it is built on adds

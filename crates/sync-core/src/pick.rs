@@ -3,13 +3,8 @@
 //! one read of how the branch groups tells the group of each picked commit, the branches whose stack parent a
 //! `(parent/leaf)` prefix changes, and the picked commits whose branch is not built on the branches they need.
 
-use crate::baseline::{NoBaseline, detect_baseline_branch};
-use crate::commit_grouper::{GroupingInputs, issue_group_of, parse_subject};
 use crate::dependencies::compute_dependencies;
 use crate::diff_scan::read_commit_diffs_cached;
-use crate::repository_lock::{RewriteOptions, lock_repository};
-use crate::snapshot::{Grouped, group_commits, read_grouping_inputs};
-use crate::stack::{StackForest, stack_top};
 use crate::update_project::{UndoBlocked, resolve_baseline_upstream};
 use anyhow::{Result, anyhow};
 use file_diffs::service::FileDiffs;
@@ -18,6 +13,11 @@ use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::pick::{AppliedPick, PickCheck, PickRequest, PickSource, PickState, PickedCommit, apply_pick, check_pick, check_pick_undo};
 use git_ops::revs::is_object_id;
 use git_ops::update_branch::{UndoCheck, UpdateUndo, apply_update_undo, finish_pending_update};
+use history_rewrite::baseline::{NoBaseline, detect_baseline_branch};
+use history_rewrite::commit_grouper::{GroupingInputs, issue_group_of, parse_subject};
+use history_rewrite::repository_lock::{RewriteOptions, lock_repository};
+use history_rewrite::snapshot::{Grouped, group_commits, read_grouping_inputs};
+use history_rewrite::stack::{StackForest, stack_top};
 use object_cache::cache::ObjectCache;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;

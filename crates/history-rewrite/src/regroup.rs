@@ -350,7 +350,7 @@ pub fn regroup_commits_accepted(
 
 /// Apply the plan that `plan` makes from the snapshot, which is read under the repository lock: a plan that depends on
 /// how the commits group now (`move_plan.rs`) is computed for exactly the HEAD it rewrites
-pub(crate) fn regroup_planned(
+pub fn regroup_planned(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   options: &RegroupOptions,
@@ -823,7 +823,7 @@ fn moved_or(git_executor: &GitCommandExecutor, repository_path: &str, expected: 
 }
 
 /// `plan` applied to the snapshot in memory and validated, as a dry run of `regroup_commits_core` does
-pub(crate) fn plan_in_memory(snapshot: &Snapshot, plan: &RegroupPlan) -> Result<RegroupOutcome, RegroupError> {
+pub fn plan_in_memory(snapshot: &Snapshot, plan: &RegroupPlan) -> Result<RegroupOutcome, RegroupError> {
   apply_in_memory(snapshot, resolve_plan(snapshot, plan)?)
 }
 
@@ -1283,7 +1283,3 @@ pub fn problem_commits(problem: &StackProblem) -> Vec<String> {
     StackProblem::Cycle(_) | StackProblem::LeafCollision(_) => Vec::new(),
   }
 }
-
-#[cfg(test)]
-#[path = "regroup_test.rs"]
-pub(crate) mod regroup_test;

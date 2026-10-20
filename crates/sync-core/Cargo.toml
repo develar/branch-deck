@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+history-rewrite = { path = "../history-rewrite" }
 sync-types = { path = "../sync-types" }
 sync-utils = { path = "../sync-utils" }
 branch-integration = { path = "../branch-integration" }
@@ -33,16 +34,16 @@ toml = "1.1"
 # the ids and the default holders of the leases (`lease`)
 uuid = { version = "1.28", features = ["v4"] }
 
-# the process scan of the lease pool (`process_scan`): the working directories and the argv through libproc and
-# sysctl on macOS, the SIGTERM of a Bazel server of a slot, the APFS clone (`clone_dir`)
+# the APFS clone of a new lease slot (`clone_dir`)
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.190"
 
 [features]
 default = []
-specta = ["dep:specta", "sync-types/specta", "branch-integration/specta", "git-ops/specta"]
+specta = ["dep:specta", "history-rewrite/specta", "sync-types/specta", "branch-integration/specta", "git-ops/specta"]
 
 [dev-dependencies]
+history-rewrite = { path = "../history-rewrite", features = ["test-commit"] }
 github = { path = "../github", features = ["fake"] }
 patronus = { path = "../patronus", features = ["fake"] }
 test-utils = { path = "../test-utils" }

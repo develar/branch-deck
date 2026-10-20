@@ -9,11 +9,11 @@ use crate::numstat::NumstatEntry;
 use crate::output::ShortIds;
 use git_ops::commit_files::read_files_from_base;
 use git_ops::commit_list::Commit;
+use history_rewrite::commit_grouper::parse_subject;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::cmp::Reverse;
 use std::collections::{BTreeSet, HashMap, HashSet};
-use sync_core::commit_grouper::parse_subject;
 use sync_core::diff_scan::read_commit_diffs_cached;
 use sync_utils::issue_pattern::find_issue_number;
 

@@ -1,8 +1,8 @@
-use crate::issue_groups::ISSUE_GROUPS;
-use crate::move_commits::{MoveChange, MoveCommitsParams, MoveCommitsResult, move_commits_to_branch_core, validate_branch_name, with_branch_prefix};
-use crate::regroup::RegroupError;
-use crate::regroup::regroup_test::{commits, issue_group_plan, path, regroup, repo};
+use crate::regroup_test::{commits, issue_group_plan, path, regroup, repo};
 use crate::stack_operations::{UndoRegroupParams, undo_regroup};
+use history_rewrite::issue_groups::ISSUE_GROUPS;
+use history_rewrite::move_commits::{MoveChange, MoveCommitsParams, MoveCommitsResult, move_commits_to_branch_core, validate_branch_name, with_branch_prefix};
+use history_rewrite::regroup::RegroupError;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use sync_types::{BranchOrigin, GroupedBranchInfo, SyncEvent};

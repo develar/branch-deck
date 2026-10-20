@@ -461,6 +461,7 @@ dependencies = [
  "git-executor",
  "git-ops",
  "github",
+ "history-rewrite",
  "object-cache",
  "patronus",
  "pretty_assertions",
@@ -560,6 +561,7 @@ dependencies = [
  "git-ops",
  "github",
  "gtk",
+ "history-rewrite",
  "log",
  "moka",
  "objc2",
@@ -2496,6 +2498,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "history-rewrite"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "branch-integration",
+ "git-executor",
+ "git-ops",
+ "indexmap 2.14.2",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "specta",
+ "sync-types",
+ "sync-utils",
+ "tempfile",
+ "test-log",
+ "test-utils",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
 name = "html5ever"
 version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2830,6 +2854,7 @@ dependencies = [
  "branch-integration",
  "git-executor",
  "git-ops",
+ "history-rewrite",
  "indexmap 2.14.2",
  "pretty_assertions",
  "sync-core",
@@ -5463,6 +5488,7 @@ dependencies = [
  "git-executor",
  "git-ops",
  "github",
+ "history-rewrite",
  "indexmap 2.14.2",
  "libc",
  "moka",
@@ -5512,6 +5538,7 @@ name = "sync-utils"
 version = "0.1.0"
 dependencies = [
  "jiff",
+ "libc",
  "memchr",
  "serde",
  "serde_json",
@@ -6211,6 +6238,7 @@ dependencies = [
  "fs_extra",
  "git-executor",
  "git-ops",
+ "history-rewrite",
  "object-cache",
  "patronus",
  "pretty_assertions",

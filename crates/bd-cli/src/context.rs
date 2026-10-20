@@ -7,6 +7,7 @@ use git_executor::git_info::GitInfo;
 use git_ops::revs::{RepositoryDirs, repository_dirs};
 use github::client::GITHUB_API_URL;
 use github::token::TokenSources;
+use history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT;
 use object_cache::cache::ObjectCache;
 use patronus::client::PATRONUS_URL;
 use patronus::token::TOKEN_ENV;
@@ -19,7 +20,6 @@ use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::patronus::{SpaceRepository, parse_space_repository};
 use sync_core::pull_requests::GitHubRepository;
 use sync_core::remote_url::origin_push_url;
-use sync_core::repository_lock::DEFAULT_LOCK_TIMEOUT;
 use tokio::runtime::Runtime;
 use tracing::debug;
 

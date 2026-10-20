@@ -1,12 +1,12 @@
 //! Add Issue Reference: an issue key into the subjects of commits, `(branch) message` to `(branch) ISSUE-123 message`,
 //! one reword of the checked out branch under the repository lock.
 
-use crate::baseline::detect_baseline_branch;
-use crate::repository_lock::RewriteOptions;
-use crate::reword_commit::keeps_virtual_commit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::CommitInfo;
 use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch_at};
+use history_rewrite::baseline::detect_baseline_branch;
+use history_rewrite::repository_lock::RewriteOptions;
+use history_rewrite::reword_commit::keeps_virtual_commit;
 use serde::{Deserialize, Serialize};
 use sync_utils::issue_pattern::has_issue_reference;
 use tracing::info;

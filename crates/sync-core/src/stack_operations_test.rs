@@ -1,6 +1,6 @@
-use crate::move_commits::MoveChange;
 use crate::stack_operations::{RenameBranchParams, RestackBranchParams, UndoRegroupParams, rename_branch, restack_branch, undo_regroup};
-use crate::stack_parents::{STACK_PARENTS_FILE, STACK_PARENTS_REF};
+use history_rewrite::move_commits::MoveChange;
+use history_rewrite::stack_parents::{STACK_PARENTS_FILE, STACK_PARENTS_REF};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;

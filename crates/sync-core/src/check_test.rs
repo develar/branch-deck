@@ -1,8 +1,8 @@
 use crate::cache_memo::CacheMemo;
 use crate::check::{CheckOutcome, CheckReport, CheckSession, Planned, StackCommit, StackIndependence, StackUse, check_plan, run_builds, stack_independence};
-use crate::regroup::regroup_test;
-use crate::regroup::{RegroupError, RegroupPlan};
+use crate::regroup_test;
 use git_ops::merge_memo::{MergeMemo, MergeOutcome, MergeTrees};
+use history_rewrite::regroup::{RegroupError, RegroupPlan};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use object_cache::merge_result::{MergeKey, MergeResult};
 use pretty_assertions::assert_eq;

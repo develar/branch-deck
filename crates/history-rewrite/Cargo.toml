@@ -1,0 +1,34 @@
+[package]
+name = "history-rewrite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sync-types = { path = "../sync-types" }
+sync-utils = { path = "../sync-utils" }
+branch-integration = { path = "../branch-integration" }
+git-ops = { path = "../git-ops" }
+git-executor = { path = "../git-executor" }
+anyhow.workspace = true
+indexmap.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+specta = { workspace = true, optional = true }
+
+[features]
+default = []
+specta = ["dep:specta", "sync-types/specta", "branch-integration/specta", "git-ops/specta"]
+# `test_commit`, the commits of the unit tests of the crates that build on this one
+test-commit = []
+
+[dev-dependencies]
+test-utils = { path = "../test-utils" }
+tempfile.workspace = true
+pretty_assertions = { workspace = true }
+test-log = { workspace = true }
+
+[lints]
+workspace = true

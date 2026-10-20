@@ -1,14 +1,16 @@
-use crate::commit_grouper::{CommitGrouper, GroupingInputs};
 use crate::grouping::group_commits_ahead_of_baseline;
-use crate::regroup::regroup_test::{commits, entries, groups, issue_group_plan, other_worktree, path, plan, plant_store, regroup, repo, sync};
-use crate::regroup::{RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
-use crate::repository_lock::DEFAULT_LOCK_TIMEOUT;
-use crate::snapshot::read_grouping_inputs;
-use crate::stack::{StackForest, describe_problem, place_branches};
-use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_REF, drop_integrated_stack_parents, integrated_children};
-use crate::store_lines::{StoreLines, format_store_lines, read_store_head};
-use crate::test_commit::commit;
+use crate::regroup_test::{commits, entries, groups, issue_group_plan, other_worktree, path, plan, plant_store, regroup, repo, sync};
 use git_ops::revs::short_id;
+use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
+use history_rewrite::regroup::{
+  RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core,
+};
+use history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT;
+use history_rewrite::snapshot::read_grouping_inputs;
+use history_rewrite::stack::{StackForest, describe_problem, place_branches};
+use history_rewrite::stack_parents::{STACK_PARENTS, STACK_PARENTS_REF, drop_integrated_stack_parents, integrated_children};
+use history_rewrite::store_lines::{StoreLines, format_store_lines, read_store_head};
+use history_rewrite::test_commit::commit;
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap};
 use sync_types::stack::{DeclaredParent, ParentSource, ParentState, StackProblem};
@@ -391,7 +393,7 @@ fn a_differing_parent_level_becomes_a_bare_leaf() {
   assert_eq!(stack_parents(&repo).entries, entries(&[("login", "auth"), ("x", "core")]));
 
   // a deeper path of another branch that declares another parent for the child loses the levels above the child
-  let deeper = crate::regroup::regroup_test::repo(true);
+  let deeper = crate::regroup_test::repo(true);
   commits(&deeper, &["(auth) Add auth", "(x/login/oauth) Add oauth", "(login) Add login"]);
   regroup(&deeper, &plan(&[("auth/login", &[])], &[])).unwrap();
   assert_eq!(subjects(&deeper, 3)[1..], ["(login/oauth) Add oauth", "(login) Add login"].map(str::to_string));

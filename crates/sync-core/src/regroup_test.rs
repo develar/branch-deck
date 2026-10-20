@@ -1,7 +1,9 @@
-use crate::regroup::{RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
-use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, lock_repository};
-use crate::store_lines::LineStore;
 use crate::sync::{SyncOptions, sync_branches};
+use history_rewrite::regroup::{
+  RegroupError, RegroupOptions, RegroupOutcome, RegroupPlan, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core,
+};
+use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, lock_repository};
+use history_rewrite::store_lines::LineStore;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use std::time::Duration;

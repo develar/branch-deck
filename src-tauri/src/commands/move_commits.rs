@@ -1,7 +1,7 @@
 use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use git_executor::git_command_executor::GitCommandExecutor;
-use sync_core::move_commits::{MoveCommitsParams, MoveCommitsResult, move_commits_to_branch_core};
+use history_rewrite::move_commits::{MoveCommitsParams, MoveCommitsResult, move_commits_to_branch_core};
 use tauri::State;
 use tracing::instrument;
 

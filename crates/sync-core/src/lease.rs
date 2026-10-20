@@ -7,8 +7,6 @@
 use crate::clone_dir::clone_directory;
 use crate::lease_clean::{CleanOverrides, Cleaned, apply_clean_rules, read_clean_rules};
 use crate::pick::baseline_tracking_ref;
-use crate::process_scan::{ProcessInfo, ProcessScan, is_running, process_started, terminate};
-use crate::repository_lock::{RepositoryLock, lock_file};
 use crate::resolve_copies::display_path;
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -18,12 +16,14 @@ use git_ops::lease_slot::{
 };
 use git_ops::pick::commits_to_pick;
 use git_ops::revs::{RepositoryDirs, read_head, ref_exists};
+use history_rewrite::repository_lock::{RepositoryLock, lock_file};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fmt::Write;
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use sync_utils::process_scan::{ProcessInfo, ProcessScan, is_running, process_started, terminate};
 use tracing::{debug, instrument, warn};
 
 const STATE_DIR: &str = "branch-deck";

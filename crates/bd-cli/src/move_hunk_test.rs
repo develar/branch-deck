@@ -4,8 +4,8 @@ use crate::fixture_test::{
 };
 use crate::schema_test::assert_covered;
 use git_ops::revs::short_id;
+use history_rewrite::repository_lock::lock_repository;
 use serde_json::json;
-use sync_core::repository_lock::lock_repository;
 use test_utils::git_test_utils::TestRepo;
 
 /// The incident of `commit_dangling_reference`, with an unrelated commit of `docs` between the two and a second file in

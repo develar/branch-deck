@@ -6,7 +6,7 @@
 use crate::check::{BranchCheck, CheckOutcome, CheckReport, CheckSession};
 use crate::dangling_fix::plan_path;
 use crate::missing_commits::missing_commits;
-use crate::regroup::RegroupPlan;
+use history_rewrite::regroup::RegroupPlan;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// How a fix of an inverted stack regroups

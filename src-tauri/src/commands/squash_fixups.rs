@@ -1,8 +1,8 @@
 use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use git_executor::git_command_executor::GitCommandExecutor;
-use sync_core::autosquash::{AutosquashPlan, GetAutosquashPlanParams, SquashFixupsParams, SquashFixupsResult, get_autosquash_plan_core, squash_fixup_commits_core};
-use sync_core::repository_lock::RewriteOptions;
+use history_rewrite::autosquash::{AutosquashPlan, GetAutosquashPlanParams, SquashFixupsParams, SquashFixupsResult, get_autosquash_plan_core, squash_fixup_commits_core};
+use history_rewrite::repository_lock::RewriteOptions;
 use tauri::State;
 use tracing::instrument;
 

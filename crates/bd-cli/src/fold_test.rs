@@ -3,9 +3,9 @@ use crate::fixture_test::{
 };
 use crate::schema_test::assert_covered;
 use git_ops::revs::short_id;
+use history_rewrite::repository_lock::lock_repository;
 use pretty_assertions::assert_eq;
 use serde_json::json;
-use sync_core::repository_lock::lock_repository;
 use test_utils::git_test_utils::TestRepo;
 
 /// `(auth) Add a`, `(ui) Add b`, a fixup of each, and an orphan fixup; returns the repository and the ids, oldest first

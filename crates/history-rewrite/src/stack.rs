@@ -3,9 +3,8 @@
 //! its stack parent (`stack_parents.rs`). Opt-in per repository (`git config branchdeck.stacks true`), because without
 //! it a `/` in a prefix is part of a flat branch name.
 
-use crate::config_snapshot::ConfigSnapshot;
 use crate::stack_parents::STACK_PARENTS_REF;
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
 use branch_integration::common::ListedBranch;
 use branch_integration::detection_notes::{CachedDetection, NOTES_REF, deserialize_from_cache};
@@ -19,13 +18,31 @@ use indexmap::{IndexMap, IndexSet};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use sync_types::branch_integration::BranchIntegrationStatus;
 use sync_types::stack::{BlockReason, BranchStack, DeclaredParent, ParentSource, ParentState, StackBlock, StackProblem};
+use sync_utils::git_bool::parse_git_bool;
 
 pub const STACKS_CONFIG_KEY: &str = "branchdeck.stacks";
 
-/// Whether stacked branches are on for the repository (`branchdeck.stacks`, a git boolean; off when unset): one
-/// `ConfigSnapshot`; an operation that reads more of the config takes `ConfigSnapshot::stacks` of its snapshot
+/// Whether stacked branches are on for the repository (`branchdeck.stacks`, a git boolean; off when unset; the last
+/// entry wins): one `git config`; an operation that reads more of the config takes `ConfigSnapshot::stacks` of its
+/// snapshot (sync-core)
 pub fn stacks_enabled(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<bool> {
-  ConfigSnapshot::read(git_executor, repo_path)?.stacks()
+  let (output, exit_code) = git_executor.execute_command_with_status(&["config", "-z", "--get-regexp", r"^branchdeck\.stacks$"], repo_path)?;
+  match exit_code {
+    // `<key>\n<value>\0` per entry, `<key>\0` for a key without a value
+    0 => {
+      let value = output
+        .split('\0')
+        .rfind(|entry| !entry.is_empty())
+        .map(|entry| entry.split_once('\n').map(|(_, value)| value));
+      match value {
+        None => Ok(false),
+        Some(value) => parse_git_bool(value).ok_or_else(|| anyhow!("{STACKS_CONFIG_KEY} is not a boolean (true or false)")),
+      }
+    }
+    // not set
+    1 => Ok(false),
+    _ => Err(anyhow!("Cannot read the git config of {repo_path}: {}", output.trim())),
+  }
 }
 
 /// A prefix with an empty stack level, as in `(a//b)`, or no branch name at all, as in `(/)`
@@ -124,7 +141,7 @@ impl StackForest {
 
 /// The branch whose stack holds every owner: an owner built on all the others, the deepest, by `chain` (a branch and
 /// the branches it is built on, nearest first); with stacked branches off only a single owner
-pub(crate) fn stack_top<'a>(owners: &BTreeSet<&'a str>, stacks: bool, chain: impl Fn(&'a str) -> Vec<&'a str>) -> Option<&'a str> {
+pub fn stack_top<'a>(owners: &BTreeSet<&'a str>, stacks: bool, chain: impl Fn(&'a str) -> Vec<&'a str>) -> Option<&'a str> {
   if owners.is_empty() {
     return None;
   }

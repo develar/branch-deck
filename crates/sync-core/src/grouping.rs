@@ -1,11 +1,7 @@
 //! The grouping of the commits ahead of the baseline as a sync groups them, without the builds and the events
 //! (`BranchGrouping`): what `bd status`, `bd robot` and the other reads of `bd` start from.
 
-use crate::baseline::NoBaseline;
-use crate::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs};
 use crate::repo_facts::{BaselineListing, read_baseline_listing};
-use crate::snapshot::read_grouping_inputs_with;
-use crate::stack::{StackForest, empty_parent_states_listed, place_branches, read_only_detection, stacks_enabled};
 use crate::sync::prepare_branches_for_ui;
 use crate::update_project::BaselineUpstream;
 use anyhow::Result;
@@ -13,6 +9,10 @@ use branch_integration::common::ListedBranch;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::revs::{read_head, ref_tips, tips_under};
+use history_rewrite::baseline::NoBaseline;
+use history_rewrite::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs};
+use history_rewrite::snapshot::read_grouping_inputs_with;
+use history_rewrite::stack::{StackForest, empty_parent_states_listed, place_branches, read_only_detection, stacks_enabled};
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use sync_types::GroupedBranchInfo;

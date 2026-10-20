@@ -8,11 +8,11 @@ use axum::{
 };
 use dashmap::DashMap;
 use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch};
+use history_rewrite::baseline::detect_baseline_branch;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use sync_core::baseline::detect_baseline_branch;
 use sync_types::patronus::{PatronusAvailability, PatronusRobotsResult};
 use sync_types::pull_request::{PullRequestAvailability, PullRequestsResult};
 use tower_http::cors::{Any, CorsLayer};

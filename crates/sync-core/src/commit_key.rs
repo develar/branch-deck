@@ -7,7 +7,7 @@
 //! of it on the remote branch (`remote_status`: amended or restacked, docs/design/remote-status.md) share the key. Two
 //! different commits of one author with the same subject in the same second share it too; both uses accept that.
 
-use crate::commit_grouper::stripped_subject;
+use history_rewrite::commit_grouper::stripped_subject;
 
 /// A commit identified across a rebase or an amend
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

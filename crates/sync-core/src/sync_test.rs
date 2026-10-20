@@ -1,10 +1,10 @@
-use crate::baseline::detect_baseline_branch;
-use crate::commit_grouper::{CommitGrouper, GroupedCommits};
 use crate::sync::{SyncDeferred, SyncOptions, prepare_branches_for_ui, sync_branches};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::process_stats::CommandStats;
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::model::BranchSyncStatus;
+use history_rewrite::baseline::detect_baseline_branch;
+use history_rewrite::commit_grouper::{CommitGrouper, GroupedCommits};
 use indexmap::IndexMap;
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;

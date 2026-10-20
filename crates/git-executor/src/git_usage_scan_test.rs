@@ -117,8 +117,8 @@ fn bound_name(before: &str) -> Option<&str> {
 fn bd_and_the_app_run_no_git_of_their_own() {
   check(
     "bd-cli and src-tauri start git themselves",
-    "they are adapters: put the git call into a function of crates/git-ops (the git) or a core of crates/sync-core (the \
-     lock, the guards, the orchestration), and call that",
+    "they are adapters: put the git call into a function of crates/git-ops (the git) or a core of crates/history-rewrite or \
+     crates/sync-core (the lock, the guards, the orchestration), and call that",
     &[],
     |source| {
       if !(source.path.starts_with("crates/bd-cli/src/") || source.path.starts_with("src-tauri/src/")) {

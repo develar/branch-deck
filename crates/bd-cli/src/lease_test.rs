@@ -574,7 +574,7 @@ impl FakeServer {
     // its argv is the one of `sh` once it runs: wait until a scan sees the workspace
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     let pid = child.id();
-    while !sync_core::process_scan::ProcessScan::scan()
+    while !sync_utils::process_scan::ProcessScan::scan()
       .inside(Path::new(workspace))
       .iter()
       .any(|process| process.pid == pid)
@@ -698,7 +698,7 @@ fn fake_maintenance(cwd: &str) -> std::process::Child {
     .spawn()
     .unwrap();
   let deadline = std::time::Instant::now() + Duration::from_secs(10);
-  while !sync_core::process_scan::ProcessScan::scan().git_maintenance().contains(&child.id()) {
+  while !sync_utils::process_scan::ProcessScan::scan().git_maintenance().contains(&child.id()) {
     assert!(std::time::Instant::now() < deadline, "the fake maintenance never showed up");
     std::thread::sleep(Duration::from_millis(20));
   }

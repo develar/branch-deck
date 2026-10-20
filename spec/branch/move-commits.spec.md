@@ -3,14 +3,14 @@ name: Move Commits
 description: Requirements for moving commits and whole branches into one branch with the smallest change (a whole issue by the issue groups, the rest by the explicit prefix), from every gesture, renaming and ungrouping a branch, and nesting the branches of an issue.
 style: plain-1
 targets:
-  - ../../crates/sync-core/src/move_commits.rs
-  - ../../crates/sync-core/src/move_plan.rs
+  - ../../crates/history-rewrite/src/move_commits.rs
+  - ../../crates/history-rewrite/src/move_plan.rs
   - ../../crates/sync-core/src/stack_operations.rs
-  - ../../crates/sync-core/src/regroup.rs
-  - ../../crates/sync-core/src/snapshot.rs
-  - ../../crates/sync-core/src/repository_lock.rs
-  - ../../crates/sync-core/src/reword_commit.rs
-  - ../../crates/sync-core/src/commit_grouper.rs
+  - ../../crates/history-rewrite/src/regroup.rs
+  - ../../crates/history-rewrite/src/snapshot.rs
+  - ../../crates/history-rewrite/src/repository_lock.rs
+  - ../../crates/history-rewrite/src/reword_commit.rs
+  - ../../crates/history-rewrite/src/commit_grouper.rs
   - ../../crates/sync-core/src/sync.rs
   - ../../src/hooks/useMoveCommits.ts
   - ../../src/hooks/useMovePreview.ts
@@ -111,7 +111,7 @@ Renaming and ungrouping a branch are moves of all its commits.
 - A commit already in the target branch must not be rewritten; the result lists it as `Unchanged`.
 - All commits must be rewritten in one history rewrite that keeps the trees, the metadata and the working tree.
 - The rewrite must keep the author and the committer of every recreated commit: name, email, date and timezone.
-  [@test] ../../crates/sync-core/src/reword_commit_test.rs (`reword_preserves_committer`)
+  [@test] ../../crates/history-rewrite/src/reword_commit_test.rs (`reword_preserves_committer`)
 - The target name must be a name the grouper keeps as is: letters, numbers, `-`, `_`, `.` and `/`, not at the ends.
   [@test] ../../crates/sync-core/src/move_commits_test.rs (`sets_replaces_and_removes_the_prefix`, `keeps_the_autosquash_marker`, `validates_the_branch_name`, `moves_unassigned_commits_to_a_new_branch`, `moves_to_another_branch_and_back_to_the_issue`, `skips_commits_already_in_the_target_branch`, `keeps_the_body_and_the_metadata`, `keeps_the_checked_out_branch`, `refuses_an_invalid_target_or_an_unknown_commit`, `moves_many_commits_in_one_rewrite`)
 - A split prefix branch must keep the issue key of its commits.

@@ -1,7 +1,7 @@
 use git_ops::commit_list::Commit;
 
 /// A commit as the commit list reads it, with fixed metadata; the subject is the first line of `message`
-pub(crate) fn commit(id: &str, message: &str) -> Commit {
+pub fn commit(id: &str, message: &str) -> Commit {
   let subject = message.split('\n').next().unwrap().to_string();
   Commit {
     id: id.to_string(),

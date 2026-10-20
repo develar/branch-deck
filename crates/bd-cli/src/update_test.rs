@@ -1,9 +1,9 @@
 use crate::fixture_test::{assert_error, assert_refused_during, environment, git, run_in, run_json, start_cherry_pick, write};
 use crate::schema_test::assert_covered;
+use history_rewrite::repository_lock::lock_repository;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 use serde_json::json;
-use sync_core::repository_lock::lock_repository;
 use test_utils::git_test_utils::TestRepo;
 
 const SHARED: &str = "one\ntwo\nthree\n";

@@ -1,11 +1,11 @@
 //! The app's amend of uncommitted changes into a commit of the checked out branch (`git_ops::amend_operations`), under
 //! the repository lock; a refusal of the rewrite is a `BranchError` that the app shows.
 
-use crate::repository_lock::RewriteOptions;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::amend_operations::{AmendToCommitParams, apply_amend, prepare_amend};
 use git_ops::copy_commit::CopyCommitError;
 use git_ops::model::BranchError;
+use history_rewrite::repository_lock::RewriteOptions;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]

@@ -1,4 +1,4 @@
-//! Stacked branches as a sync reports them (`sync_core::stack` computes them)
+//! Stacked branches as a sync reports them (`history_rewrite::stack` computes them)
 use serde::Serialize;
 
 /// Why a branch of a stack can't be placed; it never fails the other branches

@@ -1,11 +1,11 @@
 #[cfg(unix)]
 use crate::lease::stop_servers;
 use crate::lease::{glob_matches, repository_name, seed_candidates};
-#[cfg(unix)]
-use crate::process_scan::{ProcessInfo, is_running, process_started};
 use std::path::Path;
 #[cfg(unix)]
 use std::time::Duration;
+#[cfg(unix)]
+use sync_utils::process_scan::{ProcessInfo, is_running, process_started};
 
 #[test]
 fn a_glob_matches_by_stars_question_marks_and_classes() {

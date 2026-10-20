@@ -1,10 +1,10 @@
 use crate::output::SchemaVersion;
 use crate::safe_push_command::ReviewSummary;
 use crate::sync_command::RemoteSummary;
+use history_rewrite::baseline::NoBaseline;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt;
-use sync_core::baseline::NoBaseline;
 use sync_core::sync::SyncDeferred;
 
 /// The exit code of a conflict: the output of the command (`state: "conflict"`, a branch not built, `check.ok` false),

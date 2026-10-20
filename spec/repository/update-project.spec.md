@@ -12,7 +12,7 @@ targets:
   - ../../crates/sync-core/src/transfer_progress.rs
   - ../../crates/sync-core/src/remote_command.rs
   - ../../crates/sync-core/src/sync.rs
-  - ../../crates/sync-core/src/repository_lock.rs
+  - ../../crates/history-rewrite/src/repository_lock.rs
   - ../../crates/git-executor/src/worktree_safety_test.rs
   - ../../src-tauri/src/commands/update_project.rs
   - ../../src-tauri/src/menu.rs

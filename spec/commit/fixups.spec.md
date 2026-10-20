@@ -3,9 +3,9 @@ name: Squash Fixups
 description: Requirements for squashing fixup!, squash! and amend! commits into their targets with git's autosquash rules, per branch, per unassigned list or one fixup at a time, without touching the working tree.
 style: plain-1
 targets:
-  - ../../crates/sync-core/src/autosquash.rs
-  - ../../crates/sync-core/src/repository_lock.rs
-  - ../../crates/sync-core/src/commit_grouper.rs
+  - ../../crates/history-rewrite/src/autosquash.rs
+  - ../../crates/history-rewrite/src/repository_lock.rs
+  - ../../crates/history-rewrite/src/commit_grouper.rs
   - ../../src-tauri/src/commands/squash_fixups.rs
   - ../../src/lib/autosquash.ts
   - ../../src/lib/commit.ts
@@ -48,42 +48,42 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
   (`fixup!X` is an ordinary subject). All leading markers are stripped; the first one gives the kind. A subject without
   a marker is never a fixup, also when it starts with an issue key (`ABC-1 Fix x`) or a prefix and an older commit has
   the same subject; a prefixed commit stays the target of a fixup that names it.
-  [@test] ../../crates/sync-core/src/autosquash_test.rs (`strips_every_marker_and_takes_the_kind_from_the_first`, `needs_the_space_after_the_marker`, `a_subject_without_a_marker_is_never_a_fixup`)
-  [@test] ../../crates/sync-core/src/commit_grouper_test.rs (`test_autosquash_commits_edge_cases`)
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`strips_every_marker_and_takes_the_kind_from_the_first`, `needs_the_space_after_the_marker`, `a_subject_without_a_marker_is_never_a_fixup`)
+  [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`test_autosquash_commits_edge_cases`)
   [@test] ../../src/lib/commit.test.ts (`groupFor`)
 - The target is the oldest older commit of the range that matches, in this order:
   1. the exact subject;
   2. a unique hash prefix of at least 4 hex digits;
   3. the subject without the `(prefix)`, the prefixes agreeing if the fixup names one;
   4. a subject (or, prefixes agreeing, a subject without the `(prefix)`) starting with the text.
-  [@test] ../../crates/sync-core/src/autosquash_test.rs (`matches_the_exact_subject_and_keeps_the_details`, `matches_the_subject_without_the_prefix`, `matches_a_unique_hash_prefix`, `falls_back_to_a_subject_starting_with_the_text`, `picks_the_oldest_of_duplicate_subjects`)
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`matches_the_exact_subject_and_keeps_the_details`, `matches_the_subject_without_the_prefix`, `matches_a_unique_hash_prefix`, `falls_back_to_a_subject_starting_with_the_text`, `picks_the_oldest_of_duplicate_subjects`)
 - Prefixes agree when their text is the same. With [stacked branches](../branch/stacked-branches.spec.md) on, they agree
   when they name the same leaf (`(login)` and `(auth/login)`), and the branch of a group is the leaf.
-  [@test] ../../crates/sync-core/src/autosquash_test.rs (`without_stacks_prefixes_are_compared_as_text`, `with_stacks_a_fixup_names_the_leaf_of_its_target`)
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`without_stacks_prefixes_are_compared_as_text`, `with_stacks_a_fixup_names_the_leaf_of_its_target`)
 - A fixup of a fixup goes to the final target. A fixup without a matching older commit (the target is newer, or outside
   the range) is an orphan: it is reported and not squashed.
-  [@test] ../../crates/sync-core/src/autosquash_test.rs (`resolves_a_fixup_of_a_fixup_to_the_final_target`, `orphans_a_fixup_without_an_older_target`)
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`resolves_a_fixup_of_a_fixup_to_the_final_target`, `orphans_a_fixup_without_an_older_target`)
 
 ### Message
 
 - Only fixups: the target keeps its message and its encoding byte for byte. A `squash!` appends its body (the text
   after its subject line); an `amend!` replaces the message with its body; later ones apply to the result.
-  [@test] ../../crates/sync-core/src/autosquash_test.rs (`builds_the_message_like_git`)
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`builds_the_message_like_git`)
 - A combined message is written as UTF-8; if an involved commit has another encoding, the squash is refused.
-  [@test] ../../crates/sync-core/src/autosquash_test.rs (`refuses_to_combine_messages_in_another_encoding`)
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`refuses_to_combine_messages_in_another_encoding`)
 
 ### Rewrite
 
 - The groups of the scope are squashed in one rewrite (`branch-deck: squash fixups`): the fixups leave the history, the
   targets keep their place and author. The working tree, the index and the untracked files stay as they are.
-  [@test] ../../crates/sync-core/src/autosquash_test.rs (`squashes_interleaved_groups_in_one_rewrite`, `keeps_a_dirty_tree_untouched`)
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`squashes_interleaved_groups_in_one_rewrite`, `keeps_a_dirty_tree_untouched`)
 - The scope is a branch (the groups whose target is grouped into it), the unassigned commits (targets without a
   branch), or one fixup. A scope with nothing to squash is refused.
-  [@test] ../../crates/sync-core/src/autosquash_test.rs (`squashes_only_the_fixups_of_one_branch_or_one_fixup`)
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`squashes_only_the_fixups_of_one_branch_or_one_fixup`)
 - The plan is computed again and the squash is refused if HEAD is not the one the user confirmed. HEAD, the newest
   commit of the planned range and the history the squash rewrites must all be that head, so a commit made between
   these reads never gives a plan for one head and a rewrite of another.
-  [@test] ../../crates/sync-core/src/autosquash_test.rs (`refuses_when_the_branch_moved_since_the_plan`)
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`refuses_when_the_branch_moved_since_the_plan`)
 - The squash must run under the repository lock, taken before the plan is read again: while another Branch Deck
   operation (the app or `bd`) holds it, the squash waits up to 10 s, then it is refused with nothing changed and the
   toast "Cannot squash the fixups" says that another operation holds the lock.

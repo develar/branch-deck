@@ -3,13 +3,13 @@ name: Stack Parents
 description: Requirements for stored stack parents, a branch to parent map in `refs/branch-deck/stack-parents` that stacks a branch without a history rewrite, so that an issue branch and an issue group can be stacked and a regroup writes no parent level into a prefix.
 style: plain-1
 targets:
-  - ../../crates/sync-core/src/stack_parents.rs
-  - ../../crates/sync-core/src/store_lines.rs
-  - ../../crates/sync-core/src/issue_groups.rs
-  - ../../crates/sync-core/src/commit_grouper.rs
-  - ../../crates/sync-core/src/stack.rs
-  - ../../crates/sync-core/src/regroup.rs
-  - ../../crates/sync-core/src/move_plan.rs
+  - ../../crates/history-rewrite/src/stack_parents.rs
+  - ../../crates/history-rewrite/src/store_lines.rs
+  - ../../crates/history-rewrite/src/issue_groups.rs
+  - ../../crates/history-rewrite/src/commit_grouper.rs
+  - ../../crates/history-rewrite/src/stack.rs
+  - ../../crates/history-rewrite/src/regroup.rs
+  - ../../crates/history-rewrite/src/move_plan.rs
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/sync-core/src/check.rs
   - ../../crates/sync-core/src/dependencies.rs

@@ -9,10 +9,10 @@ use crate::output::SchemaVersion;
 use crate::rewrite::{IdMapping, after_rewrite_exit_code, regroup_error, sync_after_rewrite};
 use crate::sync_command::{SyncOutput, lock};
 use git_ops::move_hunk::MoveHunkMode;
+use history_rewrite::regroup::UndoToken;
 use schemars::JsonSchema;
 use serde::Serialize;
 use sync_core::move_hunk::{MoveHunkError, MoveHunkOptions, MoveHunkParams, MoveHunkResult, move_hunk_core};
-use sync_core::regroup::UndoToken;
 
 #[derive(Debug, Default, clap::Args)]
 pub struct MoveHunkArgs {

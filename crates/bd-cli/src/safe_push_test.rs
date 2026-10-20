@@ -1195,7 +1195,7 @@ fn a_check_frees_the_repository_lock_after_its_sync_and_a_start_holds_it() {
   *space.fake.on_start_options.lock().unwrap() = Some(Box::new({
     let taken = Arc::clone(&taken);
     move || {
-      let lock = sync_core::repository_lock::lock_repository_in(&git_common_dir, std::time::Duration::from_millis(200), &|| {});
+      let lock = history_rewrite::repository_lock::lock_repository_in(&git_common_dir, std::time::Duration::from_millis(200), &|| {});
       taken.lock().unwrap().push(lock.is_ok());
     }
   }));

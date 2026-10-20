@@ -129,7 +129,7 @@ pub fn move_commits_to_branch_core(git_executor: &GitCommandExecutor, params: &M
 
 /// The result of a regroup as a move: the `requested` commits (full or abbreviated ids) in request order, then every
 /// other commit whose message or branch changed
-pub(crate) fn move_result(outcome: &RegroupOutcome, requested: &[String], target: Option<String>) -> MoveCommitsResult {
+pub fn move_result(outcome: &RegroupOutcome, requested: &[String], target: Option<String>) -> MoveCommitsResult {
   let moved_commit = |id: &str, commit: &RegroupedCommit| MovedCommit {
     old_id: id.to_string(),
     new_id: commit.new_id.clone(),
@@ -219,7 +219,3 @@ pub fn validate_branch_name(name: &str) -> Result<()> {
   );
   Ok(())
 }
-
-#[cfg(test)]
-#[path = "move_commits_test.rs"]
-mod move_commits_test;

@@ -3,21 +3,21 @@ name: Issue Groups
 description: Requirements for issue groups, a stored issue key to branch name map that puts the commits of several issues into one branch without a history rewrite, written only by a regroup in the ref transaction that moves HEAD.
 style: plain-1
 targets:
-  - ../../crates/sync-core/src/issue_groups.rs
-  - ../../crates/sync-core/src/store_lines.rs
-  - ../../crates/sync-core/src/snapshot.rs
-  - ../../crates/sync-core/src/commit_grouper.rs
-  - ../../crates/sync-core/src/regroup.rs
-  - ../../crates/sync-core/src/commit_ids.rs
+  - ../../crates/history-rewrite/src/issue_groups.rs
+  - ../../crates/history-rewrite/src/store_lines.rs
+  - ../../crates/history-rewrite/src/snapshot.rs
+  - ../../crates/history-rewrite/src/commit_grouper.rs
+  - ../../crates/history-rewrite/src/regroup.rs
+  - ../../crates/history-rewrite/src/commit_ids.rs
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/sync-core/src/grouping.rs
   - ../../crates/sync-core/src/check.rs
-  - ../../crates/sync-core/src/autosquash.rs
+  - ../../crates/history-rewrite/src/autosquash.rs
   - ../../crates/sync-core/src/landed.rs
   - ../../crates/sync-core/src/update_project.rs
   - ../../crates/sync-core/src/stack_operations.rs
-  - ../../crates/sync-core/src/move_commits.rs
-  - ../../crates/sync-core/src/move_plan.rs
+  - ../../crates/history-rewrite/src/move_commits.rs
+  - ../../crates/history-rewrite/src/move_plan.rs
   - ../../crates/git-ops/src/commit_writer.rs
   - ../../crates/git-ops/src/ref_transaction.rs
   - ../../crates/git-ops/src/reword_commits.rs

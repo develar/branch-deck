@@ -34,6 +34,7 @@ tauri-build = { version = "2", features = [] }
 tauri.workspace = true
 serde.workspace = true
 sync-core = { path = "../crates/sync-core", features = ["specta"] }
+history-rewrite = { path = "../crates/history-rewrite", features = ["specta"] }
 sync-types = { path = "../crates/sync-types", features = ["specta"] }
 sync-utils = { path = "../crates/sync-utils" }
 branch-integration = { path = "../crates/branch-integration", features = ["specta"] }

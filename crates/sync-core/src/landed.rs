@@ -12,14 +12,14 @@
 //! and `bd`: each sync compares the local commits with the ones of the previous sync, so an update made elsewhere (the
 //! IDE, `git pull --rebase`) is reported too.
 
-use crate::autosquash::plan_autosquash;
-use crate::commit_grouper::{GroupingInputs, parse_subject};
 use crate::commit_key::{CommitKey, subject_of};
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, parse_single_commit};
 use git_ops::commit_utils::COMMIT_RECORD_FORMAT;
 use git_ops::update_branch::{LandedScope, UpdateCheck};
+use history_rewrite::autosquash::plan_autosquash;
+use history_rewrite::commit_grouper::{GroupingInputs, parse_subject};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap, HashSet};

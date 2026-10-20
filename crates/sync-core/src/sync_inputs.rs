@@ -1,10 +1,10 @@
 //! What a sync reads, as one cheap fingerprint: the window syncs on focus only when it changed since the last sync
 //! (docs/design/git-operations.md, "Sync inputs check").
 
-use crate::issue_groups::ISSUE_GROUPS_REF;
-use crate::stack_parents::STACK_PARENTS_REF;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
+use history_rewrite::issue_groups::ISSUE_GROUPS_REF;
+use history_rewrite::stack_parents::STACK_PARENTS_REF;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 use std::time::UNIX_EPOCH;

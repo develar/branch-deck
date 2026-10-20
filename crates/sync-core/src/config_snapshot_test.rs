@@ -1,11 +1,11 @@
 use crate::branch_prefix::{GitBranchPrefix, get_branch_prefix_from_git_config_sync};
 use crate::config_snapshot::ConfigSnapshot;
 use crate::pull_requests::GitHubRepository;
-use crate::stack::stacks_enabled;
 use crate::symbol_scan::{SymbolMode, read_symbol_mode};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::{Description, read_descriptions};
 use git_ops::word_resolve::ResolveMode;
+use history_rewrite::stack::stacks_enabled;
 use pretty_assertions::assert_eq;
 use test_utils::git_test_utils::TestRepo;
 

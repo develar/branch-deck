@@ -16,12 +16,12 @@ use git_ops::update_branch::{
 };
 use git_ops::update_resolve::{ConflictKind, Outcome, RefusalKind, Resolution, ResolveError, SessionState, SessionStatus, Side};
 use git_ops::word_replay::UpdateResolvedCommit;
+use history_rewrite::baseline::detect_baseline_branch;
+use history_rewrite::repository_lock::RepositoryLocked;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt::Write as _;
 use std::path::PathBuf;
-use sync_core::baseline::detect_baseline_branch;
-use sync_core::repository_lock::RepositoryLocked;
 use sync_core::resolve_copies::{Materialize, display_path};
 use sync_core::resolve_session::{ContinueOptions, NoSession, SessionOutcome, SessionView, abort_resolve, continue_resolve, session_status};
 use sync_core::update_project::{

@@ -1,5 +1,5 @@
 //! `bd fold`: fold the `fixup!`, `squash!` and `amend!` commits into their targets, as the app's Squash Fixups does
-//! (`sync_core::autosquash`, spec/commit/fixups.spec.md), under the repository lock its core takes. One rewrite that
+//! (`history_rewrite::autosquash`, spec/commit/fixups.spec.md), under the repository lock its core takes. One rewrite that
 //! keeps HEAD's tree, so the index and the working tree stay as they are; `bd undo` takes it back
 
 use crate::context::RepoContext;
@@ -7,11 +7,11 @@ use crate::error::{CliError, ErrorCode};
 use crate::output::SchemaVersion;
 use git_ops::revs::{DetachedHead, current_branch};
 use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress};
+use history_rewrite::autosquash::{AutosquashScope, PlannedGroup, SquashFixupsParams, get_autosquash_plan_with_branches, squash_fixup_commits_core};
+use history_rewrite::regroup::UndoToken;
+use history_rewrite::repository_lock::{RepositoryLocked, RewriteOptions, ensure_expected_head};
 use schemars::JsonSchema;
 use serde::Serialize;
-use sync_core::autosquash::{AutosquashScope, PlannedGroup, SquashFixupsParams, get_autosquash_plan_with_branches, squash_fixup_commits_core};
-use sync_core::regroup::UndoToken;
-use sync_core::repository_lock::{RepositoryLocked, RewriteOptions, ensure_expected_head};
 
 #[derive(Debug, Default, clap::Args)]
 pub struct FoldArgs {

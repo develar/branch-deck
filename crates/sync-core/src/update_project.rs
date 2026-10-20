@@ -2,15 +2,11 @@
 //! local changes (docs/design/git-operations.md, "Update project"). The same check runs inside every sync against the
 //! last fetched state, without the network, so the header can show whether an update would apply cleanly.
 
-use crate::baseline::detect_baseline_branch;
-use crate::commit_grouper::GroupingInputs;
 use crate::config_snapshot::ConfigSnapshot;
 use crate::landed::{LandedQuery, find_landed, find_landing, landed_candidates, local_revs, record_update, remaining_revs, restore_before_update};
 use crate::remote_command::execute_remote_command_with_progress;
-use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository, lock_repository_with};
 use crate::resolve_copies::{Materialize, prepare_dir};
 use crate::resolve_session::{SessionOutcome, own_session, start_resolve, view_session};
-use crate::snapshot::read_grouping_inputs_with;
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -20,6 +16,10 @@ use git_ops::update_branch::{
   check_update_guards, check_update_of, check_update_undo, finish_pending_update,
 };
 use git_ops::word_resolve::ResolveMode;
+use history_rewrite::baseline::detect_baseline_branch;
+use history_rewrite::commit_grouper::GroupingInputs;
+use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository, lock_repository_with};
+use history_rewrite::snapshot::read_grouping_inputs_with;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};

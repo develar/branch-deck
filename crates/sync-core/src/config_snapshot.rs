@@ -6,12 +6,12 @@ use crate::branch_prefix::GitBranchPrefix;
 use crate::pull_requests::GitHubRepository;
 use crate::remote_url::split_owner_and_name;
 use crate::repository_config::{ConfigEntry, RESOLVE_BY_WORDS_CONFIG_KEY, RepositoryConfig, parse_config_entries, repository_config_from_entries};
-use crate::stack::STACKS_CONFIG_KEY;
 use crate::symbol_scan::{SYMBOLS_CONFIG_KEY, SymbolMode};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_description::Description;
 use git_ops::word_resolve::ResolveMode;
+use history_rewrite::stack::STACKS_CONFIG_KEY;
 use std::collections::HashMap;
 use tracing::instrument;
 

@@ -4,7 +4,7 @@ description: Requirements for unapplying a virtual branch, which drops its commi
 style: plain-1
 targets:
   - ../../crates/sync-core/src/unapply_branch.rs
-  - ../../crates/sync-core/src/repository_lock.rs
+  - ../../crates/history-rewrite/src/repository_lock.rs
   - ../../crates/git-ops/src/rewrite_plan.rs
   - ../../crates/git-ops/src/replay.rs
   - ../../crates/git-ops/src/rewrite_guard.rs
@@ -68,7 +68,7 @@ transaction. The working tree is never written, so the dropped content stays in 
   - the range from the oldest dropped commit to HEAD contains a merge commit;
   - staged changes overlap the paths that the drop changes;
   - the branch moved meanwhile.
-  [@test] ../../crates/sync-core/src/reword_commit_test.rs (`rewrite_refused_during_merge`)
+  [@test] ../../crates/history-rewrite/src/reword_commit_test.rs (`rewrite_refused_during_merge`)
 - A refusal for staged changes must name the paths whose staged version the drop would lose, as git stores them (a
   quote in the name included), and no path whose staged change the drop keeps.
   [@test] ../../crates/git-ops/src/rewrite_plan_test.rs (`a_drop_under_a_staged_change_names_the_path`)

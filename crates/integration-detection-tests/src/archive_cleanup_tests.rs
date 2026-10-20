@@ -11,7 +11,7 @@ async fn test_detection_cleanup_respects_cached_status() -> Result<()> {
   use branch_integration::detection_notes::CacheOps;
   use branch_integration::detector::{DetectConfig, detect_integrated_branches};
   use branch_integration::strategy::DetectionStrategy;
-  use sync_core::baseline::detect_baseline_branch;
+  use history_rewrite::baseline::detect_baseline_branch;
   use sync_test_utils::TestReporter;
 
   // Set up repos and executor

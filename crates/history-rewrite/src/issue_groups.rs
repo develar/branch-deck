@@ -52,7 +52,3 @@ pub fn validate_leaf_name(name: &str, what: &str) -> Result<(), String> {
   }
   Ok(())
 }
-
-#[cfg(test)]
-#[path = "issue_groups_test.rs"]
-mod issue_groups_test;

@@ -1,7 +1,6 @@
 //! Unapply a virtual branch: its original commits dropped from HEAD (`git_ops::rewrite_plan`) and the virtual branch
 //! moved to the unapplied namespace in one ref transaction, under the repository lock.
 
-use crate::repository_lock::RewriteOptions;
 use anyhow::{Result, anyhow};
 use branch_integration::archive::{REF_RENAME_MUTEX, unique_branch_name};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -9,6 +8,7 @@ use git_ops::branch_names::{BranchKind, qualified_branch_name, strip_branch_name
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::{current_branch, ref_exists};
 use git_ops::rewrite_plan::prepare_drop_commits;
+use history_rewrite::repository_lock::RewriteOptions;
 use serde::{Deserialize, Serialize};
 use std::sync::PoisonError;
 use tracing::{debug, instrument};

@@ -25,7 +25,7 @@ targets:
   - ../../crates/sync-core/src/git_setup.rs
   - ../../crates/sync-core/src/branch_prefix.rs
   - ../../crates/sync-core/src/repository_validation.rs
-  - ../../crates/sync-core/src/baseline.rs
+  - ../../crates/history-rewrite/src/baseline.rs
   - ../../crates/sync-core/src/sync_inputs.rs
   - ../../crates/git-executor/src/git_info.rs
 ---
@@ -163,7 +163,7 @@ alert with the reason and the next step, never a raw Git error.
   sync", not with "No baseline branch found"; `bd` says the same as `no_baseline` (see [Agent CLI](../cli/agent-cli.spec.md)).
   A repository without a baseline names each branch it looked for once ("Cannot find the baseline branch: no
   origin/master or origin/main, and no upstream").
-  [@test] ../../crates/sync-core/src/baseline_test.rs (`a_repository_without_commits_says_so`, `no_local_baseline_names_each_branch_once`, `no_remote_baseline_names_each_branch_once`)
+  [@test] ../../crates/history-rewrite/src/baseline_test.rs (`a_repository_without_commits_says_so`, `no_local_baseline_names_each_branch_once`, `no_remote_baseline_names_each_branch_once`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says that a repository without commits has nothing to sync yet`)
 - A saved repository that no longer exists is an error alert, Sync disabled, until another one is selected.
   [@test] ../../tests/e2e/repository/saved-path-validation.spec.ts (`should display error for non-existent repository path`, `should clear error when valid repository is selected`)

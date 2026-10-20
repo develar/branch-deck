@@ -33,6 +33,7 @@ object-cache = { path = "../object-cache" }
 patronus = { path = "../patronus" }
 test-utils = { path = "../test-utils" }
 sync-core = { path = "../sync-core" }
+history-rewrite = { path = "../history-rewrite" }
 sync-types = { path = "../sync-types" }
 tempfile.workspace = true
 fs_extra = "1.3.0"

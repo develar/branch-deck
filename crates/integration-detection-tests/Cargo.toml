@@ -7,6 +7,7 @@ publish = false
 
 [dev-dependencies]
 sync-core = { path = "../sync-core" }
+history-rewrite = { path = "../history-rewrite" }
 sync-types = { path = "../sync-types" }
 branch-integration = { path = "../branch-integration" }
 git-ops = { path = "../git-ops" }

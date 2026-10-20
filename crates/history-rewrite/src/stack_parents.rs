@@ -163,7 +163,3 @@ pub fn drop_integrated_stack_parents(git_executor: &GitCommandExecutor, reposito
     Err(e) => warn!(error = %format!("{e:#}"), "Failed to drop the stack parents of integrated branches"),
   }
 }
-
-#[cfg(test)]
-#[path = "stack_parents_test.rs"]
-mod stack_parents_test;

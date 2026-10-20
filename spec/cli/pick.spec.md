@@ -9,7 +9,7 @@ targets:
   - ../../crates/bd-cli/src/rewrite.rs
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/sync-core/src/pick.rs
-  - ../../crates/sync-core/src/stack.rs
+  - ../../crates/history-rewrite/src/stack.rs
   - ../../crates/sync-core/src/dependencies.rs
   - ../../crates/git-ops/src/pick.rs
   - ../../crates/git-ops/src/update_branch.rs

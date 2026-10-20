@@ -1,10 +1,10 @@
-use crate::commit_grouper::CommitGrouper;
-use crate::stack::place_branches;
 use crate::stack_branch::{BuildResult, StackBranchPlan, StackBranchSync, StackBuild, StackFinish, build_stack_branch, finish_stack_branches, plan_stack_branches};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::word_resolve::ResolveMode;
+use history_rewrite::commit_grouper::CommitGrouper;
+use history_rewrite::stack::place_branches;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
 use sync_types::stack::{BlockReason, StackBranchConflict, StackBranchState, StackMemberBlock};

@@ -3,7 +3,6 @@
 //! core, through the `RewriteOptions` it is called with (AGENTS.md, "Repository lock").
 
 use crate::commit_ids::MIN_ID_LENGTH;
-use crate::process_scan::{is_running, process_started};
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::checked_out_branch;
@@ -13,6 +12,7 @@ use std::fmt;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use sync_utils::process_scan::{is_running, process_started};
 use tracing::{debug, instrument, warn};
 
 /// How long an operation waits for another one to finish
@@ -267,7 +267,3 @@ pub fn ensure_expected_head(expected: Option<&str>, head: &str, branch: impl FnO
     _ => Ok(()),
   }
 }
-
-#[cfg(test)]
-#[path = "repository_lock_test.rs"]
-mod repository_lock_test;

@@ -16,12 +16,12 @@
 
 use crate::areas::{DEFAULT_AREA_DEPTH, area_lines, area_of};
 use git_ops::branch_names::sanitize_branch_name;
+use history_rewrite::move_commits::validate_branch_name;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet};
 use std::hash::BuildHasher;
-use sync_core::move_commits::validate_branch_name;
 use sync_utils::issue_pattern::issue_keys_in;
 
 /// Scores are integers in units of 1/10 000

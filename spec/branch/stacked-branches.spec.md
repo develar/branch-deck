@@ -3,11 +3,11 @@ name: Stacked Branches
 description: Requirements for stacked branches, where a `(parent/child)` prefix builds the child's virtual branch on its parent's, a parent without commits passed to the branch below it, problems and blocked parents reported per branch, the root row heading its stack, which collapses into it, and the setting opt-in per repository.
 style: plain-1
 targets:
-  - ../../crates/sync-core/src/stack.rs
-  - ../../crates/sync-core/src/commit_grouper.rs
+  - ../../crates/history-rewrite/src/stack.rs
+  - ../../crates/history-rewrite/src/commit_grouper.rs
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/sync-core/src/branch_processor.rs
-  - ../../crates/sync-core/src/autosquash.rs
+  - ../../crates/history-rewrite/src/autosquash.rs
   - ../../crates/sync-core/src/remote_status.rs
   - ../../crates/branch-integration/src/detector.rs
   - ../../crates/branch-integration/src/detection_notes.rs
@@ -113,7 +113,7 @@ menu stacks, unstacks and renames branches.
 - Stacks must be on only when `git config branchdeck.stacks` is true (Settings → Repository, Stacked branches, writes
   it to `.git/config`; [Settings](../repository/settings.spec.md#repository)). Without the setting, a `/` in a prefix
   must stay part of a flat branch name and every event must be as before, with a null `stack`.
-  [@test] ../../crates/sync-core/src/commit_grouper_test.rs (`without_stacks_a_slash_is_part_of_a_flat_name`, `stacks_are_off_unless_configured`)
+  [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`without_stacks_a_slash_is_part_of_a_flat_name`, `stacks_are_off_unless_configured`)
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`without_stacks_branches_grouped_has_no_stack`)
 - Without stacks, `(auth)` beside `(auth/login)` is two flat branches whose refs git cannot hold together
   (`<prefix>/virtual/auth` is a file where `<prefix>/virtual/auth/login` needs a directory): the sync fails with
@@ -131,11 +131,11 @@ menu stacks, unstacks and renames branches.
 - The last level of a prefix must name the branch and the level before it its parent. Each level must be sanitized
   like a flat branch name. Empty levels at the ends must be dropped; an empty level in the middle (`(a//b)`) is a
   syntax problem of the last level's branch.
-  [@test] ../../crates/sync-core/src/commit_grouper_test.rs (`stack_prefixes_split_into_sanitized_levels`, `an_empty_stack_level_is_a_syntax_error`, `a_syntax_error_is_reported_on_the_last_level`)
+  [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`stack_prefixes_split_into_sanitized_levels`, `an_empty_stack_level_is_a_syntax_error`, `a_syntax_error_is_reported_on_the_last_level`)
 - Commits must be grouped by the leaf, and every level pair must declare an edge: `(auth/login/oauth)` also declares
   `auth` as the parent of `login`. An issue-key branch is a root unless the stack parents name its parent
   ([Stack Parents](stack-parents.spec.md#placement)).
-  [@test] ../../crates/sync-core/src/commit_grouper_test.rs (`groups_by_leaf_and_records_the_declared_parents`, `a_parent_without_commits_is_missing`)
+  [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`groups_by_leaf_and_records_the_declared_parents`, `a_parent_without_commits_is_missing`)
 
 ### Problems
 
@@ -146,7 +146,7 @@ menu stacks, unstacks and renames branches.
   - `(a/a)`;
   - two branches differ only in case (both);
   - a syntax problem.
-  [@test] ../../crates/sync-core/src/commit_grouper_test.rs (`conflicting_parents_name_their_commits`, `a_branch_can_not_be_its_own_parent`, `a_cycle_marks_each_of_its_branches`, `leaves_that_differ_only_in_case_collide`)
+  [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`conflicting_parents_name_their_commits`, `a_branch_can_not_be_its_own_parent`, `a_cycle_marks_each_of_its_branches`, `leaves_that_differ_only_in_case_collide`)
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`a_problem_is_not_built_and_a_missing_parent_is_passed`)
 
 ### Placement
@@ -154,30 +154,30 @@ menu stacks, unstacks and renames branches.
 - A child must be built on the new head of its active parent's virtual branch, also when a child commit comes before
   every parent commit on the main branch (`childPrecedesParent`).
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`builds_each_branch_on_its_parent`)
-  [@test] ../../crates/sync-core/src/stack_test.rs (`a_child_is_built_on_its_active_parent`)
+  [@test] ../../crates/history-rewrite/src/stack_test.rs (`a_child_is_built_on_its_active_parent`)
 - A parent without commits must be `Unapplied` with an unapplied branch of its name, `Integrated` when its branch is
   integrated, else `Missing`. Its branch is its virtual branch, which the sync is about to archive, else its newest
   archived branch; a detection note says whether it is integrated. The state is a label (the row, `bd status`); the
   placement doesn't depend on it.
-  [@test] ../../crates/sync-core/src/stack_test.rs (`reads_the_state_of_parents_without_commits_from_their_branches`)
+  [@test] ../../crates/history-rewrite/src/stack_test.rs (`reads_the_state_of_parents_without_commits_from_their_branches`)
 - The branch of a parent without commits (its virtual branch, else its newest archived one) must be detected before the
   branches are placed by the rule of the archive step: when it has no note, a `NotIntegrated` note the baseline moved on
   from (incrementally), or a note without a usable baseline (in full; an archived branch only within the retention
   period), so the first sync after the parent's merge already labels the parent landed, also when the parent was
   archived a sync before. The sync writes the note, and its archiving reports the parent from it; `bd status` and
   `bd check` detect without writing.
-  [@test] ../../crates/sync-core/src/stack_test.rs (`a_parent_whose_virtual_branch_lost_its_commits_is_detected_before_the_placement`)
+  [@test] ../../crates/history-rewrite/src/stack_test.rs (`a_parent_whose_virtual_branch_lost_its_commits_is_detected_before_the_placement`)
   [@test] ../../crates/integration-detection-tests/src/stack_tests.rs (`the_first_sync_after_the_parent_is_integrated_builds_the_child_on_the_baseline`)
   [@test] ../../crates/integration-detection-tests/src/recheck_tests.rs (`a_stale_note_on_the_virtual_tip_does_not_hide_an_integrated_parent`, `a_stale_note_on_the_archived_parent_does_not_hide_an_integrated_parent`)
   [@test] ../../crates/bd-cli/src/status_test.rs (`a_parent_integrated_since_the_last_sync_is_integrated_before_the_next_one`)
 - A parent without commits, whatever its state, must move the child to its nearest active ancestor, or the baseline,
   with `prBaseChanged`: the local history is linear on the baseline, so the child's commits can be picked there like
   those of any flat branch (or conflict like them).
-  [@test] ../../crates/sync-core/src/stack_test.rs (`an_integrated_parent_moves_the_child_to_the_nearest_active_ancestor`, `a_parent_without_commits_moves_the_child_to_the_nearest_ancestor_with_commits`)
+  [@test] ../../crates/history-rewrite/src/stack_test.rs (`an_integrated_parent_moves_the_child_to_the_nearest_active_ancestor`, `a_parent_without_commits_moves_the_child_to_the_nearest_ancestor_with_commits`)
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`an_unapplied_parent_is_reported_before_the_sync_starts`, `a_problem_is_not_built_and_a_missing_parent_is_passed`)
 - A parent with a problem and a blocked parent must block the child: the `Blocked` status, the reason as its text, its
   commits blocked, its virtual branch left as it was.
-  [@test] ../../crates/sync-core/src/stack_test.rs (`a_parent_with_a_problem_blocks_its_children`)
+  [@test] ../../crates/history-rewrite/src/stack_test.rs (`a_parent_with_a_problem_blocks_its_children`)
 - A parent that conflicts or fails while it is built must block its descendants the same way.
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`a_parent_conflict_blocks_its_descendants`)
 
@@ -442,7 +442,7 @@ menu stacks, unstacks and renames branches.
 
 - With stacks on, a fixup's prefix must agree with its target's when both name the same leaf, so `fixup! (login) X`
   finds `(auth/login) X`.
-  [@test] ../../crates/sync-core/src/autosquash_test.rs (`with_stacks_a_fixup_names_the_leaf_of_its_target`, `with_stacks_another_leaf_does_not_agree`, `the_plan_reads_the_stacks_setting_of_the_repository`)
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`with_stacks_a_fixup_names_the_leaf_of_its_target`, `with_stacks_another_leaf_does_not_agree`, `the_plan_reads_the_stacks_setting_of_the_repository`)
 
 ### UI
 
@@ -546,7 +546,7 @@ menu stacks, unstacks and renames branches.
 
 ## Testing / Local Run
 
-- `pnpm test:backend`: `crates/sync-core/src/stack_test.rs`, `stack_sync_test.rs`, `commit_grouper_test.rs`,
+- `pnpm test:backend`: `crates/history-rewrite/src/stack_test.rs`, `stack_sync_test.rs`, `commit_grouper_test.rs`,
   `autosquash_test.rs`.
 - `pnpm test:unit`: `src/lib/stack-lanes.test.ts`, `src/stores/branch-table-rows.test.ts`, `src/stores/stack-view.test.ts`.
 - `pnpm e2e`: `tests/e2e/stacked-branches`, `tests/e2e/branch-filter` (a collapsed stack under the filter).

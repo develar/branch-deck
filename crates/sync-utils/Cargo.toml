@@ -11,6 +11,11 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 
+# the process scan of the lease pool (`process_scan`): the working directories and the argv through libproc and
+# sysctl on macOS, the SIGTERM of a Bazel server of a slot
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.190"
+
 [dev-dependencies]
 tempfile.workspace = true
 test-utils = { path = "../test-utils" }

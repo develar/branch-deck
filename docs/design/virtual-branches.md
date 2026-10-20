@@ -83,7 +83,7 @@ flowchart TD
 
 ### Grouping Rules
 
-`CommitGrouper` reads the subject line (`parse_subject` in `crates/sync-core/src/commit_grouper.rs`) and the issue
+`CommitGrouper` reads the subject line (`parse_subject` in `crates/history-rewrite/src/commit_grouper.rs`) and the issue
 groups:
 
 1. A leading autosquash marker (`fixup!`, `squash!`, `amend!`) is skipped, so a fixup stays in the branch of its target.
@@ -99,7 +99,7 @@ whose commits all carry one issue key belongs to that issue (`issue_key` of `Gro
 nests it under the issue. `groupFor` in `src/lib/commit.ts` mirrors the rule for the editor's warning.
 
 A move makes the smallest change that puts the commits where they go (`move_commits_to_branch`,
-`crates/sync-core/src/move_plan.rs`). A branch is what ships together, and the user decides it per issue: the whole of
+`crates/history-rewrite/src/move_plan.rs`). A branch is what ships together, and the user decides it per issue: the whole of
 an issue moves by the issue groups below, without a rewrite, so the next commit of the issue follows it, also into a
 stacked branch. Only a part of an issue and a commit without a key get the prefix, in one message rewrite; a prefix
 that the key makes redundant goes. The UI uses it to move commits and whole branches, split an issue, combine issues, rename a
@@ -111,7 +111,7 @@ outside the messages.
 
 An issue group puts the commits of several issue keys into one branch without a rewrite, so that the subjects keep
 the rule "issue id plus one sentence". The store is the ref `refs/branch-deck/issue-groups`: a commit whose tree holds
-one file of sorted `KEY<TAB>name` lines (`crates/sync-core/src/issue_groups.rs`). Each key has one name, and a name is
+one file of sorted `KEY<TAB>name` lines (`crates/history-rewrite/src/issue_groups.rs`). Each key has one name, and a name is
 a branch name without `/`. A line that is not valid is a reported problem and is never used.
 
 `GroupingInputs` (`commit_grouper.rs`) carries the stack setting, the map and the stack parents to every place that
@@ -133,7 +133,7 @@ group can be a stack parent, and it is stacked by the stack parents below, witho
 
 A stack parent puts a branch on its parent without a parent level in its prefix. The store is the ref
 `refs/branch-deck/stack-parents`, one file of sorted `child<TAB>parent` lines of branch names
-(`crates/sync-core/src/stack_parents.rs`), read and written as the issue groups. A branch whose prefixes declare no
+(`crates/history-rewrite/src/stack_parents.rs`), read and written as the issue groups. A branch whose prefixes declare no
 parent, a bare `(login)`, an issue branch or an issue group, takes its parent from it (`parent_source: store`); a parent
 level in a prefix still declares the parent, and a line that disagrees with it is the problem "commits declare
 different parents". `StackDeclarations::into_forest` walks the chain of lines up from every branch with commits, so a
@@ -145,7 +145,7 @@ branch is integrated. See [Stack Parents](../../spec/branch/stack-parents.spec.m
 ### Stacked Branches
 
 With `git config branchdeck.stacks true`, a `/` in a prefix stacks branches: `(auth/login) Add form` belongs to `login`,
-whose virtual branch is built on `auth`'s (`crates/sync-core/src/stack.rs`). The ref is the leaf,
+whose virtual branch is built on `auth`'s (`crates/history-rewrite/src/stack.rs`). The ref is the leaf,
 `user/virtual/login`, so no level is a ref directory of another. The grouper records every declared edge with its
 commits; `StackForest` holds the declared parents, the problems (conflicting parents, cycles, `(a/a)`, leaves that
 differ in case, empty levels) and a parents-first order. `place_branches` decides where each branch goes: on its active
@@ -200,7 +200,7 @@ edges of the hunks are not edges of the blocks.
 
 ### Implementation Notes
 
-- **Commit Grouping**: `CommitGrouper` scans commits and extracts patterns (see `crates/sync-core/src/commit_grouper.rs`)
+- **Commit Grouping**: `CommitGrouper` scans commits and extracts patterns (see `crates/history-rewrite/src/commit_grouper.rs`)
 - **Branch Materialization**: Cherry-picks grouped commits onto baseline as trees, in one `CommitChain` per branch (see
   `crates/git-ops/src/cherry_pick.rs`, `crates/git-ops/src/commit_chain.rs`)
 - **Integration Detection**: Parallel strategies for merge/rebase/squash detection (see `crates/branch-integration/`)

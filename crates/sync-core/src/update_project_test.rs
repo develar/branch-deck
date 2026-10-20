@@ -1,4 +1,3 @@
-use crate::repository_lock::{RepositoryLocked, lock_repository};
 use crate::sync::{SyncOptions, sync_branches};
 use crate::update_project::{
   FetchFailed, LOCKED_MESSAGE, UndoBlocked, UndoneUpdate, UpdateOptions, UpdatePhase, UpdateProgress, UpdateProjectParams, UpdateProjectResult, UpdateUndoToken, app_error,
@@ -11,6 +10,7 @@ use git_ops::update_branch::{
   check_update_undo, no_landed_candidates,
 };
 use git_ops::word_resolve::ResolveMode;
+use history_rewrite::repository_lock::{RepositoryLocked, lock_repository};
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 use std::fmt::Write;

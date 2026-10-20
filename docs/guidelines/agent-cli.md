@@ -402,7 +402,7 @@ commit id (`crates/object-cache`, LMDB through heed):
 ### `bd group [--dry-run | --sync] [--expect-head <id> [--allow-append]] [--map] --plan <file | ->`
 
 Moves commits between branches by their subject prefixes, in one message-only history rewrite
-(`sync_core::regroup`, see "Regroup, rename, restack" in [Git Operations](../design/git-operations.md)), and changes
+(`history_rewrite::regroup`, see "Regroup, rename, restack" in [Git Operations](../design/git-operations.md)), and changes
 the issue groups and the stack parents in the same ref transaction. Then it sets the pull request texts of the plan and, with `--sync`,
 rebuilds the virtual branches, under the same repository lock. The plan is the file of `--plan`, or stdin for
 `--plan -`; without `--plan` it is `invalid_arguments`, and stdin is never read.
@@ -708,7 +708,7 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
 ### `bd fold [--branch <b>] [--expect-head <id>] [--dry-run]`
 
 Folds the `fixup!`, `squash!` and `amend!` commits into their targets, as the app's Squash Fixups does
-(`sync_core::autosquash`), under the repository lock. One rewrite that keeps HEAD's tree, so the index and the working
+(`history_rewrite::autosquash`), under the repository lock. One rewrite that keeps HEAD's tree, so the index and the working
 tree stay as they are.
 
 ```json

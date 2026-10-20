@@ -17,8 +17,8 @@ targets:
   - ../../src/hooks/usePreviewHotkeys.ts
   - ../../src/lib/preview-keys.ts
   - ../../src/hooks/useRewordCommit.ts
-  - ../../crates/sync-core/src/reword_commit.rs
-  - ../../crates/sync-core/src/repository_lock.rs
+  - ../../crates/history-rewrite/src/reword_commit.rs
+  - ../../crates/history-rewrite/src/repository_lock.rs
   - ../../crates/git-ops/src/reword_commits.rs
   - ../../src/components/commit/LinkedText.tsx
   - ../../src/lib/commit.ts
@@ -185,14 +185,14 @@ The commit hash popover shows the same header and body.
 - The save must replace only the message: the commits after it are recreated with the same trees, and the working
   tree and the index stay as they are.
 - The save must keep the author and the committer of every recreated commit: name, email, date and timezone.
-  [@test] ../../crates/sync-core/src/reword_commit_test.rs (`reword_preserves_committer`)
+  [@test] ../../crates/history-rewrite/src/reword_commit_test.rs (`reword_preserves_committer`)
 - The message must be cleaned up as `git commit` does: LF line endings, no trailing whitespace, no blank lines around.
 - An unchanged message must keep the commit.
 - A message without a subject line must be refused.
 - The save must be refused while a rebase, merge, cherry-pick or revert is in progress.
 - The save must be refused if the commit left the current branch meanwhile (reworded or dropped in a terminal).
 - The save must fail, and keep the new commit unreferenced, if the branch moved meanwhile (a commit made in a terminal).
-  [@test] ../../crates/sync-core/src/reword_commit_test.rs (`rewords_a_middle_commit_and_keeps_the_commits_after_it`, `cleans_up_the_message_like_git_commit`, `keeps_the_commit_when_the_message_does_not_change`, `refuses_a_message_without_a_subject`, `refuses_to_reword_while_a_merge_is_in_progress`, `refuses_a_commit_that_left_the_current_branch`, `refuses_to_move_a_branch_that_moved_meanwhile`, `reword_refuses_an_empty_subject_in_any_rewrite`)
+  [@test] ../../crates/history-rewrite/src/reword_commit_test.rs (`rewords_a_middle_commit_and_keeps_the_commits_after_it`, `cleans_up_the_message_like_git_commit`, `keeps_the_commit_when_the_message_does_not_change`, `refuses_a_message_without_a_subject`, `refuses_to_reword_while_a_merge_is_in_progress`, `refuses_a_commit_that_left_the_current_branch`, `refuses_to_move_a_branch_that_moved_meanwhile`, `reword_refuses_an_empty_subject_in_any_rewrite`)
 - The save must run under the repository lock: while another Branch Deck operation holds it, the save waits up to
   10 s, then it is refused with nothing changed and the toast "Cannot edit the commit message" says that another
   operation holds the lock.

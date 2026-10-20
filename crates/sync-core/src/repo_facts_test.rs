@@ -1,8 +1,8 @@
-use crate::baseline::{NoBaseline, detect_baseline_branch};
 use crate::repo_facts::{RepoFacts, read_baseline_listing, read_repo_facts};
 use crate::update_project::resolve_baseline_upstream;
 use branch_integration::common::list_branches;
 use git_executor::git_command_executor::GitCommandExecutor;
+use history_rewrite::baseline::{NoBaseline, detect_baseline_branch};
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
 use test_utils::git_test_utils::TestRepo;

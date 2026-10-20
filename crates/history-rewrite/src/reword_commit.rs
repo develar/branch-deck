@@ -136,7 +136,7 @@ pub(crate) fn reword_read_commits_at<'a>(
 
 /// Whether the virtual branch commit of a commit stays the same when its message changes from `old` to `new`: the
 /// subject without its grouping prefix and the body are the same, so a move to another branch keeps it
-pub(crate) fn keeps_virtual_commit(old: &str, new: &str) -> bool {
+pub fn keeps_virtual_commit(old: &str, new: &str) -> bool {
   fn virtual_message(message: &str) -> (&str, &str) {
     let message = message.trim();
     let (subject, body) = message.split_once('\n').unwrap_or((message, ""));

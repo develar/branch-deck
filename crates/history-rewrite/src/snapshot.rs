@@ -8,7 +8,6 @@ use crate::regroup::RegroupError;
 use crate::stack::{StackForest, stacks_enabled};
 use crate::stack_parents::STACK_PARENTS;
 use crate::store_lines::read_line_stores;
-use crate::sync::SyncReport;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_list::{Commit, get_commit_list};
@@ -74,25 +73,6 @@ impl Snapshot {
   }
 }
 
-impl Snapshot {
-  /// The snapshot after the sync of `report`, on what it read at its start (its guards passed, HEAD, the grouping, the
-  /// baseline): one `log` of the commits ahead of the baseline, for the mapping notes the sync wrote. Under the
-  /// repository lock the sync and the checks after it hold, no rewrite moved HEAD since
-  pub fn of_sync(git_executor: &GitCommandExecutor, repository_path: &str, report: &SyncReport) -> Result<Self> {
-    let commits = get_commit_list(git_executor, repository_path, &report.baseline)?;
-    let Grouped { groups, forest, .. } = group_commits(&commits, &report.grouping);
-    Ok(Self {
-      head: report.head.clone(),
-      branch: report.branch.clone(),
-      grouping: report.grouping.clone(),
-      baseline: report.baseline.clone(),
-      commits,
-      groups,
-      forest,
-    })
-  }
-}
-
 /// The stack setting, the issue groups and the stack parents: what decides the groups besides the subjects. Two git
 /// processes: `git config` and one `cat-file --batch` for both maps
 #[instrument(skip(git_executor))]
@@ -111,17 +91,17 @@ pub fn read_grouping_inputs_with(git_executor: &GitCommandExecutor, repository_p
 }
 
 /// How commits group
-pub(crate) struct Grouped {
+pub struct Grouped {
   /// Commit id -> group
-  pub(crate) groups: HashMap<String, Option<String>>,
+  pub groups: HashMap<String, Option<String>>,
   /// With stacked branches on
-  pub(crate) forest: Option<StackForest>,
+  pub forest: Option<StackForest>,
   /// The keys of the issue groups that group no commit
-  pub(crate) idle_issue_groups: Vec<String>,
+  pub idle_issue_groups: Vec<String>,
 }
 
 /// How `commits` group with `grouping`, as the sync groups them
-pub(crate) fn group_commits(commits: &[Commit], grouping: &GroupingInputs) -> Grouped {
+pub fn group_commits(commits: &[Commit], grouping: &GroupingInputs) -> Grouped {
   let mut grouper = CommitGrouper::new_with(grouping);
   for commit in commits {
     grouper.add_commit(commit.clone());

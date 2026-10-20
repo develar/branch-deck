@@ -5,7 +5,7 @@ style: plain-1
 targets:
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../crates/sync-core/src/delete_archived_branch.rs
-  - ../../crates/sync-core/src/repository_lock.rs
+  - ../../crates/history-rewrite/src/repository_lock.rs
   - ../../src/components/branch/BranchRow.tsx
   - ../../src/components/branch/BranchContextMenuRow.tsx
   - ../../src/hooks/useBranchContextActions.ts

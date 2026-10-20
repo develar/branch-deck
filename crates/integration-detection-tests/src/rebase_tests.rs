@@ -11,7 +11,7 @@ use test_utils::git_test_utils::TestRepo;
 /// Test the core orphan scenario: virtual branch exists but original commits are gone from HEAD
 #[test(tokio::test)]
 async fn test_true_orphan_case_when_original_commits_removed_from_head() {
-  use sync_core::baseline::detect_baseline_branch;
+  use history_rewrite::baseline::detect_baseline_branch;
   let (_upstream_repo, local_repo, git_executor) = setup_test_repos();
 
   // Step 1: Create some commits on main branch (simulating commits in baseline..HEAD range)

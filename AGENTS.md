@@ -357,20 +357,23 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
 
 ### Adding a git operation
 Read [Adding a Git Operation](docs/guidelines/adding-git-operation.md) (the layers in detail, the helper table) before
-you add or change git code in `crates/git-ops/`, `crates/sync-core/`, `crates/bd-cli/` or `src-tauri/src/commands/`.
+you add or change git code in `crates/git-ops/`, `crates/history-rewrite/`, `crates/sync-core/`, `crates/bd-cli/` or
+`src-tauri/src/commands/`.
 The checklist:
 - One name across the layers (`git_ops::move_hunk`, `sync_core::move_hunk`, `bd move-hunk`); the `//!` headers of
-  `crates/git-ops/src/lib.rs` and `crates/sync-core/src/lib.rs` map the modules by area.
+  `crates/git-ops/src/lib.rs`, `crates/history-rewrite/src/lib.rs` and `crates/sync-core/src/lib.rs` map the modules
+  by area.
 - **git-ops** has the git: one process per phase, `-z` output, full ids, `--end-of-options` before a revision from
   outside, `--literal-pathspecs` for paths after `--`; no lock and no policy.
-- **The core** `<op>_core` in `crates/sync-core/` is the one entry of every caller: a rewrite of the checked-out branch
+- **The core** `<op>_core` in `crates/history-rewrite/` (a rewrite that needs no sync, GitHub or Patronus) or
+  `crates/sync-core/` (the rest) is the one entry of every caller: a rewrite of the checked-out branch
   takes `&RewriteOptions` and the lock before it reads anything, then checks the expected HEAD.
 - **bd** and **the app** parse, call the core and present its result; no git of their own. A `bd` command answers one
   JSON object with `schema`, errors as `CliError` with an `ErrorCode`; a Tauri command is `run_blocking` of the core,
   and the E2E server routes it to the same core.
 - **Reuse a helper** before writing a parser or a process: `ref_transaction`, `commit_writer`, `commit_chain`,
-  `cat_file_batch`, `object_texts`, `history`, `rewrite_guard` and `revs` in `git_ops`; `repo_facts`, `snapshot`,
-  `repository_lock` and `remote_command` in `sync_core`.
+  `cat_file_batch`, `object_texts`, `history`, `rewrite_guard` and `revs` in `git_ops`; `snapshot`, `repository_lock`
+  and `regroup` in `history_rewrite`; `repo_facts` and `remote_command` in `sync_core`.
 - **Same commit**: the spec, the flow's section in [Git Operations](docs/design/git-operations.md), and a test in
   `process_budget_test.rs` that pins its processes by subcommand; the scan tests stay green.
 
@@ -463,7 +466,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Integration status: archive the branches the baseline has (by default rebase/cherry-pick detection only; merge and squash by an environment variable) | `branch/branch-row` ([Integration Detection](docs/design/integration-detection.md)) | `crates/branch-integration/` |
 | Context menus (the "⋯" menu on right-click, acting on the selection) | `branch/branch-row`, `commit/commit-row` | `src/components/shared/ContextMenuItems.tsx`, `src/hooks/useBranchContextActions.ts` |
 | AI branch naming (`claude -p --model haiku`, after consent) | `branch/branch-name-suggestions` | `src/components/ai/` |
-| Squash and fixups (`bd fold`) | `commit/squash`, `commit/fixups` | `crates/sync-core/src/squash.rs`, `crates/sync-core/src/autosquash.rs` |
+| Squash and fixups (`bd fold`) | `commit/squash`, `commit/fixups` | `crates/history-rewrite/src/squash.rs`, `crates/history-rewrite/src/autosquash.rs` |
 | Update Project (`bd update`, resolve sessions, `bd undo update:`) | `repository/update-project`, `cli/update` | `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/update_resolve.rs`, `update-progress.ts` |
 | Pick between worktrees (`bd pick --from <worktree> --follow`) | `cli/pick` | `crates/sync-core/src/pick.rs`, `crates/git-ops/src/pick.rs` |
 | Lease pool (`bd lease`), its clean rules (`.branchdeck.toml`) | `cli/lease` | `crates/sync-core/src/lease.rs`, `crates/sync-core/src/lease_clean.rs`, `crates/bd-cli/src/lease_command.rs`, `crates/git-ops/src/lease_slot.rs` (state in `$GIT_COMMON_DIR/branch-deck/leases.json`) |
@@ -472,11 +475,11 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Patronus: robots, Safe Push and Dry Run, the next step, the failure prompt (`bd safe-push`, `bd robot`) | `branch/patronus`, `branch/next-step`, `branch/safe-push-failure-prompt`, `branch/whole-stack`, `cli/agent-cli` | `crates/patronus/`, `src/lib/branch-next-step.ts`, `src/stores/review-readiness.ts` |
 | GitHub sign-in (OAuth device flow) | `repository/github-sign-in` | `crates/github/src/token.rs` |
 | YouTrack sign-in (Hub OAuth in the browser, refresh token), the issue popover, Mark Fixed | `repository/youtrack` | `crates/youtrack/`, `src/stores/youtrack.ts` |
-| Issue groups | `branch/issue-groups` | `crates/sync-core/src/issue_groups.rs` |
+| Issue groups | `branch/issue-groups` | `crates/history-rewrite/src/issue_groups.rs` |
 | Conflict fix (`bd check --fix`) | `branch/conflict-fix`, `commit/commit-row` | `crates/sync-core/src/conflict_fix.rs` |
-| Move to a branch (drag and drop, menus, keys) | `branch/move-commits` | `crates/sync-core/src/move_plan.rs` |
+| Move to a branch (drag and drop, menus, keys) | `branch/move-commits` | `crates/history-rewrite/src/move_plan.rs` |
 | Stacked branches, the stack island, the whole stack | `branch/stacked-branches`, `branch/stack-island`, `branch/whole-stack`, `branch/branch-row` | `src/stores/stack-view.ts`, `src/lib/git/stack-push.ts`, `crates/sync-core/src/stack_branch.rs` |
-| Stack parents (`bd restack`, `bd unstack`) | `branch/stack-parents` | `crates/sync-core/src/stack_parents.rs` |
+| Stack parents (`bd restack`, `bd unstack`) | `branch/stack-parents` | `crates/history-rewrite/src/stack_parents.rs` |
 | Activity log, its window | `repository/activity` | `src/stores/activity.ts`, `src/pages/ActivityPage.tsx`, `src/lib/activity-window-link.ts` |
 | Commit files, diffs, the commit review (`D`), the tree-sitter highlighting | `commit/commit-files`, `commit/commit-review` ([Diff View](docs/design/diff-view.md)) | `crates/file-diffs/`, `crates/code-symbols/src/highlight/`, `src/components/diff/` |
 | Go to Declaration and Find Usages in a review (⌘-click, ⌘B, ⌥F7, Back), outside it through accio | `commit/symbol-navigation` | `crates/code-symbols/src/navigate.rs`, `crates/file-diffs/src/declarations.rs`, `crates/file-diffs/src/usages.rs`, `crates/file-diffs/src/accio.rs`, `src/hooks/useSymbolNavigation.ts`, `src/components/diff/DeclarationFileView.tsx` |
@@ -551,9 +554,10 @@ src-tauri/src/
 crates/
 ├── git-executor/    # GitCommandExecutor: the one place git starts; the scan tests
 ├── git-ops/         # Git operations library
-├── sync-core/       # Branch sync and the cores of every operation
+├── history-rewrite/ # The rewrites of the checked out branch (regroup, reword, squash, fold), the grouping, the stores, the repository lock
+├── sync-core/       # Branch sync and the cores of the other operations
 ├── sync-types/      # Types shared by the cores, bd and the app
-├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes)
+├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes, git booleans, the process scan)
 ├── branch-integration/ # Integration detection: rebase, merge and squash strategies
 ├── bd-cli/          # `bd` agent CLI (docs/guidelines/agent-cli.md)
 ├── object-cache/    # LMDB cache keyed by git object ids, shared by the app and bd

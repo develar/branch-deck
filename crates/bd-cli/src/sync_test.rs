@@ -1,8 +1,8 @@
 use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, write};
 use git_ops::revs::short_id;
+use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, lock_repository};
 use pretty_assertions::assert_eq;
 use serde_json::json;
-use sync_core::repository_lock::{DEFAULT_LOCK_TIMEOUT, lock_repository};
 
 #[test_log::test]
 fn syncs_and_reports_each_branch() {

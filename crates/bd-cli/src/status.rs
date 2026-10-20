@@ -6,13 +6,13 @@ use crate::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use crate::robot_list::read_robots;
 use crate::stack_summary::StackSummary;
 use git_ops::branch_names::to_final_branch_name;
+use history_rewrite::regroup::{describe_problem, problem_commits};
+use history_rewrite::store_lines::StoreLineProblem;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
 use sync_core::grouping::{BranchGrouping, group_commits_ahead_of_baseline_with};
-use sync_core::regroup::{describe_problem, problem_commits};
 use sync_core::stack_branch::read_stack_branches;
-use sync_core::store_lines::StoreLineProblem;
 use sync_types::stack::{BlockReason, BranchStack, ParentSource, ParentState};
 use sync_types::{BranchOrigin, GroupedBranchInfo};
 

@@ -11,6 +11,7 @@ use file_diffs::model::{
 };
 use file_diffs::service::FileDiffs;
 use git_ops::commit_files::{CommitFiles, DiffSubject, GetCommitFilesParams, GetCommitsFilesParams, read_commit_files_cached, read_diff_files};
+use history_rewrite::repository_lock::RewriteOptions;
 use object_cache::cache::ObjectCache;
 use serde::Deserialize;
 use std::convert::Infallible;
@@ -23,7 +24,6 @@ use sync_core::repository_config::{
   ConfigScope, RepositoryConfig, RepositoryConfigChange, WriteScope, detect_github_repository, read_config_entries, repository_config_from_entries, with_stacks_off_clashes,
   write_global_config, write_repository_config,
 };
-use sync_core::repository_lock::RewriteOptions;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_core::uncommitted_changes::{GetUncommittedChangesParams, UncommittedChangesResult, get_uncommitted_changes as core_get_uncommitted_changes};
 use sync_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
@@ -127,12 +127,12 @@ pub async fn add_issue_reference_to_commits(
 
 pub async fn reword_commits(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::reword_commit::RewordCommitsRequest>,
-) -> CommandResult<sync_core::reword_commit::RewordCommitsResult> {
+  Json(params): Json<history_rewrite::reword_commit::RewordCommitsRequest>,
+) -> CommandResult<history_rewrite::reword_commit::RewordCommitsResult> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("reword commits", move || {
-    sync_core::reword_commit::reword_commits_core(&git_executor, &params, &RewriteOptions::default())
+    history_rewrite::reword_commit::reword_commits_core(&git_executor, &params, &RewriteOptions::default())
   })
   .await
 }
@@ -319,17 +319,17 @@ pub async fn sync_branches(
 
 pub async fn move_commits_to_branch(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::move_commits::MoveCommitsParams>,
-) -> CommandResult<sync_core::move_commits::MoveCommitsResult> {
+  Json(params): Json<history_rewrite::move_commits::MoveCommitsParams>,
+) -> CommandResult<history_rewrite::move_commits::MoveCommitsResult> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_command("move commits", move || sync_core::move_commits::move_commits_to_branch_core(&git_executor, &params)).await
+  run_command("move commits", move || history_rewrite::move_commits::move_commits_to_branch_core(&git_executor, &params)).await
 }
 
 pub async fn rename_branch(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::stack_operations::RenameBranchParams>,
-) -> CommandResult<sync_core::move_commits::MoveCommitsResult> {
+) -> CommandResult<history_rewrite::move_commits::MoveCommitsResult> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("rename branch", move || sync_core::stack_operations::rename_branch(&git_executor, &params)).await
@@ -344,7 +344,7 @@ pub async fn undo_regroup(State(state): State<Arc<AppState>>, Json(params): Json
 pub async fn restack_branch(
   State(state): State<Arc<AppState>>,
   Json(params): Json<sync_core::stack_operations::RestackBranchParams>,
-) -> CommandResult<sync_core::move_commits::MoveCommitsResult> {
+) -> CommandResult<history_rewrite::move_commits::MoveCommitsResult> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("restack branch", move || sync_core::stack_operations::restack_branch(&git_executor, &params)).await
@@ -432,42 +432,42 @@ pub async fn apply_conflict_fix(
 
 pub async fn squash_commits(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::squash::SquashCommitsParams>,
-) -> CommandResult<sync_core::squash::SquashCommitsResult> {
+  Json(params): Json<history_rewrite::squash::SquashCommitsParams>,
+) -> CommandResult<history_rewrite::squash::SquashCommitsResult> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("squash commits", move || {
-    sync_core::squash::squash_commits_core(&git_executor, &params, &RewriteOptions::default())
+    history_rewrite::squash::squash_commits_core(&git_executor, &params, &RewriteOptions::default())
   })
   .await
 }
 
-pub async fn restore_branch_head(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::squash::RestoreBranchHeadParams>) -> CommandResult<()> {
+pub async fn restore_branch_head(State(state): State<Arc<AppState>>, Json(params): Json<history_rewrite::squash::RestoreBranchHeadParams>) -> CommandResult<()> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_command("restore the branch head", move || sync_core::squash::restore_branch_head_core(&git_executor, &params)).await
+  run_command("restore the branch head", move || history_rewrite::squash::restore_branch_head_core(&git_executor, &params)).await
 }
 
 pub async fn get_autosquash_plan(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::autosquash::GetAutosquashPlanParams>,
-) -> CommandResult<sync_core::autosquash::AutosquashPlan> {
+  Json(params): Json<history_rewrite::autosquash::GetAutosquashPlanParams>,
+) -> CommandResult<history_rewrite::autosquash::AutosquashPlan> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("get the autosquash plan", move || {
-    sync_core::autosquash::get_autosquash_plan_core(&git_executor, &params.repository_path)
+    history_rewrite::autosquash::get_autosquash_plan_core(&git_executor, &params.repository_path)
   })
   .await
 }
 
 pub async fn squash_fixup_commits(
   State(state): State<Arc<AppState>>,
-  Json(params): Json<sync_core::autosquash::SquashFixupsParams>,
-) -> CommandResult<sync_core::autosquash::SquashFixupsResult> {
+  Json(params): Json<history_rewrite::autosquash::SquashFixupsParams>,
+) -> CommandResult<history_rewrite::autosquash::SquashFixupsResult> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("squash fixup commits", move || {
-    sync_core::autosquash::squash_fixup_commits_core(&git_executor, &params, &RewriteOptions::default())
+    history_rewrite::autosquash::squash_fixup_commits_core(&git_executor, &params, &RewriteOptions::default())
   })
   .await
 }
@@ -627,7 +627,7 @@ pub async fn fetch_review_head(
       params.head_ref_oid = commit(&format!("refs/heads/{}", params.head_ref_name)).or_else(|_| commit("HEAD"))?;
     }
     if params.base_ref_oid.is_empty() {
-      let baseline = sync_core::baseline::detect_baseline_branch(&git_executor, &path).and_then(|baseline| commit(&baseline));
+      let baseline = history_rewrite::baseline::detect_baseline_branch(&git_executor, &path).and_then(|baseline| commit(&baseline));
       params.base_ref_oid = match baseline {
         Ok(baseline) if baseline != params.head_ref_oid => baseline,
         // a template with fewer commits has a shorter range
@@ -1087,7 +1087,7 @@ pub async fn get_archived_branch_commits(
   ensure_repository_exists(&state, &request.repository_path)?;
   let git_executor = state.git_executor.clone();
   run_command("read the commits of the archived branch", move || {
-    let baseline_branch = sync_core::baseline::detect_baseline_branch(&git_executor, &request.repository_path)?;
+    let baseline_branch = history_rewrite::baseline::detect_baseline_branch(&git_executor, &request.repository_path)?;
     branch_integration::archive::get_archived_branch_commits(&git_executor, &request.repository_path, &request.branch_prefix, &request.branch_name, &baseline_branch)
   })
   .await

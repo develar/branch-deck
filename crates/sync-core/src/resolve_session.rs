@@ -3,12 +3,9 @@
 //! one round, `--abort` removes the session, `--status` reads it. The engine and the state are
 //! `git_ops::update_resolve`; this module adds the lock, the copies on disk and what the output shows.
 
-use crate::commit_grouper::GroupingInputs;
 use crate::config_snapshot::ConfigSnapshot;
 use crate::landed::landed_candidates;
-use crate::repository_lock::lock_repository;
 use crate::resolve_copies::{Materialize, PATCH_FILE, copy_path, display_path, read_edit_copy, remove_root, remove_round, round_dir, session_root, write_round};
-use crate::snapshot::read_grouping_inputs;
 use crate::update_project::record_landed_update;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -23,6 +20,9 @@ use git_ops::update_resolve::{
 };
 use git_ops::word_replay::UpdateResolvedCommit;
 use git_ops::word_resolve::ResolveMode;
+use history_rewrite::commit_grouper::GroupingInputs;
+use history_rewrite::repository_lock::lock_repository;
+use history_rewrite::snapshot::read_grouping_inputs;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;

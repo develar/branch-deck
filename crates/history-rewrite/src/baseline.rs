@@ -52,7 +52,7 @@ pub fn detect_baseline_branch(git_executor: &GitCommandExecutor, repository_path
 
 /// The branches a baseline is looked for without an upstream, in priority order: `(full ref, name as it is returned)`;
 /// under the first remote, else local
-pub(crate) fn baseline_candidates(first_remote: Option<&str>) -> Vec<(String, String)> {
+pub fn baseline_candidates(first_remote: Option<&str>) -> Vec<(String, String)> {
   BASELINE_BRANCHES
     .into_iter()
     .map(|branch| match first_remote {
@@ -64,7 +64,7 @@ pub(crate) fn baseline_candidates(first_remote: Option<&str>) -> Vec<(String, St
 
 /// Why no baseline was found among `candidates`: `NoCommits` when HEAD doesn't resolve (one `rev-parse`), else no
 /// local or no remote branch of them
-pub(crate) fn no_baseline(git_executor: &GitCommandExecutor, repository_path: &str, has_remote: bool, candidates: Vec<(String, String)>) -> Result<anyhow::Error> {
+pub fn no_baseline(git_executor: &GitCommandExecutor, repository_path: &str, has_remote: bool, candidates: Vec<(String, String)>) -> Result<anyhow::Error> {
   let (_, head_exit_code) = git_executor.execute_command_with_status(&["rev-parse", "--verify", "--quiet", "HEAD"], repository_path)?;
   let names = candidates.into_iter().map(|(_, name)| name).collect();
   Ok(anyhow::Error::new(if head_exit_code != 0 {

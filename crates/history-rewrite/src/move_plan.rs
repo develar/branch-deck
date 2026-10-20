@@ -35,7 +35,7 @@ pub(crate) fn move_target(snapshot: &Snapshot, name: &str) -> MoveTarget {
 
 /// The regroup that moves `ids` to `target`, or back (`None`): out of their prefix branch, or out of the issue group of
 /// their key. The fixups of a moved commit move with it
-pub(crate) fn plan_move(snapshot: &Snapshot, ids: &[String], target: Option<&str>) -> Result<RegroupPlan, RegroupError> {
+pub fn plan_move(snapshot: &Snapshot, ids: &[String], target: Option<&str>) -> Result<RegroupPlan, RegroupError> {
   let mut moved = resolve_ids(snapshot, ids)?;
   let autosquash = plan_autosquash(snapshot.head.clone(), &snapshot.commits, &snapshot.grouping);
   let fixups: Vec<String> = autosquash

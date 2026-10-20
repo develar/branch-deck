@@ -1,8 +1,8 @@
 use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use git_executor::git_command_executor::GitCommandExecutor;
-use sync_core::repository_lock::RewriteOptions;
-use sync_core::squash::{RestoreBranchHeadParams, SquashCommitsParams, SquashCommitsResult, restore_branch_head_core, squash_commits_core};
+use history_rewrite::repository_lock::RewriteOptions;
+use history_rewrite::squash::{RestoreBranchHeadParams, SquashCommitsParams, SquashCommitsResult, restore_branch_head_core, squash_commits_core};
 use tauri::State;
 use tracing::instrument;
 

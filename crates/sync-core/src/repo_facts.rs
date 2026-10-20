@@ -2,7 +2,6 @@
 //! commit and its upstream, HEAD, and the branches under the prefix (docs/design/git-operations.md, "Virtual branch
 //! sync"). Three git processes after the guards, a fourth only when HEAD's branch tracks a branch the listing lacks.
 
-use crate::baseline::{NoBaseline, baseline_candidates, no_baseline};
 use crate::conflict_chain::CONFLICT_REFS;
 use crate::landed::STATE_FILE;
 use crate::update_project::{BaselineUpstream, KnownBaseline, TrackedUpstream, baseline_upstream_of, modified_time};
@@ -11,6 +10,7 @@ use branch_integration::common::{LISTED_BRANCH_ATOMS, ListedBranch};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::commit_writer::{STALE_TEMP_REF_AGE, TEMP_REF_PREFIX, is_stale_temp_ref};
 use git_ops::revs::resolve_commit;
+use history_rewrite::baseline::{NoBaseline, baseline_candidates, no_baseline};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tracing::instrument;

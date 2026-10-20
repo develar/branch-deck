@@ -40,7 +40,7 @@ targets:
   - ../../crates/sync-core/src/move_hunk.rs
   - ../../crates/git-ops/src/move_hunk.rs
   - ../../crates/git-ops/src/merge_tree_output.rs
-  - ../../crates/sync-core/src/autosquash.rs
+  - ../../crates/history-rewrite/src/autosquash.rs
   - ../../crates/bd-cli/src/suggest.rs
   - ../../crates/bd-cli/src/clustering.rs
   - ../../crates/sync-utils/src/issue_pattern.rs
@@ -65,10 +65,10 @@ targets:
   - ../../crates/object-cache/src/conflict_chain.rs
   - ../../crates/sync-core/src/conflict_chain.rs
   - ../../crates/object-cache/src/build_result.rs
-  - ../../crates/sync-core/src/regroup.rs
-  - ../../crates/sync-core/src/issue_groups.rs
-  - ../../crates/sync-core/src/commit_ids.rs
-  - ../../crates/sync-core/src/repository_lock.rs
+  - ../../crates/history-rewrite/src/regroup.rs
+  - ../../crates/history-rewrite/src/issue_groups.rs
+  - ../../crates/history-rewrite/src/commit_ids.rs
+  - ../../crates/history-rewrite/src/repository_lock.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/bd-cli/src/install.rs
   - ../../src-tauri/src/commands/agent_cli.rs
@@ -423,7 +423,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `--expect-head` must refuse with `head_moved` on another HEAD, and the fold must check that HEAD, the planned
   commits and the history it rewrites all end at the planned head; a held lock is `locked`.
   [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
-  [@test] ../../crates/sync-core/src/autosquash_test.rs (`refuses_when_the_branch_moved_since_the_plan`)
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`refuses_when_the_branch_moved_since_the_plan`)
 - A rebase, merge, cherry-pick or revert in progress in this worktree must be `operation_in_progress` (exit 4) for the
   fold and its dry run, moving nothing; one in another worktree refuses nothing, since git keeps that state per
   worktree.

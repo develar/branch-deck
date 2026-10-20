@@ -3,17 +3,17 @@
 //! `bd commits --patch` prints), under the repository lock, then the rewrite of `git_ops::move_hunk`, which keeps HEAD's
 //! tree (docs/design/git-operations.md, "Move a hunk")
 
-use crate::commit_ids::{IdMatch, match_commit_id};
 use crate::diff_scan::{Renames, blob_pair, read_commit_changes};
-use crate::regroup::RegroupError;
-use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, ensure_expected_head, lock_repository};
-use crate::snapshot::CommitsAhead;
 use file_diffs::patch::BlockPatch;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::move_hunk::{MoveHunkMode, MoveHunkRequest, MovedChange, move_hunk};
 use git_ops::revs::{DetachedHead, current_branch, short_id};
 use git_ops::rewrite_guard::ensure_no_operation_in_progress;
+use history_rewrite::commit_ids::{IdMatch, match_commit_id};
+use history_rewrite::regroup::RegroupError;
+use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, ensure_expected_head, lock_repository};
+use history_rewrite::snapshot::CommitsAhead;
 use object_cache::cache::ObjectCache;
 use std::time::Duration;
 use text_diff::apply::{BlockId, LineBlock};

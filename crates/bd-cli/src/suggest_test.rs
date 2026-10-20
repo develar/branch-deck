@@ -4,10 +4,10 @@ use crate::fixture_test::{
 };
 use crate::suggest::{SuggestPlan, kept_and_moved, name_words, plan_of};
 use git_ops::revs::short_id;
+use history_rewrite::regroup::RegroupPlan;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use sync_core::regroup::RegroupPlan;
 use test_utils::git_test_utils::TestRepo;
 
 /// Commit each `(subject, [(path, content)])` with increasing times

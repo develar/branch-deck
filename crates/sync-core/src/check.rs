@@ -7,21 +7,14 @@
 //! `stack_independence` asks one question of the check: does a stacked branch build on the baseline without its
 //! parent? It builds that branch alone, as Unstack would make it, and names the commits of its ancestors it needs.
 
-use crate::autosquash::plan_autosquash;
 use crate::branch_processor::{BranchJob, BranchSyncContext, BuildOutcome, ExistingCommits, build_branch};
 use crate::cache_memo::CacheMemo;
-use crate::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
-use crate::commit_ids::{IdMatch, match_commit_id};
 use crate::config_snapshot::ConfigSnapshot;
 use crate::dangling_references::{DanglingInput, DanglingReference, SyntaxMemo, find_dangling_references, read_commit_lines};
 use crate::dependencies::compute_dependencies;
 use crate::diff_scan::{CommitDiff, read_commit_diffs_cached};
 use crate::grouping::branch_tips;
 use crate::missing_commits::CommitOwners;
-use crate::regroup::{RegroupError, RegroupOutcome, RegroupPlan, plan_in_memory};
-use crate::snapshot::Snapshot;
-use crate::stack::{PendingDetection, empty_parent_states, place_branches, read_only_detection};
-use crate::stack::{StackForest, describe_problem};
 use crate::symbol_dependencies::declaration_checks::{AddedKeys, DeclarationFacts};
 use crate::symbol_dependencies::{SymbolGraph, compute_symbol_dependencies};
 use crate::symbol_scan::{SymbolInput, SymbolMode, read_symbol_input};
@@ -31,11 +24,18 @@ use file_diffs::service::FileDiffs;
 use git_executor::concurrency::ProcessPermits;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{BranchKind, strip_branch_namespace};
-use git_ops::commit_list::Commit;
+use git_ops::commit_list::{Commit, get_commit_list};
 use git_ops::model::BranchError;
 use git_ops::revs::resolve_commit;
 use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::word_resolve::ResolveMode;
+use history_rewrite::autosquash::plan_autosquash;
+use history_rewrite::commit_grouper::{CommitGrouper, GroupedCommits, parse_subject};
+use history_rewrite::commit_ids::{IdMatch, match_commit_id};
+use history_rewrite::regroup::{RegroupError, RegroupOutcome, RegroupPlan, plan_in_memory};
+use history_rewrite::snapshot::{Grouped, Snapshot, group_commits};
+use history_rewrite::stack::{PendingDetection, empty_parent_states, place_branches, read_only_detection};
+use history_rewrite::stack::{StackForest, describe_problem};
 use object_cache::cache::ObjectCache;
 use object_cache::commit_lines::FileLines;
 use serde::Serialize;
@@ -307,13 +307,13 @@ impl CheckSession {
     Self::open_with(git_executor, repository_path, branch_prefix, cache, snapshot, (symbols, resolve))
   }
 
-  /// The session after the sync of `report`, on what it read (`Snapshot::of_sync`, its config): the commits with the
+  /// The session after the sync of `report`, on what it read (`snapshot_of_sync`, its config): the commits with the
   /// mapping notes it wrote and the branch tips it left are read again, nothing else
   #[instrument(skip(git_executor, cache, report))]
   pub fn of_sync(git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, cache: &ObjectCache, report: &SyncReport) -> Result<Self, RegroupError> {
     let symbols = report.config.symbol_mode().map_err(RegroupError::from)?;
     let resolve = report.config.resolve_mode().map_err(RegroupError::from)?;
-    let snapshot = Snapshot::of_sync(git_executor, repository_path, report)?;
+    let snapshot = snapshot_of_sync(git_executor, repository_path, report)?;
     Self::open_with(git_executor, repository_path, branch_prefix, cache, snapshot, (symbols, resolve))
   }
 
@@ -1145,6 +1145,23 @@ impl ProgressReporter for CollectingReporter {
     }
     Ok(())
   }
+}
+
+/// The snapshot after the sync of `report`, on what it read at its start (its guards passed, HEAD, the grouping, the
+/// baseline): one `log` of the commits ahead of the baseline, for the mapping notes the sync wrote. Under the
+/// repository lock the sync and the checks after it hold, no rewrite moved HEAD since
+fn snapshot_of_sync(git_executor: &GitCommandExecutor, repository_path: &str, report: &SyncReport) -> anyhow::Result<Snapshot> {
+  let commits = get_commit_list(git_executor, repository_path, &report.baseline)?;
+  let Grouped { groups, forest, .. } = group_commits(&commits, &report.grouping);
+  Ok(Snapshot {
+    head: report.head.clone(),
+    branch: report.branch.clone(),
+    grouping: report.grouping.clone(),
+    baseline: report.baseline.clone(),
+    commits,
+    groups,
+    forest,
+  })
 }
 
 #[cfg(test)]

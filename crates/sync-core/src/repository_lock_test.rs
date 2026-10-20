@@ -4,13 +4,13 @@
 
 use crate::add_issue_reference::{AddIssueReferenceParams, add_issue_reference_to_commits_core};
 use crate::amend_to_branch::{AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
-use crate::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
-use crate::repository_lock::{LockHolder, RepositoryLocked, RewriteOptions, lock_repository, lock_repository_in};
-use crate::reword_commit::{CommitRewrite, RewordCommitsRequest, reword_commits_core};
-use crate::squash::{RestoreBranchHeadParams, SquashCommitsParams, restore_branch_head_core, squash_commits_core};
 use crate::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
 use git_ops::model::CommitInfo;
 use git_ops::rewrite_guard::HeadMoved;
+use history_rewrite::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
+use history_rewrite::repository_lock::{LockHolder, RepositoryLocked, RewriteOptions, lock_repository, lock_repository_in};
+use history_rewrite::reword_commit::{CommitRewrite, RewordCommitsRequest, reword_commits_core};
+use history_rewrite::squash::{RestoreBranchHeadParams, SquashCommitsParams, restore_branch_head_core, squash_commits_core};
 use pretty_assertions::assert_eq;
 use std::time::{Duration, Instant};
 use test_log::test;

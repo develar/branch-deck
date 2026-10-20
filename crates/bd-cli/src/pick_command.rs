@@ -9,12 +9,12 @@ use crate::output::{SchemaVersion, ShortIds};
 use crate::suggest::SuggestPlan;
 use crate::update_command::{core_error, uncommitted_overlap};
 use git_ops::pick::{FollowState, PickRefusal, PickState, PresentBy};
+use history_rewrite::repository_lock::RewriteOptions;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use sync_core::pick::{DependencyFix, GroupedBy, PickDependency, PickFrom, PickParams, PickResult, PickUndoToken, UndonePick, pick_core, undo_pick_core};
-use sync_core::repository_lock::RewriteOptions;
 
 #[derive(Debug, Default, clap::Args)]
 pub struct PickArgs {

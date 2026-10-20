@@ -1,8 +1,8 @@
 use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use git_executor::git_command_executor::GitCommandExecutor;
+use history_rewrite::repository_lock::RewriteOptions;
 use sync_core::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
-use sync_core::repository_lock::RewriteOptions;
 use tauri::State;
 use tracing::instrument;
 

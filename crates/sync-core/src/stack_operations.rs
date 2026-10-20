@@ -4,11 +4,11 @@
 //! the branch builds without its parent.
 
 use crate::check::{StackIndependence, stack_independence};
-use crate::move_commits::{MoveCommitsResult, move_result};
-use crate::regroup::{RegroupOptions, UndoToken, rename_branch_core, restack_branch_core, undo_regroup_core};
-use crate::repository_lock::DEFAULT_LOCK_TIMEOUT;
 use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
+use history_rewrite::move_commits::{MoveCommitsResult, move_result};
+use history_rewrite::regroup::{RegroupOptions, UndoToken, rename_branch_core, restack_branch_core, undo_regroup_core};
+use history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT;
 use object_cache::cache::ObjectCache;
 use serde::Deserialize;
 use tracing::instrument;

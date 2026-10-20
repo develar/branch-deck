@@ -12,6 +12,7 @@ use crate::suggest::SuggestPlan;
 use crate::text_input::read_text;
 use git_ops::cat_file_batch::object_ids_and_types;
 use git_ops::tree_archive::write_tree_archive;
+use history_rewrite::regroup::{RegroupError, RegroupPlan};
 use schemars::JsonSchema;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -27,7 +28,6 @@ use sync_core::dangling_references::{DanglingKind, DanglingReference, DeclaredIn
 use sync_core::inverted_stack::{InvertedStackFixKind, inverted_stack};
 use sync_core::missing_commits::{changed_files, missing_commits};
 use sync_core::missing_declarations::missing_declarations;
-use sync_core::regroup::{RegroupError, RegroupPlan};
 use sync_core::sync::SyncReport;
 use sync_types::stack::BranchStack;
 use sync_utils::list_cut::kept;

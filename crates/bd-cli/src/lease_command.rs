@@ -9,6 +9,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_executor::git_info::GitInfo;
 use git_ops::lease_slot::lease_config;
 use git_ops::revs::{RepositoryDirs, repository_dirs};
+use history_rewrite::repository_lock::RepositoryLocked;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt::Write;
@@ -19,7 +20,6 @@ use sync_core::lease::{
   lease_clean_core, lease_get_core, lease_return_core, lease_status_core, pool_dir,
 };
 use sync_core::lease_clean::{CleanOverrides, Cleaned, parse_age};
-use sync_core::repository_lock::RepositoryLocked;
 use sync_utils::list_cut::kept;
 
 /// How many local paths an error or a skipped slot names

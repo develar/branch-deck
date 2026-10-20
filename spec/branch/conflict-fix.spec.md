@@ -6,7 +6,7 @@ targets:
   - ../../crates/sync-core/src/conflict_fix.rs
   - ../../crates/sync-core/src/check.rs
   - ../../crates/sync-core/src/missing_commits.rs
-  - ../../crates/sync-core/src/move_plan.rs
+  - ../../crates/history-rewrite/src/move_plan.rs
   - ../../crates/sync-core/src/dangling_references.rs
   - ../../crates/bd-cli/src/check_command.rs
   - ../../crates/bd-cli/src/agent_help.rs

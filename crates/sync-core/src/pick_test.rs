@@ -1,5 +1,5 @@
-use crate::commit_grouper::GroupingInputs;
 use crate::pick::{FollowToken, GroupedBy, PickUndoToken, picked_group};
+use history_rewrite::commit_grouper::GroupingInputs;
 use pretty_assertions::assert_eq;
 
 const A: &str = "1111111111111111111111111111111111111111";

@@ -6,8 +6,8 @@ targets:
   - ../../crates/git-ops/src/squash_commits.rs
   - ../../crates/git-ops/src/rewrite_plan.rs
   - ../../crates/git-ops/src/replay.rs
-  - ../../crates/sync-core/src/squash.rs
-  - ../../crates/sync-core/src/repository_lock.rs
+  - ../../crates/history-rewrite/src/squash.rs
+  - ../../crates/history-rewrite/src/repository_lock.rs
   - ../../src-tauri/src/commands/squash_commits.rs
   - ../../src/hooks/useSquashCommits.ts
   - ../../src/hooks/useCommitMoveList.ts
@@ -49,7 +49,7 @@ tree and the index are not touched, and an undo is a move of the branch back.
   place in the history and its author; the committer becomes the current user.
 - The changes of the newer commits must be applied to it oldest first. The commits in between must stay, with their
   messages.
-  [@test] ../../crates/sync-core/src/squash_test.rs (`squashes_into_the_oldest_selected_commit_whatever_the_order`)
+  [@test] ../../crates/history-rewrite/src/squash_test.rs (`squashes_into_the_oldest_selected_commit_whatever_the_order`)
   [@test] ../../crates/git-ops/src/squash_commits_test.rs (`squashes_adjacent_commits_into_the_oldest`, `keeps_the_commit_in_between_of_another_branch`, `squashes_head_into_an_older_commit`, `squashes_several_groups_in_one_rewrite`)
 - The tree of HEAD must stay the same. The working tree, the index and the untracked files must stay byte for byte.
   [@test] ../../crates/git-ops/src/squash_commits_test.rs (`keeps_dirty_and_staged_changes_byte_for_byte`)
@@ -64,7 +64,7 @@ tree and the index are not touched, and an undo is a move of the branch back.
   - a rebase, merge, cherry-pick or revert is in progress, HEAD is detached, or the range contains a merge commit;
   - the branch moved meanwhile.
   [@test] ../../crates/git-ops/src/squash_commits_test.rs (`validates_the_groups`, `refuses_a_range_with_merges`)
-  [@test] ../../crates/sync-core/src/squash_test.rs (`refuses_fewer_than_two_commits_a_duplicate_or_a_blank_subject`)
+  [@test] ../../crates/history-rewrite/src/squash_test.rs (`refuses_fewer_than_two_commits_a_duplicate_or_a_blank_subject`)
   [@test] ../../crates/git-ops/src/rewrite_plan_test.rs (`squash_conflicting_with_commit_in_between_changes_nothing`, `refusal_after_writing_a_commit_leaves_no_temp_refs`, `squash_refuses_empty_result`, `squash_refuses_kept_commit_that_becomes_empty`)
 - The squash and its undo must run under the repository lock: while another Branch Deck operation holds it, they wait
   up to 10 s, then they are refused with nothing changed and the error toast says that another operation holds the
@@ -105,7 +105,7 @@ tree and the index are not touched, and an undo is a move of the branch back.
 - Undo must move the branch back to the commit before the squash in one transaction (`branch-deck: undo squash`),
   only if the branch still points at the squashed history and both have the same files; otherwise it is refused.
   [@test] ../../crates/git-ops/src/squash_commits_test.rs (`undo_restores_the_previous_head`, `undo_is_refused_when_the_branch_moved`)
-  [@test] ../../crates/sync-core/src/squash_test.rs (`undo_restores_the_previous_head_and_refuses_after_a_new_commit`)
+  [@test] ../../crates/history-rewrite/src/squash_test.rs (`undo_restores_the_previous_head_and_refuses_after_a_new_commit`)
   [@test] ../../tests/e2e/squash-commits/squash-commits.spec.ts (`should squash selected branch commits into the oldest one and undo it`)
 
 ## User Experience

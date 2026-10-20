@@ -22,6 +22,7 @@ object-cache = { path = "../object-cache" }
 patronus = { path = "../patronus" }
 github = { path = "../github" }
 sync-core = { path = "../sync-core" }
+history-rewrite = { path = "../history-rewrite" }
 code-symbols = { path = "../code-symbols" }
 sync-types = { path = "../sync-types" }
 sync-utils = { path = "../sync-utils" }

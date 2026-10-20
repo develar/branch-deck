@@ -39,7 +39,11 @@ flowchart TD
     APP[src-tauri: a Tauri command, run_blocking of a core] --> CORE
     BD[bd-cli: arguments, JSON output, error codes] --> CORE
     E2E[test-server: the commands of the E2E mock] --> CORE
-    CORE[sync-core: one core per operation, the lock, the expected HEAD, the order of the steps; the sync] --> OPS
+    CORE[sync-core: one core per operation, the expected HEAD, the order of the steps; the sync] --> OPS
+    APP --> HR
+    BD --> HR
+    CORE --> HR[history-rewrite: the rewrites that need no sync, the grouping, the stores, the repository lock] --> OPS
+    HR --> BI
     CORE --> BI[branch-integration: the archive step and the detection of integrated branches]
     BI --> OPS[git-ops: one module per operation or shared reader and writer, one git process per phase]
     OPS --> EX[git-executor: GitCommandExecutor, the one place a git process starts]
@@ -51,11 +55,12 @@ flowchart TD
 Each layer calls only the layers below it. The adapters (the app, `bd`, the E2E server) parse a request, call a core
 (`<operation>_core(params, options)`) and present its result; the app and `bd` run no git of their own and call git-ops
 directly only for reads that need no lock or guard, such as the patches of the diff view. A core is where an operation
-is made safe against the app and the parallel `bd` processes, once for every caller: it takes the repository lock,
+is made safe against the app and the parallel `bd` processes, once for every caller (the cores of the rewrites that
+need no sync, GitHub or Patronus are the crate history-rewrite, the others sync-core): it takes the repository lock,
 checks the HEAD the request was made for and orders the git steps. git-ops knows git and no policy: which arguments,
 which process, how to read its output, each module one operation or one primitive that operations share; a rewrite there
-runs the guards on the history it read and moves the branch with CAS. The `//!` headers of `crates/git-ops/src/lib.rs`
-and `crates/sync-core/src/lib.rs` map their modules by area; "Adding a git operation" in `AGENTS.md` is the checklist
+runs the guards on the history it read and moves the branch with CAS. The `//!` headers of `crates/git-ops/src/lib.rs`,
+`crates/history-rewrite/src/lib.rs` and `crates/sync-core/src/lib.rs` map their modules by area; "Adding a git operation" in `AGENTS.md` is the checklist
 of a new one, and [Adding a Git Operation](../guidelines/adding-git-operation.md) says where it goes and which helpers
 it reuses.
 
@@ -332,7 +337,7 @@ writes anything:
 
 1. Take the repository lock (below), refuse while an operation is in progress or HEAD is detached, and read HEAD, the
    stack setting, the issue groups and the stack parents (one `cat-file --batch`) and the commits ahead of the
-   baseline (one `log`): the `Snapshot` (`crates/sync-core/src/snapshot.rs`, which the check reads too; the reads
+   baseline (one `log`): the `Snapshot` (`crates/history-rewrite/src/snapshot.rs`, which the check reads too; the reads
    that need less take its parts, `CommitsAhead` and `read_grouping_inputs`). An
    `expect_head` that isn't HEAD is `head_moved`.
 2. Resolve the ids of the plan (abbreviations allowed); unknown ids, ids that aren't ahead of the baseline,
@@ -416,7 +421,7 @@ share it), waiting up to 10 s for another holder and then failing with `locked`.
 the app and parallel `bd` processes. A dry run reads only and takes no lock. Every rewrite of the checked out branch
 takes it in its core, before it reads anything: the regroup and the move of a hunk (their options), and the app's
 squash and its undo, squash fixups (also `bd fold`), amend, unapply, reword and add issue reference, each a
-`*_core(…, &RewriteOptions)` (`crates/sync-core/src/repository_lock.rs`): `lock_timeout` (10 s by default),
+`*_core(…, &RewriteOptions)` (`crates/history-rewrite/src/repository_lock.rs`): `lock_timeout` (10 s by default),
 `held_lock` for a caller that holds the lock already, so the core takes none, and `expect_head`, the HEAD the request
 was made for, abbreviated ids allowed, else `HeadMoved` (`ensure_expected_head`, one check for every core). The app
 shows a lock held for the whole wait as the error toast of the action, "Cannot squash the fixups" with "Another
@@ -451,8 +456,8 @@ A failure in step 3 or 4 leaves the rewrite in place: the output keeps the undo 
 A failed description write stops the later ones and skips step 4. The undo moves HEAD and the issue groups back, not
 the descriptions or the virtual branches; the output lists the texts the descriptions replaced.
 
-Code: `crates/sync-core/src/regroup.rs`, `crates/sync-core/src/snapshot.rs`, `crates/sync-core/src/move_commits.rs`,
-`crates/sync-core/src/issue_groups.rs`, `crates/sync-core/src/repository_lock.rs`.
+Code: `crates/history-rewrite/src/regroup.rs`, `crates/history-rewrite/src/snapshot.rs`, `crates/history-rewrite/src/move_commits.rs`,
+`crates/history-rewrite/src/issue_groups.rs`, `crates/history-rewrite/src/repository_lock.rs`.
 
 #### Amend
 
@@ -532,7 +537,7 @@ text or the target's own message and encoding):
 **Undo** moves the branch back to the old HEAD with a CAS on the new one (`branch-deck: undo squash`). It is refused if
 the branch moved since, or if the two trees differ; equal trees mean the index and the working tree need no change.
 
-Code: `crates/git-ops/src/squash_commits.rs`, `crates/git-ops/src/rewrite_plan.rs`, `crates/sync-core/src/squash.rs`.
+Code: `crates/git-ops/src/squash_commits.rs`, `crates/git-ops/src/rewrite_plan.rs`, `crates/history-rewrite/src/squash.rs`.
 
 #### Squash fixups
 
@@ -562,7 +567,7 @@ the scope (see "Rewrite history"), once the plan names the targets. The branch m
 CAS on that head; Undo is the squash undo. The core takes the repository lock first; `bd fold` passes its
 `--expect-head` and lock timeout to it, with the head it planned for.
 
-Code: `crates/sync-core/src/autosquash.rs`, `crates/sync-core/src/commit_grouper.rs` (`parse_subject`,
+Code: `crates/history-rewrite/src/autosquash.rs`, `crates/history-rewrite/src/commit_grouper.rs` (`parse_subject`,
 `GroupingInputs::branch_of`).
 
 #### Move a hunk
@@ -1219,12 +1224,12 @@ pool lock (a rename on one volume, so the lock is held for a moment; another vol
 would copy every file). The empty parent of the old directory goes; the Treehouse state is not touched. Bazel derives
 the output base from the workspace path, so a moved slot starts with a cold output base.
 
-The process scan (`crates/sync-core/src/process_scan.rs`) reads the working directory and the argv of every process of
+The process scan (`crates/sync-utils/src/process_scan.rs`) reads the working directory and the argv of every process of
 the user: on macOS through libproc (`proc_listallpids`, `proc_pidinfo` with `PROC_PIDVNODEPATHINFO`) and
 `sysctl(KERN_PROCARGS2)`, on Linux from `/proc/<pid>/cwd` and `/proc/<pid>/cmdline`. It leaves out `bd` and its ancestors, and compares canonical paths by components. Windows has no
 scan: the outputs say `processes_checked: false`, and a lease never waits for it.
 
-Code: `crates/git-ops/src/lease_slot.rs`, `crates/sync-core/src/lease.rs`, `crates/sync-core/src/process_scan.rs`,
+Code: `crates/git-ops/src/lease_slot.rs`, `crates/sync-core/src/lease.rs`, `crates/sync-utils/src/process_scan.rs`,
 `crates/bd-cli/src/lease_command.rs`.
 
 #### Virtual branch sync
@@ -1561,7 +1566,7 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
   per ref), for the integration detection of its archived branch.
 
 Code: `crates/git-ops/src/copy_commit.rs`, `crates/sync-core/src/branch_processor.rs`,
-`crates/git-ops/src/reword_commits.rs`, `crates/sync-core/src/reword_commit.rs`.
+`crates/git-ops/src/reword_commits.rs`, `crates/history-rewrite/src/reword_commit.rs`.
 
 #### Object cache
 
@@ -2280,8 +2285,10 @@ fifth, `branchdeck.resolveByWords` (`crates/sync-core/src/repository_config.rs`)
   description titles, or takes the one its caller read (`SyncOptions::config`): `bd` reads it once per command
   (`RepoContext::config`), for the branch prefix and then for its sync, `bd push` and `bd request-review` (the report
   carries it), and again after a wait for the repository lock, when another process may have changed it.
-  `stacks_enabled`, `read_symbol_mode` and the configured GitHub repository of the pull requests are one snapshot each,
-  for a caller that needs one key. `get_branch_prefix_from_git_config_sync` keeps its own read for the app, with its
+  `read_symbol_mode` and the configured GitHub repository of the pull requests are one snapshot each, for a caller that
+  needs one key; `stacks_enabled` (`history_rewrite::stack`, which knows no `ConfigSnapshot`) is one
+  `git config -z --get-regexp` of `branchdeck.stacks` alone, the last entry read as `parse_git_bool` reads it
+  (`sync_utils::git_bool`), so it says what `ConfigSnapshot::stacks` says. `get_branch_prefix_from_git_config_sync` keeps its own read for the app, with its
   errors (a repository that is not accessible).
 - **Write**: the local config (`.git/config`, shared by every linked worktree): `git config --local
   --replace-all <key> <value>`, or `--unset-all` (exit 5, nothing to unset, is a success). A boolean is written as
@@ -2789,10 +2796,10 @@ Left out of the audit of the git layer on purpose, the gain smaller than the noi
   `crates/git-ops/src/commit_writer.rs`, `crates/git-ops/src/reword_commits.rs`,
   `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/replay.rs`, `crates/git-ops/src/amend_operations.rs`,
   `crates/git-ops/src/squash_commits.rs`,
-  `crates/sync-core/src/autosquash.rs`, `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/worktree_update.rs`,
+  `crates/history-rewrite/src/autosquash.rs`, `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/worktree_update.rs`,
   `crates/sync-core/src/update_project.rs`, `crates/git-ops/src/update_resolve.rs`, `crates/git-ops/src/resolve_check.rs`,
   `crates/git-ops/src/merge_tree_output.rs`, `crates/sync-core/src/resolve_session.rs`,
-  `crates/sync-core/src/resolve_copies.rs`, `crates/sync-core/src/regroup.rs`, `crates/sync-core/src/repository_lock.rs`,
+  `crates/sync-core/src/resolve_copies.rs`, `crates/history-rewrite/src/regroup.rs`, `crates/history-rewrite/src/repository_lock.rs`,
   `crates/object-cache/src/cache.rs`, `crates/git-ops/src/commit_files.rs`; the module maps in
   `crates/git-ops/src/lib.rs` and `crates/sync-core/src/lib.rs`
 - Tests: `crates/git-executor/src/worktree_safety_test.rs` and `git_usage_scan_test.rs` (the scans of the git argument

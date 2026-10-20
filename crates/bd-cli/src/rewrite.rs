@@ -1,5 +1,5 @@
 //! `bd group`, `bd rename`, `bd restack`, `bd unstack` and `bd undo`: message-only history rewrites through
-//! `sync_core::regroup`, which validates before it writes. bd holds the repository lock over the rewrite, the
+//! `history_rewrite::regroup`, which validates before it writes. bd holds the repository lock over the rewrite, the
 //! descriptions of a plan and, with --sync, the sync
 
 use crate::context::RepoContext;
@@ -13,15 +13,15 @@ use crate::text_input::read_text;
 use crate::update_command::undo_update;
 use git_ops::branch_description::Description;
 use git_ops::revs::read_head;
+use history_rewrite::baseline::NoBaseline;
+use history_rewrite::regroup::{
+  RegroupError, RegroupOptions, RegroupOutcome, UndoToken, describe_problem, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core, undo_regroup_core,
+};
+use history_rewrite::stack::StackForest;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use sync_core::baseline::NoBaseline;
-use sync_core::regroup::{
-  RegroupError, RegroupOptions, RegroupOutcome, UndoToken, describe_problem, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core, undo_regroup_core,
-};
-use sync_core::stack::StackForest;
 
 /// The options every rewrite takes
 #[derive(Debug, Default, clap::Args)]

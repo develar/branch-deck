@@ -5,8 +5,8 @@ use crate::context::RepoContext;
 use crate::describe::{description_branch, write_description};
 use crate::error::{CliError, ErrorCode};
 use git_ops::branch_description::Description;
+use history_rewrite::regroup::{RegroupError, RegroupPlan, RegroupedCommit};
 use std::collections::{BTreeMap, BTreeSet};
-use sync_core::regroup::{RegroupError, RegroupPlan, RegroupedCommit};
 
 const DESCRIPTIONS: &str = "descriptions";
 
