@@ -5,6 +5,7 @@ style: plain-1
 targets:
   - ../../crates/github/src/device_flow.rs
   - ../../crates/github/src/token_store.rs
+  - ../../crates/sync-utils/src/private_file.rs
   - ../../crates/github/src/token.rs
   - ../../crates/sync-types/src/pull_request.rs
   - ../../src-tauri/src/commands/github.rs
@@ -80,8 +81,10 @@ redirect and without a client secret.
 
 - `github-token.json` in the app data directory (`~/Library/Application Support/org.develar.branch-deck` on macOS),
   `{ token, login, scopes, created_at }`, which `bd` reads too. It is written as a temporary file created 0600 in the
-  same directory and renamed over the old one; a file others may read is not used, and a warning says why.
-  [@test] ../../crates/github/src/token_store_test.rs (`a_token_is_written_for_the_user_only_and_read_back`, `a_token_file_others_may_read_is_not_used`)
+  same directory and renamed over the old one; a file others may read is not used, and a warning says why
+  (`sync_utils::private_file`).
+  [@test] ../../crates/github/src/token_store_test.rs (`a_token_is_written_and_read_back`)
+  [@test] ../../crates/sync-utils/src/private_file_test.rs (`a_file_is_written_for_the_user_only_and_read_back`, `a_file_others_may_read_is_not_used`)
 - The token of the file comes after `GH_TOKEN` and `gh`, before git ([Pull Requests](../branch/pull-requests.spec.md#the-token)):
   an organization that restricts OAuth apps has usually approved `gh`, and the Branch Deck app only once an admin did.
   [@test] ../../crates/github/src/token_test.rs (`the_sign_in_of_the_app_comes_after_gh_and_before_git`)

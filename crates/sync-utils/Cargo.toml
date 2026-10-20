@@ -7,6 +7,8 @@ license.workspace = true
 [dependencies]
 jiff = { version = "0.2.38", default-features = false, features = ["std"] }
 memchr = "2"
+serde.workspace = true
+serde_json.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
