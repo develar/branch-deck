@@ -1,7 +1,10 @@
 import { PencilLineIcon } from "lucide-react"
+import { undoRegroup } from "@/hooks/useStackActions"
 import { commands } from "@/lib/bindings"
+import { showUndoToast } from "@/lib/command"
 import type { CommitUnion } from "@/lib/commit"
-import { getCommitHash } from "@/lib/commit"
+import { getCommitHash, getSubjectLine } from "@/lib/commit"
+import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
 import { runRewrite } from "@/lib/rewrite"
 import { branchSyncStore, getBranchesOfCommits } from "@/stores/branch-sync"
@@ -25,24 +28,35 @@ function rewordOperation(commitId: string): OperationKey & { readonly branchName
 }
 
 /**
- * Replaces the message of a commit as one rewrite (`runRewrite`), then re-syncs so the lists and the virtual branches
- * show the new commit. `onReworded` gets the new commit id before the sync starts. Returns false (after an error toast)
- * if the reword failed.
+ * Replaces the message of a commit as one rewrite (`runRewrite`, the regroup of `bd reword`), then re-syncs so the lists
+ * and the virtual branches show the new commit, and offers its Undo in a toast and in Activity. `onFollow(from, to)`
+ * moves a preview on `from` to `to`: on the save to the new commit, before the sync starts, and on the Undo back to the
+ * old one. A message unchanged after the cleanup rewrites nothing and offers no Undo. Returns false (after an error
+ * toast) if the reword failed.
  */
-export async function rewordCommit(commit: CommitUnion, message: string, onReworded: (newCommitId: string) => void, surface: string | null = null): Promise<boolean> {
+export async function rewordCommit(commit: CommitUnion, message: string, onFollow: (from: string, to: string) => void, surface: string | null = null): Promise<boolean> {
   const commitId = getCommitHash(commit)
   const { id, subject, objects } = rewordOperation(commitId)
   const result = await runRewrite(
     { id, subject, objects, label: "Editing the commit message", surface },
     "Cannot edit the commit message",
-    () => commands.rewordCommits({ repositoryPath: getSelectedProject()?.path ?? "", rewrites: [{ commitId, message }] }),
+    () => commands.reword({ repositoryPath: getSelectedProject()?.path ?? "", rewords: [{ commit: commitId, text: { message } }] }),
     data => {
       const newCommitId = data.newCommitIds[commitId] ?? commitId
-      if (newCommitId === commitId) {
+      const token = data.undoToken
+      if (token == null || newCommitId === commitId) {
         return { sync: false }
       }
-      onReworded(newCommitId)
-      return { sync: true }
+      onFollow(commitId, newCommitId)
+      return {
+        sync: true,
+        after: () =>
+          showUndoToast(
+            `Reworded ${formatShortHash(commitId)}`,
+            () => undoRegroup(token, "Cannot undo the reword", "Undoing the reword", () => onFollow(newCommitId, commitId)),
+            getSubjectLine(message).trim(),
+          ),
+      }
     },
   )
   return result !== null

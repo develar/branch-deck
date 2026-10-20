@@ -182,3 +182,34 @@ fn a_drop_under_a_staged_change_names_the_path() -> Result<()> {
   assert_eq!(repo.head(), head_before);
   assert_no_temp_refs(&repo)
 }
+
+/// The guards of a rewrite refuse it while a merge is in progress, before anything is written
+#[test]
+fn rewrite_refused_during_merge() {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Base", "base.rs", "// base");
+  let commit = test_repo.create_commit("(feature) Add login", "login.rs", "// login");
+  let path = test_repo.path().to_str().unwrap();
+  std::fs::write(test_repo.path().join("login.rs"), "// changed").unwrap();
+  std::fs::write(test_repo.path().join(".git/MERGE_HEAD"), format!("{commit}\n")).unwrap();
+
+  let amend_error = super::amend_operations::amend_to_commit_in_main(
+    test_repo.git_executor(),
+    path,
+    super::amend_operations::AmendToCommitParams {
+      original_commit_id: commit.clone(),
+      files: vec!["login.rs".to_string()],
+    },
+  )
+  .unwrap_err()
+  .to_string();
+  let drop_error = drop_commits_from_head(test_repo.git_executor(), path, std::slice::from_ref(&commit))
+    .unwrap_err()
+    .to_string();
+
+  for error in [amend_error, drop_error] {
+    assert!(error.contains("a merge is in progress"), "{error}");
+  }
+  assert_eq!(test_repo.head(), commit);
+  assert_eq!(std::fs::read_to_string(test_repo.path().join("login.rs")).unwrap(), "// changed");
+}

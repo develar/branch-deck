@@ -9,8 +9,8 @@ use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::CommitGrouper;
 use history_rewrite::move_commits::{MoveCommitsParams, move_commits_to_branch_core};
-use history_rewrite::repository_lock::RewriteOptions;
-use history_rewrite::reword_commit::{CommitRewrite, RewordCommitsRequest, reword_commits_core};
+use history_rewrite::regroup::RegroupOptions;
+use history_rewrite::reword::{CommitReword, RewordText, reword_core};
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -364,14 +364,11 @@ async fn a_reworded_body_recopies_the_commit() {
   sync(&test_repo).await;
   let cache = virtual_commits(&test_repo, "cache");
 
-  let request = RewordCommitsRequest {
-    repository_path: repo_path(&test_repo).to_string(),
-    rewrites: vec![CommitRewrite {
-      commit_id: login,
-      message: "(auth) Add login\n\nWith a remember-me box.".to_string(),
-    }],
+  let reword = CommitReword {
+    commit: login,
+    text: RewordText::Message("(auth) Add login\n\nWith a remember-me box.".to_string()),
   };
-  reword_commits_core(test_repo.git_executor(), &request, &RewriteOptions::default()).unwrap();
+  reword_core(test_repo.git_executor(), repo_path(&test_repo), &[reword], &RegroupOptions::default()).unwrap();
 
   let statuses = sync(&test_repo).await;
   assert_eq!(statuses["auth"], [CommitSyncStatus::Created]);

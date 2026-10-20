@@ -32,6 +32,11 @@ export interface PrefixChange {
   text: string
   /** The change moves or restacks the commit, or makes a stack problem: shown as a warning */
   warning: boolean
+  /**
+   * The text for an action whose core refuses the stack problem the change makes (the reword is a regroup, which
+   * refuses a problem it introduces); set only for such a problem
+   */
+  refused?: string
 }
 
 /**
@@ -54,7 +59,7 @@ export function describePrefixChange(
   const from = groupFor(before, stacks, issueGroups, stackParents)
   const to = groupFor(after, stacks, issueGroups, stackParents)
   if (to?.invalid === true) {
-    return { text: `The prefix has an empty level: ${to.branch} will report an error`, warning: true }
+    return { text: `The prefix has an empty level: ${to.branch} will report an error`, warning: true, refused: `${action} is refused: the prefix has an empty level` }
   }
   const sameBranch = (to?.branch ?? null) === (from?.branch ?? null)
   const parent = to?.parent ?? null
@@ -74,7 +79,12 @@ export function describePrefixChange(
   const othersInTarget = (target?.commitCount ?? 0) - (sameBranch ? 1 : 0)
   if (stacks && to.origin === "prefix" && othersInTarget > 0 && (target?.declaredParent ?? null) !== parent) {
     const declared = target?.declaredParent ?? null
-    return { text: `The other commits of ${to.branch} ${declared === null ? "declare no parent" : `declare ${declared}`}: its parents would conflict`, warning: true }
+    const others = `of ${to.branch} ${declared === null ? "declare no parent" : `declare ${declared}`}`
+    return {
+      text: `The other commits ${others}: its parents would conflict`,
+      warning: true,
+      refused: `${action} is refused: the other commits ${others}, its parents would conflict`,
+    }
   }
   if (stacks && parent !== null && branchOf(parent) === undefined) {
     return { text: `${parent} has no commits: ${to.branch} is built on ${baseline} until it has`, warning: true }

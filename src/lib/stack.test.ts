@@ -43,7 +43,19 @@ describe("describePrefixChange", () => {
   })
 
   it("warns about a parent the other commits of the branch don't declare", () => {
-    expect(change("(auth/login) Add form", "(docs/login) Add form").text).toBe("The other commits of login declare auth: its parents would conflict")
+    expect(change("(auth/login) Add form", "(docs/login) Add form")).toEqual({
+      text: "The other commits of login declare auth: its parents would conflict",
+      warning: true,
+      refused: "Saving is refused: the other commits of login declare auth, its parents would conflict",
+    })
+  })
+
+  it("warns about an empty level of the prefix, which a reword refuses", () => {
+    expect(change("(docs) Document", "(auth//docs) Document")).toEqual({
+      text: "The prefix has an empty level: docs will report an error",
+      warning: true,
+      refused: "Saving is refused: the prefix has an empty level",
+    })
   })
 
   it("says a single-commit branch is restacked or unstacked", () => {

@@ -313,7 +313,8 @@ the whole history, which has 10⁵–10⁶ commits in a monorepo. There are two 
 
 #### Reword, move, add issue reference
 
-Only messages change, so every tree stays the same and the index and the working tree are already correct.
+Only messages change, so every tree stays the same and the index and the working tree are already correct. The app's
+edit of a message and `bd reword` are a regroup (below); this is how it writes, as add issue reference does.
 
 1. Read the commits ahead of the baseline and their mapping notes (see "Rewrite history"). Every reworded commit must
    be among them; the oldest one starts the range.
@@ -331,8 +332,8 @@ front. Code: `crates/git-ops/src/reword_commits.rs`, `crates/git-ops/src/commit_
 
 #### Regroup, rename, restack
 
-A move, a regroup plan of the agent CLI (`{branches: {path: [ids]}, unassign: [ids]}`), a branch rename, a restack
-and `bd reword` all change the messages of commits, so they are one reword. `regroup_commits_core` decides the messages before it
+A move, a regroup plan of the agent CLI (`{branches: {path: [ids]}, unassign: [ids]}`), a branch rename, a restack,
+`bd reword` and the app's edit of a message all change the messages of commits, so they are one reword. `regroup_commits_core` decides the messages before it
 writes anything:
 
 1. Take the repository lock (below), refuse while an operation is in progress or HEAD is detached, and read HEAD, the
@@ -347,7 +348,8 @@ writes anything:
    marker is added or removed, a target that a fixup names by its id (`fixup! <hash>`) gets a new id, or a target
    whose `amend!` waits gets a new text (`fixup_targets.rs`): each would fold the fixup elsewhere, or replace the new
    message at the next fold. The autosquash plan of the new messages decides, on the old ids, so the ids are checked
-   apart.
+   apart. The refusal is `RegroupError::FixupsStranded` with its `FixupRefusal`, a reason that names no action: `bd`
+   adds "fold them first with bd fold", the app "squash the fixups into their target first".
    A commit without a prefix that goes to the branch of its own issue key keeps its message: it is grouped there
    already. A commit with a prefix keeps its message only when the plan path is exactly that prefix. With stacked
    branches on, a path `auth/login` writes the stack parent `login<TAB>auth` and gives a commit that needs a prefix the
@@ -375,13 +377,20 @@ plan's prefixes apply; a message equal to the old one after the cleanup changes 
 commit as a plan would, with step 4's check, and the fixups of a target whose prefix changes follow it. The mapping
 note of a commit whose text (not only its prefix) changed is not carried: its copy must be rebuilt with the message.
 
+The app's edit of a message (the Tauri command `reword`, `reword_request_core` in `reword.rs`, which the E2E server
+routes too) is the same reword: whole messages by full id, `RegroupOptions::default()` (the lock and its 10 s wait,
+no expected HEAD), and the answer carries the new ids, `previousHead`, `newHead` and the undo token. Its refusals are
+told for the app: an id that is no longer ahead of the baseline is "Commit <id> is no longer on the current branch,
+sync and try again" (the list was read before a terminal reworded or dropped it).
+
 A rename replaces the old level in every prefix path (children included), renames the issue groups of the old name,
 names an issue branch in the issue groups, and renames the old name in the stack parents (as a child, and as the parent
 of a child with commits on this HEAD), without a rewrite; a restack writes the stack parent and rewrites only the
 commits whose prefix declares another parent, an unstack removes it and the parent levels. The undo token is
 `H1..H2` for a rewrite:
 `restore_branch_head` moves the branch back with CAS, which is valid because a message rewrite keeps HEAD's tree. The
-app undoes a move, a rename and a restack with that token too (`undo_regroup`), never by rewording the messages back.
+app undoes a move, a rename, a restack and a reword with that token too (`undo_regroup`), never by rewording the
+messages back.
 
 **Issue groups.** The map of issue key to branch name lives in `refs/branch-deck/issue-groups`
 ([Issue Groups](../../spec/branch/issue-groups.spec.md)), outside `refs/heads`, so the default refspecs neither push nor fetch it.
@@ -429,8 +438,8 @@ app undoes a move, a rename and a restack with that token too (`undo_regroup`), 
 **Repository lock.** History rewrites take an exclusive `flock` on `$GIT_COMMON_DIR/branch-deck.lock` (all worktrees
 share it), waiting up to 10 s for another holder and then failing with `locked`. The in-process mutexes don't cover
 the app and parallel `bd` processes. A dry run reads only and takes no lock. Every rewrite of the checked out branch
-takes it in its core, before it reads anything: the regroup and the move of a hunk (their options), and the app's
-squash and its undo, squash fixups (also `bd fold`), amend, unapply, reword and add issue reference, each a
+takes it in its core, before it reads anything: the regroup (also the app's reword) and the move of a hunk (their
+options), and the app's squash and its undo, squash fixups (also `bd fold`), amend, unapply and add issue reference, each a
 `*_core(…, &RewriteOptions)` (`crates/history-rewrite/src/repository_lock.rs`): `lock_timeout` (10 s by default),
 `held_lock` for a caller that holds the lock already, so the core takes none, and `expect_head`, the HEAD the request
 was made for, abbreviated ids allowed, else `HeadMoved` (`ensure_expected_head`, one check for every core). The app
@@ -1576,7 +1585,7 @@ A sync reuses a virtual commit when the original's mapping note points to it; ot
   per ref), for the integration detection of its archived branch.
 
 Code: `crates/git-ops/src/copy_commit.rs`, `crates/sync-core/src/branch_processor.rs`,
-`crates/git-ops/src/reword_commits.rs`, `crates/history-rewrite/src/reword_commit.rs`.
+`crates/git-ops/src/reword_commits.rs`, `crates/history-rewrite/src/reword.rs`.
 
 #### Object cache
 

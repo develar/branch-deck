@@ -17,7 +17,12 @@ targets:
   - ../../src/hooks/usePreviewHotkeys.ts
   - ../../src/lib/preview-keys.ts
   - ../../src/hooks/useRewordCommit.ts
-  - ../../crates/history-rewrite/src/reword_commit.rs
+  - ../../src/hooks/useStackActions.ts
+  - ../../src/components/commit/PrefixChangeHint.tsx
+  - ../../src/lib/stack.ts
+  - ../../src-tauri/src/commands/reword.rs
+  - ../../crates/history-rewrite/src/reword.rs
+  - ../../crates/history-rewrite/src/fixup_targets.rs
   - ../../crates/history-rewrite/src/repository_lock.rs
   - ../../crates/git-ops/src/reword_commits.rs
   - ../../src/components/commit/LinkedText.tsx
@@ -172,7 +177,9 @@ The commit hash popover shows the same header and body.
 - A changed grouping must show a warning that names the new branch, or the unassigned commits. The grouping follows
   the backend rule: an explicit prefix, else the issue key of the subject. With
   [stacked branches](../branch/stacked-branches.spec.md) on, it also names the parent and warns about a restack and a
-  stack problem.
+  stack problem; a stack problem the save would introduce (parents that conflict, an empty level) is said to be
+  refused.
+  [@test] ../../src/lib/stack.test.ts (`warns about a parent the other commits of the branch don't declare`, `warns about an empty level of the prefix, which a reword refuses`)
 - A save that moves the commit to another list must close the preview.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should warn that a changed grouping prefix moves the commit, and move it`)
   [@test] ../../src/lib/commit.test.ts (`returns the explicit prefix of the subject`, `skips the blank lines before the subject`, `groups %j into the prefix branch %j`, `groups %j into the issue branch %j`, `returns null for %j`)
@@ -182,17 +189,47 @@ The commit hash popover shows the same header and body.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should keep the edit open with an error when the commit changed meanwhile`)
 - E must work in any keyboard layout (the physical key).
 - The save hint must name the platform shortcut: `⌘↵` on macOS, `Ctrl+Enter` elsewhere.
-- The save must replace only the message: the commits after it are recreated with the same trees, and the working
-  tree and the index stay as they are.
+- The save must be the reword of `bd reword` ([Agent CLI](../cli/agent-cli.spec.md), `bd reword`): one regroup of the
+  commits ahead of the baseline, with its checks. It must replace only the message: the commits after it are recreated
+  with the same trees, and the working tree and the index stay as they are.
 - The save must keep the author and the committer of every recreated commit: name, email, date and timezone.
-  [@test] ../../crates/history-rewrite/src/reword_commit_test.rs (`reword_preserves_committer`)
+  [@test] ../../crates/sync-core/src/reword_test.rs (`reword_preserves_committer`)
 - The message must be cleaned up as `git commit` does: LF line endings, no trailing whitespace, no blank lines around.
 - An unchanged message must keep the commit.
 - A message without a subject line must be refused.
-- The save must be refused while a rebase, merge, cherry-pick or revert is in progress.
-- The save must be refused if the commit left the current branch meanwhile (reworded or dropped in a terminal).
+- The save must be refused while a rebase, merge, cherry-pick or revert is in progress, or on a detached HEAD.
+- The save must be refused if the commit left the current branch meanwhile (reworded or dropped in a terminal): "Commit
+  <short id> is no longer on the current branch, sync and try again".
 - The save must fail, and keep the new commit unreferenced, if the branch moved meanwhile (a commit made in a terminal).
-  [@test] ../../crates/history-rewrite/src/reword_commit_test.rs (`rewords_a_middle_commit_and_keeps_the_commits_after_it`, `cleans_up_the_message_like_git_commit`, `keeps_the_commit_when_the_message_does_not_change`, `refuses_a_message_without_a_subject`, `refuses_to_reword_while_a_merge_is_in_progress`, `refuses_a_commit_that_left_the_current_branch`, `refuses_to_move_a_branch_that_moved_meanwhile`, `reword_refuses_an_empty_subject_in_any_rewrite`)
+  [@test] ../../crates/sync-core/src/reword_test.rs (`rewords_a_middle_commit_and_keeps_the_commits_after_it`, `a_subject_keeps_the_body_and_a_message_equal_after_cleanup_rewrites_nothing`, `refuses_ids_and_texts_it_cannot_reword`, `refuses_to_reword_while_a_merge_is_in_progress`, `rewrite_refused_on_detached_head`, `refuses_a_commit_that_left_the_current_branch`, `rewords_several_commits_in_one_pass`)
+  [@test] ../../crates/git-ops/src/ref_transaction_test.rs (`refuses_to_move_a_branch_that_moved_meanwhile`)
+- A new prefix of a commit must move its fixups with it.
+  [@test] ../../crates/sync-core/src/reword_test.rs (`a_new_prefix_moves_the_commit_with_its_fixups`)
+- The save must be refused, with the edit and its draft kept, when a fixup would fold into another target or none
+  afterwards, when it adds or removes a `fixup!`, `squash!` or `amend!` marker, when it gives a new id to a target that a
+  fixup names by its id, or when an `amend!` of the commit waits; the reason says to squash the fixups into their target
+  first (Squash Fixups).
+  [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should refuse a reword that strands a fixup, and keep the draft`)
+  [@test] ../../crates/sync-core/src/reword_test.rs (`a_reword_that_strands_a_fixup_is_refused`)
+- The save must be refused when the new prefix introduces a stack problem (parents that conflict, a cycle, an empty
+  level).
+  [@test] ../../crates/sync-core/src/reword_test.rs (`a_reword_that_breaks_a_stack_is_refused`)
+- After a save that changed the commit, a toast "Reworded <short id of the old commit>" with the new subject must offer
+  Undo for 10 s, and Activity must record the reword with the same Undo, which runs once. The Undo must move HEAD back
+  to what the save found (the old messages, and with them the old virtual commits), as the Undo of a move does
+  (`undo_regroup`). A click on the toast must keep the preview open; the preview on the reworded commit must follow the
+  Undo back to the old commit. A preview stepped to another commit stays there, and one on a commit that the Undo
+  removes closes.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should undo a reword from its toast and follow the preview back`, `should undo a reword from Activity`)
+  [@test] ../../src/hooks/useRewordCommit.test.ts (`records a reword with its Undo for the window of the toast, once`, `offers no Undo past the window of the toast`)
+  [@test] ../../crates/sync-core/src/reword_test.rs (`undo_of_a_reword_brings_back_the_old_virtual_commits`)
+  [@test] ../../crates/test-server/src/reword_test.rs (`a_reword_answers_the_undo_token_that_undo_regroup_takes`)
+- The Undo must be refused, with nothing changed, once the branch moved after the save (another rewrite, a commit in a
+  terminal): "Cannot undo the reword" with the reason.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should refuse to undo a reword after the branch moved`)
+- A save that changed nothing (the same message after the cleanup) must show no toast, record nothing and run no sync.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should save an unchanged message without a toast`)
+  [@test] ../../src/hooks/useRewordCommit.test.ts (`records nothing for an unchanged message`)
 - The save must run under the repository lock: while another Branch Deck operation holds it, the save waits up to
   10 s, then it is refused with nothing changed and the toast "Cannot edit the commit message" says that another
   operation holds the lock.

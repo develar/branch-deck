@@ -5,8 +5,8 @@
 
 use crate::autosquash::{AutosquashPlan, FixupKind, plan_autosquash};
 use crate::commit_grouper::{GroupingInputs, parse_subject};
-use crate::regroup::RegroupError;
-use crate::reword_commit::keeps_virtual_commit;
+use crate::regroup::{FixupRefusal, RegroupError};
+use crate::reword::keeps_virtual_commit;
 use crate::snapshot::Snapshot;
 use git_ops::commit_list::Commit;
 use git_ops::revs::short_id;
@@ -29,13 +29,7 @@ pub(crate) fn check_fixup_targets(snapshot: &Snapshot, regrouped: &[Commit], bef
     .map(|(old, _)| short_id(&old.id).to_string())
     .collect();
   if !marker_changed.is_empty() {
-    return Err(RegroupError::invalid(
-      format!(
-        "A reword may not add or remove a fixup!, squash! or amend! marker, which decides what folds where: {}",
-        marker_changed.join(", ")
-      ),
-      marker_changed,
-    ));
+    return Err(stranded(FixupRefusal::MarkerChanged, marker_changed));
   }
 
   let after = plan_autosquash(snapshot.head.clone(), regrouped, grouping);
@@ -50,13 +44,7 @@ pub(crate) fn check_fixup_targets(snapshot: &Snapshot, regrouped: &[Commit], bef
   if !retargeted.is_empty() {
     retargeted.sort();
     retargeted.dedup();
-    return Err(RegroupError::invalid(
-      format!(
-        "Fixups would fold into another target or none: {} (fold them first with bd fold, or reword them in the same plan to name the new subject)",
-        retargeted.join(", ")
-      ),
-      retargeted,
-    ));
+    return Err(stranded(FixupRefusal::Retargeted, retargeted));
   }
 
   // the rewrite recreates every commit from the oldest changed one: a target named by its id loses that id
@@ -74,13 +62,7 @@ pub(crate) fn check_fixup_targets(snapshot: &Snapshot, regrouped: &[Commit], bef
     })
     .collect();
   if !by_id.is_empty() {
-    return Err(RegroupError::invalid(
-      format!(
-        "Fixups name their target by its id, which the rewrite changes: {} (fold them first with bd fold)",
-        by_id.join(", ")
-      ),
-      by_id,
-    ));
+    return Err(stranded(FixupRefusal::NamedById, by_id));
   }
 
   // a new text of a target, not only a new prefix, is replaced by the body of its waiting `amend!` at the next fold
@@ -104,15 +86,13 @@ pub(crate) fn check_fixup_targets(snapshot: &Snapshot, regrouped: &[Commit], bef
     .map(|fixup| short_id(&fixup.commit_id).to_string())
     .collect();
   if !amended.is_empty() {
-    return Err(RegroupError::invalid(
-      format!(
-        "An amend! waits to replace the message of a reworded commit at the next bd fold: {} (reword the amend! too, or fold first)",
-        amended.join(", ")
-      ),
-      amended,
-    ));
+    return Err(stranded(FixupRefusal::AmendWaits, amended));
   }
   Ok(())
+}
+
+const fn stranded(refusal: FixupRefusal, commits: Vec<String>) -> RegroupError {
+  RegroupError::FixupsStranded { refusal, commits }
 }
 
 /// Fixup id -> its target id, by the groups of a plan

@@ -18,7 +18,9 @@ use crate::update_project::{UpdateProjectParams, check_baseline_update, update_p
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::BranchError;
 use history_rewrite::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
+use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::RewriteOptions;
+use history_rewrite::reword::{CommitReword, RewordRequest, RewordText, reword_request_core};
 use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
@@ -684,6 +686,40 @@ fn a_squash() {
       ("var", 1),
     ],
   );
+}
+
+/// The app's edit of the message of the oldest commit (the Tauri command `reword`): the regroup's snapshot under the
+/// repository lock, then one `fast-import` of the recreated commits and one ref transaction
+#[test]
+fn the_app_reword() {
+  let (repo, commits) = repo();
+  let git = counting();
+  let request = RewordRequest {
+    repository_path: path(&repo),
+    rewords: vec![CommitReword {
+      commit: commits[0].clone(),
+      text: RewordText::Message("(alpha) Alpha 1\n\nWith a body".to_string()),
+    }],
+  };
+  let result = reword_request_core(&git, &request, &RegroupOptions::default()).unwrap();
+  assert!(result.undo_token.is_some());
+  // jscpd:ignore-start: the same core as `bd reword` (crates/bd-cli/src/process_budget_test.rs, `a_reword`), so the same
+  // processes: a change of one count shows in both
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 2),
+      ("config", 1),
+      ("fast-import", 1),
+      ("for-each-ref", 2),
+      ("log", 2),
+      ("remote", 2),
+      ("rev-parse", 7),
+      ("symbolic-ref", 1),
+      ("update-ref", 1),
+    ],
+  );
+  // jscpd:ignore-end
 }
 
 /// A `fixup!` of alpha and a `squash!` of beta folded into their targets

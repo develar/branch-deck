@@ -85,4 +85,36 @@ test.describe("Squash fixups", () => {
     await expect(unassignedRows(page)).toHaveCount(1)
     await expect(page.getByTestId("unassigned-commits-section").getByTestId("squash-fixups-button")).toHaveCount(0)
   })
+  // spec/commit/commit-row.spec.md: the reword in the app checks the fixups as `bd reword` does
+  test("should refuse a reword that strands a fixup, and keep the draft", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("fixups")
+    await syncAndWaitForBranches()
+    const authRow = findBranchRow(page, "auth")
+    await verifyCommitCount(authRow, "3 commits")
+    await expandBranch(page, authRow)
+    const rows = getBranchCommitRow(page, "auth", "Add login form")
+    const target = rows.filter({ hasNot: page.getByTestId("fixup-marker") })
+    const fixupId = await fixupRow(rows, page).getAttribute("data-row-id")
+    await target.hover()
+    await page.keyboard.press("Space")
+    const preview = page.getByTestId("commit-preview")
+    await expect(preview.getByTestId("commit-preview-body")).toBeFocused()
+    await page.keyboard.press("e")
+    const editor = preview.getByTestId("commit-message-editor")
+    await expect(editor).toBeFocused()
+
+    // `fixup! (auth) Add login form` would fold into nothing
+    const draft = "(auth) Add the login form"
+    await editor.fill(draft)
+    await page.keyboard.press("ControlOrMeta+Enter")
+
+    const refusal = page.locator("[data-slot=toast]").filter({ hasText: "Cannot edit the commit message" })
+    await expect(refusal).toContainText(`Fixups would fold into another target or none: ${fixupId!.slice(0, 8)} (squash the fixups into their target first)`)
+    await expect(editor).toHaveValue(draft)
+    await expect(editor).toBeEnabled()
+    await page.keyboard.press("Escape")
+    await page.keyboard.press("Escape")
+    await expect(target).toHaveCount(1)
+    await verifyCommitCount(authRow, "3 commits")
+  })
 })

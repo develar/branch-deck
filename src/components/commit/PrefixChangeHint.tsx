@@ -7,13 +7,16 @@ export interface PrefixChangeHintProps {
   after: string
   /** What applies the message: "Saving", "Squashing" */
   action: string
+  /** The core of the action refuses a stack problem it would introduce (the reword, a regroup): the hint says so */
+  refusesStackProblems?: boolean
 }
 
 /**
  * Warns that a changed subject moves the commit to another branch (or out of every branch); with stacked branches also
  * that it restacks the branch, or would make a parent conflict or name a parent without commits (built on the baseline).
+ * A stack problem that the core of the action refuses (`refusesStackProblems`) is said to be refused.
  */
-export function PrefixChangeHint({ before, after, action }: PrefixChangeHintProps) {
+export function PrefixChangeHint({ before, after, action, refusesStackProblems = false }: PrefixChangeHintProps) {
   const stacks = useStacksEnabled()
   const issueGroups = useIssueGroups()
   const stackParents = useStackParents()
@@ -36,7 +39,7 @@ export function PrefixChangeHint({ before, after, action }: PrefixChangeHintProp
   }
   return (
     <span data-testid="commit-prefix-change" className="text-warning">
-      {change.text}
+      {(refusesStackProblems ? change.refused : undefined) ?? change.text}
     </span>
   )
 }

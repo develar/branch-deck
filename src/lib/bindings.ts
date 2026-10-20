@@ -315,10 +315,10 @@ export const commands = {
 	 */
 	addIssueReferenceToCommits: (params: AddIssueReferenceParams) => typedError<AddIssueReferenceResult, CommandError>(__TAURI_INVOKE("add_issue_reference_to_commits", { params })),
 	/**
-	 *  Replaces the messages of commits on the current branch; the commits after the oldest one are recreated with the
-	 *  same trees.
+	 *  Replaces the messages of commits ahead of the baseline in one regroup (`bd reword`); the commits after the oldest one
+	 *  are recreated with the same trees, and the undo token restores HEAD.
 	 */
-	rewordCommits: (params: RewordCommitsRequest) => typedError<RewordCommitsResult, CommandError>(__TAURI_INVOKE("reword_commits", { params })),
+	reword: (params: RewordRequest) => typedError<RewordResult, CommandError>(__TAURI_INVOKE("reword", { params })),
 	/**
 	 *  Squashes commits of the current branch into the oldest of them in one history rewrite that keeps HEAD's tree; the
 	 *  index and the working tree are not touched.
@@ -777,11 +777,10 @@ export type CommitInfo = {
 	message: string,
 };
 
-export type CommitRewrite = {
-	/**  The commit on the current branch (the original commit of a virtual branch commit) */
-	commitId: string,
-	/**  The whole new message, the grouping prefix `(branch)` included */
-	message: string,
+/**  A commit ahead of the baseline (abbreviated ids are fine) and its new text */
+export type CommitReword = {
+	commit: string,
+	text: RewordText,
 };
 
 /**  Status of a commit synchronization. */
@@ -2707,15 +2706,28 @@ export type ReviewerState = "approved" | "changesRequested" | "commented" |
 /**  Asked to review, no review submitted yet */
 "requested";
 
-export type RewordCommitsRequest = {
+/**  The app's reword: the commits of `rewords` (the app sends full ids and whole messages) in the repository */
+export type RewordRequest = {
 	repositoryPath: string,
-	rewrites: CommitRewrite[],
+	rewords: CommitReword[],
 };
 
-export type RewordCommitsResult = {
+export type RewordResult = {
 	/**  Request commit id -> new commit id; a commit that was not recreated maps to its own (full) id */
 	newCommitIds: { [key in string]: string },
+	previousHead: string,
+	/**  `previous_head` when no message changed */
+	newHead: string,
+	/**  The token of `undo_regroup` (`UndoToken`); `None` when nothing changed */
+	undoToken?: string | null,
 };
+
+/**  The new text of a commit; `{"message": …}` or `{"subject": …}` in the app's request */
+export type RewordText = 
+/**  The whole message, the `(prefix)` of the subject included */
+({ message: string }) & { subject?: never } | 
+/**  The subject line, the `(prefix)` included; the body stays */
+({ subject: string }) & { message?: never };
 
 export type RobotCommit = {
 	/**  The commit of the checked-out branch; null for a commit only the robot had (`removed`, `landed`) */

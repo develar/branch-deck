@@ -174,15 +174,9 @@ export function CommitList<T extends CommitUnion>({
     setPreview({ hash, edit })
     setIsPreviewLoaded(true)
   }, [])
-  const saveMessage = (commit: CommitUnion, message: string) =>
-    rewordCommit(
-      commit,
-      message,
-      newCommitId => {
-        setPreview({ hash: getCommitHash(commit), nextHash: newCommitId })
-      },
-      REWORD_SURFACE,
-    )
+  // the preview on the reworded commit waits for the new one, and after the Undo for the old one again
+  const followCommit = (from: string, to: string) => setPreview(current => (current?.hash === from ? { hash: from, nextHash: to } : current))
+  const saveMessage = (commit: CommitUnion, message: string) => rewordCommit(commit, message, followCommit, REWORD_SURFACE)
   const tableRef = useRef<HTMLTableElement>(null)
   // the commit the preview showed last (↑/↓ stepped): its close focuses the list, and the keys of a row (Space, D) act on
   // that commit while the pointer is on no row, until a click of a row

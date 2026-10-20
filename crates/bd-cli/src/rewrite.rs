@@ -15,7 +15,8 @@ use git_ops::branch_description::Description;
 use git_ops::revs::read_head;
 use history_rewrite::baseline::NoBaseline;
 use history_rewrite::regroup::{
-  RegroupError, RegroupOptions, RegroupOutcome, UndoToken, describe_problem, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core, undo_regroup_core,
+  FixupRefusal, RegroupError, RegroupOptions, RegroupOutcome, UndoToken, describe_problem, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core,
+  undo_regroup_core,
 };
 use history_rewrite::stack::StackForest;
 use schemars::JsonSchema;
@@ -421,9 +422,18 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
 /// The error code of a refused or failed regroup; by value, for `map_err`
 #[expect(clippy::needless_pass_by_value, reason = "used as `map_err(regroup_error)`")]
 pub fn regroup_error(error: RegroupError) -> CliError {
-  let message = error.to_string();
+  let mut message = error.to_string();
   let code = match &error {
     RegroupError::InvalidPlan { .. } => ErrorCode::InvalidPlan,
+    RegroupError::FixupsStranded { refusal, .. } => {
+      message.push_str(match refusal {
+        FixupRefusal::MarkerChanged => "",
+        FixupRefusal::Retargeted => " (fold them first with bd fold, or reword them in the same plan to name the new subject)",
+        FixupRefusal::NamedById => " (fold them first with bd fold)",
+        FixupRefusal::AmendWaits => " (reword the amend! too, or fold first with bd fold)",
+      });
+      ErrorCode::InvalidPlan
+    }
     RegroupError::NotAheadOfBaseline { .. } => ErrorCode::NotAheadOfBaseline,
     RegroupError::HeadMoved(_) => ErrorCode::HeadMoved,
     RegroupError::GroupsMoved(_) => ErrorCode::GroupsMoved,

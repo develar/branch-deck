@@ -105,9 +105,10 @@ leaves out: the overview tells the present, its line of the last day opens Activ
   Request".
   [@test] ../../src/lib/git/push.test.ts (`retargets a pull request into a virtual branch to the baseline before the push, and Activity records it`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should retarget a pull request into a parent's branch to master before the push`)
-- A history rewrite with an Undo toast (squash, fixups, move, ungroup, rename, stack, unstack), and every error toast
-  (`notifyError`, with its reason).
+- A history rewrite with an Undo toast (squash, fixups, move, ungroup, rename, stack, unstack, reword), and every
+  error toast (`notifyError`, with its reason).
   [@test] ../../src/stores/activity.test.ts (`records the errors the user was told about`)
+  [@test] ../../src/hooks/useRewordCommit.test.ts (`records a reword with its Undo for the window of the toast, once`)
 
 ### Undo
 

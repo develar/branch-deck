@@ -1,22 +1,32 @@
-//! `bd reword`: new messages of commits ahead of the baseline, as one regroup (`regroup.rs`). The regroup's guards, its
-//! repository lock, its expected HEAD and its validation hold: a new `(prefix)` moves the commit to that branch as
-//! `bd group` does, with the fixups of a target whose prefix changed, and the stack problems it would introduce, the
-//! fixups it would strand (`fixup_targets.rs`) and the issue groups and the stack parents stay as the regroup keeps them.
-//! Message-only: the trees, the index and the working tree stay as they are, and the undo token restores HEAD.
+//! The reword of commits ahead of the baseline (`bd reword` and the app's edit of a message), as one regroup
+//! (`regroup.rs`). The regroup's guards, its repository lock, its expected HEAD and its validation hold: a new
+//! `(prefix)` moves the commit to that branch as `bd group` does, with the fixups of a target whose prefix changed, and
+//! the stack problems it would introduce, the fixups it would strand (`fixup_targets.rs`) and the issue groups and the
+//! stack parents stay as the regroup keeps them. Message-only: the trees, the index and the working tree stay as they
+//! are, and the undo token restores HEAD. Also the writes of every regroup (`reword_read_commits_at`): the messages
+//! cleaned up as `git commit` does, written with one `fast-import`.
 
 use crate::autosquash::plan_autosquash;
-use crate::commit_grouper::parse_subject;
+use crate::baseline::detect_baseline_branch;
+use crate::commit_grouper::{parse_subject, stripped_subject};
 use crate::commit_ids::{IdMatch, match_commit_id};
-use crate::regroup::{Assignment, Change, RegroupError, RegroupOptions, RegroupOutcome, refuse_unresolved, regroup_with};
-use crate::reword_commit::normalize_message;
+use crate::regroup::{Assignment, Change, FixupRefusal, RegroupError, RegroupOptions, RegroupOutcome, UndoToken, refuse_unresolved, regroup_with};
 use crate::snapshot::Snapshot;
+use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::revs::short_id;
+use git_ops::commit_list::Commit;
+use git_ops::commit_utils::find_commit;
+use git_ops::commit_writer::{StoreUpdate, write_store_updates};
+use git_ops::revs::{checked_out_branch, short_id};
+use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch_at};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use tracing::instrument;
+use tracing::{info, instrument};
 
-/// The new text of a commit
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The new text of a commit; `{"message": …}` or `{"subject": …}` in the app's request
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
 pub enum RewordText {
   /// The whole message, the `(prefix)` of the subject included
   Message(String),
@@ -25,7 +35,8 @@ pub enum RewordText {
 }
 
 /// A commit ahead of the baseline (abbreviated ids are fine) and its new text
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct CommitReword {
   pub commit: String,
   pub text: RewordText,
@@ -37,6 +48,76 @@ pub struct CommitReword {
 #[instrument(skip(git_executor, rewords, options), fields(count = rewords.len(), dry_run = options.dry_run))]
 pub fn reword_core(git_executor: &GitCommandExecutor, repository_path: &str, rewords: &[CommitReword], options: &RegroupOptions) -> Result<RegroupOutcome, RegroupError> {
   regroup_with(git_executor, repository_path, options, |snapshot| reword_change(snapshot, rewords))
+}
+
+/// The app's reword: the commits of `rewords` (the app sends full ids and whole messages) in the repository
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RewordRequest {
+  pub repository_path: String,
+  pub rewords: Vec<CommitReword>,
+}
+
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RewordResult {
+  /// Request commit id -> new commit id; a commit that was not recreated maps to its own (full) id
+  pub new_commit_ids: HashMap<String, String>,
+  pub previous_head: String,
+  /// `previous_head` when no message changed
+  pub new_head: String,
+  /// The token of `undo_regroup` (`UndoToken`); `None` when nothing changed
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub undo_token: Option<String>,
+}
+
+impl RewordResult {
+  pub fn of(outcome: &RegroupOutcome, request: &RewordRequest) -> Self {
+    let new_commit_ids = request
+      .rewords
+      .iter()
+      .filter_map(|reword| {
+        let commit = outcome.commits.iter().find(|commit| commit.id.starts_with(reword.commit.as_str()))?;
+        Some((reword.commit.clone(), commit.new_id.clone()))
+      })
+      .collect();
+    Self {
+      new_commit_ids,
+      previous_head: outcome.previous_head.clone(),
+      new_head: outcome.new_head.clone(),
+      undo_token: UndoToken::of(outcome).map(|token| token.to_string()),
+    }
+  }
+}
+
+/// `reword_core` for the app (the Tauri command `reword` and the E2E server): its result with the undo token, and its
+/// refusals told as the app's user can act on them
+pub fn reword_request_core(git_executor: &GitCommandExecutor, request: &RewordRequest, options: &RegroupOptions) -> Result<RewordResult> {
+  let outcome = reword_core(git_executor, &request.repository_path, &request.rewords, options).map_err(app_error)?;
+  Ok(RewordResult::of(&outcome, request))
+}
+
+/// A refusal of `reword_core` with what the app offers: a commit gone from the list it showed is a stale view, and a
+/// stranded fixup is folded by Squash Fixups
+fn app_error(error: RegroupError) -> anyhow::Error {
+  match &error {
+    RegroupError::NotAheadOfBaseline { commits } => {
+      let ids: Vec<&str> = commits.iter().map(|id| short_id(id)).collect();
+      // e.g. reworded or dropped in a terminal while the message was edited here
+      match ids.as_slice() {
+        [id] => anyhow!("Commit {id} is no longer on the current branch, sync and try again"),
+        _ => anyhow!("Commits {} are no longer on the current branch, sync and try again", ids.join(", ")),
+      }
+    }
+    RegroupError::FixupsStranded { refusal, .. } => match refusal {
+      FixupRefusal::MarkerChanged => error.into(),
+      FixupRefusal::Retargeted | FixupRefusal::NamedById => anyhow!("{error} (squash the fixups into their target first)"),
+      FixupRefusal::AmendWaits => anyhow!("{error} (squash the amend! into its target first)"),
+    },
+    _ => error.into(),
+  }
 }
 
 /// The messages of `rewords` by full id, and the fixups that follow a target whose prefix changed
@@ -117,4 +198,81 @@ fn following_fixups(snapshot: &Snapshot, messages: &HashMap<String, String>) -> 
     }
   }
   assignment
+}
+
+/// What `reword_read_commits_at` wrote
+pub(crate) struct Reworded {
+  /// Old -> new full id of every recreated commit, the ones after the oldest reworded one included
+  pub recreated: HashMap<String, String>,
+  /// The new commits of the stores, in input order
+  pub store_commits: Vec<String>,
+}
+
+/// Rewords `(commit id, whole new message)` pairs of `commits` (the regroup's snapshot), for messages
+/// computed from the history at `expected_head` (`reword_commits_batch_at`), with `stores` written in the same run and
+/// moved in the transaction that moves the branch. The caller holds the repository lock
+pub(crate) fn reword_read_commits_at<'a>(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  commits: &HashMap<String, Commit>,
+  rewrites: impl IntoIterator<Item = (&'a str, &'a str)>,
+  expected_head: Option<&str>,
+  stores: &[StoreUpdate<'_>],
+) -> Result<Reworded> {
+  let rewrites: Vec<(&str, String)> = rewrites.into_iter().map(|(id, message)| (id, normalize_message(message))).collect();
+  if rewrites.iter().any(|(_, message)| message.lines().next().is_none_or(|subject| subject.trim().is_empty())) {
+    return Err(anyhow!("The commit message must start with a subject line"));
+  }
+
+  let mut params = Vec::new();
+  for (id, message) in rewrites {
+    let commit = find_commit(commits, id).ok_or_else(|| anyhow!("Commit {} not found", short_id(id)))?;
+    if normalize_message(&commit.message) != message {
+      params.push(RewordCommitParams {
+        commit_id: commit.id.clone(),
+        keeps_virtual_commit: keeps_virtual_commit(&commit.message, &message),
+        new_message: message,
+      });
+    }
+  }
+
+  let reworded_count = params.len();
+  // also maps the commits recreated on top of a reworded one, unchanged messages included;
+  // `reword_commits_batch` refuses a commit that is no longer on the current branch
+  let (mapping, store_commits) = if params.is_empty() {
+    // no message changes once cleaned up: the stores still move, on the same HEAD
+    let store_commits = if stores.is_empty() {
+      Vec::new()
+    } else {
+      let branch_ref = format!("refs/heads/{}", checked_out_branch(git_executor, repository_path)?);
+      let verify = expected_head.map(|head| (branch_ref.as_str(), head));
+      write_store_updates(git_executor, repository_path, stores, verify, "reword")?
+    };
+    (HashMap::new(), store_commits)
+  } else {
+    let baseline_branch = detect_baseline_branch(git_executor, repository_path)?;
+    reword_commits_batch_at(git_executor, repository_path, &baseline_branch, params, expected_head, stores)?
+  };
+  info!(reworded_count, "Reworded commits");
+  Ok(Reworded {
+    recreated: mapping,
+    store_commits,
+  })
+}
+
+/// Whether the virtual branch commit of a commit stays the same when its message changes from `old` to `new`: the
+/// subject without its grouping prefix and the body are the same, so a move to another branch keeps it
+pub fn keeps_virtual_commit(old: &str, new: &str) -> bool {
+  fn virtual_message(message: &str) -> (&str, &str) {
+    let message = message.trim();
+    let (subject, body) = message.split_once('\n').unwrap_or((message, ""));
+    (stripped_subject(subject), body)
+  }
+  virtual_message(old) == virtual_message(new)
+}
+
+/// LF line endings, no trailing whitespace on a line, no blank lines at the start or the end (as `git commit` cleans up)
+pub(crate) fn normalize_message(message: &str) -> String {
+  let lines: Vec<&str> = message.lines().map(str::trim_end).collect();
+  lines.join("\n").trim_matches('\n').to_string()
 }

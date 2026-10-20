@@ -1,7 +1,8 @@
-use crate::regroup_test::{commits, groups, issue_group_plan, path, plan, regroup, repo, subjects};
+use crate::regroup_test::{commits, groups, issue_group_plan, path, plan, regroup, repo, subjects, sync};
+use crate::stack_operations::{UndoRegroupParams, undo_regroup};
 use history_rewrite::issue_groups::ISSUE_GROUPS_REF;
-use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupOutcome, restack_branch_core};
-use history_rewrite::reword::{CommitReword, RewordText, reword_core};
+use history_rewrite::regroup::{FixupRefusal, RegroupError, RegroupOptions, RegroupOutcome, restack_branch_core};
+use history_rewrite::reword::{CommitReword, RewordRequest, RewordResult, RewordText, reword_core, reword_request_core};
 use history_rewrite::stack_parents::STACK_PARENTS_REF;
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -25,12 +26,30 @@ fn reword(repo: &TestRepo, rewords: &[CommitReword]) -> Result<RegroupOutcome, R
   reword_core(repo.git_executor(), path(repo), rewords, &RegroupOptions::default())
 }
 
+/// The reword of the app (the Tauri command `reword`): whole messages, the result with the undo token, the errors as the
+/// app tells them
+fn app_reword(repo: &TestRepo, rewords: &[(&str, &str)]) -> anyhow::Result<RewordResult> {
+  let request = RewordRequest {
+    repository_path: path(repo).to_string(),
+    rewords: rewords.iter().map(|(commit, text)| message(commit, text)).collect(),
+  };
+  reword_request_core(repo.git_executor(), &request, &RegroupOptions::default())
+}
+
+fn full_message(repo: &TestRepo, commit: &str) -> String {
+  repo.log(&["-1", "--pretty=format:%B", commit]).unwrap().trim_end().to_string()
+}
+
 fn tree(repo: &TestRepo, commit: &str) -> String {
   repo.git_executor().execute_command(&["rev-parse", &format!("{commit}^{{tree}}")], path(repo)).unwrap()
 }
 
 fn assert_invalid(error: &RegroupError, needle: &str) {
   assert!(matches!(error, RegroupError::InvalidPlan { message, .. } if message.contains(needle)), "{error}");
+}
+
+fn assert_stranded(error: &RegroupError, expected: FixupRefusal) {
+  assert!(matches!(error, RegroupError::FixupsStranded { refusal, .. } if *refusal == expected), "{error}");
 }
 
 #[test]
@@ -67,9 +86,20 @@ fn a_subject_keeps_the_body_and_a_message_equal_after_cleanup_rewrites_nothing()
     "Two, shorter\n\nThe body"
   );
 
+  // cleaned up as `git commit` does: LF line endings, no trailing whitespace, no blank lines around
   let head = repo.head();
-  let outcome = reword(&repo, &[message(&head, "\nTwo, shorter  \n\nThe body\n\n")]).unwrap();
+  let result = app_reword(&repo, &[(&head, "\r\nTwo, cleaned  \r\n\r\nThe body\r\n\r\n")]).unwrap();
+  assert_eq!(full_message(&repo, &result.new_commit_ids[&head]), "Two, cleaned\n\nThe body");
+
+  let head = repo.head();
+  let outcome = reword(&repo, &[message(&head, "\nTwo, cleaned  \n\nThe body\n\n")]).unwrap();
   assert_eq!((outcome.changed_count(), outcome.new_head.as_str()), (0, head.as_str()));
+  // the app keeps the commit and gets no undo
+  let result = app_reword(&repo, &[(&head, "Two, cleaned\n\nThe body\n")]).unwrap();
+  assert_eq!(
+    (result.new_commit_ids[&head].as_str(), result.new_head.as_str(), result.undo_token),
+    (head.as_str(), head.as_str(), None)
+  );
 }
 
 #[test]
@@ -88,25 +118,34 @@ fn a_reword_that_strands_a_fixup_is_refused() {
   let repo = repo(false);
   let ids = commits(&repo, &["Fix login", "fixup! Fix login"]);
   let head = repo.head();
-  assert_invalid(&reword(&repo, &[subject(&ids[0], "Fix the login")]).unwrap_err(), "another target or none");
+  // the app says how it folds them
+  let error = app_reword(&repo, &[(&ids[0], "Fix the login")]).unwrap_err().to_string();
+  assert_eq!(
+    error,
+    format!(
+      "Fixups would fold into another target or none: {} (squash the fixups into their target first)",
+      &ids[1][..8]
+    )
+  );
+  assert_stranded(&reword(&repo, &[subject(&ids[0], "Fix the login")]).unwrap_err(), FixupRefusal::Retargeted);
   // a marker removed
-  assert_invalid(&reword(&repo, &[subject(&ids[1], "Fix login again")]).unwrap_err(), "marker");
+  assert_stranded(&reword(&repo, &[subject(&ids[1], "Fix login again")]).unwrap_err(), FixupRefusal::MarkerChanged);
   assert_eq!(repo.head(), head, "nothing is written");
 
   // by id: the target gets a new id
   let repo = self::repo(false);
   let ids = commits(&repo, &["One", "Two"]);
   let by_id = repo.create_commit(&format!("fixup! {}", &ids[1][..8]), "two.txt", "fixed");
-  assert_invalid(&reword(&repo, &[subject(&ids[0], "One, reworded")]).unwrap_err(), "by its id");
+  assert_stranded(&reword(&repo, &[subject(&ids[0], "One, reworded")]).unwrap_err(), FixupRefusal::NamedById);
   // the same for a regroup, which recreates the target too
-  assert_invalid(&regroup(&repo, &plan(&[("a", &[&ids[0]])], &[])).unwrap_err(), "by its id");
+  assert_stranded(&regroup(&repo, &plan(&[("a", &[&ids[0]])], &[])).unwrap_err(), FixupRefusal::NamedById);
   // rewording the fixup itself is no change of its target
   reword(&repo, &[subject(&by_id, &format!("fixup! {}", &ids[1][..10]))]).unwrap();
 
   // a waiting amend! would replace the new message at the next fold
   let repo = self::repo(false);
   let ids = commits(&repo, &["One", "amend! One\n\nThe message the amend! gives"]);
-  assert_invalid(&reword(&repo, &[message(&ids[0], "One\n\nAnother body")]).unwrap_err(), "amend!");
+  assert_stranded(&reword(&repo, &[message(&ids[0], "One\n\nAnother body")]).unwrap_err(), FixupRefusal::AmendWaits);
 }
 
 #[test]
@@ -151,7 +190,181 @@ fn refuses_ids_and_texts_it_cannot_reword() {
   let error = reword(&repo, &[subject("abcdef12", "Nothing")]).unwrap_err();
   assert!(matches!(error, RegroupError::NotAheadOfBaseline { .. }), "{error}");
   assert_invalid(&reword(&repo, &[message(&ids[0], "  \n\n  ")]).unwrap_err(), "subject line");
+  // also when another reword of the same rewrite is fine
+  let second = repo.create_commit("Two", "two.txt", "two");
+  assert_invalid(&reword(&repo, &[message(&ids[0], "One reworded"), message(&second, "  \n\n")]).unwrap_err(), "subject line");
+  assert_eq!(repo.head(), second, "nothing is written");
   assert_invalid(&reword(&repo, &[subject(&ids[0], "Two\nlines")]).unwrap_err(), "more than one line");
   assert_invalid(&reword(&repo, &[subject(&ids[0], "A"), subject(&ids[0], "B")]).unwrap_err(), "more than once");
   assert_invalid(&reword(&repo, &[]).unwrap_err(), "No commit");
+}
+
+#[test]
+fn rewords_a_middle_commit_and_keeps_the_commits_after_it() {
+  let repo = repo(false);
+  let ids = commits(&repo, &["(auth) Add login", "(auth) Add logout", "(api) Add endpoint"]);
+  let head_tree = tree(&repo, "HEAD");
+  // uncommitted work is not touched
+  std::fs::write(repo.path().join("file2.txt"), "work in progress").unwrap();
+
+  let result = app_reword(&repo, &[(&ids[1], "(auth) Add logout endpoint\n\nClears the session cookie.")]).unwrap();
+
+  let new_id = &result.new_commit_ids[&ids[1]];
+  assert_ne!(new_id, &ids[1]);
+  assert_eq!(full_message(&repo, new_id), "(auth) Add logout endpoint\n\nClears the session cookie.");
+  assert_eq!(subjects(&repo, 3), ["(auth) Add login", "(auth) Add logout endpoint", "(api) Add endpoint"]);
+  assert_eq!(&repo.rev_parse("HEAD~1").unwrap(), new_id);
+  assert_eq!((result.previous_head.as_str(), result.new_head.as_str()), (ids[2].as_str(), repo.head().as_str()));
+  assert_eq!(result.undo_token, Some(format!("{}..{}", ids[2], repo.head())));
+  assert_eq!(tree(&repo, "HEAD"), head_tree);
+  assert_eq!(std::fs::read_to_string(repo.path().join("file2.txt")).unwrap(), "work in progress");
+}
+
+#[test]
+fn rewords_several_commits_in_one_pass() {
+  let repo = repo(false);
+  let ids = commits(&repo, &["(feature-x) ABC-1 Add login", "ABC-1 Add logout", "(feature-x) ABC-1 Add session"]);
+  let head_tree = tree(&repo, "HEAD");
+
+  let result = app_reword(&repo, &[(&ids[0], "ABC-1 Add login"), (&ids[1], "ABC-1 Add logout"), (&ids[2], "ABC-1 Add session")]).unwrap();
+
+  assert_eq!(subjects(&repo, 3), ["ABC-1 Add login", "ABC-1 Add logout", "ABC-1 Add session"]);
+  assert_eq!(result.new_commit_ids[&ids[2]], repo.head());
+  assert_eq!(result.new_commit_ids[&ids[0]], repo.rev_parse("HEAD~2").unwrap());
+  // its message did not change, but it is recreated on top of the reworded first commit
+  assert_eq!(result.new_commit_ids[&ids[1]], repo.rev_parse("HEAD~1").unwrap());
+  assert_ne!(result.new_commit_ids[&ids[1]], ids[1]);
+  assert_eq!(tree(&repo, "HEAD"), head_tree);
+}
+
+#[test]
+fn refuses_to_reword_while_a_merge_is_in_progress() {
+  let repo = repo(false);
+  let ids = commits(&repo, &["Add login"]);
+  std::fs::write(repo.path().join("file0.txt"), "changed").unwrap();
+  std::fs::write(repo.path().join(".git/MERGE_HEAD"), format!("{}\n", ids[0])).unwrap();
+
+  let error = reword(&repo, &[message(&ids[0], "Add login form")]).unwrap_err();
+
+  assert!(
+    matches!(&error, RegroupError::OperationInProgress(message) if message.contains("a merge is in progress")),
+    "{error}"
+  );
+  assert_eq!(repo.head(), ids[0]);
+  assert_eq!(std::fs::read_to_string(repo.path().join("file0.txt")).unwrap(), "changed");
+}
+
+#[test]
+fn rewrite_refused_on_detached_head() {
+  let repo = repo(false);
+  let ids = commits(&repo, &["Add login"]);
+  repo.checkout(&ids[0]).unwrap();
+
+  let error = reword(&repo, &[message(&ids[0], "Add login form")]).unwrap_err();
+
+  assert!(matches!(&error, RegroupError::DetachedHead(message) if message.contains("detached HEAD")), "{error}");
+  assert_eq!(repo.head(), ids[0]);
+}
+
+/// The app's list was read before the commit was reworded or dropped in a terminal: the app says to sync
+#[test]
+fn refuses_a_commit_that_left_the_current_branch() {
+  let repo = repo(false);
+  let ids = commits(&repo, &["Add login"]);
+  let replacement = app_reword(&repo, &[(&ids[0], "Add the login form")]).unwrap().new_head;
+
+  let error = app_reword(&repo, &[(&ids[0], "Add login page")]).unwrap_err();
+
+  assert_eq!(error.to_string(), format!("Commit {} is no longer on the current branch, sync and try again", &ids[0][..8]));
+  assert_eq!(repo.head(), replacement);
+}
+
+/// `git status` and the index, to compare before and after a rewrite
+fn index_and_status(repo: &TestRepo) -> (String, String) {
+  let git = repo.git_executor();
+  (
+    String::from_utf8_lossy(&git.cmd(&["status", "--porcelain=v2", "-z"], path(repo)).bytes().unwrap()).into_owned(),
+    git.execute_command(&["ls-files", "-s"], path(repo)).unwrap(),
+  )
+}
+
+fn identities(repo: &TestRepo, range: &str) -> Vec<String> {
+  repo
+    .log(&["--date=raw", "--format=%an <%ae> %ad | %cn <%ce> %cd", range])
+    .unwrap()
+    .lines()
+    .map(str::to_string)
+    .collect()
+}
+
+#[test]
+fn reword_preserves_committer() {
+  let repo = TestRepo::new();
+  let git = repo.git_executor();
+  let commit = |message: &str, file: &str, date: &str| {
+    std::fs::write(repo.path().join(file), message).unwrap();
+    git.execute_command(&["add", file], path(&repo)).unwrap();
+    let env = [
+      ("GIT_AUTHOR_NAME", "Ann Author"),
+      ("GIT_AUTHOR_EMAIL", "ann@example.com"),
+      ("GIT_AUTHOR_DATE", date),
+      ("GIT_COMMITTER_NAME", "Carl Committer"),
+      ("GIT_COMMITTER_EMAIL", "carl@example.com"),
+      ("GIT_COMMITTER_DATE", "1700000500 +0530"),
+    ];
+    git.cmd(&["commit", "-q", "-m", message], path(&repo)).env(&env).text().unwrap();
+    repo.head()
+  };
+  let base = commit("Base", "base.rs", "1700000000 +0100");
+  let first = commit("(auth) Add login", "login.rs", "1700000100 -0700");
+  commit("(auth) Add logout\n\nKeeps  trailing   spaces  ", "logout.rs", "1700000200 +0200");
+  let before = identities(&repo, &format!("{base}..HEAD"));
+  let message_before = full_message(&repo, "HEAD");
+  // staged and unstaged work
+  std::fs::write(repo.path().join("login.rs"), "staged").unwrap();
+  git.execute_command(&["add", "login.rs"], path(&repo)).unwrap();
+  std::fs::write(repo.path().join("logout.rs"), "unstaged").unwrap();
+  let state_before = index_and_status(&repo);
+
+  app_reword(&repo, &[(&first, "(auth) Add the login form")]).unwrap();
+
+  assert_eq!(identities(&repo, &format!("{base}..HEAD")), before);
+  assert_eq!(full_message(&repo, "HEAD"), message_before);
+  assert_eq!(index_and_status(&repo), state_before);
+  let reflog = repo.log(&["-g", "-1", "--format=%gs"]).unwrap();
+  assert!(reflog.starts_with("branch-deck: reword"), "{reflog}");
+  assert_eq!(git.execute_command(&["for-each-ref", "refs/branch-deck/"], path(&repo)).unwrap(), "");
+}
+
+/// The Undo of the app's reword moves HEAD back with its token: the next sync finds the old messages and builds the
+/// virtual branch from the old commits again, its copy reused by the mapping notes
+#[test]
+fn undo_of_a_reword_brings_back_the_old_virtual_commits() {
+  let repo = repo(false);
+  let ids = commits(&repo, &["(auth) Add login", "(cache) Add cache"]);
+  sync(&repo);
+  let virtual_tips = |repo: &TestRepo| {
+    repo
+      .git_executor()
+      .execute_command(&["rev-parse", "test-prefix/virtual/auth", "test-prefix/virtual/cache"], path(repo))
+      .unwrap()
+  };
+  let before = virtual_tips(&repo);
+
+  let result = app_reword(&repo, &[(&ids[0], "(auth) Add login\n\nWith a remember-me box.")]).unwrap();
+  sync(&repo);
+  assert_ne!(virtual_tips(&repo), before);
+
+  let token = result.undo_token.unwrap();
+  undo_regroup(
+    repo.git_executor(),
+    &UndoRegroupParams {
+      repository_path: path(&repo).to_string(),
+      token,
+    },
+  )
+  .unwrap();
+  assert_eq!(repo.head(), ids[1]);
+  sync(&repo);
+  assert_eq!(virtual_tips(&repo), before);
 }

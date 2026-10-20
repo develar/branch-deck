@@ -6,7 +6,7 @@ use git_ops::model::CommitInfo;
 use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch_at};
 use history_rewrite::baseline::detect_baseline_branch;
 use history_rewrite::repository_lock::RewriteOptions;
-use history_rewrite::reword_commit::keeps_virtual_commit;
+use history_rewrite::reword::keeps_virtual_commit;
 use serde::{Deserialize, Serialize};
 use sync_utils::issue_pattern::has_issue_reference;
 use tracing::info;

@@ -73,7 +73,7 @@ tree is never written, and the user's other staged work stays staged.
   - the range from the target to HEAD contains a merge commit;
   - the branch moved meanwhile.
   [@test] ../../crates/git-ops/src/amend_operations_test.rs (`amend_refuses_range_with_merges`)
-  [@test] ../../crates/history-rewrite/src/reword_commit_test.rs (`rewrite_refused_during_merge`)
+  [@test] ../../crates/git-ops/src/rewrite_plan_test.rs (`rewrite_refused_during_merge`)
 - The amend must run under the repository lock: while another Branch Deck operation holds it, the amend waits up to
   10 s, then it is refused with nothing changed and the error toast says that another operation holds the lock; a
   HEAD the request was not made for refuses it too.

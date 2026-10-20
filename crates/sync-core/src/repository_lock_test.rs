@@ -1,6 +1,6 @@
-//! Every rewrite of the checked out branch the app runs takes the repository lock in its core (`RewriteOptions`): it
-//! waits for another holder, fails with `RepositoryLocked` after the timeout and changes nothing, and refuses another
-//! HEAD than the expected one
+//! Every rewrite of the checked out branch the app runs takes the repository lock in its core (`RewriteOptions`, the
+//! `RegroupOptions` of the reword): it waits for another holder, fails with `RepositoryLocked` after the timeout and
+//! changes nothing, and refuses another HEAD than the expected one
 
 use crate::add_issue_reference::{AddIssueReferenceParams, add_issue_reference_to_commits_core};
 use crate::amend_to_branch::{AmendUncommittedToBranchParams, amend_uncommitted_to_branch_core};
@@ -8,8 +8,9 @@ use crate::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
 use git_ops::model::CommitInfo;
 use git_ops::rewrite_guard::HeadMoved;
 use history_rewrite::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
+use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::{LockHolder, RepositoryLocked, RewriteOptions, lock_repository, lock_repository_in};
-use history_rewrite::reword_commit::{CommitRewrite, RewordCommitsRequest, reword_commits_core};
+use history_rewrite::reword::{CommitReword, RewordRequest, RewordText, reword_request_core};
 use history_rewrite::squash::{RestoreBranchHeadParams, SquashCommitsParams, restore_branch_head_core, squash_commits_core};
 use pretty_assertions::assert_eq;
 use std::time::{Duration, Instant};
@@ -103,16 +104,22 @@ fn run_every_rewrite(repo: &TestRepo, [a1, b1, a2, fixup]: &[String; 4], options
     (
       "reword",
       error(
-        reword_commits_core(
+        reword_request_core(
           git,
-          &RewordCommitsRequest {
+          &RewordRequest {
             repository_path: repository_path.clone(),
-            rewrites: vec![CommitRewrite {
-              commit_id: a2.clone(),
-              message: "(alpha) A2 reworded".to_string(),
+            rewords: vec![CommitReword {
+              commit: a2.clone(),
+              text: RewordText::Message("(alpha) A2 reworded".to_string()),
             }],
           },
-          options,
+          // the reword is a regroup, whose options carry the same lock and HEAD
+          &RegroupOptions {
+            expect_head: options.expect_head.clone(),
+            lock_timeout: options.lock_timeout,
+            held_lock: options.held_lock,
+            ..RegroupOptions::default()
+          },
         )
         .map(drop),
       ),

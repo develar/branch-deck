@@ -14,7 +14,7 @@ use crate::fixup_targets::check_fixup_targets;
 use crate::issue_groups::{ISSUE_GROUPS, validate_issue_group_name, validate_issue_key, validate_leaf_name};
 use crate::move_commits::{validate_branch_name, with_branch_prefix};
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, RepositoryLocked, ensure_expected_head, lock_repository};
-use crate::reword_commit::{normalize_message, reword_read_commits_at};
+use crate::reword::{normalize_message, reword_read_commits_at};
 use crate::snapshot::{Grouped, Snapshot, group_commits};
 use crate::stack::{StackForest, describe_conflicting_parents, stack_path};
 use crate::stack_parents::{STACK_PARENTS, undo_over_drops};
@@ -247,6 +247,10 @@ pub enum RegroupError {
   /// Ids that are not commits ahead of the baseline
   #[error("Not commits ahead of the baseline: {}", .commits.join(", "))]
   NotAheadOfBaseline { commits: Vec<String> },
+  /// The rewrite would change what fixups fold into (`fixup_targets.rs`); the text names no action, each surface adds
+  /// its own (`bd fold`, the app's Squash Fixups)
+  #[error("{}: {}", .refusal.reason(), .commits.join(", "))]
+  FixupsStranded { refusal: FixupRefusal, commits: Vec<String> },
   #[error(transparent)]
   HeadMoved(HeadMoved),
   /// The issue groups changed since they were read
@@ -282,8 +286,33 @@ impl RegroupError {
   /// The commits the error is about
   pub fn commits(&self) -> &[String] {
     match self {
-      Self::InvalidPlan { commits, .. } | Self::NotAheadOfBaseline { commits } => commits,
+      Self::InvalidPlan { commits, .. } | Self::NotAheadOfBaseline { commits } | Self::FixupsStranded { commits, .. } => commits,
       _ => &[],
+    }
+  }
+}
+
+/// How a rewrite of messages would strand fixups (`RegroupError::FixupsStranded`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FixupRefusal {
+  /// A `fixup!`, `squash!` or `amend!` marker added or removed
+  MarkerChanged,
+  /// Fixups that would fold into another target or none
+  Retargeted,
+  /// Fixups that name their target by its id, which the rewrite changes
+  NamedById,
+  /// An `amend!` that waits to replace the message of a reworded commit at the next fold
+  AmendWaits,
+}
+
+impl FixupRefusal {
+  /// The reason, without what to do about it
+  pub const fn reason(self) -> &'static str {
+    match self {
+      Self::MarkerChanged => "A reword may not add or remove a fixup!, squash! or amend! marker, which decides what folds where",
+      Self::Retargeted => "Fixups would fold into another target or none",
+      Self::NamedById => "Fixups name their target by its id, which the rewrite changes",
+      Self::AmendWaits => "An amend! waits to replace the message of a reworded commit at the next fold",
     }
   }
 }

@@ -91,10 +91,11 @@ export async function renameBranch(branchName: string, newName: string, options:
 }
 
 /**
- * Moves back what a move, a rename or a restack wrote, HEAD and the issue groups in one transaction, then syncs; a
- * rewrite of its own (`label`: "Undoing the move")
+ * Moves back what a move, a rename, a restack or a reword wrote, HEAD and the issue groups in one transaction, then
+ * syncs; a rewrite of its own (`label`: "Undoing the move"). `applied` runs once the undo is written, before the sync
+ * (a preview follows its commit back)
  */
-export async function undoRegroup(token: string | null | undefined, failureTitle: string, label: string): Promise<void> {
+export async function undoRegroup(token: string | null | undefined, failureTitle: string, label: string, applied?: () => void): Promise<void> {
   if (token == null) {
     return
   }
@@ -104,6 +105,7 @@ export async function undoRegroup(token: string | null | undefined, failureTitle
     () => commands.undoRegroup({ repositoryPath: getSelectedProject()?.path ?? "", token }),
     () => {
       requestReveal(null)
+      applied?.()
       return { sync: true }
     },
   )

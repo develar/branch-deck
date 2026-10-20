@@ -143,6 +143,9 @@ mod object_texts_test;
 mod ownership_test;
 
 #[cfg(test)]
+mod ref_transaction_test;
+
+#[cfg(test)]
 mod rewrite_plan_test;
 
 #[cfg(test)]

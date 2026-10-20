@@ -9,7 +9,7 @@ targets:
   - ../../crates/history-rewrite/src/regroup.rs
   - ../../crates/history-rewrite/src/snapshot.rs
   - ../../crates/history-rewrite/src/repository_lock.rs
-  - ../../crates/history-rewrite/src/reword_commit.rs
+  - ../../crates/history-rewrite/src/reword.rs
   - ../../crates/history-rewrite/src/commit_grouper.rs
   - ../../crates/sync-core/src/sync.rs
   - ../../src/hooks/useMoveCommits.ts
@@ -113,7 +113,7 @@ Renaming and ungrouping a branch are moves of all its commits.
 - A commit already in the target branch must not be rewritten; the result lists it as `Unchanged`.
 - All commits must be rewritten in one history rewrite that keeps the trees, the metadata and the working tree.
 - The rewrite must keep the author and the committer of every recreated commit: name, email, date and timezone.
-  [@test] ../../crates/history-rewrite/src/reword_commit_test.rs (`reword_preserves_committer`)
+  [@test] ../../crates/sync-core/src/reword_test.rs (`reword_preserves_committer`)
 - The target name must be a name the grouper keeps as is: letters, numbers, `-`, `_`, `.` and `/`, not at the ends.
   [@test] ../../crates/sync-core/src/move_commits_test.rs (`sets_replaces_and_removes_the_prefix`, `keeps_the_autosquash_marker`, `validates_the_branch_name`, `moves_unassigned_commits_to_a_new_branch`, `moves_to_another_branch_and_back_to_the_issue`, `skips_commits_already_in_the_target_branch`, `keeps_the_body_and_the_metadata`, `keeps_the_checked_out_branch`, `refuses_an_invalid_target_or_an_unknown_commit`, `moves_many_commits_in_one_rewrite`)
 - A split prefix branch must keep the issue key of its commits.
@@ -252,7 +252,7 @@ Renaming and ungrouping a branch are moves of all its commits.
 
 ## Testing / Local Run
 
-- `pnpm test:backend`: `move_commits_test.rs`, `reword_commit_test.rs`, `sync_test.rs`.
+- `pnpm test:backend`: `move_commits_test.rs`, `reword_test.rs`, `sync_test.rs`.
 - `pnpm test:unit`: the grouping rule (`src/lib/commit.test.ts`) and the issue families (`src/stores/branch-sync.test.ts`).
 - `pnpm e2e`: `tests/e2e/move-commits` uses the `issue_split` and `issue_combine` templates.
 

@@ -38,6 +38,9 @@ mod review_readiness_test;
 mod review_requests_test;
 
 #[cfg(test)]
+mod reword_test;
+
+#[cfg(test)]
 mod test_support;
 
 #[cfg(test)]
@@ -108,7 +111,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/sync_branches", post(tauri_command_bridge::sync_branches))
     .route("/invoke/get_sync_inputs_fingerprint", post(tauri_command_bridge::get_sync_inputs_fingerprint))
     .route("/invoke/add_issue_reference_to_commits", post(tauri_command_bridge::add_issue_reference_to_commits))
-    .route("/invoke/reword_commits", post(tauri_command_bridge::reword_commits))
+    .route("/invoke/reword", post(tauri_command_bridge::reword))
     .route("/invoke/move_commits_to_branch", post(tauri_command_bridge::move_commits_to_branch))
     .route("/invoke/rename_branch", post(tauri_command_bridge::rename_branch))
     .route("/invoke/restack_branch", post(tauri_command_bridge::restack_branch))

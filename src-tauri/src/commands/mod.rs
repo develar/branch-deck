@@ -18,7 +18,7 @@ pub mod push;
 pub mod repository_browser;
 pub mod repository_config;
 pub mod review_requests;
-pub mod reword_commit;
+pub mod reword;
 pub mod squash_commits;
 pub mod squash_fixups;
 pub mod stack_operations;

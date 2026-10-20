@@ -11,7 +11,9 @@ use file_diffs::model::{
 };
 use file_diffs::service::FileDiffs;
 use git_ops::commit_files::{CommitFiles, DiffSubject, GetCommitFilesParams, GetCommitsFilesParams, read_commit_files_cached, read_diff_files};
+use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::RewriteOptions;
+use history_rewrite::reword::{RewordRequest, RewordResult, reword_request_core};
 use object_cache::cache::ObjectCache;
 use serde::Deserialize;
 use std::convert::Infallible;
@@ -125,16 +127,10 @@ pub async fn add_issue_reference_to_commits(
   .await
 }
 
-pub async fn reword_commits(
-  State(state): State<Arc<AppState>>,
-  Json(params): Json<history_rewrite::reword_commit::RewordCommitsRequest>,
-) -> CommandResult<history_rewrite::reword_commit::RewordCommitsResult> {
+pub async fn reword(State(state): State<Arc<AppState>>, Json(params): Json<RewordRequest>) -> CommandResult<RewordResult> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_command("reword commits", move || {
-    history_rewrite::reword_commit::reword_commits_core(&git_executor, &params, &RewriteOptions::default())
-  })
-  .await
+  run_command("reword", move || reword_request_core(&git_executor, &params, &RegroupOptions::default())).await
 }
 
 #[derive(Deserialize)]

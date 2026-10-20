@@ -1,11 +1,12 @@
 // @spec spec/commit/commit-row.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
+import { activityEntry, openActivityWindow } from "../helpers/activity-helpers"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, expandBranch, getBranchDetailsRow, verifyBranchState } from "../helpers/branch-helpers"
 import { inlineBranchCreator } from "../helpers/inline-form-helpers"
-import { enableAutoSyncOnFocus, runAndWaitForSync, syncFromMenu, syncOnWindowFocus } from "../helpers/sync-helpers"
-import { holdCommand } from "../helpers/wait-helpers"
+import { emitTauriEvent, enableAutoSyncOnFocus, finishedSyncCount, runAndWaitForSync, syncFromMenu, syncOnWindowFocus, waitForTauriListener } from "../helpers/sync-helpers"
+import { holdCommand, holdCommandCalls } from "../helpers/wait-helpers"
 
 // the `issue_links` template gives this commit a body with a wrapped paragraph, a list, indented code and a trailer
 const BRANCH = "JIRA-456"
@@ -285,6 +286,100 @@ test.describe("Commit message", () => {
       await expect(editor).toHaveValue(draft)
       await expect(editor).toBeEnabled()
       await expect(preview).toBeVisible()
+    })
+
+    const REWORDED = "perf db: increase pool size to 64"
+
+    function perfRow(page: Page, subject = PERF_SUBJECT): Locator {
+      return getBranchDetailsRow(page, BRANCH).locator("tr").filter({ hasText: subject })
+    }
+
+    /** Rewords the second JIRA-456 commit in its preview, which stays open on the new commit: the old id */
+    async function rewordPerfCommit(page: Page): Promise<{ preview: Locator; hash: string }> {
+      const { preview, editor } = await editPerfCommit(page)
+      const hash = (await perfRow(page).getAttribute("data-row-id"))!
+      await editor.fill(`(${BRANCH}) ${REWORDED}`)
+      await runAndWaitForSync(page, () => page.keyboard.press("ControlOrMeta+Enter"))
+      await expect(preview.getByRole("heading", { level: 2 })).toHaveText(REWORDED)
+      return { preview, hash }
+    }
+
+    function rewordToast(page: Page, hash: string): Locator {
+      return page.locator("[data-slot=toast]").filter({ hasText: `Reworded ${hash.slice(0, 8)}` })
+    }
+
+    test("should undo a reword from its toast and follow the preview back", async ({ page }) => {
+      const { preview, hash } = await rewordPerfCommit(page)
+      const toast = rewordToast(page, hash)
+      await expect(toast).toContainText(`(${BRANCH}) ${REWORDED}`)
+      await expect(perfRow(page, REWORDED)).not.toHaveAttribute("data-row-id", hash)
+
+      // a click on the toast keeps the preview, which follows the commit back
+      await runAndWaitForSync(page, () => toast.getByRole("button", { name: "Undo" }).click())
+      await expect(preview.getByRole("heading", { level: 2 })).toHaveText(PERF_SUBJECT)
+      await expect(preview.getByTestId("commit-preview-position")).toHaveText("2 / 3")
+      await expect(perfRow(page)).toHaveAttribute("data-row-id", hash)
+      await expect(perfRow(page, REWORDED)).toHaveCount(0)
+      await expect(toast).toHaveCount(0)
+    })
+
+    test("should undo a reword from Activity", async ({ page }) => {
+      const { preview, hash } = await rewordPerfCommit(page)
+      await expect(rewordToast(page, hash)).toBeVisible()
+      // the native menu item: the preview stays open in the main window
+      const window = await openActivityWindow(page, async () => {
+        await waitForTauriListener(page, "open_activity")
+        await emitTauriEvent(page, "open_activity")
+      })
+      const entry = activityEntry(window, `Reworded ${hash.slice(0, 8)}`)
+      await expect(entry).toHaveAttribute("data-kind", "rewrite")
+      await expect(entry.getByTestId("activity-description")).toHaveText(`(${BRANCH}) ${REWORDED}`)
+
+      await runAndWaitForSync(page, () => entry.getByTestId("activity-undo").click())
+      await expect(entry.getByTestId("activity-undone")).toHaveText("undone")
+      await expect(entry.getByTestId("activity-undo")).toHaveCount(0)
+      await expect(preview.getByRole("heading", { level: 2 })).toHaveText(PERF_SUBJECT)
+      await expect(perfRow(page)).toHaveAttribute("data-row-id", hash)
+      // the Undo of the toast went with it
+      await expect(rewordToast(page, hash)).toHaveCount(0)
+    })
+
+    test("should refuse to undo a reword after the branch moved", async ({ page, issueLinksRepo: repo }) => {
+      const { hash } = await rewordPerfCommit(page)
+      await page.keyboard.press("Escape")
+      // another commit of the branch is reworded in a terminal: HEAD is not what the reword wrote
+      const other = await getBranchDetailsRow(page, BRANCH).locator("tr").filter({ hasText: SUBJECT }).getAttribute("data-row-id")
+      await repo.reword(other!, `(${BRANCH}) ${SUBJECT} with backoff`)
+
+      await rewordToast(page, hash).getByRole("button", { name: "Undo" }).click()
+      const refusal = page.locator("[data-slot=toast]").filter({ hasText: "Cannot undo the reword" })
+      await expect(refusal).toContainText(/moved: HEAD is/)
+
+      // nothing was undone: the next sync shows both rewords
+      await syncFromMenu(page)
+      await expect(perfRow(page, REWORDED)).toBeVisible()
+      await expect(
+        getBranchDetailsRow(page, BRANCH)
+          .locator("tr")
+          .filter({ hasText: `${SUBJECT} with backoff` }),
+      ).toBeVisible()
+      await expect(perfRow(page)).toHaveCount(0)
+    })
+
+    test("should save an unchanged message without a toast", async ({ page }) => {
+      const { preview, editor } = await editPerfCommit(page)
+      const syncs = await finishedSyncCount(page)
+      const { calls, release } = await holdCommandCalls(page, "reword")
+      await page.keyboard.press("ControlOrMeta+Enter")
+      await expect.poll(() => calls.length).toBe(1)
+      release()
+
+      // the save is over (its toast would come before the edit ends); the message reached the backend unchanged
+      await expect(editor).toHaveCount(0)
+      expect(calls[0]).toMatchObject({ rewords: [{ text: { message: `(${BRANCH}) ${PERF_SUBJECT}` } }] })
+      await expect(preview.getByRole("heading", { level: 2 })).toHaveText(PERF_SUBJECT)
+      await expect(page.locator("[data-slot=toast]")).toHaveCount(0)
+      expect(await finishedSyncCount(page)).toBe(syncs)
     })
 
     test("should disable the edit while a sync runs", async ({ page }) => {
