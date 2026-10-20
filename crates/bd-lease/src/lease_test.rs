@@ -1,6 +1,6 @@
-use crate::fixture_test::assert_covered;
-use crate::fixture_test::{PREFIX, assert_error, canonical, environment, git, repo_with_baseline, run_json};
 use crate::lease_command::{LeaseContext, LeaseStatusArgs, lease_status};
+use bd_cli::fixture_test::assert_covered;
+use bd_cli::fixture_test::{PREFIX, assert_error, canonical, environment, git, repo_with_baseline, run_json};
 use bd_core::context::Environment;
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
@@ -505,7 +505,7 @@ fn followed_then_rewritten() -> (Fixture, String) {
   commit_in(&path, "(lane) Add a", "lane-a.txt");
   commit_in(&path, "(lane) Add b", "lane-b.txt");
   fixture.repo.create_commit("(peer) Add p", "p.txt", "p\n");
-  let (exit_code, picked) = crate::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path, "--follow"]);
+  let (exit_code, picked) = bd_cli::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path, "--follow"]);
   assert_eq!((exit_code, &picked["followed"]["state"]), (0, &json!("moved")), "{picked}");
   let followed = slot_git(&path, &["rev-parse", "HEAD"]);
   git(&fixture.repo, &["commit", "-q", "--amend", "-m", "(lane) Add b, reworded"]);
@@ -557,7 +557,7 @@ fn a_session_rewords_its_landed_commit_from_its_lease() {
   let path = path_of(&fixture.get(&[]));
   commit_in(&path, "(lane) Add a with a subject that is far longer than the rule of the repository allows", "lane-a.txt");
   // a fast-forward: the shared branch is at the worktree's tip
-  let (exit_code, picked) = crate::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path, "--follow"]);
+  let (exit_code, picked) = bd_cli::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path, "--follow"]);
   assert_eq!((exit_code, &picked["followed"]["state"]), (0, &json!("at_tip")), "{picked}");
   let shared = fixture.repo.path_str();
   let head = fixture.repo.head();
@@ -571,12 +571,12 @@ fn a_session_rewords_its_landed_commit_from_its_lease() {
   assert_eq!(slot_git(&path, &["rev-parse", "HEAD"]), head, "the worktree stays where it was");
 
   // nothing left to pick: the old tip is the fork point
-  let (exit_code, output) = crate::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path, "--dry-run"]);
+  let (exit_code, output) = bd_cli::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path, "--dry-run"]);
   assert_eq!((exit_code, &output["state"]), (0, &json!("up_to_date")), "{output}");
 
   // a new commit lands alone, and the worktree follows onto the reworded branch
   let new = commit_in(&path, "(lane) Add b", "lane-b.txt");
-  let (exit_code, output) = crate::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path, "--follow"]);
+  let (exit_code, output) = bd_cli::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path, "--follow"]);
   assert_eq!((exit_code, &output["followed"]["state"]), (0, &json!("moved")), "{output}");
   let picked: Vec<&str> = output["picked"].as_array().unwrap().iter().map(|commit| commit["subject"].as_str().unwrap()).collect();
   assert_eq!(picked, ["(lane) Add b"], "{output}");
@@ -597,13 +597,13 @@ fn a_pick_without_follow_finds_the_reworded_commit_present_by_patch_id() {
   let own = commit_in(&path, "(lane) Add a with a subject that is far longer than the rule allows", "lane-a.txt");
   // a peer's commit first, so that the pick lands a copy
   fixture.repo.create_commit("(peer) Add p", "p.txt", "p\n");
-  let (exit_code, picked) = crate::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path]);
+  let (exit_code, picked) = bd_cli::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path]);
   assert_eq!(exit_code, 0, "{picked}");
   let head = fixture.repo.head();
-  let (exit_code, reworded) = crate::fixture_test::run_in(&fixture.repo, &["reword", &head, "--subject", "(lane) Add a"]);
+  let (exit_code, reworded) = bd_cli::fixture_test::run_in(&fixture.repo, &["reword", &head, "--subject", "(lane) Add a"]);
   assert_eq!(exit_code, 0, "{reworded}");
 
-  let (exit_code, output) = crate::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path, "--dry-run"]);
+  let (exit_code, output) = bd_cli::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path, "--dry-run"]);
   assert_eq!((exit_code, &output["state"]), (0, &json!("up_to_date")), "{output}");
   let present = &output["already_present"][0];
   assert_eq!(

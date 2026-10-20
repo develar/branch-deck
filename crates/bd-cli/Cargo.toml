@@ -19,6 +19,7 @@ test = false
 # the repositories of the tests, for `fixtures`
 test-utils = { path = "../test-utils", optional = true }
 bd-core = { path = "../bd-core" }
+bd-lease = { path = "../bd-lease" }
 bd-clustering = { path = "../bd-clustering" }
 file-diffs = { path = "../file-diffs" }
 git-executor = { path = "../git-executor" }

@@ -1273,7 +1273,7 @@ the user: on macOS through libproc (`proc_listallpids`, `proc_pidinfo` with `PRO
 scan: the outputs say `processes_checked: false`, and a lease never waits for it.
 
 Code: `crates/git-ops/src/lease_slot.rs`, `crates/sync-core/src/lease.rs`, `crates/sync-utils/src/process_scan.rs`,
-`crates/bd-cli/src/lease_command.rs`.
+`crates/bd-lease/src/lease_command.rs`.
 
 #### Virtual branch sync
 

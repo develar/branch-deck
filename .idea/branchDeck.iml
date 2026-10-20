@@ -19,6 +19,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/bd-cli/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/bd-clustering/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/bd-core/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/bd-lease/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/object-cache/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/patronus/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/code-symbols/examples" isTestSource="false" />

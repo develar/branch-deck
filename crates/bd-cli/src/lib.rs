@@ -11,7 +11,6 @@ pub mod fold_command;
 pub mod group_plan;
 pub mod install;
 pub mod landed;
-pub mod lease_command;
 pub mod move_hunk_command;
 pub mod numstat;
 pub mod park_command;
@@ -38,7 +37,6 @@ use crate::commits::{CommitsArgs, commits, commits_brief};
 use crate::describe::{DescribeArgs, describe};
 use crate::fold_command::{FoldArgs, fold};
 use crate::install::{InstallArgs, install};
-use crate::lease_command::{LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, lease_adopt, lease_clean, lease_get, lease_return, lease_status};
 use crate::move_hunk_command::{MoveHunkArgs, MoveHunkOutput, move_hunk};
 use crate::park_command::{ParkArgs, UnparkArgs, park, unpark};
 use crate::pick_command::{PickArgs, PickOutput, pick};
@@ -60,6 +58,7 @@ use bd_core::error::{CONFLICT_EXIT, CliError, ErrorCode};
 use bd_core::output::write_json;
 use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
+use bd_lease::lease_command::{LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, lease_adopt, lease_clean, lease_get, lease_return, lease_status};
 use clap::error::ErrorKind;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
 use serde::Serialize;
@@ -389,10 +388,6 @@ mod fold_test;
 mod install_test;
 #[cfg(test)]
 mod landed_test;
-#[cfg(test)]
-mod lease_clean_test;
-#[cfg(test)]
-mod lease_test;
 #[cfg(test)]
 mod move_hunk_test;
 #[cfg(test)]

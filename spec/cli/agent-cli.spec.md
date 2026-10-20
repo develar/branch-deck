@@ -432,7 +432,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - A session must be able to reword its own landed commit from its lease with `-C <shared checkout>`; the lease needs no
   move: a later pick lands only new commits and the return finds the old tip landed by content
   ([bd lease](lease.spec.md)).
-  [@test] ../../crates/bd-cli/src/lease_test.rs (`a_session_rewords_its_landed_commit_from_its_lease`, `a_pick_without_follow_finds_the_reworded_commit_present_by_patch_id`)
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_session_rewords_its_landed_commit_from_its_lease`, `a_pick_without_follow_finds_the_reworded_commit_present_by_patch_id`)
 - Its processes are pinned by subcommand: the snapshot of a regroup, one `fast-import`, one `update-ref`.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_reword`)
 

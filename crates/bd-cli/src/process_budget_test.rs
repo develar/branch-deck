@@ -5,7 +5,6 @@
 use crate::check_command::{CheckArgs, check};
 use crate::fixture_test::{PREFIX, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline};
 use crate::fold_command::{FoldArgs, fold};
-use crate::lease_command::{LeaseContext, LeaseGetArgs, LeaseReturnArgs, lease_get, lease_return};
 use crate::move_hunk_command::{MoveHunkArgs, move_hunk};
 use crate::pick_command::{PickArgs, PickOutput, pick};
 use crate::push_command::{PushArgs, push};
@@ -20,6 +19,7 @@ use crate::safe_push_test::Space;
 use crate::status::{StatusArgs, status};
 use bd_core::context::{RepoContext, RepoOptions};
 use bd_core::sync_command::sync;
+use bd_lease::lease_command::{LeaseContext, LeaseGetArgs, LeaseReturnArgs, lease_get, lease_return};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -450,7 +450,7 @@ fn a_lease_get_of_a_new_slot_by_a_clone() {
   let (_home, environment) = lease_environment(&repo);
   let context = LeaseContext::resolve(&environment, None).unwrap();
   let got = lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
-  assert!(matches!(got.created_by, Some(crate::lease_command::CreatedByOutput::Clone)), "{got:?}");
+  assert!(matches!(got.created_by, Some(bd_lease::lease_command::CreatedByOutput::Clone)), "{got:?}");
   assert_git_processes(
     &context.git,
     &[

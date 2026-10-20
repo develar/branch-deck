@@ -456,6 +456,7 @@ dependencies = [
  "anyhow",
  "bd-clustering",
  "bd-core",
+ "bd-lease",
  "clap",
  "code-symbols",
  "dirs",
@@ -522,6 +523,28 @@ dependencies = [
  "sync-types",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "bd-lease"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bd-cli",
+ "bd-core",
+ "clap",
+ "git-executor",
+ "git-ops",
+ "history-rewrite",
+ "pretty_assertions",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "sync-core",
+ "sync-utils",
+ "tempfile",
+ "test-log",
+ "test-utils",
 ]
 
 [[package]]

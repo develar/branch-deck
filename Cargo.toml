@@ -16,6 +16,7 @@ members = [
   "crates/git-executor",
   "crates/bd-cli",
   "crates/bd-core",
+  "crates/bd-lease",
   "crates/bd-clustering",
   "crates/object-cache",
   "crates/patronus",
