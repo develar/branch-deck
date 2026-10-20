@@ -1,140 +1,23 @@
 use crate::fixture_test::assert_covered;
 use crate::fixture_test::{ACP_HOST, PREFIX, assert_error, commit_all, commit_dangling_reference, environment, git, run_in, run_json, write};
-use crate::push_test::{LANDED_SUBJECTS, land_auth_by_content, push_from_elsewhere_to, repo_with_remote};
+use crate::remote_fixture_test::{
+  AUTH, LANDED_SUBJECTS, STACK, Space, evaluated_review, fake_github, forking_stack, land_auth_by_content, list_pull_requests, pull_request_json, push_from_elsewhere_to,
+  reviewed_on_github, robot, safe_push, search_answer, stack_robot,
+};
 use bd_core::context::Environment;
-use github::fake_github::{FakeAnswer, FakeGitHub, start_fake as start_fake_github};
+use github::fake_github::{FakeAnswer, FakeGitHub};
 use github::token::TokenSources;
-use patronus::fake_patronus::{FakePatronus, robot_json, start_fake};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use tempfile::TempDir;
-use test_utils::fake_executable::{fake_executable, shell_path};
-use test_utils::git_test_utils::{TestRepo, git_command};
-use tokio::runtime::Runtime;
-
-pub(crate) const AUTH: &str = "test-user/virtual/auth";
-
-/// A repository whose `origin` is on Space (`ssh://git@git.jetbrains.team/ij/ultimate.git`), served by a local bare
-/// repository through a fake `ssh`, and a Patronus that answers for it
-pub(crate) struct Space {
-  pub(crate) repo: TestRepo,
-  pub(crate) remote: TempDir,
-  pub(crate) home: TempDir,
-  pub(crate) fake: Arc<FakePatronus>,
-  patronus_url: String,
-  /// Serves the fake Patronus (and a fake GitHub) while the test runs
-  pub(crate) runtime: Runtime,
-}
-
-impl Space {
-  pub(crate) fn new(subjects: &[&str]) -> Self {
-    let (repo, remote) = repo_with_remote(subjects);
-    let home = tempfile::tempdir().unwrap();
-    // git runs `<ssh> [options] git@git.jetbrains.team "git-receive-pack '/ij/ultimate.git'"`: serve the bare repository
-    let ssh = fake_executable(
-      home.path(),
-      "ssh",
-      &format!(
-        "for last; do :; done\ncase \"$last\" in\n  *receive-pack*) exec git receive-pack '{0}' ;;\n  *) exec git upload-pack '{0}' ;;\nesac",
-        shell_path(remote.path())
-      ),
-    );
-    git(&repo, &["config", "core.sshCommand", &shell_path(&ssh)]);
-    git(&repo, &["remote", "set-url", "origin", "ssh://git@git.jetbrains.team/ij/ultimate.git"]);
-
-    let token = home.path().join(".patronus/code.jetbrains.team-identity-token.json");
-    std::fs::create_dir_all(token.parent().unwrap()).unwrap();
-    std::fs::write(&token, r#"{"name": "me", "token": "t", "expires": null}"#).unwrap();
-
-    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
-    let (fake, client) = runtime.block_on(start_fake());
-    Self {
-      repo,
-      remote,
-      home,
-      fake,
-      patronus_url: client.base_url().to_string(),
-      runtime,
-    }
-  }
-
-  pub(crate) fn environment(&self) -> Environment {
-    Environment {
-      home: Some(self.home.path().to_path_buf()),
-      patronus_url: self.patronus_url.clone(),
-      ..environment(self.repo.path())
-    }
-  }
-
-  fn run(&self, args: &[&str]) -> (i32, Value) {
-    safe_push(&self.environment(), args)
-  }
-
-  pub(crate) fn remote_tip(&self, branch: &str) -> String {
-    let output = git_command()
-      .args(["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")])
-      .current_dir(self.remote.path())
-      .output()
-      .unwrap();
-    String::from_utf8(output.stdout).unwrap().trim().to_string()
-  }
-
-  pub(crate) fn local_tip(&self, branch: &str) -> String {
-    git(&self.repo, &["rev-parse", &format!("refs/heads/{branch}")])
-  }
-
-  pub(crate) fn set_robots(&self, robots: Vec<Value>) {
-    *self.fake.robots.lock().unwrap() = Some(robots);
-  }
-
-  fn last_start(&self) -> Value {
-    self.fake.last_start.lock().unwrap().clone()
-  }
-
-  /// Puts the baseline on the remote's `master`, the target the robots push into
-  fn publish_target(&self) {
-    git(&self.repo, &["push", "--quiet", "origin", "refs/remotes/origin/master:refs/heads/master"]);
-  }
-
-  /// A commit of another developer on the remote's `master`, which the repository hasn't fetched
-  fn land_on_target(&self, file: &str, content: &str, subject: &str) -> String {
-    let clone = tempfile::tempdir().unwrap();
-    let run = |args: &[&str]| {
-      let output = git_command().args(args).current_dir(clone.path()).output().unwrap();
-      assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
-      String::from_utf8(output.stdout).unwrap().trim().to_string()
-    };
-    run(&["clone", "--quiet", self.remote.path().to_str().unwrap(), "."]);
-    std::fs::write(clone.path().join(file), content).unwrap();
-    run(&["add", "-A"]);
-    run(&["-c", "user.name=Alice", "-c", "user.email=alice@example.com", "commit", "--quiet", "-m", subject]);
-    run(&["push", "--quiet", "origin", "HEAD:master"]);
-    run(&["rev-parse", "HEAD"])
-  }
-}
-
-/// `bd safe-push` with `args`
-fn safe_push(environment: &Environment, args: &[&str]) -> (i32, Value) {
-  let mut all_args = vec!["--prefix", PREFIX, "safe-push"];
-  all_args.extend_from_slice(args);
-  run_json(environment, &all_args)
-}
 
 /// `bd push` with `args`
 fn bd_push(environment: &Environment, args: &[&str]) -> (i32, Value) {
   let mut all_args = vec!["--prefix", PREFIX, "push"];
   all_args.extend_from_slice(args);
   run_json(environment, &all_args)
-}
-
-/// A robot of the user on the virtual branch `name`, at `revision`
-pub(crate) fn robot(id: &str, status: &str, name: &str, revision: &str) -> Value {
-  let mut robot = robot_json(id, status, &format!("refs/heads/test-user/virtual/{name}"), "2026-10-14T09:30:00Z");
-  robot["sourceRevision"] = json!(revision);
-  robot
 }
 
 #[test_log::test]
@@ -525,39 +408,6 @@ fn without_a_token_or_space_nothing_runs() {
   assert_eq!(space.fake.list_calls.load(Ordering::SeqCst), 0);
 }
 
-/// A fake GitHub of the repository `acme/monorepo` and its URL: the token is of `me`, the search lists
-/// `pull_requests`, a created pull request is #7 of auth (assigned and reviewed as asked), the `/patronus` comment is
-/// accepted at once
-pub(crate) fn fake_github(space: &Space, pull_requests: &[Value]) -> (Arc<FakeGitHub>, String) {
-  let (fake, client) = space.runtime.block_on(start_fake_github());
-  list_pull_requests(&fake, pull_requests);
-  fake.answer("GET", "/user", FakeAnswer::ok(json!({"login": "me"})));
-  fake.answer(
-    "POST",
-    "/repos/acme/monorepo/pulls",
-    FakeAnswer::status(
-      201,
-      json!({"number": 7, "html_url": "https://github.com/acme/monorepo/pull/7", "title": "Add auth", "head": {"ref": AUTH, "sha": "1111"}, "base": {"ref": "master"}}),
-    ),
-  );
-  fake.answer(
-    "POST",
-    "/repos/acme/monorepo/issues/7/assignees",
-    FakeAnswer::status(201, json!({"assignees": [{"login": "me"}]})),
-  );
-  fake.answer(
-    "POST",
-    "/repos/acme/monorepo/pulls/7/requested_reviewers",
-    FakeAnswer::status(201, json!({"requested_reviewers": [{"login": "alice-gh"}]})),
-  );
-  let comment = json!({"id": 4402, "html_url": "https://github.com/acme/monorepo/pull/7#issuecomment-4402", "created_at": "2026-10-14T09:30:00Z"});
-  fake.answer("POST", "/repos/acme/monorepo/issues/7/comments", FakeAnswer::status(201, comment.clone()));
-  let mut accepted = comment;
-  accepted["reactions"] = json!({"+1": 1, "-1": 0});
-  fake.answer("GET", "/repos/acme/monorepo/issues/comments/4402", FakeAnswer::ok(accepted));
-  (fake, client.web_url().to_string())
-}
-
 /// auth needs the code-owner review, which counts in its GitHub pull request (`fake_github`, `reviewed_on_github`)
 fn needs_review_on_github() -> (Space, Arc<FakeGitHub>, Environment) {
   let space = Space::new(&["(auth) Add auth"]);
@@ -572,37 +422,6 @@ fn create_pull_request(environment: &Environment) -> Value {
   let (exit_code, output) = safe_push(environment, &["auth", "--create-pull-request"]);
   assert_eq!(exit_code, 0, "{output}");
   output
-}
-
-/// The search of the user's pull requests answers `pull_requests`
-pub(crate) fn list_pull_requests(fake: &FakeGitHub, pull_requests: &[Value]) {
-  fake.answer("POST", "/graphql", search_answer(pull_requests));
-}
-
-fn search_answer(pull_requests: &[Value]) -> FakeAnswer {
-  FakeAnswer::ok(json!({"data": {"repository": {"viewerPermission": "WRITE"}, "search": {"nodes": pull_requests}}}))
-}
-
-/// The open pull request #7 of auth into master, approved by `approvers`
-pub(crate) fn pull_request_json(approvers: &[&str]) -> Value {
-  let reviews: Vec<Value> = approvers.iter().map(|login| json!({"author": {"login": login}, "state": "APPROVED"})).collect();
-  json!({"number": 7, "title": "Add auth", "url": "https://github.com/acme/monorepo/pull/7", "state": "OPEN", "isDraft": false,
-    "headRefName": AUTH, "headRefOid": "1111", "baseRefName": "master", "headRepositoryOwner": {"login": "acme"},
-    "isCrossRepository": false, "updatedAt": "2026-10-14T09:30:00Z", "latestReviews": {"nodes": reviews}})
-}
-
-/// The branches are reviewed on GitHub (`acme/monorepo`), through the fake GitHub at `github_url`, asked with the token
-/// `t`; the robot of the comment on pull request #7 is listed
-pub(crate) fn reviewed_on_github(space: &Space, github_url: &str) -> Environment {
-  git(&space.repo, &["config", "branchdeck.githubRepository", "acme/monorepo"]);
-  let mut started = robot("from-comment", "RUNNING", "other", "0000");
-  started["githubPrUrl"] = json!("https://github.com/acme/monorepo/pull/7");
-  space.set_robots(vec![started]);
-  Environment {
-    github_api_url: github_url.to_string(),
-    github_tokens: TokenSources::fixed("t"),
-    ..space.environment()
-  }
 }
 
 #[test_log::test]
@@ -670,16 +489,6 @@ fn the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_fro
     (json!("unknown"), json!("approvals_not_evaluated"))
   );
   assert_eq!(output["started_via"], json!("pull_request"));
-}
-
-/// The answer of a Patronus that evaluates pull request #7: IJPL Code Platform has `approved` and Ilya Korennoy the
-/// review state `state`
-pub(crate) fn evaluated_review(approved: bool, state: &str) -> Value {
-  json!({
-    "approvalRequired": !approved,
-    "reviewerGroups": [{"groupName": "IJPL Code Platform", "paths": ["auth.txt"], "requiredApprovals": 1, "collectedApprovals": u32::from(approved), "approved": approved, "selfApprovalAllowed": false,
-      "reviewers": [{"spaceUsername": "ikorennoy", "fullName": "Ilya Korennoy", "githubUsername": "ikorennoy", "isAvailable": true, "isSuggested": true, "approvalState": state}]}],
-  })
 }
 
 /// The screenshot of 2026-10-17: a bot approved, the code owner is asked and hasn't. Patronus counts no approval, so the
@@ -1039,23 +848,6 @@ fn create_pull_request_takes_the_open_pull_request_of_the_branch_whatever_its_ba
   );
   assert_eq!(output["retargeted"][0]["old_base"], json!("test-user/virtual/core"));
   assert!(github.requests_to("POST", "/repos/acme/monorepo/pulls").is_empty());
-}
-
-/// The stack branch of the stack of auth (`{prefix}/stack/auth`)
-pub(crate) const STACK: &str = "test-user/stack/auth";
-
-/// auth with login and session built on it: a stack that forks, whose stack branch has the commits of all three
-pub(crate) fn forking_stack() -> Space {
-  let space = Space::new(&["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"]);
-  space.repo.set_config("branchdeck.stacks", "true").unwrap();
-  space
-}
-
-/// A robot of the whole stack of auth, on its stack branch at `revision`
-pub(crate) fn stack_robot(id: &str, status: &str, revision: &str) -> Value {
-  let mut robot = robot_json(id, status, &format!("refs/heads/{STACK}"), "2026-10-14T09:30:00Z");
-  robot["sourceRevision"] = json!(revision);
-  robot
 }
 
 /// `--whole-stack` of any branch of a stack that forks lands every branch of it in one robot, from the stack branch of

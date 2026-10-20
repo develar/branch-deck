@@ -4,12 +4,10 @@
 
 use crate::fixture_test::{PREFIX, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline};
 use crate::push_command::{PushArgs, push};
-use crate::push_test::repo_with_remote;
+use crate::remote_fixture_test::{Space, needs_code_owner, repo_with_remote};
 use crate::request_review_command::{RequestReviewArgs, request_review};
-use crate::request_review_test::needs_code_owner;
 use crate::robot_command::{RobotArgs, robot};
 use crate::safe_push_command::{SafePushArgs, safe_push};
-use crate::safe_push_test::Space;
 use crate::status::{StatusArgs, status};
 use bd_core::context::{RepoContext, RepoOptions};
 use bd_core::sync_command::sync;

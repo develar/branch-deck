@@ -369,6 +369,8 @@ mod landed_test;
 mod process_budget_test;
 #[cfg(test)]
 mod push_test;
+#[cfg(any(test, feature = "fixtures"))]
+pub mod remote_fixture_test;
 #[cfg(test)]
 mod request_review_test;
 #[cfg(test)]

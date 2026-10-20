@@ -1,6 +1,6 @@
 use crate::fixture_test::assert_covered;
 use crate::fixture_test::{PREFIX, assert_error, commit_all, git, run_json, write};
-use crate::safe_push_test::{STACK, Space, forking_stack, robot};
+use crate::remote_fixture_test::{STACK, Space, forking_stack, robot};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 

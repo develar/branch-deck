@@ -51,7 +51,7 @@ tracing-subscriber.workspace = true
 [features]
 # `fixture_test`: the repositories and runs of bd that the tests of the crates bd-cli builds on share; only a
 # dev-dependency enables it, never a build of the app
-fixtures = ["dep:test-utils"]
+fixtures = ["dep:test-utils", "patronus/fake", "github/fake"]
 
 [build-dependencies]
 serde_json.workspace = true

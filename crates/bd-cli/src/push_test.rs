@@ -1,33 +1,14 @@
 use crate::fixture_test::assert_covered;
-use crate::fixture_test::{PREFIX, assert_error, branch, commit_all, commit_subjects, git, repo_with_baseline, run_in, write};
+use crate::fixture_test::{PREFIX, assert_error, branch, commit_all, git, run_in, write};
+use crate::remote_fixture_test::{LANDED_SUBJECTS, land_auth_by_content, push_from_elsewhere_to, remote_tip, repo_with_remote, their_change};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use sync_core::push::{PushBranchParams, PushOutcome, push_branch};
 use tempfile::TempDir;
-use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, git_command, refuse_every_push};
+use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, refuse_every_push};
 
 const AUTH: &str = "test-user/virtual/auth";
-
-/// A repository whose `origin` is a local bare repository, with the commits of `subjects`
-pub(crate) fn repo_with_remote(subjects: &[&str]) -> (TestRepo, TempDir) {
-  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
-  let remote = tempfile::tempdir().unwrap();
-  git(&repo, &["init", "--bare", "-q", remote.path().to_str().unwrap()]);
-  disable_background_maintenance(remote.path());
-  git(&repo, &["remote", "set-url", "origin", remote.path().to_str().unwrap()]);
-  commit_subjects(&repo, subjects);
-  (repo, remote)
-}
-
-fn remote_tip(remote: &TempDir, branch: &str) -> String {
-  let output = git_command()
-    .args(["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")])
-    .current_dir(remote.path())
-    .output()
-    .unwrap();
-  String::from_utf8(output.stdout).unwrap().trim().to_string()
-}
 
 /// `bd push auth` has nothing to push, and its lease is the remote head its sync saw: the pushed commit
 fn assert_pushes_up_to_date_on_the_seen_head(repo: &TestRepo) {
@@ -312,31 +293,9 @@ fn a_parked_branch_and_what_is_built_on_it_are_never_pushed() {
   assert_error(&output, exit_code, (4, "parked"));
 }
 
-/// The file and the content of the commit `push_from_elsewhere` makes for `subject`
-fn their_change(subject: &str) -> (String, String) {
-  (format!("{}.txt", subject.to_lowercase().replace(' ', "-")), format!("{subject}\n"))
-}
-
 /// Someone else commits `subject` (`their_change`) onto the remote branch `AUTH` from another clone; returns the commit
 fn push_from_elsewhere(remote: &TempDir, subject: &str) -> String {
   push_from_elsewhere_to(remote, AUTH, subject)
-}
-
-/// `push_from_elsewhere` onto the remote branch `branch`
-pub(crate) fn push_from_elsewhere_to(remote: &TempDir, branch: &str, subject: &str) -> String {
-  let elsewhere = tempfile::tempdir().unwrap();
-  let run = |args: &[&str]| {
-    let status = git_command().args(args).current_dir(elsewhere.path()).output().unwrap();
-    assert!(status.status.success(), "{args:?}: {}", String::from_utf8_lossy(&status.stderr));
-  };
-  run(&["clone", "-q", "--branch", branch, remote.path().to_str().unwrap(), "."]);
-  disable_background_maintenance(elsewhere.path());
-  let (file, content) = their_change(subject);
-  std::fs::write(elsewhere.path().join(&file), content).unwrap();
-  run(&["add", &file]);
-  run(&["-c", "user.name=Other", "-c", "user.email=other@example.com", "commit", "-q", "-m", subject]);
-  run(&["push", "-q", "origin", branch]);
-  remote_tip(remote, branch)
 }
 
 /// Someone else's fetched commit that the branch has by content (the user brought it in): the remote lacks nothing,
@@ -612,25 +571,6 @@ fn amended_and_restacked_commits_push_without_force() {
     remote_tip(&remote, "test-user/virtual/login"),
     git(&repo, &["rev-parse", "refs/heads/test-user/virtual/login"])
   );
-}
-
-/// The subjects of `land_auth_by_content`: one branch, two commits
-pub(crate) const LANDED_SUBJECTS: [&str; 2] = ["(auth) Add auth", "(auth) Add login"];
-
-/// After the push of `LANDED_SUBJECTS`, a Safe Push landed both commits of auth into the baseline, as the robot of a
-/// whole stack does: `Add auth` rebuilt on a target that changed its lines (another patch; the author, the author time and
-/// the subject kept), `Add login` as it was; Update Project put the branch onto it, and auth got one new commit. Returns
-/// the baseline commit of `Add auth`
-pub(crate) fn land_auth_by_content(repo: &TestRepo) -> String {
-  git(repo, &["reset", "-q", "--hard", "refs/remotes/origin/master"]);
-  write(repo, "f0.txt", "(auth) Add auth, rebuilt on a changed target");
-  let landed = commit_all(repo, "Add auth", 1_700_000_000);
-  write(repo, "f1.txt", LANDED_SUBJECTS[1]);
-  commit_all(repo, "Add login", 1_700_000_100);
-  git(repo, &["update-ref", "refs/remotes/origin/master", "HEAD"]);
-  write(repo, "f2.txt", "(auth) Add session");
-  commit_all(repo, "(auth) Add session", 1_700_000_300);
-  landed
 }
 
 /// The remote branch of a member of a stack that landed whole has its commits as they were before the landing: older

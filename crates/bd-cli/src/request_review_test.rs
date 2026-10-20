@@ -1,11 +1,10 @@
 use crate::fixture_test::assert_covered;
 use crate::fixture_test::{PREFIX, assert_error, run_json};
-use crate::safe_push_test::{Space, evaluated_review, fake_github, list_pull_requests, pull_request_json, reviewed_on_github};
+use crate::remote_fixture_test::{evaluated_review, list_pull_requests, needs_code_owner, own_pull_request};
 use bd_core::context::Environment;
 use github::fake_github::{FakeAnswer, FakeGitHub};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 const REVIEWERS: &str = "/repos/acme/monorepo/pulls/7/requested_reviewers";
@@ -15,26 +14,6 @@ fn request_review(environment: &Environment, args: &[&str]) -> (i32, Value) {
   let mut all_args = vec!["--prefix", PREFIX, "request-review"];
   all_args.extend_from_slice(args);
   run_json(environment, &all_args)
-}
-
-/// auth is synced and has the open pull request #7 of `me`, which nobody approved; IJPL Code Platform has to approve
-/// it, and Patronus suggests Ilya Korennoy (`ikorennoy`) with the review state `state`
-pub(crate) fn needs_code_owner(state: &str) -> (Space, Arc<FakeGitHub>, Environment) {
-  let space = Space::new(&["(auth) Add auth"]);
-  space.fake.review_required.store(true, Ordering::SeqCst);
-  *space.fake.pull_request_review.lock().unwrap() = Some(evaluated_review(false, state));
-  let (github, url) = fake_github(&space, &[own_pull_request()]);
-  let environment = reviewed_on_github(&space, &url);
-  let (exit_code, output) = run_json(&environment, &["--prefix", PREFIX, "sync"]);
-  assert_eq!(exit_code, 0, "{output}");
-  (space, github, environment)
-}
-
-/// The open pull request #7 of auth, by `me`
-fn own_pull_request() -> Value {
-  let mut pull_request = pull_request_json(&[]);
-  pull_request["author"] = json!({"login": "me"});
-  pull_request
 }
 
 fn requested_answer(logins: &[&str]) -> FakeAnswer {

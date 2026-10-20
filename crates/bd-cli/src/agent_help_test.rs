@@ -1,9 +1,9 @@
 use crate::Cli;
 use crate::agent_help::{AGENT_HELP, READ_ONLY, UPDATE_HELP, WORKTREES_HELP, skill_text};
+use crate::fixture_test::writable_state;
 use crate::fixture_test::{commit_all, git, repo_with_baseline, run_in, write};
 use clap::CommandFactory;
 use std::collections::{BTreeMap, BTreeSet};
-use test_utils::git_test_utils::TestRepo;
 
 /// Options `bd help agent` leaves to `--help` (paging, tuning, rare variants), as `<command> --<option>`, or
 /// `--<option>` for a global one; `--verbose` is named by its short form `-v`
@@ -175,17 +175,6 @@ fn the_worktrees_help_writes_the_prefix_first_and_checks_by_content() {
   for needed in ["never with `git cherry-pick`", "--dry-run", "Never compare by date", "branch-deck: pick"] {
     assert!(WORKTREES_HELP.contains(needed), "{needed}");
   }
-}
-
-/// HEAD, the refs, the local config, the index and the working tree status: what a read-only command must not change
-pub(crate) fn writable_state(repo: &TestRepo) -> (String, String, String, Vec<u8>, String) {
-  (
-    format!("{}{}", git(repo, &["symbolic-ref", "HEAD"]), git(repo, &["rev-parse", "HEAD"])),
-    git(repo, &["for-each-ref", "--format=%(refname) %(objectname)"]),
-    git(repo, &["config", "--local", "--list"]),
-    std::fs::read(repo.path().join(".git/index")).unwrap(),
-    git(repo, &["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
-  )
 }
 
 #[test_log::test]

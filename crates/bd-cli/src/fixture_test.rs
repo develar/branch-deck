@@ -340,3 +340,14 @@ pub fn branch<'a>(output: &'a Value, name: &str) -> &'a Value {
     .find(|branch| branch["name"] == json!(name))
     .unwrap_or_else(|| panic!("no {name} in {output}"))
 }
+
+/// HEAD, the refs, the local config, the index and the working tree status: what a read-only command must not change
+pub fn writable_state(repo: &TestRepo) -> (String, String, String, Vec<u8>, String) {
+  (
+    format!("{}{}", git(repo, &["symbolic-ref", "HEAD"]), git(repo, &["rev-parse", "HEAD"])),
+    git(repo, &["for-each-ref", "--format=%(refname) %(objectname)"]),
+    git(repo, &["config", "--local", "--list"]),
+    std::fs::read(repo.path().join(".git/index")).unwrap(),
+    git(repo, &["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+  )
+}
