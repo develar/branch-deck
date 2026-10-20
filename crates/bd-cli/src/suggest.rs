@@ -7,8 +7,9 @@ use crate::check_command::{CheckedBranch, checked_branches, kind_verb, possible_
 use crate::commits::{CommitsHeader, LinkedDiffs, fixup_targets, read_linked_diffs};
 use crate::context::RepoContext;
 use crate::error::CliError;
+use crate::error::regroup_error;
 use crate::output::SchemaVersion;
-use crate::rewrite::regroup_error;
+use crate::suggest_plan::SuggestPlan;
 use bd_clustering::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
 use bd_clustering::clustering::{
   Cluster, ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, MAX_REPAIR_ROUNDS, Placement, Restack, Warning,
@@ -65,22 +66,6 @@ pub struct SuggestOutput {
   pub check: SuggestCheck,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub warnings: Vec<SuggestWarning>,
-}
-
-/// The plan of `bd group` (`RegroupPlan`)
-#[derive(Debug, Default, Serialize, JsonSchema)]
-pub struct SuggestPlan {
-  pub branches: BTreeMap<String, Vec<String>>,
-  pub unassign: Vec<String>,
-  /// Issue group name -> the issue keys it gets: whole issue branches, grouped without a rewrite
-  #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-  pub issue_groups: BTreeMap<String, Vec<String>>,
-  /// The keys whose issue group goes: their commits go back to the issue branch of the key
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
-  pub ungroup_issues: Vec<String>,
-  /// The branches whose stack parent goes: they become roots
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
-  pub unstack: Vec<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

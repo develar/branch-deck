@@ -2,12 +2,12 @@
 //! summary. It rebuilds the virtual branches, runs the integration detection of archived branches and the update check
 //! of the checked out branch, as the app's sync does
 
+use crate::bd_command::shell_word;
+use crate::branch_view::placement;
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
-use crate::install::shell_word;
 use crate::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use crate::stack_summary::StackSummary;
-use crate::status::placement;
 use git_ops::branch_names::to_final_branch_name;
 use git_ops::model::{BranchError, BranchSyncStatus};
 use git_ops::update_branch::{UpdateKind, UpdateState};

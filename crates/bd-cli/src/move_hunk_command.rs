@@ -4,9 +4,10 @@
 
 use crate::block_patch::PatchBlock;
 use crate::context::RepoContext;
+use crate::error::regroup_error;
 use crate::error::{CliError, ErrorBody, ErrorCode};
 use crate::output::SchemaVersion;
-use crate::rewrite::{IdMapping, after_rewrite_exit_code, regroup_error, sync_after_rewrite};
+use crate::rewrite::{IdMapping, after_rewrite_exit_code, sync_after_rewrite};
 use crate::sync_command::{SyncOutput, lock};
 use git_ops::move_hunk::MoveHunkMode;
 use history_rewrite::regroup::UndoToken;

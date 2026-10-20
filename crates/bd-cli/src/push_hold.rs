@@ -5,12 +5,12 @@
 //! branch (`landed`): its commits are in the target, a push sends nothing that lands. Best effort: a repository not on
 //! Space, no Space token or no answer of Patronus holds nothing.
 
+use crate::branch_view::stack_ancestors;
 use crate::context::{Environment, RepoContext};
 use crate::error::{CliError, ErrorCode};
 use crate::landed::{LandedBranch, LandingTable, find_landed};
 use crate::robot_list::list_robots;
 use crate::safe_push_command::patronus_service;
-use crate::status::stack_ancestors;
 use crate::sync_command::SyncOutput;
 use git_ops::branch_names::to_final_branch_name;
 use patronus::service::PatronusService;

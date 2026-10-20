@@ -6,7 +6,7 @@
 use crate::context::{Environment, RepoContext};
 use crate::error::{CONFLICT_EXIT, CliError, ErrorCode};
 use crate::output::{SchemaVersion, ShortIds};
-use crate::suggest::SuggestPlan;
+use crate::suggest_plan::SuggestPlan;
 use crate::update_command::{core_error, uncommitted_overlap};
 use git_ops::pick::{FollowState, PickRefusal, PickState, PresentBy};
 use history_rewrite::repository_lock::RewriteOptions;

@@ -1,8 +1,8 @@
 use crate::block_patch::{PatchFile, read_patches};
+use crate::branch_view::read_grouping;
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::output::{ResolvedByWords, SchemaVersion, ShortIds};
-use crate::status::read_grouping;
 use bd_clustering::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
 use bd_clustering::generated::generated_paths;
 use clap::builder::RangedU64ValueParser;

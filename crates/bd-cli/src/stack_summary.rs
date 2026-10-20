@@ -2,9 +2,9 @@
 //! all its commits, `{prefix}/stack/<root>` (spec/branch/whole-stack.spec.md); and the whole stack of a branch, which
 //! `bd safe-push --whole-stack` lands and `bd robot --whole-stack` watches
 
+use crate::branch_view::{block_reason_name, placement};
 use crate::error::{CliError, ErrorCode};
 use crate::output::ShortIds;
-use crate::status::{block_reason_name, placement};
 use crate::sync_command::{ConflictSummary, RemoteSummary};
 use git_ops::branch_names::to_final_branch_name;
 use git_ops::commit_list::Commit;

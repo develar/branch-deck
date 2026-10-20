@@ -14,6 +14,7 @@ targets:
   - ../../crates/bd-cli/src/error.rs
   - ../../crates/bd-cli/src/output.rs
   - ../../crates/bd-cli/src/status.rs
+  - ../../crates/bd-cli/src/branch_view.rs
   - ../../crates/bd-cli/src/branch_stats.rs
   - ../../crates/bd-cli/src/commits.rs
   - ../../crates/bd-clustering/src/areas.rs
@@ -25,6 +26,7 @@ targets:
   - ../../crates/bd-cli/src/version.rs
   - ../../crates/bd-cli/build.rs
   - ../../crates/bd-cli/src/rewrite.rs
+  - ../../crates/bd-cli/src/undo_command.rs
   - ../../crates/bd-cli/src/group_plan.rs
   - ../../crates/bd-cli/src/describe.rs
   - ../../crates/git-ops/src/branch_description.rs
@@ -42,6 +44,7 @@ targets:
   - ../../crates/git-ops/src/merge_tree_output.rs
   - ../../crates/history-rewrite/src/autosquash.rs
   - ../../crates/bd-cli/src/suggest.rs
+  - ../../crates/bd-cli/src/suggest_plan.rs
   - ../../crates/bd-clustering/src/clustering.rs
   - ../../crates/sync-utils/src/issue_pattern.rs
   - ../../crates/sync-utils/src/list_cut.rs
@@ -51,6 +54,7 @@ targets:
   - ../../crates/sync-core/src/push_lease.rs
   - ../../crates/sync-core/src/push.rs
   - ../../crates/bd-cli/src/safe_push_command.rs
+  - ../../crates/bd-cli/src/review_summary.rs
   - ../../crates/bd-cli/src/push_hold.rs
   - ../../crates/sync-core/src/stack_pull_request.rs
   - ../../crates/sync-core/src/patronus_review.rs
@@ -74,6 +78,7 @@ targets:
   - ../../crates/history-rewrite/src/repository_lock.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/bd-cli/src/install.rs
+  - ../../crates/bd-cli/src/bd_command.rs
   - ../../src-tauri/src/commands/agent_cli.rs
   - ../../src/hooks/useInstallAgentCli.ts
   - ../../crates/sync-core/src/grouping.rs

@@ -2,10 +2,10 @@
 //! next to the line dependencies, for the gate that decides whether they order branches (docs/design/
 //! symbol-dependencies.md, "Measurements"). It writes the object cache only.
 
+use crate::branch_view::read_grouping;
 use crate::commits::read_linked_diffs;
 use crate::context::RepoContext;
 use crate::error::CliError;
-use crate::status::read_grouping;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Instant;

@@ -7,6 +7,7 @@ targets:
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/bd-cli/src/error.rs
   - ../../crates/bd-cli/src/rewrite.rs
+  - ../../crates/bd-cli/src/undo_command.rs
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/sync-core/src/pick.rs
   - ../../crates/history-rewrite/src/stack.rs

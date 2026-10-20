@@ -1,7 +1,8 @@
 use crate::output::SchemaVersion;
-use crate::safe_push_command::ReviewSummary;
+use crate::review_summary::ReviewSummary;
 use crate::sync_command::RemoteSummary;
 use history_rewrite::baseline::NoBaseline;
+use history_rewrite::regroup::{FixupRefusal, RegroupError};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::fmt;
@@ -345,4 +346,36 @@ pub struct ErrorBranch {
   pub name: String,
   /// Its remote status against the remote pushed to: as fetched after `lease_rejected`
   pub remote: RemoteSummary,
+}
+
+/// The error code of a refused or failed regroup; by value, for `map_err`
+#[expect(clippy::needless_pass_by_value, reason = "used as `map_err(regroup_error)`")]
+pub fn regroup_error(error: RegroupError) -> CliError {
+  let mut message = error.to_string();
+  let code = match &error {
+    RegroupError::InvalidPlan { .. } => ErrorCode::InvalidPlan,
+    RegroupError::FixupsStranded { refusal, .. } => {
+      message.push_str(match refusal {
+        FixupRefusal::MarkerChanged => "",
+        FixupRefusal::Retargeted => " (fold them first with bd fold, or reword them in the same plan to name the new subject)",
+        FixupRefusal::NamedById => " (fold them first with bd fold)",
+        FixupRefusal::AmendWaits => " (reword the amend! too, or fold first with bd fold)",
+      });
+      ErrorCode::InvalidPlan
+    }
+    RegroupError::NotAheadOfBaseline { .. } => ErrorCode::NotAheadOfBaseline,
+    RegroupError::HeadMoved(_) => ErrorCode::HeadMoved,
+    RegroupError::GroupsMoved(_) => ErrorCode::GroupsMoved,
+    RegroupError::StacksMoved(_) => ErrorCode::StacksMoved,
+    RegroupError::ParkedMoved(_) => ErrorCode::ParkedMoved,
+    RegroupError::Locked(_) => ErrorCode::Locked,
+    RegroupError::OperationInProgress(_) => ErrorCode::OperationInProgress,
+    RegroupError::DetachedHead(_) => ErrorCode::DetachedHead,
+    RegroupError::Other(error) if error.downcast_ref::<NoBaseline>().is_some() => ErrorCode::NoBaseline,
+    RegroupError::Other(_) => ErrorCode::GitError,
+  };
+  CliError {
+    commits: error.commits().to_vec(),
+    ..CliError::new(code, message)
+  }
 }

@@ -1,5 +1,5 @@
+use crate::bd_command::bd_command;
 use crate::error::{CliError, ErrorCode};
-use crate::install::bd_command;
 use crate::output::ShortIds;
 use file_diffs::service::FileDiffs;
 use git_executor::git_command_executor::GitCommandExecutor;

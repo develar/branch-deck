@@ -1,14 +1,14 @@
 //! `bd check`: would the branches build with this plan? A trial sync (`sync_core::check`) that writes git objects and
 //! the cache only
 
+use crate::bd_command::shell_word;
+use crate::branch_view::{StackBlockSummary, StackIssue, stack_issues};
 use crate::context::RepoContext;
+use crate::error::regroup_error;
 use crate::error::{CliError, ErrorCode};
 use crate::group_plan::{GroupPlan, check_descriptions, parse_group_plan};
-use crate::install::shell_word;
 use crate::output::{SchemaVersion, ShortIds};
-use crate::rewrite::regroup_error;
-use crate::status::{StackBlockSummary, StackIssue, stack_issues};
-use crate::suggest::SuggestPlan;
+use crate::suggest_plan::SuggestPlan;
 use crate::text_input::read_text;
 use git_ops::cat_file_batch::object_ids_and_types;
 use git_ops::tree_archive::write_tree_archive;

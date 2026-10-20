@@ -1,22 +1,18 @@
-//! `bd group`, `bd rename`, `bd restack`, `bd unstack` and `bd undo`: message-only history rewrites through
+//! `bd group`, `bd rename`, `bd restack` and `bd unstack`: message-only history rewrites through
 //! `history_rewrite::regroup`, which validates before it writes. bd holds the repository lock over the rewrite, the
 //! descriptions of a plan and, with --sync, the sync
 
+use crate::branch_view::ParentSourceName;
 use crate::context::RepoContext;
-use crate::error::{CONFLICT_EXIT, CliError, ErrorBody, ErrorCode};
+use crate::error::regroup_error;
+use crate::error::{CONFLICT_EXIT, CliError, ErrorBody};
 use crate::group_plan::{DescriptionChange, changed_descriptions, check_descriptions, parse_group_plan, write_descriptions};
 use crate::output::SchemaVersion;
-use crate::pick_command::undo_pick;
-use crate::status::ParentSourceName;
 use crate::sync_command::{SyncOutput, lock, sync_locked};
 use crate::text_input::read_text;
-use crate::update_command::undo_update;
 use git_ops::branch_description::Description;
-use git_ops::revs::read_head;
-use history_rewrite::baseline::NoBaseline;
 use history_rewrite::regroup::{
-  FixupRefusal, RegroupError, RegroupOptions, RegroupOutcome, UndoToken, describe_problem, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core,
-  undo_regroup_core,
+  RegroupError, RegroupOptions, RegroupOutcome, UndoToken, describe_problem, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core,
 };
 use history_rewrite::stack::StackForest;
 use schemars::JsonSchema;
@@ -81,14 +77,6 @@ pub struct UnstackArgs {
   pub branch: String,
   #[command(flatten)]
   pub rewrite: RewriteArgs,
-}
-
-#[derive(Debug, clap::Args)]
-pub struct UndoArgs {
-  /// The `undo_token` a rewrite printed: `<previous head>..<new head>`, `groups:<previous>..<new>`,
-  /// `stacks:<previous>..<new>`, or several of them joined by `+` in this order; or the `update:…` of `bd update` or
-  /// the `pick:…[+follow:…]` of `bd pick`, which move the files back too
-  pub token: String,
 }
 
 /// The output of `bd group`, `rename`, `restack`, `unstack` and `reword`
@@ -236,35 +224,6 @@ pub struct IdMapping {
   pub new_id: String,
 }
 
-/// `bd undo`
-#[derive(Debug, Serialize, JsonSchema)]
-pub struct UndoOutput {
-  pub schema: SchemaVersion,
-  pub repository: String,
-  pub prefix: String,
-  /// HEAD before the undo: the token's new head; omitted for a token without a head
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub previous_head: Option<String>,
-  /// HEAD now: the token's previous head, or HEAD as it is for a token without a head
-  pub new_head: String,
-  /// The commit of the issue groups that was undone; omitted for a token without them
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub undone_issue_groups: Option<String>,
-  /// The commit of the stack parents that was undone; omitted for a token without them
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub undone_stack_parents: Option<String>,
-  /// For an `update:` token: whether the report of the landed commits is the one from before the update again
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub landed_restored: Option<bool>,
-  /// For an `update:` or `pick:` token: it was undone before, and nothing changed now; a repeated undo is no error
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub already_undone: Option<bool>,
-  /// For a `pick:` token with `+follow:`: whether the worktree that followed the pick moved back (`false`: it was
-  /// back already)
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub follow_undone: Option<bool>,
-}
-
 pub fn group(context: &RepoContext, args: &GroupArgs) -> Result<RewriteOutput, CliError> {
   let text = read_text(&args.plan, "the plan")?;
   let plan = parse_group_plan(&text)?;
@@ -334,121 +293,6 @@ pub(crate) fn rewrite(
 fn set_described(output: &mut RewriteOutput, changes: &[DescriptionChange]) {
   output.described = changes.iter().map(|change| change.branch.to_string()).collect();
   output.replaced_descriptions = changes.iter().filter_map(|change| Some((change.branch.to_string(), change.previous.clone()?))).collect();
-}
-
-/// HEAD after an undo: the previous head of the token's move, or HEAD as it is for a token without one
-fn head_after_undo(context: &RepoContext, moved: Option<&(String, String)>) -> Result<String, CliError> {
-  match moved {
-    Some((previous_head, _)) => Ok(previous_head.clone()),
-    None => Ok(read_head(&context.git, &context.repository)?.ok_or_else(|| anyhow::Error::new(NoBaseline::NoCommits))?.0),
-  }
-}
-
-pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliError> {
-  if let Some(result) = undo_pick(context, &args.token) {
-    let (token, undone) = result?;
-    let head = head_after_undo(context, token.head.as_ref())?;
-    let undone_head = token.head.as_ref().map(|(_, new_head)| new_head.as_str());
-    let short = context.short_ids(std::iter::once(head.as_str()).chain(undone_head));
-    return Ok(UndoOutput {
-      schema: SchemaVersion,
-      repository: context.repository.clone(),
-      prefix: context.prefix.clone(),
-      previous_head: undone_head.map(|id| short.get(id).to_string()),
-      new_head: short.get(&head).to_string(),
-      undone_issue_groups: None,
-      undone_stack_parents: None,
-      landed_restored: None,
-      already_undone: Some(undone.already_undone),
-      follow_undone: token.follow.is_some().then_some(undone.follow_undone),
-    });
-  }
-  if let Some(result) = undo_update(context, &args.token) {
-    let undone = result?;
-    let short = context.short_ids([undone.head.as_str(), undone.undone.as_str()]);
-    return Ok(UndoOutput {
-      schema: SchemaVersion,
-      repository: context.repository.clone(),
-      prefix: context.prefix.clone(),
-      previous_head: Some(short.get(&undone.undone).to_string()),
-      new_head: short.get(&undone.head).to_string(),
-      undone_issue_groups: None,
-      undone_stack_parents: None,
-      landed_restored: Some(undone.landed_restored),
-      already_undone: Some(undone.already_undone),
-      follow_undone: None,
-    });
-  }
-  let Some(token) = UndoToken::parse(&args.token) else {
-    return Err(CliError::new(
-      ErrorCode::InvalidArguments,
-      format!(
-        "{:?} is not an undo token (<previous head>..<new head>, groups:<previous>..<new>, stacks:<previous>..<new>, parked:<previous>..<new>, or several joined by + in this \
-         order; update:… and pick:… as bd update and bd pick printed them)",
-        args.token
-      ),
-    ));
-  };
-  undo_regroup_core(&context.git, &context.repository, &token, context.lock_timeout).map_err(|error| {
-    let mut error = regroup_error(error);
-    error.code = match error.code {
-      // the token names no write of the issue groups or the stack parents: a wrong argument, not a wrong plan
-      ErrorCode::InvalidPlan => ErrorCode::InvalidArguments,
-      // a ref moved on since the rewrite: the same token can never succeed, as for `update:` and `pick:`
-      ErrorCode::HeadMoved | ErrorCode::GroupsMoved | ErrorCode::StacksMoved | ErrorCode::ParkedMoved => ErrorCode::UndoStale,
-      code => code,
-    };
-    error
-  })?;
-  let head = head_after_undo(context, token.head.as_ref())?;
-  let undone = token.head.as_ref().map(|(_, new_head)| new_head.as_str());
-  let undone_issue_groups = token.issue_groups.as_ref().map(|(_, new)| new.as_str());
-  let undone_stack_parents = token.stack_parents.as_ref().map(|(_, new)| new.as_str());
-  let short = context.short_ids(std::iter::once(head.as_str()).chain(undone).chain(undone_issue_groups).chain(undone_stack_parents));
-  Ok(UndoOutput {
-    schema: SchemaVersion,
-    repository: context.repository.clone(),
-    prefix: context.prefix.clone(),
-    previous_head: undone.map(|id| short.get(id).to_string()),
-    new_head: short.get(&head).to_string(),
-    undone_issue_groups: undone_issue_groups.map(|id| short.get(id).to_string()),
-    undone_stack_parents: undone_stack_parents.map(|id| short.get(id).to_string()),
-    landed_restored: None,
-    already_undone: None,
-    follow_undone: None,
-  })
-}
-
-/// The error code of a refused or failed regroup; by value, for `map_err`
-#[expect(clippy::needless_pass_by_value, reason = "used as `map_err(regroup_error)`")]
-pub fn regroup_error(error: RegroupError) -> CliError {
-  let mut message = error.to_string();
-  let code = match &error {
-    RegroupError::InvalidPlan { .. } => ErrorCode::InvalidPlan,
-    RegroupError::FixupsStranded { refusal, .. } => {
-      message.push_str(match refusal {
-        FixupRefusal::MarkerChanged => "",
-        FixupRefusal::Retargeted => " (fold them first with bd fold, or reword them in the same plan to name the new subject)",
-        FixupRefusal::NamedById => " (fold them first with bd fold)",
-        FixupRefusal::AmendWaits => " (reword the amend! too, or fold first with bd fold)",
-      });
-      ErrorCode::InvalidPlan
-    }
-    RegroupError::NotAheadOfBaseline { .. } => ErrorCode::NotAheadOfBaseline,
-    RegroupError::HeadMoved(_) => ErrorCode::HeadMoved,
-    RegroupError::GroupsMoved(_) => ErrorCode::GroupsMoved,
-    RegroupError::StacksMoved(_) => ErrorCode::StacksMoved,
-    RegroupError::ParkedMoved(_) => ErrorCode::ParkedMoved,
-    RegroupError::Locked(_) => ErrorCode::Locked,
-    RegroupError::OperationInProgress(_) => ErrorCode::OperationInProgress,
-    RegroupError::DetachedHead(_) => ErrorCode::DetachedHead,
-    RegroupError::Other(error) if error.downcast_ref::<NoBaseline>().is_some() => ErrorCode::NoBaseline,
-    RegroupError::Other(_) => ErrorCode::GitError,
-  };
-  CliError {
-    commits: error.commits().to_vec(),
-    ..CliError::new(code, message)
-  }
 }
 
 fn rewrite_output(context: &RepoContext, operation: &str, args: &RewriteArgs, outcome: &RegroupOutcome) -> RewriteOutput {
