@@ -31,8 +31,10 @@ Compare content, not hashes, with Git's cherry-pick algorithm:
 - **Commits behind** are the remote commits whose content the branch lacks, sorted by what a push does with them:
   - **amended**: an older version of a commit of the branch, amended here (`commits_amended`); one that makes the same
     changes, only on other lines around them, is a rebased copy and counts nowhere;
-  - **restacked**: an older version of a commit of a stack ancestor, which was amended or rebuilt since the branch was
-    pushed: a child's remote branch has its parent's commits as they were (`commits_restacked`);
+  - **restacked**: an older version of a commit of a stack ancestor, which was amended, reworded or rebuilt since the
+    branch was pushed: a child's remote branch has its parent's commits as they were (`commits_restacked`). A reworded
+    ancestor's commit is not behind, the remote has it by content, yet its message there is the old one: it counts here
+    too, so the child has a push to do;
   - **landed**: an older version of a commit the baseline has above the remote branch, as a Safe Push landed it
     (`commits_landed`, the newest ten in `landed_commits` with the baseline commit of each);
   - **dropped**: the rest, work a push drops (`commits_behind`). The status lists the newest ten of them
@@ -168,6 +170,11 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   ancestor's commit restacked; of the rest, when there is any, one more walk of the baseline above the remote tip by
   the authors of those commits finds the landed ones (Decision 8); what remains is `commits_behind`, and its first ten
   are `dropped_commits`.
+- **Reworded ancestors**: a remote copy marked `=` whose version is no version of a copy of the branch is a copy of an
+  ancestor's commit (the local walk leaves the ancestors out). Only then one more `git rev-list --cherry-mark
+  --right-only ^<baseline> <remote tip>...<base>` reads the ancestors' copies with their messages; a remote copy with
+  the author and author time of one of them and another version is restacked. A parent only rebuilt keeps its versions
+  and counts nothing.
 - **Amended or a rebased copy**: only when an older version was found, one `git diff-tree --stdin -p -U0` of the
   pairs and one `git patch-id --stable` of its output: without context lines, and with the line numbers and
   whitespace a patch id ignores, equal ids are the same changes, a rebased copy; different ones are amended. The

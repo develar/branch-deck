@@ -246,6 +246,42 @@ fn ancestor_keys<'a>(git_executor: &GitCommandExecutor, repository_path: &str, b
   })
 }
 
+/// The remote's copies of commits of the stack ancestors (`base`) in another version than the ancestors have now: a
+/// commit of the parent reworded since the child's push, which the remote has by content (`=`), so it is not behind.
+/// The push of the child replaces them, as it replaces an older version of an ancestor's commit (restacked). One
+/// `rev-list` of the ancestors' side of `<remote>...<base>`, only when the remote has a copy that is no version of a
+/// commit of the branch; a copy counts when an ancestor's commit has its author and author time
+fn reworded_ancestor_copies(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  baseline_exclusion: &str,
+  remote_tip: &str,
+  base: &str,
+  remote_versions: &HashSet<CommitVersion>,
+  own: &[CommitVersion],
+) -> Result<u32> {
+  let own: HashSet<&CommitVersion> = own.iter().collect();
+  let foreign: Vec<&CommitVersion> = remote_versions.iter().filter(|version| !own.contains(version)).collect();
+  if foreign.is_empty() {
+    return Ok(0);
+  }
+  let range = format!("{remote_tip}...{base}");
+  let ancestors = walk_commits_with_messages(git_executor, repository_path, &["--cherry-mark", "--right-only"], &[baseline_exclusion, &range])?;
+  let copies: Vec<CommitVersion> = ancestors
+    .into_iter()
+    .filter(|(commit, _)| commit.mark == '=')
+    .map(|(commit, message)| CommitVersion::new(&commit, message))
+    .collect();
+  let identities: HashSet<(&str, u32)> = copies.iter().map(|copy| (copy.email.as_str(), copy.time)).collect();
+  let versions: HashSet<&CommitVersion> = copies.iter().collect();
+  Ok(count(
+    foreign
+      .into_iter()
+      .filter(|version| identities.contains(&(version.email.as_str(), version.time)) && !versions.contains(version))
+      .count(),
+  ))
+}
+
 /// The commits behind, sorted by what a push does with them
 #[derive(Default)]
 struct ClassifiedBehind {
@@ -471,7 +507,7 @@ const STATUS_CACHE_LIMIT: usize = 4096;
 /// the limit, `list_cut::kept`). Bump the high half when the status of the same commits changes: its fields, the options
 /// of its walks, `CommitKey`, `same_changes`
 fn cached_status_version() -> u32 {
-  (2 << 16) | count(DROPPED_COMMITS_LIMIT + 1)
+  (3 << 16) | count(DROPPED_COMMITS_LIMIT + 1)
 }
 
 /// A dropped commit in the object cache (`DroppedCommit`)
@@ -747,7 +783,10 @@ fn compute(git_executor: &GitCommandExecutor, repository_path: &str, branch: &Br
     let RemoteCommits { behind, versions, fast_forward } = walk_remote(git_executor, repository_path, &range)?;
     // a copy the remote has by content but in no version of the branch's: its message or author changed here
     let reworded = count(unpushed.copies.iter().filter(|copy| !versions.contains(copy)).count());
-    let classified = classify_behind(git_executor, repository_path, baseline_branch, remote_tip, behind, &unpushed.keys, parent)?;
+    let mut classified = classify_behind(git_executor, repository_path, baseline_branch, remote_tip, behind, &unpushed.keys, parent)?;
+    if let Some(parent) = parent {
+      classified.restacked += reworded_ancestor_copies(git_executor, repository_path, &baseline_exclusion, remote_tip, parent.base, &versions, &unpushed.copies)?;
+    }
     debug!(
       amended = classified.amended,
       restacked = classified.restacked,

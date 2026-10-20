@@ -197,8 +197,9 @@ menu stacks, unstacks and renames branches.
   keeps the status it had.
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`the_unpushed_commits_of_a_child_exclude_its_parent`)
   [@test] ../../crates/sync-core/src/branch_processor_test.rs (`a_child_finished_before_its_parent_excludes_the_parent_by_the_head_it_was_built_on`)
-- A child whose parent (or any branch below it) was amended or rebuilt since the child was pushed has the parent's
-  commits as they were on its remote branch. Those must be restacked, not dropped: their identity (author email,
+- A child whose parent (or any branch below it) was amended, reworded or rebuilt since the child was pushed has the
+  parent's commits as they were on its remote branch. Those must be restacked, not dropped (a reworded one, which the
+  remote has by content, too: its message there is the old one): their identity (author email,
   author time, subject without the prefix) is that of a commit of a branch it is built on. The status reads
   `restacked` (`4↑ · restacked`), "Rebuilt on the new auth: the remote has older versions of 2 of its commits.", the
   push is a `primary` Force Push that asks nothing, also with nothing of the child's own to push, and Push Stack takes
@@ -207,7 +208,7 @@ menu stacks, unstacks and renames branches.
   outside the sync reads them from the parent's virtual branch with one `rev-list`, only while a remote commit
   matches nothing of the child. `bd` reports them as `remote.restacked` and pushes such a branch without `--force`
   ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
-  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`a_child_of_an_amended_parent_is_restacked`)
+  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`a_child_of_an_amended_parent_is_restacked`, `a_child_of_a_reworded_parent_is_restacked`)
   [@test] ../../src/lib/stack.test.ts (`pushes an amended or restacked ancestor with the stack and asks nothing: its push replaces older versions`)
   [@test] ../../crates/bd-cli/src/push_test.rs (`amended_and_restacked_commits_push_without_force`)
 

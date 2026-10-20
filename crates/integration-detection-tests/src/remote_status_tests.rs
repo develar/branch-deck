@@ -691,6 +691,75 @@ async fn a_child_of_an_amended_parent_is_restacked() {
   assert_eq!((pushed.commits_amended, pushed.commits_restacked, pushed.commits_behind), (0, 1, 0));
 }
 
+/// A stack whose parent commit was reworded (`bd reword`: the same changes, another subject): the child's remote branch
+/// has the parent's commit with its old message, which a push replaces. Restacked, in the sync and outside it; a parent
+/// only rebuilt (the same message) gives the child nothing to push
+#[test(tokio::test)]
+async fn a_child_of_a_reworded_parent_is_restacked() {
+  let scenario = TestScenario::new();
+  scenario.setup_development_branch();
+  scenario.local_repo.set_config("branchdeck.stacks", "true").unwrap();
+  let base = scenario.local_repo.head();
+  scenario
+    .local_repo
+    .create_commit_with_timestamp("(auth) Add auth with a subject that is far too long", "auth.rs", "// auth", Some(1_700_000_000));
+  scenario
+    .local_repo
+    .create_commit_with_timestamp("(auth/login) Add form", "login.rs", "// login", Some(1_700_000_100));
+  scenario.run_sync("user").await;
+  scenario.local_repo.push("origin", "user/virtual/auth").unwrap();
+  scenario.local_repo.push("origin", "user/virtual/login").unwrap();
+
+  // the auth commit reworded: the same changes, the same author and author time, a shorter subject
+  scenario.local_repo.reset_hard(&base).unwrap();
+  scenario
+    .local_repo
+    .create_commit_with_timestamp("(auth) Add auth", "auth.rs", "// auth", Some(1_700_000_000));
+  scenario
+    .local_repo
+    .create_commit_with_timestamp("(auth/login) Add form", "login.rs", "// login", Some(1_700_000_100));
+  let events = scenario.run_sync("user").await.get_events();
+
+  let auth = synced_status(&events, "auth");
+  assert_eq!((auth.commits_reworded, auth.commits_restacked, auth.commits_behind), (1, 0, 0));
+  let login = synced_status(&events, "login");
+  assert_eq!(login.unpushed_commits, Vec::<String>::new(), "login's own commit is on the remote as it is");
+  assert_eq!(
+    (login.commits_reworded, login.commits_amended, login.commits_restacked, login.commits_behind),
+    (0, 0, 1, 0),
+    "the remote has auth's commit with the old subject"
+  );
+
+  // a push computes it without the sync's commits: the parent's virtual branch is read
+  let pushed = compute_remote_status_for_branch(
+    &scenario.git_executor,
+    scenario.local_repo.path().to_str().unwrap(),
+    "origin",
+    "user/virtual/login",
+    "login",
+    Some(&scenario.user_email),
+    "origin/main",
+    Some(StackParent {
+      base: "user/virtual/auth",
+      ancestors: AncestorCommits::ReadWhenNeeded,
+    }),
+  )
+  .unwrap();
+  assert_eq!((pushed.commits_reworded, pushed.commits_restacked, pushed.commits_behind), (0, 1, 0));
+
+  // pushed again, then both rebuilt on a newer baseline: the same messages, nothing for login to push
+  scenario.local_repo.push("origin", "+user/virtual/auth").unwrap();
+  scenario.local_repo.push("origin", "+user/virtual/login").unwrap();
+  scenario.local_repo.checkout("main").unwrap();
+  scenario.local_repo.create_commit("Upstream change", "upstream.txt", "upstream");
+  scenario.local_repo.push("origin", "main").unwrap();
+  scenario.local_repo.checkout("development").unwrap();
+  scenario.local_repo.rebase("origin/main").unwrap();
+  let events = scenario.run_sync("user").await.get_events();
+  let login = synced_status(&events, "login");
+  assert_eq!((login.commits_reworded, login.commits_restacked, login.commits_behind), (0, 0, 0));
+}
+
 /// Someone else's commit with the subject and the author time of a commit of the branch is someone else's work: the
 /// author email is part of the identity, a push drops it
 #[test(tokio::test)]
