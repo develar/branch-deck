@@ -124,6 +124,8 @@ publisher: choose More info → Run anyway.
   asked to review. Each row shows its next step, such as the review it waits for, and never offers a push that is
   known to fail; the header says which moves on the way to master are yours
   ([outgoing](spec/repository/outgoing.spec.md), [pull requests](spec/branch/pull-requests.spec.md), [next step](spec/branch/next-step.spec.md), [landing overview](spec/repository/landing-overview.spec.md)).
+  A branch you keep only locally, waiting for a proper fix, can be parked with a note: no push sends it and it is not
+  your move ([parked branches](spec/branch/parked-branches.spec.md)).
 - **Staying up to date**: Update Project (⌘T / Ctrl+T) fetches the baseline and rebases your commits, and says
   beforehand whether that is clean. On a conflict nothing changes, and a coding agent can resolve it commit by commit
   outside the working tree. Branches that were merged, rebased or squashed upstream are detected and archived, and

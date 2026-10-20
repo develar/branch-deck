@@ -199,7 +199,14 @@ vi.mock("@/stores/settings/repositorySettings", async importOriginal => ({
 
 vi.mock("@/stores/branch-sync", () => ({
   branchSyncStore: {
-    getState: () => ({ branches: branches.current, branchOrder: Object.keys(branches.current), stackBranches: branches.stacks, isSyncing: false, baselineBranch: "origin/master" }),
+    getState: () => ({
+      branches: branches.current,
+      branchOrder: Object.keys(branches.current),
+      stackBranches: branches.stacks,
+      parked: {},
+      isSyncing: false,
+      baselineBranch: "origin/master",
+    }),
     subscribe: () => () => {},
   },
   getBranch: (name: string) => branches.current[name],

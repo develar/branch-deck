@@ -18,6 +18,18 @@ targets:
   - ../../crates/bd-cli/src/error.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../src-tauri/src/commands/parked_branches.rs
+  - ../../src/lib/parked.ts
+  - ../../src/stores/branch-sync.ts
+  - ../../src/lib/branch-next-step.ts
+  - ../../src/lib/landing-node.ts
+  - ../../src/lib/branch-filter.ts
+  - ../../src/hooks/useLandingOverview.ts
+  - ../../src/hooks/usePushButton.ts
+  - ../../src/hooks/useBranchContextActions.ts
+  - ../../src/hooks/useParkBranch.ts
+  - ../../src/components/branch/ParkedBranchesCard.tsx
+  - ../../src/components/branch/InlineParkBranchInput.tsx
+  - ../../src/components/branch/BranchRowStatus.tsx
 ---
 
 # Parked Branches
@@ -114,3 +126,50 @@ branch built on it carries its commits, so it is parked with it.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_parked_branch_and_a_branch_built_on_it_start_nothing`)
 - `bd help agent` and the skill must tell an agent never to push or unpark a parked branch on its own.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
+
+### The app
+
+- A parked branch, and every branch parked with it, must leave the branch table and its stack islands for the Parked
+  card after them: its rows as in the table (expand, review, the conflict view, the keys and the preview), a stack graph
+  of their own, a parked child of a branch to land a root there. The card is open by default; its collapse is kept per
+  repository and hides its rows from the keys.
+  [@test] ../../src/stores/branch-table-rows.test.ts (`moves a parked branch and the branches built on it into the Parked card, a stack graph of their own`)
+  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a stack root with the branches built on it, edit its note and unpark it from the menus`, `should collapse the Parked card and keep its rows out of the table`)
+- The node of a parked row must be `parked`, hollow and neutral, never a move, also with a conflict; a running robot,
+  a Safe Push that lands it or a landing comes first. The header, the landing overview, the chips and F2 must leave it
+  out: a parked branch is in no unit, no chip but All, and no move.
+  [@test] ../../src/lib/landing-node.test.ts (`is parked, never a move, also with a conflict, until something lands it already`)
+  [@test] ../../src/lib/branch-filter.test.ts (`puts a parked branch into All only: it has a card of its own, no chip, no move for F2`)
+  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`)
+- Nothing of it may start: its next step is row 1 of [Next Step](next-step.spec.md), Safe Push and Dry Run disabled
+  with "Parked: Unpark it to push" (a branch parked with its parent: "Built on parked auth: Unpark auth to push"; the
+  whole stack: "Holds parked auth: land the stack in pieces"), its push disabled with the same reason on the row, in the
+  menu, the preview and the review. Push with Children of a branch to land leaves its parked children out, and the stack
+  branch of a stack that holds one stays local. Patronus is not asked for its readiness.
+  [@test] ../../src/lib/parked.test.ts (`starts no Safe Push and no Dry Run of a parked branch: its step is none, on every surface`, `says why nothing starts, of a branch, of one built on it and of the whole stack`)
+  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`)
+- The row must say it: the Status cell "Parked" or "Parked with auth" (the note in its hover) instead of the push
+  state, its error or conflict still shown; the name cell of the parked branch shows its note instead of the summary,
+  issue keys as links.
+  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`, `should park a stack root with the branches built on it, edit its note and unpark it from the menus`)
+- The branch menu (right-click and "⋯") must offer "Park Branch…" (a form with the note, one line, optional; Enter
+  parks), and of a parked branch "Edit Park Note…" and "Unpark Branch"; of a branch parked with its parent "Unpark
+  ‹parent›". "Park Branch…" is disabled while a robot lands the branch, and says that an open pull request stays open.
+  A park or an unpark is a write of the repository (it waits for a rewrite), followed by a sync, then a toast "Parked
+  auth" or "Unparked auth" whose Undo puts the line back as it was.
+  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`, `should park a stack root with the branches built on it, edit its note and unpark it from the menus`)
+
+## User Experience
+
+- Park Branch… → the inline note form in the row ("Why it stays local, e.g. waits for the fix of IJPL-123
+  (optional)"), Enter parks → the row moves into the Parked card → toast "Parked docs" · Undo.
+- The Parked card: "Parked · 2 branches", a help popover, the rows; the node hollow and grey, Status "Parked", the
+  note beside the name.
+- `bd park docs --note '…'`, `bd unpark docs`; an agent never parks or unparks on its own.
+
+## Open Questions / Risks
+
+- A park does not convert an open pull request into a draft: a merge on GitHub still lands the branch. The menu says
+  so; GitHub has no draft conversion in `crates/github` yet.
+- The key of a line is the branch name as the grouping makes it: turning stacked branches on or off can change it, and
+  a renamed issue group is carried only by Rename.

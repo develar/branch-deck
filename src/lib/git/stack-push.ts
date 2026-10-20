@@ -21,7 +21,7 @@ import {
   branchSyncStore,
   getBranch,
   getStackBranch,
-  getStackDescendants,
+  getUnparkedStackDescendants,
   isBranchPushing,
   isStackPushing,
   setBranchesPushProgress,
@@ -80,7 +80,7 @@ export async function pushWithChildren(branchName: string): Promise<boolean> {
   return await pushTogether(
     branchName,
     () => ({
-      names: stackChildrenPushOrder(branchName, getStackDescendants(branchName), getBranch, name => isHeldBy(name, undefined)),
+      names: stackChildrenPushOrder(branchName, getUnparkedStackDescendants(branchName), getBranch, name => isHeldBy(name, undefined)),
       wholeStack: takesStackBranchAlong(branchName) ? branchName : null,
     }),
     {},

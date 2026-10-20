@@ -464,6 +464,11 @@ function stackBranchHoldReasonIn(robots: Readonly<Record<string, PatronusRobot>>
   if (stack === undefined || stack.members.length === 0) {
     return null
   }
+  // the stack branch holds the commits of every member: a parked one keeps it local
+  const parked = stack.members.find(member => state.parked[member] !== undefined)
+  if (parked !== undefined) {
+    return `It holds parked ${parked}: land the stack in pieces`
+  }
   const landed = stackLandedIn(robots, landings, state, root)
   if (landed !== null) {
     return `${landed}: nothing of it is left to push`

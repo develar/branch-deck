@@ -90,9 +90,10 @@ that stops matching while the user looks at it (its move made, its robot done) s
   that lands the branch, its own or one of a branch built on it or of the whole stack, from its start on (`landing`); Waiting what waits
   for others, reviewers, its parent (a blocked branch too), a robot that holds it, a Dry Run, the first answer of
   Patronus (`waiting`); In Master what the baseline or a merge has until the update archives it (`inMaster`). A branch
-  without a node yet is in All only. The chips count branches, the rows the table shows; the header counts the units
+  without a node yet is in All only. A parked branch is in no chip and in no row of the table: its row is in the
+  Parked card ([Parked Branches](parked-branches.spec.md)). The chips count branches, the rows the table shows; the header counts the units
   that land in one move, so a ready stack of five branches is five rows of Your Move and one move of the header.
-  [@test] ../../src/lib/branch-filter.test.ts (`puts a branch into the chip of the node of its row, the filled nodes into Your Move`)
+  [@test] ../../src/lib/branch-filter.test.ts (`puts a branch into the chip of the node of its row, the filled nodes into Your Move`, `puts a parked branch into All only: it has a card of its own, no chip, no move for F2`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should filter by a state chip, with the counts of all branches`)
 - The tooltip of Your Move, while it counts a branch, tells F2 and Shift+F2, which step through its rows, a fix first,
   from anywhere in the window ([Branch Row](branch-row.spec.md#keyboard)).

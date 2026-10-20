@@ -9,6 +9,7 @@ import { BranchGraphHelpPopover } from "@/components/branch/BranchGraphHelpPopov
 import { BranchRow } from "@/components/branch/BranchRow"
 import { BranchSelectionBar } from "@/components/branch/BranchSelectionBar"
 import { IssueFamilyRow } from "@/components/branch/IssueFamilyRow"
+import { ParkedBranchesCard } from "@/components/branch/ParkedBranchesCard"
 import { BranchPatronusSection } from "@/components/branch/PatronusChip"
 import { BranchPullRequestSection } from "@/components/branch/PullRequestChip"
 import { StackIslandCard } from "@/components/branch/StackIslandCard"
@@ -28,11 +29,12 @@ import { collapsedLanes, isStackRoot, sideStackSizes, stackSizes } from "@/lib/s
 import { landingSegments, laneCountOf } from "@/lib/stack-lanes"
 import { closeBranchPreview, openBranchPreview, showBranchInPreview, useBranchPreview } from "@/stores/branch-preview"
 import type { BranchTableRow } from "@/stores/branch-sync"
-import { useBranchSync, useFoundCommits } from "@/stores/branch-sync"
+import { useBranchSync, useFoundCommits, useParkedTableRows } from "@/stores/branch-sync"
 import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
 import { useInlineRowAction } from "@/stores/inline-row-action"
 import { useLandingSpans } from "@/stores/patronus"
 import { getFullBranchName } from "@/stores/repository"
+import { useRecentProjects } from "@/stores/settings/repositorySettings"
 import { expandStackOf, useShownBranchTables } from "@/stores/stack-collapse"
 import { setStackPathRows } from "@/stores/stack-view"
 
@@ -59,8 +61,14 @@ export function BranchTableCard() {
   const visible = useFilteredBranches()
   // without a filter, a collapsed stack shows as its root alone and a collapsed island as its header
   const { table, tableAll, islands } = useShownBranchTables(visible)
-  // the rows shown, in the order of the screen: the table, then the islands
-  const rows = useMemo(() => [...table.rows, ...islands.flatMap(island => (island.collapsed ? [] : island.shown.rows))], [table.rows, islands])
+  // the branches kept local, in a card of their own after the islands
+  const parkedRows = useParkedTableRows()
+  const parkedOpen = useRecentProjects(projects => projects[0]?.parkedCollapsed !== true)
+  // the rows shown, in the order of the screen: the table, the islands, then the Parked card
+  const rows = useMemo(
+    () => [...table.rows, ...islands.flatMap(island => (island.collapsed ? [] : island.shown.rows)), ...(parkedOpen ? parkedRows : [])],
+    [table.rows, islands, parkedRows, parkedOpen],
+  )
   // the roots whose stack or side stack hides rows
   const hidden = useMemo(() => new Map([...table.hidden, ...islands.flatMap(island => [...island.shown.hidden])]), [table.hidden, islands])
   const stackShown = useMemo(() => stackSizes(table.rows), [table.rows])
@@ -218,8 +226,8 @@ export function BranchTableCard() {
     })
   // the side stacks of all rows: a collapsed one shows its root alone
   const sideStackRoots = sideStackSizes([...tableAll, ...islands.flatMap(island => island.rows)])
-  // the table without rows while islands show the rest: no "No branches match"
-  const showsTable = table.rows.length > 0 || islands.length === 0
+  // the table without rows while islands or the Parked card show the rest: no "No branches match", unless a filter left it empty
+  const showsTable = table.rows.length > 0 || (islands.length === 0 && (visible !== null || parkedRows.length === 0))
 
   return (
     // the table and its islands: their columns line up (`ColumnTrack`)
@@ -289,6 +297,13 @@ export function BranchTableCard() {
           </IslandTable>
         </StackIslandCard>
       ))}
+      {parkedRows.length > 0 && (
+        <ParkedBranchesCard count={parkedRows.filter(row => row.kind === "branch").length}>
+          <IslandTable rows={parkedRows} lastFocusedRef={lastToggledRef} hotkeys={previewHotkeys} onKeyDown={onTableKeyDown} pathPointer={pathPointer}>
+            {renderRows(parkedRows, null)}
+          </IslandTable>
+        </ParkedBranchesCard>
+      )}
     </BranchColumnsRoot>
   )
 }

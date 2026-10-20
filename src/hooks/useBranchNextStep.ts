@@ -21,7 +21,7 @@ import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
 import { recordApproval, recordRetarget } from "@/stores/activity"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getStackBranchOf, useBranchSync } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getParkedState, getStackBranchOf, useBranchSync } from "@/stores/branch-sync"
 import { landedStore } from "@/stores/landed"
 import type { Operations } from "@/stores/operations"
 import { getObjectBusy, operationsStore, runOperation } from "@/stores/operations"
@@ -185,6 +185,7 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
     startBlocker: start.ok ? null : start.reason,
     dryRunStartBlocker: dryRun.ok ? null : dryRun.reason,
     held: getPushHold(name) !== null,
+    parked: getParkedState(name),
     landedIn,
     landedWith,
     robot: slot,

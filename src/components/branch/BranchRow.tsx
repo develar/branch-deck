@@ -29,7 +29,7 @@ import { formatCommitCount } from "@/lib/commit"
 import { isRobotActive } from "@/lib/patronus"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { branchRowDivider, dividerAttributes, laneContentInsetClass, rowBelowDivider } from "@/lib/stack-lanes"
-import { getBranchCommits, getBranchTableOrder, useBranch, useBranchSync } from "@/stores/branch-sync"
+import { getBranchCommits, getBranchTableOrder, useBranch, useBranchSync, useParkedState } from "@/stores/branch-sync"
 import {
   clearBranchSelection,
   endCommitDrag,
@@ -47,6 +47,7 @@ import { useBranchRobot } from "@/stores/patronus"
 import { getShownBranchTableOrder, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
 
 const InlineRenameBranchInput = lazy(() => import("@/components/branch/InlineRenameBranchInput").then(it => ({ default: it.InlineRenameBranchInput })))
+const InlineParkBranchInput = lazy(() => import("@/components/branch/InlineParkBranchInput").then(it => ({ default: it.InlineParkBranchInput })))
 const InlineIssueReferenceInput = lazy(() => import("@/components/branch/InlineIssueReferenceInput").then(it => ({ default: it.InlineIssueReferenceInput })))
 const InlineAmendChangesInput = lazy(() => import("@/components/branch/InlineAmendChangesInput").then(it => ({ default: it.InlineAmendChangesInput })))
 const InlineUngroupConfirm = lazy(() => import("@/components/branch/InlineUngroupConfirm").then(it => ({ default: it.InlineUngroupConfirm })))
@@ -56,7 +57,7 @@ const MergeConflictViewer = lazy(() => import("@/components/conflict/MergeConfli
 
 const columnCount = 4
 
-const inlineFormTypes: ReadonlySet<InlineActionType> = new Set(["issue-reference", "rename", "amend-changes", "unapply", "ungroup", "close-stack-pull-request"])
+const inlineFormTypes: ReadonlySet<InlineActionType> = new Set(["issue-reference", "rename", "amend-changes", "unapply", "ungroup", "close-stack-pull-request", "park"])
 
 export interface BranchRowProps {
   name: string
@@ -115,6 +116,7 @@ export const BranchRow = memo(function BranchRow({
   setExpanded,
 }: BranchRowProps) {
   const branch = useBranch(name)
+  const parked = useParkedState(name)
   // the node of a branch whose robot runs has the ring of the Safe Push slot
   const robot = useBranchRobot(name)
   const robotRuns = robot !== undefined && isRobotActive(robot)
@@ -241,6 +243,7 @@ export const BranchRow = memo(function BranchRow({
           }
           summary={branch.summary}
           descriptionTitle={branch.descriptionTitle}
+          parkedNote={parked?.with === null ? parked.note : null}
           expanded={expanded}
           canExpand={branch.commitCount > 0 || branch.hasError}
           onToggleExpanded={toggle}
@@ -286,6 +289,7 @@ export const BranchRow = memo(function BranchRow({
               {activeInline.type === "unapply" && <InlineUnapplyConfirm key={`unapply:${name}`} branchName={name} />}
               {activeInline.type === "ungroup" && <InlineUngroupConfirm key={`ungroup:${name}`} branchName={name} />}
               {activeInline.type === "close-stack-pull-request" && <InlineCloseStackPullRequest key={`close-stack-pull-request:${name}`} root={name} />}
+              {activeInline.type === "park" && <InlineParkBranchInput key={`park:${name}`} branchName={name} />}
             </Suspense>
           </td>
         </tr>

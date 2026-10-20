@@ -51,6 +51,8 @@ export const ProjectMetadataSchema = z.object({
   landedHiddenUntil: z.number().optional(),
   /** The user collapsed the "Your Turn" card of the repository (open by default) */
   reviewRequestsCollapsed: z.boolean().optional(),
+  /** The user collapsed the Parked card of the repository (open by default) */
+  parkedCollapsed: z.boolean().optional(),
   /** The stack roots the user collapsed in the branch table (expanded by default, not stored) */
   collapsedStacks: z.array(z.string()).optional(),
   /** A malformed value is dropped, never the recent projects */
@@ -107,6 +109,11 @@ export function setCollapsedStacks(path: string, roots: readonly string[]): void
     const same = current.length === roots.length && current.every((it, index) => it === roots[index])
     return same ? project : { ...project, collapsedStacks: roots.length === 0 ? undefined : [...roots] }
   })
+}
+
+/** Collapses or opens the Parked card of the repository; open is the default and is not stored */
+export function setParkedCollapsed(path: string, collapsed: boolean): void {
+  updateProject(path, project => ((project.parkedCollapsed === true) === collapsed ? project : { ...project, parkedCollapsed: collapsed ? true : undefined }))
 }
 
 /** Collapses or opens the "Your Turn" card of the repository; open is the default and is not stored */

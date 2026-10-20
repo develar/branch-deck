@@ -38,8 +38,8 @@ export function matchesBranchText(branch: SearchedBranch, text: string): boolean
   )
 }
 
-/** The chip of a node: the filled ones are the user's move */
-function chipOfNode(kind: LandingNodeKind): Exclude<BranchFilterChip, "all"> {
+/** The chip of a node: the filled ones are the user's move; a parked branch has its own card, no chip */
+function chipOfNode(kind: LandingNodeKind): Exclude<BranchFilterChip, "all"> | null {
   switch (kind) {
     case "ready":
     case "yourStep":
@@ -49,6 +49,8 @@ function chipOfNode(kind: LandingNodeKind): Exclude<BranchFilterChip, "all"> {
     case "waiting":
     case "inMaster":
       return kind
+    case "parked":
+      return null
   }
 }
 
@@ -76,8 +78,9 @@ export function collectChipMatches(names: readonly string[], nodeOf: (name: stri
   for (const name of names) {
     const kind = nodeOf(name)
     all.push(name)
-    if (kind !== null) {
-      matches[chipOfNode(kind)].add(name)
+    const chip = kind === null ? null : chipOfNode(kind)
+    if (chip !== null) {
+      matches[chip].add(name)
     }
   }
   return { all, ...matches }

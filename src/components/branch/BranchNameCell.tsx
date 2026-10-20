@@ -14,6 +14,8 @@ export interface BranchNameCellProps {
   summary?: string
   /** The title of the branch's description, shown as written instead of the summary */
   descriptionTitle?: string | null
+  /** Why a parked branch stays local, its note, shown instead of the summary, issue keys as links */
+  parkedNote?: string | null
   expanded: boolean
   canExpand?: boolean
   /** Archived branches: show only the last path segment */
@@ -33,6 +35,7 @@ export function BranchNameCell({
   name,
   summary = "",
   descriptionTitle = null,
+  parkedNote = null,
   expanded,
   canExpand = true,
   simplified = false,
@@ -43,7 +46,7 @@ export function BranchNameCell({
   onToggleExpanded,
 }: BranchNameCellProps) {
   const FolderIcon = expanded ? FolderOpenIcon : FolderClosedIcon
-  const shownSummary = getBranchSummary(summary, descriptionTitle, getShownIssueKey(name, issueKey))
+  const shownSummary = parkedNote !== null && parkedNote !== "" ? { prefix: null, text: parkedNote } : getBranchSummary(summary, descriptionTitle, getShownIssueKey(name, issueKey))
   const content = (
     <div className="flex min-w-0 items-center gap-2">
       {lanes}

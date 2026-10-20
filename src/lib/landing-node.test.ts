@@ -25,6 +25,17 @@ function landing(next: NextStepFacts, patch: Partial<LandingNodeFacts> = {}): Re
 }
 
 describe("getLandingNode", () => {
+  it("is parked, never a move, also with a conflict, until something lands it already", () => {
+    const parked = { note: "waits for IJPL-1", with: null }
+    expect(landing(withReadiness(approved, { parked }))).toEqual({ kind: "parked", label: "Parked, kept local: waits for IJPL-1" })
+    expect(landing(facts({ parked, hasError: true }), { status: "MergeConflict" })).toEqual({
+      kind: "parked",
+      label: "Parked, kept local: waits for IJPL-1\nIt doesn't build: fix it before you unpark it",
+    })
+    // a Safe Push of a branch built on it lands it whatever the park says
+    expect(landing(facts({ parked }), { landingWith: "oauth" }).kind).toBe("landing")
+  })
+
   it("is ready to land once Patronus answered that a Safe Push can land it, with the branches it lands", () => {
     expect(landing(withReadiness(approved))).toEqual({ kind: "ready", label: "Ready to land: Safe Push" })
     expect(landing(withReadiness(approved, { landsBranches: 3 }))).toEqual({ kind: "ready", label: "Ready to land: Safe Push lands 3 branches" })

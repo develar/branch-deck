@@ -9,7 +9,7 @@ import { findRunningMove, safePushStartMoves } from "@/lib/running-move"
 import { blockingBranchOf, stackAncestors } from "@/lib/stack"
 import { stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getStackBranch, isBranchPushing, stackMainLineIn } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getParkedState, getStackBranch, isBranchPushing, stackMainLineIn } from "@/stores/branch-sync"
 import { getOperationMoves } from "@/stores/operations"
 import { getBranchRobot, getLandingSpan, getStackRobot, isPatronusKnown } from "@/stores/patronus"
 import { useShowReviewReadiness } from "@/stores/review-readiness"
@@ -82,7 +82,8 @@ function computeStackNode(root: string): LandingNode | null {
 
 /** The last branch of the straight chain of `root`, whose Safe Push lands the whole stack; null for a lone branch */
 function mainLineLeaf(root: string): string | null {
-  const mainLine = stackMainLineIn(branchSyncStore.getState(), root)
+  // the parked branches at its end stay local
+  const mainLine = stackMainLineIn(branchSyncStore.getState(), root).filter(name => getParkedState(name) === null)
   return mainLine.length < 2 ? null : (mainLine.at(-1) ?? null)
 }
 

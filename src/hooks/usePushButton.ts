@@ -8,6 +8,8 @@ import { describePushRetargets, getBranchesGitHubRepository, getPushRetargets } 
 import { pushBranch } from "@/lib/git/push"
 import { pushStack, pushWithChildren } from "@/lib/git/stack-push"
 import { landedBranchDescription } from "@/lib/landed"
+import type { ParkedState } from "@/lib/parked"
+import { formatParkedBlocker } from "@/lib/parked"
 import type { PushHold } from "@/lib/patronus"
 import { formatPushHoldReason } from "@/lib/patronus"
 import { gitHubRepositoryOf } from "@/lib/pull-request"
@@ -30,7 +32,7 @@ import type { UIColor } from "@/lib/ui-types"
 import type { StackBranchAlong } from "@/lib/whole-stack"
 import { getStackBranchAlong, stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
-import { getBranch, stackDescendantsIn, useBranchSync, useIsStackBranchPushing, useStackBranch } from "@/stores/branch-sync"
+import { getBranch, getParkedState, stackDescendantsIn, useBranchSync, useIsStackBranchPushing, useParkedState, useStackBranch } from "@/stores/branch-sync"
 import { getPushHold, isPatronusAvailable, usePatronusAvailable, usePushHold, usePushHolds, useStackBranchHoldReason } from "@/stores/patronus"
 import { getPullRequest, pullRequestsStore, usePullRequest, usePullRequestAvailability, useStackPullRequest } from "@/stores/pull-requests"
 import { useSafePushStarting } from "@/stores/safe-push"
@@ -124,6 +126,8 @@ export interface PushButtonContext {
   landedIn?: string | null
   /** A Safe Push runs on the branch or lands it (`PushHold`): a push won't land, the button is disabled with the reason */
   hold?: PushHold | null
+  /** The user keeps the branch local, or a branch it is built on (`getParkedState`): the button is disabled with the reason */
+  parked?: ParkedState | null
   /** The pull requests into a virtual branch the push retargets first: of the branch, or of each branch of its stack push */
   retargets?: readonly PushRetarget[]
 }
@@ -173,8 +177,24 @@ function describeUnpushedChildren(branchName: string, names: readonly string[], 
 
 export function getPushButtonState(
   branch: Branch,
-  { isPushing = false, unpushedParent = null, unpushedChildren = null, landedIn = null, hold = null, retargets = [] }: PushButtonContext = {},
+  { isPushing = false, unpushedParent = null, unpushedChildren = null, landedIn = null, hold = null, parked = null, retargets = [] }: PushButtonContext = {},
 ): PushButtonState {
+  // a parked branch stays local, and so does one built on it, which carries its commits
+  if (parked !== null && !isPushing) {
+    return {
+      text: "Push",
+      count: 0,
+      color: "neutral",
+      tooltip: formatParkedBlocker(parked),
+      dropped: null,
+      disabled: true,
+      confirm: false,
+      pushesStack: false,
+      action: null,
+      childrenAction: null,
+      retarget: null,
+    }
+  }
   // a blocked stacked branch keeps its last build, which lacks its parent's state: pushing it would mislead
   if (branch.status === "Blocked") {
     return {
@@ -321,7 +341,12 @@ function childrenActionOf(branchName: string, unpushedChildren: UnpushedChildren
  * running (a push during a sync waits for it), no inline action on the row
  */
 export function canPushNow(branch: Branch, { isPushing, processing }: { isPushing: boolean; processing: boolean }): boolean {
-  return !branch.hasError && branch.commitCount > 0 && !processing && !getPushButtonState(branch, { isPushing, hold: getPushHold(branch.name) }).disabled
+  return (
+    !branch.hasError &&
+    branch.commitCount > 0 &&
+    !processing &&
+    !getPushButtonState(branch, { isPushing, hold: getPushHold(branch.name), parked: getParkedState(branch.name) }).disabled
+  )
 }
 
 /**
@@ -359,10 +384,11 @@ export function usePushButton(branch: Branch, isPushing: boolean): PushButtonSta
   const unpushedChildren = useUnpushedChildren(branch.name)
   const landedIn = useLandedIn(branch.name)
   const hold = usePushHold(branch.name)
+  const parked = useParkedState(branch.name)
   const retargets = usePushRetargets(retargetCandidates(branch.name, unpushedParent))
   return useMemo(
-    () => getPushButtonState(branch, { isPushing, unpushedParent, unpushedChildren, landedIn, hold, retargets }),
-    [branch, isPushing, unpushedParent, unpushedChildren, landedIn, hold, retargets],
+    () => getPushButtonState(branch, { isPushing, unpushedParent, unpushedChildren, landedIn, hold, parked, retargets }),
+    [branch, isPushing, unpushedParent, unpushedChildren, landedIn, hold, parked, retargets],
   )
 }
 
@@ -390,7 +416,7 @@ export function getPushButtonNow(branch: Branch, isPushing: boolean): PushButton
   const isHeld = (name: string): boolean => getPushHold(name) !== null
   const unpushedParent = getUnpushedParent(branch.name, getBranch, isHeld)
   const retargets = getPushRetargets(retargetCandidates(branch.name, unpushedParent))
-  return getPushButtonState(branch, { isPushing, unpushedParent, hold: getPushHold(branch.name), retargets })
+  return getPushButtonState(branch, { isPushing, unpushedParent, hold: getPushHold(branch.name), parked: getParkedState(branch.name), retargets })
 }
 
 /** `useUnpushedParent` outside a component: the nearest ancestor with work for the remote, and the stack pushes */

@@ -18,6 +18,7 @@ export type InlineActionType =
   | "squash-fixups"
   | "ungroup"
   | "close-stack-pull-request"
+  | "park"
 
 export interface ActiveInline {
   type: InlineActionType

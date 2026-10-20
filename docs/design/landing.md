@@ -169,6 +169,9 @@ beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stac
   can conflict where nothing conflicts locally. Patronus rebases the source with `REBASE_AUTOSQUASH` anyway, so the
   main line gains nothing from keeping its ids.
 - **Only for a stack that forks.** A straight chain has none: its leaf is the whole stack, and its Safe Push lands it.
+- **A parked member.** A branch the user parked ([Parked Branches](../../spec/branch/parked-branches.spec.md)) lands
+  nothing until it is unparked, and neither does a branch built on it, which carries its commits. The stack branch
+  holds every member, so a stack with a parked one lands in pieces: its build stays, nothing pushes it.
 - **When it is landable.** Only a `Built` stack branch has the stack's commits as they are. A member that is blocked,
   conflicts or failed, a commit that conflicts in the stack branch itself, or a ref another process moved leave the
   ref as it was (`Blocked`, `Conflict`, `Stale`), and nothing pushes it.

@@ -1,5 +1,7 @@
 import {
   ArchiveXIcon,
+  CirclePauseIcon,
+  CirclePlayIcon,
   CombineIcon,
   CopyIcon,
   FileDiffIcon,
@@ -30,6 +32,7 @@ import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { getBranchNextStepNow, getBranchNextStepOf, getGatedRobotActions, nextStepSources, useNextStepStores } from "@/hooks/useBranchNextStep"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
+import { unparkBranch } from "@/hooks/useParkBranch"
 import { canPushNow, getPushButtonNow, isFirstPushInLanding, isLandingPushAvailable } from "@/hooks/usePushButton"
 import { requestSafePush } from "@/hooks/useSafePush"
 import { restackBranch } from "@/hooks/useStackActions"
@@ -46,6 +49,7 @@ import { pushOrConfirm } from "@/lib/git/push"
 import { pushWithChildren } from "@/lib/git/stack-push"
 import { getMarkFixedItem } from "@/lib/issue-actions"
 import type { MenuItem, MenuItemGroups, SelectContext } from "@/lib/menu"
+import { formatParkedBlocker } from "@/lib/parked"
 import { describeStart, formatPushHoldReason, formatStartLabel, getPullRequestStart } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
 import { openPullRequest } from "@/lib/pull-request"
@@ -72,8 +76,10 @@ import {
   getIssueGroups,
   getMoveTargets,
   getStackBranch,
+  getParkedState,
   getStackChildren,
   getStackDescendants,
+  getUnparkedStackDescendants,
   isBranchPushing,
   isStackPushing,
   isStacksEnabled,
@@ -268,7 +274,59 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
     remoteActions.push({ ...getMarkFixedItem(youTrackKey, operations), label: `Mark ${youTrackKey} Fixed` })
   }
   groups.push(remoteActions)
+  groups.push(getParkMenuItems(branch, operations))
   return groups
+}
+
+/**
+ * "Park Branch…" (the note form) of a branch to land, "Edit Park Note…" and "Unpark Branch" of a parked one, "Unpark
+ * ‹parent›" of a branch parked with its parent: no rewrite, the parked branches of `refs/branch-deck/parked`. A park
+ * waits for a robot that lands the branch: it lands whatever the park says; an open pull request stays open, a merge on
+ * GitHub lands it, which the item says.
+ */
+function getParkMenuItems(branch: Branch, operations: Operations): MenuItem[] {
+  const name = branch.name
+  const parked = getParkedState(name)
+  const writes = (item: MenuItem): MenuItem => {
+    if (branch.status === "Syncing" || branchSyncStore.getState().isSyncing) {
+      return { ...item, disabled: true, description: "Wait for the sync to finish" }
+    }
+    return operationItem(operations, item, { id: item.id ?? item.label, subject: branchSubject(name), objects: [name], kind: "rewrite" })
+  }
+  if (parked?.with != null) {
+    const parent = parked.with
+    return [
+      writes({ id: "unpark", label: `Unpark ${parent}`, icon: CirclePlayIcon, description: `${name} carries the commits of ${parent}`, onSelect: () => void unparkBranch(parent) }),
+    ]
+  }
+  if (parked !== null) {
+    return [
+      writes({ id: "park", label: "Edit Park Note…", icon: CirclePauseIcon, onSelect: () => openInline("park", name) }),
+      writes({ id: "unpark", label: "Unpark Branch", icon: CirclePlayIcon, description: "It lands as any other branch again", onSelect: () => void unparkBranch(name) }),
+    ]
+  }
+  const hold = getPushHold(name)
+  if (hold !== null && hold.kind !== "landed") {
+    return [
+      {
+        id: "park",
+        label: "Park Branch…",
+        icon: CirclePauseIcon,
+        disabled: true,
+        description: `${formatPushHoldReason(name, hold)}: it lands whatever a park says`,
+        onSelect: () => {},
+      },
+    ]
+  }
+  if (branch.commits.length === 0) {
+    return [{ id: "park", label: "Park Branch…", icon: CirclePauseIcon, disabled: true, description: "The branch has no commits", onSelect: () => {} }]
+  }
+  const pullRequest = getPullRequest(name)
+  const description =
+    pullRequest?.state === "open"
+      ? `Keeps it local; #${pullRequest.number} stays open, a merge on GitHub still lands it`
+      : "Keeps it local: no push or Safe Push sends it, and it is no move of yours"
+  return [writes({ id: "park", label: "Park Branch…", icon: CirclePauseIcon, description, onSelect: () => openInline("park", name) })]
 }
 
 /**
@@ -352,6 +410,10 @@ function getRewriteBlocker(branch: Branch): string | null {
  * inline action, a sync that rebuilds the branch anew, nothing to push
  */
 function getPushBlocker(branch: Branch, { isPushing, stackPushing, processing }: { isPushing: boolean; stackPushing: boolean; processing: boolean }): string {
+  const parked = getParkedState(branch.name)
+  if (parked !== null && !isPushing) {
+    return formatParkedBlocker(parked)
+  }
   if (branch.status === "Blocked") {
     return formatBlockedReason(branch)
   }
@@ -657,9 +719,14 @@ function getStackMenuItems(branch: Branch, rewrite: (items: MenuItem[]) => MenuI
  * without it.
  */
 export function getPushWithChildrenItem(name: string): MenuItem | null {
-  const descendants = getStackDescendants(name)
+  // the parked ones stay local: Push with Children of a branch to land leaves them out
+  const descendants = getUnparkedStackDescendants(name)
   if (descendants.length === 0) {
     return null
+  }
+  const parked = getParkedState(name)
+  if (parked !== null) {
+    return { id: "push-with-children", label: "Push with Children", icon: UploadIcon, disabled: true, description: formatParkedBlocker(parked), onSelect: () => {} }
   }
   const isHeld = (it: string): boolean => getPushHold(it) !== null
   // the children are built on the branch: a push of it alone leaves their remote branches on its old head

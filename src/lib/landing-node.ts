@@ -1,5 +1,6 @@
 import type { NextStepFacts } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
+import { formatParkedLabel } from "@/lib/parked"
 import { isFailingChip } from "@/lib/patronus"
 import type { FoundMove } from "@/lib/running-move"
 import { joinNames } from "@/lib/text"
@@ -8,9 +9,10 @@ import type { Branch } from "@/stores/branch-sync"
 
 /**
  * Where a branch is on its way into master, the node of its row ([Landing](../../docs/design/landing.md)): filled while
- * the next step is the user's and on this row, hollow while it waits for others (people, the parent, the robot) or is done
+ * the next step is the user's and on this row, hollow while it waits for others (people, the parent, the robot), is done,
+ * or stays local (`parked`)
  */
-export type LandingNodeKind = "ready" | "yourStep" | "needsFix" | "landing" | "waiting" | "inMaster"
+export type LandingNodeKind = "ready" | "yourStep" | "needsFix" | "landing" | "waiting" | "parked" | "inMaster"
 
 export interface LandingNodeLook {
   readonly color: UIColor
@@ -26,6 +28,7 @@ export const landingNodeLooks: Readonly<Record<LandingNodeKind, LandingNodeLook>
   needsFix: { color: "error", filled: true, legend: "Needs a fix: a conflict, a failed robot, changes requested" },
   landing: { color: "primary", filled: false, legend: "Landing now" },
   waiting: { color: "neutral", filled: false, legend: "Waits for others: reviewers, its parent, a robot" },
+  parked: { color: "neutral", filled: false, legend: "Parked: kept local, never pushed" },
   inMaster: { color: "info", filled: false, legend: "In master" },
 }
 
@@ -74,11 +77,16 @@ const pendingNode = (label: string): LandingNode => ({ kind: "waiting", label, p
 /**
  * The node of a branch: the first state that matches. A sync and an inline action of the row pass, so the node keeps
  * the state they started from; a running move of the row (`RunningMove`: a start of a Safe Push, a review request) is
- * the move made, so the node is the state after it from its start on; the next step (`getBranchNextStep`) decides the
- * rest, as the slot of the row shows it.
+ * the move made, so the node is the state after it from its start on; a parked branch is no move, a conflict of it
+ * neither, unless something lands it already; the next step (`getBranchNextStep`) decides the rest, as the slot of the
+ * row shows it.
  */
 export function getLandingNode(facts: LandingNodeFacts): LandingNode {
   const next: NextStepFacts = { ...facts.next, syncing: false, busy: null }
+  if (next.parked !== null && landedReason(next) === null && next.robot.kind !== "running" && facts.move === null && facts.landingWith === null) {
+    const conflict = next.hasError || facts.status === "Error" || facts.status === "MergeConflict" || facts.status === "AnalyzingConflict"
+    return node("parked", conflict ? `${formatParkedLabel(next.parked)}\nIt doesn't build: fix it before you unpark it` : formatParkedLabel(next.parked))
+  }
   if (next.hasError || facts.status === "Error" || facts.status === "MergeConflict" || facts.status === "AnalyzingConflict") {
     return node("needsFix", facts.statusText || "The branch failed to sync")
   }

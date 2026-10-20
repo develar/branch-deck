@@ -59,7 +59,9 @@ indicator, whose states were the same story told twice.
 - A unit is what lands in one move: a lone branch, or a stack (its root's row), whose node and next step are those of
   the whole stack, as the header of its island shows them (`getStackLandingNodeNow`, `useStackNextStep`: of its stack
   branch while the stack forks, else of the last branch of its straight chain). The branches of a stack whose own node
-  needs a fix are listed below it, each a move of its own. Units come in the order of the table.
+  needs a fix are listed below it, each a move of its own. Units come in the order of the table. A parked branch, and
+  one parked with its parent, is in no unit ([Parked Branches](../branch/parked-branches.spec.md)); a whole stack that
+  holds one lands in pieces, so its unit takes the node of its root.
   [@test] ../../src/lib/landing-overview.test.ts (`counts the user's moves by unit, a ready stack of 22 branches one move, the most urgent first`, `lists a stack whose branch needs a fix with the moves, the fix counted as a move of its own`)
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should run the next step of a move from the overview at its row: a Safe Push, a pull request`)
 

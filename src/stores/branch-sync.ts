@@ -28,6 +28,8 @@ import { commands } from "@/lib/bindings"
 import { invokeCommand } from "@/lib/command"
 import { getSubjectLine, parseSubject } from "@/lib/commit"
 import { UserError } from "@/lib/git/vcs-request"
+import type { ParkedState } from "@/lib/parked"
+import { collectParkedStates } from "@/lib/parked"
 import { sameStringRecord } from "@/lib/record"
 import { stackIslandRoots } from "@/lib/stack-collapse"
 import type { StackLanes } from "@/lib/stack-lanes"
@@ -211,6 +213,11 @@ export interface BranchSyncState {
   /** Child -> parent: the stack parents the last grouping read (`refs/branch-deck/stack-parents`); empty with stacks off */
   stackParents: Readonly<Record<string, string>>
   /**
+   * Branch -> note: the parked branches the last grouping read (`refs/branch-deck/parked`), kept local, never pushed;
+   * also the lines of branches without commits here
+   */
+  parked: Readonly<Record<string, string>>
+  /**
    * Root -> its stack branch, as the last sync reported it. A grouping keeps the ones it announces, as they were until
    * their update comes, and drops the others.
    */
@@ -236,6 +243,7 @@ export const branchSyncStore = createStore<BranchSyncState>(() => ({
   stacksEnabled: false,
   issueGroups: {},
   stackParents: {},
+  parked: {},
   stackBranches: {},
 }))
 
@@ -319,33 +327,47 @@ function stackParentIn(branches: Record<string, Branch>, name: string): string |
 }
 
 /**
- * What the table rows and the stack lookups are computed from: the order, and per branch its parent and issue. A sync
- * event (a commit synced, a remote status) changes the `branches` record but not this.
+ * What the table rows and the stack lookups are computed from: the order, per branch its parent and issue, and the parked
+ * branches. A sync event (a commit synced, a remote status) changes the `branches` record but not this.
  */
 interface BranchStructure {
   readonly branchOrder: readonly string[]
   readonly branches: Record<string, Branch>
+  readonly parked: Readonly<Record<string, string>>
   readonly key: string
   /** The branches stacked directly on each branch, in branch order; cycles included */
   readonly children: ReadonlyMap<string, readonly string[]>
+  /** The parked branches and those built on one, which carry its commits (`collectParkedStates`) */
+  readonly parkedStates: ReadonlyMap<string, ParkedState>
+  /** The branches of the main table, in branch order: the others are parked */
+  readonly mainOrder: readonly string[]
+}
+
+/** The branch `name` is built on, whose commits it carries: its effective base, else the declared parent of a blocked one */
+function buildParentIn(branches: Record<string, Branch>, name: string): string | null {
+  const stack = branches[name]?.stack
+  return stack?.effectiveBase ?? stack?.declaredParent ?? null
 }
 
 let lastStructure: BranchStructure | null = null
 
 /** The structure of `state`, the same object while the structure stays the same */
 function structureOf(state: BranchSyncState): BranchStructure {
-  const { branchOrder, branches } = state
+  const { branchOrder, branches, parked } = state
   const last = lastStructure
-  if (last !== null && last.branchOrder === branchOrder && last.branches === branches) {
+  if (last !== null && last.branchOrder === branchOrder && last.branches === branches && last.parked === parked) {
     return last
   }
+  const parkedStates = collectParkedStates(branchOrder, parked, name => buildParentIn(branches, name))
   let key = ""
   for (const name of branchOrder) {
     const branch = branches[name]
-    key += branch === undefined ? `${name}\0?\n` : `${name}\0${stackParentIn(branches, name) ?? ""}\0${branch.issueKey ?? ""}\n`
+    const state = parkedStates.get(name)
+    const parkedKey = state === undefined ? "" : `${state.with ?? ""}\0${state.note}`
+    key += branch === undefined ? `${name}\0?\n` : `${name}\0${stackParentIn(branches, name) ?? ""}\0${branch.issueKey ?? ""}\0${parkedKey}\n`
   }
   if (last !== null && last.key === key) {
-    lastStructure = { ...last, branchOrder, branches }
+    lastStructure = { ...last, branchOrder, branches, parked }
     return lastStructure
   }
   const children = new Map<string, string[]>()
@@ -360,7 +382,8 @@ function structureOf(state: BranchSyncState): BranchStructure {
       }
     }
   }
-  lastStructure = { branchOrder, branches, key, children }
+  const mainOrder = parkedStates.size === 0 ? branchOrder : branchOrder.filter(name => !parkedStates.has(name))
+  lastStructure = { branchOrder, branches, parked, key, children, parkedStates, mainOrder }
   return lastStructure
 }
 
@@ -377,10 +400,24 @@ function withStackAncestors(state: BranchSyncState, visible: ReadonlySet<string>
   return state.branchOrder.filter(name => kept.has(name))
 }
 
+/** The table of a branch: the main one, or the Parked card of the branches kept local */
+export type BranchTableSection = "main" | "parked"
+
+/** The branches of `section` among `branches`: the same record without parked branches */
+function sectionBranches(structure: BranchStructure, section: BranchTableSection): Record<string, Branch> {
+  if (structure.parkedStates.size === 0) {
+    return structure.branches
+  }
+  const parked = section === "parked"
+  return Object.fromEntries(Object.entries(structure.branches).filter(([name]) => structure.parkedStates.has(name) === parked))
+}
+
 /** The rows of `branchTableRowsIn`, computed: the stack graph is laid out over the rows that remain */
-function computeBranchTableRows(state: BranchSyncState, visible: ReadonlySet<string> | null): BranchTableRow[] {
-  const { branches } = state
-  const branchOrder = visible === null ? state.branchOrder : withStackAncestors(state, visible)
+function computeBranchTableRows(state: BranchSyncState, visible: ReadonlySet<string> | null, section: BranchTableSection = "main"): BranchTableRow[] {
+  const structure = structureOf(state)
+  // a branch parked with its parent stays under it in the Parked card; a parked child of a branch to land is a root there
+  const branches = sectionBranches(structure, section)
+  const branchOrder = (visible === null ? state.branchOrder : withStackAncestors(state, visible)).filter(name => branches[name] !== undefined)
   // the branches stacked on each branch, newest first; a branch in a cycle of parents is a root
   const children = new Map<string, string[]>()
   const isRoot = (name: string) => {
@@ -487,9 +524,21 @@ interface RowsCache {
   readonly rows: BranchTableRow[]
 }
 
-// one for all rows, one for the filtered ones: about ten subscribers ask for the rows on every store change
+// one for all rows, one for the filtered ones: about ten subscribers ask for the rows on every store change; one for the
+// Parked card
 let allRowsCache: RowsCache | null = null
 let visibleRowsCache: RowsCache | null = null
+let parkedRowsCache: RowsCache | null = null
+
+/** The rows of the Parked card: the parked branches and those built on one, as a stack graph of their own */
+function parkedTableRowsIn(state: BranchSyncState): BranchTableRow[] {
+  const structure = structureOf(state)
+  if (parkedRowsCache !== null && parkedRowsCache.structure.key === structure.key) {
+    return parkedRowsCache.rows
+  }
+  parkedRowsCache = { structure, visible: null, rows: structure.parkedStates.size === 0 ? [] : computeBranchTableRows(state, null, "parked") }
+  return parkedRowsCache.rows
+}
 
 /**
  * The rows of the branches in `visible` (all for null) and of the branches they stack on, which are `dimmed` unless
@@ -554,6 +603,14 @@ export function getStackDescendants(name: string): string[] {
   return stackDescendantsIn(branchSyncStore.getState(), name)
 }
 
+/** `getStackDescendants` without the parked ones and those parked with them: what lands with the stack of `name` */
+export function getUnparkedStackDescendants(name: string): string[] {
+  const state = branchSyncStore.getState()
+  const { parkedStates } = structureOf(state)
+  const descendants = stackDescendantsIn(state, name)
+  return parkedStates.size === 0 ? descendants : descendants.filter(it => !parkedStates.has(it))
+}
+
 /** Whether the last grouping read prefixes as stacked branches */
 export function useStacksEnabled(): boolean {
   return useStore(branchSyncStore, state => state.stacksEnabled)
@@ -603,6 +660,38 @@ export function useVisibleBranchTableRows(visible: ReadonlySet<string> | null): 
 
 export function getBranchTableRows(visible: ReadonlySet<string> | null = null): BranchTableRow[] {
   return branchTableRowsIn(branchSyncStore.getState(), visible)
+}
+
+/** The rows of the Parked card (`parkedTableRowsIn`); empty without a parked branch */
+export function useParkedTableRows(): BranchTableRow[] {
+  return useStore(
+    branchSyncStore,
+    useShallow(state => parkedTableRowsIn(state)),
+  )
+}
+
+export function getParkedTableRows(): BranchTableRow[] {
+  return parkedTableRowsIn(branchSyncStore.getState())
+}
+
+/** The branches of the main table, in branch order: every branch but the parked ones and those parked with them */
+export function getMainBranchOrder(): readonly string[] {
+  return structureOf(branchSyncStore.getState()).mainOrder
+}
+
+/** Why the branch stays local: its own line in the parked branches, or a parked branch it is built on; null otherwise */
+export function getParkedState(name: string): ParkedState | null {
+  return structureOf(branchSyncStore.getState()).parkedStates.get(name) ?? null
+}
+
+/** `getParkedState` of the row, re-rendered only when it changes */
+export function useParkedState(name: string): ParkedState | null {
+  return useStore(branchSyncStore, state => structureOf(state).parkedStates.get(name) ?? null)
+}
+
+/** The parked branches of the last grouping: branch -> note, the lines of branches without commits here too */
+export function getParkedNotes(): Readonly<Record<string, string>> {
+  return branchSyncStore.getState().parked
 }
 
 /** The roots of the stacks shown as islands of their own (`stackIslandRoots`), one per line, so a store change notifies only when they change */
@@ -1329,6 +1418,7 @@ export function resetBranchSync(): void {
     stacksEnabled: false,
     issueGroups: {},
     stackParents: {},
+    parked: {},
     stackBranches: {},
   })
   resetArchivedBranches()
@@ -1562,6 +1652,8 @@ function applyBranchesGrouped(draft: SyncDraft, data: Extract<SyncEvent, { type:
   const previousGroups = draft.patch.issueGroups ?? branchSyncStore.getState().issueGroups
   const stackParents = data.stackParents ?? {}
   const previousStackParents = draft.patch.stackParents ?? branchSyncStore.getState().stackParents
+  const parked = data.parked ?? {}
+  const previousParked = draft.patch.parked ?? branchSyncStore.getState().parked
   Object.assign(draft.patch, {
     baselineBranch: data.baselineBranch,
     branches,
@@ -1569,6 +1661,7 @@ function applyBranchesGrouped(draft: SyncDraft, data: Extract<SyncEvent, { type:
     stacksEnabled: data.stacks ?? false,
     issueGroups: sameStringRecord(issueGroups, previousGroups) ? previousGroups : issueGroups,
     stackParents: sameStringRecord(stackParents, previousStackParents) ? previousStackParents : stackParents,
+    parked: sameStringRecord(parked, previousParked) ? previousParked : parked,
     stackBranches: announcedStackBranches(draft.patch.stackBranches ?? branchSyncStore.getState().stackBranches, data.stackBranches ?? []),
   })
   draft.ownsBranches = true

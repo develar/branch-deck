@@ -31,7 +31,7 @@ test.describe("Branch graph", () => {
     const legend = page.getByTestId("branch-graph-legend")
     await expect(legend).toBeVisible()
     const kinds = await legend.getByTestId("lane-node").evaluateAll(nodes => nodes.map(node => node.getAttribute("data-kind")))
-    expect(kinds).toEqual(["ready", "yourStep", "needsFix", "landing", "waiting", "inMaster"])
+    expect(kinds).toEqual(["ready", "yourStep", "needsFix", "landing", "waiting", "parked", "inMaster"])
     await expect(legend.locator("dd").first()).toHaveText("Ready to land: Patronus counts the approvals, Safe Push lands it")
     await captureHtmlSnapshot(page.locator("[data-slot=popover-content]").filter({ has: legend }), "branch-graph-legend")
   })

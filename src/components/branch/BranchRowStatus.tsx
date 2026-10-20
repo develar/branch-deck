@@ -1,4 +1,6 @@
 import { cn } from "cn"
+import { CirclePauseIcon } from "lucide-react"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { BranchStatusBadge } from "@/components/branch/BranchStatusBadge"
 import { RobotStatusChip } from "@/components/branch/PatronusChip"
 import { RobotProgressBar, RobotRing } from "@/components/branch/RobotProgress"
@@ -8,11 +10,14 @@ import { useRobotTiming } from "@/hooks/useRobotTiming"
 import { useRowRobot } from "@/hooks/useRowRobot"
 import { statusOutranksRobot } from "@/hooks/useStatusBadge"
 import type { PatronusRobot } from "@/lib/bindings"
+import type { ParkedState } from "@/lib/parked"
+import { formatParkedLabel } from "@/lib/parked"
 import type { PatronusChipState } from "@/lib/patronus"
 import { formatPushMode, getRowRobotChip, isFailingChip, robotRingColor } from "@/lib/patronus"
 import { patronusChipIcons } from "@/lib/patronus-icons"
 import { formatRobotProgress, formatSpokenRobotProgress } from "@/lib/robot-eta"
 import type { Branch } from "@/stores/branch-sync"
+import { useParkedState } from "@/stores/branch-sync"
 
 /**
  * The robot reads as the status text it replaces: `text-sm`, its icon where the status dot is; the hover underline and
@@ -25,11 +30,18 @@ const ROW_ROBOT = "h-6 gap-2 px-0 text-sm"
  * while one runs (its ring, its time, the progress line under it; "Failing" in `destructive` for one that will fail) or
  * finished on the branch as it is ("Failed", "Needs review", "Merged", "Dry run passed", "Canceled"), else the status
  * text (`BranchStatusBadge`). A sync running, an error, a conflict, a block and a landed branch say more than the robot.
+ * A parked branch says why it stays local instead of its push state, which it never changes; its error or conflict
+ * still shows.
  */
 export function BranchRowStatus({ branch }: { branch: Branch }) {
   const landedIn = useLandedIn(branch.name)
   const { robot, slot } = useRowRobot(branch)
+  const parked = useParkedState(branch.name)
   const chip = getRowRobotChip(slot)
+  const broken = branch.hasError || branch.status === "MergeConflict" || branch.status === "AnalyzingConflict" || branch.status === "Error"
+  if (parked !== null && !broken && branch.status !== "Syncing" && slot.kind !== "running") {
+    return <ParkedStatus state={parked} />
+  }
   if (robot === undefined || chip === null || statusOutranksRobot(branch, landedIn)) {
     return <BranchStatusBadge branch={branch} />
   }
@@ -41,6 +53,22 @@ export function BranchRowStatus({ branch }: { branch: Branch }) {
       <span className="truncate">{chip.label}</span>
       {chip.outdated && <StatusChipDot color="warning" testId="patronus-outdated-dot" />}
     </RobotStatusChip>
+  )
+}
+
+/** "Parked", "Parked with auth": muted, the note in the hover (the name cell of the parked branch shows it too) */
+function ParkedStatus({ state }: { state: ParkedState }) {
+  const what = state.with === null ? "Parked" : `Parked with ${state.with}`
+  return (
+    <div className="min-w-0">
+      <Tooltip>
+        <TooltipTrigger delay={300} render={<span className="flex h-6 max-w-full items-center gap-2 text-sm text-muted-foreground" data-testid="parked-status" />}>
+          <CirclePauseIcon aria-hidden className="size-3.5 shrink-0" />
+          <span className="truncate">{what}</span>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-sm whitespace-pre-line">{formatParkedLabel(state)}</TooltipContent>
+      </Tooltip>
+    </div>
   )
 }
 

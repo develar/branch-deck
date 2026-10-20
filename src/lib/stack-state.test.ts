@@ -8,13 +8,13 @@ function nodes(kinds: Record<string, LandingNodeKind>): (name: string) => Landin
   return name => kinds[name] ?? null
 }
 
-const NONE: StackState = { needsFix: 0, yourStep: 0, ready: 0, landing: 0, waiting: 0, inMaster: 0 }
+const NONE: StackState = { needsFix: 0, yourStep: 0, ready: 0, landing: 0, waiting: 0, parked: 0, inMaster: 0 }
 
 describe("summarizeStackState", () => {
   it("counts the rows of a stack by their nodes, and nothing of a branch without one", () => {
     const kinds = nodes({ session: "needsFix", login: "yourStep", oauth: "ready", docs: "landing", api: "landing", web: "waiting", old: "inMaster" })
     const names = ["session", "login", "oauth", "docs", "api", "web", "old", "syncing"]
-    expect(summarizeStackState(names, kinds)).toEqual({ needsFix: 1, yourStep: 1, ready: 1, landing: 2, waiting: 1, inMaster: 1 })
+    expect(summarizeStackState(names, kinds)).toEqual({ needsFix: 1, yourStep: 1, ready: 1, landing: 2, waiting: 1, parked: 0, inMaster: 1 })
     expect(firstBranchOfEachState(names, kinds)).toEqual({ needsFix: "session", yourStep: "login", ready: "oauth", landing: "docs", waiting: "web", inMaster: "old" })
     expect(summarizeStackState([], kinds)).toEqual(NONE)
   })
@@ -30,7 +30,7 @@ describe("summarizeStackState", () => {
 
 describe("getStackStateChips", () => {
   it("puts the user's moves first, a fix before a step before ready, then what lands, waits and is in master, in the colours of the nodes", () => {
-    const all: StackState = { needsFix: 2, yourStep: 1, ready: 3, landing: 1, waiting: 4, inMaster: 1 }
+    const all: StackState = { needsFix: 2, yourStep: 1, ready: 3, landing: 1, waiting: 4, parked: 0, inMaster: 1 }
     expect(getStackStateChips(all)).toEqual([
       { state: "needsFix", text: "2 to fix", color: "error", ring: false },
       { state: "yourStep", text: "1 your step", color: "primary", ring: false },

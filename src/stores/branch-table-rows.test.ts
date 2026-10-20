@@ -2,7 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { collapseSideStacks, collapseStacks, layoutBranchTables, pruneCollapsedStacks, sideStackSizes, stackRootOf, stackSizes } from "@/lib/stack-collapse"
 import { branchRowDivider, laneCountOf } from "@/lib/stack-lanes"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranchTableRows, getMoveTargets, getStackChildren, getStackDescendants, getStackIslandRoots } from "@/stores/branch-sync"
+import {
+  branchSyncStore,
+  getBranchTableRows,
+  getMainBranchOrder,
+  getMoveTargets,
+  getParkedState,
+  getParkedTableRows,
+  getStackChildren,
+  getStackDescendants,
+  getStackIslandRoots,
+  getUnparkedStackDescendants,
+} from "@/stores/branch-sync"
 import { getCollapsedSideStacks } from "@/stores/stack-collapse"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
@@ -43,7 +54,23 @@ function graph(visible: ReadonlySet<string> | null = null): string[] {
 
 describe("branch table rows with stacked branches", () => {
   beforeEach(() => {
-    branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false })
+    branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false, parked: {} })
+  })
+
+  it("moves a parked branch and the branches built on it into the Parked card, a stack graph of their own", () => {
+    setBranches(["oauth", "login"], ["docs", null], ["login", "auth"], ["session", "auth"], ["auth", null])
+    branchSyncStore.setState({ parked: { login: "waits for IJPL-1", ghost: "" } })
+    expect(rows()).toEqual(["docs@0", "auth@0", "session@1"])
+    expect(getParkedTableRows().map(row => (row.kind === "branch" ? `${row.name}@${row.depth}` : row.key))).toEqual(["login@0", "oauth@1"])
+    expect(getMainBranchOrder()).toEqual(["docs", "session", "auth"])
+    expect(getParkedState("oauth")).toEqual({ note: "waits for IJPL-1", with: "login" })
+    expect(getParkedState("auth")).toBeNull()
+    // the stack of auth lands without them
+    expect(getUnparkedStackDescendants("auth")).toEqual(["session"])
+    expect(getStackDescendants("auth")).toHaveLength(3)
+    branchSyncStore.setState({ parked: {} })
+    expect(getParkedTableRows()).toEqual([])
+    expect(rows()).toHaveLength(5)
   })
 
   it("puts each branch under its parent, depth-first, wherever the parent is in the order", () => {

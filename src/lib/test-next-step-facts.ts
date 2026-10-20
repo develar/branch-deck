@@ -57,6 +57,7 @@ export function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
     startBlocker: null,
     dryRunStartBlocker: null,
     held: false,
+    parked: null,
     landedIn: null,
     landedWith: null,
     robot: { kind: "start" },

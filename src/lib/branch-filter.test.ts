@@ -54,6 +54,13 @@ describe("branch filter", () => {
     expect(chipCount(matches, "yourMove")).toBe(3)
   })
 
+  it("puts a parked branch into All only: it has a card of its own, no chip, no move for F2", () => {
+    const kinds = nodes({ auth: "parked", docs: "ready" })
+    const matches = collectChipMatches(["auth", "docs"], kinds)
+    expect([chipCount(matches, "all"), chipCount(matches, "yourMove"), chipCount(matches, "waiting")]).toEqual([2, 1, 0])
+    expect(movesByUrgency(["auth", "docs"], kinds)).toEqual(["docs"])
+  })
+
   it("orders the moves for F2 by urgency, a fix first, each kind in table order", () => {
     const kinds = nodes({ docs: "ready", auth: "yourStep", api: "needsFix", web: "waiting", cli: "needsFix", core: "ready" })
     expect(movesByUrgency(["docs", "auth", "api", "web", "cli", "core"], kinds)).toEqual(["api", "cli", "auth", "docs", "core"])

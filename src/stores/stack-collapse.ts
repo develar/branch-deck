@@ -7,7 +7,16 @@ import { layoutBranchTables, pruneCollapsedStacks, sideStackSizes, stackMembers,
 import type { BranchTablesLayout, TableCollapse } from "@/lib/stack-collapse"
 import { getBranchFilter, getShownBranches } from "@/stores/branch-filter"
 import type { BranchSyncState, BranchTableRow } from "@/stores/branch-sync"
-import { branchSyncStore, getBranchTableRows, getStackIslandRoots, stackDescendantsIn, useBranchSync, useStackIslandRoots, useVisibleBranchTableRows } from "@/stores/branch-sync"
+import {
+  branchSyncStore,
+  getBranchTableRows,
+  getParkedTableRows,
+  getStackIslandRoots,
+  stackDescendantsIn,
+  useBranchSync,
+  useStackIslandRoots,
+  useVisibleBranchTableRows,
+} from "@/stores/branch-sync"
 import { closeInline, inlineRowActionStore } from "@/stores/inline-row-action"
 import { getRecentProjects, setCollapsedStacks, useRecentProjects } from "@/stores/settings/repositorySettings"
 
@@ -215,11 +224,14 @@ export function expandSideStacksOf(name: string): void {
   }
 }
 
-/** The branch rows as shown, in the order of the screen: the table, then the islands below it (`layoutBranchTables`) */
+/** The branch rows as shown, in the order of the screen: the table, the islands below it (`layoutBranchTables`), the Parked card */
 export function getShownBranchTableOrder(): readonly string[] {
   const filtered = !canCollapseStacks()
   const rows = getBranchTableRows(filtered ? getShownBranches() : null)
-  return layoutBranchTables(rows, getStackIslandRoots(), filtered ? null : { stacks: getCollapsedStacks(), sideStacks: getCollapsedSideStacks() }).order
+  const order = layoutBranchTables(rows, getStackIslandRoots(), filtered ? null : { stacks: getCollapsedStacks(), sideStacks: getCollapsedSideStacks() }).order
+  // the Parked card comes last, while it is open
+  const parked = getRecentProjects()[0]?.parkedCollapsed === true ? [] : getParkedTableRows().flatMap(row => (row.kind === "branch" ? [row.name] : []))
+  return parked.length === 0 ? order : [...order, ...parked]
 }
 
 export interface ShownBranchTables extends BranchTablesLayout {

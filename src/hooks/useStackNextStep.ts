@@ -8,6 +8,7 @@ import type { BranchNextStep, NextStepFacts, NextStepPullRequest } from "@/lib/b
 import { getBranchNextStep } from "@/lib/branch-next-step"
 import { getBranchesGitHubRepository } from "@/lib/git/new-pull-request"
 import type { MenuItem } from "@/lib/menu"
+import { wholeStackParkedState } from "@/lib/parked"
 import { canStartStackRobot, formatLandingSubject, getSafePushSlot, isPullRequestIntoTarget } from "@/lib/patronus"
 import { getRobotActions } from "@/lib/patronus-actions"
 import { changesRequestedBy, openPullRequest, waitingReviewers } from "@/lib/pull-request"
@@ -16,7 +17,7 @@ import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commi
 import type { StackLandedPart } from "@/lib/whole-stack"
 import { describeWholeStackLanding, formatWholeStack, getStackBranchBlocker, stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import type { StackBranch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getStackBranch, stackMainLineIn, useBranchSync } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getParkedState, getStackBranch, stackMainLineIn, useBranchSync } from "@/stores/branch-sync"
 import { openStackPullRequestDialog } from "@/stores/create-pull-request-dialog"
 import {
   getLandedBy,
@@ -198,6 +199,7 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     startBlocker: start.ok ? null : start.reason,
     dryRunStartBlocker: dryRun.ok ? null : dryRun.reason,
     held: getStackPushHold(root) !== null,
+    parked: wholeStackParkedState(stack.members, getParkedState),
     landedIn,
     // merged Safe Pushes, of pieces of it or its own, landed every branch of it: nothing is left to land
     landedWith: getStackLandedReason(root),
@@ -288,8 +290,9 @@ function computeStackNextStep(root: string): StackNextStep | null {
   if (isForkingStack(stack)) {
     return { leaf: null, step: getBranchNextStep(stackFactsOf(stack)) }
   }
-  // a straight chain: its last branch lands the whole stack
-  const mainLine = stackMainLineIn(branchSyncStore.getState(), root)
+  // a straight chain: its last branch lands the whole stack; the parked branches at its end stay local, the island has
+  // them in the Parked card
+  const mainLine = stackMainLineIn(branchSyncStore.getState(), root).filter(name => getParkedState(name) === null)
   const leaf = mainLine.at(-1)
   if (leaf === undefined || mainLine.length < 2) {
     return null

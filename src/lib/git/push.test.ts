@@ -147,6 +147,7 @@ vi.mock("@/stores/branch-sync", () => ({
     stores.stackBranches[root] = { ...stores.stackBranches[root]!, remoteStatus: status }
   },
   getStackDescendants: (name: string) => stores.descendants[name] ?? [],
+  getUnparkedStackDescendants: (name: string) => stores.descendants[name] ?? [],
   isBranchPushing: () => false,
   whenSynced: () => stores.synced,
   whenBranchPushed: async () => {},

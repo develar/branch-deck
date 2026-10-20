@@ -2,6 +2,8 @@ import { ClockIcon, FileTextIcon, GitPullRequestArrowIcon, MessageSquareWarningI
 import type { MissingReviewGroup, Person, ReviewReadiness } from "@/lib/bindings"
 import { isLogin } from "@/lib/create-pull-request"
 import type { MenuItem } from "@/lib/menu"
+import type { ParkedState } from "@/lib/parked"
+import { formatParkedBlocker } from "@/lib/parked"
 import type { SafePushSlot } from "@/lib/patronus"
 import { describeStart, formatStartLabel } from "@/lib/patronus"
 import { joinNames } from "@/lib/text"
@@ -13,7 +15,7 @@ import { joinNames } from "@/lib/text"
 export type NextStepKind =
   /** The repository is not on Space: no slot */
   | "hidden"
-  /** Row 1: syncing, failed, blocked, held, landed, a robot runs or merged (also one of another branch that landed it); the Status cell says it */
+  /** Row 1: syncing, failed, blocked, held, parked, landed, a robot runs or merged (also one of another branch that landed it); the Status cell says it */
   | "none"
   /** Rows 2 and 3: "Restart Safe Push" of the failed or canceled robot */
   | "restart"
@@ -116,6 +118,8 @@ export interface NextStepFacts {
   readonly dryRunStartBlocker: string | null
   /** A Safe Push holds the pushes of the branch (`PushHold`): it runs on it or lands it */
   readonly held: boolean
+  /** The user keeps the branch local, or a branch it is built on (`getParkedState`): nothing of it starts; null otherwise */
+  readonly parked: ParkedState | null
   /** The baseline that has every commit of the branch ("origin/master"); null otherwise */
   readonly landedIn: string | null
   /**
@@ -333,6 +337,9 @@ function startReason(facts: NextStepFacts, startBlocker: string | null): string 
   if (facts.syncing) {
     return "Wait for the sync to finish"
   }
+  if (facts.parked !== null) {
+    return formatParkedBlocker(facts.parked)
+  }
   if (startBlocker !== null) {
     return startBlocker
   }
@@ -381,6 +388,7 @@ function isSettled(facts: NextStepFacts): boolean {
     facts.commitCount === 0 ||
     facts.blocked ||
     facts.held ||
+    facts.parked !== null ||
     facts.landedIn !== null ||
     facts.landedWith !== null ||
     facts.robot.kind === "running" ||

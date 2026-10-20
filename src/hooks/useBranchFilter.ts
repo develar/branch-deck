@@ -5,7 +5,7 @@ import type { BranchChipMatches, BranchFilterChip } from "@/lib/branch-filter"
 import { chipCount, CHIPS, collectChipMatches, FILTER_BAR_MIN_BRANCHES, filterBranches, isFilterActive, keepShown, movesByUrgency } from "@/lib/branch-filter"
 import type { LandingNodeKind } from "@/lib/landing-node"
 import { clearBranchFilter, rememberShown, useBranchFilter, useShownBranches } from "@/stores/branch-filter"
-import { branchSyncStore, useBranchSync } from "@/stores/branch-sync"
+import { branchSyncStore, getMainBranchOrder, useBranchSync } from "@/stores/branch-sync"
 import { useCommitMove } from "@/stores/commit-move"
 
 /** The kind of the node of the row of `name` now, as the row shows it */
@@ -13,9 +13,9 @@ function nodeKindNow(name: string): LandingNodeKind | null {
   return getLandingNodeNow(name)?.kind ?? null
 }
 
-/** Every branch is in a row of the table (`branchTableRowsIn`): the backend order has them all */
+/** Every branch of the table is in a row of it (`branchTableRowsIn`): the backend order without the parked ones */
 function chipMatchesNow(): BranchChipMatches {
-  return collectChipMatches(branchSyncStore.getState().branchOrder, nodeKindNow)
+  return collectChipMatches(getMainBranchOrder(), nodeKindNow)
 }
 
 /** The rows F2 steps through now, a fix first (`movesByUrgency`) */

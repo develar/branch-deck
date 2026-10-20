@@ -4,7 +4,7 @@ import { getLandingNodeNow, getStackLandingNodeNow } from "@/hooks/useLandingNod
 import { useRobotOverview } from "@/hooks/useRobotOverview"
 import type { LandingOverview, LandingUnit } from "@/lib/landing-overview"
 import { collectLandingOverview } from "@/lib/landing-overview"
-import { getBranch, getBranchTableRows, getStackDescendants } from "@/stores/branch-sync"
+import { getBranch, getBranchTableRows, getUnparkedStackDescendants } from "@/stores/branch-sync"
 
 /** The units of the table now, in its order: a lone branch, or the root of a stack with its branches */
 function computeLandingUnits(): LandingUnit[] {
@@ -14,8 +14,11 @@ function computeLandingUnits(): LandingUnit[] {
     if (row.kind !== "branch" || row.lanes.up || row.lanes.forkFrom !== null) {
       continue
     }
-    const members = [row.name, ...getStackDescendants(row.name)]
-    const node = members.length > 1 ? getStackLandingNodeNow(row.name) : getLandingNodeNow(row.name)
+    // the parked ones are in the Parked card: no unit, no move
+    const members = [row.name, ...getUnparkedStackDescendants(row.name)]
+    const stackNode = members.length > 1 ? getStackLandingNodeNow(row.name) : null
+    // a whole stack that holds a parked branch lands in pieces: its root's own node counts
+    const node = stackNode === null || stackNode.kind === "parked" ? getLandingNodeNow(row.name) : stackNode
     if (node === null) {
       continue
     }

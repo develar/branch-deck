@@ -9,9 +9,9 @@ import type { UIColor } from "@/lib/ui-types"
 export type StackState = Readonly<Record<LandingNodeKind, number>>
 
 /** The kinds in the order of the chips: the user's moves, a fix first, then the way into master */
-const STATE_ORDER: readonly LandingNodeKind[] = ["needsFix", "yourStep", "ready", "landing", "waiting", "inMaster"]
+const STATE_ORDER: readonly LandingNodeKind[] = ["needsFix", "yourStep", "ready", "landing", "waiting", "parked", "inMaster"]
 
-const NO_STATE: StackState = { needsFix: 0, yourStep: 0, ready: 0, landing: 0, waiting: 0, inMaster: 0 }
+const NO_STATE: StackState = { needsFix: 0, yourStep: 0, ready: 0, landing: 0, waiting: 0, parked: 0, inMaster: 0 }
 
 /**
  * What the rows of `names` hold by their nodes (`nodeOf`, `getLandingNodeNow`), and the node of the whole stack
@@ -78,6 +78,8 @@ function formatState(kind: LandingNodeKind, count: number): string {
       return `${count} landing`
     case "waiting":
       return `${count} waiting`
+    case "parked":
+      return `${count} parked`
     case "inMaster":
       return `${count} in master`
   }
