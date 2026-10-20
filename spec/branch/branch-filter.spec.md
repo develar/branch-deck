@@ -108,7 +108,8 @@ that stops matching while the user looks at it (its move made, its robot done) s
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show the matches of a search and, dimmed, the branches they stack on`)
 - A branch shown under the filter must stay until the filter changes, also when it stops matching (pushed or started
   under Your Move, its robot done under Landing); a new match shows at once. The counts follow the branches at once:
-  a branch leaves Your Move when its Safe Push starts or, without Patronus, its push runs, not when it ends.
+  a branch leaves Your Move at the click of its move (a start or restart of its Safe Push, the creation of its pull
+  request, a review request, without Patronus its push), not when it ends.
   [@test] ../../src/lib/branch-filter.test.ts (`keeps the branches shown since the filter changed, and adds the new matches`)
   [@test] ../../src/stores/branch-filter.test.ts (`remembers the shown branches until the filter changes`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should keep a branch under Your Move until the filter changes, once its move is made`, `should open the Safe Push popover of the focused row with S and start it with Enter, which takes it out of Your Move`)

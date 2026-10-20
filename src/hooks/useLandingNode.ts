@@ -1,13 +1,16 @@
 import { getNextStepFacts, nextStepSources, useNextStepStores } from "@/hooks/useBranchNextStep"
 import { isForkingStack, stackFactsOf } from "@/hooks/useStackNextStep"
-import type { LandingNode, LandingNodeFacts, LandingStart } from "@/lib/landing-node"
-import { findLandingStart, getLandingNode } from "@/lib/landing-node"
+import type { LandingNode, LandingNodeFacts } from "@/lib/landing-node"
+import { getLandingNode } from "@/lib/landing-node"
 import { formatLandingSubject } from "@/lib/patronus"
 import { getPushAction } from "@/lib/push-summary"
+import type { FoundMove, RunningMove } from "@/lib/running-move"
+import { findRunningMove, safePushStartMoves } from "@/lib/running-move"
 import { blockingBranchOf, stackAncestors } from "@/lib/stack"
 import { stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
 import { branchSyncStore, getBranch, getStackBranch, isBranchPushing, stackMainLineIn } from "@/stores/branch-sync"
+import { getOperationMoves } from "@/stores/operations"
 import { getBranchRobot, getLandingSpan, getStackRobot, isPatronusKnown } from "@/stores/patronus"
 import { useShowReviewReadiness } from "@/stores/review-readiness"
 import { safePushStore } from "@/stores/safe-push"
@@ -24,18 +27,23 @@ function landingFactsOf(branch: Branch): LandingNodeFacts {
     landingWith: landing === null || landing.robot.pushMode === "dryRun" ? null : formatLandingSubject(landing),
     robotDryRun: getBranchRobot(branch.name)?.pushMode === "dryRun",
     patronusKnown: isPatronusKnown(),
-    starting: startingOf(branch.name),
+    move: runningMoveOf(branch.name),
     pushPending: isPushPending(branch),
   }
 }
 
-/** The running start that decides the node of `key` (`findLandingStart`) */
-function startingOf(key: string): LandingStart | null {
-  return findLandingStart(key, safePushStore.getState().starting, landedByStart)
+/** The running move that decides the node of `key` (`findRunningMove`) */
+function runningMoveOf(key: string): FoundMove | null {
+  return findRunningMove(key, runningMoves(), landedBeside)
 }
 
-/** The branches a Safe Push started for `key` lands beside it: the members of a whole stack, the ancestors of a branch */
-function landedByStart(key: string): readonly string[] {
+/** The moves that run: of the operations that declare one, and of the starts of a Safe Push or a Dry Run */
+function runningMoves(): readonly RunningMove[] {
+  return [...getOperationMoves(), ...safePushStartMoves(safePushStore.getState().starting)]
+}
+
+/** The branches a Safe Push of `key` lands beside it: the members of a whole stack, the ancestors of a branch */
+function landedBeside(key: string): readonly string[] {
   const root = stackRootOfReadinessKey(key)
   if (root !== null) {
     return getStackBranch(root)?.members ?? []
@@ -64,7 +72,7 @@ function computeStackNode(root: string): LandingNode | null {
       landingWith: null,
       robotDryRun: getStackRobot(root)?.pushMode === "dryRun",
       patronusKnown: isPatronusKnown(),
-      starting: startingOf(stackReadinessKey(root)),
+      move: runningMoveOf(stackReadinessKey(root)),
       pushPending: false,
     })
   }

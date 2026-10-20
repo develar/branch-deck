@@ -3,7 +3,8 @@ import { describe, expect, it } from "vite-plus/test"
 import type { ReviewReadiness } from "@/lib/bindings"
 import type { NextStepFacts } from "@/lib/branch-next-step"
 import type { LandingNodeFacts } from "@/lib/landing-node"
-import { findLandingStart, getLandingNode } from "@/lib/landing-node"
+import { getLandingNode } from "@/lib/landing-node"
+import type { FoundMove } from "@/lib/running-move"
 import { chip, facts, finished, group, missing, openPullRequest, restart, withReadiness } from "@/lib/test-next-step-facts"
 
 const approved: ReviewReadiness = { kind: "approved", groups: [{ name: "IJPL Code Platform", approvedBy: [] }] }
@@ -17,7 +18,7 @@ function landing(next: NextStepFacts, patch: Partial<LandingNodeFacts> = {}): Re
     landingWith: null,
     robotDryRun: false,
     patronusKnown: true,
-    starting: null,
+    move: null,
     pushPending: false,
     ...patch,
   })
@@ -90,17 +91,22 @@ describe("getLandingNode", () => {
     expect(landing(facts({ held: true }), { landingWith: "oauth" })).toEqual({ kind: "landing", label: "Lands with oauth: its Safe Push runs" })
   })
 
-  it("is landing once its Safe Push starts, before its robot exists: the start is the move made; a Dry Run lands nothing", () => {
+  it("is the state after a running move of the row from its start on: Landing for a robot that comes, else Waiting", () => {
+    const own = (lands: boolean, label: string): FoundMove => ({ move: { key: "wsm-skip-wa-2", lands, label }, with: null })
     const ready = withReadiness(approved)
-    expect(landing(ready, { starting: { mode: "rebaseAutosquash", with: null } })).toEqual({ kind: "landing", label: "Landing: Safe Push starting" })
-    expect(landing(facts(), { starting: { mode: "rebaseAutosquash", with: null } }).kind).toBe("landing")
-    expect(landing(ready, { starting: { mode: "dryRun", with: null } })).toEqual({ kind: "waiting", label: "Dry Run starting: it checks the branch, it lands nothing" })
-    expect(landing(ready, { starting: { mode: "rebaseAutosquash", with: "the whole air stack" } })).toEqual({
-      kind: "landing",
-      label: "Lands with the whole air stack: its Safe Push starts",
+    expect(landing(ready, { move: own(true, "Landing: Safe Push starting") })).toEqual({ kind: "landing", label: "Landing: Safe Push starting" })
+    // a restart of a failed robot is no fix to make any more, nor a step before the answer of Patronus
+    expect(landing(withReadiness(approved, { robot: finished("failed"), restart }), { move: own(true, "Landing: Safe Push restarting") }).kind).toBe("landing")
+    expect(landing(facts(), { move: own(true, "Landing: Safe Push starting") }).kind).toBe("landing")
+    expect(landing(withReadiness(missing([group({ requested: [] })])), { move: own(false, "Requesting a review on #1078") })).toEqual({
+      kind: "waiting",
+      label: "Requesting a review on #1078",
     })
+    expect(landing(ready, { move: own(false, "Dry Run starting: it checks the branch, it lands nothing") }).kind).toBe("waiting")
+    const stack: FoundMove = { move: { key: "stack:air", lands: true, label: "Landing: Safe Push starting" }, with: "the whole air stack" }
+    expect(landing(ready, { move: stack })).toEqual({ kind: "landing", label: "Lands with the whole air stack: its Safe Push starts" })
     // a conflict is still the user's to fix
-    expect(landing(ready, { status: "MergeConflict", statusText: "merge conflict", starting: { mode: "rebaseAutosquash", with: null } }).kind).toBe("needsFix")
+    expect(landing(ready, { status: "MergeConflict", statusText: "merge conflict", move: own(true, "Landing: Safe Push starting") }).kind).toBe("needsFix")
   })
 
   it("waits for others: the reviewers, its parent, a robot that lands an ancestor, a base that may be meant", () => {
@@ -145,22 +151,5 @@ describe("getLandingNode", () => {
     const unlisted = facts({ ...notOnSpace, pullRequestsAvailable: false })
     expect(landing(unlisted, { pushPending: true })).toEqual({ kind: "yourStep", label: "Not on the remote yet: push it" })
     expect(landing(unlisted)).toEqual({ kind: "waiting", label: "Pushed: it lands through its pull request" })
-  })
-})
-
-describe("findLandingStart", () => {
-  const lands = (key: string): readonly string[] => ({ oauth: ["auth"], "stack:air": ["air", "bazel"] })[key] ?? []
-
-  it("finds the own start of the branch, or a Safe Push that lands it, once it runs past its checks", () => {
-    expect(findLandingStart("auth", { auth: { mode: "dryRun", step: "pushing" } }, lands)).toEqual({ mode: "dryRun", with: null })
-    expect(findLandingStart("auth", { oauth: { mode: "rebaseAutosquash", step: "target" } }, lands)).toEqual({ mode: "rebaseAutosquash", with: "oauth" })
-    expect(findLandingStart("bazel", { "stack:air": { mode: "rebaseAutosquash", step: "starting" } }, lands)).toEqual({ mode: "rebaseAutosquash", with: "the whole air stack" })
-    expect(findLandingStart("stack:air", { "stack:air": { mode: "rebaseAutosquash", step: "pushing" } }, lands)).toEqual({ mode: "rebaseAutosquash", with: null })
-  })
-
-  it("finds none at the checks of a start, for a Dry Run of another branch, or a start that doesn't land the branch", () => {
-    expect(findLandingStart("auth", { auth: { mode: "rebaseAutosquash", step: "checking" } }, lands)).toBeNull()
-    expect(findLandingStart("auth", { oauth: { mode: "dryRun", step: "pushing" } }, lands)).toBeNull()
-    expect(findLandingStart("login", { oauth: { mode: "rebaseAutosquash", step: "pushing" } }, lands)).toBeNull()
   })
 })

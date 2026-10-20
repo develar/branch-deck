@@ -245,14 +245,14 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   runs (another action's, or Push with Children that takes it along) joins it, no push of its own, one indicator; a
   failed push of it alone is said once and fails the request that joined too; then the request pushes only what the
   remote still lacks (what a sync rebuilt since; the stack branch alone after a Push with Children that failed for a
-  branch), nothing when the remote has it all. A second restart of the same robot is the same request: one push, one
-  restart, one toast. Push with Children waits for a push of it alone and takes it along only while the remote still
+  branch), nothing when the remote has it all. A second restart of the same robot is the same request, one operation of
+  the robot whose item runs meanwhile: one push, one restart, one toast. Push with Children waits for a push of it alone and takes it along only while the remote still
   lacks it. Once merged Safe Pushes landed every branch of the stack, it carries only commits that are in the target:
   its push is refused ("Cannot push the whole air stack", "Landed in master with deploy and side-test: nothing of it is
   left to push"), Push with Children leaves it, and "Create Pull Request of the Stack…" is disabled with the reason
   ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)).
-  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the push of the stack branch alone in the header's push when the restart of its robot pushes it`, `should show the push of the stack branch alone in the header's push when Request Review… of its pull request pushes it`, `should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`)
-  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should join a second request of the push of the stack branch alone while one runs: one push, one restart, one toast`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the push of the stack branch alone in the header's push when the restart of its robot pushes it, the stack landing from the click`, `should show the push of the stack branch alone in the header's push when Request Review… of its pull request pushes it, the stack waiting from the click`, `should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should run the restart of the robot of the whole stack once while its push runs: one push, one restart, one toast`)
   [@test] ../../src/lib/git/push.test.ts (`joins a push of the stack branch that runs: one push, both done, Activity records it once`, `says a failed push once: the request that joined it fails with it`, `pushes what a sync rebuilt while the push it joined ran`, `is one request for a second restart of the same robot: one push, one restart, one toast`, `restarts after the push it joined, and pushes nothing of its own: the remote has the stack branch`, `leaves the stack branch to a push of it alone that runs: Push with Children waits, then sends only the branches`, `joins Push with Children that takes the stack branch along, and pushes it alone after one that failed`, `is held once merged Safe Pushes landed every branch of the stack: Push with Children leaves it, its push alone says why`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should hold the push of the whole stack branch once every branch of the stack landed, and push what is left without the landed ones`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a small stack with its side branch from the root's menu, its popover at the root`)
@@ -307,7 +307,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   `wholeStack`, leased on its remote head), then creates the pull request of its head. It asks the code owners of the
   whole stack to review, as the dialog of a branch asks the branch's: those Patronus suggests for the stack branch (the
   readiness of `stack:<root>`), preselected, while the sync built it.
-  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`, `should ask the code owners of the whole stack in the pull request its header creates, as the step of a branch does`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`, `should ask the code owners of the whole stack in the pull request its header creates, as the step of a branch does, the move made from the click`)
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`the_text_of_a_new_pull_request_of_the_whole_stack`)
   [@test] ../../crates/sync-core/src/push_test.rs (`the_whole_stack_pushes_its_stack_branch`)
 - A pull request of the whole stack that no longer matches it (a Safe Push of a branch landed the root in a piece, as

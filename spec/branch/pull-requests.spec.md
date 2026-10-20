@@ -307,7 +307,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   mirror copies it a moment later): the creation asks again every 2 s for 30 s (`wait_for_mirror`), "Continue on GitHub"
   waits until GitHub has the branch (`wait_for_github_branch`) before it opens GitHub's form; bd's
   `safe-push --create-pull-request` waits the same way after its push.
-  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should create the pull request of a branch not on the remote yet: Create pushes it, Cancel pushes nothing`, `should open GitHub's form of a branch not on the remote yet from its preview, after the push`, `should keep the dialog, with the reason, when the push would drop commits of the remote branch`)
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should create the pull request of a branch not on the remote yet: Create pushes it, Cancel pushes nothing, the move made from the click`, `should open GitHub's form of a branch not on the remote yet from its preview, after the push`, `should keep the dialog, with the reason, when the push would drop commits of the remote branch`)
   [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`right_after_a_push_the_creation_waits_for_the_mirror_to_copy_the_branch`, `the_wait_for_the_mirror_ends_with_the_reason`, `waits_until_github_has_the_branch`)
 - The text starts as `bd push` and `bd safe-push --create-pull-request` fill it (`get_new_pull_request`,
   `read_new_pull_request`): the `bd describe` description of the branch, else the commits the pull request will show,
@@ -445,7 +445,7 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   refused, and the row's step asks for them. The pull request of the whole stack has its own, in the actions of the
   whole stack ([Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)): its popover at the header of the island,
   else at an anchor of the root's slot (`WholeStackRequestReviewAnchor`).
-  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should ask the code owner nobody asked yet from Request Review…, then wait for him`, `should open Request Review… from the branch menu, at the row's next step`)
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should ask the code owner nobody asked yet from Request Review…, then wait for him from the click on`, `should open Request Review… from the branch menu, at the row's next step`)
 - Request Review… asks GitHub, not Patronus: in a repository without Patronus, where a row and the header of an island
   have no next step, it must still open from every menu that offers it (the branch menu, "⋯" of the row and of the
   preview, "Whole Stack ›" of the root, "⋯" of the island), never a dead item: its popover opens at anchors that take

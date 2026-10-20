@@ -69,6 +69,11 @@ export function getUnassignedCommitRow(page: Page, subject: string): Locator {
   return page.getByTestId("unassigned-commits-section").locator("[data-row-id]").filter({ hasText: subject })
 }
 
+/** The node of a branch row: where the branch is on its way into master, its kind in `data-kind` (`getLandingNode`) */
+export function getLandingNode(branchRow: Locator): Locator {
+  return branchRow.getByTestId("lane-node")
+}
+
 /** The chip after the name of a stack root: its size, the toggle of its collapse */
 export function getStackChip(row: Locator): Locator {
   return row.getByTestId("stack-chip")

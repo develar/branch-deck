@@ -1,9 +1,10 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot } from "@/lib/bindings"
 import { FROM_MENU } from "@/lib/menu"
 import { getRobotActions } from "@/lib/patronus-actions"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
+import { getOperations } from "@/stores/operations"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 
 const { calls, landing, stacks } = vi.hoisted(() => ({
@@ -109,6 +110,9 @@ beforeEach(() => {
   vi.mocked(openUrl).mockClear()
 })
 
+// a restart is an operation of its robot: the next test starts with none running
+afterEach(() => vi.waitFor(() => expect(getOperations()).toEqual([])))
+
 describe("getRobotActions", () => {
   it("restarts a failed robot, pushing first while the branch has work the remote lacks, and not for a blocked branch", async () => {
     const failed = robot({})
@@ -120,8 +124,12 @@ describe("getRobotActions", () => {
 
     const [restart] = getRobotActions(failed, branch({ remoteStatus: pushedSince }))
     restart!.onSelect(FROM_MENU)
+    // one restart of a robot at a time: the push and restart waits while the restart runs
+    expect(getRobotActions(failed, branch({ remoteStatus: unpushed }))[0]).toMatchObject({ disabled: true, description: "Restarting the Safe Push…" })
+    await vi.waitFor(() => expect(getOperations()).toEqual([]))
     const [pushAndRestart] = getRobotActions(failed, branch({ remoteStatus: unpushed }))
     pushAndRestart!.onSelect(FROM_MENU)
+    expect(getRobotActions(failed, branch({ remoteStatus: unpushed }))[0]).toMatchObject({ running: true, description: "Pushing and restarting the Safe Push…" })
     // the restart takes the commit just pushed, and its toast is the one of the action
     await vi.waitFor(() => expect(calls).toEqual(["restart r1", "push IJPL-1, restart r1, announce false"]))
   })
@@ -162,6 +170,7 @@ describe("getRobotActions", () => {
     expect(pushAndRestart!.id).toBe("push-and-restart-robot")
     pushAndRestart!.onSelect(FROM_MENU)
     await vi.waitFor(() => expect(calls).toEqual(["push the whole air stack, restart whole"]))
+    await vi.waitFor(() => expect(getOperations()).toEqual([]))
 
     // the Safe Pushes of deploy and side-test landed all of it: nothing of it is left to restart, with or without a push
     const reason = "Landed in master with deploy and side-test"

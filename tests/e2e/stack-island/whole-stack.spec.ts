@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import type { PatronusReviewRequirement, PatronusRobot, PullRequest, PullRequestsResult } from "../../../src/lib/bindings"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
+import { findBranchRow, getBranchDetailsRow, getLandingNode } from "../helpers/branch-helpers"
 import {
   AWAITING_CODE_OWNER,
   NOT_EVALUATED,
@@ -82,6 +82,11 @@ async function stackBranchAheadOfRemote(page: Page, root: string): Promise<void>
 }
 
 /** The push of the header of the island of `root` (Push with Children, and the push of its stack branch alone) */
+/** The node of the header of the island of `root`: of the whole stack, its kind in `data-kind` */
+function islandNode(page: Page, root: string): Locator {
+  return island(page, root).getByTestId("stack-island-node").getByTestId("lane-node")
+}
+
 function islandPush(page: Page, root: string): Locator {
   return island(page, root).getByTestId("stack-island-push")
 }
@@ -253,7 +258,7 @@ test.describe("Whole stack", () => {
     await expect.poll(() => getOpenedUrls(page)).toEqual([created.url, created.url])
   })
 
-  test("should ask the code owners of the whole stack in the pull request its header creates, as the step of a branch does", async ({
+  test("should ask the code owners of the whole stack in the pull request its header creates, as the step of a branch does, the move made from the click", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -267,7 +272,12 @@ test.describe("Whole stack", () => {
     const dialog = createPullRequestDialog(page)
     await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("Whole air stack → master")
     await expect(dialog.getByTestId("create-pull-request-reviewers").locator("[data-slot=combobox-chip]")).toHaveText(["ikorennoy"])
+    await expect(islandNode(page, "air")).toHaveAttribute("data-kind", "yourStep")
+    const releaseCreate = await holdCommand(page, "create_pull_request")
     await dialog.getByTestId("create-pull-request-submit").click()
+    // the creation is the move of the whole stack: its node waits for GitHub from the click on
+    await expect(islandNode(page, "air")).toHaveAttribute("data-kind", "waiting")
+    releaseCreate()
     await expect.poll(() => creates.length).toBe(1)
     expect(creates[0]).toMatchObject({ branchName: "air", head: "user-name/stack/air", reviewers: ["ikorennoy"] })
   })
@@ -287,11 +297,18 @@ test.describe("Whole stack", () => {
     expect(await getOpenedUrls(page)).toEqual([failed.url])
   })
 
-  test("should show the push of the stack branch alone in the header's push when the restart of its robot pushes it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should show the push of the stack branch alone in the header's push when the restart of its robot pushes it, the stack landing from the click", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     const { stackPushes, release, restarts } = await setupFailedWholeStackRobot(page, setupRepo, syncAndWaitForBranches)
     const push = islandPush(page, "air")
     const rootPush = findBranchRow(page, "air").getByTestId("push-button")
     await expect(push).toBeEnabled()
+    // its robot failed on an older stack branch: a new start is the step
+    await expect(islandNode(page, "air")).toHaveAttribute("data-kind", "yourStep")
+    await expect(getLandingNode(findBranchRow(page, "bazel"))).toHaveAttribute("data-kind", "yourStep")
 
     // the restart of its robot in the island's "⋯" pushes the stack branch first: the header's push shows it as the
     // pushes of the stack, and only there
@@ -304,6 +321,9 @@ test.describe("Whole stack", () => {
     await expect(push).toHaveAccessibleName("Pushing the whole stack 45%")
     await expect(push).toHaveAttribute("aria-busy", "true")
     await expect(push).toBeDisabled()
+    // the restart is the move made: the whole stack lands from the click on, every branch of it with it
+    await expect(islandNode(page, "air")).toHaveAttribute("data-kind", "landing")
+    await expect(getLandingNode(findBranchRow(page, "bazel"))).toHaveAttribute("data-kind", "landing")
     await push.hover()
     await expect(page.getByTestId("stack-island-push-description")).toHaveText("Writing objects:  45% (2/4)")
     // one indicator: the root's push (it takes the stack branch of the open pull request of the whole stack along) is
@@ -320,22 +340,19 @@ test.describe("Whole stack", () => {
     await expect(push).not.toHaveAttribute("aria-busy", "true")
   })
 
-  test("should join a second request of the push of the stack branch alone while one runs: one push, one restart, one toast", async ({
-    page,
-    setupRepo,
-    syncAndWaitForBranches,
-  }) => {
+  test("should run the restart of the robot of the whole stack once while its push runs: one push, one restart, one toast", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const { stackPushes, release, restarts } = await setupFailedWholeStackRobot(page, setupRepo, syncAndWaitForBranches)
     const push = islandPush(page, "air")
-    const restartFromMenu = async () => {
-      await openIslandMenu(page, "air")
-      await page.getByRole("menuitem", { name: "Restart Safe Push" }).click()
-    }
+    const restart = page.getByRole("menuitem", { name: "Restart Safe Push" })
 
-    // the restart pushes the stack branch first; asked again while that push runs, it joins it
-    await restartFromMenu()
+    // the restart pushes the stack branch first; asked again while that push runs, its item runs and starts nothing
+    await openIslandMenu(page, "air")
+    await restart.click()
     await expect(push).toHaveAccessibleName("Pushing the whole stack 45%")
-    await restartFromMenu()
+    await openIslandMenu(page, "air")
+    await expect(restart).toHaveAttribute("aria-disabled", "true")
+    await restart.click({ force: true })
+    await page.keyboard.press("Escape")
     await expect(push).toHaveAccessibleName("Pushing the whole stack 45%")
     release()
     await expect.poll(() => restarts.length).toBe(1)
@@ -347,7 +364,7 @@ test.describe("Whole stack", () => {
     await expect(page.locator("[data-slot=toast]")).toHaveCount(1)
   })
 
-  test("should show the push of the stack branch alone in the header's push when Request Review… of its pull request pushes it", async ({
+  test("should show the push of the stack branch alone in the header's push when Request Review… of its pull request pushes it, the stack waiting from the click", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -359,6 +376,7 @@ test.describe("Whole stack", () => {
     const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["ikorennoy"], refused: [] }))
     const slot = island(page, "air").getByTestId("stack-island-actions").getByTestId("next-step-slot")
     await expect(slot).toHaveAttribute("data-step", "requestReview")
+    await expect(islandNode(page, "air")).toHaveAttribute("data-kind", "yourStep")
 
     // the reviewers see the commits: the request pushes the stack branch first, its progress in the header's push
     await slot.getByTestId("next-step").click()
@@ -370,6 +388,8 @@ test.describe("Whole stack", () => {
     await expect(push).toHaveAccessibleName("Pushing the whole stack 45%")
     await expect(push).toHaveAttribute("aria-busy", "true")
     expect(requests).toEqual([])
+    // the request is the move made: the whole stack waits for the reviewer from the click on, its push included
+    await expect(islandNode(page, "air")).toHaveAttribute("data-kind", "waiting")
 
     release()
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #12" })).toBeVisible()

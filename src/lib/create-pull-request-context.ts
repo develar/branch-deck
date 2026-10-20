@@ -11,10 +11,11 @@ import { pushWholeStack } from "@/lib/git/stack-push"
 import type { MenuItem } from "@/lib/menu"
 import type { CompareFields, GitHubRepository } from "@/lib/pull-request"
 import { getCompareUrl } from "@/lib/pull-request"
+import type { RunningMove } from "@/lib/running-move"
 import { needsPush, stackAncestors, stackPushOrder } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import type { ToastMessage } from "@/lib/toast-message"
-import { formatWholeStackStart, getStackBranchBlocker } from "@/lib/whole-stack"
+import { formatWholeStackStart, getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
 import { recordPullRequestCreated } from "@/stores/activity"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
 import { getBranch } from "@/stores/branch-sync"
@@ -204,7 +205,10 @@ async function pushForPullRequest(context: CreatePullRequestContext): Promise<vo
  * requests, Activity). Throws why nothing was pushed, or what GitHub said.
  */
 export function submitPullRequest(context: CreatePullRequestContext, input: CreatePullRequestInput): Promise<{ toast: Omit<ToastMessage, "action">; pullRequest: PullRequest }> {
-  return runPullRequestOperation(context, "create-pull-request", `Creating the pull request of ${context.label}`, () => createPullRequestOf(context, input))
+  const label = `Creating the pull request of ${context.label}`
+  // the move of the row: the reviewers or Patronus answer next, from the click on (the push and the mirror included)
+  const move = { key: context.wholeStack === null ? context.branchName : stackReadinessKey(context.branchName), lands: false, label }
+  return runPullRequestOperation(context, "create-pull-request", label, () => createPullRequestOf(context, input), move)
 }
 
 /** The ids of the operations of the pull request dialog: its creation and "Continue on GitHub", which push first */
@@ -217,9 +221,10 @@ export function pullRequestSubject(branchName: string, wholeStack: boolean): str
 
 /**
  * Runs an action of the dialog as one operation of its pull request (`runOperation`): a second submit joins it; one that
- * must wait (another remote action of the branch) throws why
+ * must wait (another remote action of the branch) throws why. `move`: the action is the move of the row (the creation;
+ * "Continue on GitHub" is not, the user creates it on GitHub)
  */
-async function runPullRequestOperation<T>(context: CreatePullRequestContext, id: string, label: string, run: () => Promise<T>): Promise<T> {
+async function runPullRequestOperation<T>(context: CreatePullRequestContext, id: string, label: string, run: () => Promise<T>, move?: RunningMove): Promise<T> {
   let blocked: string | null = null
   const result = await runOperation(
     {
@@ -229,6 +234,7 @@ async function runPullRequestOperation<T>(context: CreatePullRequestContext, id:
       kind: "remote",
       label,
       repositoryPath: context.repositoryPath,
+      ...(move === undefined ? null : { move }),
     },
     run,
     reason => (blocked = reason),

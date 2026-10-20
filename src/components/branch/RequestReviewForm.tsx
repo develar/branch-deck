@@ -116,7 +116,10 @@ export function RequestReviewForm({ branch, pullRequest, readiness, onDone }: Re
       showToast({ ...toast, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
       onDone()
     }
-    void runOperation({ id: "request-review", subject: `pr:${number}`, objects: [branch.name], kind: "remote", label: `Requesting a review on #${number}`, surface }, run, reason =>
+    const label = `Requesting a review on #${number}`
+    // the move of the row: the reviewers answer next, from the click on (the push included)
+    const move = { key: branch.name, lands: false, label }
+    void runOperation({ id: "request-review", subject: `pr:${number}`, objects: [branch.name], kind: "remote", label, surface, move }, run, reason =>
       showToast({ type: "info", title: errorTitle, description: reason }),
     )
   }

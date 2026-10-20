@@ -4,7 +4,7 @@ import type { PatronusReviewRequirement, PatronusStartOptions, PullRequest } fro
 import { test, expect } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
 import { waitForTransitionsSettled } from "../helpers/aria-snapshot-helpers"
-import { findBranchRow } from "../helpers/branch-helpers"
+import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
 import { APPROVED_BY_CODE_OWNER, AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, NOT_EVALUATED, availableRobots, codeOwner, evaluatedGroup, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { pushedToast, routePush } from "../helpers/push-helpers"
@@ -13,7 +13,7 @@ import { openBranchPreview } from "../helpers/review-status-helpers"
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { rewriteNextRemoteStatus } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { routeCommand } from "../helpers/wait-helpers"
+import { holdCommand, routeCommand } from "../helpers/wait-helpers"
 
 const BRANCH = "JIRA-456"
 
@@ -335,7 +335,11 @@ test.describe("Next step", () => {
     await expect(dialog.getByTestId("create-pull-request-reviewers").locator("[data-slot=combobox-chip]")).toHaveText(["ikorennoy"])
   })
 
-  test("should create the pull request of a branch not on the remote yet: Create pushes it, Cancel pushes nothing", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should create the pull request of a branch not on the remote yet: Create pushes it, Cancel pushes nothing, the move made from the click", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     const { pushes, creates } = await setupUnpushedCreation(page, setupRepo, syncAndWaitForBranches)
     // the step of the slot, never a "push first": the push is the dialog's to make
     await expect(slot(page)).toHaveAttribute("data-step", "createPullRequest")
@@ -352,7 +356,13 @@ test.describe("Next step", () => {
     const menu = await openMenu(page)
     await menu.getByRole("menuitem", { name: "Create Pull Request…" }).click()
     await expect(dialog).toBeVisible()
+    const node = getLandingNode(findBranchRow(page, BRANCH))
+    await expect(node).toHaveAttribute("data-kind", "yourStep")
+    const releaseCreate = await holdCommand(page, "create_pull_request")
     await dialog.getByTestId("create-pull-request-submit").click()
+    // the creation is the move made: the branch waits for GitHub from the click on, the push and the mirror included
+    await expect(node).toHaveAttribute("data-kind", "waiting")
+    releaseCreate()
     await expect(page.locator("[data-slot=toast]", { hasText: "Created pull request #1079" })).toBeVisible()
     await expect(dialog).toHaveCount(0)
     expect(pushes.map(push => push.branchName)).toEqual([BRANCH])
@@ -424,7 +434,7 @@ test.describe("Next step", () => {
     await expect(createPullRequestDialog(page)).toBeVisible()
   })
 
-  test("should ask the code owner nobody asked yet from Request Review…, then wait for him", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should ask the code owner nobody asked yet from Request Review…, then wait for him from the click on", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the bot approved, nobody of IJPL Code Platform is asked
     const unasked = pullRequest(BRANCH, 1078, { reviewers: [reviewer("junie-jetbrains", "approved")] })
     await setup(page, setupRepo, syncAndWaitForBranches, UNASKED_CODE_OWNER, [unasked])
@@ -443,11 +453,22 @@ test.describe("Next step", () => {
     await expect(popover.getByTestId("request-review-candidate-ikorennoy")).toBeChecked()
     // GitHub lists the request from now on
     await routeCommand(page, "get_pull_requests", () => availablePullRequests({ ...unasked, reviewers: [...unasked.reviewers, reviewer("ikorennoy", "requested")] }))
+    const node = getLandingNode(findBranchRow(page, BRANCH))
+    await expect(node).toHaveAttribute("data-kind", "yourStep")
+    const releaseRequest = await holdCommand(page, "request_pull_request_reviewers")
+    // Patronus answers again only when the test lets it: the wait shows before its new answer
+    const releaseReadiness = await holdCommand(page, "get_branch_review_readiness")
     await popover.getByTestId("request-review-submit").click()
+    // the request is the move made: the branch waits for the reviewer from the click on
+    await expect(node).toHaveAttribute("data-kind", "waiting")
+    releaseRequest()
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #1078" })).toBeVisible()
     expect(requests).toEqual([expect.objectContaining({ pullRequestNumber: 1078, reviewers: ["ikorennoy"] })])
     await expect(popover).toHaveCount(0)
-    // the readiness reads the new request: the wait
+    // the pull request asks him now: the wait, while Patronus is still to answer again
+    await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
+    await expect(node).toHaveAttribute("data-kind", "waiting")
+    releaseReadiness()
     await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
   })
 

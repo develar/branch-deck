@@ -2,6 +2,7 @@ import { useEffect } from "react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 import type { MenuItem } from "@/lib/menu"
+import type { RunningMove } from "@/lib/running-move"
 import { getSelectedProject } from "@/stores/repository"
 
 /**
@@ -32,6 +33,11 @@ export interface OperationSpec extends OperationKey {
    * key or a toast, whose row (the trigger of the object's menu) shows it
    */
   readonly surface?: string | null
+  /**
+   * The action is the move of a row (a review request, a restart of its robot): its node shows the move made while it
+   * runs (`getOperationMoves`)
+   */
+  readonly move?: RunningMove
 }
 
 export interface Operation extends OperationSpec {
@@ -145,6 +151,7 @@ export function runOperation<T>(spec: OperationSpec, run: () => Promise<T>, onBl
     label: spec.label,
     repositoryPath: repositoryOf(spec),
     surface: spec.surface ?? null,
+    ...(spec.move === undefined ? null : { move: spec.move }),
   }
   operationsStore.setState(state => ({ running: [...state.running, operation] }))
   // the promise is known before `run` starts, so a start of the same action from inside it joins it; `run` starts at
@@ -198,6 +205,11 @@ function busyOf(running: Operations, name: string): Operation | undefined {
 /** The operation that works on the branch (or the archived branch) `name`, the first one started; undefined while none does */
 export function getObjectBusy(name: string): Operation | undefined {
   return busyOf(operationsStore.getState().running, name)
+}
+
+/** The moves of the running operations of the repository (the selected one), in their start order (`OperationSpec.move`) */
+export function getOperationMoves(repositoryPath = getSelectedProject()?.path ?? ""): RunningMove[] {
+  return operationsStore.getState().running.flatMap(it => (it.move === undefined || it.repositoryPath !== repositoryPath ? [] : [it.move]))
 }
 
 /** Whether an operation works on the branch (or the archived branch) `name`: its row is busy */

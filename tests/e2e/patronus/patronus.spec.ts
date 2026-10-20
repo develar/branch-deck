@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test"
 import type { PatronusRobotProfile } from "../../../src/lib/bindings"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
-import { expectNothingToPush, findBranchRow, getBranchCells, verifyBranchState } from "../helpers/branch-helpers"
+import { expectNothingToPush, findBranchRow, getBranchCells, getLandingNode, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { expectColumnAligned } from "../helpers/column-helpers"
 import { availableRobots, robot, unavailableRobots } from "../helpers/patronus-helpers"
@@ -104,13 +104,17 @@ test.describe("Patronus chip", () => {
     await verifyBranchState(findBranchRow(page, "ABC-123"), "closed")
   })
 
-  test("should restart a robot once while its restart runs, running in the slot and in its details", async ({ page }) => {
+  test("should restart a robot once while its restart runs, running in the slot and in its details, landing from the click", async ({ page }) => {
     await routeCommand(page, "restart_patronus_robot", () => robot("ABC-123", "restarted-robot", { startTime: NOW }))
     const restarts = await holdCommandCalls(page, "restart_patronus_robot")
     const restart = getSlot(page, "ABC-123").getByRole("button", { name: "Restart Safe Push" })
+    const node = getLandingNode(findBranchRow(page, "ABC-123"))
+    await expect(node).toHaveAttribute("data-kind", "needsFix")
     await restart.click()
     await expect(restart).toHaveAttribute("aria-busy", "true")
     await expect(restart).toBeDisabled()
+    // the restart is the move made: the branch lands before Patronus answers it
+    await expect(node).toHaveAttribute("data-kind", "landing")
     // the details offer the same restart: it runs there too, a click starts no second one
     const popover = await hoverChip(page, "ABC-123")
     const again = popover.getByRole("button", { name: "Restart Safe Push" })
@@ -121,6 +125,7 @@ test.describe("Patronus chip", () => {
     restarts.release()
     await expect(page.getByText("Safe Push restarted", { exact: true })).toBeVisible()
     expect(restarts.calls).toHaveLength(1)
+    await expect(node).toHaveAttribute("data-kind", "landing")
   })
 
   test("should show the details on hover and open the robot on click", async ({ page }) => {

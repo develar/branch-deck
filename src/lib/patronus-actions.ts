@@ -21,8 +21,10 @@ import {
 } from "@/lib/patronus"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import { copyRobotFullPrompt, copyRobotPrompt } from "@/lib/robot-prompt-copy"
+import type { RunningMove } from "@/lib/running-move"
+import { robotRestartMove } from "@/lib/running-move"
 import { showToast } from "@/lib/toast-message"
-import { getStackBranchBlocker } from "@/lib/whole-stack"
+import { getStackBranchBlocker, stackReadinessKey } from "@/lib/whole-stack"
 import { recordRobot } from "@/stores/activity"
 import type { Branch, RemoteStatus } from "@/stores/branch-sync"
 import { getStackBranch } from "@/stores/branch-sync"
@@ -54,9 +56,18 @@ export function showRobotToast(title: string, robot: PatronusRobot, profileName:
   showToast({ title, description: describeRobot(robot, profileName), action: { children: "Open in Patronus", onClick: () => openRobot(robot) } })
 }
 
-/** The operation of a restart (`restart-robot`) or a cancel (`cancel-robot`) of the robot: one at a time per robot */
-export function robotOperation(id: "restart-robot" | "cancel-robot", robot: PatronusRobot): OperationKey {
+/**
+ * The operation of a restart (`restart-robot`, `push-and-restart-robot`, which pushes first) or a cancel (`cancel-robot`)
+ * of the robot: one at a time per robot
+ */
+export function robotOperation(id: "restart-robot" | "push-and-restart-robot" | "cancel-robot", robot: PatronusRobot): OperationKey {
   return { id, subject: `robot:${robot.id}`, objects: [], kind: "remote" }
+}
+
+/** A restart is the move of the row of the robot (its branch, or the whole stack): its node lands from the click on */
+function restartMoveOf(robot: PatronusRobot): { move: RunningMove } | null {
+  const key = robot.branchName ?? (robot.stackRoot == null ? null : stackReadinessKey(robot.stackRoot))
+  return key === null ? null : { move: robotRestartMove(key, robot.pushMode) }
 }
 
 /**
@@ -68,13 +79,27 @@ export async function runRobotAction(id: "restart-robot" | "cancel-robot", robot
   const restart = id === "restart-robot"
   const failure = restart ? `Cannot restart the ${mode}` : `Cannot cancel the ${mode}`
   await runOperation(
-    { ...robotOperation(id, robot), label: restart ? `Restarting the ${mode}` : `Canceling the ${mode}` },
+    { ...robotOperation(id, robot), label: restart ? `Restarting the ${mode}` : `Canceling the ${mode}`, ...(restart ? restartMoveOf(robot) : null) },
     () =>
       (restart ? restartPatronusRobot(robot) : cancelPatronusRobot(robot)).then(
         result => announceRobot(restart ? `${mode} restarted` : `${mode} is canceling`, result),
         (error: unknown) => notifyError(failure, error),
       ),
     reason => showToast({ type: "info", title: failure, description: reason }),
+  )
+}
+
+/**
+ * Pushes the branch (`branchName`) or the stack branch of the whole stack (`root`) and restarts the robot on the pushed
+ * commit, as one operation of the robot: a second click joins it, its cancel waits, and the row lands from the click
+ * on, the push included. The restart takes the commit just pushed, and its toast is the one of the action.
+ */
+function runPushAndRestart(robot: PatronusRobot, branchName: string | null, root: string | null): Promise<unknown> {
+  const mode = formatPushMode(robot.pushMode)
+  return runOperation(
+    { ...robotOperation("push-and-restart-robot", robot), label: `Pushing and restarting the ${mode}`, ...restartMoveOf(robot) },
+    () => (root === null ? pushBranch(branchName!, { restartRobot: robot, announce: false }) : pushWholeStack(root, { restartRobot: robot })),
+    reason => showToast({ type: "info", title: `Cannot restart the ${mode}`, description: reason }),
   )
 }
 
@@ -192,20 +217,25 @@ export function getRobotActions(
     // push is part of the restart, its name is the restart's
     const running = robot.status === "running" && robot.sourceRevision !== null
     const pushed = root === null ? branch!.name : formatRobotSubject(robot)
-    items.push({
-      id: "push-and-restart-robot",
-      label: formatRobotRestartLabel(robot),
-      icon: RotateCcwIcon,
-      ...(start?.ok === false
-        ? { disabled: true, description: start.reason }
-        : {
-            description: running
-              ? `Cancels the run on ${formatShortHash(robot.sourceRevision!)}, pushes ${pushed} and starts it again on the pushed commit`
-              : `Pushes ${pushed} and starts it again on the pushed commit`,
-          }),
-      // the restart takes the commit just pushed, and its toast is the one of the action
-      onSelect: () => void (root === null ? pushBranch(branch!.name, { restartRobot: robot, announce: false }) : pushWholeStack(root, { restartRobot: robot })),
-    })
+    items.push(
+      operationItem(
+        operations,
+        {
+          id: "push-and-restart-robot",
+          label: formatRobotRestartLabel(robot),
+          icon: RotateCcwIcon,
+          ...(start?.ok === false
+            ? { disabled: true, description: start.reason }
+            : {
+                description: running
+                  ? `Cancels the run on ${formatShortHash(robot.sourceRevision!)}, pushes ${pushed} and starts it again on the pushed commit`
+                  : `Pushes ${pushed} and starts it again on the pushed commit`,
+              }),
+          onSelect: () => void runPushAndRestart(robot, root === null ? branch!.name : null, root),
+        },
+        robotOperation("push-and-restart-robot", robot),
+      ) as RobotAction,
+    )
   }
   if (canCancelRobot(robot)) {
     items.push(

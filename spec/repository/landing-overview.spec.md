@@ -73,9 +73,10 @@ indicator, whose states were the same story told twice.
 - The moves are the units whose node is filled, their branches that need a fix, the failed robots of no row (a
   temporary ref, a watched pull request) and the running Safe Pushes whose required check failed. A unit that waits for
   the first answer of Patronus counts no move, so the number does not change when the overview opens and asks; a unit
-  whose Safe Push starts lands already, so the number drops at the start, not when Patronus lists the robot.
+  whose move runs (a start or restart of its Safe Push, the creation of its pull request, a review request) counts no
+  move either, so the number drops at the click, not when Patronus or GitHub answer.
   [@test] ../../src/lib/landing-overview.test.ts (`counts no move of a unit before the first answer of Patronus, so the number doesn't change on hover`, `counts a failed robot of no row and a running Safe Push that will fail as moves, listed with them; a Dry Run lands nothing`)
-  [@test] ../../src/lib/landing-node.test.ts (`is landing once its Safe Push starts, before its robot exists: the start is the move made; a Dry Run lands nothing`)
+  [@test] ../../src/lib/landing-node.test.ts (`is the state after a running move of the row from its start on: Landing for a robot that comes, else Waiting`)
   [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count a running Safe Push whose required check failed as a move, show it failing and cancel it from the toast`)
 - The bar has a segment per kind of the units on their way, in the order of the way: landing, waiting, ready, the
   user's step, a fix; its width the commits of its units; light for a hollow node. None for a single kind: the node

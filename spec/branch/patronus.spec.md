@@ -1007,7 +1007,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   while it runs, it is running on every surface of the robot (the slot, the details, the landing overview: disabled,
   a spinner in place of its icon, `aria-busy`), a second click joins it, the other one of the robot waits with its busy
   state ("Restarting the Safe Push…").
-  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should restart a robot once while its restart runs, running in the slot and in its details`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should restart a robot once while its restart runs, running in the slot and in its details, landing from the click`)
   [@test] ../../src/stores/operations.test.ts (`lets a remote action wait for one of the same object or of a branch it works on`)
 - One builder lists the actions of a robot (`getRobotActions`), and every surface of the robot renders that list: the
   branch menu, the details (the chip popover, the preview section) and the [landing overview](../repository/landing-overview.spec.md#overview).
@@ -1035,7 +1035,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../src/lib/patronus.test.ts (`names the change and the restart that tests the branch as it is, pushed first when the remote lacks it`)
   [@test] ../../src/lib/patronus-actions.test.ts (`restarts a failed robot, pushing first while the branch has work the remote lacks, and not for a blocked branch`)
   [@test] ../../src/lib/git/push.test.ts (`says only the restart for the restart of a finished robot that pushes first, recorded once`)
-  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push and restart a failed robot whose branch changed since, from the branch preview`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push and restart a failed robot whose branch changed since, from the branch preview, landing from the click`)
 - A failed action is a toast with what Patronus said; without a token it says "Run ./safePush.cmd once to log in to
   Patronus" and sends nothing.
   [@test] ../../crates/patronus/src/actions_test.rs (`an_action_without_a_token_tells_how_to_log_in`)

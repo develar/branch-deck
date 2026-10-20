@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test"
 import type { MenuItem } from "@/lib/menu"
 import type { OperationSpec } from "@/stores/operations"
-import { getOperations, operationItem, operationsStore, runOperation } from "@/stores/operations"
+import { getOperationMoves, getOperations, operationItem, operationsStore, runOperation } from "@/stores/operations"
 
 const REPOSITORY = "/repo"
 
@@ -73,6 +73,18 @@ describe("runOperation", () => {
     // another object
     await expect(runOperation(remoteOf("robot:8", ["login"]), () => Promise.resolve(3))).resolves.toBe(3)
     running.resolve(null)
+  })
+
+  it("tells the moves of the running operations of the repository until they end", async () => {
+    const request = deferred<null>()
+    const move = { key: "auth", lands: false, label: "Requesting a review on #12" }
+    void runOperation({ ...remoteOf("pr:12", ["auth"], "request-review"), move }, () => request.promise)
+    void runOperation({ ...remoteOf("pr:13", ["login"], "request-review"), repositoryPath: "/other", move: { ...move, key: "login" } }, () => request.promise)
+    // an operation that is no move of a row
+    void runOperation(rewriteOf("auth"), () => request.promise)
+    expect(getOperationMoves(REPOSITORY)).toEqual([move])
+    request.resolve(null)
+    await vi.waitFor(() => expect(getOperationMoves(REPOSITORY)).toEqual([]))
   })
 
   it("ends the operation when its action fails", async () => {

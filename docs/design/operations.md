@@ -1,7 +1,7 @@
 # Running Operations
 
 **Status:** Implemented  
-**Updated:** 2026-10-19  
+**Updated:** 2026-10-20  
 **Tags:** [frontend, actions, ux, concurrency]
 
 ## Problem
@@ -52,7 +52,8 @@ flowchart LR
 
 An `Operation` is the action's `id` (the `id` of its menu item: `unstack`, `move-to`, `squash-fixups`), its `subject`
 (`branch:auth`, the row whose menu starts it), the `objects` it works on (the branches whose rows are busy), its `kind`,
-its busy state (`label`: "Unstacking tool-events"), its repository, and the `surface` that started it.
+its busy state (`label`: "Unstacking tool-events"), its repository, the `surface` that started it, and, for an action
+that is the move of a row, its `move` ([Moves](#moves)).
 
 ### Conflicts
 
@@ -116,9 +117,10 @@ an action that is an operation itself (rename, ungroup, squash fixups, close the
 
 ### Remote actions
 
-- **The robot**: its restart and its cancel (`runRobotAction`, subject `robot:<id>`); `getRobotActions` marks them
-  with `operationItem`, so the slot, the details and the landing overview show the running one (a spinner in place of
-  its icon) and the other waits.
+- **The robot**: its restart, the push and restart of a robot whose branch moved past its commit
+  (`runPushAndRestart`: the push is a step of it) and its cancel (`runRobotAction`, subject `robot:<id>`);
+  `getRobotActions` marks them with `operationItem`, so the slot, the details and the landing overview show the running
+  one (a spinner in place of its icon), a second restart joins it and the cancel waits.
 - **The pull request**: the retarget of the next step (`retargetToTarget`, subject `pr:<n>`), the creation and
   "Continue on GitHub" (`submitPullRequest`, `continueOnGitHub`: a second submit joins; one that must wait throws
   why), "Request Review…" (`RequestReviewForm`, its button the surface).
@@ -132,6 +134,21 @@ others wait with its busy state.
   included: the backend lock would only queue its apply behind a regroup, and a regroup behind it; its steps and
   percent stay in its own store (`update-progress.ts`), which ticks too often for the registry's subscribers.
 
+### Moves
+
+An action that is the move of a row says so in its spec: `move` (`RunningMove`, `src/lib/running-move.ts`) names the
+row (a branch, or `stack:<root>` of a whole stack), whether a robot comes that lands it (`lands`), and the hover of its
+node meanwhile. The node of the row reads the moves that run (`getOperationMoves`, and the starts of a Safe Push past
+their checks, `safePushStartMoves`) before the next step, so a row leaves the user's moves at the click, on every
+surface that starts the action, not when Patronus or GitHub answer ([Landing](landing.md)):
+
+- the restart and the push and restart of a robot (`lands`: Landing, and the branches its Safe Push lands beside; a Dry
+  Run waits);
+- the creation of a pull request (not "Continue on GitHub": the user creates it there) and a review request: Waiting.
+
+A retarget declares none: the Safe Push after it is the user's move again, and the node would blink out of Your Move
+and back. The other operations pass, as a sync does: the node keeps the state they started from.
+
 ### Outside the registry
 
 Two runs keep their own record, each one place for every surface of it:
@@ -140,7 +157,8 @@ Two runs keep their own record, each one place for every surface of it:
   a stack push carries the branches it sends, learned after the sync it waits for; a push of the stack branch joins a
   stack push that takes it along instead of waiting; a push never holds its row (its menu stays open, its button shows
   the percent). A second click joins the running push (`pushOne`, `pushTogether`). A push inside an operation (the
-  creation of a pull request, a Safe Push start) is a step of it, not an operation of its own.
+  creation of a pull request, a review request, a push and restart, a Safe Push start) is a step of it, not an
+  operation of its own.
 - **The start of a Safe Push or a Dry Run** (`safePushStore.starting`): its steps (checking, pushing, starting) span
   the check, the popover the user answers, and the start; the next step reads it as the row's busy state
   (`busyFact`), the slot shows its step.

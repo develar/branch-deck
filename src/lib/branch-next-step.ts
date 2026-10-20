@@ -1,5 +1,6 @@
 import { ClockIcon, FileTextIcon, GitPullRequestArrowIcon, MessageSquareWarningIcon, ShieldCheckIcon, UserPlusIcon } from "lucide-react"
 import type { MissingReviewGroup, Person, ReviewReadiness } from "@/lib/bindings"
+import { isLogin } from "@/lib/create-pull-request"
 import type { MenuItem } from "@/lib/menu"
 import type { SafePushSlot } from "@/lib/patronus"
 import { describeStart, formatStartLabel } from "@/lib/patronus"
@@ -271,6 +272,26 @@ function formatApprovalBlocker(kind: NextStepKind, groups: readonly MissingRevie
 }
 
 /**
+ * The groups with the review requests the pull request has now: a suggested member GitHub waits for (`waitingFor`) is
+ * requested. Patronus is asked again once the pull request changes, and its kept answer lists the people requested
+ * before: right after Request Review… the step is the wait for them, not the request again.
+ */
+export function withRequestedOnPullRequest(groups: readonly MissingReviewGroup[], waitingFor: readonly string[]): readonly MissingReviewGroup[] {
+  if (waitingFor.length === 0) {
+    return groups
+  }
+  return groups.map(group => {
+    const asked = group.suggested.filter(
+      person =>
+        waitingFor.some(login => isLogin(login, person.login)) &&
+        !group.requested.some(it => isLogin(it.login, person.login)) &&
+        !group.approvedBy.some(it => isLogin(it.login, person.login)),
+    )
+    return asked.length === 0 ? group : { ...group, requested: [...group.requested, ...asked] }
+  })
+}
+
+/**
  * A missing group asks fewer people than the approvals it still needs (none asked, or one asked of a group that needs two):
  * waiting for them can't satisfy it, Request Review… can
  */
@@ -508,7 +529,7 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
     return step("safePush", safePushItem(facts, general), general, dryRunBlocker, { needsReadiness: asks })
   }
 
-  const groups = readiness.groups
+  const groups = open === null ? readiness.groups : withRequestedOnPullRequest(readiness.groups, open.waitingFor)
   // row 7: a start through the API counts no approval
   if (open === null) {
     const reason = formatApprovalBlocker("createPullRequest", groups, null)

@@ -273,6 +273,18 @@ describe("getBranchNextStep", () => {
     expect(more.item?.description).toBe("1 more approval · IJPL Code Platform\nOpen Pull Request #1078")
   })
 
+  it("row 10 right after Request Review…: a suggested member the pull request waits for is requested, while Patronus answers again", () => {
+    // the kept answer of Patronus asks nobody; GitHub waits for Ilya Korennoy since the request
+    const asked = { pullRequest: { ...openPullRequest, waitingFor: ["IKorennoy"] } }
+    const step = getBranchNextStep(withReadiness(missing([group({ requested: [] })]), asked))
+    expect(step).toMatchObject({ kind: "awaiting", item: { label: "Awaiting Ilya Korennoy" } })
+    // someone GitHub waits for who is no suggested member of the group, or one who approved, asks nobody of it
+    expect(getBranchNextStep(withReadiness(missing([group({ requested: [], suggested: [alice] })]), asked)).kind).toBe("requestReview")
+    expect(getBranchNextStep(withReadiness(missing([group({ requested: [], approvedBy: [ilya], needed: 1 })]), asked)).kind).toBe("requestReview")
+    // two needed: the one asked is still too few
+    expect(getBranchNextStep(withReadiness(missing([group({ requested: [], needed: 2 })]), asked)).kind).toBe("requestReview")
+  })
+
   it("row 9: a group that needs two approvals and asks one person still needs a request", () => {
     const step = getBranchNextStep(withReadiness(missing([group({ needed: 2 })])))
     expect(step).toMatchObject({ kind: "requestReview", safePushBlocker: "Waits for the approval of IJPL Code Platform: fewer people are requested on #1078 than it needs" })

@@ -10,7 +10,7 @@ import type {
   TargetCheck,
 } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
-import { expectNothingToPush, findBranchRow, getMoreButton, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
+import { expectNothingToPush, findBranchRow, getLandingNode, getMoreButton, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
 import { APPROVED_BY_CODE_OWNER, availableRobots, robot, routeReviewRequirement, setupRobots } from "../helpers/patronus-helpers"
 import {
   availablePullRequests,
@@ -30,7 +30,7 @@ import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { rewriteNextRemoteStatus, syncFromMenu } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { holdWithProgress, routeCommand } from "../helpers/wait-helpers"
+import { holdCommand, holdWithProgress, routeCommand } from "../helpers/wait-helpers"
 
 // the `issue_links` template: 7 branches, none pushed
 const RUNNING = robot("JIRA-456", "running-robot")
@@ -514,7 +514,11 @@ test.describe("Patronus actions", () => {
     await expect(canceling.locator("[data-slot=toast-description]")).toHaveText("JIRA-456 → master")
   })
 
-  test("should push and restart a failed robot whose branch changed since, from the branch preview", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should push and restart a failed robot whose branch changed since, from the branch preview, landing from the click", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     // failed on an older commit; the fix is not on the remote yet
     const older = robot("ABC-123", "failed-robot", { status: "failure", sourceRevision: "older-commit", finishTime: 1704142800 })
     await setupRobots(page, setupRepo, syncAndWaitForBranches, older)
@@ -533,7 +537,14 @@ test.describe("Patronus actions", () => {
     const preview = await openBranchPreview(page, "ABC-123")
     const details = preview.getByTestId("branch-preview-patronus")
     await expect(details.getByTestId("patronus-outdated")).toContainText("Restart Safe Push to test the current branch.")
+    const node = getLandingNode(findBranchRow(page, "ABC-123"))
+    await expect(node).toHaveAttribute("data-kind", /^(ready|yourStep)$/)
+    const releasePush = await holdCommand(page, "push_branch")
     await details.getByRole("button", { name: "Restart Safe Push", exact: true }).click()
+    // the restart is the move made: the branch lands from the click on, while its push runs
+    await expect(node).toHaveAttribute("data-kind", "landing")
+    expect(order).toEqual([])
+    releasePush()
 
     // the restart takes the commit just pushed; it is the action, its toast the one toast
     await expect(page.locator("[data-slot=toast-title]", { hasText: "Safe Push restarted" })).toBeVisible()
