@@ -386,8 +386,8 @@ fn lease_environment(repo: &TestRepo) -> (tempfile::TempDir, crate::context::Env
 }
 
 /// `bd lease get` of a free slot and its `bd lease return`: the repository, the source HEAD and the pool config, one
-/// `status` and one `checkout` of the slot; the return reads the unlanded commits, the `status` and HEAD. No `status`
-/// of another slot, no full checkout
+/// `status` and one `checkout` of the slot; the return reads the unlanded commits, the untracked mode of the config,
+/// the `status` and HEAD. No `status` of another slot, no full checkout
 #[test]
 fn a_lease_get_and_return() {
   let repo = repo_with_branches();
@@ -403,7 +403,7 @@ fn a_lease_get_and_return() {
   assert_git_processes(&context.git, &[("checkout", 1), ("config", 1), ("rev-parse", 2), ("status", 1)]);
   let context = LeaseContext::resolve(&environment, Some(&slot)).unwrap();
   lease_return(&context, &LeaseReturnArgs::default()).unwrap();
-  assert_git_processes(&context.git, &[("log", 1), ("rev-parse", 2), ("status", 1)]);
+  assert_git_processes(&context.git, &[("config", 1), ("log", 1), ("rev-parse", 2), ("status", 1)]);
 }
 
 /// `bd lease get` of a new slot by an APFS clone of the source (macOS): the repository, the source HEAD and the pool

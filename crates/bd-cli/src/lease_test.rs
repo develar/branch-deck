@@ -285,6 +285,42 @@ fn every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_
   assert!(!checkouts.is_empty() && !checkouts.iter().any(parallel), "{gits:?}");
 }
 
+/// Every `status` of the pool lists untracked files in the mode `status.showUntrackedFiles` configures, `all` or
+/// `normal`: git's untracked cache answers only in the mode it was built for. `no` lists them as `normal` does, so an
+/// untracked file still makes a slot dirty
+#[cfg(unix)]
+#[test_log::test]
+fn every_status_of_the_pool_lists_untracked_files_in_the_mode_the_repository_configures() {
+  let fixture = Fixture::new();
+  let trace = fixture.home.path().join("trace2.json");
+  let _env = test_utils::env_vars::EnvVars::set(&[("GIT_TRACE2_EVENT", &trace)]);
+  // the `--untracked-files` of each `status`, of a get and the return of its slot
+  let modes = |gits: &[Vec<String>]| -> Vec<String> {
+    gits_of(gits, "status")
+      .iter()
+      .map(|argv| argv.iter().find(|arg| arg.starts_with("--untracked-files=")).cloned().unwrap_or_default())
+      .collect()
+  };
+  let get_and_return = || {
+    let path = path_of(&fixture.get(&[]));
+    fixture.give_back(&path);
+    (path, modes(&started_gits(&trace)))
+  };
+
+  let (path, unset) = get_and_return();
+  assert!(!unset.is_empty() && unset.iter().all(|mode| mode == "--untracked-files=normal"), "{unset:?}");
+  fixture.repo.set_config("status.showUntrackedFiles", "all").unwrap();
+  let (_, all) = get_and_return();
+  assert!(!all.is_empty() && all.iter().all(|mode| mode == "--untracked-files=all"), "{all:?}");
+
+  fixture.repo.set_config("status.showUntrackedFiles", "no").unwrap();
+  std::fs::write(Path::new(&path).join("left.txt"), "left behind\n").unwrap();
+  let got = fixture.get(&[]);
+  assert_eq!((&got["skipped"][0]["path"], &got["skipped"][0]["paths"]), (&json!(path), &json!(["left.txt"])), "{got}");
+  let no = modes(&started_gits(&trace));
+  assert!(!no.is_empty() && no.iter().all(|mode| mode == "--untracked-files=normal"), "{no:?}");
+}
+
 /// The entries of the pool directory of `got`, without the slot names: what a clone may leave behind
 #[cfg(unix)]
 fn pool_entries(got: &Value) -> Vec<String> {

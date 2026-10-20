@@ -47,11 +47,31 @@ pub fn linked_worktree(dir: &Path) -> Option<LinkedWorktree> {
   })
 }
 
+/// How a `status` of the pool lists untracked files: in the mode of the repository's `status.showUntrackedFiles` when it
+/// is `all`, else `normal`, never `no`, which would hide them. git's untracked cache answers only in the mode it was
+/// built for, and git builds it only in the configured mode: in idea-1 (1.4M files, `all` configured) a `status` with
+/// `normal` walked every directory in 41 s, with `all` it took 2 s
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum UntrackedFiles {
+  #[default]
+  Normal,
+  All,
+}
+
+impl UntrackedFiles {
+  const fn arg(self) -> &'static str {
+    match self {
+      Self::Normal => "--untracked-files=normal",
+      Self::All => "--untracked-files=all",
+    }
+  }
+}
+
 /// The paths of the local changes of `slot`: staged, unstaged and untracked files, not the ignored ones. One
-/// `status --porcelain=v1 -z --untracked-files=normal`; the repository's own `core.fsmonitor` and
+/// `status --porcelain=v1 -z` with the `untracked` mode of the repository; its own `core.fsmonitor` and
 /// `core.untrackedCache` apply, so a large slot answers in seconds
-pub fn slot_changes(git_executor: &GitCommandExecutor, slot: &str) -> Result<Vec<String>> {
-  let output = git_executor.cmd(&["status", "--porcelain=v1", "-z", "--untracked-files=normal"], slot).bytes()?;
+pub fn slot_changes(git_executor: &GitCommandExecutor, slot: &str, untracked: UntrackedFiles) -> Result<Vec<String>> {
+  let output = git_executor.cmd(&["status", "--porcelain=v1", "-z", untracked.arg()], slot).bytes()?;
   let mut paths = Vec::new();
   let mut entries = output.split(|&byte| byte == 0).filter(|entry| !entry.is_empty());
   while let Some(entry) = entries.next() {
@@ -253,13 +273,23 @@ pub struct LeaseConfig {
   /// `branchdeck.leasePool`, `~` expanded
   pub pool: Option<String>,
   pub workers: CheckoutWorkers,
+  /// From `status.showUntrackedFiles`
+  pub untracked: UntrackedFiles,
 }
 
-/// `branchdeck.leasePool` and whether `checkout.workers` is set: one `config --type=path --get-regexp`, which exits
-/// with 1 when neither key is set
+/// `branchdeck.leasePool`, whether `checkout.workers` is set, and `status.showUntrackedFiles`: one `config --type=path
+/// --get-regexp`, which exits with 1 when no key is set
 pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Result<LeaseConfig> {
   let output = git_executor
-    .cmd(&["config", "--type=path", "--get-regexp", r"^(branchdeck\.leasepool|checkout\.workers)$"], repository)
+    .cmd(
+      &[
+        "config",
+        "--type=path",
+        "--get-regexp",
+        r"^(branchdeck\.leasepool|checkout\.workers|status\.showuntrackedfiles)$",
+      ],
+      repository,
+    )
     .accept(&[1])
     .output()?;
   let mut config = LeaseConfig::default();
@@ -268,6 +298,8 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
     match key {
       "branchdeck.leasepool" if !value.is_empty() => config.pool = Some(value.to_string()),
       "checkout.workers" => config.workers.configured = true,
+      // the last value wins, as in git
+      "status.showuntrackedfiles" => config.untracked = if value == "all" { UntrackedFiles::All } else { UntrackedFiles::Normal },
       _ => {}
     }
   }

@@ -61,11 +61,15 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   `bd` and its ancestors may have its working directory in it; a busy free slot is skipped (`skipped`, `reason:
   "busy"`). The source may itself be a leased slot.
   [@test] ../../crates/bd-cli/src/lease_test.rs (`a_busy_free_slot_is_skipped`, `adopt_adds_clean_linked_worktrees_and_refuses_the_rest`)
-- A free slot with local changes (one `status --porcelain=v1 --untracked-files=normal`, the repository's own
-  `core.fsmonitor` applies) must be skipped (`skipped`, `reason: "dirty"`, `paths`), stay free, and be marked dirty;
+- A free slot with local changes (one `status --porcelain=v1`, the repository's own `core.fsmonitor` applies) must be
+  skipped (`skipped`, `reason: "dirty"`, `paths`), stay free, and be marked dirty;
   later gets must try a dirty slot after the clean ones. With no free slot left, the get must add a new slot
   (`reused: false`).
   [@test] ../../crates/bd-cli/src/lease_test.rs (`a_dirty_free_slot_is_skipped_and_a_new_slot_is_added`)
+- Every `status` of the pool (a get, the check of a clone, a return, an adopt) must list untracked files with
+  `--untracked-files=all` when the repository's `status.showUntrackedFiles` is `all`, else with `normal`, also for
+  `no`: git's untracked cache answers only in the mode it was built for, and git builds it only in the configured mode.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`every_status_of_the_pool_lists_untracked_files_in_the_mode_the_repository_configures`)
 - The checkout of a reused slot and the `worktree add` of a new one must run with `-c checkout.workers=0` (one
   worker per core), unless the repository config sets `checkout.workers`.
   [@test] ../../crates/bd-cli/src/lease_test.rs (`every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_sets_it`)

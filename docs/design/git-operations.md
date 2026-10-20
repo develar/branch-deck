@@ -1112,7 +1112,7 @@ the state is read and written, never across a git that writes a slot.
    common dir (its `.git` file and admin directory, no git process) and has no process in it is reserved, clean slots
    before the ones marked dirty. The lease is recorded as `preparing`, with the pid and its start time, and the lock
    is released.
-2. Without the lock: one `status --porcelain=v1 -z --untracked-files=normal` of that slot. A dirty slot is freed again,
+2. Without the lock: one `status --porcelain=v1 -z` of that slot, in the untracked mode below. A dirty slot is freed again,
    marked dirty and skipped, and the next one is reserved. A clean one gets `checkout --force --detach <source HEAD>`
    (or `-b <branch>`), which writes only the paths that differ. `--force` is safe after the clean status: on a
    case-insensitive file system `status` does not see a case-only rename, and a plain checkout then refuses.
@@ -1123,7 +1123,12 @@ the state is read and written, never across a git that writes a slot.
 
 Both checkouts run with `-c checkout.workers=0`, one worker per core, unless the repository config sets
 `checkout.workers` (one `config --get-regexp` reads it with `branchdeck.leasePool`): git's default of one worker
-checked out 43,891 files of idea-1 in 12.2 s, 18 workers in 4.2 s.
+checked out 43,891 files of idea-1 in 12.2 s, 18 workers in 4.2 s. Every `status` of the pool (the get, the check of
+a clone, the return, an adopt) lists untracked files with `--untracked-files=all` when `status.showUntrackedFiles` is
+`all` (the same `config` read), else with `normal`, never `no`, which would hide them. git's untracked cache keeps the
+mode it was built for, is used only in that mode and is built only in the configured one; idea-1 configures `all`,
+and there the `status` with `normal` walked every directory: 41 s against 2 s in the same slot. The return reads the
+config for it, one `config` more.
 4. Seed: the ignored paths that `.worktreeinclude` at the source root names are copied into the slot. A pattern is a
    literal path or a glob in its last component, read from that one directory, never a walk of the tree; one
    `check-ignore -z --stdin` in the source keeps only the ignored ones.

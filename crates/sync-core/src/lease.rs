@@ -13,8 +13,8 @@ use crate::resolve_copies::display_path;
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{
-  CheckoutWorkers, LeaseConfig, UnlandedCommit, add_slot, checkout_slot, clean_cloned_slot, detach_slot_head, discard_slot_changes, ignored_paths, is_valid_branch_name,
-  lease_config, linked_worktree, move_slot, refresh_cloned_index, register_slot, slot_changes, unlanded_commits,
+  CheckoutWorkers, LeaseConfig, UnlandedCommit, UntrackedFiles, add_slot, checkout_slot, clean_cloned_slot, detach_slot_head, discard_slot_changes, ignored_paths,
+  is_valid_branch_name, lease_config, linked_worktree, move_slot, refresh_cloned_index, register_slot, slot_changes, unlanded_commits,
 };
 use git_ops::pick::commits_to_pick;
 use git_ops::revs::{RepositoryDirs, read_head, ref_exists};
@@ -353,7 +353,7 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
     })?;
     let (path, reused) = match reserved {
       Reserved::Free { path, name } => {
-        let changes = slot_changes(git_executor, &path).map_err(|error| give_back(&pool, params.lock_timeout, &path, &lease.id, false, error))?;
+        let changes = slot_changes(git_executor, &path, config.untracked).map_err(|error| give_back(&pool, params.lock_timeout, &path, &lease.id, false, error))?;
         if !changes.is_empty() {
           debug!(slot = %path, changes = changes.len(), "skipping a dirty slot");
           pool.update(params.lock_timeout, |store| {
@@ -389,6 +389,7 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
           commit: &source_head,
           branch: params.branch.as_deref(),
           workers: config.workers,
+          untracked: config.untracked,
         };
         let added = path
           .parent()
@@ -559,6 +560,7 @@ struct NewSlot<'a> {
   commit: &'a str,
   branch: Option<&'a str>,
   workers: CheckoutWorkers,
+  untracked: UntrackedFiles,
 }
 
 /// Why a new slot failed
@@ -633,7 +635,7 @@ fn add_cloned_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, rel
   debug!(elapsed_ms = started.elapsed().as_millis(), "refreshed the index of the clone");
   checkout_slot(git_executor, &slot, request.commit, request.branch, request.workers).map_err(registered)?;
   clean_cloned_slot(git_executor, &slot).map_err(registered)?;
-  let changes = slot_changes(git_executor, &slot).map_err(registered)?;
+  let changes = slot_changes(git_executor, &slot, request.untracked).map_err(registered)?;
   if !changes.is_empty() {
     return Err(registered(anyhow!(
       "The clone of {} kept {} local change(s), e.g. {}",
@@ -1011,7 +1013,7 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
       check: landed_check,
     });
   }
-  let changes = slot_changes(git_executor, &path)?;
+  let changes = slot_changes(git_executor, &path, lease_config(git_executor, &path)?.untracked)?;
   if !changes.is_empty() && !params.confirm_preserved {
     bail!(LeaseRefusal::DirtyWorktree { path, paths: changes });
   }
@@ -1283,6 +1285,7 @@ pub fn lease_adopt_core(git_executor: &GitCommandExecutor, params: &LeaseAdoptPa
   let git_common_dir = PathBuf::from(canonical_path(params.git_common_dir));
   let pool = Pool::new(&git_common_dir);
   let scan = ProcessScan::scan();
+  let untracked = lease_config(git_executor, params.repository)?.untracked;
   let move_into = match params.move_into {
     Some(dir) => {
       std::fs::create_dir_all(dir).with_context(|| format!("Cannot create the pool directory {}", dir.display()))?;
@@ -1293,7 +1296,7 @@ pub fn lease_adopt_core(git_executor: &GitCommandExecutor, params: &LeaseAdoptPa
   let mut outcomes = Vec::new();
   for dir in params.dirs {
     let path = canonical_path(dir);
-    let adopted = match adopt_one(git_executor, &pool, &git_common_dir, &path, &scan)? {
+    let adopted = match adopt_one(git_executor, &pool, &git_common_dir, &path, &scan, untracked)? {
       Ok(()) => match &move_into {
         Some(pool_dir) => move_in(git_executor, &pool, params, &git_common_dir, pool_dir, &path)?,
         None => add_slot_entry(&pool, params.lock_timeout, &path, None)?,
@@ -1390,7 +1393,7 @@ const fn same_volume(_a: &Path, _b: &Path) -> bool {
 }
 
 /// The checks of an adopt: a linked worktree of this repository, not in the pool, no process in it, clean
-fn adopt_one(git_executor: &GitCommandExecutor, pool: &Pool, git_common_dir: &Path, path: &str, scan: &ProcessScan) -> Result<Result<(), LeaseRefusal>> {
+fn adopt_one(git_executor: &GitCommandExecutor, pool: &Pool, git_common_dir: &Path, path: &str, scan: &ProcessScan, untracked: UntrackedFiles) -> Result<Result<(), LeaseRefusal>> {
   let not_a_slot = |reason: &str| {
     Ok(Err(LeaseRefusal::NotASlot {
       path: path.to_string(),
@@ -1413,7 +1416,7 @@ fn adopt_one(git_executor: &GitCommandExecutor, pool: &Pool, git_common_dir: &Pa
       processes,
     }));
   }
-  let changes = slot_changes(git_executor, path)?;
+  let changes = slot_changes(git_executor, path, untracked)?;
   if !changes.is_empty() {
     return Ok(Err(LeaseRefusal::DirtyCandidate {
       path: path.to_string(),
