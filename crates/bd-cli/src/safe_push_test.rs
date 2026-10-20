@@ -1,5 +1,5 @@
 use crate::context::Environment;
-use crate::fixture_test::{ACP_HOST, PREFIX, assert_error, commit_all, commit_dangling_reference, environment, git, run_json, write};
+use crate::fixture_test::{ACP_HOST, PREFIX, assert_error, commit_all, commit_dangling_reference, environment, git, run_in, run_json, write};
 use crate::push_test::{LANDED_SUBJECTS, land_auth_by_content, push_from_elsewhere_to, repo_with_remote};
 use crate::schema_test::assert_covered;
 use github::fake_github::{FakeAnswer, FakeGitHub, start_fake as start_fake_github};
@@ -442,6 +442,21 @@ fn check_login_lands_auth(space: &Space) -> Value {
   let (_, schema) = run_json(&space.environment(), &["schema"]);
   assert_covered(&schema["outputs"]["safe_push"], &schema["outputs"]["safe_push"], &output, "safe_push");
   output
+}
+
+/// A parked branch starts no robot, and neither does a branch built on it, before anything is asked of Patronus
+#[test_log::test]
+fn a_parked_branch_and_a_branch_built_on_it_start_nothing() {
+  let space = login_on_auth();
+  let (exit_code, output) = run_in(&space.repo, &["park", "auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  for args in [&["auth", "--check"][..], &["login"], &["login", "--patronus-dry-run"]] {
+    let (exit_code, output) = space.run(args);
+    assert_error(&output, exit_code, (4, "parked"));
+  }
+  assert_eq!(space.remote_tip("test-user/virtual/auth"), "");
+  run_in(&space.repo, &["unpark", "auth"]);
+  check_login_lands_auth(&space);
 }
 
 /// The virtual branch of a stacked branch carries the commits of the branches it is built on: one robot lands them all.

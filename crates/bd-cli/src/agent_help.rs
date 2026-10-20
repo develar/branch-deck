@@ -35,8 +35,13 @@ Rules
 - Ask the user first, and run only what the user approved: a push (`bd push`, also --force and --restart-running), a
   Safe Push or a Patronus Dry Run (`bd safe-push`, also --cancel-running, --without-approvals, --allow-dangling and
   --create-pull-request), `bd request-review`, a `gh pr create` that bd prints, and any change of a commit that
-  another session made, a reword (`bd reword`) of its message too. Show what bd printed (`lands`, `review`,
-  `dropped_commits`, the plan, the `changes` of a `bd reword --dry-run`) when you ask.
+  another session made, a reword (`bd reword`) of its message too, and `bd park` or `bd unpark`. Show what bd printed
+  (`lands`, `review`, `dropped_commits`, the plan, the `changes` of a `bd reword --dry-run`) when you ask.
+- A branch `parked` in `bd status` stays local: the user keeps its commits, waiting for a proper fix elsewhere. Never
+  push it, start a Safe Push of it or unpark it on your own; a branch built on it is `parked` too (`with` names the
+  parked one), and so is the whole stack that holds it. `bd park <branch> --note '<why>'` and `bd unpark <branch>`
+  only when the user asks: no rewrite, the store `refs/branch-deck/parked`; `idle_parked` lists the lines of branches
+  without commits here.
 - Never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; move a
   change between commits only with `bd move-hunk`, never with plumbing. Never stash, reset, check out or commit the
   user's files: on `uncommitted_overlap` (exit 4) show `paths` to the user and ask.
@@ -144,6 +149,8 @@ Workflow: the commits into pull requests
    - `robot_running` (exit 4): a Safe Push runs on the branch, or on a branch built on it that lands it; a push
      would fail it at the end. Wait until it merges, or, once approved, --restart-running cancels it, pushes and
      restarts it on the pushed commit (`restarted`).
+   - `parked` (exit 4): a named branch is parked, or built on a parked one; with --all or --with-children a parked
+     branch is only left out, named in `skipped` with `code: parked`. Tell the user, never unpark it.
    - `landed` (exit 4): merged Safe Pushes landed all of every branch asked for (`landed_by` in `bd status`):
      nothing of them is left to push until they are archived. With others to push, `bd push` only leaves a landed
      one out (with `--with-children` its children too), named in `skipped` with who landed it; tell the user. A
@@ -441,6 +448,8 @@ worktrees work on one branch, run `bd help worktrees` first.
   its side branches included, in one robot.
 - A branch a merged Safe Push landed says so in `bd status` (`landed_by`) until `bd update`: only its `after` commits
   are left to push or land, and with none `bd push` leaves it out (`skipped`) and `bd safe-push` refuses it (`landed`).
+- A branch `parked` in `bd status` stays local until the user unparks it: `bd push` and `bd safe-push` refuse it
+  (`parked`). Never push or unpark it on your own.
 - `bd check --fix` prints a line per trial on stderr and stops at `--max-trials` (12) or `--time-budget` (180 s): a
   `search: budget` answer is the best plan so far. A commit prefixed `(parent/leaf)` stacks the existing group `leaf`
   on `parent` (`reparented` in `bd pick`); two parents of one group name the `bd restack` that keeps one.

@@ -34,6 +34,7 @@ use git_ops::rewrite_guard::find_operation_in_progress;
 use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs, parse_subject};
+use history_rewrite::parked::drop_integrated_parked;
 use history_rewrite::snapshot::read_grouping_inputs_with;
 use history_rewrite::stack::{PendingDetection, StackForest, describe_block, describe_problem, empty_parent_states_listed, place_branches};
 use history_rewrite::stack_parents::{drop_integrated_stack_parents, integrated_children};
@@ -280,6 +281,9 @@ struct PreparedSync {
   /// With stacked branches on, the children of the stack parents that no branch on this HEAD reaches: the detection of
   /// the archived branches drops the lines of those that are integrated
   idle_stack_parents: Vec<String>,
+  /// The parked branches that group no commit on this HEAD: the detection of the archived branches drops the lines of
+  /// those that are integrated
+  idle_parked: Vec<String>,
   /// The stack branches: the stacks that fork, and the listed stack branches the sync keeps or deletes
   stack_branches: StackBranchSync,
   /// The update check, started once the baseline is known; sends `BaselineStatus` whenever it is done
@@ -455,6 +459,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   };
 
   let grouped = prepare_branches_for_ui(&branches, &branch_emails, stacks.as_ref(), &description_titles);
+  let idle_parked: Vec<String> = grouping.parked.entries.keys().filter(|name| !branches.contains_key(*name)).cloned().collect();
   let report = SyncReport {
     baseline: baseline_branch.clone(),
     baseline_commit: facts.baseline_commit.clone(),
@@ -476,6 +481,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     stacks: stacks.is_some(),
     issue_groups: grouping.issue_groups.entries,
     stack_parents: if grouping.stacks { grouping.stack_parents.entries } else { BTreeMap::new() },
+    parked: grouping.parked.entries,
     stack_branches: stack_branches.reported_roots(),
   })?;
 
@@ -498,6 +504,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     remote_tips,
     stacks,
     idle_stack_parents,
+    idle_parked,
     stack_branches,
     update_check,
   })
@@ -875,6 +882,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     remote_tips,
     stacks,
     idle_stack_parents,
+    idle_parked,
     stack_branches,
     update_check,
   } = task
@@ -939,9 +947,11 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       progress,
       &detection_permits,
     )?;
-    // an integrated branch stacks nothing anywhere any more
+    // an integrated branch stacks nothing anywhere any more, and is parked nowhere
     let integrated = integrated_children(&idle_stack_parents, &reported, branch_prefix);
     drop_integrated_stack_parents(git_executor, repository_path, &integrated);
+    let integrated = integrated_children(&idle_parked, &reported, branch_prefix);
+    drop_integrated_parked(git_executor, repository_path, &integrated);
     anyhow::Ok(())
   });
 

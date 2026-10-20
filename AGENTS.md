@@ -285,6 +285,10 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
     HEAD, with CAS on every ref it moves; a sync only reads them, except that it drops the stack parent of a branch whose
     archived branch is integrated (one CAS write, best effort, `drop_integrated_stack_parents`)
     ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
+  - `refs/branch-deck/parked` (`parked.rs`, a ref of its own too): park and unpark under the repository lock with CAS,
+    a rename in its regroup transaction; a sync only drops the line of a branch whose archived branch is integrated
+    (`drop_integrated_parked`). It decides no group: only the pushes leave a parked branch out
+    ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
   - `refs/branch-deck/conflict/<sha256 of the branch's full name>` (`conflict_chain.rs`): only a sync, in one CAS
     transaction after the branches, only when one changes; a failed move fails no sync
     ([Virtual branch sync](docs/design/git-operations.md#virtual-branch-sync)).
@@ -484,6 +488,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Move to a branch (drag and drop, menus, keys) | `branch/move-commits` | `crates/history-rewrite/src/move_plan.rs` |
 | Stacked branches, the stack island, the whole stack | `branch/stacked-branches`, `branch/stack-island`, `branch/whole-stack`, `branch/branch-row` | `src/stores/stack-view.ts`, `src/lib/git/stack-push.ts`, `crates/sync-core/src/stack_branch.rs` |
 | Stack parents (`bd restack`, `bd unstack`) | `branch/stack-parents` | `crates/history-rewrite/src/stack_parents.rs` |
+| Parked branches: kept local, never pushed, not Your Move (`bd park`, `bd unpark`) | `branch/parked-branches` | `crates/history-rewrite/src/parked.rs`, `crates/sync-core/src/parked.rs` |
 | Activity log, its window | `repository/activity` | `src/stores/activity.ts`, `src/pages/ActivityPage.tsx`, `src/lib/activity-window-link.ts` |
 | Commit files, diffs, the commit review (`D`), the tree-sitter highlighting | `commit/commit-files`, `commit/commit-review` ([Diff View](docs/design/diff-view.md)) | `crates/file-diffs/`, `crates/code-symbols/src/highlight/`, `src/components/diff/` |
 | Go to Declaration and Find Usages in a review (⌘-click, ⌘B, ⌥F7, Back), outside it through accio | `commit/symbol-navigation` | `crates/code-symbols/src/navigate.rs`, `crates/file-diffs/src/declarations.rs`, `crates/file-diffs/src/usages.rs`, `crates/file-diffs/src/accio.rs`, `src/hooks/useSymbolNavigation.ts`, `src/components/diff/DeclarationFileView.tsx` |

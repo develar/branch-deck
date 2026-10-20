@@ -4,6 +4,7 @@
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::issue_groups::ISSUE_GROUPS_REF;
+use history_rewrite::parked::PARKED_REF;
 use history_rewrite::stack_parents::STACK_PARENTS_REF;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
@@ -16,7 +17,7 @@ use tracing::instrument;
 ///   the virtual branches of the prefix, which the sync writes itself;
 /// - the `master` and `main` of every remote and the upstream of HEAD's branch (the baseline, moved by a fetch
 ///   elsewhere), and the remote virtual branches of the prefix (a push from elsewhere): their remote status;
-/// - the issue groups and the stack parents;
+/// - the issue groups, the stack parents and the parked branches;
 /// - the size and the time of `config` and `config.worktree` (descriptions, `branchdeck.stacks`) and of `.idea/vcs.xml`
 ///   (issue links).
 ///
@@ -40,6 +41,7 @@ pub fn sync_inputs_fingerprint(git_executor: &GitCommandExecutor, repository_pat
       &remote_virtual,
       ISSUE_GROUPS_REF,
       STACK_PARENTS_REF,
+      PARKED_REF,
     ],
     repository_path,
   )?;

@@ -7,6 +7,7 @@ use crate::install::InstallOutput;
 use crate::lease_command::{LeaseAdoptOutput, LeaseCleanOutput, LeaseGetOutput, LeaseReturnOutput, LeaseStatusOutput};
 use crate::move_hunk_command::MoveHunkOutput;
 use crate::output::SchemaVersion;
+use crate::park_command::ParkOutput;
 use crate::pick_command::PickOutput;
 use crate::push_command::PushOutput;
 use crate::request_review_command::RequestReviewOutput;
@@ -49,6 +50,7 @@ pub fn schema_output() -> SchemaOutput {
       ("lease_return".to_string(), schema_for!(LeaseReturnOutput)),
       ("lease_status".to_string(), schema_for!(LeaseStatusOutput)),
       ("move_hunk".to_string(), schema_for!(MoveHunkOutput)),
+      ("park".to_string(), schema_for!(ParkOutput)),
       ("pick".to_string(), schema_for!(PickOutput)),
       ("push".to_string(), schema_for!(PushOutput)),
       ("rewrite".to_string(), schema_for!(RewriteOutput)),

@@ -135,6 +135,7 @@ fn move_hunk_output(context: &RepoContext, dry_run: bool, result: &MoveHunkResul
       head: Some((result.previous_head.clone(), result.new_head.clone())),
       issue_groups: None,
       stack_parents: None,
+      parked: None,
     }
     .to_string()
   });

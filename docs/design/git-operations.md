@@ -433,7 +433,31 @@ messages back.
   write that loses the race is skipped and tried at the next sync. A newer archive that is not integrated, such as a
   branch of another worktree that this sync archived, keeps the line. So that such a drop does not break the undo of
   a regroup whose toast is still open, an undo whose `S2` is followed only by drops (one `log`) writes the map of `S1`
-  without the dropped children on top of them (`undo_over_drops`), in the undo's transaction.
+  without the dropped children on top of them (`undo_over_drops`, for any `LineStore` with its drop message), in the
+  undo's transaction.
+
+**Parked branches.** The branches the user keeps local live in `refs/branch-deck/parked`
+([Parked Branches](../../spec/branch/parked-branches.spec.md)), the third `LineStore` (`PARKED`, `parked.rs`): one file
+`parked` of sorted `branch<TAB>note` lines, the note one line, possibly empty. It decides no group: a sync builds a
+parked branch as any other, and only `bd push`, `bd safe-push` and the app's push surfaces leave it out, and a branch
+built on it, which carries its commits.
+- It is read in the same `cat-file --batch` as the other two maps (`GroupingInputs.parked`), so the stack setting and
+  the three maps still cost two processes, and a sync's budget is unchanged. The sync sends the whole map in
+  `BranchesGrouped` (`parked`), the lines of branches without commits here too.
+- Park and unpark change no commit: `park_core` takes the repository lock, reads the grouping of the commits ahead
+  (the branch must group one), then writes the store with one `fast-import` and one `update-ref --stdin` with CAS on
+  the commit it read (`write_store_updates`); a ref that moved is `parked_moved`. `unpark_core` reads only the store
+  (one `cat-file --batch`) and drops a line also of a branch without commits here. Neither has an undo token: the
+  other one is the undo.
+- A rename carries the line: the parked `old` becomes the parked `new` with its note, in the transaction of the rename
+  (a third store of `regroup_with`; a parked `new`, a merge, keeps its own note). The undo token gets the part
+  `parked:P1..P2` after `stacks:`; a failed transaction names the ref that moved in the order HEAD, issue groups,
+  stack parents, parked branches (`parked_moved`). A merge into another branch by a move keeps the line of the
+  branch moved from: it may park the branch of another worktree.
+- A sync drops the line of a parked branch without commits here whose newest archived branch is integrated, as the
+  stack parents (`drop_integrated_parked`, its own drop message, best effort, no lock), and an undo of a rename passes
+  over those drops. Every other idle line stays (`idle_parked` of `bd status`): an issue key that groups again is
+  parked again.
 
 **Repository lock.** History rewrites take an exclusive `flock` on `$GIT_COMMON_DIR/branch-deck.lock` (all worktrees
 share it), waiting up to 10 s for another holder and then failing with `locked`. The in-process mutexes don't cover
@@ -476,7 +500,7 @@ A failed description write stops the later ones and skips step 4. The undo moves
 the descriptions or the virtual branches; the output lists the texts the descriptions replaced.
 
 Code: `crates/history-rewrite/src/regroup.rs`, `crates/history-rewrite/src/snapshot.rs`, `crates/history-rewrite/src/move_commits.rs`,
-`crates/history-rewrite/src/issue_groups.rs`, `crates/history-rewrite/src/repository_lock.rs`.
+`crates/history-rewrite/src/issue_groups.rs`, `crates/history-rewrite/src/parked.rs`, `crates/history-rewrite/src/repository_lock.rs`.
 
 #### Amend
 
@@ -1508,8 +1532,8 @@ a `master` or `main`).
    branches without the virtual branches of the prefix (`--exclude=refs/heads/<prefix>/`, which the sync writes
    itself), the `master` and `main` of every remote (the baseline a fetch moves), the remote virtual branches of the
    prefix (`refs/remotes/*/<prefix>/virtual/**`, a push from elsewhere; `**`, as a glob matches the whole name and `*`
-   no slash) and the issue groups and the stack parents (not the rest of `refs/branch-deck/`: a review fetch writes
-   there). `%(HEAD)` marks the branch HEAD is on, with its upstream, which `@{u}` makes the baseline.
+   no slash) and the issue groups, the stack parents and the parked branches (not the rest of `refs/branch-deck/`: a
+   review fetch writes there). `%(HEAD)` marks the branch HEAD is on, with its upstream, which `@{u}` makes the baseline.
 3. Only when that upstream is not in the listing (`origin/develop`): `for-each-ref --format=%(objectname) <upstream>`,
    so a fetch of it is a change too.
 4. The size and the modification time of `config`, `config.worktree` (descriptions, `branchdeck.stacks`, the
@@ -2113,7 +2137,9 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    built on it, which lands it, or on the stack branch of its stack; an ancestor such a robot lands stays out of the
    push. A branch a merged Safe Push landed whole is refused as `landed`; with `--with-children` it is only left out,
    and so is the stack branch of a stack every branch of which landed, the push refused only when nothing else is
-   left. `--restart-running` cancels the
+   left. A parked branch, or one built on a parked branch (`sync_core::parked::parked_state` on the report's grouping),
+   is refused as `parked` when named; with `--all` or `--with-children` it is only left out (`skipped`, `code:
+   parked`), and so is the stack branch of a stack with a parked member. `--restart-running` cancels the
    robot of a named branch over HTTP before the push and restarts it after it, as the app's restart that pushes first does.
 2. One `git push --porcelain --atomic --force-with-lease=refs/heads/<b>:<lease>… <remote> <tip>:refs/heads/<b>…`
    through `sync_core::push::push_leased`, the one leased push of the app's push too (below; `push_lease::push_refs`
@@ -2148,7 +2174,9 @@ lease), so its git side adds only reads before the push, all under the repositor
 nothing after its sync and releases the lock then: its trial builds and the questions to Patronus and GitHub keep no
 other `bd` writer waiting. A stacked
 branch lands with its ancestors in one robot ([Landing](landing.md)): the push takes the ancestors with work for the
-remote along, and the robot starts on the branch's virtual branch, which carries their commits (`lands`).
+remote along, and the robot starts on the branch's virtual branch, which carries their commits (`lands`). A parked
+branch, one built on a parked branch and a whole stack with a parked member are refused as `parked` right after the
+sync, before anything is asked of Patronus.
 
 0. Before the lock, the fetch of the target for the target conflict check (below, "Target conflict check"): a fetch
    never runs under the lock. `--create-pull-request` starts no robot and fetches nothing.

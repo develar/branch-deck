@@ -108,6 +108,10 @@ pub enum SyncEvent {
     /// stacked branches off
     #[cfg_attr(feature = "specta", specta(optional))]
     stack_parents: BTreeMap<String, String>,
+    /// Branch -> note: the parked branches (`refs/branch-deck/parked`), kept local and never pushed; also the lines of
+    /// branches that group no commit on this HEAD
+    #[cfg_attr(feature = "specta", specta(optional))]
+    parked: BTreeMap<String, String>,
     /// The roots of the stack branches this sync reports, each with one `StackBranchUpdate` later: the stacks that fork
     /// and the stack branches kept for their remote branch; any other stack branch is gone
     #[cfg_attr(feature = "specta", specta(optional))]

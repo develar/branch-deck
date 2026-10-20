@@ -44,12 +44,16 @@ async fn changes_with_what_a_sync_reads_and_not_with_what_it_writes() -> anyhow:
   let pushed = fingerprint(&executor, &repo);
   assert_ne!(pushed, fetched);
 
-  // `bd describe` writes the config; the stack parents are a ref of their own
+  // `bd describe` writes the config; the stack parents and the parked branches are refs of their own
   git(&executor, &repo, &["config", "branch.test/virtual/auth.description", "Login and logout"]);
   let described = fingerprint(&executor, &repo);
   assert_ne!(described, pushed);
   git(&executor, &repo, &["update-ref", "refs/branch-deck/stack-parents", &head]);
-  assert_ne!(fingerprint(&executor, &repo), described);
+  let stacked = fingerprint(&executor, &repo);
+  assert_ne!(stacked, described);
+  // a park in `bd` syncs the window on its next focus
+  git(&executor, &repo, &["update-ref", "refs/branch-deck/parked", &head]);
+  assert_ne!(fingerprint(&executor, &repo), stacked);
 
   // another prefix reads other branches
   assert_ne!(sync_inputs_fingerprint(&executor, repo.path().to_str().unwrap(), "other")?, fingerprint(&executor, &repo));

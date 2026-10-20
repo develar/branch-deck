@@ -73,10 +73,12 @@ pub struct GroupingInputs {
   pub issue_groups: StoreLines,
   /// Child -> parent (`stack_parents::STACK_PARENTS`); read with stacked branches off too, and not used then
   pub stack_parents: StoreLines,
+  /// Branch -> note (`parked::PARKED`): read with the other maps, decides no group
+  pub parked: StoreLines,
 }
 
 impl GroupingInputs {
-  /// Without issue groups and stack parents
+  /// Without issue groups, stack parents and parked branches
   pub fn with_stacks(stacks: bool) -> Self {
     Self { stacks, ..Self::default() }
   }

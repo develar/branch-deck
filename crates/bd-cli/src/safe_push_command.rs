@@ -48,6 +48,7 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_core::check::{CheckSession, StackIndependence};
+use sync_core::parked::parked_state;
 use sync_core::patronus::{SpaceRepository, target_branch_of};
 use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
 use sync_core::patronus_start::{
@@ -940,6 +941,22 @@ fn plan(
       ));
     }
     to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
+  }
+  // a parked branch stays local, and so does what carries its commits: a branch built on it, the whole stack
+  let report = &synced.report;
+  let parked = match subject {
+    Subject::Branch(name) => parked_state(&report.branches, &report.grouping.parked.entries, name).map(|parked| parked.reason(name)),
+    Subject::Stack(update) => update
+      .members
+      .iter()
+      .find_map(|member| parked_state(&report.branches, &report.grouping.parked.entries, member).map(|parked| parked.reason(member)))
+      .map(|reason| format!("the whole {} stack holds what is parked: {reason}; land the stack in pieces", update.root)),
+  };
+  if let Some(reason) = parked {
+    return Err(CliError::new(
+      ErrorCode::Parked,
+      format!("Nothing was pushed or started: {reason}; it stays local until the user unparks it"),
+    ));
   }
   // the Space repository, the target and the GitHub repository from the push URL of origin and what the sync read
   let space = context

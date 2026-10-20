@@ -1,8 +1,8 @@
 //! The rewrites of the checked out branch and what they read, without the sync, GitHub or Patronus: the grouping of
-//! the commits ahead of the baseline, the stores of the issue groups and the stack parents, the repository lock, and
-//! one core per rewrite (`*_core(params, options)`: the lock, the expected HEAD and the order of the git steps). The
-//! app and `bd` call these cores through sync-core or directly, and run no git of their own (AGENTS.md, "Adding a git
-//! operation").
+//! the commits ahead of the baseline, the stores of the issue groups, the stack parents and the parked branches, the
+//! repository lock, and one core per rewrite (`*_core(params, options)`: the lock, the expected HEAD and the order of
+//! the git steps). The app and `bd` call these cores through sync-core or directly, and run no git of their own
+//! (AGENTS.md, "Adding a git operation").
 //!
 //! What a rewrite reads:
 //! - `baseline`: `detect_baseline_branch`, the baseline outside a sync
@@ -15,6 +15,7 @@
 //! - `store_lines`: `LineStore`, a map of `key<TAB>value` lines in a ref of its own
 //! - `issue_groups`: `ISSUE_GROUPS`, issue key -> branch name
 //! - `stack_parents`: `STACK_PARENTS`, branch -> stack parent
+//! - `parked`: `PARKED`, branch -> note: the branches kept local, never pushed; park and unpark
 //!
 //! Rewrites, each under the repository lock its core takes:
 //! - `repository_lock`: `$GIT_COMMON_DIR/branch-deck.lock`, `RewriteOptions` and `ensure_expected_head`
@@ -35,6 +36,7 @@ mod fixup_targets;
 pub mod issue_groups;
 pub mod move_commits;
 pub mod move_plan;
+pub mod parked;
 pub mod regroup;
 pub mod repository_lock;
 pub mod reword;

@@ -12,6 +12,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
 use sync_core::grouping::{BranchGrouping, group_commits_ahead_of_baseline_with};
+use sync_core::parked::parked_state;
 use sync_core::stack_branch::read_stack_branches;
 use sync_types::stack::{BlockReason, BranchStack, ParentSource, ParentState};
 use sync_types::{BranchOrigin, GroupedBranchInfo};
@@ -85,6 +86,21 @@ pub struct StatusOutput {
   /// own parent, a child listed twice
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub stack_parent_problems: Vec<StoreLine>,
+  /// The parked branches (`refs/branch-deck/parked`) that group no commit ahead of the baseline on this branch. The map is
+  /// shared by every branch and worktree, so they may park a branch of another one; a sync drops the line of a branch
+  /// once it is integrated, `bd unpark` drops any
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub idle_parked: Vec<String>,
+}
+
+/// Why a branch is parked: kept local, `bd push` and `bd safe-push` refuse it until the user unparks it
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ParkedSummary {
+  /// Why, as the user wrote it; empty without a note
+  pub note: String,
+  /// The parked branch it is built on, whose commits it carries; omitted when its own line parks it
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub with: Option<String>,
 }
 
 /// A line of a store that is not used, and why
@@ -123,6 +139,8 @@ pub struct StatusBrief {
   pub idle_stack_parents: Vec<String>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub stack_parent_problems: Vec<StoreLine>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub idle_parked: Vec<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -146,6 +164,9 @@ pub struct BriefBranch {
   /// The merged Safe Push that landed it, as `bd status` names it (`landed_by`), without the commits
   #[serde(skip_serializing_if = "Option::is_none")]
   pub landed_by: Option<BriefLandedBy>,
+  /// Kept local: never push it
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub parked: Option<ParkedSummary>,
   /// Why it is not built: its parent can't be built on
   #[serde(skip_serializing_if = "Option::is_none")]
   pub blocked_by: Option<StackBlockSummary>,
@@ -227,6 +248,10 @@ pub struct BranchStatus {
   /// only work left. Asked of Patronus on Space with a Space token; omitted otherwise
   #[serde(skip_serializing_if = "Option::is_none")]
   pub landed_by: Option<LandedBySummary>,
+  /// The user parked it (`bd park`), or a branch it is built on: kept local, `bd push` and `bd safe-push` refuse it.
+  /// Never push or unpark it on your own
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub parked: Option<ParkedSummary>,
   /// With --stats
   #[serde(skip_serializing_if = "Option::is_none")]
   pub stats: Option<BranchStats>,
@@ -507,6 +532,10 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
           commit_count: branch.commits.len(),
           stats: stats.remove(&branch.name),
           landed_by: landed.get(&branch.name).map(|landed| LandedBySummary::new(context, landed, &short)),
+          parked: parked_state(&grouping.branches, &grouping.grouping.parked.entries, &branch.name).map(|parked| ParkedSummary {
+            note: parked.note,
+            with: parked.with,
+          }),
           commits: page(&branch.commits, commit_page).map(summary).collect(),
         }
       })
@@ -541,6 +570,14 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
     } else {
       Vec::new()
     },
+    idle_parked: grouping
+      .grouping
+      .parked
+      .entries
+      .keys()
+      .filter(|name| !grouping.branches.iter().any(|branch| &branch.name == *name))
+      .cloned()
+      .collect(),
   })
 }
 
@@ -584,6 +621,7 @@ pub fn status_brief(context: &RepoContext, args: &StatusArgs, environment: &Envi
           whole_stack: landed.whole_stack,
           after: landed.after.len(),
         }),
+        parked: branch.parked,
         blocked_by: branch.blocked_by,
         pr_base_changed: branch.pr_base_changed,
         problems: branch.problems,
@@ -606,5 +644,6 @@ pub fn status_brief(context: &RepoContext, args: &StatusArgs, environment: &Envi
     issue_group_problems: full.issue_group_problems,
     idle_stack_parents: full.idle_stack_parents,
     stack_parent_problems: full.stack_parent_problems,
+    idle_parked: full.idle_parked,
   })
 }

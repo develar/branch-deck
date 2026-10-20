@@ -36,6 +36,7 @@ use commands::fetch_baseline::fetch_baseline;
 use commands::file_diffs::{find_declaration, find_usages, get_blob_syntax, get_blob_texts, get_file_diffs, get_file_merges};
 use commands::github::{GitHubState, cancel_github_sign_in, get_github_auth_status, sign_out_of_github, start_github_sign_in, wait_github_sign_in};
 use commands::move_commits::move_commits_to_branch;
+use commands::parked_branches::{park_branch, unpark_branch};
 use commands::patronus::{
   PatronusState, cancel_patronus_robot, check_target_conflict, get_branch_review_readiness, get_patronus_failing_robots, get_patronus_robot_details, get_patronus_robot_problems,
   get_patronus_robot_status, get_patronus_robots, get_patronus_start_options, get_patronus_target_branch, get_robot_commit_map, get_robot_failure, get_robot_landings,
@@ -160,6 +161,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
     apply_conflict_fix,
     rename_branch,
     restack_branch,
+    park_branch,
+    unpark_branch,
     get_stack_independence,
     undo_regroup,
     add_issue_reference_to_commits,

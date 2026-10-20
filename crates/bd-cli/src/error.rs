@@ -50,6 +50,13 @@ pub enum ErrorCode {
   GroupsMoved,
   /// The stack parents (`refs/branch-deck/stack-parents`) changed since the caller read them; read again and retry
   StacksMoved,
+  /// The parked branches (`refs/branch-deck/parked`) changed since the caller read them; read again and retry
+  ParkedMoved,
+  /// `bd unpark`: the branch is not parked
+  NotParked,
+  /// `bd push` and `bd safe-push`: the branch is parked, or built on a parked branch, or the whole stack holds one: its
+  /// commits stay local until the user unparks it (`bd unpark`, never on an agent's own). Nothing was pushed or started
+  Parked,
   /// The remote branch is not where the lease expects it; bd fetched it, `branches` says what it has now. Not retryable:
   /// a push again (with --force) would drop what the remote has now; show `dropped_commits` to the user first
   LeaseRejected,
@@ -180,8 +187,9 @@ impl ErrorCode {
       | Self::NoLease
       | Self::LeaseMismatch
       | Self::NotASlot
-      | Self::SlotInPool => 2,
-      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::RoundMoved | Self::Locked => 3,
+      | Self::SlotInPool
+      | Self::NotParked => 2,
+      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::RoundMoved | Self::Locked => 3,
       Self::NoBaseline
       | Self::OperationInProgress
       | Self::DetachedHead
@@ -203,6 +211,7 @@ impl ErrorCode {
       | Self::ApprovalsMissing
       | Self::RobotRunning
       | Self::Landed
+      | Self::Parked
       | Self::DanglingReference
       | Self::NotOnSpace
       | Self::NotLoggedIn
@@ -223,7 +232,7 @@ impl ErrorCode {
   pub const fn retryable(self) -> bool {
     matches!(
       self,
-      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::RoundMoved | Self::Locked | Self::NetworkError
+      Self::HeadMoved | Self::GroupsMoved | Self::StacksMoved | Self::ParkedMoved | Self::RoundMoved | Self::Locked | Self::NetworkError
     )
   }
 }

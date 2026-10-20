@@ -435,6 +435,7 @@ fn an_undo_of_the_map_needs_the_written_commit_on_its_previous_one() {
     head: None,
     issue_groups: Some((Some(repo.head()), new.clone())),
     stack_parents: None,
+    parked: None,
   };
   let error = undo(&repo, &forged).unwrap_err();
   assert!(matches!(error, RegroupError::InvalidPlan { .. }), "{error}");

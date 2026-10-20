@@ -138,6 +138,7 @@ fn fold_output(
       head: Some((previous_head.to_string(), new_head.to_string())),
       issue_groups: None,
       stack_parents: None,
+      parked: None,
     }
     .to_string()
   });

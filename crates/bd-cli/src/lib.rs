@@ -20,6 +20,7 @@ pub mod lease_command;
 pub mod move_hunk_command;
 pub mod numstat;
 pub mod output;
+pub mod park_command;
 pub mod pick_command;
 pub mod pull_request_retarget;
 pub mod push_command;
@@ -51,6 +52,7 @@ use crate::install::{InstallArgs, install, skill_command};
 use crate::lease_command::{LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, lease_adopt, lease_clean, lease_get, lease_return, lease_status};
 use crate::move_hunk_command::{MoveHunkArgs, MoveHunkOutput, move_hunk};
 use crate::output::write_json;
+use crate::park_command::{ParkArgs, UnparkArgs, park, unpark};
 use crate::pick_command::{PickArgs, PickOutput, pick};
 use crate::push_command::{PushArgs, push};
 use crate::request_review_command::{RequestReviewArgs, request_review};
@@ -182,6 +184,13 @@ enum Command {
   Robot(RobotArgs),
   /// Print or set the pull request title and body of a branch (`branch.<name>.description`)
   Describe(DescribeArgs),
+  /// Keep a branch local: `bd push` and `bd safe-push` refuse it and the branches built on it, until `bd unpark`
+  ///
+  /// Only when the user asks; --note says why (one line). No rewrite: the store `refs/branch-deck/parked`, shared by
+  /// every worktree
+  Park(ParkArgs),
+  /// Let a parked branch be pushed again; only when the user asks
+  Unpark(UnparkArgs),
   /// The JSON Schema of every output
   Schema,
   /// The version of Branch Deck and of the git it runs, as JSON; also `bd --version`
@@ -317,6 +326,8 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
       .and_then(|output| print(out, &output)),
     Command::Robot(args) => context().and_then(|context| robot(&context, args, environment)).and_then(|output| print(out, &output)),
     Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| print(out, &output)),
+    Command::Park(args) => context().and_then(|context| park(&context, args)).and_then(|output| print(out, &output)),
+    Command::Unpark(args) => context().and_then(|context| unpark(&context, args)).and_then(|output| print(out, &output)),
     Command::Schema => print(out, &schema_output()),
     Command::Version => print(out, &version(environment)),
     Command::Install(args) => install(environment, args).and_then(|output| print(out, &output)),
@@ -395,6 +406,8 @@ mod lease_clean_test;
 mod lease_test;
 #[cfg(test)]
 mod move_hunk_test;
+#[cfg(test)]
+mod park_test;
 #[cfg(test)]
 mod pick_test;
 #[cfg(test)]

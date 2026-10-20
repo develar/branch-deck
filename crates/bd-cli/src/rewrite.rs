@@ -383,7 +383,7 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
     return Err(CliError::new(
       ErrorCode::InvalidArguments,
       format!(
-        "{:?} is not an undo token (<previous head>..<new head>, groups:<previous>..<new>, stacks:<previous>..<new>, or several joined by + in this \
+        "{:?} is not an undo token (<previous head>..<new head>, groups:<previous>..<new>, stacks:<previous>..<new>, parked:<previous>..<new>, or several joined by + in this \
          order; update:… and pick:… as bd update and bd pick printed them)",
         args.token
       ),
@@ -395,7 +395,7 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
       // the token names no write of the issue groups or the stack parents: a wrong argument, not a wrong plan
       ErrorCode::InvalidPlan => ErrorCode::InvalidArguments,
       // a ref moved on since the rewrite: the same token can never succeed, as for `update:` and `pick:`
-      ErrorCode::HeadMoved | ErrorCode::GroupsMoved | ErrorCode::StacksMoved => ErrorCode::UndoStale,
+      ErrorCode::HeadMoved | ErrorCode::GroupsMoved | ErrorCode::StacksMoved | ErrorCode::ParkedMoved => ErrorCode::UndoStale,
       code => code,
     };
     error
@@ -438,6 +438,7 @@ pub fn regroup_error(error: RegroupError) -> CliError {
     RegroupError::HeadMoved(_) => ErrorCode::HeadMoved,
     RegroupError::GroupsMoved(_) => ErrorCode::GroupsMoved,
     RegroupError::StacksMoved(_) => ErrorCode::StacksMoved,
+    RegroupError::ParkedMoved(_) => ErrorCode::ParkedMoved,
     RegroupError::Locked(_) => ErrorCode::Locked,
     RegroupError::OperationInProgress(_) => ErrorCode::OperationInProgress,
     RegroupError::DetachedHead(_) => ErrorCode::DetachedHead,

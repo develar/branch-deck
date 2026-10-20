@@ -1269,7 +1269,7 @@ pub fn apply_conflict_fix_core(git_executor: &GitCommandExecutor, params: &Apply
   });
   let outcome = match outcome {
     Ok(outcome) => outcome,
-    Err(RegroupError::HeadMoved(_) | RegroupError::GroupsMoved(_) | RegroupError::StacksMoved(_)) => return Ok(AppliedConflictFix::Stale),
+    Err(RegroupError::HeadMoved(_) | RegroupError::GroupsMoved(_) | RegroupError::StacksMoved(_) | RegroupError::ParkedMoved(_)) => return Ok(AppliedConflictFix::Stale),
     Err(RegroupError::Other(error)) if error.is::<FixStale>() => return Ok(AppliedConflictFix::Stale),
     Err(error) => return Err(error.into()),
   };

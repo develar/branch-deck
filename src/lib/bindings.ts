@@ -300,6 +300,13 @@ export const commands = {
 	/**  Stacks a branch on another one, or makes it a root (`parent: null`), in one history rewrite. */
 	restackBranch: (params: RestackBranchParams) => typedError<MoveCommitsResult, CommandError>(__TAURI_INVOKE("restack_branch", { params })),
 	/**
+	 *  Parks a branch with a note, or changes the note of a parked one: kept local, never pushed, until unparked. No
+	 *  rewrite: the store `refs/branch-deck/parked`, under the repository lock.
+	 */
+	parkBranch: (params: ParkBranchParams) => typedError<ParkResult, CommandError>(__TAURI_INVOKE("park_branch", { params })),
+	/**  Unparks a branch: it can be pushed and landed again. */
+	unparkBranch: (params: UnparkBranchParams) => typedError<ParkResult, CommandError>(__TAURI_INVOKE("unpark_branch", { params })),
+	/**
 	 *  Whether a stacked branch builds on the baseline without its parent: a trial build of it as a root, objects only,
 	 *  through the object cache of the repository.
 	 */
@@ -1865,6 +1872,25 @@ export type ParentState =
 /**  No commit is grouped into the parent */
 "Missing";
 
+export type ParkBranchParams = {
+	repositoryPath: string,
+	/**  The branch (a leaf with stacked branches on) */
+	branchName: string,
+	/**  Why it is parked, one line; empty for none. Parking a parked branch changes its note */
+	note: string,
+};
+
+/**  What a park or an unpark did */
+export type ParkResult = {
+	branchName: string,
+	/**  The note afterwards; `None` when the branch is not parked any more */
+	note: string | null,
+	/**  The note before; `None` when the branch was not parked */
+	previousNote: string | null,
+	/**  Whether the store changed */
+	changed: boolean,
+};
+
 /**  Whether Patronus can be asked for the repository */
 export type PatronusAvailability = { status: "available" } | 
 /**  The push remote is not a Space repository (`git.jetbrains.team`) */
@@ -3220,6 +3246,11 @@ export type SyncEvent =
 	 */
 	stackParents?: { [key in string]: string },
 	/**
+	 *  Branch -> note: the parked branches (`refs/branch-deck/parked`), kept local and never pushed; also the lines of
+	 *  branches that group no commit on this HEAD
+	 */
+	parked?: { [key in string]: string },
+	/**
 	 *  The roots of the stack branches this sync reports, each with one `StackBranchUpdate` later: the stacks that fork
 	 *  and the stack branches kept for their remote branch; any other stack branch is gone
 	 */
@@ -3481,6 +3512,11 @@ export type UnknownReadinessReason =
 "approvalsNotEvaluated" | 
 /**  The branch has too many commits to check, as in the IDE; the robot checks them anyway */
 "skipped";
+
+export type UnparkBranchParams = {
+	repositoryPath: string,
+	branchName: string,
+};
 
 /**  The result of checking the branch against its upstream */
 export type UpdateCheck = {

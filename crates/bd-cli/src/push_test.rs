@@ -278,6 +278,49 @@ fn all_needs_yes_and_unsynced_branches_are_refused() {
   assert!(output["error"]["message"].as_str().unwrap().contains("c is not synced"), "{output}");
 }
 
+/// A parked branch stays local: `--all` and `--with-children` leave it out (`skipped`), and the branches built on it, which
+/// carry its commits; a named one is refused
+#[test_log::test]
+fn a_parked_branch_and_what_is_built_on_it_are_never_pushed() {
+  let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login", "(docs) Add docs"]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let (exit_code, output) = run_in(&repo, &["park", "login", "--note", "IJPL-1"]);
+  assert_eq!(exit_code, 0, "{output}");
+
+  for args in [&["push", "login"][..], &["push", "login", "--alone"]] {
+    let (exit_code, output) = run_in(&repo, args);
+    assert_error(&output, exit_code, (4, "parked"));
+    assert!(output["error"]["message"].as_str().unwrap().contains("login is parked: IJPL-1"), "{output}");
+  }
+  assert_eq!(remote_tip(&remote, "test-user/virtual/login"), "");
+
+  let (exit_code, output) = run_in(&repo, &["push", "auth", "--with-children"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let names: Vec<&Value> = output["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
+  assert_eq!(names, [&json!("auth")]);
+  assert_eq!(output["skipped"], json!([{"name": "login", "code": "parked", "message": "login is parked: IJPL-1"}]));
+  let (_, schema) = run_in(&repo, &["schema"]);
+  assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
+
+  // a parked root keeps its child local too
+  run_in(&repo, &["unpark", "login"]);
+  run_in(&repo, &["park", "auth"]);
+  let (exit_code, output) = run_in(&repo, &["push", "login"]);
+  assert_error(&output, exit_code, (4, "parked"));
+  assert!(output["error"]["message"].as_str().unwrap().contains("login is built on parked auth"), "{output}");
+  let (exit_code, output) = run_in(&repo, &["push", "--all", "--yes"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let names: Vec<&Value> = output["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
+  assert_eq!(names, [&json!("docs")]);
+  let skipped: Vec<&Value> = output["skipped"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
+  assert_eq!(skipped, [&json!("auth"), &json!("login")]);
+
+  // nothing but parked branches left: refused
+  run_in(&repo, &["park", "docs"]);
+  let (exit_code, output) = run_in(&repo, &["push", "--all", "--yes"]);
+  assert_error(&output, exit_code, (4, "parked"));
+}
+
 /// The file and the content of the commit `push_from_elsewhere` makes for `subject`
 fn their_change(subject: &str) -> (String, String) {
   (format!("{}.txt", subject.to_lowercase().replace(' ', "-")), format!("{subject}\n"))

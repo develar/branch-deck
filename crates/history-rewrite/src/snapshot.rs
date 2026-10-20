@@ -4,6 +4,7 @@
 use crate::baseline::{NoBaseline, detect_baseline_branch};
 use crate::commit_grouper::{CommitGrouper, GroupingInputs};
 use crate::issue_groups::ISSUE_GROUPS;
+use crate::parked::PARKED;
 use crate::regroup::RegroupError;
 use crate::stack::{StackForest, stacks_enabled};
 use crate::stack_parents::STACK_PARENTS;
@@ -40,7 +41,7 @@ pub struct Snapshot {
   pub head: String,
   /// The checked out branch
   pub branch: String,
-  /// The stack setting, the issue groups and the stack parents
+  /// The stack setting, the issue groups, the stack parents and the parked branches
   pub grouping: GroupingInputs,
   /// The branch the commits are ahead of, e.g. `origin/master`
   pub baseline: String,
@@ -73,8 +74,8 @@ impl Snapshot {
   }
 }
 
-/// The stack setting, the issue groups and the stack parents: what decides the groups besides the subjects. Two git
-/// processes: `git config` and one `cat-file --batch` for both maps
+/// The stack setting, the issue groups and the stack parents: what decides the groups besides the subjects, and the
+/// parked branches. Two git processes: `git config` and one `cat-file --batch` for the three maps
 #[instrument(skip(git_executor))]
 pub fn read_grouping_inputs(git_executor: &GitCommandExecutor, repository_path: &str) -> Result<GroupingInputs> {
   read_grouping_inputs_with(git_executor, repository_path, stacks_enabled(git_executor, repository_path)?)
@@ -82,11 +83,12 @@ pub fn read_grouping_inputs(git_executor: &GitCommandExecutor, repository_path: 
 
 /// `read_grouping_inputs` with the stack setting read already (`ConfigSnapshot::stacks`): one `cat-file --batch`
 pub fn read_grouping_inputs_with(git_executor: &GitCommandExecutor, repository_path: &str, stacks: bool) -> Result<GroupingInputs> {
-  let mut maps = read_line_stores(git_executor, repository_path, &[&ISSUE_GROUPS, &STACK_PARENTS])?.into_iter();
+  let mut maps = read_line_stores(git_executor, repository_path, &[&ISSUE_GROUPS, &STACK_PARENTS, &PARKED])?.into_iter();
   Ok(GroupingInputs {
     stacks,
     issue_groups: maps.next().unwrap_or_default(),
     stack_parents: maps.next().unwrap_or_default(),
+    parked: maps.next().unwrap_or_default(),
   })
 }
 

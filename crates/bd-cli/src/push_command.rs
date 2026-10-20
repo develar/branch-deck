@@ -27,6 +27,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use sync_core::parked::parked_state;
 use sync_core::pull_requests::{GitHubRepository, list_pull_requests, parse_github_repository, resolve_github_repository_with};
 use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, leased_push_refs};
@@ -106,8 +107,9 @@ pub struct PushOutput {
   /// another remote than `origin`, which its remote status compares with
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub stack_warnings: Vec<String>,
-  /// The branches asked for (named, or built on a named one with `--with-children`) that the push left out, the others
-  /// pushed: a merged Safe Push landed all of each, nothing of it is left to push. Tell the user who landed it
+  /// The branches asked for (with `--all`, or built on a named one with `--with-children`; a merged Safe Push landed: a
+  /// named one too) that the push left out, the others pushed: a merged Safe Push landed all of each, nothing of it is
+  /// left to push (`landed`; tell the user who landed it), or the user parked it or a branch it is built on (`parked`)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub skipped: Vec<SkippedBranch>,
 }
@@ -116,12 +118,13 @@ pub struct PushOutput {
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SkippedBranch {
   pub name: String,
-  /// Why: `landed`, the code a push with nothing else left is refused with
+  /// Why: `landed` or `parked`, the code a push with nothing else left is refused with
   pub code: ErrorCode,
-  /// "auth landed in master with the Safe Push of login (<robot>): nothing of it is left to push"
+  /// "auth landed in master with the Safe Push of login (<robot>): nothing of it is left to push", "auth is parked: …"
   pub message: String,
-  /// The merged Safe Push that landed it, as `landed_by` of `bd status`
-  pub landed_by: LandedBySummary,
+  /// The merged Safe Push that landed it, as `landed_by` of `bd status`; omitted for a parked branch
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub landed_by: Option<LandedBySummary>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -352,10 +355,22 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
   // the branches asked for that a merged Safe Push landed whole: left out while the rest has work
   let mut landed: Vec<(&str, &LandedBranch, String)> = Vec::new();
   let mut behind = Vec::new();
+  // the parked branches the push leaves out (`--all`, a child of `--with-children`), and the named ones it refuses
+  let mut parked_skipped: Vec<(&str, String)> = Vec::new();
+  let mut parked_named = Vec::new();
   for name in &selected {
     let Some(branch) = synced.branches.iter().find(|branch| branch.name == *name) else {
       continue;
     };
+    // a parked branch stays local, and so does a branch built on one, which carries its commits
+    if let Some(parked) = parked_state(&report.branches, &report.grouping.parked.entries, name) {
+      if args.branches.iter().any(|named| named == name) {
+        parked_named.push(parked.reason(name));
+      } else if !implicit.contains(*name) {
+        parked_skipped.push((name, parked.reason(name)));
+      }
+      continue;
+    }
     if let Some(hold) = holds.get(name)
       && !restarted.iter().any(|robot| robot.id == hold.robot.id)
     {
@@ -430,6 +445,17 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
         remote: RemoteSummary::new(remote_state, usize::try_from(stack.commit_count).unwrap_or(usize::MAX), &short),
       });
     }
+  }
+  if !parked_named.is_empty() {
+    return Err(CliError::new(
+      ErrorCode::Parked,
+      format!("Nothing was pushed: {}; it stays local until the user unparks it", parked_named.join("; ")),
+    ));
+  }
+  // nothing asked for is left but parked branches
+  if candidates.is_empty() && stacks.is_empty() && held.is_empty() && refusals.is_empty() && landed.is_empty() && !parked_skipped.is_empty() {
+    let reasons: Vec<&str> = parked_skipped.iter().map(|(_, reason)| reason.as_str()).collect();
+    return Err(CliError::new(ErrorCode::Parked, format!("Nothing was pushed: {}", reasons.join("; "))));
   }
   // nothing asked for is left but what merged Safe Pushes landed: the push sends nothing that lands. The named ones
   // say it (with --with-children their children landed too)
@@ -582,8 +608,14 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
       name: name.to_string(),
       code: ErrorCode::Landed,
       message,
-      landed_by: LandedBySummary::new(context, landed, &landed_ids),
+      landed_by: Some(LandedBySummary::new(context, landed, &landed_ids)),
     })
+    .chain(parked_skipped.into_iter().map(|(name, message)| SkippedBranch {
+      name: name.to_string(),
+      code: ErrorCode::Parked,
+      message,
+      landed_by: None,
+    }))
     .collect();
   Ok(PushOutput {
     schema: SchemaVersion,
@@ -623,7 +655,11 @@ fn stack_branches_to_push<'a>(
       continue;
     }
     let landed: Option<Vec<&LandedBranch>> = stack.members.iter().map(|member| holds.get(member).and_then(|hold| hold.landed.as_ref())).collect();
-    if let Some(landed) = landed {
+    // the stack branch holds the commits of every member: a parked one keeps it local
+    let parked = stack.members.iter().find(|member| report.grouping.parked.entries.contains_key(*member));
+    if let Some(parked) = parked {
+      warnings.push(format!("{} was not pushed: it holds parked {parked}; land the stack in pieces", stack.branch_name));
+    } else if let Some(landed) = landed {
       warnings.push(format!(
         "{} was not pushed: {}: nothing of it is left to push",
         stack.branch_name,

@@ -4,8 +4,8 @@
 //! these cores, git-ops directly only for reads that need no lock, and run no git of their own (AGENTS.md, "Adding a
 //! git operation").
 //!
-//! The grouping, the stores of the issue groups and the stack parents, the repository lock and the rewrites that need
-//! no sync (regroup, reword, squash, fold) are the crate `history-rewrite`.
+//! The grouping, the stores of the issue groups, the stack parents and the parked branches, the repository lock and the
+//! rewrites that need no sync (regroup, reword, squash, fold) are the crate `history-rewrite`.
 //!
 //! The sync:
 //! - `sync`: `sync_branches`, the guards, the grouping, one build per branch and the detection of the archived ones
@@ -31,6 +31,7 @@
 //! - `unapply_branch`: the commits of a virtual branch out of HEAD, the branch kept as an unapplied one
 //! - `move_hunk`: the checks of `bd move-hunk` against the commits ahead of the baseline
 //! - `delete_archived_branch`: the delete of an archived branch, with compare-and-swap on its tip
+//! - `parked`: park and unpark a branch (no rewrite: the store `refs/branch-deck/parked`), and whether a branch is parked
 //!
 //! Stores and config:
 //! - `config_snapshot`: `ConfigSnapshot`, the `branchdeck.*` keys and the branch descriptions from one `git config`
@@ -127,6 +128,7 @@ pub mod missing_commits;
 pub mod missing_declarations;
 pub mod module_roots;
 pub mod move_hunk;
+pub mod parked;
 pub mod patronus;
 pub mod patronus_command;
 pub mod patronus_review;
@@ -183,6 +185,8 @@ mod git_setup_test;
 mod issue_groups_test;
 #[cfg(test)]
 mod move_commits_test;
+#[cfg(test)]
+mod parked_test;
 #[cfg(test)]
 mod patronus_command_test;
 #[cfg(test)]

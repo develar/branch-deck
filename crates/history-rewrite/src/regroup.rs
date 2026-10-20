@@ -1,9 +1,9 @@
 //! Regrouping commits: one history rewrite that sets the `(prefix)` of many commits, for a whole plan, a branch rename
 //! or a restack, the issue groups (`issue_groups.rs`) that group commits without a rewrite, and the stack parents
-//! (`stack_parents.rs`) that stack branches without one. The plan is applied in memory to every subject ahead of the
-//! baseline and the result is validated before anything is written; fixups follow their targets; the rewrite only
-//! happens on the HEAD the plan was computed for, and HEAD, the issue groups and the stack parents move in one ref
-//! transaction. Message-only: the trees, the index and the working tree stay as they are
+//! (`stack_parents.rs`) that stack branches without one; a rename carries the line of a parked branch (`parked.rs`). The
+//! plan is applied in memory to every subject ahead of the baseline and the result is validated before anything is
+//! written; fixups follow their targets; the rewrite only happens on the HEAD the plan was computed for, and HEAD, the
+//! issue groups, the stack parents and the parked branches move in one ref transaction. Message-only: the trees, the index and the working tree stay as they are
 //! (docs/design/git-operations.md).
 
 use crate::autosquash::plan_autosquash;
@@ -13,16 +13,17 @@ use crate::commit_ids::{IdMatch, match_commit_id};
 use crate::fixup_targets::check_fixup_targets;
 use crate::issue_groups::{ISSUE_GROUPS, validate_issue_group_name, validate_issue_key, validate_leaf_name};
 use crate::move_commits::{validate_branch_name, with_branch_prefix};
+use crate::parked::{PARKED, PARKED_DROP_MESSAGE};
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, RepositoryLocked, ensure_expected_head, lock_repository};
 use crate::reword::{normalize_message, reword_read_commits_at};
 use crate::snapshot::{Grouped, Snapshot, group_commits};
 use crate::stack::{StackForest, describe_conflicting_parents, stack_path};
-use crate::stack_parents::{STACK_PARENTS, undo_over_drops};
-use crate::store_lines::{LineStore, StoreLineProblem, StoreLines, StoreMoved, format_store_lines, read_store_head};
+use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_DROP_MESSAGE};
+use crate::store_lines::{LineStore, StoreLineProblem, StoreLines, StoreMoved, format_store_lines, read_store_head, undo_over_drops};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::sanitize_branch_name;
 use git_ops::commit_list::Commit;
-use git_ops::commit_writer::{StoreUpdate, write_store_commits, write_store_updates};
+use git_ops::commit_writer::{StoreUpdate, WrittenStore, write_store_commits, write_store_updates};
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::{checked_out_branch, is_object_id, read_head, short_id};
 use git_ops::rewrite_guard::HeadMoved;
@@ -114,6 +115,8 @@ pub struct RegroupOutcome {
   pub issue_groups: Option<MapChange>,
   /// How the stack parents change; `None` when they stay as they are
   pub stack_parents: Option<MapChange>,
+  /// How the parked branches change (a rename carries the line of a parked branch); `None` when they stay as they are
+  pub parked: Option<MapChange>,
   /// Every commit ahead of the baseline, oldest first
   pub commits: Vec<RegroupedCommit>,
   /// How the branches stack afterwards; `None` with stacked branches off
@@ -133,8 +136,8 @@ impl RegroupOutcome {
   }
 }
 
-/// How a regroup changes a line map: the issue groups (issue key -> branch name) or the stack parents (child ->
-/// parent)
+/// How a regroup changes a line map: the issue groups (issue key -> branch name), the stack parents (child -> parent)
+/// or the parked branches (branch -> note)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MapChange {
   /// The commit of the store before; `None` when the ref did not exist
@@ -152,8 +155,8 @@ pub struct MapChange {
 }
 
 /// What `bd undo` moves back, as a regroup printed it: the parts of the refs it moved, joined by `+` in this order:
-/// `H1..H2` for a rewrite, `groups:G1..G2` for the issue groups, `stacks:S1..S2` for the stack parents. A `G1` or `S1` of
-/// zeros stands for a store that did not exist
+/// `H1..H2` for a rewrite, `groups:G1..G2` for the issue groups, `stacks:S1..S2` for the stack parents, `parked:P1..P2`
+/// for the parked branches. A `G1`, `S1` or `P1` of zeros stands for a store that did not exist
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UndoToken {
   /// `(previous head, new head)`
@@ -162,10 +165,13 @@ pub struct UndoToken {
   pub issue_groups: Option<(Option<String>, String)>,
   /// `(previous commit, new commit)` of `STACK_PARENTS_REF`; the previous one is `None` when there was no store
   pub stack_parents: Option<(Option<String>, String)>,
+  /// `(previous commit, new commit)` of `PARKED_REF`; the previous one is `None` when there was no store
+  pub parked: Option<(Option<String>, String)>,
 }
 
 const GROUPS_TOKEN: &str = "groups:";
 const STACKS_TOKEN: &str = "stacks:";
+const PARKED_TOKEN: &str = "parked:";
 
 impl UndoToken {
   /// The token of what a regroup wrote; `None` for a dry run and when nothing changed
@@ -180,8 +186,9 @@ impl UndoToken {
       head,
       issue_groups: written(&outcome.issue_groups),
       stack_parents: written(&outcome.stack_parents),
+      parked: written(&outcome.parked),
     };
-    (token.head.is_some() || token.issue_groups.is_some() || token.stack_parents.is_some()).then_some(token)
+    (token.head.is_some() || token.issue_groups.is_some() || token.stack_parents.is_some() || token.parked.is_some()).then_some(token)
   }
 
   /// A token as `of` prints it: full ids (40 or 64 hex digits), one `..` per pair, each part at most once and in the
@@ -196,8 +203,9 @@ impl UndoToken {
       head: None,
       issue_groups: None,
       stack_parents: None,
+      parked: None,
     };
-    // the index of the last part read: 1 head, 2 issue groups, 3 stack parents
+    // the index of the last part read: 1 head, 2 issue groups, 3 stack parents, 4 parked branches
     let mut last = 0;
     for part in text.split('+') {
       let index = if let Some(rest) = part.strip_prefix(GROUPS_TOKEN) {
@@ -206,6 +214,9 @@ impl UndoToken {
       } else if let Some(rest) = part.strip_prefix(STACKS_TOKEN) {
         token.stack_parents = Some(map(rest)?);
         3
+      } else if let Some(rest) = part.strip_prefix(PARKED_TOKEN) {
+        token.parked = Some(map(rest)?);
+        4
       } else {
         token.head = Some(pair(part)?);
         1
@@ -226,11 +237,11 @@ impl UndoToken {
 
 impl std::fmt::Display for UndoToken {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    let mut parts = Vec::with_capacity(3);
+    let mut parts = Vec::with_capacity(4);
     if let Some((previous, new)) = &self.head {
       parts.push(format!("{previous}..{new}"));
     }
-    let maps = [(GROUPS_TOKEN, &self.issue_groups), (STACKS_TOKEN, &self.stack_parents)];
+    let maps = [(GROUPS_TOKEN, &self.issue_groups), (STACKS_TOKEN, &self.stack_parents), (PARKED_TOKEN, &self.parked)];
     for (name, (previous, new)) in maps.into_iter().filter_map(|(name, pair)| pair.as_ref().map(|pair| (name, pair))) {
       let previous = previous.clone().unwrap_or_else(|| "0".repeat(new.len()));
       parts.push(format!("{name}{previous}..{new}"));
@@ -259,6 +270,9 @@ pub enum RegroupError {
   /// The stack parents changed since they were read
   #[error(transparent)]
   StacksMoved(StoreMoved),
+  /// The parked branches changed since they were read
+  #[error(transparent)]
+  ParkedMoved(StoreMoved),
   #[error(transparent)]
   Locked(RepositoryLocked),
   #[error("{0}")]
@@ -274,10 +288,12 @@ impl RegroupError {
     Self::InvalidPlan { message: message.into(), commits }
   }
 
-  /// `GroupsMoved` or `StacksMoved`, by the store whose ref moved
+  /// `GroupsMoved`, `StacksMoved` or `ParkedMoved`, by the store whose ref moved
   fn store_moved(moved: StoreMoved) -> Self {
     if moved.store_ref == STACK_PARENTS.store_ref {
       Self::StacksMoved(moved)
+    } else if moved.store_ref == PARKED.store_ref {
+      Self::ParkedMoved(moved)
     } else {
       Self::GroupsMoved(moved)
     }
@@ -354,6 +370,10 @@ pub(crate) struct Change {
   pub(crate) stack_parents: Option<BTreeMap<String, String>>,
   /// The children whose line the change sets or removes
   pub(crate) stack_children: BTreeSet<String>,
+  /// Branch -> note afterwards; `None` leaves the parked branches as they are
+  pub(crate) parked: Option<BTreeMap<String, String>>,
+  /// The branches whose line the change sets or removes
+  pub(crate) parked_branches: BTreeSet<String>,
 }
 
 impl From<Assignment> for Change {
@@ -395,7 +415,8 @@ pub fn regroup_planned(
 /// replaced, its children included; the issue groups named `old_leaf` are renamed without a rewrite; an issue branch
 /// named `old_leaf` becomes the issue group `old_leaf -> new_leaf`, also without a rewrite. With stacked branches on,
 /// the stack parents rename `old_leaf` as a child, and as the parent of a child with commits on this HEAD: a child of
-/// another worktree keeps its parent. An existing name merges the branches
+/// another worktree keeps its parent. A parked `old_leaf` parks `new_leaf` with its note (a parked `new_leaf` keeps its
+/// own). An existing name merges the branches
 #[instrument(skip(git_executor))]
 pub fn rename_branch_core(
   git_executor: &GitCommandExecutor,
@@ -454,11 +475,14 @@ pub fn rename_branch_core(
     } else {
       None
     };
+    let parked = renamed_parked(&snapshot.grouping.parked.entries, old_leaf, new_leaf);
     Ok(Change {
       assignment,
       issue_groups,
       stack_children: stack_parents.as_ref().map_or_else(BTreeSet::new, |_| [old_leaf, new_leaf].map(str::to_string).into()),
       stack_parents,
+      parked_branches: parked.as_ref().map_or_else(BTreeSet::new, |_| [old_leaf, new_leaf].map(str::to_string).into()),
+      parked,
       ..Change::default()
     })
   })
@@ -493,6 +517,15 @@ fn renamed_stack_parents(snapshot: &Snapshot, old_leaf: &str, new_leaf: &str) ->
     renamed.insert(child, parent);
   }
   Ok((renamed != *before).then_some(renamed))
+}
+
+/// The parked branches after renaming `old_leaf` to `new_leaf`: the line of `old_leaf` goes to `new_leaf`, unless
+/// `new_leaf` is parked already (a merge keeps its note); `None` when `old_leaf` is not parked
+fn renamed_parked(before: &BTreeMap<String, String>, old_leaf: &str, new_leaf: &str) -> Option<BTreeMap<String, String>> {
+  let mut renamed = before.clone();
+  let note = renamed.remove(old_leaf)?;
+  renamed.entry(new_leaf.to_string()).or_insert(note);
+  Some(renamed)
 }
 
 /// Whether a commit ahead of the baseline is grouped into `branch`
@@ -615,8 +648,8 @@ fn with_stack_parents(snapshot: &Snapshot, mut change: Change, set: BTreeMap<Str
 }
 
 /// Move back what a regroup wrote, as its `UndoToken` names it, in one ref transaction with compare-and-swap: the
-/// checked out branch from the new to the previous head, and the issue groups and the stack parents from the new to the
-/// previous commit (or away, when there was none). Message-only rewrites keep HEAD's tree, so the index and the working
+/// checked out branch from the new to the previous head, and the issue groups, the stack parents and the parked branches
+/// from the new to the previous commit (or away, when there was none). Message-only rewrites keep HEAD's tree, so the index and the working
 /// tree stay valid
 #[instrument(skip(git_executor))]
 pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &str, token: &UndoToken, lock_timeout: Duration) -> Result<(), RegroupError> {
@@ -625,26 +658,30 @@ pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &st
   if let Some(pair) = &token.issue_groups {
     undo_store_write(git_executor, repository_path, &ISSUE_GROUPS, pair, &mut also)?;
   }
-  // the commit of the stack parents that the transaction moves from, and the commit written over the drops of a sync
-  let mut stacks_from = token.stack_parents.as_ref().map(|(_, new)| new.clone());
-  let mut over_drops = None;
-  if let Some(pair) = &token.stack_parents {
-    match undo_store_write(git_executor, repository_path, &STACK_PARENTS, pair, &mut also) {
-      Ok(()) => {}
-      // a sync dropped the lines of integrated branches since: undo the write on top of those drops
-      Err(RegroupError::StacksMoved(StoreMoved { actual: Some(actual), .. }))
-        if let Some(content) = undo_over_drops(git_executor, repository_path, (pair.0.as_deref(), &pair.1), &actual)? =>
-      {
-        let update = STACK_PARENTS.update(Some(&actual), &content);
-        let written = write_store_commits(git_executor, repository_path, std::slice::from_ref(&update.commit), None, None)?;
-        update.add_to(&mut also, &written.ids[0]);
-        written.delete_temp_refs(&mut also);
-        stacks_from = Some(actual);
-        over_drops = Some(written);
-      }
-      Err(error) => return Err(error),
-    }
-  }
+  // the commits written over the drops of a sync, discarded when the transaction fails
+  let mut over_drops = Vec::new();
+  let stacks_from = match &token.stack_parents {
+    Some(pair) => Some(undo_dropped_store_write(
+      git_executor,
+      repository_path,
+      (&STACK_PARENTS, STACK_PARENTS_DROP_MESSAGE),
+      pair,
+      &mut also,
+      &mut over_drops,
+    )?),
+    None => None,
+  };
+  let parked_from = match &token.parked {
+    Some(pair) => Some(undo_dropped_store_write(
+      git_executor,
+      repository_path,
+      (&PARKED, PARKED_DROP_MESSAGE),
+      pair,
+      &mut also,
+      &mut over_drops,
+    )?),
+    None => None,
+  };
   let undone = match &token.head {
     None => also.commit(git_executor, repository_path, "undo").map_err(RegroupError::Other),
     Some((previous_head, new_head)) => {
@@ -661,7 +698,7 @@ pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &st
   };
   // a ref that moved between the checks and the transaction explains the failure
   undone.map_err(|error| {
-    if let Some(written) = &over_drops {
+    for written in &over_drops {
       written.discard(git_executor, repository_path);
     }
     let expected = Expected {
@@ -669,6 +706,7 @@ pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &st
       branch: None,
       issue_groups: token.issue_groups.as_ref().map(|(_, new)| Some(new.as_str())),
       stack_parents: stacks_from.as_deref().map(Some),
+      parked: parked_from.as_deref().map(Some),
     };
     moved_or(git_executor, repository_path, &expected, error)
   })?;
@@ -676,13 +714,42 @@ pub fn undo_regroup_core(git_executor: &GitCommandExecutor, repository_path: &st
     head = token.head.is_some(),
     issue_groups = token.issue_groups.is_some(),
     stack_parents = token.stack_parents.is_some(),
+    parked = token.parked.is_some(),
     "Undid a regroup"
   );
   Ok(())
 }
 
+/// `undo_store_write` of a store that a sync drops lines of (`drop_store_lines`): when only such drops followed the
+/// write, the undo is a new commit on top of them (`undo_over_drops`), written now and moved in `also`. The commit the
+/// transaction moves the store from
+fn undo_dropped_store_write(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  (store, drop_message): (&LineStore, &str),
+  pair: &(Option<String>, String),
+  also: &mut RefTransaction,
+  over_drops: &mut Vec<WrittenStore>,
+) -> Result<String, RegroupError> {
+  match undo_store_write(git_executor, repository_path, store, pair, also) {
+    Ok(()) => Ok(pair.1.clone()),
+    // a sync dropped the lines of integrated branches since: undo the write on top of those drops
+    Err(RegroupError::StacksMoved(StoreMoved { actual: Some(actual), .. }) | RegroupError::ParkedMoved(StoreMoved { actual: Some(actual), .. }))
+      if let Some(content) = undo_over_drops(git_executor, repository_path, store, drop_message, (pair.0.as_deref(), &pair.1), &actual)? =>
+    {
+      let update = store.update(Some(&actual), &content);
+      let written = write_store_commits(git_executor, repository_path, std::slice::from_ref(&update.commit), None, None)?;
+      update.add_to(also, &written.ids[0]);
+      written.delete_temp_refs(also);
+      over_drops.push(written);
+      Ok(actual)
+    }
+    Err(error) => Err(error),
+  }
+}
+
 /// Check that the ref of `store` is at the new commit of `(previous, new)`, a write on the previous one, and add its move
-/// back to `also`; a ref that is elsewhere is `GroupsMoved` or `StacksMoved`
+/// back to `also`; a ref that is elsewhere is `GroupsMoved`, `StacksMoved` or `ParkedMoved`
 fn undo_store_write(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
@@ -758,19 +825,23 @@ fn regroup_accepted(
   let mut outcome = apply_in_memory(&snapshot, change)?;
   outcome.appended = appended;
   accept(&outcome)?;
-  if options.dry_run || (outcome.changed_count() == 0 && outcome.issue_groups.is_none() && outcome.stack_parents.is_none()) {
+  if options.dry_run || (outcome.changed_count() == 0 && outcome.issue_groups.is_none() && outcome.stack_parents.is_none() && outcome.parked.is_none()) {
     return Ok(outcome);
   }
 
   let previous_groups = snapshot.grouping.issue_groups.commit.as_deref();
   let previous_stacks = snapshot.grouping.stack_parents.commit.as_deref();
-  let groups_content = outcome.issue_groups.as_ref().map(|change| format_store_lines(&change.entries, &change.kept_lines));
-  let stacks_content = outcome.stack_parents.as_ref().map(|change| format_store_lines(&change.entries, &change.kept_lines));
+  let previous_parked = snapshot.grouping.parked.commit.as_deref();
+  let content_of = |change: &Option<MapChange>| change.as_ref().map(|change| format_store_lines(&change.entries, &change.kept_lines));
+  let groups_content = content_of(&outcome.issue_groups);
+  let stacks_content = content_of(&outcome.stack_parents);
+  let parked_content = content_of(&outcome.parked);
   let stores: Vec<StoreUpdate<'_>> = groups_content
     .as_deref()
     .map(|content| ISSUE_GROUPS.update(previous_groups, content))
     .into_iter()
     .chain(stacks_content.as_deref().map(|content| STACK_PARENTS.update(previous_stacks, content)))
+    .chain(parked_content.as_deref().map(|content| PARKED.update(previous_parked, content)))
     .collect();
   let written = if outcome.changed_count() > 0 {
     let commits: HashMap<String, Commit> = snapshot.commits.iter().map(|commit| (commit.id.clone(), commit.clone())).collect();
@@ -791,6 +862,7 @@ fn regroup_accepted(
       branch: Some(&snapshot.branch),
       issue_groups: groups_content.is_some().then_some(previous_groups),
       stack_parents: stacks_content.is_some().then_some(previous_stacks),
+      parked: parked_content.is_some().then_some(previous_parked),
     };
     moved_or(git_executor, repository_path, &expected, error.into())
   })?;
@@ -802,7 +874,7 @@ fn regroup_accepted(
   outcome.new_head = recreated.get(&snapshot.head).cloned().unwrap_or_else(|| snapshot.head.clone());
   // the store commits come back in the order of `stores`
   let mut store_commits = store_commits.into_iter();
-  for change in [&mut outcome.issue_groups, &mut outcome.stack_parents].into_iter().flatten() {
+  for change in [&mut outcome.issue_groups, &mut outcome.stack_parents, &mut outcome.parked].into_iter().flatten() {
     change.new_commit = store_commits.next();
   }
   info!(
@@ -810,6 +882,7 @@ fn regroup_accepted(
     new_head = %outcome.new_head,
     issue_groups = outcome.issue_groups.is_some(),
     stack_parents = outcome.stack_parents.is_some(),
+    parked = outcome.parked.is_some(),
     "Regrouped commits"
   );
   Ok(outcome)
@@ -826,10 +899,12 @@ struct Expected<'a> {
   issue_groups: Option<Option<&'a str>>,
   /// The commit of the stack parents, when the write moves them; `Some(None)` when they did not exist
   stack_parents: Option<Option<&'a str>>,
+  /// The commit of the parked branches, when the write moves them; `Some(None)` when they did not exist
+  parked: Option<Option<&'a str>>,
 }
 
 /// A failed write as the ref that moved explains it: HEAD (`HeadMoved`), the issue groups (`GroupsMoved`), the stack
-/// parents (`StacksMoved`), else `error`
+/// parents (`StacksMoved`), the parked branches (`ParkedMoved`), else `error`
 fn moved_or(git_executor: &GitCommandExecutor, repository_path: &str, expected: &Expected<'_>, error: RegroupError) -> RegroupError {
   if let Some(expected_head) = expected.head
     && let Ok(Some((head, _))) = read_head(git_executor, repository_path)
@@ -848,7 +923,10 @@ fn moved_or(git_executor: &GitCommandExecutor, repository_path: &str, expected: 
     let actual = read_store_head(git_executor, repository_path, store.store_ref).ok()?.map(|(commit, _)| commit);
     (actual.as_deref() != expected).then(|| store.moved(expected.map(str::to_string), actual))
   };
-  match moved(&ISSUE_GROUPS, expected.issue_groups).or_else(|| moved(&STACK_PARENTS, expected.stack_parents)) {
+  match moved(&ISSUE_GROUPS, expected.issue_groups)
+    .or_else(|| moved(&STACK_PARENTS, expected.stack_parents))
+    .or_else(|| moved(&PARKED, expected.parked))
+  {
     Some(moved) => RegroupError::store_moved(moved),
     None => error,
   }
@@ -1064,6 +1142,8 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
     ungrouped_keys,
     stack_parents,
     stack_children,
+    parked,
+    parked_branches,
   } = change;
   let mut targets: HashMap<String, Option<String>> = assignment.into_iter().collect();
   let before = &snapshot.grouping;
@@ -1077,6 +1157,11 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
     stack_parents: StoreLines {
       commit: before.stack_parents.commit.clone(),
       entries: stack_parents.clone().unwrap_or_else(|| before.stack_parents.entries.clone()),
+      problems: Vec::new(),
+    },
+    parked: StoreLines {
+      commit: before.parked.commit.clone(),
+      entries: parked.clone().unwrap_or_else(|| before.parked.entries.clone()),
       problems: Vec::new(),
     },
   };
@@ -1185,6 +1270,22 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
   if stack_parents_change.is_none() {
     after.stack_parents = before.stack_parents.clone();
   }
+  let parked_change = if parked.is_none() {
+    None
+  } else {
+    let (change, kept) = map_change(
+      before.parked.commit.as_ref(),
+      &before.parked.entries,
+      &before.parked.problems,
+      &after.parked.entries,
+      &parked_branches,
+    );
+    after.parked.problems = kept;
+    change
+  };
+  if parked_change.is_none() {
+    after.parked = before.parked.clone();
+  }
 
   let forest_before = snapshot.forest.as_ref();
   let mut kept_problems = Vec::new();
@@ -1250,6 +1351,7 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
     grouping: after,
     issue_groups: issue_groups_change,
     stack_parents: stack_parents_change,
+    parked: parked_change,
     commits,
     forest,
     kept_problems,
