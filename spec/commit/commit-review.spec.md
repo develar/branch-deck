@@ -145,9 +145,9 @@ where a dialog would cover it.
 - In Split, the divider between the two sides must drag, as IntelliJ's DiffSplitter, between 15% and 85% of the
   row; a double click makes the sides equal. The share is one setting of every diff view (`splitRatio`), kept, and no
   view changes it by itself.
-  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should drag the divider of the sides of Split, keep its share, and make the sides equal with a double click`) The split must be there in every state of the review: while another
-  commit or filter loads, has no files or cannot be read, the diffs pane says so, and the commits and the header of
-  the files stay where they are, with their focus.
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should drag the divider of the sides of Split, keep its share, and make the sides equal with a double click`)
+- The split must be there in every state of the review: while another commit or filter loads, has no files or cannot be
+  read, the diffs pane says so, and the commits and the header of the files stay where they are, with their focus.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
 - The right pane must show the diffs of all files in the order of the tree, in one virtualized view, each file a card
   as in IntelliJ's combined diff: 10 px apart, a 1-px border, rounded corners, a collapsed file its header alone. Its

@@ -24,6 +24,7 @@
     "lint:typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.e2e.json",
     "lint:frontend": "pnpm run \"/^lint:(js|typecheck)$/\"",
     "lint:cpd": "jscpd",
+    "lint:specs": "node scripts/check-spec-links.mjs",
     "perf:monorepo": "node scripts/perf/monorepo.mjs",
     "perf:diff": "playwright test -c playwright.perf.config.ts diff-review",
     "perf:table": "playwright test -c playwright.perf.config.ts branch-table",

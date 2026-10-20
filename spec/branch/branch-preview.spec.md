@@ -156,8 +156,9 @@ its row.
   does. Its key hints are only the keys
   of the preview (P, O, D, S); an item that opens a form of the row (Rename…, Move to…, Amend Changes…) closes the
   preview first and shows the row, a copy keeps the preview (`toPreviewMenu`).
-  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should offer the menu of the row in the branch preview, and close the preview for a form of the row`) A table of one branch has no `↑ ↓` hint. While
-  pushing, the button shows a spinner instead of the key and the label of the row's push button, "Pushing 45%".
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should offer the menu of the row in the branch preview, and close the preview for a form of the row`)
+  A table of one branch has no `↑ ↓` hint. While pushing, the button shows a spinner instead of the key and the label of
+  the row's push button, "Pushing 45%".
 - The preview is loaded on its first use.
 
 ## Testing / Local Run

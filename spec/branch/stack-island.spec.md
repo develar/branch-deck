@@ -118,8 +118,8 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
 - The header must end with the Actions cell of a branch row, for the whole stack, its push, Safe Push slot and "⋯"
   in the columns of the rows' ([Branch columns](../../docs/design/ui-theme.md#branch-columns)), also while its slot is
   empty: the compact push, the Safe Push slot and "⋯".
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should line up the columns of the table, the island and its header, whatever each card shows`) No filled button: a push is not what lands the
-  stack.
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should line up the columns of the table, the island and its header, whatever each card shows`)
+  No filled button: a push is not what lands the stack.
 - The push is the compact push of a row: "↑ 41", the commits of "Push with Children (7 branches)" of the root, its
   accessible name, as the root's menu names it: the branches of the stack that have work for the remote, each after
   the branch it is built on (`stackChildrenPushOrder`), the landed ones and the ones a running Safe Push holds left

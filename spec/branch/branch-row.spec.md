@@ -390,8 +390,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   A running push keeps its button until it finished, and a blocked branch keeps the
   disabled button with its reason. The focus in the button or its description when it leaves goes to the row, so P and
   Space keep working.
-  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the percent on the push button and git's last line on hover while the push runs`, `should describe a disabled push on hover`) The preview footer keeps the labelled button. A branch with
-  an error or without commits has no push button.
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should show the percent on the push button and git's last line on hover while the push runs`, `should describe a disabled push on hover`)
+  The preview footer keeps the labelled button. A branch with an error or without commits has no push button.
   [@test] ../../src/lib/push-summary.test.ts (`follows the rules of the push button label`)
   [@test] ../../src/hooks/usePushButton.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should force push a branch the remote has commits for, leased on the remote head the row shows`, `should show the percent on the push button and git's last line on hover while the push runs`)

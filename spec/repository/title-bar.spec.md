@@ -200,9 +200,9 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   title bar does there (macOS `AppleActionOnDoubleClick`, GTK's `gtk-titlebar-double-click`: zoom or maximize,
   minimize, nothing; `installTitleBarMouse` takes the second click before Tauri's drag script, which always maximizes).
   The controls in it keep their clicks.
-  [@test] ../../src-tauri/src/title_bar_test.rs (`maps_the_double_click_setting_of_the_system`) Every window has the permissions of the title bar (one
-  capability, `title-bar.json`: the window state, dragging, the double click, the window buttons, the title, the
-  minimum size); a test checks that every sub-window label has it.
+  [@test] ../../src-tauri/src/title_bar_test.rs (`maps_the_double_click_setting_of_the_system`)
+- Every window has the permissions of the title bar (one capability, `title-bar.json`: the window state, dragging, the
+  double click, the window buttons, the title, the minimum size); a test checks that every sub-window label has it.
   [@test] ../../src-tauri/src/title_bar_test.rs (`every_window_gets_the_permissions_of_the_title_bar`)
 - The window-state plugin restores sizes and positions, never the decorations (a saved `decorated` would bring the
   native caption back on Windows) nor the visibility (`finish_title_bar` shows a window once its title bar is set).

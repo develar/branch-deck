@@ -104,6 +104,7 @@ the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the w
 | a Tauri command or a type it passes | `src/lib/bindings.ts`: a debug run of the app writes it (`pnpm tauri dev`, or `target/debug/branch-deck` started in `src-tauri/` for a few seconds); `the_bindings_are_what_the_export_writes` fails on a stale one |
 | frontend | `pnpm lint:frontend`, `pnpm test:unit`, `pnpm e2e`; `pnpm e2e-up` when the HTML changes, its snapshot diff reviewed like code |
 | code anywhere | `pnpm lint:cpd`: fix a clone with a helper, constant or fixture; `// jscpd:ignore-start` / `// jscpd:ignore-end` only for an intentional duplication, with the reason in the comment |
+| a spec, a doc or a test title | `pnpm lint:specs`: every `[@test]` link a line of its own, naming tests that exist |
 | `#[cfg]` or `cfg!` code | Linux and Windows too: [Platform Checks](docs/guidelines/platform-checks.md) (a check on the Mac compiles only its side) |
 | what the release app shows (a window that opens late, a "Loading…" frame) | [Real App Checks](docs/guidelines/real-app-checks.md) (`pnpm install-app`, Peekaboo) |
 
@@ -137,6 +138,7 @@ pnpm lint:backend         # cargo fmt, clippy --fix, then clippy -D warnings
 pnpm lint:frontend        # `vp check --fix` (Oxfmt, type-aware Oxlint) + lint:typecheck
 pnpm lint:typecheck       # tsc of tsconfig.app.json, tsconfig.node.json and tsconfig.e2e.json
 pnpm lint:cpd             # jscpd copy/paste detection (config in .jscpd.json); fails on any clone
+pnpm lint:specs           # the [@test] links of spec/ and docs/ name test files and tests that exist
 bd lease clean --free     # the clean rules of .branchdeck.toml on the free lease slots (`--dry-run` only reports)
 pnpm perf:monorepo pin|measure|summarize|compare  # bd's git processes and times on a pinned large clone (git-operations.md)
 cargo run -p branch-deck -- cli status -C <repo>  # agent CLI, JSON on stdout (docs/guidelines/agent-cli.md)
@@ -214,8 +216,8 @@ How to write a Playwright test; the infrastructure (mock IPC, templates, sub-win
 - **Through the user's path**: open, select and press like the user (hover, focus, right-click, keys); call a command
   directly only to set up a state the user path cannot reach in a test. An error path fails the command with
   `routeCommandError`, not by breaking the repository.
-- **Linked**: every requirement of a spec names its test (`[@test]` with the exact test title); a renamed, split or
-  deleted test updates its links in the same commit.
+- **Linked**: every requirement of a spec names its test (`[@test]` with the exact test title, the link a line of its
+  own); a renamed, split or deleted test updates its links in the same commit, which `pnpm lint:specs` checks.
 - **Snapshots**: `captureHtmlSnapshot` for structure; `pnpm e2e-up` rewrites them, and the diff is reviewed like code: a
   changed snapshot can hide a regression.
 

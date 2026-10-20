@@ -86,8 +86,8 @@ jobs:
       - name: Check formatting, lint and types
         run: vp check
 
-      - name: Type-check and find copies
-        run: pnpm lint:typecheck && pnpm lint:cpd
+      - name: Type-check, find copies and check the test links of the specs
+        run: pnpm lint:typecheck && pnpm lint:cpd && pnpm lint:specs
 
       - name: Check Rust formatting and clippy
         # bash: pwsh, the Windows default, fails a step only on the exit code of its last command

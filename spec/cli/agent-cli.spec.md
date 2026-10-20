@@ -928,14 +928,15 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   exists is found instead and left as it is, with a warning, whatever its base: one into a virtual branch is retargeted
   to the target (`retargeted`), one into another base is taken with a warning that Patronus merges it there. The
   `review` reviewers carry their `github_login` when Patronus names it, for `--reviewer`.
-  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_pull_request_it_opens_asks_the_suggested_code_owner_by_the_github_login_patronus_names`, `a_pull_request_that_already_exists_is_found_instead`) The token is the first of `GH_TOKEN`
-  (`GITHUB_TOKEN`), `gh auth token`, the app's sign-in (its token file) and the git credentials of github.com ([Pull
-  Requests](../branch/pull-requests.spec.md#the-token)); without one GitHub accepts, `not_logged_in`. Patronus judges
-  the approvals of the pull request: an approval no eligible code owner gave (a bot) must not let the Safe Push start,
-  `approvals_missing` naming who it waits for and the approval it doesn't count, and `review.approved_on_github` must
-  name only the approvals that count. A Patronus that doesn't evaluate pull requests can't tell: then a pull request
-  someone approved must let the Safe Push start (`readiness` `unknown`), `review.approved_on_github` naming every
-  approver; without any approval, `approvals_missing` must name the pull request.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_pull_request_it_opens_asks_the_suggested_code_owner_by_the_github_login_patronus_names`, `a_pull_request_that_already_exists_is_found_instead`)
+- The token is the first of `GH_TOKEN` (`GITHUB_TOKEN`), `gh auth token`, the app's sign-in (its token file) and the git
+  credentials of github.com ([Pull Requests](../branch/pull-requests.spec.md#the-token)); without one GitHub accepts,
+  `not_logged_in`. Patronus judges the approvals of the pull request: an approval no eligible code owner gave (a bot)
+  must not let the Safe Push start, `approvals_missing` naming who it waits for and the approval it doesn't count, and
+  `review.approved_on_github` must name only the approvals that count. A Patronus that doesn't evaluate pull requests
+  can't tell: then a pull request someone approved must let the Safe Push start (`readiness` `unknown`),
+  `review.approved_on_github` naming every approver; without any approval, `approvals_missing` must name the pull
+  request.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`patronus_judges_the_approvals_of_the_pull_request`)
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_from_it`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`)
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_pull_request_that_already_exists_is_found_instead`, `a_pull_request_without_a_github_token_is_not_logged_in`, `create_pull_request_takes_the_open_pull_request_of_the_branch_whatever_its_base`)
