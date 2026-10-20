@@ -572,6 +572,7 @@ crates/
 ├── bd-clustering/   # The clustering of `bd suggest`, the areas of a commit, the generated files; no CLI
 ├── bd-core/         # What every `bd` command builds on: the context, the errors, the output, the sync and its summaries
 ├── bd-lease/        # `bd lease`: the worktrees of the lease pool; its tests run bd through the fixtures of bd-cli
+├── bd-update/       # `bd update`, `bd pick` and `bd undo`; its tests run bd through the fixtures of bd-cli
 ├── object-cache/    # LMDB cache keyed by git object ids, shared by the app and bd
 ├── code-symbols/    # Declarations, imports and references of a Kotlin/Java/Rust/TS/JS file on tree-sitter, no git; the highlighting of the diffs (`highlight/`)
 ├── text-diff/       # Line, word and char comparison of two texts, ported from IntelliJ (Apache-2.0, NOTICE)

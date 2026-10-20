@@ -457,6 +457,7 @@ dependencies = [
  "bd-clustering",
  "bd-core",
  "bd-lease",
+ "bd-update",
  "clap",
  "code-symbols",
  "dirs",
@@ -541,6 +542,28 @@ dependencies = [
  "serde",
  "serde_json",
  "sync-core",
+ "sync-utils",
+ "tempfile",
+ "test-log",
+ "test-utils",
+]
+
+[[package]]
+name = "bd-update"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bd-cli",
+ "bd-core",
+ "clap",
+ "git-ops",
+ "history-rewrite",
+ "pretty_assertions",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "sync-core",
+ "sync-types",
  "sync-utils",
  "tempfile",
  "test-log",

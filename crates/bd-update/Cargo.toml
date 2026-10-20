@@ -1,0 +1,31 @@
+[package]
+name = "bd-update"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "`bd update`, `bd pick` and `bd undo`: the moves of the checked out branch and their undo"
+publish = false
+
+[dependencies]
+bd-core = { path = "../bd-core" }
+git-ops = { path = "../git-ops" }
+history-rewrite = { path = "../history-rewrite" }
+sync-core = { path = "../sync-core" }
+sync-types = { path = "../sync-types" }
+sync-utils = { path = "../sync-utils" }
+anyhow.workspace = true
+clap = { version = "4.6", features = ["derive"] }
+schemars.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+# the tests run bd through its Cli: a dev-dependency cycle, which cargo allows
+bd-cli = { path = "../bd-cli", features = ["fixtures"] }
+test-utils = { path = "../test-utils" }
+pretty_assertions.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+test-log.workspace = true
+
+[lints]
+workspace = true

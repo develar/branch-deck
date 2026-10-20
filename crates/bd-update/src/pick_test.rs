@@ -1,5 +1,5 @@
-use crate::fixture_test::assert_covered;
-use crate::fixture_test::{assert_error, environment, git, repo_with_baseline, run_in, run_json};
+use bd_cli::fixture_test::assert_covered;
+use bd_cli::fixture_test::{assert_error, environment, git, repo_with_baseline, run_in, run_json};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use test_utils::git_test_utils::{TestRepo, TestWorktree};

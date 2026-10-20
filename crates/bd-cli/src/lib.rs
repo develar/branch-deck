@@ -14,7 +14,6 @@ pub mod landed;
 pub mod move_hunk_command;
 pub mod numstat;
 pub mod park_command;
-pub mod pick_command;
 pub mod pull_request_retarget;
 pub mod push_command;
 pub mod push_hold;
@@ -28,8 +27,6 @@ pub mod schema;
 pub mod status;
 pub mod suggest;
 pub mod symbol_stats;
-pub mod undo_command;
-pub mod update_command;
 
 use crate::agent_help::{AGENT_HELP, READ_ONLY, UPDATE_HELP, WORKTREES_HELP, skill_text};
 use crate::check_command::{CheckArgs, check};
@@ -39,7 +36,6 @@ use crate::fold_command::{FoldArgs, fold};
 use crate::install::{InstallArgs, install};
 use crate::move_hunk_command::{MoveHunkArgs, MoveHunkOutput, move_hunk};
 use crate::park_command::{ParkArgs, UnparkArgs, park, unpark};
-use crate::pick_command::{PickArgs, PickOutput, pick};
 use crate::push_command::{PushArgs, push};
 use crate::request_review_command::{RequestReviewArgs, request_review};
 use crate::reword_command::{RewordArgs, reword};
@@ -50,8 +46,6 @@ use crate::schema::schema_output;
 use crate::status::{StatusArgs, status, status_brief};
 use crate::suggest::{SuggestArgs, suggest, suggest_input_dump};
 use crate::symbol_stats::symbol_stats;
-use crate::undo_command::{UndoArgs, undo};
-use crate::update_command::{UpdateArgs, UpdateCommandOutput, update};
 use bd_core::bd_command::skill_command;
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::{CONFLICT_EXIT, CliError, ErrorCode};
@@ -59,6 +53,9 @@ use bd_core::output::write_json;
 use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
 use bd_lease::lease_command::{LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, lease_adopt, lease_clean, lease_get, lease_return, lease_status};
+use bd_update::pick_command::{PickArgs, PickOutput, pick};
+use bd_update::undo_command::{UndoArgs, undo};
+use bd_update::update_command::{UpdateArgs, UpdateCommandOutput, update};
 use clap::error::ErrorKind;
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
 use serde::Serialize;
@@ -393,15 +390,11 @@ mod move_hunk_test;
 #[cfg(test)]
 mod park_test;
 #[cfg(test)]
-mod pick_test;
-#[cfg(test)]
 mod process_budget_test;
 #[cfg(test)]
 mod push_test;
 #[cfg(test)]
 mod request_review_test;
-#[cfg(test)]
-mod resolve_test;
 #[cfg(test)]
 mod reword_test;
 #[cfg(test)]
@@ -420,7 +413,5 @@ mod status_test;
 mod suggest_test;
 #[cfg(test)]
 mod sync_test;
-#[cfg(test)]
-mod update_test;
 #[cfg(test)]
 mod version_test;

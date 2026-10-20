@@ -3,11 +3,11 @@ name: bd pick
 description: Requirements for bd pick, which lands the commits of another worktree on the branch checked out here without git cherry-pick, moves that worktree along with --follow, and takes both back with bd undo.
 style: plain-1
 targets:
-  - ../../crates/bd-cli/src/pick_command.rs
+  - ../../crates/bd-update/src/pick_command.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/bd-core/src/error.rs
   - ../../crates/bd-cli/src/rewrite.rs
-  - ../../crates/bd-cli/src/undo_command.rs
+  - ../../crates/bd-update/src/undo_command.rs
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/sync-core/src/pick.rs
   - ../../crates/history-rewrite/src/stack.rs
@@ -62,7 +62,7 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   (`grouped_by`: `prefix`, `issue_group`, `issue`, or `none` for a subject without a prefix or an issue key). The
   copies keep their author; the committer is the current user. It must print `state: "picked"`, the previous and the
   new HEAD, the `base` of the range and the undo token. The branch's reflog must name the move `branch-deck: pick`.
-  [@test] ../../crates/bd-cli/src/pick_test.rs (`a_pick_lands_the_worktree_commits_with_their_groups_and_the_undo_moves_both_back`)
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_lands_the_worktree_commits_with_their_groups_and_the_undo_moves_both_back`)
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_pick_lands_the_commits_of_a_worktree_and_the_worktree_follows`)
 - A range that starts at the branch's HEAD (a worktree cut at the tip, the branch not moved since) must land as it is,
   a fast-forward: every `new_id` is its commit, and the worktree of `--follow` has nowhere to move.
@@ -77,7 +77,7 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   must never become an empty commit. When every commit is present, the state must be `up_to_date` and nothing must
   move.
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_commit_the_target_has_already_is_present_with_the_target_commit_of_its_patch`)
-  [@test] ../../crates/bd-cli/src/pick_test.rs (`a_dry_run_writes_no_ref_and_a_pick_again_finds_every_commit_present`)
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_dry_run_writes_no_ref_and_a_pick_again_finds_every_commit_present`)
 - A commit that the shared branch has with another message (a `bd reword` after the pick) must be present by its
   patch id; after a follow the old tip is the fork point, so a later pick lands only the commits after it.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_pick_without_follow_finds_the_reworded_commit_present_by_patch_id`, `a_session_rewords_its_landed_commit_from_its_lease`)
@@ -93,7 +93,7 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   `already_present` and not in `clean`; `conflict.next` must say never to `git cherry-pick` in the shared checkout (it
   leaves `CHERRY_PICK_HEAD`).
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_conflict_after_a_commit_left_out_by_its_patch_id_names_the_commit_and_lists_the_left_out_one`)
-  [@test] ../../crates/bd-cli/src/pick_test.rs (`a_conflict_changes_nothing_and_says_what_to_do`)
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_conflict_changes_nothing_and_says_what_to_do`)
 - A picked commit whose prefix names a branch the branch has already must be listed in `dependencies` when that
   branch is not built on every branch whose commits its hunks depend on (the edges by lines, no symbols), with the
   copy, `prefix_branch` and `depends_on`, in a `--dry-run` too. `plan`, the `bd group` plan that moves the commit
@@ -101,11 +101,11 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   its own branch gets `restack`, `bd restack <prefix_branch> <parent>` onto a branch that holds them and its current
   parent. The pick never applies either. A prefix of a new branch is not checked: the check reads the diffs only for a
   prefix that names a branch the branch has.
-  [@test] ../../crates/bd-cli/src/pick_test.rs (`a_picked_commit_that_needs_another_branch_names_it_with_the_plan_that_moves_it`, `a_picked_commit_that_needs_its_own_and_another_branch_offers_the_restack`)
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_picked_commit_that_needs_another_branch_names_it_with_the_plan_that_moves_it`, `a_picked_commit_that_needs_its_own_and_another_branch_offers_the_restack`)
 - A `(parent/leaf)` prefix of a picked commit on a branch the branch has as a root (or on another parent) must stack
   the whole branch on `parent`, and the pick must say so in `reparented` (`{"leaf": "parent"}`), in a `--dry-run`
   too; the next `bd sync` must build the stack.
-  [@test] ../../crates/bd-cli/src/pick_test.rs (`a_parent_leaf_prefix_on_a_root_group_stacks_the_group_and_says_so`)
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_parent_leaf_prefix_on_a_root_group_stacks_the_group_and_says_so`)
 - The range of a worktree must be `<source HEAD> ^<branch> ^<upstream> ^<base>`, the base being the fork point of the
   source in the reflog of the branch, so that a branch folded, regrouped or redated after the worktree was cut gives
   none of its old commits back.
@@ -114,31 +114,31 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   (exit 4), and `bd pick <rev>` or `<a>..<b>` must pick the commits it names. A worktree that stands on a newer
   baseline than the branch must be refused as `source_on_newer_baseline` (exit 4).
   [@test] ../../crates/git-ops/src/pick_test.rs (`without_a_fork_point_a_local_shared_history_is_refused_and_a_range_names_the_commits`, `a_worktree_on_a_newer_baseline_is_refused`)
-  [@test] ../../crates/bd-cli/src/pick_test.rs (`a_worktree_on_a_newer_baseline_is_refused`)
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_worktree_on_a_newer_baseline_is_refused`)
 - `--dry-run` must take no lock and write at most git objects; it is the check whether the branch has the worktree's
   commits by content, not by date.
-  [@test] ../../crates/bd-cli/src/pick_test.rs (`a_dry_run_writes_no_ref_and_a_pick_again_finds_every_commit_present`)
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_dry_run_writes_no_ref_and_a_pick_again_finds_every_commit_present`)
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
 - A commit that does not apply must print `state: "conflict"` (exit 1) with the first conflicting commit (a binary
   search over the prefixes of the range), the commits before it (`clean`), its files and `next`, what to do; nothing
   must move.
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_conflict_names_the_first_conflicting_commit_and_moves_nothing`)
-  [@test] ../../crates/bd-cli/src/pick_test.rs (`a_conflict_changes_nothing_and_says_what_to_do`)
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_conflict_changes_nothing_and_says_what_to_do`)
 - Local changes on a path that the pick or the follow writes must refuse it as `uncommitted_overlap` (exit 4) with
   the `paths`, the message naming the worktree; local changes on other paths must stay.
   [@test] ../../crates/git-ops/src/pick_test.rs (`local_changes_on_a_path_the_pick_writes_block_it_in_either_worktree`)
-  [@test] ../../crates/bd-cli/src/pick_test.rs (`local_changes_in_the_way_and_a_wrong_source_are_refused`)
+  [@test] ../../crates/bd-update/src/pick_test.rs (`local_changes_in_the_way_and_a_wrong_source_are_refused`)
 - A branch that moved since the check must be `head_moved` (exit 3), nothing moved; so must a HEAD other than
   `--expect-head`.
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_target_that_moved_since_the_check_is_head_moved_with_nothing_changed`)
-  [@test] ../../crates/bd-cli/src/pick_test.rs (`expect_head_refuses_a_pick_onto_another_head`)
+  [@test] ../../crates/bd-update/src/pick_test.rs (`expect_head_refuses_a_pick_onto_another_head`)
 - The source must be another worktree of the same repository; the target worktree itself, a directory outside the
   repository, a symmetric range, no source and `--follow` without `--from` must be `invalid_arguments` (exit 2).
   [@test] ../../crates/git-ops/src/pick_test.rs (`the_source_is_another_worktree_of_this_repository`)
-  [@test] ../../crates/bd-cli/src/pick_test.rs (`local_changes_in_the_way_and_a_wrong_source_are_refused`)
+  [@test] ../../crates/bd-update/src/pick_test.rs (`local_changes_in_the_way_and_a_wrong_source_are_refused`)
 - A pick while a `bd update` resolve session is open on the branch must land, and the finish of the session must carry
   the picked commits as a peer's.
-  [@test] ../../crates/bd-cli/src/pick_test.rs (`a_pick_during_an_open_update_session_is_carried_by_its_finish`)
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_during_an_open_update_session_is_carried_by_its_finish`)
 
 ### `--follow`
 
@@ -162,7 +162,7 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   when the source moved. `bd undo` must check both moves, then move the branch and the source back with their files;
   `follow_undone` says whether the source moved back. Undoing again must be no error (`already_undone`), and the
   worktree's commits must be pickable again.
-  [@test] ../../crates/bd-cli/src/pick_test.rs (`a_pick_lands_the_worktree_commits_with_their_groups_and_the_undo_moves_both_back`)
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_lands_the_worktree_commits_with_their_groups_and_the_undo_moves_both_back`)
   [@test] ../../crates/sync-core/src/pick_test.rs (`an_undo_token_prints_and_parses_the_target_and_the_worktree_that_followed`)
 - The last entry of each reflog must be that pick, else the undo is refused; a branch that moved on is `undo_stale`.
   [@test] ../../crates/git-ops/src/pick_test.rs (`the_undo_moves_the_target_and_the_detached_source_back`)
@@ -177,7 +177,7 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
 | 4 | `range_unknown`, `source_on_newer_baseline`, `uncommitted_overlap`, `operation_in_progress`, `detached_head`, `finish_pending`, `undo_stale` |
 
 - The outputs must match `bd schema` (`pick`, `undo`).
-  [@test] ../../crates/bd-cli/src/pick_test.rs (`pick_outputs_match_the_schema`)
+  [@test] ../../crates/bd-update/src/pick_test.rs (`pick_outputs_match_the_schema`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
 - A pick must run a fixed number of git processes: one `replay`, one read of the grouping before the move (the
   inputs and one `log` of the commits ahead), the two moves with their marks; the diffs of the dependency check only

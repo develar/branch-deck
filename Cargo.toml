@@ -17,6 +17,7 @@ members = [
   "crates/bd-cli",
   "crates/bd-core",
   "crates/bd-lease",
+  "crates/bd-update",
   "crates/bd-clustering",
   "crates/object-cache",
   "crates/patronus",

@@ -6,7 +6,6 @@ use crate::check_command::{CheckArgs, check};
 use crate::fixture_test::{PREFIX, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline};
 use crate::fold_command::{FoldArgs, fold};
 use crate::move_hunk_command::{MoveHunkArgs, move_hunk};
-use crate::pick_command::{PickArgs, PickOutput, pick};
 use crate::push_command::{PushArgs, push};
 use crate::push_test::repo_with_remote;
 use crate::request_review_command::{RequestReviewArgs, request_review};
@@ -20,6 +19,7 @@ use crate::status::{StatusArgs, status};
 use bd_core::context::{RepoContext, RepoOptions};
 use bd_core::sync_command::sync;
 use bd_lease::lease_command::{LeaseContext, LeaseGetArgs, LeaseReturnArgs, lease_get, lease_return};
+use bd_update::pick_command::{PickArgs, PickOutput, pick};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -388,7 +388,7 @@ fn a_pick() {
   let (context, output) = pick_from(&repo, lane, |args| args.follow = true);
   assert_eq!(
     (output.picked.len(), output.followed.as_ref().map(|followed| followed.state)),
-    (2, Some(crate::pick_command::FollowedState::Moved))
+    (2, Some(bd_update::pick_command::FollowedState::Moved))
   );
   assert_processes(
     &context,

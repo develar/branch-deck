@@ -154,7 +154,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   "Branch Deck or bd is changing this repository. Try again when it is done." (no lock file path) and keeps the time
   of the fetch.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`)
-  [@test] ../../crates/bd-cli/src/update_test.rs (`the_update_waits_for_the_repository_lock_after_its_fetch`)
+  [@test] ../../crates/bd-update/src/update_test.rs (`the_update_waits_for_the_repository_lock_after_its_fetch`)
   [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository`)
 - `bd update --no-fetch` must update onto the last fetched baseline ([bd update](../cli/update.spec.md)).
   [@test] ../../crates/sync-core/src/update_project_test.rs (`update_without_a_fetch_goes_onto_the_last_fetched_state`)
@@ -188,10 +188,10 @@ The header shows whether an update would apply cleanly, from a check that every 
 - HEAD switched to another branch since the check, even one at the same commit, and also right before the move, must
   refuse the move (and its undo) with nothing changed.
   [@test] ../../crates/sync-core/src/update_project_test.rs (`a_switch_to_another_branch_at_the_same_commit_since_the_check_is_refused`)
-  [@test] ../../crates/bd-cli/src/update_test.rs (`a_switch_between_the_check_and_the_move_moves_no_branch`)
+  [@test] ../../crates/bd-update/src/update_test.rs (`a_switch_between_the_check_and_the_move_moves_no_branch`)
 - A `git switch` while the move holds the lock of HEAD must fail on `HEAD.lock`; the move commits on the checked
   branch.
-  [@test] ../../crates/bd-cli/src/update_test.rs (`a_switch_during_the_move_fails_on_the_head_lock`)
+  [@test] ../../crates/bd-update/src/update_test.rs (`a_switch_during_the_move_fails_on_the_head_lock`)
 - The working tree is written by `crates/git-ops/src/worktree_update.rs` only, called only from `update_branch.rs`
   (the update, the undo that only `check_update_undo` builds, and the finish of a resolve session, whose tip
   `update_resolve.rs` reads from the session ref); the safety scan fails on any other `read-tree -u`, `--reset` or
@@ -215,7 +215,7 @@ The header shows whether an update would apply cleanly, from a check that every 
 - The move must create the mark `refs/branch-deck/update-pending/<worktree id>` in its ref transaction, and delete it
   once the files followed. With the mark left by a killed process, the next update or undo, the app's included, must
   let the files follow first, or change nothing with `finish_pending` when the branch moved since.
-  [@test] ../../crates/bd-cli/src/update_test.rs (`an_update_killed_before_its_files_followed_is_finished_by_the_next_update`, `an_undo_killed_before_its_files_followed_is_finished_by_the_next_undo`, `an_interrupted_update_of_a_branch_that_moved_since_is_reported`)
+  [@test] ../../crates/bd-update/src/update_test.rs (`an_update_killed_before_its_files_followed_is_finished_by_the_next_update`, `an_undo_killed_before_its_files_followed_is_finished_by_the_next_undo`, `an_interrupted_update_of_a_branch_that_moved_since_is_reported`)
 - An undo of an undone update is no error and changes nothing (`already_undone`).
   [@test] ../../crates/sync-core/src/update_project_test.rs (`undo_moves_the_branch_and_the_files_back`)
 - Only the last update of the branch can be undone: the last reflog entry must be that update, so a token can't move

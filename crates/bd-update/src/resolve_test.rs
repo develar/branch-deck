@@ -1,4 +1,4 @@
-use crate::fixture_test::{assert_error, canonical, git, run_in, write};
+use bd_cli::fixture_test::{assert_error, canonical, git, run_in, write};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -107,16 +107,16 @@ impl Wrapped {
     );
     std::fs::write(&script, text).unwrap();
     std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-    let mut environment = crate::fixture_test::environment(repo.path());
+    let mut environment = bd_cli::fixture_test::environment(repo.path());
     environment.git = Some(script.to_str().unwrap().to_string());
     Self { directory, environment }
   }
 
   fn run(&self, args: &[&str]) -> (i32, Value) {
-    let mut all = vec!["--prefix", crate::fixture_test::PREFIX];
+    let mut all = vec!["--prefix", bd_cli::fixture_test::PREFIX];
     all.extend_from_slice(args);
     let _ = std::fs::remove_file(self.directory.path().join("log"));
-    crate::fixture_test::run_json(&self.environment, &all)
+    bd_cli::fixture_test::run_json(&self.environment, &all)
   }
 
   /// The git commands of the last run that start with `subcommand`
@@ -176,7 +176,7 @@ fn linked_worktree(clone: &TestRepo) -> (tempfile::TempDir, std::path::PathBuf) 
 
 /// Run bd in the directory `path`
 fn run_at(path: &Path, args: &[&str]) -> (i32, Value) {
-  crate::fixture_test::run_json(&crate::fixture_test::environment(path), &[&["--prefix", crate::fixture_test::PREFIX][..], args].concat())
+  bd_cli::fixture_test::run_json(&bd_cli::fixture_test::environment(path), &[&["--prefix", bd_cli::fixture_test::PREFIX][..], args].concat())
 }
 
 /// `n` local commits, each adding `f<i>.txt`; the one at `conflict_at` (1-based) changes line 2 of `shared.txt`, which
@@ -483,9 +483,9 @@ fn a_session_belongs_to_its_worktree_and_survives_a_gc_in_another() {
   let (_, round) = run_in(&clone, &["update"]);
   let (_linked, linked_path) = linked_worktree(&clone);
   let linked_repo = |args: &[&str]| {
-    crate::fixture_test::run_json(
-      &crate::fixture_test::environment(&linked_path),
-      &[&["--prefix", crate::fixture_test::PREFIX][..], args].concat(),
+    bd_cli::fixture_test::run_json(
+      &bd_cli::fixture_test::environment(&linked_path),
+      &[&["--prefix", bd_cli::fixture_test::PREFIX][..], args].concat(),
     )
   };
 
@@ -689,21 +689,21 @@ fn likely_landed_commits_get_the_hint() {
 #[test_log::test]
 fn session_outputs_match_the_schema() {
   let (_upstream, clone) = conflicting_clone();
-  let (_, schema) = crate::fixture_test::run_json(&crate::fixture_test::environment(clone.path()), &["schema"]);
+  let (_, schema) = bd_cli::fixture_test::run_json(&bd_cli::fixture_test::environment(clone.path()), &["schema"]);
   let outputs = &schema["outputs"];
   let (_, round) = run_in(&clone, &["update"]);
-  crate::fixture_test::assert_covered(&outputs["update"], &outputs["update"], &round, "round");
+  bd_cli::fixture_test::assert_covered(&outputs["update"], &outputs["update"], &round, "round");
   let (_, status) = run_in(&clone, &["update", "--status"]);
-  crate::fixture_test::assert_covered(&outputs["update_status"], &outputs["update_status"], &status, "status");
+  bd_cli::fixture_test::assert_covered(&outputs["update_status"], &outputs["update_status"], &status, "status");
   std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
   let (_, checked) = run_in(&clone, &["update", "--continue", "--dry-run"]);
-  crate::fixture_test::assert_covered(&outputs["update"], &outputs["update"], &checked, "checked");
+  bd_cli::fixture_test::assert_covered(&outputs["update"], &outputs["update"], &checked, "checked");
   let (_, aborted) = run_in(&clone, &["update", "--abort"]);
-  crate::fixture_test::assert_covered(&outputs["update_abort"], &outputs["update_abort"], &aborted, "abort");
+  bd_cli::fixture_test::assert_covered(&outputs["update_abort"], &outputs["update_abort"], &aborted, "abort");
   let (_, round) = run_in(&clone, &["update"]);
   std::fs::write(edit_of(&round, "shared.txt"), "one\ntheirs mine\nthree\n").unwrap();
   let (_, done) = run_in(&clone, &["update", "--continue"]);
-  crate::fixture_test::assert_covered(&outputs["update"], &outputs["update"], &done, "finish");
+  bd_cli::fixture_test::assert_covered(&outputs["update"], &outputs["update"], &done, "finish");
 }
 
 /// The finish dies before it deletes the session ref (step 4): the branch moved and the files followed. A peer's commit

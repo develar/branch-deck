@@ -26,7 +26,7 @@ targets:
   - ../../crates/bd-core/src/version.rs
   - ../../crates/bd-core/build.rs
   - ../../crates/bd-cli/src/rewrite.rs
-  - ../../crates/bd-cli/src/undo_command.rs
+  - ../../crates/bd-update/src/undo_command.rs
   - ../../crates/bd-cli/src/group_plan.rs
   - ../../crates/bd-cli/src/describe.rs
   - ../../crates/git-ops/src/branch_description.rs
@@ -160,7 +160,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `bd schema` must print the JSON Schema of every output (the list is the test's), and the real outputs must use only
   the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
-  [@test] ../../crates/bd-cli/src/update_test.rs (`update_outputs_match_the_schema`)
+  [@test] ../../crates/bd-update/src/update_test.rs (`update_outputs_match_the_schema`)
   [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
   [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`)
 - `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `describe` without a setter,
@@ -171,7 +171,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   with `--no-cache`), and HEAD must stay; `bd --help` and `bd help agent` must say so, and that `push --dry-run` and
   `safe-push --check` sync first.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
-  [@test] ../../crates/bd-cli/src/update_test.rs (`dry_run_neither_fetches_nor_writes`)
+  [@test] ../../crates/bd-update/src/update_test.rs (`dry_run_neither_fetches_nor_writes`)
   [@test] ../../crates/bd-cli/src/robot_test.rs (`a_failed_robot_says_why_and_which_local_commits_it_tested`)
 - A failure must print `{"schema":2,"error":{"code","message","commits","retryable"}}` with a stable snake_case code,
   and `paths` for `uncommitted_overlap` (the local files) and for a refused resolution of `bd update --continue` (the

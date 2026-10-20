@@ -861,7 +861,7 @@ mark as `pending_update`.
 Code: `crates/git-ops/src/update_branch.rs` (check, apply, the undo check, and the moves of a resolve finish),
 `crates/git-ops/src/paths.rs` (the changed paths of two trees, the commits that change the likely conflicting files),
 `crates/git-ops/src/worktree_update.rs` (the exempt `read-tree -u`), `crates/sync-core/src/update_project.rs` (upstream, fetch, lock, undo, the check inside
-sync), `crates/bd-cli/src/update_command.rs` (`bd update`, `bd undo update:`).
+sync), `crates/bd-update/src/update_command.rs` (`bd update`, `bd undo update:`).
 
 #### Resolve session
 
@@ -872,7 +872,7 @@ Only the finish moves the branch, and the files follow through the guarded updat
 `crates/git-ops/src/update_resolve.rs` (the state and the engine), `crates/git-ops/src/resolve_check.rs` (the checks),
 `crates/git-ops/src/merge_tree_output.rs` (the `-z` parser, shared with the sync's cherry-pick),
 `crates/sync-core/src/resolve_session.rs` (the lock and the output), `crates/sync-core/src/resolve_copies.rs` (the
-copies), `crates/bd-cli/src/update_command.rs`.
+copies), `crates/bd-update/src/update_command.rs`.
 
 **State in git.** All state of a session is in git; only the copies are files.
 
@@ -1137,7 +1137,7 @@ then both move back (`branch-deck: undo pick`). The source moves back too: other
 the range, since the fork point of N is N. The worktree path comes from `$GIT_COMMON_DIR/worktrees/<id>/gitdir`.
 
 Code: `crates/git-ops/src/pick.rs`, `crates/git-ops/src/update_branch.rs` (the moves, `HeadRef`, the undo check by
-operation), `crates/sync-core/src/pick.rs` (lock, baseline, grouping, dependencies, the undo token), `crates/bd-cli/src/pick_command.rs`.
+operation), `crates/sync-core/src/pick.rs` (lock, baseline, grouping, dependencies, the undo token), `crates/bd-update/src/pick_command.rs`.
 
 #### Lease
 
