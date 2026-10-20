@@ -98,7 +98,7 @@ pub(crate) fn sync(repo: &TestRepo) {
 }
 
 /// Subjects ahead of the baseline, oldest first
-fn subjects(repo: &TestRepo, count: usize) -> Vec<String> {
+pub(crate) fn subjects(repo: &TestRepo, count: usize) -> Vec<String> {
   let mut messages = repo.get_commit_messages(count);
   messages.reverse();
   messages

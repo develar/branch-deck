@@ -331,8 +331,8 @@ front. Code: `crates/git-ops/src/reword_commits.rs`, `crates/git-ops/src/commit_
 
 #### Regroup, rename, restack
 
-A move, a regroup plan of the agent CLI (`{branches: {path: [ids]}, unassign: [ids]}`), a branch rename and a restack
-all set the `(prefix)` of commits, so they are one reword. `regroup_commits_core` decides the messages before it
+A move, a regroup plan of the agent CLI (`{branches: {path: [ids]}, unassign: [ids]}`), a branch rename, a restack
+and `bd reword` all change the messages of commits, so they are one reword. `regroup_commits_core` decides the messages before it
 writes anything:
 
 1. Take the repository lock (below), refuse while an operation is in progress or HEAD is detached, and read HEAD, the
@@ -343,7 +343,11 @@ writes anything:
 2. Resolve the ids of the plan (abbreviations allowed); unknown ids, ids that aren't ahead of the baseline,
    duplicates and ids both in a branch and in `unassign` are refused.
 3. Move every fixup of a moved target along (`plan_autosquash`); a plan that separates a fixup from its target is
-   refused.
+   refused. So is a rewrite after which a fixup folds into another target or none, a `fixup!`, `squash!` or `amend!`
+   marker is added or removed, a target that a fixup names by its id (`fixup! <hash>`) gets a new id, or a target
+   whose `amend!` waits gets a new text (`fixup_targets.rs`): each would fold the fixup elsewhere, or replace the new
+   message at the next fold. The autosquash plan of the new messages decides, on the old ids, so the ids are checked
+   apart.
    A commit without a prefix that goes to the branch of its own issue key keeps its message: it is grouped there
    already. A commit with a prefix keeps its message only when the plan path is exactly that prefix. With stacked
    branches on, a path `auth/login` writes the stack parent `login<TAB>auth` and gives a commit that needs a prefix the
@@ -364,6 +368,12 @@ A move of the app (`move_commits_to_branch`) computes its plan from the snapshot
 also writes the stack parent of `X`, with an empty list when the issue groups move every commit), and a prefixed commit
 that its key puts into the target anyway into `unassign`. So combining issues rewrites nothing, and a mixed move is one
 reword and one ref transaction. A dry run of it is the preview of the "Move to…" form.
+
+`bd reword` (`crates/history-rewrite/src/reword.rs`) gives the regroup whole new messages by id (`Change::messages`,
+a `--subject` keeps the body it reads from the snapshot, under the lock), cleaned up as `git commit` does, before the
+plan's prefixes apply; a message equal to the old one after the cleanup changes nothing. A new `(prefix)` regroups the
+commit as a plan would, with step 4's check, and the fixups of a target whose prefix changes follow it. The mapping
+note of a commit whose text (not only its prefix) changed is not carried: its copy must be rebuilt with the message.
 
 A rename replaces the old level in every prefix path (children included), renames the issue groups of the old name,
 names an issue branch in the issue groups, and renames the old name in the stack parents (as a child, and as the parent

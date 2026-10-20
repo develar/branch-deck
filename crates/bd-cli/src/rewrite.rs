@@ -90,13 +90,13 @@ pub struct UndoArgs {
   pub token: String,
 }
 
-/// The output of `bd group`, `rename`, `restack` and `unstack`
+/// The output of `bd group`, `rename`, `restack`, `unstack` and `reword`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct RewriteOutput {
   pub schema: SchemaVersion,
   pub repository: String,
   pub prefix: String,
-  /// `group`, `rename`, `restack` or `unstack`
+  /// `group`, `rename`, `restack`, `unstack` or `reword`
   pub operation: String,
   pub dry_run: bool,
   pub previous_head: String,
@@ -126,7 +126,7 @@ pub struct RewriteOutput {
   /// Stack problems that already existed: reported, not refused
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub problems: Vec<ProblemReport>,
-  /// With --dry-run: the subjects that change
+  /// With --dry-run, and always for `reword`: the commits whose message changes (or would change)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub changes: Option<Vec<SubjectChange>>,
   /// With --dry-run and stacked branches on: every branch and its parent afterwards
@@ -184,9 +184,26 @@ pub struct AppendedCommit {
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SubjectChange {
+  /// The id before the rewrite
   pub commit: String,
+  /// The id after it; omitted for a dry run
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub new_id: Option<String>,
   pub old_subject: String,
   pub new_subject: String,
+  /// The message after the subject line changes too
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub body_changed: bool,
+  /// The commit goes to another branch (its `(prefix)` changed): from where to where; omitted when it stays
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub moved: Option<BranchMove>,
+}
+
+/// The branch of a commit before and after a rewrite; `None` for unassigned
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct BranchMove {
+  pub from: Option<String>,
+  pub to: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -278,7 +295,7 @@ pub fn unstack(context: &RepoContext, args: &UnstackArgs) -> Result<RewriteOutpu
 /// Run `regroup` under the repository lock (none for a dry run), then under the same lock write the changed
 /// `descriptions` and, with --sync, sync. A failure after the rewrite is the `error` of the rewrite output, so the
 /// output keeps the undo token
-fn rewrite(
+pub(crate) fn rewrite(
   context: &RepoContext,
   operation: &str,
   args: &RewriteArgs,
@@ -480,15 +497,21 @@ fn rewrite_output(context: &RepoContext, operation: &str, args: &RewriteArgs, ou
         commits: problem_commits(problem).iter().map(|id| short.get(id).to_string()).collect(),
       })
       .collect(),
-    changes: args.dry_run.then(|| {
+    changes: (args.dry_run || operation == "reword").then(|| {
       outcome
         .commits
         .iter()
         .filter(|commit| commit.changed)
         .map(|commit| SubjectChange {
           commit: short.get(&commit.id).to_string(),
+          new_id: (!args.dry_run).then(|| short.get(&commit.new_id).to_string()),
           old_subject: first_line(&commit.previous_message),
           new_subject: first_line(&commit.message),
+          body_changed: body(&commit.previous_message) != body(&commit.message),
+          moved: (commit.previous_group != commit.group).then(|| BranchMove {
+            from: commit.previous_group.clone(),
+            to: commit.group.clone(),
+          }),
         })
         .collect()
     }),
@@ -512,6 +535,11 @@ fn rewrite_output(context: &RepoContext, operation: &str, args: &RewriteArgs, ou
 
 fn first_line(message: &str) -> String {
   message.lines().next().unwrap_or_default().to_string()
+}
+
+/// The message after its subject line, trimmed
+fn body(message: &str) -> &str {
+  message.split_once('\n').map_or("", |(_, body)| body.trim())
 }
 
 fn forest_branches(forest: &StackForest) -> Vec<ForestBranch> {

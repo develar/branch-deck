@@ -335,6 +335,12 @@ fn check_auth_needs_a_push(space: &Space) -> Value {
   output["remotes"][0]["remote"].clone()
 }
 
+/// `check_auth_needs_a_push` of a branch whose one commit is on the remote by content in its old message
+fn check_auth_is_reworded(space: &Space) {
+  let remote = check_auth_needs_a_push(space);
+  assert_eq!((&remote["unpushed"], &remote["reworded"], &remote["behind"]), (&json!(0), &json!(1), &json!(0)));
+}
+
 /// A reword after the push keeps the changes, so the remote has the commit by content, but with the old message: a
 /// robot on the remote branch would land it. The check says a push is due (`remote.reworded`), and the start pushes
 /// before it starts, as it does after an amend
@@ -344,12 +350,41 @@ fn a_branch_reworded_since_its_push_is_pushed_before_the_start() {
   let pushed = push_and_rebuild_on_a_newer_baseline(&space, &space.environment());
   git(&space.repo, &["commit", "--amend", "-q", "-m", "(auth) Add the auth module"]);
 
-  let remote = check_auth_needs_a_push(&space);
-  assert_eq!((&remote["unpushed"], &remote["reworded"], &remote["behind"]), (&json!(0), &json!(1), &json!(0)));
+  check_auth_is_reworded(&space);
 
   let output = start_auth_after_a_failed_robot(&space, &pushed);
   assert_eq!(output["pushed"][0]["name"], json!("auth"));
   assert_eq!(space.remote_tip(AUTH), space.local_tip(AUTH), "the reworded commit is on the remote");
+}
+
+/// The same through `bd reword --sync`: the check counts the reworded commit as a push (`remote.reworded`), and
+/// `bd push --dry-run` would replace the remote commit
+#[test_log::test]
+fn a_branch_reworded_by_bd_reword_needs_a_push() {
+  let space = Space::new(&["(auth) Add the auth module with a subject that is far longer than the rule allows"]);
+  push_and_rebuild_on_a_newer_baseline(&space, &space.environment());
+  let head = space.repo.head();
+  let (exit_code, output) = run_json(
+    &space.environment(),
+    &[
+      "--prefix",
+      PREFIX,
+      "reword",
+      &head,
+      "--subject",
+      "(auth) Add the auth module",
+      "--expect-head",
+      &head,
+      "--sync",
+    ],
+  );
+  assert_eq!((exit_code, &output["rewritten"]), (0, &json!(1)), "{output}");
+
+  check_auth_is_reworded(&space);
+
+  let (exit_code, output) = bd_push(&space.environment(), &["auth", "--dry-run"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["branches"][0]["state"], json!("forced"), "{output}");
 }
 
 /// A member of a stack that landed whole got a new commit: its remote branch has its commits as they were before the

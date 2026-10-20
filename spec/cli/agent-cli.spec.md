@@ -66,6 +66,9 @@ targets:
   - ../../crates/sync-core/src/conflict_chain.rs
   - ../../crates/object-cache/src/build_result.rs
   - ../../crates/history-rewrite/src/regroup.rs
+  - ../../crates/history-rewrite/src/reword.rs
+  - ../../crates/history-rewrite/src/fixup_targets.rs
+  - ../../crates/bd-cli/src/reword_command.rs
   - ../../crates/history-rewrite/src/issue_groups.rs
   - ../../crates/history-rewrite/src/commit_ids.rs
   - ../../crates/history-rewrite/src/repository_lock.rs
@@ -145,7 +148,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - The JSON must be ASCII: every other character is a `\uXXXX` escape (a UTF-16 pair above the BMP), so a reader that
   decodes stdout with a legacy code page, as Windows PowerShell 5.1 does, still gets every path and subject.
   [@test] ../../crates/bd-cli/src/describe_test.rs (`a_body_from_windows_powershell_is_read_and_printed_as_ascii`)
-- A plan and a body (`--plan`, `--body-file`; `-` is stdin) must be read as UTF-8 without a leading byte order
+- A plan, a body and a message (`--plan`, `--body-file`, `--message-file`; `-` is stdin) must be read as UTF-8 without a leading byte order
   mark, or as UTF-16 with one, which Windows PowerShell 5.1 writes.
   [@test] ../../crates/bd-cli/src/text_input_test.rs (`a_bom_is_dropped_and_utf16_is_decoded`)
   [@test] ../../crates/bd-cli/src/check_test.rs (`a_plan_with_a_byte_order_mark_is_read`)
@@ -157,7 +160,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`)
 - `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `describe` without a setter,
   `request-review --check`, `update --status` without `--materialize`, `lease status`, and the `--dry-run` of `group`, `rename`,
-  `restack`, `unstack`, `update` (also with `--continue`), `pick`, `fold` and `move-hunk` must write no ref, config,
+  `restack`, `unstack`, `update` (also with `--continue`), `pick`, `fold`, `move-hunk` and `reword` must write no ref,
+  config,
   index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the object cache (none
   with `--no-cache`), and HEAD must stay; `bd --help` and `bd help agent` must say so, and that `push --dry-run` and
   `safe-push --check` sync first.
@@ -344,8 +348,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   commits named. Problems that already existed must be reported, not refused.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`validates_the_plan_before_writing`, `refuses_problems_the_plan_introduces_and_keeps_existing_ones`)
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_errors_and_exit_codes`)
-- Fixups not in the plan must follow their targets.
+- Fixups not in the plan must follow their targets. A rewrite whose fixup would fold into another target or none, or
+  that recreates a target a fixup names by its id (`fixup! <hash>`), must be `invalid_plan`: fold it first.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`fixups_follow_their_targets`)
+  [@test] ../../crates/sync-core/src/reword_test.rs (`a_reword_that_strands_a_fixup_is_refused`)
 - `descriptions` of the plan (`{branch: {title, body}}`, the leaf for a stacked branch) must be validated with it,
   before anything is written: a title of one line that is not empty, and a branch that has commits after the plan,
   else `invalid_plan`. bd must write the ones that differ after the ref transaction, under the same lock, as
@@ -373,7 +379,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/sync-core/src/regroup_test.rs (`waits_for_the_repository_lock`, `refuses_while_a_rebase_is_in_progress`)
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_and_its_dry_run_are_refused_during_a_cherry_pick`)
 - The output must list every commit's resulting group with its new id, the new HEAD and an undo token;
-  `--dry-run` must write nothing and print the changed subjects and the stack forest; `--map` must add `{commit, new_id}` of every commit.
+  `--dry-run` must write nothing and print the changed subjects (`changes`: the old and the new subject, `moved` with
+  the branch before and after when it changes) and the stack forest; `--map` must add `{commit, new_id}` of every commit.
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`dry_run_prints_the_changes_and_the_forest`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`dry_run_writes_nothing`)
 - `bd rename` must replace the branch's level in every prefix path, children included, rename the issue groups and
@@ -384,6 +391,45 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   included, rewrite only the commits whose prefix declares another parent, and need stacked branches.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`restacks_and_unstacks_a_branch`, `restack_needs_stacked_branches`)
   [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
+
+### `bd reword`
+
+- `bd reword <commit>` must replace the message of a commit ahead of the baseline with `--message`, `--message-file`
+  (`-` for stdin) or `--subject` (the subject line, its `(prefix)` included; the body stays), exactly one of them, or
+  the messages of several commits by `--plan` (`{rewrites: [{commit, message | subject}]}`, `-` for stdin), in one
+  message-only rewrite: every tree, the index and the working tree stay, the older commits keep their ids, the later
+  ones are recreated with their author and committer, and their mapping notes follow them. A message is cleaned up as
+  `git commit` does; one equal to the old message after the cleanup rewrites nothing and prints no undo token.
+  [@test] ../../crates/bd-cli/src/reword_test.rs (`reword_subject_changes_only_that_commit`, `reword_with_a_message_file_from_stdin_replaces_the_whole_message`, `a_message_equal_after_cleanup_rewrites_nothing`)
+  [@test] ../../crates/sync-core/src/reword_test.rs (`rewords_messages_in_one_rewrite`, `a_subject_keeps_the_body_and_a_message_equal_after_cleanup_rewrites_nothing`)
+- It must be a rewrite of `bd group`: under the repository lock (`locked`, exit 3), `--expect-head` (`head_moved`, exit
+  3), `--allow-append`, `--sync`, `--map`, `operation_in_progress` (exit 4) also for `--dry-run`, the output of `bd group`
+  with `operation: reword` and `changes` (old id, `new_id`, old and new subject, `body_changed`, `moved`) also without
+  `--dry-run`, and an undo token `<previous head>..<new head>` that `bd undo` takes back, the old commits with their
+  notes. The issue groups and the stack parents must stay.
+  [@test] ../../crates/bd-cli/src/reword_test.rs (`reword_is_refused_on_another_head_or_while_the_lock_is_held`, `reword_and_its_dry_run_are_refused_during_a_cherry_pick`, `a_reword_plan_rewrites_two_commits_at_once_and_undo_restores_them`, `reword_dry_run_writes_no_ref`)
+  [@test] ../../crates/sync-core/src/reword_test.rs (`a_reword_keeps_the_issue_groups_and_the_stack_parents`)
+- A commit that is not ahead of the baseline (on the baseline, unknown) must be `not_ahead_of_baseline` (exit 2); a
+  revision that is no commit id (`HEAD~1`) or a commit without exactly one text `invalid_arguments`; a plan entry
+  without exactly one text, an empty plan, an empty subject, a subject of several lines and a commit named twice
+  `invalid_plan`.
+  [@test] ../../crates/bd-cli/src/reword_test.rs (`reword_of_a_commit_not_ahead_of_the_baseline_is_refused`, `a_reword_plan_rewrites_two_commits_at_once_and_undo_restores_them`)
+  [@test] ../../crates/sync-core/src/reword_test.rs (`refuses_ids_and_texts_it_cannot_reword`)
+- A new `(prefix)` must move the commit to that branch as `bd group` does, its fixups with it, with the validation of a
+  plan: a stack problem it introduces is `invalid_plan`. A fixup that would fold into another target or none, a
+  `fixup!`, `squash!` or `amend!` marker added or removed, a target a fixup names by its id, and a new text of a commit
+  whose `amend!` waits must be `invalid_plan`; a plan that rewords the fixup with its target passes.
+  [@test] ../../crates/bd-cli/src/reword_test.rs (`a_new_prefix_moves_the_commit_to_another_branch`, `a_reword_that_strands_a_fixup_is_refused`)
+  [@test] ../../crates/sync-core/src/reword_test.rs (`a_new_prefix_moves_the_commit_with_its_fixups`, `a_reword_that_strands_a_fixup_is_refused`, `a_plan_that_rewords_a_fixup_with_its_target_passes`, `a_reword_that_breaks_a_stack_is_refused`)
+- A reworded branch that was pushed must need a push: `bd safe-push --check` with `push_needed: true` and
+  `remote.reworded`, `bd push --dry-run` a forced update.
+  [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_branch_reworded_by_bd_reword_needs_a_push`)
+- A session must be able to reword its own landed commit from its lease with `-C <shared checkout>`; the lease needs no
+  move: a later pick lands only new commits and the return finds the old tip landed by content
+  ([bd lease](lease.spec.md)).
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`a_session_rewords_its_landed_commit_from_its_lease`, `a_pick_without_follow_finds_the_reworded_commit_present_by_patch_id`)
+- Its processes are pinned by subcommand: the snapshot of a regroup, one `fast-import`, one `update-ref`.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_reword`)
 
 ### `bd undo`
 
@@ -1086,14 +1132,15 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 ### `bd help agent`
 
 - It must print the rules first: what needs the user's approval (every push, Safe Push and Patronus Dry Run, review
-  request, `gh pr create` and change of another session's commit), what each exit code asks for (exit 1 never an error
+  request, `gh pr create` and change of another session's commit, a reword of its message too), what each exit code asks for (exit 1 never an error
   object, exit 4 without a rule: stop and show `message`), that `retryable` decides a retry whatever the exit code,
   the error object with `paths`, `branches` and `review`, `--expect-head`, `previous_head`, `new_head`, the
   `undo_token` and `after_error`, abbreviated ids compared by prefix, never reorder, squash or drop commits except
-  with `bd fold`, a change moved only with `bd move-hunk`, and only `bd update`, `bd pick` and their undo writing the
+  with `bd fold`, a change moved only with `bd move-hunk`, a message changed only with `bd reword`, and only `bd update`, `bd pick` and their undo writing the
   working tree. Then the workflow in steps (look with `bd suggest`; plan and check with the `result` of each branch;
   apply with `bd group --sync`; push; Safe Push with `--check` first, `lands`, `alone`, `--whole-stack` and the
-  refusals; review; robot), then the other tasks (`bd update`, `bd pick`, `bd fold`, `bd move-hunk`, `bd install`),
+  refusals; review; robot), then the other tasks (`bd update`, `bd pick`, `bd fold`, `bd reword` with its `(prefix)`
+  kept and never an empty `amend!` or plumbing, `bd move-hunk`, `bd install`),
   each sending a longer story to its own topic. Together with `bd help update` and `bd help worktrees` it must name
   every command and, per command, every long option except a listed few, and name no command, and no option for a
   command, that doesn't exist.
@@ -1107,8 +1154,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `bd lease get` and its return with `bd lease return` and their refusals, the `(branch)` prefix written
   when a commit is made (`(parent/leaf)` for a stacked branch, a readable name, an issue id never the name, no
   `fixup!` subject on the shared branch, `bd rename`, `bd suggest` only for commits without a prefix); one owner
-  rewrites the shared branch and every other session only adds commits with `bd pick --from <worktree> --follow`,
-  never with `git cherry-pick`; the outcomes of a pick (`grouped_by: none`, `already_present`, `conflict.next`,
+  rewrites the shared branch (`bd reword` among its rewrites) and every other session only adds commits with
+  `bd pick --from <worktree> --follow`, never with `git cherry-pick`, its one rewrite a `bd reword` of its own landed
+  commit with `-C <shared checkout>` and `--expect-head`, without `--sync`; after a rewrite a session's next write is
+  `head_moved`, which `--allow-append` does not cure; the outcomes of a pick (`grouped_by: none`, `already_present`, `conflict.next`,
   `uncommitted_overlap`, `range_unknown`, `source_on_newer_baseline`, `followed.state`, the undo); `bd pick --dry-run`
   as the check after a rewrite, never a comparison by date; the protocol of the owner; and the `branch-deck:` reflog
   lines. `bd help worktrees` must print it, and an unknown topic must name it. Together with `bd help agent` and

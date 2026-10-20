@@ -5,10 +5,10 @@ macro_rules! read_only {
 `bd describe <branch>` without a setter, `bd request-review --check`, `bd update --status` without --materialize,
 `bd lease status`, and
 `bd group --dry-run`, `bd rename --dry-run`, `bd restack --dry-run`, `bd unstack --dry-run`, `bd update --dry-run`
-(also with --continue), `bd pick --dry-run`, `bd fold --dry-run` and `bd move-hunk --dry-run` write no ref, config,
-index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the object cache (none
-with --no-cache); `bd check --build` runs its command in a temporary copy of each tree. `bd push --dry-run` and
-`bd safe-push --check` sync first."
+(also with --continue), `bd pick --dry-run`, `bd fold --dry-run`, `bd move-hunk --dry-run` and `bd reword --dry-run`
+write no ref, config, index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the
+object cache (none with --no-cache); `bd check --build` runs its command in a temporary copy of each tree.
+`bd push --dry-run` and `bd safe-push --check` sync first."
   };
 }
 
@@ -35,7 +35,8 @@ Rules
 - Ask the user first, and run only what the user approved: a push (`bd push`, also --force and --restart-running), a
   Safe Push or a Patronus Dry Run (`bd safe-push`, also --cancel-running, --without-approvals, --allow-dangling and
   --create-pull-request), `bd request-review`, a `gh pr create` that bd prints, and any change of a commit that
-  another session made. Show what bd printed (`lands`, `review`, `dropped_commits`, the plan) when you ask.
+  another session made, a reword (`bd reword`) of its message too. Show what bd printed (`lands`, `review`,
+  `dropped_commits`, the plan, the `changes` of a `bd reword --dry-run`) when you ask.
 - Never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; move a
   change between commits only with `bd move-hunk`, never with plumbing. Never stash, reset, check out or commit the
   user's files: on `uncommitted_overlap` (exit 4) show `paths` to the user and ask.
@@ -222,6 +223,14 @@ Other tasks
   `(parent/leaf)` prefix stacked; `bd help worktrees` explains it.
 - Fixups: `bd fold` (--branch, --expect-head, --dry-run) folds the fixup!, squash! and amend! commits into their
   targets and keeps HEAD's tree.
+- A message to change (a subject too long, a typo): `bd reword <commit> --subject '<subject>'` (the body stays),
+  --message '<message>' or --message-file <file> (`-` for stdin), or several commits in one rewrite with --plan <file>
+  (`-` for stdin) of {\"rewrites\": [{\"commit\": \"<id>\", \"subject\": \"...\"}]} (or `message` for the whole
+  message); --expect-head, --allow-append, --dry-run, --sync, --map as for `bd group`. The subject is the whole line:
+  keep its `(prefix)`, unless the commit should move to another branch (`changes[].moved` says it, check with
+  --dry-run first). Every tree, the index and the files stay; the commits after it get new ids. Never an empty
+  `amend!` commit, an amend with `git commit`, `commit-tree` or `update-ref` for it. `invalid_plan` (exit 2) when a
+  fixup would fold elsewhere: fold it first, or reword it in the same plan.
 - A change in the wrong commit: `bd move-hunk <from> <to> <path>` (--block <id>, repeatable; --expect-head, --dry-run;
   --sync rebuilds the virtual branches at once, else the next sync does) moves the changes of the file `path`, or
   only its blocks by the ids that `bd commits <from> --patch` prints, into the commit `to`, older or newer; HEAD's
@@ -304,8 +313,9 @@ new session into an empty directory outside every worktree, for a sandbox that k
 pub const WORKTREES_HELP: &str = "\
 bd help worktrees: several sessions on one branch. Each session commits in a worktree of its own (a lease: a linked
 worktree, often a detached HEAD, sharing the git dir); its work counts once it is on the shared branch of the shared
-checkout. One owner rewrites that branch: `bd update`, `bd fold`, `bd group`, `bd rename`. Every other session only
-adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a reset in the shared checkout.
+checkout. One owner rewrites that branch: `bd update`, `bd fold`, `bd group`, `bd rename`, `bd reword`. Every other
+session only adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a reset in the shared
+checkout; the one rewrite it may run is a `bd reword` of its own landed commit (step 4).
 
 0. Lease your worktree: `bd lease get --holder <your name>` in the shared checkout (or -C <shared checkout>). It
    prints `path`, a worktree of the pool at the HEAD of the shared checkout, detached, and `lease_id`; work and commit
@@ -352,7 +362,12 @@ adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a 
 4. The owner's rewrites take the same lock and refuse while a cherry-pick, rebase, merge or revert is in progress in
    the shared checkout (`operation_in_progress`). After a rewrite, the owner tells the other sessions its new HEAD
    (`new_head`); they pick again or check with --dry-run. Nobody squashes, amends or redates another session's
-   commit.
+   commit. A rewrite gives the commits after it new ids: the next write of a session that read the old HEAD gets
+   `head_moved` (exit 3), and `bd group --allow-append` does not help, the old HEAD is gone: read the status again.
+   To fix the message of your own commit after it landed, run `bd reword <commit> --expect-head <head> --subject
+   '...'` from your worktree with -C <shared checkout>, without --sync (the owner syncs); your worktree needs nothing,
+   a later pick or return finds the commit landed by content. A reword of a commit that
+   another session made is the user's to approve.
 5. Return your worktree once your commits landed: `bd lease return` inside it (or --workspace <dir>; --lease-id <id>
    refuses another lease). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
    change nothing: `unlanded_commits` (exit 4, `commits`): commits that the branch of the shared checkout lacks by
@@ -371,7 +386,8 @@ adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a 
    free slots, where they are, or with --move in the pool directory (`moved_from`; the same volume only,
    `other_volume`).
 6. The reflog of the branch tells who moved it: `branch-deck: pick`, `undo pick`, `update project`, `undo update`,
-   `squash fixups` (`bd fold` or the app's Squash Fixups), `reword <n> commits` (`bd group`, `bd rename`), `undo`,
+   `squash fixups` (`bd fold` or the app's Squash Fixups), `reword <n> commits` (`bd group`, `bd rename`,
+   `bd restack`, `bd unstack`, `bd reword`), `undo`,
    `squash <n> commits`, `drop <n> commits`, `amend <id>`, `move hunk`, each also with ` rolled back` when its files
    could not follow. A line without the `branch-deck: ` prefix came from outside Branch Deck.
 ";
@@ -391,7 +407,7 @@ description: Group the commits of a Git branch into virtual branches and pull re
 each other, with the `bd` command line of Branch Deck; update a branch onto its baseline and resolve the conflicts; \
 land the commits of a worktree onto a shared branch. Use when the user asks to split, group, cluster or reorganize \
 commits into branches or pull requests, to stack branches, to sync or push virtual branches, to fold fixup commits, to \
-move a change or a hunk into another commit, to update or rebase a branch onto master or main or resolve its update \
+change the message or subject of a commit, to move a change or a hunk into another commit, to update or rebase a branch onto master or main or resolve its update \
 conflicts, to land or pick the commits of a worktree or lease onto a shared branch, to lease a worktree for a session \
 or return it, to start a Patronus Safe Push or Dry Run or find out why one failed, to ask code owners to review a \
 pull request, or mentions Branch Deck.
@@ -418,7 +434,7 @@ worktrees work on one branch, run `bd help worktrees` first.
 - Every command prints one JSON object on stdout. Branch on `error.code` and the exit code, never on the message;
   `bd schema` prints the JSON Schema of every output, `bd version` the version of bd and git.
 - Never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; move a
-  change between commits only with `bd move-hunk`; never push, start a Safe Push or create pull requests before the
+  change between commits only with `bd move-hunk`, change a message only with `bd reword`; never push, start a Safe Push or create pull requests before the
   user approved them.
 - Before a Safe Push, run `bd safe-push <branch> --check` first and show the user what it lands: the Safe Push of a
   stacked branch lands the branches it is built on with it, in one robot, and `--whole-stack` lands the whole stack,

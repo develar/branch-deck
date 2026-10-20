@@ -638,43 +638,32 @@ async fn an_amended_commit_is_amended_not_dropped() {
   assert!(!status.fast_forward, "the push replaces the older version");
 }
 
-/// A stack whose parent commit was amended: the child's remote branch has the parent's commit as it was. Restacked,
-/// in the sync (the ancestors' commits known) and outside it (read from the parent's virtual branch), never dropped
-#[test(tokio::test)]
-async fn a_child_of_an_amended_parent_is_restacked() {
-  let scenario = TestScenario::new();
+/// The stack `login` on `auth`, synced and pushed with `auth_subject` (`// auth` its change), then made again with
+/// the auth commit as `auth_again` (subject, change) at the same author time and login's commit as it was, and synced:
+/// the events of that sync
+async fn rebuilt_parent(scenario: &TestScenario, auth_subject: &str, auth_again: (&str, &str)) -> Vec<SyncEvent> {
   scenario.setup_development_branch();
   scenario.local_repo.set_config("branchdeck.stacks", "true").unwrap();
   let base = scenario.local_repo.head();
-  scenario
-    .local_repo
-    .create_commit_with_timestamp("(auth) Add auth", "auth.rs", "// auth", Some(1_700_000_000));
-  scenario
-    .local_repo
-    .create_commit_with_timestamp("(auth/login) Add form", "login.rs", "// login", Some(1_700_000_100));
+  let commit_both = |auth: (&str, &str)| {
+    scenario.local_repo.create_commit_with_timestamp(auth.0, "auth.rs", auth.1, Some(1_700_000_000));
+    scenario
+      .local_repo
+      .create_commit_with_timestamp("(auth/login) Add form", "login.rs", "// login", Some(1_700_000_100));
+  };
+  commit_both((auth_subject, "// auth"));
   scenario.run_sync("user").await;
   scenario.local_repo.push("origin", "user/virtual/auth").unwrap();
   scenario.local_repo.push("origin", "user/virtual/login").unwrap();
 
-  // the auth commit amended; login's own commit stays as it is
   scenario.local_repo.reset_hard(&base).unwrap();
-  scenario
-    .local_repo
-    .create_commit_with_timestamp("(auth) Add auth", "auth.rs", "// auth, amended", Some(1_700_000_000));
-  scenario
-    .local_repo
-    .create_commit_with_timestamp("(auth/login) Add form", "login.rs", "// login", Some(1_700_000_100));
-  let events = scenario.run_sync("user").await.get_events();
+  commit_both(auth_again);
+  scenario.run_sync("user").await.get_events()
+}
 
-  let auth = synced_status(&events, "auth");
-  assert_eq!((auth.commits_amended, auth.commits_restacked, auth.commits_behind), (1, 0, 0));
-  let login = synced_status(&events, "login");
-  assert_eq!(login.unpushed_commits, Vec::<String>::new(), "login's own commit is on the remote by content");
-  assert_eq!((login.commits_amended, login.commits_restacked, login.commits_behind), (0, 1, 0));
-  assert!(!login.fast_forward);
-
-  // a push computes it without the sync's commits: the parent's virtual branch is read
-  let pushed = compute_remote_status_for_branch(
+/// The status of `login` as a push computes it, without the sync's commits: the parent's virtual branch is read
+fn login_status_outside_the_sync(scenario: &TestScenario) -> sync_types::RemoteStatusUpdate {
+  compute_remote_status_for_branch(
     &scenario.git_executor,
     scenario.local_repo.path().to_str().unwrap(),
     "origin",
@@ -687,7 +676,25 @@ async fn a_child_of_an_amended_parent_is_restacked() {
       ancestors: AncestorCommits::ReadWhenNeeded,
     }),
   )
-  .unwrap();
+  .unwrap()
+}
+
+/// A stack whose parent commit was amended: the child's remote branch has the parent's commit as it was. Restacked,
+/// in the sync (the ancestors' commits known) and outside it (read from the parent's virtual branch), never dropped
+#[test(tokio::test)]
+async fn a_child_of_an_amended_parent_is_restacked() {
+  let scenario = TestScenario::new();
+  // the auth commit amended; login's own commit stays as it is
+  let events = rebuilt_parent(&scenario, "(auth) Add auth", ("(auth) Add auth", "// auth, amended")).await;
+
+  let auth = synced_status(&events, "auth");
+  assert_eq!((auth.commits_amended, auth.commits_restacked, auth.commits_behind), (1, 0, 0));
+  let login = synced_status(&events, "login");
+  assert_eq!(login.unpushed_commits, Vec::<String>::new(), "login's own commit is on the remote by content");
+  assert_eq!((login.commits_amended, login.commits_restacked, login.commits_behind), (0, 1, 0));
+  assert!(!login.fast_forward);
+
+  let pushed = login_status_outside_the_sync(&scenario);
   assert_eq!((pushed.commits_amended, pushed.commits_restacked, pushed.commits_behind), (0, 1, 0));
 }
 
@@ -697,28 +704,8 @@ async fn a_child_of_an_amended_parent_is_restacked() {
 #[test(tokio::test)]
 async fn a_child_of_a_reworded_parent_is_restacked() {
   let scenario = TestScenario::new();
-  scenario.setup_development_branch();
-  scenario.local_repo.set_config("branchdeck.stacks", "true").unwrap();
-  let base = scenario.local_repo.head();
-  scenario
-    .local_repo
-    .create_commit_with_timestamp("(auth) Add auth with a subject that is far too long", "auth.rs", "// auth", Some(1_700_000_000));
-  scenario
-    .local_repo
-    .create_commit_with_timestamp("(auth/login) Add form", "login.rs", "// login", Some(1_700_000_100));
-  scenario.run_sync("user").await;
-  scenario.local_repo.push("origin", "user/virtual/auth").unwrap();
-  scenario.local_repo.push("origin", "user/virtual/login").unwrap();
-
   // the auth commit reworded: the same changes, the same author and author time, a shorter subject
-  scenario.local_repo.reset_hard(&base).unwrap();
-  scenario
-    .local_repo
-    .create_commit_with_timestamp("(auth) Add auth", "auth.rs", "// auth", Some(1_700_000_000));
-  scenario
-    .local_repo
-    .create_commit_with_timestamp("(auth/login) Add form", "login.rs", "// login", Some(1_700_000_100));
-  let events = scenario.run_sync("user").await.get_events();
+  let events = rebuilt_parent(&scenario, "(auth) Add auth with a subject that is far too long", ("(auth) Add auth", "// auth")).await;
 
   let auth = synced_status(&events, "auth");
   assert_eq!((auth.commits_reworded, auth.commits_restacked, auth.commits_behind), (1, 0, 0));
@@ -730,21 +717,7 @@ async fn a_child_of_a_reworded_parent_is_restacked() {
     "the remote has auth's commit with the old subject"
   );
 
-  // a push computes it without the sync's commits: the parent's virtual branch is read
-  let pushed = compute_remote_status_for_branch(
-    &scenario.git_executor,
-    scenario.local_repo.path().to_str().unwrap(),
-    "origin",
-    "user/virtual/login",
-    "login",
-    Some(&scenario.user_email),
-    "origin/main",
-    Some(StackParent {
-      base: "user/virtual/auth",
-      ancestors: AncestorCommits::ReadWhenNeeded,
-    }),
-  )
-  .unwrap();
+  let pushed = login_status_outside_the_sync(&scenario);
   assert_eq!((pushed.commits_reworded, pushed.commits_restacked, pushed.commits_behind), (0, 1, 0));
 
   // pushed again, then both rebuilt on a newer baseline: the same messages, nothing for login to push

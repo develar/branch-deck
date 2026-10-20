@@ -1,10 +1,9 @@
 use crate::fixture_test::{
-  ACP_AGENT, ACP_HOST, ACP_PROTOCOL, acp_host, assert_error, assert_undo_restores, commit_all, commit_dangling_reference, environment, git, numbered_lines, repo_with_baseline,
-  run_in, run_json, sync_statuses, write,
+  ACP_AGENT, ACP_HOST, ACP_PROTOCOL, acp_host, assert_error, assert_undo_restores, commit_all, commit_dangling_reference, environment, git, hold_the_lock, numbered_lines,
+  repo_with_baseline, run_in, run_json, sync_statuses, write,
 };
 use crate::schema_test::assert_covered;
 use git_ops::revs::short_id;
-use history_rewrite::repository_lock::lock_repository;
 use serde_json::json;
 use test_utils::git_test_utils::TestRepo;
 
@@ -159,7 +158,7 @@ fn a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_ref
 
   let (exit_code, output) = run_in(&repo, &["move-hunk", &b, &a, "b.txt", "--expect-head", short_id(&a)]);
   assert_error(&output, exit_code, (3, "head_moved"));
-  let held = lock_repository(repo.git_executor(), repo.path().to_str().unwrap(), std::time::Duration::from_millis(100)).unwrap();
+  let held = hold_the_lock(&repo);
   let (exit_code, output) = run_in(&repo, &["move-hunk", &b, &a, "b.txt"]);
   assert_error(&output, exit_code, (3, "locked"));
   drop(held);

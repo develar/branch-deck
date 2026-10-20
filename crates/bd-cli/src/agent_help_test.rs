@@ -228,6 +228,7 @@ fn read_only_commands_write_no_ref_config_index_or_working_tree() {
     &["describe", "a"],
     &["fold", "--dry-run"],
     &["move-hunk", &change, &first, "shared.txt", "--dry-run"],
+    &["reword", &change, "--subject", "ABC-1 Change the shared file", "--dry-run"],
     &["lease", "status"],
   ];
   // with --no-cache first: no cache appears either

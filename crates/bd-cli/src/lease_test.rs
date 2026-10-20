@@ -1,5 +1,5 @@
 use crate::context::Environment;
-use crate::fixture_test::{assert_error, canonical, environment, git, repo_with_baseline, run_json};
+use crate::fixture_test::{PREFIX, assert_error, canonical, environment, git, repo_with_baseline, run_json};
 use crate::lease_command::{LeaseContext, LeaseStatusArgs, lease_status};
 use crate::schema_test::assert_covered;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -546,6 +546,77 @@ fn a_return_refuses_only_the_commit_that_the_source_branch_lacks() {
   assert_error(&output, exit_code, (4, "unlanded_commits"));
   assert!(output["error"]["commits"].as_array().unwrap().len() > 1, "{output}");
   assert!(output["error"]["message"].as_str().unwrap().contains("detached HEAD"), "{output}");
+}
+
+/// A session lands a commit with `bd pick --follow`, then fixes its message on the shared branch from its own worktree
+/// (`bd -C <shared checkout> reword`): the worktree needs nothing, its old tip is landed by content, a later pick
+/// lands only a new commit and moves the worktree, and the return passes
+#[test_log::test]
+fn a_session_rewords_its_landed_commit_from_its_lease() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  commit_in(&path, "(lane) Add a with a subject that is far longer than the rule of the repository allows", "lane-a.txt");
+  // a fast-forward: the shared branch is at the worktree's tip
+  let (exit_code, picked) = crate::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path, "--follow"]);
+  assert_eq!((exit_code, &picked["followed"]["state"]), (0, &json!("at_tip")), "{picked}");
+  let shared = fixture.repo.path_str();
+  let head = fixture.repo.head();
+
+  let (exit_code, reworded) = fixture.run_in(
+    Path::new(&path),
+    &["-C", shared, "--prefix", PREFIX, "reword", &head, "--subject", "(lane) Add a", "--expect-head", &head],
+  );
+  assert_eq!((exit_code, &reworded["rewritten"]), (0, &json!(1)), "{reworded}");
+  assert_eq!(git(&fixture.repo, &["log", "-1", "--format=%s"]), "(lane) Add a");
+  assert_eq!(slot_git(&path, &["rev-parse", "HEAD"]), head, "the worktree stays where it was");
+
+  // nothing left to pick: the old tip is the fork point
+  let (exit_code, output) = crate::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path, "--dry-run"]);
+  assert_eq!((exit_code, &output["state"]), (0, &json!("up_to_date")), "{output}");
+
+  // a new commit lands alone, and the worktree follows onto the reworded branch
+  let new = commit_in(&path, "(lane) Add b", "lane-b.txt");
+  let (exit_code, output) = crate::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path, "--follow"]);
+  assert_eq!((exit_code, &output["followed"]["state"]), (0, &json!("moved")), "{output}");
+  let picked: Vec<&str> = output["picked"].as_array().unwrap().iter().map(|commit| commit["subject"].as_str().unwrap()).collect();
+  assert_eq!(picked, ["(lane) Add b"], "{output}");
+  assert_eq!(output.get("already_present"), None, "{output}");
+  assert_eq!(slot_git(&path, &["rev-parse", "HEAD"]), fixture.repo.head());
+  assert_ne!(fixture.repo.head(), new, "a copy on the shared branch");
+
+  let returned = fixture.give_back(&path);
+  assert_eq!(returned.get("given_up"), None, "{returned}");
+}
+
+/// A worktree that did not follow its pick still has its own commit: after a reword of the copy on the shared branch,
+/// a pick finds it present by its patch, never an empty commit, and the return passes by content
+#[test_log::test]
+fn a_pick_without_follow_finds_the_reworded_commit_present_by_patch_id() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let own = commit_in(&path, "(lane) Add a with a subject that is far longer than the rule allows", "lane-a.txt");
+  // a peer's commit first, so that the pick lands a copy
+  fixture.repo.create_commit("(peer) Add p", "p.txt", "p\n");
+  let (exit_code, picked) = crate::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path]);
+  assert_eq!(exit_code, 0, "{picked}");
+  let head = fixture.repo.head();
+  let (exit_code, reworded) = crate::fixture_test::run_in(&fixture.repo, &["reword", &head, "--subject", "(lane) Add a"]);
+  assert_eq!(exit_code, 0, "{reworded}");
+
+  let (exit_code, output) = crate::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path, "--dry-run"]);
+  assert_eq!((exit_code, &output["state"]), (0, &json!("up_to_date")), "{output}");
+  let present = &output["already_present"][0];
+  assert_eq!(
+    (&present["commit"], &present["by"], &present["on"]),
+    (
+      &json!(git_ops::revs::short_id(&own)),
+      &json!("patch_id"),
+      &json!(git_ops::revs::short_id(&fixture.repo.head()))
+    ),
+    "{output}"
+  );
+  let returned = fixture.give_back(&path);
+  assert_eq!(returned.get("given_up"), None, "{returned}");
 }
 
 /// A fake Bazel server: `sh` blocked in `read` on a pipe (no child process), its argv naming `workspace` as Bazel's

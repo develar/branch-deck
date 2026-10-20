@@ -77,6 +77,9 @@ or local changes in the way change nothing; `bd undo` takes the pick back, the w
   move.
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_commit_the_target_has_already_is_present_with_the_target_commit_of_its_patch`)
   [@test] ../../crates/bd-cli/src/pick_test.rs (`a_dry_run_writes_no_ref_and_a_pick_again_finds_every_commit_present`)
+- A commit that the shared branch has with another message (a `bd reword` after the pick) must be present by its
+  patch id; after a follow the old tip is the fork point, so a later pick lands only the commits after it.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`a_pick_without_follow_finds_the_reworded_commit_present_by_patch_id`, `a_session_rewords_its_landed_commit_from_its_lease`)
 - A commit of the range with the patch id of a branch commit above the base must be left out before the replay
   (`by: "patch_id"`; the range's `log --cherry-mark --right-only <branch>...<source HEAD> ^<base> ^<upstream>`), so a
   commit the branch has in a form that no longer applies (the branch changed the same lines since) never conflicts.

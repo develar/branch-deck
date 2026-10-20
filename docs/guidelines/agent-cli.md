@@ -66,7 +66,7 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
 - `bd schema` prints the JSON Schema of each output (see `bd schema` below). The schemas are generated from the Rust
   types with `schemars`, and `schema_test.rs` checks the real outputs against them.
 - Read only: `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `update --dry-run`, `update --status`,
-  `lease status`, `pick --dry-run`, `fold --dry-run` and `move-hunk --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
+  `lease status`, `pick --dry-run`, `fold --dry-run`, `move-hunk --dry-run` and `reword --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
   `suggest`, the replay of `update --dry-run` and `pick --dry-run`, the merged trees of `move-hunk --dry-run`) and the object cache (none with `--no-cache`). `bd --help` and
   `bd help agent` print the same line (`READ_ONLY` in `agent_help.rs`), and `agent_help_test.rs` checks the refs, the
   config, the index and the working tree around each of them.
@@ -499,6 +499,39 @@ Plans that `bd` computes, validated and written like `bd group`, with the same o
 - `restack` writes the stack parent of the branch, `unstack` removes it; both rewrite only the commits whose prefix
   declares another parent. An issue branch and an issue group are stacked like any branch, without a rewrite. Both
   need stacked branches on; `unstack` of a root is `invalid_plan`.
+
+### `bd reword <commit> (--subject <s> | --message <m> | --message-file <file>)`, `bd reword --plan <file>`
+
+A new message for commits ahead of the baseline, as a regroup (`history_rewrite::reword`), validated and written like
+`bd group`, with the same options (`--expect-head`, `--allow-append`, `--dry-run`, `--sync`, `--map`) and output, its
+`operation` `reword`:
+
+```json
+{"schema":2,"operation":"reword","dry_run":false,"previous_head":"8df5c602","new_head":"26245b67","rewritten":1,
+ "undo_token":"8df5c602…..26245b67…","groups":{"feat":["fc2a8ace","26245b67"],"other":["57c7fc85"]},"unassigned":[],
+ "changes":[{"commit":"2ebfe814","new_id":"57c7fc85","old_subject":"(feat) Commit 2 with a very long subject",
+             "new_subject":"(other) Commit 2","moved":{"from":"feat","to":"other"}}]}
+```
+
+- `--subject` replaces the subject line, the `(prefix)` included, and keeps the body; `--message` and
+  `--message-file` (`-` for stdin) the whole message. A message is cleaned up as `git commit` does (trailing
+  whitespace, blank lines at the ends); an empty subject, a subject of several lines and a commit named twice are
+  `invalid_plan`.
+- `--plan` rewords several commits in one rewrite: `{"rewrites": [{"commit": "<id>", "subject": "…"}, {"commit":
+  "<id>", "message": "…"}]}`, each entry with exactly one of the two.
+- The commit is an id that `bd status` printed (abbreviated or full); a revision such as `HEAD~1` is
+  `invalid_arguments`, a commit on the baseline or unknown `not_ahead_of_baseline`.
+- Every tree stays, so the index and the working tree do; the older commits keep their ids, the later ones are
+  recreated with their author and committer, and their mapping notes follow them. The note of a commit whose text
+  changed is dropped: the next sync copies it anew, with the new message, so the branch needs a push
+  (`remote.reworded`, and `remote.restacked` on the branches stacked on it).
+- A new `(prefix)` moves the commit to that branch, its fixups with it (`changes[].moved`). A fixup that would fold
+  into another target or none, a marker added or removed, a target a fixup names by its id, and a new text of a
+  commit whose `amend!` waits are `invalid_plan`: fold first, or reword the fixups in the same plan.
+- `changes` is printed also without `--dry-run`, each with `new_id`, `body_changed` when the body changed, and
+  `moved`. A message that equals the old one after the cleanup rewrites nothing and prints no `undo_token`.
+- From a lease: `bd -C <shared checkout> reword <commit> --expect-head <head> --subject '…'` fixes a session's own
+  landed commit; the lease needs no move (`bd help worktrees`).
 
 ### `bd undo <undo_token>`
 
@@ -1436,7 +1469,7 @@ branch name, in the branch table and the branch preview.
 
 Prints `{"schema":2,"outputs":{"<name>":<JSON Schema>,…}}`, one schema per output, every output named by the test
 `schema_lists_every_output`;
-`rewrite` is the output of `group`, `rename`, `restack` and `unstack`, `commits_brief` and `status_brief` the
+`rewrite` is the output of `group`, `rename`, `restack`, `unstack` and `reword`, `commits_brief` and `status_brief` the
 outputs of `--brief`, `update_status` and `update_abort` those of `bd update --status` and `--abort`, and `lease_get`,
 `lease_return`, `lease_status` and `lease_adopt` those of `bd lease`.
 

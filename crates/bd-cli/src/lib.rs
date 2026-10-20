@@ -25,6 +25,7 @@ pub mod pull_request_retarget;
 pub mod push_command;
 pub mod push_hold;
 pub mod request_review_command;
+pub mod reword_command;
 pub mod rewrite;
 pub mod robot_command;
 pub mod robot_list;
@@ -53,6 +54,7 @@ use crate::output::write_json;
 use crate::pick_command::{PickArgs, PickOutput, pick};
 use crate::push_command::{PushArgs, push};
 use crate::request_review_command::{RequestReviewArgs, request_review};
+use crate::reword_command::{RewordArgs, reword};
 use crate::rewrite::{GroupArgs, RenameArgs, RestackArgs, RewriteOutput, UndoArgs, UnstackArgs, group, rename, restack, undo, unstack};
 use crate::robot_command::{RobotArgs, robot};
 use crate::safe_push_command::{SafePushArgs, safe_push};
@@ -119,6 +121,12 @@ enum Command {
   Restack(RestackArgs),
   /// Make a stacked branch a root again
   Unstack(UnstackArgs),
+  /// Change the message of a commit ahead of the baseline, keeping every tree
+  ///
+  /// --message, --message-file (`-` for stdin) or --subject (the body stays), or several commits in one rewrite by
+  /// --plan; the commits after it are recreated, the index and the files stay. A new `(prefix)` moves the commit to
+  /// that branch as `bd group` does
+  Reword(RewordArgs),
   /// Undo a rewrite, an update or a pick with the `undo_token` it printed
   Undo(UndoArgs),
   /// Bring the checked out branch onto its baseline (`bd help update`)
@@ -264,6 +272,7 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Rename(args) => return print_summary(out, context().and_then(|context| rename(&context, args)), RewriteOutput::exit_code),
     Command::Restack(args) => return print_summary(out, context().and_then(|context| restack(&context, args)), RewriteOutput::exit_code),
     Command::Unstack(args) => return print_summary(out, context().and_then(|context| unstack(&context, args)), RewriteOutput::exit_code),
+    Command::Reword(args) => return print_summary(out, context().and_then(|context| reword(&context, args)), RewriteOutput::exit_code),
     Command::Undo(args) => context().and_then(|context| undo(&context, args)).and_then(|output| print(out, &output)),
     Command::Update(args) => return print_summary(out, context().and_then(|context| update(&context, args)), UpdateCommandOutput::exit_code),
     Command::Fold(args) => context().and_then(|context| fold(&context, args)).and_then(|output| print(out, &output)),
@@ -396,6 +405,8 @@ mod push_test;
 mod request_review_test;
 #[cfg(test)]
 mod resolve_test;
+#[cfg(test)]
+mod reword_test;
 #[cfg(test)]
 mod rewrite_test;
 #[cfg(test)]

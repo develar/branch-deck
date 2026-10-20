@@ -1,9 +1,9 @@
 use crate::fixture_test::{
-  PREFIX, assert_error, assert_refused_during, assert_undo_restores, commit_all, environment, git, repo_with_baseline, run_in, run_json, start_cherry_pick, write,
+  PREFIX, assert_dry_run, assert_error, assert_refused_during, assert_undo_restores, commit_all, environment, git, hold_the_lock, repo_with_baseline, run_in, run_json,
+  start_cherry_pick, write,
 };
 use crate::schema_test::assert_covered;
 use git_ops::revs::short_id;
-use history_rewrite::repository_lock::lock_repository;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use test_utils::git_test_utils::TestRepo;
@@ -60,10 +60,7 @@ fn fold_of_one_branch_and_a_dry_run() {
 
   let (exit_code, output) = run_in(&repo, &["fold", "--branch", "ui", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(
-    (&output["dry_run"], &output["new_head"], output.get("undo_token")),
-    (&json!(true), &json!(short_id(&head)), None)
-  );
+  assert_dry_run(&output, &head);
   assert_eq!(
     output["folded"],
     json!([{ "commit": short_id(&ids[1]), "subject": "(ui) Add b", "fixups": [short_id(&ids[3])] }])
@@ -90,7 +87,7 @@ fn fold_is_refused_on_another_head_or_while_the_lock_is_held() {
   let (exit_code, output) = run_in(&repo, &["fold", "--expect-head", short_id(&ids[1])]);
   assert_eq!((exit_code, &output["error"]["code"]), (3, &json!("head_moved")), "{output}");
 
-  let held = lock_repository(repo.git_executor(), repo.path().to_str().unwrap(), std::time::Duration::from_millis(100)).unwrap();
+  let held = hold_the_lock(&repo);
   let (exit_code, output) = run_in(&repo, &["fold"]);
   assert_eq!((exit_code, &output["error"]["code"]), (3, &json!("locked")), "{output}");
   drop(held);

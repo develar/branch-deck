@@ -212,6 +212,8 @@ mod resolve_copies_test;
 #[cfg(test)]
 mod review_readiness_test;
 #[cfg(test)]
+mod reword_test;
+#[cfg(test)]
 mod stack_parents_test;
 #[cfg(test)]
 mod sync_inputs_test;

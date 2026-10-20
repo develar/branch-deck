@@ -32,7 +32,7 @@ pub enum FixupKind {
 }
 
 impl FixupKind {
-  fn of(subject: &str) -> Option<Self> {
+  pub(crate) fn of(subject: &str) -> Option<Self> {
     let marker = AUTOSQUASH_MARKERS.iter().position(|marker| subject.starts_with(marker))?;
     Some([Self::Fixup, Self::Squash, Self::Amend][marker])
   }

@@ -13,6 +13,7 @@ use crate::push_command::{PushArgs, push};
 use crate::push_test::repo_with_remote;
 use crate::request_review_command::{RequestReviewArgs, request_review};
 use crate::request_review_test::needs_code_owner;
+use crate::reword_command::{RewordArgs, reword};
 use crate::rewrite::{GroupArgs, RewriteArgs, group};
 use crate::robot_command::{RobotArgs, robot};
 use crate::safe_push_command::{SafePushArgs, safe_push};
@@ -286,6 +287,39 @@ fn a_fold() {
       ("symbolic-ref", 2),
       ("update-ref", 1),
       ("var", 1),
+    ],
+  );
+}
+
+/// `bd reword` of the oldest of three commits: the regroup's snapshot, then one `fast-import` of the recreated commits
+/// and one ref transaction
+#[test]
+fn a_reword() {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let ids = commit_subjects(&repo, &["(auth) Add a with a subject that is far too long", "(ui) Add b", "(auth) Add c"]);
+  let context = context(&repo);
+  let args = RewordArgs {
+    commit: Some(ids[0].clone()),
+    message: None,
+    message_file: None,
+    subject: Some("(auth) Add a".to_string()),
+    plan: None,
+    rewrite: RewriteArgs::default(),
+  };
+  let output = reword(&context, &args).unwrap();
+  assert_eq!(output.rewritten, 1);
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 2),
+      ("config", 1),
+      ("fast-import", 1),
+      ("for-each-ref", 2),
+      ("log", 2),
+      ("remote", 2),
+      ("rev-parse", 7),
+      ("symbolic-ref", 1),
+      ("update-ref", 1),
     ],
   );
 }

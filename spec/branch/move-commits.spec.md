@@ -104,8 +104,10 @@ Renaming and ungrouping a branch are moves of all its commits.
 - The fixups of a moved commit must move with it, and be listed after the requested commits for the undo.
   [@test] ../../crates/sync-core/src/move_commits_test.rs (`moves_the_fixups_with_their_target`)
 - A move is a regroup plan: it must be validated against every subject ahead of the baseline before anything is
-  written, and with stacked branches on, refused if it introduces a stack problem.
+  written, and with stacked branches on, refused if it introduces a stack problem; also when it recreates a commit
+  that a `fixup! <id>` names by its id, which would leave the fixup without a target.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`validates_the_plan_before_writing`, `fixups_follow_their_targets`, `refuses_problems_the_plan_introduces_and_keeps_existing_ones`)
+  [@test] ../../crates/sync-core/src/reword_test.rs (`a_reword_that_strands_a_fixup_is_refused`)
 - Rewrites must hold the repository lock, so the app and the agent CLI don't rewrite the branch at the same time.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`waits_for_the_repository_lock`)
 - A commit already in the target branch must not be rewritten; the result lists it as `Unchanged`.

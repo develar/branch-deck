@@ -10,10 +10,11 @@ use crate::autosquash::plan_autosquash;
 use crate::baseline::NoBaseline;
 use crate::commit_grouper::{GroupingInputs, issue_group_of, parse_subject};
 use crate::commit_ids::{IdMatch, match_commit_id};
+use crate::fixup_targets::check_fixup_targets;
 use crate::issue_groups::{ISSUE_GROUPS, validate_issue_group_name, validate_issue_key, validate_leaf_name};
 use crate::move_commits::{validate_branch_name, with_branch_prefix};
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, RepositoryLocked, ensure_expected_head, lock_repository};
-use crate::reword_commit::reword_read_commits_at;
+use crate::reword_commit::{normalize_message, reword_read_commits_at};
 use crate::snapshot::{Grouped, Snapshot, group_commits};
 use crate::stack::{StackForest, describe_conflicting_parents, stack_path};
 use crate::stack_parents::{STACK_PARENTS, undo_over_drops};
@@ -265,7 +266,7 @@ pub enum RegroupError {
 }
 
 impl RegroupError {
-  fn invalid(message: impl Into<String>, commits: Vec<String>) -> Self {
+  pub(crate) fn invalid(message: impl Into<String>, commits: Vec<String>) -> Self {
     Self::InvalidPlan { message: message.into(), commits }
   }
 
@@ -303,25 +304,27 @@ impl From<anyhow::Error> for RegroupError {
 }
 
 /// Where each commit of a plan goes: `Some(path)` or `None` for no prefix
-type Assignment = Vec<(String, Option<String>)>;
+pub(crate) type Assignment = Vec<(String, Option<String>)>;
 
 /// Issue key -> branch name
 pub type IssueGroupEntries = BTreeMap<String, String>;
 
 /// What a regroup changes, before it is validated
 #[derive(Default)]
-struct Change {
-  assignment: Assignment,
+pub(crate) struct Change {
+  pub(crate) assignment: Assignment,
+  /// Full id -> the whole new message (`reword.rs`), cleaned up as `git commit` does before the assignment applies
+  pub(crate) messages: HashMap<String, String>,
   /// Issue key -> branch name afterwards; `None` leaves the issue groups as they are
-  issue_groups: Option<IssueGroupEntries>,
+  pub(crate) issue_groups: Option<IssueGroupEntries>,
   /// The keys the plan groups: each must group a commit afterwards
-  grouped_keys: BTreeSet<String>,
+  pub(crate) grouped_keys: BTreeSet<String>,
   /// The keys the plan ungroups
-  ungrouped_keys: BTreeSet<String>,
+  pub(crate) ungrouped_keys: BTreeSet<String>,
   /// Child -> parent afterwards; `None` leaves the stack parents as they are
-  stack_parents: Option<BTreeMap<String, String>>,
+  pub(crate) stack_parents: Option<BTreeMap<String, String>>,
   /// The children whose line the change sets or removes
-  stack_children: BTreeSet<String>,
+  pub(crate) stack_children: BTreeSet<String>,
 }
 
 impl From<Assignment> for Change {
@@ -684,7 +687,7 @@ fn undo_store_write(
 
 /// Read the snapshot, turn it into a change, validate the result and write it: the reworded commits, the issue groups
 /// and the stack parents in one ref transaction with compare-and-swap on HEAD and on each store
-fn regroup_with(
+pub(crate) fn regroup_with(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   options: &RegroupOptions,
@@ -893,12 +896,7 @@ fn resolve_plan(snapshot: &Snapshot, plan: &RegroupPlan) -> Result<Change, Regro
       assignment.push((full, None));
     }
   }
-  if !ambiguous.is_empty() {
-    return Err(RegroupError::invalid(format!("Ambiguous commit ids: {}", ambiguous.join(", ")), ambiguous));
-  }
-  if !unknown.is_empty() {
-    return Err(RegroupError::NotAheadOfBaseline { commits: unknown });
-  }
+  refuse_unresolved(ambiguous, unknown)?;
 
   let mut seen: HashMap<&str, &Option<String>> = HashMap::new();
   let mut in_both = Vec::new();
@@ -929,6 +927,18 @@ fn resolve_plan(snapshot: &Snapshot, plan: &RegroupPlan) -> Result<Change, Regro
     ..Change::default()
   };
   with_stack_parents(snapshot, change, stack_lines, plan.unstack.iter().cloned().collect())
+}
+
+/// The ids of a request that name several commits (`invalid_plan`) or none ahead of the baseline
+/// (`not_ahead_of_baseline`), in this order
+pub(crate) fn refuse_unresolved(ambiguous: Vec<String>, unknown: Vec<String>) -> Result<(), RegroupError> {
+  if !ambiguous.is_empty() {
+    return Err(RegroupError::invalid(format!("Ambiguous commit ids: {}", ambiguous.join(", ")), ambiguous));
+  }
+  if !unknown.is_empty() {
+    return Err(RegroupError::NotAheadOfBaseline { commits: unknown });
+  }
+  Ok(())
 }
 
 /// The prefix of a commit (with `subject`) that a plan puts at the stack path `levels`: the bare leaf, as the path
@@ -1019,6 +1029,7 @@ fn validate_path(path: &str, stacks: bool) -> Result<(), RegroupError> {
 fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome, RegroupError> {
   let Change {
     assignment,
+    messages,
     issue_groups,
     grouped_keys,
     ungrouped_keys,
@@ -1054,19 +1065,23 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
   let regrouped: Vec<Commit> = snapshot
     .commits
     .iter()
-    .map(|commit| match targets.get(&commit.id) {
-      // the commit is in that branch already without a prefix, by its issue group or its issue key: a prefix would only
-      // repeat it
-      Some(Some(path)) if is_grouped_without_prefix(&commit.subject, path, &after.issue_groups.entries) => commit.clone(),
-      Some(target) => {
-        let message = with_branch_prefix(&commit.message, target.as_deref());
-        let mut regrouped = commit.clone();
-        regrouped.subject = message.lines().next().unwrap_or_default().to_string();
-        regrouped.stripped_subject.clone_from(&regrouped.subject);
-        regrouped.message = message;
-        regrouped
+    .map(|commit| {
+      // a new message that cleans up to the old one changes nothing
+      let reworded = messages
+        .get(&commit.id)
+        .map(|message| normalize_message(message))
+        .filter(|message| *message != normalize_message(&commit.message));
+      let commit = reworded.map_or_else(|| commit.clone(), |message| with_message(commit, message));
+      match targets.get(&commit.id) {
+        // the commit is in that branch already without a prefix, by its issue group or its issue key: a prefix would
+        // only repeat it
+        Some(Some(path)) if is_grouped_without_prefix(&commit.subject, path, &after.issue_groups.entries) => commit,
+        Some(target) => {
+          let message = with_branch_prefix(&commit.message, target.as_deref());
+          with_message(&commit, message)
+        }
+        None => commit,
       }
-      None => commit.clone(),
     })
     .collect();
   let Grouped {
@@ -1100,6 +1115,7 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
       separated,
     ));
   }
+  check_fixup_targets(snapshot, &regrouped, &autosquash, &after)?;
 
   let issue_groups_change = if issue_groups.is_none() {
     None
@@ -1243,6 +1259,15 @@ fn map_change(
 fn is_grouped_without_prefix(subject: &str, path: &str, issue_groups: &BTreeMap<String, String>) -> bool {
   let parsed = parse_subject(subject);
   parsed.prefix.is_none() && find_issue_number(parsed.rest).is_some_and(|key| issue_groups.get(key).map_or(key, String::as_str) == path)
+}
+
+/// `commit` with `message`; the grouper reads the prefix from `subject`
+fn with_message(commit: &Commit, message: String) -> Commit {
+  let mut changed = commit.clone();
+  changed.subject = message.lines().next().unwrap_or_default().to_string();
+  changed.stripped_subject.clone_from(&changed.subject);
+  changed.message = message;
+  changed
 }
 
 /// What makes two problems the same problem, whatever commits declare it

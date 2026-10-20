@@ -22,10 +22,10 @@ use schemars::{Schema, schema_for};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-/// `bd schema`: the JSON Schema of every output, by command; `rewrite` is the output of group, rename, restack and
-/// unstack, `commits_brief` and `status_brief` the outputs of `--brief`, `update_status` and `update_abort` those of
-/// `bd update --status` and `--abort`, `lease_get`, `lease_return`, `lease_status`, `lease_adopt` and `lease_clean`
-/// those of `bd lease`, and `error` is what any command prints when it fails
+/// `bd schema`: the JSON Schema of every output, by command; `rewrite` is the output of group, rename, restack,
+/// unstack and reword, `commits_brief` and `status_brief` the outputs of `--brief`, `update_status` and `update_abort`
+/// those of `bd update --status` and `--abort`, `lease_get`, `lease_return`, `lease_status`, `lease_adopt` and
+/// `lease_clean` those of `bd lease`, and `error` is what any command prints when it fails
 #[derive(Debug, Serialize)]
 pub struct SchemaOutput {
   pub schema: SchemaVersion,

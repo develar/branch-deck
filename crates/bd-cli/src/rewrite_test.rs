@@ -95,7 +95,12 @@ fn dry_run_prints_the_changes_and_the_forest() {
   // the path stacks login in the stack parents, so its prefix is the bare leaf
   assert_eq!(
     output["changes"],
-    json!([{ "commit": short_id(&ids[1]), "old_subject": "Add login", "new_subject": "(login) Add login" }])
+    json!([{
+      "commit": short_id(&ids[1]),
+      "old_subject": "Add login",
+      "new_subject": "(login) Add login",
+      "moved": { "from": null, "to": "login" },
+    }])
   );
   assert_eq!(output["stack_parents"], json!({ "login": "auth" }));
   assert_eq!(

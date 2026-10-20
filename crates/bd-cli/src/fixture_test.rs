@@ -2,7 +2,9 @@
 
 use crate::context::{Environment, RepoContext, RepoOptions};
 use crate::run_with;
-use serde_json::Value;
+use git_ops::revs::short_id;
+use history_rewrite::repository_lock::{RepositoryLock, lock_repository};
+use serde_json::{Value, json};
 use std::ffi::OsString;
 use std::fmt::Write;
 use std::path::Path;
@@ -157,6 +159,20 @@ pub(crate) fn commit_all(repo: &TestRepo, message: &str, timestamp: i64) -> Stri
     .text()
     .unwrap_or_else(|e| panic!("commit {message:?} failed: {e}"));
   repo.head()
+}
+
+/// The repository lock, held as another process would hold it, until the guard is dropped
+pub(crate) fn hold_the_lock(repo: &TestRepo) -> RepositoryLock {
+  lock_repository(repo.git_executor(), repo.path().to_str().unwrap(), std::time::Duration::from_millis(100)).unwrap()
+}
+
+/// A dry run's output: it says so, its `new_head` is `head` (abbreviated) and it has no undo token
+pub(crate) fn assert_dry_run(output: &Value, head: &str) {
+  assert_eq!(
+    (&output["dry_run"], &output["new_head"], output.get("undo_token")),
+    (&json!(true), &json!(short_id(head)), None),
+    "{output}"
+  );
 }
 
 /// One commit per subject, each adding its own file, 100 s apart; returns their ids
