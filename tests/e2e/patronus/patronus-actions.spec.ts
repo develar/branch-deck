@@ -186,7 +186,9 @@ test.describe("Patronus actions", () => {
     await expect(button).toHaveAttribute("aria-busy", "true")
     await expectInPlace()
     options.release()
-    await expect(button).toHaveText("Pushing 45%")
+    // its push as the compact push of a row shows one: the spinner and the percent, the push in its name and hover
+    await expect(button).toHaveText("45%")
+    await expect(button).toHaveAccessibleName("Pushing 45%")
     await expectInPlace()
     // the push button of the row doesn't repeat the push
     const rowPush = getPushButton(findBranchRow(page, "JIRA-456"))

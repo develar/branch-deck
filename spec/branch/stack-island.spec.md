@@ -135,7 +135,8 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   button. So does the push of the stack branch alone, a step of the restart of its robot, of Request Review… of its
   pull request and of the creation of its pull request (`pushWholeStack`): "Pushing the whole stack 45%" its name, the
   line of git on hover ("Pushing the whole stack branch of air…" until git reports), no row of a branch busy; the
-  start of the Safe Push of the whole stack shows its push in its own button instead ("Pushing 45%", below), the
+  start of the Safe Push of the whole stack shows its push in its own button instead (the spinner and "45%", named
+  "Pushing 45%", below), the
   header's push disabled meanwhile: one indicator, decided once for the header's push and the root's push button
   (`useStackBranchPushAlone`). It stays in its place, disabled ("↑", named "Push with Children") with the reason in its hover, while it
   would push nothing beyond the root ("Nothing to push: the stack is on the remote" only while its stack branch has
@@ -162,7 +163,7 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   stack stay as they are on the remote.") and, with its pull request open and its approvals needed, "Approvals count
   in #12, the pull request of the whole stack."; Enter pushes the stack branch alone
   (leased, `pushWholeStack`) and starts the robot from it (`stack: true`), the button busy meanwhile ("Checking…",
-  "Pushing 45%", "Starting…"), the one indicator of its push: the header's push waits, disabled, without it. S on the focused header opens the same popover. Disabled with the reason of the whole stack:
+  the spinner and "45%" of its push, "Starting…", at the width it had at rest), the one indicator of its push: the header's push waits, disabled, without it. S on the focused header opens the same popover. Disabled with the reason of the whole stack:
   its stack branch not built ("The stack branch conflicts at 0caf9066 in config.js: the stack lands in pieces"), a
   robot of a branch of it, its approvals missing in its own pull request. While its stack branch is not built, the stack
   lands in pieces: the "⋯" item "Safe Push deploy" (the last branch of the main line), the action of the notice of S

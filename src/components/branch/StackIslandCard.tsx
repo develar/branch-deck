@@ -339,7 +339,7 @@ function RunningLanding({ branch, count, robot }: { branch: string; count: numbe
   return (
     <span data-testid="stack-island-landing">
       {`${formatPushMode(robot.pushMode)} of ${branch} lands ${formatBranchCount(count)}`}
-      {progress.eta !== null && ` · ${progress.eta}`}
+      {progress.etaAlone !== null && ` · ${progress.etaAlone}`}
     </span>
   )
 }
@@ -362,7 +362,7 @@ function RunningWholeStack({ count, robot }: { count: number; robot: PatronusRob
   return (
     <span data-testid="stack-island-landing">
       {`${formatPushMode(robot.pushMode)} of the whole stack lands ${formatBranchCount(count)}`}
-      {progress.eta !== null && ` · ${progress.eta}`}
+      {progress.etaAlone !== null && ` · ${progress.etaAlone}`}
     </span>
   )
 }

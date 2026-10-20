@@ -302,7 +302,7 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   animations and the transitions are off; the progress indicators (`animate-spin`, `animate-carousel`,
   `animate-robot-ring` of a running Patronus robot, `animate-pulse`) keep running.
 - **Live counters are `tabular-nums`** ("Pushing 45%", the fetch percent, "syncing 3/10", download bytes, "3 / 12", the
-  time of a running robot "18m · ~22m left"), so
+  time of a running robot "18m · ~22m"), so
   the text does not jitter while it counts. A hash inside a sentence is in the monospace font (`InlineCode plain`).
 - **Icons, one per concept** (lucide):
   - `UserCheckIcon` is a review the user is asked for (the Your Turn card, its Activity entry, the Review item);
@@ -334,7 +334,7 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
 - **`data-state` is Base UI's open/closed vocabulary** (set by hand where E2E reads it); the domain state of a component
   is `data-status` (`data-status="upToDate"` on Update Project, `data-status="force"` on an outgoing row).
 - **One busy indicator per operation**: the control that started it shows the spinner and the progress (Update
-  "Updating 42%" with its bar for all its steps, "Pushing 45%" on the Safe Push of the slot, the island header's push of
+  "Updating 42%" with its bar for all its steps, the spinner and "45%" on the Safe Push of the slot, as on the compact push, the island header's push of
   its stack, also of its stack branch alone, "Pushing the whole stack 45%"), the header Sync every sync, also the one an applied update waits for as its last step; the other controls of it are disabled without one, and no text beside them repeats it ("Syncing…" next to
   the spinning Sync). An action started from a menu, a key or a toast has no control left: the "⋯" of its object's row
   shows the spinner, its hover the busy state ("Unstacking tool-events…"); a button that started one and stays shows it
@@ -400,7 +400,8 @@ shows.
   while the track has content): a view without Patronus has no step column, a pushed view no push column.
 - **Caps**: `state` and `step` are at most 10rem, `landed` 12rem; their text truncates, the hover says it. The labels of
   the steps fit (`next-step.spec.md`); the cap is a backstop.
-- **Live values hold their own width**: a running robot is at least `18ch`, the compact push `min-w-16` (`⟳ 100%`), so
+- **Live values hold their own width**: a running robot is at least `13ch`, the compact push `min-w-16` (`⟳ 100%`),
+  the Safe Push of a slot its width at rest while its start runs, so
   a tick of a time or a percent changes no column. A minimum lives on the element that changes, never in the column:
   a column minimum costs its width where nothing shows (the 328px Actions column of October 2026 was two of them).
 - **Labels**: the label of a group's column (Status, Actions) is the minimum of the group's items in every row

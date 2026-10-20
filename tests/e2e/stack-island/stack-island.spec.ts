@@ -353,7 +353,9 @@ test.describe("Stack island", () => {
     // Enter: the stack branch alone is pushed, its progress in the button of the start, the one indicator: the header's
     // push waits without it; then the robot starts from it
     await page.keyboard.press("Enter")
-    await expect(safePush).toHaveText("Pushing 45%")
+    // as the compact push of a row: the spinner and the percent, the push in its name
+    await expect(safePush).toHaveText("45%")
+    await expect(safePush).toHaveAccessibleName("Pushing 45%")
     await expect(safePush).toHaveAttribute("aria-busy", "true")
     const push = air.getByTestId("stack-island-push")
     await expect(push).toBeDisabled()

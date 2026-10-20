@@ -206,10 +206,10 @@ baseTest.describe("Patronus robot timing", () => {
     await syncAndWaitForBranches()
     await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
     const chip = getChip(page, "JIRA-456")
-    await expect(chip).toHaveText("18m · ~22m left")
+    await expect(chip).toHaveText("18m · ~22m")
     // no details open: the row, the indicator, the Dock and the timers ask nothing
     await page.clock.fastForward("02:00")
-    await expect(chip).toHaveText("20m · ~20m left")
+    await expect(chip).toHaveText("20m · ~20m")
     expect((await repo.getPatronusCalls()).detailCalls).toBe(0)
 
     const popover = await hoverChip(page, "JIRA-456")
@@ -217,7 +217,7 @@ baseTest.describe("Patronus robot timing", () => {
     // the time left is the CI's: the start line keeps only the usual time
     await expect(popover.getByTestId("patronus-started")).toHaveText(/ · usually ~40 min for Safe Push$/)
     // while they are open the slot takes it
-    await expect(chip).toHaveText("20m · ~9m left")
+    await expect(chip).toHaveText("20m · ~9m")
     expect((await repo.getPatronusCalls()).detailCalls).toBe(1)
     // asked again once a minute while open
     await page.clock.fastForward("01:01")
@@ -227,7 +227,7 @@ baseTest.describe("Patronus robot timing", () => {
     await page.mouse.move(0, 0)
 
     // closed: the estimate from history again, and nothing asked
-    await expect(chip).toHaveText("21m · ~19m left")
+    await expect(chip).toHaveText("21m · ~19m")
     await page.clock.fastForward("03:00")
     expect((await repo.getPatronusCalls()).detailCalls).toBe(2)
 
@@ -235,7 +235,7 @@ baseTest.describe("Patronus robot timing", () => {
     await page.getByTestId("landing-indicator").hover()
     const row = page.getByTestId("landing-popover").locator("[data-testid=robots-row][data-branch-name=JIRA-456]")
     await expect(row.getByTestId("robots-row-checks")).toHaveText("Unit Tests 93% · 1 check queued")
-    await expect(row.getByTestId("robots-row-state")).toHaveText("Safe Push · 24m · ~9m left")
+    await expect(row.getByTestId("robots-row-state")).toHaveText("Safe Push · 24m · ~9m")
     expect((await repo.getPatronusCalls()).detailCalls).toBe(3)
   })
 
@@ -262,7 +262,7 @@ baseTest.describe("Patronus robot timing", () => {
     await syncAndWaitForBranches()
     // the unassigned commits card renders after the branches and would move the rows away from the pointer
     await expect(page.getByTestId("unassigned-commits-section")).toBeVisible()
-    await expect(getChip(page, "JIRA-456")).toHaveText("18m · ~1h 32m left")
+    await expect(getChip(page, "JIRA-456")).toHaveText("18m · ~1h 32m")
     const calls = await repo.getPatronusCalls()
 
     let popover = await hoverChip(page, "JIRA-456")
@@ -280,7 +280,7 @@ baseTest.describe("Patronus robot timing", () => {
     // the robots of the landing overview names the profile too
     await page.getByTestId("landing-indicator").hover()
     const row = page.getByTestId("landing-popover").locator("[data-testid=robots-row][data-branch-name=JIRA-456]")
-    await expect(row.getByTestId("robots-row-state")).toHaveText("Safe Push · Large Scale Change · 18m · ~1h 32m left")
+    await expect(row.getByTestId("robots-row-state")).toHaveText("Safe Push · Large Scale Change · 18m · ~1h 32m")
     // no list and no poll for the estimates, only the details that were open
     expect(await repo.getPatronusCalls()).toMatchObject({ listCalls: calls.listCalls, pollCalls: calls.pollCalls })
   })
@@ -291,14 +291,14 @@ baseTest.describe("Patronus robot timing", () => {
     await setupRepo("issue_links", { patronus: availableRobots(robot("JIRA-456", "running-robot", { startTime: NOW - 18 * 60 }), ...history) })
     await syncAndWaitForBranches()
     const chip = getChip(page, "JIRA-456")
-    await expect(chip).toHaveText("18m · ~22m left")
+    await expect(chip).toHaveText("18m · ~22m")
     await expect(chip).toHaveAccessibleName("Safe Push: Running, 18 minutes, about 22 minutes left")
     const progress = getStatusCell(page, "JIRA-456").getByTestId("robot-progress")
     await expect(progress).toHaveAttribute("aria-valuenow", "45")
 
     // only the clock moves: the time ticks without a request to Patronus
     await page.clock.fastForward("02:00")
-    await expect(chip).toHaveText("20m · ~20m left")
+    await expect(chip).toHaveText("20m · ~20m")
     await expect(progress).toHaveAttribute("aria-valuenow", "50")
 
     // past the usual time: the usual time instead of the time left, the progress line runs across

@@ -215,27 +215,33 @@ function roundUpToMinute(seconds: number): number {
   return Math.ceil(seconds / MINUTE) * MINUTE
 }
 
-/** The slot text of a running robot: how long it runs, then how long it usually takes ("18m", "~20m left") */
+/** The text of a running robot: how long it runs, then how long it still takes or usually takes */
 export interface RobotProgressText {
   readonly elapsed: string
-  /** null without history */
+  /** After the elapsed time: "~20m" (left), "usually ~40m"; null without history */
   readonly eta: string | null
+  /** Alone, without the elapsed time ("lands 5 branches · ~20m left"): "~20m left", "usually ~40m"; null without history */
+  readonly etaAlone: string | null
 }
 
 /**
- * The slot text of a running robot: "18m · ~20m left"; past its usual time the usual time instead, "55m · usually ~40m"
- * (the hours only from an hour, "14h · usually ~1h": the minutes no longer matter, and the slot has a fixed width, too
- * narrow for "longer than usual", which the details and the screen reader say); without history "18m".
+ * The text of a running robot in a row or a list: "18m · ~20m", the time it runs, then the time left, the pair short
+ * for its column ("about 20 minutes left" in its hover and for the screen reader); past its usual time the usual time
+ * instead, "55m · usually ~40m" (the hours only from an hour, "14h · usually ~1h": the minutes no longer matter, and
+ * "longer than usual" is for the details and the screen reader); without history "18m". `etaAlone` for a sentence that
+ * names no elapsed time: "~20m left".
  */
 export function formatRobotProgress(timing: RobotTiming): RobotProgressText {
   if (timing.remaining !== null) {
-    return { elapsed: formatShortDuration(timing.elapsed), eta: `~${formatShortDuration(roundUpToMinute(timing.remaining))} left` }
+    const left = `~${formatShortDuration(roundUpToMinute(timing.remaining))}`
+    return { elapsed: formatShortDuration(timing.elapsed), eta: left, etaAlone: `${left} left` }
   }
   if (timing.expected !== null) {
     const elapsed = timing.elapsed >= HOUR ? `${Math.floor(timing.elapsed / HOUR)}h` : formatShortDuration(timing.elapsed)
-    return { elapsed, eta: `usually ~${formatShortDuration(timing.expected)}` }
+    const usually = `usually ~${formatShortDuration(timing.expected)}`
+    return { elapsed, eta: usually, etaAlone: usually }
   }
-  return { elapsed: formatShortDuration(timing.elapsed), eta: null }
+  return { elapsed: formatShortDuration(timing.elapsed), eta: null, etaAlone: null }
 }
 
 /** What the screen reader says after the state: "18 minutes, about 20 minutes left", "14 hours, longer than usual" */

@@ -55,7 +55,7 @@ function formatRobotLabel(robot: PatronusRobot, chip: PatronusChipState): string
 }
 
 /**
- * A running robot: the ring, how long it runs and how long it usually takes ("18m · ~22m left", past its usual time
+ * A running robot: the ring, how long it runs and how long it still takes ("18m · ~22m", past its usual time
  * "55m · usually ~40m"), and under it the line of the share of its usual time, indeterminate without history, past it
  * and while it cancels; one that will fail says so instead of the time left ("18m · Failing"), no use waiting for it.
  * Its own component, as its time ticks.
@@ -68,8 +68,9 @@ function RunningRowRobot({ branchName, robot, chip }: { branchName: string; robo
   // "Safe Push: Failing": the time left is no use for a robot that will fail
   const label = canceling || failing ? formatRobotLabel(robot, chip) : `${formatRobotLabel(robot, chip)}, ${formatSpokenRobotProgress(timing)}`
   return (
-    // as wide as "55m · usually ~40m" while it runs, so its time ticks without moving the columns
-    <div className="relative flex min-w-[18ch]">
+    // as wide as "59m · ~1h 59m" while it runs, so its time ticks without moving the columns; a robot past its usual
+    // time ("55m · usually ~40m") widens its column once
+    <div className="relative flex min-w-[13ch]">
       <RobotStatusChip branchName={branchName} robot={robot} chip={chip} label={label} className={ROW_ROBOT} stackPath>
         <RobotRing className={cn("size-3.5 shrink-0", robotRingColor(failing))} />
         <span className="truncate" data-testid="robot-time">

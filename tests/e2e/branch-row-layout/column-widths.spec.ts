@@ -52,9 +52,10 @@ test.describe("Branch table column widths", () => {
     await expect(findBranchRow(page, "ABC-123").getByRole("button", { name: "Restart Safe Push" })).toBeVisible()
     await expect(findBranchRow(page, "feature-auth").getByRole("button", { name: "Safe Push", exact: true })).toBeVisible()
     await expect(page.getByTestId("push-button")).toHaveCount(0)
-    // "Restart Safe Push" and "⋯" with the padding, the gutter between them: 328px when every row held a push and a 10rem step
+    // "Restart Safe Push" and "⋯" with the padding, the gutter between them (201px): 328px when every row held a push
+    // and a 10rem step
     const actions = getBranchCells(findBranchRow(page, "JIRA-456")).actions
-    await expect.poll(async () => (await actions.boundingBox())!.width).toBeLessThan(13 * 16)
+    await expect.poll(async () => (await actions.boundingBox())!.width).toBeLessThan(12.75 * 16)
     await expectColumnAligned(page.getByTestId("next-step-slot"))
     await expectColumnAligned(page.getByTestId("branch-row").getByRole("button", { name: /^More actions for / }))
   })

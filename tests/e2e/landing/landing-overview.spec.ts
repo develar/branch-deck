@@ -36,7 +36,7 @@ test.describe("Landing overview", () => {
     await expect(moves.getByTestId("landing-row")).toHaveCount(4)
     const running = popover.getByTestId("landing-running").getByTestId("robots-row")
     await expect(running).toHaveAttribute("data-branch-name", "JIRA-456")
-    await expect(running.getByTestId("robots-row-state")).toHaveText("Safe Push · 18m · ~22m left")
+    await expect(running.getByTestId("robots-row-state")).toHaveText("Safe Push · 18m · ~22m")
     await expect(running.getByTestId("robot-progress")).toHaveAttribute("aria-valuenow", "45")
     await expect(landingRow(popover.getByTestId("landing-in-master"), "feature-db").getByTestId("landing-row-reason")).toHaveText("Merged by Patronus")
     // the reason of a row is the hover of its node: the state in full, what it names opens from there

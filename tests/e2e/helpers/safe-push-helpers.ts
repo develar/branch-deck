@@ -16,7 +16,7 @@ export function popoverStart(page: Page): Locator {
   return safePushPopover(page).getByTestId("safe-push-start")
 }
 
-/** The Safe Push button of the row's slot ("Safe Push", "Safe Push · 3"; "Checking…", "Pushing 45%", "Starting…" while it starts) */
+/** The Safe Push button of the row's slot ("Safe Push", "Safe Push · 3"; "Checking…", "45%" (named "Pushing 45%"), "Starting…" while it starts) */
 export function slotSafePush(page: Page, branchName: string): Locator {
   return findBranchRow(page, branchName).getByTestId("safe-push-button")
 }

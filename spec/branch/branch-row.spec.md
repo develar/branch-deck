@@ -656,7 +656,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 
 - The items are the tracks `state` (capped at `max-w-40`, its text truncates), `pr` and `landed` (capped at `max-w-48`),
   each after an 8px gutter while its column has content; `landed` is a `flex items-center gap-2` of the Landed chip,
-  then the `text-xs text-muted-foreground` "lands with oauth" or "on master". A running robot is at least `18ch` wide,
+  then the `text-xs text-muted-foreground` "lands with oauth" or "on master". A running robot is at least `13ch` wide ("59m · ~1h 59m"),
   so its ticking time moves no column.
 - The status text is `text-sm text-muted-foreground`, truncated in its column, after a `size-1.5` dot. The badge is the
   subtle badge of its colour. The robot in its place is its chip at `text-sm`, `h-6` without padding, a `size-3.5` icon
@@ -679,8 +679,9 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - The Safe Push slot is the track `step`, capped at `max-w-40` ([Patronus](patronus.spec.md#user-experience)). "Safe Push" is a ghost `xs` button with
   the `ShieldCheckIcon` in the foreground colour, "Restart Safe Push" the same with the `RotateCcwIcon`, the pull request
   step with its icon; disabled, they are dimmed to `opacity-50` and keep their hover (`focusableWhenDisabled`). While a
-  start of the branch runs, "Safe Push" shows its step with a spinner instead of the shield, `aria-busy`, not dimmed:
-  "Checking…", "Pushing 45%", "Starting…".
+  start of the branch runs, "Safe Push" shows its step with a spinner instead of the shield, `aria-busy`, not dimmed,
+  at the width it had at rest (`min-w-26` covers "Checking…"): "Checking…", "45%" of its push as the compact push
+  shows it (named "Pushing 45%"), "Starting…".
 - "⋯" is a ghost `icon-xs` button with the `EllipsisIcon`, muted, named "More actions for feature-auth", with the
   tooltip "More actions"; while an action of the row started from a menu, a key or a toast runs, a `Spinner` in place
   of the icon, `aria-busy`, the tooltip its busy state ("Unstacking oauth…"). Its menu is the shadcn `DropdownMenu` (Base UI Menu), `align="end"`, as wide as its items

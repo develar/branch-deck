@@ -239,7 +239,8 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   its pull request, the start of its Safe Push) must show where the pushes of the stack show, one indicator: the push of
   the header of its island ([Stack Island](stack-island.spec.md#header)), else the push button of the root's row of a
   small stack, "Pushing the whole stack 45%" with the line of git on hover, the branches of the stack not busy; the
-  start of its Safe Push in its own button (the island's header, the root's slot of a small stack, "Pushing 45%"), the
+  start of its Safe Push in its own button (the island's header, the root's slot of a small stack: the spinner and
+  "45%", named "Pushing 45%"), the
   dialog of its pull request in its Create button ("Pushing 45%"); one hook decides which (`useStackBranchPushAlone`). One push of it at a time: a second request while one
   runs (another action's, or Push with Children that takes it along) joins it, no push of its own, one indicator; a
   failed push of it alone is said once and fails the request that joined too; then the request pushes only what the
@@ -345,7 +346,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   forks ("Land the whole stack: Safe Push Whole Stack", [Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)),
   the popover at the header of the root's island, else at the root's row (a small stack, `getWholeStackStartItems`).
   Its steps must show where its popover opens, as the start of a branch shows them in its slot: "Checking…" while the
-  facts load, "Pushing 45%", "Starting…", in the button of the header's slot, else in the root's slot of a small stack,
+  facts load, the spinner and "45%" of its push, "Starting…", in the button of the header's slot, else in the root's slot of a small stack,
   in place of the root's own step while the start runs (`NextStepSlot`); the push button of the root's row stays the
   root's own meanwhile (`useStackBranchPushAlone`).
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)

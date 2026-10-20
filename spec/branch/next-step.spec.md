@@ -302,8 +302,8 @@ branch from all the facts (the branch, its robots, its pull request and the read
 
 - The slot is as wide as the widest step of the view, at most 10rem, its step a ghost `xs` button with its
   `compactLabel` ("Retarget #7", "Awaiting Review", "Create Pull Request…" of the whole stack), every label of a step
-  within the 10rem; a start that runs keeps the width of "Safe Push" (`min-w-32`, "Pushing 45%", the branches it
-  pushes in the hover), so nothing moves under the pointer
+  within the 10rem; a start that runs keeps the width the step had at rest ("Checking…", the spinner and "45%" of its
+  push, "Starting…"; "Pushing 45%" and the branches it pushes in its name and hover), so nothing moves under the pointer
   ([UX Writing](../../docs/guidelines/ux-writing.md#actions)).
   [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`fits every label of a step in its column, so none truncates`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the branch menu, pushing the branch first`)

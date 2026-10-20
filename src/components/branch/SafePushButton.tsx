@@ -1,4 +1,4 @@
-import { useRef } from "react"
+import { useLayoutEffect, useRef } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { ShieldCheckIcon } from "lucide-react"
@@ -37,8 +37,9 @@ export interface SafePushButtonProps {
    */
   wholeStack?: string
   /**
-   * In the step column of a row or of an island header: never wider while a start runs than at rest, so a click moves
-   * no column; "Pushing 45%", the branches it pushes in the hover
+   * In the step column of a row or of an island header: as wide while a start runs as at rest, so a click moves no
+   * column; its push shows as the compact push of the row does, the spinner and "45%", "Pushing 45%" (the branches
+   * it pushes too) its accessible name and its hover
    */
   compact?: boolean
   className?: string
@@ -52,7 +53,7 @@ const STEP_CHANGE_GUARD_MS = 700
  * branch's next step (`getBranchNextStep`): a click starts at once when there is nothing to say, else opens the popover
  * at the slot (`requestSafePush`); the hover says what it lands. While a start runs, its step is the label: "Checking…",
  * "Pushing 45%" ("Pushing 2 branches 45%" for a stack; the stack branch of the whole stack "Pushing 45%"), "Starting…":
- * the one indicator of its push. Disabled with the reason on hover as every surface
+ * the one indicator of its push; compact, the spinner and "45%", as the compact push of the row. Disabled with the reason on hover as every surface
  * disables it. Inside the branch preview the preview closes first: the start is the row's. The second click of a
  * double click, and a click on the button that just took the place of another step under the pointer (a poll changed
  * the step), are ignored: they were meant for what was there before.
@@ -88,11 +89,30 @@ export function SafePushButton({
       ? (item?.label ?? "Safe Push")
       : pushing !== null
         ? compact
-          ? transferLabel("Pushing", pushProgress)
+          ? pushProgress === null
+            ? null
+            : `${pushProgress.percent}%`
           : pushing
         : starting.step === "checking" || starting.step === "target"
           ? "Checking…"
           : "Starting…"
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
+  const restWidth = useRef<number | null>(null)
+  const busy = starting !== null
+  // compact: the width at rest holds while a start runs, so a click moves no column ("Safe Push · 3" is wider than
+  // "Checking…", the minimum covers "Safe Push", narrower than "Checking…")
+  useLayoutEffect(() => {
+    const button = buttonRef.current
+    if (!compact || button === null) {
+      return
+    }
+    if (busy) {
+      button.style.minWidth = restWidth.current === null ? "" : `${restWidth.current}px`
+    } else {
+      button.style.minWidth = ""
+      restWidth.current = button.getBoundingClientRect().width
+    }
+  }, [compact, busy, label])
   return (
     <Tooltip>
       <TooltipTrigger
@@ -104,10 +124,12 @@ export function SafePushButton({
             // the hover says why; Base UI keeps the button focusable, so the dimming is ours
             focusableWhenDisabled
             aria-busy={starting !== null || undefined}
-            // compact: as wide as its widest step ("Safe Push · 3", "Pushing 100%"), so a start changes no width
-            className={cn("tabular-nums", compact && "min-w-32 justify-start", disabled && starting === null && "opacity-50", className)}
+            // the push a compact label says by its percent only
+            aria-label={compact && pushing !== null ? pushing : undefined}
+            className={cn("tabular-nums", compact && "min-w-26 justify-start", disabled && starting === null && "opacity-50", className)}
             data-testid="safe-push-button"
             ref={element => {
+              buttonRef.current = element
               if (element !== null && guardUntil.current === null) {
                 guardUntil.current = element.matches(":hover") ? performance.now() + STEP_CHANGE_GUARD_MS : 0
               }

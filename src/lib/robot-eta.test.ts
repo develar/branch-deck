@@ -138,10 +138,10 @@ describe("getRobotTiming", () => {
 describe("formatRobotProgress", () => {
   it("says how long it runs and how long it usually takes", () => {
     const start = { startTime: NOW_SECONDS - 18 * 60 }
-    expect(progressText(getRobotTiming(start, rough(40), NOW))).toBe("18m · ~22m left")
+    expect(progressText(getRobotTiming(start, rough(40), NOW))).toBe("18m · ~22m")
     expect(formatSpokenRobotProgress(getRobotTiming(start, rough(40), NOW))).toBe("18 minutes, about 22 minutes left")
     // the remaining time rounds up
-    expect(progressText(getRobotTiming(start, { seconds: 18 * 60 + 1, basis: { kind: "mode" } }, NOW))).toBe("18m · ~1m left")
+    expect(progressText(getRobotTiming(start, { seconds: 18 * 60 + 1, basis: { kind: "mode" } }, NOW))).toBe("18m · ~1m")
     expect(progressText(getRobotTiming(start, null, NOW))).toBe("18m")
     expect(formatSpokenRobotProgress(getRobotTiming(start, null, NOW))).toBe("18 minutes")
   })
@@ -186,7 +186,7 @@ describe("the estimate of the CI", () => {
     // read a minute ago: 8 minutes left now
     const timing = withCheckProgress(history, { progress, readAt: NOW - 60_000 }, NOW)
     expect(timing).toMatchObject({ elapsed: 18 * 60, remaining: 8 * 60, expected: 26 * 60 })
-    expect(progressText(timing)).toBe("18m · ~8m left")
+    expect(progressText(timing)).toBe("18m · ~8m")
     // the tick before the answer counts as the moment of the answer
     expect(withCheckProgress(history, { progress, readAt: NOW + 5_000 }, NOW).remaining).toBe(540)
     // nothing read, no time left in it, or it ran out: the estimate from history

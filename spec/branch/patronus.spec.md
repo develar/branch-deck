@@ -332,9 +332,10 @@ reports in it and closes it once merged.
   push mode. A failed robot stopped early and doesn't count. Without such a robot the run is indeterminate.
   [@test] ../../src/lib/robot-eta.test.ts (`takes the median of the successful robots of the push mode started in the last 30 days`, `takes the robots of the same merge profile once three of them finished, and those without one for a robot without one`, `falls back to the push mode, roughly, while the profile is not known or too few of its robots finished`, `is indeterminate without a finished robot to learn from`, `counts only the robots into the same target once there are enough of them`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should estimate by the merge profile, roughly by the push mode without it, and ask Patronus nothing for it`)
-- The slot says how long the robot runs and how long it has left: "18m · ~22m left" (the time left rounded up); past its
-  usual time, the usual time instead, "55m · usually ~40m" (the hours only from an hour: "14h · usually ~1h"); without
-  history, "18m". The time ticks with the relative times, every 15 s, without a request.
+- The row and the lists of robots say how long the robot runs and how long it has left: "18m · ~22m" (the time left
+  rounded up; "about 22 minutes left" in the hover and for the screen reader); past its usual time, the usual time
+  instead, "55m · usually ~40m" (the hours only from an hour: "14h · usually ~1h"); without history, "18m". A sentence
+  that names no elapsed time says "left": "Safe Push of deploy lands 5 branches · ~23m left". The time ticks with the relative times, every 15 s, without a request.
   [@test] ../../src/lib/robot-eta.test.ts (`says how long it runs and how long it usually takes`, `names the usual time once a robot runs longer, in hours once it runs an hour`, `counts the time left until the usual duration, indeterminate past it and without history`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should count the time of a running robot and the time it usually takes`)
 - A thin line under the time of a running robot in the Status cell shows the share of its usual time; without history,
@@ -493,8 +494,9 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/sync-core/src/patronus_test.rs (`the_target_is_the_branch_of_origin_the_baseline_tracks`)
 - A branch whose commits the remote lacks is pushed first, decided by content as the push button decides it
   (`getStartPush` over `getPushAction`, never by the hash of the tip). The push is part of the start: no note narrates
-  it; while it runs the slot button shows it ("Pushing 45%"; "Pushing 2 branches 45%" for the one push of a stack in its
-  hover and in the preview, so the slot keeps its width), the
+  it; while it runs the slot button shows it as the compact push of the row does, the spinner and "45%" ("Pushing 45%"
+  its name, "Pushing 2 branches 45%" for the one push of a stack in its hover and in the preview), at the width it had
+  at rest, the
   one indicator of it: the push button of the row is disabled without its spinner and percent; then "Starting…". A
   branch whose remote branch has the same commits, only rebuilt since on a newer baseline (every sync onto a newer
   baseline does it), is not pushed: Patronus rebases the remote branch itself, and the target conflict check below
@@ -1116,8 +1118,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
 - The chip is the same text-sized button as the pull request chip (`StatusChip`): `text-xs`, a `size-3.5` shield,
   underlined on hover. The dot is `size-1.5 rounded-full`.
 - The robot of a row reads as the status text it replaces: the chip at `text-sm` with a `size-3.5` icon where the status
-  dot is, `h-6`, no padding, in the state column of the Status cell, at least `18ch` wide ("55m · usually ~40m" fits,
-  so its ticking time moves no column) and at most 10rem; its text truncates. The elapsed time is `text-foreground`, the
+  dot is, `h-6`, no padding, in the state column of the Status cell, at least `13ch` wide ("59m · ~1h 59m" fits, so
+  its ticking time moves no column; "usually ~40m" past its usual time widens the column once) and at most 10rem; its text truncates. The elapsed time is `text-foreground`, the
   rest muted, in tabular figures. The Safe Push slot is the step column of the Actions cell, at most 10rem
   ([Branch columns](../../docs/design/ui-theme.md#branch-columns)); its step is a ghost `xs` button ("Restart Safe Push" with the `RotateCcwIcon`, the pull request with its
   icon), dimmed with the reason on hover while disabled.
@@ -1133,7 +1135,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
 - The details popover is `w-80`; in the preview the same details sit in a nested `rounded-lg` panel.
 - "Safe Push" (`SafePushButton`) is an `xs` button with the `ShieldCheckIcon`, ghost in the row and the preview footer,
   outline among the popover's buttons, in the foreground colour (the push colour is the push button's), its label in
-  tabular figures while a start runs ("Pushing 45%", a spinner for the shield). Disabled, it keeps the focus and the
+  tabular figures while a start runs ("Pushing 45%", a spinner for the shield); in a slot (`compact`) at least `min-w-26`
+  ("Checking…"), and while a start runs at the width it had at rest, its push the spinner and "45%". Disabled, it keeps the focus and the
   hover (`focusableWhenDisabled`) and is dimmed to `opacity-50`; its reason is a `Tooltip`.
 - The popover of a start is a `Popover` at the slot, `w-[28rem]`, aligned to its end; its title `text-sm font-medium`,
   its lines in sentences (muted, `warning` or `info` with their icon), its footer the status left of Dry Run, Cancel

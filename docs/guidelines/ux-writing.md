@@ -167,7 +167,9 @@ indicator could cancel a robot but not restart it.
   name or a target the place or the hover already says: "Retarget #7" (the menu "Retarget #7 to master"), "Awaiting
   Review" ("Awaiting Ilya Korennoy" in the hover, the notice and the menus), "Create Pull Request…" in the header of
   the whole stack ("Create Pull Request of the Stack…" elsewhere). It starts with the words of the name, so the name
-  stays one. A step that runs is no wider than at rest: "Pushing 45%", the branches it pushes in the hover; one name
+  stays one. A step that runs keeps the width it had at rest: its push the spinner and "45%" as the compact push of the
+  row, "Pushing 45%" and the branches it pushes in its name and hover; a robot's time "47m · ~58m", "about 58 min
+  left" in the hover. One name
   of a person in a column once made every card of the view 330px wide in its Actions.
 
 ## How to

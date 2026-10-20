@@ -8,6 +8,7 @@ import {
   findBranchRow,
   getBranchCommitRow,
   getBranchDetailsRow,
+  getMoreButton,
   getPushButton,
   getStackChip,
   verifyCommitCount,
@@ -892,6 +893,11 @@ test.describe("Stacked branches", () => {
         await page.getByRole("menuitem", { name: "Whole Stack" }).click()
       }
 
+      // the steps of the start take the place of the root's own step: "⋯" of the row stays where it is
+      const more = getMoreButton(findBranchRow(page, "auth"))
+      const moreX = (await more.boundingBox())!.x
+      const expectMoreInPlace = async () => expect((await more.boundingBox())!.x).toBe(moreX)
+
       // the root's menu, "Whole Stack ›": its Safe Push says what it lands; its steps show where it was asked, in the
       // root's slot, as in the header of an island: the facts first, then its popover at the root's row
       await openWholeStack()
@@ -902,14 +908,17 @@ test.describe("Stacked branches", () => {
       const start = rootSlot.getByTestId("safe-push-button")
       await expect(start).toHaveText("Checking…")
       await expect(start).toHaveAttribute("aria-busy", "true")
+      await expectMoreInPlace()
       releaseOptions()
       await expectWholeAuthStackPopover(page)
       // Enter: only the stack branch is pushed, its progress in the button of the start, the one indicator: the rows of
       // the root and of the branches show no push (the remote lacks them, their first push is a step of their landing);
       // then the robot starts from it
       await page.keyboard.press("Enter")
-      await expect(start).toHaveText("Pushing 45%")
+      await expect(start).toHaveText("45%")
+      await expect(start).toHaveAccessibleName("Pushing 45%")
       await expect(start).toHaveAttribute("aria-busy", "true")
+      await expectMoreInPlace()
       await expect(findBranchRow(page, "auth").getByTestId("push-button")).toHaveCount(0)
       // no branch of the stack is pushed
       await expect(findBranchRow(page, "login").getByTestId("push-button")).toHaveCount(0)
