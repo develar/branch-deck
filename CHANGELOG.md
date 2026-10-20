@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.26.0](https://github.com/develar/branch-deck/compare/v0.25.0...v0.26.0) (2026-10-20)
+
+
+### Features
+
+* **app:** the message edit gets an Undo and runs on the core of bd reword ([d90d861](https://github.com/develar/branch-deck/commit/d90d861e0d13cf72da08af5eeca01b6e92e80105))
+* **branch:** the branch menu by frequency, Patronus › and Copy › submenus ([dfc4d98](https://github.com/develar/branch-deck/commit/dfc4d986ae70bbb4f04856b94254d618e9ce1e96))
+* **branch:** the Parked card, kept out of Your Move and of every push ([c8ceef8](https://github.com/develar/branch-deck/commit/c8ceef84e92699e7f067ad5d43f288f953e4edab))
+* **history-rewrite:** parked branches, kept local and never pushed ([8385d63](https://github.com/develar/branch-deck/commit/8385d63954b1401c8417344189ac23b006cb43a3))
+
+
+### Performance Improvements
+
+* **bd:** pnpm perf:bd-rebuild measures the rebuild of the bd crates after a one-line change ([d6c6963](https://github.com/develar/branch-deck/commit/d6c6963f1c7f18fdbdc477eb3393264010654c3b))
+
 ## [0.25.0](https://github.com/develar/branch-deck/compare/v0.24.0...v0.25.0) (2026-10-20)
 
 
