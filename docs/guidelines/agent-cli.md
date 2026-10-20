@@ -320,7 +320,7 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
 
 #### Areas
 
-`areas` (`crates/bd-cli/src/areas.rs`) say where a commit belongs without its file list:
+`areas` (`crates/bd-clustering/src/areas.rs`) say where a commit belongs without its file list:
 
 - The area of a path is its first `--depth` directories (3 by default), or all of them for a shorter path, and `.`
   for a file at the top level: `plugins/air/shared/src/Foo.kt` is in `plugins/air/shared`.
@@ -329,7 +329,7 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
   commit has no other lines.
 - Lock files and generated files don't count without `--include-generated`. Hub files never count: changes in many
   unrelated areas touch them, so they say nothing about where a commit belongs. `HUB_FILES` in
-  `crates/bd-cli/src/generated.rs` lists them: module and build registries, file lists and top-level docs. It matches
+  `crates/bd-clustering/src/generated.rs` lists them: module and build registries, file lists and top-level docs. It matches
   by file name, and a pattern with a `/` (`.idea/modules.xml`) by the end of the path.
 - `top_dirs` of `bd status --stats` keeps its meaning: the full directories of the files.
 
@@ -347,7 +347,7 @@ Nobody edits them by hand, and they link every commit that touches them, so by d
 generated when:
 
 - its name is a lock file: `Cargo.lock`, `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `go.sum`,
-  `poetry.lock`, `Gemfile.lock` and the others in `LOCK_FILES` (`crates/bd-cli/src/generated.rs`);
+  `poetry.lock`, `Gemfile.lock` and the others in `LOCK_FILES` (`crates/bd-clustering/src/generated.rs`);
 - or the attributes of HEAD mark it `linguist-generated` or `-diff` (which `binary` implies). One
   `git check-attr --source=HEAD --stdin -z` process checks all paths.
 
@@ -930,7 +930,7 @@ changes, and no repository lock.
 It reads the commits once with a `CheckSession` (`sync_core::check`: the snapshot of a regroup, the baseline and the
 branch tips), their changes from the object cache without lock files, generated files and hub files
 (`read_linked_diffs`), the dependencies of `bd commits` and the fixup targets. The clustering
-(`crates/bd-cli/src/clustering.rs`) runs no git:
+(`crates/bd-clustering/src/clustering.rs`) runs no git:
 
 1. Hard units, joined with union-find: the dependency edges, a fixup and its target, the commits with the same
    `(prefix)` or of the same issue group (an anchor), and the commits without a prefix that have the same issue key.

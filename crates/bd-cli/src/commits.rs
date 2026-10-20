@@ -1,10 +1,10 @@
-use crate::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
 use crate::block_patch::{PatchFile, read_patches};
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
-use crate::generated::generated_paths;
 use crate::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use crate::status::read_grouping;
+use bd_clustering::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
+use bd_clustering::generated::generated_paths;
 use clap::builder::RangedU64ValueParser;
 use git_ops::commit_list::Commit;
 use history_rewrite::autosquash::{FixupKind, plan_autosquash};

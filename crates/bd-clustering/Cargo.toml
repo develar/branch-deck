@@ -1,0 +1,25 @@
+[package]
+name = "bd-clustering"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The clustering of `bd suggest`, the areas of a commit and the generated files, without the CLI"
+publish = false
+
+[dependencies]
+git-executor = { path = "../git-executor" }
+git-ops = { path = "../git-ops" }
+history-rewrite = { path = "../history-rewrite" }
+object-cache = { path = "../object-cache" }
+sync-utils = { path = "../sync-utils" }
+anyhow.workspace = true
+schemars.workspace = true
+serde.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

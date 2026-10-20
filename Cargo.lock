@@ -454,6 +454,7 @@ name = "bd-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bd-clustering",
  "clap",
  "code-symbols",
  "dirs",
@@ -480,6 +481,23 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "bd-clustering"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "git-executor",
+ "git-ops",
+ "history-rewrite",
+ "object-cache",
+ "pretty_assertions",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "sync-utils",
+ "tracing",
 ]
 
 [[package]]

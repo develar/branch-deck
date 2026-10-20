@@ -15,6 +15,7 @@ members = [
   "crates/sync-test-utils",
   "crates/git-executor",
   "crates/bd-cli",
+  "crates/bd-clustering",
   "crates/object-cache",
   "crates/patronus",
   "crates/github",

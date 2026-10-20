@@ -3,6 +3,7 @@
 //! with its reason and exact number of hits, so a new hit and a stale exemption both fail.
 
 use crate::source_scan_test::{Arg, ArgList, Source, argument_lists, line_at, production_sources, skip_trivia};
+use std::path::Path;
 
 /// A file a rule allows, with its number of hits and why
 struct Exemption {
@@ -113,15 +114,27 @@ fn bound_name(before: &str) -> Option<&str> {
   (end > 0).then(|| &statement[..end])
 }
 
+/// The crates of `bd`: the CLI and the crates it is cut into
+const BD_CRATES: &str = "crates/bd-";
+
 #[test]
 fn bd_and_the_app_run_no_git_of_their_own() {
+  // a bd crate the scan doesn't read would escape the rule
+  let sources = production_sources();
+  let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+  for entry in std::fs::read_dir(crates).expect("crates directory").flatten() {
+    let prefix = format!("crates/{}/", entry.file_name().to_string_lossy());
+    if prefix.starts_with(BD_CRATES) {
+      assert!(sources.iter().any(|source| source.path.starts_with(&prefix)), "the scan reads no source of {prefix}");
+    }
+  }
   check(
-    "bd-cli and src-tauri start git themselves",
+    "the bd crates (crates/bd-*) and src-tauri start git themselves",
     "they are adapters: put the git call into a function of crates/git-ops (the git) or a core of crates/history-rewrite or \
      crates/sync-core (the lock, the guards, the orchestration), and call that",
     &[],
     |source| {
-      if !(source.path.starts_with("crates/bd-cli/src/") || source.path.starts_with("src-tauri/src/")) {
+      if !(source.path.starts_with(BD_CRATES) || source.path.starts_with("src-tauri/src/")) {
         return Vec::new();
       }
       let mut lines = code_lines_with(source, ".execute_command");

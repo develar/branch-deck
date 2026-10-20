@@ -2,17 +2,14 @@
 //! JSON on stdout, every object with `"schema": 2`; logs on stderr; the exit code of an error is fixed by its code.
 
 pub mod agent_help;
-pub mod areas;
 pub mod block_patch;
 pub mod branch_stats;
 pub mod check_command;
-pub mod clustering;
 pub mod commits;
 pub mod context;
 pub mod describe;
 pub mod error;
 pub mod fold_command;
-pub mod generated;
 pub mod group_plan;
 pub mod install;
 pub mod landed;
@@ -379,11 +376,7 @@ fn io_error(error: std::io::Error) -> CliError {
 #[cfg(test)]
 mod agent_help_test;
 #[cfg(test)]
-mod areas_test;
-#[cfg(test)]
 mod check_test;
-#[cfg(test)]
-mod clustering_test;
 #[cfg(test)]
 mod commits_test;
 #[cfg(test)]

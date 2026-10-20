@@ -670,7 +670,7 @@ fn prefix_anchor(prefix: &str, stacks: bool) -> &str {
 }
 
 /// The last level of a stack path
-pub(crate) fn leaf_of_path(path: &str) -> &str {
+pub fn leaf_of_path(path: &str) -> &str {
   path.rsplit('/').next().unwrap_or(path)
 }
 

@@ -15,6 +15,7 @@ path = "src/main.rs"
 test = false
 
 [dependencies]
+bd-clustering = { path = "../bd-clustering" }
 file-diffs = { path = "../file-diffs" }
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops", features = ["schemars"] }

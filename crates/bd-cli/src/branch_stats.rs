@@ -1,12 +1,12 @@
 //! `bd status --stats`: what each branch changes, from at most three processes for all branches: the commit diffs the
 //! cache misses (one `log --raw` and one `cat-file --batch`), one `diff-tree --stdin` and one `check-attr`
 
-use crate::areas::DirLines;
 use crate::context::RepoContext;
 use crate::error::CliError;
-use crate::generated::generated_paths;
 use crate::numstat::NumstatEntry;
 use crate::output::ShortIds;
+use bd_clustering::areas::DirLines;
+use bd_clustering::generated::generated_paths;
 use git_ops::commit_files::read_files_from_base;
 use git_ops::commit_list::Commit;
 use history_rewrite::commit_grouper::parse_subject;

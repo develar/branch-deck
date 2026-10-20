@@ -3,18 +3,18 @@
 //! each cluster on the clusters it needs, and checks the plan with a trial sync; a conflict stacks on or joins the
 //! commits it needs and clusters again. It writes git objects and the cache only (docs/guidelines/agent-cli.md)
 
-use crate::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
 use crate::check_command::{CheckedBranch, checked_branches, kind_verb, possible_dangling_references};
-use crate::clustering::{
-  Cluster, ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, MAX_REPAIR_ROUNDS, Placement, Restack, Warning,
-  anonymize, cluster_change, cluster_with_repair, is_issue_only, leaf_of_path, name_clusters, place_clusters, stacked_without_need, subject_words, why,
-};
 use crate::commits::{CommitsHeader, LinkedDiffs, fixup_targets, read_linked_diffs};
 use crate::context::RepoContext;
 use crate::error::CliError;
-use crate::generated::is_hub_file;
 use crate::output::SchemaVersion;
 use crate::rewrite::regroup_error;
+use bd_clustering::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
+use bd_clustering::clustering::{
+  Cluster, ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, MAX_REPAIR_ROUNDS, Placement, Restack, Warning,
+  anonymize, cluster_change, cluster_with_repair, is_issue_only, leaf_of_path, name_clusters, place_clusters, stacked_without_need, subject_words, why,
+};
+use bd_clustering::generated::is_hub_file;
 use clap::builder::RangedU64ValueParser;
 use git_ops::branch_names::{BranchKind, sanitize_branch_name, strip_branch_namespace};
 use git_ops::commit_list::Commit;

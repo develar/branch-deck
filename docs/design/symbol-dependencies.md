@@ -580,7 +580,7 @@ flowchart TD
 - `crates/sync-core/src/check.rs`: `CheckSession::symbol_graph`, read once per session with `on`, for the conflict fix
   (`dependents_in`, `movable`), `missing_declarations` (`crates/sync-core/src/missing_declarations.rs`) and
   `stack_independence` (`Builds.uses`).
-- `crates/bd-cli/src/clustering.rs`: `ClusterInput.symbol_dependencies`, an order of the clusters, never a join;
+- `crates/bd-clustering/src/clustering.rs`: `ClusterInput.symbol_dependencies`, an order of the clusters, never a join;
   `crates/bd-cli/src/suggest.rs`: the `symbol_dependency` warning.
 
 ## Alternatives Considered

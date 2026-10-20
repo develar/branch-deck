@@ -569,6 +569,7 @@ crates/
 ├── sync-utils/      # Small shared utilities (issue patterns, timestamps, child processes, git booleans, the process scan)
 ├── branch-integration/ # Integration detection: rebase, merge and squash strategies
 ├── bd-cli/          # `bd` agent CLI (docs/guidelines/agent-cli.md)
+├── bd-clustering/   # The clustering of `bd suggest`, the areas of a commit, the generated files; no CLI
 ├── object-cache/    # LMDB cache keyed by git object ids, shared by the app and bd
 ├── code-symbols/    # Declarations, imports and references of a Kotlin/Java/Rust/TS/JS file on tree-sitter, no git; the highlighting of the diffs (`highlight/`)
 ├── text-diff/       # Line, word and char comparison of two texts, ported from IntelliJ (Apache-2.0, NOTICE)
