@@ -1146,7 +1146,8 @@ test.describe("Stacked branches", () => {
       const slot = oauthRow.getByTestId("next-step-slot")
       await expect(slot).toHaveAttribute("data-step", "retarget")
       const retarget = slot.getByTestId("next-step")
-      await expect(retarget).toHaveText("Retarget #8 to master")
+      // short in its column: the hover and the menu name the target
+      await expect(retarget).toHaveText("Retarget #8")
       await retarget.hover()
       await expect(page.getByTestId("next-step-hover")).toHaveText(
         "Approvals in #8 don't count: its base is user-name/virtual/login, a virtual branch. Changes the base of #8 from user-name/virtual/login to master on GitHub: Patronus merges a pull request into its base",

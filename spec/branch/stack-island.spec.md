@@ -153,7 +153,7 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   next step of its stack branch (`WholeStackSlot`, [Next Step](next-step.spec.md#the-whole-stack)): "Safe Push · 7",
   its hover what it lands, "Lands 7 branches · 14 commits into master in one Safe Push: air, bazel, … side-fix and
   side-test" (the main line first, then the side branches, which only it lands); else the restart of its robot,
-  "Create Pull Request of the Stack…", Request Review… or the wait in its pull request. Of a straight chain, which has
+  "Create Pull Request…" (of the Stack, as its menus say it), Request Review… or the wait in its pull request. Of a straight chain, which has
   no stack branch, it is the slot of the last branch of the main line (`stackMainLineIn`), whose one robot lands it all:
   "Safe Push deploy · lands 5 branches into master". A click asks the start (`requestSafePush` of `stack:<root>`,
   placement `stack-header`); it lands more than a row, so it opens its popover at the header's slot (`SafePushPopover`),

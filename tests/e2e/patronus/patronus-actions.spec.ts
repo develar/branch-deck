@@ -10,7 +10,7 @@ import type {
   TargetCheck,
 } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
-import { expectNothingToPush, findBranchRow, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
+import { expectNothingToPush, findBranchRow, getMoreButton, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
 import { APPROVED_BY_CODE_OWNER, availableRobots, robot, routeReviewRequirement, setupRobots } from "../helpers/patronus-helpers"
 import {
   availablePullRequests,
@@ -171,19 +171,30 @@ test.describe("Patronus actions", () => {
     const cancels = await routeCommand(page, "cancel_patronus_robot", () => ({ ...STARTED, status: "canceling" }))
 
     // a lone branch, the default checks, no review needed: nothing to say, the click starts
+    const button = slotSafePush(page, "JIRA-456")
+    const more = getMoreButton(findBranchRow(page, "JIRA-456"))
+    await expect(button).toHaveText("Safe Push")
+    const rest = { width: (await button.boundingBox())!.width, moreX: (await more.boundingBox())!.x }
+    // a step of the start is no wider than the label at rest: nothing moves under the pointer
+    const expectInPlace = async () => {
+      expect((await button.boundingBox())!.width).toBe(rest.width)
+      expect((await more.boundingBox())!.x).toBe(rest.moreX)
+    }
     await safePushFromMenu(page, "JIRA-456")
     // the slot's button shows each step of the start: the facts it decides on, the push, the start
-    const button = slotSafePush(page, "JIRA-456")
     await expect(button).toHaveText("Checking…")
     await expect(button).toHaveAttribute("aria-busy", "true")
+    await expectInPlace()
     options.release()
     await expect(button).toHaveText("Pushing 45%")
+    await expectInPlace()
     // the push button of the row doesn't repeat the push
     const rowPush = getPushButton(findBranchRow(page, "JIRA-456"))
     await expect(rowPush).toBeDisabled()
     await expect(rowPush.getByRole("status")).toHaveCount(0)
     release()
     await expect(button).toHaveText("Starting…")
+    await expectInPlace()
     starts.release()
 
     await expect(chip(page, "JIRA-456")).toHaveAccessibleName(/^Safe Push: Running, /)
@@ -1024,9 +1035,11 @@ test.describe("Patronus actions", () => {
         // pushed first: GitHub opens a pull request of a branch it has
         expect(pushes.map(push => push.branchName)).toEqual(["JIRA-456"])
         expect(creates).toEqual([expect.objectContaining({ branchName: "JIRA-456", reviewers: ["alice-gh"], assignSelf: true, waitForMirror: true })])
-        // the approvals count in it: the row waits for the code owner asked there
+        // the approvals count in it: the row waits for the code owner asked there, whom its hover names
         await expect(slot).toHaveAttribute("data-step", "awaiting")
-        await expect(slot.getByTestId("next-step")).toHaveText("Awaiting Alice")
+        await expect(slot.getByTestId("next-step")).toHaveText("Awaiting Review")
+        await slot.getByTestId("next-step").hover()
+        await expect(page.getByTestId("next-step-hover")).toContainText("Awaiting Alice")
       })
 
       test("should open GitHub's form without a token GitHub accepts", async ({ page, setupRepo, syncAndWaitForBranches }) => {

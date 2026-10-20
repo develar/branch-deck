@@ -259,8 +259,8 @@ reports in it and closes it once merged.
     can't restart it (a Safe Push of a temporary ref); after a robot that failed for missing code-owner approvals only
     once Patronus says they count in the pull request it was started from, else "Open Pull Request" (or "Create Pull
     Request…") while nobody can tell yet, or the wait for the approvals;
-  - the wait for the approvals that count: "Awaiting Ilya Korennoy", "Changes Requested", "Request Review…",
-    "Create Pull Request…"; "Draft", "Retarget #7 to master"; a stacked branch's by its own pull request;
+  - the wait for the approvals that count: "Awaiting Review" (whom on hover), "Changes Requested", "Request Review…",
+    "Create Pull Request…"; "Draft", "Retarget #7" (to master on hover); a stacked branch's by its own pull request;
   - nothing while a robot runs (Cancel is in "⋯", the details and the landing overview), after a merge, for a landed
     branch and a branch a Safe Push holds.
   Nothing hovers in: the state stays in the Status cell where the eye reads it, the step stays the step. A repository
@@ -493,7 +493,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/sync-core/src/patronus_test.rs (`the_target_is_the_branch_of_origin_the_baseline_tracks`)
 - A branch whose commits the remote lacks is pushed first, decided by content as the push button decides it
   (`getStartPush` over `getPushAction`, never by the hash of the tip). The push is part of the start: no note narrates
-  it; while it runs the slot button shows it ("Pushing 45%", "Pushing 2 branches 45%" for the one push of a stack), the
+  it; while it runs the slot button shows it ("Pushing 45%"; "Pushing 2 branches 45%" for the one push of a stack in its
+  hover and in the preview, so the slot keeps its width), the
   one indicator of it: the push button of the row is disabled without its spinner and percent; then "Starting…". A
   branch whose remote branch has the same commits, only rebuilt since on a newer baseline (every sync onto a newer
   baseline does it), is not pushed: Patronus rebases the remote branch itself, and the target conflict check below

@@ -36,6 +36,11 @@ export interface SafePushButtonProps {
    * stack's (`stackReadinessKey`); the branch's otherwise
    */
   wholeStack?: string
+  /**
+   * In the step column of a row or of an island header: never wider while a start runs than at rest, so a click moves
+   * no column; "Pushing 45%", the branches it pushes in the hover
+   */
+  compact?: boolean
   className?: string
 }
 
@@ -52,7 +57,18 @@ const STEP_CHANGE_GUARD_MS = 700
  * double click, and a click on the button that just took the place of another step under the pointer (a poll changed
  * the step), are ignored: they were meant for what was there before.
  */
-export function SafePushButton({ branch, variant = "ghost", shortcut, icon = true, hint, description, placement = "row", wholeStack, className }: SafePushButtonProps) {
+export function SafePushButton({
+  branch,
+  variant = "ghost",
+  shortcut,
+  icon = true,
+  hint,
+  description,
+  placement = "row",
+  wholeStack,
+  compact = false,
+  className,
+}: SafePushButtonProps) {
   const closePreview = useClosePreview()
   const step = useStartStep(branch.name, wholeStack)
   // the start of the whole stack runs under its key, and pushes its stack branch alone
@@ -66,11 +82,14 @@ export function SafePushButton({ branch, variant = "ghost", shortcut, icon = tru
   const item = step?.item?.id === "safe-push" ? step.item : null
   const blocker = step?.safePushBlocker ?? null
   const disabled = blocker !== null || starting !== null
+  const pushing = starting?.step === "pushing" ? transferLabel(wholeStack === undefined ? formatStackPushing(branch.name, stackPush) : "Pushing", pushProgress) : null
   const label =
     starting === null
       ? (item?.label ?? "Safe Push")
-      : starting.step === "pushing"
-        ? transferLabel(wholeStack === undefined ? formatStackPushing(branch.name, stackPush) : "Pushing", pushProgress)
+      : pushing !== null
+        ? compact
+          ? transferLabel("Pushing", pushProgress)
+          : pushing
         : starting.step === "checking" || starting.step === "target"
           ? "Checking…"
           : "Starting…"
@@ -85,7 +104,8 @@ export function SafePushButton({ branch, variant = "ghost", shortcut, icon = tru
             // the hover says why; Base UI keeps the button focusable, so the dimming is ours
             focusableWhenDisabled
             aria-busy={starting !== null || undefined}
-            className={cn("tabular-nums", disabled && starting === null && "opacity-50", className)}
+            // compact: as wide as its widest step ("Safe Push · 3", "Pushing 100%"), so a start changes no width
+            className={cn("tabular-nums", compact && "min-w-32 justify-start", disabled && starting === null && "opacity-50", className)}
             data-testid="safe-push-button"
             ref={element => {
               if (element !== null && guardUntil.current === null) {
@@ -108,7 +128,8 @@ export function SafePushButton({ branch, variant = "ghost", shortcut, icon = tru
         {label}
       </TooltipTrigger>
       <TooltipContent>
-        {blocker ?? description ?? item?.description}
+        {/* the branches a compact label leaves out: "Pushing 2 branches 45%" */}
+        {pushing !== null && pushing !== label ? pushing : (blocker ?? description ?? item?.description)}
         {blocker === null && shortcut !== undefined && <Kbd>{shortcut}</Kbd>}
       </TooltipContent>
     </Tooltip>

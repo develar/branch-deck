@@ -59,6 +59,37 @@ test.describe("Branch table column widths", () => {
     await expectColumnAligned(page.getByTestId("branch-row").getByRole("button", { name: /^More actions for / }))
   })
 
+  test("fits every label of a step in its column, so none truncates", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("issue_links", { patronus: availableRobots(robot("ABC-123", "failed-robot", { status: "failure", finishTime: 1704142800 })) })
+    await syncAndWaitForBranches()
+    const step = findBranchRow(page, "ABC-123").getByRole("button", { name: "Restart Safe Push" })
+    await expect(step).toBeVisible()
+    // the labels a step shows in its column (`compactLabel`, else `label`), with long numbers: each in the button of a
+    // step, with its icon, under the cap of the step column
+    const labels = [
+      "Restart Safe Push",
+      "Restart Dry Run",
+      "Create Pull Request…",
+      "Request Review…",
+      "Changes Requested",
+      "Awaiting Review",
+      "Awaiting 12 Reviews",
+      "Open Pull Request",
+      "Retarget #12345",
+      "In #12345",
+      "Draft",
+      "Safe Push · 12",
+    ]
+    const truncated = await step.evaluate((button, texts) => {
+      const text = button.querySelector<HTMLElement>("span")!
+      return texts.filter(label => {
+        text.textContent = label
+        return text.scrollWidth > text.clientWidth
+      })
+    }, labels)
+    expect(truncated).toEqual([])
+  })
+
   test("drops a subject that has no room to be read", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the 768px minimum of the window at a zoom above 125% (`minWindowWidth`): the columns at their content leave every
     // name its subject

@@ -4,6 +4,7 @@ description: Requirements for the one model of what to do next with a branch (ge
 style: plain-1
 targets:
   - ../../src/lib/branch-next-step.ts
+  - ../../src/lib/menu.ts
   - ../../src/hooks/useBranchNextStep.ts
   - ../../src/hooks/useStackNextStep.ts
   - ../../src/lib/whole-stack.ts
@@ -79,13 +80,13 @@ branch from all the facts (the branch, its robots, its pull request and the read
   | 2 | A robot failed or was canceled, not for approvals | "Restart Safe Push" (Safe Push… where Patronus can't restart it) | enabled |
   | 3 | A robot failed for approvals, started from the open pull request into the target, readiness `approved` | "Restart Safe Push" | enabled |
   | 4 | removed: a stacked branch takes the rows of its own pull request into master, see below | — | — |
-  | 5 | An open pull request into a virtual branch (`{prefix}/virtual/…`, `isVirtualBranchBase`: of its parent, of another branch of the table, or of one that landed, was archived or deleted): every pull request of a virtual branch goes into the target | "Retarget #7 to master" | disabled: "Approvals in #7 don't count: its base is user/virtual/auth" |
+  | 5 | An open pull request into a virtual branch (`{prefix}/virtual/…`, `isVirtualBranchBase`: of its parent, of another branch of the table, or of one that landed, was archived or deleted): every pull request of a virtual branch goes into the target | "Retarget #7 to master" ("Retarget #7" in the slot) | disabled: "Approvals in #7 don't count: its base is user/virtual/auth" |
   | 5′ | An open pull request into another base, which may be meant (a release branch) | quiet "Open Pull Request", the reason on hover; "Retarget #7 to master" stays in "⋯" | disabled: "Approvals in #7 don't count: its base is release-252" |
   | 6 | An open draft | quiet "Draft", opens it | disabled: "#7 is a draft: Patronus merges it once it is ready for review" |
   | 7 | `missing`, no open pull request (none, or a closed one) | "Create Pull Request…" (the code owners preselected; on the remote or not, its dialog pushes the branch; disabled only while the GitHub repository is unknown); a branch of a whole stack whose pull request is open: quiet "In #12", which opens it (below) | disabled: "Code owners must approve in a pull request: IJPL Code Platform" |
   | 8 | `missing`, a member of a missing group requested changes (and wasn't asked again since) | quiet "Changes Requested" in `destructive`, opens the pull request | disabled: "Ilya Korennoy requested changes on #1078" |
   | 9 | `missing`, a missing group asks fewer people than the approvals it needs (nobody, or one of a group that needs two) | "Request Review…", its popover ([Pull Requests](pull-requests.spec.md#request-review)) | disabled: "Waits for the approval of Air Platform: nobody of it is requested on #1078" |
-  | 10 | `missing`, someone of every missing group is asked | quiet "Awaiting Ilya Korennoy" ("Awaiting 2 Reviews" for several people), opens the pull request | disabled: "Waits for the approval of IJPL Code Platform: Ilya Korennoy is requested on #1078" |
+  | 10 | `missing`, someone of every missing group is asked | quiet "Awaiting Ilya Korennoy" ("Awaiting Review" in the slot, the people in its hover; "Awaiting 2 Reviews" for several), opens the pull request | disabled: "Waits for the approval of IJPL Code Platform: Ilya Korennoy is requested on #1078" |
   | 8′ | `unknown`, `unavailable`, an open pull request into the target where a reviewer requested changes and wasn't asked again since (`changesRequestedBy`, bots left out) | quiet "Changes Requested" in `destructive`, opens the pull request | enabled: Patronus can't judge the approvals, the start checks them |
   | 10′ | `unknown`, `unavailable`, an open pull request into the target that waits for a requested reviewer (`waitingReviewers`: asked and not approving since, bots left out) | quiet "Awaiting ikorennoy" ("Awaiting 2 Reviews"), its hover "Waits for ikorennoy on #1078 · Patronus can't tell yet whether the approvals there count: the start checks them", opens the pull request | enabled, as 8′ |
   | 11 | `approved`, `notRequired`; `unknown`, `unavailable` where GitHub tells no wait; not asked yet | "Safe Push" | enabled |
@@ -187,8 +188,9 @@ branch from all the facts (the branch, its robots, its pull request and the read
   whole stack (`stack:<root>`, below), its stack branch's commits; a branch of it that syncs is its sync. Its texts name
   it "the whole air stack" (`subject`): "Safe Push of the whole air stack waits for Ilya Korennoy". A stack branch the
   sync didn't build disables its Safe Push and its Dry Run with the reason (`getStackBranchBlocker`: "The stack branch
-  conflicts at 0caf9066 in config.js: the stack lands in pieces"); row 7 offers "Create Pull Request of the Stack…",
-  the code owners of the whole stack preselected.
+  conflicts at 0caf9066 in config.js: the stack lands in pieces"); row 7 offers "Create Pull Request of the Stack…"
+  ("Create Pull Request…" in the slot of the island header and the landing overview), the code owners of the whole
+  stack preselected.
   Its Safe Push lands every branch of it ("Safe Push · 7", hover "Lands 7 branches · 14 commits into master in one
   Safe Push: air, bazel, … side-fix and side-test", the main line first, then the side branches). A straight chain has
   no stack branch: its whole stack is the step of its last branch.
@@ -298,8 +300,15 @@ branch from all the facts (the branch, its robots, its pull request and the read
 
 ## User Experience
 
-- The slot is as wide as the widest step of the view, at most 10rem (a longer label truncates, the hover says it), its
-  step a ghost `xs` button; disabled, it keeps the focus and the hover
+- The slot is as wide as the widest step of the view, at most 10rem, its step a ghost `xs` button with its
+  `compactLabel` ("Retarget #7", "Awaiting Review", "Create Pull Request…" of the whole stack), every label of a step
+  within the 10rem; a start that runs keeps the width of "Safe Push" (`min-w-32`, "Pushing 45%", the branches it
+  pushes in the hover), so nothing moves under the pointer
+  ([UX Writing](../../docs/guidelines/ux-writing.md#actions)).
+  [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`fits every label of a step in its column, so none truncates`)
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the branch menu, pushing the branch first`)
+  [@test] ../../src/lib/branch-next-step.test.ts (`row 5: retargets an open pull request into a virtual branch, of its parent or of one that landed, whose approvals don't count`, `row 10: every missing group has someone asked: the quiet wait names them and opens the pull request`)
+- Disabled, a step keeps the focus and the hover
   (`focusableWhenDisabled`), dimmed to `opacity-50`. A quiet step is muted, Changes Requested `text-destructive`.
 - Wording follows [UX Writing](../../docs/guidelines/ux-writing.md): Title Case for the steps, sentence case for the
   reasons, people by their full name (the login without one).

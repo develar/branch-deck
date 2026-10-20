@@ -71,11 +71,11 @@ export function NextStepSlot({ branch, stackHeader, wholeStackInHeader = false }
   return (
     <div ref={slotRef} className="flex min-w-0 items-center" data-testid="next-step-slot" data-step={step.kind} data-stack-path="landing">
       {startsWholeStack ? (
-        <SafePushButton branch={branch} wholeStack={branch.name} placement="row" />
+        <SafePushButton branch={branch} wholeStack={branch.name} placement="row" compact />
       ) : (
         item !== null &&
         (item.id === "safe-push" ? (
-          <SafePushButton branch={branch} shortcut={stackHeader === undefined ? "S" : undefined} description={stackHeader?.description} placement={placement} />
+          <SafePushButton branch={branch} shortcut={stackHeader === undefined ? "S" : undefined} description={stackHeader?.description} placement={placement} compact />
         ) : requestReview !== null ? null : (
           <StepButton action={item} tone={step.tone} showKeys={stackHeader === undefined} />
         ))
@@ -255,7 +255,7 @@ function stepButton(action: MenuItem, tone: NextStepTone, onClick: () => void) {
       }}
     >
       {running ? <Spinner data-icon="inline-start" /> : Icon !== undefined && <Icon data-icon="inline-start" />}
-      <span className="truncate">{action.label}</span>
+      <span className="truncate">{action.compactLabel ?? action.label}</span>
     </Button>
   )
 }

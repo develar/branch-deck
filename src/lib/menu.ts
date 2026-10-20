@@ -18,6 +18,11 @@ export interface MenuItem {
    */
   id?: string
   label: string
+  /**
+   * The label in a column of steps (the Safe Push slot of a row and of an island header, the landing overview), where
+   * the place says the rest and its hover the detail: "Retarget #7", "Awaiting Review"; `label` everywhere else
+   */
+  compactLabel?: string
   icon?: LucideIcon
   disabled?: boolean
   /** Keyboard shortcut hints, e.g. `["meta", "c"]` */

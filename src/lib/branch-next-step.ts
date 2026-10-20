@@ -226,9 +226,14 @@ export function awaitedPeople(groups: readonly MissingReviewGroup[]): Person[] {
   return distinctPeople(groups.flatMap(group => group.requested))
 }
 
-/** "Awaiting Ilya Korennoy", "Awaiting 2 Reviews": the label of the wait */
+/** "Awaiting Ilya Korennoy", "Awaiting 2 Reviews": the wait, and a line of its hover */
 export function formatAwaitingLabel(people: readonly Person[]): string {
   return people.length === 1 ? `Awaiting ${formatPerson(people[0]!)}` : `Awaiting ${people.length} Reviews`
+}
+
+/** "Awaiting Review", "Awaiting 2 Reviews": the wait in a column of steps (`compactLabel`); its hover names the people */
+export function formatAwaitingStep(count: number): string {
+  return count === 1 ? "Awaiting Review" : `Awaiting ${count} Reviews`
 }
 
 /**
@@ -472,7 +477,9 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
     const notice = rowNotice(general, `Approvals in #${open.number} of ${facts.subject} don't count`, `Its base is ${open.base}, not ${facts.target}`)
     // a parent's branch: every pull request of a virtual branch goes into the target, with what it lands
     if (open.baseIsVirtualBranch) {
-      return step("retarget", { ...retarget, description: `${reason}, a virtual branch. ${retarget.description}` }, general ?? reason, dryRunBlocker, { retarget, ...notice })
+      // short in its column, the target in the hover
+      const item = { ...retarget, compactLabel: `Retarget #${open.number}`, description: `${reason}, a virtual branch. ${retarget.description}` }
+      return step("retarget", item, general ?? reason, dryRunBlocker, { retarget, ...notice })
     }
     // another base may be meant (a release branch): the step opens the pull request, the retarget is in the menu
     const item = { ...quietItem(facts, "Open Pull Request", `${reason}. Open Pull Request #${open.number}`, GitPullRequestArrowIcon), id: "open-pull-request-other-base" }
@@ -575,7 +582,8 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
   const hover = [...describeAwaiting(groups), `Open Pull Request #${open.number}`].join("\n")
   const people = awaitedPeople(groups)
   const waitsFor = people.length === 1 ? formatPerson(people[0]!) : `${people.length} reviews`
-  return step("awaiting", quietItem(facts, formatAwaitingLabel(people), hover, ClockIcon), general ?? reason, dryRunBlocker, {
+  const item = { ...quietItem(facts, formatAwaitingLabel(people), hover, ClockIcon), compactLabel: formatAwaitingStep(people.length) }
+  return step("awaiting", item, general ?? reason, dryRunBlocker, {
     tone: "quiet",
     needsReadiness: asks,
     ...rowNotice(general, `Safe Push of ${facts.subject} waits for ${waitsFor}`, `${groupNames(groups)} · requested on #${open.number}`),
@@ -599,9 +607,10 @@ function unjudgedWait(facts: NextStepFacts, open: NextStepPullRequest, general: 
     })
   }
   if (open.waitingFor.length > 0) {
-    const label = open.waitingFor.length === 1 ? `Awaiting ${open.waitingFor[0]!}` : `Awaiting ${open.waitingFor.length} Reviews`
     const reason = `Waits for ${joinNames(open.waitingFor)} on #${open.number} · ${UNJUDGED}`
-    return step("awaiting", quietItem(facts, label, `${reason}\nOpen Pull Request #${open.number}`, ClockIcon), general, dryRunBlocker, {
+    const label = open.waitingFor.length === 1 ? `Awaiting ${open.waitingFor[0]!}` : `Awaiting ${open.waitingFor.length} Reviews`
+    const item = { ...quietItem(facts, label, `${reason}\nOpen Pull Request #${open.number}`, ClockIcon), compactLabel: formatAwaitingStep(open.waitingFor.length) }
+    return step("awaiting", item, general, dryRunBlocker, {
       tone: "quiet",
       needsReadiness: asks,
     })

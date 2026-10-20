@@ -155,7 +155,8 @@ test.describe("Landing overview", () => {
     // the step of the whole auth stack: its pull request, whose approvals its Safe Push counts
     popover = await openLandingOverview(page)
     const step = landingRow(popover, "auth").getByTestId("next-step")
-    await expect(step).toHaveText("Create Pull Request of the Stack…")
+    // the step of the row of the whole stack, short in its column; its menus name it "Create Pull Request of the Stack…"
+    await expect(step).toHaveText("Create Pull Request…")
     await step.click()
     await expect(createPullRequestDialog(page)).toBeVisible()
   })

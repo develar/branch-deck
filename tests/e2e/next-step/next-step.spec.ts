@@ -159,7 +159,7 @@ test.describe("Next step", () => {
     // the quiet wait in the slot, which opens the pull request it waits in
     await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
     const step = slot(page).getByTestId("next-step")
-    await expect(step).toHaveText("Awaiting Ilya Korennoy")
+    await expect(step).toHaveText("Awaiting Review")
     await expect(step).toHaveAttribute("data-tone", "quiet")
     await step.hover()
     await expect(page.getByTestId("next-step-hover")).toHaveText("Awaiting Ilya Korennoy · IJPL Code Platform\nOpen Pull Request #1078O")
@@ -193,7 +193,7 @@ test.describe("Next step", () => {
     // a Patronus that doesn't evaluate the pull request yet: nobody can tell whether the bot's approval counts
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, NOT_EVALUATED, [AWAITED])
     // GitHub waits for ikorennoy: the slot says so, S still opens the start
-    await expect(slot(page).getByTestId("next-step")).toHaveText("Awaiting ikorennoy")
+    await expect(slot(page).getByTestId("next-step")).toHaveText("Awaiting Review")
     const popover = await openSafePushWithKey(page, BRANCH)
     await expect(popover).toHaveAttribute("data-decision", "confirm")
     await expect(popover.getByTestId("safe-push-review")).toHaveText("Patronus doesn't tell yet whose approvals count: Branch Deck can't check junie-jetbrains's approval.")
@@ -206,7 +206,7 @@ test.describe("Next step", () => {
     const menu = await openMenu(page)
     await menu.getByRole("menuitem", { name: "Check Approvals Again" }).click()
     await expect.poll(async () => (await repo.getReviewReadinessCalls()).some(call => call.recheck && call.branches.includes(BRANCH))).toBe(true)
-    await expect(slot(page).getByTestId("next-step")).toHaveText("Awaiting Ilya Korennoy")
+    await expect(slot(page).getByTestId("next-step")).toHaveText("Awaiting Review")
     await slot(page).getByTestId("next-step").hover()
     await expect(page.getByTestId("next-step-hover")).toHaveText("Awaiting Ilya Korennoy · IJPL Code Platform\nOpen Pull Request #1078O")
 
@@ -231,7 +231,7 @@ test.describe("Next step", () => {
     const row = findBranchRow(page, "oauth")
     const oauthSlot = row.getByTestId("next-step-slot")
     await expect(oauthSlot).toHaveAttribute("data-step", "awaiting")
-    await expect(oauthSlot.getByTestId("next-step")).toHaveText("Awaiting Ilya Korennoy")
+    await expect(oauthSlot.getByTestId("next-step")).toHaveText("Awaiting Review")
     await oauthSlot.getByTestId("next-step").hover()
     await expect(page.getByTestId("next-step-hover")).toHaveText("Awaiting Ilya Korennoy · IJPL Code Platform\nOpen Pull Request #8O")
     // Patronus is asked for the stacked branch itself, its start the comment on #8
@@ -291,7 +291,7 @@ test.describe("Next step", () => {
     // the screenshot of 2026-10-18: a bot approved #1078, Patronus doesn't tell whose approvals count, ikorennoy is asked
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, NOT_EVALUATED, [AWAITED], availableRobots(), { reviewRequests: availableReviewRequests([]) })
     await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
-    await expect(slot(page).getByTestId("next-step")).toHaveText("Awaiting ikorennoy")
+    await expect(slot(page).getByTestId("next-step")).toHaveText("Awaiting Review")
     // the node waits, never "Ready to land"
     const node = findBranchRow(page, BRANCH).getByTestId("lane-node")
     await expect(node).toHaveAttribute("data-kind", "waiting")
@@ -507,7 +507,7 @@ test.describe("Next step", () => {
     await expect(page.getByRole("tooltip", { name: "Approvals" })).toHaveText("Approvals in #7 don't count: its base is user-name/virtual/landed-parent")
     await page.keyboard.press("Escape")
 
-    await slot(page).getByRole("button", { name: "Retarget #7 to master" }).click()
+    await slot(page).getByRole("button", { name: "Retarget #7" }).click()
     await expectRetargeted(page, retargets)
   })
 
@@ -518,7 +518,7 @@ test.describe("Next step", () => {
   }) => {
     // the base is the branch of another branch of the table: every pull request of a virtual branch goes into master
     const retargets = await setupRetarget(page, setupRepo, syncAndWaitForBranches, "user-name/virtual/feature-auth")
-    await slot(page).getByRole("button", { name: "Retarget #7 to master" }).hover()
+    await slot(page).getByRole("button", { name: "Retarget #7" }).hover()
     await expect(page.getByTestId("next-step-hover")).toContainText("Approvals in #7 don't count: its base is user-name/virtual/feature-auth, a virtual branch.")
     // the menu offers the same retarget
     const menu = await openMenu(page)
@@ -540,7 +540,7 @@ test.describe("Next step", () => {
 
     const oauthSlot = findBranchRow(page, "oauth").getByTestId("next-step-slot")
     await expect(oauthSlot).toHaveAttribute("data-step", "retarget")
-    await oauthSlot.getByRole("button", { name: "Retarget #8 to master" }).click()
+    await oauthSlot.getByRole("button", { name: "Retarget #8" }).click()
     await expectRetargeted(page, retargets, 8, oauthSlot)
   })
 

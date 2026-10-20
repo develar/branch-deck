@@ -384,9 +384,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   of [Next Step](next-step.spec.md) that matches: "Safe Push" for a branch with a push button and nothing in its way
   (a click starts it at once when it has nothing to say, else opens its popover at the slot,
   [Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)); the step
-  after a robot ("Restart Safe Push"); a quiet wait that opens the pull request it waits in ("Awaiting Ilya Korennoy",
-  "Changes Requested", "Draft"); the action that helps ("Create Pull Request…", "Request Review…", "Retarget #7 to
-  master"); a stacked branch's own step ("Safe Push · 3"), its popover at its own row; nothing while a robot runs, after a merge, for a
+  after a robot ("Restart Safe Push"); a quiet wait that opens the pull request it waits in ("Awaiting Review",
+  "Changes Requested", "Draft"); the action that helps ("Create Pull Request…", "Request Review…", "Retarget #7"); a stacked branch's own step ("Safe Push · 3"), its popover at its own row; nothing while a robot runs, after a merge, for a
   landed or held branch ([Patronus](patronus.spec.md#robot-of-a-row)). The product lands through Safe Push, so it is
   the one labelled action and not only behind the right-click; every other "Safe Push" (the menu, S, the preview,
   the review) is disabled with the reason of the step. The robot itself is in the Status cell. Nothing in the slot

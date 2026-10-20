@@ -214,7 +214,13 @@ describe("the next step of the whole stack", () => {
     setReadiness(missing([{ name: "IJPL Code Platform", needed: 1, approvedBy: [], requested: [], suggested: [ilya], changesRequestedBy: [] }]))
     expect(getStackNextStepNow("air")?.step).toMatchObject({
       kind: "createPullRequest",
-      item: { id: "create-stack-pull-request", label: "Create Pull Request of the Stack…", description: "Code owners must approve in a pull request: IJPL Code Platform" },
+      // in the header of the whole stack's island no "of the Stack": the notice and the menus keep it
+      item: {
+        id: "create-stack-pull-request",
+        label: "Create Pull Request of the Stack…",
+        compactLabel: "Create Pull Request…",
+        description: "Code owners must approve in a pull request: IJPL Code Platform",
+      },
       notice: { title: "Safe Push of the whole air stack needs a pull request" },
     })
 
@@ -222,7 +228,7 @@ describe("the next step of the whole stack", () => {
     setReadiness(missing([{ name: "IJPL Code Platform", needed: 1, approvedBy: [], requested: [ilya], suggested: [ilya], changesRequestedBy: [] }]))
     expect(getStackNextStepNow("air")?.step).toMatchObject({
       kind: "awaiting",
-      item: { label: "Awaiting Ilya Korennoy" },
+      item: { label: "Awaiting Ilya Korennoy", compactLabel: "Awaiting Review" },
       safePushBlocker: "Waits for the approval of IJPL Code Platform: Ilya Korennoy is requested on #12",
       notice: { title: "Safe Push of the whole air stack waits for Ilya Korennoy", description: "IJPL Code Platform · requested on #12" },
     })

@@ -127,8 +127,10 @@ describe("getBranchNextStep", () => {
     const step = getBranchNextStep(facts({ pullRequest: { ...openPullRequest, base: "user/virtual/auth", intoTarget: false, baseIsVirtualBranch: true } }))
     expect(step).toMatchObject({
       kind: "retarget",
+      // short in its column; the menus and the notices name the target
       item: {
         label: "Retarget #1078 to master",
+        compactLabel: "Retarget #1078",
         description:
           "Approvals in #1078 don't count: its base is user/virtual/auth, a virtual branch. Changes the base of #1078 from user/virtual/auth to master on GitHub: Patronus merges a pull request into its base",
       },
@@ -258,7 +260,8 @@ describe("getBranchNextStep", () => {
     expect(step).toMatchObject({
       kind: "awaiting",
       tone: "quiet",
-      item: { label: "Awaiting Ilya Korennoy", kbds: ["o"], description: "Awaiting Ilya Korennoy · IJPL Code Platform\nOpen Pull Request #1078" },
+      // short in its column, whom it waits for in its hover
+      item: { label: "Awaiting Ilya Korennoy", compactLabel: "Awaiting Review", kbds: ["o"], description: "Awaiting Ilya Korennoy · IJPL Code Platform\nOpen Pull Request #1078" },
       safePushBlocker: "Waits for the approval of IJPL Code Platform: Ilya Korennoy is requested on #1078",
       dryRunBlocker: null,
     })
@@ -279,7 +282,7 @@ describe("getBranchNextStep", () => {
     const unknown: ReviewReadiness = { kind: "unknown", reason: "approvalsNotEvaluated" }
     const waits = getBranchNextStep(withReadiness(unknown, { pullRequest: { ...openPullRequest, waitingFor: ["ikorennoy"] } }))
     expect(waits).toMatchObject({ kind: "awaiting", tone: "quiet", safePushBlocker: null, notice: null, needsReadiness: true })
-    expect(waits.item).toMatchObject({ id: "open-pull-request", label: "Awaiting ikorennoy" })
+    expect(waits.item).toMatchObject({ id: "open-pull-request", label: "Awaiting ikorennoy", compactLabel: "Awaiting Review" })
     expect(waits.item?.description).toBe("Waits for ikorennoy on #1078 · Patronus can't tell yet whether the approvals there count: the start checks them\nOpen Pull Request #1078")
     const several = getBranchNextStep(withReadiness(unknown, { pullRequest: { ...openPullRequest, waitingFor: ["ikorennoy", "alice"] } }))
     expect(several.item?.label).toBe("Awaiting 2 Reviews")

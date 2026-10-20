@@ -162,6 +162,13 @@ indicator could cancel a robot but not restart it.
   "{Action} {mode}" for a robot ("Restart Safe Push", also when it pushes first; "Cancel Dry Run"; a bare "Cancel"
   reads like closing the popover), "Safe Push" for the start. Advice in a sentence names the action as its button
   does ("Restart Safe Push to test the current branch.").
+- **A column of steps says it short**: the Safe Push slot of a row and of an island header and the landing overview
+  show a step in a column as wide as its widest step, so a step there has a `compactLabel` where its name holds a
+  name or a target the place or the hover already says: "Retarget #7" (the menu "Retarget #7 to master"), "Awaiting
+  Review" ("Awaiting Ilya Korennoy" in the hover, the notice and the menus), "Create Pull Request…" in the header of
+  the whole stack ("Create Pull Request of the Stack…" elsewhere). It starts with the words of the name, so the name
+  stays one. A step that runs is no wider than at rest: "Pushing 45%", the branches it pushes in the hover; one name
+  of a person in a column once made every card of the view 330px wide in its Actions.
 
 ## How to
 

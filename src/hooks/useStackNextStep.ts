@@ -222,10 +222,16 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
       },
       // the pull request of the whole stack goes into the target by construction: nothing to retarget
       retarget: () => {},
-      createPullRequest: getCreateStackPullRequestItem(root),
+      // in the column of steps of the island header, which is the whole stack's
+      createPullRequest: stackStepItem(getCreateStackPullRequestItem(root)),
       requestReview: getRequestReviewItem(pullRequest, readiness?.readiness ?? null, () => openRequestReview(key)),
     },
   }
+}
+
+/** "Create Pull Request…" in a column of steps, at the header of the whole stack, which needs no "of the Stack" */
+function stackStepItem(item: MenuItem | null): MenuItem | null {
+  return item === null ? null : { ...item, compactLabel: "Create Pull Request…" }
 }
 
 /** By root: the step shown, its key, and the store states it was computed for */
