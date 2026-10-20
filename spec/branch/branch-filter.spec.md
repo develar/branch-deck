@@ -87,7 +87,7 @@ that stops matching while the user looks at it (its move made, its robot done) s
 - A chip must take a branch by the node of its row (`getLandingNodeNow`, [Branch Row](branch-row.spec.md#tree)): Your
   Move the filled nodes, a fix (`needsFix`: a conflict, an error, a failed robot of the branch as it is, changes
   requested, failing checks), a step of the user (`yourStep`) and a branch ready to land (`ready`); Landing a Safe Push
-  that lands the branch, its own or one of a branch built on it or of the whole stack (`landing`); Waiting what waits
+  that lands the branch, its own or one of a branch built on it or of the whole stack, from its start on (`landing`); Waiting what waits
   for others, reviewers, its parent (a blocked branch too), a robot that holds it, a Dry Run, the first answer of
   Patronus (`waiting`); In Master what the baseline or a merge has until the update archives it (`inMaster`). A branch
   without a node yet is in All only. The chips count branches, the rows the table shows; the header counts the units
@@ -107,10 +107,11 @@ that stops matching while the user looks at it (its move made, its robot done) s
   [@test] ../../src/stores/branch-table-rows.test.ts (`prunes the rows to the visible branches and the branches they stack on, which are dimmed`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show the matches of a search and, dimmed, the branches they stack on`)
 - A branch shown under the filter must stay until the filter changes, also when it stops matching (pushed or started
-  under Your Move, its robot done under Landing); a new match shows at once. The counts follow the branches at once.
+  under Your Move, its robot done under Landing); a new match shows at once. The counts follow the branches at once:
+  a branch leaves Your Move when its Safe Push starts or, without Patronus, its push runs, not when it ends.
   [@test] ../../src/lib/branch-filter.test.ts (`keeps the branches shown since the filter changed, and adds the new matches`)
   [@test] ../../src/stores/branch-filter.test.ts (`remembers the shown branches until the filter changes`)
-  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should keep a branch under Your Move until the filter changes, once its move is made`)
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should keep a branch under Your Move until the filter changes, once its move is made`, `should open the Safe Push popover of the focused row with S and start it with Enter, which takes it out of Your Move`)
 - A filter that leaves no row must show one quiet line in the table instead of the rows and the column heads: `No
   branches match “foo”` (`No branches of your move match “foo”` with a chip), or for a chip alone "Nothing is your
   move", "Nothing is landing", "Nothing waits for others", "Nothing is in master", with a Clear Filter button that shows all branches again.

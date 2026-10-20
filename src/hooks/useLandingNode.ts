@@ -1,14 +1,16 @@
 import { getNextStepFacts, nextStepSources, useNextStepStores } from "@/hooks/useBranchNextStep"
 import { isForkingStack, stackFactsOf } from "@/hooks/useStackNextStep"
-import type { LandingNode, LandingNodeFacts } from "@/lib/landing-node"
-import { getLandingNode } from "@/lib/landing-node"
+import type { LandingNode, LandingNodeFacts, LandingStart } from "@/lib/landing-node"
+import { findLandingStart, getLandingNode } from "@/lib/landing-node"
 import { formatLandingSubject } from "@/lib/patronus"
 import { getPushAction } from "@/lib/push-summary"
-import { blockingBranchOf } from "@/lib/stack"
+import { blockingBranchOf, stackAncestors } from "@/lib/stack"
+import { stackReadinessKey, stackRootOfReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getStackBranch, stackMainLineIn } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, getStackBranch, isBranchPushing, stackMainLineIn } from "@/stores/branch-sync"
 import { getBranchRobot, getLandingSpan, getStackRobot, isPatronusKnown } from "@/stores/patronus"
 import { useShowReviewReadiness } from "@/stores/review-readiness"
+import { safePushStore } from "@/stores/safe-push"
 
 /** What decides the node of a branch now, from the stores */
 function landingFactsOf(branch: Branch): LandingNodeFacts {
@@ -22,14 +24,29 @@ function landingFactsOf(branch: Branch): LandingNodeFacts {
     landingWith: landing === null || landing.robot.pushMode === "dryRun" ? null : formatLandingSubject(landing),
     robotDryRun: getBranchRobot(branch.name)?.pushMode === "dryRun",
     patronusKnown: isPatronusKnown(),
+    starting: startingOf(branch.name),
     pushPending: isPushPending(branch),
   }
 }
 
-/** The remote lacks work of the branch */
+/** The running start that decides the node of `key` (`findLandingStart`) */
+function startingOf(key: string): LandingStart | null {
+  return findLandingStart(key, safePushStore.getState().starting, landedByStart)
+}
+
+/** The branches a Safe Push started for `key` lands beside it: the members of a whole stack, the ancestors of a branch */
+function landedByStart(key: string): readonly string[] {
+  const root = stackRootOfReadinessKey(key)
+  if (root !== null) {
+    return getStackBranch(root)?.members ?? []
+  }
+  return stackAncestors(key, getBranch).map(it => it.name)
+}
+
+/** The remote lacks work of the branch, and no push of it runs: once pushing, the push is made */
 function isPushPending(branch: Branch): boolean {
   const action = getPushAction(branch)
-  return action !== null && action !== "upToDate"
+  return action !== null && action !== "upToDate" && !isBranchPushing(branch.name)
 }
 
 /**
@@ -47,6 +64,7 @@ function computeStackNode(root: string): LandingNode | null {
       landingWith: null,
       robotDryRun: getStackRobot(root)?.pushMode === "dryRun",
       patronusKnown: isPatronusKnown(),
+      starting: startingOf(stackReadinessKey(root)),
       pushPending: false,
     })
   }

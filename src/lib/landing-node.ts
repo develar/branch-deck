@@ -3,7 +3,9 @@ import { getBranchNextStep } from "@/lib/branch-next-step"
 import { isFailingChip } from "@/lib/patronus"
 import { joinNames } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
+import { formatReadinessSubject } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
+import type { SafePushMode, SafePushStarting } from "@/stores/safe-push"
 
 /**
  * Where a branch is on its way into master, the node of its row ([Landing](../../docs/design/landing.md)): filled while
@@ -40,6 +42,31 @@ export interface LandingNode {
   readonly shows?: string
 }
 
+/**
+ * A start of a robot that runs past its checks (`SafePushStarting`, from its target check on): of the branch itself
+ * (`with` null), or a Safe Push that lands it, of a branch built on it or of the whole stack ("oauth", "the whole air
+ * stack")
+ */
+export interface LandingStart {
+  readonly mode: SafePushMode
+  readonly with: string | null
+}
+
+/**
+ * The start that decides the node of `name` among the running ones (`SafePushState.starting`, by branch or by
+ * `stackReadinessKey`): its own, else a Safe Push whose key `lands` the branch (the ancestors of a branch, the members of
+ * a whole stack). A start still at its checks is none: its popover may still ask, and nothing started yet.
+ */
+export function findLandingStart(name: string, starting: Readonly<Record<string, SafePushStarting>>, lands: (key: string) => readonly string[]): LandingStart | null {
+  const running = Object.entries(starting).filter(([, start]) => start.step !== "checking")
+  const own = running.find(([key]) => key === name)
+  if (own !== undefined) {
+    return { mode: own[1].mode, with: null }
+  }
+  const landing = running.find(([key, start]) => start.mode !== "dryRun" && lands(key).includes(name))
+  return landing === undefined ? null : { mode: landing[1].mode, with: formatReadinessSubject(landing[0]) }
+}
+
 /** What decides the node beside the facts of the next step, which don't tell these apart */
 export interface LandingNodeFacts {
   readonly next: NextStepFacts
@@ -53,7 +80,12 @@ export interface LandingNodeFacts {
   readonly robotDryRun: boolean
   /** Patronus answered whether the repository is on Space */
   readonly patronusKnown: boolean
-  /** The remote lacks work of the branch (`getPushAction`): the step a repository without Patronus and GitHub shows */
+  /** A running start of the robot of the branch, or of one that lands it: the move is made, the robot comes */
+  readonly starting: LandingStart | null
+  /**
+   * The remote lacks work of the branch (`getPushAction`) and no push of it runs: the step a repository without Patronus
+   * and GitHub shows
+   */
   readonly pushPending: boolean
 }
 
@@ -67,7 +99,8 @@ const pendingNode = (label: string): LandingNode => ({ kind: "waiting", label, p
 
 /**
  * The node of a branch: the first state that matches. A sync and an inline action of the row pass, so the node keeps
- * the state they started from; the next step (`getBranchNextStep`) decides the rest, as the slot of the row shows it.
+ * the state they started from; a start of a Safe Push is the move made, so the branch lands from then on, before its
+ * robot exists; the next step (`getBranchNextStep`) decides the rest, as the slot of the row shows it.
  */
 export function getLandingNode(facts: LandingNodeFacts): LandingNode {
   const next: NextStepFacts = { ...facts.next, syncing: false, busy: null }
@@ -92,6 +125,10 @@ export function getLandingNode(facts: LandingNodeFacts): LandingNode {
       return robotNode("waiting", "Dry Run running: it checks the branch, it lands nothing")
     }
     return robotNode("landing", isFailingChip(robot.chip) ? "Landing: Safe Push running, a required check failed" : "Landing: Safe Push running")
+  }
+  const starting = startingNode(facts.starting)
+  if (starting !== null) {
+    return starting
   }
   if (facts.landingWith !== null) {
     return node("landing", `Lands with ${facts.landingWith}: its Safe Push runs`)
@@ -135,6 +172,17 @@ export function getLandingNode(facts: LandingNodeFacts): LandingNode {
     case "hidden":
       return node("waiting", step.safePushBlocker ?? "Nothing to land")
   }
+}
+
+/** The node of a running start; null without one */
+function startingNode(start: LandingStart | null): LandingNode | null {
+  if (start === null) {
+    return null
+  }
+  if (start.with !== null) {
+    return node("landing", `Lands with ${start.with}: its Safe Push starts`)
+  }
+  return start.mode === "dryRun" ? node("waiting", "Dry Run starting: it checks the branch, it lands nothing") : node("landing", "Landing: Safe Push starting")
 }
 
 /** The branch is in master: the fetched baseline has it, or a merge says so before the update */

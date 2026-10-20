@@ -431,7 +431,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the row button without toggling the row`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the row button and from the "⋯" menu, and say why a start is not possible`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should close the branch preview for the Safe Push of its Patronus section`)
-  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should open the Safe Push popover of the focused row with S and start it with Enter`)
+  [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should open the Safe Push popover of the focused row with S and start it with Enter, which takes it out of Your Move`)
 - Every entry point asks one predicate first, the next step of the branch (`getSafePushBlocker`, [Next
   Step](next-step.spec.md)), which asks `canStartRobot(branch, robot, landingAncestor)` (`src/lib/patronus.ts`) first: a start
   is not possible while a robot runs on the commit the branch is at (Patronus would refuse it: "A Safe Push of the last

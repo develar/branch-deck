@@ -4,9 +4,9 @@ import type { PatronusRobot, PatronusStartOptions } from "../../../src/lib/bindi
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, getStackChip, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
-import { expectPushedToast, routePush } from "../helpers/push-helpers"
+import { expectPushedToast, routeHeldPush, routePush } from "../helpers/push-helpers"
 import { landingRow, openLandingOverview } from "../helpers/review-status-helpers"
-import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
+import { popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
 
 // the `branch_filter` template: the stack core → api → web with cli forked off core, and seven branches on their own
@@ -162,16 +162,20 @@ test.describe("Branch filter", () => {
 
   test("should keep a branch under Your Move until the filter changes, once its move is made", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setup(page, setupRepo, syncAndWaitForBranches)
-    const pushes = await routePush(page, {})
+    const { pushes, release } = await routeHeldPush(page, "docs", 100)
     // neither Patronus nor GitHub: every branch not on the remote is the user's move, its push
     await expect(chip(page, "yourMove")).toHaveText("Your Move11")
     await chip(page, "yourMove").click()
     await focusRow(page, "docs")
 
     await page.keyboard.press("p")
+    // the push is made once it runs: it lands through its pull request, it waits for others
+    await expect(getPushButton(findBranchRow(page, "docs"))).toHaveAttribute("aria-busy", "true")
+    await expect(chip(page, "yourMove")).toHaveText("Your Move10")
+    await expect(chip(page, "waiting")).toHaveText("Waiting1")
+    release()
     await expectPushedToast(page, "docs")
     expect(pushes.map(push => push.branchName)).toEqual(["docs"])
-    // pushed, it lands through its pull request: it waits for others
     await expect(chip(page, "yourMove")).toHaveText("Your Move10")
     await expect(chip(page, "waiting")).toHaveText("Waiting1")
     // where the user is looking: the row stays, and the focus with it
@@ -328,9 +332,13 @@ test.describe("Branch filter", () => {
     await expect(selection).not.toContainText("hidden")
   })
 
-  test("should open the Safe Push popover of the focused row with S and start it with Enter", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should open the Safe Push popover of the focused row with S and start it with Enter, which takes it out of Your Move", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     await setup(page, setupRepo, syncAndWaitForBranches, robot("web", "running-robot"))
-    const pushes = await routePush(page, {})
+    const { pushes, release } = await routeHeldPush(page, "lint", 100)
     await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
     const starts = await routeCommand(page, "start_patronus_robot", () => robot("lint", "started-robot", { sourceRevision: null }) satisfies PatronusRobot)
 
@@ -346,9 +354,21 @@ test.describe("Branch filter", () => {
     await expect(safePushPopover(page)).toBeVisible()
     await expect(popoverStart(page)).toBeFocused()
     expect(starts).toEqual([])
+    await expect(findBranchRow(page, "lint").getByTestId("lane-node")).toHaveAttribute("data-kind", "yourStep")
+    await expect(chip(page, "yourMove")).toHaveText("Your Move7")
+    await expect(chip(page, "landing")).toHaveText("Landing3")
     await page.keyboard.press("Enter")
     await expect(safePushPopover(page)).toHaveCount(0)
+    // the start is the move: lint lands from its push on, before its robot exists
+    await expect(slotSafePush(page, "lint")).toHaveAccessibleName("Pushing 100%")
+    await expect(findBranchRow(page, "lint").getByTestId("lane-node")).toHaveAttribute("data-kind", "landing")
+    await expect(chip(page, "yourMove")).toHaveText("Your Move6")
+    await expect(chip(page, "landing")).toHaveText("Landing4")
+    expect(starts).toEqual([])
+    release()
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
+    await expect(chip(page, "yourMove")).toHaveText("Your Move6")
+    await expect(chip(page, "landing")).toHaveText("Landing4")
     expect(starts).toEqual([expect.objectContaining({ branchName: "lint", mode: "rebaseAutosquash" })])
     expect(pushes.map(push => push.branchName)).toEqual(["lint"])
   })
