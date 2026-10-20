@@ -11,6 +11,7 @@ import { pushedToast, routePush } from "../helpers/push-helpers"
 import { availableReviewRequests } from "../helpers/review-request-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
+import { openSubmenu } from "../helpers/selection-helpers"
 import { rewriteNextRemoteStatus } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdCommand, routeCommand } from "../helpers/wait-helpers"
@@ -143,10 +144,14 @@ async function openMenu(page: Page) {
   return page.getByRole("menu")
 }
 
-/** The branch menu with Safe Push and Safe Push With Profile… disabled, and Dry Run `dryRun` (it needs no approval) */
+/**
+ * The branch menu with Safe Push and Safe Push With Profile… disabled, and Dry Run `dryRun` (it needs no approval); its
+ * Patronus › stays open
+ */
 async function expectSafePushItemsDisabled(page: Page, dryRun: "enabled" | "disabled"): Promise<Locator> {
   const menu = await openMenu(page)
   await expect(menu.getByRole("menuitem", SAFE_PUSH_ITEM)).toBeDisabled()
+  await openSubmenu(page, "Patronus")
   await expect(menu.getByRole("menuitem", { name: "Safe Push With Profile…" })).toBeDisabled()
   const dryRunItem = menu.getByRole("menuitem", { name: "Dry Run" })
   await (dryRun === "enabled" ? expect(dryRunItem).toBeEnabled() : expect(dryRunItem).toBeDisabled())
@@ -205,6 +210,7 @@ test.describe("Next step", () => {
     // Patronus evaluates it now: Check Approvals Again asks again, not the kept answer
     await repo.setReviewAnswers({ answers: { [BRANCH]: AWAITING_CODE_OWNER } })
     const menu = await openMenu(page)
+    await openSubmenu(page, "Patronus")
     await menu.getByRole("menuitem", { name: "Check Approvals Again" }).click()
     await expect.poll(async () => (await repo.getReviewReadinessCalls()).some(call => call.recheck && call.branches.includes(BRANCH))).toBe(true)
     await expect(slot(page).getByTestId("next-step")).toHaveText("Awaiting Review")
@@ -666,6 +672,7 @@ test.describe("Next step", () => {
     await expect(slot(page)).toHaveAttribute("data-step", "awaiting")
     await repo.setReviewAnswers({ answers: { [BRANCH]: APPROVED_BY_CODE_OWNER } })
     const menu = await openMenu(page)
+    await openSubmenu(page, "Patronus")
     await menu.getByRole("menuitem", { name: "Check Approvals Again" }).click()
     await expect(slot(page)).toHaveAttribute("data-step", "safePush")
     expect((await repo.getReviewReadinessCalls()).at(-1)).toEqual({ branches: [BRANCH], recheck: true })

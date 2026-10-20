@@ -4,7 +4,7 @@ import { captureBranchTableSnapshot, captureContextMenuSnapshot } from "../helpe
 import { findBranchRow, getBranchCells, expandBranch, collapseBranch, verifyBranchState, verifyBranchStatus, getMoreButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { pressCopyKey, testContextMenuCopy, readClipboard } from "../helpers/clipboard-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
-import { openContextMenu } from "../helpers/selection-helpers"
+import { closeMenus, openContextMenu, openSubmenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { waitForBranchSyncComplete } from "../helpers/sync-helpers"
 import { holdCommand } from "../helpers/wait-helpers"
@@ -85,15 +85,14 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     // Right-click to open context menu
     await openContextMenu(page, branchRow)
 
-    // Verify both copy options are present
-    const copyBranchName = page.getByRole("menuitem", { name: "Copy Branch Name" })
-    const copyFullBranchName = page.getByRole("menuitem", { name: "Copy Full Branch Name" })
-
-    await expect(copyBranchName).toBeVisible()
-    await expect(copyFullBranchName).toBeVisible()
-
-    // Capture ARIA snapshot of context menu
+    // the menu by how often its actions are wanted: Safe Push first (no Patronus here: the push), the copies last
+    await expect(page.getByRole("menuitem").first()).toHaveText(/^Push/)
     await captureContextMenuSnapshot(page, "branch-row-context-menu")
+
+    // both copies in Copy ›
+    await openSubmenu(page, "Copy")
+    await expect(page.getByRole("menuitem", { name: "Copy Branch Name" })).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: "Copy Full Branch Name" })).toBeVisible()
   })
 
   test("should copy branch name via context menu", async ({ page }) => {
@@ -103,10 +102,12 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
 
     // Test Copy Branch Name
     await openContextMenu(page, branchRow)
+    await openSubmenu(page, "Copy")
     await testContextMenuCopy(page, "Copy Branch Name", "test-branch")
 
     // Test Copy Full Branch Name
     await openContextMenu(page, branchRow)
+    await openSubmenu(page, "Copy")
     await testContextMenuCopy(page, "Copy Full Branch Name", /^[\w-]+\/virtual\/test-branch$/)
   })
 
@@ -115,9 +116,9 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await waitForBranchSyncComplete(page, "test-branch")
 
     await openContextMenu(page, branchRow)
+    await openSubmenu(page, "Copy")
     await expect(page.getByRole("menuitem", { name: "Copy Full Branch Name" }).locator("kbd")).not.toHaveCount(0)
-    await page.keyboard.press("Escape")
-    await expect(page.getByRole("menu")).toHaveCount(0)
+    await closeMenus(page)
 
     await branchRow.focus()
     await pressCopyKey(page)
@@ -131,6 +132,7 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await branchRow.getByRole("button", { name: "More actions for test-branch" }).click()
     // the menu of the right-click
     await expect(page.getByRole("menuitem", { name: "Rename…" })).toBeVisible()
+    await openSubmenu(page, "Copy")
     await testContextMenuCopy(page, "Copy Branch Name", "test-branch")
     await expect(page.getByRole("menu")).toHaveCount(0)
     await verifyBranchState(branchRow, "closed")
@@ -195,8 +197,7 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
 
     // Verify we can still access the context menu
     await openContextMenu(page, branchRow)
-    const copyOption = page.getByRole("menuitem", { name: "Copy Branch Name" })
-    await expect(copyOption).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: "Rename…" })).toBeVisible()
 
     // Close context menu
     await page.keyboard.press("Escape")

@@ -43,9 +43,15 @@ export interface MenuItem {
 /** Groups are separated by a separator. */
 export type MenuItemGroups = MenuItem[][]
 
-/** The item `id` of `groups` that acts (not a submenu), as a menu lists it now */
+/** The items of `groups` that act, the items of their submenus too, in menu order */
+export function actingMenuItems(groups: MenuItemGroups): MenuItem[] {
+  const acting = (item: MenuItem): MenuItem[] => (item.children === undefined ? [item] : item.children.flatMap(acting))
+  return groups.flat().flatMap(acting)
+}
+
+/** The item `id` of `groups` that acts (not a submenu), also inside a submenu, as a menu lists it now */
 export function findMenuItem(groups: MenuItemGroups, id: string): MenuItem | undefined {
-  return groups.flat().find(item => item.id === id && item.children === undefined)
+  return actingMenuItems(groups).find(item => item.id === id)
 }
 
 /**

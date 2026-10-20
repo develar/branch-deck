@@ -42,7 +42,7 @@ import {
   safePushPopover,
   slotSafePush,
 } from "../helpers/safe-push-helpers"
-import { clickContextMenuItem, clickGroupIntoBranchButton, openContextMenu, selectCommit } from "../helpers/selection-helpers"
+import { clickContextMenuItem, clickGroupIntoBranchButton, closeMenus, openContextMenu, openSubmenu, selectCommit } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
 import { holdCommand, holdCommandCalls, routeCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
@@ -774,6 +774,7 @@ test.describe("Stacked branches", () => {
     await expect(page.getByTestId("pull-request-chip")).toHaveCount(3)
 
     await openContextMenu(page, findBranchRow(page, "auth"))
+    await openSubmenu(page, "Copy")
     await clickContextMenuItem(page, "Copy Retarget Command")
     await expect.poll(() => readClipboard(page)).toBe("gh pr edit 802 --base master")
 
@@ -799,9 +800,10 @@ test.describe("Stacked branches", () => {
 
     // a pull request into a release branch is left as it is: that base may be meant
     await openContextMenu(page, findBranchRow(page, "session"))
+    await openSubmenu(page, "Copy")
     await expect(page.getByRole("menuitem", { name: "Copy Branch Name" })).toBeVisible()
     await expect(page.getByRole("menuitem", { name: "Copy Retarget Command" })).toHaveCount(0)
-    await page.keyboard.press("Escape")
+    await closeMenus(page)
     await getPushButton(findBranchRow(page, "session")).click()
     await expect(pushedToast(page, "session").locator("[data-slot=toast-description]")).toHaveText("1 commit · created the remote branch")
     expect(retargets).toHaveLength(2)
@@ -1151,6 +1153,7 @@ test.describe("Stacked branches", () => {
       // an older Branch Deck moved #8 onto the branch of login meanwhile: the next step says so once GitHub lists it
       await repo.setPullRequests(availablePullRequests(pullRequest("oauth", 8, { baseRefName: "user-name/virtual/login" })))
       await openContextMenu(page, oauthRow)
+      await openSubmenu(page, "Patronus")
       await clickContextMenuItem(page, "Check Approvals Again")
       const slot = oauthRow.getByTestId("next-step-slot")
       await expect(slot).toHaveAttribute("data-step", "retarget")
@@ -1201,6 +1204,7 @@ test.describe("Stacked branches", () => {
       await item.hover()
       await expect(page.locator("[data-slot=tooltip-content]", { hasText: reason })).toBeVisible()
       // a dry run pushes nothing into master: it runs, with what oauth is built on
+      await openSubmenu(page, "Patronus")
       await page.getByRole("menuitem", { name: "Dry Run" }).click()
       const popover = await expectPopoverOf(page, "oauth", "Dry Run")
       await expect(popover).toHaveAttribute("data-mode", "dryRun")
@@ -1272,6 +1276,7 @@ test.describe("Stacked branches", () => {
       // a dry run pushes nothing into master
       await openContextMenu(page, findBranchRow(page, "auth"))
       await expect(page.getByRole("menuitem", { name: /^Safe Push S/ })).toHaveAttribute("aria-disabled", "true")
+      await openSubmenu(page, "Patronus")
       await expect(page.getByRole("menuitem", { name: "Dry Run" })).not.toHaveAttribute("aria-disabled", "true")
     })
 

@@ -365,7 +365,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - A click in the cell must not toggle the row: on a button, on a disabled one (it passes the click on) and in the
   menu "⋯" opens (its popup is in the row's React tree; a right-click in it doesn't open the row menu either).
 - ⌘C (Ctrl+C elsewhere) on the focused row must copy the full branch name, `{prefix}/virtual/{name}`, as "Copy Full
-  Branch Name" of the menu, which shows the key; not while text is selected. The row has no copy button: a button on
+  Branch Name" of the menu's "Copy ›", which shows the key; not while text is selected. The row has no copy button: a button on
   every row would hold its place in every row, and 35 copy icons down the table would be the loudest thing in it.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should copy the full branch name with ⌘C on the focused row, the key hint of Copy Full Branch Name`, `should handle branch with commits state`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should line up the columns of the table, the island and its header, whatever each card shows`)
@@ -501,21 +501,27 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 
 ### Branch menu
 
-- The groups must come in this order: copy ("Copy Full Branch Name", "Copy Branch Name", "Copy Pull Request Link" for a
-  branch with a pull request, "Copy Retarget Command" for an open one into a virtual branch), the name ("Rename…" or
-  "Name This Branch…", "Move to…", "Ungroup"), the stack ("Stack On…", "Unstack from …", "Collapse Stack" `⌥←` or
-  "Expand Stack" `⌥→`, on every branch of a stack "Whole Stack ›", the actions of the whole stack of its root:
-  [Whole Stack](whole-stack.spec.md)), the commits ("Add Issue Reference…", "Amend Changes…",
-  "Unapply…"), the history ("Review Changes", "Squash N Fixups…", "Open Pull Request" or "Create Pull Request…") and the
-  remote: the push of the branch, named as its push button, "Push oauth Only" after it while it pushes the stack
-  ([Stacked Branches](stacked-branches.spec.md#pull-requests)), on a branch with branches stacked on it "Push with
-  Children (4 branches)" beside it (disabled with the reason while it pushes nothing beyond the branch:
-  [Stacked Branches](stacked-branches.spec.md#pull-requests)), then where Patronus answers "Safe Push" (`S`; "Safe Push · 3" for a stacked branch), "Safe
-  Push With Profile…" (always the popover, its profile to choose; disabled for a start that comments on a pull request,
-  which runs the default checks), "Dry Run" and "Check Approvals Again", then the actions of the branch's robot as
-  every surface of the robot lists them (`getRobotActions`, [Patronus](patronus.spec.md#restart-and-cancel): "Restart
-  Safe Push" (it pushes first while the remote lacks work), "Cancel Safe Push", "Open in Patronus", and "Open Pull Request #12" for a
-  robot of a pull request other than the branch's own).
+- The groups must come in the order of how often their actions are wanted, Safe Push first: "Fix Conflict…" for a
+  branch with a conflict (its next step, above the rest); the landing: where Patronus answers "Safe Push" (`S`; "Safe
+  Push · 3" for a stacked branch), then the actions of the branch's robot as every surface of the robot lists them
+  (`getRobotActions`, [Patronus](patronus.spec.md#restart-and-cancel): "Restart Safe Push" (it pushes first while the
+  remote lacks work), "Cancel Safe Push", "Open in Patronus", and "Open Pull Request #12" for a robot of a pull request
+  other than the branch's own), then "Patronus ›" with the rarer starts: "Safe Push With Profile…" (always the popover,
+  its profile to choose; disabled for a start that comments on a pull request, which runs the default checks), "Dry
+  Run" and "Check Approvals Again"; then the push of the branch, named as its push button, "Push oauth Only" after it
+  while it pushes the stack ([Stacked Branches](stacked-branches.spec.md#pull-requests)), on a branch with branches
+  stacked on it "Push with Children (4 branches)" beside it (disabled with the reason while it pushes nothing beyond
+  the branch: [Stacked Branches](stacked-branches.spec.md#pull-requests)), and "Mark IJAI-1 Fixed" for a YouTrack issue;
+  the review ("Review Changes", "Open Pull Request" or "Create Pull Request…", "Request Review…", "Retarget #7 to
+  master"); the shape ("Rename…" or "Name This Branch…", "Move to…", "Stack On… ›", "Unstack from …", "Ungroup"); on
+  every branch of a stack the stack ("Collapse Stack" `⌥←` or "Expand Stack" `⌥→`, "Whole Stack ›", the actions of the
+  whole stack of its root: [Whole Stack](whole-stack.spec.md)); the commits ("Amend Changes…", "Add Issue Reference…",
+  "Squash N Fixups…"); what sets the branch aside ("Park Branch…": [Parked Branches](parked-branches.spec.md),
+  "Unapply…"); and last "Copy ›" ("Copy Full Branch Name", "Copy Branch Name", "Copy Pull Request Link" for a branch
+  with a pull request, "Copy Retarget Command" for an open one into a virtual branch). Where Patronus doesn't answer,
+  the landing starts with the push. An item with a key (P, S, D, O, M) is never in a submenu; a key of an item in a
+  submenu (⌘C of "Copy Full Branch Name") works on the row as well.
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`leads with Safe Push, keeps every keyed item on top and puts the rarer starts and the copies into submenus`, `starts with the push where Patronus doesn't answer: no Safe Push and no Patronus ›`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should open the pull request with O on the focused row, and copy its link from the branch menu and the popover`)
   [@test] ../../src/lib/patronus-actions.test.ts (`cancels a running robot, and opens it in Patronus and the pull request it was started from`)
 - The menu of a branch that can't change now (no commits, a sync error, a sync running) keeps every item: the

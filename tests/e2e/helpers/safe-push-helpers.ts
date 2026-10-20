@@ -2,6 +2,7 @@ import type { Locator, Page } from "@playwright/test"
 import type { PatronusStartOptions } from "../../../src/lib/bindings"
 import { expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "./branch-helpers"
+import { closeMenus, openSubmenu } from "./selection-helpers"
 
 /** The merge profiles of master without any: a start runs the default checks */
 export const DEFAULT_CHECKS_ONLY: PatronusStartOptions = { targetBranch: "master", supported: true, profiles: [], emergencyProfiles: [], defaultProfileId: null }
@@ -37,6 +38,7 @@ export async function openSafePushWithKey(page: Page, branchName: string): Promi
 /** "Safe Push With Profile…" of the branch menu: the popover, its profile to choose */
 export async function openSafePushWithProfile(page: Page, branchName: string): Promise<Locator> {
   await findBranchRow(page, branchName).click({ button: "right" })
+  await openSubmenu(page, "Patronus")
   await page.getByRole("menuitem", { name: "Safe Push With Profile…" }).click()
   const popover = safePushPopover(page)
   await expect(popover).toBeVisible()
@@ -101,10 +103,11 @@ export async function expectLandedActions(page: Page, branchName: string, reason
   await expectDisabledItems(page, [
     // "Safe Push · 2" while a branch it is built on has commits after the landed ones
     [/^Safe Push( · \d+)? S/, reason],
-    [/^Dry Run/, reason],
     [/^Push P$/, `${reason}: nothing of it is left to push`],
   ])
-  await page.keyboard.press("Escape")
+  await openSubmenu(page, "Patronus")
+  await expectDisabledItems(page, [[/^Dry Run/, reason]])
+  await closeMenus(page)
   await row.focus()
   await page.keyboard.press("s")
   await expect(page.locator("[data-slot=toast]", { hasText: `Safe Push of ${branchName}` }).locator("[data-slot=toast-description]")).toHaveText(reason)

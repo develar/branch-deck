@@ -59,6 +59,23 @@ export async function clickContextMenuItem(page: Page, itemName: string): Promis
 }
 
 /**
+ * Open the submenu `name` of the open menu ("Patronus", "Copy" of the branch menu) as the user does, by hovering its
+ * item; resolves once it is open
+ */
+export async function openSubmenu(page: Page, name: string): Promise<void> {
+  const trigger = page.getByRole("menuitem", { name, exact: true })
+  await trigger.hover()
+  await expect(trigger).toHaveAttribute("aria-expanded", "true")
+}
+
+/** Closes the open menu with its open submenu by Escape, as the user does: each Escape closes one level */
+export async function closeMenus(page: Page): Promise<void> {
+  await page.keyboard.press("Escape")
+  await page.keyboard.press("Escape")
+  await expect(page.getByRole("menu")).toHaveCount(0)
+}
+
+/**
  * Wait for and click the "Move to…" button of the selection
  */
 export async function clickGroupIntoBranchButton(page: Page): Promise<void> {

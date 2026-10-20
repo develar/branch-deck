@@ -1,7 +1,7 @@
 # UX Writing: Toasts, Errors and Labels
 
 **Status:** Active  
-**Updated:** 2026-10-18  
+**Updated:** 2026-10-20  
 **Tags:** [ui, wording, toasts, actions]
 
 ## Summary
@@ -111,6 +111,10 @@ indicator could cancel a robot but not restart it.
   stable `id` (`getRobotActions` in `src/lib/patronus-actions.ts`, `getBranchContextMenuItems` in
   `src/hooks/useBranchContextActions.ts`). A menu renders the list (`MenuItems`); a popover, a footer or an icon row
   renders the same items as buttons, picking them by `id`. A surface never builds its own copy of an action.
+- **A menu leads with what lands its object**: the branch menu starts with "Safe Push", then the push and the review;
+  the rarer forms of an action go into a submenu named by what they belong to ("Patronus ›": Safe Push With Profile…,
+  Dry Run; "Copy ›": the names and links). An item with a key stays on top, where its hint is seen. The branch menu
+  once listed 19 items in 7 groups, the copies first and "Park Branch…" last, alone in its group.
 - **Object actions stay in every form**: a compact form (a row, a popover) and an expanded one (a preview, a window)
   offer the same actions of the object; only the view modes (Review, Files) change with the form.
 - **A key hint only where the key works**: an item shows its key (`kbds`, `<Kbd>`) only on a surface whose handler

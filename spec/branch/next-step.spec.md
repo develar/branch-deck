@@ -220,8 +220,9 @@ branch from all the facts (the branch, its robots, its pull request and the read
 ### The surfaces
 
 - The slot (`NextStepSlot`, the step column of the Actions cell, [Branch columns](../../docs/design/ui-theme.md#branch-columns)) renders the step, and hosts the popover of the branch's start
-  (`SafePushPopover`, anchored to the slot); "⋯" has "Safe Push" (S), "Safe Push With Profile…", "Dry Run" and "Check
-  Approvals Again" (`check-approvals`, always enabled), each disabled with the reason of the step, and "Retarget #7 to
+  (`SafePushPopover`, anchored to the slot); "⋯" has "Safe Push" (S) first and in its "Patronus ›" "Safe Push With
+  Profile…", "Dry Run" and "Check Approvals Again" (`check-approvals`, always enabled), each disabled with the reason
+  of the step, and "Retarget #7 to
   master" for any open pull request into another base; S on the focused row opens the popover, or, disabled, says why in
   an `info` toast (a precondition, `notice`): a short title naming the branch, the reason as the description ("Safe
   Push of auth waits for Ilya Korennoy" / "IJPL Code Platform · requested on #1078", "Safe Push of auth waits for 2

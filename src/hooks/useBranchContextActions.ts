@@ -8,8 +8,6 @@ import {
   FlaskConicalIcon,
   FoldVerticalIcon,
   FolderInputIcon,
-  GitBranchIcon,
-  GitBranchPlusIcon,
   GitPullRequestCreateIcon,
   GitPullRequestIcon,
   Layers2Icon,
@@ -19,6 +17,7 @@ import {
   PenLineIcon,
   RefreshCwIcon,
   ShieldCheckIcon,
+  ShieldEllipsisIcon,
   ShieldOffIcon,
   SlidersHorizontalIcon,
   TagIcon,
@@ -42,7 +41,6 @@ import type { PatronusRobot, PullRequest } from "@/lib/bindings"
 import type { BranchNextStep } from "@/lib/branch-next-step"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
-import { inTableOrder } from "@/lib/branch-selection"
 import { copyText } from "@/lib/clipboard"
 import { CREATE_PULL_REQUEST_LABEL, canCreatePullRequest, getRetargetCommand } from "@/lib/git/new-pull-request"
 import { pushOrConfirm } from "@/lib/git/push"
@@ -71,10 +69,8 @@ import {
   branchSyncStore,
   getAutosquashPlan,
   getBranch,
-  getBranchCommits,
   getBranchTableOrder,
   getIssueGroups,
-  getMoveTargets,
   getStackBranch,
   getParkedState,
   getStackChildren,
@@ -104,35 +100,23 @@ import { getReadinessTarget, getReviewReadiness, recheckReviewReadiness } from "
 import { getStackCollapse, toggleStackCollapsed } from "@/stores/stack-collapse"
 import { getYouTrackKeyOfIssue, youTrackAuthStore } from "@/stores/youtrack"
 
-/** Branches listed in the "Move to Existing" submenu */
-const MAX_MENU_TARGETS = 8
-
 /**
- * Context menu of an active branch row: copy actions (the names, the pull request link, the retarget command of a pull
- * request into a virtual branch), then rename (name an issue branch; an issue group is renamed without a rewrite), move to another
- * branch (with the other selected branches, if the row is selected) and ungroup, then commit actions (issue reference,
- * amend, unapply), then history (review the changes, squash fixups, open or create the pull request), then the remote
- * (push, Safe Push, Dry Run, the actions of the branch's robot, `getGatedRobotActions`). An item that opens a form ends with
- * "…"; an item shows its key only where the focused row has it (`useBranchRowKeys`, `BranchTableCard`). The right-click
- * on the row and the "⋯" of its Actions cell show it.
+ * Context menu of an active branch row, its actions by how often they are wanted (`spec/branch/branch-row.spec.md`, "Branch
+ * menu"): the fix of a conflict, then the landing (Safe Push first, the actions of the branch's robot,
+ * `getGatedRobotActions`, the rarer starts in "Patronus ›", the push), the review (review the changes, open or create the
+ * pull request), the shape (rename, move, stack, ungroup), the stack view, the commits (amend, issue reference, squash
+ * fixups), what sets the branch aside (park, unapply), and the copies in "Copy ›". An item with a key never goes into a
+ * submenu. An item that opens a form ends with "…"; an item shows its key only where the focused row has it
+ * (`useBranchRowKeys`, `BranchTableCard`). The right-click on the row and the "⋯" of its Actions cell show it.
  */
 export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: string, expanded: boolean) => void, operations: Operations): MenuItemGroups {
-  const groups: MenuItemGroups = [getBranchCopyMenuItems(branch.name)]
+  const groups: MenuItemGroups = []
   const pullRequest = getPullRequest(branch.name)
-  if (pullRequest !== undefined) {
-    groups[0]!.push({ id: "copy-pull-request-link", label: "Copy Pull Request Link", icon: LinkIcon, onSelect: () => void copyText(pullRequest.url) })
-  }
-  // an open pull request into a virtual branch: the push retargets it to the baseline, the command does it by hand
-  const retargetCommand = getRetargetCommand(branch)
-  if (retargetCommand !== null) {
-    groups[0]!.push({ id: "copy-retarget-command", label: "Copy Retarget Command", icon: CopyIcon, onSelect: () => void copyText(retargetCommand) })
-  }
-
   const openPullRequestItem: MenuItem | null = pullRequest === undefined ? null : openPullRequestItemOf(pullRequest)
   // a conflict shows its fix in the expanded row, at the commit that does not apply
   const conflictCommit = branch.commits.find(commit => commit.error?.MergeConflict != null)
   if (conflictCommit !== undefined) {
-    groups.unshift([
+    groups.push([
       {
         id: "fix-conflict",
         label: "Fix Conflict…",
@@ -152,19 +136,73 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   const rewriteBlocker = getRewriteBlocker(branch)
   const rewrite = (items: MenuItem[]): MenuItem[] => items.map(item => rewriteItem(branch, item, operations, rewriteBlocker))
 
-  const nameActions: MenuItem[] = [
+  const patronus = isPatronusAvailable()
+  const landingActions: MenuItem[] = []
+  if (patronus) {
+    landingActions.push(getSafePushMenuItem(branch, nextStep))
+  }
+  // a listed robot keeps its actions while Patronus doesn't answer for a new start
+  landingActions.push(...robotActions)
+  if (patronus) {
+    landingActions.push(getPatronusMenuItem(branch, nextStep))
+  }
+  landingActions.push(...getPushMenuItems(branch))
+  // the push of the branches stacked on it, beside the push of the branch: offered on every branch with children
+  const pushWithChildrenItem = getPushWithChildrenItem(branch.name)
+  if (pushWithChildrenItem !== null) {
+    landingActions.push(pushWithChildrenItem)
+  }
+  // the issue of the branch, once its work landed: the backend refuses an issue resolved already
+  const youTrackKey = getYouTrackKeyOfIssue(branch.issueKey)
+  if (youTrackKey !== null) {
+    landingActions.push({ ...getMarkFixedItem(youTrackKey, operations), label: `Mark ${youTrackKey} Fixed` })
+  }
+  groups.push(landingActions)
+
+  const reviewBlocker = branchReviewBlocker(branch)
+  const reviewActions: MenuItem[] = [
+    {
+      id: "review-changes",
+      label: "Review Changes",
+      icon: FileDiffIcon,
+      kbds: ["d"],
+      disabled: reviewBlocker !== null,
+      description: reviewBlocker ?? "The diff of the branch, the parts of its stack, the files of each code owner, in a window",
+      onSelect: () => void openBranchReviewWindow(branch.name),
+    },
+  ]
+  if (openPullRequestItem !== null) {
+    reviewActions.push(openPullRequestItem)
+  }
+  // the row's step when it is the one (a group nobody of it can approve says so), else the builder's item
+  const requestReview =
+    nextStep.kind === "requestReview" ? nextStep.item : getRequestReviewItem(pullRequest, getReviewReadiness(branch.name)?.readiness ?? null, () => openRequestReview(branch.name))
+  if (requestReview !== null) {
+    reviewActions.push(requestReview)
+  }
+  // a pull request into another base: the step retargets one into a virtual branch, the menu always offers it
+  if (nextStep.retarget !== null) {
+    reviewActions.push(nextStep.retarget)
+  }
+  reviewActions.push(...getCreatePullRequestItems(branch))
+  groups.push(reviewActions)
+
+  const shapeActions: MenuItem[] = [
     {
       id: "rename",
       label: branch.origin === "Issue" ? "Name This Branch…" : "Rename…",
       icon: PencilIcon,
       onSelect: () => openInline("rename", branch.name),
     },
+    getMoveMenuItem(branch.name),
   ]
-  nameActions.push(...getMoveMenuItems(branch.name))
+  if (isStacksEnabled()) {
+    shapeActions.push(...getStackShapeItems(branch))
+  }
   const ungroupLabel = getRemovePrefixLabel(branch.commits, getIssueGroups())
   // an issue group goes back to the issue branches of its keys, without a rewrite
   if (branch.origin !== "Issue" && ungroupLabel !== null) {
-    nameActions.push({
+    shapeActions.push({
       id: "ungroup",
       label: ungroupLabel === "Remove Prefix" || ungroupLabel === "Move Back" ? "Ungroup" : `Ungroup: ${ungroupLabel}`,
       icon: UngroupIcon,
@@ -175,20 +213,15 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
           : void moveCommits(branch.commits, null, { id: "ungroup", label: `Ungrouping ${branch.name}`, surface: context.surface }),
     })
   }
-  groups.push(rewrite(nameActions))
+  groups.push(rewrite(shapeActions))
   if (isStacksEnabled()) {
-    groups.push(getStackMenuItems(branch, rewrite))
+    const stackView = getStackViewItems(branch)
+    if (stackView.length > 0) {
+      groups.push(stackView)
+    }
   }
 
   const commitActions: MenuItem[] = [
-    {
-      id: "add-issue-reference",
-      label: "Add Issue Reference…",
-      icon: TagIcon,
-      disabled: branch.allCommitsHaveIssueReferences,
-      ...(branch.allCommitsHaveIssueReferences && { description: "Every commit of the branch has an issue reference" }),
-      onSelect: () => openInline("issue-reference", branch.name),
-    },
     {
       id: "amend-changes",
       label: "Amend Changes…",
@@ -200,82 +233,61 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       },
     },
     {
-      id: "unapply",
-      label: "Unapply…",
-      icon: ArchiveXIcon,
-      onSelect: () => {
-        // show the commits that will be unapplied
-        setExpanded(branch.name, true)
-        openInline("unapply", branch.name)
-      },
-    },
-  ]
-  groups.push(rewrite(commitActions))
-
-  const reviewBlocker = branchReviewBlocker(branch)
-  const historyActions: MenuItem[] = [
-    {
-      id: "review-changes",
-      label: "Review Changes",
-      icon: FileDiffIcon,
-      kbds: ["d"],
-      disabled: reviewBlocker !== null,
-      description: reviewBlocker ?? "The diff of the branch, the parts of its stack, the files of each code owner, in a window",
-      onSelect: () => void openBranchReviewWindow(branch.name),
+      id: "add-issue-reference",
+      label: "Add Issue Reference…",
+      icon: TagIcon,
+      disabled: branch.allCommitsHaveIssueReferences,
+      ...(branch.allCommitsHaveIssueReferences && { description: "Every commit of the branch has an issue reference" }),
+      onSelect: () => openInline("issue-reference", branch.name),
     },
   ]
   const fixupCount = getListFixups(getAutosquashPlan(), branch.name).count
   if (fixupCount > 0) {
-    historyActions.push(
-      ...rewrite([
-        {
-          id: "squash-fixups",
-          label: formatSquashFixupsLabel(fixupCount),
-          icon: CombineIcon,
-          onSelect: () => {
-            // the confirmation opens from the button above the commits
-            setExpanded(branch.name, true)
-            openInline("squash-fixups", branch.name)
-          },
-        },
-      ]),
-    )
+    commitActions.push({
+      id: "squash-fixups",
+      label: formatSquashFixupsLabel(fixupCount),
+      icon: CombineIcon,
+      onSelect: () => {
+        // the confirmation opens from the button above the commits
+        setExpanded(branch.name, true)
+        openInline("squash-fixups", branch.name)
+      },
+    })
   }
-  if (openPullRequestItem !== null) {
-    historyActions.push(openPullRequestItem)
-  }
-  // the row's step when it is the one (a group nobody of it can approve says so), else the builder's item
-  const requestReview =
-    nextStep.kind === "requestReview" ? nextStep.item : getRequestReviewItem(pullRequest, getReviewReadiness(branch.name)?.readiness ?? null, () => openRequestReview(branch.name))
-  if (requestReview !== null) {
-    historyActions.push(requestReview)
-  }
-  // a pull request into another base: the step retargets one into a virtual branch, the menu always offers it
-  if (nextStep.retarget !== null) {
-    historyActions.push(nextStep.retarget)
-  }
-  historyActions.push(...getCreatePullRequestItems(branch))
-  groups.push(historyActions)
+  groups.push(rewrite(commitActions))
 
-  const remoteActions: MenuItem[] = getPushMenuItems(branch)
-  // the push of the branches stacked on it, beside the push of the branch: offered on every branch with children
-  const pushWithChildrenItem = getPushWithChildrenItem(branch.name)
-  if (pushWithChildrenItem !== null) {
-    remoteActions.push(pushWithChildrenItem)
+  // what takes the branch out of the landing: kept local, or its commits archived
+  const unapply: MenuItem = {
+    id: "unapply",
+    label: "Unapply…",
+    icon: ArchiveXIcon,
+    onSelect: () => {
+      // show the commits that will be unapplied
+      setExpanded(branch.name, true)
+      openInline("unapply", branch.name)
+    },
   }
-  if (isPatronusAvailable()) {
-    remoteActions.push(...getPatronusStartItems(branch, nextStep))
-  }
-  // a listed robot keeps its actions while Patronus doesn't answer for a new start
-  remoteActions.push(...robotActions)
-  // the issue of the branch, once its work landed: the backend refuses an issue resolved already
-  const youTrackKey = getYouTrackKeyOfIssue(branch.issueKey)
-  if (youTrackKey !== null) {
-    remoteActions.push({ ...getMarkFixedItem(youTrackKey, operations), label: `Mark ${youTrackKey} Fixed` })
-  }
-  groups.push(remoteActions)
-  groups.push(getParkMenuItems(branch, operations))
+  groups.push([...getParkMenuItems(branch, operations), ...rewrite([unapply])])
+
+  groups.push([getCopyMenuItem(branch, pullRequest)])
   return groups
+}
+
+/**
+ * "Copy ›": the names of the branch (⌘C on the focused row copies the full one), the link of its pull request, and the
+ * retarget command of an open pull request into a virtual branch
+ */
+function getCopyMenuItem(branch: Branch, pullRequest: PullRequest | undefined): MenuItem {
+  const children = getBranchCopyMenuItems(branch.name)
+  if (pullRequest !== undefined) {
+    children.push({ id: "copy-pull-request-link", label: "Copy Pull Request Link", icon: LinkIcon, onSelect: () => void copyText(pullRequest.url) })
+  }
+  // an open pull request into a virtual branch: the push retargets it to the baseline, the command does it by hand
+  const retargetCommand = getRetargetCommand(branch)
+  if (retargetCommand !== null) {
+    children.push({ id: "copy-retarget-command", label: "Copy Retarget Command", icon: CopyIcon, onSelect: () => void copyText(retargetCommand) })
+  }
+  return { id: "copy", label: "Copy", icon: CopyIcon, onSelect: () => {}, children }
 }
 
 /**
@@ -437,18 +449,17 @@ function getPushBlocker(branch: Branch, { isPushing, stackPushing, processing }:
 }
 
 /**
- * Safe Push, Safe Push With Profile…, Dry Run and Check Approvals Again, disabled with the reasons of the next step of
- * the branch (`getBranchNextStep`); a start starts at once when it has nothing to say, else opens its popover at the
- * row's slot (`requestSafePush`); "Safe Push With Profile…" always opens it, its profile to choose (a comment on a pull
- * request can't choose one). The approvals go into the GitHub pull request: "Create Pull Request…" is the history
- * group's; no Space merge request (deprecated).
+ * "Patronus ›", the rarer starts beside "Safe Push" (S), each disabled with the reasons of the next step of the branch
+ * (`getBranchNextStep`): "Safe Push With Profile…" always opens the popover at the row's slot, its profile to choose (a
+ * comment on a pull request can't choose one); "Dry Run" starts at once when it has nothing to say, else opens it
+ * (`requestSafePush`); "Check Approvals Again" asks for the approvals that count anew. The approvals go into the GitHub pull request: "Create Pull Request…" is the review group's; no Space merge
+ * request (deprecated).
  */
-function getPatronusStartItems(branch: Branch, nextStep: BranchNextStep): MenuItem[] {
+function getPatronusMenuItem(branch: Branch, nextStep: BranchNextStep): MenuItem {
   const blocker = nextStep.safePushBlocker
   const fromPullRequest = getPullRequestStart(getPatronusGitHubRepository(), getPullRequest(branch.name), "rebaseAutosquash", getReadinessTarget())
   const profileBlocker = blocker ?? (fromPullRequest === null ? null : `A comment on #${fromPullRequest.number} runs the default checks: it can't choose a profile`)
-  return [
-    getSafePushMenuItem(branch, nextStep),
+  const children: MenuItem[] = [
     {
       id: "safe-push-with-profile",
       label: "Safe Push With Profile…",
@@ -473,6 +484,7 @@ function getPatronusStartItems(branch: Branch, nextStep: BranchNextStep): MenuIt
       onSelect: () => void recheckReviewReadiness(branch.name),
     },
   ]
+  return { id: "patronus", label: "Patronus", icon: ShieldEllipsisIcon, onSelect: () => {}, children }
 }
 
 /**
@@ -620,61 +632,39 @@ export function getCreatePullRequestItem(branch: Branch, landed: string | null =
 }
 
 /**
- * "Move to…" and "Move to Existing ›" of a branch row: all its commits, or those of every selected branch if the row
- * is selected, go to one branch; a whole issue by the issue groups, without a rewrite
+ * "Move to…" of a branch row: all its commits, or those of every selected branch if the row is selected, go to one
+ * branch, a new one or an existing one of the form's chips; a whole issue by the issue groups, without a rewrite
  */
-function getMoveMenuItems(name: string): MenuItem[] {
-  const order = getBranchTableOrder()
-  const selected = getSelectedBranches()
-  const names = selected.includes(name) ? inTableOrder(selected, order) : [name]
-  const openTarget = () => {
-    if (!selected.includes(name)) {
-      selectBranches(name, "only", order)
-    }
-    setBranchTargetOpen(true)
+function getMoveMenuItem(name: string): MenuItem {
+  return {
+    id: "move-to",
+    label: "Move to…",
+    icon: FolderInputIcon,
+    kbds: ["m"],
+    onSelect: () => {
+      if (!getSelectedBranches().includes(name)) {
+        selectBranches(name, "only", getBranchTableOrder())
+      }
+      setBranchTargetOpen(true)
+    },
   }
-  const items: MenuItem[] = [{ id: "move-to", label: "Move to…", icon: FolderInputIcon, kbds: ["m"], onSelect: openTarget }]
-  const targets = getMoveTargets(names.length === 1 ? name : null, MAX_MENU_TARGETS + names.length)
-    .filter(target => !names.includes(target))
-    .slice(0, MAX_MENU_TARGETS)
-  if (targets.length > 0) {
-    items.push({
-      id: "move-to-existing",
-      label: "Move to Existing",
-      icon: GitBranchIcon,
-      onSelect: () => {},
-      children: [
-        ...targets.map(target => ({
-          label: target,
-          icon: GitBranchIcon,
-          onSelect: (context: SelectContext) => void moveCommits(getBranchCommits(names), target, { id: "move-to-existing", surface: context.surface }),
-        })),
-        { label: "New Branch…", icon: GitBranchPlusIcon, onSelect: openTarget },
-      ],
-    })
-  }
-  return items
 }
 
 /** The most branches "Stack On…" lists; the newest come first */
 const STACK_TARGET_LIMIT = 20
 
 /**
- * "Stack On…" (any other branch that isn't stacked on this one), "Unstack", the collapse of the stack, and on every
- * branch of a stack "Whole Stack ›", the actions of the whole stack of its root (`getWholeStackMenuItems`; Push with
- * Children stays beside the push of the root), so a small stack without an island has them in the menu and the preview
- * of each of its branches
+ * "Stack On…" (any other branch that isn't stacked on this one) and "Unstack from ‹parent›": the rewrites of the shape
+ * group, which waits for the sync
  */
-function getStackMenuItems(branch: Branch, rewrite: (items: MenuItem[]) => MenuItem[]): MenuItem[] {
+function getStackShapeItems(branch: Branch): MenuItem[] {
   const parent = branch.stack?.declaredParent ?? null
-  const descendants = getStackDescendants(branch.name)
-  const excluded = new Set([branch.name, ...descendants])
+  const excluded = new Set([branch.name, ...getStackDescendants(branch.name)])
   const targets = branchSyncStore
     .getState()
     .branchOrder.filter(name => !excluded.has(name) && name !== parent)
     .slice(0, STACK_TARGET_LIMIT)
-  // a restack is a regroup: it waits for the sync; the fold of the stack and its push don't
-  const items: MenuItem[] = rewrite([
+  const items: MenuItem[] = [
     {
       id: "stack-on",
       label: "Stack On…",
@@ -684,10 +674,21 @@ function getStackMenuItems(branch: Branch, rewrite: (items: MenuItem[]) => MenuI
       onSelect: () => {},
       children: targets.map(target => ({ label: target, onSelect: (context: SelectContext) => void restackBranch(branch.name, target, { surface: context.surface }) })),
     },
-  ])
+  ]
   if (parent !== null) {
-    items.push(...rewrite([getUnstackItem(branch.name, parent)]))
+    items.push(getUnstackItem(branch.name, parent))
   }
+  return items
+}
+
+/**
+ * The collapse of the stack and, on every branch of a stack, "Whole Stack ›", the actions of the whole stack of its root
+ * (`getWholeStackMenuItems`; Push with Children stays beside the push of the root), so a small stack without an island
+ * has them in the menu and the preview of each of its branches; none for a branch of no stack. Neither rewrites the
+ * branch: they don't wait for the sync.
+ */
+function getStackViewItems(branch: Branch): MenuItem[] {
+  const items: MenuItem[] = []
   // the stack folds into its root, from any of its rows, as ⌥← and ⌥→ do
   const collapse = getStackCollapse(branch.name)
   if (collapse !== null) {
@@ -698,7 +699,7 @@ function getStackMenuItems(branch: Branch, rewrite: (items: MenuItem[]) => MenuI
     )
   }
   // every branch of a stack is a piece of the whole stack: one submenu, its root's, on each of them
-  const root = stackAncestors(branch.name, getBranch)[0]?.name ?? (descendants.length > 0 ? branch.name : null)
+  const root = stackAncestors(branch.name, getBranch)[0]?.name ?? (getStackDescendants(branch.name).length > 0 ? branch.name : null)
   const wholeStack = root === null ? [] : getWholeStackMenuItems(root, { withPush: false })
   if (wholeStack.length > 0) {
     items.push({ id: "whole-stack", label: "Whole Stack", icon: LayersIcon, onSelect: () => {}, children: wholeStack })

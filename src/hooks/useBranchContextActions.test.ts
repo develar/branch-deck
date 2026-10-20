@@ -1,13 +1,20 @@
 // @spec spec/branch/branch-review.spec.md
 // @spec spec/branch/stacked-branches.spec.md
 // @spec spec/branch/branch-row.spec.md
-import { afterEach, describe, expect, it } from "vite-plus/test"
+import { afterEach, describe, expect, it, vi } from "vite-plus/test"
 import { getBranchContextMenuItems, getSafePushBlocker } from "@/hooks/useBranchContextActions"
-import type { MenuItem } from "@/lib/menu"
+import type { MenuItem, MenuItemGroups } from "@/lib/menu"
+import { findMenuItem } from "@/lib/menu"
 import type { Branch, RemoteStatus, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { operationsStore } from "@/stores/operations"
+import { patronusStore } from "@/stores/patronus"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
+
+vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
+
+/** The key of `/repo` with the prefix `user` in the stores of Patronus and GitHub answers */
+const KEY = "/repo\nuser"
 
 describe("getSafePushBlocker", () => {
   afterEach(() => {
@@ -37,8 +44,16 @@ function setBranches(...branches: Branch[]): void {
   branchSyncStore.setState({ branches: Object.fromEntries(branches.map(branch => [branch.name, branch])), branchOrder: branches.map(branch => branch.name), stacksEnabled: true })
 }
 
+/** The groups of the menu of `name` */
+function groupsOf(name: string): MenuItemGroups {
+  return getBranchContextMenuItems(branchSyncStore.getState().branches[name]!, () => {}, operationsStore.getState().running)
+}
+
+/** The items of the menu of `name`, the actions of the branch in "Patronus ›" and "Copy ›" too, after their submenu */
 function menuOf(name: string): MenuItem[] {
-  return getBranchContextMenuItems(branchSyncStore.getState().branches[name]!, () => {}, operationsStore.getState().running).flat()
+  return groupsOf(name)
+    .flat()
+    .flatMap(item => (item.id === "patronus" || item.id === "copy" ? [item, ...item.children!] : [item]))
 }
 
 describe("the items of the branch menu", () => {
@@ -225,5 +240,78 @@ describe("Push with Children in the branch menu", () => {
     // the sync computes what is left to push
     setBranches(synced("auth", null, pushed), testBranch("login", "auth"))
     expect(pushWithChildren("auth")).toMatchObject({ disabled: true, description: "Wait for the sync to finish" })
+  })
+})
+
+describe("the order of the branch menu", () => {
+  function setPatronus(): void {
+    patronusStore.setState({
+      repositories: {
+        [KEY]: {
+          availability: { status: "available" },
+          robots: {},
+          listedFrom: 0,
+          fetchedAt: 0,
+          isRefreshing: false,
+          needsReview: {},
+          githubRepository: "acme/air",
+          watched: {},
+          failing: {},
+          landings: {},
+        },
+      },
+    })
+  }
+
+  /** The ids of each group, a submenu as its id */
+  function idsOf(name: string): (string | undefined)[][] {
+    return groupsOf(name).map(group => group.map(item => item.id))
+  }
+
+  function patronusOf(name: string): (string | undefined)[] | undefined {
+    return groupsOf(name)
+      .flat()
+      .find(item => item.id === "patronus")
+      ?.children?.map(item => item.id)
+  }
+
+  afterEach(() => {
+    branchSyncStore.setState({ branches: {}, branchOrder: [], stacksEnabled: false })
+    patronusStore.setState({ repositories: {} })
+  })
+
+  it("leads with Safe Push, keeps every keyed item on top and puts the rarer starts and the copies into submenus", () => {
+    setPatronus()
+    setBranches(synced("auth", null, unpushed), synced("docs", null, unpushed))
+    expect(idsOf("auth")).toEqual([
+      ["safe-push", "patronus", "push"],
+      ["review-changes", "create-pull-request"],
+      ["rename", "move-to", "stack-on"],
+      ["amend-changes", "add-issue-reference"],
+      ["park", "unapply"],
+      ["copy"],
+    ])
+    expect(patronusOf("auth")).toEqual(["safe-push-with-profile", "dry-run", "check-approvals"])
+    const copy = groupsOf("auth")
+      .flat()
+      .find(item => item.id === "copy")
+    expect(copy?.children?.map(item => item.id)).toEqual(["copy-full-branch-name", "copy-branch-name"])
+    // the keys of the row run what the menu lists, a submenu's item too
+    for (const id of ["safe-push", "push", "review-changes", "move-to", "copy-full-branch-name", "dry-run"]) {
+      expect(findMenuItem(groupsOf("auth"), id)?.id).toBe(id)
+    }
+    expect(findMenuItem(groupsOf("auth"), "patronus")).toBeUndefined()
+  })
+
+  it("starts with the push where Patronus doesn't answer: no Safe Push and no Patronus ›", () => {
+    setBranches(synced("auth", null, unpushed))
+    expect(idsOf("auth")[0]).toEqual(["push"])
+    expect(menuOf("auth").some(item => item.id === "patronus" || item.id === "safe-push")).toBe(false)
+  })
+
+  it("moves a branch with Move to… alone: the form offers the existing branches", () => {
+    setBranches(synced("auth", null, unpushed), synced("docs", null, unpushed))
+    expect(menuOf("auth").find(item => item.id === "move-to")).toMatchObject({ label: "Move to…", kbds: ["m"] })
+    expect(menuOf("auth").some(item => item.id === "move-to-existing")).toBe(false)
   })
 })

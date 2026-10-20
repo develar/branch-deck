@@ -17,6 +17,7 @@ import {
 import { expectPushedToast, pushedToast, routePush } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, hoverStatusChip, openBranchPreview, landingRow, openLandingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
 import { expectPopoverAtSlot } from "../helpers/safe-push-helpers"
+import { openSubmenu } from "../helpers/selection-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { routeCommand, routeCommandError } from "../helpers/wait-helpers"
@@ -145,8 +146,10 @@ test.describe("Pull request chip", () => {
     expect(await getOpenedUrls(page)).toEqual([APPROVED.url])
 
     await findBranchRow(page, "feature-auth").click({ button: "right" })
-    await expect(page.getByRole("menuitem", { name: "Copy Branch Name" })).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: "Review Changes" })).toBeVisible()
     await expect(page.getByRole("menuitem", { name: "Open Pull Request" })).toHaveCount(0)
+    await openSubmenu(page, "Copy")
+    await expect(page.getByRole("menuitem", { name: "Copy Branch Name" })).toBeVisible()
     await expect(page.getByRole("menuitem", { name: "Copy Pull Request Link" })).toHaveCount(0)
   })
 
@@ -154,6 +157,7 @@ test.describe("Pull request chip", () => {
     // the key the menu item shows works on the focused row
     await findBranchRow(page, "JIRA-456").click({ button: "right" })
     await expect(page.getByRole("menuitem", { name: "Open Pull Request" }).locator("[data-slot=kbd]")).toHaveText("O")
+    await openSubmenu(page, "Copy")
     await page.getByRole("menuitem", { name: "Copy Pull Request Link" }).click()
     expect(await readClipboard(page)).toBe(APPROVED.url)
 

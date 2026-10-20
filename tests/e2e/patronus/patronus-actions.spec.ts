@@ -26,6 +26,7 @@ import type { PushResult } from "../helpers/push-helpers"
 import { confirmForcePush, pushedToast, pushOutcome, routeHeldPush, routePush } from "../helpers/push-helpers"
 import { hoverStatusChip, openBranchPreview, pushBranchFromRow } from "../helpers/review-status-helpers"
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, openSafePushWithProfile, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
+import { closeMenus, openSubmenu } from "../helpers/selection-helpers"
 import { expectSettingsOpened } from "../helpers/settings-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { rewriteNextRemoteStatus, syncFromMenu } from "../helpers/sync-helpers"
@@ -160,6 +161,15 @@ async function routeCancelPushRestart(page: Page): Promise<string[]> {
 async function pushAndRestartFromMenu(page: Page) {
   await findBranchRow(page, "JIRA-456").click({ button: "right" })
   await page.getByRole("menuitem", { name: "Restart Safe Push", exact: true }).click()
+}
+
+/** "Safe Push" of the open branch menu disabled, `reason` on its hover; then its "Patronus ›" opened */
+async function expectMenuSafePushRefused(page: Page, reason: string): Promise<void> {
+  const safePush = page.getByRole("menuitem", { name: "Safe Push S", exact: true })
+  await expect(safePush).toBeDisabled()
+  await safePush.hover()
+  await expect(page.getByRole("tooltip")).toHaveText(reason)
+  await openSubmenu(page, "Patronus")
 }
 
 test.describe("Patronus actions", () => {
@@ -354,7 +364,7 @@ test.describe("Patronus actions", () => {
     const featureRow = findBranchRow(page, "feature-auth")
     await featureRow.getByRole("button", { name: "More actions for feature-auth" }).click()
     const rowMenu = page.getByRole("menu", { name: "More actions for feature-auth" })
-    await expect(rowMenu.getByRole("menuitem", { name: "Copy Branch Name" })).toBeVisible()
+    await expect(rowMenu.getByRole("menuitem", { name: "Copy", exact: true })).toBeVisible()
     // the approvals go into the GitHub pull request: no Space merge request is created (deprecated)
     await expect(rowMenu.getByRole("menuitem", { name: "Create Space Merge Request…" })).toHaveCount(0)
     await rowMenu.getByRole("menuitem", { name: "Safe Push S", exact: true }).click()
@@ -621,6 +631,7 @@ test.describe("Patronus actions", () => {
 
       // Check Approvals Again asks Patronus again: it finds them now
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
+      await openSubmenu(page, "Patronus")
       await page.getByRole("menuitem", { name: "Check Approvals Again" }).click()
       await expect.poll(() => checks.some(params => params.recheck === true)).toBe(true)
       expect(starts).toEqual([])
@@ -664,6 +675,7 @@ test.describe("Patronus actions", () => {
 
       // "Dry Run" of the menu: the code owners don't check it, nothing to say, it starts
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
+      await openSubmenu(page, "Patronus")
       await page.getByRole("menuitem", { name: "Dry Run", exact: true }).click()
       await expect(toastWith(page, "Dry Run started").locator("[data-slot=toast-description]")).toHaveText("JIRA-456 → master")
       expect(starts).toEqual([expect.objectContaining({ branchName: "JIRA-456", mode: "dryRun", profileId: null })])
@@ -803,12 +815,12 @@ test.describe("Patronus actions", () => {
 
       // a comment runs the default checks of the target: no profile to choose
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
+      await openSubmenu(page, "Patronus")
       const withProfile = page.getByRole("menuitem", { name: "Safe Push With Profile…" })
       await expect(withProfile).toBeDisabled()
       await withProfile.hover()
       await expect(page.getByRole("tooltip").filter({ hasText: "comment" })).toHaveText("A comment on #7 runs the default checks: it can't choose a profile")
-      await page.keyboard.press("Escape")
-      await expect(page.getByRole("menu")).toHaveCount(0)
+      await closeMenus(page)
 
       const popover = await openSafePushWithKey(page, "JIRA-456")
       await expect(popover.getByTestId("safe-push-from-pull-request")).toHaveText("Comments /patronus merge on #7: Patronus reports there and closes it once merged.")
@@ -942,14 +954,10 @@ test.describe("Patronus actions", () => {
       expect(await getOpenedUrls(page)).toEqual([pullRequest("JIRA-456", 7).url])
 
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
-      const menu = page.getByRole("menu")
-      for (const name of ["Safe Push S", "Safe Push With Profile…"]) {
-        await expect(menu.getByRole("menuitem", { name, exact: true })).toBeDisabled()
-      }
-      await menu.getByRole("menuitem", { name: "Safe Push S", exact: true }).hover()
-      await expect(page.getByRole("tooltip")).toHaveText("#7 is a draft: Patronus merges it once it is ready for review")
+      await expectMenuSafePushRefused(page, "#7 is a draft: Patronus merges it once it is ready for review")
+      await expect(page.getByRole("menuitem", { name: "Safe Push With Profile…", exact: true })).toBeDisabled()
       // a dry run pushes nothing into the target: a draft doesn't hold it back, it comments on the pull request
-      await menu.getByRole("menuitem", { name: "Dry Run", exact: true }).click()
+      await page.getByRole("menuitem", { name: "Dry Run", exact: true }).click()
       await expect.poll(() => posts).toEqual([expect.objectContaining({ pullRequestNumber: 7, mode: "dryRun" })])
     })
 
@@ -958,12 +966,10 @@ test.describe("Patronus actions", () => {
 
       await expect(findBranchRow(page, "JIRA-456").getByTestId("next-step-slot")).toHaveAttribute("data-step", "none")
       await findBranchRow(page, "JIRA-456").click({ button: "right" })
-      const menu = page.getByRole("menu")
-      for (const name of ["Safe Push S", "Safe Push With Profile…", "Dry Run"]) {
-        await expect(menu.getByRole("menuitem", { name, exact: true })).toBeDisabled()
+      await expectMenuSafePushRefused(page, "Pull request #7 is merged")
+      for (const name of ["Safe Push With Profile…", "Dry Run"]) {
+        await expect(page.getByRole("menuitem", { name, exact: true })).toBeDisabled()
       }
-      await menu.getByRole("menuitem", { name: "Safe Push S", exact: true }).hover()
-      await expect(page.getByRole("tooltip")).toHaveText("Pull request #7 is merged")
     })
 
     test("should offer to create the pull request the approvals count in, and no start Patronus would fail", async ({ page, setupRepo, syncAndWaitForBranches }) => {

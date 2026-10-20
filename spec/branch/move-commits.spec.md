@@ -164,8 +164,8 @@ Renaming and ungrouping a branch are moves of all its commits.
   a "Move to Existing" submenu with the branches and "New Branch…", and the way back of the commits.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should move a commit to an existing branch from the context menu and undo it`, `should move a split commit back to its issue and a prefix commit to the unassigned commits`)
   [@test] ../../tests/e2e/unassigned-commits/unassigned-commits.spec.ts (`should act on all selected commits from the context menu of a selected row`, `should act on that commit only from the context menu of a row that is not selected`)
-- The branch menu must offer "Move to…" with the key `M` and "Move to Existing ›", for all commits of the branch, or of
-  every selected branch when the row is selected. `M` works where the item shows it: on the focused row without a
+- The branch menu must offer "Move to…" with the key `M`, for all commits of the branch, or of every selected branch
+  when the row is selected; it has no "Move to Existing ›": the form offers the existing branches. `M` works where the item shows it: on the focused row without a
   selection it selects the row and opens "Move to…" for it, as the item does; with selected rows it opens it for them.
   [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should open Move to… for the focused row with M, without a selection`, `should move the selected branches to a new branch with Move to…`)
 - The branch menu must offer "Rename…" for a prefix branch and "Name This Branch…" for an issue branch, through
