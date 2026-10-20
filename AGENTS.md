@@ -233,7 +233,7 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
 - **Git 2.54+** (`MIN_VERSION` in `crates/git-executor/src/git_info.rs`), checked when git is discovered, on every platform.
 - All git runs through `GitCommandExecutor` ([Executor](docs/design/git-operations.md#executor)). It adds
   `-c core.quotePath=false -c color.ui=never -c log.showSignature=false -c i18n.logOutputEncoding=UTF-8`, sets
-  `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0`, strips inherited `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/
+  `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0` (only the `status` of a lease slot may write its index), strips inherited `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/
   `GIT_NOTES_REF`, empties `GIT_NOTES_DISPLAY_REF` (`%N` shows only the mapping notes, or an explicit `--notes=<ref>`)
   and gives git a null stdin unless the call pipes one; callers don't add `--no-pager`. A git with an environment,
   stdin, accepted exit codes, a timeout, streamed stdout, progress or a reply protocol is `git.cmd(&args, repo)` with

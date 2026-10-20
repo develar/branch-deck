@@ -69,9 +69,16 @@ impl UntrackedFiles {
 
 /// The paths of the local changes of `slot`: staged, unstaged and untracked files, not the ignored ones. One
 /// `status --porcelain=v1 -z` with the `untracked` mode of the repository; its own `core.fsmonitor` and
-/// `core.untrackedCache` apply, so a large slot answers in seconds
+/// `core.untrackedCache` apply. The one `status` that may write the index (`GIT_OPTIONAL_LOCKS=1`, against the
+/// executor's default): the refreshed stat data, the fsmonitor token and the untracked cache stay in the slot's index,
+/// so the next `status` and the checkout start warm. Without the write, a slot of idea-1 (1.4M files) idle for days
+/// walked its whole tree on every `status`, 2-5 min each; after one write a `status` took 2 s and a checkout without
+/// changes 1-3 s instead of 4-10 s. Only a slot of the pool, with no other process in it, is asked
 pub fn slot_changes(git_executor: &GitCommandExecutor, slot: &str, untracked: UntrackedFiles) -> Result<Vec<String>> {
-  let output = git_executor.cmd(&["status", "--porcelain=v1", "-z", untracked.arg()], slot).bytes()?;
+  let output = git_executor
+    .cmd(&["status", "--porcelain=v1", "-z", untracked.arg()], slot)
+    .env(&[("GIT_OPTIONAL_LOCKS", "1")])
+    .bytes()?;
   let mut paths = Vec::new();
   let mut entries = output.split(|&byte| byte == 0).filter(|entry| !entry.is_empty());
   while let Some(entry) = entries.next() {

@@ -321,6 +321,64 @@ fn every_status_of_the_pool_lists_untracked_files_in_the_mode_the_repository_con
   assert!(!no.is_empty() && no.iter().all(|mode| mode == "--untracked-files=normal"), "{no:?}");
 }
 
+/// A get takes the free slot returned last first: its index, fsmonitor daemon and build caches are the warmest and its
+/// commit the closest; the order they joined the pool decides only among the slots never returned
+#[test_log::test]
+fn the_free_slot_returned_last_is_leased_first() {
+  let fixture = Fixture::new();
+  let first = path_of(&fixture.get(&[]));
+  let second = path_of(&fixture.get(&[]));
+  fixture.give_back(&first);
+  fixture.give_back(&second);
+  assert_eq!(path_of(&fixture.get(&[])), second);
+  assert_eq!(path_of(&fixture.get(&[])), first);
+}
+
+/// The `status` of the pool writes the slot's index: after a get and its return, a `status` that may not write (the
+/// executor's default) finds the untracked cache filled and opens almost no directory, where a cold index opens all
+#[cfg(unix)]
+#[test_log::test]
+fn the_status_of_a_slot_leaves_its_untracked_cache_warm() {
+  let fixture = Fixture::new();
+  fixture.repo.set_config("core.untrackedCache", "true").unwrap();
+  let files: Vec<(String, String)> = (0..20).map(|n| (format!("dir{n}/sub/file.txt"), format!("{n}\n"))).collect();
+  let files: Vec<(&str, &str)> = files.iter().map(|(path, content)| (path.as_str(), content.as_str())).collect();
+  fixture.repo.create_commit_with_files("Add the directories", &files);
+  let trace = fixture.home.path().join("trace2.json");
+  // the counters of `read_directory` are nested deeper than the 2 levels trace2 keeps by default
+  let _env = test_utils::env_vars::EnvVars::set(&[("GIT_TRACE2_EVENT", trace.as_os_str()), ("GIT_TRACE2_EVENT_NESTING", std::ffi::OsStr::new("10"))]);
+  // `opendir` of the `read_directory` of one `status` in the slot that may not write its index
+  let opened = |path: &str| -> u64 {
+    std::fs::write(&trace, "").unwrap();
+    slot_git(path, &["status", "--porcelain=v1", "-z", "--untracked-files=normal"]);
+    std::fs::read_to_string(&trace)
+      .unwrap()
+      .lines()
+      .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+      .filter(|event| event["event"] == json!("data") && event["category"] == json!("read_directory") && event["key"] == json!("opendir"))
+      .filter_map(|event| event["value"].as_str().and_then(|value| value.parse().ok()))
+      .next_back()
+      .unwrap_or_else(|| panic!("no read_directory in the trace"))
+  };
+
+  let path = path_of(&fixture.get(&[]));
+  // git leaves a directory changed in the second of the index write out of the cache; a real slot's are older
+  let hour_ago = std::time::SystemTime::now() - Duration::from_secs(3600);
+  for (dir, _) in &files {
+    for dir in Path::new(dir).ancestors().skip(1).filter(|dir| !dir.as_os_str().is_empty()) {
+      std::fs::File::open(Path::new(&path).join(dir)).unwrap().set_modified(hour_ago).unwrap();
+    }
+  }
+  fixture.give_back(&path);
+  let warm = opened(&path);
+  assert!(warm <= 2, "a warm status opened {warm} directories");
+  // the same `status` on an index whose cache is empty opens every directory, again and again
+  slot_git(&path, &["update-index", "--no-untracked-cache"]);
+  slot_git(&path, &["update-index", "--untracked-cache"]);
+  let cold = (opened(&path), opened(&path));
+  assert!(cold.0 > 40 && cold.1 > 40, "a cold status opened {cold:?} directories");
+}
+
 /// The entries of the pool directory of `got`, without the slot names: what a clone may leave behind
 #[cfg(unix)]
 fn pool_entries(got: &Value) -> Vec<String> {

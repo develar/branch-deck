@@ -52,6 +52,9 @@ pub struct Slot {
   /// A get found local changes in the free slot and skipped it; the next gets try it last
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub dirty: bool,
+  /// The number of its last return in the pool, higher for a later one: a get takes the free slot returned last first
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub returned: Option<u64>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub lease: Option<Lease>,
 }
@@ -442,8 +445,10 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
 }
 
 /// Under the pool lock: free the leases whose get died while preparing, drop the free slots whose directory is gone, and
-/// reserve a free slot (clean ones first, in the order they joined the pool) or a new one. A free slot with a process in
-/// it is skipped as busy
+/// reserve a free slot (clean ones first, the one returned last first, then in the order they joined the pool) or a new
+/// one. The slot returned last has the warmest index, fsmonitor daemon and build caches and the commit closest to the
+/// source; the order they joined left the other slots idle for days, cold and far behind. A free slot with a process
+/// in it is skipped as busy
 fn reserve(
   store: &mut LeaseStore,
   git_common_dir: &Path,
@@ -461,7 +466,13 @@ fn reserve(
   }
   store.slots.retain(|slot| slot.lease.is_some() || Path::new(&slot.path).is_dir());
   for dirty in [false, true] {
-    for slot in store.slots.iter_mut().filter(|slot| slot.lease.is_none() && slot.dirty == dirty) {
+    let mut order: Vec<usize> = (0..store.slots.len())
+      .filter(|&index| store.slots[index].lease.is_none() && store.slots[index].dirty == dirty)
+      .collect();
+    // stable: the slots never returned come last, in the order they joined
+    order.sort_by_key(|&index| std::cmp::Reverse(store.slots[index].returned));
+    for index in order {
+      let slot = &mut store.slots[index];
       if tried.contains(&slot.path) || !is_worktree_of(Path::new(&slot.path), git_common_dir) {
         continue;
       }
@@ -491,6 +502,7 @@ fn reserve(
     name: String::new(),
     path: display_path(&path),
     dirty: false,
+    returned: None,
     lease: Some(lease.clone()),
   });
   Reserved::New { path, template }
@@ -1045,9 +1057,11 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
     Some(Err(error)) => (Vec::new(), Some(format!("{error:#}"))),
   };
   pool.update(params.lock_timeout, |store| {
+    let last_return = store.slots.iter().filter_map(|slot| slot.returned).max().unwrap_or(0);
     let slot = leased_slot(store, &path, &lease.id).ok_or_else(|| anyhow!("The lease of {path} changed while it was returned"))?;
     slot.lease = None;
     slot.dirty = false;
+    slot.returned = Some(last_return + 1);
     Ok(())
   })?;
   Ok(LeaseReturned {
@@ -1324,6 +1338,7 @@ fn add_slot_entry(pool: &Pool, lock_timeout: Duration, path: &str, moved_from: O
       name,
       path: path.to_string(),
       dirty: false,
+      returned: None,
       lease: None,
     };
     store.slots.push(slot.clone());
@@ -1363,6 +1378,7 @@ fn move_in(git_executor: &GitCommandExecutor, pool: &Pool, params: &LeaseAdoptPa
       name: linked_worktree(Path::new(&target)).map_or_default(|worktree| worktree.id),
       path: target,
       dirty: false,
+      returned: None,
       lease: None,
     };
     store.slots.push(slot.clone());

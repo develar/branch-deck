@@ -222,7 +222,8 @@ newer" for an old one. CI checks the runner's git in `.github/workflows/test.yml
 All git runs through `GitCommandExecutor` (`crates/git-executor/src/git_command_executor.rs`):
 
 - Every call gets `-c core.quotePath=false -c color.ui=never -c log.showSignature=false
-  -c i18n.logOutputEncoding=UTF-8` and the environment variables `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0`.
+  -c i18n.logOutputEncoding=UTF-8` and the environment variables `GIT_TERMINAL_PROMPT=0` and `GIT_OPTIONAL_LOCKS=0`
+  (one exception: the `status` of a slot of the lease pool may write the slot's index, [Lease](#lease)).
   The encoding keeps `log` and `show` messages in UTF-8 for a user who reads logs in another one: the commit list drops
   a record that is not UTF-8.
 - Inherited `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and `GIT_NOTES_REF` are removed. A temporary index is always
@@ -1110,9 +1111,13 @@ the state is read and written, never across a git that writes a slot.
 1. Get: under the pool lock, a `preparing` lease whose process is gone (its pid and start time, `process_scan`) is
    freed, and a free slot whose directory is gone is dropped. The first free slot that is a linked worktree of the same
    common dir (its `.git` file and admin directory, no git process) and has no process in it is reserved, clean slots
-   before the ones marked dirty. The lease is recorded as `preparing`, with the pid and its start time, and the lock
+   before the ones marked dirty, and among them the one returned last first (`returned`, the number of its return in
+   the pool), then the ones never returned in the order they joined. The slot returned last has the warmest index,
+   fsmonitor daemon and build caches and the commit closest to the source; by the order they joined alone, the first
+   slot served every lease and the others sat idle for days, cold and thousands of files behind. The lease is recorded as `preparing`, with the pid and its start time, and the lock
    is released.
-2. Without the lock: one `status --porcelain=v1 -z` of that slot, in the untracked mode below. A dirty slot is freed again,
+2. Without the lock: one `status --porcelain=v1 -z` of that slot, in the untracked mode below, which may write the
+   slot's index (below). A dirty slot is freed again,
    marked dirty and skipped, and the next one is reserved. A clean one gets `checkout --force --detach <source HEAD>`
    (or `-b <branch>`), which writes only the paths that differ. `--force` is safe after the clean status: on a
    case-insensitive file system `status` does not see a case-only rename, and a plain checkout then refuses.
@@ -1129,6 +1134,13 @@ a clone, the return, an adopt) lists untracked files with `--untracked-files=all
 mode it was built for, is used only in that mode and is built only in the configured one; idea-1 configures `all`,
 and there the `status` with `normal` walked every directory: 41 s against 2 s in the same slot. The return reads the
 config for it, one `config` more.
+
+That `status` is the one git of Branch Deck that may write an index the executor would leave alone: it runs with
+`GIT_OPTIONAL_LOCKS=1`, so the refreshed stat data, the fsmonitor token and the untracked cache stay in the slot's
+index. With the executor's `0` nothing stayed, and a slot of idea-1 idle for days walked its whole tree on every
+`status`, 2-5 min each, and its checkout without changes lstat'ed every file (4-10 s); after one write a `status` took
+2 s and the checkout 1-3 s. The index is the slot's, and no other process works in the slot during a get, a return or
+an adopt (the process scan). git still leaves a directory changed in the second of the write out of the cache.
 4. Seed: the ignored paths that `.worktreeinclude` at the source root names are copied into the slot. A pattern is a
    literal path or a glob in its last component, read from that one directory, never a walk of the tree; one
    `check-ignore -z --stdin` in the source keeps only the ignored ones.

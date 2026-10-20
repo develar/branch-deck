@@ -70,6 +70,13 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   `--untracked-files=all` when the repository's `status.showUntrackedFiles` is `all`, else with `normal`, also for
   `no`: git's untracked cache answers only in the mode it was built for, and git builds it only in the configured mode.
   [@test] ../../crates/bd-cli/src/lease_test.rs (`every_status_of_the_pool_lists_untracked_files_in_the_mode_the_repository_configures`)
+- Every `status` of the pool must be allowed to write the slot's index (`GIT_OPTIONAL_LOCKS=1`), so its refreshed
+  stat data, fsmonitor token and untracked cache stay: after a get and its return, a `status` that may not write must
+  find the untracked cache filled.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`the_status_of_a_slot_leaves_its_untracked_cache_warm`)
+- Among the clean free slots a get must take the one returned last first, then the ones never returned in the order
+  they joined the pool: the slot returned last has the warmest index and caches and the commit closest to the source.
+  [@test] ../../crates/bd-cli/src/lease_test.rs (`the_free_slot_returned_last_is_leased_first`)
 - The checkout of a reused slot and the `worktree add` of a new one must run with `-c checkout.workers=0` (one
   worker per core), unless the repository config sets `checkout.workers`.
   [@test] ../../crates/bd-cli/src/lease_test.rs (`every_checkout_of_the_pool_runs_with_a_worker_per_core_unless_the_repository_sets_it`)
