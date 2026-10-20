@@ -24,7 +24,7 @@ vi.mock("@/lib/bindings", () => ({
     saveYoutrackToken: async () => mocks.youtrack.saved,
   },
 }))
-vi.mock("@/lib/errors", () => ({ notifyError: mocks.notifyError }))
+vi.mock("@/lib/errors", () => ({ notifyError: mocks.notifyError, logError: () => {} }))
 vi.mock("@/lib/toast-message", () => ({ showToast: mocks.showToast }))
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: mocks.openUrl }))
 
