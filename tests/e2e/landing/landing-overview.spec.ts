@@ -2,6 +2,7 @@
 import type { PatronusRobotDetails } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
+import { expectColumnAligned } from "../helpers/column-helpers"
 import { AWAITING_CODE_OWNER, DAY_ROBOTS, NO_REVIEW_NEEDED, ROBOTS_NOW, availableRobots, minutes, robot, setupRobots } from "../helpers/patronus-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { pushedToast, routePush } from "../helpers/push-helpers"
@@ -142,6 +143,8 @@ test.describe("Landing overview", () => {
     let popover = await openLandingOverview(page)
     await expect(landingRow(popover, "auth").getByText("4 branches · 4 commits")).toBeVisible()
     await expect(landingRow(popover, "login")).toHaveCount(0)
+    // the steps of the rows end in one column, as wide as the widest: "Safe Push" of docs, "Create Pull Request…" of the stack
+    await expectColumnAligned(popover.getByTestId("landing-row").getByTestId("next-step"), "right")
 
     // the Safe Push of docs has nothing to ask: it pushes and starts at once, the row shown
     const docs = landingRow(popover, "docs")

@@ -67,7 +67,7 @@ export function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onRev
   const active = chip.kind === "running"
   const failing = isFailingEntry(entry)
   return (
-    <li className="flex items-start gap-2" data-testid="robots-row" data-branch-name={branchName} data-kind={chip.kind}>
+    <li className="col-span-full flex items-start gap-2" data-testid="robots-row" data-branch-name={branchName} data-kind={chip.kind}>
       <span className="flex h-5 items-center">
         {active ? <RobotRing className={cn("size-3.5", robotRingColor(failing))} /> : <Icon className={cn("size-3.5", statusChipTextColors[chip.color])} />}
       </span>

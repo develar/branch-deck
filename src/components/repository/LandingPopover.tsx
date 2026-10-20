@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { cn } from "cn"
 import { PopoverDescription, PopoverSectionTitle, PopoverTitle } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { LandingNodeSubject } from "@/components/branch/LandingNodeHover"
@@ -51,33 +52,43 @@ export function LandingPopover({ overview, onClose, renderPullRequest, footer }:
           </PopoverDescription>
         )}
       </div>
-      {moveCount > 0 && (
-        <Section title={`Your move · ${overview.moves}`} testId="landing-your-move">
-          {overview.yourMove.map(unit => (
-            <UnitRow key={unit.name} unit={unit} {...unitProps} />
-          ))}
-          {/* a failed robot of no row: its actions are the move */}
-          {overview.failedRobots.map(entry => (
-            <RobotRow key={entry.robot.id} entry={entry} onReveal={reveal} />
-          ))}
-        </Section>
-      )}
-      <RobotList title={`Landing · ${overview.running.length}`} testId="landing-running" entries={overview.running} onReveal={reveal} />
-      {overview.waiting.length > 0 && (
-        <Section title={`Waiting · ${overview.waiting.length}`} testId="landing-waiting">
-          {overview.waiting.map(unit => (
-            <UnitRow key={unit.name} unit={unit} {...unitProps} />
-          ))}
-        </Section>
-      )}
-      {overview.inMaster.length > 0 && (
-        <Section title={`In master · ${overview.inMaster.length}`} testId="landing-in-master">
-          {overview.inMaster.map(unit => (
-            <UnitRow key={unit.name} unit={unit} {...unitProps} />
-          ))}
-        </Section>
-      )}
-      <RobotList title="Last 24 hours" testId="landing-finished" entries={overview.finished} onReveal={reveal} />
+      {/*
+        one grid of the sections: the pull request chips and the steps of the rows in their columns across the sections,
+        as wide as their widest; a robot row spans it
+      */}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-y-3">
+        {moveCount > 0 && (
+          <Section title={`Your move · ${overview.moves}`} testId="landing-your-move">
+            {overview.yourMove.map(unit => (
+              <UnitRow key={unit.name} unit={unit} {...unitProps} />
+            ))}
+            {/* a failed robot of no row: its actions are the move */}
+            {overview.failedRobots.map(entry => (
+              <RobotRow key={entry.robot.id} entry={entry} onReveal={reveal} />
+            ))}
+          </Section>
+        )}
+        <div className="col-span-full empty:hidden">
+          <RobotList title={`Landing · ${overview.running.length}`} testId="landing-running" entries={overview.running} onReveal={reveal} />
+        </div>
+        {overview.waiting.length > 0 && (
+          <Section title={`Waiting · ${overview.waiting.length}`} testId="landing-waiting">
+            {overview.waiting.map(unit => (
+              <UnitRow key={unit.name} unit={unit} {...unitProps} />
+            ))}
+          </Section>
+        )}
+        {overview.inMaster.length > 0 && (
+          <Section title={`In master · ${overview.inMaster.length}`} testId="landing-in-master">
+            {overview.inMaster.map(unit => (
+              <UnitRow key={unit.name} unit={unit} {...unitProps} />
+            ))}
+          </Section>
+        )}
+        <div className="col-span-full empty:hidden">
+          <RobotList title="Last 24 hours" testId="landing-finished" entries={overview.finished} onReveal={reveal} />
+        </div>
+      </div>
       {/* hidden when every part renders nothing (a local baseline, no GitHub) */}
       <div className="flex min-w-0 flex-col gap-2 border-t border-border pt-3 text-xs empty:hidden">{footer}</div>
     </>
@@ -86,9 +97,9 @@ export function LandingPopover({ overview, onClose, renderPullRequest, footer }:
 
 function Section({ title, testId, children }: { title: string; testId: string; children: ReactNode }) {
   return (
-    <section aria-label={title} className="flex flex-col gap-1" data-testid={testId}>
-      <PopoverSectionTitle>{title}</PopoverSectionTitle>
-      <ul className="flex flex-col gap-1">{children}</ul>
+    <section aria-label={title} className="col-span-full grid grid-cols-subgrid gap-y-1" data-testid={testId}>
+      <PopoverSectionTitle className="col-span-full">{title}</PopoverSectionTitle>
+      <ul className="col-span-full grid grid-cols-subgrid gap-y-1">{children}</ul>
     </section>
   )
 }
@@ -156,7 +167,7 @@ function StackUnitRow({ unit, failedRobotOf, onClose, onReveal, renderPullReques
         return failed === undefined ? (
           <FixRow key={fix.name} name={fix.name} node={fix.node} onClose={onClose} onReveal={onReveal} renderPullRequest={renderPullRequest} />
         ) : (
-          <li key={fix.name} className="pl-6">
+          <li key={fix.name} className="col-span-full pl-6">
             <ul>
               <RobotRow entry={failed} onReveal={onReveal} />
             </ul>
@@ -201,39 +212,42 @@ function LandingRow({ name, node, subject = { kind: "branch", name }, size, step
   const reason = node.label.split("\n")[0] ?? ""
   const item = step?.item ?? null
   return (
-    <li className={nested ? "flex items-center gap-2 pl-6" : "flex items-center gap-2"} data-testid="landing-row" data-branch-name={name} data-kind={node.kind}>
-      <LaneNodeDot kind={kind ?? node.kind} />
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="flex min-w-0 items-baseline gap-2">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  className="min-w-0 truncate rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
-                  onClick={() => onReveal(name)}
-                />
-              }
-            >
-              {name}
-            </TooltipTrigger>
-            <TooltipContent>{`Show ${name}`}</TooltipContent>
-          </Tooltip>
-          {size !== null && <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{size}</span>}
+    <li className="col-span-full grid grid-cols-subgrid items-center" data-testid="landing-row" data-branch-name={name} data-kind={node.kind}>
+      {/* the node and the name; a branch of the stack above is indented one step */}
+      <span className={cn("flex min-w-0 items-center gap-2", nested && "pl-6")}>
+        <LaneNodeDot kind={kind ?? node.kind} />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex min-w-0 items-baseline gap-2">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    className="min-w-0 truncate rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
+                    onClick={() => onReveal(name)}
+                  />
+                }
+              >
+                {name}
+              </TooltipTrigger>
+              <TooltipContent>{`Show ${name}`}</TooltipContent>
+            </Tooltip>
+            {size !== null && <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{size}</span>}
+          </span>
+          {/* the hover of its node: what it names opens from there, a branch it shows closes the overview */}
+          <LandingNodeHover
+            node={node}
+            subject={subject}
+            onReveal={onReveal}
+            trigger={<span className="min-w-0 truncate text-xs text-muted-foreground" data-testid="landing-row-reason" />}
+          >
+            {reason}
+          </LandingNodeHover>
         </span>
-        {/* the hover of its node: what it names opens from there, a branch it shows closes the overview */}
-        <LandingNodeHover
-          node={node}
-          subject={subject}
-          onReveal={onReveal}
-          trigger={<span className="min-w-0 truncate text-xs text-muted-foreground" data-testid="landing-row-reason" />}
-        >
-          {reason}
-        </LandingNodeHover>
       </span>
-      <span className="flex shrink-0 items-center gap-1">{pullRequest}</span>
+      <span className="flex items-center gap-1 not-empty:ms-2">{pullRequest}</span>
       {item !== null && (
-        <span className="flex w-40 shrink-0 justify-end">
+        <span className="ms-2 flex justify-self-end">
           <StepButton
             action={{
               ...item,

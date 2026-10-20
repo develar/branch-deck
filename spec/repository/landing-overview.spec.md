@@ -137,8 +137,10 @@ indicator, whose states were the same story told twice.
 - The overview is a `Popover` aligned to the end of the button, `min-w-96`, as wide as its content up to `max-w-2xl`;
   its sections are titled in muted `text-xs`. A row is two lines: the name (`text-sm`, underlined on hover, "Show
   auth" as its tooltip) and its size, below them the reason in muted `text-xs`; the step is the ghost `xs` button of
-  the slot in a `w-40` column, so the steps line up. A branch of a stack that needs a fix is indented one step under its
-  stack.
+  the slot, its `compactLabel`, at the end of a column as wide as the widest step of the overview: the sections are one
+  grid (the rows subgrids of it; a robot row spans it), so the pull request chips and the steps line up across them.
+  A branch of a stack that needs a fix is indented one step under its stack.
+  [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should run the next step of a move from the overview at its row: a Safe Push, a pull request`)
 - The footer lines wrap instead of truncating.
 
 ## Testing / Local Run
