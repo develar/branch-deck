@@ -344,8 +344,11 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
 - **GitHub credentials**: the only git of the GitHub token chain is `git credential fill` (`crates/github/src/token.rs`),
   a `GitCommand` with `.timeout` (10 s) and `.status`, with `credential.interactive=false`, an empty `GIT_ASKPASS` and
   `GCM_INTERACTIVE=never`; never `credential approve` or `reject`. GitHub itself is asked over HTTP (`GitHubService`),
-  never by a `gh` process; the app's own sign-in keeps its token in a 0600 `github-token.json` of the app data dir
-  (which `bd` reads too), not the keychain ([GitHub credentials](docs/design/git-operations.md#github-credentials)).
+  never by a `gh` process; the app's own sign-ins (GitHub, YouTrack) keep their tokens through
+  `sync_utils::secret_store`: on macOS a login keychain item written and read by `/usr/bin/security` (the secret on
+  stdin, as `gh` does; the item trusts `security`, so an update of the unsigned app asks nothing), elsewhere or
+  while the keychain can't be used a 0600 file of the app data dir; `bd` reads them too
+  ([GitHub credentials](docs/design/git-operations.md#github-credentials)).
 - **Symbols** (`symbol_scan.rs`): source blobs by id from the commit diffs, the declarations the range adds or changes
   as the index, never the whole tree; the summaries of trial blobs stay in memory, never in the object cache
   ([Symbol summaries](docs/design/git-operations.md#symbol-summaries)).

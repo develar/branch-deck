@@ -9,6 +9,7 @@ targets:
   - ../../crates/youtrack/src/issue.rs
   - ../../crates/youtrack/src/service.rs
   - ../../crates/youtrack/src/token_store.rs
+  - ../../crates/sync-utils/src/secret_store.rs
   - ../../crates/sync-types/src/youtrack.rs
   - ../../src-tauri/src/commands/youtrack.rs
   - ../../src-tauri/src/lib.rs
@@ -54,9 +55,8 @@ client takes a pasted token.
   `lastAccessTime`); the refresh token is the time-limited form.
 - Reading the token the `youtrack` CLI saved: it is in a keychain item of another program, which macOS guards with a
   prompt, and the CLI prints no saved token.
-- Several YouTracks, revoking a token (that is Account Security of the YouTrack profile), the keychain (as for
-  [GitHub](github-sign-in.spec.md#non-goals)), `bd`: a refresh by two processes would need a lock on the file, so `bd`
-  does not read it yet.
+- Several YouTracks, revoking a token (that is Account Security of the YouTrack profile), `bd`: a refresh by two
+  processes would need a lock on the secret, so `bd` does not read it yet.
 
 ## Requirements
 
@@ -112,10 +112,11 @@ client takes a pasted token.
 
 ### The token file and the renewal
 
-- `youtrack-token.json` beside `github-token.json` in the app data directory, 0600 and renamed into place
-  (`sync_utils::private_file`): `{ url, login, full_name, access_token, access_expires_at, refresh: { hub_url,
-  service_id, refresh_token }, created_at }`; a pasted token has no expiry and no refresh. The debug form of the token
-  names neither token.
+- `{ url, login, full_name, access_token, access_expires_at, refresh: { hub_url, service_id, refresh_token },
+  created_at }` in a secret of `sync_utils::secret_store`, as the GitHub token ([GitHub
+  Sign-In](github-sign-in.spec.md#the-token-file)): on macOS the login keychain item `org.develar.branch-deck` /
+  `youtrack-token` by `/usr/bin/security`, elsewhere `youtrack-token.json` in the app data directory, 0600 and renamed
+  into place; a pasted token has no expiry and no refresh. The debug form of the token names neither token.
 - An access token that expires within a minute is renewed before it is sent (`grant_type=refresh_token`, `client_id`,
   `scope`), once for the lookups that need it at the same time; a new refresh token the Hub hands out replaces the old
   one in the file. A 401 renews once and asks again.

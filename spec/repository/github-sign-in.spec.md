@@ -6,6 +6,7 @@ targets:
   - ../../crates/github/src/device_flow.rs
   - ../../crates/github/src/token_store.rs
   - ../../crates/sync-utils/src/private_file.rs
+  - ../../crates/sync-utils/src/secret_store.rs
   - ../../crates/github/src/token.rs
   - ../../crates/sync-types/src/pull_request.rs
   - ../../src-tauri/src/commands/github.rs
@@ -48,8 +49,9 @@ redirect and without a client secret.
   tokens expire after 8 hours, so the app and `bd` would race to refresh one token.
 - Revoking the token: that needs the client secret. Sign Out removes it here; GitHub revokes it on its settings page.
 - GitHub Enterprise, several accounts.
-- The macOS keychain: the release is not signed by Apple, so macOS would ask again for the item after every update,
-  and `bd` in the background could not answer.
+- A keychain item of the app itself: the release is not signed by Apple, so macOS would ask again for the item after
+  every update, and `bd` in the background could not answer. The item is written by `/usr/bin/security` instead
+  ([The token file](#the-token-file)).
 
 ## Requirements
 
@@ -79,12 +81,16 @@ redirect and without a client secret.
 
 ### The token file
 
-- `github-token.json` in the app data directory (`~/Library/Application Support/org.develar.branch-deck` on macOS),
-  `{ token, login, scopes, created_at }`, which `bd` reads too. It is written as a temporary file created 0600 in the
-  same directory and renamed over the old one; a file others may read is not used, and a warning says why
-  (`sync_utils::private_file`).
+- `{ token, login, scopes, created_at }`, which `bd` reads too, in a secret of `sync_utils::secret_store`
+  ([GitHub credentials](../../docs/design/git-operations.md#github-credentials)): on macOS the login keychain item
+  `org.develar.branch-deck` / `github-token`, written and read by `/usr/bin/security` with the secret on stdin, as `gh`
+  does, so an update of the unsigned app asks nothing; elsewhere, and while the keychain can't be used,
+  `github-token.json` in the app data directory, written as a temporary file created 0600 in the same directory and
+  renamed over the old one; a file others may read is not used, and a warning says why. A file of an earlier version
+  is copied into the keychain on the first read and removed by the next sign-in or sign-out.
   [@test] ../../crates/github/src/token_store_test.rs (`a_token_is_written_and_read_back`)
   [@test] ../../crates/sync-utils/src/private_file_test.rs (`a_file_is_written_for_the_user_only_and_read_back`, `a_file_others_may_read_is_not_used`)
+  [@test] ../../crates/sync-utils/src/secret_store_test.rs (`without_the_keychain_a_secret_is_the_0600_file`, `a_secret_lives_in_the_keychain_through_stdin_and_hex_without_a_file`, `the_file_of_an_earlier_version_is_copied_into_the_keychain_and_removed_by_the_next_write`, `a_locked_keychain_leaves_the_secret_in_the_file`)
 - The token of the file comes after `GH_TOKEN` and `gh`, before git ([Pull Requests](../branch/pull-requests.spec.md#the-token)):
   an organization that restricts OAuth apps has usually approved `gh`, and the Branch Deck app only once an admin did.
   [@test] ../../crates/github/src/token_test.rs (`the_sign_in_of_the_app_comes_after_gh_and_before_git`)

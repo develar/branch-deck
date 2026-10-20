@@ -2222,6 +2222,18 @@ The GitHub API is asked with the first token of a chain (`crates/github/src/toke
 It reads nothing of the working tree and writes nothing; the worktree safety scan allows it. GitHub itself is asked
 over HTTP (`GitHubService`, `crates/github/src/service.rs`); the only `gh` process is `gh auth token` of the chain.
 
+The token of the app's own sign-in (and of the YouTrack sign-in) is a secret of `sync_utils::secret_store`. On macOS,
+once the app or `bd` called `enable_keychain` at its start, it is a generic password of the login keychain, service
+the app data directory's name, account the file's stem (`github-token`, `youtrack-token`), written and read by
+`/usr/bin/security` as the `gh` CLI's go-keyring does: `security -i` with `add-generic-password -U … -w <hex>` on
+stdin (never in the arguments a process listing shows; hex, because `-w` prints a secret with other bytes as hex),
+`find-generic-password … -w`, `delete-generic-password` (exit 44: no item). The item trusts `security`, which Apple
+signs and an update of Branch Deck never changes, so an unsigned build asks nothing after an update. A `security`
+that fails or waits 10 s (a locked keychain) leaves the secret in the 0600 file; a file the keychain lacks is copied
+into it on the first read and stays for an installed earlier version until the next write or sign-out removes it.
+The tests never call `enable_keychain`: a test that needs the keychain runs a fake `security`
+(`secret_store_test.rs`).
+
 #### Repository settings
 
 Settings → Repository shows and writes four keys of the repository's git config, and Settings → Diffs & Merge the

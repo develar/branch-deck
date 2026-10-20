@@ -1,9 +1,9 @@
-//! The token of the app's own YouTrack sign-in: a JSON file in the app data directory, readable by the user only
-//! (`sync_utils::private_file`), next to `github-token.json`.
+//! The token of the app's own YouTrack sign-in: JSON in the keychain on macOS, else a 0600 file in the app data
+//! directory (`sync_utils::secret_store`), next to the GitHub token.
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use sync_utils::private_file::read_private_json;
+use sync_utils::secret_store::read_secret_json;
 
 pub const TOKEN_FILE_NAME: &str = "youtrack-token.json";
 
@@ -46,5 +46,5 @@ impl std::fmt::Debug for StoredToken {
 
 /// The stored token; None without one, and for a file others may read
 pub fn read_token(path: &Path) -> Option<StoredToken> {
-  read_private_json(path, "the YouTrack token file")
+  read_secret_json(path, "the YouTrack token file")
 }

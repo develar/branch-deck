@@ -1,9 +1,9 @@
 //! The token of the app's own sign-in (`device_flow.rs`): a JSON file in the app data directory, readable by the user
-//! only (0600, `sync_utils::private_file`), shared by the app and `bd`.
+//! only (0600), or the keychain on macOS (`sync_utils::secret_store`), shared by the app and `bd`.
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use sync_utils::private_file::{read_private_json, remove_private, write_private_json};
+use sync_utils::secret_store::{read_secret_json, remove_secret, write_secret_json};
 
 pub const TOKEN_FILE_NAME: &str = "github-token.json";
 
@@ -36,15 +36,15 @@ impl std::fmt::Debug for StoredToken {
 
 /// The stored token; None without one, and for a file others may read (it is not used, a warning says why)
 pub fn read_token(path: &Path) -> Option<StoredToken> {
-  read_private_json(path, "the GitHub token file")
+  read_secret_json(path, "the GitHub token file")
 }
 
-/// Writes the token: a temporary file created 0600 in the same directory, then renamed over the old one
+/// Keeps the token: in the keychain on macOS, else a 0600 file (`sync_utils::secret_store`)
 pub fn write_token(path: &Path, token: &StoredToken) -> std::io::Result<()> {
-  write_private_json(path, token)
+  write_secret_json(path, token)
 }
 
 /// Removes the token; none is fine
 pub fn remove_token(path: &Path) -> std::io::Result<()> {
-  remove_private(path)
+  remove_secret(path)
 }

@@ -10,7 +10,7 @@ use moka::sync::Cache;
 use std::path::PathBuf;
 use std::time::Duration;
 use sync_types::youtrack::{YouTrackAuthProblem, YouTrackAuthStatus, YouTrackIssue, YouTrackIssueAnswer, YouTrackStateChange, YouTrackTokenSource, YouTrackUser};
-use sync_utils::private_file::write_private_json;
+use sync_utils::secret_store::write_secret_json;
 use sync_utils::timestamp::unix_now;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
@@ -176,7 +176,7 @@ impl YouTrackService {
           grant.refresh_token = refresh_token;
         }
         if let Some(file) = &self.token_file
-          && let Err(e) = write_private_json(file, &renewed)
+          && let Err(e) = write_secret_json(file, &renewed)
         {
           warn!(error = %e, "cannot keep the renewed YouTrack token");
         }

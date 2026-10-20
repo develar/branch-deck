@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use sync_types::youtrack::{YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackSignIn, YouTrackStateChange, YouTrackUser};
-use sync_utils::private_file::{remove_private, write_private_json};
+use sync_utils::secret_store::{remove_secret, write_secret_json};
 use sync_utils::timestamp::unix_now;
 use tauri::{AppHandle, Emitter, State};
 use tracing::{info, instrument};
@@ -47,7 +47,7 @@ impl YouTrackState {
       .token_file()
       .cloned()
       .ok_or_else(|| CommandError::new("The app has no data directory to keep the YouTrack token in"))?;
-    run_blocking(move || write_private_json(&file, &token).map_err(|e| CommandError::new(format!("Cannot keep the YouTrack token: {e}")))).await?;
+    run_blocking(move || write_secret_json(&file, &token).map_err(|e| CommandError::new(format!("Cannot keep the YouTrack token: {e}")))).await?;
     self.service.forget().await;
     app.emit(YOUTRACK_AUTH_CHANGED_EVENT, ())?;
     Ok(())
@@ -162,7 +162,7 @@ pub async fn save_youtrack_token(app: AppHandle, youtrack: State<'_, YouTrackSta
 pub async fn sign_out_of_youtrack(app: AppHandle, youtrack: State<'_, YouTrackState>) -> Result<(), CommandError> {
   youtrack.generation.fetch_add(1, Ordering::SeqCst);
   if let Some(file) = youtrack.service.token_file().cloned() {
-    run_blocking(move || remove_private(&file).map_err(|e| CommandError::new(format!("Cannot remove the YouTrack token: {e}")))).await?;
+    run_blocking(move || remove_secret(&file).map_err(|e| CommandError::new(format!("Cannot remove the YouTrack token: {e}")))).await?;
   }
   youtrack.service.forget().await;
   app.emit(YOUTRACK_AUTH_CHANGED_EVENT, ())?;

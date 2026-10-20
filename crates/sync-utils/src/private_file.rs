@@ -1,9 +1,6 @@
 //! A file readable by the user only (0600) in the app data directory: the tokens of the app's own sign-ins
-//! (`github-token.json`, `youtrack-token.json`). Not the keychain: the release is not signed by Apple, so macOS would
-//! ask for the keychain item again after every update, and `bd` in the background could not answer.
+//! (`github-token.json`, `youtrack-token.json`) where the keychain does not keep them (`secret_store`).
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
 use std::io::Write;
 use std::path::Path;
 use tracing::warn;
@@ -61,21 +58,4 @@ pub fn remove_private(path: &Path) -> std::io::Result<()> {
     Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
     _ => Ok(()),
   }
-}
-
-/// The JSON of the file (`read_private`); None also for a file that does not parse, with a warning
-pub fn read_private_json<T: DeserializeOwned>(path: &Path, what: &str) -> Option<T> {
-  let text = read_private(path, what)?;
-  match serde_json::from_str(&text) {
-    Ok(value) => Some(value),
-    Err(e) => {
-      warn!(path = %path.display(), error = %e, "{what} is not valid");
-      None
-    }
-  }
-}
-
-/// Writes `value` as pretty JSON (`write_private`)
-pub fn write_private_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
-  write_private(path, serde_json::to_string_pretty(value).map_err(std::io::Error::other)?.as_bytes())
 }

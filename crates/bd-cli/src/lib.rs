@@ -192,6 +192,8 @@ enum Command {
 
 /// Run `bd` with the arguments after `cli` (without a program name) and return the exit code
 pub fn run(args: impl Iterator<Item = OsString>) -> i32 {
+  // the tokens of the app's sign-ins, where the app keeps them (`run_with` of the tests leaves the keychain alone)
+  sync_utils::secret_store::enable_keychain();
   let stdout = std::io::stdout();
   let mut out = stdout.lock();
   let environment = Environment::from_process();

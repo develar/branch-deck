@@ -7,7 +7,7 @@ use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::sync::Arc;
 use sync_types::youtrack::{YouTrackAuthProblem, YouTrackIssueAnswer, YouTrackStateChange, YouTrackTokenSource};
-use sync_utils::private_file::write_private_json;
+use sync_utils::secret_store::write_secret_json;
 use sync_utils::timestamp::unix_now;
 
 fn stored(url: &str, access_expires_at: Option<u32>, refresh: bool) -> StoredToken {
@@ -37,7 +37,7 @@ async fn service_with(token: impl FnOnce(&str) -> StoredToken) -> (Arc<FakeGitHu
   }
   let dir = tempfile::tempdir().unwrap();
   let file = token_file(dir.path());
-  write_private_json(&file, &token(&url)).unwrap();
+  write_secret_json(&file, &token(&url)).unwrap();
   (fake, YouTrackService::new(YouTrackClient::new("Branch Deck test"), None, Some(file)), dir)
 }
 
@@ -119,7 +119,7 @@ async fn the_environment_comes_before_the_token_file() {
   let environment = EnvironmentToken::of(&format!("{url}/issue/ABC-1"), "perm-env".to_string());
   let dir = tempfile::tempdir().unwrap();
   let file = token_file(dir.path());
-  write_private_json(&file, &stored("https://other.example.com", None, false)).unwrap();
+  write_secret_json(&file, &stored("https://other.example.com", None, false)).unwrap();
   let service = YouTrackService::new(YouTrackClient::new("Branch Deck test"), environment, Some(file));
   assert!(is_found(&service.issue("ABC-1").await));
   assert_eq!(fake.requests()[0].authorization.as_deref(), Some("Bearer perm-env"));

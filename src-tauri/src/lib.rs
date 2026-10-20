@@ -205,6 +205,8 @@ fn window_state_flags() -> StateFlags {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[expect(clippy::large_stack_frames, reason = "the closure of `tauri::generate_context!` holds the embedded assets and config")]
 pub fn run() {
+  // the tokens of the sign-ins in the login keychain on macOS (`sync_utils::secret_store`)
+  sync_utils::secret_store::enable_keychain();
   let ts_builder = specta_builder();
 
   // only export on non-release builds
