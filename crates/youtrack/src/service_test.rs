@@ -84,6 +84,9 @@ async fn a_refused_refresh_token_is_an_expired_sign_in() {
   );
   let status = service.status().await;
   assert_eq!((status.source, status.problem), (Some(YouTrackTokenSource::SignIn), Some(YouTrackAuthProblem::Expired)));
+  // the refresh token of a Hub built into the YouTrack is listed in the YouTrack's Account Security
+  assert_eq!(status.manage_url, Some(format!("{}/users/me?tab=account-security", status.url.unwrap())));
+  assert_eq!(status.signed_in_at, Some(1_800_000_000));
   // signing in again forgets it
   service.forget().await;
   assert_eq!(service.status().await.problem, None);
@@ -152,4 +155,15 @@ async fn a_resolved_issue_is_not_marked_again() {
   fake.answer("GET", "/api/issues/ABC-1", FakeAnswer::ok(issue));
   assert_eq!(service.set_state("ABC-1", "Fixed", None).await, Err("ABC-1 is already Duplicate".to_string()));
   assert!(fake.requests_to("POST", "/api/commands").is_empty());
+}
+
+#[tokio::test]
+async fn the_tokens_of_a_sign_in_through_an_external_hub_are_managed_in_the_hub() {
+  let (_fake, service, _dir) = service_with(|url| {
+    let mut token = stored(url, None, true);
+    token.refresh.as_mut().unwrap().hub_url = "https://hub.example.com".to_string();
+    token
+  })
+  .await;
+  assert_eq!(service.status().await.manage_url.as_deref(), Some("https://hub.example.com/users/me"));
 }

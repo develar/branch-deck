@@ -7,8 +7,16 @@ import { routeCommand } from "./wait-helpers"
 /** The YouTrack of the tests */
 export const YOUTRACK_URL = "https://youtrack.example.com"
 
-export const SIGNED_OUT: YouTrackAuthStatus = { url: null, signedInAs: null, source: null, problem: null }
-export const SIGNED_IN: YouTrackAuthStatus = { url: YOUTRACK_URL, signedInAs: { login: "jane", fullName: "Jane Doe" }, source: "signIn", problem: null }
+export const SIGNED_OUT: YouTrackAuthStatus = { url: null, signedInAs: null, source: null, problem: null, signedInAt: null, manageUrl: null }
+export const SIGNED_IN: YouTrackAuthStatus = {
+  url: YOUTRACK_URL,
+  signedInAs: { login: "jane", fullName: "Jane Doe" },
+  source: "signIn",
+  problem: null,
+  signedInAt: 1_704_117_600,
+  // a Hub of its own, as hub.jetbrains.com of youtrack.jetbrains.com
+  manageUrl: "https://hub.example.com/users/me",
+}
 
 /**
  * The next sync links `[A-Z]+-\d+` to the issue pages of the YouTrack of the tests, as a repository of a YouTrack user

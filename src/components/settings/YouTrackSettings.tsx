@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import type { YouTrackAuthStatus } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
+import { formatTimestamp } from "@/lib/time"
 import { formatYouTrackHost, suggestYouTrackUrls, youTrackTokensPage } from "@/lib/youtrack"
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 import {
@@ -42,14 +43,16 @@ function SignedIn({ status, url }: { status: YouTrackAuthStatus; url: string }) 
   const user = status.signedInAs
   return (
     <div className="flex flex-col gap-2 text-sm" data-testid="youtrack-auth" data-status="signedIn">
-      <p>
-        {status.source === "environment"
-          ? `Uses the token of YOUTRACK_TOKEN for ${host}`
-          : `Signed in to ${host} as ${user?.fullName ?? "?"}${user !== null && user.login !== user.fullName ? ` (${user.login})` : ""}`}
-      </p>
-      {status.source === "signIn" && (
-        <p className="text-xs text-muted-foreground">Renewed by itself while the Hub keeps the sign-in; Branch Deck asks you to sign in again when it ends</p>
-      )}
+      <div className="flex flex-col gap-0.5">
+        <p>
+          {status.source === "environment"
+            ? `Uses YOUTRACK_TOKEN for ${host}`
+            : `Signed in to ${host} as ${user?.fullName ?? "?"}${user !== null && user.login !== user.fullName ? ` (${user.login})` : ""}`}
+        </p>
+        <p className="text-xs text-muted-foreground" data-testid="youtrack-auth-detail">
+          {describeSignIn(status)}
+        </p>
+      </div>
       <div className="flex flex-wrap gap-2">
         {status.source !== "environment" && (
           <Button size="xs" variant="outline" onClick={() => void signOutOfYouTrack()}>
@@ -57,13 +60,29 @@ function SignedIn({ status, url }: { status: YouTrackAuthStatus; url: string }) 
             Sign Out
           </Button>
         )}
-        <Button size="xs" variant="ghost" onClick={() => openPage(youTrackTokensPage(url))}>
-          <ExternalLinkIcon data-icon="inline-start" />
-          Manage Tokens
-        </Button>
+        {status.manageUrl !== null && (
+          <Button size="xs" variant="ghost" onClick={() => openPage(status.manageUrl!)}>
+            <ExternalLinkIcon data-icon="inline-start" />
+            {status.source === "signIn" ? "Manage Sign-In" : "Manage Tokens"}
+          </Button>
+        )}
       </div>
     </div>
   )
+}
+
+/** How the token was given and how long it lasts: "Through the browser since yesterday 3:00 PM. …" */
+function describeSignIn(status: YouTrackAuthStatus): string {
+  // "Today 2:32 PM", "Yesterday 9:10 AM", "Oct 3, 2026, 2:32 PM" inside a sentence
+  const since = status.signedInAt === null ? "" : ` since ${formatTimestamp(status.signedInAt).replace(/^(Today|Yesterday)/, day => day.toLowerCase())}`
+  switch (status.source) {
+    case "signIn":
+      return `Through the browser${since}. It renews itself until YouTrack ends the sign-in, then Branch Deck asks you to sign in again.`
+    case "pastedToken":
+      return `With a pasted token${since}. It works until you revoke it in YouTrack.`
+    default:
+      return "Set in the environment of Branch Deck: unset it to sign in here."
+  }
 }
 
 function SignInForm({ status, phase }: { status: YouTrackAuthStatus; phase: YouTrackSignInPhase["phase"] }) {
@@ -78,6 +97,7 @@ function SignInForm({ status, phase }: { status: YouTrackAuthStatus; phase: YouT
   const urlId = useId()
   const tokenId = useId()
   const source = candidates.find(candidate => candidate.url === url)
+  const noUrl = url.trim() === ""
   const save = () => {
     setSaving(true)
     void saveYouTrackToken(url, token).then(saved => {
@@ -109,7 +129,11 @@ function SignInForm({ status, phase }: { status: YouTrackAuthStatus; phase: YouT
           disabled={phase === "waiting"}
           onChange={event => setUrl(event.target.value)}
         />
-        {source !== undefined && <p className="text-xs text-muted-foreground">From .idea/vcs.xml of {source.repository}</p>}
+        {(source !== undefined || noUrl) && (
+          <p className="text-xs text-muted-foreground" data-testid="youtrack-url-hint">
+            {source === undefined ? "The address you open YouTrack at, e.g. https://youtrack.example.com" : `From .idea/vcs.xml of ${source.repository}`}
+          </p>
+        )}
         {candidates.length > 1 && (
           <div className="flex flex-wrap gap-1" data-testid="youtrack-url-candidates">
             {candidates.map(candidate => (
@@ -123,40 +147,53 @@ function SignInForm({ status, phase }: { status: YouTrackAuthStatus; phase: YouT
       {phase === "waiting" ? (
         <WaitingForBrowser />
       ) : (
-        <div className="flex flex-wrap gap-2">
-          <Button size="xs" variant="outline" disabled={starting || url.trim() === ""} onClick={() => void startYouTrackSignIn(url)}>
-            {starting ? <Spinner data-icon="inline-start" /> : <LogInIcon data-icon="inline-start" />}
-            Sign In to YouTrack
-          </Button>
-          {!pasting && (
-            <Button size="xs" variant="ghost" onClick={() => setPasting(true)}>
+        <div className="flex flex-col gap-1">
+          <div>
+            <Button size="xs" variant="outline" disabled={starting || noUrl} onClick={() => void startYouTrackSignIn(url)}>
+              {starting ? <Spinner data-icon="inline-start" /> : <LogInIcon data-icon="inline-start" />}
+              Sign In to YouTrack
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">Opens YouTrack in the browser. The sign-in renews itself until YouTrack ends it.</p>
+        </div>
+      )}
+      {phase !== "waiting" &&
+        (pasting ? (
+          <div className="flex flex-col gap-3 rounded-lg border border-border p-3" data-testid="youtrack-token-form">
+            <div className="flex flex-col gap-1.5">
+              <p className="text-xs text-muted-foreground">For a YouTrack that does not sign in apps in the browser: create a token there, then paste it here</p>
+              <div>
+                <Button size="xs" variant="outline" disabled={noUrl} onClick={() => openPage(youTrackTokensPage(url.trim()))}>
+                  <ExternalLinkIcon data-icon="inline-start" />
+                  Create Token…
+                </Button>
+              </div>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor={tokenId} className="text-xs text-muted-foreground">
+                Token
+              </label>
+              <Input id={tokenId} type="password" value={token} autoComplete="off" spellCheck={false} placeholder="perm-…" onChange={event => setToken(event.target.value)} />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="xs" disabled={saving || token.trim() === "" || noUrl} onClick={save}>
+                {saving && <Spinner data-icon="inline-start" />}
+                Save Token
+              </Button>
+              <Button size="xs" variant="ghost" onClick={() => setPasting(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            {/* a link at the edge of the text: the fallback, below the sign-in */}
+            <Button size="xs" variant="link" className="h-auto px-0! text-muted-foreground" onClick={() => setPasting(true)}>
               <KeyRoundIcon data-icon="inline-start" />
               Use a Token Instead
             </Button>
-          )}
-        </div>
-      )}
-      {pasting && phase !== "waiting" && (
-        <div className="flex flex-col gap-2 rounded-lg border border-border p-3" data-testid="youtrack-token-form">
-          <label htmlFor={tokenId} className="text-xs text-muted-foreground">
-            A token created in Account Security of your YouTrack profile
-          </label>
-          <Input id={tokenId} type="password" value={token} autoComplete="off" spellCheck={false} placeholder="perm-…" onChange={event => setToken(event.target.value)} />
-          <div className="flex flex-wrap gap-2">
-            <Button size="xs" disabled={saving || token.trim() === "" || url.trim() === ""} onClick={save}>
-              {saving && <Spinner data-icon="inline-start" />}
-              Save Token
-            </Button>
-            <Button size="xs" variant="ghost" disabled={url.trim() === ""} onClick={() => openPage(youTrackTokensPage(url.trim()))}>
-              <ExternalLinkIcon data-icon="inline-start" />
-              Create Token…
-            </Button>
-            <Button size="xs" variant="ghost" onClick={() => setPasting(false)}>
-              Cancel
-            </Button>
           </div>
-        </div>
-      )}
+        ))}
     </div>
   )
 }

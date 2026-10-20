@@ -111,6 +111,8 @@ impl YouTrackService {
       url: credential.as_ref().map(|credential| credential.url.clone()),
       signed_in_as: credential.as_ref().and_then(|credential| credential.user.clone()),
       source: credential.as_ref().map(|credential| credential.source),
+      signed_in_at: credential.as_ref().and_then(|credential| credential.stored.as_ref()).map(|stored| stored.created_at),
+      manage_url: credential.as_ref().map(manage_url_of),
       problem: credential.and(problem),
     }
   }
@@ -270,6 +272,17 @@ impl YouTrackService {
       .map_err(|e| e.message())?;
     self.issues.invalidate(key);
     change
+  }
+}
+
+/// The profile page that lists the token: of the Hub of a browser sign-in when that Hub is not built into the YouTrack
+/// (`hub.example.com` beside `youtrack.example.com`), else Account Security of the YouTrack
+fn manage_url_of(credential: &Credential) -> String {
+  let hub = credential.stored.as_ref().and_then(|stored| stored.refresh.as_ref()).map(|grant| grant.hub_url.as_str());
+  match hub {
+    // the tab of a Hub's own profile is named differently across its versions: the profile, which shows it
+    Some(hub) if !hub.starts_with(&format!("{}/", credential.url)) => format!("{hub}/users/me"),
+    _ => format!("{}/users/me?tab=account-security", credential.url),
   }
 }
 

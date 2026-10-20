@@ -45,6 +45,11 @@ pub struct YouTrackAuthStatus {
   pub signed_in_as: Option<YouTrackUser>,
   pub source: Option<YouTrackTokenSource>,
   pub problem: Option<YouTrackAuthProblem>,
+  /// Unix seconds of the sign-in or the pasted token; None for `YOUTRACK_TOKEN`
+  pub signed_in_at: Option<u32>,
+  /// Where the user sees and revokes the token: Account Security of the YouTrack profile, or the Hub profile when the
+  /// Hub is not built into the YouTrack (the refresh token of a browser sign-in is listed there)
+  pub manage_url: Option<String>,
 }
 
 /// The page to open in the browser for the app's own sign-in; `wait_youtrack_sign_in` waits for its answer

@@ -16,7 +16,7 @@ export function YouTrackPage({ openCount }: { openCount: number }) {
     void refreshYouTrackAuthStatus()
   })
   return (
-    <SettingsSection title="YouTrack" description="The summary and the state of an issue on its key, and Mark Fixed">
+    <SettingsSection title="YouTrack" description="Hover an issue key to see the issue, and mark it fixed once its work lands">
       <YouTrackSettings />
     </SettingsSection>
   )

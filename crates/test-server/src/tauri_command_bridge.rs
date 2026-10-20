@@ -588,6 +588,8 @@ pub async fn get_youtrack_auth_status() -> CommandResult<sync_types::youtrack::Y
     signed_in_as: None,
     source: None,
     problem: None,
+    signed_in_at: None,
+    manage_url: None,
   }))
 }
 

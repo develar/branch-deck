@@ -32,8 +32,10 @@ test.describe("YouTrack sign-in", () => {
     await expect(settings.locator("[data-slot=toast]")).toContainText("Signed in to youtrack.example.com as Jane Doe")
     await expect(auth).toHaveAttribute("data-status", "signedIn")
     await expect(auth).toContainText("Signed in to youtrack.example.com as Jane Doe (jane)")
-    await auth.getByRole("button", { name: "Manage Tokens" }).click()
-    await expect.poll(async () => (await getOpenedUrls(settings)).at(-1)).toBe(`${YOUTRACK_URL}/users/me?tab=account-security`)
+    await expect(auth.getByTestId("youtrack-auth-detail")).toContainText("Through the browser since")
+    // the refresh token of the sign-in is listed in the profile of its Hub
+    await auth.getByRole("button", { name: "Manage Sign-In" }).click()
+    await expect.poll(async () => (await getOpenedUrls(settings)).at(-1)).toBe("https://hub.example.com/users/me")
 
     const signOuts = await routeCommand(settings, "sign_out_of_youtrack", () => {
       setStatus(SIGNED_OUT)
@@ -49,8 +51,9 @@ test.describe("YouTrack sign-in", () => {
     await setupRepo("issue_links")
     await syncAndWaitForBranches()
     const { settings, youtrack, auth, signIn, setStatus } = await openYouTrackSettings(page, SIGNED_OUT)
-    // no issue link of the template points to a YouTrack: nothing is offered
+    // no issue link of the template points to a YouTrack: nothing is offered, the hint says what to enter
     await expect(auth.getByLabel("YouTrack URL")).toHaveValue("")
+    await expect(auth.getByTestId("youtrack-url-hint")).toHaveText("The address you open YouTrack at, e.g. https://youtrack.example.com")
     await expect(auth.getByRole("button", { name: "Sign In to YouTrack" })).toBeDisabled()
     await auth.getByLabel("YouTrack URL").fill("https://youtrack.example.com/issue/ABC-1")
 
@@ -67,19 +70,22 @@ test.describe("YouTrack sign-in", () => {
     await expect.poll(async () => (await getOpenedUrls(settings)).at(-1)).toBe("https://youtrack.example.com/issue/ABC-1/users/me?tab=account-security")
     // the backend cuts the URL to the YouTrack; a wrong token is refused before it is kept
     await routeCommandError(settings, "save_youtrack_token", "YouTrack rejected the token")
-    await form.getByLabel("A token created in Account Security of your YouTrack profile").fill("perm-wrong")
+    await form.getByLabel("Token", { exact: true }).fill("perm-wrong")
     await form.getByRole("button", { name: "Save Token" }).click()
     await expect(settings.locator("[data-slot=toast]").filter({ hasText: "Cannot sign in to YouTrack" })).toBeVisible()
     await expect(form).toBeVisible()
 
     const saves = await routeCommand(settings, "save_youtrack_token", () => {
-      setStatus({ ...SIGNED_IN, source: "pastedToken" })
+      setStatus({ ...SIGNED_IN, source: "pastedToken", manageUrl: `${YOUTRACK_URL}/users/me?tab=account-security` })
       return { status: "ok", data: SIGNED_IN.signedInAs }
     })
-    await form.getByLabel("A token created in Account Security of your YouTrack profile").fill("perm-right")
+    await form.getByLabel("Token", { exact: true }).fill("perm-right")
     await form.getByRole("button", { name: "Save Token" }).click()
     await expect(auth).toHaveAttribute("data-status", "signedIn")
     expect(saves).toEqual([{ url: "https://youtrack.example.com/issue/ABC-1", token: "perm-right" }])
+    await expect(auth.getByTestId("youtrack-auth-detail")).toContainText("With a pasted token")
+    await auth.getByRole("button", { name: "Manage Tokens" }).click()
+    await expect.poll(async () => (await getOpenedUrls(settings)).at(-1)).toBe(`${YOUTRACK_URL}/users/me?tab=account-security`)
   })
 
   test("should ask to sign in again once the sign-in expired", async ({ page, setupRepo, syncAndWaitForBranches }) => {

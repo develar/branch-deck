@@ -28,7 +28,14 @@ vi.mock("@/lib/errors", () => ({ notifyError: mocks.notifyError, logError: () =>
 vi.mock("@/lib/toast-message", () => ({ showToast: mocks.showToast }))
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: mocks.openUrl }))
 
-const signedIn: YouTrackAuthStatus = { url: "https://youtrack.example.com", signedInAs: { login: "jane", fullName: "Jane Doe" }, source: "signIn", problem: null }
+const signedIn: YouTrackAuthStatus = {
+  url: "https://youtrack.example.com",
+  signedInAs: { login: "jane", fullName: "Jane Doe" },
+  source: "signIn",
+  problem: null,
+  signedInAt: 1_704_117_600,
+  manageUrl: null,
+}
 
 /** Lets the awaited commands of the store run */
 async function settle(): Promise<void> {

@@ -3668,6 +3668,13 @@ export type YouTrackAuthStatus = {
 	signedInAs: YouTrackUser | null,
 	source: YouTrackTokenSource | null,
 	problem: YouTrackAuthProblem | null,
+	/**  Unix seconds of the sign-in or the pasted token; None for `YOUTRACK_TOKEN` */
+	signedInAt: number | null,
+	/**
+	 *  Where the user sees and revokes the token: Account Security of the YouTrack profile, or the Hub profile when the
+	 *  Hub is not built into the YouTrack (the refresh token of a browser sign-in is listed there)
+	 */
+	manageUrl: string | null,
 };
 
 /**  A single-value field of an issue, by the name YouTrack gives it: "Priority: Major", "Assignee: Jane Doe" */

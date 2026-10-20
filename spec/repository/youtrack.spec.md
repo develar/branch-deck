@@ -139,16 +139,28 @@ client takes a pasted token.
 ### Settings
 
 - The YouTrack page of Settings ([Settings](settings.spec.md)), asked again on each open of the window and on every
-  sign-in or sign-out of any window (`get_youtrack_auth_status`, `youtrack-auth-changed`):
-  - signed in: "Signed in to youtrack.example.com as Jane Doe (jane)", for a browser sign-in "Renewed by itself while
-    the Hub keeps the sign-in; Branch Deck asks you to sign in again when it ends", with Sign Out and Manage Tokens
-    (Account Security of the profile);
-  - signed out: the URL, "Sign In to YouTrack" (disabled without a URL) and "Use a Token Instead";
-  - while the browser signs in: "Sign in to YouTrack in the browser tab that opened, then return here", "Open the Page
-    Again", Cancel and "Waiting for the browser…" with a spinner; the URL field stays as typed.
-  The toasts: "Signed in to youtrack.example.com as Jane Doe"; "Cannot sign in to YouTrack" with the reason; "Signed
-  out of YouTrack", which says that YouTrack keeps the token until it is revoked in Account Security.
+  sign-in or sign-out of any window (`get_youtrack_auth_status`, `youtrack-auth-changed`), says what the sign-in is
+  for: "Hover an issue key to see the issue, and mark it fixed once its work lands".
+  - Signed out: the URL with its source ("From .idea/vcs.xml of <repository>"), or, empty, "The address you open
+    YouTrack at, e.g. https://youtrack.example.com"; "Sign In to YouTrack" (disabled without a URL) with "Opens
+    YouTrack in the browser. The sign-in renews itself until YouTrack ends it." under it; below, as a link, "Use a
+    Token Instead", the fallback.
+  - The token form in the order of its steps: "For a YouTrack that does not sign in apps in the browser: create a
+    token there, then paste it here", "Create Token…" (Account Security of the profile), the field "Token", "Save
+    Token" and Cancel.
+  - While the browser signs in: "Sign in to YouTrack in the browser tab that opened, then return here", "Open the
+    Page Again", Cancel and "Waiting for the browser…" with a spinner; the URL field stays as typed.
+  - Signed in: "Signed in to youtrack.example.com as Jane Doe (jane)", and how: "Through the browser since yesterday
+    3:00 PM. It renews itself until YouTrack ends the sign-in, then Branch Deck asks you to sign in again.", "With a
+    pasted token since …. It works until you revoke it in YouTrack.", or for `YOUTRACK_TOKEN` "Set in the
+    environment of Branch Deck: unset it to sign in here."; Sign Out (not for the environment), and "Manage
+    Sign-In" (a browser sign-in) or "Manage Tokens" (a token), which opens the page that lists the token
+    (`manageUrl`): Account Security of the YouTrack profile, or the profile of the Hub when the Hub is not built into
+    the YouTrack (youtrack.jetbrains.com signs in at hub.jetbrains.com), where the refresh token of the sign-in is.
   [@test] ../../tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should sign in in the browser to the YouTrack the issue links name, and sign out`, `should cancel the browser sign-in, and paste a token instead`)
+  [@test] ../../crates/youtrack/src/service_test.rs (`a_refused_refresh_token_is_an_expired_sign_in`, `the_tokens_of_a_sign_in_through_an_external_hub_are_managed_in_the_hub`)
+- The toasts: "Signed in to youtrack.example.com as Jane Doe"; "Cannot sign in to YouTrack" with the reason; "Signed
+  out of YouTrack", which says that YouTrack keeps the token until it is revoked in Account Security.
 
 ### The issue popover
 
@@ -203,9 +215,10 @@ client takes a pasted token.
 
 - The popover is `w-96 gap-3 p-3`: the key `text-xs text-muted-foreground`, the summary `font-medium`, the fields a
   `text-xs` grid of names (muted) and values, the actions `xs` buttons (Mark Fixed `outline`, Open in YouTrack `ghost`).
-- The page is one section, "YouTrack", "The summary and the state of an issue on its key, and Mark Fixed": `text-sm`
-  lines, `xs` buttons ("Sign In to YouTrack" and "Sign Out" `outline`, the others `ghost`, "Save Token" default), the
-  token form and the wait in a `rounded-lg` bordered panel, a problem in `text-warning`.
+- The page is one section: `text-sm` lines, the hints `text-xs text-muted-foreground`, `xs` buttons ("Sign In to
+  YouTrack", "Sign Out" and "Create Token…" `outline`, "Save Token" default, "Use a Token Instead" a muted `link` at
+  the edge of the text, the others `ghost`), the token form and the wait in a `rounded-lg` bordered panel, a problem
+  in `text-warning`.
 
 ## Testing / Local Run
 
