@@ -25,6 +25,7 @@
     "lint:frontend": "pnpm run \"/^lint:(js|typecheck)$/\"",
     "lint:cpd": "jscpd",
     "lint:specs": "node scripts/check-spec-links.mjs",
+    "perf:bd-rebuild": "node scripts/perf/bd-rebuild.mjs",
     "perf:monorepo": "node scripts/perf/monorepo.mjs",
     "perf:diff": "playwright test -c playwright.perf.config.ts diff-review",
     "perf:table": "playwright test -c playwright.perf.config.ts branch-table",
