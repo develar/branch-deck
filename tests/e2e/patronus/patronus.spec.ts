@@ -2,6 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import type { PatronusRobotProfile } from "../../../src/lib/bindings"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
+import { openActivityWindow } from "../helpers/activity-helpers"
 import { expectNothingToPush, findBranchRow, getBranchCells, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
 import { expectColumnAligned } from "../helpers/column-helpers"
@@ -235,7 +236,7 @@ baseTest.describe("Patronus robot timing", () => {
     await page.getByTestId("landing-indicator").hover()
     const row = page.getByTestId("landing-popover").locator("[data-testid=robots-row][data-branch-name=JIRA-456]")
     await expect(row.getByTestId("robots-row-checks")).toHaveText("Unit Tests 93% · 1 check queued")
-    await expect(row.getByTestId("robots-row-state")).toHaveText("Safe Push · 24m · ~9m")
+    await expect(row.getByTestId("robots-row-state")).toHaveText("24m · ~9m")
     expect((await repo.getPatronusCalls()).detailCalls).toBe(3)
   })
 
@@ -277,10 +278,12 @@ baseTest.describe("Patronus robot timing", () => {
     await page.keyboard.press("Escape")
     await expect(popover).toBeHidden()
 
-    // the robots of the landing overview names the profile too
+    // the robots of the landing overview name the profile too, on hover of the time
     await page.getByTestId("landing-indicator").hover()
     const row = page.getByTestId("landing-popover").locator("[data-testid=robots-row][data-branch-name=JIRA-456]")
-    await expect(row.getByTestId("robots-row-state")).toHaveText("Safe Push · Large Scale Change · 18m · ~1h 32m")
+    await expect(row.getByTestId("robots-row-state")).toHaveText("18m · ~1h 32m")
+    await row.getByTestId("robots-row-state").hover()
+    await expect(page.getByRole("tooltip")).toHaveText("Safe Push · Large Scale Change")
     // no list and no poll for the estimates, only the details that were open
     expect(await repo.getPatronusCalls()).toMatchObject({ listCalls: calls.listCalls, pollCalls: calls.pollCalls })
   })
@@ -375,9 +378,8 @@ test.describe("Patronus failure", () => {
     await expect(getSlot(page, "JIRA-456")).toHaveAttribute("data-step", "restart")
 
     // the trace once the toast is gone
-    await page.getByTestId("activity-button").click()
-    await expect(page.getByTestId("activity-popover").getByTestId("activity-title").filter({ hasText: "Safe Push of JIRA-456 failed" })).toBeVisible()
-    await page.keyboard.press("Escape")
+    const activity = await openActivityWindow(page)
+    await expect(activity.getByTestId("activity-title").filter({ hasText: "Safe Push of JIRA-456 failed" })).toBeVisible()
 
     // the fix comes first: the toast copies the prompt, and says so in place
     await toast.getByRole("button", { name: "Copy Prompt for Agent" }).click()

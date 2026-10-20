@@ -1,5 +1,7 @@
+import { useState } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
+import { Button } from "@/components/ui/button"
 import { PopoverDescription, PopoverSectionTitle, PopoverTitle } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { LandingNodeSubject } from "@/components/branch/LandingNodeHover"
@@ -9,15 +11,19 @@ import { LaneNodeDot } from "@/components/branch/StackLanes"
 import { RobotList, RobotRow } from "@/components/repository/RobotRows"
 import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { useStackNextStep } from "@/hooks/useStackNextStep"
+import { openActivity } from "@/lib/activity-window"
 import { formatBranchCount } from "@/lib/branch"
 import type { BranchNextStep } from "@/lib/branch-next-step"
 import { formatCommitCount } from "@/lib/commit"
 import type { LandingNode } from "@/lib/landing-node"
 import type { LandingOverview, LandingUnit } from "@/lib/landing-overview"
-import { formatLandingTitle, urgentKindOf } from "@/lib/landing-overview"
+import { formatFinishedSummary, formatLandingSectionTitle, formatLandingTitle, urgentKindOf } from "@/lib/landing-overview"
 import { FROM_MENU } from "@/lib/menu"
+import { getRobotTiming } from "@/lib/robot-eta"
 import type { RobotOverviewEntry } from "@/lib/robot-overview"
+import { orderLandingRobots } from "@/lib/robot-overview"
 import { requestReveal } from "@/stores/commit-move"
+import { getRobotEstimate } from "@/stores/patronus"
 import { useShowReviewReadiness } from "@/stores/review-readiness"
 import { toggleStackCollapsed } from "@/stores/stack-collapse"
 
@@ -30,8 +36,10 @@ export interface LandingPopoverProps {
 
 /**
  * The overview of the work on its way into master: the user's moves with the next step of each (the same as the slot
- * of its row), the robots that land, what waits for others, what is in master until the update, the robots of the last
- * day; a stack is one row, its next step that of the whole stack
+ * of its row), the robots that land as a queue, what waits for others, what is in master until the update; a stack is
+ * one row, its next step that of the whole stack. Only the present: the robots of the last day are one line, their
+ * history is Activity. The title stays at the top and the line and the footer at the bottom, the sections scroll
+ * between them, so the overview fits the window.
  */
 export function LandingPopover({ overview, onClose, renderPullRequest, footer }: LandingPopoverProps) {
   const reveal = (name: string) => {
@@ -41,10 +49,12 @@ export function LandingPopover({ overview, onClose, renderPullRequest, footer }:
   // a branch whose robot failed on it as it is: the robot is the move, with its actions (restart, the prompts, open)
   const failedRobotOf = new Map(overview.robotFailures.map(entry => [entry.stackRoot ?? entry.branchName, entry]))
   const unitProps = { onClose, onReveal: reveal, renderPullRequest, failedRobotOf }
-  const moveCount = overview.yourMove.length + overview.failedRobots.length
+  const moveCount = overview.yourMove.length + overview.failedRobots.length + overview.failingRobots.length
+  const queue = useLandingQueue(overview.running)
+  const finished = formatFinishedSummary(overview.finished)
   return (
     <>
-      <div className="flex flex-col gap-1">
+      <div className="flex shrink-0 flex-col gap-1">
         <PopoverTitle className="text-sm">{formatLandingTitle(overview)}</PopoverTitle>
         {overview.checking > 0 && (
           <PopoverDescription className="text-xs" data-testid="landing-checking">
@@ -54,22 +64,26 @@ export function LandingPopover({ overview, onClose, renderPullRequest, footer }:
       </div>
       {/*
         one grid of the sections: the pull request chips and the steps of the rows in their columns across the sections,
-        as wide as their widest; a robot row spans it
+        as wide as their widest; a robot row spans it. It scrolls between the title and the bottom; the gutter keeps the
+        focus rings and the scrollbar off the rows
       */}
-      <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-y-3">
+      <div
+        className="-mx-3 grid min-h-0 grid-cols-[minmax(0,1fr)_auto_auto] content-start gap-y-3 overflow-y-auto overscroll-contain px-3 empty:hidden"
+        data-testid="landing-sections"
+      >
         {moveCount > 0 && (
           <Section title={`Your move · ${overview.moves}`} testId="landing-your-move">
             {overview.yourMove.map(unit => (
               <UnitRow key={unit.name} unit={unit} {...unitProps} />
             ))}
-            {/* a failed robot of no row: its actions are the move */}
-            {overview.failedRobots.map(entry => (
+            {/* a failed robot of no row and a running Safe Push that will fail: its actions are the move */}
+            {[...overview.failedRobots, ...overview.failingRobots].map(entry => (
               <RobotRow key={entry.robot.id} entry={entry} onReveal={reveal} />
             ))}
           </Section>
         )}
         <div className="col-span-full empty:hidden">
-          <RobotList title={`Landing · ${overview.running.length}`} testId="landing-running" entries={overview.running} onReveal={reveal} />
+          <RobotList title={formatLandingSectionTitle(overview)} testId="landing-running" entries={queue} onReveal={reveal} />
         </div>
         {overview.waiting.length > 0 && (
           <Section title={`Waiting · ${overview.waiting.length}`} testId="landing-waiting">
@@ -85,13 +99,44 @@ export function LandingPopover({ overview, onClose, renderPullRequest, footer }:
             ))}
           </Section>
         )}
-        <div className="col-span-full empty:hidden">
-          <RobotList title="Last 24 hours" testId="landing-finished" entries={overview.finished} onReveal={reveal} />
-        </div>
       </div>
+      {finished !== null && <FinishedLine summary={finished} onClose={onClose} />}
       {/* hidden when every part renders nothing (a local baseline, no GitHub) */}
-      <div className="flex min-w-0 flex-col gap-2 border-t border-border pt-3 text-xs empty:hidden">{footer}</div>
+      <div className="flex min-w-0 shrink-0 flex-col gap-2 border-t border-border pt-3 text-xs empty:hidden">{footer}</div>
     </>
+  )
+}
+
+/**
+ * The running robots as a queue, the nearest to finishing first (`orderLandingRobots`), in the order they had when the
+ * overview opened: a row never jumps under the pointer; a robot started since comes last, one that finished goes
+ */
+function useLandingQueue(running: readonly RobotOverviewEntry[]): readonly RobotOverviewEntry[] {
+  const [order] = useState(() => {
+    const now = Date.now()
+    return orderLandingRobots(running, entry => getRobotTiming(entry.robot, getRobotEstimate(entry.robot), now)).map(entry => entry.robot.id)
+  })
+  const rank = new Map(order.map((id, index) => [id, index]))
+  return running.toSorted((a, b) => (rank.get(a.robot.id) ?? rank.size) - (rank.get(b.robot.id) ?? rank.size))
+}
+
+/** The robots of the last day in one line, their history in Activity ("Show in Activity", its Robots) */
+function FinishedLine({ summary, onClose }: { summary: string; onClose: () => void }) {
+  return (
+    <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground" data-testid="landing-finished">
+      <span className="min-w-0 flex-1">{summary}</span>
+      <Button
+        variant="ghost"
+        size="xs"
+        className="shrink-0"
+        onClick={() => {
+          onClose()
+          openActivity({ kind: "robots" })
+        }}
+      >
+        Show in Activity
+      </Button>
+    </div>
   )
 }
 

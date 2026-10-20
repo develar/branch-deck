@@ -39,6 +39,8 @@ fn the_settings_window_is_smaller_and_widens_above_107_percent() {
   assert_size(sub_window_min_size("settings", 1.0), (600.0, 420.0));
   assert_size(sub_window_min_size("settings", 1.25), (700.0, 420.0));
   assert_size(sub_window_min_size("settings", 1.5), (840.0, 420.0));
+  assert_size(sub_window_min_size("activity", 1.0), (440.0, 400.0));
+  assert_size(sub_window_min_size("activity", 1.25), (500.0, 400.0));
 }
 
 fn assert_size(actual: (f64, f64), expected: (f64, f64)) {

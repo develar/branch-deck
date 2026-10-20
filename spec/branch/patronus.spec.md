@@ -383,8 +383,8 @@ reports in it and closes it once merged.
   50 min for Large Scale Change · about 1 h 32 min left", "… without a merge profile …", the rough "… · usually ~40 min
   for Safe Push · 55 min, longer than usual", "… · running 18 min · no Safe Push finished in the last 30 days to
   estimate from". The slot doesn't name it. The details have the profile row when the profile is known, also before
-  the details answered; a robot row of the landing overview names it: "Safe Push · Large Scale Change · 18m ·
-  ~1h 32m left".
+  the details answered; a robot row of the landing overview names it on hover of its time: "Safe Push · Large Scale
+  Change".
   [@test] ../../src/lib/robot-eta.test.ts (`explains the estimate and what it is of in the details`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show the details on hover and open the robot on click`, `should estimate by the merge profile, roughly by the push mode without it, and ask Patronus nothing for it`)
 
@@ -1124,7 +1124,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   ([Robots in the Dock](../repository/robots-indicator.spec.md#dock)). A branch changed since (a fix) needs no attention,
   nor one that something else carries (`needsBranchRobotAttention`): a running Safe Push of a branch built on it or of
   the whole stack holds it, a merged one landed it whole (`PushHold`), or the baseline has all of it; its row waits
-  ([Next Step](next-step.spec.md)), and the old failure is in "Last 24 hours".
+  ([Next Step](next-step.spec.md)), and the old failure is in the line of the last day of the landing overview.
   [@test] ../../src/lib/patronus.test.ts (`needs the user for a failed robot of the branch as it is, also after a sync rebuilt the branch`)
   [@test] ../../src/lib/robot-overview.test.ts (`asks nothing for the failure of a branch another robot holds or landed, or the baseline has: it is finished history`)
   [@test] ../../tests/e2e/patronus/dock.spec.ts (`should not count the failed robot of a branch while the Safe Push of a branch built on it lands it`)
@@ -1213,7 +1213,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
   whose details were open: a robot finished while the app was closed is a sample of its push mode only. Half of the
   robots run past the median, so "usually ~40m" shows near the end of many runs.
 - The changed-since rule replaces a finished robot in the slot with "Safe Push" as soon as the branch has a commit
-  the robot didn't test: its result is then only in the preview and the landing overview, under "Last 24 hours".
+  the robot didn't test: its result is then only in the preview, the line of the last day of the landing overview and
+  Activity.
 
 ## References
 

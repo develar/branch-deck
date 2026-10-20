@@ -1,4 +1,4 @@
-// local customisation: `anchor` and `collisionPadding` forwarded to the positioner in `PopoverContent`, `className="contents"` on the portal and its `container` (the issue popover inside another popup, a dialog or the toasts),
+// local customisation: `anchor`, `collisionPadding` and `collisionAvoidance` forwarded to the positioner in `PopoverContent`, `className="contents"` on the portal and its `container` (the issue popover inside another popup, a dialog or the toasts),
 // `PopoverSectionTitle` (the one head of a section of every popover: help, Activity days, Robots groups)
 import * as React from "react"
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
@@ -20,10 +20,11 @@ function PopoverContent({
   sideOffset = 4,
   anchor,
   collisionPadding,
+  collisionAvoidance,
   container,
   ...props
 }: PopoverPrimitive.Popup.Props &
-  Pick<PopoverPrimitive.Positioner.Props, "align" | "alignOffset" | "side" | "sideOffset" | "anchor" | "collisionPadding"> &
+  Pick<PopoverPrimitive.Positioner.Props, "align" | "alignOffset" | "side" | "sideOffset" | "anchor" | "collisionPadding" | "collisionAvoidance"> &
   Pick<PopoverPrimitive.Portal.Props, "container">) {
   return (
     // layout-neutral portal element: the popup is the outermost box (E2E visibility checks)
@@ -35,6 +36,7 @@ function PopoverContent({
         sideOffset={sideOffset}
         anchor={anchor}
         collisionPadding={collisionPadding}
+        collisionAvoidance={collisionAvoidance}
         className="isolate z-50"
       >
         <PopoverPrimitive.Popup

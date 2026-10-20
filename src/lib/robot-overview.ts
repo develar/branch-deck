@@ -180,16 +180,29 @@ export type DockProgress = { readonly status: "none" } | { readonly status: "ind
  * estimate left (no history, or past its usual time); none while nothing runs
  */
 export function getDockProgress(timings: readonly RobotTiming[]): DockProgress {
-  if (timings.length === 0) {
+  const nearest = timings.toSorted(compareByFinish)[0]
+  if (nearest === undefined) {
     return { status: "none" }
   }
-  let nearest: RobotTiming | null = null
-  for (const timing of timings) {
-    if (timing.remaining !== null && (nearest === null || timing.remaining < nearest.remaining!)) {
-      nearest = timing
-    }
+  return nearest.remaining === null ? { status: "indeterminate" } : { status: "normal", progress: Math.round(nearest.progress! * 100) }
+}
+
+/** Nearer to finishing first, by the time left; a robot without an estimate left (no history, past its usual time) last */
+export function compareByFinish(a: RobotTiming, b: RobotTiming): number {
+  if (a.remaining === null || b.remaining === null) {
+    return Number(a.remaining === null) - Number(b.remaining === null)
   }
-  return nearest === null ? { status: "indeterminate" } : { status: "normal", progress: Math.round(nearest.progress! * 100) }
+  return a.remaining - b.remaining
+}
+
+/**
+ * The queue of the landing overview: the Safe Pushes nearest to finishing first (`compareByFinish`, as the Dock picks
+ * its robot), then the Dry Runs, which land nothing, the same way; the table order where the time left doesn't decide
+ */
+export function orderLandingRobots(entries: readonly RobotOverviewEntry[], timingOf: (entry: RobotOverviewEntry) => RobotTiming): RobotOverviewEntry[] {
+  const timings = new Map(entries.map(entry => [entry, timingOf(entry)]))
+  const isDryRun = (entry: RobotOverviewEntry) => Number(entry.robot.pushMode === "dryRun")
+  return entries.toSorted((a, b) => isDryRun(a) - isDryRun(b) || compareByFinish(timings.get(a)!, timings.get(b)!))
 }
 
 /** The branches the sync left with a conflict, which the user resolves: they count in the badge of the Dock */

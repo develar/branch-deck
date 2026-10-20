@@ -4,6 +4,7 @@ import { BranchCreator } from "@/components/branch/BranchCreator"
 import { Container } from "@/components/layout/Container"
 import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
 import { DockStatus } from "@/components/repository/DockStatus"
+import { useActivityWindowLink } from "@/hooks/useActivityWindowLink"
 import { useAppCommand } from "@/hooks/useAppCommand"
 import { useAutoUpdate } from "@/hooks/useAutoUpdate"
 import { useBranchReviewLink } from "@/hooks/useBranchReviewLink"
@@ -64,6 +65,8 @@ export function IndexPage() {
   useBranchReviewLink()
   // the review window of a pull request: the state of its requests, and the writes it asks for
   useReviewWindowBridge()
+  // "Activity" of every window: the log of the selected repository in its window, and what it asks for
+  useActivityWindowLink()
   // "Create Pull Request…" of a branch (the review window has its own, `WindowCreatePullRequestDialog`)
   const createPullRequestOpen = useCreatePullRequestBranch() !== null
   const [isCreatePullRequestLoaded, setCreatePullRequestLoaded] = useState(false)

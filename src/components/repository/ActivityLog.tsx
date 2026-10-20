@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react"
+import { Fragment, useEffect, useState } from "react"
 import type { ReactNode } from "react"
 import { openUrl } from "@tauri-apps/plugin-opener"
 import { cn } from "cn"
@@ -6,6 +6,7 @@ import {
   ArrowDownIcon,
   ChevronRightIcon,
   ExternalLinkIcon,
+  GitPullRequestIcon,
   OctagonXIcon,
   PackageCheckIcon,
   PenLineIcon,
@@ -15,75 +16,53 @@ import {
   UserCheckIcon,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { PopoverSectionTitle, PopoverTitle } from "@/components/ui/popover"
+import { PopoverSectionTitle } from "@/components/ui/popover"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { DroppedCommitList } from "@/components/branch/DroppedCommitList"
 import { LandedBranchRow } from "@/components/repository/LandedCard"
 import { RelativeTime } from "@/components/shared/RelativeTime"
+import type { LandedBranchLinks } from "@/lib/activity-window"
 import { notifyError } from "@/lib/errors"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import type { ActivityDetails, ActivityEntry } from "@/stores/activity"
-import { canUndoActivity, clearActivity, groupActivityByDay, undoActivity, useActivity } from "@/stores/activity"
-import { useBranchOrder } from "@/stores/branch-sync"
-import { requestReveal } from "@/stores/commit-move"
-import { dismissLanded, useIsUndismissed } from "@/stores/landed"
-import { useSelectedProjectPath } from "@/stores/repository"
+import { groupActivityByDay, isUndoOpen } from "@/stores/activity"
 
 type LandedDetails = Extract<ActivityDetails, { type: "landed" }>
 
+/** What the log acts with: the main window owns the log, the window asks it (`@/lib/activity-window-link`) */
+export interface ActivityLogActions {
+  /** The branches of the table: their names are buttons that show the row */
+  readonly branches: ReadonlySet<string>
+  /** The commits of the undismissed landed report */
+  readonly undismissed: ReadonlySet<string>
+  /** The links of the branches of the landed reports */
+  readonly links: Readonly<Record<string, LandedBranchLinks>>
+  readonly onReveal: (name: string) => void
+  readonly onUndo: (entry: ActivityEntry) => void
+  readonly onDismiss: () => void
+}
+
 /**
- * The log of the selected repository, newest first by day: what Branch Deck did, each entry with its icon, title,
- * description and age. A branch name that is a row of the table shows it; a landed report expands to its branches, a
- * force push lists the remote commits it dropped, a robot opens in Patronus, a rewrite has its Undo while it lasts.
+ * The log, newest first by day: what Branch Deck did, each entry with its icon, title, description and age. A branch
+ * name that is a row of the table shows it; a landed report expands to its branches, a force push lists the remote
+ * commits it dropped, a robot opens in Patronus, a rewrite has its Undo while it lasts. `openedAt` dates the days.
  */
-export function ActivityLog({ onClose }: { onClose: () => void }) {
-  const entries = useActivity()
-  const repositoryPath = useSelectedProjectPath()
-  const branchOrder = useBranchOrder()
-  const branches = useMemo(() => new Set(branchOrder), [branchOrder])
-  // the day of an entry is taken when the log opens, as its age
-  const [openedAt] = useState(Date.now)
-  const days = useMemo(() => groupActivityByDay(entries, openedAt), [entries, openedAt])
-  const reveal = (name: string) => {
-    requestReveal({ branchName: name, commitIds: [] })
-    onClose()
-  }
-
-  return (
-    <>
-      <div className="px-4 pt-3 pb-2">
-        <PopoverTitle className="text-sm">Activity</PopoverTitle>
-      </div>
-      <div className="max-h-[60vh] overflow-y-auto pb-2" data-testid="activity-list">
-        {days.map(day => (
-          <section key={day.start} aria-label={day.label} data-testid="activity-day">
-            <PopoverSectionTitle className="sticky top-0 z-10 bg-popover px-4 pt-2 pb-1">{day.label}</PopoverSectionTitle>
-            <ul className="flex flex-col">
-              {day.entries.map(entry => (
-                <ActivityRow key={entry.id} entry={entry} branches={branches} onReveal={reveal} />
-              ))}
-            </ul>
-          </section>
+export function ActivityLog({ entries, openedAt, actions }: { entries: readonly ActivityEntry[]; openedAt: number; actions: ActivityLogActions }) {
+  const days = groupActivityByDay(entries, openedAt)
+  return days.map(day => (
+    <section key={day.start} aria-label={day.label} data-testid="activity-day">
+      <PopoverSectionTitle className="sticky top-0 z-10 bg-card px-4 pt-2 pb-1">{day.label}</PopoverSectionTitle>
+      <ul className="flex flex-col">
+        {day.entries.map(entry => (
+          <ActivityRow key={entry.id} entry={entry} actions={actions} />
         ))}
-      </div>
-      {repositoryPath !== undefined && (
-        <div className="flex justify-end border-t border-border px-4 py-2">
-          <Button size="xs" variant="ghost" data-testid="activity-clear" onClick={() => clearActivity(repositoryPath)}>
-            Clear
-          </Button>
-        </div>
-      )}
-    </>
-  )
+      </ul>
+    </section>
+  ))
 }
 
-interface ActivityRowProps {
-  entry: ActivityEntry
-  /** The branches of the table: their names are buttons */
-  branches: ReadonlySet<string>
-  onReveal: (name: string) => void
-}
-
-function ActivityRow({ entry, branches, onReveal }: ActivityRowProps) {
+function ActivityRow({ entry, actions }: { entry: ActivityEntry; actions: ActivityLogActions }) {
+  const { branches, onReveal } = actions
   const details = entry.details
   return (
     <li className="flex gap-2.5 px-4 py-2" data-testid="activity-entry" data-kind={entry.kind}>
@@ -102,7 +81,7 @@ function ActivityRow({ entry, branches, onReveal }: ActivityRowProps) {
             <BranchLinks text={entry.description} branches={branches} onReveal={onReveal} />
           </p>
         )}
-        {entry.undo !== undefined && <UndoAction entry={entry} />}
+        {entry.undo !== undefined && <UndoAction entry={entry} onUndo={actions.onUndo} />}
         {details?.type === "robot" && (
           <OpenLinkAction
             label="Open in Patronus"
@@ -116,7 +95,7 @@ function ActivityRow({ entry, branches, onReveal }: ActivityRowProps) {
             <DroppedCommitList dropped={details} />
           </div>
         )}
-        {details?.type === "landed" && <LandedReport repositoryPath={entry.repositoryPath} details={details} />}
+        {details?.type === "landed" && <LandedReport details={details} actions={actions} />}
       </div>
     </li>
   )
@@ -176,7 +155,7 @@ function BranchLinks({ text, branches, onReveal }: { text: string; branches: Rea
   return parts
 }
 
-/** Until the Undo window passes; null when it can't end (no window, used, another session) */
+/** Until the Undo window passes; false when it can't end (no window, used) */
 function useCanUndo(entry: ActivityEntry): boolean {
   const until = entry.undo?.until ?? 0
   const [now, setNow] = useState(Date.now)
@@ -188,11 +167,11 @@ function useCanUndo(entry: ActivityEntry): boolean {
     const timer = setTimeout(() => setNow(Date.now()), left)
     return () => clearTimeout(timer)
   }, [until])
-  return canUndoActivity(entry, now)
+  return isUndoOpen(entry, now)
 }
 
 /** "Undo" while the rewrite can be undone, as from its toast; "undone" after it was */
-function UndoAction({ entry }: { entry: ActivityEntry }) {
+function UndoAction({ entry, onUndo }: { entry: ActivityEntry; onUndo: (entry: ActivityEntry) => void }) {
   const canUndo = useCanUndo(entry)
   if (entry.undo?.undone === true) {
     return (
@@ -206,7 +185,7 @@ function UndoAction({ entry }: { entry: ActivityEntry }) {
   }
   return (
     <div className="-ml-2 flex">
-      <Button size="xs" variant="ghost" data-testid="activity-undo" onClick={() => undoActivity(entry)}>
+      <Button size="xs" variant="ghost" data-testid="activity-undo" onClick={() => onUndo(entry)}>
         Undo
       </Button>
     </div>
@@ -226,13 +205,13 @@ function OpenLinkAction({ label, testId, onOpen }: { label: string; testId: stri
 }
 
 /**
- * The report of a landed entry, collapsed: the rows of the island, each expanding to its commits. While its commits are
- * in the undismissed report (the chips and "New" marks show, the island may be hidden), Dismiss clears them.
+ * The report of a landed entry, collapsed: the rows of the island, each expanding to its commits, with the links of its
+ * pull request and its robot. While its commits are in the undismissed report (the chips and "New" marks show, the
+ * island may be hidden), Dismiss clears them.
  */
-function LandedReport({ repositoryPath, details }: { repositoryPath: string; details: LandedDetails }) {
+function LandedReport({ details, actions }: { details: LandedDetails; actions: ActivityLogActions }) {
   const [expanded, setExpanded] = useState(false)
-  const commitIds = useMemo(() => new Set(details.report.flatMap(branch => branch.commits.map(commit => commit.id))), [details])
-  const undismissed = useIsUndismissed(commitIds)
+  const undismissed = details.report.some(branch => branch.commits.some(commit => actions.undismissed.has(commit.id)))
   const branchCount = details.report.length
   return (
     <div className="flex flex-col gap-1">
@@ -242,7 +221,7 @@ function LandedReport({ repositoryPath, details }: { repositoryPath: string; det
           {`What landed in ${details.upstream}`}
         </Button>
         {undismissed && (
-          <Button size="xs" variant="ghost" data-testid="activity-landed-dismiss" title="Clear the landed marks of the branches" onClick={() => void dismissLanded(repositoryPath)}>
+          <Button size="xs" variant="ghost" data-testid="activity-landed-dismiss" title="Clear the landed marks of the branches" onClick={actions.onDismiss}>
             Dismiss
           </Button>
         )}
@@ -254,10 +233,48 @@ function LandedReport({ repositoryPath, details }: { repositoryPath: string; det
           data-testid="activity-landed-report"
         >
           {details.report.map(branch => (
-            <LandedBranchRow key={branch.name ?? ""} branch={branch} showCommitter compact />
+            <LandedBranchRow key={branch.name ?? ""} branch={branch} showCommitter compact renderLinks={name => <LandedLinks name={name} links={actions.links[name]} />} />
           ))}
         </ul>
       )}
     </div>
+  )
+}
+
+/** The pull request and the robot of a landed branch, as the island's chips open them */
+function LandedLinks({ name, links }: { name: string; links: LandedBranchLinks | undefined }) {
+  const pullRequest = links?.pullRequest
+  const robot = links?.robot
+  return (
+    <>
+      {pullRequest !== undefined && (
+        <Tooltip>
+          <TooltipTrigger
+            render={<Button size="xs" variant="ghost" aria-label={`Open Pull Request #${pullRequest.number} of ${name}`} onClick={() => openPullRequestUrl(pullRequest.url)} />}
+          >
+            <GitPullRequestIcon data-icon="inline-start" />
+            {`#${pullRequest.number}`}
+          </TooltipTrigger>
+          <TooltipContent>Open Pull Request</TooltipContent>
+        </Tooltip>
+      )}
+      {robot !== undefined && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label={`Open ${robot.mode} of ${name} in Patronus`}
+                onClick={() => void openUrl(robot.url).catch((error: unknown) => notifyError("Cannot open the Patronus robot", error))}
+              />
+            }
+          >
+            <ShieldCheckIcon />
+          </TooltipTrigger>
+          <TooltipContent>Open in Patronus</TooltipContent>
+        </Tooltip>
+      )}
+    </>
   )
 }

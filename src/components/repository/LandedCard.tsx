@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import type { ReactNode } from "react"
 import { cn } from "cn"
 import { ChevronRightIcon, PackageCheckIcon, XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -76,12 +77,14 @@ export function LandedCard() {
 export interface LandedBranchRowProps {
   branch: LandedBranch
   showCommitter: boolean
-  /** In a popover (Activity): the paddings of a list there, not of the island */
+  /** In a list (Activity): the paddings of a list there, not of the island */
   compact?: boolean
+  /** What the row shows of the branch's pull request and robot: the chips of the main window's stores by default */
+  renderLinks?: (name: string) => ReactNode
 }
 
 /** A branch of a landed report: the count, the review chips and the committer; it expands to the commits */
-export function LandedBranchRow({ branch, showCommitter, compact = false }: LandedBranchRowProps) {
+export function LandedBranchRow({ branch, showCommitter, compact = false, renderLinks = renderChips }: LandedBranchRowProps) {
   const [expanded, setExpanded] = useState(false)
   const committer = showCommitter ? landedCommitter(branch) : undefined
   return (
@@ -99,12 +102,7 @@ export function LandedBranchRow({ branch, showCommitter, compact = false }: Land
             {landedCountLabel(branch)}
           </span>
         </button>
-        {branch.name !== null && (
-          <div className="flex shrink-0 items-center gap-2">
-            <PullRequestChip branchName={branch.name} />
-            <PatronusChip branchName={branch.name} />
-          </div>
-        )}
+        {branch.name !== null && <div className="flex shrink-0 items-center gap-2">{renderLinks(branch.name)}</div>}
         {committer !== undefined && <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">{`by ${committer}`}</span>}
       </div>
       {expanded && (
@@ -115,6 +113,16 @@ export function LandedBranchRow({ branch, showCommitter, compact = false }: Land
         </ul>
       )}
     </li>
+  )
+}
+
+/** The chips of the branch's pull request and robot, from the stores of the main window */
+function renderChips(name: string): ReactNode {
+  return (
+    <>
+      <PullRequestChip branchName={name} />
+      <PatronusChip branchName={name} />
+    </>
   )
 }
 

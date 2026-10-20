@@ -61,7 +61,7 @@ export interface WindowLink<Shown extends LinkedWindowShown, State> {
    * Opens the window on `shown` (or shows it in the open one, which starts over with `data`); a failed open forgets it
    * and rejects
    */
-  readonly open: (shown: Shown, window: { url: string; title: string; data: object }) => Promise<void>
+  readonly open: (shown: Shown, window: { url: string; title: string; data: object; width?: number; height?: number }) => Promise<void>
   /** Sends the state when it changed since it was sent; nothing while the window is closed */
   readonly broadcast: () => void
   /**
@@ -137,7 +137,7 @@ export function createWindowLink<Shown extends LinkedWindowShown, State = never>
     open: async (next, window) => {
       shown = next
       try {
-        await openSubWindow({ windowId: label, url: window.url, title: window.title, data: window.data })
+        await openSubWindow({ windowId: label, ...window })
       } catch (error) {
         forget()
         throw error

@@ -48,10 +48,11 @@ export function RobotList({ title, testId, entries, onReveal }: RobotListProps) 
 }
 
 /**
- * A robot: its icon, the branch (a click shows its row), below it the mode (a link that opens the robot in Patronus),
- * the merge profile when an answer named it, and the time or the state ("Safe Push · Large Scale Change · 18m · ~1h 30m
- * left"), the progress bar of a running one; then the actions of the robot as icon buttons, named as in the branch menu
- * (`getGatedRobotActions`). Without `onReveal` the branch is left out: the surface is the branch (the hover of its node).
+ * A robot in two lines, as a background task: its icon, the branch (a click shows its row), its state in a right-aligned
+ * column ("15m · ~52m", "Merged · 1 minute ago"; the mode only for a Dry Run, a link that opens it in Patronus; the
+ * merge profile on hover), then the actions of the robot as icon buttons, named as in the branch menu
+ * (`getGatedRobotActions`); below a running one its progress bar beside the check it waits for. Without `onReveal` the
+ * branch is left out and the state takes the line: the surface is the branch (the hover of its node).
  */
 export function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onReveal?: (name: string) => void }) {
   const { robot, chip, branchName } = entry
@@ -66,58 +67,89 @@ export function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onRev
   const Icon = patronusChipIcons[chip.kind]
   const active = chip.kind === "running"
   const failing = isFailingEntry(entry)
-  return (
-    <li className="col-span-full flex items-start gap-2" data-testid="robots-row" data-branch-name={branchName} data-kind={chip.kind}>
-      <span className="flex h-5 items-center">
-        {active ? <RobotRing className={cn("size-3.5", robotRingColor(failing))} /> : <Icon className={cn("size-3.5", statusChipTextColors[chip.color])} />}
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        {onReveal === undefined ? null : entry.hasRow ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  className="min-w-0 self-start truncate rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
-                  onClick={() => onReveal(reveal)}
-                />
-              }
-            >
-              {branchName}
-            </TooltipTrigger>
-            <TooltipContent>{`Show ${reveal}`}</TooltipContent>
-          </Tooltip>
-        ) : (
-          <span className="min-w-0 truncate text-sm">{branchName}</span>
-        )}
-        <span className="text-xs text-muted-foreground tabular-nums" data-testid="robots-row-state">
+  const profile = robot.profile?.name ?? null
+  const state = (
+    <>
+      {/* a Safe Push is what lands, its mode goes without saying; ↗ opens it */}
+      {robot.pushMode === "dryRun" && (
+        <>
           <RobotModeLink robot={robot} mode={mode} />
           {" · "}
-          {robot.profile?.name != null && `${robot.profile.name} · `}
-          {active ? (
-            <RunningTime entry={entry} />
-          ) : (
+        </>
+      )}
+      {active ? (
+        <RunningTime entry={entry} />
+      ) : (
+        <>
+          <span className={statusChipTextColors[chip.color]}>{chip.label}</span>
+          {robot.finishTime !== null && (
             <>
-              <span className={statusChipTextColors[chip.color]}>{chip.label}</span>
-              {robot.finishTime !== null && (
-                <>
-                  {" · "}
-                  <RelativeTime time={robot.finishTime * 1000} />
-                </>
-              )}
+              {" · "}
+              <RelativeTime time={robot.finishTime * 1000} />
             </>
           )}
-        </span>
-        {active && <RunningProgress entry={entry} />}
+        </>
+      )}
+    </>
+  )
+  const stateClass = cn("text-xs whitespace-nowrap text-muted-foreground tabular-nums", onReveal === undefined ? "min-w-0 flex-1" : `${STATE_COLUMN} text-right`)
+  return (
+    // a grid of its own: the bar below the name, the check below the time, the actions beside both lines
+    <li
+      className="col-span-full grid grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5"
+      data-testid="robots-row"
+      data-branch-name={branchName}
+      data-kind={chip.kind}
+    >
+      <span className="flex size-4 items-center justify-center">
+        {active ? <RobotRing className={cn("size-3.5", robotRingColor(failing))} /> : <Icon className={cn("size-3.5", statusChipTextColors[chip.color])} />}
       </span>
-      <span className="flex shrink-0">
+      <span className="flex min-w-0 items-center gap-2">
+        {onReveal === undefined ? null : (
+          <span className="flex min-w-0 flex-1">
+            {entry.hasRow ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      className="min-w-0 truncate rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
+                      onClick={() => onReveal(reveal)}
+                    />
+                  }
+                >
+                  {branchName}
+                </TooltipTrigger>
+                <TooltipContent>{`Show ${reveal}`}</TooltipContent>
+              </Tooltip>
+            ) : (
+              <span className="min-w-0 truncate text-sm">{branchName}</span>
+            )}
+          </span>
+        )}
+        {profile === null ? (
+          <span className={stateClass} data-testid="robots-row-state">
+            {state}
+          </span>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger render={<span className={stateClass} data-testid="robots-row-state" />}>{state}</TooltipTrigger>
+            <TooltipContent>{`${mode} · ${profile}`}</TooltipContent>
+          </Tooltip>
+        )}
+      </span>
+      <span className="flex">
         {getGatedRobotActions(robot, branch ?? null, needsReview, failing, operations).map(action => (
           <IconAction key={action.id} action={action} label={action.id === "open-robot" ? `Open ${mode} of ${subject} in Patronus` : `${action.label} of ${subject}`} />
         ))}
       </span>
+      {active && <RunningProgress entry={entry} />}
     </li>
   )
 }
+
+/** The column of the state and, below it, of the check a running robot waits for: the queue reads as a table */
+const STATE_COLUMN = "w-52 shrink-0"
 
 /** The mode of the robot ("Safe Push", "Dry Run") as a link: a click opens the robot in Patronus */
 function RobotModeLink({ robot, mode }: { robot: PatronusRobot; mode: string }) {
@@ -165,27 +197,38 @@ function RunningTime({ entry }: { entry: RobotOverviewEntry }) {
 }
 
 /**
- * The share of the usual time, below the time; while the list is open the details of the robot are asked (as its
- * popover asks them): the checks that failed already ("Failed: Fast Tests", `destructive`), then the check the robot
- * waits for and the queued checks by the estimate of the CI
+ * The second line of a running robot: the share of the usual time beside the check the robot waits for and the queued
+ * checks by the estimate of the CI (its own column, kept while the details load, so the bar doesn't jump); while the
+ * list is open the details of the robot are asked (as its popover asks them), the checks that failed already below
+ * ("Failed: Fast Tests", `destructive`)
  */
 function RunningProgress({ entry }: { entry: RobotOverviewEntry }) {
   const timing = useRobotTiming(entry.robot, true)
   const details = usePatronusRobotDetails(entry.robot.id, entry.robot.status, true)
   const checks = details?.progress ?? null
   const failed = details?.checks == null ? null : formatFailedChecks(details.checks)
+  const checkText = checks === null ? null : formatCheckProgress(checks, { remaining: false })
+  const checksClass = `${STATE_COLUMN} truncate text-right text-xs text-muted-foreground tabular-nums`
   return (
     <>
-      <RobotProgressBar progress={entry.robot.status === "canceling" ? null : timing.progress} failing={isFailingEntry(entry)} className="mt-0.5 h-1 rounded-sm" />
+      <span className="col-start-2 flex min-w-0 items-center gap-2">
+        <RobotProgressBar progress={entry.robot.status === "canceling" ? null : timing.progress} failing={isFailingEntry(entry)} className="h-1 min-w-16 flex-1 rounded-sm" />
+        {checkText === null ? (
+          <span className={checksClass} data-testid="robots-row-checks" />
+        ) : (
+          // a long check name is cut: the whole line on hover
+          <Tooltip>
+            <TooltipTrigger render={<span className={checksClass} data-testid="robots-row-checks" />}>
+              {checkText}
+              {checks?.probablyHanging === true && <span className="text-warning">{" · probably hanging"}</span>}
+            </TooltipTrigger>
+            <TooltipContent>{checks?.probablyHanging === true ? `${checkText} · probably hanging` : checkText}</TooltipContent>
+          </Tooltip>
+        )}
+      </span>
       {failed !== null && (
-        <span className="text-xs break-words text-destructive" data-testid="robots-row-failed">
+        <span className="col-start-2 text-xs break-words text-destructive" data-testid="robots-row-failed">
           {failed}
-        </span>
-      )}
-      {checks !== null && (
-        <span className="text-xs text-muted-foreground tabular-nums" data-testid="robots-row-checks">
-          {formatCheckProgress(checks, { remaining: false })}
-          {checks.probablyHanging && <span className="text-warning">{" · probably hanging"}</span>}
         </span>
       )}
     </>

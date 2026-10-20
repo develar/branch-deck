@@ -105,7 +105,8 @@ broadcast to all sub-windows.
   were asked for (`write`): Tauri runs two `set` commands in flight concurrently, so ↓ ↓ ↑ in Settings could leave the
   middle value on disk; a failed write fails its request and the next one still runs. Changes of unregistered keys only update the raw snapshot.
   Stores with `isMainOnly` are not broadcast and are left out of the sub-window snapshot (`getStoreSnapshot`): the
-  Activity log (`src/stores/activity.ts`), which only the main window writes.
+  Activity log (`src/stores/activity.ts`), which only the main window writes; the Activity window gets the log of the
+  selected repository over its window link (`src/lib/activity-window-link.ts`), not from the store.
 - Sub-windows: `SubWindowStoreSync` in `src/stores/settings/sub-window-app-store.ts`. Request ids include the window label
   because every sub-window receives every `store-response`. A request without a response fails after 10 s.
 - Initialization: `initializeStoreHandlers()` is called at module level in `src/main.tsx`. It starts serving

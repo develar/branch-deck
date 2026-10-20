@@ -217,8 +217,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - What the hover names must open from it: it is a popover (`LandingNodeHover`), not a tooltip. The issue keys of the
   text are links to the tracker (the issue navigation of the project). A state of the robot of the branch (it failed on
   the branch as it is, it runs, a Dry Run runs) shows the robot below the text as the landing overview lists it
-  (`RobotRow`, without the branch name): its mode ("Safe Push") a link that opens it in Patronus, its state and time,
-  and its actions from the one list of the branch menu (`getGatedRobotActions`: Restart Safe Push, Copy Prompt for
+  (`RobotRow`, without the branch name): its state and time (the mode only for a Dry Run, a link that opens it in
+  Patronus; the mode and the profile on hover), and its actions from the one list of the branch menu (`getGatedRobotActions`: Restart Safe Push, Copy Prompt for
   Agent, Copy Prompt with CI Details, Open in Patronus, Open Pull Request #N). The failed state says so: "Safe Push
   failed on ABC-123 as it is: fix it, or Restart Safe Push". A blocked branch offers "Show auth", the parent it waits
   for (`LandingNode.shows`). A click in the hover never toggles the row. The node is no

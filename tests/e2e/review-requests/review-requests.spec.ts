@@ -2,6 +2,7 @@
 import type { Page } from "@playwright/test"
 import type { ReviewWindowRequest } from "../../../src/lib/pull-request-review"
 import { test, expect } from "../fixtures/test-fixtures"
+import { openActivityWindow } from "../helpers/activity-helpers"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, getOpenedUrls, pullRequest, reviewer } from "../helpers/pull-request-helpers"
@@ -284,8 +285,8 @@ test.describe("New review requests", () => {
     await expect(row.getByTestId("review-request-unread")).toHaveCount(0)
 
     // the Activity keeps it
-    await page.getByRole("button", { name: "Activity" }).click()
-    await expect(page.getByTestId("activity-title").first()).toHaveText("dave requested your review on #104")
+    const activity = await openActivityWindow(page)
+    await expect(activity.getByTestId("activity-title").first()).toHaveText("dave requested your review on #104")
   })
 })
 

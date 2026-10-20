@@ -89,10 +89,17 @@ pub fn configure_app_menu(app: &mut App, store_json: &str) -> Result<(), Box<dyn
   #[cfg(target_os = "macos")]
   let view_menu_builder = view_menu_builder.separator().item(&PredefinedMenuItem::fullscreen(app, None)?);
 
+  // Windows and Linux: View → Activity, the window of the log (macOS has it in the Window menu)
+  #[cfg(not(target_os = "macos"))]
+  let view_menu_builder = view_menu_builder.separator().item(&MenuItemBuilder::with_id(OPEN_ACTIVITY, "Activity").build(app)?);
+
   let view_menu = &view_menu_builder.build()?;
 
+  // the window of the log above the windows of the system
   #[cfg(target_os = "macos")]
   let window_menu = &SubmenuBuilder::new(app, "Window")
+    .item(&MenuItemBuilder::with_id(OPEN_ACTIVITY, "Activity").build(app)?)
+    .separator()
     .items(&[
       &PredefinedMenuItem::minimize(app, None)?,
       &PredefinedMenuItem::maximize(app, None)?,
@@ -135,8 +142,9 @@ pub fn configure_app_menu(app: &mut App, store_json: &str) -> Result<(), Box<dyn
 const VIEW: &str = "View";
 const ZOOM_IN: &str = "Zoom In";
 // the items whose event is their id: the command of the main window; the main window opens the Settings window, as
-// it has the current settings to start it from
+// it has the current settings to start it from, and the Activity window, as it owns the log
 const OPEN_SETTINGS: &str = "open_settings";
+const OPEN_ACTIVITY: &str = "open_activity";
 const SYNC_BRANCHES: &str = "sync_branches";
 const UPDATE_PROJECT: &str = "update_project";
 const INSTALL_AGENT_CLI: &str = "install_agent_cli";
@@ -214,7 +222,7 @@ pub fn handle_menu_event(app: &AppHandle, event: MenuEvent) {
   match event.id().as_ref() {
     "github_link" => open_url("https://github.com/develar/branch-deck"),
     "getting_started" => open_url("https://github.com/develar/branch-deck#getting-started"),
-    id @ (SYNC_BRANCHES | UPDATE_PROJECT | OPEN_SETTINGS | INSTALL_AGENT_CLI | CHECK_FOR_UPDATES) => emit_to_main(app, id, ()),
+    id @ (SYNC_BRANCHES | UPDATE_PROJECT | OPEN_SETTINGS | OPEN_ACTIVITY | INSTALL_AGENT_CLI | CHECK_FOR_UPDATES) => emit_to_main(app, id, ()),
     // one level for all windows: the main window changes it, the settings sync carries it to the others
     id @ ("zoom_in" | "zoom_out" | "zoom_reset") => emit_to_main(app, "zoom", &id["zoom_".len()..]),
     // the item checked itself; the main window saves the setting, and its sync reaches the other windows

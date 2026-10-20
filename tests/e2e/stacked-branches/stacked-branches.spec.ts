@@ -1,6 +1,7 @@
 // @spec spec/branch/stacked-branches.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
+import { openActivityWindow } from "../helpers/activity-helpers"
 import {
   collapseBranch,
   expandBranch,
@@ -792,12 +793,11 @@ test.describe("Stacked branches", () => {
     expect(retargets).toEqual([expect.objectContaining({ pullRequestNumber: 802, base: "master" }), expect.objectContaining({ pullRequestNumber: 801, base: "master" })])
     expect(pushes.map(push => push.branchName)).toEqual(["auth", "login"])
     // Activity names each retarget, with its pull request
-    await page.getByTestId("activity-button").click()
-    const retargeted = page.getByTestId("activity-entry").filter({ hasText: "Retargeted #801 to master" })
+    const activity = await openActivityWindow(page)
+    const retargeted = activity.getByTestId("activity-entry").filter({ hasText: "Retargeted #801 to master" })
     await expect(retargeted.getByTestId("activity-description")).toHaveText("login · it went into auth")
 
     // a pull request into a release branch is left as it is: that base may be meant
-    await page.keyboard.press("Escape")
     await openContextMenu(page, findBranchRow(page, "session"))
     await expect(page.getByRole("menuitem", { name: "Copy Branch Name" })).toBeVisible()
     await expect(page.getByRole("menuitem", { name: "Copy Retarget Command" })).toHaveCount(0)

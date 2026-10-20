@@ -112,7 +112,7 @@ export function pruneActivity(items: readonly ActivityEntry[], now: number): Act
 
 /**
  * Adds an entry to the log of its repository (the selected one by default) and returns it; null in a sub-window, which
- * neither owns nor receives the log, and without a repository.
+ * doesn't own the log (the Activity window is told it over its link), and without a repository.
  */
 export function recordActivity(input: ActivityInput): ActivityEntry | null {
   const { repositoryPath = getSelectedProject()?.path, ...rest } = input
@@ -167,9 +167,17 @@ export function recordRewrite(title: string, undo: () => Promise<void>, descript
   return run
 }
 
+/**
+ * Whether the Undo of the entry is still offered: in its window, not used yet; the Activity window, which doesn't hold
+ * the undo itself, asks the main window, which checks `canUndoActivity`
+ */
+export function isUndoOpen(entry: ActivityEntry, now: number = Date.now()): boolean {
+  return entry.undo !== undefined && entry.undo.undone !== true && now < entry.undo.until
+}
+
 /** Whether the Undo of the entry still works: in its window, not used yet, in the session that did the rewrite */
 export function canUndoActivity(entry: ActivityEntry, now: number = Date.now()): boolean {
-  return entry.undo !== undefined && entry.undo.undone !== true && now < entry.undo.until && undoActions.has(entry.id)
+  return isUndoOpen(entry, now) && undoActions.has(entry.id)
 }
 
 /** The Undo of a rewrite from Activity */

@@ -2,6 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import type { PatronusReviewRequirement, PatronusStartOptions, PullRequest } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
+import { openActivityWindow } from "../helpers/activity-helpers"
 import { waitForTransitionsSettled } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { APPROVED_BY_CODE_OWNER, AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, NOT_EVALUATED, availableRobots, codeOwner, evaluatedGroup, robot } from "../helpers/patronus-helpers"
@@ -595,8 +596,8 @@ test.describe("Next step", () => {
     await expectStartedFromPullRequest(page, starts)
     await expect(safePushPopover(page)).toHaveCount(0)
     // Activity keeps it
-    await page.getByRole("button", { name: "Activity" }).click()
-    await expect(page.getByTestId("activity-popover")).toContainText(`Ilya Korennoy approved ${BRANCH}`)
+    const activity = await openActivityWindow(page)
+    await expect(activity.getByTestId("activity-list")).toContainText(`Ilya Korennoy approved ${BRANCH}`)
   })
 
   test("should offer only the push when it dismisses the approvals Patronus counts", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vite-plus/test"
 import type { PatronusRobot } from "@/lib/bindings"
 import { getRobotTiming } from "@/lib/robot-eta"
-import { collectRobotOverview, countConflicts, getDockProgress } from "@/lib/robot-overview"
+import type { RobotOverviewEntry } from "@/lib/robot-overview"
+import { collectRobotOverview, countConflicts, getDockProgress, orderLandingRobots } from "@/lib/robot-overview"
 import { testRobot, robotsById } from "@/lib/test-robot"
 import type { Branch, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { testBranch } from "@/stores/test-branch"
@@ -171,6 +172,26 @@ describe("getDockProgress", () => {
       status: "normal",
       progress: 50,
     })
+  })
+
+  it("queues the Safe Pushes nearest to finishing first, those without an estimate last, then the Dry Runs", () => {
+    const start = { startTime: NOW_SECONDS - 600 }
+    const usual = (seconds: number) => ({ seconds, basis: { kind: "mode" } as const })
+    const running = (name: string, pushMode: PatronusRobot["pushMode"] = "rebase"): RobotOverviewEntry => ({
+      branchName: name,
+      hasRow: true,
+      robot: testRobot(`${name}-robot`, name, { pushMode, ...start }),
+      chip: { kind: "running", color: "neutral", label: "Running", commit: "current", outdated: false },
+    })
+    // 30, 10 minutes left; no history; a Dry Run 1 minute left
+    const estimates: Record<string, number | null> = { auth: 2400, login: 1200, docs: null, dry: 660, api: 2400 }
+    const entries = [running("auth"), running("docs"), running("dry", "dryRun"), running("login"), running("api")]
+    const order = orderLandingRobots(entries, entry => {
+      const seconds = estimates[entry.branchName] ?? null
+      return getRobotTiming(entry.robot, seconds === null ? null : usual(seconds), NOW)
+    })
+    // auth and api tie: the table order
+    expect(order.map(it => it.branchName)).toEqual(["login", "auth", "api", "docs", "dry"])
   })
 
   it("counts the conflicts of the last sync for the badge", () => {

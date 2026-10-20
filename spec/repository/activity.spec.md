@@ -1,11 +1,21 @@
 ---
 name: Activity
-description: Requirements for the log of what Branch Deck did in a repository (pushes, updates, landed reports, Patronus robots, pull request retargets, history rewrites, errors) and the review requests it told about, opened from the header, with the Undo of a rewrite while its toast's lasts.
+description: Requirements for the log of what Branch Deck did in a repository (pushes, updates, landed reports, Patronus robots, pull request retargets, history rewrites, errors) and the review requests it told about, opened from the header, with the Undo of a rewrite while its toast's lasts, in a window of its own with the chips of the kinds and a search.
 style: plain-1
 targets:
   - ../../src/stores/activity.ts
   - ../../src/components/repository/ActivityButton.tsx
   - ../../src/components/repository/ActivityLog.tsx
+  - ../../src/pages/ActivityPage.tsx
+  - ../../src/lib/activity-window.ts
+  - ../../src/lib/activity-window-link.ts
+  - ../../src/hooks/useActivityWindowLink.ts
+  - ../../src/hooks/useMainWindowLink.ts
+  - ../../src/lib/main-menu.ts
+  - ../../src-tauri/src/menu.rs
+  - ../../src-tauri/src/zoom.rs
+  - ../../src/lib/zoom.ts
+  - ../../src-tauri/capabilities/sub-windows.json
   - ../../src/components/repository/ConfigurationHeader.tsx
   - ../../src/components/repository/LandedCard.tsx
   - ../../src/components/branch/DroppedCommitList.tsx
@@ -33,8 +43,10 @@ Date: 2026-10-15
 
 What Branch Deck did lives in toasts of 5 to 10 seconds: the push that dropped remote commits, the update, what landed,
 the Safe Push the user started, the squash and its Undo. Activity keeps them: a `HistoryIcon` button in the header opens
-the log of the selected repository, newest first by day, each entry with what happened, the detail and when. A branch
-name shows its row, a landed entry has the report of the island, a rewrite has its Undo while the toast's lasts.
+a window with the log of the selected repository, newest first by day, each entry with what happened, the detail and
+when; chips of the kinds and a search find an entry in a month of them. A branch name shows its row, a landed entry
+has the report of the island, a rewrite has its Undo while the toast's lasts. It is the history the landing overview
+leaves out: the overview tells the present, its line of the last day opens Activity at its Robots.
 
 ## Goals
 
@@ -56,7 +68,7 @@ name shows its row, a landed entry has the report of the island, a rewrite has i
   of its toast: the toast and the entry take their title and description from one function (`describePush`,
   `describeRobot`, `appliedUpdateToast`). A push that is a step of another action, which has no toast of its own (a
   Safe Push start, a merge request), and each branch of a stack push are recorded too, in the words their toast would
-  have. A sub-window records nothing: it neither owns nor receives the log.
+  have. A sub-window records nothing: the main window owns the log, the Activity window is told it over its link.
   [@test] ../../src/stores/activity.test.ts (`keeps the log of each repository apart, newest first`, `records nothing without a repository`)
 - A push: "Pushed feature-auth" / "3 commits", "4 commits · created the remote branch"; a force push "Force pushed
   ABC-123" / "1 commit · dropped 1 remote commit" with the dropped remote commits (`DroppedCommitList`), or "replaced the
@@ -110,12 +122,42 @@ name shows its row, a landed entry has the report of the island, a rewrite has i
 ### Log
 
 - The log is persisted by the main window (`createPersistentStore("activity", { isArray: true, isMainOnly: true })`)
-  and parsed by its Zod schema on load; it is not sent to sub-windows.
+  and parsed by its Zod schema on load; it is not in the store snapshot of sub-windows: the Activity window gets the
+  log of the selected repository over its link (below).
   [@test] ../../src/stores/activity.test.ts (`starts from the stored log and parses what is stored or received`)
 - At most 200 entries over all repositories, none older than 30 days; the oldest go first.
   [@test] ../../src/stores/activity.test.ts (`keeps at most 200 entries and none older than 30 days`)
-- "Clear" in the footer forgets the log of the selected repository; the others stay.
+- "Clear Log" in the footer of the window forgets the whole log of the repository, whatever the filter shows (its
+  tooltip says it); the others stay. The main window clears it, so an entry it records meanwhile is not lost; the
+  window then says "Nothing yet: what Branch Deck does in the repository shows here", Clear Log disabled, and the
+  header button goes.
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should clear the log of the repository`)
+
+### Window
+
+- The header button, View → Activity of ☰ (custom title bar), the native Window → Activity (macOS) or View → Activity
+  (Windows and Linux) and "Show in Activity" of the landing overview open the window `activity`, or bring the open one
+  to the front: every entry point asks the main window (`openActivity`, the app command `open_activity`), which owns
+  the log. An open names its chip ("Show in Activity": Robots; the others none, All) and starts over with it and an
+  empty search.
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should open from the View menu of ☰ and from the native menu`, `should filter by the chips of the kinds and the search, an open starting over at its chip`)
+  [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count the user's moves, put the most urgent node in the header and group the work by where it is`)
+- The window shows the log of the repository the main window shows, and follows a switch of it; its title names the
+  repository ("Activity — branch-deck"). The main window tells it the entries, the branches of its table, the commits
+  of the undismissed landed report and the links of the landed branches whenever one of them or the selection changes
+  (`@/lib/activity-window-link`, the window link of [Branch Review](../branch/branch-review.spec.md)).
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should follow the repository the main window shows`)
+- What the window does runs in the main window, which refuses a request of a repository it no longer shows: a branch
+  name brings the main window to the front and reveals the row (`requestReveal`), the window stays; Undo runs the undo
+  of this session's rewrite (`canUndoActivity`: "Cannot undo …: its time ran out" past the window); Dismiss and Clear
+  Log. A refusal is an error toast in the window.
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should record the pushes with the remote commits a force push dropped, and show the branch`, `should offer the Undo of a squash while the toast's lasts`)
+- The chips All, Robots (Patronus), Pushes, Updates (an update and what it landed), Reviews, Rewrites and Errors, with
+  their counts of the entries the search keeps, one at a time; the chosen one again goes back to All; a chip shows
+  while it counts an entry or is chosen. The search keeps the entries whose title or description has its text,
+  ignoring case (`filterActivity`). Nothing kept: "No match for “…”" (or "Nothing of this kind") with Clear Filter.
+  [@test] ../../src/lib/activity-window.test.ts (`keeps the entries of the chip whose title or description has the text, ignoring case`, `counts the entries of each chip that have the text, and of all`)
+  [@test] ../../tests/e2e/activity/activity.spec.ts (`should filter by the chips of the kinds and the search, an open starting over at its chip`)
 
 ### Landed entries
 
@@ -131,21 +173,33 @@ name shows its row, a landed entry has the report of the island, a rewrite has i
   "Activity" (an icon-only button, [UI Theme](../../docs/design/ui-theme.md)); it is hidden while the log of the
   repository is empty. The header stays on one line from 960 px.
   [@test] ../../tests/e2e/activity/activity.spec.ts (`should record an applied update, the button on the header line at the minimum window width`)
-- A click opens a `Popover` (`w-96`): the title "Activity", the entries newest first grouped by day ("Today",
-  "Yesterday", the date), the body scrolling within `max-h-[60vh]` with the day headings sticky, then "Clear".
+- The window opens at 560 × 720, at least 440 × 400 (wider above a zoom of 110%: `sub_window_min_size`); "Activity" in
+  its title bar. On the canvas the search (`SearchField`, `w-60`, `/` focuses it) and the chips (`ChoiceChip`, as the
+  filter bar of the branch table), below them the log in one `Card` island, the entries newest first grouped by day
+  ("Today", "Yesterday", the date) with the day headings sticky on `bg-card`, then on the canvas the footer with Clear
+  Log and "Esc Close".
   [@test] ../../src/stores/activity.test.ts (`groups by local day: today, yesterday, then the date`)
+  [@test] ../../src/lib/zoom.test.ts (`is smaller still for Activity, and wider above 110%`)
 - An entry: the icon of its kind (`UploadIcon` push, `ArrowDownIcon` update, `ShieldCheckIcon` robot, `PenLineIcon`
   rewrite, `UserCheckIcon` review request), `PackageCheckIcon` in `info` for what landed, `TriangleAlertIcon` in `warning` for a refusal, a dropping
   push or a moved remote, `OctagonXIcon` in `destructive` for an error; the title, the description muted, the relative
   time (`RelativeTime`). Commit subjects show through `CommitSubjectLine`, with their issue links.
-- A word of the title or description that names a branch of the table is a button: it closes the popover and reveals
-  the row (`requestReveal`), as a branch name of the landing overview.
+- A word of the title or description that names a branch of the table is a button: it reveals the row in the main
+  window, as a branch name of the landing overview.
+- The rows of a landed report have the pull request ("#7", "Open Pull Request") and the robot (`ShieldCheckIcon`, "Open
+  in Patronus") of the branch as links, the actions of the chips of the island, whose state is the main window's.
 
 ## Testing / Local Run
 
-- `pnpm test:unit`: `src/stores/activity.test.ts`, `src/lib/push-summary.test.ts` (the words of a push).
+- `pnpm test:unit`: `src/stores/activity.test.ts`, `src/lib/activity-window.test.ts` (the chips and the search),
+  `src/lib/push-summary.test.ts` (the words of a push).
 - `pnpm e2e`: `tests/e2e/activity/activity.spec.ts` with the templates `issue_links` (pushes through `routePush`, a
-  squash), `behind_upstream`, `update_conflict` and `landed_upstream`.
+  squash), `simple` (a second repository), `behind_upstream`, `update_conflict` and `landed_upstream`. The window is a
+  linked page of its own (`openActivityWindow` of `tests/e2e/helpers/activity-helpers.ts`, `openLinkedSubWindow`).
+  Test ids: `activity-button`, `activity-window`, `activity-filter`, `activity-list`, `activity-empty`,
+  `activity-day`, `activity-entry` with `activity-title`, `activity-description`, `activity-branch`, `activity-undo`,
+  `activity-undone`, `activity-landed-toggle`, `activity-landed-dismiss`, `activity-landed-report`;
+  `activity-clear`.
 
 ## Open Questions / Risks
 

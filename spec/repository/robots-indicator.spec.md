@@ -24,8 +24,9 @@ Date: 2026-10-18
 
 A Safe Push runs for most of an hour, often several at once. With the window in the background, the Dock of the app
 shows the progress of the robot nearest to finishing, and a badge only for what needs the user. It all comes from the
-robots the app already listed (`collectRobotOverview`), the same the header shows: the robots that land and those of
-the last day are sections of the [Landing Overview](landing-overview.spec.md), a failed one is a move there.
+robots the app already listed (`collectRobotOverview`), the same the header shows: the robots that land are a section of
+the [Landing Overview](landing-overview.spec.md) in the order the Dock picks its robot (the nearest to finishing first,
+`compareByFinish`), those of the last day its line, a failed one is a move there.
 
 ## Goals
 

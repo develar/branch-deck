@@ -2,7 +2,7 @@ import { createBrowserRouter } from "react-router"
 import { App } from "@/App"
 
 // A sub-window opens on the URL of its page (`openSubWindow` in `src/lib/window-management.ts`): `/conflicting-files`,
-// `/missing-commits`, `/branch-review`, `/pull-request-review`, `/commit-review` and `/settings`.
+// `/missing-commits`, `/branch-review`, `/pull-request-review`, `/commit-review`, `/settings` and `/activity`.
 // The main window may carry `?repoId=` (E2E); the browser router keeps search params untouched.
 export const router = createBrowserRouter([
   {
@@ -52,6 +52,12 @@ export const router = createBrowserRouter([
         path: "settings",
         lazy: {
           Component: async () => (await import("@/pages/SettingsPage")).SettingsPage,
+        },
+      },
+      {
+        path: "activity",
+        lazy: {
+          Component: async () => (await import("@/pages/ActivityPage")).ActivityPage,
         },
       },
     ],

@@ -2,7 +2,9 @@ import type { LandingNode, LandingNodeKind } from "@/lib/landing-node"
 import { landingNodeLooks } from "@/lib/landing-node"
 import type { RobotOverview, RobotOverviewEntry } from "@/lib/robot-overview"
 import { isFailingEntry } from "@/lib/robot-overview"
+import { joinNames } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
+import { formatWholeStack } from "@/lib/whole-stack"
 
 /**
  * What lands into master in one move: a lone branch, or a stack, whose node and next step are those of the whole stack
@@ -27,8 +29,13 @@ export interface LandingOverview {
   readonly onTheWay: readonly LandingUnit[]
   /** The units whose next step is the user's, the most urgent first, then in the table order */
   readonly yourMove: readonly LandingUnit[]
-  /** The running robots, Safe Push and Dry Run, of the branches, the whole stacks and the watched ones */
+  /**
+   * The running robots, Safe Push and Dry Run, of the branches, the whole stacks and the watched ones, in the table
+   * order; without the failing ones, which are moves (`failingRobots`)
+   */
   readonly running: readonly RobotOverviewEntry[]
+  /** The running robots that will fail (a required check failed): no use waiting, the user cancels or restarts them */
+  readonly failingRobots: readonly RobotOverviewEntry[]
   /** The units that wait for others; those that wait for the first answer of Patronus are `checking` */
   readonly waiting: readonly LandingUnit[]
   /** The units the baseline or a merge has, until the update archives them */
@@ -44,7 +51,7 @@ export interface LandingOverview {
    * running Safe Pushes that will fail; none of a unit that waits for the first answer of Patronus
    */
   readonly moves: number
-  /** The running Safe Pushes, a Dry Run lands nothing */
+  /** The running Safe Pushes that will not fail, a Dry Run lands nothing */
   readonly landing: number
   /** The units that wait for the first answer of Patronus: the popover asks for them while it is open */
   readonly checking: number
@@ -82,25 +89,64 @@ export function collectLandingOverview(units: readonly LandingUnit[], robots: Ro
   const inMaster = units.filter(unit => !inMove.has(unit) && unit.node.kind === "inMaster")
   const inMasterNames = new Set(inMaster.map(unit => unit.name))
   const failedRobots = robots.attention.filter(entry => !entry.hasRow)
-  const failingSafePushes = robots.running.filter(isFailingEntry).length
+  const failingRobots = robots.running.filter(isFailingEntry)
+  const running = robots.running.filter(entry => !isFailingEntry(entry))
   const moves =
-    yourMove.reduce((sum, unit) => sum + (isMove(unit.node.kind) && unit.node.pending !== true ? 1 : 0) + unit.fixes.length, 0) + failedRobots.length + failingSafePushes
-  const kinds = [...yourMove.map(urgentKindOf), ...(failedRobots.length > 0 || failingSafePushes > 0 ? ["needsFix" as const] : [])]
+    yourMove.reduce((sum, unit) => sum + (isMove(unit.node.kind) && unit.node.pending !== true ? 1 : 0) + unit.fixes.length, 0) + failedRobots.length + failingRobots.length
+  const kinds = [...yourMove.map(urgentKindOf), ...(failedRobots.length > 0 || failingRobots.length > 0 ? ["needsFix" as const] : [])]
   return {
     onTheWay: units.filter(unit => urgentKindOf(unit) !== "inMaster"),
     yourMove,
-    running: robots.running,
+    running,
+    failingRobots,
     waiting,
     inMaster,
     failedRobots,
     robotFailures: robots.attention.filter(entry => entry.hasRow && entry.chip.kind === "failed"),
     finished: robots.finished.filter(entry => !inMasterNames.has(entry.stackRoot ?? entry.branchName)),
     moves,
-    landing: robots.running.filter(entry => entry.robot.pushMode !== "dryRun").length,
+    landing: running.filter(isSafePush).length,
     checking: units.filter(unit => unit.node.pending === true).length,
     urgent: MOVE_KINDS.find(kind => kinds.includes(kind)) ?? null,
-    safePushRuns: robots.running.some(entry => entry.robot.pushMode !== "dryRun"),
+    safePushRuns: robots.running.some(isSafePush),
   }
+}
+
+/** "Landing · 5", "Landing · 5 · 1 dry run", "Landing · 2 dry runs": the Safe Pushes land, as the header counts them */
+export function formatLandingSectionTitle(overview: Pick<LandingOverview, "running" | "landing">): string {
+  const dryRuns = overview.running.length - overview.landing
+  const dry = dryRuns === 1 ? "1 dry run" : `${dryRuns} dry runs`
+  if (dryRuns === 0) {
+    return `Landing · ${overview.landing}`
+  }
+  return overview.landing === 0 ? `Landing · ${dry}` : `Landing · ${overview.landing} · ${dry}`
+}
+
+/** A Safe Push, which lands; a Dry Run lands nothing */
+export function isSafePush(entry: RobotOverviewEntry): boolean {
+  return entry.robot.pushMode !== "dryRun"
+}
+
+/**
+ * The line of the robots of the last day, in place of their list (Activity keeps the history): "auth, login, oauth and
+ * 6 more merged · ui failed · 1 canceled · 2 dry runs passed in the last 24 hours", the parts that apply; null without
+ * one. The merged and the failed are named as they are (a branch name is never capitalized), so a glance answers what
+ * landed today.
+ */
+export function formatFinishedSummary(finished: readonly RobotOverviewEntry[]): string | null {
+  const namesOf = (kinds: readonly string[]) =>
+    finished.filter(entry => kinds.includes(entry.chip.kind)).map(entry => (entry.stackRoot === undefined ? entry.branchName : formatWholeStack(entry.stackRoot)))
+  const merged = namesOf(["merged"])
+  const failed = namesOf(["failed", "needsReview"])
+  const canceled = namesOf(["canceled"]).length
+  const passed = namesOf(["passed"]).length
+  const parts = [
+    merged.length > 0 ? `${joinNames(merged)} merged` : null,
+    failed.length > 0 ? `${joinNames(failed)} failed` : null,
+    canceled > 0 ? `${canceled} canceled` : null,
+    passed > 0 ? `${passed} ${passed === 1 ? "dry run" : "dry runs"} passed` : null,
+  ].filter(part => part !== null)
+  return parts.length === 0 ? null : `${parts.join(" · ")} in the last 24 hours`
 }
 
 /** The kind a unit is listed by: a fix of one of its branches is more urgent than the step of the whole stack */

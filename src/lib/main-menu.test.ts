@@ -11,7 +11,7 @@ describe("mainMenus", () => {
   it("holds the items of the native menu, File, View and Help", () => {
     expect(mainMenus(ready).map(menu => [menu.label, menu.groups.flat().map(item => item.label)])).toEqual([
       ["File", ["Sync Branches", "Update Project", "Auto-sync on Focus", "Settings…"]],
-      ["View", ["Actual Size", "Zoom In", "Zoom Out"]],
+      ["View", ["Actual Size", "Zoom In", "Zoom Out", "Activity"]],
       ["Help", ["Getting Started", "Install Agent CLI…", "GitHub Repository"]],
     ])
   })

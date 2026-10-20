@@ -475,7 +475,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Move to a branch (drag and drop, menus, keys) | `branch/move-commits` | `crates/sync-core/src/move_plan.rs` |
 | Stacked branches, the stack island, the whole stack | `branch/stacked-branches`, `branch/stack-island`, `branch/whole-stack`, `branch/branch-row` | `src/stores/stack-view.ts`, `src/lib/git/stack-push.ts`, `crates/sync-core/src/stack_branch.rs` |
 | Stack parents (`bd restack`, `bd unstack`) | `branch/stack-parents` | `crates/sync-core/src/stack_parents.rs` |
-| Activity log | `repository/activity` | `src/stores/activity.ts` |
+| Activity log, its window | `repository/activity` | `src/stores/activity.ts`, `src/pages/ActivityPage.tsx`, `src/lib/activity-window-link.ts` |
 | Commit files, diffs, the commit review (`D`), the tree-sitter highlighting | `commit/commit-files`, `commit/commit-review` ([Diff View](docs/design/diff-view.md)) | `crates/file-diffs/`, `crates/code-symbols/src/highlight/`, `src/components/diff/` |
 | Go to Declaration and Find Usages in a review (⌘-click, ⌘B, ⌥F7, Back), outside it through accio | `commit/symbol-navigation` | `crates/code-symbols/src/navigate.rs`, `crates/file-diffs/src/declarations.rs`, `crates/file-diffs/src/usages.rs`, `crates/file-diffs/src/accio.rs`, `src/hooks/useSymbolNavigation.ts`, `src/components/diff/DeclarationFileView.tsx` |
 | Title bar and main menu | `repository/title-bar` | `src-tauri/src/title_bar.rs`, `src/components/shared/WindowTitleBar.tsx` |
@@ -535,7 +535,7 @@ src/
 ├── hooks/           # React hooks (useX.ts)
 ├── stores/          # zustand stores; settings/ holds persisted, cross-window settings
 ├── lib/             # Utilities and the generated bindings.ts
-├── pages/           # Route components (index, the sub-windows: reviews, conflict windows, settings)
+├── pages/           # Route components (index, the sub-windows: reviews, conflict windows, settings, activity)
 ├── types/           # Shared TypeScript types
 ├── test-support/    # Helpers of the unit tests
 ├── router.ts        # react-router routes (createBrowserRouter)

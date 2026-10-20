@@ -283,7 +283,7 @@ test.describe("Whole stack", () => {
     await expect(details.getByText("Safe Push failed on the whole air stack as it is: fix it, or Restart Safe Push")).toBeVisible()
     const robotRow = details.getByTestId("lane-node-robot").getByTestId("robots-row")
     await expect(robotRow.getByRole("button", { name: "Copy Prompt for Agent of the whole air stack" })).toBeVisible()
-    await robotRow.getByRole("button", { name: "Safe Push", exact: true }).click()
+    await robotRow.getByRole("button", { name: "Open Safe Push of the whole air stack in Patronus" }).click()
     expect(await getOpenedUrls(page)).toEqual([failed.url])
   })
 
@@ -963,8 +963,10 @@ test.describe("Whole stack", () => {
     await expectDisabledItems(page, [["Restart Safe Push", "A Safe Push of deploy is running: wait until it merges"]])
     await page.keyboard.press("Escape")
     await expect(page.getByRole("menu")).toHaveCount(0)
-    // the landing overview lists the failed robot with its actions
-    await expect(restartInOverview(await openLandingOverview(page))).toBeVisible()
+    // while they run, the failed robot is finished history: the landing overview tells it in the line of the last day
+    const running = await openLandingOverview(page)
+    await expect(running.getByTestId("landing-finished")).toContainText("the whole air stack failed")
+    await expect(restartInOverview(running)).toHaveCount(0)
     await page.mouse.move(0, 0)
     await expect(page.getByTestId("landing-popover")).toBeHidden()
 

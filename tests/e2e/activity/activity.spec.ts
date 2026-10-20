@@ -1,6 +1,6 @@
 // @spec spec/repository/activity.spec.md
-import type { Locator, Page } from "@playwright/test"
 import { expect, test, testWithIssueLinks } from "../fixtures/test-fixtures"
+import { activityButton, activityEntry, expectActivityOpened, openActivityWindow } from "../helpers/activity-helpers"
 import {
   collapseBranch,
   expandBranch,
@@ -15,28 +15,13 @@ import {
 import { HEADER_HEIGHT, MIN_WINDOW } from "../helpers/header-helpers"
 import { confirmForcePush, routePush } from "../helpers/push-helpers"
 import { multiSelectCommit, selectCommit } from "../helpers/selection-helpers"
+import { getOpenedSubWindows, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
+import { emitTauriEvent, waitForTauriListener } from "../helpers/sync-helpers"
+import { TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
 
 // `issue_links`: 7 branches, none pushed, ABC-123 has 4 commits. `behind_upstream` / `update_conflict`: master is behind
 // origin/master, the update rebases cleanly / conflicts in src/app.txt. `landed_upstream`: a robot pushed feature-auth
 // and the first of the two search commits to origin/master.
-
-function activityButton(page: Page): Locator {
-  return page.getByTestId("activity-button")
-}
-
-async function openActivity(page: Page): Promise<Locator> {
-  await activityButton(page).click()
-  const popover = page.getByTestId("activity-popover")
-  await expect(popover).toBeVisible()
-  return popover
-}
-
-/** The entry with this title; a branch name in it is a button, so the title is matched as the whole text */
-function activityEntry(popover: Locator, title: string): Locator {
-  const escaped = title.replace(/[.*+?^$()[\]{}|\\]/g, "\\$&")
-  const exactTitle = new RegExp(`^${escaped}$`)
-  return popover.getByTestId("activity-entry").filter({ has: popover.page().getByTestId("activity-title").filter({ hasText: exactTitle }) })
-}
 
 testWithIssueLinks.describe("Activity", () => {
   testWithIssueLinks("should record the pushes with the remote commits a force push dropped, and show the branch", async ({ page }) => {
@@ -61,26 +46,61 @@ testWithIssueLinks.describe("Activity", () => {
     await confirmForcePush(page, "Force Push (1)")
     await expectNothingToPush(row)
 
-    const popover = await openActivity(page)
-    await expect(popover.getByTestId("activity-day")).toHaveCount(1)
-    await expect(popover.getByTestId("activity-day").getByRole("heading")).toHaveText("Today")
+    const window = await openActivityWindow(page)
+    await expect(window.getByTestId("activity-day")).toHaveCount(1)
+    await expect(window.getByTestId("activity-day").getByRole("heading")).toHaveText("Today")
     // newest first
-    await expect(popover.getByTestId("activity-title")).toHaveText(["Force pushed ABC-123", "Pushed ABC-123"])
-    await expect(activityEntry(popover, "Pushed ABC-123").getByTestId("activity-description")).toHaveText("4 commits · created the remote branch")
-    const forced = activityEntry(popover, "Force pushed ABC-123")
+    await expect(window.getByTestId("activity-title")).toHaveText(["Force pushed ABC-123", "Pushed ABC-123"])
+    await expect(activityEntry(window, "Pushed ABC-123").getByTestId("activity-description")).toHaveText("4 commits · created the remote branch")
+    const forced = activityEntry(window, "Force pushed ABC-123")
     await expect(forced).toHaveAttribute("data-kind", "push")
     await expect(forced.getByTestId("activity-description")).toHaveText("1 commit · dropped 1 remote commit")
     const dropped = forced.getByTestId("dropped-commits")
     await expect(dropped).toContainText("Fix login")
     await expect(dropped).toContainText("Ann · c0ffee01 · 3 hours ago")
+    // the window names its repository
+    expect((await getOpenedSubWindows(page)).at(-1)?.title).toMatch(/^Activity — /)
 
-    // the branch name shows its row
-    await page.keyboard.press("Escape")
+    // the branch name brings the main window to the front and shows its row; the window stays
     await collapseBranch(page, row)
-    await openActivity(page)
     await forced.getByTestId("activity-branch").filter({ hasText: "ABC-123" }).click()
-    await expect(popover).toBeHidden()
     await verifyBranchState(row, "open")
+    await expect.poll(() => windowCalls(page)).toContain("set_focus")
+    await expect(window.getByTestId("activity-window")).toBeVisible()
+  })
+
+  testWithIssueLinks("should filter by the chips of the kinds and the search, an open starting over at its chip", async ({ page }) => {
+    await routePush(page, {})
+    await getPushButton(findBranchRow(page, "feature-auth")).click()
+    await getPushButton(findBranchRow(page, "ABC-123")).click()
+    const window = await openActivityWindow(page)
+    const filter = window.getByTestId("activity-filter")
+    // a chip shows while it counts an entry: no robot, no update yet
+    await expect(filter.getByRole("button")).toHaveText(["All2", "Pushes2"])
+    await expect(filter.getByRole("button", { name: /All/ })).toHaveAttribute("aria-pressed", "true")
+
+    // the search: in the titles and descriptions, ignoring case
+    await window.getByRole("textbox", { name: "Filter by branch or text" }).fill("abc")
+    await expect(window.getByTestId("activity-title")).toHaveText(["Pushed ABC-123"])
+    await expect(filter.getByRole("button", { name: /Pushes/ })).toHaveText("Pushes1")
+    await window.getByRole("textbox", { name: "Filter by branch or text" }).fill("nothing like it")
+    await expect(window.getByTestId("activity-empty")).toHaveText("No match for “nothing like it”Clear Filter")
+    await window.getByTestId("activity-empty").getByRole("button", { name: "Clear Filter" }).click()
+    await expect(window.getByTestId("activity-title")).toHaveCount(2)
+
+    // a chip again goes back to All
+    await filter.getByRole("button", { name: /Pushes/ }).click()
+    await expect(filter.getByRole("button", { name: /Pushes/ })).toHaveAttribute("aria-pressed", "true")
+    await filter.getByRole("button", { name: /Pushes/ }).click()
+    await expect(filter.getByRole("button", { name: /All/ })).toHaveAttribute("aria-pressed", "true")
+
+    // the next open, of the open window, starts over: its chip, an empty search
+    await window.getByRole("textbox", { name: "Filter by branch or text" }).fill("abc")
+    const count = (await getOpenedSubWindows(page)).length
+    await activityButton(page).click()
+    await reopenLinkedSubWindow(window, await expectActivityOpened(page, count))
+    await expect(window.getByRole("textbox", { name: "Filter by branch or text" })).toHaveValue("")
+    await expect(window.getByTestId("activity-title")).toHaveCount(2)
   })
 
   testWithIssueLinks("should offer the Undo of a squash while the toast's lasts", async ({ page }) => {
@@ -97,10 +117,10 @@ testWithIssueLinks.describe("Activity", () => {
     await expect(dialog).toBeHidden()
     await verifyCommitCount(row, "3 commits")
 
-    const popover = await openActivity(page)
-    const entry = activityEntry(popover, "Squashed 2 commits")
+    const window = await openActivityWindow(page)
+    const entry = activityEntry(window, "Squashed 2 commits")
     await expect(entry).toHaveAttribute("data-kind", "rewrite")
-    // the Undo of Activity is the toast's: it undoes once and closes the toast
+    // the Undo of Activity is the toast's, run by the main window: it undoes once and closes the toast
     await entry.getByTestId("activity-undo").click()
     await expect(entry.getByTestId("activity-undone")).toHaveText("undone")
     await expect(entry.getByTestId("activity-undo")).toHaveCount(0)
@@ -111,11 +131,41 @@ testWithIssueLinks.describe("Activity", () => {
   testWithIssueLinks("should clear the log of the repository", async ({ page }) => {
     await routePush(page, {})
     await getPushButton(findBranchRow(page, "feature-auth")).click()
-    const popover = await openActivity(page)
-    await expect(activityEntry(popover, "Pushed feature-auth")).toBeVisible()
-    await popover.getByTestId("activity-clear").click()
-    await expect(popover).toBeHidden()
+    const window = await openActivityWindow(page)
+    await expect(activityEntry(window, "Pushed feature-auth")).toBeVisible()
+    await window.getByTestId("activity-clear").click()
+    // the main window forgot it: no button, and the window says it
     await expect(activityButton(page)).toHaveCount(0)
+    await expect(window.getByTestId("activity-empty")).toHaveText("Nothing yet: what Branch Deck does in the repository shows here")
+    await expect(window.getByTestId("activity-clear")).toBeDisabled()
+  })
+})
+
+test.describe("Activity of the selected repository", () => {
+  test("should follow the repository the main window shows", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("simple", { prepopulateStore: true })
+    // a second recent project, which git cannot read: a log of its own, empty
+    const otherPath = "/nonexistent/branch-deck-e2e-other"
+    await page.addInitScript(path => {
+      ;(window as unknown as { __TAURI_STORE__: { recentProjects: { path: string }[] } }).__TAURI_STORE__.recentProjects.push({ path })
+    }, otherPath)
+    await page.reload()
+    await syncAndWaitForBranches()
+    await routePush(page, {})
+    await getPushButton(findBranchRow(page, "test-branch")).click()
+    const window = await openActivityWindow(page)
+    await expect(activityEntry(window, "Pushed test-branch")).toBeVisible()
+    const titles = (await windowCalls(window)).filter(call => call === "set_title").length
+
+    await page.getByRole("combobox").click()
+    await page.getByRole("option", { name: "branch-deck-e2e-other" }).click()
+    await expect(window.getByTestId("activity-empty")).toHaveText("Nothing yet: what Branch Deck does in the repository shows here")
+    // the title names the repository shown now
+    await expect.poll(async () => (await windowCalls(window)).filter(call => call === "set_title").length).toBeGreaterThan(titles)
+
+    await page.getByRole("combobox").click()
+    await page.getByRole("option", { name: repo.path.split("/").at(-1)! }).click()
+    await expect(activityEntry(window, "Pushed test-branch")).toBeVisible()
   })
 })
 
@@ -136,8 +186,33 @@ test.describe("Activity of updates", () => {
     // after the landing indicator, apart from it
     expect(button!.x).toBeGreaterThanOrEqual(landing!.x + landing!.width)
 
-    const popover = await openActivity(page)
-    await expect(activityEntry(popover, "Updated master: rebased 1 commit onto origin/master")).toHaveAttribute("data-kind", "update")
+    const window = await openActivityWindow(page)
+    await expect(activityEntry(window, "Updated master: rebased 1 commit onto origin/master")).toHaveAttribute("data-kind", "update")
+  })
+
+  test("should open from the View menu of ☰ and from the native menu", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await useTitleBar(page, TITLE_BARS.gnome)
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+    await page.getByTestId("update-project-button").click()
+    await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
+
+    const window = await openActivityWindow(page, async () => {
+      await page.getByTestId("main-menu-button").click()
+      // File opens first; the open menu has the focus, → goes to View
+      await expect(page.getByRole("menuitem", { name: /Sync Branches/ })).toBeVisible()
+      await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[role=menu]") !== null)).toBe(true)
+      await page.keyboard.press("ArrowRight")
+      await page.getByRole("menuitem", { name: "Activity" }).click()
+    })
+    await expect(activityEntry(window, "Updated master: rebased 1 commit onto origin/master")).toBeVisible()
+    await expect(page.getByTestId("main-menu")).toHaveCount(0)
+
+    // the native item (macOS: Window → Activity) sends its command to the main window
+    const count = (await getOpenedSubWindows(page)).length
+    await waitForTauriListener(page, "open_activity")
+    await emitTauriEvent(page, "open_activity")
+    expect((await expectActivityOpened(page, count)).data.kind).toBeNull()
   })
 
   test("should record a refused update", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -149,8 +224,8 @@ test.describe("Activity of updates", () => {
     await page.keyboard.press("Escape")
     await expect(dialog).toBeHidden()
 
-    const popover = await openActivity(page)
-    const entry = activityEntry(popover, "Didn't update master")
+    const window = await openActivityWindow(page)
+    const entry = activityEntry(window, "Didn't update master")
     await expect(entry.getByTestId("activity-description")).toHaveText("Conflicts in 1 file: src/app.txt. Nothing was changed.")
   })
 
@@ -173,8 +248,8 @@ test.describe("Activity of updates", () => {
     await expect(chip).toHaveText("1 landed · 1 local")
 
     // the entry of the update keeps the report, with the rows of the island
-    const popover = await openActivity(page)
-    const entry = activityEntry(popover, "2 branches landed in origin/master")
+    const window = await openActivityWindow(page)
+    const entry = activityEntry(window, "2 branches landed in origin/master")
     await expect(entry.getByTestId("activity-description")).toHaveText("feature-auth and search · rebased 2 commits")
     await entry.getByTestId("activity-landed-toggle").click()
     const search = entry.getByTestId("activity-landed-report").locator('[data-testid="landed-branch"][data-branch-name="search"]')
@@ -182,7 +257,7 @@ test.describe("Activity of updates", () => {
     await search.getByRole("button", { expanded: false }).click()
     await expect(search.getByTestId("landed-commits")).toContainText("Add index")
 
-    // Dismiss from the entry clears the chips; the entry stays
+    // Dismiss from the entry, run by the main window, clears the chips; the entry stays
     await entry.getByTestId("activity-landed-dismiss").click()
     await expect(chip).toHaveCount(0)
     await expect(entry.getByTestId("activity-landed-dismiss")).toHaveCount(0)

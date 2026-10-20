@@ -65,7 +65,16 @@ export function LandingIndicator({ renderPullRequest, footer }: LandingIndicator
         )}
         <LandingBar overview={overview} />
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-auto max-w-2xl min-w-96 gap-3 p-3" data-testid="landing-popover">
+      {/*
+        at most the height left below the button, as a dropdown: the sections scroll, the title and the footer stay; it
+        never moves beside the button, where a tall overview would go
+      */}
+      <PopoverContent
+        align="end"
+        collisionAvoidance={{ fallbackAxisSide: "none" }}
+        className="max-h-(--available-height) w-auto max-w-2xl min-w-96 gap-3 p-3"
+        data-testid="landing-popover"
+      >
         <Suspense fallback={null}>
           <LandingPopover overview={overview} onClose={() => setOpen(false)} renderPullRequest={renderPullRequest} footer={footer} />
         </Suspense>

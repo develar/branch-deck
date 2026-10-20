@@ -47,4 +47,9 @@ describe("minSubWindowSize", () => {
     expect(minSubWindowSize("settings", 1.25)).toEqual({ width: 700, height: 420 })
     expect(minSubWindowSize("settings", 1.5)).toEqual({ width: 840, height: 420 })
   })
+
+  it("is smaller still for Activity, and wider above 110%", () => {
+    expect(minSubWindowSize("activity", 1)).toEqual({ width: 440, height: 400 })
+    expect(minSubWindowSize("activity", 1.25)).toEqual({ width: 500, height: 400 })
+  })
 })

@@ -23,6 +23,13 @@ const MIN_SETTINGS_WINDOW_WIDTH: f64 = 600.0;
 const MIN_SETTINGS_WINDOW_HEIGHT: f64 = 420.0;
 const MIN_SETTINGS_ISLANDS_WIDTH: f64 = 560.0;
 
+/// The Activity window: its search above one column of entries fits from 440 × 400 px; the entries need 400 CSS px, so
+/// a zoom above 110% widens it. Keep in sync with `minSubWindowSize` in `src/lib/zoom.ts`.
+const ACTIVITY_WINDOW_LABEL: &str = "activity";
+const MIN_ACTIVITY_WINDOW_WIDTH: f64 = 440.0;
+const MIN_ACTIVITY_WINDOW_HEIGHT: f64 = 400.0;
+const MIN_ACTIVITY_ISLANDS_WIDTH: f64 = 400.0;
+
 /// The zoom level of the pages, saved as `appSettings.zoom` (`src/stores/settings/appSettings.ts`, absent at 100%).
 /// `store_json` is the content of `settings.json` that the window gets as `window.__TAURI_STORE__`.
 pub fn stored_zoom(store_json: &str) -> f64 {
@@ -40,10 +47,10 @@ pub fn min_window_width(zoom: f64) -> f64 {
 
 /// The minimum size (width, height) of the sub-window `label` at `zoom`
 pub fn sub_window_min_size(label: &str, zoom: f64) -> (f64, f64) {
-  if label == SETTINGS_WINDOW_LABEL {
-    (MIN_SETTINGS_WINDOW_WIDTH.max(MIN_SETTINGS_ISLANDS_WIDTH * zoom), MIN_SETTINGS_WINDOW_HEIGHT)
-  } else {
-    (MIN_SUB_WINDOW_WIDTH.max(MIN_SUB_WINDOW_ISLANDS_WIDTH * zoom), MIN_SUB_WINDOW_HEIGHT)
+  match label {
+    SETTINGS_WINDOW_LABEL => (MIN_SETTINGS_WINDOW_WIDTH.max(MIN_SETTINGS_ISLANDS_WIDTH * zoom), MIN_SETTINGS_WINDOW_HEIGHT),
+    ACTIVITY_WINDOW_LABEL => (MIN_ACTIVITY_WINDOW_WIDTH.max(MIN_ACTIVITY_ISLANDS_WIDTH * zoom), MIN_ACTIVITY_WINDOW_HEIGHT),
+    _ => (MIN_SUB_WINDOW_WIDTH.max(MIN_SUB_WINDOW_ISLANDS_WIDTH * zoom), MIN_SUB_WINDOW_HEIGHT),
   }
 }
 

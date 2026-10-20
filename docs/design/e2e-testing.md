@@ -161,7 +161,9 @@ Mock implementation:
     that closes the window is the `close` of `__e2eWindowCalls` of its page. `tests/e2e/review-requests/review-requests.spec.ts`
     reviews and writes in the `pull-request-review` window this way. A write of the settings in the window reaches the
     main window, which saves it in the store of the test server (`testStore`); `reopenLinkedSubWindow` hands the shown
-    window a later open, as the backend does. The Settings window is always linked: `openSettingsWindow` of
+    window a later open, as the backend does. The Activity window is always linked too (`openActivityWindow` of
+    `activity-helpers.ts`: the main window sends it the log, and runs its reveal, Undo, Dismiss and Clear Log). The
+    Settings window is always linked: `openSettingsWindow` of
     `settings-helpers.ts` fires `open_settings` in the main window's page once it listens (`waitForTauriListener`; an
     event fired before a lazy page registered its listener is lost) and shows the open, `expectSettingsOpened` checks
     that it is the only new one. A write of Settings → Repository (`set_repository_config`) is answered by the test

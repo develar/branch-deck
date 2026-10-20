@@ -7,7 +7,7 @@ import { logError } from "@/lib/errors"
  * `src/lib/main-menu.ts`) and its keys (`useMainMenuKeys`). The window that runs a command registers it
  * (`useAppCommand`); one that doesn't (a sub-window for Sync) sends it to the main window as the native menu does.
  */
-export type AppCommand = "sync_branches" | "update_project" | "open_settings" | "zoom" | "install_agent_cli" | "check_for_updates"
+export type AppCommand = "sync_branches" | "update_project" | "open_settings" | "open_activity" | "zoom" | "install_agent_cli" | "check_for_updates"
 
 const handlers = new Map<AppCommand, (payload: unknown) => void>()
 

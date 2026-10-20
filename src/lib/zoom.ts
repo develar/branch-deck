@@ -30,12 +30,15 @@ export function minWindowWidth(zoom: number): number {
 const MIN_SUB_WINDOW = { width: 800, height: 500, islandsWidth: 640 } as const
 /** The sidebar of Settings beside a page fits from 600 × 420 px; the page needs 560 CSS px */
 const MIN_SETTINGS_WINDOW = { width: 600, height: 420, islandsWidth: 560 } as const
+/** The search above the entries of Activity fits from 440 × 400 px; the entries need 400 CSS px */
+const MIN_ACTIVITY_WINDOW = { width: 440, height: 400, islandsWidth: 400 } as const
 
 /**
  * The minimum size of the sub-window `label` at `zoom`, as `sub_window_min_size` in `src-tauri/src/zoom.rs`: a zoom
- * that needs more than the window's own minimum for its islands widens it (above 125% for a review, 107% for Settings)
+ * that needs more than the window's own minimum for its islands widens it (above 125% for a review, 107% for Settings,
+ * 110% for Activity)
  */
 export function minSubWindowSize(label: string, zoom: number): { width: number; height: number } {
-  const min = label === "settings" ? MIN_SETTINGS_WINDOW : MIN_SUB_WINDOW
+  const min = label === "settings" ? MIN_SETTINGS_WINDOW : label === "activity" ? MIN_ACTIVITY_WINDOW : MIN_SUB_WINDOW
   return { width: Math.max(min.width, min.islandsWidth * zoom), height: min.height }
 }

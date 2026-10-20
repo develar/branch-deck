@@ -54,11 +54,14 @@ export function askMainWindow<Request extends LinkedWindowRequest>(label: string
   )
 }
 
-/** The state the main window sends for the window's repository, from the one the window opened with */
-export function useLinkedState<State extends { readonly repositoryPath: string }>(label: string, initial: State): State {
+/**
+ * The state the main window sends for the window's repository, from the one the window opened with; with
+ * `anyRepository` the state of whichever repository the main window shows (a window that follows its selection)
+ */
+export function useLinkedState<State extends { readonly repositoryPath: string }>(label: string, initial: State, { anyRepository = false } = {}): State {
   const [state, setState] = useState(initial)
   useTauriListen<State>(windowLinkEvents(label).state, payload => {
-    if (payload.repositoryPath === initial.repositoryPath) {
+    if (anyRepository || payload.repositoryPath === initial.repositoryPath) {
       setState(payload)
     }
   })

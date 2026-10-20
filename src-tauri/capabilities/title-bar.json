@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "title-bar",
   "description": "The title bar every page draws (src-tauri/src/title_bar.rs): the window state, dragging, the double click, the window buttons, the title and the minimum size",
-  "windows": ["main", "missing-commits", "conflicting-files", "branch-review", "pull-request-review", "commit-review", "settings"],
+  "windows": ["main", "missing-commits", "conflicting-files", "branch-review", "pull-request-review", "commit-review", "settings", "activity"],
   "permissions": [
     "core:window:default",
     "core:window:allow-start-dragging",

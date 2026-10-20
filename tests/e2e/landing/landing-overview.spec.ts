@@ -1,12 +1,14 @@
 // @spec spec/repository/landing-overview.spec.md
 import type { PatronusRobotDetails } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
+import { expectActivityOpened } from "../helpers/activity-helpers"
 import { findBranchRow, getPushButton, verifyBranchState } from "../helpers/branch-helpers"
 import { expectColumnAligned } from "../helpers/column-helpers"
 import { AWAITING_CODE_OWNER, DAY_ROBOTS, NO_REVIEW_NEEDED, ROBOTS_NOW, availableRobots, minutes, robot, setupRobots } from "../helpers/patronus-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { pushedToast, routePush } from "../helpers/push-helpers"
 import { EARLIER_COMMIT, landingRow, openLandingOverview } from "../helpers/review-status-helpers"
+import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
 import { routeCommand } from "../helpers/wait-helpers"
 
 const NOW = ROBOTS_NOW
@@ -32,28 +34,67 @@ test.describe("Landing overview", () => {
     // the most urgent first: the failed robot with its actions
     const moves = popover.getByTestId("landing-your-move")
     await expect(moves.getByTestId("robots-row").first()).toHaveAttribute("data-branch-name", "ABC-123")
-    await expect(moves.getByTestId("robots-row").first().getByTestId("robots-row-state")).toHaveText("Safe Push · Failed · 50 minutes ago")
+    await expect(moves.getByTestId("robots-row").first().getByTestId("robots-row-state")).toHaveText("Failed · 50 minutes ago")
     await expect(moves.getByTestId("landing-row")).toHaveCount(4)
     const running = popover.getByTestId("landing-running").getByTestId("robots-row")
     await expect(running).toHaveAttribute("data-branch-name", "JIRA-456")
-    await expect(running.getByTestId("robots-row-state")).toHaveText("Safe Push · 18m · ~22m")
+    await expect(running.getByTestId("robots-row-state")).toHaveText("18m · ~22m")
     await expect(running.getByTestId("robot-progress")).toHaveAttribute("aria-valuenow", "45")
     await expect(landingRow(popover.getByTestId("landing-in-master"), "feature-db").getByTestId("landing-row-reason")).toHaveText("Merged by Patronus")
     // the reason of a row is the hover of its node: the state in full, what it names opens from there
     await landingRow(popover.getByTestId("landing-in-master"), "feature-db").getByTestId("landing-row-reason").hover()
     await expect(page.getByTestId("lane-node-details")).toHaveText("Merged by Patronus")
-    // the last day without what the In master row says: a branch archived since, no row to show
-    const finished = popover.getByTestId("landing-finished").getByTestId("robots-row")
-    await expect(finished).toHaveCount(1)
-    await expect(finished).toHaveAttribute("data-branch-name", "billing")
-    await expect(finished.getByRole("button", { name: "billing", exact: true })).toHaveCount(0)
-    await finished.getByRole("button", { name: "Open Safe Push of billing in Patronus" }).click()
-    expect(await getOpenedUrls(page)).toEqual([ARCHIVED.url])
+    // the last day in one line, without what the In master row says: a branch archived since; its history is Activity
+    const finished = popover.getByTestId("landing-finished")
+    await expect(finished).toContainText("billing merged in the last 24 hours")
+    await expect(popover.getByTestId("robots-row").filter({ hasText: "billing" })).toHaveCount(0)
+    // the title stays at the top, the line and the footer at the bottom, the sections scroll between them
+    await expect(popover.getByTestId("landing-sections")).toHaveCSS("overflow-y", "auto")
 
     // a branch name shows its row
     await running.getByRole("button", { name: "JIRA-456", exact: true }).click()
     await expect(popover).toBeHidden()
     await verifyBranchState(findBranchRow(page, "JIRA-456"), "open")
+    await page.mouse.move(0, 0)
+
+    // Activity has the history of the robots: Show in Activity opens it at its Robots
+    const count = (await getOpenedSubWindows(page)).length
+    await (await openLandingOverview(page)).getByTestId("landing-finished").getByRole("button", { name: "Show in Activity" }).click()
+    await expect(popover).toBeHidden()
+    expect((await expectActivityOpened(page, count)).data.kind).toBe("robots")
+  })
+
+  test("should queue the robots nearest to finishing first, and fit the window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // a Safe Push usually takes 40 minutes: ABC-123 has 10 left, JIRA-456 22; a Dry Run lands nothing, it comes last
+    const history = [1, 2].map(n => robot(`merged-${n}`, `history-${n}`, { status: "success", startTime: NOW - minutes(60 * n + 40), finishTime: NOW - minutes(60 * n) }))
+    await page.setViewportSize({ width: 1280, height: 420 })
+    await setupRobots(
+      page,
+      setupRepo,
+      syncAndWaitForBranches,
+      RUNNING,
+      robot("ABC-123", "abc-robot", { startTime: NOW - minutes(30) }),
+      robot("feature-auth", "dry-robot", { pushMode: "dryRun", startTime: NOW - minutes(35) }),
+      ...history,
+    )
+    const popover = await openLandingOverview(page)
+    const running = popover.getByTestId("landing-running")
+    await expect(running.getByRole("heading")).toHaveText("Landing · 2 · 1 dry run")
+    await expect(running.getByTestId("robots-row-state")).toHaveText(["30m · ~10m", "18m · ~22m", /^Dry Run · 35m/])
+    expect(await running.getByTestId("robots-row").evaluateAll(rows => rows.map(row => row.getAttribute("data-branch-name")))).toEqual(["ABC-123", "JIRA-456", "feature-auth"])
+
+    // below its button, as a dropdown, never beside it, and above the bottom of the window: the line of the last day
+    // stays, the sections scroll
+    const box = await popover.boundingBox()
+    const button = await page.getByTestId("landing-indicator").boundingBox()
+    expect(box!.y).toBeGreaterThanOrEqual(button!.y + button!.height)
+    expect(box!.y + box!.height).toBeLessThanOrEqual(420)
+    await expect(popover.getByTestId("landing-finished")).toBeInViewport()
+    const sections = popover.getByTestId("landing-sections")
+    expect(await sections.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
+    await running.getByTestId("robots-row").last().scrollIntoViewIfNeeded()
+    await expect(running.getByTestId("robots-row").last()).toBeInViewport()
+    await expect(popover.getByTestId("landing-finished")).toBeInViewport()
   })
 
   test("should cancel a running robot from the overview", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -64,7 +105,7 @@ test.describe("Landing overview", () => {
     // the toast comes with the answer of the cancel: the request reached the backend by then
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push is canceling" })).toBeVisible()
     expect(cancels).toEqual([expect.objectContaining({ robotId: "running-robot" })])
-    await expect(popover.getByTestId("landing-running").getByTestId("robots-row-state")).toHaveText("Safe Push · Canceling")
+    await expect(popover.getByTestId("landing-running").getByTestId("robots-row-state")).toHaveText("Canceling")
   })
 
   test("should restart a failed robot from the overview, and open the pull request it was started from", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -84,8 +125,9 @@ test.describe("Landing overview", () => {
     ])
     await row.getByRole("button", { name: "Open Pull Request #7 of ABC-123" }).click()
     expect(await getOpenedUrls(page)).toEqual([pullRequest.url])
-    // the mode of the robot is a link to it
-    await row.getByTestId("robots-row-mode").click()
+    // ↗ opens the robot; a Safe Push goes without its mode
+    await expect(row.getByTestId("robots-row-mode")).toHaveCount(0)
+    await row.getByRole("button", { name: "Open Safe Push of ABC-123 in Patronus" }).click()
     expect(await getOpenedUrls(page)).toEqual([pullRequest.url, FAILED.url])
     await row.getByRole("button", { name: "Restart Safe Push of ABC-123" }).click()
     expect(restarts).toEqual([expect.objectContaining({ robotId: "failed-robot" })])
@@ -119,8 +161,11 @@ test.describe("Landing overview", () => {
     const indicator = page.getByTestId("landing-indicator")
     await expect(indicator).toHaveAttribute("data-urgent", "needsFix")
     const popover = await openLandingOverview(page)
-    const running = popover.getByTestId("landing-running").getByTestId("robots-row")
-    await expect(running.getByTestId("robots-row-state")).toHaveText("Safe Push · 18m · Failing")
+    // no use waiting for it: a move, not landing
+    await expect(popover.getByTestId("landing-running")).toHaveCount(0)
+    const running = popover.getByTestId("landing-your-move").getByTestId("robots-row")
+    await expect(running).toHaveAttribute("data-branch-name", "JIRA-456")
+    await expect(running.getByTestId("robots-row-state")).toHaveText("18m · Failing")
     await expect(running.getByTestId("robots-row-failed")).toHaveText("Failed: Bazel Community Build Aggregator")
     await expect(running.getByTestId("robot-progress")).toHaveAttribute("data-failing", "true")
     await page.keyboard.press("Escape")

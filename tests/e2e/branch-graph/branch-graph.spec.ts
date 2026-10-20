@@ -66,11 +66,11 @@ test.describe("Branch graph", () => {
     await row.getByTestId("lane-node-target").hover()
     const details = page.getByTestId("lane-node-details")
     await expect(details.getByText("Safe Push failed on ABC-123 as it is: fix it, or Restart Safe Push")).toBeVisible()
-    // the issue key is a link to the tracker, the mode of the robot opens it in Patronus
+    // the issue key is a link to the tracker, ↗ opens the robot in Patronus
     await expect(details.getByRole("link", { name: "ABC-123" })).toHaveAttribute("href", "https://jira.example.com/browse/ABC-123")
     const robotRow = details.getByTestId("lane-node-robot").getByTestId("robots-row")
-    await expect(robotRow.getByTestId("robots-row-state")).toHaveText(/^Safe Push · Failed · /)
-    await robotRow.getByRole("button", { name: "Safe Push", exact: true }).click()
+    await expect(robotRow.getByTestId("robots-row-state")).toHaveText(/^Failed · /)
+    await robotRow.getByRole("button", { name: "Open Safe Push of ABC-123 in Patronus" }).click()
     expect(await getOpenedUrls(page)).toEqual([failed.url])
 
     // the fix: the prompt for an agent; the actions of the robot as in the landing overview, the row stays as it was
