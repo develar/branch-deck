@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ActiveBranchExpanded, CommitRail } from "@/components/branch/ActiveBranchExpanded"
 import { BranchActions, BranchMenuItems } from "@/components/branch/BranchActions"
+import { ColumnTrack } from "@/components/branch/BranchColumns"
 import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
 import { BranchNameCell } from "@/components/branch/BranchNameCell"
 import { BranchRowStatus } from "@/components/branch/BranchRowStatus"
@@ -22,6 +23,7 @@ import { beginCommitDrag, useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { useListFixups } from "@/hooks/useSquashFixups"
 import { formatBranchesAndCommits } from "@/lib/branch"
+import { TRACK_GROUP_CLASS } from "@/lib/branch-columns"
 import { inTableOrder } from "@/lib/branch-selection"
 import { formatCommitCount } from "@/lib/commit"
 import { isRobotActive } from "@/lib/patronus"
@@ -244,26 +246,27 @@ export const BranchRow = memo(function BranchRow({
           onToggleExpanded={toggle}
         />
         <td className="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap sm:table-cell">
-          <span className="text-sm text-muted-foreground">{branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}</span>
+          <ColumnTrack track="commits">
+            <span className="text-sm text-muted-foreground">{branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}</span>
+          </ColumnTrack>
         </td>
+        {/*
+          the tracks of the Status column, so each chip kind keeps its column across the rows of every card: the state of
+          the branch (its robot, else the status text), the pull request chip, then the Landed chip, the robot of a
+          branch built on it that lands it, or "on master" of a branch built elsewhere
+        */}
         <td className="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap sm:table-cell">
-          {/*
-            three columns, so each chip kind keeps its column across rows: the state of the branch (its robot, else the
-            status text) in a fixed width, so a robot that arrives with the answer of Patronus moves no chip, the pull
-            request chip, then the Landed chip, the robot of a branch built on it that lands it, or "on master" of a
-            branch built elsewhere; `justify-start` keeps the auto columns at their content width
-          */}
-          <div className="grid grid-cols-[9rem_auto_auto] items-center justify-start gap-2">
-            <div className="flex min-w-0">
+          <div className={cn("flex items-center", TRACK_GROUP_CLASS.status)}>
+            <ColumnTrack track="state">
               <BranchRowStatus branch={branch} />
-            </div>
-            <div className="col-start-2 flex">
+            </ColumnTrack>
+            <ColumnTrack track="pr">
               <PullRequestChip branchName={name} />
-            </div>
-            <div className="col-start-3 flex items-center gap-2">
+            </ColumnTrack>
+            <ColumnTrack track="landed" className="gap-2">
               <LandedChip branchName={name} />
               <LandingSpanLabel name={name} fallback={<PassedParentLabel branch={branch} />} />
-            </div>
+            </ColumnTrack>
           </div>
         </td>
         <td className="w-px px-4 py-(--bd-cell-y) whitespace-nowrap">

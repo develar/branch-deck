@@ -20,7 +20,7 @@ export interface MoreActionsMenuProps {
 }
 
 /**
- * The "⋯" button of a row, inside its `RowActions` (a click doesn't toggle the row): the menu its right-click opens,
+ * The "⋯" button of a row, inside its `ActionTracks` or `RowActions` (a click doesn't toggle the row): the menu its right-click opens,
  * under a button, so its actions are found without knowing the right-click.
  */
 export function MoreActionsMenu({ name, menu, disabled = false, busy = null }: MoreActionsMenuProps) {

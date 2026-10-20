@@ -215,7 +215,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
 
 ### The surfaces
 
-- The slot (`NextStepSlot`, `w-40` in every row) renders the step, and hosts the popover of the branch's start
+- The slot (`NextStepSlot`, the step column of the Actions cell, [Branch columns](../../docs/design/ui-theme.md#branch-columns)) renders the step, and hosts the popover of the branch's start
   (`SafePushPopover`, anchored to the slot); "⋯" has "Safe Push" (S), "Safe Push With Profile…", "Dry Run" and "Check
   Approvals Again" (`check-approvals`, always enabled), each disabled with the reason of the step, and "Retarget #7 to
   master" for any open pull request into another base; S on the focused row opens the popover, or, disabled, says why in
@@ -298,7 +298,8 @@ branch from all the facts (the branch, its robots, its pull request and the read
 
 ## User Experience
 
-- The slot is `w-40`, its step a ghost `xs` button; disabled, it keeps the focus and the hover
+- The slot is as wide as the widest step of the view, at most 10rem (a longer label truncates, the hover says it), its
+  step a ghost `xs` button; disabled, it keeps the focus and the hover
   (`focusableWhenDisabled`), dimmed to `opacity-50`. A quiet step is muted, Changes Requested `text-destructive`.
 - Wording follows [UX Writing](../../docs/guidelines/ux-writing.md): Title Case for the steps, sentence case for the
   reasons, people by their full name (the login without one).

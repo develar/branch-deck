@@ -3,6 +3,8 @@ import type { Locator, Page } from "@playwright/test"
 import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchDetailsRow, getStackChip } from "../helpers/branch-helpers"
+import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
+import { columnLefts, expectColumnAligned } from "../helpers/column-helpers"
 import { NO_REVIEW_NEEDED, availableRobots, mergeRunningRobot, mergeRunningRobots, robot, routeReviewRequirement, setupRunningRobot } from "../helpers/patronus-helpers"
 import { availablePullRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { pushOutcome, routeHeldPush, routePush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
@@ -74,6 +76,30 @@ test.describe("Stack island", () => {
     await expandBranch(page, findBranchRow(page, "bazel"))
     await expect(page.locator("[data-testid=branch-commit-lines-row][data-branch-of=bazel]")).toHaveCount(0)
     await expect(getBranchDetailsRow(page, "bazel").locator("tr[data-row-id]").first()).toContainText("Build the deploy jar, part 1")
+  })
+
+  test("should line up the columns of the table, the island and its header, whatever each card shows", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the Safe Push of deploy lands the main line: those rows say "lands with deploy" after their status, the rows of the
+    // table say nothing there, and the header of the island has no step while it runs
+    await setupRepo("stack_island", { patronus: availableRobots(robot("deploy", "deploy-robot")) })
+    await syncAndWaitForBranches()
+    const air = island(page, "air")
+    await expect(findBranchRow(page, "air").getByTestId("landing-span")).toHaveText("lands with deploy")
+    await expect(findBranchRow(page, "docs").getByTestId("landing-span")).toHaveCount(0)
+    await expect(air.getByTestId("stack-island-actions").getByTestId("next-step-slot")).toHaveCount(0)
+    const rowTrack = (track: string) => page.getByTestId("branch-row").locator(`[data-track=${track}]`)
+    // the rows of the table and of the island
+    for (const track of ["commits", "state", "landed", "step", "more"]) {
+      await expectColumnAligned(rowTrack(track))
+    }
+    // the header's actions stand in the tracks of the rows' actions: its "⋯" over theirs, though its slot is empty
+    await expectColumnAligned(page.locator("[data-track=more]"))
+    expect(await columnLefts(air.getByTestId("stack-island-actions").locator("[data-track=more]"))).toEqual(await columnLefts(rowTrack("more")))
+
+    // ⌘C on a row of the island copies its full name, as in the table
+    await findBranchRow(page, "bazel").focus()
+    await pressCopyKey(page)
+    await expect.poll(() => readClipboard(page)).toBe("user-name/virtual/bazel")
   })
 
   test("should collapse the island into its header, per repository", async ({ page, setupRepo, syncAndWaitForBranches }) => {

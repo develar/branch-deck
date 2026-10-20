@@ -10,7 +10,7 @@ import type {
   TargetCheck,
 } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
+import { expectNothingToPush, findBranchRow, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
 import { APPROVED_BY_CODE_OWNER, availableRobots, robot, routeReviewRequirement, setupRobots } from "../helpers/patronus-helpers"
 import {
   availablePullRequests,
@@ -1057,9 +1057,8 @@ test.describe("Patronus actions", () => {
     test("should offer no push: it won't land, and the menu says why", async ({ page }) => {
       const pushes = await routeCommand(page, "push_branch", params => pushOutcome(params.branchName as string))
       const row = findBranchRow(page, "JIRA-456")
-      // the place of the push stays empty, as the Safe Push slot's does; the Status cell shows the robot
-      await expect(getPushButton(row)).toHaveCount(0)
-      await expect(row.getByTestId("push-placeholder")).toHaveCount(1)
+      // no push, as the Safe Push slot has no step; the Status cell shows the robot
+      await expectNothingToPush(row)
       await expect(row.getByTestId("next-step-slot")).toHaveAttribute("data-step", "none")
       // P does nothing on the row
       await row.focus()

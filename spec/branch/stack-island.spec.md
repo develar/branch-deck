@@ -115,8 +115,10 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should offer the close of the pull request of the whole stack in the island header once it no longer matches`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say in the popover of the whole stack only what holds: the branches on the remote stay, no approvals where none are needed`)
-- The header must end with the Actions cell of a branch row, for the whole stack, at the widths of the rows below, so
-  the columns line up: the compact push, the Safe Push slot and "⋯". No filled button: a push is not what lands the
+- The header must end with the Actions cell of a branch row, for the whole stack, its push, Safe Push slot and "⋯"
+  in the columns of the rows' ([Branch columns](../../docs/design/ui-theme.md#branch-columns)), also while its slot is
+  empty: the compact push, the Safe Push slot and "⋯".
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should line up the columns of the table, the island and its header, whatever each card shows`) No filled button: a push is not what lands the
   stack.
 - The push is the compact push of a row: "↑ 41", the commits of "Push with Children (7 branches)" of the root, its
   accessible name, as the root's menu names it: the branches of the stack that have work for the remote, each after
@@ -190,7 +192,8 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
 ### Rows and commits
 
 - The rows of the island must be the rows of the branch table: the stack graph, the Status cell, the Actions cell, the
-  menu; a table of its own without the column heads, with a lane column as wide as its stack.
+  menu; a table of its own without the column heads, with a lane column as wide as its stack, its other columns those
+  of the branch table ([Branch Row](branch-row.spec.md#columns)).
 - Each branch must show its commits below its row while the row is not expanded, a line each on its lane
   (`StackCommitLines`): subject, short hash, the short time of the commit ("Today 2:32 PM", "Oct 3"); the push arrow on a commit the remote lacks (`unpushedCommits`), a
   muted subject for one the remote has, and for one a merged Safe Push landed (`isLandedCommit`: every commit of a

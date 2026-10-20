@@ -14,16 +14,17 @@ export function BranchStatusBadge({ branch }: { branch: Branch }) {
   const status = useStatusBadge(branch)
   const exceptional = status.badge === true
   return (
-    <div>
+    // the item of the state track truncates it at the cap of the track
+    <div className="min-w-0">
       <Tooltip>
         <TooltipTrigger
           delay={300}
           // the texts are lower case already ("blocked by IJPL-123" keeps its issue key); E2E reads the `branch-status` test id
           render={
             exceptional ? (
-              <Badge variant={subtleBadgeVariant(status.color)} className="block max-w-40 truncate tabular-nums" data-testid="branch-status" />
+              <Badge variant={subtleBadgeVariant(status.color)} className="block max-w-full truncate tabular-nums" data-testid="branch-status" />
             ) : (
-              <span className="flex max-w-40 items-center gap-2 text-sm text-muted-foreground tabular-nums" />
+              <span className="flex max-w-full items-center gap-2 text-sm text-muted-foreground tabular-nums" />
             )
           }
         >

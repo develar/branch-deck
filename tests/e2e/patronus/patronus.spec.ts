@@ -4,6 +4,7 @@ import type { PatronusRobotProfile } from "../../../src/lib/bindings"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
 import { expectNothingToPush, findBranchRow, getBranchCells, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
+import { expectColumnAligned } from "../helpers/column-helpers"
 import { availableRobots, robot, unavailableRobots } from "../helpers/patronus-helpers"
 import { getOpenedUrls } from "../helpers/pull-request-helpers"
 import { EARLIER_COMMIT, hoverStatusChip, landingRow, openBranchPreview, openLandingOverview, pushBranchFromRow, switchBranchPreview } from "../helpers/review-status-helpers"
@@ -85,9 +86,9 @@ test.describe("Patronus chip", () => {
     await expect(getSlot(page, "feature-api")).toHaveAttribute("data-step", "safePush")
     await expect(getSlot(page, "feature-api").getByRole("button", { name: "Safe Push", exact: true })).toBeEnabled()
     await expect(getSlot(page, "feature-auth")).toHaveAttribute("data-step", "safePush")
-    // the slot has one width in every row: the push buttons and "⋯" line up
-    const widths = await page.getByTestId("next-step-slot").evaluateAll(slots => slots.map(slot => slot.getBoundingClientRect().width))
-    expect(new Set(widths).size).toBe(1)
+    // the steps and "⋯" stand in their columns in every row, whatever the row shows before them
+    await expectColumnAligned(page.getByTestId("next-step-slot"))
+    await expectColumnAligned(page.getByTestId("branch-row").getByRole("button", { name: /^More actions for / }))
   })
 
   test("should restart a failed robot from its row, the state staying in the Status cell", async ({ page }) => {

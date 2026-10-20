@@ -4,7 +4,7 @@ import type { MenuItem } from "@/lib/menu"
 import { getFullBranchName } from "@/stores/repository"
 
 /**
- * "Copy Full Branch Name" / "Copy Branch Name" context menu items.
+ * "Copy Full Branch Name" (⌘C on the focused row of a branch table) / "Copy Branch Name" context menu items.
  * `isFullPath`: `branchName` is already the full git branch name (archived branches), otherwise it is the virtual branch name.
  */
 export function getBranchCopyMenuItems(branchName: string, isFullPath = false): MenuItem[] {
@@ -13,6 +13,8 @@ export function getBranchCopyMenuItems(branchName: string, isFullPath = false): 
       id: "copy-full-branch-name",
       label: "Copy Full Branch Name",
       icon: CopyIcon,
+      // ⌘C on the focused row
+      kbds: ["mod", "c"],
       onSelect: () => void copyText(isFullPath ? branchName : getFullBranchName(branchName)),
     },
     {

@@ -1,8 +1,8 @@
 // @spec spec/branch/branch-row.spec.md
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureBranchTableSnapshot, captureContextMenuSnapshot } from "../helpers/aria-snapshot-helpers"
-import { findBranchRow, getBranchCells, expandBranch, collapseBranch, verifyBranchState, verifyBranchStatus, getCopyButton, verifyCommitCount } from "../helpers/branch-helpers"
-import { testCopyButton, testContextMenuCopy, readClipboard } from "../helpers/clipboard-helpers"
+import { findBranchRow, getBranchCells, expandBranch, collapseBranch, verifyBranchState, verifyBranchStatus, getMoreButton, verifyCommitCount } from "../helpers/branch-helpers"
+import { pressCopyKey, testContextMenuCopy, readClipboard } from "../helpers/clipboard-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openContextMenu } from "../helpers/selection-helpers"
 import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
@@ -34,14 +34,9 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await verifyBranchStatus(branchRow, "not pushed")
     await expect(actions).toBeVisible()
 
-    // the copy button is in the actions column, shown on the row hover: every row has it
-    const copyButton = getCopyButton(branchRow)
-    await expect(copyButton).toHaveCount(1)
-    await page.mouse.move(0, 0)
-    await expect(branchRow.locator(".copy-button")).toHaveCSS("opacity", "0")
-    await branchRow.hover()
-    await expect(branchRow.locator(".copy-button")).toHaveCSS("opacity", "1")
-    await page.mouse.move(0, 0)
+    // no copy button holds a place in the actions: ⌘C and the menu copy the name
+    await expect(getMoreButton(branchRow)).toBeVisible()
+    await expect(actions.getByRole("button", { name: /^Copy/ })).toHaveCount(0)
 
     // Verify expand button is present
     const expandButton = branchName.locator("button").first()
@@ -115,16 +110,18 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await testContextMenuCopy(page, "Copy Full Branch Name", /^[\w-]+\/virtual\/test-branch$/)
   })
 
-  test("should copy via copy button in actions column", async ({ page }) => {
+  test("should copy the full branch name with ⌘C on the focused row, the key hint of Copy Full Branch Name", async ({ page }) => {
     const branchRow = findBranchRow(page, "test-branch")
-
     await waitForBranchSyncComplete(page, "test-branch")
 
-    // Find the copy button
-    const copyButton = getCopyButton(branchRow)
+    await openContextMenu(page, branchRow)
+    await expect(page.getByRole("menuitem", { name: "Copy Full Branch Name" }).locator("kbd")).not.toHaveCount(0)
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("menu")).toHaveCount(0)
 
-    // Test copy button with tooltip feedback
-    await testCopyButton(page, copyButton, /^[\w-]+\/virtual\/test-branch$/)
+    await branchRow.focus()
+    await pressCopyKey(page)
+    await expect.poll(() => readClipboard(page)).toMatch(/^[\w-]+\/virtual\/test-branch$/)
   })
 
   test("should open the branch menu from the more actions button without toggling the row", async ({ page }) => {
@@ -173,66 +170,16 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await expect(page.getByTestId("inline-rename-input")).toBeVisible()
   })
 
-  test("should verify copy button visual states and icon changes", async ({ page }) => {
-    const branchRow = findBranchRow(page, "test-branch")
-
-    await waitForBranchSyncComplete(page, "test-branch")
-
-    // Find the copy button
-    const copyButton = getCopyButton(branchRow)
-
-    // shown on the row hover
-    await branchRow.hover()
-    await expect(branchRow.locator(".copy-button")).toHaveCSS("opacity", "1")
-
-    // Verify initial icon is copy icon (lucide-react icons carry their name as a `lucide-<name>` class)
-    const iconElement = copyButton.locator("svg.lucide")
-    const copyIcon = /(^|\s)lucide-copy(\s|$)/
-    await expect(iconElement).toHaveClass(copyIcon)
-
-    // Click the button to trigger copy
-    await copyButton.click()
-
-    // Verify icon changes to check mark
-    await expect(iconElement).toHaveClass(/(^|\s)lucide-copy-check(\s|$)/)
-
-    // Verify clipboard content was copied
-    const clipboardText = await readClipboard(page)
-    expect(clipboardText).toMatch(/^[\w-]+\/virtual\/test-branch$/)
-
-    // the "copied" state lasts 2 s: run the fake clock past it instead of a real wait, which a loaded machine overruns
-    await page.clock.fastForward(2000)
-
-    // Verify button reverts to initial state after timeout
-    await expect(iconElement).toHaveClass(copyIcon)
-
-    // First verify the "Copied" tooltip is no longer visible
-    const copiedTooltip = page.locator('[role="tooltip"]:has-text("Copied")')
-    await expect(copiedTooltip).not.toBeVisible()
-
-    // Move mouse away from button first and let the tooltip finish its exit animation
-    // (a tooltip reopened while its previous popup is still mounted may close again)
-    await page.mouse.move(0, 0)
-    await expect(page.locator('[role="tooltip"]')).toHaveCount(0)
-
-    // Then hover again to verify original tooltip shows
-    await copyButton.hover()
-
-    // Wait for tooltip with proper text
-    const revertedTooltip = page.locator('[role="tooltip"]:has-text("Copy full branch name")')
-    await expect(revertedTooltip).toBeVisible()
-  })
-
   test("should handle branch with commits state", async ({ page }) => {
     const branchRow = findBranchRow(page, "test-branch")
 
     await waitForBranchSyncComplete(page, "test-branch")
 
-    // Check actions column: copy, push and the branch menu ("Safe Push…" only on Space)
+    // Check actions column: the push and the branch menu ("Safe Push" only on Space)
     const { actions } = getBranchCells(branchRow)
     const buttons = actions.locator("button")
-    await expect(buttons).toHaveCount(3)
-    await expect(buttons.nth(2)).toHaveAccessibleName("More actions for test-branch")
+    await expect(buttons).toHaveCount(2)
+    await expect(buttons.nth(1)).toHaveAccessibleName("More actions for test-branch")
 
     // Capture HTML snapshot of the branch row with commits state
     await captureBranchTableSnapshot(page, branchRow, "branch-with-commits-state")

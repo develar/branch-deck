@@ -69,14 +69,6 @@ export function getUnassignedCommitRow(page: Page, subject: string): Locator {
   return page.getByTestId("unassigned-commits-section").locator("[data-row-id]").filter({ hasText: subject })
 }
 
-/**
- * Get the copy button from a branch row's actions cell
- */
-export function getCopyButton(branchRow: Locator): Locator {
-  const { actions } = getBranchCells(branchRow)
-  return actions.locator("button").first()
-}
-
 /** The chip after the name of a stack root: its size, the toggle of its collapse */
 export function getStackChip(row: Locator): Locator {
   return row.getByTestId("stack-chip")
@@ -97,10 +89,15 @@ export async function pushFromRowMenu(page: Page, branchName: string): Promise<v
   await page.getByRole("menuitem", { name: /^Push \(\d+\)/ }).click()
 }
 
-/** A pushed branch: its row has no push button, only its empty place, as the status says it is up to date */
+/** The "⋯" of a branch row's actions cell, the last of its actions */
+export function getMoreButton(branchRow: Locator): Locator {
+  return getBranchCells(branchRow).actions.getByRole("button", { name: /^More actions for / })
+}
+
+/** A row that offers no push (pushed, or its push a step of its landing): no push button, the rest of its actions there */
 export async function expectNothingToPush(branchRow: Locator): Promise<void> {
+  await expect(getMoreButton(branchRow)).toHaveCount(1)
   await expect(getPushButton(branchRow)).toHaveCount(0)
-  await expect(getBranchCells(branchRow).actions.getByTestId("push-placeholder")).toHaveCount(1)
 }
 
 /**

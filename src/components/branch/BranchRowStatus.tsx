@@ -68,7 +68,8 @@ function RunningRowRobot({ branchName, robot, chip }: { branchName: string; robo
   // "Safe Push: Failing": the time left is no use for a robot that will fail
   const label = canceling || failing ? formatRobotLabel(robot, chip) : `${formatRobotLabel(robot, chip)}, ${formatSpokenRobotProgress(timing)}`
   return (
-    <div className="relative flex min-w-0">
+    // as wide as "55m · usually ~40m" while it runs, so its time ticks without moving the columns
+    <div className="relative flex min-w-[18ch]">
       <RobotStatusChip branchName={branchName} robot={robot} chip={chip} label={label} className={ROW_ROBOT} stackPath>
         <RobotRing className={cn("size-3.5 shrink-0", robotRingColor(failing))} />
         <span className="truncate" data-testid="robot-time">

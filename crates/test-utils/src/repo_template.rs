@@ -207,6 +207,18 @@ pub mod templates {
   use std::fs;
   use std::path::Path;
 
+  /// The big stack of `stack_island` (and of each stack of `branch_table_large`): the chain from `air` to `deploy` with
+  /// the side chain of `side-fix` and `side-test` off `bazel`, as `(prefix, subject)` of its commits
+  const STACK_ISLAND_BRANCHES: [(&str, &str); 7] = [
+    ("air", "Add the agent"),
+    ("air/bazel", "Build the deploy jar"),
+    ("bazel/bridge", "Start the resident bridge"),
+    ("bridge/runtime", "Load the control runtime"),
+    ("bazel/side-fix", "Fix the jar manifest"),
+    ("runtime/deploy", "Deploy the runtime"),
+    ("side-fix/side-test", "Test the manifest"),
+  ];
+
   // File contents of the conflict scenarios, successive versions of one Kotlin project
   const BUILD_GRADLE: &str = include_str!("../fixtures/conflict/build.gradle.kts");
   const BUILD_GRADLE_BCRYPT: &str = include_str!("../fixtures/conflict/build.gradle.bcrypt.kts");
@@ -662,17 +674,8 @@ pub mod templates {
       .branch_prefix("user-name")
       .config("branchdeck.stacks", "true")
       .commit_with_timestamp("Initial project setup", &[("README.md", "# Air\n")], Some(1704117600));
-    let branches = [
-      ("air", "Add the agent"),
-      ("air/bazel", "Build the deploy jar"),
-      ("bazel/bridge", "Start the resident bridge"),
-      ("bridge/runtime", "Load the control runtime"),
-      ("bazel/side-fix", "Fix the jar manifest"),
-      ("runtime/deploy", "Deploy the runtime"),
-      ("side-fix/side-test", "Test the manifest"),
-    ];
     let mut time = 1704119400;
-    for (prefix, subject) in branches {
+    for (prefix, subject) in STACK_ISLAND_BRANCHES {
       let leaf = prefix.rsplit('/').next().unwrap();
       for part in 1..=2 {
         let file = format!("{leaf}/part{part}.txt");
@@ -685,6 +688,42 @@ pub mod templates {
       .commit_with_timestamp("(auth) Add auth module", &[("auth.js", "export function auth() {}\n")], Some(time))
       .commit_with_timestamp("(auth/login) Add login form", &[("login.js", "export function login() {}\n")], Some(time + 1800))
       .commit_with_timestamp("(docs) Document the agent", &[("docs.md", "# Agent\n")], Some(time + 3600))
+  }
+
+  /// The branch view at scale, for `tests/perf/branch-table.perf.ts`: stacked branches on, 120 lone branches of one
+  /// commit, their subjects of four lengths, then three stacks of `STACK_ISLAND_BRANCHES`, each an island of its own below
+  /// the table
+  pub fn branch_table_large() -> RepoTemplate {
+    const SUBJECTS: [&str; 4] = [
+      "Fix the cache",
+      "Read the settings of the project once it is opened",
+      "Keep the order of the tool windows when the layout of the frame is restored after a restart",
+      "Index the sources of the libraries of the module in the background, so the editor answers the completion at once while the scan of the jars runs and the caches of the previous session still hold",
+    ];
+    let mut time = 1704117600;
+    let mut template = RepoTemplate::new("branch_table_large")
+      .branch_prefix("user-name")
+      .config("branchdeck.stacks", "true")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Large\n")], Some(time));
+    for index in 0..120 {
+      time += 600;
+      let name = format!("feature-{index:03}");
+      let file = format!("{name}.txt");
+      let content = format!("{name}\n");
+      template = template.commit_with_timestamp(format!("({name}) {}", SUBJECTS[index % SUBJECTS.len()]), &[(file.as_str(), content.as_str())], Some(time));
+    }
+    for stack in ["one", "two", "three"] {
+      for (prefix, subject) in STACK_ISLAND_BRANCHES {
+        time += 600;
+        // `air/bazel` of the stack `two` is `two-air/two-bazel`
+        let prefix = prefix.split('/').map(|part| format!("{stack}-{part}")).collect::<Vec<_>>().join("/");
+        let leaf = prefix.rsplit('/').next().unwrap_or(&prefix);
+        let file = format!("{leaf}.txt");
+        let content = format!("{subject}\n");
+        template = template.commit_with_timestamp(format!("({prefix}) {subject}"), &[(file.as_str(), content.as_str())], Some(time));
+      }
+    }
+    template
   }
 
   /// Stacked branches on, a big stack whose stack branch conflicts: `air` heads the main line `bazel`, `bridge`,

@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense } from "react"
-import type { ComponentType } from "react"
+import type { ComponentType, KeyboardEvent } from "react"
 import { cn } from "cn"
 import { Trash2Icon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -12,7 +12,6 @@ import { BranchContextMenuRow } from "@/components/branch/BranchContextMenuRow"
 import { BranchNameCell } from "@/components/branch/BranchNameCell"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
-import { CopyButton } from "@/components/shared/CopyButton"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
@@ -22,6 +21,7 @@ import { TableHeader } from "@/components/shared/TableHeader"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { getSimpleBranchName } from "@/lib/branch"
+import { copyText, isCopyKey } from "@/lib/clipboard"
 import type { MenuItemGroups } from "@/lib/menu"
 import { deleteArchivedBranch, useArchivedBranch, useArchivedBranchOrder, useIsNewlyArchived, useNotMergedArchivedCount } from "@/stores/archived-branches"
 import { syncBranches } from "@/stores/branch-sync"
@@ -57,7 +57,7 @@ export function ArchivedBranchTableCard() {
       }
       help={<ArchivedBranchesHelpPopover />}
     >
-      <table className="w-full">
+      <table className="w-full" onKeyDown={onArchivedTableKeyDown}>
         <thead className="border-b border-border">
           <tr>
             <TableHeader>Branch Name</TableHeader>
@@ -76,6 +76,14 @@ export function ArchivedBranchTableCard() {
   )
 }
 
+/** ⌘C on the focused row of an archived branch copies its full name, as Copy Full Branch Name of its menu */
+function onArchivedTableKeyDown(event: KeyboardEvent<HTMLTableElement>): void {
+  const name = (event.target as HTMLElement).closest<HTMLElement>("tr[data-branch-name]")?.dataset.branchName
+  if (name !== undefined && isCopyKey(event)) {
+    event.preventDefault()
+    void copyText(name)
+  }
+}
 /**
  * "3 not merged" in `warning` after the count of the collapsed card: the archived branches the baseline has none of the
  * commits of, whose work may be lost; their rows say "Not merged"
@@ -141,7 +149,6 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
         </td>
         <td className="w-px px-4 py-(--bd-cell-y) whitespace-nowrap">
           <RowActions>
-            <CopyButton text={() => name} tooltip="Copy full branch name" label={`Copy full name of ${name}`} alwaysVisible />
             <MoreActionsMenu name={getSimpleBranchName(name)} disabled={processing} menu={<ArchivedBranchMenuItems name={name} Items={DropdownMenuItems} />} />
           </RowActions>
         </td>

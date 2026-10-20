@@ -4,8 +4,8 @@ import { test, expect } from "../fixtures/test-fixtures"
 import {
   collapseBranch,
   expandBranch,
+  expectNothingToPush,
   findBranchRow,
-  getBranchCells,
   getBranchCommitRow,
   getBranchDetailsRow,
   getPushButton,
@@ -516,8 +516,7 @@ test.describe("Stacked branches", () => {
     // oauth and its Create Pull Request pushes it: the row offers no push of its own
     const oauth = findBranchRow(page, "oauth")
     await expect(oauth.getByTestId("branch-status-dot")).toHaveAttribute("data-color", "primary")
-    await expect(getBranchCells(oauth).actions.getByTestId("push-placeholder")).toHaveCount(1)
-    await expect(getPushButton(oauth)).toHaveCount(0)
+    await expectNothingToPush(oauth)
     // the menu has the one push of the stack, no second Push Stack, and the push of oauth alone after it
     await openContextMenu(page, oauth)
     await expect(page.getByRole("menuitem", { name: /^Push Stack/ })).toHaveCount(1)
@@ -647,7 +646,7 @@ test.describe("Stacked branches", () => {
     )
     // the root row has nothing left to push: its push leaves
     await page.keyboard.press("Escape")
-    await expect(findBranchRow(page, "auth").getByTestId("push-placeholder")).toHaveCount(1)
+    await expectNothingToPush(findBranchRow(page, "auth"))
   })
 
   test("should offer Push with Children while a sync runs and when the root is pushed", async ({ page, setupRepo, syncAndWaitForBranches }) => {

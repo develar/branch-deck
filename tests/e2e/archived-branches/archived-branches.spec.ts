@@ -1,8 +1,9 @@
 // @spec spec/branch/branch-row.spec.md
+import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch } from "../helpers/branch-helpers"
-import { testCopyButtonOnHover } from "../helpers/clipboard-helpers"
+import { pressCopyKey, readClipboard, testCopyButtonOnHover } from "../helpers/clipboard-helpers"
 import { inlineDeleteConfirmation, testInputAutoFocus, submitInlineForm } from "../helpers/inline-form-helpers"
 import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
 import { syncBranches } from "../helpers/sync-helpers"
@@ -10,6 +11,14 @@ import { holdCommand, waitForCollapsibleCardExpanded } from "../helpers/wait-hel
 
 // Basic foundation test for ArchivedBranchTableCard
 // Sets up a repo with archived branches and snapshots the card
+
+/** Expands the archived card: the row of the partially merged `feature-partial` */
+async function expandToPartialRow(page: Page): Promise<Locator> {
+  const card = page.getByTestId("archived-branches-card")
+  await card.getByText("Archived Branches", { exact: true }).click()
+  await waitForCollapsibleCardExpanded(card)
+  return page.locator('tr[data-branch-name="user-name/archived/2025-01-11/feature-partial"]')
+}
 
 test.describe("Archived Branches Table", () => {
   test.beforeEach(async ({ setupRepo, page }) => {
@@ -156,10 +165,7 @@ test.describe("Archived Branches Table", () => {
   })
 
   test("should open the menu of an archived row from its more actions button", async ({ page }) => {
-    const card = page.getByTestId("archived-branches-card")
-    await card.getByText("Archived Branches", { exact: true }).click()
-    await waitForCollapsibleCardExpanded(card)
-    const branchRow = page.locator('tr[data-branch-name="user-name/archived/2025-01-11/feature-partial"]')
+    const branchRow = await expandToPartialRow(page)
 
     await branchRow.getByRole("button", { name: "More actions for feature-partial" }).click()
     // the menu of the right-click
@@ -168,6 +174,17 @@ test.describe("Archived Branches Table", () => {
     await inlineDeleteConfirmation.waitForVisible(page)
     // neither the button nor the menu toggles the row
     await expect(branchRow).toHaveAttribute("data-state", "closed")
+  })
+
+  test("should copy the full name of an archived branch with ⌘C on its focused row", async ({ page }) => {
+    const branchRow = await expandToPartialRow(page)
+    // no copy button: the key and the menu copy it
+    await expect(branchRow.getByRole("button", { name: "More actions for feature-partial" })).toBeVisible()
+    await expect(branchRow.getByRole("button", { name: /^Copy/ })).toHaveCount(0)
+
+    await branchRow.focus()
+    await pressCopyKey(page)
+    await expect.poll(() => readClipboard(page)).toBe("user-name/archived/2025-01-11/feature-partial")
   })
 })
 

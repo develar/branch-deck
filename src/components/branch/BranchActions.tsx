@@ -1,11 +1,11 @@
 import { useEffectEvent, useLayoutEffect, useRef } from "react"
 import type { ComponentType } from "react"
+import { ActionTracks } from "@/components/branch/ActionTracks"
+import { ColumnTrack } from "@/components/branch/BranchColumns"
 import { BranchPushButton } from "@/components/branch/BranchPushButton"
 import { NextStepSlot } from "@/components/branch/NextStepSlot"
-import { CopyButton } from "@/components/shared/CopyButton"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
-import { RowActions } from "@/components/shared/RowActions"
 import { useBranchMenu } from "@/hooks/useBranchContextActions"
 import { isFirstPushInLanding, useLandingPushes, useStackBranchPushAlone, useUnpushedChildren } from "@/hooks/usePushButton"
 import type { MenuItemGroups } from "@/lib/menu"
@@ -14,7 +14,6 @@ import type { Branch } from "@/stores/branch-sync"
 import { useIsBranchPushing, useStackPush } from "@/stores/branch-sync"
 import { branchSubject, useObjectBusy, useUnclaimedBusy } from "@/stores/operations"
 import { usePushHold } from "@/stores/patronus"
-import { getFullBranchName } from "@/stores/repository"
 
 export interface BranchActionsProps {
   branch: Branch
@@ -24,14 +23,12 @@ export interface BranchActionsProps {
 }
 
 /**
- * Actions column of an active branch row: copy the full branch name (on the row hover or focus: every row has it), then,
- * at the end of the cell so they line up across the rows, the compact push ("↑ 3", disabled for a blocked stacked
- * branch; its place stays empty while the remote branch is up to date, unless a branch stacked on it has work: its
- * description offers Push with Children then, while a Safe Push holds the branch, `PushHold`, which the status
- * says, and while the remote lacks the branch and its landing pushes it, `isFirstPushInLanding`), the next step on
- * Space (`NextStepSlot`: "Safe Push", a restart, a wait for approvals, one width in every row) and "⋯" with the branch
- * menu. A click in the
- * cell, on a disabled button too, doesn't toggle the row.
+ * The Actions cell of an active branch row, each kind in its track of the Actions column (`ColumnTrack`), so it lines up
+ * across the rows of every card: the compact push ("↑ 3", disabled for a blocked stacked branch; none while the remote
+ * branch is up to date, unless a branch stacked on it has work: its description offers Push with Children then, while a
+ * Safe Push holds the branch, `PushHold`, which the status says, and while the remote lacks the branch and its landing
+ * pushes it, `isFirstPushInLanding`), the next step on Space (`NextStepSlot`: "Safe Push", a restart, a wait for
+ * approvals) and "⋯" with the branch menu. A click in the cell, on a disabled button too, doesn't toggle the row.
  */
 export function BranchActions({ branch, setExpanded, stackPushInHeader = false }: BranchActionsProps) {
   const processing = useObjectBusy(branch.name) !== null
@@ -58,42 +55,40 @@ export function BranchActions({ branch, setExpanded, stackPushInHeader = false }
   const firstPush = isFirstPushInLanding(branch, { landingPushes })
   const upToDate = idle && ((getPushAction(branch) === "upToDate" && branch.status !== "Blocked" && !childrenToPush) || hold !== null || firstPush)
   return (
-    <RowActions>
-      <CopyButton
-        text={() => getFullBranchName(branch.name)}
-        tooltip="Copy full branch name"
-        label={`Copy full name of ${branch.name}`}
-        className="mr-auto group-focus-visible:opacity-100 group-has-focus-visible:opacity-100"
-      />
-      {canPush && <PushSlot branch={branch} upToDate={upToDate} stackPushInHeader={stackPushInHeader} />}
-      <NextStepSlot branch={branch} wholeStackInHeader={stackPushInHeader} />
-      <MoreActionsMenu
-        name={branch.name}
-        disabled={processing}
-        busy={unclaimedBusy}
-        menu={<BranchMenuItems name={branch.name} setExpanded={setExpanded} Items={DropdownMenuItems} />}
-      />
-    </RowActions>
+    <ActionTracks>
+      <ColumnTrack track="push">{canPush && <PushSlot branch={branch} upToDate={upToDate} stackPushInHeader={stackPushInHeader} />}</ColumnTrack>
+      <ColumnTrack track="step">
+        <NextStepSlot branch={branch} wholeStackInHeader={stackPushInHeader} />
+      </ColumnTrack>
+      <ColumnTrack track="more">
+        <MoreActionsMenu
+          name={branch.name}
+          disabled={processing}
+          busy={unclaimedBusy}
+          menu={<BranchMenuItems name={branch.name} setExpanded={setExpanded} Items={DropdownMenuItems} />}
+        />
+      </ColumnTrack>
+    </ActionTracks>
   )
 }
 
 /**
- * The compact push, or its empty place while the row offers none (`upToDate`: the remote branch is up to date, a Safe
- * Push holds the branch, or its first push is a step of its landing). The focus in the button or its
+ * The compact push, or nothing while the row offers none (`upToDate`: the remote branch is up to date, a Safe Push
+ * holds the branch, or its first push is a step of its landing). The focus in the button or its
  * description (pushed with a click or P) goes to the row when the push is done and the button leaves: the row keeps
  * its keys, Space included.
  */
 function PushSlot({ branch, upToDate, stackPushInHeader }: { branch: Branch; upToDate: boolean; stackPushInHeader: boolean }) {
-  const placeholderRef = useRef<HTMLSpanElement>(null)
   const leftWithFocusRef = useRef(false)
+  const name = branch.name
   useLayoutEffect(() => {
     if (upToDate && leftWithFocusRef.current) {
       leftWithFocusRef.current = false
-      placeholderRef.current?.closest<HTMLElement>("tr")?.focus({ preventScroll: true })
+      document.querySelector<HTMLElement>(`tr[data-testid=branch-row][data-branch-name="${CSS.escape(name)}"]`)?.focus({ preventScroll: true })
     }
-  }, [upToDate])
+  }, [upToDate, name])
   if (upToDate) {
-    return <span ref={placeholderRef} aria-hidden className="w-16 shrink-0" data-testid="push-placeholder" />
+    return null
   }
   return (
     <>

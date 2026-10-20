@@ -449,7 +449,7 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
 - Request Review… asks GitHub, not Patronus: in a repository without Patronus, where a row and the header of an island
   have no next step, it must still open from every menu that offers it (the branch menu, "⋯" of the row and of the
   preview, "Whole Stack ›" of the root, "⋯" of the island), never a dead item: its popover opens at anchors that take
-  no room in the Actions cell, so the push and "⋯" of the row stand where they stand in every other row
+  no room in the step column of the Actions cell, so "⋯" of the row stands where it stands in every other row
   (`RequestReviewAnchors`, `GaplessAnchors`); no code owners without Patronus, the search finds whom to ask.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should ask for a review from the branch menu, the row's ⋯ and the preview, the popover at the row`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should ask for a review of the pull request of a small stack without Patronus from Whole Stack › of the root's menu, the popover at the root's row`, `should ask for a review of the pull request of the whole stack without Patronus from the island's ⋯, the popover at the header`)

@@ -6,9 +6,8 @@ import { LineCounts } from "@/components/commit/CommitMetadata"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
 import type { CommitFile } from "@/lib/bindings"
-import { copyText } from "@/lib/clipboard"
+import { copyText, isCopyKey } from "@/lib/clipboard"
 import { formatCommitFilePath, formatFileCount, formatFileStatus } from "@/lib/commit-files"
-import { isCopyPathKey } from "@/lib/file-actions"
 import { fileActionTarget, getVisibleRows } from "@/lib/file-tree"
 import type { FileTreeDirectory, FileTreeFile, FileTreeNode } from "@/lib/file-tree"
 
@@ -104,7 +103,7 @@ export function FileTree(props: FileTreeProps) {
     const target = event.target as HTMLElement
     const key = target.dataset.treeKey
     // ⌘C on a row copies its path, as Copy Path of its menu
-    if (key !== undefined && isCopyPathKey(event)) {
+    if (key !== undefined && isCopyKey(event)) {
       const node = rows.find(row => row.key === key)
       if (node !== undefined) {
         event.preventDefault()

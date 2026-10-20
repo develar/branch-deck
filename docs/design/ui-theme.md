@@ -382,6 +382,39 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
     window), `px-2 pb-2` under the row of a sub-window;
   - islands take the full window width, as IntelliJ tool windows do.
 
+### Branch columns
+
+The branch table and every stack island are cards of their own, each a `<table>`, read under the one row of column
+heads of the table. So their columns must stand at the same place in every card, and the island header's actions over
+the rows' actions. A column is as wide as its widest content in any card; no cell holds a place for content that no row
+shows.
+
+- **Tracks**: each kind of item in a column is a track: `commits`; inside Status `state` (the robot or the status
+  text), `pr`, `landed`; inside Actions `push`, `step`, `more` (`BRANCH_TRACKS`, `src/lib/branch-columns.ts`). Each item
+  is a `ColumnTrack`: an outer box at least `--bd-track-<kind>` wide, its content measured at its natural width.
+- **One measurement**: `ColumnRegistry` (one per view, `BranchColumnsRoot` around the table and its islands) observes
+  the content of every item with one `ResizeObserver` and writes the widest per track as `--bd-track-<kind>` on the
+  root. The observer reports a frame's sizes before it paints, so the columns are in place in every painted frame; a
+  check of the alignment polls. A collapse that removes rows writes once (a microtask).
+- **Empty is free**: a track that no row of any card fills is 0 wide, and so is its gutter (`--bd-gap-<kind>`, 8px
+  while the track has content): a view without Patronus has no step column, a pushed view no push column.
+- **Caps**: `state` and `step` are at most 10rem, `landed` 12rem; their text truncates, the hover says it. The labels of
+  the steps fit (`next-step.spec.md`); the cap is a backstop.
+- **Live values hold their own width**: a running robot is at least `18ch`, the compact push `min-w-16` (`⟳ 100%`), so
+  a tick of a time or a percent changes no column. A minimum lives on the element that changes, never in the column:
+  a column minimum costs its width where nothing shows (the 328px Actions column of October 2026 was two of them).
+- **Labels**: the label of a group's column (Status, Actions) is the minimum of the group's items in every row
+  (`ColumnLabel`, `--bd-group-<group>`), so a narrow group doesn't widen the table's column alone; Commits labels its
+  track itself.
+- **Per card**: the lane column of the stack graph stays the card's own (`--bd-lane-count`); the archived table keeps
+  its own columns (Status and Integrated mean other things) and only its "⋯" lines up, 16px from the edge.
+- **Why measured, not CSS subgrid**: one grid with every card, table and row a subgrid lines the columns up without
+  code, but its track sizing reruns over every item of every card on any change. At 141 rows (`pnpm perf:table`,
+  `tests/perf/branch-table.perf.ts`, the `branch_table_large` template) a text change cost 8.5–12.7 ms in WebKit, the
+  engine of the app on macOS, against ~1 ms for the tables, and a resize 15 ms against 3.8. The tables with measured
+  tracks cost what the tables did: 0.9 ms for a tick, 4 ms for a text that changes its width, plus one relayout when it
+  changes the widest item of a track.
+
 ### Verification
 
 Every visual change gets before and after screenshots in light and dark:

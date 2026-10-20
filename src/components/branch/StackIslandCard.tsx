@@ -6,9 +6,11 @@ import { useShallow } from "zustand/react/shallow"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { ActionTracks } from "@/components/branch/ActionTracks"
+import { ColumnTrack } from "@/components/branch/BranchColumns"
 import { CompactPushLabel, PushProgressDescription } from "@/components/branch/BranchPushButton"
 import { LandingNodeHover } from "@/components/branch/LandingNodeHover"
-import { NextStepSlot, WholeStackRequestReviewAnchor } from "@/components/branch/NextStepSlot"
+import { GaplessAnchors, NextStepSlot, WholeStackRequestReviewAnchor } from "@/components/branch/NextStepSlot"
 import { ClosePullRequestButton, OrphanedStackPullRequestLine } from "@/components/branch/OrphanedStackPullRequest"
 import { RobotRing } from "@/components/branch/RobotProgress"
 import { LaneNodeDot } from "@/components/branch/StackLanes"
@@ -16,7 +18,6 @@ import { WholeStackSlot } from "@/components/branch/WholeStackSlot"
 import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
-import { RowActions } from "@/components/shared/RowActions"
 import { nextStepSources, useNextStepStores } from "@/hooks/useBranchNextStep"
 import { useIsFullyLanded } from "@/hooks/useLandedIn"
 import { useStackLandingNode, useStackNodeBranch } from "@/hooks/useLandingNode"
@@ -182,12 +183,19 @@ export function StackIslandCard({ island, filtered, landing, children }: StackIs
           <StackPullRequestButton root={root} />
           <IslandStateChips root={root} />
           {/* the header has the card's wider padding: its actions stand where the Actions cell of the rows ends */}
-          <div className="sm:-mr-2" data-testid="stack-island-actions">
-            <RowActions>
-              <StackPushSlot root={root} summary={summary} />
-              <StackSafePushSlot root={root} summary={summary} />
-              <MoreActionsMenu name={`the ${root} stack`} menu={<StackIslandMenu root={root} collapsed={island.collapsed} />} />
-            </RowActions>
+          <div className="sm:-mr-2">
+            {/* in the tracks of the Actions column: the push, the step and "⋯" stand where those of the rows stand */}
+            <ActionTracks data-testid="stack-island-actions">
+              <ColumnTrack track="push">
+                <StackPushSlot root={root} summary={summary} />
+              </ColumnTrack>
+              <ColumnTrack track="step">
+                <StackSafePushSlot root={root} summary={summary} />
+              </ColumnTrack>
+              <ColumnTrack track="more">
+                <MoreActionsMenu name={`the ${root} stack`} menu={<StackIslandMenu root={root} collapsed={island.collapsed} />} />
+              </ColumnTrack>
+            </ActionTracks>
           </div>
         </>
       }
@@ -538,9 +546,9 @@ function StackSafePushSlot({ root, summary }: { root: string; summary: IslandSum
   if (summary.rootHeld || leaf === undefined || branch === undefined) {
     // the Request Review… of the whole stack still opens here, from the "⋯"
     return (
-      <div className="flex w-40 items-center">
+      <GaplessAnchors>
         <WholeStackRequestReviewAnchor root={root} />
-      </div>
+      </GaplessAnchors>
     )
   }
   if (forks) {

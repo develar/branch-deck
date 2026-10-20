@@ -1,6 +1,6 @@
 ---
 name: Branch Row
-description: Requirements for a row of the branch table and of the archived table, the name cell with the stack graph and the issue family indent, the commit count, the Status cell with the status text and the pull request and Landed chips in fixed columns, the Actions cell with the compact push button, the Safe Push slot (the robot of the branch, or "Safe Push" with its popover) and the "⋯" menu, hover and click, the keys of the focused row, the dimmed row of the filter, the branch menu and the inline forms below a row (title, progress, focus); and for the archived table, its status words and colours, the merged-by line and the "New" mark.
+description: Requirements for a row of the branch table and of the archived table, the name cell with the stack graph and the issue family indent, the commit count, the Status cell with the status text and the pull request and Landed chips in columns shared by the table and its stack islands, the Actions cell with the compact push button, the Safe Push slot (the robot of the branch, or "Safe Push" with its popover) and the "⋯" menu, hover and click, the keys of the focused row, the dimmed row of the filter, the branch menu and the inline forms below a row (title, progress, focus); and for the archived table, its status words and colours, the merged-by line and the "New" mark.
 style: plain-1
 targets:
   - ../../src/components/branch/BranchTableCard.tsx
@@ -45,6 +45,11 @@ targets:
   - ../../src/components/branch/BranchGraphHelpPopover.tsx
   - ../../src/components/branch/LandingSpanLabel.tsx
   - ../../src/components/shared/RowActions.tsx
+  - ../../src/components/branch/ActionTracks.tsx
+  - ../../src/components/branch/BranchColumns.tsx
+  - ../../src/lib/branch-columns.ts
+  - ../../src/hooks/useBranchCopyActions.ts
+  - ../../src/lib/clipboard.ts
   - ../../src/components/shared/MoreActionsMenu.tsx
   - ../../src/components/shared/MenuItems.tsx
   - ../../src/components/shared/ContextMenuItems.tsx
@@ -98,7 +103,11 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 ## Goals
 
 - Read the state of every branch in one look: the status text, then each chip kind, in the same column of every row.
-- Keep the table still: chips that load after the sync do not reflow it, and a long subject truncates.
+- Keep the table still where the user acts: a column never moves under the pointer after a click (a busy label is no
+  wider than the label it replaces), nor on the tick of a robot's time; an answer that arrives after the sync (a robot,
+  a chip, a step) may widen its column once, and a long subject truncates.
+- Spend the width on the names: a column is as wide as its widest content in any card, and no row holds a place for
+  a button or a chip that no row shows.
 - One meaning per colour, in the row and in its chips: `info` merged or landed, `warning` attention, `destructive` a
   failure, the push colour for the push.
 - Show a stack as one graph: a straight chain is one line, a fork opens a lane, and the commits of a branch sit on its
@@ -121,7 +130,13 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 
 - The branch table must have the columns Branch Name, Commits, Status and Actions. The name must take the free width,
   the other columns their content width. Commits and Status hide below `sm`.
-- The Status column must be 12rem wide at least, so chips that arrive after the sync do not reflow the table.
+- The table and its stack islands must share their columns: each column, and each kind of item inside Status and
+  Actions (the state, the pull request chip, the Landed chip; the push, the next step, "⋯"), stands at the same place
+  in every row of every card and in the header of an island, as wide as its widest item in the view; a kind that no
+  row shows takes no room ([Branch columns](../../docs/design/ui-theme.md#branch-columns)).
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should line up the columns of the table, the island and its header, whatever each card shows`)
+  [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`keeps the Actions column at its buttons: no place is held for a push, a step or a copy that no row shows`)
+  [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`)
 - A long name or subject must truncate, not wrap: the row stays one line high.
   [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`gives the free width to the branch name and keeps the other columns at content width`)
 - A subject with less than 6rem of free width must drop out instead of truncating to a letter or two.
@@ -259,12 +274,11 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 
 ### Status cell
 
-- The Status cell must be a grid of three columns: the state of the branch in a fixed 9rem (its robot, else the status
-  text), the pull request chip, then the Landed chip and the muted "lands with oauth" of a branch a running Safe Push of
-  a branch built on it lands ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)), else the muted "on
-  master" of a stacked branch built elsewhere because its parent has no commits ([Blocked](#blocked)). A missing chip
-  leaves its column empty, and the next chip keeps its own column; the fixed first column keeps the chips in place when
-  a robot arrives with the answer of Patronus.
+- The Status cell must show three items in their columns ([Columns](#columns)): the state of the branch (its robot,
+  else the status text), the pull request chip, then the Landed chip and the muted "lands with oauth" of a branch a
+  running Safe Push of a branch built on it lands ([Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)),
+  else the muted "on master" of a stacked branch built elsewhere because its parent has no commits
+  ([Blocked](#blocked)). A missing chip leaves its column empty, and the next chip keeps its own column.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show each pull request state in the status cell`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`)
 - The first column must say the robot of the branch, the state of the branch in its life, while one runs (its ring,
@@ -327,17 +341,18 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 
 ### Actions cell
 
-- The Actions cell must show, in this order: the copy button at its start, then, at its end, the push button, the Safe
-  Push slot and "⋯". The push button and the slot have one width in every row, so the push arrows, the slot's icons and
-  "⋯" line up down the table; the column is as wide as its widest row and doesn't wrap.
+- The Actions cell must show, in this order: the push button, the Safe Push slot and "⋯", each in its column
+  ([Columns](#columns)), so the push arrows, the slot's icons and "⋯" line up down the table and its islands; the
+  column is as wide as its widest row and doesn't wrap.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should handle branch with commits state`)
   [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`gives the free width to the branch name and keeps the other columns at content width`)
 - A click in the cell must not toggle the row: on a button, on a disabled one (it passes the click on) and in the
   menu "⋯" opens (its popup is in the row's React tree; a right-click in it doesn't open the row menu either).
-- The copy button must copy the full branch name, `{prefix}/virtual/{name}`. It shows on the row hover and while the
-  keyboard focus is in the row, and keeps its place otherwise: every row has it, and 35 copy icons down the table would
-  be the loudest thing in it. The menu has "Copy Full Branch Name" too.
-  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should copy via copy button in actions column`, `should handle branch with commits state`)
+- ⌘C (Ctrl+C elsewhere) on the focused row must copy the full branch name, `{prefix}/virtual/{name}`, as "Copy Full
+  Branch Name" of the menu, which shows the key; not while text is selected. The row has no copy button: a button on
+  every row would hold its place in every row, and 35 copy icons down the table would be the loudest thing in it.
+  [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should copy the full branch name with ⌘C on the focused row, the key hint of Copy Full Branch Name`, `should handle branch with commits state`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should line up the columns of the table, the island and its header, whatever each card shows`)
 - The push button must follow [Outgoing Commits](../repository/outgoing.spec.md), compact: an up arrow and the count of
   the commits it sends ("↑ 3", the arrow alone without a count), "45%" after the spinner while it pushes. Its label
   ("Push (2)", "Force Push (1)", "Push Stack (3 branches)", "Pushing 45%"; one name for the first push too, whose description
@@ -345,8 +360,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   first line of its description on hover, which shows also while it is disabled, with the remote commits a force push
   drops, the question before a push that drops them, and the progress of a running push. Its colour is the push colour
   of the branch as the text of a ghost button (the arrow for `primary`), neutral when landed. A branch up to date with
-  its remote has an empty place of the button's width instead: the status text says it, and a disabled arrow in every
-  pushed row would only repeat it; so has a branch a running Safe Push holds, whose Status cell shows the robot or
+  its remote has no button: the status text says it, and a disabled arrow in every pushed row would only repeat it; so has a branch a running Safe Push holds, whose Status cell shows the robot or
   "lands with oauth", and its Safe Push slot is empty too ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs));
   and so has a branch the remote lacks whose landing pushes it (`isFirstPushInLanding`): where Patronus answers or
   GitHub lists the pull requests and the branch has no live pull request, its Safe Push and Create Pull Request push
@@ -597,10 +611,11 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../src/stores/archived-branches.test.ts (`marks the branches archived in this session until cleared`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should lead the toast with what landed and keep the island until it is dismissed`)
 - The menu of an archived row must offer the copy items and "Delete Archived Branch…" in the `destructive` colour,
-  which asks for the branch name; its Delete button is `destructive` too. The Actions cell has the copy button and "⋯"
-  with the same menu.
+  which asks for the branch name; its Delete button is `destructive` too. The Actions cell has "⋯" with the same menu;
+  ⌘C on the focused row copies the full name, as "Copy Full Branch Name".
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should delete archived branch via context menu`)
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should open the menu of an archived row from its more actions button`)
+  [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should copy the full name of an archived branch with ⌘C on its focused row`)
 - The delete must remove the archived branch only from the tip it read (one ref transaction with compare-and-swap),
   and must refuse a branch checked out in any worktree, naming that worktree, with the branch left as it is.
   [@test] ../../crates/sync-core/src/delete_archived_branch_test.rs (`deletes_the_archived_branch_only`, `refuses_a_branch_checked_out_in_a_worktree`)
@@ -612,7 +627,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - Every cell has the vertical padding `--bd-cell-y` (6px), so a row is 36px around the 24px folder button, as dense as
   an IntelliJ list. The name cell has `pl-(--bd-lane-start)`
   (1.25rem, the left edge of a lane-0 node under the header text) and `pr-6`, the folder button at `--bd-tree-x` after
-  the lane column. The other cells have `px-4`, `w-px` and `whitespace-nowrap`. The Status `<th>` has `min-w-[12rem]`.
+  the lane column. The other cells have `px-4`, `w-px` and `whitespace-nowrap`; inside them each item is a `ColumnTrack`
+  (`min-w-(--bd-track-<kind>)`), the Status and Actions items in a `flex` at least as wide as the label of their column.
 - The table header is quiet: `text-xs font-medium text-muted-foreground` on the card, with a bottom border and no fill.
 - An expanded row fades its commits in (150ms, opacity only).
 - The folder button is a ghost `icon-xs` button in `text-muted-foreground`, `text-foreground` while expanded: it
@@ -636,10 +652,10 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 
 ### Status
 
-- The grid is `grid-cols-[9rem_auto_auto] items-center justify-start gap-2`, the first column a `flex min-w-0`; the
-  third column is a
-  `flex items-center gap-2` of the Landed chip, then the `text-xs text-muted-foreground` "lands with oauth" or "on
-  master".
+- The items are the tracks `state` (capped at `max-w-40`, its text truncates), `pr` and `landed` (capped at `max-w-48`),
+  each after an 8px gutter while its column has content; `landed` is a `flex items-center gap-2` of the Landed chip,
+  then the `text-xs text-muted-foreground` "lands with oauth" or "on master". A running robot is at least `18ch` wide,
+  so its ticking time moves no column.
 - The status text is `text-sm text-muted-foreground`, truncated in its column, after a `size-1.5` dot. The badge is the
   subtle badge of its colour. The robot in its place is its chip at `text-sm`, `h-6` without padding, a `size-3.5` icon
   (the ring while it runs) where the dot is; the progress line under its time is `h-0.5`, in the padding of the cell.
@@ -655,11 +671,10 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 
 ### Actions
 
-- The copy button is a ghost `icon-xs` button, transparent until the row is hovered or has the focus.
 - The push button is a ghost `xs` button, `min-w-16 justify-start` (so "⟳ 100%" fits and the arrows stand in a column),
   with the `ArrowUpIcon` and the count in tabular figures, in the push colour
   (`ghostButtonColorClass`). Its description starts with the label in `font-medium`.
-- The Safe Push slot is `w-40` ([Patronus](patronus.spec.md#user-experience)). "Safe Push" is a ghost `xs` button with
+- The Safe Push slot is the track `step`, capped at `max-w-40` ([Patronus](patronus.spec.md#user-experience)). "Safe Push" is a ghost `xs` button with
   the `ShieldCheckIcon` in the foreground colour, "Restart Safe Push" the same with the `RotateCcwIcon`, the pull request
   step with its icon; disabled, they are dimmed to `opacity-50` and keep their hover (`focusableWhenDisabled`). While a
   start of the branch runs, "Safe Push" shows its step with a spinner instead of the shield, `aria-busy`, not dimmed:
@@ -668,7 +683,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   tooltip "More actions"; while an action of the row started from a menu, a key or a toast runs, a `Spinner` in place
   of the icon, `aria-busy`, the tooltip its busy state ("Unstacking oauth…"). Its menu is the shadcn `DropdownMenu` (Base UI Menu), `align="end"`, as wide as its items
   (`w-auto min-w-36`, as the context menu); one renderer, `MenuItems` with the primitives of either menu, draws both.
-- The cell is a `flex items-center gap-2` (`RowActions`); the copy button has `mr-auto`.
+- The cell is `ActionTracks`: a `flex items-center` of the tracks `push`, `step` and `more`, the push and the step each
+  with an 8px gutter after it while its column has content; the header of a stack island draws the same.
 
 ### Inline forms
 
@@ -707,11 +723,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 
 ## Open Questions / Risks
 
-- A status text longer than 7rem ("blocked by IJPL-123", "2 (3)↑ · 1↓") moves the chips of its row to the right, and the
-  third column follows the width of the pull request chip of its row: the chips line up across rows with short texts
-  and the same chips only.
-- 12rem fits the status text and a chip; a row with both chips and a long status text widens the column once, when
-  they load.
+- The columns follow their widest item a frame after it changed (a `ResizeObserver`, `ColumnRegistry`): a check of
+  their alignment polls. A column whose widest item changes width relayouts the view once.
 - The SVG units assume the 36px row: a taller row (a cell that wraps) stretches the fork curve, and the lines end a
   little off the edge of the node.
 - The lane of a branch without children ends at its last commit through a line that starts far above it and is cut
@@ -720,7 +733,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - No E2E test clicks the row itself (only its folder button) or checks the hover tint and the drop outlines' colours.
 - A branch without commits has no folder button, so its name starts 2rem further left than the others.
 - The Safe Push slot arrives with the first answer of Patronus, after the sync: the Actions column widens once then, and
-  the name column gives the room. The robot in the Status cell takes the fixed first column and moves nothing.
+  the name column gives the room; so does the Status column when a robot is wider than every status text.
 - A robot of a blocked, landed or failing-to-sync branch is not in its row, as the status says more; the branch preview
   and the landing overview show it.
 - The compact push button shows the count, not the kind of push: a force push and a first push read alike in the row

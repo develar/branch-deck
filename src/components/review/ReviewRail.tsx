@@ -7,8 +7,7 @@ import { FilePathLabel } from "@/components/files/FilePathLabel"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { CommitFile, CommitFiles, ReviewCommit, ReviewRequest, TransferProgress } from "@/lib/bindings"
-import { copyText } from "@/lib/clipboard"
-import { isCopyPathKey } from "@/lib/file-actions"
+import { copyText, isCopyKey } from "@/lib/clipboard"
 import { formatShortHash } from "@/lib/hash"
 import { formatCompactTimestamp } from "@/lib/time"
 
@@ -91,7 +90,7 @@ function FileRows({ files, onOpen }: { files: readonly CommitFile[]; onOpen: (pa
                 className={RAIL_ROW_CLASS}
                 onClick={() => onOpen(file.path)}
                 onKeyDown={event => {
-                  if (isCopyPathKey(event)) {
+                  if (isCopyKey(event)) {
                     event.preventDefault()
                     void copyText(file.path)
                   }

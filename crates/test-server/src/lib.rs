@@ -244,6 +244,7 @@ pub async fn create_test_templates(target_dir: &std::path::Path) -> anyhow::Resu
   spawn("script_colors", |path| templates::script_colors().build(path));
   spawn("stacked_branches", |path| templates::stacked_branches().build(path));
   spawn("stack_island", |path| templates::stack_island().build(path));
+  spawn("branch_table_large", |path| templates::branch_table_large().build(path));
   spawn("stack_side_conflict", |path| templates::stack_side_conflict().build(path));
   spawn("stacked_issues", |path| templates::stacked_issues().build(path));
   spawn("stacked_conflict", |path| templates::stacked_conflict().build(path));
@@ -320,6 +321,8 @@ pub enum RepositoryTemplate {
   StackedBranches,
   #[serde(rename = "stack_island")]
   StackIsland,
+  #[serde(rename = "branch_table_large")]
+  BranchTableLarge,
   #[serde(rename = "stack_side_conflict")]
   StackSideConflict,
   #[serde(rename = "stacked_issues")]
@@ -389,6 +392,7 @@ impl RepositoryTemplate {
       Self::ScriptColors => "script_colors",
       Self::StackedBranches => "stacked_branches",
       Self::StackIsland => "stack_island",
+      Self::BranchTableLarge => "branch_table_large",
       Self::StackSideConflict => "stack_side_conflict",
       Self::StackedIssues => "stacked_issues",
       Self::StackedConflict => "stacked_conflict",

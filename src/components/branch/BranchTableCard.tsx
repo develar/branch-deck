@@ -3,6 +3,7 @@ import type { CSSProperties, KeyboardEvent, ReactNode, RefObject } from "react"
 import { cn } from "cn"
 import { GitBranchPlusIcon } from "lucide-react"
 import { Card } from "@/components/ui/card"
+import { BranchColumnsRoot, ColumnLabel, ColumnTrack } from "@/components/branch/BranchColumns"
 import { BranchFilterBar, BranchFilterEmptyRow } from "@/components/branch/BranchFilterBar"
 import { BranchGraphHelpPopover } from "@/components/branch/BranchGraphHelpPopover"
 import { BranchRow } from "@/components/branch/BranchRow"
@@ -21,6 +22,7 @@ import type { PreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { useStackPathPointer } from "@/hooks/useStackPathPointer"
 import { pruneSelection } from "@/lib/branch-selection"
+import { copyText, isCopyKey } from "@/lib/clipboard"
 import { hasKeyModifier, KEY_OWNERS } from "@/lib/preview-keys"
 import { collapsedLanes, isStackRoot, sideStackSizes, stackSizes } from "@/lib/stack-collapse"
 import { landingSegments, laneCountOf } from "@/lib/stack-lanes"
@@ -30,6 +32,7 @@ import { useBranchSync, useFoundCommits } from "@/stores/branch-sync"
 import { clearBranchSelection, getSelectedBranches, setBranchTargetOpen, setNewBranchDrop, setSelectedBranches, UNASSIGNED_SOURCE, useCommitMove } from "@/stores/commit-move"
 import { useInlineRowAction } from "@/stores/inline-row-action"
 import { useLandingSpans } from "@/stores/patronus"
+import { getFullBranchName } from "@/stores/repository"
 import { expandStackOf, useShownBranchTables } from "@/stores/stack-collapse"
 import { setStackPathRows } from "@/stores/stack-view"
 
@@ -158,7 +161,12 @@ export function BranchTableCard() {
       return
     }
     const hasSelection = getSelectedBranches().length > 0
-    if (event.key === "Escape" && hasSelection) {
+    const focusedRow = target.closest<HTMLElement>("tr[data-testid=branch-row]")
+    if (focusedRow !== null && isCopyKey(event)) {
+      // as Copy Full Branch Name of its menu
+      event.preventDefault()
+      void copyText(getFullBranchName(focusedRow.dataset.branchName ?? ""))
+    } else if (event.key === "Escape" && hasSelection) {
       event.preventDefault()
       clearBranchSelection()
     } else if (hasSelection && (event.key === "Enter" || (event.code === "KeyM" && !hasKeyModifier(event)))) {
@@ -214,7 +222,8 @@ export function BranchTableCard() {
   const showsTable = table.rows.length > 0 || islands.length === 0
 
   return (
-    <>
+    // the table and its islands: their columns line up (`ColumnTrack`)
+    <BranchColumnsRoot>
       <Card className="gap-0 py-0">
         <BranchFilterBar onFocusRows={focusFirstRow} onLeave={() => tableRef.current?.focus()} />
         <BranchSelectionBar />
@@ -238,10 +247,15 @@ export function BranchTableCard() {
                       <BranchGraphHelpPopover />
                     </span>
                   </TableHeader>
-                  <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">Commits</TableHeader>
-                  {/* room for the status text, the pull request chip and the Landed chip, so the table doesn't reflow when the chips arrive */}
-                  <TableHeader className="hidden w-px min-w-[12rem] px-4 whitespace-nowrap sm:table-cell">Status</TableHeader>
-                  <TableHeader className="w-px px-4 whitespace-nowrap">Actions</TableHeader>
+                  <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">
+                    <ColumnTrack track="commits">Commits</ColumnTrack>
+                  </TableHeader>
+                  <TableHeader className="hidden w-px px-4 whitespace-nowrap sm:table-cell">
+                    <ColumnLabel group="status">Status</ColumnLabel>
+                  </TableHeader>
+                  <TableHeader className="w-px px-4 whitespace-nowrap">
+                    <ColumnLabel group="actions">Actions</ColumnLabel>
+                  </TableHeader>
                 </tr>
               </thead>
               <tbody className="bd-branch-rows" {...pathPointer}>
@@ -275,7 +289,7 @@ export function BranchTableCard() {
           </IslandTable>
         </StackIslandCard>
       ))}
-    </>
+    </BranchColumnsRoot>
   )
 }
 

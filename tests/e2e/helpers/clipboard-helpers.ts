@@ -19,6 +19,12 @@ export async function readClipboard(page: Page): Promise<string> {
   return await page.evaluate(() => navigator.clipboard.readText())
 }
 
+/** ⌘C, or Ctrl+C where the page's user agent is not a Mac's (`isCopyKey`): the system's copy of the platform the page plays */
+export async function pressCopyKey(page: Page): Promise<void> {
+  const mac = await page.evaluate(() => navigator.userAgent.toLowerCase().includes("mac"))
+  await page.keyboard.press(mac ? "Meta+c" : "Control+c")
+}
+
 /**
  * Perform an action and verify clipboard content
  */
@@ -41,7 +47,7 @@ export async function testCopyButton(
   page: Page,
   button: Locator,
   expectedContent: string | RegExp,
-  originalTooltipText = "Copy full branch name",
+  originalTooltipText: string,
   options?: {
     captureSnapshots?: boolean
     snapshotPrefix?: string

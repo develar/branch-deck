@@ -25,9 +25,10 @@ import { useSafePushAsk, useSafePushStarting } from "@/stores/safe-push"
 const SafePushPopover = lazy(() => import("@/components/branch/SafePushPopover").then(it => ({ default: it.SafePushPopover })))
 
 /**
- * The next step of a branch row, after the push button, one fixed width in every row, so the push buttons and "⋯" line
- * up down the table: the step of the first row of the [Next Step](../../../spec/branch/next-step.spec.md) table that
- * matches (`getBranchNextStep`), the same that disables "Safe Push" everywhere else:
+ * The next step of a branch row, after the push button, in the step track of the Actions column, so the steps, the push
+ * buttons and "⋯" line up down the table and its islands: the step of the first row of the
+ * [Next Step](../../../spec/branch/next-step.spec.md) table that matches (`getBranchNextStep`), the same that disables
+ * "Safe Push" everywhere else:
  * - "Safe Push" ("Safe Push · 3" for a stacked branch, which lands what it is built on with it), which starts at once
  *   when it has nothing to say, else opens its popover at the slot (`SafePushPopover`, the anchor of every surface's
  *   start of the branch: the menu, S, the preview, the review window, a toast);
@@ -68,7 +69,7 @@ export function NextStepSlot({ branch, stackHeader, wholeStackInHeader = false }
   const item = step.item
   const requestReview = !startsWholeStack && step.kind === "requestReview" && item?.disabled !== true ? item : null
   return (
-    <div ref={slotRef} className="flex w-40 items-center" data-testid="next-step-slot" data-step={step.kind} data-stack-path="landing">
+    <div ref={slotRef} className="flex min-w-0 items-center" data-testid="next-step-slot" data-step={step.kind} data-stack-path="landing">
       {startsWholeStack ? (
         <SafePushButton branch={branch} wholeStack={branch.name} placement="row" />
       ) : (
@@ -170,12 +171,12 @@ function RequestReviewAnchors({ branch, wholeStack }: { branch: Branch; wholeSta
 }
 
 /**
- * Anchors of popovers among the actions of a row or a header (`RowActions`): without a width and out of the gap
- * between the actions (`gap-2`), so the buttons stand where they stand where the anchors aren't
+ * Anchors of popovers in the step track of a row or a header (`ColumnTrack`): without a width, so a track that holds only
+ * anchors in every row costs nothing, its gutter neither
  */
 export function GaplessAnchors({ children }: { children: ReactNode }) {
   return (
-    <div className="-ml-2 flex self-stretch" data-testid="request-review-anchors">
+    <div className="flex self-stretch" data-testid="request-review-anchors">
       {children}
     </div>
   )

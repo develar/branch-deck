@@ -247,8 +247,8 @@ reports in it and closes it once merged.
   status text then.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`)
   [@test] ../../src/lib/patronus.test.ts (`shows a running robot and a finished one of the branch as it is in the Status cell, the git status otherwise`, `is the live robot while it runs, also while it cancels`, `offers "Safe Push…" for a branch changed since its robot, a merged one too`)
-- The Actions cell has the Safe Push slot after the push button ([Branch Row](branch-row.spec.md#actions-cell)), one
-  width in every row, so the push buttons and "⋯" line up down the table. It shows the next step of the branch, the
+- The Actions cell has the Safe Push slot after the push button ([Branch Row](branch-row.spec.md#actions-cell)), in a
+  column of its own, so the push buttons, the steps and "⋯" line up down the table and its islands. It shows the next step of the branch, the
   first row of the table of [Next Step](next-step.spec.md) that matches (`getBranchNextStep`), from the robot, the pull
   request and the readiness Patronus answers ([below](#code-owner-review)), and every other "Safe Push" is disabled
   with the same reason:
@@ -1115,9 +1115,10 @@ explicit choice of the user, offered only where the approvals count in a pull re
 - The chip is the same text-sized button as the pull request chip (`StatusChip`): `text-xs`, a `size-3.5` shield,
   underlined on hover. The dot is `size-1.5 rounded-full`.
 - The robot of a row reads as the status text it replaces: the chip at `text-sm` with a `size-3.5` icon where the status
-  dot is, `h-6`, no padding, in the 9rem of the first column of the Status cell ("55m · usually ~40m" fits); its text
-  truncates. The elapsed time is `text-foreground`, the rest muted, in tabular figures. The Safe Push slot is `w-40`
-  (10rem); its step is a ghost `xs` button ("Restart Safe Push" with the `RotateCcwIcon`, the pull request with its
+  dot is, `h-6`, no padding, in the state column of the Status cell, at least `18ch` wide ("55m · usually ~40m" fits,
+  so its ticking time moves no column) and at most 10rem; its text truncates. The elapsed time is `text-foreground`, the
+  rest muted, in tabular figures. The Safe Push slot is the step column of the Actions cell, at most 10rem
+  ([Branch columns](../../docs/design/ui-theme.md#branch-columns)); its step is a ghost `xs` button ("Restart Safe Push" with the `RotateCcwIcon`, the pull request with its
   icon), dimmed with the reason on hover while disabled.
 - A running robot has the rotating ring (`RobotRing`: a track and an arc, `animate-robot-ring`, 2.4 s a turn, slower
   than a spinner), `text-primary` (`text-destructive` while failing, `robotRingColor`), in the Status cell, in the chip

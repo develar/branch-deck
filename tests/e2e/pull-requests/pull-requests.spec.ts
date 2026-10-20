@@ -1,8 +1,9 @@
 // @spec spec/branch/pull-requests.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test as baseTest, expect } from "../fixtures/test-fixtures"
-import { findBranchRow, getBranchCells, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
+import { findBranchRow, getMoreButton, getPushButton, pushFromRowMenu, verifyBranchState } from "../helpers/branch-helpers"
 import { readClipboard } from "../helpers/clipboard-helpers"
+import { expectColumnAligned } from "../helpers/column-helpers"
 import {
   availablePullRequests,
   createdPullRequest,
@@ -376,13 +377,14 @@ test.describe("Request Review without Patronus", () => {
     const requests = await routeCommand(page, "request_pull_request_reviewers", () => ({ requested: ["carol"], refused: [] }))
     const row = findBranchRow(page, "ABC-123")
     const popover = page.getByTestId("request-review-popover")
-    // no next step where Patronus doesn't answer; the anchor of the popover takes no room: the push of the row stands
-    // where the place of the push stands in a row without a pull request (its first push is a step of Create)
+    // no next step where Patronus doesn't answer; the anchor of the popover takes no room: "⋯" follows the push at its
+    // gutter, where the "⋯" of a row without a pull request stands (its first push is a step of Create)
     await expect(row.getByTestId("request-review-anchor")).toHaveCount(1)
     await expect(page.getByTestId("next-step-slot")).toHaveCount(0)
-    const pushBox = await getPushButton(row).boundingBox()
-    const placeBox = await getBranchCells(findBranchRow(page, "feature-auth")).actions.getByTestId("push-placeholder").boundingBox()
-    expect(pushBox!.x).toBe(placeBox!.x)
+    const pushBox = (await getPushButton(row).boundingBox())!
+    const moreBox = (await getMoreButton(row).boundingBox())!
+    expect(moreBox.x - (pushBox.x + pushBox.width)).toBeCloseTo(8, 0)
+    await expectColumnAligned(page.getByTestId("branch-row").getByRole("button", { name: /^More actions for / }))
 
     // the right-click: the popover at the row; no code owner without Patronus, the search finds whom to ask
     await row.click({ button: "right" })

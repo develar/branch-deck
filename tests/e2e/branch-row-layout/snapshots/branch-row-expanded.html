@@ -10,13 +10,21 @@
         </span>
       </th>
       <th class="py-2 text-left text-xs font-medium text-muted-foreground hidden w-px px-4 whitespace-nowrap sm:table-cell">
-        Commits
+        <div class="flex shrink-0 min-w-(--bd-track-commits)" data-track="commits">
+          <div class="flex w-max min-w-0 items-center">
+            Commits
+          </div>
+        </div>
       </th>
-      <th class="py-2 text-left text-xs font-medium text-muted-foreground hidden w-px min-w-[12rem] px-4 whitespace-nowrap sm:table-cell">
-        Status
+      <th class="py-2 text-left text-xs font-medium text-muted-foreground hidden w-px px-4 whitespace-nowrap sm:table-cell">
+        <span class="inline-block">
+          Status
+        </span>
       </th>
       <th class="py-2 text-left text-xs font-medium text-muted-foreground w-px px-4 whitespace-nowrap">
-        Actions
+        <span class="inline-block">
+          Actions
+        </span>
       </th>
     </tr>
   </thead>
@@ -35,40 +43,50 @@
         </div>
       </td>
       <td class="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap sm:table-cell">
-        <span class="text-sm text-muted-foreground">
-          1 commit
-        </span>
+        <div class="flex shrink-0 min-w-(--bd-track-commits)" data-track="commits">
+          <div class="flex w-max min-w-0 items-center">
+            <span class="text-sm text-muted-foreground">
+              1 commit
+            </span>
+          </div>
+        </div>
       </td>
       <td class="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap sm:table-cell">
-        <div class="grid grid-cols-[9rem_auto_auto] items-center justify-start gap-2">
-          <div class="flex min-w-0">
-            <div>
-              <span class="flex max-w-40 items-center gap-2 text-sm text-muted-foreground tabular-nums" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
-                <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" data-color="primary" data-testid="branch-status-dot" />
-                <span class="truncate" data-testid="branch-status">
-                  not pushed
+        <div class="flex items-center min-w-(--bd-group-status)">
+          <div class="flex shrink-0 min-w-(--bd-track-state)" data-track="state">
+            <div class="flex w-max min-w-0 items-center max-w-40">
+              <div class="min-w-0">
+                <span class="flex max-w-full items-center gap-2 text-sm text-muted-foreground tabular-nums" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]">
+                  <span aria-hidden="true" class="size-1.5 shrink-0 rounded-full bg-primary" data-color="primary" data-testid="branch-status-dot" />
+                  <span class="truncate" data-testid="branch-status">
+                    not pushed
+                  </span>
                 </span>
-              </span>
+              </div>
             </div>
           </div>
-          <div class="col-start-2 flex" />
-          <div class="col-start-3 flex items-center gap-2" />
+          <div class="flex shrink-0 ms-(--bd-gap-pr) min-w-(--bd-track-pr)" data-track="pr" />
+          <div class="flex shrink-0 ms-(--bd-gap-landed) min-w-(--bd-track-landed)" data-track="landed" />
         </div>
       </td>
       <td class="w-px px-4 py-(--bd-cell-y) whitespace-nowrap">
-        <div class="flex items-center gap-2">
-          <div class="copy-button transition-opacity opacity-0 group-hover:opacity-100 has-focus-visible:opacity-100 mr-auto group-focus-visible:opacity-100 group-has-focus-visible:opacity-100">
-            <button aria-label="Copy full name of test-branch" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
-              <svg aria-hidden="true" class="lucide lucide-copy" />
-            </button>
+        <div class="flex items-center min-w-(--bd-group-actions)">
+          <div class="flex shrink-0 me-(--bd-gap-push) min-w-(--bd-track-push)" data-track="push">
+            <div class="flex w-max min-w-0 items-center">
+              <button aria-disabled="false" aria-expanded="false" aria-haspopup="dialog" aria-label="Push (1)" class="group/button inline-flex shrink-0 items-center rounded-2xl border border-transparent bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:text-foreground dark:hover:bg-muted/50 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3 tabular-nums min-w-16 justify-start text-foreground hover:bg-primary/10 aria-expanded:bg-primary/10 aria-expanded:text-foreground [&_svg]:text-primary aria-disabled:opacity-50" data-base-ui-click-trigger="" data-slot="popover-trigger" data-stack-path="push" data-testid="push-button" id="base-ui-[ID]" tabindex="0" type="button">
+                <svg aria-hidden="true" class="lucide lucide-arrow-up" data-icon="inline-start" />
+                1
+              </button>
+            </div>
           </div>
-          <button aria-disabled="false" aria-expanded="false" aria-haspopup="dialog" aria-label="Push (1)" class="group/button inline-flex shrink-0 items-center rounded-2xl border border-transparent bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:text-foreground dark:hover:bg-muted/50 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3 tabular-nums min-w-16 justify-start text-foreground hover:bg-primary/10 aria-expanded:bg-primary/10 aria-expanded:text-foreground [&_svg]:text-primary aria-disabled:opacity-50" data-base-ui-click-trigger="" data-slot="popover-trigger" data-stack-path="push" data-testid="push-button" id="base-ui-[ID]" tabindex="0" type="button">
-            <svg aria-hidden="true" class="lucide lucide-arrow-up" data-icon="inline-start" />
-            1
-          </button>
-          <button aria-expanded="false" aria-haspopup="menu" aria-label="More actions for test-branch" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3 text-muted-foreground" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
-            <svg aria-hidden="true" class="lucide lucide-ellipsis" />
-          </button>
+          <div class="flex shrink-0 me-(--bd-gap-step) min-w-(--bd-track-step)" data-track="step" />
+          <div class="flex shrink-0 min-w-(--bd-track-more)" data-track="more">
+            <div class="flex w-max min-w-0 items-center">
+              <button aria-expanded="false" aria-haspopup="menu" aria-label="More actions for test-branch" class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding text-sm whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 size-6 [&_svg:not([class*='size-'])]:size-3 text-muted-foreground" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" id="base-ui-[ID]" tabindex="0" type="button">
+                <svg aria-hidden="true" class="lucide lucide-ellipsis" />
+              </button>
+            </div>
+          </div>
         </div>
       </td>
     </tr>
