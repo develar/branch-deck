@@ -736,11 +736,11 @@ fn read_plan(path: Option<&PathBuf>) -> Result<Option<GroupPlan>, CliError> {
 }
 
 /// The proven dangling references of some branches, each with its branch, and the possible ones as warnings
-pub(crate) type BranchDangling = (Vec<(String, DanglingReferenceSummary)>, Vec<CheckWarning>);
+pub type BranchDangling = (Vec<(String, DanglingReferenceSummary)>, Vec<CheckWarning>);
 
 /// A trial session on the grouping the sync of `report` read: no guards, HEAD, config, stores or baseline read again,
 /// only the commits ahead of the baseline with the mapping notes the sync wrote and the branch tips
-pub(crate) fn session_of_sync(context: &RepoContext, report: &SyncReport) -> Result<CheckSession, CliError> {
+pub fn session_of_sync(context: &RepoContext, report: &SyncReport) -> Result<CheckSession, CliError> {
   Ok(
     CheckSession::of_sync(&context.git, &context.repository, &context.prefix, &context.cache(), report)
       .map_err(regroup_error)?
@@ -751,7 +751,7 @@ pub(crate) fn session_of_sync(context: &RepoContext, report: &SyncReport) -> Res
 /// The dangling references of `branches` (a branch and the branches it is built on) in a check of the grouping of
 /// `session` (`session_of_sync`): the ones a commit proves, by branch, and the possible ones as warnings. With `chain`,
 /// only that branch and the branches it is built on are built; else every branch (a whole stack that forks)
-pub(crate) fn dangling_references_in(context: &RepoContext, session: &CheckSession, branches: &[&str], chain: Option<&str>) -> Result<BranchDangling, CliError> {
+pub fn dangling_references_in(context: &RepoContext, session: &CheckSession, branches: &[&str], chain: Option<&str>) -> Result<BranchDangling, CliError> {
   let report = match chain {
     Some(chain) => {
       let of: Vec<String> = branches.iter().map(|name| (*name).to_string()).collect();
@@ -790,7 +790,7 @@ const DESCRIBED_REFERENCES: usize = 1;
 
 /// What the build of `branch` fails on: each dangling reference it describes and how to fix it (two of two, else the
 /// first and the count of the rest, which `bd check` lists)
-pub(crate) fn dangling_reference_message(branch: &str, references: &[(String, DanglingReferenceSummary)]) -> String {
+pub fn dangling_reference_message(branch: &str, references: &[(String, DanglingReferenceSummary)]) -> String {
   if references.is_empty() {
     return String::new();
   }

@@ -16,7 +16,7 @@ targets:
   - ../../crates/bd-cli/src/status.rs
   - ../../crates/bd-core/src/branch_view.rs
   - ../../crates/bd-cli/src/branch_stats.rs
-  - ../../crates/bd-cli/src/commits.rs
+  - ../../crates/bd-rewrite/src/commits.rs
   - ../../crates/bd-clustering/src/areas.rs
   - ../../crates/sync-core/src/diff_scan.rs
   - ../../crates/bd-cli/src/numstat.rs
@@ -25,25 +25,25 @@ targets:
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/bd-core/src/version.rs
   - ../../crates/bd-core/build.rs
-  - ../../crates/bd-cli/src/rewrite.rs
+  - ../../crates/bd-rewrite/src/rewrite.rs
   - ../../crates/bd-update/src/undo_command.rs
-  - ../../crates/bd-cli/src/group_plan.rs
-  - ../../crates/bd-cli/src/describe.rs
+  - ../../crates/bd-rewrite/src/group_plan.rs
+  - ../../crates/bd-rewrite/src/describe.rs
   - ../../crates/git-ops/src/branch_description.rs
   - ../../crates/bd-core/src/sync_command.rs
   - ../../crates/bd-core/src/stack_summary.rs
   - ../../crates/sync-core/src/branch_processor.rs
-  - ../../crates/bd-cli/src/check_command.rs
+  - ../../crates/bd-rewrite/src/check_command.rs
   - ../../crates/git-ops/src/tree_archive.rs
   - ../../crates/bd-cli/src/robot_command.rs
   - ../../crates/bd-cli/src/request_review_command.rs
-  - ../../crates/bd-cli/src/fold_command.rs
-  - ../../crates/bd-cli/src/move_hunk_command.rs
+  - ../../crates/bd-rewrite/src/fold_command.rs
+  - ../../crates/bd-rewrite/src/move_hunk_command.rs
   - ../../crates/sync-core/src/move_hunk.rs
   - ../../crates/git-ops/src/move_hunk.rs
   - ../../crates/git-ops/src/merge_tree_output.rs
   - ../../crates/history-rewrite/src/autosquash.rs
-  - ../../crates/bd-cli/src/suggest.rs
+  - ../../crates/bd-rewrite/src/suggest.rs
   - ../../crates/bd-core/src/suggest_plan.rs
   - ../../crates/bd-clustering/src/clustering.rs
   - ../../crates/sync-utils/src/issue_pattern.rs
@@ -72,7 +72,7 @@ targets:
   - ../../crates/history-rewrite/src/regroup.rs
   - ../../crates/history-rewrite/src/reword.rs
   - ../../crates/history-rewrite/src/fixup_targets.rs
-  - ../../crates/bd-cli/src/reword_command.rs
+  - ../../crates/bd-rewrite/src/reword_command.rs
   - ../../crates/history-rewrite/src/issue_groups.rs
   - ../../crates/history-rewrite/src/commit_ids.rs
   - ../../crates/history-rewrite/src/repository_lock.rs
@@ -152,17 +152,17 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
 - The JSON must be ASCII: every other character is a `\uXXXX` escape (a UTF-16 pair above the BMP), so a reader that
   decodes stdout with a legacy code page, as Windows PowerShell 5.1 does, still gets every path and subject.
-  [@test] ../../crates/bd-cli/src/describe_test.rs (`a_body_from_windows_powershell_is_read_and_printed_as_ascii`)
+  [@test] ../../crates/bd-rewrite/src/describe_test.rs (`a_body_from_windows_powershell_is_read_and_printed_as_ascii`)
 - A plan, a body and a message (`--plan`, `--body-file`, `--message-file`; `-` is stdin) must be read as UTF-8 without a leading byte order
   mark, or as UTF-16 with one, which Windows PowerShell 5.1 writes.
   [@test] ../../crates/bd-core/src/text_input_test.rs (`a_bom_is_dropped_and_utf16_is_decoded`)
-  [@test] ../../crates/bd-cli/src/check_test.rs (`a_plan_with_a_byte_order_mark_is_read`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_plan_with_a_byte_order_mark_is_read`)
 - `bd schema` must print the JSON Schema of every output (the list is the test's), and the real outputs must use only
   the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
   [@test] ../../crates/bd-update/src/update_test.rs (`update_outputs_match_the_schema`)
-  [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
-  [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`)
+  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
+  [@test] ../../crates/bd-rewrite/src/move_hunk_test.rs (`the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`)
 - `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `describe` without a setter,
   `request-review --check`, `update --status` without `--materialize`, `lease status`, and the `--dry-run` of `group`, `rename`,
   `restack`, `unstack`, `update` (also with `--continue`), `pick`, `fold`, `move-hunk` and `reword` must write no ref,
@@ -179,7 +179,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   A write whose step after the write failed must print its output with that error as `after_error`, never the error
   object, so that the undo token stays. The names must be one vocabulary: a write prints `previous_head` and
   `new_head`, a commit and its copy are `{commit, new_id}`, a state is `state`.
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_token`)
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_token`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`outputs_match_schema`)
 - The exit code must follow the code: 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network
   error. Exit 1 must never be an error object: it is the output of a command that found a conflict (`state:
@@ -196,7 +196,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   references the refusal of `bd safe-push` describes, the `dropped_commits` of a remote, the failed checks a robot or a
   pull request names), as the app cuts its lists and prompts (`cutList`).
   [@test] ../../crates/sync-utils/src/list_cut_test.rs (`a_list_one_longer_than_its_limit_is_kept_whole_and_a_longer_one_is_cut_at_the_limit`)
-  [@test] ../../crates/bd-cli/src/check_test.rs (`a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
   [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`test_dropped_commits_one_more_than_the_limit_are_listed_whole`)
   [@test] ../../crates/patronus/src/actions_test.rs (`the_failed_checks_of_a_robot_are_named_whole_when_only_one_is_past_the_limit`)
   [@test] ../../crates/sync-core/src/pull_requests_test.rs (`the_failed_checks_of_a_pull_request_are_named_whole_when_only_one_is_past_the_limit`)
@@ -256,7 +256,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status_of_a_forking_stack`)
 - Each branch with a `bd describe` text must show its title, read for all branches in one git process, the one that
   also gives the stack setting of the grouping.
-  [@test] ../../crates/bd-cli/src/describe_test.rs (`sets_prints_and_clears_a_description`)
+  [@test] ../../crates/bd-rewrite/src/describe_test.rs (`sets_prints_and_clears_a_description`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status`)
 - `--stats` must add per branch the distinct files, the generated files, added and deleted lines, the top three
   directories, the authors, the author date range, the issue keys and a diffstat of the synced branch against the sync
@@ -272,16 +272,16 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 - It must print every commit ahead of the baseline, oldest first: id, subject, body, author, time, group (or `null`),
   issue key, and for a fixup its kind and the target autosquash resolves.
-  [@test] ../../crates/bd-cli/src/commits_test.rs (`entries_groups_and_fixups`)
+  [@test] ../../crates/bd-rewrite/src/commits_test.rs (`entries_groups_and_fixups`)
 - `--files` must list each changed file with its status (`A`, `M`, `D`, `R` with the old path, `T`) and the counts of
   the changed lines of the diff views; a binary file must have `"binary": true` and no counts.
-  [@test] ../../crates/bd-cli/src/commits_test.rs (`files_with_renames_binaries_and_deletions`)
+  [@test] ../../crates/bd-rewrite/src/commits_test.rs (`files_with_renames_binaries_and_deletions`)
   [@test] ../../crates/sync-core/src/diff_scan_test.rs (`parses_the_raw_part`, `read_commit_diffs_takes_the_blocks_of_the_views`)
 - `--patch` must add per changed file the blocks of the diff views under `Default`, each with its id for
   `bd move-hunk --block` (the lines as in a git hunk header and a hash of them), its kind, a header with the label of
   its scope, and its lines between up to three lines of context that stop at the next block; `--branch` must keep the
   commits of one branch and the edges and overlaps that involve it.
-  [@test] ../../crates/bd-cli/src/commits_test.rs (`dependency_edges_and_cluster_overlap`)
+  [@test] ../../crates/bd-rewrite/src/commits_test.rs (`dependency_edges_and_cluster_overlap`)
   [@test] ../../crates/file-diffs/src/patch_test.rs (`each_block_has_its_own_context`, `an_insertion_and_a_final_line_end`, `the_header_names_the_scope`, `the_ids_of_a_commit_apply`)
 - `dependencies` must list `{from, to, files}` where `from` touches lines `to` added, adjacent lines included, plus the
   file-level rules for created, deleted, renamed and binary files; the lines are the blocks of the diff views, so the
@@ -292,18 +292,18 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   ([Symbol Dependencies](../commit/symbol-dependencies.spec.md)): `via` `symbols` for an edge by symbols only (its
   `files` the files of the uses) and `lines_and_symbols` for both, with `symbols` `{name, file}`; `via` must be absent
   for an edge by lines only. `units` must not join by an edge by symbols only.
-  [@test] ../../crates/bd-cli/src/commits_test.rs (`an_edge_by_symbols_names_the_symbol_and_joins_no_unit`)
+  [@test] ../../crates/bd-rewrite/src/commits_test.rs (`an_edge_by_symbols_names_the_symbol_and_joins_no_unit`)
 - `cluster_overlap` must list, for each pair of branches, the files both change.
-  [@test] ../../crates/bd-cli/src/commits_test.rs (`dependency_edges_and_cluster_overlap`)
+  [@test] ../../crates/bd-rewrite/src/commits_test.rs (`dependency_edges_and_cluster_overlap`)
 - `bd commits <id>…` must keep the commits with these ids (full, or abbreviated to at least 4 characters) and
   `--unassigned` the unassigned commits, with the edges that involve them; an unknown id must be
   `not_ahead_of_baseline`, an ambiguous one `invalid_arguments`, and the filters and `--branch` must exclude each other.
-  [@test] ../../crates/bd-cli/src/commits_test.rs (`commit_ids_and_unassigned_filter_the_listing`, `an_ambiguous_id_is_invalid`)
+  [@test] ../../crates/bd-rewrite/src/commits_test.rs (`commit_ids_and_unassigned_filter_the_listing`, `an_ambiguous_id_is_invalid`)
 - `--brief` must print per commit only the id, the subject (without a prefix that is exactly the group; a stack path
   or a sanitized prefix stays), the group, the issue key when it is not the group, the fixup kind and target, and the
   areas; the dependencies as `{from, to, via}`; and `units`, the connected components of two or more commits of the
   dependencies by lines and the fixups, over every commit, each oldest first.
-  [@test] ../../crates/bd-cli/src/commits_test.rs (`brief_view_with_units_and_areas`, `brief_keeps_a_prefix_that_says_more_than_the_group`)
+  [@test] ../../crates/bd-rewrite/src/commits_test.rs (`brief_view_with_units_and_areas`, `brief_keeps_a_prefix_that_says_more_than_the_group`)
 - An area must be the first `--depth` directories of a path (default 3; `.` at the top level); a commit must list at
   most three areas by added plus deleted lines, without those under 5 % of its lines except the first, and without
   the hub files of `HUB_FILES` (`crates/bd-clustering/src/generated.rs`). `--depth` must need `--brief`.
@@ -314,7 +314,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Lock files and the paths HEAD's attributes mark `linguist-generated` or `-diff` must not count in `dependencies`,
   `cluster_overlap`, the areas and the stats lines; `--files` must still list them with `"generated": true`, and
   `--include-generated` must count them.
-  [@test] ../../crates/bd-cli/src/commits_test.rs (`generated_files_are_flagged_and_unlinked`)
+  [@test] ../../crates/bd-rewrite/src/commits_test.rs (`generated_files_are_flagged_and_unlinked`)
   [@test] ../../crates/git-ops/src/attributes_test.rs (`reads_the_attributes_of_the_source_tree`)
   [@test] ../../crates/bd-cli/src/status_test.rs (`stats_per_branch`)
 
@@ -322,7 +322,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 
 - The per-commit changes must be cached by commit id in `$GIT_COMMON_DIR/branch-deck/cache/`, and git must run once
   for the missing ids only. Cached and uncached outputs must be equal; `--no-cache` must neither read nor write it.
-  [@test] ../../crates/bd-cli/src/commits_test.rs (`cached_output_equals_uncached`)
+  [@test] ../../crates/bd-rewrite/src/commits_test.rs (`cached_output_equals_uncached`)
 - Several processes must use the cache at once; a full cache must be cleared; the older versions of a store must be
   dropped, and only of that store; any cache failure must be a miss.
   [@test] ../../crates/object-cache/src/cache_test.rs (`round_trip`, `older_versions_of_a_store_are_dropped`, `a_bumped_store_keeps_the_other_stores`, `unusable_cache_is_a_miss`, `full_cache_is_cleared`, `parallel_threads`, `parallel_processes`)
@@ -339,9 +339,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   message-only rewrite, and change the issue groups ([Issue Groups](../branch/issue-groups.spec.md)) and the stack
   parents ([Stack Parents](../branch/stack-parents.spec.md)) in the same ref transaction; ids may be abbreviated. A
   plan of issue groups and stack parents only rewrites no commit.
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_applies_a_plan`)
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_applies_a_plan`)
 - `bd group` without `--plan` must be refused as `invalid_arguments` (exit 2), and stdin must not be read.
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_without_a_plan_is_refused`)
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_without_a_plan_is_refused`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`applies_a_plan_in_one_rewrite`, `unassign_falls_back_to_the_issue_key`)
 - A commit without a prefix that the plan puts into the branch of its own issue key must keep its subject, so a plan
   that names the current branch of each commit (its stack path with stacked branches on) rewrites no commit without a
@@ -352,7 +352,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   names, a fixup separated from its target and a stack problem the plan introduces are `invalid_plan`, with the
   commits named. Problems that already existed must be reported, not refused.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`validates_the_plan_before_writing`, `refuses_problems_the_plan_introduces_and_keeps_existing_ones`)
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_errors_and_exit_codes`)
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_errors_and_exit_codes`)
 - Fixups not in the plan must follow their targets. A rewrite whose fixup would fold into another target or none, or
   that recreates a target a fixup names by its id (`fixup! <hash>`), must be `invalid_plan`: fold it first.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`fixups_follow_their_targets`)
@@ -362,12 +362,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   else `invalid_plan`. bd must write the ones that differ after the ref transaction, under the same lock, as
   `bd describe` does, list the written ones in `described` and the texts they replaced in `replaced_descriptions`;
   a plan of descriptions only rewrites no commit. `bd check` must validate them as well.
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_writes_descriptions_and_syncs`, `descriptions_are_validated_with_the_plan`, `a_stacked_branch_is_described_by_its_leaf`)
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_writes_descriptions_and_syncs`, `descriptions_are_validated_with_the_plan`, `a_stacked_branch_is_described_by_its_leaf`)
 - `--sync` must run the sync of `bd sync` after the writes, without releasing the repository lock in between, and add
   its output as `sync`; a conflict must exit with 1 and keep the undo token. A failed description write must skip the
   sync; it and a failed sync must keep the rewrite output, with the error as `after_error` and its exit code. `--sync` must not
   go with `--dry-run`.
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_writes_descriptions_and_syncs`, `a_sync_conflict_after_group_exits_with_1_and_keeps_the_undo_token`, `a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_token`, `descriptions_are_validated_with_the_plan`)
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_writes_descriptions_and_syncs`, `a_sync_conflict_after_group_exits_with_1_and_keeps_the_undo_token`, `a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_token`, `descriptions_are_validated_with_the_plan`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`a_held_lock_is_not_taken_again`)
 - `--expect-head` must refuse with `head_moved` (exit 3, retryable) when HEAD is another commit, and the rewrite must
   move the branch only from the HEAD the plan was computed for.
@@ -377,16 +377,16 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   with their new ids; any other HEAD stays `head_moved`. The appended commits are regrouped like the others: a rename,
   a restack or an unstack by name changes their prefix too.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`allow_append_accepts_commits_on_top_and_refuses_a_rewritten_head`)
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_with_allow_append_lists_the_appended_commits`)
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_with_allow_append_lists_the_appended_commits`)
 - Rewrites must hold `$GIT_COMMON_DIR/branch-deck.lock`, wait a bounded time for another holder, then fail with
   `locked` (exit 3). A rebase, merge, cherry-pick or revert in progress is `operation_in_progress`, also for
   `--dry-run`, and a detached HEAD `detached_head` (exit 4).
   [@test] ../../crates/sync-core/src/regroup_test.rs (`waits_for_the_repository_lock`, `refuses_while_a_rebase_is_in_progress`)
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`group_and_its_dry_run_are_refused_during_a_cherry_pick`)
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_and_its_dry_run_are_refused_during_a_cherry_pick`)
 - The output must list every commit's resulting group with its new id, the new HEAD and an undo token;
   `--dry-run` must write nothing and print the changed subjects (`changes`: the old and the new subject, `moved` with
   the branch before and after when it changes) and the stack forest; `--map` must add `{commit, new_id}` of every commit.
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`dry_run_prints_the_changes_and_the_forest`)
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`dry_run_prints_the_changes_and_the_forest`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`dry_run_writes_nothing`)
 - `bd rename` must replace the branch's level in every prefix path, children included, rename the issue groups and
   the stack parents of that name without a rewrite, and name an issue branch by the issue groups; the new name must be
@@ -395,7 +395,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `bd restack` and `bd unstack` must set or clear the stack parent of the branch, an issue branch and an issue group
   included, rewrite only the commits whose prefix declares another parent, and need stacked branches.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`restacks_and_unstacks_a_branch`, `restack_needs_stacked_branches`)
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
 
 ### `bd reword`
 
@@ -405,26 +405,26 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   message-only rewrite: every tree, the index and the working tree stay, the older commits keep their ids, the later
   ones are recreated with their author and committer, and their mapping notes follow them. A message is cleaned up as
   `git commit` does; one equal to the old message after the cleanup rewrites nothing and prints no undo token.
-  [@test] ../../crates/bd-cli/src/reword_test.rs (`reword_subject_changes_only_that_commit`, `reword_with_a_message_file_from_stdin_replaces_the_whole_message`, `a_message_equal_after_cleanup_rewrites_nothing`)
+  [@test] ../../crates/bd-rewrite/src/reword_test.rs (`reword_subject_changes_only_that_commit`, `reword_with_a_message_file_from_stdin_replaces_the_whole_message`, `a_message_equal_after_cleanup_rewrites_nothing`)
   [@test] ../../crates/sync-core/src/reword_test.rs (`rewords_messages_in_one_rewrite`, `a_subject_keeps_the_body_and_a_message_equal_after_cleanup_rewrites_nothing`)
 - It must be a rewrite of `bd group`: under the repository lock (`locked`, exit 3), `--expect-head` (`head_moved`, exit
   3), `--allow-append`, `--sync`, `--map`, `operation_in_progress` (exit 4) also for `--dry-run`, the output of `bd group`
   with `operation: reword` and `changes` (old id, `new_id`, old and new subject, `body_changed`, `moved`) also without
   `--dry-run`, and an undo token `<previous head>..<new head>` that `bd undo` takes back, the old commits with their
   notes. The issue groups and the stack parents must stay.
-  [@test] ../../crates/bd-cli/src/reword_test.rs (`reword_is_refused_on_another_head_or_while_the_lock_is_held`, `reword_and_its_dry_run_are_refused_during_a_cherry_pick`, `a_reword_plan_rewrites_two_commits_at_once_and_undo_restores_them`, `reword_dry_run_writes_no_ref`)
+  [@test] ../../crates/bd-rewrite/src/reword_test.rs (`reword_is_refused_on_another_head_or_while_the_lock_is_held`, `reword_and_its_dry_run_are_refused_during_a_cherry_pick`, `a_reword_plan_rewrites_two_commits_at_once_and_undo_restores_them`, `reword_dry_run_writes_no_ref`)
   [@test] ../../crates/sync-core/src/reword_test.rs (`a_reword_keeps_the_issue_groups_and_the_stack_parents`)
 - A commit that is not ahead of the baseline (on the baseline, unknown) must be `not_ahead_of_baseline` (exit 2); a
   revision that is no commit id (`HEAD~1`) or a commit without exactly one text `invalid_arguments`; a plan entry
   without exactly one text, an empty plan, an empty subject, a subject of several lines and a commit named twice
   `invalid_plan`.
-  [@test] ../../crates/bd-cli/src/reword_test.rs (`reword_of_a_commit_not_ahead_of_the_baseline_is_refused`, `a_reword_plan_rewrites_two_commits_at_once_and_undo_restores_them`)
+  [@test] ../../crates/bd-rewrite/src/reword_test.rs (`reword_of_a_commit_not_ahead_of_the_baseline_is_refused`, `a_reword_plan_rewrites_two_commits_at_once_and_undo_restores_them`)
   [@test] ../../crates/sync-core/src/reword_test.rs (`refuses_ids_and_texts_it_cannot_reword`)
 - A new `(prefix)` must move the commit to that branch as `bd group` does, its fixups with it, with the validation of a
   plan: a stack problem it introduces is `invalid_plan`. A fixup that would fold into another target or none, a
   `fixup!`, `squash!` or `amend!` marker added or removed, a target a fixup names by its id, and a new text of a commit
   whose `amend!` waits must be `invalid_plan`; a plan that rewords the fixup with its target passes.
-  [@test] ../../crates/bd-cli/src/reword_test.rs (`a_new_prefix_moves_the_commit_to_another_branch`, `a_reword_that_strands_a_fixup_is_refused`)
+  [@test] ../../crates/bd-rewrite/src/reword_test.rs (`a_new_prefix_moves_the_commit_to_another_branch`, `a_reword_that_strands_a_fixup_is_refused`)
   [@test] ../../crates/sync-core/src/reword_test.rs (`a_new_prefix_moves_the_commit_with_its_fixups`, `a_reword_that_strands_a_fixup_is_refused`, `a_plan_that_rewords_a_fixup_with_its_target_passes`, `a_reword_that_breaks_a_stack_is_refused`)
 - A reworded branch that was pushed must need a push: `bd safe-push --check` with `push_needed: true` and
   `remote.reworded`, `bd push --dry-run` a forced update.
@@ -444,7 +444,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   each at most once. Once the branch or a store changed again, the undo must be `undo_stale` (exit 4, not retryable):
   the token can never succeed again, as for the tokens of `bd update` and `bd pick`.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`undo_restores_the_previous_head`)
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`rename_restack_unstack_and_undo`, `issue_groups_plan_and_undo`, `stack_parents_plan_and_undo`)
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`rename_restack_unstack_and_undo`, `issue_groups_plan_and_undo`, `stack_parents_plan_and_undo`)
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`an_undo_token_is_read_strictly`)
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`a_mixed_plan_moves_head_and_the_store_in_one_transaction`)
 
@@ -470,15 +470,15 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `bd undo`. `--branch` must fold only the fixups whose target is in that branch, and a name that is no branch of the
   commits ahead of the baseline is `unknown_branch`; `--dry-run` must write nothing; nothing to fold is no rewrite and
   no token.
-  [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`, `fold_of_one_branch_and_a_dry_run`)
+  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`, `fold_of_one_branch_and_a_dry_run`)
 - `--expect-head` must refuse with `head_moved` on another HEAD, and the fold must check that HEAD, the planned
   commits and the history it rewrites all end at the planned head; a held lock is `locked`.
-  [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
+  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
   [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`refuses_when_the_branch_moved_since_the_plan`)
 - A rebase, merge, cherry-pick or revert in progress in this worktree must be `operation_in_progress` (exit 4) for the
   fold and its dry run, moving nothing; one in another worktree refuses nothing, since git keeps that state per
   worktree.
-  [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_and_its_dry_run_are_refused_during_a_cherry_pick`, `a_cherry_pick_in_another_worktree_does_not_refuse_the_fold`)
+  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_and_its_dry_run_are_refused_during_a_cherry_pick`, `a_cherry_pick_in_another_worktree_does_not_refuse_the_fold`)
 
 ### `bd move-hunk`
 
@@ -489,7 +489,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `[to, from)` and `from` keeps its tree; into a newer one it is taken out of the trees of `[from, to)` and `to` keeps
   its tree. The commits above the newer one get new parents only.
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`moves_a_file_change_into_an_older_commit`, `moves_a_file_change_into_a_newer_commit`, `moves_one_block_of_three`, `moves_a_block_of_a_crlf_file_and_of_a_lone_cr_file`, `keeps_dirty_and_staged_changes_byte_for_byte`)
-  [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch`)
+  [@test] ../../crates/bd-rewrite/src/move_hunk_test.rs (`the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch`)
 - A block must apply by its line ranges to the file as each commit between has it, through one
   `merge-tree --write-tree --stdin`: a commit that shifts the lines still takes it; one that changes the same lines, or
   lacks the file, is `hunk_conflict` (exit 4) with `commits` and `paths`, and nothing is written but git objects. Such
@@ -505,7 +505,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   of every recreated commit), `changed` (the commits whose changes differ) and an undo token
   `<previous head>..<new head>` for `bd undo`; `--sync` must sync under the same lock (`sync`, or `after_error` with
   the token kept); `--dry-run` must print the blocks and check the rewrite, writing nothing but git objects.
-  [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_block_id_is_the_one_of_bd_commits_patch`)
+  [@test] ../../crates/bd-rewrite/src/move_hunk_test.rs (`the_block_id_is_the_one_of_bd_commits_patch`)
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_dry_run_writes_no_ref_and_no_note`)
 - It must refuse with `invalid_arguments` (exit 2) the same commit twice, a file the commit doesn't change, a file it
   renames, a mode change, a symlink or submodule, `--block` of a file without blocks, an id that does not parse,
@@ -513,7 +513,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   the file now is `block_not_found` (exit 2) with `blocks`, the ids of now; an id that is no commit ahead of the
   baseline is `not_ahead_of_baseline`; `--expect-head` is `head_moved` on another HEAD, a held lock `locked`.
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`refuses_a_move_that_leaves_a_commit_empty_or_names_no_change`)
-  [@test] ../../crates/bd-cli/src/move_hunk_test.rs (`the_block_id_is_the_one_of_bd_commits_patch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`, `a_fix_that_is_the_whole_commit_is_refused_as_a_squash`)
+  [@test] ../../crates/bd-rewrite/src/move_hunk_test.rs (`the_block_id_is_the_one_of_bd_commits_patch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`, `a_fix_that_is_the_whole_commit_is_refused_as_a_squash`)
 - It must run a fixed number of git processes, whatever the number of commits between.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_move_hunk`)
 
@@ -523,11 +523,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   regroup (exit 2 when invalid, `descriptions` included), place the branches as a stacked sync does and build each
   one, parents first, writing git objects and the cache only: refs, notes, config and HEAD must not change.
   [@test] ../../crates/sync-core/src/check_test.rs (`a_commit_moved_away_from_its_dependency_conflicts`, `stacking_resolves_the_conflict`, `the_current_grouping_and_a_clean_plan_build`, `an_invalid_plan_is_refused`)
-  [@test] ../../crates/bd-cli/src/check_test.rs (`the_current_grouping_and_invalid_plans`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`the_current_grouping_and_invalid_plans`)
 - Without `--plan`, `bd check` must check the current grouping and never read stdin, so the stdin of an agent, a CI
   or an IDE, an open pipe that sends nothing, does not hold it. `--plan -` must read the plan from stdin, with the
   result of `--plan <file>`.
-  [@test] ../../crates/bd-cli/src/check_test.rs (`without_a_plan_an_open_stdin_is_not_read`, `a_plan_on_stdin_with_plan_dash_is_the_plan_of_a_file`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`without_a_plan_an_open_stdin_is_not_read`, `a_plan_on_stdin_with_plan_dash_is_the_plan_of_a_file`)
 - The branches must build at the same time as a sync builds them: a branch as soon as the one it is built on has its
   head, the others at once, with the outcomes of a build one by one (a child on its parent's head, blocked by a failed
   parent) and no more git processes.
@@ -536,18 +536,18 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Per branch it must print `ok`, a light conflict (commit, subject, files and the older commits outside the branch
   and its ancestors that change those files), `blocked_by`, `problems` or `error`, and the branch it would be built
   on; the exit code must be 1 unless every branch is `ok`.
-  [@test] ../../crates/bd-cli/src/check_test.rs (`a_conflicting_plan_names_the_commit_and_what_it_needs`, `stacking_resolves_the_conflict`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_conflicting_plan_names_the_commit_and_what_it_needs`, `stacking_resolves_the_conflict`)
   [@test] ../../crates/sync-core/src/check_test.rs (`children_of_a_conflicting_branch_are_blocked`)
 - With `--fix` it must add `fix`, the regroup after which the conflicting branches apply cleanly as the trial builds of
   [Conflict Fix](../branch/conflict-fix.spec.md) find it, each component's `plan` the whole plan for `bd group`;
   nothing is applied. `--max-trials N` (12) and `--time-budget SECONDS` (180, the whole command) bound the search,
   each only with `--fix`; a search they stop says `search: budget` with the best plan so far. Each trial is a line on
   stderr.
-  [@test] ../../crates/bd-cli/src/check_test.rs (`fix_finds_the_regroup_after_which_the_plan_applies_and_writes_nothing`, `a_fix_out_of_time_says_budget_and_the_trial_limit_needs_fix`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`fix_finds_the_regroup_after_which_the_plan_applies_and_writes_nothing`, `a_fix_out_of_time_says_budget_and_the_trial_limit_needs_fix`)
 - With `branchdeck.symbols on`, `missing_declarations` must name each use, by a commit of a built branch, of a name
   that a commit outside the branch and the branches it is built on adds or gives the form the use needs (an edge by
   symbols), an override of it included, with the evidence; it must not change `ok` or the exit code.
-  [@test] ../../crates/bd-cli/src/check_test.rs (`a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration`, `an_override_of_another_branchs_overload_is_a_missing_declaration`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration`, `an_override_of_another_branchs_overload_is_a_missing_declaration`)
 - A built branch that removes a declaration its virtual tree still uses where HEAD's tree doesn't must be
   `dangling_reference` (exit 1) with `{kind, identifier, file, line, removed_by, fixed_by, mutual, declared_in}`
   (`declared_in` the `{file, line}` of the declaration before `removed_by`), when a commit outside
@@ -555,12 +555,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   with a `fix` only when a trial build of the plan with it proves it (the branch builds without a proven dangling
   reference, no branch that built breaks): the move of `fixed_by` into the branch when it changes only that file, else
   a `bd move-hunk` command, tried on commits written as objects only that no ref names, at most two per check.
-  [@test] ../../crates/bd-cli/src/check_test.rs (`a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names`, `a_move_hunk_fix_that_breaks_another_branch_is_not_offered`, `a_branch_that_removes_a_used_declaration_is_dangling_reference`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names`, `a_move_hunk_fix_that_breaks_another_branch_is_not_offered`, `a_branch_that_removes_a_used_declaration_is_dangling_reference`)
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_trial_writes_the_commits_and_moves_no_ref`)
   With `--allow-dangling` the branch must keep its `result` `dangling_reference` and its references, and only `ok` and
   the exit code must count it as building, as `bd safe-push --allow-dangling` starts anyway; any other failure must
   still be exit 1.
-  [@test] ../../crates/bd-cli/src/check_test.rs (`allow_dangling_keeps_the_reference_and_exits_0`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`allow_dangling_keeps_the_reference_and_exits_0`)
   A use no commit changes, and one the baseline got after the base, must be a `possible_dangling_reference` warning that
   leaves the exit code alone. A declaration still in its file, a private one used elsewhere, a use HEAD has as often, a
   use the branch changes itself, a member moved with its class, a declaration moved within its package and a private one
@@ -570,7 +570,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   whether the trees confirmed the uses (`syntax_tree`) or the lines alone found them (`lines`). Only the paths where the
   trees differ may be read.
   [@test] ../../crates/sync-core/src/dangling_references_test.rs (`the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch`, `a_use_changed_by_the_branch_itself_is_not_dangling`, `a_declaration_changed_in_place_is_not_dangling`, `a_reformatted_use_is_not_dangling`, `a_private_declaration_is_not_searched_outside_its_file`, `a_removed_top_level_function_is_searched_by_its_name`, `a_use_landed_on_the_baseline_is_a_possible_reference`, `a_member_moved_with_its_class_is_not_dangling`, `a_top_level_function_moved_within_its_package_is_not_dangling`, `a_private_declaration_moved_elsewhere_is_not_dangling`, `a_name_re_exported_by_a_use_is_not_removed`, `a_word_in_kdoc_is_no_use`, `an_override_line_is_no_use`, `a_local_val_shadows_a_private_member_of_another_class`)
-  [@test] ../../crates/bd-cli/src/check_test.rs (`a_branch_that_removes_a_used_declaration_is_dangling_reference`, `a_possible_dangling_reference_is_a_warning_and_exit_0`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_branch_that_removes_a_used_declaration_is_dangling_reference`, `a_possible_dangling_reference_is_a_warning_and_exit_0`)
 - With `branchdeck.symbols on`, a dangling reference must also be found by the syntax summaries alone, with its `kind`
   (`removed_declaration` for the line search above): `removed_declaration` for an instance or static member of a JVM
   type or an enum entry that a commit of the branch removes with all its overloads, its key declared nowhere else in the
@@ -590,31 +590,31 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   another package and a single declaration in a file another branch deletes must not count. A possible one is a
   warning of the kind `possible_changed_declaration` or `possible_duplicate_declaration`.
   [@test] ../../crates/sync-core/src/declaration_checks_test.rs (`a_function_made_suspend_dangles_where_another_branch_removed_its_call`, `a_function_made_suspend_fits_a_coroutine`, `a_header_change_the_summary_cannot_judge_is_only_possible`, `a_changed_parameter_type_rejects_a_literal`, `a_removed_overload_dangles_where_the_one_left_rejects_the_call`, `a_changed_extension_receiver_breaks_its_call`, `a_changed_form_is_judged_in_the_jvm_languages_only`, `a_removed_member_is_kept_only_by_its_own_key`, `a_use_the_branch_writes_is_told_by_its_line_not_its_text`, `a_change_of_the_body_alone_changes_no_form`, `a_new_parameter_dangles_only_where_the_call_does_not_fit_it`, `a_call_on_a_receiver_of_another_type_is_no_use`, `a_use_the_branch_writes_fits_its_form`, `a_removed_instance_member_dangles_where_its_receiver_calls_it`, `a_type_declared_again_in_the_same_package_is_a_duplicate`, `a_type_of_the_same_name_in_another_package_is_no_duplicate`, `a_declaration_another_branch_deletes_is_no_duplicate`)
-  [@test] ../../crates/bd-cli/src/check_test.rs (`a_branch_that_changes_a_used_declaration_is_dangling_reference`, `a_changed_return_type_is_a_possible_changed_declaration`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_branch_that_changes_a_used_declaration_is_dangling_reference`, `a_changed_return_type_is_a_possible_changed_declaration`)
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`the_checks_of_a_session_on_sources`)
 - A branch whose conflict or dangling reference needs a commit of a branch stacked on it, at any depth, must have
   `inverted_stack {branch, child, fixes}` and keep its `result`; the fixes (`move_to_child`, `swap`) must be plan
   parts for `bd group` that a trial build of the plan with them passes for both branches, and no `swap` for a mutual
   dangling reference; with no fix that builds, a `reason` instead.
-  [@test] ../../crates/bd-cli/src/check_test.rs (`a_parent_that_needs_its_child_is_an_inverted_stack`, `a_mutual_dangling_reference_of_a_stack_is_an_inverted_stack_without_a_swap`, `an_inverted_stack_that_no_fix_builds_says_why`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_parent_that_needs_its_child_is_an_inverted_stack`, `a_mutual_dangling_reference_of_a_stack_is_an_inverted_stack_without_a_swap`, `an_inverted_stack_that_no_fix_builds_says_why`)
 - `--build <command>` must run the command in the tree of each `ok` branch, extracted outside every working tree
   (`--build-paths`: only those paths, names, never patterns), and make a failure `build_failed` with its exit code and
   the end of its output; without it nothing runs. The command must reach the shell as written: `sh -c`, on Windows
   cmd with its quotes kept (a quoted path).
-  [@test] ../../crates/bd-cli/src/check_test.rs (`check_build_runs_the_command_on_each_branch_tree`, `a_build_that_passed_on_a_tree_is_not_run_again`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`check_build_runs_the_command_on_each_branch_tree`, `a_build_that_passed_on_a_tree_is_not_run_again`)
   [@test] ../../crates/git-ops/src/tree_archive_test.rs (`a_path_is_a_name`)
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
 - A build that passed must not run again on the same command, branch and extracted objects (the tree, or the object of
   each `--build-paths` path the tree has), also on a new commit of the same tree (`BD_COMMIT` is not in the key), and
   say `cached`; a failed build, another branch, a changed extracted object, `--rebuild` and `--no-cache` must run it.
   The key costs one `cat-file --batch-check` for all branches, and a cached build no `archive`.
-  [@test] ../../crates/bd-cli/src/check_test.rs (`a_build_that_passed_on_a_tree_is_not_run_again`, `a_failed_build_runs_again`, `a_build_of_another_branch_with_the_same_tree_runs`, `rebuild_runs_the_command_on_a_cached_tree`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_build_that_passed_on_a_tree_is_not_run_again`, `a_failed_build_runs_again`, `a_build_of_another_branch_with_the_same_tree_runs`, `rebuild_runs_the_command_on_a_cached_tree`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_check_with_a_build`, `a_warm_check_with_a_build`)
   [@test] ../../crates/object-cache/src/cache_test.rs (`passed_builds_are_read_by_their_version`)
   [@test] ../../crates/git-ops/src/cat_file_batch_test.rs (`the_ids_of_a_path_with_a_space_a_tree_a_gitlink_and_missing_names`)
 - Merges must be memoized by their trees in the object cache, and a cached check must equal an uncached one.
   [@test] ../../crates/sync-core/src/check_test.rs (`the_cache_gives_the_same_report`)
-  [@test] ../../crates/bd-cli/src/check_test.rs (`cached_check_equals_uncached`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`cached_check_equals_uncached`)
 - A `CheckSession` must read the commits, the baseline and the branch tips once, and check any number of plans as
   `check_plan` does.
   [@test] ../../crates/sync-core/src/check_test.rs (`a_session_checks_many_plans_as_check_plan_does`)
@@ -626,29 +626,29 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   commit count, `change` (`kept`, `renamed`, `merged`, `split`, `new`) against the groups now in `current_branches`, `why`, `weak`, issue keys
   and areas, with stacked branches the `parent` and `restacked`, the subjects the plan rewrites, and the trial sync of the plan. It must write git objects and the cache
   only, and the plan, applied, must suggest nothing more.
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`)
 - Each cluster must name its commits in three disjoint lists that agree with the plan: `kept`, the ones it leaves as
   they are; `moved`, the ones that change branch, each with `leaves`, the branch it leaves (`null` when unassigned),
   by its group now against the leaf of the cluster's path (a fixup that follows its target moves with it, the commits
   an issue group takes in or lets go move); and `new_path`, the ones whose branch stays but whose subject the plan
   gives another stacked path to the same leaf, so that `moved` and `new_path` together are what the plan changes of a
   commit (the top-level `rewritten` counts them).
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`, `a_plan_never_moves_a_commit_with_an_explicit_prefix`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`, `a_plan_never_moves_a_commit_with_an_explicit_prefix`)
 - Without `--fresh`, a plan must never move a commit with an explicit `(prefix)`, `--rewrite-issues` included: it stays
   in `kept`. The one rewrite of such a subject is the stacked path it declares (`(gone/a)` to `a`): the commit stays
   in its branch and is in `new_path`.
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_plan_never_moves_a_commit_with_an_explicit_prefix`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`a_plan_never_moves_a_commit_with_an_explicit_prefix`)
 - Hard units must join the dependencies, a fixup and its target, the commits of one prefix (unless `--fresh`) and the
   commits without a prefix of one issue key. Two prefixes must never join, and a dependency between them must be an
   `anchor_dependency` warning that names `git config branchdeck.stacks true`.
   [@test] ../../crates/bd-clustering/src/clustering_test.rs (`hard_units_join_dependencies_fixups_prefixes_and_keys`, `an_edge_between_two_anchors_is_a_warning_and_anchors_never_merge`)
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1`)
 - With stacked branches, a prefix must be an anchor by the leaf of its path, and a dependency must join no units: it
   must be an edge between two clusters, and only the dependencies of a cycle of units may join them. A cycle between
   two prefixes must stay an `anchor_dependency` warning. The commits without a prefix of an issue key that a prefix
   names must join that prefix, because they are one branch.
   [@test] ../../crates/bd-clustering/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`)
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_follow_up_that_joins_an_issue_branch_stays_there_once_applied`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`a_follow_up_that_joins_an_issue_branch_stays_there_once_applied`)
 - With stacked branches, each cluster must get a parent so that every cluster it depends on is an ancestor: the parent
   its prefixes declare when that parent covers them; else the deepest cluster it depends on that covers the others;
   else the stacks of the clusters it needs must become one chain, in the order of the dependencies and the oldest
@@ -663,13 +663,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   group, stacked too. The trial applies the plan as `bd group` does, so `rewritten` counts only the commits that need
   a prefix. `why` must name a new parent and its reason.
   [@test] ../../crates/bd-clustering/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`, `a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes`, `stack_clusters_keeps_a_declared_parent_and_gives_way_in_a_cycle`, `stack_clusters_makes_every_needed_cluster_an_ancestor`, `stack_order_breaks_a_cycle_in_a_source_component`, `a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason`)
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`with_stacked_branches_a_branch_stacks_on_the_branch_it_needs`, `a_stacked_plan_stacks_an_issue_group_and_rewrites_a_deeper_path`, `stacked_branches_and_an_empty_range`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`, `a_stored_parent_without_need_is_reported_and_kept`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`with_stacked_branches_a_branch_stacks_on_the_branch_it_needs`, `a_stacked_plan_stacks_an_issue_group_and_rewrites_a_deeper_path`, `stacked_branches_and_an_empty_range`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`, `a_stored_parent_without_need_is_reported_and_kept`)
 - With `branchdeck.symbols on`, an edge by symbols only must never join two units: with stacked branches it must be an
   edge of the stack outside the join of a cycle, without them it must link only a follow-up without a prefix and an
   issue key; a unit whose names three or more units use must order none of them; a branch the plan doesn't build on
   the branch whose name it uses must be a `symbol_dependency` warning.
   [@test] ../../crates/bd-clustering/src/clustering_test.rs (`an_edge_by_symbols_orders_and_never_joins`)
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`with_the_symbols_on_a_use_of_another_branch_warns_or_stacks`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`with_the_symbols_on_a_use_of_another_branch_warns_or_stacks`)
 - Soft merges must go by a deterministic integer score of issue key mentions, conventional scopes (`type(scope):` and
   `type scope:`), shared paths weighted by IDF, the disagreement of issue projects and scopes, and log adjacency: the
   best pair first, a tie to the oldest, under `--max-commits` (40) and down to the threshold 0.40. A key that more
@@ -688,29 +688,29 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   branches it stacks on its branch); a mutual one must not be stacked but named in an `unresolved_conflict` warning
   that says to move the change into `removed_by`. A possible one is a `possible_dangling_reference` warning (or
   `possible_changed_declaration`, `possible_duplicate_declaration`).
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_dangling_reference_stacks_the_branch_on_its_fix`, `a_mutual_dangling_reference_suggests_moving_the_change`, `a_changed_declaration_stacks_the_branch_on_its_fix`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`a_dangling_reference_stacks_the_branch_on_its_fix`, `a_mutual_dangling_reference_suggests_moving_the_change`, `a_changed_declaration_stacks_the_branch_on_its_fix`)
 - A conflict of the check must join the hard unit of the conflicting commit to the units of the commits it needs by
   its lines that its branch and the branches it is built on lack, by the conflicting files only when the lines name
   none, also inside an issue group, and cluster again, at most 5 times, never joining two prefixes; the exit code must be 1 when a branch
   still conflicts. With stacked branches, a conflict on a commit of another cluster must first stack the two
   clusters, and join their units only when the same conflict comes again.
   [@test] ../../crates/bd-clustering/src/clustering_test.rs (`repair_joins_a_conflicting_commit_to_what_it_needs`, `with_stacked_branches_a_repair_stacks_first_and_joins_when_the_conflict_stays`)
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes`, `a_repair_joins_what_the_lines_of_the_conflict_need_not_every_commit_of_the_file`, `whole_issue_branches_become_an_issue_group`, `prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`a_conflict_in_a_lock_file_joins_the_commits_and_fresh_ignores_prefixes`, `a_repair_joins_what_the_lines_of_the_conflict_need_not_every_commit_of_the_file`, `whole_issue_branches_become_an_issue_group`, `prefixes_that_depend_on_each_other_stay_apart_and_exit_with_1`)
 - A name must be the cluster's prefix, the branch its commits come from when it holds the most of that branch, its
   single issue key, a scope of at least 60 % of its commits, `<area leaf>-<word>`, its most frequent key or
   `cluster-N`, in this order; a name another cluster, a group now or a virtual branch has, in any case, must get `-2`,
   `-3`, unless the cluster's commits come from it. `kept` must mean one whole branch under its own name.
   [@test] ../../crates/bd-clustering/src/clustering_test.rs (`names_in_order_of_preference_with_collisions`, `a_cluster_takes_the_name_of_the_branch_it_holds_most_of`, `changes_against_the_groups_now`, `subject_words_drop_stopwords_and_endings`)
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`fresh_keeps_the_name_of_a_branch_that_stays_whole`, `stacked_branches_and_an_empty_range`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`fresh_keeps_the_name_of_a_branch_that_stays_whole`, `stacked_branches_and_an_empty_range`)
 - A cluster of two or more whole issue branches must go into `issue_groups` of the plan, marked `"via": "issue_group"`,
   so that the plan rewrites no commit; `--rewrite-issues` gives the commits a prefix instead. An issue group must be
   an anchor, as a prefix is.
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`, `whole_issue_branches_become_an_issue_group`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`suggests_a_checked_plan_that_is_stable_once_applied`, `whole_issue_branches_become_an_issue_group`)
 - `--dump-input` (hidden) must print the input of the clustering with every name hashed by a keyed hash (SipHash) with
   a random key that is not kept, and without subjects, bodies, ids and authors, so that the dump clusters as the
   repository does; only the module markers of file paths may become one marker.
   [@test] ../../crates/bd-clustering/src/clustering_test.rs (`anonymize_keeps_the_clustering_and_no_name`)
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`the_dump_hides_every_name`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`the_dump_hides_every_name`)
 
 ### `bd sync`
 
@@ -962,7 +962,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   from three on of the first and "(2 more: bd check)"); `--check` must list it in `refusals`, `--allow-dangling` must
   start anyway, and the possible ones are `warnings`.
   [@test] ../../crates/bd-cli/src/safe_push_test.rs (`a_dangling_reference_refuses_the_safe_push_unless_allowed`)
-  [@test] ../../crates/bd-cli/src/check_test.rs (`a_dangling_reference_message_names_the_kind`, `a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_dangling_reference_message_names_the_kind`, `a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
 - Patronus rebases what a robot lands onto the newest target before any check, and a conflict fails the robot at once.
   So before the lock, `bd safe-push` must fetch only the target's remote branch (as Update Project does). Then it must
   replay what the robot lands onto the tip that the sync read, as a plain `git rebase` replays it, with no resolution
@@ -1091,7 +1091,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `descriptions` of a `bd group` plan set several at once.
 - `--title`, `--body` and `--body-file` must set it as `title`, a blank line and the body, keeping the part not
   given; `--clear` must remove it. A description needs a title, and the branch must be a current group.
-  [@test] ../../crates/bd-cli/src/describe_test.rs (`sets_prints_and_clears_a_description`, `describe_errors`)
+  [@test] ../../crates/bd-rewrite/src/describe_test.rs (`sets_prints_and_clears_a_description`, `describe_errors`)
   [@test] ../../crates/git-ops/src/branch_description_test.rs (`writes_and_clears_a_description`)
 
 ### `bd version`

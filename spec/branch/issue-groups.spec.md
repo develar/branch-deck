@@ -23,9 +23,9 @@ targets:
   - ../../crates/git-ops/src/reword_commits.rs
   - ../../crates/git-ops/src/squash_commits.rs
   - ../../crates/sync-types/src/lib.rs
-  - ../../crates/bd-cli/src/rewrite.rs
+  - ../../crates/bd-rewrite/src/rewrite.rs
   - ../../crates/bd-cli/src/status.rs
-  - ../../crates/bd-cli/src/suggest.rs
+  - ../../crates/bd-rewrite/src/suggest.rs
   - ../../crates/bd-clustering/src/clustering.rs
   - ../../crates/bd-core/src/error.rs
   - ../../src-tauri/src/commands/stack_operations.rs
@@ -140,7 +140,7 @@ app, a move of a whole issue writes it ([Move Commits](move-commits.spec.md)): d
   and with `groups_moved` (exit 3, retryable) when the map moved, also when a ref moves between its checks and its
   transaction.
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`a_plan_of_issue_groups_rewrites_nothing_and_moves_only_the_store`, `a_mixed_plan_moves_head_and_the_store_in_one_transaction`, `an_undo_of_the_map_needs_the_written_commit_on_its_previous_one`)
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`issue_groups_plan_and_undo`)
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`issue_groups_plan_and_undo`)
 
 ### `bd status` and `bd suggest`
 
@@ -149,7 +149,7 @@ app, a move of a whole issue writes it ([Move Commits](move-commits.spec.md)): d
   [@test] ../../crates/bd-cli/src/status_test.rs (`issue_groups_in_status`)
 - `bd suggest` must put a cluster of whole issue branches into `issue_groups` of its plan, so that it rewrites no
   commit; `--rewrite-issues` gives the commits a prefix instead. An issue group is an anchor, as a prefix is.
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`whole_issue_branches_become_an_issue_group`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`whole_issue_branches_become_an_issue_group`)
 
 ### App
 
@@ -167,7 +167,7 @@ app, a move of a whole issue writes it ([Move Commits](move-commits.spec.md)): d
 ## Testing / Local Run
 
 - `pnpm test:backend`: `crates/sync-core/src/issue_groups_test.rs`, `crates/bd-cli/src/status_test.rs`,
-  `crates/bd-cli/src/suggest_test.rs`.
+  `crates/bd-rewrite/src/suggest_test.rs`.
 - `pnpm test:unit`: `src/lib/commit.test.ts`, `src/hooks/useCommitMoveList.test.ts`.
 - `pnpm e2e`: `tests/e2e/issue-groups/issue-groups.spec.ts`, on the `issue_groups` template;
   `tests/e2e/move-commits/combine-branches.spec.ts`, on the `issue_combine` template.

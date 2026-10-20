@@ -2,50 +2,28 @@
 //! JSON on stdout, every object with `"schema": 2`; logs on stderr; the exit code of an error is fixed by its code.
 
 pub mod agent_help;
-pub mod block_patch;
 pub mod branch_stats;
-pub mod check_command;
-pub mod commits;
-pub mod describe;
-pub mod fold_command;
-pub mod group_plan;
 pub mod install;
 pub mod landed;
-pub mod move_hunk_command;
 pub mod numstat;
-pub mod park_command;
 pub mod pull_request_retarget;
 pub mod push_command;
 pub mod push_hold;
 pub mod request_review_command;
-pub mod reword_command;
-pub mod rewrite;
 pub mod robot_command;
 pub mod robot_list;
 pub mod safe_push_command;
 pub mod schema;
 pub mod status;
-pub mod suggest;
-pub mod symbol_stats;
 
 use crate::agent_help::{AGENT_HELP, READ_ONLY, UPDATE_HELP, WORKTREES_HELP, skill_text};
-use crate::check_command::{CheckArgs, check};
-use crate::commits::{CommitsArgs, commits, commits_brief};
-use crate::describe::{DescribeArgs, describe};
-use crate::fold_command::{FoldArgs, fold};
 use crate::install::{InstallArgs, install};
-use crate::move_hunk_command::{MoveHunkArgs, MoveHunkOutput, move_hunk};
-use crate::park_command::{ParkArgs, UnparkArgs, park, unpark};
 use crate::push_command::{PushArgs, push};
 use crate::request_review_command::{RequestReviewArgs, request_review};
-use crate::reword_command::{RewordArgs, reword};
-use crate::rewrite::{GroupArgs, RenameArgs, RestackArgs, RewriteOutput, UnstackArgs, group, rename, restack, unstack};
 use crate::robot_command::{RobotArgs, robot};
 use crate::safe_push_command::{SafePushArgs, safe_push};
 use crate::schema::schema_output;
 use crate::status::{StatusArgs, status, status_brief};
-use crate::suggest::{SuggestArgs, suggest, suggest_input_dump};
-use crate::symbol_stats::symbol_stats;
 use bd_core::bd_command::skill_command;
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::{CONFLICT_EXIT, CliError, ErrorCode};
@@ -53,6 +31,16 @@ use bd_core::output::write_json;
 use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
 use bd_lease::lease_command::{LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, lease_adopt, lease_clean, lease_get, lease_return, lease_status};
+use bd_rewrite::check_command::{CheckArgs, check};
+use bd_rewrite::commits::{CommitsArgs, commits, commits_brief};
+use bd_rewrite::describe::{DescribeArgs, describe};
+use bd_rewrite::fold_command::{FoldArgs, fold};
+use bd_rewrite::move_hunk_command::{MoveHunkArgs, MoveHunkOutput, move_hunk};
+use bd_rewrite::park_command::{ParkArgs, UnparkArgs, park, unpark};
+use bd_rewrite::reword_command::{RewordArgs, reword};
+use bd_rewrite::rewrite::{GroupArgs, RenameArgs, RestackArgs, RewriteOutput, UnstackArgs, group, rename, restack, unstack};
+use bd_rewrite::suggest::{SuggestArgs, suggest, suggest_input_dump};
+use bd_rewrite::symbol_stats::symbol_stats;
 use bd_update::pick_command::{PickArgs, PickOutput, pick};
 use bd_update::undo_command::{UndoArgs, undo};
 use bd_update::update_command::{UpdateArgs, UpdateCommandOutput, update};
@@ -368,37 +356,21 @@ fn io_error(error: std::io::Error) -> CliError {
 #[cfg(test)]
 mod agent_help_test;
 #[cfg(test)]
-mod check_test;
-#[cfg(test)]
-mod commits_test;
-#[cfg(test)]
 mod context_test;
-#[cfg(test)]
-mod describe_test;
 #[cfg(test)]
 mod error_test;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod fixture_test;
 #[cfg(test)]
-mod fold_test;
-#[cfg(test)]
 mod install_test;
 #[cfg(test)]
 mod landed_test;
-#[cfg(test)]
-mod move_hunk_test;
-#[cfg(test)]
-mod park_test;
 #[cfg(test)]
 mod process_budget_test;
 #[cfg(test)]
 mod push_test;
 #[cfg(test)]
 mod request_review_test;
-#[cfg(test)]
-mod reword_test;
-#[cfg(test)]
-mod rewrite_test;
 #[cfg(test)]
 mod robot_list_test;
 #[cfg(test)]
@@ -409,8 +381,6 @@ mod safe_push_test;
 mod schema_test;
 #[cfg(test)]
 mod status_test;
-#[cfg(test)]
-mod suggest_test;
 #[cfg(test)]
 mod sync_test;
 #[cfg(test)]

@@ -330,3 +330,13 @@ pub fn assert_covered(root: &Value, schema: &Value, value: &Value, path: &str) {
     _ => {}
   }
 }
+
+/// The branch `name` of the `branches` of an output (`bd check`, `bd push`)
+pub fn branch<'a>(output: &'a Value, name: &str) -> &'a Value {
+  output["branches"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .find(|branch| branch["name"] == json!(name))
+    .unwrap_or_else(|| panic!("no {name} in {output}"))
+}

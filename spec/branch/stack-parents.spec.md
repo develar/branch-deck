@@ -19,9 +19,9 @@ targets:
   - ../../crates/branch-integration/src/detector.rs
   - ../../crates/sync-types/src/lib.rs
   - ../../crates/sync-types/src/stack.rs
-  - ../../crates/bd-cli/src/rewrite.rs
+  - ../../crates/bd-rewrite/src/rewrite.rs
   - ../../crates/bd-cli/src/status.rs
-  - ../../crates/bd-cli/src/suggest.rs
+  - ../../crates/bd-rewrite/src/suggest.rs
   - ../../crates/bd-cli/src/safe_push_command.rs
   - ../../crates/bd-clustering/src/clustering.rs
   - ../../crates/bd-core/src/error.rs
@@ -167,7 +167,7 @@ only the stack parents ref.
   the dropped children on top of them. A token of an older version stays valid.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`a_mixed_plan_moves_head_and_the_store_in_one_transaction`, `an_undo_passes_over_the_drops_of_a_sync`)
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`an_undo_token_is_read_strictly`)
-  [@test] ../../crates/bd-cli/src/rewrite_test.rs (`stack_parents_plan_and_undo`)
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`stack_parents_plan_and_undo`)
 - These plans must be `invalid_plan`: a path whose leaf is its parent; two paths that give a child two parents; a
   child both stacked and unstacked; a plan whose result has a cycle or a conflict with a prefix.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`invalid_stack_parent_plans_are_refused`)
@@ -231,10 +231,10 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
   commit moves (`"a/b": []`), a cluster unstacked from its stack parent goes into `unstack`, and a commit with the bare
   leaf stays where it is. Its trial sync must apply the plan as `bd group` does, so that `rewritten` counts only the
   commits that need a prefix.
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_stacked_plan_stacks_an_issue_group_and_rewrites_a_deeper_path`, `with_stacked_branches_a_branch_stacks_on_the_branch_it_needs`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`a_stacked_plan_stacks_an_issue_group_and_rewrites_a_deeper_path`, `with_stacked_branches_a_branch_stacks_on_the_branch_it_needs`)
 - `bd suggest` must mark a cluster `stacked_without_need` when its stored parent stays and it depends on no cluster of
   that parent's lineage. The plan must keep the parent.
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`a_stored_parent_without_need_is_reported_and_kept`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`a_stored_parent_without_need_is_reported_and_kept`)
 - `bd safe-push <branch> --check` of a stacked branch must print the trial build of the branch alone as `alone`:
   `builds` with "`bd unstack <branch>` makes it a root that lands alone", or the commits of its ancestors that it
   needs, with their branch. Its Safe Push lands it with its ancestors either way; the unstack is the user's choice.
@@ -256,8 +256,8 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
 
 - `pnpm test:backend`: `crates/sync-core/src/stack_parents_test.rs`, `crates/sync-core/src/stack_operations_test.rs`,
   `crates/sync-core/src/check_test.rs`, `crates/bd-cli/src/safe_push_test.rs`,
-  `crates/sync-core/src/move_commits_test.rs`, `crates/bd-cli/src/status_test.rs`, `crates/bd-cli/src/suggest_test.rs`,
-  `crates/bd-cli/src/rewrite_test.rs`.
+  `crates/sync-core/src/move_commits_test.rs`, `crates/bd-cli/src/status_test.rs`, `crates/bd-rewrite/src/suggest_test.rs`,
+  `crates/bd-rewrite/src/rewrite_test.rs`.
 - `pnpm test:unit`: `src/lib/commit.test.ts`, `src/lib/stack.test.ts`.
 - `pnpm e2e`: `tests/e2e/stacked-branches/stacked-branches.spec.ts` on the `stacked_issues` template.
 

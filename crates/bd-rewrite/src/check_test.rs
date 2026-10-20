@@ -1,6 +1,6 @@
 use crate::check_command::{DanglingReferenceSummary, DeclarationPlace, dangling_reference_message};
-use crate::fixture_test::{
-  ACP_AGENT, ACP_HOST, LEDGER, LEDGER_TEST, MANAGER_TEST, PREFIX, commit_all, commit_changed_declaration, commit_changed_member, commit_dangling_reference,
+use bd_cli::fixture_test::{
+  ACP_AGENT, ACP_HOST, LEDGER, LEDGER_TEST, MANAGER_TEST, PREFIX, assert_covered, branch, commit_all, commit_changed_declaration, commit_changed_member, commit_dangling_reference,
   commit_override_of_overload, environment, git, repo_with_baseline, run_in, run_json, with_header, write,
 };
 use git_ops::revs::short_id;
@@ -41,12 +41,7 @@ fn check(repo: &TestRepo, plan: &Value, extra: &[&str]) -> (i32, Value) {
 /// The schema of `bd check` covers every field of `output`
 fn assert_check_schema(repo: &TestRepo, output: &Value) {
   let (_, schema) = run_in(repo, &["schema"]);
-  crate::fixture_test::assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], output, "check");
-}
-
-/// The branch `name` of a `bd check` output
-fn branch<'a>(output: &'a Value, name: &str) -> &'a Value {
-  output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!(name)).unwrap()
+  assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], output, "check");
 }
 
 /// `commit_dangling_reference`, whose commit that changes the use changes another file too, so only the change of the

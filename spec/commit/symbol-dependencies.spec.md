@@ -16,7 +16,7 @@ targets:
   - ../../crates/object-cache/src/blob_summary.rs
   - ../../crates/git-ops/src/object_texts.rs
   - ../../crates/sync-core/src/diff_scan.rs
-  - ../../crates/bd-cli/src/symbol_stats.rs
+  - ../../crates/bd-rewrite/src/symbol_stats.rs
 ---
 
 # Symbol Dependencies
@@ -415,9 +415,9 @@ Dependencies](../../docs/design/symbol-dependencies.md).
 - `bd commits` must name an override of another commit's overload as an edge by symbols, `bd check` as a missing
   declaration with the evidence `override` and the branch that adds it, and `bd suggest` with stacked branches must
   stack the branch of the override on that branch.
-  [@test] ../../crates/bd-cli/src/commits_test.rs (`an_edge_by_symbols_names_the_symbol_and_joins_no_unit`, `an_override_of_a_new_overload_is_an_edge_by_symbols`)
-  [@test] ../../crates/bd-cli/src/check_test.rs (`an_override_of_another_branchs_overload_is_a_missing_declaration`)
-  [@test] ../../crates/bd-cli/src/suggest_test.rs (`with_the_symbols_on_an_override_of_another_branch_stacks`)
+  [@test] ../../crates/bd-rewrite/src/commits_test.rs (`an_edge_by_symbols_names_the_symbol_and_joins_no_unit`, `an_override_of_a_new_overload_is_an_edge_by_symbols`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`an_override_of_another_branchs_overload_is_a_missing_declaration`)
+  [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`with_the_symbols_on_an_override_of_another_branch_stacks`)
 - Each commit must name the functions and types around its changed lines (its entities).
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`the_entities_are_the_functions_and_types_around_the_changed_lines`)
 
@@ -427,7 +427,7 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   Report Only · On, [Settings](../repository/settings.spec.md#repository)); another value is an error. `report` must
   read the summaries for `bd commits` and the dangling-reference check only; `off` must read none.
   [@test] ../../crates/sync-core/src/symbol_scan_test.rs (`the_mode_comes_from_git_config_and_is_on_without_it`)
-  [@test] ../../crates/bd-cli/src/commits_test.rs (`an_edge_by_symbols_names_the_symbol_and_joins_no_unit`)
+  [@test] ../../crates/bd-rewrite/src/commits_test.rs (`an_edge_by_symbols_names_the_symbol_and_joins_no_unit`)
   [@test] ../../crates/sync-core/src/dangling_references_test.rs (`a_word_in_kdoc_is_no_use`)
   [@test] ../../crates/sync-core/src/check_test.rs (`a_stacked_branch_that_applies_on_the_baseline_builds_alone`)
 - `bd commits --symbol-stats` (hidden) must print what the scan read and found: blobs and bytes per language, parse

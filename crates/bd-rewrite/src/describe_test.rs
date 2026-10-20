@@ -1,5 +1,5 @@
-use crate::fixture_test::{PREFIX, commit_all, environment, git, repo_with_baseline, run_in, write};
-use crate::run_with;
+use bd_cli::fixture_test::{PREFIX, commit_all, environment, git, repo_with_baseline, run_in, write};
+use bd_cli::run_with;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::ffi::OsString;

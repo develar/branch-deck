@@ -673,7 +673,7 @@ of step 8: the rewritten commits exist as objects only, for a trial build of the
 mapping notes, so their branches are built anew) and `rewritten_plan` renames the plan's ids; `bd check` proves a
 `move_hunk` fix that way before it prints the command (see "Dangling references (check)").
 
-Code: `crates/git-ops/src/move_hunk.rs`, `crates/sync-core/src/move_hunk.rs`, `crates/bd-cli/src/move_hunk_command.rs`.
+Code: `crates/git-ops/src/move_hunk.rs`, `crates/sync-core/src/move_hunk.rs`, `crates/bd-rewrite/src/move_hunk_command.rs`.
 
 #### Update project
 
@@ -1962,7 +1962,7 @@ their object ids (`git_ops::cat_file_batch::object_ids_and_types`), the key of t
 bd itself runs no git process: every one goes through a git-ops or sync-core function.
 
 Code: `crates/sync-core/src/check.rs`, `crates/sync-core/src/cache_memo.rs`, `crates/git-ops/src/cherry_pick.rs`,
-`crates/git-ops/src/tree_id_cache.rs`, `crates/git-ops/src/tree_archive.rs`, `crates/bd-cli/src/check_command.rs`.
+`crates/git-ops/src/tree_id_cache.rs`, `crates/git-ops/src/tree_archive.rs`, `crates/bd-rewrite/src/check_command.rs`.
 
 #### Dangling references (check)
 

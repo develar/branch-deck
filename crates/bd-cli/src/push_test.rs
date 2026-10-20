@@ -1,5 +1,5 @@
 use crate::fixture_test::assert_covered;
-use crate::fixture_test::{PREFIX, assert_error, commit_all, commit_subjects, git, repo_with_baseline, run_in, write};
+use crate::fixture_test::{PREFIX, assert_error, branch, commit_all, commit_subjects, git, repo_with_baseline, run_in, write};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -27,15 +27,6 @@ fn remote_tip(remote: &TempDir, branch: &str) -> String {
     .output()
     .unwrap();
   String::from_utf8(output.stdout).unwrap().trim().to_string()
-}
-
-fn branch<'a>(output: &'a Value, name: &str) -> &'a Value {
-  output["branches"]
-    .as_array()
-    .unwrap()
-    .iter()
-    .find(|branch| branch["name"] == json!(name))
-    .unwrap_or_else(|| panic!("no {name} in {output}"))
 }
 
 /// `bd push auth` has nothing to push, and its lease is the remote head its sync saw: the pushed commit

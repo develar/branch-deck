@@ -1,5 +1,5 @@
-use crate::fixture_test::assert_covered;
-use crate::fixture_test::{
+use bd_cli::fixture_test::assert_covered;
+use bd_cli::fixture_test::{
   PREFIX, assert_dry_run, assert_error, assert_refused_during, assert_undo_restores, commit_all, environment, git, hold_the_lock, repo_with_baseline, run_in, run_json,
   start_cherry_pick, write,
 };

@@ -457,6 +457,7 @@ dependencies = [
  "bd-clustering",
  "bd-core",
  "bd-lease",
+ "bd-rewrite",
  "bd-update",
  "clap",
  "code-symbols",
@@ -546,6 +547,36 @@ dependencies = [
  "tempfile",
  "test-log",
  "test-utils",
+]
+
+[[package]]
+name = "bd-rewrite"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bd-cli",
+ "bd-clustering",
+ "bd-core",
+ "clap",
+ "code-symbols",
+ "file-diffs",
+ "git-executor",
+ "git-ops",
+ "history-rewrite",
+ "object-cache",
+ "pretty_assertions",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sync-core",
+ "sync-types",
+ "sync-utils",
+ "tar",
+ "tempfile",
+ "test-log",
+ "test-utils",
+ "text-diff",
 ]
 
 [[package]]

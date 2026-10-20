@@ -91,7 +91,7 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
 - `bd fold` runs the same squash ([Agent CLI](../cli/agent-cli.spec.md)): it passes its lock timeout and
   `--expect-head` to the squash, which takes the lock and refuses another HEAD, so `bd fold` fails with `locked` or
   `head_moved` and changes nothing.
-  [@test] ../../crates/bd-cli/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`, `fold_is_refused_on_another_head_or_while_the_lock_is_held`)
+  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`, `fold_is_refused_on_another_head_or_while_the_lock_is_held`)
 
 ### UI
 

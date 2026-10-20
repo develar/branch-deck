@@ -1,0 +1,39 @@
+[package]
+name = "bd-rewrite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The bd commands that read and rewrite the commits ahead of the baseline: group, reword, fold, check, suggest"
+publish = false
+
+[dependencies]
+bd-clustering = { path = "../bd-clustering" }
+bd-core = { path = "../bd-core" }
+code-symbols = { path = "../code-symbols" }
+file-diffs = { path = "../file-diffs" }
+git-executor = { path = "../git-executor" }
+git-ops = { path = "../git-ops", features = ["schemars"] }
+history-rewrite = { path = "../history-rewrite" }
+object-cache = { path = "../object-cache" }
+sync-core = { path = "../sync-core" }
+sync-types = { path = "../sync-types" }
+sync-utils = { path = "../sync-utils" }
+text-diff = { path = "../text-diff" }
+anyhow.workspace = true
+clap = { version = "4.6", features = ["derive"] }
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10.9"
+tar = "0.4.46"
+tempfile.workspace = true
+
+[dev-dependencies]
+# the tests run bd through its Cli: a dev-dependency cycle, which cargo allows
+bd-cli = { path = "../bd-cli", features = ["fixtures"] }
+test-utils = { path = "../test-utils" }
+pretty_assertions.workspace = true
+test-log.workspace = true
+
+[lints]
+workspace = true

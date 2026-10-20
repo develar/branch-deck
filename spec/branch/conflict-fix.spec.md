@@ -8,7 +8,7 @@ targets:
   - ../../crates/sync-core/src/missing_commits.rs
   - ../../crates/history-rewrite/src/move_plan.rs
   - ../../crates/sync-core/src/dangling_references.rs
-  - ../../crates/bd-cli/src/check_command.rs
+  - ../../crates/bd-rewrite/src/check_command.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../src-tauri/src/commands/conflict_fix.rs
   - ../../crates/test-server/src/tauri_command_bridge.rs
@@ -113,8 +113,8 @@ rewrite.
   the object cache only. It prints a line on stderr for the first check and for each trial (`trial 3/12: restack
   <branch> on <parent> … verified (41 s)`, or the conflict it leaves, the branch it breaks), the JSON stays on stdout.
   [@test] ../../crates/sync-core/src/conflict_fix_test.rs (`each_trial_is_a_line_of_progress`)
-  [@test] ../../crates/bd-cli/src/check_test.rs (`a_fix_out_of_time_says_budget_and_the_trial_limit_needs_fix`)
-  [@test] ../../crates/bd-cli/src/check_test.rs (`fix_finds_the_regroup_after_which_the_plan_applies_and_writes_nothing`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_fix_out_of_time_says_budget_and_the_trial_limit_needs_fix`)
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`fix_finds_the_regroup_after_which_the_plan_applies_and_writes_nothing`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`outputs_match_schema`)
 
 ### App

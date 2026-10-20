@@ -20,6 +20,7 @@ test = false
 test-utils = { path = "../test-utils", optional = true }
 bd-core = { path = "../bd-core" }
 bd-lease = { path = "../bd-lease" }
+bd-rewrite = { path = "../bd-rewrite" }
 bd-update = { path = "../bd-update" }
 bd-clustering = { path = "../bd-clustering" }
 file-diffs = { path = "../file-diffs" }

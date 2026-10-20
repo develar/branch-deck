@@ -11,7 +11,7 @@ targets:
   - ../../crates/sync-core/src/sync.rs
   - ../../crates/sync-core/src/sync_inputs.rs
   - ../../crates/sync-types/src/lib.rs
-  - ../../crates/bd-cli/src/park_command.rs
+  - ../../crates/bd-rewrite/src/park_command.rs
   - ../../crates/bd-cli/src/status.rs
   - ../../crates/bd-cli/src/push_command.rs
   - ../../crates/bd-cli/src/safe_push_command.rs
@@ -116,7 +116,7 @@ branch built on it carries its commits, so it is parked with it.
 
 - `bd park <branch> [--note]` and `bd unpark <branch>` must print one object (`park` in `bd schema`); `bd status`
   names `parked: {note, with}` per branch and `idle_parked`, `--brief` too.
-  [@test] ../../crates/bd-cli/src/park_test.rs (`park_and_unpark_print_the_note_and_status_names_the_parked_branches`)
+  [@test] ../../crates/bd-rewrite/src/park_test.rs (`park_and_unpark_print_the_note_and_status_names_the_parked_branches`)
 - `bd push` must refuse a named parked branch, or one built on a parked branch, with `parked` (exit 4), nothing
   pushed; with `--all` or `--with-children` it leaves it out (`skipped`, `code: parked`) and pushes the others, and
   refuses only when nothing else is left. The stack branch of a stack with a parked member stays local.

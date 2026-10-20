@@ -581,7 +581,7 @@ flowchart TD
   (`dependents_in`, `movable`), `missing_declarations` (`crates/sync-core/src/missing_declarations.rs`) and
   `stack_independence` (`Builds.uses`).
 - `crates/bd-clustering/src/clustering.rs`: `ClusterInput.symbol_dependencies`, an order of the clusters, never a join;
-  `crates/bd-cli/src/suggest.rs`: the `symbol_dependency` warning.
+  `crates/bd-rewrite/src/suggest.rs`: the `symbol_dependency` warning.
 
 ## Alternatives Considered
 

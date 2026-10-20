@@ -20,6 +20,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/bd-clustering/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/bd-core/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/bd-lease/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/bd-rewrite/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/bd-update/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/object-cache/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/patronus/src" isTestSource="false" />

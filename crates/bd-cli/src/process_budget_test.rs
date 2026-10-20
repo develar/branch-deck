@@ -2,16 +2,11 @@
 //! `sync_core::process_budget_test` counts the cores: a change that runs fewer processes lowers the numbers here.
 //! A command runs on the counting executor of its `RepoContext`, so its own reads count with those of the core.
 
-use crate::check_command::{CheckArgs, check};
 use crate::fixture_test::{PREFIX, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline};
-use crate::fold_command::{FoldArgs, fold};
-use crate::move_hunk_command::{MoveHunkArgs, move_hunk};
 use crate::push_command::{PushArgs, push};
 use crate::push_test::repo_with_remote;
 use crate::request_review_command::{RequestReviewArgs, request_review};
 use crate::request_review_test::needs_code_owner;
-use crate::reword_command::{RewordArgs, reword};
-use crate::rewrite::{GroupArgs, RewriteArgs, group};
 use crate::robot_command::{RobotArgs, robot};
 use crate::safe_push_command::{SafePushArgs, safe_push};
 use crate::safe_push_test::Space;
@@ -19,6 +14,11 @@ use crate::status::{StatusArgs, status};
 use bd_core::context::{RepoContext, RepoOptions};
 use bd_core::sync_command::sync;
 use bd_lease::lease_command::{LeaseContext, LeaseGetArgs, LeaseReturnArgs, lease_get, lease_return};
+use bd_rewrite::check_command::{CheckArgs, check};
+use bd_rewrite::fold_command::{FoldArgs, fold};
+use bd_rewrite::move_hunk_command::{MoveHunkArgs, move_hunk};
+use bd_rewrite::reword_command::{RewordArgs, reword};
+use bd_rewrite::rewrite::{GroupArgs, RewriteArgs, group};
 use bd_update::pick_command::{PickArgs, PickOutput, pick};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
