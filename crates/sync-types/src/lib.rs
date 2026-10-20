@@ -16,6 +16,7 @@ pub mod robot_failure;
 pub mod robot_landing;
 pub mod stack;
 pub mod upstream_commit;
+pub mod youtrack;
 
 /// Remote branch status information, by content: the baseline and patch-equivalent (rebased) commits don't count
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

@@ -61,6 +61,10 @@ use commands::uncommitted_changes::get_uncommitted_changes;
 use commands::update_project::{dismiss_landed, update_project};
 use commands::window_management::{SubWindowState, open_sub_window, sub_window_loaded, sub_window_ready};
 use commands::window_menu::show_window_menu;
+use commands::youtrack::{
+  YouTrackState, cancel_youtrack_sign_in, get_youtrack_auth_status, get_youtrack_issue, save_youtrack_token, set_youtrack_issue_state, sign_out_of_youtrack,
+  start_youtrack_sign_in, wait_youtrack_sign_in,
+};
 use tauri_specta::{Builder, collect_commands};
 
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -100,6 +104,14 @@ fn specta_builder() -> Builder<tauri::Wry> {
     wait_github_sign_in,
     cancel_github_sign_in,
     sign_out_of_github,
+    get_youtrack_auth_status,
+    start_youtrack_sign_in,
+    wait_youtrack_sign_in,
+    cancel_youtrack_sign_in,
+    save_youtrack_token,
+    sign_out_of_youtrack,
+    get_youtrack_issue,
+    set_youtrack_issue_state,
     get_review_requests,
     fetch_review_head,
     cancel_review_fetch,
@@ -267,6 +279,7 @@ pub fn run() {
         app.state::<GitCommandExecutor>().inner().clone(),
         app_data_dir.as_deref(),
       ));
+      app.manage(YouTrackState::new(&current_version, app_data_dir.as_deref()));
       // Initialize update state
       app.manage(SharedUpdateState::new(UpdateState::new(current_version)));
 

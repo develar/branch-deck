@@ -32,3 +32,4 @@ pub mod window_management;
 #[cfg(test)]
 mod window_management_test;
 pub mod window_menu;
+pub mod youtrack;

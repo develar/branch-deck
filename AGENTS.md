@@ -466,6 +466,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Landing overview, PR status, Create Pull Request, Request Review | `repository/landing-overview`, `repository/outgoing`, `branch/pull-requests` | `crates/github/`, `sync_core::pull_requests`, `sync_core::pull_request_create` |
 | Patronus: robots, Safe Push and Dry Run, the next step, the failure prompt (`bd safe-push`, `bd robot`) | `branch/patronus`, `branch/next-step`, `branch/safe-push-failure-prompt`, `branch/whole-stack`, `cli/agent-cli` | `crates/patronus/`, `src/lib/branch-next-step.ts`, `src/stores/review-readiness.ts` |
 | GitHub sign-in (OAuth device flow) | `repository/github-sign-in` | `crates/github/src/token.rs` |
+| YouTrack sign-in (Hub OAuth in the browser, refresh token), the issue popover, Mark Fixed | `repository/youtrack` | `crates/youtrack/`, `src/stores/youtrack.ts` |
 | Issue groups | `branch/issue-groups` | `crates/sync-core/src/issue_groups.rs` |
 | Conflict fix (`bd check --fix`) | `branch/conflict-fix`, `commit/commit-row` | `crates/sync-core/src/conflict_fix.rs` |
 | Move to a branch (drag and drop, menus, keys) | `branch/move-commits` | `crates/sync-core/src/move_plan.rs` |
@@ -556,6 +557,7 @@ crates/
 ├── file-diffs/      # The typed diff of each file of a commit, a range or the working tree, and blob texts by id
 ├── patronus/        # Patronus REST client, Space token of the Safe Push CLI, request policy
 ├── github/          # GitHub REST and GraphQL client (rate limits, SSO, conditional GETs), fake GitHub for tests
+├── youtrack/        # YouTrack REST client, the sign-in through its Hub (OAuth, PKCE, refresh token), issues and commands
 ├── test-server/     # E2E mock server
 ├── test-utils/      # Test repositories and fixture git (`git_command`)
 ├── sync-test-utils/ # Test helpers of the sync and the integration detection

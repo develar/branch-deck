@@ -85,6 +85,34 @@ export const commands = {
 	 *  (`manage_url`): revoking needs the client secret, which the app has not.
 	 */
 	signOutOfGithub: () => typedError<null, CommandError>(__TAURI_INVOKE("sign_out_of_github")),
+	/**  The YouTrack sign-in and where the token comes from, for Settings and the popovers */
+	getYoutrackAuthStatus: () => typedError<YouTrackAuthStatus, CommandError>(__TAURI_INVOKE("get_youtrack_auth_status")),
+	/**
+	 *  Starts the browser sign-in to the YouTrack at `url`: the Hub page to open. `wait_youtrack_sign_in` waits for the
+	 *  browser to come back.
+	 */
+	startYoutrackSignIn: (url: string) => typedError<YouTrackSignIn, CommandError>(__TAURI_INVOKE("start_youtrack_sign_in", { url })),
+	/**
+	 *  Waits until the browser came back from the Hub page of `start_youtrack_sign_in`, then keeps the tokens and tells
+	 *  every window; the user. A newer sign-in or `cancel_youtrack_sign_in` ends it with "canceled".
+	 */
+	waitYoutrackSignIn: () => typedError<YouTrackUser, CommandError>(__TAURI_INVOKE("wait_youtrack_sign_in")),
+	/**  Ends the wait of the sign-in in progress, if any */
+	cancelYoutrackSignIn: () => typedError<null, CommandError>(__TAURI_INVOKE("cancel_youtrack_sign_in")),
+	/**  Keeps a token the user created in YouTrack (Profile → Account Security), once YouTrack accepted it */
+	saveYoutrackToken: (url: string, token: string) => typedError<YouTrackUser, CommandError>(__TAURI_INVOKE("save_youtrack_token", { url, token })),
+	/**
+	 *  Removes the token of the app's own sign-in. The Hub keeps the authorization until it is revoked there (Account
+	 *  Security of the YouTrack profile).
+	 */
+	signOutOfYoutrack: () => typedError<null, CommandError>(__TAURI_INVOKE("sign_out_of_youtrack")),
+	/**  The issue of `key` for the popover, from the YouTrack the token is for */
+	getYoutrackIssue: (key: string) => typedError<YouTrackIssueAnswer, CommandError>(__TAURI_INVOKE("get_youtrack_issue", { key })),
+	/**
+	 *  Sets the state field of the issue (Mark Fixed, and its undo with `expected`, the value the change set); the
+	 *  previous value
+	 */
+	setYoutrackIssueState: (key: string, state: string, expected: string | null) => typedError<YouTrackStateChange, CommandError>(__TAURI_INVOKE("set_youtrack_issue_state", { key, state, expected })),
 	/**
 	 *  The pull requests of others that wait for the user's review (requested by name), one GraphQL search; when GitHub
 	 *  can't answer, the availability says why. A known `github_repository` skips resolving it.
@@ -3602,6 +3630,87 @@ export type WriteScope =
 "local" | 
 /**  The global config of the user (`git config --global`): every repository without a local value takes it */
 "global";
+
+/**  Why the token is not used any more */
+export type YouTrackAuthProblem = 
+/**  YouTrack answered 401 to the token */
+"rejected" | 
+/**  Hub refused the refresh token: its time is over, or it was revoked */
+"expired";
+
+/**  The YouTrack sign-in as Settings and the issue popover show it */
+export type YouTrackAuthStatus = {
+	/**  The YouTrack the token is for, e.g. `https://youtrack.example.com`; None without a token */
+	url: string | null,
+	signedInAs: YouTrackUser | null,
+	source: YouTrackTokenSource | null,
+	problem: YouTrackAuthProblem | null,
+};
+
+/**  A single-value field of an issue, by the name YouTrack gives it: "Priority: Major", "Assignee: Jane Doe" */
+export type YouTrackField = {
+	name: string,
+	value: string,
+};
+
+export type YouTrackIssue = {
+	/**  `IJPL-1` */
+	key: string,
+	summary: string,
+	/**  The issue page: `<YouTrack>/issue/IJPL-1` */
+	url: string,
+	/**  Unix seconds; None while it is open */
+	resolved: number | null,
+	state: YouTrackState | null,
+	/**  The other single-value fields with a value, in YouTrack's order (enum, user, version, owned) */
+	fields: YouTrackField[],
+};
+
+/**  The answer to an issue lookup: the issue, or why there is none */
+export type YouTrackIssueAnswer = { status: "found"; issue: YouTrackIssue } | 
+/**  No token, or the key is not of the YouTrack the token is for */
+{ status: "notSignedIn" } | 
+/**  The token was rejected, or the sign-in expired */
+{ status: "signInProblem"; problem: YouTrackAuthProblem } | 
+/**  YouTrack answers 404 also for an issue the user may not see */
+{ status: "notFound" } | { status: "error"; message: string };
+
+/**  The page to open in the browser for the app's own sign-in; `wait_youtrack_sign_in` waits for its answer */
+export type YouTrackSignIn = {
+	authorizeUrl: string,
+};
+
+/**  The state field of an issue: the field whose type is a state (`StateIssueCustomField`) */
+export type YouTrackState = {
+	/**  The name of the field, usually "State" */
+	field: string,
+	value: string | null,
+	/**  The value is a resolved state (Fixed, Duplicate, Obsolete…) */
+	resolved: boolean,
+	/**  The field has the value `Fixed` (asked only for an issue that is not resolved): Mark Fixed sets it */
+	hasFixed: boolean,
+};
+
+/**  The state an issue had before a change of it, for its undo */
+export type YouTrackStateChange = {
+	field: string,
+	previous: string | null,
+};
+
+/**  Where the YouTrack token came from, in the order they are tried (`youtrack::service`) */
+export type YouTrackTokenSource = 
+/**  `YOUTRACK_TOKEN` with `YOUTRACK_BASE_URL`, as the `youtrack` CLI reads them */
+"environment" | 
+/**  The app's own sign-in in the browser (Hub OAuth with a refresh token) */
+"signIn" | 
+/**  A token the user pasted in Settings */
+"pastedToken";
+
+/**  The user a token belongs to */
+export type YouTrackUser = {
+	login: string,
+	fullName: string,
+};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

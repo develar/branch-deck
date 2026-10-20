@@ -112,7 +112,7 @@ test.describe("Settings window", () => {
     const tabs = window.getByRole("tablist", { name: "Settings pages" })
     await expect(tabs).toHaveAttribute("aria-orientation", "vertical")
     // the page of the selected repository last, its name beside it
-    await expect(tabs.getByRole("tab")).toHaveText(["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", /^Repositoryrepo-\d+$/])
+    await expect(tabs.getByRole("tab")).toHaveText(["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", /^Repositoryrepo-\d+$/])
     await expect(settingsTab(window, "General")).toBeFocused()
     await expect(window.getByTestId("settings-page-general")).toBeVisible()
 
@@ -239,8 +239,8 @@ test.describe("Settings window", () => {
   test("should fit every page at 720 × 540 without scrolling", async ({ page }) => {
     const window = await openTallestSettings(page)
     // Windows: the title bar on Appearance, no Dock badge
-    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "Repository"])
-    for (const id of ["general", "appearance", "diffs", "notifications", "repository"]) {
+    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Repository"])
+    for (const id of ["general", "appearance", "diffs", "notifications", "youtrack", "repository"]) {
       await window.getByTestId(`settings-tab-${id}`).click()
       await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${id}`)
     }
@@ -256,7 +256,7 @@ test.describe("Settings window on macOS", () => {
     await expect(window.getByTestId("settings-page-github")).toBeVisible()
     await settingsTab(window, "Notifications").click()
     await expect(window.getByTestId("setting-reviewBadge")).toBeVisible()
-    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "Repository"])
+    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Repository"])
     // no title bar setting on macOS
     await settingsTab(window, "Appearance").click()
     await expect(window.getByTestId("setting-zoom")).toBeVisible()

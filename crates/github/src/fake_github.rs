@@ -116,6 +116,13 @@ impl FakeGitHub {
 
 /// A fake GitHub on a free port and a client of it (the API and the web host are the same server)
 pub async fn start_fake() -> (Arc<FakeGitHub>, GitHubClient) {
+  let (fake, url) = start_fake_server().await;
+  (fake, GitHubClient::with_urls(url.clone(), url, "Branch Deck test"))
+}
+
+/// The fake on a free port and its URL (`http://127.0.0.1:<port>`): also the fake of other HTTP services, a YouTrack
+/// and its Hub
+pub async fn start_fake_server() -> (Arc<FakeGitHub>, String) {
   let fake = Arc::new(FakeGitHub::default());
   let state = Arc::clone(&fake);
   let app = axum::Router::new().fallback(move |method: Method, uri: Uri, headers: HeaderMap, body: Bytes| {
@@ -125,8 +132,7 @@ pub async fn start_fake() -> (Arc<FakeGitHub>, GitHubClient) {
   let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
   let address = listener.local_addr().unwrap();
   tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-  let url = format!("http://{address}");
-  (fake, GitHubClient::with_urls(url.clone(), url, "Branch Deck test"))
+  (fake, format!("http://{address}"))
 }
 
 /// A fake GitHub and a service of it that asks with `token` only (no `gh`, no git credentials of the developer)

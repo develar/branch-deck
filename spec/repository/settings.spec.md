@@ -1,6 +1,6 @@
 ---
 name: Settings
-description: Requirements for the Settings window, a sub-window of its own with a sidebar of pages (General, Appearance, Diffs & Merge, Notifications, GitHub, Repository), opened by the main window from the menu, the keys and the buttons that name a page; the branchdeck.* git config of the selected repository on Repository, and the order of the branch prefixes.
+description: Requirements for the Settings window, a sub-window of its own with a sidebar of pages (General, Appearance, Diffs & Merge, Notifications, GitHub, YouTrack, Repository), opened by the main window from the menu, the keys and the buttons that name a page; the branchdeck.* git config of the selected repository on Repository, and the order of the branch prefixes.
 style: plain-1
 targets:
   - ../../src-tauri/src/menu.rs
@@ -28,6 +28,7 @@ targets:
   - ../../src/components/settings/NotificationsPage.tsx
   - ../../src/components/settings/GitHubPage.tsx
   - ../../src/components/settings/GitHubSettings.tsx
+  - ../../src/components/settings/YouTrackPage.tsx
   - ../../src/components/settings/BranchPrefixSetting.tsx
   - ../../src/components/repository/YourTurnCard.tsx
   - ../../src/components/repository/ConfigurationHeader.tsx
@@ -62,7 +63,7 @@ Date: 2026-10-17
 ## Summary
 
 Settings is a window of its own, as in IntelliJ and the macOS apps: a sidebar of pages on the canvas (General,
-Appearance, Diffs & Merge, Notifications, GitHub, and Repository for the selected repository) beside one island with the page. It is
+Appearance, Diffs & Merge, Notifications, GitHub, YouTrack, and Repository for the selected repository) beside one island with the page. It is
 not modal: the main window stays usable, and a change applies at once in every window. The main window opens it, from
 the menu (⌘,), the keys of a custom title bar and the buttons that need a setting ("Notification Settings…", "Sign
 In…", "Set GitHub Repository…"), which name the page they need. Repository shows the `branchdeck.*` git config of the
@@ -142,7 +143,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 ### Pages
 
 - The sidebar is a vertical Base UI `Tabs` list on the canvas (`TabsList variant="list"`): General, Appearance,
-  Diffs & Merge, Notifications, GitHub, a separator, then Repository with the name of the selected repository muted beside it (the
+  Diffs & Merge, Notifications, GitHub, YouTrack, a separator, then Repository with the name of the selected repository muted beside it (the
   name of the tab stays "Repository"), the selected one in the selected row of the tables (`bg-primary/15`). ↑ and ↓
   switch the page (`activateOnFocus`). The page is one island (`Card`), which scrolls only where a large zoom leaves it
   no room; the page left is hidden at once (`data-ending-style`), so two never stack.
@@ -190,6 +191,9 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 - GitHub: the token and the app's own sign-in ([GitHub Sign-in](github-sign-in.spec.md)), asked again on each open of
   the window and when any window signs in or out (`github-auth-changed`).
   [@test] ../../tests/e2e/github-sign-in/github-sign-in.spec.ts (`should cancel the sign-in, and sign out`, `should send a build without the sign-in to GitHub Settings, which says what gives a token, and name the token of gh`)
+- YouTrack: the sign-in to the YouTrack of the issue links ([YouTrack](youtrack.spec.md)), asked again on each open of
+  the window and when any window signs in or out (`youtrack-auth-changed`).
+  [@test] ../../tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should sign in in the browser to the YouTrack the issue links name, and sign out`, `should ask to sign in again once the sign-in expired`)
 - Repository: the settings of the selected repository ([Repository](#repository)).
 - Every page fits 720 × 540 without scrolling in its tallest state: the code of the GitHub sign-in, the warning that the
   OS refused the notifications (one line with Open System Settings), the Dock group on macOS and Linux, every line a row

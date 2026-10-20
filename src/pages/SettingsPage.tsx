@@ -10,6 +10,7 @@ import { GeneralPage } from "@/components/settings/GeneralPage"
 import { GitHubPage } from "@/components/settings/GitHubPage"
 import { NotificationsPage } from "@/components/settings/NotificationsPage"
 import { RepositoryPage } from "@/components/settings/RepositoryPage"
+import { YouTrackPage } from "@/components/settings/YouTrackPage"
 import { KeyHint, PreviewDialogFooter } from "@/components/shared/PreviewDialogFrame"
 import { WindowPage } from "@/components/shared/WindowPage"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
@@ -27,6 +28,7 @@ const PAGE_LABELS: Record<SettingsPageId, string> = {
   diffs: "Diffs & Merge",
   notifications: "Notifications",
   github: "GitHub",
+  youtrack: "YouTrack",
   repository: "Repository",
 }
 
@@ -114,6 +116,9 @@ export function SettingsPage() {
           </SettingsPanel>
           <SettingsPanel id="github">
             <GitHubPage openCount={openCount} />
+          </SettingsPanel>
+          <SettingsPanel id="youtrack">
+            <YouTrackPage openCount={openCount} />
           </SettingsPanel>
           <SettingsPanel id="repository">
             <RepositoryPage />

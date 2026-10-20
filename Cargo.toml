@@ -17,6 +17,7 @@ members = [
   "crates/object-cache",
   "crates/patronus",
   "crates/github",
+  "crates/youtrack",
   "crates/code-symbols",
   "crates/text-diff",
   "crates/file-diffs",

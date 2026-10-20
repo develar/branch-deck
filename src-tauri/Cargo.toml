@@ -63,6 +63,7 @@ git-executor = { path = "../crates/git-executor" }
 object-cache = { path = "../crates/object-cache" }
 patronus = { path = "../crates/patronus" }
 github = { path = "../crates/github" }
+youtrack = { path = "../crates/youtrack" }
 bd-cli = { path = "../crates/bd-cli" }
 tokio.workspace = true
 

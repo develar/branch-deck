@@ -1,4 +1,4 @@
-# TeamCity is a product name, not code
-doc-valid-idents = ["TeamCity", ".."]
+# product names, not code
+doc-valid-idents = ["TeamCity", "YouTrack", ".."]
 # a test may print what it measured (`print_stderr` is on)
 allow-print-in-tests = true

@@ -555,6 +555,16 @@ pub async fn get_github_auth_status() -> CommandResult<sync_types::pull_request:
   }))
 }
 
+/// Not signed in to YouTrack: a test of the sign-in or the issue popover answers it in the page (`routeCommand`)
+pub async fn get_youtrack_auth_status() -> CommandResult<sync_types::youtrack::YouTrackAuthStatus> {
+  Ok(Json(sync_types::youtrack::YouTrackAuthStatus {
+    url: None,
+    signed_in_as: None,
+    source: None,
+    problem: None,
+  }))
+}
+
 /// The fixture set by `POST /repositories/{id}/review-requests`; GitHub is never asked in E2E
 pub async fn get_review_requests(
   State(state): State<Arc<AppState>>,
