@@ -363,6 +363,32 @@ pub async fn get_stack_independence(
   .await
 }
 
+/// The commit map of a running robot, by the real core on the test repository
+pub async fn get_robot_commit_map(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_types::robot_failure::GetRobotCommitMapParams>,
+) -> CommandResult<sync_types::robot_failure::RobotCommitMap> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("read the commit map of the robot", move || {
+    let subject = sync_core::robot_commits::RobotSubject {
+      branch_name: params.branch_name.as_deref(),
+      stack_root: params.stack_root.as_deref(),
+    };
+    sync_core::robot_commits::robot_subject_commit_map(
+      &git_executor,
+      &params.repository_path,
+      &params.branch_prefix,
+      subject,
+      &params.source_revision,
+      &params.baseline_branch,
+      &params.ancestors,
+    )
+    .map(Option::unwrap_or_default)
+  })
+  .await
+}
+
 /// What the merged robots of the request landed, by the real core on the test repository: a fixture robot's commit is
 /// the tip its virtual branch had when the test set it (an empty `sourceRevision`)
 pub async fn get_robot_landings(
@@ -961,7 +987,7 @@ pub async fn get_patronus_start_options(
 }
 
 /// An empty `sourceRevision` of a fixture robot is the local tip of its virtual branch, or of the stack branch of a
-/// robot of the whole stack (`stackRoot`)
+/// robot of the whole stack (`stackRoot`); `~N` is the Nth first parent of that tip
 fn resolve_patronus_revisions(
   git_executor: &git_executor::git_command_executor::GitCommandExecutor,
   repository_path: &str,
@@ -969,15 +995,19 @@ fn resolve_patronus_revisions(
   mut result: sync_types::patronus::PatronusRobotsResult,
 ) -> sync_types::patronus::PatronusRobotsResult {
   for robot in &mut result.robots {
-    if robot.source_revision.as_deref() != Some("") {
-      continue;
-    }
+    let suffix = match robot.source_revision.as_deref() {
+      Some("") => String::new(),
+      Some(revision) if revision.starts_with('~') => revision.to_string(),
+      _ => continue,
+    };
     let full_ref = match (robot.stack_root.as_deref(), robot.branch_name.as_deref()) {
       (Some(root), _) => format!("refs/heads/{branch_prefix}/stack/{root}"),
       (None, Some(branch_name)) => format!("refs/heads/{branch_prefix}/virtual/{branch_name}"),
       (None, None) => continue,
     };
-    robot.source_revision = git_executor.execute_command(&["rev-parse", "--verify", "--quiet", &full_ref], repository_path).ok();
+    robot.source_revision = git_executor
+      .execute_command(&["rev-parse", "--verify", "--quiet", &format!("{full_ref}{suffix}")], repository_path)
+      .ok();
   }
   result
 }

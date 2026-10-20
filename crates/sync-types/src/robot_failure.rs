@@ -203,6 +203,25 @@ pub struct RobotFailureReport {
   pub head_branch: Option<String>,
 }
 
+/// The commit map of a running robot, for the commit rows of the branches it tests: which commits it covers
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct GetRobotCommitMapParams {
+  pub repository_path: String,
+  pub branch_prefix: String,
+  /// The virtual branch of the robot, without the `{prefix}/virtual/` namespace; null for the robot of a whole stack
+  pub branch_name: Option<String>,
+  /// The root of the stack whose stack branch the robot tests; null for the robot of a branch
+  pub stack_root: Option<String>,
+  pub source_revision: String,
+  /// For the robot of a branch, the branches it is built on, root first; for the robot of a whole stack, its members,
+  /// the root first (as `GetRobotFailureParams`)
+  pub ancestors: Vec<String>,
+  /// As the sync detected it, e.g. `origin/master`
+  pub baseline_branch: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]

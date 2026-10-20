@@ -341,8 +341,40 @@ pub fn robot_failure_report(
   failure: RobotFailure,
 ) -> Result<RobotFailureReport> {
   let robot = &failure.robot;
-  let commits = match (robot.branch_name.as_deref(), robot.stack_root.as_deref(), robot.source_revision.as_deref()) {
-    (Some(branch_name), _, Some(source_revision)) => Some(robot_commit_map(
+  let subject = RobotSubject {
+    branch_name: robot.branch_name.as_deref(),
+    stack_root: robot.stack_root.as_deref(),
+  };
+  let commits = match robot.source_revision.as_deref() {
+    Some(source_revision) => robot_subject_commit_map(git_executor, repository_path, branch_prefix, subject, source_revision, baseline_branch, ancestors)?,
+    None => None,
+  };
+  let head_branch = current_branch(git_executor, repository_path)?;
+  Ok(RobotFailureReport { failure, commits, head_branch })
+}
+
+/// What a robot tests: its virtual branch, or the stack branch of a whole stack
+#[derive(Debug, Clone, Copy)]
+pub struct RobotSubject<'a> {
+  pub branch_name: Option<&'a str>,
+  pub stack_root: Option<&'a str>,
+}
+
+/// The commit map of the robot of a branch (`robot_commit_map`) or of a whole stack (`stack_robot_commit_map`), for the
+/// failure prompt and for the commit rows of a running robot (the app's `get_robot_commit_map`). For a whole stack,
+/// `ancestors` are its members, the root first. No map for a stack without members or a robot of neither.
+#[instrument(skip(git_executor))]
+pub fn robot_subject_commit_map(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  branch_prefix: &str,
+  subject: RobotSubject<'_>,
+  source_revision: &str,
+  baseline_branch: &str,
+  ancestors: &[String],
+) -> Result<Option<RobotCommitMap>> {
+  match (subject.branch_name, subject.stack_root) {
+    (Some(branch_name), _) => Ok(Some(robot_commit_map(
       git_executor,
       repository_path,
       branch_prefix,
@@ -350,8 +382,8 @@ pub fn robot_failure_report(
       source_revision,
       baseline_branch,
       ancestors,
-    )?),
-    (None, Some(root), Some(source_revision)) if !ancestors.is_empty() => Some(stack_robot_commit_map(
+    )?)),
+    (None, Some(root)) if !ancestors.is_empty() => Ok(Some(stack_robot_commit_map(
       git_executor,
       repository_path,
       branch_prefix,
@@ -359,9 +391,7 @@ pub fn robot_failure_report(
       source_revision,
       baseline_branch,
       ancestors,
-    )?),
-    _ => None,
-  };
-  let head_branch = current_branch(git_executor, repository_path)?;
-  Ok(RobotFailureReport { failure, commits, head_branch })
+    )?)),
+    _ => Ok(None),
+  }
 }

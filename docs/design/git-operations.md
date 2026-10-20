@@ -2475,6 +2475,10 @@ so every commit is shown by the HEAD commit of its identity; a HEAD commit of a 
 branch shows is `virtual_behind_head`. A HEAD commit amended since the last sync keeps its identity, so it is not told
 as changed: the next sync rebuilds the stack branch.
 
+The app also asks the map for a running robot once the branch it tests changed since it started (`get_robot_commit_map`,
+`robot_subject_commit_map`): the commit rows mark the commits it does not cover ([Patronus](../../spec/branch/patronus.spec.md#commits-a-running-robot-covers)).
+The same phases run once per tip of that branch, never during a sync.
+
 #### Robot landing
 
 Read-only. What a merged robot landed of the branches as the table has them ([Landing](landing.md), "Landed by

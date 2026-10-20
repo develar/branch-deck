@@ -12,12 +12,15 @@ import { useBaselineOnRemote } from "@/hooks/useBaselineOnRemote"
 import { getBranchUnstackItem } from "@/hooks/useBranchContextActions"
 import { hasSelectionActions, useCommitMoveList } from "@/hooks/useCommitMoveList"
 import { useListFixups } from "@/hooks/useSquashFixups"
+import { getCommitHash } from "@/lib/commit"
+import { robotRailMarks } from "@/lib/robot-coverage"
 import { blockingBranchOf, describeParentState, passedParentOf } from "@/lib/stack"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { laneContentInsetClass } from "@/lib/stack-lanes"
 import type { Branch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { useOperations } from "@/stores/operations"
+import { useRobotCoverage } from "@/stores/robot-coverage"
 
 export interface ActiveBranchExpandedProps {
   branch: Branch
@@ -142,6 +145,9 @@ function BranchCommitList({ branch, highlightTipCommit, oldestFirst }: { branch:
   const commits = useMemo(() => (oldestFirst ? branch.commits.toReversed() : branch.commits), [branch.commits, oldestFirst])
   const moveList = useCommitMoveList({ commits, oldestFirst, sourceBranch: branch.name })
   const { count: fixupCount } = useListFixups(branch.name)
+  // the running robot that tests the branch: its line over the commits it covers, a marker on the ones it lacks
+  const coverage = useRobotCoverage(branch.name)
+  const robotMarks = useMemo(() => (coverage === null ? undefined : robotRailMarks(commits.map(getCommitHash), coverage, !oldestFirst)), [commits, coverage, oldestFirst])
   return (
     <div className="flex flex-col gap-2">
       {(hasSelectionActions(moveList) || fixupCount > 0) && (
@@ -160,6 +166,7 @@ function BranchCommitList({ branch, highlightTipCommit, oldestFirst }: { branch:
         oldestFirst={oldestFirst}
         omitIssueKey={branch.issueKey}
         editable
+        robotMarks={robotMarks}
       />
     </div>
   )

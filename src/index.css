@@ -147,6 +147,43 @@
     width: 1px;
     background: var(--bd-lane-line);
   }
+
+  /*
+   * The running robot that tests the branch (`robotRailMarks`): its line in the colour of the landing span over the
+   * commits it covers, up to the top of the rail from the first row and down to the next dot, above the plain line
+   */
+  .bd-lane-rail tr[data-robot-line]:not(.bd-lane-rail td tr) > td::after {
+    content: "";
+    position: absolute;
+    z-index: 1;
+    top: 1rem;
+    bottom: calc(100% - 1rem);
+    left: calc(var(--bd-rail-dot-x) - 0.75px);
+    width: 1.5px;
+    background: var(--color-primary);
+  }
+
+  .bd-lane-rail tr:is([data-robot-line="up"], [data-robot-line="both"]):not(.bd-lane-rail td tr) > td::after {
+    top: -100000px;
+  }
+
+  .bd-lane-rail tr:is([data-robot-line="down"], [data-robot-line="both"]):not(.bd-lane-rail td tr) > td::after {
+    bottom: calc(-1rem - 1px);
+  }
+
+  /* the newest commit the robot took, below the ones it lacks; a commit it lacks is hollow, on the plain line */
+  .bd-lane-rail tr[data-robot-dot]:not(.bd-lane-rail td tr) > td::before {
+    z-index: 2;
+  }
+
+  .bd-lane-rail tr[data-robot-dot="tip"]:not(.bd-lane-rail td tr) > td::before {
+    background: var(--color-primary);
+  }
+
+  .bd-lane-rail tr[data-robot-dot="uncovered"]:not(.bd-lane-rail td tr) > td::before {
+    border: 1px solid var(--color-warning);
+    background: var(--card);
+  }
 }
 
 /* the 10px glyph of a Windows caption button: a utility, not a text-* step, which `cn` would drop as a colour */

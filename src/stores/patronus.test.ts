@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type {
   GetPatronusRobotsParams,
+  GetRobotCommitMapParams,
   GetRobotLandingsParams,
   PatronusCommandReply,
   PatronusRobot,
@@ -40,6 +41,8 @@ import {
   watchRobot,
   watchRobotLandings,
 } from "@/stores/patronus"
+import { robotCoverageStore, watchRobotCoverage } from "@/stores/robot-coverage"
+import { testRemoteStatus } from "@/stores/test-branch"
 
 const { patronus, branches } = vi.hoisted(() => ({
   patronus: {
@@ -61,6 +64,7 @@ const { patronus, branches } = vi.hoisted(() => ({
     replyCalls: 0,
     landingCalls: [] as GetRobotLandingsParams[],
     landings: [] as RobotLanding[],
+    commitMapCalls: [] as GetRobotCommitMapParams[],
   },
   branches: { current: {} as Record<string, unknown>, stacks: {} as Record<string, unknown> },
 }))
@@ -92,6 +96,10 @@ vi.mock("@/lib/bindings", () => ({
       return { status: "ok", data: { checks: { failed: 1, failedNames: ["Fast Tests"], running: 2, passed: 3, canceled: 0 } } }
     },
     getRobotFailure: async () => ({ status: "ok", data: { failure: { kind: patronus.failureKind }, commits: null, headBranch: "master" } }),
+    getRobotCommitMap: async (params: GetRobotCommitMapParams) => {
+      patronus.commitMapCalls.push(params)
+      return { status: "ok", data: { commits: [], sourceMissing: false, virtualBehindHead: false } }
+    },
     getRobotLandings: async (params: GetRobotLandingsParams) => {
       patronus.landingCalls.push(params)
       return { status: "ok", data: patronus.landings }
@@ -256,6 +264,8 @@ beforeEach(() => {
   patronus.replyCalls = 0
   patronus.landingCalls = []
   patronus.landings = []
+  patronus.commitMapCalls = []
+  robotCoverageStore.setState({ maps: {} })
   notices.pullRequestRefreshes = []
   notices.toasts = []
   notices.notifications = []
@@ -390,6 +400,47 @@ describe("holds", () => {
     patronus.list = available(robot({ branchName: null, stackRoot: "air", sourceRevision: "stack-tip", pushMode: "dryRun" }))
     await refreshPatronus("sync")
     expect([getPushHold("air"), getPushHold("bazel")]).toEqual([null, null])
+  })
+})
+
+describe("watchRobotCoverage", () => {
+  it("asks the commit map of a running robot once its branch changed since it started, once per tip, and drops it once the robot covers the branch", async () => {
+    // a commit after the one the robot took, not pushed
+    const ahead = testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["newer"], commitsAhead: 1, myCommitsAhead: 1 })
+    branches.current = { auth: { name: "auth", commits: [{ hash: "newer" }], remoteStatus: ahead } }
+    patronus.list = available(robot())
+    await refreshPatronus("sync")
+    const stop = watchRobotCoverage()
+    await vi.waitFor(() => expect(Object.keys(robotCoverageStore.getState().maps)).toHaveLength(1))
+    expect(patronus.commitMapCalls).toEqual([
+      { repositoryPath: "/repo", branchPrefix: "user", branchName: "auth", stackRoot: null, sourceRevision: "tip", ancestors: [], baselineBranch: "origin/master" },
+    ])
+    // the same tip is not asked again
+    vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
+    patronus.list = available(robot({ name: "renamed" }))
+    await refreshPatronus("sync")
+    await vi.waitFor(() => expect(patronus.lists).toHaveLength(2))
+    await Promise.resolve()
+    expect(patronus.commitMapCalls).toHaveLength(1)
+
+    // restarted on the branch as it is: it covers every commit, the map goes
+    vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
+    patronus.list = available(robot({ sourceRevision: "newer" }))
+    await refreshPatronus("sync")
+    await vi.waitFor(() => expect(robotCoverageStore.getState().maps).toEqual({}))
+    expect(patronus.commitMapCalls).toHaveLength(1)
+    stop()
+  })
+
+  it("asks nothing for a finished robot", async () => {
+    branches.current = { auth: { name: "auth", commits: [{ hash: "newer" }], remoteStatus: testRemoteStatus({ remoteTip: "tip", unpushedCommits: ["newer"], commitsAhead: 1 }) } }
+    patronus.list = available(robot({ status: "failure", finishTime: 200 }))
+    await refreshPatronus("sync")
+    const stop = watchRobotCoverage()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(patronus.commitMapCalls).toEqual([])
+    stop()
   })
 })
 

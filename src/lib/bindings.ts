@@ -184,6 +184,11 @@ export const commands = {
 	 */
 	getRobotFailure: (params: GetRobotFailureParams) => typedError<RobotFailureReport, CommandError>(__TAURI_INVOKE("get_robot_failure", { params })),
 	/**
+	 *  Which commits of the branches a running robot covers, by the hashes of the checked-out branch: the commit rows mark
+	 *  the commits added or changed since it started (`robot_subject_commit_map`). No commits for a stack without members.
+	 */
+	getRobotCommitMap: (params: GetRobotCommitMapParams) => typedError<RobotCommitMap, CommandError>(__TAURI_INVOKE("get_robot_commit_map", { params })),
+	/**
 	 *  What merged robots landed of the branches, by content: the commits each tested against the branches as the last sync
 	 *  built them, and the commits added after them. The app asks it when a change below a robot's commit (an amend, a new
 	 *  commit of a branch it is built on, any change of the whole stack) gave the branches new copies, so their hashes no
@@ -1400,6 +1405,24 @@ export type GetReviewRequestsParams = {
 	repositoryPath: string,
 	/**  `owner/name` when the pull requests already resolved it: skips resolving the repository again */
 	githubRepository: string | null,
+};
+
+/**  The commit map of a running robot, for the commit rows of the branches it tests: which commits it covers */
+export type GetRobotCommitMapParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	/**  The virtual branch of the robot, without the `{prefix}/virtual/` namespace; null for the robot of a whole stack */
+	branchName: string | null,
+	/**  The root of the stack whose stack branch the robot tests; null for the robot of a branch */
+	stackRoot: string | null,
+	sourceRevision: string,
+	/**
+	 *  For the robot of a branch, the branches it is built on, root first; for the robot of a whole stack, its members,
+	 *  the root first (as `GetRobotFailureParams`)
+	 */
+	ancestors: string[],
+	/**  As the sync detected it, e.g. `origin/master` */
+	baselineBranch: string,
 };
 
 export type GetRobotFailureParams = {

@@ -649,7 +649,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   foreground at 70% over the card, under the landing span (`stack-path-lanes`), fading in over 120 ms (`bd-path-in`,
   `@starting-style`; none under reduced motion) and gone at once; a node the hovered push sends gets a 1.5px
   `outline-current` 2px off it. The commit dots are 5px in `--bd-lane-dot`
-  (`bd-lane-rail`), the content of the rows below a branch row starts at `--bd-row-inset`.
+  (`bd-lane-rail`), the content of the rows below a branch row starts at `--bd-row-inset`. The running robot that tests
+  the branch draws its line and its dots over them ([Patronus](patronus.spec.md#commits-a-running-robot-covers)).
 - The commit count is `text-sm text-muted-foreground`.
 
 ### Status

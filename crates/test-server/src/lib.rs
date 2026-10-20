@@ -143,6 +143,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_patronus_robot_details", post(tauri_command_bridge::get_patronus_robot_details))
     .route("/invoke/get_patronus_robot_problems", post(tauri_command_bridge::get_patronus_robot_problems))
     .route("/invoke/get_robot_failure", post(tauri_command_bridge::get_robot_failure))
+    .route("/invoke/get_robot_commit_map", post(tauri_command_bridge::get_robot_commit_map))
     .route("/invoke/get_robot_landings", post(tauri_command_bridge::get_robot_landings))
     .route("/invoke/get_patronus_failing_robots", post(tauri_command_bridge::get_patronus_failing_robots))
     .route("/invoke/get_branch_review_readiness", post(tauri_command_bridge::get_branch_review_readiness))
@@ -645,7 +646,7 @@ pub async fn get_branch_name_suggestion_fixture(
 }
 
 /// Sets what `get_patronus_robots` answers; an empty `sourceRevision` means the local tip of the robot's branch (of the
-/// stack branch for a robot of the whole stack)
+/// stack branch for a robot of the whole stack), `~N` its Nth first parent
 pub async fn set_patronus(
   axum::extract::Path(id): axum::extract::Path<String>,
   State(state): State<Arc<AppState>>,

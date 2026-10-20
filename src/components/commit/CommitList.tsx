@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { LandedCommitMarker } from "@/components/branch/LandedChip"
 import { CommitHeader } from "@/components/commit/CommitHeader"
 import { CommitMessageButton } from "@/components/commit/CommitMessage"
+import { RobotCommitMarker } from "@/components/commit/RobotCommitMarker"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { beginCommitDrag } from "@/hooks/useCommitDrag"
 import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
@@ -23,6 +24,8 @@ import { getCommitFileCount, getCommitHash, getCommitSubject, getSubjectLine, ha
 import { openCommitReviewWindow } from "@/lib/commit-review-window"
 import type { MenuItemGroups } from "@/lib/menu"
 import { resolvedNotice } from "@/lib/resolved-by-words"
+import type { RobotRailMark } from "@/lib/robot-coverage"
+import { robotRailAttributes } from "@/lib/robot-coverage"
 import { useAutosquashPlan } from "@/stores/branch-sync"
 import { requestCommitForm, UNASSIGNED_SOURCE, useCommitFormRequest } from "@/stores/commit-move"
 import type { CommitFormRequest } from "@/stores/commit-move"
@@ -79,6 +82,11 @@ export interface CommitListProps<T extends CommitUnion> {
   renderAfterCommit?: (commit: T, index: number) => ReactNode
   /** A header row above a commit that starts a section of the list (the branch of the missing commits), or null */
   renderSectionHeader?: (commit: T, index: number) => ReactNode
+  /**
+   * By commit hash, how the row draws the running robot that tests the branch (`robotRailMarks`): the rail of the
+   * branch and the marker of a commit the robot lacks
+   */
+  robotMarks?: ReadonlyMap<string, RobotRailMark>
 }
 
 /**
@@ -106,6 +114,7 @@ export function CommitList<T extends CommitUnion>({
   portalTarget,
   renderAfterCommit,
   renderSectionHeader,
+  robotMarks,
 }: CommitListProps<T>) {
   const selectable = selection !== undefined
   const isLoadingFiles = useCommitFiles(commits.map(getCommitHash))
@@ -292,6 +301,7 @@ export function CommitList<T extends CommitUnion>({
                   onMenuOpenChange={handleMenuOpenChange}
                   onOpenPreview={openPreview}
                   renderAfterCommit={renderAfterCommit as CommitRowProps["renderAfterCommit"]}
+                  robotMark={robotMarks?.get(hash)}
                 />
               </Fragment>
             )
@@ -347,14 +357,16 @@ interface CommitRowProps {
   onMenuOpenChange: (open: boolean) => void
   onOpenPreview: (hash: string) => void
   renderAfterCommit: ((commit: CommitUnion, index: number) => ReactNode) | undefined
+  robotMark: RobotRailMark | undefined
 }
 
 const CommitRow = memo(function CommitRow(props: CommitRowProps) {
-  const { commit, hash, index, selectable, selected, onRowClick, getMenuGroups, onDragStart, onDragEnd, onMenuOpenChange, renderAfterCommit } = props
+  const { commit, hash, index, selectable, selected, onRowClick, getMenuGroups, onDragStart, onDragEnd, onMenuOpenChange, renderAfterCommit, robotMark } = props
 
   const rowProps = {
     "data-row-id": hash,
     "data-selected": String(selectable && selected),
+    ...robotRailAttributes(robotMark),
     // only selectable rows react to the pointer: hover on a row that does nothing on click is a false affordance
     className: cn(selectable && "cursor-pointer select-none hover:bg-muted", selectable && selected && "bg-primary/15 hover:bg-primary/20"),
     onClick: selectable && onRowClick ? (event: MouseEvent) => onRowClick(event, hash, index) : undefined,
@@ -421,7 +433,7 @@ function CommitRowWithContextMenu({ commit, rowProps, getMenuGroups, onOpenChang
   )
 }
 
-function CommitCellContent({ commit, hash, variant, branchName, showFileCount, showAuthor, omitIssueKey, isAmendTarget, onOpenPreview }: CommitRowProps) {
+function CommitCellContent({ commit, hash, variant, branchName, showFileCount, showAuthor, omitIssueKey, isAmendTarget, onOpenPreview, robotMark }: CommitRowProps) {
   const status = variant === "status" && "status" in commit ? commit.status : undefined
   const error = variant === "status" && "error" in commit ? commit.error : undefined
   const resolved = variant === "status" && "resolved" in commit ? commit.resolved : undefined
@@ -454,6 +466,7 @@ function CommitCellContent({ commit, hash, variant, branchName, showFileCount, s
           <>
             {hasBody && <CommitMessageButton onOpen={() => onOpenPreview(hash)} />}
             <LandedCommitMarker commitId={hash} />
+            {robotMark?.change != null && branchName !== undefined && <RobotCommitMarker branchName={branchName} change={robotMark.change} />}
             {status === "Pending" && (
               <Badge variant="secondary">
                 <Spinner data-icon="inline-start" />

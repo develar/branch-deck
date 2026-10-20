@@ -321,7 +321,7 @@ let lastLandingSpans: LandingSpans | null = null
  * The landing spans: the ancestors a running robot of a branch built on them lands (`findLandingDescendants`), then
  * every branch of a stack whose robot of the whole stack runs (on its stack branch, `stackRoot`): it lands all of them
  */
-function landingSpansIn(robots: Readonly<Record<string, PatronusRobot>>, state: BranchSyncState): ReadonlyMap<string, LandingDescendant> {
+export function landingSpansIn(robots: Readonly<Record<string, PatronusRobot>>, state: BranchSyncState): ReadonlyMap<string, LandingDescendant> {
   const { branches, branchOrder: order, stackBranches } = state
   const last = lastLandingSpans
   if (last !== null && last.robots === robots && last.branches === branches && last.order === order && last.stackBranches === stackBranches) {

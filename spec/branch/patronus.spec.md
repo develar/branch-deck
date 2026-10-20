@@ -27,6 +27,9 @@ targets:
   - ../../src/lib/patronus-failing.ts
   - ../../src/lib/patronus.ts
   - ../../src/lib/review-commit.ts
+  - ../../src/lib/robot-coverage.ts
+  - ../../src/stores/robot-coverage.ts
+  - ../../src/components/commit/RobotCommitMarker.tsx
   - ../../src/lib/refresh-gate.ts
   - ../../src/components/branch/PatronusChip.tsx
   - ../../src/components/branch/NextStepSlot.tsx
@@ -306,6 +309,31 @@ reports in it and closes it once merged.
   hashes) gets no dot; the details say quietly "Started on an earlier build of the same commits."
   [@test] ../../src/lib/patronus.test.ts (`says quietly that a robot started on an earlier build of the same commits, nothing for the branch as it is`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should say only quietly that a robot started on an earlier build of the same commits`)
+
+### Commits a running robot covers
+
+- The commits of a branch show which of them the running robot that tests it covers: its own robot, else the one that
+  lands it with a branch built on it or with the whole stack (the ring and the landing span of the graph). A finished
+  robot marks nothing; the [failure prompt](safe-push-failure-prompt.spec.md) lists what it checked.
+- While the robot took the branch as it is, or the same commits on an older baseline, it covers every commit. Once the
+  branch changed since (the `warning` dot, [above](#robot-of-a-row)), the app asks the commit map of the robot
+  (`get_robot_commit_map`, the map of the failure prompt), once per tip of the branch it tests, never during a sync.
+  Without the robot's commit, before the remote status loads, or without an answer, the rows keep the plain rail.
+  [@test] ../../src/lib/robot-coverage.test.ts (`covers every commit while the robot took the branch as it is, or the same commits on an older baseline`, `needs the commit map once the branch changed since the robot took it`, `tells nothing without the robot's commit, the tip, or the remote status of a changed branch`)
+  [@test] ../../src/lib/robot-coverage.test.ts (`takes the commits of the branch by their local hash, and none while the robot's commit is not here`)
+  [@test] ../../src/stores/patronus.test.ts (`asks the commit map of a running robot once its branch changed since it started, once per tip, and drops it once the robot covers the branch`, `asks nothing for a finished robot`)
+- On the rail of the branch, the line of the robot runs over the commits it covers: a 1.5px stroke in
+  `--color-primary`, the colour of the landing span, from the top of the rail or the newest covered commit down to the
+  last covered one. The newest covered commit below a commit the robot lacks gets a `--color-primary` dot. A commit
+  added or changed since the robot started gets a hollow dot with a 1px `--color-warning` border, on the plain line.
+  The full list and the commit lines of a stack island draw it alike.
+  [@test] ../../src/lib/robot-coverage.test.ts (`runs the line of the robot over the commits it covers and marks the ones added or changed since`, `draws the line from the top of the rail down to the last dot while the robot covers every commit`, `finds the newest covered commit below the added ones also in a list that is oldest first`, `keeps the plain dot for a commit whose state is not known`)
+  [@test] ../../tests/e2e/patronus/robot-coverage.spec.ts (`should draw the line of the robot over the commits it took, and mark the one added after it started`, `should draw the line of the robot over every commit while it took the branch as it is`)
+- The row of such a commit in the full list says "not in Safe Push" ("not in Dry Run") after its subject, a `warning`
+  chip. Its details: "Added after the Safe Push started on 3264f30f" (or "Changed since…"), the robot and its start,
+  "The result won't cover this commit. Restart Safe Push to test the current branch." ("stack" for the robot of the
+  whole stack), and the actions of the robot as its own details name them.
+  [@test] ../../tests/e2e/patronus/robot-coverage.spec.ts (`should draw the line of the robot over the commits it took, and mark the one added after it started`)
 
 ### Timing
 
@@ -1132,6 +1160,9 @@ explicit choice of the user, offered only where the approvals count in a pull re
 - The notice of a changed branch is `text-xs text-warning` after the warning triangle; the line of a rebuilt one is
   `text-xs text-muted-foreground`, without an icon (`ReviewCommitNotice`, shared with the pull request details).
 - `info` is the merged colour, as for pull requests; push states never use it.
+- "not in Safe Push" on a commit row is a `StatusChip` in `warning` without an icon, as "in origin/master" of a landed
+  commit. Its details have the anatomy of the robot details: the state line with the `ShieldEllipsisIcon`, the title,
+  the `dl` rows, the sentence in `text-xs text-muted-foreground`, and the actions as `outline` `xs` buttons.
 - The details popover is `w-80`; in the preview the same details sit in a nested `rounded-lg` panel.
 - "Safe Push" (`SafePushButton`) is an `xs` button with the `ShieldCheckIcon`, ghost in the row and the preview footer,
   outline among the popover's buttons, in the foreground colour (the push colour is the push button's), its label in

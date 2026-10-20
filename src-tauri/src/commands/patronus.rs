@@ -14,7 +14,7 @@ use patronus::token::find_user_token;
 use std::time::Duration;
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
 use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
-use sync_core::robot_commits::robot_failure_report;
+use sync_core::robot_commits::{RobotSubject, robot_failure_report, robot_subject_commit_map};
 use sync_core::robot_landing::robot_landings;
 use sync_core::target_conflict::{TargetCheck, TargetConflictParams, target_conflict_core};
 use sync_types::patronus::{
@@ -22,7 +22,7 @@ use sync_types::patronus::{
   PatronusCommandComment, PatronusCommandReply, PatronusFailingRobotsParams, PatronusProblem, PatronusRobot, PatronusRobotDetails, PatronusRobotParams, PatronusRobotStatus,
   PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
-use sync_types::robot_failure::{GetRobotFailureParams, RobotFailureReport};
+use sync_types::robot_failure::{GetRobotCommitMapParams, GetRobotFailureParams, RobotCommitMap, RobotFailureReport};
 use sync_types::robot_landing::{GetRobotLandingsParams, RobotLanding};
 use tauri::State;
 use tracing::instrument;
@@ -144,6 +144,31 @@ pub async fn get_robot_failure(
   .map_err(CommandError::new)?;
   let git = git_executor.inner().clone();
   run_blocking(move || robot_failure_report(&git, &params.repository_path, &params.branch_prefix, &params.ancestors, &params.baseline_branch, failure)).await
+}
+
+/// Which commits of the branches a running robot covers, by the hashes of the checked-out branch: the commit rows mark
+/// the commits added or changed since it started (`robot_subject_commit_map`). No commits for a stack without members.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_robot_commit_map(git_executor: State<'_, GitCommandExecutor>, params: GetRobotCommitMapParams) -> Result<RobotCommitMap, CommandError> {
+  let git = git_executor.inner().clone();
+  run_blocking(move || {
+    let subject = RobotSubject {
+      branch_name: params.branch_name.as_deref(),
+      stack_root: params.stack_root.as_deref(),
+    };
+    robot_subject_commit_map(
+      &git,
+      &params.repository_path,
+      &params.branch_prefix,
+      subject,
+      &params.source_revision,
+      &params.baseline_branch,
+      &params.ancestors,
+    )
+    .map(Option::unwrap_or_default)
+  })
+  .await
 }
 
 /// What merged robots landed of the branches, by content: the commits each tested against the branches as the last sync
