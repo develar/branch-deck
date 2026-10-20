@@ -1,6 +1,6 @@
 ---
 name: YouTrack
-description: Requirements for the YouTrack sign-in - in the browser through the Hub of the YouTrack (OAuth with PKCE by Hub's public client localhost-auth, a refresh token kept in a 0600 file), or a pasted token, or YOUTRACK_TOKEN; offered for the YouTrack the issue links of .idea/vcs.xml name, and sent to no other host.
+description: Requirements for YouTrack - the issue popover on every issue key of the YouTrack signed in to, Mark Fixed with Undo, and the sign-in through the Hub of the YouTrack (OAuth with PKCE by Hub's public client localhost-auth, a refresh token kept in a 0600 file), or a pasted token, or YOUTRACK_TOKEN; offered for the YouTrack the issue links of .idea/vcs.xml name, and sent to no other host.
 style: plain-1
 targets:
   - ../../crates/youtrack/src/url.rs
@@ -17,6 +17,13 @@ targets:
   - ../../src/stores/youtrack.ts
   - ../../src/components/settings/YouTrackSettings.tsx
   - ../../src/components/settings/YouTrackPage.tsx
+  - ../../src/components/commit/LinkedText.tsx
+  - ../../src/components/issue/IssueHoverHost.tsx
+  - ../../src/components/issue/IssueDetails.tsx
+  - ../../src/components/ui/popover.tsx
+  - ../../src/lib/issue-actions.ts
+  - ../../src/hooks/useBranchContextActions.ts
+  - ../../src/App.tsx
 ---
 
 # YouTrack
@@ -142,8 +149,59 @@ client takes a pasted token.
   out of YouTrack", which says that YouTrack keeps the token until it is revoked in Account Security.
   [@test] ../../tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should sign in in the browser to the YouTrack the issue links name, and sign out`, `should cancel the browser sign-in, and paste a token instead`)
 
+### The issue popover
+
+- Signed in, a link `LinkedText` renders to `<url>/issue/<key>` of the YouTrack of the token (same origin, under its
+  path, a valid key) carries `data-issue-key`; nothing else changes, and signed out no link carries it, so the links
+  of a user without YouTrack stay as they are and no request is sent.
+  [@test] ../../src/lib/youtrack.test.ts (`takes the key of a link to the issue page of the YouTrack`, `refuses a link of another host, path or scheme, and what is not a key`)
+  [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should leave the links of a signed-out user as they are`)
+- One popover per window (`IssueHoverHost`, in `App`): a hover of 500 ms on such a link, or its keyboard focus
+  (`:focus-visible`), opens it under the link; the pointer may cross to it (200 ms), and it stays while the pointer is
+  over it. One delegated listener, not a popover per link of every commit list. It opens without taking the focus;
+  Escape closes it only, so a dialog under it stays; it closes once its link leaves the page (a sync, a collapsed
+  branch, a closed toast).
+  [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should show the issue of a key on hover, mark it fixed, and undo it from the toast`, `should open on the keyboard focus, and mark the issue of a branch fixed from its menu`, `should keep the branch preview open under the popover of its title`)
+- It lies in the layer of its link: the popup of another popover, a dialog (the branch preview) or the toasts. The
+  layer counts it as its own (a click in it is no outside press, the toast's timer waits while the pointer is over it),
+  and it is above the layer.
+  [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should keep the branch preview open under the popover of its title`, `should show the issue of a key on hover, mark it fixed, and undo it from the toast`)
+- It shows the key, the summary, the state ("Open"; resolved: "Fixed · resolved 1 hour ago" in `text-success`) and the
+  single-value fields with a value (enum, user, version, owned, build) by the names YouTrack gives them, in its order:
+  a field is told by its `$type`, never by its name. It asks when it opens (`get_youtrack_issue`, the backend keeps an
+  answer a minute); "Not found, or no access" (YouTrack answers 404 for both), "Cannot load ABC-1: <reason>" with Try
+  Again, and for a rejected or expired sign-in the reason with "YouTrack Settings…", which opens Settings at YouTrack.
+  [@test] ../../crates/youtrack/src/issue_test.rs (`an_issue_shows_its_state_and_its_single_value_fields_by_type`, `a_resolved_issue_does_not_ask_for_the_values_of_its_state`)
+  [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should show a resolved issue without Mark Fixed, and send an expired sign-in to Settings`)
+- Its actions come from one builder (`getIssueActions`): Mark Fixed (an open issue with a state field) and Open in
+  YouTrack.
+
+### Mark Fixed
+
+- Mark Fixed sets the state field of an open issue to Fixed, the resolved state of YouTrack's default workflow, by
+  the command `<field> Fixed` (`POST /api/commands`; a field or a value with spaces stays as it is: YouTrack takes no
+  braces, `State {Fixed}` is "State expected", checked with `/api/commands/assist`). The field
+  is the issue's state field (`StateIssueCustomField`, `StateMachineIssueCustomField`); the issue's field is asked for
+  its values only for an open issue (the bundles of a project are large), and without a value Fixed the action is
+  disabled with "State of ABC has no Fixed state". The backend refuses an issue resolved already ("ABC-1 is already
+  Duplicate"), so a menu built before cannot turn a Duplicate into Fixed.
+  [@test] ../../crates/youtrack/src/issue_test.rs (`a_command_names_the_field_and_the_value_without_braces`)
+  [@test] ../../crates/youtrack/src/service_test.rs (`a_state_change_returns_the_previous_state_and_an_undo_checks_the_state_first`, `a_resolved_issue_is_not_marked_again`)
+- It is one operation (`mark-fixed` of `issue:<key>`, remote): a second click joins it. "Marked ABC-1 Fixed", "Was
+  Open", with Undo, which sets the previous state only while the issue is still Fixed ("ABC-1 is now Verified"
+  otherwise), then "ABC-1 is Open again"; YouTrack clears `resolved` itself. A failure is "Cannot mark ABC-1 fixed" or
+  "Cannot undo the Fixed state of ABC-1" with YouTrack's reason (`notifyError`, so in Activity too).
+  [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should show the issue of a key on hover, mark it fixed, and undo it from the toast`, `should open on the keyboard focus, and mark the issue of a branch fixed from its menu`)
+- Surfaces: the popover of every key (the rows, the commits, the preview, the toasts, the merge toast of a robot
+  among them), and "Mark ABC-1 Fixed" in the menu of a branch whose issue key is of the YouTrack: the keyboard path,
+  where the work landed. Patronus marks an issue fixed itself only for a commit that says so ("fixed ABC-1", also
+  "ABC-1 fix the …"): for those the popover shows it resolved already.
+  [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should open on the keyboard focus, and mark the issue of a branch fixed from its menu`)
+
 ## User Experience
 
+- The popover is `w-96 gap-3 p-3`: the key `text-xs text-muted-foreground`, the summary `font-medium`, the fields a
+  `text-xs` grid of names (muted) and values, the actions `xs` buttons (Mark Fixed `outline`, Open in YouTrack `ghost`).
 - The page is one section, "YouTrack", "The summary and the state of an issue on its key, and Mark Fixed": `text-sm`
   lines, `xs` buttons ("Sign In to YouTrack" and "Sign Out" `outline`, the others `ghost`, "Save Token" default), the
   token form and the wait in a `rounded-lg` bordered panel, a problem in `text-warning`.
@@ -153,7 +211,7 @@ client takes a pasted token.
 - `cargo nextest run -p youtrack`: the URL policy, the sign-in against a fake YouTrack with a built-in Hub (the fake of
   `github::fake_github`), the issue answers, the renewal and the rejection (`service_test.rs`).
 - `pnpm test:unit`: `src/lib/youtrack.test.ts`, `src/stores/youtrack.test.ts`.
-- `pnpm e2e`: `tests/e2e/youtrack/`. The test server answers `get_youtrack_auth_status` as signed out; a test answers
+- `pnpm e2e`: `tests/e2e/youtrack/` (the sign-in, the popover). The test server answers `get_youtrack_auth_status` as signed out; a test answers
   the sign-in commands in the page (`routeCommand`, `tests/e2e/helpers/youtrack-helpers.ts`) and links the keys of the
   template to `https://youtrack.example.com/issue/$0` for one sync (`linkIssuesToYouTrack`).
 - By hand: `pnpm tauri dev`, Settings → YouTrack → Sign In to YouTrack with `https://youtrack.jetbrains.com`.

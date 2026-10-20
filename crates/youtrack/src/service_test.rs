@@ -143,3 +143,13 @@ async fn a_state_change_returns_the_previous_state_and_an_undo_checks_the_state_
   assert_eq!(service.set_state("ABC-1", "Open", Some("Fixed")).await, Err("ABC-1 is now Open".to_string()));
   assert_eq!(fake.requests_to("POST", "/api/commands").len(), 1);
 }
+
+#[tokio::test]
+async fn a_resolved_issue_is_not_marked_again() {
+  let (fake, service, _dir) = service_with(|url| stored(url, None, false)).await;
+  let mut issue = open_issue();
+  issue["customFields"][1]["value"] = json!({"name": "Duplicate", "isResolved": true});
+  fake.answer("GET", "/api/issues/ABC-1", FakeAnswer::ok(issue));
+  assert_eq!(service.set_state("ABC-1", "Fixed", None).await, Err("ABC-1 is already Duplicate".to_string()));
+  assert!(fake.requests_to("POST", "/api/commands").is_empty());
+}

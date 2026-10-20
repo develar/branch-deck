@@ -158,6 +158,9 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   prefix dimmed; any other branch shows nothing.
   [@test] ../../tests/e2e/branch-row-layout/description-title.spec.ts (`shows the description title of a branch as written, in the row and the preview`)
   [@test] ../../src/lib/branch.test.ts (`shows the description title as written, prefix and all`, `splits the conventional-commit prefix off a subject, to be dimmed`)
+- Signed in to YouTrack, the issue keys of its issues in the name show the issue on hover, and the menu of a branch
+  whose issue key is of the YouTrack has "Mark ABC-1 Fixed" ([YouTrack](../repository/youtrack.spec.md#mark-fixed)).
+  [@test] ../../tests/e2e/youtrack/issue-popover.spec.ts (`should open on the keyboard focus, and mark the issue of a branch fixed from its menu`)
 - A title that starts with the issue key the row shows already (the name starts with it, or the issue chip is it) must
   leave it out with the separator after it ("IJPL-1 Fix", "IJPL-1: Fix", "[IJPL-1] Fix" show "Fix"), as the summary of
   a subject does: a pull request title starts with its key, and "IJPL-1  IJPL-1 Fix…" spends the width the rest of the

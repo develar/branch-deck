@@ -44,6 +44,7 @@ import { copyText } from "@/lib/clipboard"
 import { CREATE_PULL_REQUEST_LABEL, canCreatePullRequest, getRetargetCommand } from "@/lib/git/new-pull-request"
 import { pushOrConfirm } from "@/lib/git/push"
 import { pushWithChildren } from "@/lib/git/stack-push"
+import { getMarkFixedItem } from "@/lib/issue-actions"
 import type { MenuItem, MenuItemGroups, SelectContext } from "@/lib/menu"
 import { describeStart, formatPushHoldReason, formatStartLabel, getPullRequestStart } from "@/lib/patronus"
 import type { RobotAction } from "@/lib/patronus-actions"
@@ -95,6 +96,7 @@ import { getPullRequest, getStackPullRequest } from "@/stores/pull-requests"
 import { openRequestReview } from "@/stores/request-review-popover"
 import { getReadinessTarget, getReviewReadiness, recheckReviewReadiness } from "@/stores/review-readiness"
 import { getStackCollapse, toggleStackCollapsed } from "@/stores/stack-collapse"
+import { getYouTrackKeyOfIssue, youTrackAuthStore } from "@/stores/youtrack"
 
 /** Branches listed in the "Move to Existing" submenu */
 const MAX_MENU_TARGETS = 8
@@ -260,6 +262,11 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   }
   // a listed robot keeps its actions while Patronus doesn't answer for a new start
   remoteActions.push(...robotActions)
+  // the issue of the branch, once its work landed: the backend refuses an issue resolved already
+  const youTrackKey = getYouTrackKeyOfIssue(branch.issueKey)
+  if (youTrackKey !== null) {
+    remoteActions.push({ ...getMarkFixedItem(youTrackKey, operations), label: `Mark ${youTrackKey} Fixed` })
+  }
   groups.push(remoteActions)
   return groups
 }
@@ -702,7 +709,7 @@ export function getBranchMenuNow(name: string, setExpanded: (name: string, expan
   if (branch === undefined) {
     return null
   }
-  const sources = [...nextStepSources(), commitMoveStore.getState(), setExpanded]
+  const sources = [...nextStepSources(), commitMoveStore.getState(), youTrackAuthStore.getState(), setExpanded]
   const shown = shownMenus.get(name)
   if (shown !== undefined && shown.sources.length === sources.length && shown.sources.every((source, index) => source === sources[index])) {
     return shown.groups
@@ -715,6 +722,7 @@ export function getBranchMenuNow(name: string, setExpanded: (name: string, expan
 /** The menu of the branch, rendered again when a store it reads changes (the operations among them); null without the branch */
 export function useBranchMenu(name: string, setExpanded: (name: string, expanded: boolean) => void): MenuItemGroups | null {
   useStore(commitMoveStore, () => getBranchMenuNow(name, setExpanded))
+  useStore(youTrackAuthStore, () => getBranchMenuNow(name, setExpanded))
   return useNextStepStores(() => getBranchMenuNow(name, setExpanded))
 }
 

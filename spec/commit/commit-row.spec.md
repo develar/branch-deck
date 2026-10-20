@@ -94,7 +94,8 @@ The commit hash popover shows the same header and body.
   virtual branch on hover ("Rebuilt in the virtual branch as 6959c2bd"), which Patronus and the remote name; an
   unexplained `29cf0a82 → 6959c2bd` in every row was the mechanism, not the commit.
 - The subject must wrap to two lines at most.
-- Issue keys in the subject must become links, as the issue navigation settings define.
+- Issue keys in the subject must become links, as the issue navigation settings define. Signed in to YouTrack, a key
+  of its issues shows the issue on hover ([YouTrack](../repository/youtrack.spec.md#the-issue-popover)).
 - In the commits of a branch, a subject that starts with the issue key of the branch must leave it out, with the
   separator after it, as the title of the branch does: the branch row (its name, or its issue chip) or the issue row above
   it shows the key, as a link. A subject that is the key alone keeps it; other lists (unassigned, landed, the previews)

@@ -237,7 +237,8 @@ impl YouTrackService {
   }
 
   /// Sets the state field of the issue to `value`, as the issue is now: with `expected`, only while the field still
-  /// has that value (an undo does not override a change made since). The previous value, for the undo.
+  /// has that value (an undo does not override a change made since), without it only while the issue is open. The
+  /// previous value, for the undo.
   pub async fn set_state(&self, key: &str, value: &str, expected: Option<&str>) -> Result<YouTrackStateChange, String> {
     if !is_issue_key(key) {
       return Err(format!("Not an issue key: {key}"));
@@ -249,10 +250,15 @@ impl YouTrackService {
         let Some(state) = issue.state else {
           return Ok(Err(format!("{key} has no state field")));
         };
+        let current = state.value.as_deref().unwrap_or("without a state");
         if let Some(expected) = expected
           && state.value.as_deref() != Some(expected)
         {
-          return Ok(Err(format!("{key} is now {}", state.value.as_deref().unwrap_or("without a state"))));
+          return Ok(Err(format!("{key} is now {current}")));
+        }
+        // a change that expects nothing changes an open issue only: never a Duplicate into Fixed
+        if expected.is_none() && state.resolved {
+          return Ok(Err(format!("{key} is already {current}")));
         }
         apply_command(&self.client, &url, &token, key, &set_field_command(&state.field, value)).await?;
         Ok(Ok(YouTrackStateChange {

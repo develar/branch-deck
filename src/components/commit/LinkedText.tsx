@@ -5,6 +5,8 @@ import { splitCodeAtBreaks, splitInlineCode } from "@/lib/inline-code"
 import type { InlineSegment } from "@/lib/inline-code"
 import { parseTextSegments, useIssuePatterns } from "@/lib/issue-links"
 import type { CompiledIssuePattern } from "@/lib/issue-links"
+import { youTrackKeyOf } from "@/lib/youtrack"
+import { useYouTrackUrl } from "@/stores/youtrack"
 
 export interface LinkedTextProps {
   text: string
@@ -15,23 +17,27 @@ export interface LinkedTextProps {
   linkClassName?: string
 }
 
-/** Text with issue references (per the project's issue navigation config) rendered as external links. */
+/**
+ * Text with issue references (per the project's issue navigation config) rendered as external links. A link to an issue
+ * of the YouTrack signed in to carries its key (`data-issue-key`): hovering it shows the issue (`IssueHoverHost`).
+ */
 export function LinkedText({ text, className, detectCode = false, linkClassName = "text-muted-foreground" }: LinkedTextProps) {
   const patterns = useIssuePatterns()
+  const youTrackUrl = useYouTrackUrl()
   const content = useMemo(() => {
     if (!detectCode) {
-      return renderLinks(text, patterns, linkClassName)
+      return renderLinks(text, patterns, linkClassName, youTrackUrl)
     }
     // code first: a path or identifier that contains an issue key stays one code token
     return splitInlineCode(text).map((segment, index) => (
-      <Fragment key={index}>{segment.type === "code" ? <CodeSegment segment={segment} /> : renderLinks(segment.content, patterns, linkClassName)}</Fragment>
+      <Fragment key={index}>{segment.type === "code" ? <CodeSegment segment={segment} /> : renderLinks(segment.content, patterns, linkClassName, youTrackUrl)}</Fragment>
     ))
-  }, [text, patterns, detectCode, linkClassName])
+  }, [text, patterns, detectCode, linkClassName, youTrackUrl])
 
   return <span className={className}>{content}</span>
 }
 
-function renderLinks(text: string, patterns: readonly CompiledIssuePattern[], linkClassName: string) {
+function renderLinks(text: string, patterns: readonly CompiledIssuePattern[], linkClassName: string, youTrackUrl: string | null) {
   const segments = parseTextSegments(text, patterns)
   if (segments.length === 1 && segments[0]?.type === "text") {
     return segments[0].content
@@ -43,6 +49,7 @@ function renderLinks(text: string, patterns: readonly CompiledIssuePattern[], li
       <a
         key={index}
         href={segment.href}
+        data-issue-key={youTrackUrl === null || segment.href === undefined ? undefined : (youTrackKeyOf(segment.href, youTrackUrl) ?? undefined)}
         target="_blank"
         rel="noopener noreferrer"
         className={cn("rounded-sm transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30", linkClassName)}

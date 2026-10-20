@@ -1,11 +1,17 @@
+import { useEffect } from "react"
 import { openUrl } from "@tauri-apps/plugin-opener"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
-import type { YouTrackAuthStatus } from "@/lib/bindings"
+import { useTauriListen } from "@/hooks/useTauriListen"
+import type { YouTrackAuthStatus, YouTrackIssueAnswer, YouTrackStateChange } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
+import { compileIssuePatterns, parseTextSegments } from "@/lib/issue-links"
+import type { SelectContext } from "@/lib/menu"
 import { showToast } from "@/lib/toast-message"
-import { formatYouTrackHost } from "@/lib/youtrack"
+import { formatYouTrackHost, youTrackKeyOf } from "@/lib/youtrack"
+import { runOperation } from "@/stores/operations"
+import { getRecentProjects } from "@/stores/settings/repositorySettings"
 
 /*
  * The YouTrack sign-in (spec/repository/youtrack.spec.md): in the browser through the Hub of the YouTrack, or a pasted
@@ -19,13 +25,38 @@ export type YouTrackSignInPhase =
   /** The Hub page is open in the browser; the backend waits for it to come back */
   | { phase: "waiting"; authorizeUrl: string }
 
+/** An issue of a popover: asked when a popover shows it, the answer kept until the next one */
+export type IssueEntry = YouTrackIssueAnswer
+
 export interface YouTrackAuthState {
   /** null until asked */
   readonly status: YouTrackAuthStatus | null
   readonly signIn: YouTrackSignInPhase
+  /** By issue key */
+  readonly issues: Readonly<Record<string, IssueEntry>>
 }
 
-export const youTrackAuthStore = createStore<YouTrackAuthState>(() => ({ status: null, signIn: { phase: "idle" } }))
+export const youTrackAuthStore = createStore<YouTrackAuthState>(() => ({ status: null, signIn: { phase: "idle" }, issues: {} }))
+
+/** The YouTrack the token is for while it is used; null signed out. The links of its issues open a popover. */
+export function useYouTrackUrl(): string | null {
+  return useStore(youTrackAuthStore, state => state.status?.url ?? null)
+}
+
+export function useIssueEntry(key: string): IssueEntry | undefined {
+  return useStore(youTrackAuthStore, state => state.issues[key])
+}
+
+/** The status of every window: asked once at the start, again on a sign-in or sign-out of any window */
+export function useYouTrackAuthSync(): void {
+  useEffect(() => {
+    void refreshYouTrackAuthStatus()
+  }, [])
+  useTauriListen("youtrack-auth-changed", () => {
+    youTrackAuthStore.setState({ issues: {} })
+    void refreshYouTrackAuthStatus()
+  })
+}
 
 export function useYouTrackAuthStatus(): YouTrackAuthStatus | null {
   return useStore(youTrackAuthStore, state => state.status)
@@ -118,4 +149,81 @@ export async function signOutOfYouTrack(): Promise<void> {
 function signedInTitle(fullName: string): string {
   const url = youTrackAuthStore.getState().status?.url
   return url == null ? `Signed in to YouTrack as ${fullName}` : `Signed in to ${formatYouTrackHost(url)} as ${fullName}`
+}
+
+/**
+ * Asks the backend for the issue (it keeps an answer a minute); a second ask while one runs waits for it. A sign-in
+ * problem the answer reports is the status of every surface.
+ */
+export async function loadIssue(key: string): Promise<void> {
+  if (loadingIssues.has(key)) {
+    return
+  }
+  loadingIssues.add(key)
+  const result = await commands.getYoutrackIssue(key).finally(() => loadingIssues.delete(key))
+  const answer: YouTrackIssueAnswer = result.status === "ok" ? result.data : { status: "error", message: result.error.message }
+  setIssue(key, answer)
+  if (answer.status === "signInProblem") {
+    void refreshYouTrackAuthStatus()
+  }
+}
+
+/** The keys asked now */
+const loadingIssues = new Set<string>()
+
+function setIssue(key: string, entry: IssueEntry): void {
+  youTrackAuthStore.setState(state => ({ issues: { ...state.issues, [key]: entry } }))
+}
+
+/** The key of the branch's issue when it is an issue of the YouTrack signed in to, by the issue links of the repository */
+export function getYouTrackKeyOfIssue(issueKey: string | null): string | null {
+  const url = youTrackAuthStore.getState().status?.url
+  if (issueKey === null || url == null) {
+    return null
+  }
+  const patterns = compileIssuePatterns(getRecentProjects()[0]?.issueNavigationConfig)
+  const link = parseTextSegments(issueKey, patterns).find(segment => segment.type === "link")
+  return link?.href === undefined ? null : youTrackKeyOf(link.href, url)
+}
+
+/** The value Mark Fixed sets: the resolved state of YouTrack's default workflow */
+export const FIXED_STATE = "Fixed"
+
+/**
+ * Sets the state of the issue to Fixed (one operation: a second click joins it), then "Marked ABC-1 Fixed" with Undo,
+ * which sets the state it had while the issue is still Fixed
+ */
+export function markIssueFixed(key: string, context: SelectContext): Promise<void> {
+  return runOperation({ id: "mark-fixed", subject: issueSubject(key), objects: [], kind: "remote", label: `Marking ${key} fixed`, surface: context.surface }, async () => {
+    const result = await commands.setYoutrackIssueState(key, FIXED_STATE, null)
+    void loadIssue(key)
+    if (result.status === "error") {
+      notifyError(`Cannot mark ${key} fixed`, result.error)
+      return
+    }
+    const change = result.data
+    showToast({
+      title: `Marked ${key} Fixed`,
+      ...(change.previous !== null && { description: `Was ${change.previous}` }),
+      ...(change.previous !== null && { action: { children: "Undo", onClick: () => void undoMarkFixed(key, change) } }),
+    })
+  }).then(() => {})
+}
+
+async function undoMarkFixed(key: string, change: YouTrackStateChange): Promise<void> {
+  if (change.previous === null) {
+    return
+  }
+  const result = await commands.setYoutrackIssueState(key, change.previous, FIXED_STATE)
+  void loadIssue(key)
+  if (result.status === "error") {
+    notifyError(`Cannot undo the Fixed state of ${key}`, result.error)
+    return
+  }
+  showToast({ title: `${key} is ${change.previous} again` })
+}
+
+/** The subject of an issue's operations */
+export function issueSubject(key: string): string {
+  return `issue:${key}`
 }
