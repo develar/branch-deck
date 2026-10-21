@@ -6,6 +6,7 @@ import { getBranchNextStep } from "@/lib/branch-next-step"
 import type { MenuItem } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
 import { alice, chip, createPullRequest, facts, finished, group, ilya, missing, openPullRequest, requestReview, restart, withReadiness } from "@/lib/test-next-step-facts"
+import { testRobot } from "@/lib/test-robot"
 
 describe("getBranchNextStep", () => {
   it("has no slot in a repository that is not on Space, and keeps the reasons of the branch", () => {
@@ -72,6 +73,20 @@ describe("getBranchNextStep", () => {
     expect(getBranchNextStep(facts({ robot: finished("failed"), restart }))).toMatchObject({ kind: "restart", item: restart, safePushBlocker: null })
     expect(getBranchNextStep(facts({ robot: finished("canceled"), restart }))).toMatchObject({ kind: "restart", item: restart })
     expect(getBranchNextStep(facts({ robot: finished("failed") }))).toMatchObject({ kind: "safePush", item: { id: "safe-push", disabled: false } })
+  })
+
+  it("row 2: no restart while a robot of a branch below lands a part of it, the steps of its pull request stay", () => {
+    const landingPart = { branch: "runtime-vcs-split", robot: testRobot("root", "runtime-vcs-split") }
+    const wait = "A Safe Push of runtime-vcs-split is running: wait until it merges"
+    const failed = { robot: finished("failed"), restart, startBlocker: wait, landingPart }
+    expect(getBranchNextStep(withReadiness({ kind: "approved", groups: [] }, failed))).toMatchObject({
+      kind: "safePush",
+      item: { id: "safe-push", disabled: true, description: wait },
+    })
+    expect(getBranchNextStep(facts({ ...failed, robot: finished("canceled") })).kind).not.toBe("restart")
+    // the user's step in the pull request is still the user's
+    const noPullRequest = missing([group({ requested: [] })], { reason: "noPullRequestContext", notCounted: [] })
+    expect(getBranchNextStep(withReadiness(noPullRequest, { ...failed, pullRequest: null }))).toMatchObject({ kind: "createPullRequest" })
   })
 
   it("row 3: restarts a robot that failed for approvals only from the pull request they now count in", () => {

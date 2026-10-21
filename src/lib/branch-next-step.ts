@@ -4,7 +4,7 @@ import { isLogin } from "@/lib/create-pull-request"
 import type { MenuItem } from "@/lib/menu"
 import type { ParkedState } from "@/lib/parked"
 import { formatParkedBlocker } from "@/lib/parked"
-import type { SafePushSlot } from "@/lib/patronus"
+import type { LandingAncestor, SafePushSlot } from "@/lib/patronus"
 import { describeStart, formatStartLabel } from "@/lib/patronus"
 import { joinNames } from "@/lib/text"
 
@@ -116,6 +116,12 @@ export interface NextStepFacts {
   readonly startBlocker: string | null
   /** The same for a dry run, which may run while a robot lands an ancestor */
   readonly dryRunStartBlocker: string | null
+  /**
+   * A running Safe Push of another branch lands a part of this one: of a branch it is built on (`findLandingAncestor`),
+   * or for the whole stack of a branch of it (`findLandingMember`). The robot of the row is of an earlier piece: its
+   * failure waits for that robot, no restart (two robots would land the same commits); null while none runs
+   */
+  readonly landingPart: LandingAncestor | null
   /** A Safe Push holds the pushes of the branch (`PushHold`): it runs on it or lands it */
   readonly held: boolean
   /** The user keeps the branch local, or a branch it is built on (`getParkedState`): nothing of it starts; null otherwise */
@@ -473,8 +479,9 @@ function nextStep(facts: NextStepFacts, general: string | null, dryRunBlocker: s
 
   if (robot.kind === "finished") {
     const chip = robot.chip.kind
-    // row 2
-    if (chip === "failed" || chip === "canceled") {
+    // row 2; while a robot of a branch below lands a part of it, the failure waits for that robot: the steps of the
+    // pull request stay, the Safe Push says why it waits
+    if ((chip === "failed" || chip === "canceled") && facts.landingPart === null) {
       return facts.restart === null ? step("safePush", safePushItem(facts, general), general, dryRunBlocker) : step("restart", facts.restart, general, dryRunBlocker)
     }
     if (chip === "needsReview") {

@@ -717,6 +717,7 @@ pub(crate) const fn has_work_for_remote(remote: &RemoteStatusUpdate) -> bool {
     || remote.commits_restacked > 0
     || remote.commits_landed > 0
     || remote.commits_reworded > 0
+    || remote.ancestor_commits_ahead > 0
 }
 
 /// The output of a pushed ref named `name`: its commit, what the remote did with it (`statuses` of the push, by remote

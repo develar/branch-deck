@@ -53,6 +53,10 @@ pub struct RemoteStatusUpdate {
   /// Commits of the branch the remote has by content in another version: their message or author changed here (a
   /// reword), so a push replaces the remote's copies, which a robot would land as they are
   pub commits_reworded: u32,
+  /// Commits of the branches a stacked branch is built on whose content its remote branch lacks (a new commit of the
+  /// parent since the branch was pushed): a Safe Push of the remote branch lands an older piece, so a push replaces it.
+  /// Not among `unpushed_commits`, which are the branch's own; 0 for a branch without a remote branch
+  pub ancestor_commits_ahead: u32,
   /// Of the unpushed commits, the ones authored by the current user
   pub my_unpushed_count: u32,
   /// The remote branch is an ancestor of the local one; false for a rebased branch, which a push overwrites

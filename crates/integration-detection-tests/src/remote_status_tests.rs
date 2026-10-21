@@ -692,10 +692,49 @@ async fn a_child_of_an_amended_parent_is_restacked() {
   let login = synced_status(&events, "login");
   assert_eq!(login.unpushed_commits, Vec::<String>::new(), "login's own commit is on the remote by content");
   assert_eq!((login.commits_amended, login.commits_restacked, login.commits_behind), (0, 1, 0));
+  assert_eq!(login.ancestor_commits_ahead, 0, "the newer version of a remote commit is restacked, not counted twice");
   assert!(!login.fast_forward);
 
   let pushed = login_status_outside_the_sync(&scenario);
   assert_eq!((pushed.commits_amended, pushed.commits_restacked, pushed.commits_behind), (0, 1, 0));
+  assert_eq!(pushed.ancestor_commits_ahead, 0);
+}
+
+/// A stack whose parent got a new commit after the child was pushed: the child's remote branch lacks it, so a Safe
+/// Push of that remote branch would land an older piece. The commit is the parent's, not unpushed work of the child,
+/// in the sync and outside it; once the child is pushed, nothing is ahead
+#[test(tokio::test)]
+async fn a_child_whose_parent_got_a_new_commit_lacks_it_on_its_remote() {
+  let scenario = TestScenario::new();
+  scenario.setup_development_branch();
+  scenario.local_repo.set_config("branchdeck.stacks", "true").unwrap();
+  scenario
+    .local_repo
+    .create_commit_with_timestamp("(auth) Add auth", "auth.rs", "// auth", Some(1_700_000_000));
+  scenario
+    .local_repo
+    .create_commit_with_timestamp("(auth/login) Add form", "login.rs", "// login", Some(1_700_000_100));
+  scenario.run_sync("user").await;
+  scenario.local_repo.push("origin", "user/virtual/auth").unwrap();
+  scenario.local_repo.push("origin", "user/virtual/login").unwrap();
+
+  scenario
+    .local_repo
+    .create_commit_with_timestamp("(auth) Fix auth", "auth.rs", "// auth, fixed", Some(1_700_000_200));
+  let events = scenario.run_sync("user").await.get_events();
+
+  let auth = synced_status(&events, "auth");
+  assert_eq!((auth.unpushed_commits.len(), auth.ancestor_commits_ahead), (1, 0));
+  let login = synced_status(&events, "login");
+  assert_eq!(login.unpushed_commits, Vec::<String>::new(), "the new commit is auth's");
+  assert_eq!((login.commits_restacked, login.commits_behind, login.ancestor_commits_ahead), (0, 0, 1));
+
+  let pushed = login_status_outside_the_sync(&scenario);
+  assert_eq!((pushed.unpushed_commits.len(), pushed.commits_restacked, pushed.ancestor_commits_ahead), (0, 0, 1));
+
+  scenario.local_repo.push("origin", "+user/virtual/login").unwrap();
+  scenario.local_repo.fetch_prune("origin").unwrap();
+  assert_eq!(login_status_outside_the_sync(&scenario).ancestor_commits_ahead, 0);
 }
 
 /// A stack whose parent commit was reworded (`bd reword`: the same changes, another subject): the child's remote branch
@@ -717,6 +756,8 @@ async fn a_child_of_a_reworded_parent_is_restacked() {
     "the remote has auth's commit with the old subject"
   );
 
+  assert_eq!(login.ancestor_commits_ahead, 0, "the remote has auth's commit by content");
+
   let pushed = login_status_outside_the_sync(&scenario);
   assert_eq!((pushed.commits_reworded, pushed.commits_restacked, pushed.commits_behind), (0, 1, 0));
 
@@ -730,7 +771,10 @@ async fn a_child_of_a_reworded_parent_is_restacked() {
   scenario.local_repo.rebase("origin/main").unwrap();
   let events = scenario.run_sync("user").await.get_events();
   let login = synced_status(&events, "login");
-  assert_eq!((login.commits_reworded, login.commits_restacked, login.commits_behind), (0, 0, 0));
+  assert_eq!(
+    (login.commits_reworded, login.commits_restacked, login.commits_behind, login.ancestor_commits_ahead),
+    (0, 0, 0, 0)
+  );
 }
 
 /// Someone else's commit with the subject and the author time of a commit of the branch is someone else's work: the

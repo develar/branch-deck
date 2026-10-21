@@ -71,6 +71,7 @@ export function pushOutcome(branchName: string, result: PushResult = {}) {
       commitsLanded: 0,
       landedCommits: [],
       commitsReworded: 0,
+      ancestorCommitsAhead: 0,
       remoteTip: result.remoteExists === false ? null : (result.remoteTip ?? `${branchName}-pushed`),
       myUnpushedCount: unpushedCommits.length,
       fastForward: result.fastForward ?? (commitsBehind === 0 && commitsAmended === 0 && commitsRestacked === 0),

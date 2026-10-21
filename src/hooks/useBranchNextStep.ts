@@ -162,7 +162,8 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
     canOffer: available && !branch.hasError && branch.commitCount > 0,
     landed: isLandedByOwnRobot(landedBy, robot),
   })
-  const start = canStartRobot(branch, robot, getLandingAncestor(name), getLandingSpan(name))
+  const landingAncestor = getLandingAncestor(name)
+  const start = canStartRobot(branch, robot, landingAncestor, getLandingSpan(name))
   const dryRun = canStartRobot(branch, robot)
   const target = getReadinessTarget()
   const pullRequest = getPullRequest(name)
@@ -184,6 +185,7 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
     blocked: branch.status === "Blocked",
     startBlocker: start.ok ? null : start.reason,
     dryRunStartBlocker: dryRun.ok ? null : dryRun.reason,
+    landingPart: landingAncestor,
     held: getPushHold(name) !== null,
     parked: getParkedState(name),
     landedIn,

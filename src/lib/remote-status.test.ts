@@ -42,6 +42,13 @@ describe("buildRemoteStatusTexts", () => {
       text: "restacked",
       tooltip: "Rebuilt on the new auth: the remote has an older version of 1 of its commits.",
     })
+    expect(buildRemoteStatusTexts(testRemoteStatus({ ancestorCommitsAhead: 1, fastForward: false }), "auth")).toEqual({
+      text: "restacked",
+      tooltip: "Rebuilt on the new auth: the remote lacks 1 of its commits, which a Safe Push of the branch lands with it.",
+    })
+    expect(formatForcePushLine(testRemoteStatus({ ancestorCommitsAhead: 2, fastForward: false }), "auth")).toBe(
+      "Force push replaces the remote branch without 2 new commits of auth.",
+    )
     // someone else's commit is still named, after the older versions
     const both = testRemoteStatus({ commitsAhead: 1, myCommitsAhead: 1, commitsAmended: 1, commitsBehind: 1, fastForward: false, droppedCommits: dropped("Ann") })
     expect(buildRemoteStatusTexts(both)).toEqual({

@@ -255,8 +255,8 @@ export function needsRobotAttention(robot: PatronusRobot, localTip: string | und
 
 /**
  * A failed robot of the branch as it is (`needsRobotAttention`) that nothing else carries: once a running Safe Push of a
- * branch built on it or of the whole stack holds the branch, a merged one landed it whole (`PushHold`), or the baseline
- * has all of it (`carried`), its row waits (`isSettled` of the next step), and so the landing overview, the island,
+ * branch built on it or of the whole stack holds the branch, a merged one landed it whole (`PushHold`), the baseline
+ * has all of it, or a running Safe Push of a branch it is built on lands a part of it (`carried`), its row waits (`isSettled` of the next step), and so the landing overview, the island,
  * Attention and the Dock badge ask nothing for its old failure.
  */
 export function needsBranchRobotAttention(robot: PatronusRobot, localTip: string | undefined, remote: RemoteStatus | null, carried: boolean): boolean {
@@ -267,10 +267,11 @@ export function needsBranchRobotAttention(robot: PatronusRobot, localTip: string
  * A failed robot of the whole stack on its stack branch as it is (`needsRobotAttention`), only while the sync built it:
  * a stack branch not rebuilt (kept for its remote branch once the stack no longer forks, blocked, a conflict) is not the
  * stack's commits, its restart is refused (`getStackBranchBlocker`) and the stack lands in pieces, so its old failure
- * asks for nothing.
+ * asks for nothing; nor while a running Safe Push of a branch of it lands a part of it (`carried`, `findLandingMember`):
+ * its restart waits for that robot.
  */
-export function needsStackRobotAttention(robot: PatronusRobot, stack: Pick<StackBranch, "state" | "tip" | "remoteStatus">): boolean {
-  return stack.state === "Built" && needsRobotAttention(robot, stack.tip ?? undefined, stack.remoteStatus)
+export function needsStackRobotAttention(robot: PatronusRobot, stack: Pick<StackBranch, "state" | "tip" | "remoteStatus">, carried = false): boolean {
+  return !carried && stack.state === "Built" && needsRobotAttention(robot, stack.tip ?? undefined, stack.remoteStatus)
 }
 
 const pushModeNames: Readonly<Record<PatronusPushMode, string>> = {

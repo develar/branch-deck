@@ -111,6 +111,7 @@ function remoteStatusUpdate(branchName: string, unpushedCount: number): RemoteSt
     commitsLanded: 0,
     landedCommits: [],
     commitsReworded: 0,
+    ancestorCommitsAhead: 0,
     myUnpushedCount: unpushedCount,
     fastForward: true,
     lastPushTime: 0,

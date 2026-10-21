@@ -2378,8 +2378,9 @@ either one leaves the next push of the other valid. A push replaces exactly the 
 - The remote status of a branch names the commit it was computed against (`remote_tip`) and lists the commits a push
   drops ([Remote Status](remote-status.md)); older versions of commits amended or restacked here, or of commits the
   baseline has above the remote branch (landed: one more `rev-list --fixed-strings --author=…` of the baseline, only
-  while commits are left dropped), and the remote copies of reworded commits are counted apart (`commits_amended`,
-  `commits_restacked`, `commits_landed`, `commits_reworded`), a push replaces them without asking. The push button sends that commit back
+  while commits are left dropped), the remote copies of reworded commits and the commits of the branches a stacked
+  branch is built on that its remote branch lacks are counted apart (`commits_amended`, `commits_restacked`,
+  `commits_landed`, `commits_reworded`, `ancestor_commits_ahead`), a push replaces them without asking. The push button sends that commit back
   (`expected_remote`, null when the row showed no remote branch), and `prepare_push_expecting` leases on it. A Force
   Push drops what the row listed and nothing else, also when Branch Deck's last push is older than someone else's
   fetched commit; a plain push after the user brought that commit into the branch goes through as well.

@@ -7,7 +7,7 @@ use crate::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams,
 use crate::check::{CheckSession, check_plan};
 use crate::pull_request_create::read_new_pull_request;
 use crate::push::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
-use crate::remote_status::forget_statuses;
+use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch, forget_statuses};
 use crate::robot_landing::robot_landings;
 use crate::stack_branch::forget_builds;
 use crate::stack_pull_request::{GetNewStackPullRequestParams, StackMemberSubjects, read_new_stack_pull_request};
@@ -324,6 +324,43 @@ async fn an_unchanged_sync_of_pushed_branches_in_a_new_process() {
   let second = remote_statuses(&git, &repo, &cache).await;
   assert_processes(&git, &with(&[("reflog", 1)]));
   assert_eq!(second, first);
+}
+
+/// A stacked branch whose parent got a new commit after both were pushed, its status as a push outside the sync computes
+/// it: one `for-each-ref` of the tips, the walk of the branch with its ancestors' commits, one `rev-list` of the
+/// ancestors' identities that tells them apart, the walk of the remote side and the push time
+#[tokio::test]
+async fn the_status_of_a_child_whose_parent_got_a_new_commit_outside_the_sync() {
+  let repo = repo_on_origin();
+  repo.git(&["config", "branchdeck.stacks", "true"]);
+  repo.create_commit("(alpha) Alpha 1", "alpha-1.txt", "alpha\n");
+  repo.create_commit("(alpha/beta) Beta 1", "beta-1.txt", "beta\n");
+  sync(&GitCommandExecutor::new(), &repo).await;
+  for name in ["alpha", "beta"] {
+    let tip = repo.rev_parse(&format!("test/virtual/{name}")).unwrap();
+    repo.git(&["update-ref", &format!("refs/remotes/origin/test/virtual/{name}"), &tip]);
+  }
+  repo.create_commit("(alpha) Alpha 2", "alpha-2.txt", "alpha\n");
+  sync(&GitCommandExecutor::new(), &repo).await;
+  forget_statuses();
+
+  let git = counting();
+  let status = compute_remote_status_for_branch(
+    &git,
+    &path(&repo),
+    "origin",
+    "test/virtual/beta",
+    "beta",
+    None,
+    "origin/master",
+    Some(StackParent {
+      base: "test/virtual/alpha",
+      ancestors: AncestorCommits::ReadWhenNeeded,
+    }),
+  )
+  .unwrap();
+  assert_eq!((status.unpushed_commits.len(), status.ancestor_commits_ahead), (0, 1));
+  assert_processes(&git, &[("for-each-ref", 1), ("reflog", 1), ("rev-list", 3)]);
 }
 
 /// `repo` with a branch whose clean first commit is copied with a merge (its parent tree is not the base's) before its

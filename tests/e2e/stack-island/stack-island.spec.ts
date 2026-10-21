@@ -151,10 +151,11 @@ test.describe("Stack island", () => {
     await syncAndWaitForBranches()
     const air = island(page, "air")
     const states = air.getByTestId("stack-island-states")
-    // where the branches are on their way into master, as their nodes say it: side-fix to fix, the four branches the
-    // robot of runtime lands, the two it holds waiting
-    await expect(states.getByRole("button")).toHaveText(["1 to fix", "4 landing", "2 waiting"])
-    await expect(states.getByRole("button", { name: "1 to fix" })).toHaveClass(/text-destructive/)
+    // where the branches are on their way into master, as their nodes say it: the four branches the robot of runtime
+    // lands, the two it holds and side-fix waiting: its robot failed, but runtime lands bazel, a part of it, so the
+    // failure waits for that robot (its restart would land bazel a second time)
+    await expect(states.getByRole("button")).toHaveText(["4 landing", "3 waiting"])
+    await expect(states.getByRole("button", { name: "3 waiting" })).not.toHaveClass(/text-destructive/)
     await expect(air.getByTestId("stack-island-pull-requests")).toHaveText("2 pull requests open · 1 approved · 1 changes requested")
     // the robot of runtime lands the branches it is built on
     await expect(air.getByTestId("stack-island-landing")).toContainText("Safe Push of runtime lands 4 branches")
@@ -171,12 +172,13 @@ test.describe("Stack island", () => {
     await page.mouse.move(0, 0)
     await expect(page.getByTestId("stack-island-push-description")).toBeHidden()
     await expect(air.getByTestId("stack-island-actions").getByTestId("next-step-slot")).toHaveCount(0)
-    // side-fix is built on bazel, which runtime lands: its restart would land bazel a second time
-    await expect(findBranchRow(page, "side-fix").getByTestId("next-step")).toBeDisabled()
+    // side-fix is built on bazel, which runtime lands: no restart, which would land bazel a second time; its Safe Push
+    // waits for that robot
+    await expect(findBranchRow(page, "side-fix").getByRole("button", { name: "Safe Push · 3" })).toBeDisabled()
 
     // collapsed, the island still tells it, and the count shows its branch
     await air.getByTestId("stack-island-root").click()
-    await states.getByRole("button", { name: "1 to fix" }).click()
+    await states.getByRole("button", { name: "3 waiting" }).click()
     await expect(air).toHaveAttribute("data-state", "open")
     await expect(getBranchDetailsRow(page, "side-fix")).toBeVisible()
   })

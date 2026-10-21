@@ -116,8 +116,8 @@ pub struct StackParent<'a> {
 pub enum AncestorCommits<'a> {
   /// Known to the caller: the sync has the commits of every branch
   Known(&'a HashSet<CommitKey>),
-  /// Read from the commits up to `StackParent::base` with one `rev-list`, only when a remote commit matches no commit of
-  /// the branch
+  /// Read from the commits up to `StackParent::base` with one `rev-list`, only when the remote branch lacks a commit of
+  /// the branch or of its ancestors by content, or has one the branch lacks
   ReadWhenNeeded,
 }
 
@@ -157,13 +157,6 @@ impl CommitVersion {
 fn walk(git_executor: &GitCommandExecutor, repository_path: &str, revs: &[&str], my_email: Option<&str>) -> Result<WalkedCommits> {
   let commits = walk_commits(git_executor, repository_path, &["--reverse"], revs)?;
   Ok(walked_commits(commits.into_iter().map(|commit| (commit, None)), my_email))
-}
-
-/// The local side of `<remote>...<local>` in `revs`: the commits whose content the remote lacks are unpushed, the ones it
-/// has by content (`=`, patch-equivalent rebased copies) are `copies`, with their messages
-fn walk_unpushed(git_executor: &GitCommandExecutor, repository_path: &str, revs: &[&str], my_email: Option<&str>) -> Result<WalkedCommits> {
-  let commits = walk_commits_with_messages(git_executor, repository_path, &["--reverse", "--cherry-mark", "--right-only"], revs)?;
-  Ok(walked_commits(commits.into_iter().map(|(commit, message)| (commit, Some(message))), my_email))
 }
 
 fn walked_commits(commits: impl Iterator<Item = (WalkedCommit, Option<String>)>, my_email: Option<&str>) -> WalkedCommits {
@@ -246,40 +239,42 @@ fn ancestor_keys<'a>(git_executor: &GitCommandExecutor, repository_path: &str, b
   })
 }
 
-/// The remote's copies of commits of the stack ancestors (`base`) in another version than the ancestors have now: a
-/// commit of the parent reworded since the child's push, which the remote has by content (`=`), so it is not behind.
-/// The push of the child replaces them, as it replaces an older version of an ancestor's commit (restacked). One
-/// `rev-list` of the ancestors' side of `<remote>...<base>`, only when the remote has a copy that is no version of a
-/// commit of the branch; a copy counts when an ancestor's commit has its author and author time
-fn reworded_ancestor_copies(
-  git_executor: &GitCommandExecutor,
-  repository_path: &str,
-  baseline_exclusion: &str,
-  remote_tip: &str,
-  base: &str,
-  remote_versions: &HashSet<CommitVersion>,
-  own: &[CommitVersion],
-) -> Result<u32> {
+/// The remote's copies of commits of the stack ancestors in another version than the ancestors have now: a commit of the
+/// parent reworded since the child's push, which the remote has by content (`=`), so it is not behind. The push of the
+/// child replaces them, as it replaces an older version of an ancestor's commit (restacked). `ancestor_copies` are the
+/// ancestors' commits the remote has by content, from the walk of the branch; a copy counts when an ancestor's commit
+/// has its author and author time
+fn reworded_ancestor_copies(remote_versions: &HashSet<CommitVersion>, own: &[CommitVersion], ancestor_copies: &[CommitVersion]) -> u32 {
   let own: HashSet<&CommitVersion> = own.iter().collect();
-  let foreign: Vec<&CommitVersion> = remote_versions.iter().filter(|version| !own.contains(version)).collect();
-  if foreign.is_empty() {
-    return Ok(0);
-  }
-  let range = format!("{remote_tip}...{base}");
-  let ancestors = walk_commits_with_messages(git_executor, repository_path, &["--cherry-mark", "--right-only"], &[baseline_exclusion, &range])?;
-  let copies: Vec<CommitVersion> = ancestors
-    .into_iter()
-    .filter(|(commit, _)| commit.mark == '=')
-    .map(|(commit, message)| CommitVersion::new(&commit, message))
-    .collect();
-  let identities: HashSet<(&str, u32)> = copies.iter().map(|copy| (copy.email.as_str(), copy.time)).collect();
-  let versions: HashSet<&CommitVersion> = copies.iter().collect();
-  Ok(count(
-    foreign
-      .into_iter()
-      .filter(|version| identities.contains(&(version.email.as_str(), version.time)) && !versions.contains(version))
+  let identities: HashSet<(&str, u32)> = ancestor_copies.iter().map(|copy| (copy.email.as_str(), copy.time)).collect();
+  let versions: HashSet<&CommitVersion> = ancestor_copies.iter().collect();
+  count(
+    remote_versions
+      .iter()
+      .filter(|version| !own.contains(version) && identities.contains(&(version.email.as_str(), version.time)) && !versions.contains(version))
       .count(),
-  ))
+  )
+}
+
+/// The identities of a stacked branch's ancestors' commits, read at most once per status and only when one is needed
+struct LazyAncestorKeys<'a, 'p> {
+  git_executor: &'a GitCommandExecutor,
+  repository_path: &'a str,
+  baseline_exclusion: &'a str,
+  parent: Option<StackParent<'p>>,
+  keys: std::cell::OnceCell<Cow<'p, HashSet<CommitKey>>>,
+}
+
+impl LazyAncestorKeys<'_, '_> {
+  /// None for a branch built on the baseline
+  fn get(&self) -> Result<Option<&HashSet<CommitKey>>> {
+    let Some(parent) = self.parent else { return Ok(None) };
+    if let Some(keys) = self.keys.get() {
+      return Ok(Some(keys));
+    }
+    let keys = ancestor_keys(self.git_executor, self.repository_path, self.baseline_exclusion, parent)?;
+    Ok(Some(self.keys.get_or_init(|| keys)))
+  }
 }
 
 /// The commits behind, sorted by what a push does with them
@@ -307,18 +302,16 @@ fn classify_behind(
   remote_tip: &str,
   behind: Vec<BehindCommit>,
   own: &HashMap<CommitKey, String>,
-  parent: Option<StackParent<'_>>,
+  ancestors: &LazyAncestorKeys<'_, '_>,
 ) -> Result<ClassifiedBehind> {
-  let baseline_exclusion = format!("^{baseline}");
   let (versions, mut dropped): (Vec<BehindCommit>, Vec<BehindCommit>) = behind.into_iter().partition(|commit| own.contains_key(&commit.key));
   let pairs: Vec<(&str, &str)> = versions.iter().map(|commit| (commit.commit.id.as_str(), own[&commit.key].as_str())).collect();
   let rebased = same_changes(git_executor, repository_path, &pairs)?.into_iter().filter(|same| *same).count();
   let amended = count(versions.len() - rebased);
 
-  let restacked = if let Some(parent) = parent
-    && !dropped.is_empty()
+  let restacked = if !dropped.is_empty()
+    && let Some(ancestors) = ancestors.get()?
   {
-    let ancestors = ancestor_keys(git_executor, repository_path, &baseline_exclusion, parent)?;
     let before = dropped.len();
     dropped.retain(|commit| !ancestors.contains(&commit.key));
     count(before - dropped.len())
@@ -397,7 +390,8 @@ fn count(n: usize) -> u32 {
 /// Compute remote status for a single local virtual branch against its remote-tracking branch of `remote` (the sync and
 /// the app compare with `origin`, `bd push --remote` with its remote).
 /// `local_ref` must be in the form "{prefix}/virtual/{name}" (no refs/heads/ prefix). `parent` is the branch a stacked
-/// branch is built on: its commits are the parent's, not unpushed commits of this branch.
+/// branch is built on: its commits are the parent's, not unpushed commits of this branch; those the remote branch lacks
+/// are `ancestor_commits_ahead`, since a Safe Push of the remote branch lands the whole piece.
 ///
 /// The sync rebuilds a virtual branch on the latest baseline, so its hashes change while its work stays the same.
 /// The status compares content, not hashes: the baseline commits are on the remote already, and a rebased copy of a
@@ -507,7 +501,7 @@ const STATUS_CACHE_LIMIT: usize = 4096;
 /// the limit, `list_cut::kept`). Bump the high half when the status of the same commits changes: its fields, the options
 /// of its walks, `CommitKey`, `same_changes`
 fn cached_status_version() -> u32 {
-  (3 << 16) | count(DROPPED_COMMITS_LIMIT + 1)
+  (4 << 16) | count(DROPPED_COMMITS_LIMIT + 1)
 }
 
 /// A dropped commit in the object cache (`DroppedCommit`)
@@ -542,6 +536,7 @@ struct CachedStatus {
   commits_landed: u32,
   landed_commits: Vec<CachedLandedCommit>,
   commits_reworded: u32,
+  ancestor_commits_ahead: u32,
   fast_forward: bool,
 }
 
@@ -576,6 +571,7 @@ impl CachedStatus {
         })
         .collect(),
       commits_reworded: self.commits_reworded,
+      ancestor_commits_ahead: self.ancestor_commits_ahead,
       my_unpushed_count: self.my_unpushed_count,
       fast_forward: self.fast_forward,
       last_push_time,
@@ -753,10 +749,18 @@ fn compute(git_executor: &GitCommandExecutor, repository_path: &str, branch: &Br
       commits_landed: 0,
       landed_commits: Vec::new(),
       commits_reworded: 0,
+      ancestor_commits_ahead: 0,
       fast_forward: true,
     });
   };
 
+  let ancestors = LazyAncestorKeys {
+    git_executor,
+    repository_path,
+    baseline_exclusion: &baseline_exclusion,
+    parent,
+    keys: std::cell::OnceCell::new(),
+  };
   let (
     unpushed,
     ClassifiedBehind {
@@ -766,37 +770,52 @@ fn compute(git_executor: &GitCommandExecutor, repository_path: &str, branch: &Br
       dropped,
     },
     reworded,
+    ancestor_commits_ahead,
     fast_forward,
   ) = if remote_tip == local {
     // the remote branch is at the branch's tip, as after its push: nothing to push and nothing behind, without a walk
-    (WalkedCommits::default(), ClassifiedBehind::default(), 0, true)
+    (WalkedCommits::default(), ClassifiedBehind::default(), 0, 0, true)
   } else {
-    // the local commits whose content the remote lacks: patch-equivalent (rebased) copies and the baseline are left out
+    // the local commits whose content the remote lacks: patch-equivalent (rebased) copies and the baseline are left out.
+    // The ancestors' commits are in the walk too: a Safe Push of the remote branch lands them, so the ones the remote
+    // lacks make it an older piece (`ancestor_commits_ahead`); the rest of the status is of the branch's own commits
     let range = format!("{remote_tip}...{local}");
-    let mut revs = vec![baseline_exclusion.as_str()];
-    revs.extend(parent_exclusion.as_deref());
-    revs.push(&range);
-    let unpushed = walk_unpushed(git_executor, repository_path, &revs, my_email)?;
+    let walked = walk_commits_with_messages(
+      git_executor,
+      repository_path,
+      &["--reverse", "--cherry-mark", "--right-only"],
+      &[baseline_exclusion.as_str(), &range],
+    )?;
+    let ancestor_keys = if walked.is_empty() { None } else { ancestors.get()? };
+    let (ancestor_side, own_side): (Vec<_>, Vec<_>) = walked.into_iter().partition(|(commit, _)| ancestor_keys.is_some_and(|keys| keys.contains(&commit.key)));
+    let unpushed = walked_commits(own_side.into_iter().map(|(commit, message)| (commit, Some(message))), my_email);
 
     // the remote commits whose content the branch lacks. The baseline is not excluded here, so a remote commit that
     // reached the baseline as a copy (cherry-pick, squash merge) is matched by that copy.
     let RemoteCommits { behind, versions, fast_forward } = walk_remote(git_executor, repository_path, &range)?;
     // a copy the remote has by content but in no version of the branch's: its message or author changed here
     let reworded = count(unpushed.copies.iter().filter(|copy| !versions.contains(copy)).count());
-    let mut classified = classify_behind(git_executor, repository_path, baseline_branch, remote_tip, behind, &unpushed.keys, parent)?;
-    if let Some(parent) = parent {
-      classified.restacked += reworded_ancestor_copies(git_executor, repository_path, &baseline_exclusion, remote_tip, parent.base, &versions, &unpushed.copies)?;
-    }
+    // an ancestor's commit the remote lacks: new, or a newer version of a remote commit, which is restacked below
+    let behind_keys: HashSet<&CommitKey> = behind.iter().map(|commit| &commit.key).collect();
+    let ancestor_commits_ahead = count(ancestor_side.iter().filter(|(commit, _)| commit.mark != '=' && !behind_keys.contains(&commit.key)).count());
+    let ancestor_copies: Vec<CommitVersion> = ancestor_side
+      .into_iter()
+      .filter(|(commit, _)| commit.mark == '=')
+      .map(|(commit, message)| CommitVersion::new(&commit, message))
+      .collect();
+    let mut classified = classify_behind(git_executor, repository_path, baseline_branch, remote_tip, behind, &unpushed.keys, &ancestors)?;
+    classified.restacked += reworded_ancestor_copies(&versions, &unpushed.copies, &ancestor_copies);
     debug!(
       amended = classified.amended,
       restacked = classified.restacked,
       landed = classified.landed.len(),
       dropped = classified.dropped.len(),
       reworded,
+      ancestor_commits_ahead,
       fast_forward,
       "commits behind"
     );
-    (unpushed, classified, reworded, fast_forward)
+    (unpushed, classified, reworded, ancestor_commits_ahead, fast_forward)
   };
 
   let dropped_count = dropped.len();
@@ -829,6 +848,7 @@ fn compute(git_executor: &GitCommandExecutor, repository_path: &str, branch: &Br
       })
       .collect(),
     commits_reworded: reworded,
+    ancestor_commits_ahead,
     fast_forward,
   })
 }

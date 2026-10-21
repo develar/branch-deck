@@ -104,8 +104,17 @@ is outgoing compares content, not hashes: the question is whether the remote has
   dropped otherwise. Only the dropped ones are behind (`commitsBehind`, `droppedCommits`): a push replaces the older
   versions and drops the rest. Another author's commit is dropped, also with the subject and the time of a commit of
   the branch. The sync knows the commits of the ancestors; a push outside it reads them from the parent's virtual
-  branch, only while a remote commit matches nothing of the branch; the baseline is read only while commits are left
-  dropped, one walk more.
+  branch, only while the remote lacks a commit of the branch or of its ancestors or has one the branch lacks; the
+  baseline is read only while commits are left dropped, one walk more.
+- The commits of the branches a stacked branch is built on that its remote branch lacks by content (the parent got a
+  new commit since the child was pushed, `ancestorCommitsAhead`) must make the push of the child replace its remote
+  branch: a Safe Push of the remote branch would land an older piece. They are no commits of the child to push (the
+  parent's push sends them to the parent's remote branch), they come from the same walk of the branch as its own, and a
+  newer version of a remote commit counts as restacked only. The status text says "restacked", its hover "Rebuilt on
+  the new auth: the remote lacks 1 of its commits, which a Safe Push of the branch lands with it.", the toast of the
+  push "1 new commit of the parent".
+  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`a_child_whose_parent_got_a_new_commit_lacks_it_on_its_remote`)
+  [@test] ../../src/lib/push-summary.test.ts (`force pushes a branch whose remote has older versions of commits amended or restacked`, `says that a push of an amended or restacked branch replaced the older versions, not that it dropped them`)
   [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`an_amended_commit_is_amended_not_dropped`, `a_rebased_copy_whose_context_moved_is_not_amended`, `a_child_of_an_amended_parent_is_restacked`, `a_child_of_a_reworded_parent_is_restacked`, `another_authors_commit_stays_dropped`, `an_amended_commit_and_a_dropped_one_are_told_apart`, `a_remote_commit_that_landed_in_the_baseline_with_other_changes_is_landed_not_dropped`, `one_walk_tells_what_is_behind_and_the_fast_forward`)
 - A commit the remote has by content in another version, its message or its author changed here (a reword), must be
   reworded (`commitsReworded`), with no process more than the walks: not ahead, yet the remote branch is not the

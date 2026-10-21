@@ -49,7 +49,9 @@ export const EMPTY_ROBOT_OVERVIEW: RobotOverview = { running: [], attention: [],
  * reviewed pull request, listed by what it tests, after the branches; a failure only of the newest of a label). The robot of the whole stack of a stack branch
  * (`stacks`, by root) comes after the branches, as "Whole air stack", on its stack branch as it is. `order` is the table
  * order, `needsReview` the robots that failed for missing approvals, `failing` the running ones that will fail,
- * `isCarried` the branches another robot holds or landed, or the baseline has (`needsBranchRobotAttention`).
+ * `isCarried` the branches another robot holds, lands a part of or landed, or the baseline has
+ * (`needsBranchRobotAttention`), `isStackCarried` the roots of the stacks a robot of one of their branches lands a part
+ * of (`needsStackRobotAttention`).
  */
 export function collectRobotOverview(
   order: readonly string[],
@@ -61,6 +63,7 @@ export function collectRobotOverview(
   failing: Readonly<Record<string, true>> = {},
   stacks: Readonly<Record<string, StackBranch>> = {},
   isCarried: (name: string) => boolean = () => false,
+  isStackCarried: (root: string) => boolean = () => false,
 ): RobotOverview {
   if (robots === undefined) {
     return EMPTY_ROBOT_OVERVIEW
@@ -118,7 +121,7 @@ export function collectRobotOverview(
     }
     if (isRobotActive(robot)) {
       running.push(stackEntry)
-    } else if (needsStackRobotAttention(robot, stack)) {
+    } else if (needsStackRobotAttention(robot, stack, isStackCarried(stack.root))) {
       attention.push(stackEntry)
     } else if (robot.finishTime !== null && robot.finishTime >= since) {
       stackFinished.push(stackEntry)

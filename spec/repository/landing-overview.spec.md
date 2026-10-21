@@ -99,9 +99,11 @@ indicator, whose states were the same story told twice.
     picks its robot (`compareByFinish`; one without an estimate last), then the Dry Runs, which land nothing, the same
     way. The order is taken when the overview opens and kept while it is open, so a row never jumps under the pointer;
     a robot started since comes last;
-  - **Waiting**: the units that wait for others;
+  - **Waiting**: the units that wait for others; a stack whose last robot failed while a Safe Push of a branch of it
+    lands a part of it waits for that robot ("A Safe Push of auth is running: wait until it merges"), no restart:
+    two robots would land the same commits;
   - **In master**: the units the baseline or a merge has, until the update archives them.
-  [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count the user's moves, put the most urgent node in the header and group the work by where it is`, `should queue the robots nearest to finishing first, and fit the window`)
+  [@test] ../../tests/e2e/landing/landing-overview.spec.ts (`should count the user's moves, put the most urgent node in the header and group the work by where it is`, `should queue the robots nearest to finishing first, and fit the window`, `should wait for the Safe Push of the root instead of the failure of the whole straight stack, once it runs`)
   [@test] ../../src/lib/robot-overview.test.ts (`queues the Safe Pushes nearest to finishing first, those without an estimate last, then the Dry Runs`)
   [@test] ../../src/lib/landing-overview.test.ts (`is empty with nothing on the way, nothing in master and no robot of the last day`)
 - The robots of the last day are one line below the sections, not a list: "auth, login, oauth and 6 more merged · ui

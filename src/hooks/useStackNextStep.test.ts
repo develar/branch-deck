@@ -178,6 +178,32 @@ describe("the next step of the whole stack", () => {
     })
   })
 
+  it("waits for the robot of a branch of a straight chain, not the failure of the earlier piece; a new parent commit starts anew", () => {
+    const chain = branches.slice(0, 3)
+    setStack(null, chain)
+    const failed = testRobot("d1", "deploy", { status: "failure", finishTime: 100 })
+    setRobots(failed)
+    // the robot of the last branch failed on the chain as it is: the user restarts it
+    expect(getStackNextStepNow("air")?.step.kind).toBe("restart")
+    // then a Safe Push of air started: it lands a part of the chain, the failure waits for it
+    setRobots(failed, testRobot("a1", "air", { startTime: 1704189600 }))
+    expect(getStackNextStepNow("air")?.step).toMatchObject({
+      kind: "safePush",
+      item: { disabled: true },
+      safePushBlocker: "A Safe Push of air is running: wait until it merges",
+    })
+    // air got a new commit, deploy was rebuilt on it, and its remote branch lacks it: the failed robot tested an older piece
+    const deploy = branch("deploy", "bazel")
+    const rebuilt: Branch = {
+      ...deploy,
+      commits: deploy.commits.map(commit => ({ ...commit, hash: "deploy-rebuilt" })),
+      remoteStatus: testRemoteStatus({ remoteTip: "deploy-tip", ancestorCommitsAhead: 1, fastForward: false }),
+    }
+    setStack(null, [...branches.slice(0, 2), rebuilt])
+    setRobots(failed)
+    expect(getStackNextStepNow("air")?.step).toMatchObject({ kind: "safePush", item: { disabled: false } })
+  })
+
   it("lands only the rest after a piece landed its main line, and offers nothing once every branch of it landed", () => {
     // the Safe Push of deploy landed air, bazel and deploy: side is left, with its 2 commits
     setRobots(testRobot("d1", "deploy", { status: "success", sourceRevision: "deploy-tip", finishTime: 200 }))

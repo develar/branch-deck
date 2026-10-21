@@ -56,6 +56,7 @@ export function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
     blocked: false,
     startBlocker: null,
     dryRunStartBlocker: null,
+    landingPart: null,
     held: false,
     parked: null,
     landedIn: null,

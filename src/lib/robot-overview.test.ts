@@ -67,6 +67,21 @@ describe("collectRobotOverview", () => {
     ])
     expect(overview.attention.map(it => [it.branchName, it.chip.kind])).toEqual([["Whole docs stack", "failed"]])
     expect(overview.finished.map(it => it.branchName)).toEqual(["Whole api stack", "Whole cache stack"])
+    // a Safe Push of a branch of the docs stack lands a part of it: the failure of the whole stack waits for it
+    const stacks = { docs: stack("docs", "docs-stack-tip") }
+    const carried = collectRobotOverview(
+      order,
+      branches,
+      robots,
+      {},
+      NOW,
+      {},
+      {},
+      stacks,
+      () => false,
+      root => root === "docs",
+    )
+    expect(carried.attention).toEqual([])
   })
 
   it("lists a watched robot of no branch by what it tests, after the branches, also once it failed or merged", () => {
@@ -128,7 +143,7 @@ describe("collectRobotOverview", () => {
     expect(collectRobotOverview(order, branches, undefined, {}, NOW).running).toEqual([])
   })
 
-  it("asks nothing for the failure of a branch another robot holds or landed, or the baseline has: it is finished history", () => {
+  it("asks nothing for the failure of a branch another robot holds, lands a part of or landed, or the baseline has: it is finished history", () => {
     // docs failed on itself; then a Safe Push of a branch built on it took it along, or merged it, or master has it
     const robots = robotsById(testRobot("docs-failed", "docs", { status: "failure", finishTime: NOW_SECONDS - 60 }))
     expect(collectRobotOverview(order, branches, robots, {}, NOW).attention.map(it => it.branchName)).toEqual(["docs"])

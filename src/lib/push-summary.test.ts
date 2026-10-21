@@ -28,6 +28,10 @@ describe("describePush", () => {
       title: "Force pushed login",
       description: "replaced the parent's older commits",
     })
+    expect(describePush("login", testRemoteStatus({ ancestorCommitsAhead: 1, fastForward: false }))).toEqual({
+      title: "Force pushed login",
+      description: "1 new commit of the parent",
+    })
     expect(describePush("login", testRemoteStatus({ commitsAhead: 2, commitsAmended: 2, commitsRestacked: 1, fastForward: false }))).toEqual({
       title: "Force pushed login",
       description: "2 commits · replaced 2 amended commits and the parent's older commits",
@@ -90,6 +94,9 @@ describe("getPushAction", () => {
     // nothing of its own to push: the remote has the older versions of its parent's commits
     expect(getPushAction(branch("a", { remote: { commitsRestacked: 1, fastForward: false } }))).toBe("force")
     expect(isRemoteUpToDate(testRemoteStatus({ commitsRestacked: 1 }))).toBe(false)
+    // the parent got a new commit since: the remote branch is an older piece, its Safe Push would land it
+    expect(getPushAction(branch("a", { remote: { ancestorCommitsAhead: 1, fastForward: false } }))).toBe("force")
+    expect(isRemoteUpToDate(testRemoteStatus({ ancestorCommitsAhead: 1 }))).toBe(false)
     expect(isRemoteUpToDate(testRemoteStatus({ fastForward: false }))).toBe(true)
     expect(isRemoteUpToDate(testRemoteStatus({ exists: false }))).toBe(false)
   })

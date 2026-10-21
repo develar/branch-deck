@@ -209,6 +209,34 @@ test.describe("Landing overview", () => {
     await expect(createPullRequestDialog(page)).toBeVisible()
   })
 
+  test("should wait for the Safe Push of the root instead of the failure of the whole straight stack, once it runs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the `stack_push_alone` template: perf-part-2 on IJPL-257337, a straight chain whose whole stack is its last branch
+    const failed = robot("perf-part-2", "leaf-failed", { status: "failure", startTime: NOW - minutes(180), finishTime: NOW - minutes(120) })
+    const repo = await setupRepo("stack_push_alone", { patronus: availableRobots(failed) })
+    await syncAndWaitForBranches()
+    let popover = await openLandingOverview(page)
+    // the robot of the whole stack failed on it as it is: the user's move, its restart the step
+    const moves = popover.getByTestId("landing-your-move")
+    await expect(landingRow(moves, "IJPL-257337")).toBeVisible()
+    await expect(landingRow(moves, "IJPL-257337").getByTestId("next-step")).toHaveText("Restart Safe Push")
+
+    // the user started a Safe Push of the root outside the app: it lands a part of the stack
+    await repo.setPatronus(availableRobots(failed, robot("IJPL-257337", "root-running", { startTime: NOW - minutes(8) })))
+    await popover.getByRole("button", { name: "Refresh Patronus" }).click()
+    await expect(page.getByTestId("landing-indicator")).toHaveAccessibleName("On the way to master: 1 landing · 1 waiting")
+    // the sections changed under the pointer: open the overview again
+    await page.mouse.move(0, 0)
+    popover = await openLandingOverview(page)
+    await expect(popover.getByTestId("landing-running").getByTestId("robots-row")).toHaveAttribute("data-branch-name", "IJPL-257337")
+    const waiting = landingRow(popover.getByTestId("landing-waiting"), "IJPL-257337")
+    await expect(waiting.getByTestId("landing-row-reason")).toHaveText("A Safe Push of IJPL-257337 is running: wait until it merges")
+    await expect(popover.getByTestId("landing-your-move")).toHaveCount(0)
+    // the step of the stack is no restart: two robots would land the same commits; its Safe Push says why it waits
+    const step = waiting.getByTestId("next-step")
+    await expect(step).toHaveText("Safe Push · 2")
+    await expect(step).toHaveAttribute("aria-disabled", "true")
+  })
+
   test("should be hidden while nothing is on the way to master and nothing ran in the last day", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("simple")
     await syncAndWaitForBranches()

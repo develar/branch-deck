@@ -12,7 +12,7 @@ export type PushAction = OutgoingState | "upToDate"
 type RemoteStatusInput = Pick<Branch, "remoteStatus">
 
 /** The older versions a push replaces */
-type OlderVersions = Pick<RemoteStatus, "commitsAmended" | "commitsRestacked" | "commitsLanded" | "commitsReworded">
+type OlderVersions = Pick<RemoteStatus, "commitsAmended" | "commitsRestacked" | "commitsLanded" | "commitsReworded" | "ancestorCommitsAhead">
 
 type RemoteCounts = Pick<RemoteStatus, "exists" | "commitsAhead" | "commitsBehind"> & OlderVersions
 
@@ -27,10 +27,11 @@ export function isRemoteUpToDate(remote: RemoteCounts): boolean {
 
 /**
  * The remote has older versions of commits of the branch (amended here, or reworded: the same changes with another
- * message or author), of its stack ancestors (restacked) or of the baseline (landed)
+ * message or author), of its stack ancestors (restacked) or of the baseline (landed), or an older piece: it lacks new
+ * commits of the branches it is built on, which a Safe Push of the branch lands with it
  */
 export function replacesOlderVersions(remote: OlderVersions): boolean {
-  return remote.commitsAmended > 0 || remote.commitsRestacked > 0 || remote.commitsLanded > 0 || remote.commitsReworded > 0
+  return remote.commitsAmended > 0 || remote.commitsRestacked > 0 || remote.commitsLanded > 0 || remote.commitsReworded > 0 || remote.ancestorCommitsAhead > 0
 }
 
 /**
@@ -94,6 +95,9 @@ export function describePush(branchName: string, before: RemoteStatus | null): P
   }
   // a force push may only replace or drop remote commits
   const parts = before.commitsAhead === 0 ? [] : [formatCommitCount(before.commitsAhead)]
+  if (before.ancestorCommitsAhead > 0) {
+    parts.push(plural(before.ancestorCommitsAhead, "new commit of the parent", "new commits of the parent"))
+  }
   if (action === "create") {
     return { title: `Pushed ${branchName}`, description: [...parts, "created the remote branch"].join(" · ") }
   }
@@ -103,7 +107,8 @@ export function describePush(branchName: string, before: RemoteStatus | null): P
   const behind = before.commitsBehind
   const replaced = formatReplaced(before)
   if (behind === 0) {
-    return { title: `Force pushed ${branchName}`, description: [...parts, replaced ?? "replaced the rebased copies"].join(" · ") }
+    const rest = replaced ?? (parts.length > 0 && before.ancestorCommitsAhead > 0 ? null : "replaced the rebased copies")
+    return { title: `Force pushed ${branchName}`, description: [...parts, ...(rest === null ? [] : [rest])].join(" · ") }
   }
   if (replaced !== null) {
     parts.push(replaced)
@@ -293,9 +298,10 @@ export function summarizePushState(
     if (action === null || action === "upToDate") {
       continue
     }
-    const { commitsAhead: count, commitsBehind, commitsAmended, commitsRestacked, myCommitsAhead } = branch.remoteStatus!
+    const { commitsAhead: count, commitsBehind, commitsAmended, commitsRestacked, ancestorCommitsAhead, myCommitsAhead } = branch.remoteStatus!
     const mine = Math.min(myCommitsAhead, count)
-    summary.branches.push({ name: branch.name, count, mine, state: action, behind: commitsBehind, amended: commitsAmended, restacked: commitsRestacked })
+    // rebuilt on a parent with new commits: restacked as well
+    summary.branches.push({ name: branch.name, count, mine, state: action, behind: commitsBehind, amended: commitsAmended, restacked: commitsRestacked + ancestorCommitsAhead })
     summary.total += count
     summary.mine += mine
     summary.byState[action]++
@@ -332,7 +338,7 @@ export interface PushCount {
   count: number
   /** Older versions of commits amended here */
   amended: number
-  /** Older versions of the commits of the branches it is built on */
+  /** Older versions of the commits of the branches it is built on, or new commits of them the remote lacks */
   restacked: number
   /** Older versions of commits the baseline has */
   landed: number

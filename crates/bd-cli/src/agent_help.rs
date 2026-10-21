@@ -142,7 +142,8 @@ Workflow: the commits into pull requests
      baseline lacks too). Older versions push without --force: of commits amended or restacked here
      (`remote.amended`, `remote.restacked`), of commits the baseline has (`remote.landed`: after its whole stack
      landed, a member's remote branch has its commits as they were; `replaced_landed` names them, nothing is lost),
-     and the remote copies of commits reworded here (`remote.reworded`).
+     and the remote copies of commits reworded here (`remote.reworded`); a stacked branch whose remote branch lacks
+     new commits of the branches it is built on (`remote.ancestors_ahead`) is pushed too: its Safe Push lands them.
    - `lease_rejected` (exit 4): the remote changed; bd fetched it. For a branch behind or rejected,
      `error.branches[].remote.dropped_commits` lists what a push drops: show it; once approved, --force
      --expect-remote <remote.head> for that one branch.

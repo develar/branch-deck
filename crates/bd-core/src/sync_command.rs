@@ -165,6 +165,10 @@ pub struct RemoteSummary {
   /// unpushed, but a push replaces their remote copies, which a Safe Push of the remote branch would land as they are
   #[serde(default, skip_serializing_if = "is_zero")]
   pub reworded: u32,
+  /// Commits of the branches a stacked branch is built on that its remote branch lacks (a new commit of the parent since
+  /// it was pushed): a Safe Push of the remote branch would land an older piece, so a push replaces it
+  #[serde(default, skip_serializing_if = "is_zero")]
+  pub ancestors_ahead: u32,
   /// The remote-tracking commit the counts compare with; `null` without a remote branch. `bd push --force` leases on
   /// it, as `--expect-remote` does
   pub head: Option<String>,
@@ -213,6 +217,7 @@ impl RemoteSummary {
       restacked: remote.commits_restacked,
       landed: remote.commits_landed,
       reworded: remote.commits_reworded,
+      ancestors_ahead: remote.ancestor_commits_ahead,
       head: remote.remote_tip.as_deref().map(|head| short.get(head).to_string()),
       dropped_commits: remote
         .dropped_commits
@@ -232,7 +237,7 @@ impl RemoteSummary {
   /// A push of the branch would change its remote branch: the remote lacks it or commits of it, or has commits a push
   /// replaces or drops
   pub const fn has_work(&self) -> bool {
-    !self.exists || self.unpushed > 0 || self.behind > 0 || self.amended > 0 || self.restacked > 0 || self.landed > 0 || self.reworded > 0
+    !self.exists || self.unpushed > 0 || self.behind > 0 || self.amended > 0 || self.restacked > 0 || self.landed > 0 || self.reworded > 0 || self.ancestors_ahead > 0
   }
 
   /// The ids `new` shortens, for `RepoContext::short_ids`

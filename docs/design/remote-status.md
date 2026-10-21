@@ -28,6 +28,10 @@ Compare content, not hashes, with Git's cherry-pick algorithm:
   commits are left out. A branch only rebased onto a newer baseline is up to date.
 - **Reworded** are the commits the remote has by content in another version: the same changes, another message or
   author (`commits_reworded`). Not ahead, yet the remote branch is not the branch: a push replaces their copies.
+- **Ancestors ahead** are the commits of the branches a stacked branch is built on that its remote branch lacks by
+  content, as after a new commit of the parent (`ancestor_commits_ahead`). They are the parent's, not ahead of the
+  child, yet a Safe Push of the child's remote branch would land the older piece, which a robot of it tested: a push
+  of the child replaces it, and the app takes the robot of the remote branch for one of an earlier state.
 - **Commits behind** are the remote commits whose content the branch lacks, sorted by what a push does with them:
   - **amended**: an older version of a commit of the branch, amended here (`commits_amended`); one that makes the same
     changes, only on other lines around them, is a rebased copy and counts nowhere;
@@ -159,7 +163,10 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   `--end-of-options` and `--`; the two walks of a pushed branch read the raw messages too
   (`walk_commits_with_messages`).
 - **Commits ahead and mine**: one walk, `git rev-list --reverse --cherry-mark --right-only ^baseline
-  origin/branch...local`; the lines marked `=` are copies the remote has by content, the rest is ahead. The user's
+  origin/branch...local`; the lines marked `=` are copies the remote has by content, the rest is ahead. Of a stacked
+  branch the walk holds its ancestors' commits too: those with the identity of an ancestor's commit (the stack
+  ancestors below) are the ancestors' side, the rest the branch's own. An ancestor's line not marked `=` is ahead of
+  the remote branch (`ancestor_commits_ahead`) unless it is a newer version of a commit behind, which is restacked. The user's
   commits are the ones whose author email matches, and the identity (`CommitKey`) of each unpushed commit is what an
   amended remote commit matches: the new version of an amended commit has other content, so it is unpushed. A copy
   whose version (author, email, author time, message) no remote copy has is reworded.
@@ -171,24 +178,24 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   the authors of those commits finds the landed ones (Decision 8); what remains is `commits_behind`, and its first ten
   are `dropped_commits`.
 - **Reworded ancestors**: a remote copy marked `=` whose version is no version of a copy of the branch is a copy of an
-  ancestor's commit (the local walk leaves the ancestors out). Only then one more `git rev-list --cherry-mark
-  --right-only ^<baseline> <remote tip>...<base>` reads the ancestors' copies with their messages; a remote copy with
-  the author and author time of one of them and another version is restacked. A parent only rebuilt keeps its versions
-  and counts nothing.
+  ancestor's commit; the ancestors' side of the walk has their copies with their messages, so no process more. A
+  remote copy with the author and author time of one of them and another version is restacked. A parent only rebuilt
+  keeps its versions and counts nothing.
 - **Amended or a rebased copy**: only when an older version was found, one `git diff-tree --stdin -p -U0` of the
   pairs and one `git patch-id --stable` of its output: without context lines, and with the line numbers and
   whitespace a patch id ignores, equal ids are the same changes, a rebased copy; different ones are amended. The
   approach of `update_resolve.rs`, which pairs landed commits by patch id.
-- **Stacked branch**: the walk of the commits ahead (with or without a remote branch) also excludes the parent,
-  `^<parent>` (`StackParent::base`): the commits up to it are the parent's. In the sync that is the parent's new head the child was built on, never the parent's ref:
+- **Stacked branch**: the walk of a branch without a remote branch excludes the parent, `^<parent>`
+  (`StackParent::base`): the commits up to it are the parent's. With a remote branch the walk keeps them and tells them
+  apart by their identities (above). In the sync that is the parent's new head the child was built on, never the parent's ref:
   the sync finishes the branches in parallel, so a child can compute its status before its parent's `finish_branch`
   moves the parent's ref, which is then absent (a new stack: the walk failed) or at the old head (the parent's new
   commits counted as the child's). The app's push and `bd push` pass the parent's ref, which is current there.
 - **Stack ancestors**: the sync passes their identities, built once per sync (`ancestor_keys` in `sync.rs`) from the
   commits of every branch along the chain of effective bases (`AncestorCommits::Known`, no process). The app's push and
-  `bd push` outside the sync read them only while a behind commit matches nothing of the branch: one `git rev-list
-  ^baseline <parent>` (`AncestorCommits::ReadWhenNeeded`); the parent's virtual branch
-  contains the commits of every ancestor.
+  `bd push` outside the sync read them once per status, only while the walk of the commits ahead lists a line or a
+  behind commit matches nothing of the branch: one `git rev-list ^baseline <parent>` (`AncestorCommits::ReadWhenNeeded`);
+  the parent's virtual branch contains the commits of every ancestor.
 - **A failed status**: the sync logs it as a warning with the branch and the error, and sends nothing for the branch,
   which keeps the status it had (the store keeps the last remote status across syncs, so a push label doesn't
   flicker); the next sync computes it again.

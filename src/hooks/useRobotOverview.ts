@@ -5,7 +5,7 @@ import type { RobotOverview } from "@/lib/robot-overview"
 import { collectRobotOverview } from "@/lib/robot-overview"
 import type { Branch, StackBranch } from "@/stores/branch-sync"
 import { useBranchSync, useBranchTableRows } from "@/stores/branch-sync"
-import { useFailingRobots, usePushHolds, useRepositoryRobots, useRobotsNeedingReview, useWatchedRobots } from "@/stores/patronus"
+import { getLandingAncestor, getStackLandingMember, useFailingRobots, usePushHolds, useRepositoryRobots, useRobotsNeedingReview, useWatchedRobots } from "@/stores/patronus"
 
 /** The last day of finished robots moves on by the minute: a robot that finished 24 hours ago drops out within one */
 const FINISHED_TICK_MS = 60_000
@@ -31,8 +31,10 @@ export function useRobotOverview(): RobotOverview {
   const now = useNow(FINISHED_TICK_MS)
   return useMemo(() => {
     const order = rows.flatMap(row => (row.kind === "branch" ? [row.name] : []))
-    // another robot holds or landed it, or the baseline has it: its old failure asks for nothing
-    const isCarried = (name: string) => holds.has(name) || isLanded(name)
-    return collectRobotOverview(order, branches, robots, needsReview, now, watched, failing, stacks, isCarried)
+    // another robot holds, lands a part of or landed it, or the baseline has it: its old failure asks for nothing. The
+    // robots and the branches the landing ones are found by are deps of this memo
+    const isCarried = (name: string) => holds.has(name) || isLanded(name) || getLandingAncestor(name) !== null
+    const isStackCarried = (root: string) => getStackLandingMember(root) !== null
+    return collectRobotOverview(order, branches, robots, needsReview, now, watched, failing, stacks, isCarried, isStackCarried)
   }, [rows, branches, robots, needsReview, now, watched, failing, stacks, holds, isLanded])
 }

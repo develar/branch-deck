@@ -1,7 +1,7 @@
 import type { NextStepFacts } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
 import { formatParkedLabel } from "@/lib/parked"
-import { isFailingChip } from "@/lib/patronus"
+import { formatLandingWait, isFailingChip } from "@/lib/patronus"
 import type { FoundMove } from "@/lib/running-move"
 import { joinNames } from "@/lib/text"
 import type { UIColor } from "@/lib/ui-types"
@@ -121,7 +121,8 @@ export function getLandingNode(facts: LandingNodeFacts): LandingNode {
   if (!next.patronusAvailable) {
     return facts.patronusKnown ? withoutPatronus(next, facts.pushPending) : pendingNode("Waits for the answer of Patronus")
   }
-  if (robot.kind === "finished" && robot.chip.kind === "failed") {
+  // a robot of a branch below that lands a part of it runs: the failure of the earlier piece waits for it
+  if (robot.kind === "finished" && robot.chip.kind === "failed" && next.landingPart === null) {
     // the hover shows the robot: its restart and the prompts for an agent are buttons there
     return robotNode("needsFix", `Safe Push failed on ${next.subject} as it is: fix it, or Restart Safe Push`)
   }
@@ -188,7 +189,11 @@ function landedReason(facts: NextStepFacts): string | null {
  */
 function ready(facts: NextStepFacts): LandingNode {
   if (facts.startBlocker !== null) {
-    return node("waiting", facts.startBlocker)
+    // the hover offers to show the branch whose robot lands a part of it
+    const part = facts.landingPart
+    return part !== null && part.wholeStack !== true && facts.startBlocker === formatLandingWait(part)
+      ? { kind: "waiting", label: facts.startBlocker, shows: part.branch }
+      : node("waiting", facts.startBlocker)
   }
   const readiness = facts.pullRequestsAvailable ? (facts.readiness?.readiness ?? null) : null
   // before the first answer of Patronus nobody knows whether it can land: never a green that turns blue

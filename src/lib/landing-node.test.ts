@@ -4,8 +4,10 @@ import type { ReviewReadiness } from "@/lib/bindings"
 import type { NextStepFacts } from "@/lib/branch-next-step"
 import type { LandingNodeFacts } from "@/lib/landing-node"
 import { getLandingNode } from "@/lib/landing-node"
+import { formatLandingWait } from "@/lib/patronus"
 import type { FoundMove } from "@/lib/running-move"
 import { chip, facts, finished, group, missing, openPullRequest, restart, withReadiness } from "@/lib/test-next-step-facts"
+import { testRobot } from "@/lib/test-robot"
 
 const approved: ReviewReadiness = { kind: "approved", groups: [{ name: "IJPL Code Platform", approvedBy: [] }] }
 
@@ -132,6 +134,21 @@ describe("getLandingNode", () => {
     // the pull request of the whole stack collects its approvals: its step is in the island header
     const stackPullRequest = { number: 12, subject: "the whole air stack", open: () => {} }
     expect(landing(withReadiness(missing([group()]), { pullRequest: null, stackPullRequest })).kind).toBe("waiting")
+  })
+
+  it("waits for the running Safe Push of a branch it is built on instead of the failure of its earlier piece", () => {
+    const landingPart = { branch: "runtime-vcs-split", robot: testRobot("root", "runtime-vcs-split") }
+    const wait = formatLandingWait(landingPart)
+    expect(wait).toBe("A Safe Push of runtime-vcs-split is running: wait until it merges")
+    const failed = { robot: finished("failed"), restart, startBlocker: wait, landingPart }
+    // the hover offers to show the branch whose robot lands a part of it
+    expect(landing(withReadiness(approved, failed))).toEqual({ kind: "waiting", label: wait, shows: "runtime-vcs-split" })
+    // without a robot below, the failure is the user's again
+    expect(landing(withReadiness(approved, { ...failed, startBlocker: null, landingPart: null })).kind).toBe("needsFix")
+    // the robot of the whole stack is no branch to show
+    const wholeStack = { ...landingPart, wholeStack: true }
+    const stackWait = formatLandingWait(wholeStack)
+    expect(landing(withReadiness(approved, { ...failed, startBlocker: stackWait, landingPart: wholeStack }))).toEqual({ kind: "waiting", label: stackWait })
   })
 
   it("is in master once the baseline has it or a merge says so, also over a robot that failed before", () => {

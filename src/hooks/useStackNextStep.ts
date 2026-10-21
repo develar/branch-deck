@@ -198,6 +198,7 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     blocked: false,
     startBlocker: start.ok ? null : start.reason,
     dryRunStartBlocker: dryRun.ok ? null : dryRun.reason,
+    landingPart: landingMember,
     held: getStackPushHold(root) !== null,
     parked: wholeStackParkedState(stack.members, getParkedState),
     landedIn,
@@ -239,16 +240,15 @@ function stackStepItem(item: MenuItem | null): MenuItem | null {
 /** By root: the step shown, its key, and the store states it was computed for */
 const shownSteps = new Map<string, { sources: readonly unknown[]; key: string; step: StackNextStep | null }>()
 
-/** What a surface renders of the step of the whole stack: one object while it stays */
+/**
+ * What a surface renders of the step of the stack branch: one object while it stays. The step of the last branch of a
+ * straight chain is that branch's own, one object while it stays (`getBranchNextStepNow`), so it is compared as it is
+ */
 function stackStepKey(next: StackNextStep | null, root: string): string {
-  if (next === null) {
+  if (next === null || next.leaf !== null) {
     return ""
   }
-  const { step, leaf } = next
-  if (leaf !== null) {
-    // the step of the branch is one object while it stays
-    return JSON.stringify([leaf, getBranchNextStepNow(leaf) === step])
-  }
+  const { step } = next
   const item = step.item
   const pullRequest = getStackPullRequest(root)
   return JSON.stringify([
@@ -280,7 +280,8 @@ export function getStackNextStepNow(root: string): StackNextStep | null {
   }
   const next = computeStackNextStep(root)
   const key = stackStepKey(next, root)
-  const kept = shown?.key === key ? shown.step : next
+  const same = next?.leaf == null ? shown?.key === key && shown.step?.leaf == null : shown?.step?.leaf === next.leaf && shown.step.step === next.step
+  const kept = shown !== undefined && same ? shown.step : next
   shownSteps.set(root, { sources, key, step: kept })
   return kept
 }

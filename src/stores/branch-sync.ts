@@ -78,6 +78,11 @@ export interface RemoteStatus {
   commitsLanded: number
   /** Commits the remote has by content but with another message or author (reworded here): a push replaces their remote copies */
   commitsReworded: number
+  /**
+   * Commits of the branches a stacked branch is built on that its remote branch lacks (a new commit of the parent since
+   * its push): a Safe Push of the remote branch lands an older piece, so a push replaces it
+   */
+  ancestorCommitsAhead: number
   myCommitsAhead: number
   /** The remote branch is an ancestor of the local one; a rebased branch is not, its push is a force push */
   fastForward: boolean
@@ -1048,6 +1053,7 @@ function sameRemoteStatus(a: RemoteStatus, b: RemoteStatus): boolean {
     a.commitsRestacked === b.commitsRestacked &&
     a.commitsLanded === b.commitsLanded &&
     a.commitsReworded === b.commitsReworded &&
+    a.ancestorCommitsAhead === b.ancestorCommitsAhead &&
     a.myCommitsAhead === b.myCommitsAhead &&
     a.fastForward === b.fastForward &&
     a.lastPushTime === b.lastPushTime &&
@@ -1075,6 +1081,7 @@ type RemoteStatusFields = Pick<
   | "commitsRestacked"
   | "commitsLanded"
   | "commitsReworded"
+  | "ancestorCommitsAhead"
   | "myUnpushedCount"
   | "fastForward"
   | "lastPushTime"
@@ -1092,6 +1099,7 @@ export function toRemoteStatus(update: RemoteStatusFields): RemoteStatus {
     commitsRestacked: update.commitsRestacked,
     commitsLanded: update.commitsLanded,
     commitsReworded: update.commitsReworded,
+    ancestorCommitsAhead: update.ancestorCommitsAhead,
     myCommitsAhead: update.myUnpushedCount ?? 0,
     fastForward: update.fastForward,
     lastPushTime: update.lastPushTime ?? 0,

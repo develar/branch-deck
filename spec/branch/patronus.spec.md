@@ -254,14 +254,19 @@ reports in it and closes it once merged.
     "Canceling" while it cancels; one that will fail ([Failing](#failing)) says "18m · Failing" instead of the time
     left, no use waiting for it;
   - a finished robot of the branch as it is (the commit it took, or the same commits rebuilt on a newer baseline): its
-    state in its hue, "Failed", "Needs review", "Merged", "Dry run passed", "Canceled";
+    state in its hue, "Failed", "Needs review", "Merged", "Dry run passed", "Canceled". As it is means the piece its
+    Safe Push lands: a stacked branch whose remote branch lacks new commits of a branch it is built on
+    (`ancestorCommitsAhead` of its remote status) changed since its robot, which tested the older piece; its start and
+    its restart push it first ("Push and Restart");
   - a robot of an earlier state of the branch (the warning dot below, a merged robot included: the same name with new
     work): the git status of the branch as it is. The robot stays in the branch preview and the landing overview, with
     the notice of what changed.
   A sync running, an error or a conflict, a block by the stack parent and a landed branch say more than the robot: the
   status text then.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`)
-  [@test] ../../src/lib/patronus.test.ts (`shows a running robot and a finished one of the branch as it is in the Status cell, the git status otherwise`, `is the live robot while it runs, also while it cancels`, `offers "Safe Push…" for a branch changed since its robot, a merged one too`)
+  [@test] ../../src/lib/patronus.test.ts (`shows a running robot and a finished one of the branch as it is in the Status cell, the git status otherwise`, `is the live robot while it runs, also while it cancels`, `offers "Safe Push…" for a branch changed since its robot, a merged one too`, `names the change and the restart that tests the branch as it is, pushed first when the remote lacks it`)
+  [@test] ../../src/hooks/useStackNextStep.test.ts (`waits for the robot of a branch of a straight chain, not the failure of the earlier piece; a new parent commit starts anew`)
+  [@test] ../../crates/integration-detection-tests/src/remote_status_tests.rs (`a_child_whose_parent_got_a_new_commit_lacks_it_on_its_remote`)
 - The Actions cell has the Safe Push slot after the push button ([Branch Row](branch-row.spec.md#actions-cell)), in a
   column of its own, so the push buttons, the steps and "⋯" line up down the table and its islands. It shows the next step of the branch, the
   first row of the table of [Next Step](next-step.spec.md) that matches (`getBranchNextStep`), from the robot, the pull
@@ -1140,10 +1145,13 @@ explicit choice of the user, offered only where the approvals count in a pull re
   overview shows it once, as the move of its row with the robot's actions, the Dock its badge
   ([Robots in the Dock](../repository/robots-indicator.spec.md#dock)). A branch changed since (a fix) needs no attention,
   nor one that something else carries (`needsBranchRobotAttention`): a running Safe Push of a branch built on it or of
-  the whole stack holds it, a merged one landed it whole (`PushHold`), or the baseline has all of it; its row waits
-  ([Next Step](next-step.spec.md)), and the old failure is in the line of the last day of the landing overview.
+  the whole stack holds it, a merged one landed it whole (`PushHold`), the baseline has all of it, or a running Safe
+  Push of a branch it is built on lands a part of it (a Dry Run lands nothing; a canceling one still counts, as for the
+  start), and the whole stack while one of a branch of it does (`needsStackRobotAttention`); its row waits
+  ([Next Step](next-step.spec.md)), and the old failure is in the line of the last day of the landing overview. Once
+  that robot merged or failed, the failure is judged by content again.
   [@test] ../../src/lib/patronus.test.ts (`needs the user for a failed robot of the branch as it is, also after a sync rebuilt the branch`)
-  [@test] ../../src/lib/robot-overview.test.ts (`asks nothing for the failure of a branch another robot holds or landed, or the baseline has: it is finished history`)
+  [@test] ../../src/lib/robot-overview.test.ts (`asks nothing for the failure of a branch another robot holds, lands a part of or landed, or the baseline has: it is finished history`)
   [@test] ../../tests/e2e/patronus/dock.spec.ts (`should not count the failed robot of a branch while the Safe Push of a branch built on it lands it`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show a robot that failed on the branch tip once, as the move it is, with the chips of the other rows`)
 - The footer has a line "Patronus checked just now" (it ages while shown, as every relative time:

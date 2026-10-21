@@ -223,6 +223,10 @@ describe("formatRobotCommitNotice", () => {
     // a reword since: the remote has the changes with the old message, which the robot would land
     const reworded = testRemoteStatus({ remoteTip: started.sourceRevision, commitsReworded: 1, fastForward: false })
     expect(getRobotRestartAction(failed, "IJPL-1", localTip, reworded)).toBe("pushAndRestart")
+    // the parent got a new commit since the push of the branch: the remote branch is an older piece
+    const olderPiece = testRemoteStatus({ remoteTip: started.sourceRevision, ancestorCommitsAhead: 1, fastForward: false })
+    expect(getRobotRestartAction(failed, "IJPL-1", localTip, olderPiece)).toBe("pushAndRestart")
+    expect(needsRobotAttention(failed, localTip, olderPiece)).toBe(false)
     expect(notice(failed, unpushed)).toBe(`${changed} Restart Safe Push to test the current branch.`)
     // a passed dry run restarts only on a newer pushed commit: the push makes one
     const passed = robot({ status: "success", pushMode: "dryRun", ...started })

@@ -72,6 +72,11 @@ function formatLanded(count: number): string {
   return `The remote has ${olderVersions(count, plural(count, "commit", "commits"))} that landed.`
 }
 
+/** "Rebuilt on the new auth: the remote lacks 1 of its commits, which a Safe Push of the branch lands with it." */
+function formatAncestorsAhead(count: number, parent: string | null): string {
+  return `Rebuilt on the new ${parent ?? "parent"}: the remote lacks ${count} of its commits, which a Safe Push of the branch lands with it.`
+}
+
 /** "Rebuilt on the new auth: the remote has older versions of 2 of its commits." */
 function formatRestacked(count: number, parent: string | null): string {
   return `Rebuilt on the new ${parent ?? "parent"}: the remote has ${olderVersions(count, `${count} of its commits`)}.`
@@ -90,7 +95,7 @@ export interface RemoteStatusTextOptions {
  * has older versions of commits of when the branch is restacked
  */
 export function buildRemoteStatusTexts(remote: RemoteStatus, parent: string | null = null, { forcePush = false }: RemoteStatusTextOptions = {}): RemoteStatusTexts {
-  const { exists, commitsAhead, commitsBehind, commitsAmended, commitsRestacked, commitsLanded, commitsReworded, lastPushTime, fastForward } = remote
+  const { exists, commitsAhead, commitsBehind, commitsAmended, commitsRestacked, commitsLanded, commitsReworded, ancestorCommitsAhead, lastPushTime, fastForward } = remote
   const mine = Math.min(remote.myCommitsAhead ?? 0, commitsAhead)
 
   const withPushTime = (lines: readonly string[]): string => {
@@ -124,6 +129,9 @@ export function buildRemoteStatusTexts(remote: RemoteStatus, parent: string | nu
   if (commitsRestacked > 0 && !olderVersionsNamed) {
     lines.push(formatRestacked(commitsRestacked, parent))
   }
+  if (ancestorCommitsAhead > 0 && !olderVersionsNamed) {
+    lines.push(formatAncestorsAhead(ancestorCommitsAhead, parent))
+  }
   if (commitsLanded > 0 && !olderVersionsNamed) {
     lines.push(formatLanded(commitsLanded))
   }
@@ -136,7 +144,8 @@ export function buildRemoteStatusTexts(remote: RemoteStatus, parent: string | nu
     mine,
     count: commitsAhead,
     amended: commitsAmended,
-    restacked: commitsRestacked,
+    // rebuilt on a parent with new commits: restacked as well
+    restacked: commitsRestacked + ancestorCommitsAhead,
     landed: commitsLanded,
     reworded: commitsReworded,
     behind: commitsBehind,
@@ -162,6 +171,9 @@ function formatReplacedVersions(remote: RemoteStatus, parent: string | null): st
   }
   if (remote.commitsRestacked > 0) {
     replaced.push(`the older versions of ${parent === null ? "the parent" : parent}'s commits`)
+  }
+  if (remote.ancestorCommitsAhead > 0) {
+    replaced.push(`the remote branch without ${plural(remote.ancestorCommitsAhead, "new commit", "new commits")} of ${parent === null ? "the parent" : parent}`)
   }
   if (remote.commitsLanded > 0) {
     replaced.push(`${plural(remote.commitsLanded, "commit", "commits")} that landed`)
