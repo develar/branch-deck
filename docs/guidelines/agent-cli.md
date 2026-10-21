@@ -15,7 +15,7 @@ starts a Patronus Safe Push with `safe-push` and reads its robot, and why it fai
 applies a plan, its pull request texts and a sync in one call. `update` brings the checked out branch onto its
 baseline as the app's Update Project does, and resolves a conflict in a resolve session outside the working tree;
 `pick` lands the commits of another worktree on the checked out branch, `unapply` takes a branch and its files out of
-it, `lease` keeps the pool of worktrees that
+it and `reapply` puts it back, `lease` keeps the pool of worktrees that
 agent sessions work in, and `workspace` tells an agent before its first edit whether to lease one and how to write a
 commit subject; `fold` folds the fixup commits, and
 `move-hunk` moves the change of a file from one commit into another. `install` puts `bd` and its skill where agents
@@ -73,7 +73,7 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   `suggest`, the replay of `update --dry-run` and `pick --dry-run`, the merged trees of `move-hunk --dry-run`) and the object cache (none with `--no-cache`). `bd --help` and
   `bd help agent` print the same line (`READ_ONLY` in `agent_help.rs`), and `agent_help_test.rs` checks the refs, the
   config, the index and the working tree around each of them.
-- The working tree: only `bd update`, `bd pick`, `bd unapply` and their undo write the working tree, through the guarded update of
+- The working tree: only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo write the working tree, through the guarded update of
   the app's Update Project: only the files the move changes, and in a resolve session only at the finish. `bd lease`
   writes only the slots of its pool, which are not the user's working tree (see `bd lease`).
 
@@ -525,7 +525,7 @@ that groups commits here (`unknown_branch`); a second park changes the note (one
 
 Takes the commits of a branch and their files out of the checked out branch and keeps the branch as
 `{prefix}/unapplied/<name>`, which no sync archives or deletes (`sync_core::unapply_branch`, "Drop and unapply" in
-[Git Operations](../design/git-operations.md), the contract [Unapply Branch](../../spec/branch/unapply.spec.md)): only
+[Git Operations](../design/git-operations.md), the contract [Unapply and Reapply](../../spec/branch/unapply.spec.md)): only
 when the user asks. Under the repository lock; the files follow through the guarded update of Update Project, so a
 local change on a path it writes is `uncommitted_overlap` (exit 4, `paths`) and changes nothing.
 
@@ -546,6 +546,25 @@ local change on a path it writes is `uncommitted_overlap` (exit 4, `paths`) and 
   `remote.up_to_date` once pushed). They land nothing: `bd push <name>` and `bd safe-push <name>` refuse one as
   `unapplied` (exit 4); `bd push --unapplied <name>` pushes it to `origin` under its own name, leased on the remote head
   of the last fetch or `--expect-remote`, with no pull request draft (`lease_rejected` when the remote moved).
+
+### `bd reapply <name> [--dry-run] [--expect-head <id>]`
+
+Puts the commits of the unapplied branch `{prefix}/unapplied/<name>` back on top of the checked out branch, their files
+following, and deletes it (`sync_core::reapply_branch`, "Reapply" in [Git Operations](../design/git-operations.md)): only
+when the user asks. A commit whose subject groups elsewhere gets its `(<name>)` prefix back (`prefix_restored`); one
+HEAD has is left out (`present`).
+
+```json
+{"schema":2,"repository":"/repo","prefix":"jane","branch":"docs","unapplied_branch":"jane/unapplied/docs","dry_run":false,
+  "reapplied":[{"commit":"1a2b3c4d","new_id":"5e6f7a8b","subject":"(docs) Document the API"}],"prefix_restored":1,
+  "previous_head":"9c0d1e2f","new_head":"5e6f7a8b","undo_token":"reapply:<full previous>..<full new>:<full tip>:jane/unapplied/docs"}
+```
+
+- `reapply_conflict` (exit 4): a commit conflicts with HEAD (`commits`, `paths`); nothing was changed.
+- `nothing_to_reapply` (exit 4): HEAD has every commit of it, or it has no common history with the baseline.
+- `uncommitted_overlap` (exit 4, `paths`), `branch_checked_out` (exit 4), `unknown_branch` (exit 2).
+- `bd undo <undo_token>` takes the commits out again with their files and creates the unapplied branch again
+  (`restored_branch`).
 
 ### `bd reword <commit> (--subject <s> | --message <m> | --message-file <file>)`, `bd reword --plan <file>`
 
@@ -592,7 +611,9 @@ write on its previous one, is `invalid_arguments`. Prints
 An `update:<previous>..<new>` token of `bd update` moves the branch back and the files with it (see `bd update`); a
 `pick:<previous>..<new>[+follow:<worktree>:<previous>..<new>]` token of `bd pick` moves the branch and the worktree
 that followed back (see `bd pick`); an `unapply:<previous>..<new>:<tip>:<branch>:<unapplied branch>` token of
-`bd unapply` moves the branch back with the files and the unapplied branch back to the virtual one (`restored_branch`).
+`bd unapply` moves the branch back with the files and the unapplied branch back to the virtual one (`restored_branch`);
+a `reapply:<previous>..<new>:<tip>:<unapplied branch>` token of `bd reapply` takes its commits out again and creates the
+unapplied branch again.
 
 ### `bd update [--no-fetch] [--dry-run] [--dir <path>]`
 

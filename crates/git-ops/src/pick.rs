@@ -7,11 +7,13 @@
 //! with `option no-deref`.
 
 use crate::paths::{COMMIT_FORMAT, changed_paths, parse_commits};
+use crate::ref_transaction::RefTransaction;
 use crate::replay::{conflicting_files, first_conflict, replay_range_with_env};
 use crate::revs::{RepositoryDirs, fork_point, is_ancestor, merge_base, repository_dirs, resolve_commit};
 use crate::rewrite_guard::{HeadMoved, ensure_no_merges};
 use crate::update_branch::{
-  BranchSwitched, HeadAttached, HeadRef, MAX_BLOCKED_PATHS, PICK, UndoCheck, UpdateCommit, blocking_paths, check_move_undo, check_update_guards, move_branch_and_files,
+  BranchSwitched, FileMove, HeadAttached, HeadRef, MAX_BLOCKED_PATHS, PICK, UndoCheck, UpdateCommit, blocking_paths, check_move_undo, check_update_guards, move_branch_and_files,
+  move_branch_and_files_carrying,
 };
 use crate::update_resolve::pair_by_patch_id;
 use anyhow::{Result, anyhow, bail};
@@ -655,19 +657,36 @@ pub struct AppliedPick {
 /// source can't follow after the target moved, the target stays and `followed` says why
 #[instrument(skip(git_executor, plan), fields(branch = %plan.check.branch))]
 pub fn apply_pick(git_executor: &GitCommandExecutor, target: &str, plan: &PickPlan) -> Result<AppliedPick> {
+  apply_pick_carrying(git_executor, target, plan, PICK.done, &RefTransaction::new(), &RefTransaction::new())
+}
+
+/// `apply_pick` by `operation` with more ref changes in the move of the target and in its rollback: the unapplied
+/// branch that a reapply deletes (`reapply`)
+pub(crate) fn apply_pick_carrying(
+  git_executor: &GitCommandExecutor,
+  target: &str,
+  plan: &PickPlan,
+  operation: &str,
+  with: &RefTransaction,
+  rollback_with: &RefTransaction,
+) -> Result<AppliedPick> {
   let check = &plan.check;
   if check.state != PickState::Clean {
     bail!("Nothing to apply: the pick is not clean");
   }
   if check.new_head != check.head {
-    move_branch_and_files(
+    move_branch_and_files_carrying(
       git_executor,
       target,
-      &HeadRef::Branch(check.branch.clone()),
-      &check.head,
-      &check.new_head,
-      plan.files_change,
-      PICK.done,
+      &FileMove {
+        head_ref: &HeadRef::Branch(check.branch.clone()),
+        head: &check.head,
+        new_head: &check.new_head,
+        files_change: plan.files_change,
+        operation,
+        with,
+        rollback_with,
+      },
     )?;
   }
   let followed = plan.follow.as_ref().zip(check.follow.as_ref()).map(|(follow, follow_check)| {

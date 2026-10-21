@@ -260,7 +260,8 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   `crates/git-ops/src/worktree_update.rs` (dry run on an index copy first, then the CAS ref move, rollback on failure),
   `pub(crate)`, called only by `update_branch.rs`: for Update Project (the app and `bd update`), its undo, the finish
   of a resolve session (`update_resolve.rs`), `bd pick` (`pick.rs`, also the worktree of `--follow`) and its undo, and
-  the unapply of a virtual branch (`unapply.rs`) ([Invariants](docs/design/git-operations.md#invariants)). The scan
+  the unapply and the reapply of a virtual branch (`unapply.rs`, `reapply.rs`) and their undo
+  ([Invariants](docs/design/git-operations.md#invariants)). The scan
   counts its `-u` argument lists and the files that call the moves (`MOVE_CALLERS`). Don't add another caller, another
   argument list, or a public way to build a move. A slot of the lease pool is not the user's working
   tree: its `checkout --force`, `reset --hard` and `clean -fd` live in `crates/git-ops/src/lease_slot.rs` only, each
@@ -290,9 +291,9 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
     a rename in its regroup transaction; a sync only drops the line of a branch whose archived branch is integrated
     (`drop_integrated_parked`). It decides no group: only the pushes leave a parked branch out
     ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
-  - `{prefix}/unapplied/<name>` (`unapply.rs`): only the unapply and its undo, in the transaction that moves HEAD, and
-    its delete (`delete_unapplied_branch_core`, CAS); a sync only lists it, and a push of it goes under its own name
-    ([Drop and unapply](docs/design/git-operations.md#drop-and-unapply)).
+  - `{prefix}/unapplied/<name>` (`unapply.rs`, `reapply.rs`): only the unapply, the reapply and their undo, in the
+    transaction that moves HEAD, and its delete (`delete_unapplied_branch_core`, CAS); a sync only lists it, and a push
+    of it goes under its own name ([Drop and unapply](docs/design/git-operations.md#drop-and-unapply)).
   - `refs/branch-deck/conflict/<sha256 of the branch's full name>` (`conflict_chain.rs`): only a sync, in one CAS
     transaction after the branches, only when one changes; a failed move fails no sync
     ([Virtual branch sync](docs/design/git-operations.md#virtual-branch-sync)).
@@ -322,7 +323,7 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   `lock_timeout`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd sync`, `bd push`,
   `bd safe-push` (the sync, the checks and the push; the robot start after it), `bd move-hunk`, `bd undo`,
   Update Project (the app and `bd update`, after the fetch, also when it starts a resolve session), `bd pick` (both
-  worktrees under one hold), `bd unapply` and the undo of an unapply, and `bd update --continue` and `--abort` hold
+  worktrees under one hold), `bd unapply`, `bd reapply` and their undo, and `bd update --continue` and `--abort` hold
   `$GIT_COMMON_DIR/branch-deck.lock`
   (bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch. The app's sync never
   takes it. A fetch never runs under it ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
@@ -495,7 +496,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Stacked branches, the stack island, the whole stack | `branch/stacked-branches`, `branch/stack-island`, `branch/whole-stack`, `branch/branch-row` | `src/stores/stack-view.ts`, `src/lib/git/stack-push.ts`, `crates/sync-core/src/stack_branch.rs` |
 | Stack parents (`bd restack`, `bd unstack`) | `branch/stack-parents` | `crates/history-rewrite/src/stack_parents.rs` |
 | Parked branches: kept local, never pushed, not Your Move (`bd park`, `bd unpark`) | `branch/parked-branches` | `crates/history-rewrite/src/parked.rs`, `crates/sync-core/src/parked.rs` |
-| Unapply: a branch and its files out of HEAD, kept as `{prefix}/unapplied/<name>` (`bd unapply`, `bd undo unapply:`) | `branch/unapply` | `crates/sync-core/src/unapply_branch.rs`, `crates/git-ops/src/unapply.rs`, `src/hooks/useUnapplyBranch.ts` |
+| Unapply and Reapply: a branch and its files out of HEAD, kept as `{prefix}/unapplied/<name>` in the Unapplied card, and back on top (`bd unapply`, `bd reapply`, `bd push --unapplied`) | `branch/unapply` | `crates/sync-core/src/unapply_branch.rs`, `crates/sync-core/src/reapply_branch.rs`, `crates/git-ops/src/unapply.rs`, `crates/git-ops/src/reapply.rs`, `src/components/branch/UnappliedBranchTableCard.tsx` |
 | Activity log, its window | `repository/activity` | `src/stores/activity.ts`, `src/pages/ActivityPage.tsx`, `src/lib/activity-window-link.ts` |
 | Commit files, diffs, the commit review (`D`), the tree-sitter highlighting | `commit/commit-files`, `commit/commit-review` ([Diff View](docs/design/diff-view.md)) | `crates/file-diffs/`, `crates/code-symbols/src/highlight/`, `src/components/diff/` |
 | Go to Declaration and Find Usages in a review (⌘-click, ⌘B, ⌥F7, Back), outside it through accio | `commit/symbol-navigation` | `crates/code-symbols/src/navigate.rs`, `crates/file-diffs/src/declarations.rs`, `crates/file-diffs/src/usages.rs`, `crates/file-diffs/src/accio.rs`, `src/hooks/useSymbolNavigation.ts`, `src/components/diff/DeclarationFileView.tsx` |

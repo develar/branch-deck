@@ -119,7 +119,7 @@ test.describe("Unapplied branches", () => {
     const safePush = page.getByRole("menuitem", { name: "Safe Push" })
     await expect(safePush).toHaveAttribute("aria-disabled", "true")
     await safePush.hover()
-    await expect(page.getByRole("tooltip")).toHaveText("Not in master: an unapplied branch lands nothing")
+    await expect(page.getByRole("tooltip")).toHaveText("Not in master: Reapply it to land it")
     await runAndWaitForSync(page, () => page.getByRole("menuitem", { name: "Push", exact: true }).click())
     await expect(toast(page, "Pushed docs")).toContainText("The remote keeps it as user-name/unapplied/docs")
     expect(stackPushes).toEqual([[{ branchName: "docs", expectedRemote: null, unapplied: true }]])
@@ -140,5 +140,39 @@ test.describe("Unapplied branches", () => {
     await runAndWaitForSync(page, () => submitInlineForm(inlineDeleteConfirmation.getInput(page), "docs"))
     await expect(toast(page, "Deleted the unapplied branch docs")).toBeVisible()
     await expect(unappliedCard(page)).toHaveCount(0)
+  })
+
+  test("should reapply an unapplied branch from both menus, the branch back in the table, and take it back with Undo", async ({ page }) => {
+    await unapplyFromMenu(page, "docs")
+
+    // the right-click menu
+    await unappliedRow(page, "docs").click({ button: "right" })
+    await runAndWaitForSync(page, () => page.getByRole("menuitem", { name: "Reapply" }).click())
+    const reapplied = toast(page, "Reapplied docs")
+    await expect(reapplied).toContainText("1 commit back on top of HEAD")
+    await expect(findBranchRow(page, "docs")).toHaveCount(1)
+    await expect(unappliedCard(page)).toHaveCount(0)
+    await expect(page.getByTestId("uncommitted-changes-card")).toHaveCount(0)
+
+    // its Undo takes it out again, and the unapplied branch is back
+    await runAndWaitForSync(page, () => reapplied.getByRole("button", { name: "Undo" }).click())
+    await expect(unappliedRow(page, "docs")).toBeVisible()
+    await expect(findBranchRow(page, "docs")).toHaveCount(0)
+
+    // the "⋯" menu
+    const row = unappliedRow(page, "docs")
+    await row.hover()
+    await row.getByRole("button", { name: "More actions for docs" }).click()
+    await runAndWaitForSync(page, () => page.getByRole("menuitem", { name: "Reapply" }).click())
+    await expect(findBranchRow(page, "docs")).toHaveCount(1)
+  })
+
+  test("should keep an unapplied branch whose reapply conflicts and say why", async ({ page }) => {
+    await unapplyFromMenu(page, "docs")
+    await routeCommandError(page, "reapply_branch", "Document the API (1a2b3c4d) of user-name/unapplied/docs conflicts with HEAD in docs.md: nothing was changed")
+    await unappliedRow(page, "docs").click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Reapply" }).click()
+    await expect(toast(page, "Cannot reapply docs")).toContainText("conflicts with HEAD in docs.md")
+    await expect(unappliedRow(page, "docs")).toBeVisible()
   })
 })

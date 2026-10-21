@@ -388,6 +388,31 @@ pub async fn undo_unapply_branch(
   .await
 }
 
+pub async fn reapply_branch(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::reapply_branch::ReapplyBranchParams>,
+) -> CommandResult<sync_core::reapply_branch::ReapplyBranchResult> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("reapply the branch", move || {
+    sync_core::reapply_branch::reapply_branch_core(&git_executor, &params, &RewriteOptions::default())
+  })
+  .await
+}
+
+pub async fn undo_reapply_branch(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::reapply_branch::UndoReapplyParams>,
+) -> CommandResult<sync_core::reapply_branch::UndoneReapply> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("undo the reapply", move || {
+    let token = sync_core::reapply_branch::ReapplyUndoToken::parse(&params.undo_token).ok_or_else(|| anyhow::anyhow!("Not an undo token of a reapply: {}", params.undo_token))?;
+    sync_core::reapply_branch::undo_reapply_core(&git_executor, &params.repository_path, &token, history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT)
+  })
+  .await
+}
+
 /// Without the object cache, as every command of the mock server
 pub async fn get_stack_independence(
   State(state): State<Arc<AppState>>,

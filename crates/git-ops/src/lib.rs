@@ -52,6 +52,7 @@
 //! - `word_replay`: the local commits replayed onto the upstream, each conflict resolved by words, all or nothing
 //! - `pick`: the commits of another worktree landed on the checked out branch (`bd pick`), the worktree following
 //! - `unapply`: the commits of a virtual branch out of the checked out branch, the files following, and its undo
+//! - `reapply`: the commits of an unapplied branch back on top, their prefixes restored, the files following, its undo
 //!
 //! Safe Push:
 //! - `trial_rebase`: the rebase of a branch onto the target tip that Patronus runs, tried on objects only
@@ -84,6 +85,7 @@ pub mod object_texts;
 pub mod ownership;
 pub mod paths;
 pub mod pick;
+pub mod reapply;
 pub mod ref_transaction;
 pub mod replay;
 pub mod resolve_check;

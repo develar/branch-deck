@@ -43,11 +43,12 @@ const MOVE_FUNCTIONS: [&str; 5] = [
 /// The files that name `MOVE_FUNCTIONS` (declarations and calls), with their number of uses: Update Project and its
 /// undo, the finish of a resolve session, `bd pick`, the unapply and the reapply of a virtual branch and their undo
 /// (docs/design/git-operations.md, invariant 1)
-const MOVE_CALLERS: [(&str, usize); 4] = [
+const MOVE_CALLERS: [(&str, usize); 5] = [
   ("crates/git-ops/src/update_branch.rs", 11),
   ("crates/git-ops/src/update_resolve.rs", 2),
   ("crates/git-ops/src/pick.rs", 2),
   ("crates/git-ops/src/unapply.rs", 2),
+  ("crates/git-ops/src/reapply.rs", 1),
 ];
 
 /// The file of the lease pool that writes a slot, pool property (docs/design/git-operations.md, "Lease"), with the number of

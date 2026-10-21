@@ -172,7 +172,7 @@ beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stac
 - **A parked member.** A branch the user parked ([Parked Branches](../../spec/branch/parked-branches.spec.md)) lands
   nothing until it is unparked, and neither does a branch built on it, which carries its commits. The stack branch
   holds every member, so a stack with a parked one lands in pieces: its build stays, nothing pushes it.
-- **An unapplied branch.** A branch the user unapplied ([Unapply Branch](../../spec/branch/unapply.spec.md)) is out
+- **An unapplied branch.** A branch the user unapplied ([Unapply and Reapply](../../spec/branch/unapply.spec.md)) is out
   of HEAD: it is in no stack and lands nothing; a push keeps a copy on the remote under its own name.
 - **When it is landable.** Only a `Built` stack branch has the stack's commits as they are. A member that is blocked,
   conflicts or failed, a commit that conflicts in the stack branch itself, or a ref another process moved leave the

@@ -35,7 +35,7 @@ fn more(path_count: u32, shown: usize) -> String {
 
 impl MoveBlocked {
   /// `paths` cut to `MAX_BLOCKED_PATHS`, all of them when only one more
-  pub(crate) fn new(operation: &'static str, mut paths: Vec<String>) -> Self {
+  pub fn new(operation: &'static str, mut paths: Vec<String>) -> Self {
     let path_count = u32::try_from(paths.len()).unwrap_or(u32::MAX);
     paths.truncate(kept(paths.len(), MAX_BLOCKED_PATHS));
     Self { operation, paths, path_count }

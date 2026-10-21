@@ -27,6 +27,8 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::BranchCheckedOut, 4, false),
   (ErrorCode::DropConflict, 4, false),
   (ErrorCode::Unapplied, 4, false),
+  (ErrorCode::ReapplyConflict, 4, false),
+  (ErrorCode::NothingToReapply, 4, false),
   (ErrorCode::LeaseRejected, 4, false),
   (ErrorCode::Locked, 3, true),
   (ErrorCode::OperationInProgress, 4, false),

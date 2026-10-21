@@ -19,7 +19,7 @@ use bd_rewrite::park_command::ParkOutput;
 use bd_rewrite::rewrite::RewriteOutput;
 use bd_rewrite::suggest::SuggestOutput;
 use bd_update::pick_command::PickOutput;
-use bd_update::unapply_command::UnapplyOutput;
+use bd_update::unapply_command::{ReapplyOutput, UnapplyOutput};
 use bd_update::undo_command::UndoOutput;
 use bd_update::update_command::{UpdateAbortOutput, UpdateOutput, UpdateStatusOutput};
 use schemars::{Schema, schema_for};
@@ -56,6 +56,7 @@ pub fn schema_output() -> SchemaOutput {
       ("park".to_string(), schema_for!(ParkOutput)),
       ("pick".to_string(), schema_for!(PickOutput)),
       ("push".to_string(), schema_for!(PushOutput)),
+      ("reapply".to_string(), schema_for!(ReapplyOutput)),
       ("rewrite".to_string(), schema_for!(RewriteOutput)),
       ("request_review".to_string(), schema_for!(RequestReviewOutput)),
       ("robot".to_string(), schema_for!(RobotOutput)),

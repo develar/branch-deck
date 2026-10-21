@@ -95,8 +95,8 @@ written, except by Update Project and the finish of its resolve session (their o
    the working tree, **its undo**, which takes them out again, **the finish of a resolve session** (see "Resolve
    session"), which is the same move to the tip that the session replayed, **`bd pick`** (see "Pick"), which
    moves the branch to the commits of another worktree replayed onto it and, with `--follow`, that worktree onto the
-   same tip, and its undo, **and the unapply of a virtual branch** (see "Drop and unapply"), which takes its commits
-   and their files out of HEAD. All use a single two-way
+   same tip, and its undo, **and the unapply and the reapply of a virtual branch** (see "Drop and unapply",
+   "Reapply"), which take its commits and their files out of HEAD and back, and their undo. All use a single two-way
    `read-tree -m -u <old HEAD tree> <new HEAD tree>`, which writes only the paths whose content differs between the two
    trees; the undo swaps the trees. Three guards come first: a dry run of the same command on a copy of the index, a
    check for ignored files where the move adds a file, and the CAS ref move. Uncommitted and staged changes on the
@@ -108,7 +108,9 @@ written, except by Update Project and the finish of its resolve session (their o
    `bd pick` in `pick.rs`, which moves HEAD only to the tip its own check replayed (`PickPlan`, private fields), a
    detached HEAD with `option no-deref`, and, through its `pub(crate)` `move_branch_and_files_carrying` and
    `apply_move_undo_with`, for the unapply in `unapply.rs`, which moves HEAD only to the drop its own check replayed
-   (`UnapplyPlan`, private fields) and moves the virtual branch in the same transaction. The safety scan allows `-u`
+   (`UnapplyPlan`, private fields) and moves the virtual branch in the same transaction, and for the reapply in
+   `reapply.rs`, which moves HEAD only to the pick its own check replayed (through `pick.rs`'s `apply_pick_carrying`)
+   and deletes the unapplied branch in the same transaction. The safety scan allows `-u`
    there and asserts the number of such argument lists (two: the dry run and the update), so the exemption can't grow
    unnoticed, and it names the files that call those moves, each with its count (`MOVE_CALLERS`).
 
@@ -1103,6 +1105,32 @@ agent".
 - A peer that commits after the finish moved the branch but before the files followed commits on the index of the old
   HEAD; bd then refuses with `finish_pending`, and the user decides with `git status`.
 - `blocked_paths` is the cheaper check of every sync; it can miss a block that the exact check of the finish finds.
+
+#### Reapply
+
+Reapply ([Unapply and Reapply](../../spec/branch/unapply.spec.md)) puts the commits of an unapplied branch back on top
+of the checked out branch, the inverse of "Drop and unapply". Under the repository lock (a `--dry-run` takes none),
+after the mark of an interrupted move is finished:
+
+1. One `for-each-ref` of the unapplied branch (its tip, the worktree that has it, which refuses), the baseline and its
+   tracking ref, and the start of its own commits (`own_commits_start`: its stack note, else the merge base).
+2. The grouping prefix back (`restore_chain_messages`): a virtual commit keeps none, so each commit whose subject
+   groups elsewhere by the grouping inputs (one `cat-file --batch`) gets `(<name>) `; one `rev-list`, one
+   `cat-file --batch` and, when a message changes, one `fast-import` of the chain on its parents, trees, authors and
+   committers byte for byte, on a temporary ref.
+3. The check of "Pick" on `<start>..<restored tip>` (`check_pick`, `PickSource::Revisions`): a commit HEAD has by its
+   patch is left out, a conflict names its commit and files (`ReapplyConflict`), local changes in the way refuse it
+   (`MoveBlocked`), and nothing to pick refuses it (`AlreadyInHead`).
+4. The move (`apply_reapply`, through `apply_pick_carrying`, `branch-deck: reapply`): its transaction also deletes the
+   unapplied branch (checked against its tip) and the temporary ref; the rollback of files that changed since the dry
+   run creates the unapplied branch again.
+
+The copies keep their authors; the committer is the current user, the date as "Pick" sets it. The next sync builds the
+virtual branch from them. The undo (`reapply:<previous head>..<new head>:<tip>:<unapplied branch>`) is the undo of a
+move (`check_reapply_undo`, `branch-deck: undo reapply`), whose transaction creates the unapplied branch at its tip again.
+
+Code: `crates/git-ops/src/reapply.rs`, `crates/git-ops/src/pick.rs`, `crates/sync-core/src/reapply_branch.rs`,
+`crates/bd-update/src/unapply_command.rs`.
 
 #### Pick
 
@@ -2820,6 +2848,8 @@ the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and
 | Amend into an older commit | `an_amend` | 19 | 17 |
 | Unapply a branch, its files following (the build checked, the dry run of the files; 2026-10-21) | `a_drop` | 19 | 35 |
 | Undo an unapply (2026-10-21) | `an_undo_of_an_unapply` | 20 | 20 |
+| Reapply an unapplied branch, its prefixes restored (2026-10-21) | `a_reapply` | 39 | 39 |
+| Undo a reapply (2026-10-21) | `an_undo_of_a_reapply` | 20 | 20 |
 | Squash two commits | `a_squash` | 18 | 14 |
 | Squash fixups | `a_squash_of_fixups` | 31 | 24 |
 | Update check, Update Project | `an_update_check`, `an_update` | 20, 38 | 20, 38 |

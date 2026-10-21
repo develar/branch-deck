@@ -115,3 +115,45 @@ fn status_lists_an_unapplied_branch_push_refuses_it_by_its_name_and_pushes_it_wi
   assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &pushed, "push --unapplied");
   assert_covered(&schema["outputs"]["status"], &schema["outputs"]["status"], &status, "status with an unapplied branch");
 }
+
+#[test_log::test]
+fn reapply_puts_the_branch_back_with_its_prefix_and_the_undo_takes_it_out_again() {
+  let (repo, _) = synced_repo();
+  run_in(&repo, &["unapply", "docs"]);
+  let head = repo.head();
+
+  let (exit_code, dry_run) = run_in(&repo, &["reapply", "docs", "--dry-run"]);
+  assert_eq!(
+    (exit_code, &dry_run["dry_run"], &dry_run["undo_token"]),
+    (0, &json!(true), &serde_json::Value::Null),
+    "{dry_run}"
+  );
+  assert_eq!(repo.head(), head);
+
+  let (exit_code, output) = run_in(&repo, &["--full-ids", "reapply", "docs"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let subjects: Vec<&serde_json::Value> = output["reapplied"].as_array().unwrap().iter().map(|commit| &commit["subject"]).collect();
+  assert_eq!(subjects, [&json!("(docs) Add f0"), &json!("(docs) Add f2")]);
+  assert_eq!(
+    (&output["branch"], &output["prefix_restored"], &output["previous_head"]),
+    (&json!("docs"), &json!(2), &json!(head))
+  );
+  assert!(repo.path().join("f0.txt").exists());
+  assert_eq!(git(&repo, &["branch", "--list", "test-user/unapplied/docs"]), "");
+
+  let (_, schema) = run_json(&environment(repo.path()), &["schema"]);
+  assert_covered(&schema["outputs"]["reapply"], &schema["outputs"]["reapply"], &output, "reapply");
+  let (exit_code, undo) = run_in(&repo, &["undo", output["undo_token"].as_str().unwrap()]);
+  assert_eq!((exit_code, &undo["restored_branch"]), (0, &json!("test-user/unapplied/docs")), "{undo}");
+  assert_eq!(repo.head(), head);
+
+  // HEAD writes a file of the branch in another way: the reapply conflicts and changes nothing
+  std::fs::write(repo.path().join("f2.txt"), "theirs").unwrap();
+  git(&repo, &["add", "f2.txt"]);
+  git(&repo, &["commit", "-q", "-m", "(other) Own f2"]);
+  let (exit_code, output) = run_in(&repo, &["reapply", "docs"]);
+  assert_error(&output, exit_code, (4, "reapply_conflict"));
+  assert_eq!(output["error"]["paths"], json!(["f2.txt"]));
+  let (exit_code, output) = run_in(&repo, &["reapply", "ghost"]);
+  assert_error(&output, exit_code, (2, "unknown_branch"));
+}

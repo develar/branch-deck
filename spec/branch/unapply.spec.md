@@ -1,6 +1,6 @@
 ---
-name: Unapply Branch
-description: Requirements for unapplying a virtual branch, which takes its commits and their files out of the current branch and keeps the branch in the unapplied namespace, atomically, refused by local changes on the paths it writes.
+name: Unapply and Reapply
+description: Requirements for unapplying a virtual branch, which takes its commits and their files out of the current branch and keeps the branch in the unapplied namespace, atomically, and for reapplying it, which puts its commits back on top with their grouping prefix; both refused by local changes on the paths they write, both with an undo.
 style: plain-1
 targets:
   - ../../crates/sync-core/src/unapply_branch.rs
@@ -29,9 +29,13 @@ targets:
   - ../../src/components/branch/UnappliedBranchTableCard.tsx
   - ../../src/hooks/useUnappliedBranchMenu.ts
   - ../../src/lib/git/unapplied-push.ts
+  - ../../crates/sync-core/src/reapply_branch.rs
+  - ../../crates/git-ops/src/reapply.rs
+  - ../../crates/git-ops/src/pick.rs
+  - ../../src/lib/git/reapply.ts
 ---
 
-# Unapply Branch
+# Unapply and Reapply
 
 Status: Implemented
 Date: 2026-10-21
@@ -41,7 +45,8 @@ Date: 2026-10-21
 Some work must leave the local branch for a while: the world is not ready for it, a team prepares a proper fix, a
 change waits for a decision. Parking keeps it local but in the build; unapplying takes it out. The commits of the
 virtual branch leave the current branch, the files they changed go back to how they are without them, and the virtual
-branch is kept in the unapplied namespace (`{prefix}/unapplied/<name>`), which no sync archives or deletes.
+branch is kept in the unapplied namespace (`{prefix}/unapplied/<name>`), which no sync archives or deletes. Reapply
+puts its commits back on top of the current branch, their files and their grouping prefix with them.
 
 ## Goals
 
@@ -50,6 +55,7 @@ branch is kept in the unapplied namespace (`{prefix}/unapplied/<name>`), which n
 - All or nothing: HEAD, the files and the branch move together, or nothing does.
 - Take it back at once with Undo, and let an agent do the same with `bd unapply` and `bd undo`.
 - See what waits outside HEAD, keep a copy of it on the remote, and delete it once it is not needed.
+- Bring it back when the world is ready, as the branch it was.
 
 ## Non-goals
 
@@ -118,6 +124,30 @@ branch is kept in the unapplied namespace (`{prefix}/unapplied/<name>`), which n
 - A failed unapply must keep the branch in the table and say why in the error toast "Cannot unapply ‹branch›".
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should keep the branch and say why when the unapply fails, and close the confirmation with Escape`)
 
+### Reapply
+
+- Reapply (the menu of an unapplied row, `bd reapply <name>`) must put the branch's own commits (after its stack note,
+  else its merge base with the baseline) back on top of HEAD, the files following, and delete the unapplied branch in
+  the same transaction; author kept, committer the current user. A commit whose subject groups elsewhere must get
+  `(<name>) ` back, since a virtual commit keeps no grouping prefix; an issue branch comes back as it was. The next sync
+  builds the branch again.
+  [@test] ../../crates/sync-core/src/reapply_branch_test.rs (`reapply_puts_the_commits_back_on_top_with_their_prefix_and_files_and_the_sync_builds_the_branch_again`, `an_issue_branch_comes_back_without_a_prefix`)
+  [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should reapply an unapplied branch from both menus, the branch back in the table, and take it back with Undo`)
+- A commit HEAD has by its patch must be left out, one that becomes empty drops; a dry run must change nothing.
+  [@test] ../../crates/sync-core/src/reapply_branch_test.rs (`a_dry_run_changes_nothing_and_says_what_the_reapply_would_do`)
+- The reapply must be refused, and change nothing, for an unknown branch, a commit that conflicts with HEAD (its
+  files named), local changes on a path it writes, a branch checked out in a worktree, and a HEAD with every commit of
+  it already; under the repository lock, as every rewrite.
+  [@test] ../../crates/sync-core/src/reapply_branch_test.rs (`reapply_refuses_an_unknown_branch_a_conflict_and_local_changes_in_the_way_and_changes_nothing`, `reapply_waits_for_the_repository_lock_and_fails_with_locked`)
+  [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should keep an unapplied branch whose reapply conflicts and say why`)
+- The toast "Reapplied ‹branch›" must offer Undo, which moves HEAD and the files back and creates the unapplied branch
+  again; the token `reapply:<previous head>..<new head>:<tip>:<unapplied branch>`; stale once HEAD moved on.
+  [@test] ../../crates/sync-core/src/reapply_branch_test.rs (`the_undo_of_a_reapply_takes_the_commits_out_again_and_keeps_the_unapplied_branch`, `a_reapply_token_names_full_ids_and_the_unapplied_branch`)
+  [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should reapply an unapplied branch from both menus, the branch back in the table, and take it back with Undo`)
+- `bd reapply <name> [--dry-run] [--expect-head <id>]` must print one object (`reapply` in `bd schema`) and refuse with
+  `reapply_conflict` (`commits`, `paths`), `uncommitted_overlap`, `nothing_to_reapply` and `unknown_branch`.
+  [@test] ../../crates/bd-update/src/unapply_test.rs (`reapply_puts_the_branch_back_with_its_prefix_and_the_undo_takes_it_out_again`)
+
 ### The Unapplied card
 
 - Every sync must report the unapplied branches once, also none, with the tip, its subject and the remote status of
@@ -128,9 +158,9 @@ branch is kept in the unapplied namespace (`{prefix}/unapplied/<name>`), which n
   "Pushed", "2 commits to push", "Remote differs"), and its commits below an expanded row; a help popover says what an
   unapplied branch is.
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should list an unapplied branch in its own card with its commits, out of the branch table`)
-- The menu of a row (right-click and "⋯") must offer Push (Force Push when the remote has another history, disabled
-  when it has it as it is), Safe Push disabled with "Not in master: an unapplied branch lands nothing", Copy, and
-  Delete Unapplied Branch….
+- The menu of a row (right-click and "⋯") must offer Reapply, Push (Force Push when the remote has another history,
+  disabled when it has it as it is), Safe Push disabled with "Not in master: Reapply it to land it", Copy, and Delete
+  Unapplied Branch….
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should push an unapplied branch under its own name from both menus, and refuse its Safe Push with why`)
 - Push must push it under its own name (`{prefix}/unapplied/<name>`) with a lease on the remote head of its status, then
   sync; the toast "Pushed ‹branch›" says the remote keeps it. A pull request of its virtual branch stays as it was.
@@ -178,6 +208,9 @@ branch is kept in the unapplied namespace (`{prefix}/unapplied/<name>`), which n
 - An unapply must cost the processes `a_drop` pins: the grouping read once, one `replay` per kept run, one dry run of
   the files and one move; its undo those of `an_undo_of_an_unapply`.
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_drop`, `an_undo_of_an_unapply`)
+- A reapply must cost the processes `a_reapply` pins (one `fast-import` for the restored messages, one `replay`, one
+  dry run of the files, one move); its undo those of `an_undo_of_a_reapply`.
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_reapply`, `an_undo_of_a_reapply`)
 
 ## User Experience
 
@@ -185,13 +218,20 @@ branch is kept in the unapplied namespace (`{prefix}/unapplied/<name>`), which n
   leaves the table, the files with it → toast "Unapplied docs" · "Removed 1 commit from HEAD · kept in
   jane/unapplied/docs" · Undo.
 - The Unapplied card: "Unapplied · 1 branch", the row "docs · Document the API · Not pushed"; Push → toast "Pushed docs"
-  · "The remote keeps it as jane/unapplied/docs".
+  · "The remote keeps it as jane/unapplied/docs"; Reapply → the row back in the branch table → toast "Reapplied docs"
+  · "1 commit back on top of HEAD" · Undo.
 - `bd unapply docs` → `{"unapplied_branch":"jane/unapplied/docs",…,"undo_token":"unapply:…"}`; `bd undo unapply:…`;
-  `bd status` → `"unapplied":[{"name":"jane/unapplied/docs","branch":"docs",…}]`; `bd push --unapplied docs`.
+  `bd status` → `"unapplied":[{"name":"jane/unapplied/docs","branch":"docs",…}]`; `bd push --unapplied docs`;
+  `bd reapply docs` → `{"reapplied":[…],"prefix_restored":1,"undo_token":"reapply:…"}`.
 
 ## Open Questions / Risks
 
-- `git replay` reports a conflict only by its exit code, so the error cannot yet name the conflicting commit or files.
+- `git replay` reports a conflict of the unapply's drop only by its exit code, so its error cannot yet name the
+  conflicting commit or files; the reapply's can (the binary search of the pick).
+- A name that got a `-N` suffix at the unapply (`docs-1`) comes back under that name: the prefix restored is the one
+  of the unapplied branch. A `(parent/child)` prefix comes back as `(child)`; the stack parents
+  (`refs/branch-deck/stack-parents`) stack it again where they name its parent.
+- A sync between a reapply and its undo builds the virtual branch; after the undo the next sync archives it.
 
 ## References
 

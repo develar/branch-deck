@@ -142,8 +142,9 @@ publisher: choose More info → Run anyway.
     <img alt="The review window of a branch: its commits, the tree of its files and their diffs side by side, coloured as IntelliJ colours Kotlin" src="docs/screenshots/review-light.png">
   </picture>
 - **History editing with Undo**: reword, amend uncommitted changes into a branch, squash commits even when others lie
-  between them, fold fixup commits, unapply a branch. Activity lists what Branch Deck did, with Undo while it lasts
-  ([squash](spec/commit/squash.spec.md), [fixups](spec/commit/fixups.spec.md), [activity](spec/repository/activity.spec.md)).
+  between them, fold fixup commits, unapply a branch with its files and reapply it later. Activity lists what Branch
+  Deck did, with Undo while it lasts ([squash](spec/commit/squash.spec.md), [fixups](spec/commit/fixups.spec.md),
+  [unapply](spec/branch/unapply.spec.md), [activity](spec/repository/activity.spec.md)).
 - **At home next to IntelliJ**: the Islands colours and density, light and dark, the toolbar in the title bar, issue
   links from the IDE's issue navigation (`.idea/vcs.xml`), zoom from 67% to 150%, and a Settings window with a page
   per subject ([settings](spec/repository/settings.spec.md)). Signed in to YouTrack, an issue key shows the issue on

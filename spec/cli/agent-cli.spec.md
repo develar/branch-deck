@@ -119,7 +119,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - Keep the output contract stable: versioned JSON, fixed error codes and exit codes.
 - Stay fast on hundreds of commits: one git process per phase, and a cache for the per-commit data.
 - Reading changes nothing; a regroup changes commit messages only. A fold and `bd move-hunk` change the trees of
-  commits ahead of the baseline, never HEAD's tree, the index or the working tree. Only `bd update`, `bd pick`, `bd unapply` and their undo write the working tree, through the guarded update. `bd lease` writes only the slots of its pool.
+  commits ahead of the baseline, never HEAD's tree, the index or the working tree. Only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo write the working tree, through the guarded update. `bd lease` writes only the slots of its pool.
 
 ## Non-goals
 
@@ -457,10 +457,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - `bd pick` (the commits of another worktree onto the checked out branch, `--follow`) and `bd undo pick:`:
   [bd pick](pick.spec.md).
 
-### `bd unapply`
+### `bd unapply`, `bd reapply`
 
-- `bd unapply` (a branch and its files out of the checked out branch) and `bd undo unapply:`:
-  [Unapply Branch](../branch/unapply.spec.md).
+- `bd unapply` (a branch and its files out of the checked out branch), `bd reapply` (back on top) and `bd undo
+  unapply:`, `bd undo reapply:`:
+  [Unapply and Reapply](../branch/unapply.spec.md).
 
 ### `bd lease`
 
@@ -1168,7 +1169,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   object, exit 4 without a rule: stop and show `message`), that `retryable` decides a retry whatever the exit code,
   the error object with `paths`, `branches` and `review`, `--expect-head`, `previous_head`, `new_head`, the
   `undo_token` and `after_error`, abbreviated ids compared by prefix, never reorder, squash or drop commits except
-  with `bd fold`, a change moved only with `bd move-hunk`, a message changed only with `bd reword`, and only `bd update`, `bd pick`, `bd unapply` and their undo writing the
+  with `bd fold`, a change moved only with `bd move-hunk`, a message changed only with `bd reword`, and only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo writing the
   working tree. Then the workflow in steps (look with `bd suggest`; plan and check with the `result` of each branch;
   apply with `bd group --sync`; push; Safe Push with `--check` first, `lands`, `alone`, `--whole-stack` and the
   refusals; review; robot), then the other tasks (`bd update`, `bd pick`, `bd fold`, `bd reword` with its `(prefix)`

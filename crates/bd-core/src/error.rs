@@ -63,6 +63,12 @@ pub enum ErrorCode {
   /// `bd unapply`: a later commit depends on the changes of a commit of the branch, or the range holds a merge; nothing
   /// was changed. Move that commit into the branch first (`bd group`), or leave the branch applied
   DropConflict,
+  /// `bd reapply`: a commit of the unapplied branch conflicts with HEAD (`commits`, `paths`); nothing was changed. The
+  /// user decides: resolve it in the branch elsewhere, or leave it unapplied
+  ReapplyConflict,
+  /// `bd reapply`: HEAD has every commit of the unapplied branch already, or the branch has no common history with the
+  /// baseline; nothing was changed
+  NothingToReapply,
   /// `bd push` and `bd safe-push` of a branch that is unapplied (`unapplied` of `bd status`): its commits are not in
   /// HEAD, it lands nothing; `bd push --unapplied <name>` keeps a copy on the remote. Nothing was pushed or started
   Unapplied,
@@ -228,6 +234,8 @@ impl ErrorCode {
       | Self::BranchCheckedOut
       | Self::DropConflict
       | Self::Unapplied
+      | Self::ReapplyConflict
+      | Self::NothingToReapply
       | Self::DanglingReference
       | Self::NotOnSpace
       | Self::NotLoggedIn

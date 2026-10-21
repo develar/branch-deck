@@ -29,6 +29,7 @@
 //! - `add_issue_reference`: an issue key into the subjects of commits
 //! - `amend_to_branch`: uncommitted changes into a commit of a branch
 //! - `unapply_branch`: the commits of a virtual branch out of HEAD with their files, the branch kept as an unapplied one
+//! - `reapply_branch`: the commits of an unapplied branch back on top of HEAD with their prefixes and files
 //! - `move_hunk`: the checks of `bd move-hunk` against the commits ahead of the baseline
 //! - `delete_archived_branch`: the delete of an archived branch, with compare-and-swap on its tip
 //! - `parked`: park and unpark a branch (no rewrite: the store `refs/branch-deck/parked`), and whether a branch is parked
@@ -146,6 +147,7 @@ pub mod pull_request_writes;
 pub mod pull_requests;
 pub mod push;
 pub mod push_lease;
+pub mod reapply_branch;
 pub mod remote_command;
 pub mod remote_status;
 pub mod remote_url;
@@ -210,6 +212,8 @@ mod pull_request_writes_test;
 mod pull_requests_test;
 #[cfg(test)]
 mod push_test;
+#[cfg(test)]
+mod reapply_branch_test;
 #[cfg(test)]
 pub(crate) mod regroup_test;
 #[cfg(test)]

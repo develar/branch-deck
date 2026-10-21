@@ -10,8 +10,8 @@ use git_ops::branch_names::{BranchKind, normalize_branch_prefix, qualified_branc
 use git_ops::commit_list::Commit;
 use git_ops::revs::is_object_id;
 use git_ops::unapply::{UnappliedMove, apply_unapply, apply_unapply_undo, check_unapply, check_unapply_undo};
-use git_ops::update_branch::{UndoCheck, finish_pending_update};
-use history_rewrite::repository_lock::{RewriteOptions, lock_repository};
+use git_ops::update_branch::{UndoCheck, UpdateUndo, finish_pending_update};
+use history_rewrite::repository_lock::{RepositoryLock, RewriteOptions, lock_repository};
 use history_rewrite::snapshot::{CommitsAhead, group_commits, read_grouping_inputs};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -216,25 +216,34 @@ pub struct UnapplyUndoToken {
 
 const UNAPPLY_TOKEN: &str = "unapply:";
 
+/// `<kind><previous head>..<new head>:<tip>:<branch>…` of an unapply or a reapply: three full ids of one length, the
+/// heads different, and `N` full branch names (a ref name has no `:`, none starts with `-` or has `..`)
+pub(crate) fn parse_move_token<const N: usize>(text: &str, kind: &str) -> Option<(String, String, String, [String; N])> {
+  let mut parts = text.strip_prefix(kind)?.split(':');
+  let (previous_head, new_head) = parts.next()?.split_once("..")?;
+  let tip = parts.next()?;
+  let ids = [previous_head, new_head, tip];
+  if !ids.iter().all(|id| is_object_id(id) && id.len() == tip.len()) || previous_head == new_head {
+    return None;
+  }
+  let names: Vec<String> = parts.map(str::to_string).collect();
+  let names: [String; N] = names.try_into().ok()?;
+  if names.iter().any(|name| name.is_empty() || name.starts_with('-') || name.contains("..")) {
+    return None;
+  }
+  Some((previous_head.to_string(), new_head.to_string(), tip.to_string(), names))
+}
+
 impl UnapplyUndoToken {
   /// A token as `Display` prints it; anything else, abbreviated ids included, is `None`
   pub fn parse(text: &str) -> Option<Self> {
-    let mut parts = text.strip_prefix(UNAPPLY_TOKEN)?.split(':');
-    let (Some(range), Some(tip), Some(virtual_branch), Some(unapplied_branch), None) = (parts.next(), parts.next(), parts.next(), parts.next(), parts.next()) else {
-      return None;
-    };
-    let (previous_head, new_head) = range.split_once("..")?;
-    let ids = [previous_head, new_head, tip];
-    if !ids.iter().all(|id| is_object_id(id) && id.len() == tip.len()) || previous_head == new_head {
-      return None;
-    }
-    let branch = |name: &str| (!name.is_empty() && !name.starts_with('-') && !name.contains("..")).then(|| name.to_string());
+    let (previous_head, new_head, tip, [virtual_branch, unapplied_branch]) = parse_move_token(text, UNAPPLY_TOKEN)?;
     Some(Self {
-      previous_head: previous_head.to_string(),
-      new_head: new_head.to_string(),
-      tip: tip.to_string(),
-      virtual_branch: branch(virtual_branch)?,
-      unapplied_branch: branch(unapplied_branch)?,
+      previous_head,
+      new_head,
+      tip,
+      virtual_branch,
+      unapplied_branch,
     })
   }
 
@@ -279,12 +288,11 @@ pub struct UndoneUnapply {
 /// exists again, fails the transaction and changes nothing. Undoing again is no error: `already_undone`
 #[instrument(skip(git_executor))]
 pub fn undo_unapply_core(git_executor: &GitCommandExecutor, repo_path: &str, token: &UnapplyUndoToken, lock_timeout: Duration) -> Result<UndoneUnapply> {
-  let _lock = lock_repository(git_executor, repo_path, lock_timeout)?;
-  finish_pending_update(git_executor, repo_path)?;
-  let undo = match check_unapply_undo(git_executor, repo_path, &token.previous_head, &token.new_head)? {
-    UndoCheck::Ready(undo) if !undo.blocked().is_empty() => return Err(anyhow::Error::new(UndoBlocked { paths: undo.blocked().to_vec() })),
-    UndoCheck::Ready(undo) => undo,
-    UndoCheck::AlreadyUndone { .. } => return Ok(UndoneUnapply { already_undone: true }),
+  let (_lock, undo) = checked_undo(git_executor, repo_path, lock_timeout, || {
+    check_unapply_undo(git_executor, repo_path, &token.previous_head, &token.new_head)
+  })?;
+  let Some(undo) = undo else {
+    return Ok(UndoneUnapply { already_undone: true });
   };
   let (virtual_ref, unapplied_ref) = (format!("refs/heads/{}", token.virtual_branch), format!("refs/heads/{}", token.unapplied_branch));
   apply_unapply_undo(
@@ -299,4 +307,21 @@ pub fn undo_unapply_core(git_executor: &GitCommandExecutor, repo_path: &str, tok
   )?;
   info!(branch = %token.virtual_branch, "undid the unapply");
   Ok(UndoneUnapply { already_undone: false })
+}
+
+/// The repository lock, the finish of an interrupted move of the files, then `check` of an undo: the undo to apply,
+/// `None` when it was undone before; local changes on a path it writes are `UndoBlocked`
+pub(crate) fn checked_undo(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  lock_timeout: Duration,
+  check: impl FnOnce() -> Result<UndoCheck>,
+) -> Result<(RepositoryLock, Option<UpdateUndo>)> {
+  let lock = lock_repository(git_executor, repo_path, lock_timeout)?;
+  finish_pending_update(git_executor, repo_path)?;
+  match check()? {
+    UndoCheck::Ready(undo) if !undo.blocked().is_empty() => Err(anyhow::Error::new(UndoBlocked { paths: undo.blocked().to_vec() })),
+    UndoCheck::Ready(undo) => Ok((lock, Some(undo))),
+    UndoCheck::AlreadyUndone { .. } => Ok((lock, None)),
+  }
 }

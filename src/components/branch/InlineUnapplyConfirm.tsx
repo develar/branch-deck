@@ -30,7 +30,10 @@ export function InlineUnapplyConfirm({ branchName }: { branchName: string }) {
       }}
     >
       <Callout tone="warning" title={`This removes ${formatCommitCount(commitCount)} and their changes from HEAD`}>
-        <p>The files they changed go back to how they are without them; uncommitted changes to those files stop the unapply. The branch is kept as an unapplied branch.</p>
+        <p>
+          The files they changed go back to how they are without them; uncommitted changes to those files stop the unapply. The branch waits in the Unapplied card; Reapply puts it
+          back on top. An open pull request stays open: a merge on GitHub still lands it.
+        </p>
         {children.length > 0 && <StackChildrenNote parent={branchName} stacked={children} />}
       </Callout>
     </InlineForm>

@@ -7,6 +7,7 @@ use crate::amend_to_branch::{AmendCommandResult, AmendUncommittedToBranchParams,
 use crate::check::{CheckSession, check_plan};
 use crate::pull_request_create::read_new_pull_request;
 use crate::push::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
+use crate::reapply_branch::{ReapplyBranchParams, ReapplyBranchResult, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
 use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch, forget_statuses};
 use crate::robot_landing::{robot_landings, robot_spans};
 use crate::stack_branch::forget_builds;
@@ -707,6 +708,18 @@ async fn a_drop() {
   );
 }
 
+/// The undo of an unapply or of a reapply: the lock (`rev-parse`: 1), the mark of pending files, the guards and the last
+/// two moves of the branch in its reflog, the dry run of the files, and the move back with its mark
+const UNDO_OF_A_MOVE: &[(&str, u32)] = &[
+  ("diff-tree", 1),
+  ("log", 1),
+  ("read-tree", 2),
+  ("rev-parse", 8),
+  ("symbolic-ref", 3),
+  ("update-index", 3),
+  ("update-ref", 2),
+];
+
 /// The undo of an unapply: the lock and the mark of pending files, the guards and the last two moves of the branch in
 /// its reflog, the dry run of the files, and the move back with its mark, the virtual branch created again in it
 #[tokio::test]
@@ -717,18 +730,62 @@ async fn an_undo_of_an_unapply() {
   let git = counting();
   let token = UnapplyUndoToken::parse(&unapplied.undo_token).unwrap();
   undo_unapply_core(&git, &path(&repo), &token, DEFAULT_LOCK_TIMEOUT).unwrap();
+  assert_processes(&git, UNDO_OF_A_MOVE);
+}
+
+/// The reapply of beta after its unapply: the lock and the mark of pending files, the unapplied branch with its worktree,
+/// the baseline, the start of its own commits, the grouping inputs, the restored messages (one `fast-import`), the pick
+/// (the range with the patch id marks, one `replay`, the copies, the dry run of the files) and the move with its mark
+#[tokio::test]
+async fn a_reapply() {
+  let (repo, commits) = repo();
+  sync(&GitCommandExecutor::new(), &repo).await;
+  unapply_beta(&GitCommandExecutor::new(), &repo, &commits);
+  let git = counting();
+  reapply_beta(&git, &repo);
   assert_processes(
     &git,
     &[
+      ("cat-file", 2),
+      ("config", 1),
       ("diff-tree", 1),
-      ("log", 1),
+      ("fast-import", 1),
+      ("for-each-ref", 3),
+      ("log", 4),
+      ("merge-base", 1),
       ("read-tree", 2),
-      ("rev-parse", 8), // the repository lock: 1
-      ("symbolic-ref", 3),
+      ("remote", 2),
+      ("replay", 1),
+      ("rev-list", 2),
+      ("rev-parse", 10), // the repository lock: 1
+      ("symbolic-ref", 4),
       ("update-index", 3),
       ("update-ref", 2),
     ],
   );
+}
+
+/// The undo of a reapply: as the undo of an unapply, the unapplied branch created again in the move back
+#[tokio::test]
+async fn an_undo_of_a_reapply() {
+  let (repo, commits) = repo();
+  sync(&GitCommandExecutor::new(), &repo).await;
+  unapply_beta(&GitCommandExecutor::new(), &repo, &commits);
+  let reapplied = reapply_beta(&GitCommandExecutor::new(), &repo);
+  let git = counting();
+  let token = ReapplyUndoToken::parse(reapplied.undo_token.as_deref().unwrap()).unwrap();
+  undo_reapply_core(&git, &path(&repo), &token, DEFAULT_LOCK_TIMEOUT).unwrap();
+  assert_processes(&git, UNDO_OF_A_MOVE);
+}
+
+fn reapply_beta(git: &GitCommandExecutor, repo: &TestRepo) -> ReapplyBranchResult {
+  let params = ReapplyBranchParams {
+    repository_path: path(repo),
+    branch_name: "beta".to_string(),
+    branch_prefix: PREFIX.to_string(),
+    dry_run: false,
+  };
+  reapply_branch_core(git, &params, &RewriteOptions::default()).unwrap()
 }
 
 /// Two commits of alpha squashed into the older one

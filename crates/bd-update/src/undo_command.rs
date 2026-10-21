@@ -3,7 +3,7 @@
 //! which moves the files back too
 
 use crate::pick_command::undo_pick;
-use crate::unapply_command::undo_unapply;
+use crate::unapply_command::{undo_reapply, undo_unapply};
 use crate::update_command::undo_update;
 use bd_core::context::RepoContext;
 use bd_core::error::{CliError, ErrorCode, regroup_error};
@@ -18,7 +18,8 @@ use serde::Serialize;
 pub struct UndoArgs {
   /// The `undo_token` a rewrite printed: `<previous head>..<new head>`, `groups:<previous>..<new>`,
   /// `stacks:<previous>..<new>`, or several of them joined by `+` in this order; or the `update:…` of `bd update`, the
-  /// `pick:…[+follow:…]` of `bd pick` or the `unapply:…` of `bd unapply`, which move the files back too
+  /// `pick:…[+follow:…]` of `bd pick`, the `unapply:…` of `bd unapply` or the `reapply:…` of `bd reapply`, which move the
+  /// files back too
   pub token: String,
 }
 
@@ -42,7 +43,7 @@ pub struct UndoOutput {
   /// For an `update:` token: whether the report of the landed commits is the one from before the update again
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub landed_restored: Option<bool>,
-  /// For an `update:`, `pick:` or `unapply:` token: it was undone before, and nothing changed now; a repeated undo is
+  /// For an `update:`, `pick:`, `unapply:` or `reapply:` token: it was undone before, and nothing changed now; a repeated undo is
   /// no error
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub already_undone: Option<bool>,
@@ -50,7 +51,7 @@ pub struct UndoOutput {
   /// back already)
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub follow_undone: Option<bool>,
-  /// For an `unapply:` token: the virtual branch that is back
+  /// For an `unapply:` token: the virtual branch that is back; for a `reapply:` token: the unapplied branch that is back
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub restored_branch: Option<String>,
 }
@@ -63,23 +64,32 @@ fn head_after_undo(context: &RepoContext, moved: Option<&(String, String)>) -> R
   }
 }
 
+/// The output of the undo of an unapply or a reapply: HEAD back from `new` to `previous`, `restored_branch` back
+fn moved_back(context: &RepoContext, (previous, new): (&str, &str), already_undone: bool, restored_branch: String) -> UndoOutput {
+  let short = context.short_ids([previous, new]);
+  UndoOutput {
+    schema: SchemaVersion,
+    repository: context.repository.clone(),
+    prefix: context.prefix.clone(),
+    previous_head: Some(short.get(new).to_string()),
+    new_head: short.get(previous).to_string(),
+    undone_issue_groups: None,
+    undone_stack_parents: None,
+    landed_restored: None,
+    already_undone: Some(already_undone),
+    follow_undone: None,
+    restored_branch: Some(restored_branch),
+  }
+}
+
 pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliError> {
+  if let Some(result) = undo_reapply(context, &args.token) {
+    let (token, undone) = result?;
+    return Ok(moved_back(context, (&token.previous_head, &token.new_head), undone.already_undone, token.unapplied_branch));
+  }
   if let Some(result) = undo_unapply(context, &args.token) {
     let (token, undone) = result?;
-    let short = context.short_ids([token.previous_head.as_str(), token.new_head.as_str()]);
-    return Ok(UndoOutput {
-      schema: SchemaVersion,
-      repository: context.repository.clone(),
-      prefix: context.prefix.clone(),
-      previous_head: Some(short.get(&token.new_head).to_string()),
-      new_head: short.get(&token.previous_head).to_string(),
-      undone_issue_groups: None,
-      undone_stack_parents: None,
-      landed_restored: None,
-      already_undone: Some(undone.already_undone),
-      follow_undone: None,
-      restored_branch: Some(token.virtual_branch),
-    });
+    return Ok(moved_back(context, (&token.previous_head, &token.new_head), undone.already_undone, token.virtual_branch));
   }
   if let Some(result) = undo_pick(context, &args.token) {
     let (token, undone) = result?;
@@ -122,7 +132,7 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
       ErrorCode::InvalidArguments,
       format!(
         "{:?} is not an undo token (<previous head>..<new head>, groups:<previous>..<new>, stacks:<previous>..<new>, parked:<previous>..<new>, or several joined by + in this \
-         order; update:…, pick:… and unapply:… as bd update, bd pick and bd unapply printed them)",
+         order; update:…, pick:…, unapply:… and reapply:… as bd update, bd pick, bd unapply and bd reapply printed them)",
         args.token
       ),
     ));

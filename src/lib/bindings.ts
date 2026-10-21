@@ -367,6 +367,8 @@ export const commands = {
 	deleteArchivedBranch: (params: DeleteArchivedBranchParams) => typedError<null, CommandError>(__TAURI_INVOKE("delete_archived_branch", { params })),
 	unapplyBranch: (params: UnapplyBranchParams) => typedError<UnapplyBranchResult, CommandError>(__TAURI_INVOKE("unapply_branch", { params })),
 	undoUnapplyBranch: (params: UndoUnapplyParams) => typedError<UndoneUnapply, CommandError>(__TAURI_INVOKE("undo_unapply_branch", { params })),
+	reapplyBranch: (params: ReapplyBranchParams) => typedError<ReapplyBranchResult, CommandError>(__TAURI_INVOKE("reapply_branch", { params })),
+	undoReapplyBranch: (params: UndoReapplyParams) => typedError<UndoneReapply, CommandError>(__TAURI_INVOKE("undo_reapply_branch", { params })),
 	/**  Get uncommitted changes with only file metadata (no content or diffs) */
 	getUncommittedChanges: (params: GetUncommittedChangesParams) => typedError<UncommittedChangesResult, CommandError>(__TAURI_INVOKE("get_uncommitted_changes", { params })),
 	/**  The changed files of a commit with their line counts, from the object cache or one `diff-tree` */
@@ -2469,6 +2471,44 @@ export type ReadPatronusCommandReplyParams = {
 	githubRepository?: string | null,
 };
 
+/**  A commit of the unapplied branch that the reapply put on top of HEAD */
+export type ReappliedCommit = {
+	/**  The commit of the unapplied branch (or of its restored chain) */
+	commit: string,
+	/**  Its copy on HEAD (with a dry run: the one the reapply writes) */
+	newId: string,
+	subject: string,
+};
+
+export type ReapplyBranchParams = {
+	repositoryPath: string,
+	/**  The name of the unapplied branch, `<name>` of `{prefix}/unapplied/<name>` */
+	branchName: string,
+	branchPrefix: string,
+	/**  Check only: nothing is written but git objects, and no lock is taken */
+	dryRun?: boolean,
+};
+
+export type ReapplyBranchResult = {
+	/**  `{prefix}/unapplied/<name>`, deleted now (with a dry run: would be) */
+	unappliedBranchName: string,
+	/**  The branch its commits group into again */
+	branch: string,
+	/**  Oldest first */
+	reapplied: ReappliedCommit[],
+	/**  The commits HEAD has already, by their patch or their content: left out */
+	present: string[],
+	/**
+	 *  How many messages got the grouping prefix back (`(<name>) `): a virtual branch keeps none, so a commit whose
+	 *  subject groups elsewhere gets it
+	 */
+	prefixRestored: number,
+	previousHead: string,
+	newHead: string,
+	/**  `ReapplyUndoToken` as it prints; `None` for a dry run */
+	undoToken: string | null,
+};
+
 /**  A login GitHub didn't ask to review: the author, a user without access to the repository */
 export type RefusedReviewer = {
 	login: string,
@@ -3708,6 +3748,12 @@ export type UncommittedFileChange = {
 	unstaged: boolean,
 };
 
+export type UndoReapplyParams = {
+	repositoryPath: string,
+	/**  The `undoToken` of the reapply */
+	undoToken: string,
+};
+
 export type UndoRegroupParams = {
 	repositoryPath: string,
 	/**  What the operation reported in `MoveCommitsResult.undo_token` */
@@ -3718,6 +3764,12 @@ export type UndoUnapplyParams = {
 	repositoryPath: string,
 	/**  The `undo_token` of the unapply */
 	undoToken: string,
+};
+
+/**  What the undo of a reapply did */
+export type UndoneReapply = {
+	/**  It was undone before: nothing changed now */
+	alreadyUndone: boolean,
 };
 
 /**  What the undo of an unapply did */

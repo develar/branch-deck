@@ -28,7 +28,7 @@ const columnCount = 3
  * The Unapplied card, after the branch table and the Parked card, before the archived branches: the branches an unapply
  * kept ([Unapply Branch](../../../spec/branch/unapply.spec.md)). Their commits are not in HEAD, so they land nothing:
  * no robot, no move of the user, no row of the branch table. A row pushes its branch under its own name, so the remote
- * keeps a copy, and deletes it; open by default
+ * keeps a copy, reapplies it onto HEAD, and deletes it; open by default
  */
 export function UnappliedBranchTableCard() {
   const order = useUnappliedBranchOrder()
@@ -66,6 +66,7 @@ function UnappliedBranchesHelpPopover() {
     <HelpPopover title="Unapplied" data-testid="unapplied-branches-help-icon">
       <p>Unapply takes a branch and its files out of your branch; its commits wait here, and no sync archives or deletes them.</p>
       <p>An unapplied branch lands nothing: no Safe Push or Dry Run sends it. A push keeps a copy on the remote under its own name.</p>
+      <p>Reapply puts its commits back on top of your branch, with their files and their branch prefix.</p>
     </HelpPopover>
   )
 }

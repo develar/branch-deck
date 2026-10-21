@@ -28,6 +28,7 @@ fn schema_lists_every_output() {
       "park",
       "pick",
       "push",
+      "reapply",
       "request_review",
       "rewrite",
       "robot",
