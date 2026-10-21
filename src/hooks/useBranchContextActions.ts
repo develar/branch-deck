@@ -38,7 +38,7 @@ import { restackBranch } from "@/hooks/useStackActions"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import { formatSquashFixupsLabel, getListFixups } from "@/lib/autosquash"
 import type { PatronusRobot, PullRequest } from "@/lib/bindings"
-import { parkBlocker, rewriteBlocker } from "@/lib/branch-drop"
+import { fixBlocker, parkBlocker, rewriteBlocker } from "@/lib/branch-drop"
 import type { BranchNextStep } from "@/lib/branch-next-step"
 import { branchReviewBlocker } from "@/lib/branch-review"
 import { openBranchReviewWindow } from "@/lib/branch-review-window"
@@ -58,10 +58,13 @@ import {
   describePushWithChildrenBlocker,
   formatBlockedReason,
   formatPushWithChildrenLabel,
+  hasStackFix,
   offersPushWithChildren,
   stackAncestors,
   stackAskFirst,
   stackChildrenPushOrder,
+  stackOnFixes,
+  stackProblemOf,
 } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import { describeStackBranchAlong, getStackBranchAlong } from "@/lib/whole-stack"
@@ -188,15 +191,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
   reviewActions.push(...getCreatePullRequestItems(branch))
   groups.push(reviewActions)
 
-  const shapeActions: MenuItem[] = [
-    {
-      id: "rename",
-      label: branch.origin === "Issue" ? "Name This Branch…" : "Rename…",
-      icon: PencilIcon,
-      onSelect: () => openInline("rename", branch.name),
-    },
-    getMoveMenuItem(branch.name),
-  ]
+  const shapeActions: MenuItem[] = [getRenameItem(branch), getMoveMenuItem(branch.name)]
   if (isStacksEnabled()) {
     shapeActions.push(...getStackShapeItems(branch))
   }
@@ -214,7 +209,11 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
           : void moveCommits(branch.commits, null, { id: "ungroup", label: `Ungrouping ${branch.name}`, surface: context.surface }),
     })
   }
-  groups.push(rewrite(shapeActions))
+  // a stack problem blocks the rewrites, except the fixes Rust offers for it (`StackProblemView.fixes`)
+  const fixIds = getStackFixIds(branch)
+  groups.push(
+    shapeActions.map(item => (fixIds.has(item.id ?? "") ? rewriteItem(branch, item, operations, getFixBlocker(branch)) : rewriteItem(branch, item, operations, rewriteBlocker))),
+  )
   if (isStacksEnabled()) {
     const stackView = getStackViewItems(branch)
     if (stackView.length > 0) {
@@ -391,6 +390,56 @@ function rewriteItem(branch: Branch, item: MenuItem, operations: Operations, blo
 /** Why a rewrite of the branch can't run now (`rewriteBlocker`); null when it can */
 function getRewriteBlocker(branch: Branch): string | null {
   return rewriteBlocker(branch, branchSyncStore.getState().isSyncing)
+}
+
+/** Why a fix of the stack problem of the branch can't run now (`fixBlocker`); null when it can */
+function getFixBlocker(branch: Branch): string | null {
+  return fixBlocker(branch, branchSyncStore.getState().isSyncing)
+}
+
+/** "Rename…", "Name This Branch…" of an issue branch: the inline form of the row */
+function getRenameItem(branch: Branch): MenuItem {
+  return { id: "rename", label: branch.origin === "Issue" ? "Name This Branch…" : "Rename…", icon: PencilIcon, onSelect: () => openInline("rename", branch.name) }
+}
+
+/** The ids of the menu items that fix the stack problem of the branch: they run while the problem blocks the others */
+function getStackFixIds(branch: Branch): ReadonlySet<string> {
+  const problem = stackProblemOf(branch)
+  const ids = new Set<string>()
+  if (problem !== null) {
+    if (stackOnFixes(problem).length > 0) {
+      ids.add("stack-on")
+    }
+    if (hasStackFix(problem, "Unstack")) {
+      ids.add("unstack")
+    }
+    if (hasStackFix(problem, "Rename")) {
+      ids.add("rename")
+    }
+  }
+  return ids
+}
+
+/**
+ * The fixes of the stack problem of the branch as Rust offers them (`StackProblemView.fixes`), each the item of the
+ * branch menu that runs it, for the alert of the problem: "Stack On ‹parent›", "Unstack", "Rename…"; a reword is the
+ * commit's ("Reword…"), so none here. Waits only for the sync (`isSyncing`, read by the caller's selector) and the
+ * operations: the problem doesn't block its fixes. Empty for a branch without a problem.
+ */
+export function getBranchStackFixItems(branch: Branch, operations: Operations, isSyncing: boolean): MenuItem[] {
+  const problem = stackProblemOf(branch)
+  if (problem === null) {
+    return []
+  }
+  const items: MenuItem[] = stackOnFixes(problem).map(parent => ({ ...getStackOnTargetItem(branch.name, parent), label: `Stack On ${parent}`, icon: LayersIcon }))
+  if (hasStackFix(problem, "Unstack")) {
+    items.push(getUnstackItem(branch.name, branch.stack?.declaredParent ?? null))
+  }
+  if (hasStackFix(problem, "Rename")) {
+    items.push(getRenameItem(branch))
+  }
+  const blocker = fixBlocker(branch, isSyncing)
+  return items.map(item => rewriteItem(branch, item, operations, blocker))
 }
 
 /**
@@ -634,16 +683,22 @@ function getMoveMenuItem(name: string): MenuItem {
 const STACK_TARGET_LIMIT = 20
 
 /**
- * "Stack On…" (any other branch that isn't stacked on this one) and "Unstack from ‹parent›": the rewrites of the shape
- * group, which waits for the sync
+ * "Stack On…" (any other branch that isn't stacked on this one; of a branch with a stack problem, the parents its fixes
+ * name) and "Unstack from ‹parent›" ("Unstack" where a stack problem offers it to a branch without a parent): the
+ * rewrites of the shape group, which waits for the sync
  */
 function getStackShapeItems(branch: Branch): MenuItem[] {
   const parent = branch.stack?.declaredParent ?? null
+  const problem = stackProblemOf(branch)
+  const fixTargets = problem === null ? [] : stackOnFixes(problem)
   const excluded = new Set([branch.name, ...getStackDescendants(branch.name)])
-  const targets = branchSyncStore
-    .getState()
-    .branchOrder.filter(name => !excluded.has(name) && name !== parent)
-    .slice(0, STACK_TARGET_LIMIT)
+  const targets =
+    fixTargets.length > 0
+      ? fixTargets
+      : branchSyncStore
+          .getState()
+          .branchOrder.filter(name => !excluded.has(name) && name !== parent)
+          .slice(0, STACK_TARGET_LIMIT)
   const items: MenuItem[] = [
     {
       id: "stack-on",
@@ -652,13 +707,18 @@ function getStackShapeItems(branch: Branch): MenuItem[] {
       disabled: targets.length === 0,
       ...(targets.length === 0 && { description: "No other branch to stack on" }),
       onSelect: () => {},
-      children: targets.map(target => ({ label: target, onSelect: (context: SelectContext) => void restackBranch(branch.name, target, { surface: context.surface }) })),
+      children: targets.map(target => getStackOnTargetItem(branch.name, target)),
     },
   ]
-  if (parent !== null) {
+  if (parent !== null || (problem !== null && hasStackFix(problem, "Unstack"))) {
     items.push(getUnstackItem(branch.name, parent))
   }
   return items
+}
+
+/** The item of "Stack On…" that stacks the branch on `target`, named by the target */
+function getStackOnTargetItem(name: string, target: string): MenuItem {
+  return { label: target, onSelect: (context: SelectContext) => void restackBranch(name, target, { surface: context.surface }) }
 }
 
 /**
@@ -774,9 +834,17 @@ export function useBranchMenu(name: string, setExpanded: (name: string, expanded
   return useNextStepStores(() => getBranchMenuNow(name, setExpanded))
 }
 
-/** "Unstack from ‹parent›" of a stacked branch, as a menu item: its menu, and the notice of a parent it was built past */
-function getUnstackItem(name: string, parent: string): MenuItem {
-  return { id: "unstack", label: `Unstack from ${parent}`, icon: Layers2Icon, onSelect: context => void restackBranch(name, null, { surface: context.surface }) }
+/**
+ * "Unstack from ‹parent›" of a stacked branch, as a menu item: its menu, the notice of a parent it was built past, the
+ * alert of a stack problem; "Unstack" of a branch whose stack problem leaves it without a parent (conflicting parents)
+ */
+function getUnstackItem(name: string, parent: string | null): MenuItem {
+  return {
+    id: "unstack",
+    label: parent === null ? "Unstack" : `Unstack from ${parent}`,
+    icon: Layers2Icon,
+    onSelect: context => void restackBranch(name, null, { surface: context.surface }),
+  }
 }
 
 /**

@@ -314,6 +314,8 @@ fn refuses_problems_the_plan_introduces_and_keeps_existing_ones() {
   // `login/auth` makes auth a child of login, whose parent is auth: a cycle
   let error = regroup(&repo, &plan(&[("login/auth", &[&ids[0]])], &[])).unwrap_err();
   assert!(matches!(&error, RegroupError::InvalidPlan { message, .. } if message.contains("cycle")), "{error}");
+  // a refused plan broke nothing yet: no fix to offer
+  assert!(!error.to_string().contains("bd "), "{error}");
 
   // c already has conflicting parents: reported, not refused
   let outcome = regroup(&repo, &plan(&[("auth", &[&ids[4]])], &[])).unwrap();
@@ -321,7 +323,7 @@ fn refuses_problems_the_plan_introduces_and_keeps_existing_ones() {
     outcome
       .kept_problems
       .iter()
-      .any(|(branch, problem)| branch == "c" && matches!(problem, StackProblem::ConflictingParents(_))),
+      .any(|(branch, view)| branch == "c" && matches!(view.problem, StackProblem::ConflictingParents(_))),
     "{:?}",
     outcome.kept_problems
   );

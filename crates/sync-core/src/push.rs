@@ -58,6 +58,7 @@ pub enum PushOutcome {
 /// Why the last sync did not build a branch (`SyncReport::not_built`), in words
 pub const fn not_built_reason(reason: BlockReason) -> &'static str {
   match reason {
+    BlockReason::Problem => "a stack problem",
     BlockReason::Conflict => "a merge conflict",
     BlockReason::Error => "a sync error",
     BlockReason::Blocked => "its parent is not built",

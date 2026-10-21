@@ -17,6 +17,7 @@ import { getRobotActions } from "@/lib/patronus-actions"
 import { changesRequestedBy, openPullRequest, waitingReviewers } from "@/lib/pull-request"
 import { getRequestReviewItem } from "@/lib/request-review"
 import { getReviewCommitState, isReviewCommitOutdated } from "@/lib/review-commit"
+import { stackProblemOf } from "@/lib/stack"
 import { ACTION_TOAST_TIMEOUT_MS, showToast } from "@/lib/toast-message"
 import { formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
 import { recordApproval, recordRetarget } from "@/stores/activity"
@@ -180,6 +181,7 @@ export function getNextStepFacts(branch: Branch, options: StartStepOptions | nul
     patronusAvailable: available,
     syncing: branch.status === "Syncing",
     hasError: branch.hasError,
+    errorReason: stackProblemOf(branch)?.reason ?? null,
     commitCount: branch.commitCount,
     busy: busyFact(name, options),
     blocked: branch.status === "Blocked",

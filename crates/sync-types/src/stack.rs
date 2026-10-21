@@ -17,6 +17,40 @@ pub enum StackProblem {
   Syntax(Vec<String>),
 }
 
+/// What fixes a stack problem: `bd` prints it as a command, the app offers it as the action of the branch menu
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub enum StackFix {
+  /// Stack the branch on this parent (`bd restack <branch> <parent>`, Stack On ‹parent›)
+  StackOn(String),
+  /// Make the branch a root (`bd unstack <branch>`, Unstack)
+  Unstack,
+  /// Give the branch another name (`bd rename`, Rename…)
+  Rename,
+  /// Change the prefix of the commits `StackProblemView::commits` names (`bd reword`, Reword… of the commit)
+  Reword,
+}
+
+/// A stack problem as the row, the menu and `bd` say it: one rule (`history_rewrite::stack::problem_view`), so the app
+/// shows what Rust decides and `bd` prints the same fixes as commands
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct StackProblemView {
+  pub problem: StackProblem,
+  /// The status of the row: "conflicting parents"
+  pub label: String,
+  /// Why the branch can't be rebuilt, rewritten or pushed, naming it: "login has conflicting parents"
+  pub reason: String,
+  /// The problem with its parents or commits, without commands: "Commits declare different parents: auth (1a2b3c4d),
+  /// core (its stack parent)"
+  pub message: String,
+  /// The commits to reword (`StackFix::Reword`); empty for the other fixes
+  pub commits: Vec<String>,
+  /// What fixes it, in the order they are offered; never a fix that would add a problem (a parent stacked on the branch)
+  pub fixes: Vec<StackFix>,
+}
+
 /// A parent and the commits that declare it
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -54,7 +88,9 @@ pub enum ParentSource {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub enum BlockReason {
-  /// The parent can't be placed (a stack problem) or failed to build
+  /// The parent can't be placed: a stack problem
+  Problem,
+  /// The parent failed to build
   Error,
   /// A commit of the parent has a merge conflict
   Conflict,
@@ -85,8 +121,8 @@ pub struct BranchStack {
   /// conflict, a failure or a block); a parent that fails while building blocks its descendants with a `Blocked`
   /// branch status
   pub blocked_by: Option<StackBlock>,
-  /// Why the branch itself can't be placed; it is not rebuilt either
-  pub problems: Vec<StackProblem>,
+  /// Why the branch itself can't be placed, each with its fixes; it is not rebuilt either
+  pub problems: Vec<StackProblemView>,
   /// The declared parent has no commits, so the branch is built on its nearest active ancestor or the baseline and the
   /// base of its pull request differs from the declared parent
   pub pr_base_changed: bool,

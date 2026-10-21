@@ -3,7 +3,6 @@
 //! its stack parent (`stack_parents.rs`). Opt-in per repository (`git config branchdeck.stacks true`), because without
 //! it a `/` in a prefix is part of a flat branch name.
 
-use crate::stack_parents::STACK_PARENTS_REF;
 use anyhow::{Result, anyhow};
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
 use branch_integration::common::ListedBranch;
@@ -17,7 +16,7 @@ use git_ops::revs::short_id;
 use indexmap::{IndexMap, IndexSet};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use sync_types::branch_integration::BranchIntegrationStatus;
-use sync_types::stack::{BlockReason, BranchStack, DeclaredParent, ParentSource, ParentState, StackBlock, StackProblem};
+use sync_types::stack::{BlockReason, BranchStack, DeclaredParent, ParentSource, ParentState, StackBlock, StackFix, StackProblem, StackProblemView};
 use sync_utils::git_bool::parse_git_bool;
 
 pub const STACKS_CONFIG_KEY: &str = "branchdeck.stacks";
@@ -375,7 +374,7 @@ pub fn place_branches(forest: &StackForest, empty_parent_state: &HashMap<String,
       declared_parent: node.declared_parent.clone(),
       parent_source: node.parent_source,
       parent_state: node.declared_parent.as_deref().map(state_of),
-      problems: node.problems.clone(),
+      problems: problem_views(forest, name),
       child_precedes_parent: node.child_precedes_parent,
       ..BranchStack::default()
     };
@@ -396,7 +395,7 @@ pub fn place_branches(forest: &StackForest, empty_parent_state: &HashMap<String,
         match state_of(ancestor) {
           ParentState::Active => {
             match placed.get(ancestor) {
-              Some(parent) if !parent.problems.is_empty() => stack.blocked_by = block(BlockReason::Error),
+              Some(parent) if !parent.problems.is_empty() => stack.blocked_by = block(BlockReason::Problem),
               Some(parent) if parent.blocked_by.is_some() => stack.blocked_by = block(BlockReason::Blocked),
               _ => stack.effective_base = Some(ancestor.to_string()),
             }
@@ -615,39 +614,122 @@ fn short_ids(ids: &[String]) -> String {
   ids.iter().map(|id| short_id(id)).collect::<Vec<_>>().join(", ")
 }
 
-/// The conflicting parents of `branch`, each with the commits that declare it (or as its stack parent), and the
-/// `bd restack <branch> <parent>` of each that keeps it
-pub(crate) fn describe_conflicting_parents(branch: &str, parents: &[DeclaredParent]) -> String {
-  let declared: Vec<String> = parents
-    .iter()
-    .map(|declared| {
-      if declared.commits.is_empty() {
-        format!("{} (the stack parent in {STACK_PARENTS_REF})", declared.parent)
+/// The problem of `branch` with what fixes it, the one rule of the row, the menu and `bd`:
+/// - conflicting parents: stack on each candidate, except one built on the branch (a cycle, which a regroup refuses),
+///   or unstack;
+/// - a cycle: unstack, which cuts the branch out of it;
+/// - `(a/a)`: unstack, which cuts the prefix to `(a)`, while no other parent is declared; else reword the commits, as
+///   an unstack would drop that parent too;
+/// - a case collision: rename;
+/// - an empty level: reword the commits.
+pub fn problem_view(forest: &StackForest, branch: &str, problem: &StackProblem) -> StackProblemView {
+  let (label, reason, message, commits, fixes) = match problem {
+    StackProblem::ConflictingParents(parents) => {
+      let declared: Vec<String> = parents
+        .iter()
+        .map(|declared| {
+          if declared.commits.is_empty() {
+            format!("{} (its stack parent)", declared.parent)
+          } else {
+            format!("{} ({})", declared.parent, short_ids(&declared.commits))
+          }
+        })
+        .collect();
+      let mut fixes: Vec<StackFix> = parents
+        .iter()
+        .filter(|declared| !forest.chain(&declared.parent).contains(&branch))
+        .map(|declared| StackFix::StackOn(declared.parent.clone()))
+        .collect();
+      fixes.push(StackFix::Unstack);
+      (
+        "conflicting parents",
+        format!("{branch} has conflicting parents"),
+        format!("Commits declare different parents: {}", declared.join(", ")),
+        Vec::new(),
+        fixes,
+      )
+    }
+    StackProblem::Cycle(branches) => (
+      "parent cycle",
+      format!("{branch} is in a parent cycle"),
+      format!("The parents form a cycle: {} -> {}", branches.join(" -> "), branches[0]),
+      Vec::new(),
+      vec![StackFix::Unstack],
+    ),
+    StackProblem::SelfParent(ids) => {
+      let other_parent = forest.declared_parent(branch).is_some() || forest.problems(branch).iter().any(|problem| matches!(problem, StackProblem::ConflictingParents(_)));
+      let (commits, fix) = if other_parent {
+        (ids.clone(), StackFix::Reword)
       } else {
-        format!("{} ({})", declared.parent, short_ids(&declared.commits))
-      }
-    })
-    .collect();
-  let restacks: Vec<String> = parents.iter().map(|declared| format!("`bd restack {branch} {}`", declared.parent)).collect();
-  format!("{}; keep one: {}", declared.join(", "), restacks.join(" or "))
-}
-
-/// A sentence on a stack problem of `branch`, naming its commits by short id
-pub fn describe_problem(branch: &str, problem: &StackProblem) -> String {
-  let commits = short_ids;
-  match problem {
-    StackProblem::ConflictingParents(parents) => format!("Commits declare different parents: {}", describe_conflicting_parents(branch, parents)),
-    StackProblem::Cycle(branches) => format!("The parents form a cycle: {} -> {}", branches.join(" -> "), branches[0]),
-    StackProblem::SelfParent(ids) => format!("A prefix makes the branch its own parent: {}", commits(ids)),
-    StackProblem::LeafCollision(other) => format!("Branch {other} has the same name ignoring case"),
-    StackProblem::Syntax(ids) => format!("A prefix has an empty level: {}", commits(ids)),
+        (Vec::new(), StackFix::Unstack)
+      };
+      (
+        "its own parent",
+        format!("{branch} is declared as its own parent"),
+        format!("A prefix makes the branch its own parent: {}", short_ids(ids)),
+        commits,
+        vec![fix],
+      )
+    }
+    StackProblem::LeafCollision(other) => (
+      "case clash",
+      format!("{branch} and {other} differ only in case"),
+      format!("Branch {other} has the same name ignoring case"),
+      Vec::new(),
+      vec![StackFix::Rename],
+    ),
+    StackProblem::Syntax(ids) => (
+      "empty prefix level",
+      format!("A prefix of {branch} has an empty stack level"),
+      format!("A prefix has an empty level: {}", short_ids(ids)),
+      ids.clone(),
+      vec![StackFix::Reword],
+    ),
+  };
+  StackProblemView {
+    problem: problem.clone(),
+    label: label.to_string(),
+    reason,
+    message,
+    commits,
+    fixes,
   }
 }
 
-/// A sentence on why a branch is blocked
-pub fn describe_block(block: &StackBlock) -> String {
+/// The problems of `branch` in `forest`, each with its fixes
+pub fn problem_views(forest: &StackForest, branch: &str) -> Vec<StackProblemView> {
+  forest.problems(branch).iter().map(|problem| problem_view(forest, branch, problem)).collect()
+}
+
+/// A sentence on a stack problem of `branch` for `bd`: the problem and its fixes as commands
+pub fn describe_problem(branch: &str, view: &StackProblemView) -> String {
+  let commands: Vec<String> = view
+    .fixes
+    .iter()
+    .flat_map(|fix| match fix {
+      StackFix::StackOn(parent) => vec![format!("`bd restack {branch} {parent}`")],
+      StackFix::Unstack => vec![format!("`bd unstack {branch}`")],
+      StackFix::Rename => vec![format!("`bd rename {branch} <name>`")],
+      StackFix::Reword => view.commits.iter().map(|id| format!("`bd reword {} --subject <subject>`", short_id(id))).collect(),
+    })
+    .collect();
+  let (last, rest) = commands.split_last().map_or(("", &[][..]), |(last, rest)| (last.as_str(), rest));
+  if rest.is_empty() {
+    format!("{}; fix: {last}", view.message)
+  } else {
+    format!("{}; fix: {} or {last}", view.message, rest.join(", "))
+  }
+}
+
+/// A sentence on why a branch is blocked; `parent_problem` is the problem of the parent that blocks it
+/// (`BlockReason::Problem`)
+pub fn describe_block(block: &StackBlock, parent_problem: Option<&StackProblemView>) -> String {
   let parent = &block.parent;
   match block.reason {
+    BlockReason::Problem => match parent_problem {
+      Some(problem) => format!("Blocked: parent {parent} has a stack problem ({})", problem.label),
+      None => format!("Blocked: parent {parent} has a stack problem"),
+    },
     BlockReason::Error => format!("Blocked: parent {parent} failed"),
     BlockReason::Conflict => format!("Blocked: parent {parent} has a merge conflict"),
     BlockReason::Blocked => format!("Blocked: parent {parent} is blocked"),

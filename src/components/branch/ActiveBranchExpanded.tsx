@@ -5,6 +5,7 @@ import { InfoIcon, TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { FamilyGuide, LanesBelow } from "@/components/branch/StackLanes"
+import { StackProblemAlert } from "@/components/branch/StackProblemAlert"
 import { CommitSelectionActions, MovableCommitList } from "@/components/commit/MovableCommitList"
 import { SquashFixupsButton } from "@/components/commit/SquashFixupsButton"
 import { MenuItemButton } from "@/components/shared/MenuItemButton"
@@ -14,7 +15,7 @@ import { hasSelectionActions, useCommitMoveList } from "@/hooks/useCommitMoveLis
 import { useListFixups } from "@/hooks/useSquashFixups"
 import { getCommitHash } from "@/lib/commit"
 import { robotRailMarks } from "@/lib/robot-coverage"
-import { blockingBranchOf, describeParentState, passedParentOf } from "@/lib/stack"
+import { blockingBranchOf, describeParentState, passedParentOf, stackProblemOf } from "@/lib/stack"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { laneContentInsetClass } from "@/lib/stack-lanes"
 import type { Branch } from "@/stores/branch-sync"
@@ -37,11 +38,14 @@ export interface ActiveBranchExpandedProps {
 }
 
 export function ActiveBranchExpanded({ branch, highlightTipCommit = false, familyIndent = 0, familyBelow = false, lanes, landing = null }: ActiveBranchExpandedProps) {
-  const genericError = branch.errorDetails?.Generic
+  // a stack problem says itself with its fixes and keeps the commits, among them the ones to fix; a failure hides them
+  const problem = stackProblemOf(branch)
+  const genericError = problem === null ? branch.errorDetails?.Generic : undefined
   return (
     <CommitRail name={branch.name} familyIndent={familyIndent} familyBelow={familyBelow} lanes={lanes} landing={landing}>
       {branch.status === "Blocked" && <BlockedAlert branch={branch} />}
       {branch.status !== "Blocked" && <PassedParentAlert branch={branch} />}
+      {problem !== null && <StackProblemAlert branch={branch} problem={problem} />}
       {genericError !== undefined ? (
         <Alert variant="destructive">
           <AlertDescription>{genericError}</AlertDescription>

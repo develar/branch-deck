@@ -29,6 +29,7 @@ import { moveDrop } from "@/lib/branch-drop"
 import { inTableOrder } from "@/lib/branch-selection"
 import { formatCommitCount } from "@/lib/commit"
 import { isRobotActive } from "@/lib/patronus"
+import { stackProblemOf } from "@/lib/stack"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { branchRowDivider, dividerAttributes, laneContentInsetClass, rowBelowDivider } from "@/lib/stack-lanes"
 import { getBranchCommits, getBranchTableOrder, getDraggableBranchOrder, useBranch, useParkedState } from "@/stores/branch-sync"
@@ -188,7 +189,8 @@ export const BranchRow = memo(function BranchRow({
   // the rows below the branch row: a drop on them is a drop on the branch
   const blockDropClass = isDropOver ? "bg-primary/5" : undefined
   // the expanded commits sit on the lane of the branch: its line runs down from the node to them
-  const hasCommitList = branch.commits.length > 0 && branch.errorDetails?.Generic === undefined
+  // a failure hides them; a stack problem keeps them, as the commits to fix are among them
+  const hasCommitList = branch.commits.length > 0 && (branch.errorDetails?.Generic === undefined || stackProblemOf(branch) !== null)
   // in an island the commits show without the row expanded, a line each
   const showsCommitLines = commitLines && !expanded && hasCommitList
   const commitsOnLane = (expanded && hasCommitList) || showsCommitLines

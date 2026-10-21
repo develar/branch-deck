@@ -88,7 +88,7 @@ export function getLandingNode(facts: LandingNodeFacts): LandingNode {
     return node("parked", conflict ? `${formatParkedLabel(next.parked)}\nIt doesn't build: fix it before you unpark it` : formatParkedLabel(next.parked))
   }
   if (next.hasError || facts.status === "Error" || facts.status === "MergeConflict" || facts.status === "AnalyzingConflict") {
-    return node("needsFix", facts.statusText || "The branch failed to sync")
+    return node("needsFix", next.errorReason ?? (facts.statusText || "The branch failed to sync"))
   }
   const landed = landedReason(next)
   if (landed !== null) {

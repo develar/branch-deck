@@ -1,10 +1,28 @@
-import type { ParentState } from "@/lib/bindings"
+import type { ParentState, StackFix, StackProblemView } from "@/lib/bindings"
 import { formatBranchCount } from "@/lib/branch"
 import { groupFor } from "@/lib/commit"
 import { dropsRemoteCommits, getPushAction } from "@/lib/push-summary"
 import { joinNames } from "@/lib/text"
 import type { StackBranchAlong } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
+
+/**
+ * The stack problem the sync reports for the branch, the first of its problems, with its label, its reason, its message
+ * and its fixes as Rust decides them (`StackProblemView`, the rule `bd` prints too); null for a branch without one
+ */
+export function stackProblemOf(branch: Branch): StackProblemView | null {
+  return branch.stack?.problems[0] ?? null
+}
+
+/** The parents a fix of the problem stacks the branch on, in the order of the fixes */
+export function stackOnFixes(problem: StackProblemView): string[] {
+  return problem.fixes.flatMap(fix => (typeof fix === "object" ? [fix.StackOn] : []))
+}
+
+/** Whether one of the fixes of the problem is `fix` */
+export function hasStackFix(problem: StackProblemView, fix: Exclude<StackFix, { StackOn: string }>): boolean {
+  return problem.fixes.includes(fix)
+}
 
 /** The branch that keeps a blocked branch from being rebuilt (the parent, or the ancestor that can't be built); null if not blocked */
 export function blockingBranchOf(branch: Branch): string | null {

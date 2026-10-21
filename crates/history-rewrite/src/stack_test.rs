@@ -1,5 +1,5 @@
 use crate::commit_grouper::CommitGrouper;
-use crate::stack::{PendingDetection, StackForest, empty_parent_states, name_suffix, place_branches, read_only_detection};
+use crate::stack::{PendingDetection, StackForest, describe_block, describe_problem, empty_parent_states, name_suffix, place_branches, problem_views, read_only_detection};
 use crate::test_commit::commit;
 use branch_integration::archive::ARCHIVE_RETENTION_DAYS;
 use branch_integration::detection_notes::{CacheOps, CachedDetection, NOTES_REF, Recheck, deserialize_from_cache};
@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
 use sync_types::branch_integration::{BranchIntegrationInfo, BranchIntegrationStatus, IntegrationConfidence};
-use sync_types::stack::{BlockReason, BranchStack, ParentState, StackBlock};
+use sync_types::stack::{BlockReason, BranchStack, ParentState, StackBlock, StackFix};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -90,11 +90,69 @@ fn a_parent_with_a_problem_blocks_its_children() {
 
   assert_eq!(placed["a"].problems.len(), 1);
   assert_eq!(placed["a"].effective_base, None);
-  assert_eq!(placed["b"].blocked_by, Some(blocked("a", BlockReason::Error)));
+  assert_eq!(placed["b"].blocked_by, Some(blocked("a", BlockReason::Problem)));
   // conflicting parents: no declared parent, a problem, and the child is blocked
   assert_eq!(placed["login"].declared_parent, None);
   assert_eq!(placed["login"].problems.len(), 1);
-  assert_eq!(placed["form"].blocked_by, Some(blocked("login", BlockReason::Error)));
+  assert_eq!(placed["form"].blocked_by, Some(blocked("login", BlockReason::Problem)));
+  // the child names the problem of its parent
+  assert_eq!(
+    describe_block(&blocked("login", BlockReason::Problem), placed["login"].problems.first()),
+    "Blocked: parent login has a stack problem (conflicting parents)"
+  );
+}
+
+/// (label, fixes, commits to reword) of the first problem of `branch`
+fn first_problem(forest: &StackForest, branch: &str) -> (String, Vec<StackFix>, Vec<String>) {
+  let view = problem_views(forest, branch).remove(0);
+  (view.label, view.fixes, view.commits)
+}
+
+#[test]
+fn each_problem_offers_the_fixes_that_remove_it() {
+  let stack_on = |parent: &str| StackFix::StackOn(parent.to_string());
+
+  // conflicting parents: either parent or none, except a parent stacked on the branch, which would make a cycle
+  let conflict = forest(&["(x/login) X", "(y/login) Y", "(login/y) Back"]);
+  assert_eq!(
+    first_problem(&conflict, "login"),
+    ("conflicting parents".to_string(), vec![stack_on("x"), StackFix::Unstack], Vec::new())
+  );
+  let view = problem_views(&conflict, "login").remove(0);
+  assert_eq!(view.reason, "login has conflicting parents");
+  assert_eq!(view.message, "Commits declare different parents: x (c0), y (c1)");
+  assert_eq!(
+    describe_problem("login", &view),
+    "Commits declare different parents: x (c0), y (c1); fix: `bd restack login x` or `bd unstack login`"
+  );
+
+  // a cycle: the branch leaves it
+  let cycle = forest(&["(b/a) A", "(a/b) B"]);
+  assert_eq!(first_problem(&cycle, "a"), ("parent cycle".to_string(), vec![StackFix::Unstack], Vec::new()));
+
+  // `(a/a)` alone: an unstack cuts it to `(a)`; beside a declared parent, an unstack would drop that parent too
+  assert_eq!(
+    first_problem(&forest(&["(a/a) Loop"]), "a"),
+    ("its own parent".to_string(), vec![StackFix::Unstack], Vec::new())
+  );
+  let with_parent = forest(&["(session/x) X", "(x/x) Loop"]);
+  assert_eq!(
+    first_problem(&with_parent, "x"),
+    ("its own parent".to_string(), vec![StackFix::Reword], vec!["c1".to_string()])
+  );
+  assert_eq!(
+    describe_problem("x", &problem_views(&with_parent, "x").remove(0)),
+    "A prefix makes the branch its own parent: c1; fix: `bd reword c1 --subject <subject>`"
+  );
+
+  let collision = forest(&["(Login) A", "(login) B"]);
+  assert_eq!(first_problem(&collision, "login"), ("case clash".to_string(), vec![StackFix::Rename], Vec::new()));
+
+  let syntax = forest(&["(a//b) X"]);
+  assert_eq!(
+    first_problem(&syntax, "b"),
+    ("empty prefix level".to_string(), vec![StackFix::Reword], vec!["c0".to_string()])
+  );
 }
 
 /// A repository with its first commit, and that commit

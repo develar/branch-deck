@@ -192,6 +192,7 @@ export function stackFactsOf(stack: StackBranch, options: StartStepOptions | nul
     patronusAvailable: available,
     syncing: stack.members.some(name => getBranch(name)?.status === "Syncing"),
     hasError: false,
+    errorReason: null,
     commitCount: stack.commitCount,
     // its own running start is no reason against the start it runs
     busy: busyFact(key, options),

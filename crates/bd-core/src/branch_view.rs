@@ -4,7 +4,8 @@
 use crate::context::RepoContext;
 use crate::error::{CliError, ErrorCode};
 use crate::output::ShortIds;
-use history_rewrite::regroup::{describe_problem, problem_commits};
+use history_rewrite::regroup::problem_commits;
+use history_rewrite::stack::describe_problem;
 use schemars::JsonSchema;
 use serde::Serialize;
 use sync_core::grouping::{BranchGrouping, group_commits_ahead_of_baseline_with};
@@ -34,7 +35,7 @@ impl From<ParentSource> for ParentSourceName {
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct StackBlockSummary {
   pub parent: String,
-  /// `error` (a stack problem or a failed build), `conflict` or `blocked`
+  /// `problem` (the parent has a stack problem), `error` (its build failed), `conflict` or `blocked`
   pub reason: String,
 }
 
@@ -47,9 +48,10 @@ impl StackBlockSummary {
   }
 }
 
-/// `error`, `conflict` or `blocked`
+/// `problem`, `error`, `conflict` or `blocked`
 pub const fn block_reason_name(reason: BlockReason) -> &'static str {
   match reason {
+    BlockReason::Problem => "problem",
     BlockReason::Error => "error",
     BlockReason::Conflict => "conflict",
     BlockReason::Blocked => "blocked",
@@ -71,7 +73,7 @@ pub fn stack_issues(branch: &str, stack: &BranchStack, short: &ShortIds) -> Vec<
     .iter()
     .map(|problem| StackIssue {
       message: describe_problem(branch, problem),
-      commits: problem_commits(problem).iter().map(|id| short.get(id).to_string()).collect(),
+      commits: problem_commits(&problem.problem).iter().map(|id| short.get(id).to_string()).collect(),
     })
     .collect()
 }

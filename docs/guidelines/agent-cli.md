@@ -174,8 +174,11 @@ what they listed.
     declared parent; its pull request goes into the baseline as every one). A parent whose commits left HEAD since the last sync is detected now, as the next
     sync detects it, without writing the detection note;
   - `effective_base`, the branch it is built on (omitted for the baseline), or `blocked_by` `{parent, reason}` when the
-    parent can't be built: `error` (a stack problem or a failed build), `conflict` or `blocked`;
+    parent can't be built: `problem` (a stack problem), `error` (a failed build), `conflict` or `blocked`;
   - `problems` (`{message, commits}`): conflicting parents, a cycle, a self parent, a case collision, an empty level.
+    The message ends with its fixes as commands, the same fixes the app offers as buttons: `fix: `bd restack login
+    auth`, `bd restack login docs` or `bd unstack login`` (`bd rename` for a case collision, `bd reword` of the
+    commits for an empty level and for a self parent beside another parent).
 
   The output has `forest`: the branches with commits, each after its parent.
 - With stacked branches on, `stacks` lists the stack branch of each stack that forks: one more virtual branch,
@@ -748,7 +751,7 @@ through the guarded update. `--follow` moves the source worktree onto the new ti
 - `reparented` (`{"leaf": "parent"}`): a `(parent/leaf)` prefix of a picked commit stacked a branch the branch had
   already, a root or on another parent before: the whole branch is built on `parent` now (a bare `(leaf)` declares
   no parent). Two parents for one branch are conflicting parents, which name the commits of each and the
-  `bd restack <leaf> <parent>` that keeps one.
+  `bd restack <leaf> <parent>` that keeps one, or the `bd unstack <leaf>` that keeps none.
 - `followed.state`: `moved`, `at_tip` (nothing to move), `would_move` (`--dry-run`), or, after the branch moved,
   `head_moved` or `blocked` with a `message`: the same `bd pick` again finds every commit present and moves only the
   worktree. A detached HEAD stays detached (`option no-deref`); a rebase, merge or cherry-pick in progress in the
@@ -1159,7 +1162,7 @@ rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress
   a straight chain has none, its leaf is the whole stack. `state`:
   - `built`: `tip` is the build of the stack's commits now;
   - `conflict`: a commit conflicts with the commits of the stack before it (`conflict`: `commit`, `subject`, `files`);
-  - `blocked`: `member` failed or is blocked (`reason`: `error`, `conflict` or `blocked`, as its branch says), the
+  - `blocked`: `member` failed or is blocked (`reason`: `problem`, `error`, `conflict` or `blocked`, as its branch says), the
     first in stack order, while the stack branch itself builds;
   - `stale`: not rebuilt for another reason (`error`): another process moved the ref, or the stack no longer forks and
     the ref stays for its remote branch (then `members` is empty).

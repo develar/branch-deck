@@ -1791,7 +1791,13 @@ function applyBranchStatusUpdate(draft: SyncDraft, data: Extract<SyncEvent, { ty
       // not an error of this branch: its parent can't be built on; the reason is the tooltip
       return { ...branch, status, statusText: error?.Generic ?? "blocked" }
     }
-    const next: MutableBranch = { ...branch, status, statusText: getStatusText(status) }
+    // a stack problem names itself as Rust says it ("conflicting parents"), not as a failure
+    const problem = status === "Error" ? branch.stack?.problems[0] : undefined
+    const next: MutableBranch = { ...branch, status, statusText: problem?.label ?? getStatusText(status) }
+    // the commits whose prefix the problem asks to reword carry the error mark, the others stay as they are
+    for (const hash of problem?.commits ?? []) {
+      next.commits = updateCommit(next, hash, { status: "Error" })
+    }
     if (error) {
       next.errorDetails = error
       next.hasError = true

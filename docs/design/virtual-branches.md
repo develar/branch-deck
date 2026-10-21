@@ -152,7 +152,10 @@ With `git config branchdeck.stacks true`, a `/` in a prefix stacks branches: `(a
 whose virtual branch is built on `auth`'s (`crates/history-rewrite/src/stack.rs`). The ref is the leaf,
 `user/virtual/login`, so no level is a ref directory of another. The grouper records every declared edge with its
 commits; `StackForest` holds the declared parents, the problems (conflicting parents, cycles, `(a/a)`, leaves that
-differ in case, empty levels) and a parents-first order. `place_branches` decides where each branch goes: on its active
+differ in case, empty levels) and a parents-first order. `problem_view` says each problem once for the app and `bd`
+(`StackProblemView`: the label of the row, the reason that blocks the other rewrites, the message, and the fixes the
+forest allows, `StackFix`); the app offers the fixes as the actions of the branch menu, `bd` prints them as commands, so
+neither keeps a rule of its own. `place_branches` decides where each branch goes: on its active
 parent, on the nearest active ancestor of a parent without commits, on the baseline, or nowhere (`blocked_by`: a parent
 with a problem, a conflict, a failure or a block). A parent without commits never blocks: the local history is linear
 on the baseline, so the child's commits can be picked onto the branch below like those of any flat branch, and

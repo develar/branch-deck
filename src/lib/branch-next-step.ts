@@ -104,6 +104,8 @@ export interface NextStepFacts {
   readonly patronusAvailable: boolean
   readonly syncing: boolean
   readonly hasError: boolean
+  /** Why the branch failed to sync, where Rust says it: the reason of its stack problem; null for any other failure */
+  readonly errorReason: string | null
   readonly commitCount: number
   /** An operation on the row runs (`getObjectBusy`, its own running start of a Safe Push left out): its action and label */
   readonly busy: NextStepBusy | null
@@ -335,7 +337,7 @@ function rowNotice(general: string | null, title: string, description: string): 
 /** Why no start is possible now, whatever the approvals: the first of the reasons; null when one is */
 function startReason(facts: NextStepFacts, startBlocker: string | null): string | null {
   if (facts.hasError) {
-    return "The branch failed to sync"
+    return facts.errorReason ?? "The branch failed to sync"
   }
   if (facts.commitCount === 0) {
     return "No commits to push"

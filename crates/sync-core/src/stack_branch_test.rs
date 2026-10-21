@@ -123,7 +123,7 @@ fn a_member_with_a_problem_blocks_the_stack_and_a_cycle_is_in_none() {
     plans[0].blocked_by,
     Some(StackMemberBlock {
       member: "x".to_string(),
-      reason: BlockReason::Error,
+      reason: BlockReason::Problem,
     })
   );
 }

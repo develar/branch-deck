@@ -920,6 +920,29 @@ pub mod templates {
       )
   }
 
+  /// Stacked branches on, with a stack problem of each kind the app offers a fix for: `publish-viewer` declares
+  /// `ci-traces` by its prefix and `trace-tools` by the stack parents (conflicting parents), with `viewer-docs` stacked
+  /// on it (blocked); `lane-a` and `lane-b` declare each other (a cycle); `Notes` and `notes` differ only in case
+  pub fn stack_problems() -> RepoTemplate {
+    RepoTemplate::new("stack_problems")
+      .branch_prefix("user-name")
+      .config("branchdeck.stacks", "true")
+      .stack_parent("publish-viewer", "trace-tools")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Traces\n")], Some(1704117600))
+      .commit_with_timestamp("(ci-traces) Collect the traces", &[("ci/traces.kt", "fun traces() {}\n")], Some(1704119400))
+      .commit_with_timestamp("(trace-tools) Add the trace tools", &[("tools/tools.kt", "fun tools() {}\n")], Some(1704121200))
+      .commit_with_timestamp(
+        "(ci-traces/publish-viewer) Publish the viewer",
+        &[("viewer/publish.kt", "fun publish() {}\n")],
+        Some(1704123000),
+      )
+      .commit_with_timestamp("(publish-viewer/viewer-docs) Document the viewer", &[("viewer/README.md", "# Viewer\n")], Some(1704124800))
+      .commit_with_timestamp("(lane-b/lane-a) Add lane A", &[("lanes/a.kt", "fun a() {}\n")], Some(1704126600))
+      .commit_with_timestamp("(lane-a/lane-b) Add lane B", &[("lanes/b.kt", "fun b() {}\n")], Some(1704128400))
+      .commit_with_timestamp("(Notes) Write the notes", &[("notes/one.md", "one\n")], Some(1704130200))
+      .commit_with_timestamp("(notes) Fix the notes", &[("notes/two.md", "two\n")], Some(1704132000))
+  }
+
   /// Stacked branches on, with a parent (`auth`) that changes a file only an unassigned commit creates: its copy
   /// conflicts, so its child (`login`) is blocked
   pub fn stacked_conflict() -> RepoTemplate {

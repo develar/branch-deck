@@ -364,8 +364,8 @@ writes anything:
 4. Group every subject ahead of the baseline with the new prefixes, the issue groups and the stack parents after the
    plan in memory
    (`CommitGrouper::new_with`) and compare the stack forest with the current one: a problem the plan introduces (a
-   cycle, conflicting parents, a self parent, a leaf collision) refuses the plan; a problem that already existed is
-   reported.
+   cycle, conflicting parents, a self parent, a leaf collision) refuses the plan, named by its reason without a fix
+   (the plan changed nothing yet); a problem that already existed is reported, and its fixes run.
 5. Reword the changed commits in one `fast-import` (`reword_commits_batch_at`): the history must still start at the
    HEAD of step 1, and the ref transaction's CAS uses it too. A change of the issue groups or of the stack parents
    joins that transaction (below).

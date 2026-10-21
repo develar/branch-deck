@@ -579,7 +579,9 @@ export type BlockKind =
 
 /**  Why a branch is not rebuilt: its parent can't be built on */
 export type BlockReason = 
-/**  The parent can't be placed (a stack problem) or failed to build */
+/**  The parent can't be placed: a stack problem */
+"Problem" | 
+/**  The parent failed to build */
 "Error" | 
 /**  A commit of the parent has a merge conflict */
 "Conflict" | 
@@ -698,8 +700,8 @@ export type BranchStack = {
 	 *  branch status
 	 */
 	blockedBy: StackBlock | null,
-	/**  Why the branch itself can't be placed; it is not rebuilt either */
-	problems: StackProblem[],
+	/**  Why the branch itself can't be placed, each with its fixes; it is not rebuilt either */
+	problems: StackProblemView[],
 	/**
 	 *  The declared parent has no commits, so the branch is built on its nearest active ancestor or the baseline and the
 	 *  base of its pull request differs from the declared parent
@@ -3236,6 +3238,17 @@ export type StackCommit = {
 	branch: string,
 };
 
+/**  What fixes a stack problem: `bd` prints it as a command, the app offers it as the action of the branch menu */
+export type StackFix = 
+/**  Stack the branch on this parent (`bd restack <branch> <parent>`, Stack On ‹parent›) */
+{ StackOn: string } | 
+/**  Make the branch a root (`bd unstack <branch>`, Unstack) */
+"Unstack" | 
+/**  Give the branch another name (`bd rename`, Rename…) */
+"Rename" | 
+/**  Change the prefix of the commits `StackProblemView::commits` names (`bd reword`, Reword… of the commit) */
+"Reword";
+
 /**  Whether a stacked branch builds on the baseline without its parent (`stack_independence`) */
 export type StackIndependence = 
 /**
@@ -3319,6 +3332,27 @@ export type StackProblem =
 ({ LeafCollision: string }) & { ConflictingParents?: never; Cycle?: never; SelfParent?: never; Syntax?: never } | 
 /**  `(a//b)`: the commits whose prefix has an empty level */
 ({ Syntax: string[] }) & { ConflictingParents?: never; Cycle?: never; LeafCollision?: never; SelfParent?: never };
+
+/**
+ *  A stack problem as the row, the menu and `bd` say it: one rule (`history_rewrite::stack::problem_view`), so the app
+ *  shows what Rust decides and `bd` prints the same fixes as commands
+ */
+export type StackProblemView = {
+	problem: StackProblem,
+	/**  The status of the row: "conflicting parents" */
+	label: string,
+	/**  Why the branch can't be rebuilt, rewritten or pushed, naming it: "login has conflicting parents" */
+	reason: string,
+	/**
+	 *  The problem with its parents or commits, without commands: "Commits declare different parents: auth (1a2b3c4d),
+	 *  core (its stack parent)"
+	 */
+	message: string,
+	/**  The commits to reword (`StackFix::Reword`); empty for the other fixes */
+	commits: string[],
+	/**  What fixes it, in the order they are offered; never a fix that would add a problem (a parent stacked on the branch) */
+	fixes: StackFix[],
+};
 
 /**  One branch of a stack push (`PushBranchesParams`) */
 export type StackPushBranch = {

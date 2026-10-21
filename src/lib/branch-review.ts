@@ -1,7 +1,7 @@
 import type { BranchReviewSegment } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import type { ReviewFilter } from "@/lib/review-owners"
-import { formatBlockedReason } from "@/lib/stack"
+import { formatBlockedReason, stackProblemOf } from "@/lib/stack"
 import type { Branch } from "@/stores/branch-sync"
 import type { BranchReviewGroup, BranchReviewWindowData } from "@/types/sub-window"
 
@@ -106,7 +106,7 @@ export function branchReviewBlocker(branch: Branch): string | null {
     return formatBlockedReason(branch)
   }
   if (branch.hasError) {
-    return "The branch failed to sync"
+    return stackProblemOf(branch)?.reason ?? "The branch failed to sync"
   }
   return null
 }

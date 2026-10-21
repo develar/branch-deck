@@ -17,7 +17,7 @@ use crate::parked::{PARKED, PARKED_DROP_MESSAGE};
 use crate::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLock, RepositoryLocked, ensure_expected_head, lock_repository};
 use crate::reword::{normalize_message, reword_read_commits_at};
 use crate::snapshot::{Grouped, Snapshot, group_commits};
-use crate::stack::{StackForest, describe_conflicting_parents, stack_path};
+use crate::stack::{StackForest, problem_view, stack_path};
 use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_DROP_MESSAGE};
 use crate::store_lines::{LineStore, StoreLineProblem, StoreLines, StoreMoved, format_store_lines, read_store_head, undo_over_drops};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -31,7 +31,7 @@ use git_ops::squash_commits::restore_branch_head_with;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::time::Duration;
-use sync_types::stack::StackProblem;
+use sync_types::stack::{StackProblem, StackProblemView};
 use sync_utils::issue_pattern::find_issue_number;
 use tracing::{info, instrument};
 
@@ -122,7 +122,7 @@ pub struct RegroupOutcome {
   /// How the branches stack afterwards; `None` with stacked branches off
   pub forest: Option<StackForest>,
   /// Problems of the result that already existed before it: reported, not refused. `(branch, problem)`
-  pub kept_problems: Vec<(String, StackProblem)>,
+  pub kept_problems: Vec<(String, StackProblemView)>,
   /// With stacked branches on, the branches whose declared parent had commits before and has none afterwards: they stay
   /// stacked on it and are built on the nearest ancestor with commits, or the baseline, until it has commits again
   pub orphaned_children: Vec<String>,
@@ -1302,9 +1302,10 @@ fn apply_in_memory(snapshot: &Snapshot, change: Change) -> Result<RegroupOutcome
     for (name, node) in &after.nodes {
       for problem in &node.problems {
         if before.contains(&(name.clone(), problem_key(problem))) {
-          kept_problems.push((name.clone(), problem.clone()));
+          kept_problems.push((name.clone(), problem_view(after, name, problem)));
         } else {
-          introduced.push(describe_problem(name, problem));
+          // the plan is refused, so nothing is to fix yet: the reason, without the fixes
+          introduced.push(problem_view(after, name, problem).reason);
           commits.extend(problem_commits(problem).iter().map(|id| short_id(id).to_string()));
         }
       }
@@ -1417,17 +1418,6 @@ fn problem_key(problem: &StackProblem) -> String {
     StackProblem::SelfParent(_) => "self_parent".to_string(),
     StackProblem::LeafCollision(other) => format!("leaf_collision:{other}"),
     StackProblem::Syntax(_) => "syntax".to_string(),
-  }
-}
-
-/// A sentence for a problem of `branch`
-pub fn describe_problem(branch: &str, problem: &StackProblem) -> String {
-  match problem {
-    StackProblem::ConflictingParents(parents) => format!("{branch} has conflicting parents {}", describe_conflicting_parents(branch, parents)),
-    StackProblem::Cycle(branches) => format!("{branch} is in the cycle {}", branches.join(" -> ")),
-    StackProblem::SelfParent(_) => format!("{branch} is declared as its own parent"),
-    StackProblem::LeafCollision(other) => format!("{branch} and {other} differ only in case"),
-    StackProblem::Syntax(_) => format!("a prefix of {branch} has an empty stack level"),
   }
 }
 

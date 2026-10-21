@@ -366,6 +366,11 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   master"), an enabled push button, and, expanded, an alert "Built on master: login landed." with "Unstack from login"
   ([Stacked Branches](stacked-branches.spec.md#ui)).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should build a child on the baseline once its parent has no commits, and unstack it`)
+- A stacked branch with a stack problem must have the label of the problem as its `destructive` badge, its commits,
+  and, expanded, a `destructive` alert with the message and a `text-destructive` link per fix ("Stack On ci-traces",
+  "Unstack", "Rename…"), the items of its menu ([Stacked Branches](stacked-branches.spec.md#ui)). Its children are
+  blocked by it: "Blocked: parent publish-viewer has a stack problem (conflicting parents)".
+  [@test] ../../tests/e2e/stacked-branches/stack-problems.spec.ts (`should name conflicting parents, keep the commits and stack on a parent from the alert`)
 
 ### Actions cell
 
@@ -538,8 +543,9 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../src/lib/patronus-actions.test.ts (`cancels a running robot, and opens it in Patronus and the pull request it was started from`)
 - The menu of a branch that can't change now (no commits, a sync error, a sync running) keeps every item: the
   rewrites (Rename…, Move to…, Ungroup, Stack On…, Unstack, Add Issue Reference…, Amend Changes…, Unapply…, Squash
-  Fixups…) are disabled with the reason ("Wait for the sync to finish", "The branch failed to sync", "The branch has no
-  commits", `getRewriteBlocker`); what rewrites nothing on the branch stays as it is: Review Changes, the pull request
+  Fixups…) are disabled with the reason ("Wait for the sync to finish", "The branch failed to sync", the reason of a
+  stack problem, "The branch has no commits", `getRewriteBlocker`), except the fixes of a stack problem, which only wait
+  for the sync ([Stacked Branches](stacked-branches.spec.md#ui)); what rewrites nothing on the branch stays as it is: Review Changes, the pull request
   and its review request, Push and Push with Children (they wait for the sync themselves), Safe Push, Safe Push With
   Profile… and Dry Run (disabled with the reasons of the [next step](next-step.spec.md)), the robot's actions.
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`keeps every item: the rewrites wait for the sync, disabled with the reason; the rest stays as it is`, `is offered while a sync runs and while the root is on the remote: the push waits for the sync`)

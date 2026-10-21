@@ -15,6 +15,7 @@ import { OrphanedStackPullRequestNotice } from "@/components/branch/OrphanedStac
 import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
+import { StackProblemAlert } from "@/components/branch/StackProblemAlert"
 import { CommitHeading } from "@/components/commit/CommitHeading"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { LinkedText } from "@/components/commit/LinkedText"
@@ -40,6 +41,7 @@ import { formatMissingCommitsTitle } from "@/lib/merge-conflict"
 import { formatLandedWith } from "@/lib/patronus"
 import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { openPullRequest } from "@/lib/pull-request"
+import { stackProblemOf } from "@/lib/stack"
 import { formatTimestamp } from "@/lib/time"
 import { statusDotClassName } from "@/lib/ui-types"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
@@ -297,6 +299,10 @@ function BranchErrorNotice({ branch }: { branch: Branch }) {
   const conflictCommit = branch.commits.find(commit => commit.error?.MergeConflict != null)
   const conflict = conflictCommit?.error?.MergeConflict ?? null
   const owners = useMissingCommitOwners(conflict?.conflictAnalysis.missingCommits ?? NO_MISSING_COMMITS)
+  const problem = stackProblemOf(branch)
+  if (problem !== null) {
+    return <StackProblemAlert branch={branch} problem={problem} />
+  }
   if (genericError === undefined && conflictCommit === undefined && branch.status !== "MergeConflict") {
     return null
   }

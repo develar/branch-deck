@@ -107,8 +107,10 @@ only the stack parents ref.
   `store`.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`a_stored_parent_stacks_a_prefix_branch_an_issue_branch_and_an_issue_group`)
 - A stored parent that differs from a parent that a prefix declares must be the problem "commits declare different
-  parents", which names the commits of each parent and the line of the map, and the `bd restack <branch> <parent>` of
-  each that keeps it; `bd status` says the same (`<branch> has conflicting parents …`). The branch is not rebuilt.
+  parents", which names the commits of each parent and the line of the map ("docs (its stack parent)"), and the
+  `bd restack <branch> <parent>` of each that keeps it or the `bd unstack <branch>` that keeps none; `bd status` says
+  the same. The app offers the same fixes as buttons ([Stacked Branches](stacked-branches.spec.md#problems)). The
+  branch is not rebuilt.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`a_stored_parent_that_differs_from_a_prefix_is_a_conflict`)
   [@test] ../../crates/bd-remote/src/status_test.rs (`stacks_in_status`)
 - A cycle through the map, or through the map and the prefixes, must be the cycle problem of every branch of the cycle,

@@ -694,11 +694,12 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
     if let Some(stack) = stack {
       if let Some(problem) = stack.problems.first() {
         report_not_built(&context.progress, &job, BranchSyncStatus::Error, describe_problem(&job.branch_name, problem));
-        failed.insert(job.branch_name, BlockReason::Error);
+        failed.insert(job.branch_name, BlockReason::Problem);
         continue;
       }
       if let Some(block) = &stack.blocked_by {
-        report_not_built(&context.progress, &job, BranchSyncStatus::Blocked, describe_block(block));
+        let parent_problem = stacks.as_ref().and_then(|stacks| stacks.get(&block.parent)).and_then(|parent| parent.problems.first());
+        report_not_built(&context.progress, &job, BranchSyncStatus::Blocked, describe_block(block, parent_problem));
         failed.insert(job.branch_name, BlockReason::Blocked);
         continue;
       }
@@ -808,7 +809,7 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
     };
     if let Some((branch_name, reason)) = failure {
       for (job, block) in schedule.block_descendants(&branch_name, reason) {
-        report_not_built(&context.progress, &job, BranchSyncStatus::Blocked, describe_block(&block));
+        report_not_built(&context.progress, &job, BranchSyncStatus::Blocked, describe_block(&block, None));
         failed.insert(job.branch_name, BlockReason::Blocked);
       }
       failed.insert(branch_name, reason);

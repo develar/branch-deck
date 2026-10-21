@@ -795,7 +795,8 @@ fn stack_not_built_message(update: &StackBranchUpdate) -> String {
     (Some(block), _) => {
       let reason = match block.reason {
         BlockReason::Conflict => "conflicts",
-        BlockReason::Error => "failed or has a stack problem",
+        BlockReason::Problem => "has a stack problem",
+        BlockReason::Error => "failed",
         BlockReason::Blocked => "is blocked by its parent",
       };
       format!("{} {reason}, so the stack branch was not rebuilt", block.member)

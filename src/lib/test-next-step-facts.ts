@@ -51,6 +51,7 @@ export function facts(patch: Partial<NextStepFacts> = {}): NextStepFacts {
     patronusAvailable: true,
     syncing: false,
     hasError: false,
+    errorReason: null,
     commitCount: 2,
     busy: null,
     blocked: false,

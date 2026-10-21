@@ -285,7 +285,7 @@ fn stats_per_branch() {
 /// The problem of `c` in `stacked_repo`: its third commit declares `x`, its fourth `y`
 fn conflicting_parents_of_c(ids: &[String]) -> String {
   format!(
-    "c has conflicting parents x ({}), y ({}); keep one: `bd restack c x` or `bd restack c y`",
+    "Commits declare different parents: x ({}), y ({}); fix: `bd restack c x`, `bd restack c y` or `bd unstack c`",
     short_id(&ids[2]),
     short_id(&ids[3])
   )
@@ -560,6 +560,6 @@ fn the_stack_branch_of_a_forking_stack_in_sync_and_status() {
   let stack = &status["stacks"][0];
   assert_eq!(
     (&stack["state"], &stack["member"], &stack["reason"]),
-    (&json!("blocked"), &json!("session"), &json!("error"))
+    (&json!("blocked"), &json!("session"), &json!("problem"))
   );
 }

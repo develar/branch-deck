@@ -8,6 +8,7 @@
 import type { ParkedState } from "@/lib/parked"
 import type { PushHold } from "@/lib/patronus"
 import { formatPushHoldReason } from "@/lib/patronus"
+import { hasStackFix, stackOnFixes, stackProblemOf } from "@/lib/stack"
 import { joinNames } from "@/lib/text"
 import type { Branch } from "@/stores/branch-sync"
 
@@ -30,20 +31,26 @@ export type BranchDrop = { readonly names: readonly string[] } | { readonly refu
 
 /**
  * Why a rewrite of the branch (rename, move, ungroup, restack, amend, unapply, issue reference, squash) can't run now:
- * it has no commits, it failed to sync, or a sync rebuilds the branches (also a quiet resync of a row that shows its last
- * state); null when it can
+ * it has no commits, it failed to sync (a stack problem says which: "login has conflicting parents"; only its fixes run,
+ * `fixBlocker`), or a sync rebuilds the branches (also a quiet resync of a row that shows its last state); null when it
+ * can
  */
 export function rewriteBlocker(branch: Branch, isSyncing: boolean): string | null {
   if (branch.commits.length === 0) {
     return "The branch has no commits"
   }
   if (branch.hasError) {
-    return "The branch failed to sync"
+    return stackProblemOf(branch)?.reason ?? "The branch failed to sync"
   }
-  if (branch.status === "Syncing" || isSyncing) {
-    return "Wait for the sync to finish"
-  }
-  return null
+  return fixBlocker(branch, isSyncing)
+}
+
+/**
+ * Why a fix of the stack problem of the branch (`StackProblemView.fixes`: Stack On, Unstack, Rename…) can't run now: a
+ * sync rebuilds the branches; the problem itself doesn't block its fixes, as a regroup keeps a problem it finds
+ */
+export function fixBlocker(branch: Branch, isSyncing: boolean): string | null {
+  return branch.status === "Syncing" || isSyncing ? "Wait for the sync to finish" : null
 }
 
 /**
@@ -167,13 +174,16 @@ export function stackOnDrop(names: readonly string[], target: string, facts: Bra
   if (facts.descendants(name).includes(target)) {
     return { refusal: `Cannot stack ${name} on ${target}: ${target} is stacked on it` }
   }
-  const blocker = facts.rewrite ?? rewriteBlocker(branch, facts.isSyncing)
+  const problem = stackProblemOf(branch)
+  const fix = problem !== null && stackOnFixes(problem).includes(target)
+  const blocker = facts.rewrite ?? (fix ? fixBlocker(branch, facts.isSyncing) : rewriteBlocker(branch, facts.isSyncing))
   return blocker === null ? { names } : { refusal: `Cannot stack ${name} on ${target}: ${blocker}` }
 }
 
 /**
  * The unstack of the one dragged branch: null where the zone doesn't show (stacked branches off, more than one branch
- * dragged, a branch stacked on none); refused while it can't be rewritten (`rewriteBlocker`)
+ * dragged, a branch stacked on none that no stack problem offers to unstack); refused while it can't be rewritten
+ * (`rewriteBlocker`), or for a fix of its stack problem while a sync runs (`fixBlocker`)
  */
 export function unstackDrop(names: readonly string[], facts: BranchDropFacts): BranchDrop | null {
   const [name] = names
@@ -181,10 +191,16 @@ export function unstackDrop(names: readonly string[], facts: BranchDropFacts): B
     return null
   }
   const branch = facts.branch(name)
-  const parent = branch?.stack?.declaredParent ?? null
-  if (branch === undefined || parent === null) {
+  if (branch === undefined) {
     return null
   }
-  const blocker = facts.rewrite ?? rewriteBlocker(branch, facts.isSyncing)
-  return blocker === null ? { names } : { refusal: `Cannot unstack ${branch.name} from ${parent}: ${blocker}` }
+  const parent = branch.stack?.declaredParent ?? null
+  const problem = stackProblemOf(branch)
+  const fix = problem !== null && hasStackFix(problem, "Unstack")
+  if (parent === null && !fix) {
+    return null
+  }
+  const blocker = facts.rewrite ?? (fix ? fixBlocker(branch, facts.isSyncing) : rewriteBlocker(branch, facts.isSyncing))
+  const cannot = parent === null ? `Cannot unstack ${branch.name}` : `Cannot unstack ${branch.name} from ${parent}`
+  return blocker === null ? { names } : { refusal: `${cannot}: ${blocker}` }
 }

@@ -1,7 +1,9 @@
+use crate::grouping::group_commits_ahead_of_baseline;
 use crate::stack_operations::{RenameBranchParams, RestackBranchParams, UndoRegroupParams, rename_branch, restack_branch, undo_regroup};
 use history_rewrite::move_commits::MoveChange;
 use history_rewrite::stack_parents::{STACK_PARENTS_FILE, STACK_PARENTS_REF};
 use pretty_assertions::assert_eq;
+use sync_types::stack::{StackFix, StackProblemView};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -113,6 +115,46 @@ fn unstack_removes_the_line_and_the_parent_levels() {
   // a root is not stacked
   let error = restack_branch(test_repo.git_executor(), &restack(&test_repo, "login", None)).unwrap_err();
   assert!(error.to_string().contains("not stacked"), "{error:#}");
+}
+
+/// A stacked repository with `subjects` committed on top of its first commit
+fn repo_with(subjects: &[&str]) -> TestRepo {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial commit", "README.md", "# Test");
+  test_repo.set_config("branchdeck.stacks", "true").unwrap();
+  for (index, subject) in subjects.iter().enumerate() {
+    test_repo.create_commit(subject, &format!("file{index}.txt"), subject);
+  }
+  test_repo
+}
+
+/// The problems of `branch` as the grouping places it
+fn problems_of(test_repo: &TestRepo, branch: &str) -> Vec<StackProblemView> {
+  let grouping = group_commits_ahead_of_baseline(test_repo.git_executor(), &path(test_repo), "test-prefix").unwrap();
+  grouping.placements.unwrap().get(branch).map_or_default(|stack| stack.problems.clone())
+}
+
+#[test]
+fn each_restack_a_stack_problem_offers_removes_it() {
+  let cases: [(&[&str], &str); 3] = [
+    (&["(x) X", "(y) Y", "(x/login) A", "(y/login) B"], "login"),
+    (&["(b/a) A", "(a/b) B"], "a"),
+    (&["(a/a) Loop"], "a"),
+  ];
+  for (subjects, branch) in cases {
+    let fixes = problems_of(&repo_with(subjects), branch).remove(0).fixes;
+    assert!(!fixes.is_empty(), "{subjects:?}");
+    for fix in fixes {
+      let test_repo = repo_with(subjects);
+      let parent = match &fix {
+        StackFix::StackOn(parent) => Some(parent.as_str()),
+        StackFix::Unstack => None,
+        StackFix::Rename | StackFix::Reword => unreachable!("{fix:?}"),
+      };
+      restack_branch(test_repo.git_executor(), &restack(&test_repo, branch, parent)).unwrap();
+      assert_eq!(problems_of(&test_repo, branch), [], "{subjects:?} {fix:?}");
+    }
+  }
 }
 
 #[test]

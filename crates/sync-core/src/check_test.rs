@@ -500,7 +500,7 @@ fn a_branch_waits_for_its_parent_and_is_blocked_by_its_failure() {
       CheckOutcome::Problems(Vec::new()),
       CheckOutcome::Blocked {
         parent: "e".to_string(),
-        reason: BlockReason::Error,
+        reason: BlockReason::Problem,
       },
     ]
   );

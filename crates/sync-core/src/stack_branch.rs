@@ -130,7 +130,7 @@ pub fn plan_stack_branches(
       let blocked_by = members.iter().find_map(|member| {
         let placement = placements.get(member)?;
         let reason = if !placement.problems.is_empty() {
-          BlockReason::Error
+          BlockReason::Problem
         } else if placement.blocked_by.is_some() {
           BlockReason::Blocked
         } else {

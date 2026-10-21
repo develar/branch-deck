@@ -7,13 +7,13 @@ use history_rewrite::regroup::{
 };
 use history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT;
 use history_rewrite::snapshot::read_grouping_inputs;
-use history_rewrite::stack::{StackForest, describe_problem, place_branches};
+use history_rewrite::stack::{StackForest, describe_problem, place_branches, problem_view};
 use history_rewrite::stack_parents::{STACK_PARENTS, STACK_PARENTS_REF, drop_integrated_stack_parents, integrated_children};
 use history_rewrite::store_lines::{StoreLines, format_store_lines, read_store_head};
 use history_rewrite::test_commit::commit;
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap};
-use sync_types::stack::{DeclaredParent, ParentSource, ParentState, StackProblem};
+use sync_types::stack::{DeclaredParent, ParentSource, ParentState, StackFix, StackProblem};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -230,12 +230,16 @@ fn a_stored_parent_that_differs_from_a_prefix_is_a_conflict() {
       },
     ])]
   );
-  let message = describe_problem("login", &login.problems[0]);
+  let view = problem_view(&forest, "login", &login.problems[0]);
   assert_eq!(
-    message,
+    view.fixes,
+    [StackFix::StackOn("auth".to_string()), StackFix::StackOn("docs".to_string()), StackFix::Unstack]
+  );
+  assert_eq!(
+    describe_problem("login", &view),
     format!(
-      "Commits declare different parents: auth ({}), docs (the stack parent in refs/branch-deck/stack-parents); keep one: `bd restack login auth` or \
-       `bd restack login docs`",
+      "Commits declare different parents: auth ({}), docs (its stack parent); fix: `bd restack login auth`, `bd restack login docs` or \
+       `bd unstack login`",
       short_id(&format!("{:040}", 2))
     )
   );

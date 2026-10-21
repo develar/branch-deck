@@ -42,7 +42,7 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
-use sync_types::stack::{BlockReason, ParentState, StackProblem};
+use sync_types::stack::{BlockReason, ParentState, StackProblemView};
 use sync_types::{ProgressReporter, SyncEvent};
 use tracing::instrument;
 
@@ -109,7 +109,7 @@ pub enum CheckOutcome {
     reason: BlockReason,
   },
   /// Not built: the branch can't be placed in its stack
-  Problems(Vec<StackProblem>),
+  Problems(Vec<StackProblemView>),
 }
 
 /// Whether a stacked branch builds on the baseline without its parent (`stack_independence`)
@@ -993,6 +993,7 @@ impl Schedule {
           let reason = match outcome {
             CheckOutcome::Conflict { .. } => BlockReason::Conflict,
             CheckOutcome::Blocked { .. } => BlockReason::Blocked,
+            CheckOutcome::Problems(_) => BlockReason::Problem,
             _ => BlockReason::Error,
           };
           self.outcomes[child] = Some(CheckOutcome::Blocked {

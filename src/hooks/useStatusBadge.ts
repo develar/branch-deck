@@ -4,7 +4,7 @@ import { landedBranchDescription } from "@/lib/landed"
 import { getPushColor } from "@/lib/push-summary"
 import { buildRemoteStatusTexts } from "@/lib/remote-status"
 import type { StatusTexts } from "@/lib/remote-status"
-import { blockingBranchOf } from "@/lib/stack"
+import { blockingBranchOf, stackProblemOf } from "@/lib/stack"
 import type { Branch } from "@/stores/branch-sync"
 
 /**
@@ -23,7 +23,9 @@ export function getStatusBadge(branch: Branch, landedIn: string | null = null): 
 
   // errors and conflicts always have the highest priority
   if (branch.status === "Error" || branch.status === "MergeConflict") {
-    return { text: branch.statusText, tooltip: branch.statusText || "Error", color: "error", badge: true }
+    // a stack problem: its label, its message on hover
+    const problem = branch.status === "Error" ? stackProblemOf(branch) : null
+    return { text: branch.statusText, tooltip: problem?.message ?? (branch.statusText || "Error"), color: "error", badge: true }
   }
   if (branch.status === "AnalyzingConflict") {
     return { text: branch.statusText, tooltip: branch.statusText || "Analyzing conflict…", color: "warning", badge: true }

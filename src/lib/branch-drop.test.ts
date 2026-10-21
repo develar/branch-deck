@@ -1,7 +1,8 @@
 // @spec spec/branch/move-commits.spec.md
 import { describe, expect, it } from "vite-plus/test"
+import type { StackProblemView } from "@/lib/bindings"
 import type { BranchDropFacts } from "@/lib/branch-drop"
-import { moveDrop, parkBlocker, parkDrop, showsParkDrop, showsUnparkDrop, stackOnDrop, unparkDrop, unstackDrop } from "@/lib/branch-drop"
+import { moveDrop, parkBlocker, parkDrop, rewriteBlocker, showsParkDrop, showsUnparkDrop, stackOnDrop, unparkDrop, unstackDrop } from "@/lib/branch-drop"
 import type { ParkedState } from "@/lib/parked"
 import type { PushHold } from "@/lib/patronus"
 import { testRobot } from "@/lib/test-robot"
@@ -21,6 +22,17 @@ const branches: Record<string, Branch> = {
   oauth: branchOf("oauth", "login"),
   docs: branchOf("docs", null),
 }
+// `viewer` declares two parents: the problem Rust reports, with its fixes
+const conflict: StackProblemView = {
+  problem: { ConflictingParents: [] },
+  label: "conflicting parents",
+  reason: "viewer has conflicting parents",
+  message: "Commits declare different parents: ci (c1), tools (its stack parent)",
+  commits: [],
+  fixes: [{ StackOn: "ci" }, { StackOn: "tools" }, "Unstack"],
+}
+const base = branchOf("viewer", null)
+branches.viewer = { ...base, status: "Error", hasError: true, stack: { ...base.stack!, declaredParent: null, effectiveBase: null, problems: [conflict] } }
 const parked: Record<string, ParkedState> = {
   auth: { note: "", with: null },
   login: { note: "", with: "auth" },
@@ -84,6 +96,20 @@ describe("branch drop", () => {
     expect(stackOnDrop(["docs"], "docs", facts())).toBeNull()
     expect(stackOnDrop(["docs", "auth"], "oauth", facts())).toBeNull()
     expect(stackOnDrop(["docs"], "auth", facts({ stacksEnabled: false }))).toBeNull()
+  })
+
+  it("blocks the rewrites of a branch with a stack problem by its reason, and runs the fixes Rust offers for it", () => {
+    const viewer = branches.viewer!
+    expect(rewriteBlocker(viewer, false)).toBe("viewer has conflicting parents")
+    expect(moveDrop(["viewer"], "docs", facts())).toEqual({ refusal: "Cannot move viewer to docs: viewer has conflicting parents" })
+    // a fix runs, another parent is no fix
+    expect(stackOnDrop(["viewer"], "tools", facts())).toEqual({ names: ["viewer"] })
+    expect(stackOnDrop(["viewer"], "docs", facts())).toEqual({ refusal: "Cannot stack viewer on docs: viewer has conflicting parents" })
+    expect(stackOnDrop(["viewer"], "ci", facts({ isSyncing: true }))).toEqual({ refusal: "Cannot stack viewer on ci: Wait for the sync to finish" })
+    // no declared parent, yet the problem offers the unstack
+    expect(unstackDrop(["viewer"], facts())).toEqual({ names: ["viewer"] })
+    // another failure says so
+    expect(rewriteBlocker({ ...viewer, stack: { ...viewer.stack!, problems: [] } }, false)).toBe("The branch failed to sync")
   })
 
   it("unstacks one dragged branch that is stacked, and shows no zone for a root", () => {

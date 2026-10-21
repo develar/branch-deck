@@ -23,6 +23,8 @@ targets:
   - ../../src/components/branch/BranchTableCard.tsx
   - ../../src/components/branch/BranchNameCell.tsx
   - ../../src/components/branch/ActiveBranchExpanded.tsx
+  - ../../src/components/branch/StackProblemAlert.tsx
+  - ../../src/lib/branch-drop.ts
   - ../../src/components/branch/StackLanes.tsx
   - ../../src/components/branch/BranchActions.tsx
   - ../../src/hooks/useBranchContextActions.ts
@@ -148,6 +150,20 @@ menu stacks, unstacks and renames branches.
   - a syntax problem.
   [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`conflicting_parents_name_their_commits`, `a_branch_can_not_be_its_own_parent`, `a_cycle_marks_each_of_its_branches`, `leaves_that_differ_only_in_case_collide`)
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`a_problem_is_not_built_and_a_missing_parent_is_passed`)
+- Each problem must be said once, by Rust, for the app and `bd` (`problem_view`, `StackProblemView`): a label (the
+  status of the row), a reason naming the branch ("login has conflicting parents"), a message without commands and its
+  fixes (`StackFix`). The fixes must be only those that remove the problem and add none: conflicting parents, Stack On
+  each parent except one stacked on the branch (a cycle), or Unstack; a cycle, Unstack; `(a/a)`, Unstack while no
+  other parent is declared, else Reword of its commits; a case collision, Rename; an empty level, Reword of its commits.
+  `bd` prints the fixes as commands after the message (`fix: `bd restack login auth` or `bd unstack login``).
+  [@test] ../../crates/history-rewrite/src/stack_test.rs (`each_problem_offers_the_fixes_that_remove_it`)
+  [@test] ../../crates/sync-core/src/stack_operations_test.rs (`each_restack_a_stack_problem_offers_removes_it`)
+- A child of a branch with a problem must be blocked with the reason `problem`, its text naming the problem
+  ("Blocked: parent login has a stack problem (conflicting parents)"), not a failure.
+  [@test] ../../crates/history-rewrite/src/stack_test.rs (`a_parent_with_a_problem_blocks_its_children`)
+  [@test] ../../crates/bd-remote/src/status_test.rs (`stacks_in_status`)
+- A regroup that would introduce a problem must be refused by its reason, without a fix: the plan changed nothing yet.
+  [@test] ../../crates/sync-core/src/regroup_test.rs (`refuses_problems_the_plan_introduces_and_keeps_existing_ones`)
 
 ### Placement
 
@@ -537,6 +553,18 @@ menu stacks, unstacks and renames branches.
   and the push retargets an open one into the branch of login ([Pull requests](#pull-requests)).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should build a child on the baseline once its parent has no commits, and unstack it`, `should unstack once from the alert, its spinner on the button until the sync shows the branch`)
   [@test] ../../src/lib/stack.test.ts (`says why the branch isn't built on its parent`, `is passed only when the branch is built elsewhere`)
+- A branch with a stack problem must show the label of the problem as its `destructive` status badge ("conflicting
+  parents", "parent cycle", "its own parent", "case clash", "empty prefix level"; never "internal error"), its message
+  on hover, and keep its commits in the row and the preview, the commits to reword marked "Error". Expanded, and in
+  the preview in place of "Sync failed", a `destructive` alert says the message, no `bd` command, with a link per fix
+  (`StackProblemAlert`): "Stack On ci-traces", "Unstack" ("Unstack from lane-b" of a branch with a parent), "Rename…",
+  each the very item of the branch menu, with its spinner while it runs; in the preview a fix closes the preview
+  first. A reword is the commit's "Reword…". The branch menu offers the same fixes enabled: "Stack On…" lists the
+  parents of the fixes (the stack parent too), "Unstack" a branch the problem left without a parent; every other
+  rewrite, Unapply, Review Changes and Safe Push say the reason ("publish-viewer has conflicting parents") instead of
+  "The branch failed to sync"; a drag takes the fixes too (`stackOnDrop`, `unstackDrop`).
+  [@test] ../../tests/e2e/stacked-branches/stack-problems.spec.ts (`should name conflicting parents, keep the commits and stack on a parent from the alert`, `should offer the fixes in the menu and block the other rewrites with the problem`, `should unstack a branch with conflicting parents from the menu`, `should cut a branch out of a parent cycle from its alert`, `should open the rename of a branch whose name differs from another only in case`, `should show the problem with its fixes in the preview, a fix closing the preview`)
+  [@test] ../../src/lib/branch-drop.test.ts (`blocks the rewrites of a branch with a stack problem by its reason, and runs the fixes Rust offers for it`)
 - A blocked branch must show a muted `blocked by <parent>` status after a `warning` dot with the reason as its tooltip,
   a disabled push button (in the row and the preview), no share in the outgoing counts, and,
   expanded, a `warning` alert with a link that reveals the parent.

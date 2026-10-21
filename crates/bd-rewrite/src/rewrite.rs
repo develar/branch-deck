@@ -11,10 +11,8 @@ use bd_core::output::SchemaVersion;
 use bd_core::sync_command::{SyncOutput, lock, sync_locked};
 use bd_core::text_input::read_text;
 use git_ops::branch_description::Description;
-use history_rewrite::regroup::{
-  RegroupError, RegroupOptions, RegroupOutcome, UndoToken, describe_problem, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core,
-};
-use history_rewrite::stack::StackForest;
+use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupOutcome, UndoToken, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core};
+use history_rewrite::stack::{StackForest, describe_problem, problem_view};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -349,7 +347,7 @@ fn rewrite_output(context: &RepoContext, operation: &str, args: &RewriteArgs, ou
       .map(|(branch, problem)| ProblemReport {
         branch: branch.clone(),
         message: describe_problem(branch, problem),
-        commits: problem_commits(problem).iter().map(|id| short.get(id).to_string()).collect(),
+        commits: problem_commits(&problem.problem).iter().map(|id| short.get(id).to_string()).collect(),
       })
       .collect(),
     changes: (args.dry_run || operation == "reword").then(|| {
@@ -406,7 +404,7 @@ fn forest_branches(forest: &StackForest) -> Vec<ForestBranch> {
       parent: node.declared_parent.clone(),
       parent_source: node.parent_source.map(ParentSourceName::from),
       has_commits: node.has_commits,
-      problems: node.problems.iter().map(|problem| describe_problem(name, problem)).collect(),
+      problems: node.problems.iter().map(|problem| describe_problem(name, &problem_view(forest, name, problem))).collect(),
     })
     .collect()
 }
