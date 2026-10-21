@@ -195,8 +195,8 @@ beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stac
   per branch, its description or its commits.
 - **The robots wait for each other.** A robot of the stack branch (`PatronusRobot::stack_root`) belongs to no
   branch, not even by its revision. It lands every branch of the stack, so a branch's Safe Push and push wait for it;
-  a robot of a branch lands a part of the stack, so the whole stack's Safe Push waits for it (`find_landing_stack`,
-  `find_landing_member`). A robot started elsewhere on a temporary ref is matched by its tip, as a branch's is.
+  a robot of a branch lands a part of the stack, so the whole stack's Safe Push waits for it (the `landingMember` of
+  the repository view, `repository_view::patronus_view`). A robot started elsewhere on a temporary ref is matched by its tip, as a branch's is.
 
 ### The whole stack in the app
 
@@ -238,17 +238,17 @@ The whole stack is an object of its own in the app, beside its branches, named "
   piece, every branch of the whole stack) are closed, but only those that hold nothing the branch lacks: the head is the
   branch's tip, or the remote branch has no commit the branch lacks. A head compared by hash alone left a pull request
   of a branch the sync had only rebuilt on a newer baseline open, though all of it landed. Which branches it landed is
-  one function (`findLandedBranches`): a piece's ancestors while the robot ran on a commit its branch has (its tip, the
+  one rule, in Rust for the app and `bd` (`repository_view::patronus_view`, `landedByRobot` of the repository view): a piece's ancestors while the robot ran on a commit its branch has (its tip, the
   same commits rebuilt, or one the branch built new commits on since: the copies below are the same objects, so the
   ancestors are as it took them), the whole stack's branches while it ran on the stack branch as it is; after a change
   below its commit, by content (below): the merge toast waits for that answer (the sync that runs, one
-  `get_robot_landings`), so the closing and the rows agree, and a branch with commits added after the landed ones keeps
+  `get_repository_view`), so the closing and the rows agree, and a branch with commits added after the landed ones keeps
   its pull request, which still shows work that did not land.
 - **Landed rows until the update.** The merge toast is gone in seconds, and the update that archives the branches may
   come hours later. Until then the rows of the branches a merged robot landed say who landed them ("Landed with
   oauth", "Landed with the whole air stack"; the branch it ran on keeps "Merged"), and offer no Safe Push, no Dry Run,
   no restart of a robot, no new pull request and no push: their commits are in master, a second robot or a push would
-  land nothing (`findLandedBy`, row 1 of the next step, a `landed` push hold, also of the robot's own branch). It is a
+  land nothing (`getLandedBy`, the repository view's `landedBy`, row 1 of the next step, a `landed` push hold, also of the robot's own branch). It is a
   state of the robots and the branches, not of the merge event, so a robot first seen merged (after a restart, a
   landing by `bd`) says it too. A branch built on
   a landed one lands without it ("Safe Push" where it said "Safe Push · 2"), and pushes without it: a landed branch is
@@ -262,13 +262,14 @@ The whole stack is an object of its own in the app, beside its branches, named "
 - **Landed by content.** A change below the commit the robot took (a new commit or an amend of a branch it is built
   on, a reword; for the whole stack any change of a branch of it, which rebuilds the stack branch) makes new copies, so
   the hashes no longer tell. Then the content does: the commits the robot tested against each branch as the table has
-  it (`robot_landings`, `crates/sync-core/src/robot_landing.rs`, the app's `get_robot_landings` and `bd`), the same
+  it (`robot_landings_of_grouped`, `crates/sync-core/src/robot_landing.rs`, asked by the repository view for the app and
+  `bd`), the same
   comparison as the robot commit map of a failure prompt (the same commit, a patch-equivalent copy, or a copy with the
   same changes on a newer base). A branch whose oldest commits the robot tested landed, and commits added after them
   are the only work left of it ("Landed with oauth · 1 commit after it"): its push and its Safe Push send those. An
   amend of a landed commit, or a commit inserted below one, leaves the branch not landed: what landed is not what it
-  is, and only the fetch tells ("Landed in origin/master"). The app asks once per state of the branches and never
-  during a sync, so an unchanged table costs nothing. The same content decides what a running robot holds
+  is, and only the fetch tells ("Landed in origin/master"). The app asks when the robots, the remote facts or what
+  a sync read changed, never for a sync of the same inputs, so an unchanged table costs nothing. The same content decides what a running robot holds
   (`robot_spans`): only the branches whose commits its commit has, so a parent a restack placed below its branch after
   the start pushes and lands on its own, and the pieces stay as small as the stacks cut them.
 - **What is left of the whole stack.** Its stack branch carries every commit of the stack, the landed ones too, and

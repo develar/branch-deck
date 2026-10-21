@@ -128,18 +128,29 @@ flowchart LR
 
 `pnpm perf:table` (`tests/perf/branch-table.perf.ts`, Chromium) measures what a sync costs the page: the script and
 task time of its events and of everything they derive (`Performance.getMetrics` of the page, before and after), on the
-`branch_table_large` template, 141 rows with robots running on ten, the median of 5 runs, on an M-series Mac with
-other work beside it:
+`branch_table_large` template, 141 rows with robots running on ten, in a page of its own per run (the setup of a
+repository keeps the page and its rows, and a sync onto them is no first sync), the median of 5 runs, on an M-series
+Mac with other work beside it, master and the change measured in turns:
 
-| 2026-10-21 | first sync, script / task | sync that changes nothing, script / task | robots' content requests |
+| 2026-10-21 | first sync, script / task | sync that changes nothing, script / task | `get_repository_view` per run |
 |---|---|---|---|
-| the hold and landing rule in the page | 142–146 / 267 ms | 50–53 / 98–101 ms | 0 |
-| its three maps stubbed out (upper bound of moving them) | 119 / 221 ms | 44 / 83 ms | — |
+| the hold and landing rule in the page | 325–327 / 498–518 ms | 47–51 / 108–115 ms | — |
+| the repository view of the backend | 234–271 / 389–471 ms | 45–55 / 111–116 ms | 2 |
 
-The rule's maps (`landingSpansIn`, `landedByIn`, `pushHoldsIn` in `src/stores/patronus.ts`) are memoized in one slot
-on the identity of the branches, which every 16 ms batch copies: each batch recomputes them once, and the rows'
-selectors only hit the memo. They are about a fifth of the script time of a sync. The stub also skips the UI that
-depends on them, so moving the rule out of the page saves less than the bound. The rest of the per-row work
+The rule was three maps (`landingSpansIn`, `landedByIn`, `pushHoldsIn`) memoized in one slot on the identity of the
+branches, which every 16 ms batch of a sync copies: each batch computed them again. Now the backend decides it once
+for the table the sync left (`get_repository_view`, [Git Operations](git-operations.md#repository-view)) and the page
+indexes the answer (`factsOf` in `src/stores/patronus.ts`):
+- the page asks only when an input changed (the robots, the matches, the remote facts, what the sync read): a sync that
+  read the same inputs asks nothing, and the inputs are not even computed while the branches are the same objects;
+- an answer equal to the view the page has changes no store, and the facts of a view keep their objects while they are
+  equal, so no row renders again for it;
+- the Dock waits for the view of the robots as they are (`useRepositoryViewCurrent`), so no badge comes and goes before
+  it.
+
+[@test] ../../src/stores/patronus.test.ts (`keeps the store as it is when a view asked again says the same, so no row reads it again`, `asks the repository view after a sync only when the sync read other inputs: the backend's table is the same`)
+
+A sync that changes nothing cost little before and costs the same now. The rest of the per-row work
 (`getNextStepFacts` of each row on every change of a store) is not part of it.
 
 ### Loading

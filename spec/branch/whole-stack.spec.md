@@ -226,7 +226,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   whole air stack", their push and their Safe Push wait ("A Safe Push of the whole air stack is running: it lands 1
   commit of auth with it");
   the robot of a branch of the stack holds the whole stack's restart and start in turn ("A Safe Push of auth is
-  running: wait until it merges", `findLandingMember`). A dry run holds nothing.
+  running: wait until it merges", `getStackLandingMember`). A dry run holds nothing.
   [@test] ../../src/stores/patronus.test.ts (`holds every branch the whole-stack Safe Push lands`, `holds nothing for a dry run of the whole stack`)
   [@test] ../../src/lib/patronus.test.ts (`lands every branch of the stack, and waits for the robot of a branch of it, as that one waits for it`)
 - Its actions are the actions of a robot (`getRobotActions`): the restart works on the stack branch, and pushes it first
@@ -271,10 +271,10 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   master with #12, the Safe Push of the whole air stack (user/stack/air), which holds this branch."), and the toast
   says it ("Safe Push · closes the pull requests of 6 branches: they landed with the whole stack"); while it ran on the
   stack branch as it is, else by the commits it tested against each branch (a change of a branch since rebuilt the
-  stack branch: `get_robot_landings`, the toast waiting for it), and only a pull request that holds nothing its branch
+  stack branch: the repository view by content, the toast waiting for it), and only a pull request that holds nothing its branch
   lacks: its head is the branch's tip, or the remote branch has no commit the branch lacks
   ([Patronus](patronus.spec.md#merged), the same for a piece).
-  [@test] ../../src/lib/landed-stack.test.ts (`closes the pull requests of every branch of the stack the robot of the whole stack landed, not the one it started from`)
+  [@test] ../../src/lib/landed-stack.test.ts (`leaves the pull request the robot started from to Patronus`)
   [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the branches the whole stack landed`)
 - Until the update archives them, every branch of the stack it landed (under the same conditions, also for a robot
   first seen merged) must say so in its row, "Landed with the whole air stack" ([Patronus](patronus.spec.md#merged)),
@@ -284,8 +284,10 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   what it landed is then read by content ([Patronus](patronus.spec.md#merged)), a commit added to a branch since the
   only work left of it ("Landed with the whole air stack · 1 commit after it").
   [@test] ../../crates/sync-core/src/robot_landing_test.rs (`the_robot_of_the_whole_stack_landed_every_branch_of_it`)
-  [@test] ../../src/lib/patronus.test.ts (`knows the ancestors a merged piece carried and every branch a merged whole stack landed, and names who landed them`)
-  [@test] ../../src/lib/patronus.test.ts (`holds the push of a branch a merged Safe Push landed, before a robot of its own`)
+  [@test] ../../src/lib/patronus.test.ts (`names who landed a branch in its row and why it starts nothing: a branch built on it, the whole stack, its own robot with the work left`)
+  [@test] ../../crates/repository-view/src/patronus_view_test.rs (`the_merged_robot_that_left_the_least_work_names_the_landing`)
+  [@test] ../../src/lib/patronus.test.ts (`says why a branch a merged Safe Push landed offers no push: who landed it, its own robot as the merge`)
+  [@test] ../../crates/repository-view/src/patronus_view_test.rs (`new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
 - One builder must list the actions of the whole stack (`getWholeStackMenuItems`), which the "⋯" of the stack island
   renders, the menu of every branch of the stack under "Whole Stack ›", the root's whole stack (so their previews

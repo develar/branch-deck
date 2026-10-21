@@ -286,16 +286,18 @@ fn merged_landings<'r>(
       memo.landings.clear();
     }
     let requests: Vec<RobotLandingRequest> = asked.iter().map(|(_, request)| request.clone()).collect();
-    let answers = robot_landings_of_grouped(git_executor, repository_path, &table.prefix, &table.baseline, &requests, &table.branches).unwrap_or_else(|error| {
-      debug!(error = %format!("{error:#}"), "no robot landings: nothing landed by content");
-      Vec::new()
-    });
-    for (key, request) in asked {
-      let branches = answers
-        .iter()
-        .find(|landing| landing.robot_id == request.robot_id)
-        .map_or_else(Vec::new, |landing| landing.branches.clone());
-      memo.landings.insert(key, branches);
+    match robot_landings_of_grouped(git_executor, repository_path, &table.prefix, &table.baseline, &requests, &table.branches) {
+      Ok(answers) => {
+        for (key, request) in asked {
+          let branches = answers
+            .iter()
+            .find(|landing| landing.robot_id == request.robot_id)
+            .map_or_else(Vec::new, |landing| landing.branches.clone());
+          memo.landings.insert(key, branches);
+        }
+      }
+      // nothing landed by content for this view; the next view asks again
+      Err(error) => debug!(error = %format!("{error:#}"), "no robot landings: nothing landed by content"),
     }
   }
   planned

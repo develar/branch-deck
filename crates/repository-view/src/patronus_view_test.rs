@@ -323,3 +323,30 @@ fn a_dry_run_lands_nothing() {
   assert_eq!((oauth.hold.clone(), oauth.span.clone()), (None, None));
   assert_eq!(oauth.dry_run, Some(StartRefusal::LastCommit { robot_id: "d".to_string() }));
 }
+
+/// A Safe Push of a stacked branch waits for a robot that lands an ancestor: of the ancestor itself, or of a side branch
+/// built on it, which lands it too; a dry run lands nothing, so nothing waits for it
+#[test]
+fn a_branch_waits_for_a_robot_that_lands_an_ancestor_not_for_a_dry_run() {
+  // runtime and side-fix are built on bazel, bazel on air
+  let table = table(&[
+    ("side-fix", Some("bazel"), &[("f1", "vf1")]),
+    ("runtime", Some("bazel"), &[("r1", "vr1")]),
+    ("bazel", Some("air"), &[("b1", "vb1")]),
+    ("air", None, &[("a1", "va1")]),
+  ]);
+  let view = view_of(&table, &[running("rt", "runtime", "vr1")]);
+  let side_fix = &view.branches["side-fix"];
+  assert_eq!(side_fix.landing_ancestor, Some(of("runtime", "rt")));
+  assert_eq!(side_fix.start, Some(StartRefusal::Ancestor { landing: of("runtime", "rt") }));
+  // its own robot lands nothing of its own ancestors twice: runtime waits for none
+  assert_eq!(view.branches["runtime"].landing_ancestor, None);
+
+  let view = view_of(&table, &[running("b", "bazel", "vb1")]);
+  assert_eq!(view.branches["runtime"].landing_ancestor, Some(of("bazel", "b")));
+  let dry = PatronusRobot {
+    push_mode: PatronusPushMode::DryRun,
+    ..running("b", "bazel", "vb1")
+  };
+  assert_eq!(view_of(&table, &[dry]).branches.get("runtime").and_then(|facts| facts.landing_ancestor.clone()), None);
+}

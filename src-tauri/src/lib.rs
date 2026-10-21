@@ -39,8 +39,8 @@ use commands::move_commits::move_commits_to_branch;
 use commands::parked_branches::{park_branches, unpark_branches};
 use commands::patronus::{
   PatronusState, cancel_patronus_robot, check_target_conflict, get_branch_review_readiness, get_patronus_failing_robots, get_patronus_robot_details, get_patronus_robot_problems,
-  get_patronus_robot_status, get_patronus_robots, get_patronus_start_options, get_patronus_target_branch, get_robot_commit_map, get_robot_failure, get_robot_landings,
-  get_robot_spans, poll_patronus_robots, post_patronus_command, read_patronus_command_reply, restart_patronus_robot, start_patronus_robot,
+  get_patronus_robot_status, get_patronus_robots, get_patronus_start_options, get_patronus_target_branch, get_robot_commit_map, get_robot_failure, poll_patronus_robots,
+  post_patronus_command, read_patronus_command_reply, restart_patronus_robot, start_patronus_robot,
 };
 use commands::pull_requests::{
   close_pull_request, create_pull_request, get_branch_rules, get_new_pull_request, get_new_stack_pull_request, get_pull_request_head, get_pull_requests,
@@ -134,8 +134,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
     get_patronus_robot_problems,
     get_robot_failure,
     get_robot_commit_map,
-    get_robot_landings,
-    get_robot_spans,
     get_repository_view,
     get_patronus_failing_robots,
     get_branch_review_readiness,

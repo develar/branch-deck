@@ -120,7 +120,7 @@ impl PushHolds {
   }
 }
 
-/// The holds of every synced branch: a merged Safe Push that landed all of it (`find_landed`), else its own robot started
+/// The holds of every synced branch: a merged Safe Push that landed all of it (`landed_branches`), else its own robot started
 /// on it, else the robot of the first branch built on it whose commit has commits of it, else the robot of its whole
 /// stack whose commit has. One robots request; nothing without Space, a token or an answer of Patronus.
 pub fn read_push_holds(context: &RepoContext, environment: &Environment, synced: &SyncOutput) -> PushHolds {

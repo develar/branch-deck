@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use sync_types::repository_view::{GetRepositoryViewParams, PatronusView, RepositoryView};
 use tracing::instrument;
 
-/// How many repositories and branch prefixes the views are kept for
+/// How many repositories and branch prefixes the app keeps the views of
 const KEPT: u64 = 32;
 
 /// The table a sync finished, numbered
@@ -30,15 +30,21 @@ pub struct RepositoryViews {
 
 impl Default for RepositoryViews {
   fn default() -> Self {
-    Self {
-      tables: Cache::new(KEPT),
-      memos: Cache::new(KEPT),
-      generation: Arc::new(AtomicU32::new(0)),
-    }
+    Self::with_capacity(KEPT)
   }
 }
 
 impl RepositoryViews {
+  /// Keeps the views of at most `repositories` repositories and branch prefixes: the E2E server keeps those of every
+  /// repository of a run, many more than the app opens
+  pub fn with_capacity(repositories: u64) -> Self {
+    Self {
+      tables: Cache::new(repositories),
+      memos: Cache::new(repositories),
+      generation: Arc::new(AtomicU32::new(0)),
+    }
+  }
+
   /// Keeps the table a sync of `repository_path` under `branch_prefix` finished
   pub fn keep(&self, repository_path: &str, branch_prefix: &str, table: BranchTable) {
     let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;

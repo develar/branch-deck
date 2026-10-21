@@ -833,8 +833,9 @@ test.describe("Whole stack", () => {
         const remoteTip = `remote-${event.data.branchName}`
         return { ...event, data: { ...event.data, remoteExists: true, remoteTip, unpushedCommits: [], myUnpushedCount: 0, commitsBehind: 0, fastForward: true } }
       }
-      // the robot runs on the stack branch as the sync built it
-      return event.type === "stackBranchUpdate" ? { ...event, data: { ...event.data, tip: "stack-tip" } } : event
+      // the robot runs on the stack branch as the remote has it, the commits the sync built
+      const remote = pushOutcome("auth", { remoteTip: "stack-tip" }).remoteStatus
+      return event.type === "stackBranchUpdate" ? { ...event, data: { ...event.data, remote } } : event
     })
     await syncAndWaitForBranches()
     const closes = await routeCommand(page, "close_pull_request", () => null)

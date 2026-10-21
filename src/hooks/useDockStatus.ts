@@ -5,7 +5,7 @@ import { setBadgeSource, setDockProgress } from "@/lib/dock"
 import { getRobotTiming } from "@/lib/robot-eta"
 import { countConflicts, getDockProgress, isFailingEntry } from "@/lib/robot-overview"
 import { useBranchSync } from "@/stores/branch-sync"
-import { getRobotEstimate } from "@/stores/patronus"
+import { getRobotEstimate, useRepositoryViewCurrent } from "@/stores/patronus"
 import { useReviewRequestCount } from "@/stores/review-requests"
 import { isMainWindow } from "@/stores/settings/app-store"
 import { useAppSettings } from "@/stores/settings/appSettings"
@@ -15,7 +15,9 @@ import { useAppSettings } from "@/stores/settings/appSettings"
  * without an estimate, none while nothing runs; a failing robot is not waited for), and a badge that adds up what needs
  * the user (the robots that failed on the branch as it is, "Needs review" too, the running robots that will fail, and
  * the conflicts of the last sync; never another running robot) and the pull
- * requests that wait for the user's review, each behind its switch in Settings. It renews with the relative times; the
+ * requests that wait for the user's review, each behind its switch in Settings. The robots' part waits for the
+ * repository view of the robots as they are (`useRepositoryViewCurrent`): a failure another robot lands asks for
+ * nothing, so no badge comes and goes before the view says it. It renews with the relative times; the
  * Tauri calls go out only on a change. While an update runs (`updateRunning`), the progress is the update's. Use it in a
  * component that renders nothing else.
  */
@@ -27,6 +29,7 @@ export function useDockStatus(updateRunning: boolean): void {
   const attentionBadge = useAppSettings(state => state.attentionBadge)
   const reviewBadge = useAppSettings(state => state.reviewBadge)
   const attention = attentionBadge ? overview.attention.length + overview.running.filter(isFailingEntry).length + conflicts : 0
+  const viewCurrent = useRepositoryViewCurrent()
   const reviewRequests = useReviewRequestCount()
   const reviews = reviewBadge ? reviewRequests : 0
 
@@ -38,10 +41,10 @@ export function useDockStatus(updateRunning: boolean): void {
     }
   }, [progress.status, percent, updateRunning])
   useEffect(() => {
-    if (isMainWindow) {
+    if (isMainWindow && viewCurrent) {
       void setBadgeSource("attention", attention)
     }
-  }, [attention])
+  }, [attention, viewCurrent])
   useEffect(() => {
     if (isMainWindow) {
       void setBadgeSource("reviewRequests", reviews)

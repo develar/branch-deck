@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { PatronusProfile, PatronusRobot, PatronusStartOptions, PullRequest } from "@/lib/bindings"
-import type { SafePushSlotInput } from "@/lib/patronus"
+import type { LandedBy, SafePushSlotInput } from "@/lib/patronus"
 import {
   allowsPushMode,
   canCancelRobot,
@@ -9,10 +9,6 @@ import {
   canStartStackRobot,
   describeRobot,
   findBranchRobot,
-  findLandedBy,
-  findLandingAncestor,
-  findLandingDescendants,
-  findLandingMember,
   findStackRobot,
   formatLandedReason,
   formatLandedWholeReason,
@@ -20,7 +16,6 @@ import {
   formatLandingReason,
   formatRobotSubject,
   findMergedRobots,
-  findPushHold,
   formatMergedRobotTitle,
   formatPatronusAvailabilityHint,
   formatSafePushLoginCommand,
@@ -37,14 +32,9 @@ import {
   getStartPush,
   isHoldingRobot,
   isStartBlocked,
-  landingKey,
-  landingRequestOf,
   needsRobotAttention,
-  robotSpanOf,
-  spanRequestOf,
 } from "@/lib/patronus"
-import { testLanding } from "@/lib/test-robot"
-import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
+import type { RemoteStatus } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
 import robotMatchCases from "@/test-support/robot-match-cases.json"
 
@@ -108,12 +98,8 @@ describe("the robot of the whole stack", () => {
     const span = { branch: "air", robot: wholeStack, wholeStack: true }
     expect(formatLandingReason("auth", span)).toBe("A Safe Push of the whole air stack is running: it lands auth with it")
     expect(canStartRobot(testBranch("auth", "air"), undefined, null, span)).toEqual({ ok: false, reason: "A Safe Push of the whole air stack is running: it lands auth with it" })
-    expect(findPushHold("auth", undefined, span)).toEqual({ kind: "span", branch: "air", robot: wholeStack, wholeStack: true })
 
-    const auth = robot({ id: "auth", branchName: "auth" })
-    const landing = findLandingMember(["air", "auth", "side"], name => (name === "auth" ? auth : undefined))
-    expect(landing).toEqual({ branch: "auth", robot: auth })
-    expect(findLandingMember(["air", "auth"], () => robot({ pushMode: "dryRun" }))).toBeNull()
+    const landing = { branch: "auth", robot: robot({ id: "auth", branchName: "auth" }) }
     expect(canStartStackRobot(null, undefined, "stack-tip", null, landing)).toEqual({ ok: false, reason: "A Safe Push of auth is running: wait until it merges" })
     // a dry run lands nothing: it waits only for the stack branch
     expect(canStartStackRobot(null, undefined, "stack-tip", null, landing, true)).toEqual({ ok: true })
@@ -326,100 +312,35 @@ describe("actions", () => {
     expect(getPullRequestStart("acme/monorepo", pullRequest, "rebaseAutosquash", null)?.number).toBe(8)
   })
 
-  it("waits for a robot that lands an ancestor of a stacked branch, not for a dry run of it", () => {
-    const robots: Record<string, PatronusRobot> = {
-      auth: robot({ status: "running", pushMode: "dryRun" }),
-      login: robot({ status: "running" }),
-    }
-    const landing = findLandingAncestor(["auth", "login"], name => robots[name])
-    expect(landing).toEqual({ branch: "login", robot: robots.login })
-    expect(findLandingAncestor(["auth"], name => robots[name])).toBeNull()
-    expect(findLandingAncestor(["login"], () => ({ ...robots.login!, status: "success" }))).toBeNull()
-    expect(canStartRobot(testBranch("oauth", "login"), undefined, landing)).toEqual({ ok: false, reason: "A Safe Push of login is running: wait until it merges" })
-  })
-
-  it("waits for a robot of a side branch that lands an ancestor: the branch would land its commits a second time", () => {
-    // runtime is built on bazel, side-fix too: the Safe Push of runtime lands air and bazel
-    const runtime = robot({ id: "runtime", branchName: "runtime", status: "running" })
-    const spans: Record<string, { branch: string; robot: PatronusRobot }> = { air: { branch: "runtime", robot: runtime }, bazel: { branch: "runtime", robot: runtime } }
-    const landing = findLandingAncestor(
-      ["air", "bazel"],
-      () => undefined,
-      name => spans[name],
-    )
-    expect(landing).toEqual({ branch: "runtime", robot: runtime })
-    expect(canStartRobot(testBranch("side-fix", "bazel"), undefined, landing)).toEqual({ ok: false, reason: "A Safe Push of runtime is running: wait until it merges" })
-  })
-
-  it("knows the ancestors a running robot of a stacked branch lands, and refuses their own Safe Push", () => {
-    const ancestors: Record<string, string[]> = { auth: [], login: ["auth"], oauth: ["auth", "login"], sso: ["auth"] }
-    const robots: Record<string, PatronusRobot> = {
-      oauth: robot({ id: "oauth", branchName: "oauth", status: "running" }),
-      // a dry run lands nothing, a finished robot neither
-      sso: robot({ id: "sso", branchName: "sso", status: "running", pushMode: "dryRun" }),
-      login: robot({ id: "login", branchName: "login", status: "failure" }),
-    }
-    const landed = findLandingDescendants(
-      ["auth", "login", "oauth", "sso"],
-      name => ancestors[name] ?? [],
-      name => robots[name],
-    )
-    expect([...landed.keys()]).toEqual(["auth", "login"])
-    const span = landed.get("login")!
-    expect(span).toEqual({ branch: "oauth", robot: robots.oauth })
-    expect(canStartRobot(testBranch("login", "auth"), robots.login, null, span)).toEqual({ ok: false, reason: "A Safe Push of oauth is running: it lands login with it" })
-  })
-
   it("cancels a running robot only", () => {
     expect(canCancelRobot(robot({ status: "running" }))).toBe(true)
     expect(canCancelRobot(robot({ status: "canceling" }))).toBe(false)
   })
 
-  it("holds the push of a branch whose Safe Push runs, or that a running Safe Push of a branch built on it lands; not for a dry run or a cancel", () => {
+  it("says why a held branch offers no push: its own Safe Push, one that lands it with the commits it counts; a dry run or a cancel holds nothing", () => {
     const running = robot({ status: "running" })
     expect(isHoldingRobot(running)).toBe(true)
     expect(isHoldingRobot(robot({ status: "running", pushMode: "dryRun" }))).toBe(false)
     expect(isHoldingRobot(robot({ status: "canceling" }))).toBe(false)
     expect(isHoldingRobot(robot({ status: "failure" }))).toBe(false)
-    const own = findPushHold("IJPL-1", running, null)
-    expect(own).toEqual({ kind: "own", branch: "IJPL-1", robot: running })
-    expect(formatPushHoldReason("IJPL-1", own!)).toBe("A Safe Push of IJPL-1 is running: wait until it merges, or restart it on the current branch")
-    // a Safe Push of a temporary ref is not on the branch: a push leaves it as it is
-    expect(findPushHold("IJPL-1", robot({ status: "running", branchName: null }), null)).toBeNull()
+    expect(formatPushHoldReason("IJPL-1", { kind: "own", branch: "IJPL-1", robot: running })).toBe(
+      "A Safe Push of IJPL-1 is running: wait until it merges, or restart it on the current branch",
+    )
     const oauth = robot({ id: "oauth", branchName: "oauth", status: "running" })
-    const span = findPushHold("auth", undefined, { branch: "oauth", robot: oauth })
-    expect(span).toEqual({ kind: "span", branch: "oauth", robot: oauth })
-    expect(formatPushHoldReason("auth", span!)).toBe("A Safe Push of oauth is running: it lands auth with it")
+    expect(formatPushHoldReason("auth", { kind: "span", branch: "oauth", robot: oauth })).toBe("A Safe Push of oauth is running: it lands auth with it")
     // once the number of its commits the robot lands is told, the reason names it, as `bd` does
-    const counted = findPushHold("auth", undefined, { branch: "oauth", robot: oauth, commits: 2 })
-    expect(counted).toEqual({ kind: "span", branch: "oauth", robot: oauth, commits: 2 })
-    expect(formatPushHoldReason("auth", counted!)).toBe("A Safe Push of oauth is running: it lands 2 commits of auth with it")
+    expect(formatPushHoldReason("auth", { kind: "span", branch: "oauth", robot: oauth, commits: 2 })).toBe("A Safe Push of oauth is running: it lands 2 commits of auth with it")
     expect(formatLandingReason("auth", { branch: "oauth", robot: oauth, commits: 1 })).toBe("A Safe Push of oauth is running: it lands 1 commit of auth with it")
-    expect(findPushHold("auth", undefined, { branch: "oauth", robot: { ...oauth, status: "canceling" } })).toBeNull()
-    // its own robot first
-    expect(findPushHold("IJPL-1", running, { branch: "oauth", robot: oauth })?.kind).toBe("own")
   })
 
-  it("holds the push of a branch a merged Safe Push landed, before a robot of its own", () => {
+  it("says why a branch a merged Safe Push landed offers no push: who landed it, its own robot as the merge", () => {
     const oauth = robot({ id: "oauth", branchName: "oauth", status: "success", finishTime: 200 })
-    const landed = findPushHold(
-      "auth",
-      robot({ status: "running", branchName: "auth" }),
-      { branch: "login", robot: robot({ id: "login", branchName: "login" }) },
-      { branch: "oauth", robot: oauth, after: [] },
-    )
-    expect(landed).toEqual({ kind: "landed", branch: "oauth", robot: oauth })
-    expect(formatPushHoldReason("auth", landed!)).toBe("Landed in master with oauth: nothing of it is left to push")
+    expect(formatPushHoldReason("auth", { kind: "landed", branch: "oauth", robot: oauth })).toBe("Landed in master with oauth: nothing of it is left to push")
     const whole = robot({ id: "whole", branchName: null, stackRoot: "air", status: "success" })
-    const member = findPushHold("bazel", undefined, null, { branch: "air", robot: whole, wholeStack: true, after: [] })
-    expect(member).toEqual({ kind: "landed", branch: "air", robot: whole, wholeStack: true })
-    expect(formatPushHoldReason("bazel", member!)).toBe("Landed in master with the whole air stack: nothing of it is left to push")
-    // its own merged robot landed all of it: its push is held too
-    const own = findPushHold("oauth", oauth, null, { branch: "oauth", robot: oauth, own: true, after: [] })
-    expect(own).toEqual({ kind: "landed", branch: "oauth", robot: oauth })
-    expect(formatPushHoldReason("oauth", own!)).toBe("Merged by Patronus: nothing of it is left to push")
-    // a commit added after the landed ones is work for the remote: no hold
-    expect(findPushHold("auth", undefined, null, { branch: "oauth", robot: oauth, after: ["auth-2"] })).toBeNull()
+    expect(formatPushHoldReason("bazel", { kind: "landed", branch: "air", robot: whole, wholeStack: true })).toBe(
+      "Landed in master with the whole air stack: nothing of it is left to push",
+    )
+    expect(formatPushHoldReason("oauth", { kind: "landed", branch: "oauth", robot: oauth })).toBe("Merged by Patronus: nothing of it is left to push")
   })
 
   it("blocks a start while a robot runs on the commit the branch is at", () => {
@@ -609,186 +530,35 @@ describe("getRowRobot", () => {
   })
 })
 
-describe("findLandedBy", () => {
-  /** A branch of the stack whose newest commit is `<name>-tip`, older ones `<name>-1`, … */
-  function branch(name: string, parent: string | null, patch: Partial<Branch> = {}): Branch {
-    return testBranch(name, parent, { commits: [{ hash: `${name}-tip` } as Branch["commits"][number]], ...patch })
-  }
-  const auth = branch("auth", null)
-  const login = branch("login", "auth")
-  const oauth = branch("oauth", "login")
-  const session = branch("session", "auth")
-  const stack = { root: "auth", members: ["auth", "login", "oauth", "session"], tip: "stack-tip", remoteStatus: null } as unknown as StackBranch
-
-  function landedBy(robots: PatronusRobot[], branches: Branch[] = [auth, login, oauth, session], stacks: Record<string, StackBranch> = { auth: stack }) {
-    const byName = Object.fromEntries(branches.map(it => [it.name, it]))
-    const landed = findLandedBy(byId(...robots), { branchOf: name => byName[name], stackOf: root => stacks[root] })
-    return Object.fromEntries([...landed].map(([name, by]) => [name, formatLandedWith(by)]))
-  }
-
-  it("knows the ancestors a merged piece carried and every branch a merged whole stack landed, and names who landed them", () => {
-    const piece = robot({ id: "oauth", branchName: "oauth", sourceRevision: "oauth-tip", status: "success", finishTime: 200 })
-    // its own branch landed too, its row shows its own robot ("Merged"): no label
-    expect(landedBy([piece])).toEqual({ auth: "Landed with oauth", login: "Landed with oauth", oauth: null })
-    const whole = robot({ id: "whole", branchName: null, stackRoot: "auth", sourceRevision: "stack-tip", status: "success", finishTime: 300 })
-    expect(landedBy([whole])).toEqual({
-      auth: "Landed with the whole auth stack",
-      login: "Landed with the whole auth stack",
-      oauth: "Landed with the whole auth stack",
-      session: "Landed with the whole auth stack",
-    })
-    // the first merge landed it
-    expect(landedBy([whole, piece])).toMatchObject({ auth: "Landed with oauth", oauth: null, session: "Landed with the whole auth stack" })
-    const [first] = findLandedBy(byId(piece), { branchOf: name => ({ auth, login, oauth })[name], stackOf: () => undefined }).values()
-    expect(formatLandedReason(first!)).toBe("Landed in master with oauth")
-  })
-
-  it("keeps the ancestors landed while the branch has the commit the robot took: rebuilt on a newer baseline, or with new commits on it", () => {
-    const piece = robot({ id: "oauth", branchName: "oauth", sourceRevision: "oauth-pushed", status: "success", finishTime: 200 })
-    // the remote branch is at the robot's commit and has what the branch has: a sync rebuilt the same commits since
-    const rebuilt = branch("oauth", "login", { remoteStatus: testRemoteStatus({ remoteTip: "oauth-pushed" }) })
-    expect(landedBy([piece], [auth, login, rebuilt])).toEqual({ auth: "Landed with oauth", login: "Landed with oauth", oauth: null })
-    // a commit on top of the one the robot took: the copies below it are the ones it landed, the new one is left
-    const grown = branch("oauth", "login", {
-      commits: [
-        { hash: "oauth-new", originalHash: "new" },
-        { hash: "oauth-pushed", originalHash: "pushed" },
-      ] as unknown as Branch["commits"],
-    })
-    expect(landedBy([piece], [auth, login, grown])).toEqual({ auth: "Landed with oauth", login: "Landed with oauth", oauth: "Landed · 1 commit after it" })
-  })
-
-  it("decides by content once a change below the robot's commit gave the branches new copies: a commit added after the landed ones is the only work left", () => {
-    const piece = robot({ id: "oauth", branchName: "oauth", sourceRevision: "oauth-old", status: "success", finishTime: 200 })
-    const branches = [auth, login, oauth]
-    const byName = Object.fromEntries(branches.map(it => [it.name, it]))
-    const source = { branchOf: (name: string) => byName[name], stackOf: () => undefined }
-    // the hashes don't tell: the content is asked, for the branches as the table has them
-    const request = landingRequestOf(piece, source)
-    expect(request).toEqual({ robotId: "oauth", branchName: "oauth", stackRoot: null, sourceRevision: "oauth-old", branches: ["auth", "login", "oauth"], tip: null })
-    expect(findLandedBy(byId(piece), source).size).toBe(0)
-    // auth got a commit after the landed one, which rebuilt login and oauth with the same changes
-    const landing = testLanding("oauth", { auth: ["auth-2"], login: [], oauth: [] })
-    const answered = { ...source, landings: { [landingKey(request!, source)]: landing } }
-    const landed = findLandedBy(byId(piece), answered)
-    expect(Object.fromEntries([...landed].map(([name, by]) => [name, formatLandedWith(by)]))).toEqual({
-      auth: "Landed with oauth · 1 commit after it",
-      login: "Landed with oauth",
-      oauth: null,
-    })
-    expect(landed.get("oauth")).toMatchObject({ own: true, after: [] })
-    // an answer for another state of the branches is not this one's
-    const amended: Record<string, Branch> = { ...byName, auth: branch("auth", null, { commits: [{ hash: "auth-amended" } as Branch["commits"][number]] }) }
-    expect(findLandedBy(byId(piece), { ...answered, branchOf: name => amended[name] }).size).toBe(0)
-    // the hashes tell: nothing is asked
-    expect(landingRequestOf({ ...piece, sourceRevision: "oauth-tip" }, source)).toBeNull()
-  })
-
-  it("asks what a running robot lands by content once a restack below its branch gave the branches new copies, and holds only what its commit has", () => {
-    // env was placed below auth after the Safe Push of oauth started: auth, login and oauth are new copies
-    const env = branch("env", null)
-    const restacked = [env, branch("auth", "env", { commits: [{ hash: "auth-copy", originalHash: "auth-original" } as Branch["commits"][number]] }), login, oauth]
-    const byName = Object.fromEntries(restacked.map(it => [it.name, it]))
-    const source = { branchOf: (name: string) => byName[name], stackOf: () => undefined }
-    const running = robot({ id: "oauth", branchName: "oauth", sourceRevision: "oauth-old" })
-    const candidates = ["env", "auth", "login"]
-    const request = spanRequestOf(running, "oauth", source)
-    expect(request).toEqual({ robotId: "oauth", branchName: "oauth", stackRoot: null, sourceRevision: "oauth-old", branches: ["env", "auth", "login", "oauth"], tip: null })
-    // until the content tells: the stack as it is now, the numbers not known
-    expect(robotSpanOf(running, "oauth", candidates, source)).toEqual({ names: candidates, counts: null })
-    const told = {
-      ...source,
-      spans: {
-        [landingKey(request!, source)]: {
-          robotId: "oauth",
-          branches: [
-            { branch: "auth", commits: ["auth-original"], amended: [] },
-            { branch: "login", commits: ["login-tip"], amended: [] },
-            { branch: "oauth", commits: ["oauth-tip"], amended: [] },
-          ],
-        },
-      },
-    }
-    expect(robotSpanOf(running, "oauth", candidates, told)).toEqual({
-      names: ["auth", "login"],
-      counts: new Map([
-        ["auth", 1],
-        ["login", 1],
-        ["oauth", 1],
-      ]),
-    })
-    // the repository can't tell (the robot's commit is missing): the stack as it is now
-    expect(robotSpanOf(running, "oauth", candidates, { ...source, spans: { [landingKey(request!, source)]: { robotId: "oauth", branches: null } } }).names).toEqual(candidates)
-    // the hashes tell: nothing is asked, every candidate with all its commits
-    const atTip = { ...running, sourceRevision: "oauth-tip" }
-    expect(spanRequestOf(atTip, "oauth", source)).toBeNull()
-    expect(robotSpanOf(atTip, "oauth", candidates, source).counts?.get("auth")).toBe(1)
-    // a robot of a temporary ref at the pushed tip of the branch it was matched to is asked for that branch
-    expect(spanRequestOf({ ...running, branchName: null }, "oauth", source)?.branchName).toBe("oauth")
-    // a dry run lands nothing, a root lands only itself, a merged robot is no running one
-    expect(spanRequestOf({ ...running, pushMode: "dryRun" }, "oauth", source)).toBeNull()
-    expect(spanRequestOf({ ...running, branchName: "env" }, "env", source)).toBeNull()
-    expect(spanRequestOf({ ...running, status: "success", finishTime: 200 }, "oauth", source)).toBeNull()
-  })
-
-  it("takes the landing that left the fewest commits after a branch, of equals the first merge", () => {
-    const piece = robot({ id: "oauth", branchName: "oauth", sourceRevision: "oauth-old", status: "success", finishTime: 100 })
-    const own = robot({ id: "auth", branchName: "auth", sourceRevision: "auth-tip", status: "success", finishTime: 300 })
-    const byName: Record<string, Branch> = { auth, login, oauth }
-    const source = { branchOf: (name: string) => byName[name], stackOf: () => undefined }
-    const request = landingRequestOf(piece, source)!
-    const landing = {
-      robotId: "oauth",
-      branches: [
-        { branch: "auth", landed: ["auth-1"], after: ["auth-2"] },
-        { branch: "login", landed: ["login-1"], after: [] },
-      ],
-    }
-    const landed = findLandedBy(byId(piece, own), { ...source, landings: { [landingKey(request, source)]: landing } })
-    // the later Safe Push of auth landed all of it, the earlier one of oauth only its older commit
-    expect(landed.get("auth")).toMatchObject({ branch: "auth", own: true, after: [] })
-    expect(landed.get("login")).toMatchObject({ branch: "oauth", after: [] })
+describe("formatLandedWholeReason", () => {
+  it("names who landed a branch in its row and why it starts nothing: a branch built on it, the whole stack, its own robot with the work left", () => {
+    const piece = robot({ id: "oauth", branchName: "oauth", status: "success", finishTime: 200 })
+    const whole = robot({ id: "whole", branchName: null, stackRoot: "auth", status: "success", finishTime: 300 })
+    expect(formatLandedWith({ branch: "oauth", robot: piece, after: [] })).toBe("Landed with oauth")
+    expect(formatLandedWith({ branch: "oauth", robot: piece, after: ["new"] })).toBe("Landed with oauth · 1 commit after it")
+    expect(formatLandedWith({ branch: "auth", robot: whole, wholeStack: true, after: [] })).toBe("Landed with the whole auth stack")
+    // its own robot: its row shows the robot ("Merged"), only the work left is said
+    expect(formatLandedWith({ branch: "oauth", robot: piece, own: true, after: [] })).toBeNull()
+    expect(formatLandedWith({ branch: "oauth", robot: piece, own: true, after: ["new"] })).toBe("Landed · 1 commit after it")
+    expect(formatLandedReason({ branch: "oauth", robot: piece })).toBe("Landed in master with oauth")
+    expect(formatLandedReason({ branch: "oauth", robot: piece, own: true })).toBe("Merged by Patronus")
   })
 
   it("says why a group of branches has nothing left once every one of them landed whole: who landed them, in the order they merged", () => {
-    const piece = robot({ id: "oauth", branchName: "oauth", sourceRevision: "oauth-tip", status: "success", finishTime: 200 })
-    const side = robot({ id: "session", branchName: "session", sourceRevision: "session-tip", status: "success", finishTime: 100 })
-    const whole = robot({ id: "whole", branchName: null, stackRoot: "auth", sourceRevision: "stack-tip", status: "success", finishTime: 300 })
-    const source = { branchOf: (name: string) => ({ auth, login, oauth, session })[name], stackOf: () => stack }
-    const reasonOf = (robots: PatronusRobot[], names = ["auth", "login", "oauth", "session"]) => {
-      const landed = findLandedBy(byId(...robots), source)
-      return formatLandedWholeReason(
-        names.map(name => landed.get(name)),
-        "auth",
-      )
-    }
+    const piece = robot({ id: "oauth", branchName: "oauth", status: "success", finishTime: 200 })
+    const side = robot({ id: "session", branchName: "session", status: "success", finishTime: 100 })
+    const whole = robot({ id: "whole", branchName: null, stackRoot: "auth", status: "success", finishTime: 300 })
+    const by = (landing: PatronusRobot, branch: string, patch: Partial<LandedBy> = {}): LandedBy => ({ branch, robot: landing, after: [], ...patch })
     // session merged first, then oauth: each named once, in that order
-    expect(reasonOf([piece, side])).toBe("Landed in master with session and oauth")
+    expect(formatLandedWholeReason([by(piece, "oauth"), by(piece, "oauth"), by(piece, "oauth", { own: true }), by(side, "session", { own: true })], "auth")).toBe(
+      "Landed in master with session and oauth",
+    )
     // the robot of the whole stack alone: its own merge
-    expect(reasonOf([whole])).toBe("Merged by Patronus")
-    expect(reasonOf([whole], ["login", "oauth"])).toBe("Merged by Patronus")
+    expect(formatLandedWholeReason([by(whole, "auth", { wholeStack: true }), by(whole, "auth", { wholeStack: true })], "auth")).toBe("Merged by Patronus")
     // a branch left, one with commits after the landed ones, or no branch: nothing to say
-    expect(reasonOf([piece])).toBeNull()
-    const grown = branch("oauth", "login", {
-      commits: [
-        { hash: "oauth-new", originalHash: "new" },
-        { hash: "oauth-tip", originalHash: "tip" },
-      ] as unknown as Branch["commits"],
-    })
-    const landed = findLandedBy(byId(piece, side), { ...source, branchOf: name => ({ auth, login, oauth: grown, session })[name] })
-    expect(formatLandedWholeReason([landed.get("auth"), landed.get("oauth")], "auth")).toBeNull()
+    expect(formatLandedWholeReason([by(piece, "oauth"), undefined], "auth")).toBeNull()
+    expect(formatLandedWholeReason([by(piece, "oauth"), by(piece, "oauth", { after: ["new"] })], "auth")).toBeNull()
     expect(formatLandedWholeReason([], "auth")).toBeNull()
-  })
-
-  it("lands nothing for a dry run, a robot that didn't merge, one of another state of the branch, or of a temporary ref", () => {
-    const merged = { status: "success" as const, finishTime: 200 }
-    expect(landedBy([robot({ id: "dry", branchName: "oauth", sourceRevision: "oauth-tip", pushMode: "dryRun", ...merged })])).toEqual({})
-    expect(landedBy([robot({ id: "running", branchName: "oauth", sourceRevision: "oauth-tip" })])).toEqual({})
-    expect(landedBy([robot({ id: "failed", branchName: "oauth", sourceRevision: "oauth-tip", status: "failure" })])).toEqual({})
-    // an amend since: the robot landed other commits than the table has
-    expect(landedBy([robot({ id: "older", branchName: "oauth", sourceRevision: "oauth-older", ...merged })])).toEqual({})
-    expect(landedBy([robot({ id: "stale", branchName: null, stackRoot: "auth", sourceRevision: "stack-older", ...merged })])).toEqual({})
-    expect(landedBy([robot({ id: "ref", branchName: null, sourceRevision: "oauth-tip", ...merged })])).toEqual({})
   })
 })
 

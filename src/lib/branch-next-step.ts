@@ -117,8 +117,8 @@ export interface NextStepFacts {
   /** The same for a dry run, which may run while a robot lands an ancestor */
   readonly dryRunStartBlocker: string | null
   /**
-   * A running Safe Push of another branch lands a part of this one: of a branch it is built on (`findLandingAncestor`),
-   * or for the whole stack of a branch of it (`findLandingMember`). The robot of the row is of an earlier piece: its
+   * A running Safe Push of another branch lands a part of this one: of a branch it is built on (`getLandingAncestor`),
+   * or for the whole stack of a branch of it (`getStackLandingMember`). The robot of the row is of an earlier piece: its
    * failure waits for that robot, no restart (two robots would land the same commits); null while none runs
    */
   readonly landingPart: LandingAncestor | null

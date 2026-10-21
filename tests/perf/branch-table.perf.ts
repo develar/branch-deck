@@ -18,7 +18,7 @@
 // page spends on the events of a sync and what they derive, the hold and landing rule of the robots included:
 // - firstSyncScriptMs / firstSyncTaskMs: the script time and the task time of the first sync, until its rows and chips;
 // - resyncScriptMs / resyncTaskMs: the same of a sync that changes nothing;
-// - robotIpc: the requests of the robots' content (`get_robot_*`, `get_repository_view`) during both syncs.
+// - robotIpc: the requests of the repository view (`get_repository_view`) during both syncs.
 import { mkdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import type { CDPSession, Page } from "@playwright/test"
@@ -89,6 +89,9 @@ interface SyncMetrics {
   robotIpc: number
 }
 
+/** The runs of the main thread of a sync, a test each */
+const syncRuns: SyncMetrics[] = []
+
 /** The script and task time of the page so far, ms (`Performance.getMetrics`: seconds) */
 async function mainThreadMs(cdp: CDPSession): Promise<{ script: number; task: number }> {
   const { metrics } = await cdp.send("Performance.getMetrics")
@@ -111,6 +114,15 @@ test.describe.configure({ mode: "serial" })
 
 test.describe("Branch table performance", () => {
   test.afterAll(() => {
+    if (syncRuns.length > 0) {
+      results["sync main thread"] = {
+        firstSyncScriptMs: median(syncRuns.map(run => run.firstSyncScriptMs)),
+        firstSyncTaskMs: median(syncRuns.map(run => run.firstSyncTaskMs)),
+        resyncScriptMs: median(syncRuns.map(run => run.resyncScriptMs)),
+        resyncTaskMs: median(syncRuns.map(run => run.resyncTaskMs)),
+        robotIpc: median(syncRuns.map(run => run.robotIpc)),
+      }
+    }
     console.table(results)
     const directory = path.join("tests", "results", "perf")
     mkdirSync(directory, { recursive: true })
@@ -145,21 +157,22 @@ test.describe("Branch table performance", () => {
     }
   })
 
-  test("the main thread of a sync of 141 rows with robots running on ten of them", async ({ page, setupRepo, browserName }) => {
-    test.skip(browserName !== "chromium", "the CDP metrics are Chromium's")
-    test.setTimeout(10 * 60_000)
-    await page.setViewportSize({ width: 1516, height: 900 })
-    const cdp = await page.context().newCDPSession(page)
-    await cdp.send("Performance.enable")
-    let robotIpc = 0
-    page.on("request", request => {
-      if (/\/invoke\/(get_robot_landings|get_robot_spans|get_repository_view)$/.test(request.url())) {
-        robotIpc++
-      }
-    })
-    const runs: SyncMetrics[] = []
-    for (let run = 0; run < RUNS; run++) {
+  // a page per run: the setup of a repository keeps the page and the rows of the run before, and a sync onto them is no
+  // first sync
+  for (let run = 1; run <= RUNS; run++) {
+    test(`the main thread of a sync of 141 rows with robots running on ten of them, run ${run}`, async ({ page, setupRepo, browserName }) => {
+      test.skip(browserName !== "chromium", "the CDP metrics are Chromium's")
+      await page.setViewportSize({ width: 1516, height: 900 })
+      const cdp = await page.context().newCDPSession(page)
+      await cdp.send("Performance.enable")
+      let robotIpc = 0
+      page.on("request", request => {
+        if (request.url().endsWith("/invoke/get_repository_view")) {
+          robotIpc++
+        }
+      })
       await setupRepo("branch_table_large", { patronus: availableRobots(...ROBOTS) })
+      await expect(page.getByTestId("branch-row")).toHaveCount(0)
       robotIpc = 0
       const first = await timeMainThread(cdp, async () => {
         await syncBranches(page)
@@ -167,14 +180,7 @@ test.describe("Branch table performance", () => {
         await expect(page.getByTestId("patronus-chip")).toHaveCount(ROBOTS.length)
       })
       const resync = await timeMainThread(cdp, () => runAndWaitForSync(page, () => page.getByTestId("sync-button").click()))
-      runs.push({ firstSyncScriptMs: first.script, firstSyncTaskMs: first.task, resyncScriptMs: resync.script, resyncTaskMs: resync.task, robotIpc })
-    }
-    results["sync main thread"] = {
-      firstSyncScriptMs: median(runs.map(run => run.firstSyncScriptMs)),
-      firstSyncTaskMs: median(runs.map(run => run.firstSyncTaskMs)),
-      resyncScriptMs: median(runs.map(run => run.resyncScriptMs)),
-      resyncTaskMs: median(runs.map(run => run.resyncTaskMs)),
-      robotIpc: median(runs.map(run => run.robotIpc)),
-    }
-  })
+      syncRuns.push({ firstSyncScriptMs: first.script, firstSyncTaskMs: first.task, resyncScriptMs: resync.script, resyncTaskMs: resync.task, robotIpc })
+    })
+  }
 })

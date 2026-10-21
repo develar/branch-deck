@@ -28,17 +28,6 @@ pub struct RobotLandingRequest {
   pub tip: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase")]
-pub struct GetRobotLandingsParams {
-  pub repository_path: String,
-  pub branch_prefix: String,
-  /// As the sync detected it, e.g. `origin/master`
-  pub baseline_branch: String,
-  pub robots: Vec<RobotLandingRequest>,
-}
-
 /// What a merged robot landed: the branches of its request whose commits it tested, each with the commits added after
 /// them; a branch it didn't land (a commit of it changed since, none of it tested) is not listed
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -61,7 +61,9 @@ the [Landing Overview](landing-overview.spec.md) in the order the Dock picks its
   requests that wait for the user's review ("Count review requests", `reviewBadge`,
   [Review Requests](review-requests.spec.md#badge)); both switches are in Settings → Notifications, on by default. Each source sets its
   count (`setBadgeSource` in `src/lib/dock.ts`, the only `setBadgeCount` caller), the badge shows their sum. Never a
-  running robot otherwise; no badge at 0. Windows has no badge count: it is left out there, and so is the Dock group of Settings → Notifications.
+  running robot otherwise; no badge at 0. The count of the robots waits for the repository view of the robots as they
+  are (`useRepositoryViewCurrent`): what another robot holds or landed is known only then, so no badge comes and goes
+  before it. Windows has no badge count: it is left out there, and so is the Dock group of Settings → Notifications.
   [@test] ../../src/lib/robot-overview.test.ts (`counts the conflicts of the last sync for the badge`)
   [@test] ../../src/lib/robot-overview.test.ts (`lists the robot of the whole stack as the whole stack after the branches, on its stack branch as it is, a click showing the root, its failure on one not built as finished`, `asks nothing for the failure of a branch another robot holds, lands a part of or landed, or the baseline has: it is finished history`)
   [@test] ../../src/lib/dock.test.ts (`shows the sum of its sources, set only on a change, none at 0`)

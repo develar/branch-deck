@@ -2586,26 +2586,23 @@ The same phases run once per tip of that branch, never during a sync.
 #### Robot landing
 
 Read-only. What a merged robot landed of the branches as the table has them ([Landing](landing.md), "Landed by
-content"), for the rows of the app (`get_robot_landings`) and for `bd status`, `bd push` and `bd safe-push`
-(`crates/bd-remote/src/landed.rs`): `robot_landings` (`crates/sync-core/src/robot_landing.rs`), the phases of the robot
-commit map for many robots at once.
+content"), asked by the repository view (below) for the robots the hashes don't answer: `robot_landings_of_grouped`
+(`crates/sync-core/src/robot_landing.rs`), the phases of the robot commit map for many robots at once.
 
-1. The commits of the branches on HEAD as the sync groups them (phase 2 above), read once for every robot; `bd` passes
-   the grouped branches it read already (`robot_landings_of_grouped`: the report of its sync, the grouping of `bd
-   status`), so this phase runs no process there.
-2. One `cat-file --batch-check` of every robot's source revision and of the ref it ran on (the virtual branch, or the
-   stack branch of the whole stack), but of a robot whose ref the caller knows at its commit (`RobotLandingRequest::
-   tip`: `bd`, from its sync or the listing of `bd status`): a source the repository lacks lands nothing, a ref at the source needs no walk. At the
-   source every HEAD commit the sync built into the ref landed (its mapping note names its copy); one without a note
-   was made since.
+1. The commits of the branches as the sync groups them: the caller passes the grouped branches of its table, so this
+   phase runs no process.
+2. One `cat-file --batch-check` of every robot's source revision and of the tip it ran on: the tip the caller's table
+   has (`RobotLandingRequest::tip`), not the ref, which a sync may move meanwhile, so the answer is of that source and
+   that tip each time; a source the repository lacks lands nothing, a tip at the source needs no walk. At the source
+   every commit the sync built into the ref landed (its mapping note names its copy); one without a note was made
+   since.
 3. Per other robot the two walks of phase 3 above (`SourceWalk`), and one `same_changes` (one `diff-tree --stdin -p -U0`
    and one `patch-id --stable`) of the pairs of every robot, none without such pairs.
 4. No process: each HEAD commit takes the state of the commit of the ref with its identity (`CommitKey`), and a branch
    landed when its oldest commits are `tested` or `rebased` and the rest only `added` (or not in the ref yet): those
    are after it, the work left. A `changed` commit, or an added one below a tested one, leaves the branch not landed.
 
-The app asks only for a robot whose hashes don't tell (its commit is not a commit of its branch as the table has it,
-nor the stack branch as it is), once per state of the branches (`landingKey`), never while a sync runs.
+The repository view asks only for a robot whose hashes don't tell, once per state of the branches (`ContentMemo`).
 
 #### Robot span
 
@@ -2647,6 +2644,12 @@ copies): a view of the same state asks no git again. A git error is an answer of
 landed nothing, a running one lands what the stack as it is now says. `patronus_view_content_test.rs` pins the
 processes: none for a robot at its tip or under new commits, one `cat-file --batch-check` and two `rev-list` after a
 restack, none for the same state again.
+
+The page asks (`askRepositoryView` in `src/stores/patronus.ts`) only when an input changed: the robots (their record,
+which a poll that changed nothing keeps), the matches, the remote facts, or what the last sync read (the fingerprint of
+its inputs, `syncedInputs`: a sync of the same inputs left the same table, so it asks nothing). During a sync only a
+change of the robots asks, from the table of the sync before. An answer equal to the view the page has changes no
+store, so no row reads it again.
 
 ### Index policy
 

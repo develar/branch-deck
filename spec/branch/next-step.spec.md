@@ -96,7 +96,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   [@test] ../../src/lib/pull-request.test.ts (`waits for the reviewers asked and not approving since, bots left out; a re-requested approval waits for nobody`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner the pull request asks, never offer a Safe Push that fails, and say why on S`, `should offer Safe Push once the code owner approved, name whose approval counts, and start it from the pull request with a click`, `should keep Safe Push while Patronus doesn't tell whose approvals count, and say so before it starts`, `should offer Create Pull Request… with the code owner when approvals count only in one`, `should create the pull request of a branch not on the remote yet: Create pushes it, Cancel pushes nothing, the move made from the click`, `should retarget a pull request into the branch of a parent that landed, whose approvals don't count`, `should retarget a pull request into the virtual branch of a branch in the table, as a parent's, whose approvals don't count`, `should retarget the pull request of a stacked branch into its parent's branch from its slot, whose approvals don't count`, `should open a pull request into another base that may be meant, and keep its retarget in the menu`, `should offer nothing after a merge, and say so in the menu`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not offer a Safe Push of a draft pull request: its step opens it, a dry run runs`, `should offer no Safe Push of a branch whose pull request merged`)
-- Row 1 also holds a branch that a merged Safe Push (not a Dry Run) landed whole (`getLandedBy`, `findLandedBy`,
+- Row 1 also holds a branch that a merged Safe Push (not a Dry Run) landed whole (`getLandedBy`, the `landedBy` of the repository view,
   `NextStepFacts.landedWith`): the branch it ran on itself, an ancestor the Safe Push of a branch built on it carried,
   and every branch of a stack whose Safe Push of the whole stack ran on the stack branch, the same conditions under
   which the merge closes their pull requests ([Patronus](patronus.spec.md#merged)). Also a robot first seen merged
@@ -104,8 +104,8 @@ branch from all the facts (the branch, its robots, its pull request and the read
   branch as the table has it (its tip, the same commits rebuilt on a newer baseline, or a commit the branch built new
   ones on since) or on the stack branch as it is; after a change below that commit (a new commit or an amend of a
   branch it is built on, a reword, for the whole stack any change of a branch of it, which rebuilds the stack branch)
-  by content: the commits the robot tested against each branch as the table has it (`get_robot_landings`, asked once
-  per state of the branches, never while a sync runs; [Patronus](patronus.spec.md#merged)). Until the update archives
+  by content: the commits the robot tested against each branch as the table has it (the repository view, asked once
+  per state of the branches; [Patronus](patronus.spec.md#merged)). Until the update archives
   the branch (the fetched baseline then says "Landed in origin/master" first), its Status cell names who landed it,
   "landed" with "Landed with oauth" ("Landed with the whole air stack"), its hover when it merged and a click the robot
   in Patronus; the preview shows it too; the branch the robot ran on keeps its robot, "Merged". Its Safe Push and Dry
@@ -114,8 +114,10 @@ branch from all the facts (the branch, its robots, its pull request and the read
   ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)). A branch built on a landed one lands
   without it: "Safe Push" where it said "Safe Push · 2" (`getLandingBranchCount`), its popover not naming it.
   [@test] ../../src/lib/branch-next-step.test.ts (`row 1: a branch a merged Safe Push of a branch built on it or of the whole stack landed offers nothing, its Safe Push and Dry Run say who landed it`)
-  [@test] ../../src/lib/patronus.test.ts (`knows the ancestors a merged piece carried and every branch a merged whole stack landed, and names who landed them`, `keeps the ancestors landed while the branch has the commit the robot took: rebuilt on a newer baseline, or with new commits on it`, `lands nothing for a dry run, a robot that didn't merge, one of another state of the branch, or of a temporary ref`, `decides by content once a change below the robot's commit gave the branches new copies: a commit added after the landed ones is the only work left`, `takes the landing that left the fewest commits after a branch, of equals the first merge`)
-  [@test] ../../src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`, `asks what a merged robot landed by content once a change below its commit gave the branches new copies, once per state of them`)
+  [@test] ../../src/lib/patronus.test.ts (`names who landed a branch in its row and why it starts nothing: a branch built on it, the whole stack, its own robot with the work left`)
+  [@test] ../../crates/repository-view/src/patronus_view_test.rs (`the_merged_robot_that_left_the_least_work_names_the_landing`, `new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`, `a_robot_on_an_up_to_date_remote_branch_took_the_branch_as_it_is`, `a_dry_run_lands_nothing`)
+  [@test] ../../crates/sync-core/src/robot_landing_test.rs (`a_missing_source_lands_nothing`, `a_commit_added_below_the_robots_commit_is_the_only_work_left`)
+  [@test] ../../src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`, `asks the repository view with the robots that land, their matches and the remote facts, once per change of them`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
 - The step says why nothing of the branch is left to land (`BranchNextStep.landed`, `formatLandedState`), also while
@@ -128,7 +130,7 @@ branch from all the facts (the branch, its robots, its pull request and the read
   after it"; its hover "1 commit added since, not in master yet"), and it takes the rows of a branch with work: its
   push, its Safe Push. A branch with a commit changed since (an amend), or a new one below a tested one, is not landed:
   what landed is not what it is.
-  [@test] ../../src/lib/patronus.test.ts (`decides by content once a change below the robot's commit gave the branches new copies: a commit added after the landed ones is the only work left`)
+  [@test] ../../crates/sync-core/src/robot_landing_test.rs (`a_commit_added_below_the_robots_commit_is_the_only_work_left`)
   [@test] ../../crates/sync-core/src/robot_landing_test.rs (`a_commit_added_below_the_robots_commit_is_the_only_work_left`, `a_reworded_commit_below_keeps_the_branches_landed`, `an_amended_commit_leaves_its_branch_not_landed`, `a_commit_not_synced_yet_is_after_the_landed_ones`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
 - Rows 8 to 10 count only the groups still short of approvals: changes requested by a member of an approved group

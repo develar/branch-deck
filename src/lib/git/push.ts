@@ -27,7 +27,7 @@ import {
   whenBranchPushed,
   whenSynced,
 } from "@/stores/branch-sync"
-import { cancelPatronusRobot, fetchPatronusRobotStatus, getPushHold, restartPatronusRobot, whenRobotSpansKnown } from "@/stores/patronus"
+import { cancelPatronusRobot, fetchPatronusRobotStatus, getPushHold, restartPatronusRobot, whenRepositoryViewCurrent } from "@/stores/patronus"
 import { refreshPullRequestsAfterPush } from "@/stores/pull-requests"
 import type { PushConfirmTarget } from "@/stores/push-confirm"
 import { requestPushConfirm } from "@/stores/push-confirm"
@@ -242,13 +242,14 @@ export async function restartAfterPush(robot: PatronusRobot): Promise<PatronusRo
  * push then; this refuses one that raced with a start (the IDE, `bd`) or came from a toast. The status is read fresh
  * first (one row on the server), so a robot that finished meanwhile holds nothing. The robot the push restarts or
  * replaces (`restartRobot`, `replacesRobot`) is canceled instead, and the push goes on. A branch a merged Safe Push
- * landed (`landed`) is refused without a read: its commits are in the target. A robot of a branch built on it holds it
- * only while its commit has commits of it: after a restack below its branch the content tells first
- * (`whenRobotSpansKnown`). Resolves to whether to push.
+ * landed (`landed`) is refused without a read: its commits are in the target. The holds are those of the repository
+ * view of the robots and the branches as they are now (`whenRepositoryViewCurrent`): a robot of a branch built on it
+ * holds it only while its commit has commits of it. Resolves to whether to push.
  */
 export async function checkPushHold(branchName: string, options: PushOptions, report: PushReport): Promise<boolean> {
-  const told = getPushHold(branchName)
-  const hold = told?.kind === "span" ? await whenRobotSpansKnown().then(() => getPushHold(branchName)) : told
+  // the holds of the robots and the branches as they are now: a robot started meanwhile holds it once the view says so
+  await whenRepositoryViewCurrent()
+  const hold = getPushHold(branchName)
   if (hold === null) {
     return true
   }
@@ -368,7 +369,7 @@ export async function pushForAction(branchName: string, options: ActionPushOptio
   await whenSynced()
   await whenBranchPushed(branchName)
   // the holds decide where the push starts: a parent a running robot's commit doesn't have is pushed too
-  await whenRobotSpansKnown()
+  await whenRepositoryViewCurrent()
   const branch = getBranch(branchName)
   if (branch === undefined) {
     return { pushed: false, reason: `${branchName} is no longer in the branch list` }

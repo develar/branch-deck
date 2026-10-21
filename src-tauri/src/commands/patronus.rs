@@ -15,7 +15,6 @@ use std::time::Duration;
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
 use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
 use sync_core::robot_commits::{RobotSubject, robot_failure_report, robot_subject_commit_map};
-use sync_core::robot_landing::{robot_landings, robot_spans};
 use sync_core::target_conflict::{TargetCheck, TargetConflictParams, target_conflict_core};
 use sync_types::patronus::{
   BranchReviewReadiness, GetBranchReviewReadinessParams, GetPatronusRobotsParams, GetPatronusStartOptionsParams, GetPatronusTargetBranchParams, PatronusAvailability,
@@ -23,7 +22,6 @@ use sync_types::patronus::{
   PatronusRobotsResult, PatronusStartOptions, PollPatronusRobotsParams, PostPatronusCommandParams, ReadPatronusCommandReplyParams, StartPatronusRobotParams,
 };
 use sync_types::robot_failure::{GetRobotCommitMapParams, GetRobotFailureParams, RobotCommitMap, RobotFailureReport};
-use sync_types::robot_landing::{GetRobotLandingsParams, RobotLanding, RobotSpan};
 use tauri::State;
 use tracing::instrument;
 
@@ -176,28 +174,6 @@ pub async fn get_robot_commit_map(git_executor: State<'_, GitCommandExecutor>, p
     .map(Option::unwrap_or_default)
   })
   .await
-}
-
-/// What merged robots landed of the branches, by content: the commits each tested against the branches as the last sync
-/// built them, and the commits added after them. The app asks it when a change below a robot's commit (an amend, a new
-/// commit of a branch it is built on, any change of the whole stack) gave the branches new copies, so their hashes no
-/// longer tell (`robot_landings`)
-#[tauri::command]
-#[specta::specta]
-pub async fn get_robot_landings(git_executor: State<'_, GitCommandExecutor>, params: GetRobotLandingsParams) -> Result<Vec<RobotLanding>, CommandError> {
-  let git = git_executor.inner().clone();
-  run_blocking(move || robot_landings(&git, &params.repository_path, &params.branch_prefix, &params.baseline_branch, &params.robots)).await
-}
-
-/// What running robots land of the branches as they are now, by content: the branches whose commits each robot's
-/// commit has (the same, a copy on a newer base, an earlier version). The app asks it when the hashes no longer tell (a
-/// restack or an amend below the robot's commit after its start), so a parent the robot never had is not held
-/// (`robot_spans`)
-#[tauri::command]
-#[specta::specta]
-pub async fn get_robot_spans(git_executor: State<'_, GitCommandExecutor>, params: GetRobotLandingsParams) -> Result<Vec<RobotSpan>, CommandError> {
-  let git = git_executor.inner().clone();
-  run_blocking(move || robot_spans(&git, &params.repository_path, &params.branch_prefix, &params.baseline_branch, &params.robots)).await
 }
 
 /// The branch a start pushes to and its merge profiles; the profile of the branch's last robot is the default

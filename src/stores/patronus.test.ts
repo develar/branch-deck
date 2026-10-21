@@ -2,14 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import type {
   GetPatronusRobotsParams,
   GetRobotCommitMapParams,
-  GetRobotLandingsParams,
   PatronusCommandReply,
   PatronusRobot,
   PatronusRobotsResult,
   PollPatronusRobotsParams,
   PostPatronusCommandParams,
-  RobotLanding,
-  RobotSpan,
+  GetRepositoryViewParams,
+  PatronusView,
 } from "@/lib/bindings"
 import { formatPushHoldReason } from "@/lib/patronus"
 import { FAILURE_PROBLEMS_WAIT_MS, formatFailedRobotToast, resetFailingAnnouncements, watchFailingRobots } from "@/lib/patronus-failing"
@@ -41,11 +40,12 @@ import {
   startPatronusFromPullRequest,
   startPatronusFromReviewedPullRequest,
   watchRobot,
-  watchRobotLandings,
+  whenRepositoryViewCurrent,
 } from "@/stores/patronus"
 import { robotCoverageStore, watchRobotCoverage } from "@/stores/robot-coverage"
 import { appSettingsStore } from "@/stores/settings/appSettings"
 import { testRemoteStatus } from "@/stores/test-branch"
+import { branchFacts, landedWhole, robotOf } from "@/test-support/patronus-repository"
 
 const { patronus, branches } = vi.hoisted(() => ({
   patronus: {
@@ -65,13 +65,17 @@ const { patronus, branches } = vi.hoisted(() => ({
     commands: [] as PostPatronusCommandParams[],
     replies: [] as PatronusCommandReply[],
     replyCalls: 0,
-    landingCalls: [] as GetRobotLandingsParams[],
-    landings: [] as RobotLanding[],
-    spanCalls: [] as GetRobotLandingsParams[],
-    spans: [] as RobotSpan[],
+    viewCalls: [] as GetRepositoryViewParams[],
+    view: { branches: {}, stacks: {}, landedByRobot: {} } as PatronusView,
     commitMapCalls: [] as GetRobotCommitMapParams[],
   },
-  branches: { current: {} as Record<string, unknown>, stacks: {} as Record<string, unknown> },
+  branches: {
+    current: {} as Record<string, unknown>,
+    stacks: {} as Record<string, unknown>,
+    /** The count of finished syncs and the fingerprint of what the last one read */
+    syncCount: 0,
+    fingerprint: null as string | null,
+  },
 }))
 
 vi.mock("@/lib/bindings", () => ({
@@ -105,13 +109,9 @@ vi.mock("@/lib/bindings", () => ({
       patronus.commitMapCalls.push(params)
       return { status: "ok", data: { commits: [], sourceMissing: false, virtualBehindHead: false } }
     },
-    getRobotLandings: async (params: GetRobotLandingsParams) => {
-      patronus.landingCalls.push(params)
-      return { status: "ok", data: patronus.landings }
-    },
-    getRobotSpans: async (params: GetRobotLandingsParams) => {
-      patronus.spanCalls.push(params)
-      return { status: "ok", data: patronus.spans }
+    getRepositoryView: async (params: GetRepositoryViewParams) => {
+      patronus.viewCalls.push(params)
+      return { status: "ok", data: { revision: params.revision, tableGeneration: 1, patronus: patronus.view } }
     },
     getPatronusRobotProblems: async (params: { robotId: string }) => {
       patronus.problemCalls.push(params.robotId)
@@ -214,6 +214,8 @@ vi.mock("@/stores/branch-sync", () => ({
       stackBranches: branches.stacks,
       parked: {},
       isSyncing: false,
+      syncCount: branches.syncCount,
+      syncedInputs: branches.fingerprint === null ? null : { repositoryPath: "/repo", branchPrefix: "user", fingerprint: branches.fingerprint },
       baselineBranch: "origin/master",
     }),
     subscribe: () => () => {},
@@ -260,6 +262,22 @@ function setBranches(...names: string[]): void {
   branches.current = Object.fromEntries(names.map(name => [name, { name, commits: [{ hash: "tip" }], remoteStatus: null }]))
 }
 
+/** The view of the merged robot r1 of oauth that landed the stack auth ← login ← oauth, `authAfter` left of auth */
+function landedOauthStack(authAfter: string[] = []): PatronusView {
+  const landed = [
+    { branch: "auth", own: false, after: authAfter },
+    { branch: "login", own: false, after: [] },
+    { branch: "oauth", own: true, after: [] },
+  ]
+  return { branches: {}, stacks: {}, landedByRobot: { r1: landed } }
+}
+
+/** The view the backend answers from now on, and the store once it took it */
+async function answerView(view: Partial<PatronusView>): Promise<void> {
+  patronus.view = { branches: {}, stacks: {}, landedByRobot: {}, ...view }
+  await whenRepositoryViewCurrent()
+}
+
 const START = 1_000_000_000
 
 beforeEach(() => {
@@ -278,10 +296,8 @@ beforeEach(() => {
   patronus.commands = []
   patronus.replies = []
   patronus.replyCalls = 0
-  patronus.landingCalls = []
-  patronus.landings = []
-  patronus.spanCalls = []
-  patronus.spans = []
+  patronus.viewCalls = []
+  patronus.view = { branches: {}, stacks: {}, landedByRobot: {} }
   patronus.commitMapCalls = []
   robotCoverageStore.setState({ maps: {} })
   notices.pullRequestRefreshes = []
@@ -295,6 +311,8 @@ beforeEach(() => {
   notices.stackPullRequests = {}
   notices.closed = []
   branches.stacks = {}
+  branches.syncCount = 0
+  branches.fingerprint = null
   resetLandedStacks()
   fetches.lastFetchTime = undefined
   patronus.list = available(robot({ status: "failure" }))
@@ -312,6 +330,12 @@ describe("holds", () => {
     branches.stacks = { air: { root: "air", members: ["air", "bazel", "side"], tip: "stack-tip", remoteStatus: null } }
     patronus.list = available(robot({ branchName: null, stackRoot: "air", sourceRevision: "stack-tip" }))
     await refreshPatronus("sync")
+    const span = { by: robotOf("air", "r1", true), carried: { commits: ["c1"], amended: [] } }
+    const held = branchFacts({ span, hold: { kind: "span", ...span } })
+    await answerView({
+      branches: { air: held, bazel: held, side: held },
+      stacks: { air: { landingMember: null, holdRobotId: "r1", startBlocked: true, start: null, dryRun: null } },
+    })
     const holds = ["air", "bazel", "side", "other"].map(name => getPushHold(name))
     expect(holds.map(hold => (hold === null ? null : [hold.kind, hold.branch, hold.wholeStack]))).toEqual([
       ["span", "air", true],
@@ -330,9 +354,11 @@ describe("holds", () => {
     const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
     branches.current = { auth: stacked("auth", null), login: stacked("login", "auth"), oauth: stacked("oauth", "login"), sso: stacked("sso", "login") }
     expect(getLandingBranchCount("sso")).toBe(3)
-    // the robot of oauth merged elsewhere (`bd`, before a restart): the table has oauth as it took it
+    // the robot of oauth merged elsewhere (`bd`, before a restart): the view says what it landed
     patronus.list = available(robot({ branchName: "oauth", sourceRevision: "oauth-tip", status: "success", finishTime: 200 }))
     await refreshPatronus("sync")
+    const by = robotOf("oauth", "r1")
+    await answerView({ branches: { auth: landedWhole(by), login: landedWhole(by), oauth: landedWhole(by, true) } })
     const holds = ["auth", "login", "oauth", "sso"].map(name => getPushHold(name))
     // oauth too: all of it landed with its own robot
     expect(holds.map(hold => (hold === null ? null : [hold.kind, hold.branch]))).toEqual([["landed", "oauth"], ["landed", "oauth"], ["landed", "oauth"], null])
@@ -352,6 +378,8 @@ describe("holds", () => {
     const login = robot({ id: "login-robot", branchName: "login", sourceRevision: "login-tip", status: "success", finishTime: 200 })
     patronus.list = available(login)
     await refreshPatronus("sync")
+    const byLogin = robotOf("login", "login-robot")
+    await answerView({ branches: { auth: landedWhole(byLogin), login: landedWhole(byLogin, true) } })
     // the Safe Push of login landed auth and login: session is left, so is the stack branch, which carries it
     expect(getPushHold("auth")).toMatchObject({ kind: "landed", branch: "login" })
     expect([getStackLandedReason("auth"), getStackBranchHoldReason("auth"), getLandedWithChildrenReason("auth")]).toEqual([null, null, null])
@@ -360,6 +388,7 @@ describe("holds", () => {
     patronus.list = available(login, robot({ id: "session-robot", branchName: "session", sourceRevision: "session-tip", status: "success", finishTime: 300 }))
     vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
     await refreshPatronus("sync")
+    await answerView({ branches: { auth: landedWhole(byLogin), login: landedWhole(byLogin, true), session: landedWhole(robotOf("session", "session-robot"), true) } })
     expect(getStackLandedReason("auth")).toBe("Landed in master with login and session")
     expect(getStackBranchHoldReason("auth")).toBe("Landed in master with login and session: nothing of it is left to push")
     expect(getLandedWithChildrenReason("auth")).toBe("Landed in master with login and session")
@@ -367,49 +396,63 @@ describe("holds", () => {
     expect(getLandedWithChildrenReason("login")).toBeNull()
   })
 
-  it("asks what a merged robot landed by content once a change below its commit gave the branches new copies, once per state of them", async () => {
-    const stacked = (name: string, parent: string | null, commits: string[]) => ({
-      name,
-      commits: commits.map(hash => ({ hash, originalHash: `${hash}-original` })),
-      remoteStatus: null,
-      stack: { effectiveBase: parent },
-    })
-    // auth got a commit after the robot of login merged: login was rebuilt on it
-    branches.current = { auth: stacked("auth", null, ["auth-new", "auth-copy"]), login: stacked("login", "auth", ["login-copy"]) }
-    patronus.landings = [
-      {
-        robotId: "r1",
-        branches: [
-          { branch: "auth", landed: ["auth-copy-original"], after: ["auth-new-original"] },
-          { branch: "login", landed: ["login-copy-original"], after: [] },
-        ],
-      },
-    ]
-    patronus.list = available(robot({ branchName: "login", sourceRevision: "login-old", status: "success", finishTime: 200 }))
+  it("asks the repository view with the robots that land, their matches and the remote facts, once per change of them", async () => {
+    const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
+    branches.current = { auth: stacked("auth", null), login: stacked("login", "auth") }
+    const merged = robot({ branchName: "login", sourceRevision: "login-old", status: "success", finishTime: 200 })
+    patronus.list = available(merged, robot({ id: "dry", branchName: "auth", pushMode: "dryRun", status: "success", finishTime: 100 }))
     await refreshPatronus("sync")
-    // the hashes don't tell
-    expect(getLandedBy("auth")).toBeNull()
-    const stop = watchRobotLandings()
-    await vi.waitFor(() => expect(getLandedBy("auth")).toMatchObject({ branch: "login", after: ["auth-new-original"] }))
-    expect(patronus.landingCalls).toEqual([
-      {
-        repositoryPath: "/repo",
-        branchPrefix: "user",
-        baselineBranch: "origin/master",
-        robots: [{ robotId: "r1", branchName: "login", stackRoot: null, sourceRevision: "login-old", branches: ["auth", "login"], tip: null }],
-      },
+    await answerView({ branches: { login: landedWhole(robotOf("login", "r1"), true) } })
+    // a merged dry run lands nothing: not sent; the robot of each branch as the rows match it
+    expect(patronus.viewCalls.map(call => [call.repositoryPath, call.branchPrefix, call.robots.map(it => it.id), call.matched])).toEqual([
+      ["/repo", "user", ["r1"], { branches: { login: "r1", auth: "dry" }, stacks: {} }],
     ])
-    // auth has work after the landed commit: it is pushed and lands by its own Safe Push; login, all of it landed, is held
-    expect(getPushHold("auth")).toBeNull()
+    expect(patronus.viewCalls[0]?.remote.branches.login).toEqual({ remoteTip: null, upToDate: false })
     expect(getPushHold("login")).toMatchObject({ kind: "landed", branch: "login" })
-    expect(getLandingBranchCount("login")).toBe(2)
-    // the same state of the branches is not asked again
-    patronus.list = available(robot({ branchName: "login", sourceRevision: "login-old", status: "success", finishTime: 200 }), robot({ id: "r2", status: "failure" }))
+    // the same robots and branches are not asked again
     vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
     await refreshPatronus("sync")
-    await Promise.resolve()
-    expect(patronus.landingCalls).toHaveLength(1)
-    stop()
+    await whenRepositoryViewCurrent()
+    expect(patronus.viewCalls).toHaveLength(1)
+    // a robot that changes asks again
+    patronus.list = available(merged, robot({ id: "r2", branchName: "auth" }))
+    vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
+    await refreshPatronus("sync")
+    await whenRepositoryViewCurrent()
+    expect(patronus.viewCalls.map(call => call.robots.map(it => it.id))).toEqual([["r1"], ["r1", "r2"]])
+  })
+
+  it("keeps the store as it is when a view asked again says the same, so no row reads it again", async () => {
+    branches.current = { auth: { name: "auth", commits: [{ hash: "auth-tip" }], remoteStatus: null } }
+    patronus.list = available(robot({ branchName: "auth", sourceRevision: "auth-tip" }))
+    await refreshPatronus("sync")
+    const held = () => ({ branches: { auth: branchFacts({ hold: { kind: "own", by: robotOf("auth", "r1"), carried: null } }) } })
+    await answerView(held())
+    const state = patronusStore.getState()
+    const hold = getPushHold("auth")
+    expect(hold).toMatchObject({ kind: "own", branch: "auth" })
+    // the remote moved: asked again, the same answer in a new object
+    branches.current = { auth: { name: "auth", commits: [{ hash: "auth-tip" }], remoteStatus: testRemoteStatus({ remoteTip: "auth-tip" }) } }
+    await answerView(held())
+    expect(patronus.viewCalls).toHaveLength(2)
+    expect(patronusStore.getState()).toBe(state)
+    expect(getPushHold("auth")).toBe(hold)
+  })
+
+  it("asks the repository view after a sync only when the sync read other inputs: the backend's table is the same", async () => {
+    branches.fingerprint = "inputs-1"
+    patronus.list = available(robot({ branchName: "auth", sourceRevision: "auth-tip" }))
+    await refreshPatronus("sync")
+    await answerView({})
+    // another sync of the same inputs: nothing to ask
+    branches.syncCount = 2
+    await whenRepositoryViewCurrent()
+    expect(patronus.viewCalls).toHaveLength(1)
+    // a sync that read a commit: its table is new
+    branches.syncCount = 3
+    branches.fingerprint = "inputs-2"
+    await whenRepositoryViewCurrent()
+    expect(patronus.viewCalls).toHaveLength(2)
   })
 
   it("holds nothing for a dry run of the whole stack", async () => {
@@ -667,47 +710,34 @@ describe("merges", () => {
     const oauth = robot({ branchName: "oauth", sourceRevision: "oauth-tip", pullRequest: { number: 7, url: "u7" } })
     patronus.list = available(oauth)
     await refreshPatronus("sync")
+    patronus.view = landedOauthStack()
     patronus.poll = available({ ...oauth, status: "success", finishTime: 200 })
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    expect(notices.closed).toEqual(["auth Landed in master with #7, the Safe Push of user/virtual/oauth, which is built on this branch."])
+    await vi.waitFor(() => expect(notices.closed).toEqual(["auth Landed in master with #7, the Safe Push of user/virtual/oauth, which is built on this branch."]))
     expect(notices.toasts.map(it => it.description)).toEqual(["Safe Push · closes the pull request of auth: it landed with oauth"])
   })
 
-  it("closes by content the pull requests of what a merged robot landed after a change below its commit, the toast waiting for the answer", async () => {
-    const stacked = (name: string, parent: string | null, commits: string[], remoteTip: string) => ({
+  it("closes the pull requests of what a merged robot landed as the view says it, the toast waiting for the view of the merge", async () => {
+    const stacked = (name: string, parent: string | null, remoteTip: string) => ({
       name,
-      commits: commits.map(hash => ({ hash, originalHash: `${hash}-original` })),
+      commits: [{ hash: `${name}-copy`, originalHash: `${name}-original` }],
       remoteStatus: { exists: true, remoteTip, commitsBehind: 0 },
       stack: { effectiveBase: parent },
     })
-    // auth got a commit after the robot of oauth took its tip: login and oauth were rebuilt on it, no hash is the robot's
-    branches.current = {
-      auth: stacked("auth", null, ["auth-new", "auth-copy"], "auth-old"),
-      login: stacked("login", "auth", ["login-copy"], "login-old"),
-      oauth: stacked("oauth", "login", ["oauth-copy"], "oauth-old"),
-    }
+    branches.current = { auth: stacked("auth", null, "auth-old"), login: stacked("login", "auth", "login-old"), oauth: stacked("oauth", "login", "oauth-old") }
     notices.pullRequests = {
       auth: { number: 5, state: "open", headRefOid: "auth-old" },
       login: { number: 6, state: "open", headRefOid: "login-old" },
     }
-    patronus.landings = [
-      {
-        robotId: "r1",
-        branches: [
-          { branch: "auth", landed: ["auth-copy-original"], after: ["auth-new-original"] },
-          { branch: "login", landed: ["login-copy-original"], after: [] },
-          { branch: "oauth", landed: ["oauth-copy-original"], after: [] },
-        ],
-      },
-    ]
     const oauth = robot({ branchName: "oauth", sourceRevision: "oauth-old" })
     patronus.list = available(oauth)
     await refreshPatronus("sync")
+    // the view of the running robot lands nothing yet; the one of the merge says auth has a commit left
+    patronus.view = landedOauthStack(["auth-new"])
     patronus.poll = available({ ...oauth, status: "success", finishTime: 200 })
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    // asked once, for the branches as the table has them; login landed whole, auth has a commit left in its pull request
     await vi.waitFor(() => expect(notices.closed).toEqual(["login Landed in master with the Safe Push of user/virtual/oauth, which is built on this branch."]))
-    expect(patronus.landingCalls.map(call => call.robots.map(it => it.robotId))).toEqual([["r1"]])
+    expect(patronus.viewCalls.at(-1)?.robots.map(it => [it.id, it.status])).toEqual([["r1", "success"]])
     expect(notices.toasts.map(it => it.description)).toEqual(["Safe Push · closes the pull request of login: it landed with oauth"])
   })
 
@@ -734,12 +764,17 @@ describe("merges", () => {
     const whole = robot({ branchName: null, stackRoot: "air", sourceRevision: "stack-tip", pullRequest: { number: 12, url: "u12" } })
     patronus.list = available(whole)
     await refreshPatronus("sync")
+    patronus.view = {
+      branches: {},
+      stacks: {},
+      landedByRobot: { r1: ["air", "bazel", "side"].map(branch => ({ branch, own: false, after: [] })) },
+    }
     // the robot of the whole stack is polled: no branch has it
     patronus.poll = available({ ...whole, status: "success", finishTime: 200 })
     await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
     expect(patronus.polls.at(-1)?.robots).toEqual([{ id: "r1", status: "running" }])
     const comment = "Landed in master with #12, the Safe Push of the whole air stack (user/stack/air), which holds this branch."
-    expect(notices.closed).toEqual([`air ${comment}`, `bazel ${comment}`])
+    await vi.waitFor(() => expect(notices.closed).toEqual([`air ${comment}`, `bazel ${comment}`]))
     expect(notices.toasts.map(it => [it.title, it.description])).toEqual([
       ["Whole air stack merged into master", "Safe Push · closes the pull requests of air and bazel: they landed with the whole stack"],
     ])
@@ -924,24 +959,19 @@ describe("toast steps decided again at the click", () => {
 })
 
 describe("push holds", () => {
-  it("holds a branch whose Safe Push runs and the ancestors it lands; not for a dry run or a cancel", async () => {
+  it("holds a branch whose Safe Push runs and the ancestors it lands; not once the robot no longer runs", async () => {
     const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
-    branches.current = {
-      auth: stacked("auth", null),
-      login: stacked("login", "auth"),
-      oauth: stacked("oauth", "login"),
-      sso: stacked("sso", "auth"),
-    } as unknown as typeof branches.current
-    patronus.list = available(
-      robot({ id: "login-run", branchName: "login", sourceRevision: "login-tip" }),
-      robot({ id: "sso-dry", branchName: "sso", sourceRevision: "sso-tip", pushMode: "dryRun" }),
-    )
+    branches.current = { auth: stacked("auth", null), login: stacked("login", "auth"), oauth: stacked("oauth", "login") } as unknown as typeof branches.current
+    patronus.list = available(robot({ id: "login-run", branchName: "login", sourceRevision: "login-tip" }))
     await refreshPatronus("sync")
+    const span = { by: robotOf("login", "login-run"), carried: null }
+    await answerView({
+      branches: { auth: branchFacts({ span, hold: { kind: "span", ...span } }), login: branchFacts({ hold: { kind: "own", by: robotOf("login", "login-run"), carried: null } }) },
+    })
     expect(getPushHold("login")).toMatchObject({ kind: "own", branch: "login", robot: { id: "login-run" } })
     expect(getPushHold("auth")).toMatchObject({ kind: "span", branch: "login", robot: { id: "login-run" } })
-    // built on the running branch, a dry run, nothing stacked
     expect(getPushHold("oauth")).toBeNull()
-    expect(getPushHold("sso")).toBeNull()
+    // canceled meanwhile: the view of the running robot holds nothing until the next one comes
     patronus.list = available(robot({ id: "login-run", branchName: "login", sourceRevision: "login-tip", status: "canceling" }))
     await vi.advanceTimersByTimeAsync(SYNC_REFRESH_GAP_MS)
     await refreshPatronus("sync")
@@ -949,53 +979,18 @@ describe("push holds", () => {
     expect(getPushHold("auth")).toBeNull()
   })
 
-  it("holds only the ancestors the commit of a running Safe Push has, once its content tells", async () => {
-    const stacked = (name: string, parent: string | null, hash: string) => ({
-      name,
-      commits: [{ hash, originalHash: `${hash}-original` }],
-      remoteStatus: null,
-      stack: { effectiveBase: parent },
-    })
-    // a restack placed env below auth after the Safe Push of login started: login and auth are new copies
-    branches.current = {
-      env: stacked("env", null, "env-tip"),
-      auth: stacked("auth", "env", "auth-copy"),
-      login: stacked("login", "auth", "login-copy"),
-    } as unknown as typeof branches.current
-    patronus.spans = [
-      {
-        robotId: "login-run",
-        branches: [
-          { branch: "auth", commits: ["auth-copy-original"], amended: [] },
-          { branch: "login", commits: ["login-copy-original"], amended: [] },
-        ],
-      },
-    ]
+  it("holds only the ancestors the view says the commit of a running Safe Push has, and counts their commits", async () => {
+    const stacked = (name: string, parent: string | null) => ({ name, commits: [{ hash: `${name}-tip` }], remoteStatus: null, stack: { effectiveBase: parent } })
+    // a restack placed env below auth after the Safe Push of login started
+    branches.current = { env: stacked("env", null), auth: stacked("auth", "env"), login: stacked("login", "auth") } as unknown as typeof branches.current
     patronus.list = available(robot({ id: "login-run", branchName: "login", sourceRevision: "login-old" }))
     await refreshPatronus("sync")
-    // until the content tells, the stack as it is now holds, the number of commits not known
-    expect(getPushHold("env")).toMatchObject({ kind: "span", branch: "login" })
-    expect(formatPushHoldReason("env", getPushHold("env")!)).toBe("A Safe Push of login is running: it lands env with it")
-
-    const stop = watchRobotLandings()
-    await vi.waitFor(() => expect(getPushHold("env")).toBeNull())
-    expect(patronus.spanCalls).toEqual([
-      {
-        repositoryPath: "/repo",
-        branchPrefix: "user",
-        baselineBranch: "origin/master",
-        robots: [{ robotId: "login-run", branchName: "login", stackRoot: null, sourceRevision: "login-old", branches: ["env", "auth", "login"], tip: null }],
-      },
-    ])
+    const span = { by: robotOf("login", "login-run"), carried: { commits: ["auth-original"], amended: [] } }
+    await answerView({ branches: { auth: branchFacts({ span, hold: { kind: "span", ...span } }) } })
+    expect(getPushHold("env")).toBeNull()
     expect(formatPushHoldReason("auth", getPushHold("auth")!)).toBe("A Safe Push of login is running: it lands 1 commit of auth with it")
     // the span starts below the root it left out
     expect([getLandingSpan("env"), getLandingSpan("auth")?.branch]).toEqual([null, "login"])
-    // the same state of the branches is not asked again
-    vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
-    await refreshPatronus("sync")
-    await Promise.resolve()
-    expect(patronus.spanCalls).toHaveLength(1)
-    stop()
   })
 })
 

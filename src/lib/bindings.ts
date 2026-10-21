@@ -189,20 +189,6 @@ export const commands = {
 	 */
 	getRobotCommitMap: (params: GetRobotCommitMapParams) => typedError<RobotCommitMap, CommandError>(__TAURI_INVOKE("get_robot_commit_map", { params })),
 	/**
-	 *  What merged robots landed of the branches, by content: the commits each tested against the branches as the last sync
-	 *  built them, and the commits added after them. The app asks it when a change below a robot's commit (an amend, a new
-	 *  commit of a branch it is built on, any change of the whole stack) gave the branches new copies, so their hashes no
-	 *  longer tell (`robot_landings`)
-	 */
-	getRobotLandings: (params: GetRobotLandingsParams) => typedError<RobotLanding[], CommandError>(__TAURI_INVOKE("get_robot_landings", { params })),
-	/**
-	 *  What running robots land of the branches as they are now, by content: the branches whose commits each robot's
-	 *  commit has (the same, a copy on a newer base, an earlier version). The app asks it when the hashes no longer tell (a
-	 *  restack or an amend below the robot's commit after its start), so a parent the robot never had is not held
-	 *  (`robot_spans`)
-	 */
-	getRobotSpans: (params: GetRobotLandingsParams) => typedError<RobotSpan[], CommandError>(__TAURI_INVOKE("get_robot_spans", { params })),
-	/**
 	 *  The view of the table the last sync of the repository finished: what the robots land, landed and hold
 	 *  (`patronus_view`), with the page's robots, their matches and what the page knows of the remote branches. Git only
 	 *  for robots the hashes and the memo don't answer
@@ -612,21 +598,6 @@ export type BranchIntegrationStatus = { kind: "integrated"; integratedAt: number
  */
 commit: UpstreamCommit | null } | { kind: "notIntegrated"; totalCommitCount: number; integratedCount: number; orphanedCount: number; integratedAt: number | null } | { kind: "partial"; missing: number };
 
-/**
- *  A branch a merged robot landed: its oldest commits are what the robot tested (the same commit, or a copy with the
- *  same changes on a newer base), and only commits added after them are not: the work left
- */
-export type BranchLanding = {
-	branch: string,
-	/**  The commits of the branch the robot landed, by the ids of the checked-out branch, newest first */
-	landed: string[],
-	/**
-	 *  The commits of the branch added after them, newest first: what is left of the branch to land; empty when all of it
-	 *  landed
-	 */
-	after: string[],
-};
-
 /**  What a request for branch names ended with; a failure of git or of `claude` is an outcome, not an error */
 export type BranchNameSuggestionOutcome = 
 /**  One or two distinct names, the best first */
@@ -705,15 +676,6 @@ export type BranchReviewSegment = {
 export type BranchRules = {
 	/**  A push of new commits dismisses the approvals of a pull request into the branch */
 	dismissStaleReviewsOnPush: boolean,
-};
-
-/**  A branch a running robot lands with it */
-export type BranchSpan = {
-	branch: string,
-	/**  The commits of the branch the robot's commit has, by the ids of the checked-out branch, newest first */
-	commits: string[],
-	/**  Those of `commits` the robot has in an earlier version: amended since it started, newest first */
-	amended: string[],
 };
 
 /**  Where a virtual branch sits in its stack; sent only with stacked branches on */
@@ -1543,14 +1505,6 @@ export type GetRobotFailureParams = {
 	baselineBranch: string,
 	/**  The full version: the failed builds, their problems and failed tests with messages, and the log tails */
 	full: boolean,
-};
-
-export type GetRobotLandingsParams = {
-	repositoryPath: string,
-	branchPrefix: string,
-	/**  As the sync detected it, e.g. `origin/master` */
-	baselineBranch: string,
-	robots: RobotLandingRequest[],
 };
 
 export type GetUncommittedChangesParams = {
@@ -3061,44 +3015,6 @@ export type RobotLandedBranch = {
 };
 
 /**
- *  What a merged robot landed: the branches of its request whose commits it tested, each with the commits added after
- *  them; a branch it didn't land (a commit of it changed since, none of it tested) is not listed
- */
-export type RobotLanding = {
-	robotId: string,
-	/**  In the order of the request, root first */
-	branches: BranchLanding[],
-};
-
-/**
- *  A merged robot whose landing is asked: a Safe Push of a branch (a piece: the branches it is built on and the branch),
- *  or of the whole stack of a root (its stack branch: every branch of the stack)
- */
-export type RobotLandingRequest = {
-	robotId: string,
-	/**
-	 *  The virtual branch the robot ran on, without the `{prefix}/virtual/` namespace; null for the robot of the whole
-	 *  stack
-	 */
-	branchName: string | null,
-	/**  The root of the stack whose stack branch (`{prefix}/stack/<root>`) the robot ran on; null for a branch's robot */
-	stackRoot: string | null,
-	/**  The commit Patronus took at the start */
-	sourceRevision: string,
-	/**
-	 *  The branches it may have landed, root first: the branches a stacked branch is built on, then the branch; or the
-	 *  branches of the whole stack
-	 */
-	branches: string[],
-	/**
-	 *  The local tip of the branch or the stack branch the robot ran on, when the caller knows it (from a sync of the same
-	 *  process): at the robot's commit no git looks it up, and every commit of `branches` the sync built into it landed.
-	 *  Null: the core reads it
-	 */
-	tip: string | null,
-};
-
-/**
  *  Which robot belongs to each branch and to each whole stack (by root), as the asker matched them
  *  (`find_branch_robot`, `findBranchRobot`): by robot id
  */
@@ -3114,20 +3030,6 @@ export type RobotOf = {
 	robotId: string,
 	/**  The robot of the whole stack of the root `branch` */
 	wholeStack: boolean,
-};
-
-/**
- *  What a running robot lands of the branches of its request as they are now: the branches whose commits its commit has
- *  (the same, a copy on a newer base, or an earlier version), so a push of them won't land while it runs
- */
-export type RobotSpan = {
-	robotId: string,
-	/**
-	 *  In the order of the request, root first; a branch with none of its commits in the robot's commit (a parent a restack
-	 *  placed below the robot's branch after its start) is not listed. Null when the repository can't tell: it lacks the
-	 *  robot's commit (started on another machine, pruned) or the ref the robot ran on
-	 */
-	branches: BranchSpan[] | null,
 };
 
 /**  A declaration of a text: its lines and its label, `Outer › inner` */

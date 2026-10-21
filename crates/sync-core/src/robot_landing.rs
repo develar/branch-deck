@@ -1,8 +1,8 @@
 //! What a merged Patronus robot landed of the branches as the table has them, by content (docs/design/landing.md,
-//! "Landed by content"; "Robot landing" in docs/design/git-operations.md). The app asks it when a change below the
-//! robot's commit (an amend, a new commit of a branch it is built on, any change of the whole stack) gave the branches
-//! new copies, so their hashes no longer tell; `bd status`, `bd push` and `bd safe-push` ask it for every merged robot
-//! of a branch of the table (`crates/bd-remote/src/landed.rs`).
+//! "Landed by content"; "Robot landing" in docs/design/git-operations.md). The repository view asks it
+//! (`repository_view::patronus_view`, for the app and `bd`) when the hashes no longer tell: a change below the robot's
+//! commit (an amend, a new commit of a branch it is built on, any change of the whole stack) gave the branches new
+//! copies.
 //!
 //! The robot tested the commits of its source revision. A commit of a branch landed when the virtual branch (or the
 //! stack branch) the robot ran on has it as the robot took it: the same commit, a patch-equivalent copy, or a copy with
@@ -22,7 +22,9 @@
 //! them; the callers pass no others.
 
 use crate::commit_key::CommitKey;
-use crate::robot_commits::{HeadCommit, SourceWalk, head_commits, mapped_virtual, rebased_versions};
+#[cfg(test)]
+use crate::robot_commits::head_commits;
+use crate::robot_commits::{HeadCommit, SourceWalk, mapped_virtual, rebased_versions};
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
@@ -35,9 +37,10 @@ use sync_types::robot_landing::{BranchLanding, BranchSpan, RobotLanding, RobotLa
 use tracing::{debug, instrument};
 
 /// What the merged robots of `requests` landed (`RobotLanding`, one per request whose robot landed anything), the
-/// commits of the branches read from HEAD as the sync groups them: the app's `get_robot_landings`, after the sync
-#[instrument(skip(git_executor, requests), fields(robots = requests.len()))]
-pub fn robot_landings(
+/// commits of the branches read from HEAD as the sync groups them; the tests ask it so, the repository view asks
+/// `robot_landings_of_grouped`
+#[cfg(test)]
+pub(crate) fn robot_landings(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   branch_prefix: &str,
@@ -70,9 +73,10 @@ pub fn robot_landings_of_grouped(
 }
 
 /// What the running robots of `requests` land of the branches as they are now (`RobotSpan`, one per request, in its
-/// order), the commits of the branches read from HEAD as the sync groups them: the app's `get_robot_spans`
-#[instrument(skip(git_executor, requests), fields(robots = requests.len()))]
-pub fn robot_spans(
+/// order), the commits of the branches read from HEAD as the sync groups them; the tests ask it so, the repository
+/// view asks `robot_spans_of_grouped`
+#[cfg(test)]
+pub(crate) fn robot_spans(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   branch_prefix: &str,
@@ -104,6 +108,7 @@ pub fn robot_spans_of_grouped(
 }
 
 /// The branches of every request, each once
+#[cfg(test)]
 fn request_branches(requests: &[RobotLandingRequest]) -> Vec<&str> {
   let mut branches: Vec<&str> = requests.iter().flat_map(|request| request.branches.iter().map(String::as_str)).collect();
   branches.sort_unstable();
@@ -193,9 +198,9 @@ fn robot_spans_on(
 
 /// By request, `reduce` of each of its branches from the states of the branch's commits, the reduced ones in the order
 /// of the request; null for a request nothing tells of. One process per phase, the walks per robot:
-/// 1. one `cat-file --batch-check` of the source revisions and the refs the robots ran on, but of a robot whose `tip`
-///    the caller passed at its commit: a source the repository lacks or a ref that is gone tells nothing; a ref at the
-///    source revision needs no walk;
+/// 1. one `cat-file --batch-check` of the source revisions and the tips the robots ran on (the `tip` the caller passed,
+///    else the ref), but of a robot whose `tip` the caller passed at its commit: a source the repository lacks or a ref
+///    that is gone tells nothing; a tip at the source revision needs no walk;
 /// 2. per other robot the two `rev-list` walks of `SourceWalk`;
 /// 3. one `same_changes` (a `diff-tree` and a `patch-id`) of the new commits with the identity of a robot commit, of all
 ///    robots, none without such pairs.
@@ -216,10 +221,10 @@ fn request_branch_states<T>(
       refs[index].is_some() && is_object_id(&request.source_revision) && request.tip.as_deref() != Some(request.source_revision.as_str())
     })
     .collect();
-  let names: Vec<&str> = asked
-    .iter()
-    .flat_map(|&index| [requests[index].source_revision.as_str(), refs[index].as_deref().unwrap_or_default()])
-    .collect();
+  // the tip the caller knows (the table of its sync) rather than the ref, which a sync may move meanwhile: the answer is
+  // of the source and that tip, the same each time it is asked
+  let target = |index: usize| requests[index].tip.as_deref().or(refs[index].as_deref()).unwrap_or_default();
+  let names: Vec<&str> = asked.iter().flat_map(|&index| [requests[index].source_revision.as_str(), target(index)]).collect();
   let found = object_ids_and_types(git_executor, repository_path, &names)?;
   let commit_of = |entry: &Option<(String, &'static str)>| entry.as_ref().filter(|(_, kind)| *kind == "commit").map(|(id, _)| id.clone());
   // by request: whether the repository has the source revision, and the tip of the ref
@@ -231,10 +236,10 @@ fn request_branch_states<T>(
 
   let mut answers: Vec<Option<Answer>> = Vec::with_capacity(requests.len());
   for (index, request) in requests.iter().enumerate() {
-    let Some(full_ref) = refs[index].as_deref().filter(|_| is_object_id(&request.source_revision)) else {
+    if refs[index].is_none() || !is_object_id(&request.source_revision) {
       answers.push(None);
       continue;
-    };
+    }
     if request.tip.as_deref() == Some(request.source_revision.as_str()) {
       answers.push(Some(Answer::AtSource));
       continue;
@@ -242,10 +247,10 @@ fn request_branch_states<T>(
     let (source_present, tip) = resolved.get(&index).cloned().unwrap_or((false, None));
     answers.push(match tip {
       Some(tip) if tip == request.source_revision => Some(Answer::AtSource),
-      Some(_) if source_present => Some(Answer::Walked(SourceWalk::read(
+      Some(tip) if source_present => Some(Answer::Walked(SourceWalk::read(
         git_executor,
         repository_path,
-        full_ref,
+        &tip,
         &request.source_revision,
         baseline_branch,
         true,
