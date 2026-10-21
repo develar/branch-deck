@@ -363,6 +363,18 @@ pub async fn unpark_branches(State(state): State<Arc<AppState>>, Json(params): J
   run_command("unpark branches", move || sync_core::parked::unpark_branches(&git_executor, &params)).await
 }
 
+pub async fn unapply_branch(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::unapply_branch::UnapplyBranchParams>,
+) -> CommandResult<sync_core::unapply_branch::UnapplyBranchResult> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("unapply the branch", move || {
+    sync_core::unapply_branch::unapply_branch_core(&git_executor, params, &RewriteOptions::default())
+  })
+  .await
+}
+
 /// Without the object cache, as every command of the mock server
 pub async fn get_stack_independence(
   State(state): State<Arc<AppState>>,

@@ -3,7 +3,8 @@
 //! with `git replay`, a dry run on a copy of the index proves the working tree can follow, and only then does the branch
 //! move; the files follow through `worktree_update`, the one exemption from "never write the working tree". This module
 //! is the only caller of `worktree_update`: the update (`apply_update`), the pick of another worktree's commits
-//! (`pick::apply_pick`, a branch or a detached HEAD) and their undo (`apply_update_undo`).
+//! (`pick::apply_pick`, a branch or a detached HEAD), the unapply and the reapply of a virtual branch (`unapply`,
+//! `reapply`) and their undo (`apply_update_undo`, `apply_move_undo_with`).
 
 use crate::commit_utils::blob_id;
 use crate::commit_writer::{current_committer, write_notes_to_refs};
@@ -720,12 +721,34 @@ pub const UPDATE: MoveOperation = MoveOperation {
 /// `bd pick` (of the target and of the worktree that follows it) and its undo
 pub const PICK: MoveOperation = MoveOperation { done: "pick", undo: "undo pick" };
 
-/// Every move the files follow: the finish of an interrupted one accepts their messages
-const MOVE_OPERATIONS: [MoveOperation; 2] = [UPDATE, PICK];
+/// The unapply of a virtual branch (`unapply`) and its undo
+pub const UNAPPLY: MoveOperation = MoveOperation {
+  done: "unapply",
+  undo: "undo unapply",
+};
 
-/// How a message names the operation of a move: `pick` or `update`
+/// The reapply of an unapplied branch (`reapply`) and its undo
+pub const REAPPLY: MoveOperation = MoveOperation {
+  done: "reapply",
+  undo: "undo reapply",
+};
+
+/// Every move the files follow: the finish of an interrupted one accepts their messages
+const MOVE_OPERATIONS: [MoveOperation; 4] = [UPDATE, PICK, UNAPPLY, REAPPLY];
+
+/// How a message names the operation of a move: `pick`, `unapply`, `reapply` or `update`
 fn noun(operation: &str) -> &'static str {
-  if operation.contains(PICK.done) { "pick" } else { "update" }
+  [PICK, UNAPPLY, REAPPLY]
+    .into_iter()
+    .find(|move_| operation.contains(move_.done))
+    .map_or("update", |move_| move_.done)
+}
+
+/// `a pick`, `an unapply`: a move as a message names it with its article
+fn with_article(operation: &str) -> String {
+  let noun = noun(operation);
+  let article = if noun.starts_with(['a', 'e', 'i', 'o', 'u']) { "an" } else { "a" };
+  format!("{article} {noun}")
 }
 
 /// Move the branch to the checked update, then let the index and the working tree follow. If the files can't follow
@@ -869,13 +892,10 @@ pub(crate) fn check_move_undo(
   let is_that_move = matches!(entries.first(), Some((to, message)) if *to == new_head && *message == move_message)
     && resolve_commit(git_executor, repo_path, &format!("{}@{{1}}", head_ref.reflog_ref()))?.as_deref() == Some(previous_head);
   if !is_that_move {
-    let what = match noun(operation.done) {
-      "pick" => "a pick",
-      _ => "an update",
-    };
     return Err(anyhow::Error::new(NotAnUpdate {
       message: format!(
-        "The last move of {name} is not {what} from {} to {}; only the last {} can be undone",
+        "The last move of {name} is not {} from {} to {}; only the last {} can be undone",
+        with_article(operation.done),
         crate::revs::short_id(previous_head),
         crate::revs::short_id(new_head),
         noun(operation.done)
@@ -903,10 +923,28 @@ pub(crate) fn check_move_undo(
 /// moves forward again and nothing is changed
 #[instrument(skip(git_executor))]
 pub fn apply_update_undo(git_executor: &GitCommandExecutor, repo_path: &str, undo: &UpdateUndo) -> Result<()> {
+  apply_move_undo_with(git_executor, repo_path, undo, &RefTransaction::new(), &RefTransaction::new())
+}
+
+/// `apply_update_undo` with more ref changes in the move back and in its rollback: the unapplied branch that the undo of
+/// an unapply deletes and the undo of a reapply creates again
+pub(crate) fn apply_move_undo_with(git_executor: &GitCommandExecutor, repo_path: &str, undo: &UpdateUndo, with: &RefTransaction, rollback_with: &RefTransaction) -> Result<()> {
   if !undo.blocked.is_empty() {
     bail!("Local changes block the undo: {}", undo.blocked.join(", "));
   }
-  move_branch_and_files(git_executor, repo_path, &undo.head_ref, &undo.head, &undo.new_head, undo.files_change, undo.operation.undo)
+  move_branch_and_files_carrying(
+    git_executor,
+    repo_path,
+    &FileMove {
+      head_ref: &undo.head_ref,
+      head: &undo.head,
+      new_head: &undo.new_head,
+      files_change: undo.files_change,
+      operation: undo.operation.undo,
+      with,
+      rollback_with,
+    },
+  )
 }
 
 /// A guard of an update or its undo refused before anything was read or written
@@ -1027,9 +1065,38 @@ pub(crate) fn move_branch_and_files(
   files_change: bool,
   operation: &str,
 ) -> Result<()> {
+  let none = RefTransaction::new();
+  move_branch_and_files_carrying(
+    git_executor,
+    repo_path,
+    &FileMove {
+      head_ref,
+      head,
+      new_head,
+      files_change,
+      operation,
+      with: &none,
+      rollback_with: &none,
+    },
+  )
+}
+
+/// `move_branch_and_files` with more ref changes in the move and in its rollback (`FileMove::with`): the unapplied
+/// branch that an unapply creates and a reapply deletes, in the transaction that moves HEAD
+pub(crate) fn move_branch_and_files_carrying(git_executor: &GitCommandExecutor, repo_path: &str, move_: &FileMove<'_>) -> Result<()> {
+  let &FileMove {
+    head_ref,
+    head,
+    new_head,
+    files_change,
+    operation,
+    ..
+  } = move_;
   // the mark of files that have not followed yet: created with the move, deleted when they did or with the rollback
   let mut with = RefTransaction::new();
+  with.extend(move_.with);
   let mut rollback_with = RefTransaction::new();
+  rollback_with.extend(move_.rollback_with);
   let pending = if files_change {
     let pending = pending_ref(&current_worktree(git_executor, repo_path)?);
     with.create(&pending, head);
@@ -1171,9 +1238,10 @@ pub(crate) struct FileMove<'a> {
   pub rollback_with: &'a RefTransaction,
 }
 
-/// `move_branch_and_files` with more ref changes in the move and in its rollback: the finish of a resolve session
-/// (`update_resolve`) moves its state with the branch. Only this module, `update_resolve` and `pick` move a HEAD that
-/// the files follow
+/// `move_branch_and_files` with more ref changes in the move and in its rollback, without the mark of pending files:
+/// the finish of a resolve session (`update_resolve`) moves its state with the branch. Only this module,
+/// `update_resolve`, `pick`, `unapply` and `reapply` move a HEAD that the files follow (`MOVE_CALLERS` of
+/// `worktree_safety_test.rs`)
 pub(crate) fn move_branch_and_files_with(git_executor: &GitCommandExecutor, repo_path: &str, move_: &FileMove<'_>) -> Result<()> {
   let &FileMove {
     head_ref,

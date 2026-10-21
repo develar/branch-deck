@@ -3,8 +3,9 @@
 //! resets or commits, and for `read-tree` with `-u` or `--reset`. Test files and test-utility crates create fixture
 //! repositories with porcelain commands and are exempt.
 //! The one exception, Update Project, writes the working tree in `WORKTREE_WRITE_EXEMPTIONS` only, with exactly the
-//! listed number of `read-tree -u` argument lists, so the exemption can't grow unnoticed. A slot of the lease pool is
-//! not the user's working tree: `SLOT_WRITE_EXEMPTIONS` allows its writes in one file, each subcommand with its count.
+//! listed number of `read-tree -u` argument lists, so the exemption can't grow unnoticed; the moves of HEAD that the
+//! files follow are called only from `MOVE_CALLERS`, each with its count. A slot of the lease pool is not the user's
+//! working tree: `SLOT_WRITE_EXEMPTIONS` allows its writes in one file, each subcommand with its count.
 
 use crate::source_scan_test::{argument_lists, production_part, production_sources};
 
@@ -29,6 +30,25 @@ const DENIED_SUBCOMMANDS: [&str; 14] = [
 /// Files allowed to update the working tree with `read-tree -u`, with the number of such argument lists in each: the dry
 /// run on a copy of the index and the update itself (docs/design/git-operations.md, "Update project")
 const WORKTREE_WRITE_EXEMPTIONS: [(&str, usize); 1] = [("crates/git-ops/src/worktree_update.rs", 2)];
+
+/// The functions of `update_branch.rs` that move HEAD and let the files follow through `worktree_update.rs`
+const MOVE_FUNCTIONS: [&str; 5] = [
+  "move_branch_and_files(",
+  "move_branch_and_files_carrying(",
+  "move_branch_and_files_with(",
+  "files_follow(",
+  "apply_move_undo_with(",
+];
+
+/// The files that name `MOVE_FUNCTIONS` (declarations and calls), with their number of uses: Update Project and its
+/// undo, the finish of a resolve session, `bd pick`, the unapply and the reapply of a virtual branch and their undo
+/// (docs/design/git-operations.md, invariant 1)
+const MOVE_CALLERS: [(&str, usize); 4] = [
+  ("crates/git-ops/src/update_branch.rs", 11),
+  ("crates/git-ops/src/update_resolve.rs", 2),
+  ("crates/git-ops/src/pick.rs", 2),
+  ("crates/git-ops/src/unapply.rs", 2),
+];
 
 /// The file of the lease pool that writes a slot, pool property (docs/design/git-operations.md, "Lease"), with the number of
 /// argument lists of each subcommand: the checkout of a get (detached, or on a new branch), the clean of a cloned slot,
@@ -114,6 +134,27 @@ fn production_code_never_writes_the_working_tree() {
     report.is_empty(),
     "git commands that write the working tree or the user's index (see docs/design/git-operations.md):\n{}",
     report.join("\n")
+  );
+}
+
+#[test]
+fn only_the_named_files_move_head_with_the_files() {
+  let mut found = Vec::new();
+  for source in production_sources() {
+    let uses: usize = source
+      .code_lines()
+      .map(|(_, line)| MOVE_FUNCTIONS.iter().map(|function| line.matches(function).count()).sum::<usize>())
+      .sum();
+    if uses > 0 {
+      found.push((source.path, uses));
+    }
+  }
+  found.sort();
+  let mut expected: Vec<(String, usize)> = MOVE_CALLERS.iter().map(|(path, uses)| ((*path).to_string(), *uses)).collect();
+  expected.sort();
+  assert_eq!(
+    found, expected,
+    "a new caller of a move that the files follow needs a review of docs/design/git-operations.md (invariant 1) and AGENTS.md"
   );
 }
 

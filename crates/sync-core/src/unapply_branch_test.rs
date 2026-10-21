@@ -1,250 +1,178 @@
-use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, unapply_branch_core};
+use crate::regroup_test::{commits, path, repo, sync};
+use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyRefusal, unapply_branch_core};
 use anyhow::Result;
-use git_ops::branch_names::to_final_branch_name;
+use git_ops::unapply::MoveBlocked;
 use history_rewrite::repository_lock::RewriteOptions;
+use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
-/// Create a test repository with commits in HEAD and a virtual branch
-fn create_test_repo_with_virtual_branch() -> Result<(TestRepo, Vec<String>)> {
-  let test_repo = TestRepo::new();
+const PREFIX: &str = "test-prefix";
+const VIRTUAL: &str = "test-prefix/virtual/feature";
 
-  // Create initial commit
-  let _initial_commit_id = test_repo.create_commit("Initial commit", "initial.txt", "initial content");
-
-  // Create some commits in HEAD that represent the commits to be unapplied
-  let commit1_id = test_repo.create_commit("(feature) Add file1", "file1.txt", "content 1");
-  let commit2_id = test_repo.create_commit("(feature) Add file2", "file2.txt", "content 2");
-
-  // Create a virtual branch to simulate the existing virtual branch structure
-  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
-  test_repo.create_branch(&virtual_branch_name).map_err(|e| anyhow::anyhow!(e))?;
-
-  // Stay on master (the commits we created are in HEAD and can be unapplied)
-  Ok((test_repo, vec![commit1_id, commit2_id]))
-}
-
-/// Unapplies `original_commit_ids` of `branch_name` (branch prefix `test-user`)
-fn unapply(test_repo: &TestRepo, branch_name: &str, original_commit_ids: Vec<String>) -> Result<UnapplyBranchResult> {
+/// Unapplies `branch` (branch prefix `test-prefix`), checked against `expected` when given
+fn unapply(repo: &TestRepo, branch: &str, expected: Option<Vec<String>>) -> Result<UnapplyBranchResult> {
   let params = UnapplyBranchParams {
-    repository_path: test_repo.path().to_str().unwrap().to_string(),
-    branch_name: branch_name.to_string(),
-    branch_prefix: "test-user".to_string(),
-    original_commit_ids,
+    repository_path: path(repo).to_string(),
+    branch_name: branch.to_string(),
+    branch_prefix: PREFIX.to_string(),
+    original_commit_ids: expected,
   };
-  unapply_branch_core(test_repo.git_executor(), params, &RewriteOptions::default())
+  unapply_branch_core(repo.git_executor(), params, &RewriteOptions::default())
 }
 
-fn assert_unapply_fails(test_repo: &TestRepo, branch_name: &str, original_commit_ids: Vec<String>, expected_error: &str) {
-  let error = unapply(test_repo, branch_name, original_commit_ids).expect_err("unapply should fail").to_string();
-  assert!(error.contains(expected_error), "error should contain {expected_error:?}: {error}");
+fn refusal(repo: &TestRepo, branch: &str, expected: Option<Vec<String>>) -> UnapplyRefusal {
+  let error = unapply(repo, branch, expected).expect_err("unapply should be refused");
+  error.downcast_ref::<UnapplyRefusal>().cloned().unwrap_or_else(|| panic!("not a refusal: {error:#}"))
 }
 
-/// The virtual branch is gone and the unapplied branch took its place
-fn assert_branch_moved(test_repo: &TestRepo, virtual_branch_name: &str, result: &UnapplyBranchResult) {
-  assert!(!test_repo.branch_exists(virtual_branch_name), "Virtual branch should have been moved");
-  assert!(test_repo.branch_exists(&result.unapplied_branch_name), "Unapplied branch should exist");
+/// `(feature) Add file0`, `(other) Add file1`, `(feature) Add file2`, `(different) Add file3`, synced; returns them
+fn synced_repo() -> (TestRepo, Vec<String>) {
+  let repo = repo(false);
+  let ids = commits(&repo, &["(feature) Add file0", "(other) Add file1", "(feature) Add file2", "(different) Add file3"]);
+  sync(&repo);
+  (repo, ids)
+}
+
+/// `git status --porcelain` including untracked files, without trimming the leading status column
+fn status(repo: &TestRepo) -> String {
+  let output = repo.git_executor().cmd(&["status", "--porcelain"], repo.path_str()).bytes().unwrap();
+  String::from_utf8_lossy(&output).trim_end().to_string()
+}
+
+fn refs(repo: &TestRepo) -> String {
+  repo.git(&["for-each-ref", "--format=%(refname) %(objectname)"])
+}
+
+fn subjects(repo: &TestRepo) -> Vec<String> {
+  repo.git(&["log", "--reverse", "--format=%s"]).lines().map(str::to_string).collect()
 }
 
 #[test]
-fn test_unapply_single_commit() -> Result<()> {
-  let (test_repo, original_commits) = create_test_repo_with_virtual_branch()?;
-  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
+fn unapply_takes_the_commits_of_the_branch_out_of_head_with_their_files() -> Result<()> {
+  let (repo, ids) = synced_repo();
+  let tip = repo.rev_parse(VIRTUAL).map_err(anyhow::Error::msg)?;
 
-  // Use the first original commit
-  let commit_to_unapply = &original_commits[0];
+  let result = unapply(&repo, "feature", Some(vec![ids[2].clone(), ids[0].clone()]))?;
 
-  let result = unapply(&test_repo, &virtual_branch_name, vec![commit_to_unapply.clone()])?;
+  assert_eq!(result.unapplied_branch_name, "test-prefix/unapplied/feature");
+  assert_eq!(result.commits_removed, [ids[0].clone(), ids[2].clone()]);
+  assert_eq!(subjects(&repo), ["Initial commit", "(other) Add file1", "(different) Add file3"]);
+  assert!(!repo.path().join("file0.txt").exists());
+  assert!(!repo.path().join("file2.txt").exists());
+  assert_eq!(status(&repo), "");
+  assert!(!repo.branch_exists(VIRTUAL));
+  assert_eq!(repo.rev_parse(&result.unapplied_branch_name).map_err(anyhow::Error::msg)?, tip);
+  assert_eq!(repo.git(&["log", "-g", "-1", "--format=%gs", "refs/heads/master"]), "branch-deck: unapply");
 
-  // Verify the result
-  assert_eq!(result.commits_removed.len(), 1);
-  assert_eq!(result.commits_removed[0], *commit_to_unapply);
-  assert!(result.unapplied_branch_name.starts_with("test-user/unapplied/feature"));
-
-  assert_branch_moved(&test_repo, &virtual_branch_name, &result);
-
-  // Verify HEAD was reset (the commit should no longer be in HEAD)
-  let head_commits = test_repo
-    .git_executor()
-    .execute_command(&["log", "--format=%H", "-n", "5"], test_repo.path().to_str().unwrap())?;
-  assert!(!head_commits.contains(commit_to_unapply), "Unapplied commit should not be in HEAD");
-
+  // the next sync builds the other branches and leaves the unapplied one as it is
+  sync(&repo);
+  assert!(!repo.branch_exists(VIRTUAL));
+  assert_eq!(repo.rev_parse(&result.unapplied_branch_name).map_err(anyhow::Error::msg)?, tip);
   Ok(())
 }
 
 #[test]
-fn test_unapply_multiple_commits() -> Result<()> {
-  let (test_repo, original_commits) = create_test_repo_with_virtual_branch()?;
-  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
+fn unapply_keeps_unrelated_work_staged_and_unstaged() -> Result<()> {
+  let (repo, _) = synced_repo();
+  std::fs::write(repo.path().join("README.md"), "staged edit")?;
+  repo.git(&["add", "README.md"]);
+  std::fs::write(repo.path().join("file1.txt"), "unstaged edit")?;
+  std::fs::write(repo.path().join("notes.txt"), "untracked")?;
 
-  let result = unapply(&test_repo, &virtual_branch_name, original_commits)?;
+  unapply(&repo, "feature", None)?;
 
-  // Verify the result
-  assert_eq!(result.commits_removed.len(), 2);
-  assert!(result.unapplied_branch_name.starts_with("test-user/unapplied/feature"));
-
-  // Verify HEAD was reset to initial commit
-  let head_log = test_repo.git_executor().execute_command(&["log", "--oneline"], test_repo.path().to_str().unwrap())?;
-  assert!(head_log.contains("Initial commit"));
-  assert!(!head_log.contains("Add file1"));
-  assert!(!head_log.contains("Add file2"));
-
+  assert_eq!(status(&repo), "M  README.md\n M file1.txt\n?? notes.txt");
+  assert_eq!(repo.git(&["show", ":README.md"]), "staged edit");
   Ok(())
 }
 
 #[test]
-fn test_unapply_non_virtual_branch_fails() -> Result<()> {
-  let (test_repo, _) = create_test_repo_with_virtual_branch()?;
+fn unapply_refuses_a_local_change_on_a_path_it_writes_and_changes_nothing() -> Result<()> {
+  let (repo, _) = synced_repo();
+  std::fs::write(repo.path().join("file2.txt"), "unstaged over the dropped file")?;
+  let refs_before = refs(&repo);
 
-  // Try to unapply a non-virtual branch (master)
-  assert_unapply_fails(&test_repo, "master", vec!["dummy".to_string()], "Can only unapply virtual branches");
+  let error = unapply(&repo, "feature", None).expect_err("unapply should be refused");
+  let blocked = error.downcast_ref::<MoveBlocked>().unwrap_or_else(|| panic!("not blocked: {error:#}"));
+  assert_eq!(blocked.paths, ["file2.txt"]);
+  assert_eq!(refs(&repo), refs_before);
 
+  // staged, the same
+  repo.git(&["add", "file2.txt"]);
+  let error = unapply(&repo, "feature", None).expect_err("unapply should be refused");
+  assert!(error.downcast_ref::<MoveBlocked>().is_some(), "{error:#}");
+  assert_eq!(refs(&repo), refs_before);
+  assert_eq!(repo.git(&["show", ":file2.txt"]), "unstaged over the dropped file");
   Ok(())
 }
 
 #[test]
-fn test_unapply_nonexistent_branch_fails() -> Result<()> {
-  let (test_repo, _) = create_test_repo_with_virtual_branch()?;
+fn unapply_conflict_changes_nothing() -> Result<()> {
+  let (repo, _) = synced_repo();
+  // a later commit depends on file0.txt
+  repo.create_commit("(other) Edit file0", "file0.txt", "edited");
+  sync(&repo);
+  std::fs::write(repo.path().join("README.md"), "work in progress")?;
+  let refs_before = refs(&repo);
+  let status_before = status(&repo);
 
-  assert_unapply_fails(&test_repo, "test-user/virtual/nonexistent", vec!["dummy".to_string()], "does not exist");
+  let error = unapply(&repo, "feature", None).expect_err("unapply should conflict");
 
+  assert!(error.to_string().contains("conflicts with later commits"), "{error:#}");
+  assert_eq!(refs(&repo), refs_before);
+  assert_eq!(status(&repo), status_before);
   Ok(())
 }
 
 #[test]
-fn test_unapply_empty_commit_list_fails() -> Result<()> {
-  let (test_repo, _) = create_test_repo_with_virtual_branch()?;
-  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
+fn unapply_refuses_an_unknown_or_changed_branch_one_not_built_and_one_checked_out() -> Result<()> {
+  let (repo, ids) = synced_repo();
+  assert_eq!(refusal(&repo, "ghost", None), UnapplyRefusal::UnknownBranch("ghost".to_string()));
+  assert_eq!(refusal(&repo, "feature", Some(vec![ids[0].clone()])), UnapplyRefusal::BranchChanged("feature".to_string()));
 
-  assert_unapply_fails(&test_repo, &virtual_branch_name, vec![], "No commits provided to unapply");
+  // a new commit that no sync copied yet
+  repo.create_commit("(feature) Add file4", "file4.txt", "4");
+  assert!(matches!(refusal(&repo, "feature", None), UnapplyRefusal::NotBuilt { reason, .. } if reason == "a commit has no copy"));
+  sync(&repo);
 
-  Ok(())
-}
+  let other = tempfile::tempdir()?;
+  let worktree = other.path().join("feature");
+  repo.git(&["worktree", "add", "--quiet", worktree.to_str().unwrap(), VIRTUAL]);
+  assert!(matches!(refusal(&repo, "feature", None), UnapplyRefusal::CheckedOut { branch, .. } if branch == VIRTUAL));
+  repo.git(&["worktree", "remove", "--force", worktree.to_str().unwrap()]);
 
-#[test]
-fn test_unapply_current_branch_fails() -> Result<()> {
-  let (test_repo, _) = create_test_repo_with_virtual_branch()?;
-  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
-
-  // Switch to the virtual branch
-  test_repo.checkout(&virtual_branch_name).map_err(|e| anyhow::anyhow!(e))?;
-
-  assert_unapply_fails(
-    &test_repo,
-    &virtual_branch_name,
-    vec!["dummy".to_string()],
-    "Cannot unapply the currently checked out branch",
-  );
-
-  Ok(())
-}
-
-#[test]
-fn test_unapply_branch_naming_collision() -> Result<()> {
-  let (test_repo, original_commits) = create_test_repo_with_virtual_branch()?;
-  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
-
-  // Create a branch that would collide with the unapplied name
-  let head_commit = test_repo.head();
-  test_repo.create_branch_at("test-user/unapplied/feature", &head_commit).map_err(|e| anyhow::anyhow!(e))?;
-
-  let result = unapply(&test_repo, &virtual_branch_name, vec![original_commits[0].clone()])?;
-
-  // Should have created a suffixed name to avoid collision
-  assert!(result.unapplied_branch_name.ends_with("-1") || result.unapplied_branch_name.ends_with("-2"));
-  assert_ne!(result.unapplied_branch_name, "test-user/unapplied/feature");
-
+  repo.git(&["branch", "-D", VIRTUAL]);
+  assert!(matches!(refusal(&repo, "feature", None), UnapplyRefusal::NotBuilt { reason, .. } if reason == "it does not exist"));
   Ok(())
 }
 
 #[test]
 fn test_unapply_avoids_a_ref_below_the_name() -> Result<()> {
-  let (test_repo, original_commits) = create_test_repo_with_virtual_branch()?;
-  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
-  // `test-user/unapplied/feature` is a directory, so no ref can have that name
-  let head_commit = test_repo.head();
-  test_repo
-    .create_branch_at("test-user/unapplied/feature/old", &head_commit)
-    .map_err(|e| anyhow::anyhow!(e))?;
+  let (repo, _) = synced_repo();
+  // `test-prefix/unapplied/feature` is a directory, so no ref can have that name
+  repo.create_branch_at("test-prefix/unapplied/feature/old", &repo.head()).map_err(anyhow::Error::msg)?;
 
-  let result = unapply(&test_repo, &virtual_branch_name, vec![original_commits[0].clone()])?;
+  let result = unapply(&repo, "feature", None)?;
 
-  assert_eq!(result.unapplied_branch_name, "test-user/unapplied/feature-1");
-  assert_branch_moved(&test_repo, &virtual_branch_name, &result);
+  assert_eq!(result.unapplied_branch_name, "test-prefix/unapplied/feature-1");
+  assert!(!repo.branch_exists(VIRTUAL));
   Ok(())
 }
 
 #[test]
 fn test_unapply_avoids_a_ref_above_the_name() -> Result<()> {
-  let test_repo = TestRepo::new();
-  test_repo.create_commit("Initial commit", "initial.txt", "initial content");
-  let commit = test_repo.create_commit("(feature/x) Add file1", "file1.txt", "content 1");
+  let repo = repo(false);
   // a flat name with a slash, as without stacked branches
-  let virtual_branch_name = to_final_branch_name("test-user", "feature/x")?;
-  test_repo.create_branch(&virtual_branch_name).map_err(|e| anyhow::anyhow!(e))?;
-  // `test-user/unapplied/feature` is a file, so `test-user/unapplied/feature/x` can't be created
-  test_repo.create_branch_at("test-user/unapplied/feature", &commit).map_err(|e| anyhow::anyhow!(e))?;
+  commits(&repo, &["(feature/x) Add file1"]);
+  sync(&repo);
+  // `test-prefix/unapplied/feature` is a file, so `test-prefix/unapplied/feature/x` can't be created
+  repo.create_branch_at("test-prefix/unapplied/feature", &repo.head()).map_err(anyhow::Error::msg)?;
 
-  let result = unapply(&test_repo, &virtual_branch_name, vec![commit])?;
+  let result = unapply(&repo, "feature/x", None)?;
 
-  assert_eq!(result.unapplied_branch_name, "test-user/unapplied/feature-1/x");
-  assert_branch_moved(&test_repo, &virtual_branch_name, &result);
-  Ok(())
-}
-
-#[test]
-fn test_unapply_invalid_commit_ids() -> Result<()> {
-  let (test_repo, _) = create_test_repo_with_virtual_branch()?;
-  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
-
-  // Use commit IDs that don't exist in the virtual branch
-  assert_unapply_fails(
-    &test_repo,
-    &virtual_branch_name,
-    vec!["nonexistent1".to_string(), "nonexistent2".to_string()],
-    "is not on the current branch",
-  );
-
-  Ok(())
-}
-
-#[test]
-fn test_unapply_non_consecutive_commits() -> Result<()> {
-  let test_repo = TestRepo::new();
-
-  // Create initial commit
-  let _initial_commit_id = test_repo.create_commit("Initial commit", "initial.txt", "initial content");
-
-  // Create a sequence of commits where we want to drop non-consecutive ones
-  let commit1_id = test_repo.create_commit("(feature) Add file1", "file1.txt", "content 1");
-  let _commit2_id = test_repo.create_commit("(other) Keep this commit", "other.txt", "keep this");
-  let commit3_id = test_repo.create_commit("(feature) Add file3", "file3.txt", "content 3");
-  let _commit4_id = test_repo.create_commit("(different) Another keeper", "diff.txt", "another keeper");
-
-  // Create virtual branch
-  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
-  test_repo.create_branch(&virtual_branch_name).map_err(|e| anyhow::anyhow!(e))?;
-
-  // Try to drop the first and third commits (non-consecutive)
-  let result = unapply(&test_repo, &virtual_branch_name, vec![commit1_id.clone(), commit3_id.clone()])?;
-
-  // Verify the result
-  assert_eq!(result.commits_removed.len(), 2);
-  assert!(result.commits_removed.contains(&commit1_id));
-  assert!(result.commits_removed.contains(&commit3_id));
-
-  assert_branch_moved(&test_repo, &virtual_branch_name, &result);
-
-  // Verify that HEAD now only contains the commits we didn't drop
-  let head_log = test_repo
-    .git_executor()
-    .execute_command(&["log", "--oneline", "--format=%s"], test_repo.path().to_str().unwrap())?;
-  assert!(head_log.contains("Initial commit"));
-  assert!(head_log.contains("Keep this commit"));
-  assert!(head_log.contains("Another keeper"));
-  assert!(!head_log.contains("Add file1"), "Dropped commit should not be in HEAD");
-  assert!(!head_log.contains("Add file3"), "Dropped commit should not be in HEAD");
-
+  assert_eq!(result.unapplied_branch_name, "test-prefix/unapplied/feature-1/x");
+  assert!(!repo.branch_exists("test-prefix/virtual/feature/x"));
   Ok(())
 }
 
@@ -253,87 +181,17 @@ fn test_unapply_drops_the_commits_from_the_current_branch_of_a_clone() -> Result
   // with a remote, the baseline is `origin/master`: the commits must still leave the current branch, `master`
   let upstream = TestRepo::new();
   upstream.create_commit("Initial commit", "initial.txt", "initial content");
-  let test_repo = TestRepo::new_empty();
-  test_repo.clone_from(upstream.path()).map_err(|e| anyhow::anyhow!(e))?;
-  let kept = test_repo.create_commit("(other) Add other", "other.txt", "other");
-  let dropped = test_repo.create_commit("(feature) Add file1", "file1.txt", "content 1");
-  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
-  test_repo.create_branch(&virtual_branch_name).map_err(|e| anyhow::anyhow!(e))?;
+  let repo = TestRepo::new_empty();
+  repo.clone_from(upstream.path()).map_err(anyhow::Error::msg)?;
+  let kept = repo.create_commit("(other) Add other", "other.txt", "other");
+  let dropped = repo.create_commit("(feature) Add file1", "file1.txt", "content 1");
+  sync(&repo);
 
-  unapply(&test_repo, &virtual_branch_name, vec![dropped.clone()])?;
+  unapply(&repo, "feature", None)?;
 
-  let head_commits = test_repo.log(&["--format=%H", "master"]).map_err(|e| anyhow::anyhow!(e))?;
+  let head_commits = repo.log(&["--format=%H", "master"]).map_err(anyhow::Error::msg)?;
   assert!(!head_commits.contains(&dropped), "the unapplied commit must leave master");
   assert!(head_commits.contains(&kept), "the other commits must stay");
-  assert!(!test_repo.branch_exists("origin/master"), "no local branch named like the baseline");
-  Ok(())
-}
-
-/// `git status --porcelain` including untracked files, without trimming the leading status column
-fn status(test_repo: &TestRepo) -> String {
-  let output = test_repo.git_executor().cmd(&["status", "--porcelain"], test_repo.path_str()).bytes().unwrap();
-  String::from_utf8_lossy(&output).trim_end().to_string()
-}
-
-fn refs(test_repo: &TestRepo) -> String {
-  test_repo
-    .git_executor()
-    .execute_command(&["for-each-ref", "--format=%(refname) %(objectname)"], test_repo.path().to_str().unwrap())
-    .unwrap()
-}
-
-#[test]
-fn unapply_keeps_unrelated_staged_changes() -> Result<()> {
-  let (test_repo, original_commits) = create_test_repo_with_virtual_branch()?;
-  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
-  let path = test_repo.path().to_str().unwrap();
-  std::fs::write(test_repo.path().join("initial.txt"), "staged edit")?;
-  test_repo.git_executor().execute_command(&["add", "initial.txt"], path)?;
-
-  unapply(&test_repo, &virtual_branch_name, vec![original_commits[0].clone()])?;
-
-  // the staged edit is still staged; the dropped file stays in the working tree, untracked
-  assert_eq!(status(&test_repo), "M  initial.txt\n?? file1.txt");
-  assert_eq!(std::fs::read_to_string(test_repo.path().join("file1.txt"))?, "content 1");
-  assert_eq!(test_repo.git_executor().execute_command(&["show", ":initial.txt"], path)?, "staged edit");
-  let reflog = test_repo.log(&["-g", "-1", "--format=%gs"]).map_err(anyhow::Error::msg)?;
-  assert!(reflog.starts_with("branch-deck: unapply"), "{reflog}");
-  Ok(())
-}
-
-#[test]
-fn unapply_conflict_changes_nothing() -> Result<()> {
-  let (test_repo, original_commits) = create_test_repo_with_virtual_branch()?;
-  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
-  // a later commit depends on file1.txt
-  test_repo.create_commit("Edit file1", "file1.txt", "content 1, edited");
-  std::fs::write(test_repo.path().join("initial.txt"), "work in progress")?;
-  let refs_before = refs(&test_repo);
-  let status_before = status(&test_repo);
-
-  let error = unapply(&test_repo, &virtual_branch_name, vec![original_commits[0].clone()]).expect_err("unapply should conflict");
-
-  assert!(error.to_string().contains("conflicts with later commits"), "{error}");
-  assert_eq!(refs(&test_repo), refs_before);
-  assert_eq!(status(&test_repo), status_before);
-  Ok(())
-}
-
-#[test]
-fn unapply_is_atomic() -> Result<()> {
-  let (test_repo, original_commits) = create_test_repo_with_virtual_branch()?;
-  let virtual_branch_name = to_final_branch_name("test-user", "feature")?;
-  let path = test_repo.path().to_str().unwrap();
-  // a staged edit of a file the drop removes: the rewrite would lose it, so nothing may change
-  std::fs::write(test_repo.path().join("file2.txt"), "staged over the dropped file")?;
-  test_repo.git_executor().execute_command(&["add", "file2.txt"], path)?;
-  let refs_before = refs(&test_repo);
-
-  let error = unapply(&test_repo, &virtual_branch_name, original_commits).expect_err("unapply should be refused");
-
-  assert!(error.to_string().contains("Staged changes overlap"), "{error}");
-  assert_eq!(refs(&test_repo), refs_before);
-  assert!(test_repo.branch_exists(&virtual_branch_name), "the virtual branch must not be renamed");
-  assert_eq!(test_repo.git_executor().execute_command(&["show", ":file2.txt"], path)?, "staged over the dropped file");
+  assert!(!repo.branch_exists("origin/master"), "no local branch named like the baseline");
   Ok(())
 }

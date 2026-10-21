@@ -3,6 +3,7 @@ import { StackChildrenNote } from "@/components/branch/StackChildrenNote"
 import { Callout } from "@/components/shared/Callout"
 import { InlineForm } from "@/components/shared/InlineForm"
 import { unapplyBranch } from "@/hooks/useUnapplyBranch"
+import { formatCommitCount } from "@/lib/commit"
 import { getStackChildren, useBranch } from "@/stores/branch-sync"
 import { closeInline, useInlineProcessing } from "@/stores/inline-row-action"
 
@@ -28,8 +29,8 @@ export function InlineUnapplyConfirm({ branchName }: { branchName: string }) {
         }
       }}
     >
-      <Callout tone="warning" title={`This will remove ${commitCount} commit${commitCount === 1 ? "" : "s"} from HEAD`}>
-        <p>The commits will be preserved in the unapplied branch, but removed from your current working branch. This action can be undone by reapplying the commits later.</p>
+      <Callout tone="warning" title={`This removes ${formatCommitCount(commitCount)} and their changes from HEAD`}>
+        <p>The files they changed go back to how they are without them; uncommitted changes to those files stop the unapply. The branch is kept as an unapplied branch.</p>
         {children.length > 0 && <StackChildrenNote parent={branchName} stacked={children} />}
       </Callout>
     </InlineForm>

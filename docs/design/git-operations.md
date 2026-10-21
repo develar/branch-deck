@@ -93,9 +93,10 @@ written, except by Update Project and the finish of its resolve session (their o
 
    **The one exception is Update Project** (see "Update project" below), which must bring the upstream's files into
    the working tree, **its undo**, which takes them out again, **the finish of a resolve session** (see "Resolve
-   session"), which is the same move to the tip that the session replayed, **and `bd pick`** (see "Pick"), which
+   session"), which is the same move to the tip that the session replayed, **`bd pick`** (see "Pick"), which
    moves the branch to the commits of another worktree replayed onto it and, with `--follow`, that worktree onto the
-   same tip, and its undo. All use a single two-way
+   same tip, and its undo, **and the unapply of a virtual branch** (see "Drop and unapply"), which takes its commits
+   and their files out of HEAD. All use a single two-way
    `read-tree -m -u <old HEAD tree> <new HEAD tree>`, which writes only the paths whose content differs between the two
    trees; the undo swaps the trees. Three guards come first: a dry run of the same command on a copy of the index, a
    check for ignored files where the move adds a file, and the CAS ref move. Uncommitted and staged changes on the
@@ -105,8 +106,11 @@ written, except by Update Project and the finish of its resolve session (their o
    `move_branch_and_files_with` and `files_follow`, for the finish of a resolve session in `update_resolve.rs`, which
    moves HEAD only to the tip it reads from the session ref, and, through its `pub(crate)` `move_branch_and_files`, for
    `bd pick` in `pick.rs`, which moves HEAD only to the tip its own check replayed (`PickPlan`, private fields), a
-   detached HEAD with `option no-deref`. The safety scan allows `-u` there and asserts the
-   number of such argument lists (two: the dry run and the update), so the exemption can't grow unnoticed.
+   detached HEAD with `option no-deref`, and, through its `pub(crate)` `move_branch_and_files_carrying` and
+   `apply_move_undo_with`, for the unapply in `unapply.rs`, which moves HEAD only to the drop its own check replayed
+   (`UnapplyPlan`, private fields) and moves the virtual branch in the same transaction. The safety scan allows `-u`
+   there and asserts the number of such argument lists (two: the dry run and the update), so the exemption can't grow
+   unnoticed, and it names the files that call those moves, each with its count (`MOVE_CALLERS`).
 
    **A slot of the lease pool is not the user's working tree** (see "Lease"). The pool owns it while it is free, and a
    get replaces its content: `checkout --force` of a slot that one `status` found clean, and on a return that the
@@ -117,7 +121,7 @@ written, except by Update Project and the finish of its resolve session (their o
    error is returned, never ignored.
 3. **Every ref move is one `update-ref --stdin` transaction** (`crates/git-ops/src/ref_transaction.rs`) with an
    old-value CAS and a `branch-deck: <operation>` reflog message. Related ref changes go into the same transaction:
-   the unapply rename together with the branch move, and the deletion of temporary refs. **One named exception:** the
+   the unapply's move of the virtual branch together with the move of HEAD, and the deletion of temporary refs. **One named exception:** the
    review fetch writes `refs/branch-deck/review/<n>/{head,base}` through `git fetch` itself (its refspecs, forced, no
    CAS, no reflog message): those refs only keep the fetched commits of a pull request reachable, nothing reads their
    old value, and no other operation writes them. Their pruning is a CAS transaction (see "Review fetch").
@@ -541,17 +545,29 @@ The last run is `<d_k>..HEAD`. That is at most k processes for k dropped commits
 A conflict makes `replay` exit with 1, without output, and nothing has changed. A drop is a rewrite plan
 (`prepare_plan`) whose steps are all `Drop`.
 
-Unapply moves the virtual branch to the unapplied namespace. Under `REF_RENAME_MUTEX`, one `for-each-ref` picks a free
-name, and one transaction contains:
+Unapply ([Unapply](../../spec/branch/unapply.spec.md)) takes the commits of a virtual branch out of HEAD with their
+files and keeps the branch in the unapplied namespace, which no sync archives or deletes. Under the repository lock,
+after the mark of an interrupted move is finished (`finish_pending_update`):
 
-- the create in the unapplied namespace;
-- the delete of the virtual branch, checked against its tip;
-- the CAS move of the checked-out branch.
+1. The commits of the branch as they group now: the grouping inputs (one `cat-file --batch`) and the commits ahead
+   (one `log`). The ids the app's request names must be them, else `BranchChanged`.
+2. The build: one `for-each-ref` of the virtual branch (its tip, the worktree that has it checked out, which refuses),
+   the start of its own commits (`own_commits_start`: its stack note, else the merge base with the baseline) and one
+   `rev-list` of them, which must be the copies the mapping notes of the commits name, in order. A branch that a
+   conflict or a missing sync left without a copy of a commit is refused (`NotBuilt`): the commit would leave HEAD
+   without one.
+3. The drop above, then the dry run of the files: `read-tree -m -u -n` of the old and the new HEAD tree on a copy of
+   the index, and the check for an ignored file where a file comes back (`blocking_paths`). A local change on a path
+   the drop changes, staged or not, refuses the unapply (`MoveBlocked`); work on other paths stays as it is.
+4. Under `REF_RENAME_MUTEX`, one `for-each-ref` picks a free name, and the guarded move of "Update project" moves HEAD
+   with the files (`move_branch_and_files_carrying`, `branch-deck: unapply`). Its transaction also creates the branch
+   in the unapplied namespace, deletes the virtual branch (checked against its tip) and the temporary refs of the drop;
+   the rollback of files that changed since the dry run moves both back.
 
-A failed drop therefore never leaves a renamed branch behind. The dropped content stays in the working tree, so it
-shows as unstaged changes, and files that the dropped commits added become untracked.
+A failed unapply therefore never leaves a renamed branch behind, and a crash between the move and the files leaves the
+mark that the next move of the files finishes.
 
-Code: `crates/git-ops/src/rewrite_plan.rs`, `crates/sync-core/src/unapply_branch.rs`,
+Code: `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/unapply.rs`, `crates/sync-core/src/unapply_branch.rs`,
 `crates/branch-integration/src/archive.rs`.
 
 #### Squash
@@ -2780,7 +2796,7 @@ the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and
 | Trial sync after a sync | `a_check_of_synced_branches` * | 16 | 15 |
 | The checks of a session after its open: the first, each next one | `the_second_check_of_a_session` * | 4, 0 | 4, 0 |
 | Amend into an older commit | `an_amend` | 19 | 17 |
-| Unapply a branch | `a_drop` | 19 | 17 |
+| Unapply a branch, its files following (the build checked, the dry run of the files; 2026-10-21) | `a_drop` | 19 | 35 |
 | Squash two commits | `a_squash` | 18 | 14 |
 | Squash fixups | `a_squash_of_fixups` | 31 | 24 |
 | Update check, Update Project | `an_update_check`, `an_update` | 20, 38 | 20, 38 |

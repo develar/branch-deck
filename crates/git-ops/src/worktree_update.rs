@@ -4,7 +4,8 @@
 //! changes on every other path, and refuses as a whole, before writing anything, if a path it would update has
 //! uncommitted or staged changes or is untracked. `crates/git-executor/src/worktree_safety_test.rs` allows `-u` in this
 //! file only, and counts the occurrences. The functions are `pub(crate)`: only `update_branch.rs` calls them, for
-//! Update Project (the app and `bd update`) and its undo (`bd undo update:`).
+//! Update Project (the app and `bd update`) and its undo (`bd undo update:`), and through its moves for the finish of a
+//! resolve session, `bd pick` and the unapply of a virtual branch (`MOVE_CALLERS` of the scan).
 
 use crate::rewrite_guard::IndexCopy;
 use anyhow::{Result, anyhow, bail};

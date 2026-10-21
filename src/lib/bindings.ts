@@ -3734,13 +3734,20 @@ export type TransferProgress = {
 
 export type UnapplyBranchParams = {
 	repositoryPath: string,
+	/**  The branch as the grouping names it (`auth`), not its full virtual branch name */
 	branchName: string,
 	branchPrefix: string,
-	originalCommitIds: string[],
+	/**
+	 *  The original commits the request was made for: when the branch groups others now, the unapply is refused. `None`
+	 *  takes the commits as they group now
+	 */
+	originalCommitIds?: string[] | null,
 };
 
 export type UnapplyBranchResult = {
+	/**  The full name of the unapplied branch: `{prefix}/unapplied/<name>`, with a `-N` suffix when the name is taken */
 	unappliedBranchName: string,
+	/**  The original commits that left HEAD, oldest first */
 	commitsRemoved: string[],
 };
 

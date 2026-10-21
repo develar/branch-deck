@@ -148,6 +148,17 @@ pub fn batch_archive_inactive_branches(
   Ok(newly_archived)
 }
 
+/// Where the own commits of the branch at `tip` start: its stack base (the stack note a sync wrote on the tip), else
+/// where it diverged from `baseline_branch`; `None` for a branch without common history with the baseline, all of whose
+/// commits are its own. The archived and the unapplied branches list their commits from here, and a reapply takes them
+#[instrument(skip(git_executor))]
+pub fn own_commits_start(git_executor: &GitCommandExecutor, repository_path: &str, baseline_branch: &str, tip: &str) -> Result<Option<String>> {
+  match read_stack_bases(git_executor, repository_path, &[tip]).remove(tip) {
+    Some(base) => Ok(Some(base)),
+    None => merge_base(git_executor, repository_path, baseline_branch, tip),
+  }
+}
+
 /// Get commits for an archived branch (integrated or orphaned)
 /// This function retrieves all commits from a virtual branch, regardless of whether
 /// it's integrated or orphaned. For orphaned branches, the commits still exist in the
@@ -163,12 +174,7 @@ pub fn get_archived_branch_commits(git_executor: &GitCommandExecutor, repository
   let tip = resolve_commit(git_executor, repository_path, &branch_ref)?.ok_or_else(|| anyhow::anyhow!("Archived branch {branch_name} does not exist"))?;
   let tip = tip.as_str();
 
-  // Where the branch's own commits start: its stack base, else where it diverged from the baseline; a branch without
-  // common history with the baseline lists all its commits
-  let start = match read_stack_bases(git_executor, repository_path, &[tip]).remove(tip) {
-    Some(base) => Some(base),
-    None => merge_base(git_executor, repository_path, baseline_branch, tip)?,
-  };
+  let start = own_commits_start(git_executor, repository_path, baseline_branch, tip)?;
 
   let range = start.as_ref().map_or_else(|| tip.to_string(), |start| format!("{start}..{tip}"));
   debug!(branch = %branch_name, start = ?start, range = %range, "Getting all commits on branch since divergence");

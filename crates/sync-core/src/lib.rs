@@ -28,7 +28,7 @@
 //! - `stack_operations`: rename a branch, stack it on another one or make it a root, through the regroup
 //! - `add_issue_reference`: an issue key into the subjects of commits
 //! - `amend_to_branch`: uncommitted changes into a commit of a branch
-//! - `unapply_branch`: the commits of a virtual branch out of HEAD, the branch kept as an unapplied one
+//! - `unapply_branch`: the commits of a virtual branch out of HEAD with their files, the branch kept as an unapplied one
 //! - `move_hunk`: the checks of `bd move-hunk` against the commits ahead of the baseline
 //! - `delete_archived_branch`: the delete of an archived branch, with compare-and-swap on its tip
 //! - `parked`: park and unpark a branch (no rewrite: the store `refs/branch-deck/parked`), and whether a branch is parked

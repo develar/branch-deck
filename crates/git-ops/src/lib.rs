@@ -37,7 +37,7 @@
 //!
 //! Rewrites of the checked out branch:
 //! - `rewrite_guard`: the guards of a rewrite, `HeadMoved`, `IndexUpdate` of the user's index
-//! - `rewrite_plan`: drop commits or replace them (unapply, squash), the kept ones replayed
+//! - `rewrite_plan`: drop commits or replace them (the drop of an unapply, squash), the kept ones replayed
 //! - `replay`: `git replay` of a range and `merge-tree` of three trees, objects only
 //! - `reword_commits`: new messages for many commits, one `fast-import`
 //! - `amend_operations`: uncommitted changes into a commit, also an older one
@@ -51,6 +51,7 @@
 //! - `resolve_check`: the checks of a resolved file of a round
 //! - `word_replay`: the local commits replayed onto the upstream, each conflict resolved by words, all or nothing
 //! - `pick`: the commits of another worktree landed on the checked out branch (`bd pick`), the worktree following
+//! - `unapply`: the commits of a virtual branch out of the checked out branch, the files following, and its undo
 //!
 //! Safe Push:
 //! - `trial_rebase`: the rebase of a branch onto the target tip that Patronus runs, tried on objects only
@@ -94,6 +95,7 @@ pub mod squash_commits;
 pub mod tree_archive;
 pub mod tree_id_cache;
 pub mod trial_rebase;
+pub mod unapply;
 pub mod update_branch;
 pub mod update_resolve;
 pub mod word_replay;

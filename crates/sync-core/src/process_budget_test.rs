@@ -661,7 +661,10 @@ fn an_amend() {
   );
 }
 
-/// The commits of beta dropped from the checked out branch, its virtual branch kept as an unapplied one
+/// The commits of beta dropped from the checked out branch with their files, its virtual branch kept as an unapplied one:
+/// the lock and the mark of pending files, the grouping inputs and the commits ahead, the build of the virtual branch
+/// (its tip, its stack note, its own commits), the drop (`git replay` per kept run), the dry run of the files, the free
+/// name, and the move with its mark (`update-ref`, `read-tree`)
 #[tokio::test]
 async fn a_drop() {
   let (repo, commits) = repo();
@@ -671,9 +674,9 @@ async fn a_drop() {
     &git,
     UnapplyBranchParams {
       repository_path: path(&repo),
-      branch_name: format!("{PREFIX}/virtual/beta"),
+      branch_name: "beta".to_string(),
       branch_prefix: PREFIX.to_string(),
-      original_commit_ids: vec![commits[1].clone(), commits[3].clone(), commits[5].clone()],
+      original_commit_ids: Some(vec![commits[1].clone(), commits[3].clone(), commits[5].clone()]),
     },
     &RewriteOptions::default(),
   )
@@ -681,15 +684,20 @@ async fn a_drop() {
   assert_processes(
     &git,
     &[
-      ("for-each-ref", 1),
-      ("log", 1),
+      ("cat-file", 1),
+      ("config", 1),
+      ("diff-tree", 1),
+      ("for-each-ref", 3),
+      ("log", 3),
+      ("merge-base", 1),
       ("read-tree", 2),
+      ("remote", 1),
       ("replay", 2),
-      ("rev-parse", 6), // the repository lock: 1
-      ("show-ref", 1),
-      ("symbolic-ref", 2), // the checked out branch is not the one unapplied: 1
-      ("update-index", 1),
-      ("update-ref", 1),
+      ("rev-list", 1),
+      ("rev-parse", 10), // the repository lock: 1
+      ("symbolic-ref", 4),
+      ("update-index", 3),
+      ("update-ref", 2),
     ],
   );
 }

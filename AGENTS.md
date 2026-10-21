@@ -259,9 +259,10 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   `GIT_INDEX_FILE` is fine. The single exception is the guarded two-way `read-tree -m -u` in
   `crates/git-ops/src/worktree_update.rs` (dry run on an index copy first, then the CAS ref move, rollback on failure),
   `pub(crate)`, called only by `update_branch.rs`: for Update Project (the app and `bd update`), its undo, the finish
-  of a resolve session (`update_resolve.rs`) and `bd pick` (`pick.rs`, also the worktree of `--follow`) and its undo
-  ([Invariants](docs/design/git-operations.md#invariants)). The scan counts its `-u` argument lists. Don't add another
-  caller, another argument list, or a public way to build a move. A slot of the lease pool is not the user's working
+  of a resolve session (`update_resolve.rs`), `bd pick` (`pick.rs`, also the worktree of `--follow`) and its undo, and
+  the unapply of a virtual branch (`unapply.rs`) ([Invariants](docs/design/git-operations.md#invariants)). The scan
+  counts its `-u` argument lists and the files that call the moves (`MOVE_CALLERS`). Don't add another caller, another
+  argument list, or a public way to build a move. A slot of the lease pool is not the user's working
   tree: its `checkout --force`, `reset --hard` and `clean -fd` live in `crates/git-ops/src/lease_slot.rs` only, each
   counted by the scan ([Lease](docs/design/git-operations.md#lease)).
 - **The user's index** changes only where HEAD's tree changed (`IndexUpdate` in `crates/git-ops/src/rewrite_guard.rs`):
