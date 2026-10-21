@@ -122,9 +122,9 @@ jobs:
           BRANCH_DECK_GITHUB_CLIENT_ID: Ov23liKt3gDvjXz8peJ6
         with:
           releaseId: ${{ needs.resolve-release.outputs.release_id }}
-          # release notes in latest.json
-          releaseBody: ${{ needs.resolve-release.outputs.notes }}
-          # the jobs merge latest.json concurrently and conflict on it
+          # publish-release writes latest.json from the uploaded bundles and their .sig files
+          uploadUpdaterJson: false
+          # a failed build or upload
           retryAttempts: 2
           args: ${{ matrix.args }}
 
@@ -139,45 +139,51 @@ jobs:
       TAG_NAME: ${{ inputs.tag_name }}
       RELEASE_ID: ${{ needs.resolve-release.outputs.release_id }}
     steps:
-      # tauri-action links API asset URLs; use the github.com download URLs of earlier releases,
-      # which are not subject to the anonymous API rate limit
-      - name: Rewrite latest.json download URLs
+      # One writer of latest.json: tauri-action merged it in every build job without a lock, so the last job dropped the
+      # platforms of the others while every job passed. The URLs are the github.com download URLs, which are not subject
+      # to the anonymous API rate limit.
+      - name: Write latest.json
         shell: bash
+        env:
+          NOTES: ${{ needs.resolve-release.outputs.notes }}
         run: |
           gh api --paginate "repos/$GH_REPO/releases/$RELEASE_ID/assets" | jq -s add > assets.json
-          asset_id=$(jq -r '.[] | select(.name == "latest.json") | .id' assets.json)
-          if [ -z "$asset_id" ]; then
-            echo "::error::latest.json is missing in release $TAG_NAME; re-run one build job to recreate it"
-            exit 1
-          fi
-          mkdir -p original upload
-          gh api -H 'Accept: application/octet-stream' "repos/$GH_REPO/releases/assets/$asset_id" > original/latest.json
-          jq --slurpfile assets assets.json --arg base "https://github.com/$GH_REPO/releases/download/$TAG_NAME/" '
-            ($assets[0] | map({key: (.id | tostring), value: .name}) | from_entries) as $names
-            | .platforms |= map_values(.url |= (
-                if test("/releases/assets/[0-9]+$")
-                then $base + $names[capture("/releases/assets/(?<id>[0-9]+)$").id]
-                else . end))
-          ' original/latest.json > upload/latest.json
-
-      # tauri-action merges latest.json from all jobs without a lock, so a platform can get lost while every job passes
-      - name: Verify latest.json
-        shell: bash
-        run: |
-          jq -e --slurpfile assets assets.json --arg version "${TAG_NAME#v}" \
-            --arg base "https://github.com/$GH_REPO/releases/download/$TAG_NAME/" '
-            ($assets[0] | map(.name)) as $names
-            | .version == $version
-              and ((["darwin-aarch64", "linux-x86_64", "windows-x86_64"] - (.platforms | keys)) == [])
-              and (.platforms | all(
-                (.signature | length > 0)
-                and (.url | startswith($base))
-                and ((.url | ltrimstr($base)) as $name | any($names[]; . == $name))))
-          ' upload/latest.json || {
-            echo "::error::latest.json is incomplete; re-run the build job of the missing platform"
-            cat upload/latest.json
-            exit 1
-          }
+          mkdir -p upload
+          # the platform keys of tauri-action's latest.json and the name suffix of each updater bundle
+          platforms='{}'
+          for entry in \
+            darwin-aarch64-app=_aarch64.app.tar.gz \
+            linux-x86_64-appimage=_amd64.AppImage \
+            linux-x86_64-deb=_amd64.deb \
+            linux-x86_64-rpm=.x86_64.rpm \
+            windows-x86_64-msi=_x64_en-US.msi \
+            windows-x86_64-nsis=_x64-setup.exe; do
+            key="${entry%%=*}"
+            suffix="${entry#*=}"
+            bundle=$(jq -c --arg suffix "$suffix" '[.[] | select(.name | endswith($suffix))]' assets.json)
+            name=$(jq -r 'if length == 1 then .[0].name else empty end' <<<"$bundle")
+            sig_id=$(jq -r --arg name "$name.sig" '.[] | select(.name == $name) | .id' assets.json)
+            if [ -z "$name" ] || [ -z "$sig_id" ]; then
+              echo "::error::$key: no single *$suffix asset with its .sig in release $TAG_NAME; re-run the build job of that platform"
+              exit 1
+            fi
+            signature=$(gh api -H 'Accept: application/octet-stream' "repos/$GH_REPO/releases/assets/$sig_id")
+            platforms=$(jq --arg key "$key" --arg signature "$signature" \
+              --arg url "https://github.com/$GH_REPO/releases/download/$TAG_NAME/$name" \
+              '.[$key] = {signature: $signature, url: $url}' <<<"$platforms")
+          done
+          # the keys the updater reads; the others are for install.sh and install.ps1
+          jq -n --arg version "${TAG_NAME#v}" --arg notes "$NOTES" --argjson platforms "$platforms" '{
+            version: $version,
+            notes: $notes,
+            pub_date: (now | todate),
+            platforms: ({
+              "darwin-aarch64": $platforms["darwin-aarch64-app"],
+              "linux-x86_64": $platforms["linux-x86_64-appimage"],
+              "windows-x86_64": $platforms["windows-x86_64-msi"]
+            } + $platforms)
+          }' > upload/latest.json
+          cat upload/latest.json
 
       - name: Publish the release
         shell: bash
