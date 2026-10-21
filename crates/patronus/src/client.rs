@@ -23,6 +23,8 @@ pub const MERGE_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub const CI_DETAILS_TIMEOUT: Duration = Duration::from_secs(30);
 /// A transient failure of a GET is asked again once, after this pause
 const GET_RETRY_DELAY: Duration = Duration::from_secs(1);
+/// Patronus answers the progress of at most this many robots per request
+pub const MAX_PROGRESS_ROBOTS: usize = 20;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PatronusError {
@@ -92,6 +94,21 @@ pub struct RobotDto {
   /// The commit of the target branch the robot rebased onto; as `test_reference_revision`
   #[serde(default)]
   pub target_revision: Option<String>,
+  /// The merge profile of a list item, behind the `robot.list.merge.profile.enabled` flag of Patronus: null while the
+  /// flag is off for the user and for a robot started without one
+  #[serde(default)]
+  pub merge_profile: Option<RobotMergeProfileDto>,
+}
+
+/// `mergeProfile` of a robot of the list
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotMergeProfileDto {
+  pub id: String,
+  pub name: String,
+  /// The profile skipped the code-owner review approval check (`patronus.review.approval.check.skip`)
+  #[serde(default)]
+  pub skips_review: bool,
 }
 
 /// The option of a robot that names its merge profile
@@ -249,6 +266,42 @@ pub struct BuildProgressDto {
   pub elapsed_running_seconds: i64,
   pub estimated_total_running_seconds: Option<i64>,
   pub probably_hanging: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RobotsProgressDto {
+  robots: Vec<RobotProgressDto>,
+}
+
+/// The progress of a running robot (`GET /robots/progress`): the CI estimates of its running checks, folded by Patronus
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotProgressDto {
+  pub robot_id: String,
+  /// RFC 3339: the latest finish over the running checks, in the past when every one ran past its estimate; null while
+  /// no running check has an estimate
+  pub estimated_finish_at: Option<String>,
+  /// The check that finishes last; null with `estimated_finish_at`
+  pub longest_check: Option<RobotProgressCheckDto>,
+  /// In the Patronus queue, waiting for a TeamCity agent, or waiting for the build of the next attempt
+  #[serde(default)]
+  pub queued_checks: u32,
+  #[serde(default)]
+  pub running_checks: u32,
+  #[serde(default)]
+  pub finished_checks: u32,
+  #[serde(default)]
+  pub probably_hanging: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotProgressCheckDto {
+  pub name: String,
+  /// The completed fraction of the build, 0 to 1
+  #[serde(default)]
+  pub progress: f32,
 }
 
 #[derive(Deserialize)]
@@ -553,6 +606,23 @@ impl PatronusClient {
     let url = self.robot_api_url(robot_id, &["teamcity-checks"])?;
     let checks: TeamCityChecksDto = self.get_json(|| self.http.get(url.clone()).bearer_auth(token), LIST_TIMEOUT).await?;
     Ok(checks.team_city_checks)
+  }
+
+  /// The progress of the running robots among `robot_ids`, `MAX_PROGRESS_ROBOTS` per request: what took one request per
+  /// running check, folded by Patronus (from the same cache of a minute); a finished or unknown robot is left out. 404
+  /// while the `robot.progress.enabled` flag of Patronus is off for the user
+  #[instrument(skip(self, token, robot_ids), fields(count = robot_ids.len()))]
+  pub async fn get_robots_progress(&self, token: &str, robot_ids: &[&str]) -> Result<Vec<RobotProgressDto>, PatronusError> {
+    let mut robots = Vec::new();
+    for chunk in robot_ids.chunks(MAX_PROGRESS_ROBOTS) {
+      let query: Vec<(&str, &str)> = chunk.iter().map(|id| ("robotId", *id)).collect();
+      let url = reqwest::Url::parse_with_params(&format!("{}/app/rest/v1/robots/progress", self.base_url), query).map_err(|e| PatronusError::InvalidResponse(e.to_string()))?;
+      let started = Instant::now();
+      let answer: RobotsProgressDto = self.get_json(|| self.http.get(url.clone()).bearer_auth(token), LIST_TIMEOUT).await?;
+      info!(count = answer.robots.len(), elapsed_ms = started.elapsed().as_millis(), "read the progress of the robots");
+      robots.extend(answer.robots);
+    }
+    Ok(robots)
   }
 
   /// The estimate of the CI for a build of a check (`teamcity-proxy`, cached by Patronus for a minute)

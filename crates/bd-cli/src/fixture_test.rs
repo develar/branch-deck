@@ -27,6 +27,7 @@ pub fn environment(cwd: &Path) -> Environment {
     path: None,
     // nothing to answer: a test of `bd safe-push` starts its own Patronus
     patronus_url: "http://127.0.0.1:9".to_string(),
+    patronus_new_api: false,
     space_token: None,
     // nothing to answer and no token: a test of a GitHub pull request starts its own GitHub
     github_api_url: "http://127.0.0.1:9".to_string(),

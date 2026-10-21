@@ -37,6 +37,8 @@ pub(crate) struct ServiceState {
   /// Patronus rejected this token: background requests wait for a new one
   rejected: Option<TokenStamp>,
   backoff: Option<Backoff>,
+  /// Patronus answered 404 to `robots/progress` (its flag is off for the user): the builds are asked instead until then
+  pub(crate) progress_api_rests_until: Option<Instant>,
 }
 
 /// The answers of Patronus, each with when it was fetched: the readers decide how long an answer holds. Bounded, so a
@@ -56,6 +58,8 @@ pub(crate) struct Caches {
   pub(crate) problems: Cache<String, Vec<sync_types::patronus::PatronusProblem>>,
   /// By build id: its progress, so the details open in two windows ask it once a minute
   pub(crate) build_progress: Cache<String, (Instant, crate::client::BuildProgressDto)>,
+  /// By robot id: its progress of the new API (`robots/progress`), kept as a build's is
+  pub(crate) robot_progress: Cache<String, (Instant, Option<sync_types::patronus::PatronusRobotProgress>)>,
   /// By `robot id/with the teamcity CLI`, of finished robots: the failed builds of the full failure
   pub(crate) failed_builds: Cache<String, crate::actions::FailedBuilds>,
 }
@@ -70,6 +74,7 @@ impl Caches {
       merge_requests: Cache::new(500),
       problems: Cache::new(1_000),
       build_progress: Cache::new(500),
+      robot_progress: Cache::new(200),
       failed_builds: Cache::new(50),
     }
   }
@@ -93,9 +98,9 @@ impl PatronusService {
   }
 
   /// The user's robots in the Space repository `repository` (e.g. `ultimate`) started since `since`, or in the last
-  /// `FULL_LIST_DAYS` days
+  /// `FULL_LIST_DAYS` days. With `new_api` the list names the merge profile of a robot where Patronus put it (`mergeProfile`)
   #[instrument(skip(self))]
-  pub async fn robots(&self, repository: &str, branch_prefix: &str, since: Option<u32>, background: bool) -> PatronusRobotsResult {
+  pub async fn robots(&self, repository: &str, branch_prefix: &str, since: Option<u32>, background: bool, new_api: bool) -> PatronusRobotsResult {
     let token = match self.token(background) {
       Ok(token) => token,
       Err(result) => return result,
@@ -103,7 +108,7 @@ impl PatronusService {
     if since.is_none()
       && let Some(robots) = self.fresh_full_list(repository)
     {
-      return self.to_result(&robots, branch_prefix);
+      return self.to_result(&robots, branch_prefix, new_api);
     }
     let start = since.unwrap_or_else(|| unix_now().saturating_sub(FULL_LIST_DAYS * 86_400));
     let response = self.client.list_robots(&token.value, repository, start).await;
@@ -112,7 +117,7 @@ impl PatronusService {
         if since.is_none() {
           self.caches.full_lists.insert(repository.to_string(), (Instant::now(), robots.clone()));
         }
-        self.to_result(&robots, branch_prefix)
+        self.to_result(&robots, branch_prefix, new_api)
       }
       Err(availability) => PatronusRobotsResult::from(availability),
     }
@@ -143,7 +148,8 @@ impl PatronusService {
     };
     let response = self.client.fetch_updates(&token.value, &requests).await;
     match self.settle(response, &token.stamp) {
-      Ok(robots) => self.to_result(&robots, branch_prefix),
+      // a poll answers the options, where the profile has always been
+      Ok(robots) => self.to_result(&robots, branch_prefix, false),
       Err(availability) => PatronusRobotsResult::from(availability),
     }
   }
@@ -217,8 +223,18 @@ impl PatronusService {
     Some(format!("{} {}", self.client.base_url(), to_hex(&digest[..16])))
   }
 
-  fn to_result(&self, robots: &[RobotDto], branch_prefix: &str) -> PatronusRobotsResult {
-    let mut robots: Vec<PatronusRobot> = robots.iter().map(|robot| to_robot(robot, branch_prefix, &self.client)).collect();
+  /// `listed_profiles`: the new API, the profile a list names (`mergeProfile`) counts
+  fn to_result(&self, robots: &[RobotDto], branch_prefix: &str, listed_profiles: bool) -> PatronusRobotsResult {
+    let mut robots: Vec<PatronusRobot> = robots
+      .iter()
+      .map(|robot| {
+        let mut known = to_robot(robot, branch_prefix, &self.client);
+        if listed_profiles && known.profile.is_none() {
+          known.profile = listed_profile(robot);
+        }
+        known
+      })
+      .collect();
     robots.sort_by_key(|robot| std::cmp::Reverse(robot.start_time));
     PatronusRobotsResult {
       availability: PatronusAvailability::Available,
@@ -264,6 +280,17 @@ pub fn robot_profile(robot: &RobotDto) -> Option<PatronusRobotProfile> {
     id: option(MERGE_PROFILE_ID_OPTION),
     name: option(MERGE_PROFILE_NAME_OPTION),
     skips_review: option(REVIEW_APPROVAL_CHECK_SKIP_OPTION).map(|value| value == "true"),
+  })
+}
+
+/// The merge profile a list names with the new API (`mergeProfile`); None while Patronus leaves it null, for a robot
+/// without one as while its flag is off for the user: unknown either way, as from a list without it
+pub fn listed_profile(robot: &RobotDto) -> Option<PatronusRobotProfile> {
+  let profile = robot.merge_profile.as_ref()?;
+  Some(PatronusRobotProfile {
+    id: Some(profile.id.clone()),
+    name: Some(profile.name.clone()),
+    skips_review: Some(profile.skips_review),
   })
 }
 

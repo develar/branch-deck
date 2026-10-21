@@ -8,7 +8,7 @@ use pretty_assertions::assert_eq;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use sync_types::patronus::{PatronusChecks, PatronusProblem, PatronusPushMode, PatronusRobotProgress, PatronusRobotStatus};
+use sync_types::patronus::{PatronusChecks, PatronusProblem, PatronusPushMode, PatronusRobotProfile, PatronusRobotProgress, PatronusRobotStatus};
 use sync_types::robot_failure::{BuildProblem, FailedBuild, FailedCheck, FailedTest, OmittedFailures, RobotFailureKind, RobotFailureProblem};
 use test_utils::fake_executable::fake_executable;
 
@@ -16,7 +16,7 @@ use test_utils::fake_executable::fake_executable;
 async fn details_have_the_profile_the_checks_and_the_error_problems() {
   let (_, client) = start_fake().await;
   let (service, _) = service(client, token("t"));
-  let details = service.robot_details("me", "running").await.unwrap();
+  let details = service.robot_details("me", "running", false).await.unwrap();
   assert_eq!(details.robot.branch_name.as_deref(), Some("IJPL-1"));
   assert_eq!((details.profile_id.as_deref(), details.profile_name.as_deref()), (Some("lsc"), Some("Large Scale Change")));
   assert_eq!(
@@ -38,7 +38,7 @@ async fn details_have_the_profile_the_checks_and_the_error_problems() {
     }]
   );
   assert!(details.failing);
-  assert!(!service.robot_details("me", "finished").await.unwrap().failing);
+  assert!(!service.robot_details("me", "finished", false).await.unwrap().failing);
 }
 
 #[tokio::test]
@@ -71,7 +71,7 @@ async fn the_problems_of_a_finished_robot_are_its_errors() {
 async fn details_of_a_running_robot_have_the_estimate_of_its_running_checks() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, token("t"));
-  let details = service.robot_details("me", "running").await.unwrap();
+  let details = service.robot_details("me", "running", false).await.unwrap();
   assert_eq!(
     details.progress,
     Some(PatronusRobotProgress {
@@ -93,14 +93,117 @@ async fn details_of_a_running_robot_have_the_estimate_of_its_running_checks() {
 async fn the_progress_of_a_build_is_asked_once_a_minute_and_never_for_a_finished_robot() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, token("t"));
-  service.robot_details("me", "finished").await.unwrap();
+  service.robot_details("me", "finished", false).await.unwrap();
   assert!(fake.build_progress_calls.lock().unwrap().is_empty());
-  service.robot_details("me", "running").await.unwrap();
+  service.robot_details("me", "running", false).await.unwrap();
   // the details asked again (another window): the builds are not
   service.caches.details.invalidate("running");
-  let details = service.robot_details("me", "running").await.unwrap();
+  let details = service.robot_details("me", "running", false).await.unwrap();
   assert_eq!(fake.build_progress_calls.lock().unwrap().len(), 2);
   assert_eq!(details.progress.and_then(|progress| progress.remaining_seconds), Some(540));
+}
+
+#[tokio::test]
+async fn with_the_new_api_the_progress_of_a_running_robot_is_one_request_kept_for_a_minute() {
+  let (fake, client) = start_fake().await;
+  let (service, _) = service(client, token("t"));
+  let details = service.robot_details("me", "running", true).await.unwrap();
+  let progress = details.progress.unwrap();
+  // the finish Patronus estimated is 9 minutes away; a second may have passed
+  assert!(matches!(progress.remaining_seconds, Some(538..=540)), "{progress:?}");
+  assert_eq!(
+    (
+      progress.check_name.as_deref(),
+      progress.check_percent,
+      progress.overtime_seconds,
+      progress.queued,
+      progress.probably_hanging
+    ),
+    (Some("Unit Tests"), Some(93), None, 1, false)
+  );
+  assert_eq!(*fake.progress_calls.lock().unwrap(), ["running"]);
+  assert!(fake.build_progress_calls.lock().unwrap().is_empty(), "no request per check");
+  // the details asked again (another window): the progress is kept, as a build's is
+  service.caches.details.invalidate("running");
+  service.robot_details("me", "running", true).await.unwrap();
+  assert_eq!(fake.progress_calls.lock().unwrap().len(), 1);
+  // a finished robot has no progress to ask
+  assert_eq!(service.robot_details("me", "finished", true).await.unwrap().progress, None);
+  assert_eq!(fake.progress_calls.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn while_patronus_has_no_progress_of_robots_the_builds_are_asked_and_the_endpoint_rests() {
+  let (fake, client) = start_fake().await;
+  fake.progress_unavailable.store(true, Ordering::SeqCst);
+  let (service, _) = service(client, token("t"));
+  let details = service.robot_details("me", "running", true).await.unwrap();
+  // the 404 of the flag that is off: the estimate comes from the builds, as without the setting
+  assert_eq!(details.progress.as_ref().and_then(|progress| progress.remaining_seconds), Some(540));
+  assert_eq!(fake.progress_calls.lock().unwrap().len(), 1);
+  assert_eq!(fake.build_progress_calls.lock().unwrap().len(), 2);
+  // another running robot: the builds at once, the endpoint is not asked again for a while
+  service.robot_details("me", "newer", true).await.unwrap();
+  assert_eq!(fake.progress_calls.lock().unwrap().len(), 1);
+}
+
+/// What Patronus folds reads as what the builds give: the time left or the overtime against now, the percent of the
+/// longest check; a robot without a running or waiting check has no progress, as before its checks run
+#[test]
+fn the_progress_patronus_folded_reads_as_the_one_from_the_builds() {
+  let robot = |finish: Option<&str>, running: u32, queued: u32| crate::client::RobotProgressDto {
+    robot_id: "r".to_string(),
+    estimated_finish_at: finish.map(str::to_string),
+    longest_check: finish.map(|_| crate::client::RobotProgressCheckDto {
+      name: "Unit Tests".to_string(),
+      progress: 0.934,
+    }),
+    queued_checks: queued,
+    running_checks: running,
+    finished_checks: 3,
+    probably_hanging: true,
+  };
+  let now = 1_792_000_000;
+  let ahead = summarize(&robot(Some("2026-10-14T17:55:40Z"), 2, 1), now).unwrap();
+  assert_eq!(
+    (ahead.remaining_seconds, ahead.overtime_seconds, ahead.check_percent, ahead.queued),
+    (Some(540), None, Some(93), 1)
+  );
+  assert!(ahead.probably_hanging);
+  let overtime = summarize(&robot(Some("2026-10-14T17:45:40Z"), 1, 0), now).unwrap();
+  assert_eq!((overtime.remaining_seconds, overtime.overtime_seconds), (None, Some(60)));
+  // running checks without an estimate yet
+  let unknown = summarize(&robot(None, 1, 0), now).unwrap();
+  assert_eq!((unknown.remaining_seconds, unknown.check_name, unknown.check_percent), (None, None, None));
+  assert_eq!(summarize(&robot(None, 0, 0), now), None);
+}
+
+fn summarize(robot: &crate::client::RobotProgressDto, now: u32) -> Option<PatronusRobotProgress> {
+  crate::actions::progress_of(robot, now)
+}
+
+#[tokio::test]
+async fn start_options_take_the_profile_the_list_named_without_reading_the_last_robot() {
+  let (fake, client) = start_fake().await;
+  let (service, _) = service(client, token("t"));
+  let listed = PatronusRobotProfile {
+    id: Some("lsc".to_string()),
+    name: Some("Large Scale Change".to_string()),
+    skips_review: Some(true),
+  };
+  let options = service.start_options("ij", "ultimate", "master", Some("finished"), Some(listed)).await.unwrap();
+  assert_eq!(options.default_profile_id.as_deref(), Some("lsc"));
+  assert_eq!(options.profiles.iter().map(|profile| profile.skips_review).collect::<Vec<_>>(), [None, Some(true)]);
+  assert_eq!(fake.detail_calls.load(Ordering::SeqCst), 0, "the list said it");
+  // a profile the list did not name (null, or without an id): the robot is read, as before
+  let unknown = PatronusRobotProfile {
+    id: None,
+    name: None,
+    skips_review: None,
+  };
+  let options = service.start_options("ij", "ultimate", "master", Some("finished"), Some(unknown)).await.unwrap();
+  assert_eq!(options.default_profile_id.as_deref(), Some("lsc"));
+  assert_eq!(fake.detail_calls.load(Ordering::SeqCst), 1);
 }
 
 /// The failed checks a robot names: all of them up to one more than the limit, never "and 1 more"; from two more on,
@@ -188,12 +291,12 @@ fn a_robot_ends_with_its_slowest_check_and_runs_over_when_every_check_did() {
 async fn details_of_a_finished_robot_are_asked_once() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, token("t"));
-  service.robot_details("me", "finished").await.unwrap();
-  service.robot_details("me", "finished").await.unwrap();
+  service.robot_details("me", "finished", false).await.unwrap();
+  service.robot_details("me", "finished", false).await.unwrap();
   assert_eq!(fake.detail_calls.load(Ordering::SeqCst), 1);
   // a running robot is cached for a minute too
-  service.robot_details("me", "running").await.unwrap();
-  service.robot_details("me", "running").await.unwrap();
+  service.robot_details("me", "running", false).await.unwrap();
+  service.robot_details("me", "running", false).await.unwrap();
   assert_eq!(fake.detail_calls.load(Ordering::SeqCst), 2);
 }
 
@@ -201,7 +304,7 @@ async fn details_of_a_finished_robot_are_asked_once() {
 async fn start_options_keep_the_emergency_profiles_apart_and_default_to_the_profile_of_the_last_robot() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, token("t"));
-  let options = service.start_options("ij", "ultimate", "master", Some("finished")).await.unwrap();
+  let options = service.start_options("ij", "ultimate", "master", Some("finished"), None).await.unwrap();
   assert!(options.supported);
   assert_eq!(options.target_branch, "master");
   assert_eq!(options.profiles.iter().map(|profile| profile.id.as_str()).collect::<Vec<_>>(), ["default", "lsc"]);
@@ -218,7 +321,7 @@ async fn start_options_keep_the_emergency_profiles_apart_and_default_to_the_prof
     [("emergency", Some(true))]
   );
 
-  let without_robot = service.start_options("ij", "ultimate", "master", None).await.unwrap();
+  let without_robot = service.start_options("ij", "ultimate", "master", None, None).await.unwrap();
   assert_eq!(without_robot.default_profile_id, None);
   assert_eq!(without_robot.profiles[1].skips_review, None);
   assert_eq!(fake.start_supported_calls.load(Ordering::SeqCst), 1, "the profiles are cached");
@@ -332,7 +435,7 @@ fn error_problem(title: &str, subsystem: &str, details: Option<&str>) -> serde_j
 async fn the_failure_of_a_finished_robot_is_its_failed_checks_and_error_problems_without_a_request() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, token("t"));
-  service.robot_details("me", "finished").await.unwrap();
+  service.robot_details("me", "finished", false).await.unwrap();
   let failure = service.robot_failure("me", "finished").await.unwrap();
   assert_eq!(fake.detail_calls.load(Ordering::SeqCst), 1, "the failure is read from the cached details");
   assert_eq!(failure.robot.branch_name.as_deref(), Some("IJPL-1"));

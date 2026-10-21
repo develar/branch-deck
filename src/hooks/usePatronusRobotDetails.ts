@@ -3,6 +3,7 @@ import type { PatronusRobotDetails } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { markRobotFailing, patronusRequest, rememberRobotProfile } from "@/stores/patronus"
 import { holdRobotProgress, setRobotProgress } from "@/stores/robot-progress"
+import { appSettingsStore } from "@/stores/settings/appSettings"
 
 /** A popover that opens and closes at once asks nothing */
 export const DETAILS_DELAY_MS = 300
@@ -32,7 +33,7 @@ export function usePatronusRobotDetails(robotId: string, status: string, enabled
     const running = status === "running"
     const release = running ? holdRobotProgress(robotId) : null
     const ask = () => {
-      commands.getPatronusRobotDetails({ ...patronusRequest(), robotId }).then(
+      commands.getPatronusRobotDetails({ ...patronusRequest(), robotId, newApi: appSettingsStore.getState().patronusNewApi }).then(
         result => {
           if (current && result.status === "ok") {
             setDetails({ key, value: result.data })

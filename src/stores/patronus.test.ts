@@ -42,6 +42,7 @@ import {
   watchRobotLandings,
 } from "@/stores/patronus"
 import { robotCoverageStore, watchRobotCoverage } from "@/stores/robot-coverage"
+import { appSettingsStore } from "@/stores/settings/appSettings"
 import { testRemoteStatus } from "@/stores/test-branch"
 
 const { patronus, branches } = vi.hoisted(() => ({
@@ -454,12 +455,22 @@ describe("watchRobotCoverage", () => {
 describe("refreshPatronus", () => {
   it("lists the last days first, then only the robots started since shortly before the last list", async () => {
     await refreshPatronus("sync")
-    expect(patronus.lists).toEqual([{ repositoryPath: "/repo", branchPrefix: "user", since: null, background: true }])
+    expect(patronus.lists).toEqual([{ repositoryPath: "/repo", branchPrefix: "user", since: null, background: true, newApi: false }])
     expect(getBranchRobot("auth")?.status).toBe("failure")
 
     vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
     await refreshPatronus("sync")
     expect(patronus.lists[1]?.since).toBe(Math.floor((START - LIST_OVERLAP_MS) / 1000))
+  })
+
+  it("asks the list with the New Patronus API when the setting is on", async () => {
+    appSettingsStore.setState({ patronusNewApi: true })
+    try {
+      await refreshPatronus("sync")
+      expect(patronus.lists.map(params => params.newApi)).toEqual([true])
+    } finally {
+      appSettingsStore.setState({ patronusNewApi: false })
+    }
   })
 
   it("asks after a sync every five minutes at most, on focus when older than two minutes, never after a push", async () => {

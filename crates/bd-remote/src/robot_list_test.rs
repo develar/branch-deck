@@ -54,6 +54,7 @@ impl Fixture {
       space: &self.space,
       prefix: "test-user",
       cache: &self.cache,
+      new_api: false,
     };
     read_robots_at(&source, now).iter().map(|robot| format!("{} {:?}", robot.id, robot.status)).collect()
   }

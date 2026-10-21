@@ -1394,6 +1394,11 @@ export type GetPatronusRobotsParams = {
 	since: number | null,
 	/**  Asked by a timer or an event, not by the user: skipped while Patronus is backing off after failures */
 	background: boolean,
+	/**
+	 *  Settings → Patronus, the new API: the list names the merge profile of each robot (`mergeProfile`, behind
+	 *  the `robot.list.merge.profile.enabled` flag of Patronus); off, a list leaves the profile unknown as before
+	 */
+	newApi?: boolean,
 };
 
 export type GetPatronusStartOptionsParams = {
@@ -1402,6 +1407,11 @@ export type GetPatronusStartOptionsParams = {
 	baselineBranch: string,
 	/**  The last robot of the branch: its profile is the default */
 	lastRobotId: string | null,
+	/**
+	 *  The profile of the last robot as the list named it (the new API): the default without reading the robot; null or
+	 *  without an id, the robot is read for it
+	 */
+	lastRobotProfile?: PatronusRobotProfile | null,
 };
 
 export type GetPatronusTargetBranchParams = {
@@ -2135,6 +2145,12 @@ export type PatronusRobotParams = {
 	repositoryPath: string,
 	branchPrefix: string,
 	robotId: string,
+	/**
+	 *  Settings → Patronus, the new API: the progress of a running robot in one request
+	 *  (`GET /robots/progress`, behind the `robot.progress.enabled` flag of Patronus) instead of one per running check;
+	 *  the builds are asked as before while Patronus answers 404
+	 */
+	newApi?: boolean,
 };
 
 /**

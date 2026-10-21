@@ -153,6 +153,11 @@ pub struct GetPatronusRobotsParams {
   pub since: Option<u32>,
   /// Asked by a timer or an event, not by the user: skipped while Patronus is backing off after failures
   pub background: bool,
+  /// Settings → Patronus, the new API: the list names the merge profile of each robot (`mergeProfile`, behind
+  /// the `robot.list.merge.profile.enabled` flag of Patronus); off, a list leaves the profile unknown as before
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub new_api: bool,
 }
 
 /// A running robot whose status the app knows
@@ -277,6 +282,12 @@ pub struct PatronusRobotParams {
   pub repository_path: String,
   pub branch_prefix: String,
   pub robot_id: String,
+  /// Settings → Patronus, the new API: the progress of a running robot in one request
+  /// (`GET /robots/progress`, behind the `robot.progress.enabled` flag of Patronus) instead of one per running check;
+  /// the builds are asked as before while Patronus answers 404
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub new_api: bool,
 }
 
 /// The running robots to ask whether they will fail
@@ -297,6 +308,11 @@ pub struct GetPatronusStartOptionsParams {
   pub baseline_branch: String,
   /// The last robot of the branch: its profile is the default
   pub last_robot_id: Option<String>,
+  /// The profile of the last robot as the list named it (the new API): the default without reading the robot; null or
+  /// without an id, the robot is read for it
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub last_robot_profile: Option<PatronusRobotProfile>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

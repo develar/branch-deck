@@ -524,6 +524,7 @@ dependencies = [
  "serde_json",
  "sync-core",
  "sync-types",
+ "tempfile",
  "tokio",
  "tracing",
  "youtrack",

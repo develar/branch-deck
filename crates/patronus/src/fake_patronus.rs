@@ -25,6 +25,13 @@ pub struct FakePatronus {
   pub cancel_calls: AtomicU32,
   /// The builds whose progress was asked, in order
   pub build_progress_calls: Mutex<Vec<String>>,
+  /// The robots whose progress was asked (`robots/progress`), one entry per request with its ids joined by a comma
+  pub progress_calls: Mutex<Vec<String>>,
+  /// `robots/progress` answers 404: the `robot.progress.enabled` flag of Patronus is off for the user
+  pub progress_unavailable: std::sync::atomic::AtomicBool,
+  /// The list names the merge profile of the robots that have one (`mergeProfile`): the `robot.list.merge.profile.enabled`
+  /// flag of Patronus is on for the user
+  pub list_profiles: std::sync::atomic::AtomicBool,
   /// The query of the last list request
   pub last_query: Mutex<HashMap<String, String>>,
   /// The body of the last fetch-updates request
@@ -120,6 +127,30 @@ fn profile_options() -> serde_json::Value {
   })
 }
 
+/// `mergeProfile` of a robot of the list that ran with the Large Scale Change profile, as `profile_options` say it
+fn listed_profile_json() -> serde_json::Value {
+  serde_json::json!({"id": "lsc", "name": "Large Scale Change", "skipsReview": true})
+}
+
+/// The progress of a running robot as `GET /robots/progress` folds it, matching `default_checks` and the build progress:
+/// Unit Tests (93%, its second attempt) ends last in 9 minutes, Smoke waits, Integration Tests runs too, three finished.
+/// A robot just started has no checks yet
+fn robot_progress_json(id: &str) -> serde_json::Value {
+  if id == "started" {
+    return serde_json::json!({"robotId": id, "estimatedFinishAt": null, "longestCheck": null, "queuedChecks": 0, "runningChecks": 0, "finishedChecks": 0, "probablyHanging": false});
+  }
+  let finish = sync_utils::timestamp::format_utc_timestamp(sync_utils::timestamp::unix_now() + 540);
+  serde_json::json!({
+    "robotId": id,
+    "estimatedFinishAt": finish,
+    "longestCheck": {"checkId": "5", "name": "Unit Tests", "buildId": "102", "progress": 0.93, "attempt": 2, "attemptLimit": 2, "estimatedFinishAt": finish},
+    "queuedChecks": 1,
+    "runningChecks": 2,
+    "finishedChecks": 3,
+    "probablyHanging": false,
+  })
+}
+
 /// A robot as `GET /robots/{id}` answers: with its options; a robot just started has none written yet
 /// A robot whose id starts with `finished` failed, the others run; a started robot has not rebased yet
 fn robot_detail_json(id: &str) -> serde_json::Value {
@@ -192,12 +223,18 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
       get(|State(fake): State<Arc<FakePatronus>>, Query(query): Query<HashMap<String, String>>| async move {
         fake.list_calls.fetch_add(1, Ordering::SeqCst);
         *fake.last_query.lock().unwrap() = query;
-        let robots = fake.robots.lock().unwrap().clone().unwrap_or_else(|| {
+        let mut robots = fake.robots.lock().unwrap().clone().unwrap_or_else(|| {
           vec![
             robot_json("older", "FAILURE", "refs/heads/me/virtual/IJPL-1", "2026-10-13T09:30:00Z"),
             robot_json("newer", "RUNNING", "refs/patronus/safepushcli/ab12cd34", "2026-10-14T09:30:00.5Z"),
           ]
         });
+        if fake.list_profiles.load(Ordering::SeqCst) {
+          // the older robot ran with the Large Scale Change profile, the newer one without a profile
+          for robot in &mut robots {
+            robot["mergeProfile"] = if robot["id"] == "older" { listed_profile_json() } else { serde_json::Value::Null };
+          }
+        }
         fake.answer(serde_json::json!({
           "me": {"type": "USER", "id": "1", "name": "Me"},
           "robots": robots,
@@ -212,6 +249,23 @@ pub async fn start_fake() -> (Arc<FakePatronus>, PatronusClient) {
           return fake.answer(serde_json::Value::Null);
         }
         (StatusCode::CREATED, Json(serde_json::json!({"robotId": "started"}))).into_response()
+      }),
+    )
+    .route(
+      "/app/rest/v1/robots/progress",
+      get(|State(fake): State<Arc<FakePatronus>>, Query(query): Query<Vec<(String, String)>>| async move {
+        let ids: Vec<String> = query.into_iter().filter(|(key, _)| key == "robotId").map(|(_, id)| id).collect();
+        fake.progress_calls.lock().unwrap().push(ids.join(","));
+        if fake.progress_unavailable.load(Ordering::SeqCst) {
+          return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "NOT_FOUND", "description": "Robot progress is disabled"})),
+          )
+            .into_response();
+        }
+        // a finished robot is left out; the others run: Unit Tests end last, in 9 minutes, one check waits
+        let robots: Vec<serde_json::Value> = ids.iter().filter(|id| !id.starts_with("finished")).map(|id| robot_progress_json(id)).collect();
+        fake.answer(serde_json::json!({"robots": robots}))
       }),
     )
     .route(

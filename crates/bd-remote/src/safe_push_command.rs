@@ -1011,8 +1011,10 @@ fn plan(
     _ => None,
   };
 
+  // with the new API the list names the profile of the last robot: nothing more to read for the default
+  let last_profile = robot.filter(|_| context.patronus_new_api).and_then(|robot| robot.profile.clone());
   let options = runtime
-    .block_on(service.start_options(&space.project_key, &space.name, &target, robot.map(|robot| robot.id.as_str())))
+    .block_on(service.start_options(&space.project_key, &space.name, &target, robot.map(|robot| robot.id.as_str()), last_profile))
     .map_err(patronus_error)?;
   if !options.supported {
     return Err(CliError::new(
@@ -1317,12 +1319,12 @@ fn unix_now() -> u32 {
 }
 
 /// The user's robots of the last 7 days in the repository
-pub(crate) fn robots(runtime: &Runtime, service: &PatronusService, space: &SpaceRepository, prefix: &str) -> Result<Vec<PatronusRobot>, CliError> {
-  robots_since(runtime, service, space, prefix, None)
+pub(crate) fn robots(runtime: &Runtime, service: &PatronusService, space: &SpaceRepository, prefix: &str, new_api: bool) -> Result<Vec<PatronusRobot>, CliError> {
+  robots_since(runtime, service, space, prefix, new_api, None)
 }
 
-fn robots_since(runtime: &Runtime, service: &PatronusService, space: &SpaceRepository, prefix: &str, since: Option<u32>) -> Result<Vec<PatronusRobot>, CliError> {
-  let result = runtime.block_on(service.robots(&space.name, prefix, since, false));
+fn robots_since(runtime: &Runtime, service: &PatronusService, space: &SpaceRepository, prefix: &str, new_api: bool, since: Option<u32>) -> Result<Vec<PatronusRobot>, CliError> {
+  let result = runtime.block_on(service.robots(&space.name, prefix, since, false, new_api));
   match result.availability {
     PatronusAvailability::Available => Ok(result.robots),
     PatronusAvailability::NotLoggedIn => Err(CliError::new(
@@ -1656,7 +1658,14 @@ fn start_from_pull_request(
     }
   }
   start.reply = Some("accepted".to_string());
-  let robots = robots_since(runtime, service, &plan.space, &context.prefix, Some(posted_at.saturating_sub(COMMENT_CLOCK_SLACK)))?;
+  let robots = robots_since(
+    runtime,
+    service,
+    &plan.space,
+    &context.prefix,
+    context.patronus_new_api,
+    Some(posted_at.saturating_sub(COMMENT_CLOCK_SLACK)),
+  )?;
   let robot = robots
     .into_iter()
     .filter(|robot| robot.pull_request.as_ref().is_some_and(|link| link.number == pull_request.number))

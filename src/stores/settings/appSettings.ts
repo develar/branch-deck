@@ -27,6 +27,9 @@ const AppSettingsSchema = z.object({
   createPullRequestAssignSelf: z.boolean().default(true),
   // the sidebar of a review (the commits and the files) beside the diffs; F and its button hide it, never the window
   reviewSidebar: z.boolean().default(true),
+  // Settings → Patronus: the new API of Patronus, the progress of a running robot in one request and the
+  // merge profile in the robot list (`new_api` of the Patronus commands; `bd` reads it from the settings file too)
+  patronusNewApi: z.boolean().default(false),
 })
 
 export type AppSettings = z.infer<typeof AppSettingsSchema>
@@ -58,6 +61,7 @@ export type AppSettingsSwitch =
   | "notifyApprovals"
   | "reviewBadge"
   | "attentionBadge"
+  | "patronusNewApi"
 
 export function setAppSettingsSwitch(name: AppSettingsSwitch, value: boolean): void {
   appSettingsStore.setState({ [name]: value })

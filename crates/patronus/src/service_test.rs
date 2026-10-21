@@ -27,7 +27,7 @@ async fn lists_the_robots_newest_first_and_names_the_virtual_branch() {
   let base_url = client.base_url().to_string();
   let (service, _) = service(client, token("t"));
 
-  let result = service.robots("ultimate", "me", None, false).await;
+  let result = service.robots("ultimate", "me", None, false, false).await;
   assert_eq!(result.availability, PatronusAvailability::Available);
   assert_eq!(
     result.robots,
@@ -64,6 +64,32 @@ async fn lists_the_robots_newest_first_and_names_the_virtual_branch() {
   assert_eq!(query.get("owner").map(String::as_str), Some("me"));
   assert_eq!(query.get("repository").map(String::as_str), Some("ultimate"));
   assert!(query.contains_key("start"), "the window is explicit: {query:?}");
+}
+
+#[tokio::test]
+async fn with_the_new_api_a_list_names_the_merge_profile_patronus_put_on_a_robot() {
+  let (fake, client) = start_fake().await;
+  fake.list_profiles.store(true, Ordering::SeqCst);
+  let (service, _) = service(client, token("t"));
+  let result = service.robots("ultimate", "me", None, false, true).await;
+  let profile = |id: &str| result.robots.iter().find(|robot| robot.id == id).unwrap().profile.clone();
+  assert_eq!(
+    profile("older"),
+    Some(PatronusRobotProfile {
+      id: Some("lsc".to_string()),
+      name: Some("Large Scale Change".to_string()),
+      skips_review: Some(true),
+    })
+  );
+  // null: the robot ran without a profile, or the flag of Patronus is off for the user; unknown either way, never "none"
+  assert_eq!(profile("newer"), None);
+
+  // without the setting the list is read as before, whatever Patronus put on it
+  let (fake, client) = start_fake().await;
+  fake.list_profiles.store(true, Ordering::SeqCst);
+  let (other, _) = crate::service_test::service(client, token("t"));
+  let result = other.robots("ultimate", "me", None, false, false).await;
+  assert!(result.robots.iter().all(|robot| robot.profile.is_none()));
 }
 
 #[test]
@@ -131,11 +157,11 @@ async fn reuses_a_fresh_full_list_but_not_an_incremental_one() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, token("t"));
 
-  service.robots("ultimate", "me", None, false).await;
-  service.robots("ultimate", "other", None, true).await;
+  service.robots("ultimate", "me", None, false, false).await;
+  service.robots("ultimate", "other", None, true, false).await;
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 1, "a second window of the repository reuses the list");
 
-  service.robots("ultimate", "me", Some(1_791_970_000), true).await;
+  service.robots("ultimate", "me", Some(1_791_970_000), true, false).await;
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2);
   assert_eq!(fake.last_query.lock().unwrap().get("start").map(String::as_str), Some("2026-10-14T09:26:40Z"));
 }
@@ -144,7 +170,7 @@ async fn reuses_a_fresh_full_list_but_not_an_incremental_one() {
 async fn sends_nothing_without_a_token() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, TokenLookup::Missing);
-  let result = service.robots("ultimate", "me", None, false).await;
+  let result = service.robots("ultimate", "me", None, false, false).await;
   assert_eq!(result.availability, PatronusAvailability::NotLoggedIn);
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 0);
 }
@@ -155,8 +181,8 @@ async fn a_rejected_token_is_not_sent_in_the_background_until_it_changes() {
   let (service, current) = service(client, token("dead"));
   fake.set_status(401);
 
-  assert_eq!(service.robots("ultimate", "me", Some(1), true).await.availability, PatronusAvailability::NotLoggedIn);
-  assert_eq!(service.robots("ultimate", "me", Some(1), true).await.availability, PatronusAvailability::NotLoggedIn);
+  assert_eq!(service.robots("ultimate", "me", Some(1), true, false).await.availability, PatronusAvailability::NotLoggedIn);
+  assert_eq!(service.robots("ultimate", "me", Some(1), true, false).await.availability, PatronusAvailability::NotLoggedIn);
   let known = [KnownRobotStatus {
     id: "newer".to_string(),
     status: PatronusRobotStatus::Running,
@@ -169,7 +195,7 @@ async fn a_rejected_token_is_not_sent_in_the_background_until_it_changes() {
   );
 
   // the user asks: sent again
-  service.robots("ultimate", "me", Some(1), false).await;
+  service.robots("ultimate", "me", Some(1), false, false).await;
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2);
 
   // the CLI wrote a new token
@@ -178,7 +204,7 @@ async fn a_rejected_token_is_not_sent_in_the_background_until_it_changes() {
     value: "fresh".to_string(),
     stamp: TokenStamp::File(Some(std::time::SystemTime::now())),
   });
-  assert_eq!(service.robots("ultimate", "me", Some(1), true).await.availability, PatronusAvailability::Available);
+  assert_eq!(service.robots("ultimate", "me", Some(1), true, false).await.availability, PatronusAvailability::Available);
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 3);
 }
 
@@ -188,7 +214,7 @@ async fn background_requests_back_off_after_a_server_failure() {
   let (service, _) = service(client, token("t"));
   fake.set_status(503);
 
-  let failed = service.robots("ultimate", "me", Some(1), true).await;
+  let failed = service.robots("ultimate", "me", Some(1), true, false).await;
   assert!(
     matches!(failed.availability, PatronusAvailability::Error { ref message } if message == "no such repository"),
     "{failed:?}"
@@ -196,16 +222,16 @@ async fn background_requests_back_off_after_a_server_failure() {
   // a GET is asked once more after a transient failure
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2);
 
-  let skipped = service.robots("ultimate", "me", Some(1), true).await;
+  let skipped = service.robots("ultimate", "me", Some(1), true, false).await;
   assert_eq!(skipped.availability, failed.availability);
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2, "no request while backing off");
 
   // the user asks anyway
   fake.set_status(200);
-  assert_eq!(service.robots("ultimate", "me", Some(1), false).await.availability, PatronusAvailability::Available);
+  assert_eq!(service.robots("ultimate", "me", Some(1), false, false).await.availability, PatronusAvailability::Available);
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 3);
   // and the backoff is over
-  service.robots("ultimate", "me", Some(1), true).await;
+  service.robots("ultimate", "me", Some(1), true, false).await;
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 4);
 }
 
@@ -214,8 +240,8 @@ async fn a_client_error_is_not_asked_again() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, token("t"));
   fake.set_status(400);
-  service.robots("ultimate", "me", Some(1), true).await;
-  service.robots("ultimate", "me", Some(1), true).await;
+  service.robots("ultimate", "me", Some(1), true, false).await;
+  service.robots("ultimate", "me", Some(1), true, false).await;
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2, "no retry and no backoff for a 4xx");
 }
 

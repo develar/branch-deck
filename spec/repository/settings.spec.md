@@ -1,6 +1,6 @@
 ---
 name: Settings
-description: Requirements for the Settings window, a sub-window of its own with a sidebar of pages (General, Appearance, Diffs & Merge, Notifications, GitHub, YouTrack, Repository), opened by the main window from the menu, the keys and the buttons that name a page; the branchdeck.* git config of the selected repository on Repository, and the order of the branch prefixes.
+description: Requirements for the Settings window, a sub-window of its own with a sidebar of pages (General, Appearance, Diffs & Merge, Notifications, GitHub, YouTrack, Patronus, Agents, Repository), opened by the main window from the menu, the keys and the buttons that name a page; the branchdeck.* git config of the selected repository on Repository, and the order of the branch prefixes.
 style: plain-1
 targets:
   - ../../src-tauri/src/menu.rs
@@ -31,6 +31,7 @@ targets:
   - ../../src/components/settings/GitHubPage.tsx
   - ../../src/components/settings/GitHubSettings.tsx
   - ../../src/components/settings/YouTrackPage.tsx
+  - ../../src/components/settings/PatronusPage.tsx
   - ../../src/components/settings/BranchPrefixSetting.tsx
   - ../../src/components/repository/YourTurnCard.tsx
   - ../../src/components/repository/ConfigurationHeader.tsx
@@ -145,7 +146,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 ### Pages
 
 - The sidebar is a vertical Base UI `Tabs` list on the canvas (`TabsList variant="list"`): General, Appearance,
-  Diffs & Merge, Notifications, GitHub, YouTrack, Agents, a separator, then Repository with the name of the selected repository muted beside it (the
+  Diffs & Merge, Notifications, GitHub, YouTrack, Patronus, Agents, a separator, then Repository with the name of the selected repository muted beside it (the
   name of the tab stays "Repository"), the selected one in the selected row of the tables (`bg-primary/15`). ↑ and ↓
   switch the page (`activateOnFocus`). The page is one island (`Card`), which scrolls only where a large zoom leaves it
   no room; the page left is hidden at once (`data-ending-style`), so two never stack.
@@ -196,6 +197,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 - YouTrack: the sign-in to the YouTrack of the issue links ([YouTrack](youtrack.spec.md)), asked again on each open of
   the window and when any window signs in or out (`youtrack-auth-changed`).
   [@test] ../../tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should sign in in the browser to the YouTrack the issue links name, and sign out`, `should ask to sign in again once the sign-in expired`)
+- Patronus: how Branch Deck and bd read the robots ([Patronus](#patronus)).
 - Agents: how coding agents work ([Agents](#agents)).
 - Repository: the settings of the selected repository ([Repository](#repository)).
 - Every page fits 720 × 540 without scrolling in its tallest state: the code of the GitHub sign-in, the warning that the
@@ -311,6 +313,15 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`with_stacks_on_the_read_names_the_flat_branches_that_would_clash`, `with_stacks_off_the_read_groups_nothing`)
   [@test] ../../src/lib/repository-config.test.ts (`says why stacked branches can't be turned off, and what to do`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should not offer to turn stacked branches off while their flat names would clash, and say what to do`)
+
+### Patronus
+
+- One section, "Robots", "How Branch Deck and bd read the robots of Patronus": the switch "New Patronus API"
+  (`appSettings.patronusNewApi`, off by default): the progress of a running robot in one request and its merge profile
+  in the robot list, the old requests while Patronus has them off ([Patronus](../branch/patronus.spec.md)). `bd` reads
+  the setting from the settings file ([Agent CLI](../../docs/guidelines/agent-cli.md)).
+  [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
+  [@test] ../../src/stores/patronus.test.ts (`asks the list with the New Patronus API when the setting is on`)
 
 ### Agents
 

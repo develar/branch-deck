@@ -52,6 +52,7 @@ import { refreshPullRequests } from "@/stores/pull-requests"
 import { getEffectiveBranchPrefix, getSelectedProject, useEffectiveBranchPrefix, useSelectedProjectPath } from "@/stores/repository"
 import type { RobotHistoryEntry } from "@/stores/robot-history"
 import { historySamples, recordFinishedRobots, robotHistoryStore } from "@/stores/robot-history"
+import { appSettingsStore } from "@/stores/settings/appSettings"
 import { getRecentProjects } from "@/stores/settings/repositorySettings"
 import { runFetchBaseline, runUpdateProject } from "@/stores/update-project"
 
@@ -1074,7 +1075,8 @@ export function refreshPatronus(reason: RefreshReason): Promise<void> {
     update(key, () => ({ isRefreshing: true }))
     try {
       const since = full ? null : Math.floor((listedFrom - LIST_OVERLAP_MS) / 1000)
-      const answered = await applyAnswer(key, commands.getPatronusRobots({ repositoryPath, branchPrefix, since, background: current !== "manual" }), full, true)
+      const newApi = appSettingsStore.getState().patronusNewApi
+      const answered = await applyAnswer(key, commands.getPatronusRobots({ repositoryPath, branchPrefix, since, background: current !== "manual", newApi }), full, true)
       if (answered) {
         update(key, () => ({ listedFrom: startedAt }))
       }

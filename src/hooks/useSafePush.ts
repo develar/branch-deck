@@ -3,7 +3,7 @@ import { useStore } from "zustand"
 import { getBranchNextStepOf } from "@/hooks/useBranchNextStep"
 import { peekDismissesStaleReviews, readDismissesStaleReviews } from "@/hooks/useDismissesStaleReviews"
 import { getStackNextStepNow, getWholeStackRest, isForkingStack, stackFactsOf } from "@/hooks/useStackNextStep"
-import type { PatronusProfile, PatronusRobot, PatronusStartOptions, PullRequest } from "@/lib/bindings"
+import type { PatronusProfile, PatronusRobot, PatronusRobotProfile, PatronusStartOptions, PullRequest } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import type { BranchNextStep } from "@/lib/branch-next-step"
 import { getBranchNextStep } from "@/lib/branch-next-step"
@@ -52,6 +52,7 @@ import type { ReadinessEntry } from "@/stores/review-readiness"
 import { demandReviewReadiness, freshReadiness, getReadinessTarget, getReviewReadiness, reviewReadinessStore, useDemandReviewReadiness } from "@/stores/review-readiness"
 import type { SafePushAsk, SafePushMode, SafePushPlacement } from "@/stores/safe-push"
 import { getSafePushStarting, openSafePushPopover, safePushStore, setSafePushStarting } from "@/stores/safe-push"
+import { appSettingsStore } from "@/stores/settings/appSettings"
 import { getShownBranchTableOrder } from "@/stores/stack-collapse"
 
 /** How long a click waits for the facts its decision needs (the review, the rules) before the popover says what it waits for */
@@ -139,10 +140,16 @@ function lastRobotOf(branchName: string): PatronusRobot | undefined {
   return root === null ? getBranchRobot(branchName) : getStackRobot(root)
 }
 
-/** By repository, baseline and the branch's last robot (whose profile is the default) */
+/** With the new API of Patronus, the profile the list named for the last robot: the default without reading the robot */
+function lastRobotProfile(robot: PatronusRobot | undefined): PatronusRobotProfile | null {
+  return appSettingsStore.getState().patronusNewApi ? (robot?.profile ?? null) : null
+}
+
+/** By repository, baseline and the branch's last robot (whose profile is the default), and what the list says of it */
 function optionsKey(branchName: string): string {
   const { repositoryPath } = patronusRequest()
-  return JSON.stringify([repositoryPath, branchSyncStore.getState().baselineBranch ?? "", lastRobotOf(branchName)?.id ?? null])
+  const robot = lastRobotOf(branchName)
+  return JSON.stringify([repositoryPath, branchSyncStore.getState().baselineBranch ?? "", robot?.id ?? null, lastRobotProfile(robot)?.id ?? null])
 }
 
 /** The target and the merge profiles of a start of the branch (`get_patronus_start_options`), asked once a minute */
@@ -160,6 +167,7 @@ export function loadStartOptions(branchName: string): Promise<StartOptionsFact> 
         repositoryPath: patronusRequest().repositoryPath,
         baselineBranch: branchSyncStore.getState().baselineBranch ?? "",
         lastRobotId: lastRobotOf(branchName)?.id ?? null,
+        lastRobotProfile: lastRobotProfile(lastRobotOf(branchName)),
       })
       .then(
         (result): StartOptionsFact => (result.status === "ok" ? { status: "loaded", options: result.data } : { status: "error", message: result.error.message }),

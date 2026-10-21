@@ -1240,7 +1240,10 @@ pass) or, with `--patronus-dry-run`, a Patronus Dry Run (the checks only; it pus
 does, so it needs the user's approval too; `--check` is the preview that starts nothing). The repository must be on Space (`origin` on
 `git.jetbrains.team`, else `not_on_space`), and the Space token of the Safe Push CLI must be there: run
 `./safePush.cmd` once, or set `SPACE_TOKEN` (else `not_logged_in`). `SAFEPUSH_PATRONUS_URL` picks another Patronus
-instance, as for the Safe Push CLI.
+instance, as for the Safe Push CLI. The app's setting Settings → Patronus → "New Patronus API"
+(`appSettings.patronusNewApi` of its settings file) holds for bd too: `bd robot` reads the progress of a running
+robot in one request, and the robot lists name the merge profiles, so `bd safe-push` needs no request for the profile
+of the last robot; off, or while Patronus has the flags off, the requests are the ones of before.
 
 A stacked branch lands with every branch it is built on, in one robot, as the app's Safe Push of a piece
 ([Landing](../design/landing.md)): its virtual branch carries their commits, so the robot starts on it and Patronus

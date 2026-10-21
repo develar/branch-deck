@@ -366,7 +366,9 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
       None => return Err(unknown_branch(name, &grouping.baseline_branch)),
     }
   };
-  let details = runtime.block_on(service.robot_details(&context.prefix, &robot_id)).map_err(patronus_error)?;
+  let details = runtime
+    .block_on(service.robot_details(&context.prefix, &robot_id, context.patronus_new_api))
+    .map_err(patronus_error)?;
   check_robot_of(&details.robot, name, &descendants, stack.map(|stack| stack.root.as_str()), whole.as_ref())?;
   if let Some(other) = details.robot.branch_name.as_deref().filter(|other| *other != name) {
     output.robot_branch = Some(other.to_string());

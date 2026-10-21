@@ -1,16 +1,17 @@
 //! What the user does with a robot (start, restart, cancel) and what the chip popover asks on demand (the checks, the
 //! problems, the merge profiles, the progress of the running checks, why it failed). Each is one request or a few in
 //! parallel; the answers that don't change are cached: the details of a finished robot for the session, of a running
-//! one for a minute, the progress of a build for a minute, the profiles for 10 minutes, the failed builds of a finished
-//! robot for the session.
+//! one for a minute, the progress of a build or of a robot for a minute, the profiles for 10 minutes, the failed builds
+//! of a finished robot for the session.
 
 use crate::ci_text::{cut_head, strip_ansi};
 use crate::client::{
-  BranchRobotStartRequest, BuildDto, BuildProgressDto, MergeProfileDto, ProblemDto, RobotDto, SpaceReviewDto, StartSupportedDto, TeamCityCheckAttemptDetailsDto,
-  TeamCityCheckAttemptDto, TeamCityCheckDto,
+  BranchRobotStartRequest, BuildDto, BuildProgressDto, MergeProfileDto, PatronusError, ProblemDto, RobotDto, RobotProgressDto, SpaceReviewDto, StartSupportedDto,
+  TeamCityCheckAttemptDetailsDto, TeamCityCheckAttemptDto, TeamCityCheckDto,
 };
 use crate::service::{PatronusService, parse_push_mode, parse_status, robot_profile, to_robot};
 use crate::teamcity_cli::TeamCityCli;
+use crate::token::Token;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -20,6 +21,7 @@ use sync_types::patronus::{
 };
 use sync_types::robot_failure::{BuildProblem, FailedBuild, FailedCheck, FailedTest, OmittedFailures, RobotFailure, RobotFailureKind, RobotFailureProblem};
 use sync_utils::list_cut::kept;
+use sync_utils::timestamp::{parse_rfc3339_timestamp, unix_now};
 use tokio::sync::Semaphore;
 use tracing::{info, instrument};
 
@@ -27,6 +29,8 @@ use tracing::{info, instrument};
 const RUNNING_DETAILS_TTL: Duration = Duration::from_secs(60);
 /// Patronus caches the progress of a build for a minute: asking more often would read the same answer
 const BUILD_PROGRESS_TTL: Duration = Duration::from_secs(60);
+/// Patronus answered 404 to `robots/progress`, its flag is off for the user: the builds are asked instead this long
+const PROGRESS_API_REST: Duration = Duration::from_secs(600);
 /// The profiles of a branch change rarely
 const START_SUPPORTED_TTL: Duration = Duration::from_secs(600);
 const START_SUPPORTED_ERROR_TTL: Duration = Duration::from_secs(60);
@@ -47,14 +51,14 @@ const MAX_TEST_MESSAGE_REQUESTS: usize = 8;
 /// The subsystems of Patronus' detectors of a massive failure of tests or builds
 const MASSIVE_FAILURE_SUBSYSTEM_PREFIX: &str = "MASSIVE_";
 
-/// The details without the branch name, which depends on the branch prefix of the caller
+/// The details without the branch name, which depends on the branch prefix of the caller, and without the progress,
+/// which only the details of a running robot read (`robot_details`)
 #[derive(Clone)]
 pub struct CachedDetails {
   robot: RobotDto,
   checks: Option<PatronusChecks>,
   problems: Vec<PatronusProblem>,
   failing: bool,
-  progress: Option<PatronusRobotProgress>,
   /// The checks and the problems of every severity as Patronus answered them, for the failure of the robot; None when the
   /// checks could not be read
   raw_checks: Option<Arc<[TeamCityCheckDto]>>,
@@ -72,12 +76,18 @@ pub struct FailedBuilds {
 pub type ActionError = String;
 
 impl PatronusService {
-  /// The robot with its profile, checks, error problems and whether it will fail
+  /// The robot with its profile, checks, error problems and whether it will fail; of a running one also the estimate of
+  /// the CI for its running checks: with `new_api` in one request to Patronus (`robots/progress`), else one per check
   #[instrument(skip(self))]
-  pub async fn robot_details(&self, branch_prefix: &str, robot_id: &str) -> Result<PatronusRobotDetails, ActionError> {
+  pub async fn robot_details(&self, branch_prefix: &str, robot_id: &str, new_api: bool) -> Result<PatronusRobotDetails, ActionError> {
     let details = self.cached_details(robot_id).await?;
     let robot = to_robot(&details.robot, branch_prefix, self.client());
     let profile = robot_profile(&details.robot);
+    // only while the details of a running robot are open
+    let progress = match details.raw_checks.as_deref() {
+      Some(checks) if robot.status == PatronusRobotStatus::Running => self.running_progress(robot_id, checks, new_api).await,
+      _ => None,
+    };
     Ok(PatronusRobotDetails {
       profile_id: profile.as_ref().and_then(|profile| profile.id.clone()),
       profile_name: profile.and_then(|profile| profile.name),
@@ -85,7 +95,7 @@ impl PatronusService {
       checks: details.checks,
       problems: details.problems,
       failing: details.failing,
-      progress: details.progress,
+      progress,
     })
   }
 
@@ -104,11 +114,6 @@ impl PatronusService {
     );
     let robot = self.settle(robot, &token.stamp).map_err(availability_message)?;
     let checks = checks.ok();
-    // only while the details of a running robot are open: TeamCity's estimate of its running checks
-    let progress = match &checks {
-      Some(checks) if parse_status(&robot.status) == PatronusRobotStatus::Running => self.checks_progress(&token, checks).await,
-      _ => None,
-    };
     // the checks and the problems are extras: the details show without them
     let raw_problems: Arc<[ProblemDto]> = problems.unwrap_or_default().into();
     let (problems, failing) = split_problems(raw_problems.to_vec());
@@ -117,7 +122,6 @@ impl PatronusService {
       checks: checks.as_deref().and_then(summarize_checks),
       problems,
       failing,
-      progress,
       raw_checks: checks.map(Arc::from),
       raw_problems,
     };
@@ -128,9 +132,38 @@ impl PatronusService {
     Ok(details)
   }
 
+  /// The estimate of the CI for the running checks of a running robot: with `new_api` what Patronus folded for the robot
+  /// (`robots/progress`, one request, kept for a minute as a build's progress is), else the progress of each running
+  /// check's build. Patronus answers 404 while its flag is off for the user: then the builds, and the endpoint rests
+  async fn running_progress(&self, robot_id: &str, checks: &[TeamCityCheckDto], new_api: bool) -> Option<PatronusRobotProgress> {
+    let token = self.action_token().ok()?;
+    if !new_api || self.progress_api_rests() {
+      return self.checks_progress(&token, checks).await;
+    }
+    if let Some((fetched_at, known)) = self.caches.robot_progress.get(robot_id)
+      && fetched_at.elapsed() < BUILD_PROGRESS_TTL
+    {
+      return known;
+    }
+    let answer = self.client().get_robots_progress(&token.value, &[robot_id]).await;
+    if let Err(PatronusError::Http { status: 404, .. }) = &answer {
+      info!("Patronus has no progress of robots for this user (the flag is off): the builds are asked instead");
+      self.lock().progress_api_rests_until = Some(Instant::now() + PROGRESS_API_REST);
+      return self.checks_progress(&token, checks).await;
+    }
+    let robots = self.settle(answer, &token.stamp).ok()?;
+    let progress = robots.iter().find(|robot| robot.robot_id == robot_id).and_then(|robot| progress_of(robot, unix_now()));
+    self.caches.robot_progress.insert(robot_id.to_string(), (Instant::now(), progress.clone()));
+    progress
+  }
+
+  fn progress_api_rests(&self) -> bool {
+    self.lock().progress_api_rests_until.is_some_and(|until| Instant::now() < until)
+  }
+
   /// The progress of the current build of each running check, in parallel, each cached for a minute; None before a check
   /// runs. A build Patronus can't answer for is left out.
-  async fn checks_progress(&self, token: &crate::token::Token, checks: &[TeamCityCheckDto]) -> Option<PatronusRobotProgress> {
+  async fn checks_progress(&self, token: &Token, checks: &[TeamCityCheckDto]) -> Option<PatronusRobotProgress> {
     let builds: Vec<String> = checks
       .iter()
       .filter(|check| check.status == "RUNNING")
@@ -280,7 +313,7 @@ impl PatronusService {
 
   /// The failure messages of the test runs, in their order, at most `MAX_TEST_MESSAGE_REQUESTS` requests at once; None
   /// for a run Patronus can't answer for
-  async fn test_messages(&self, token: &crate::token::Token, test_runs: Vec<[String; 3]>) -> Vec<Option<String>> {
+  async fn test_messages(&self, token: &Token, test_runs: Vec<[String; 3]>) -> Vec<Option<String>> {
     let requests = Arc::new(Semaphore::new(MAX_TEST_MESSAGE_REQUESTS));
     let mut pending = tokio::task::JoinSet::new();
     let count = test_runs.len();
@@ -348,14 +381,23 @@ impl PatronusService {
 
   /// The merge profiles of the target branch and the profile of the last robot of the branch as the default; the
   /// emergency profiles apart. Patronus says before a start only of an emergency profile that it skips the review:
-  /// for the profile of the last robot its options say it
+  /// for the profile of the last robot its options say it, or `last_robot_profile`, what the list named with the new
+  /// API, which spares the request for the robot
   #[instrument(skip(self))]
-  pub async fn start_options(&self, project_key: &str, repository: &str, target_branch: &str, last_robot_id: Option<&str>) -> Result<PatronusStartOptions, ActionError> {
+  pub async fn start_options(
+    &self,
+    project_key: &str,
+    repository: &str,
+    target_branch: &str,
+    last_robot_id: Option<&str>,
+    last_robot_profile: Option<PatronusRobotProfile>,
+  ) -> Result<PatronusStartOptions, ActionError> {
     let supported = self.cached_start_supported(project_key, repository, target_branch).await?;
-    // the last robot is usually in the cache: its popover was open
-    let last_profile = match last_robot_id {
-      Some(robot_id) => self.cached_details(robot_id).await.ok().and_then(|details| robot_profile(&details.robot)),
-      None => None,
+    let last_profile = match (last_robot_profile, last_robot_id) {
+      (Some(profile), _) if profile.id.is_some() => Some(profile),
+      // the last robot is usually in the cache: its popover was open
+      (_, Some(robot_id)) => self.cached_details(robot_id).await.ok().and_then(|details| robot_profile(&details.robot)),
+      (_, None) => None,
     };
     let to_profile = |profile: &MergeProfileDto| PatronusProfile {
       id: profile.id.clone(),
@@ -481,7 +523,7 @@ impl PatronusService {
     Ok(to_robot(&robot, branch_prefix, self.client()))
   }
 
-  pub(crate) fn action_token(&self) -> Result<crate::token::Token, ActionError> {
+  pub(crate) fn action_token(&self) -> Result<Token, ActionError> {
     self.token(false).map_err(|result| availability_message(result.availability))
   }
 }
@@ -521,6 +563,35 @@ pub fn summarize_checks(checks: &[TeamCityCheckDto]) -> Option<PatronusChecks> {
   }
   summary.failed_names.truncate(kept(summary.failed_names.len(), MAX_FAILED_NAMES));
   Some(summary)
+}
+
+/// What Patronus folded for a running robot (`robots/progress`), as `summarize_progress` reads it from the builds: the
+/// time left until its latest estimated finish, or by how much every running check ran past it, against `now` (Unix
+/// seconds); the check that ends last and its percent; the queued checks. None when nothing runs or waits
+pub fn progress_of(robot: &RobotProgressDto, now: u32) -> Option<PatronusRobotProgress> {
+  if robot.running_checks == 0 && robot.queued_checks == 0 {
+    return None;
+  }
+  let left = robot
+    .estimated_finish_at
+    .as_deref()
+    .and_then(parse_rfc3339_timestamp)
+    .map(|finish| i64::from(finish) - i64::from(now));
+  let seconds = |value: i64| u32::try_from(value.max(0)).unwrap_or(u32::MAX);
+  Some(PatronusRobotProgress {
+    remaining_seconds: left.filter(|left| *left > 0).map(seconds),
+    check_name: robot.longest_check.as_ref().map(|check| check.name.clone()),
+    check_percent: robot.longest_check.as_ref().map(|check| percent(check.progress)),
+    overtime_seconds: left.filter(|left| *left <= 0).map(|left| seconds(-left)),
+    queued: robot.queued_checks,
+    probably_hanging: robot.probably_hanging,
+  })
+}
+
+/// A fraction of 0 to 1 as a percent
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "0 to 100 after the clamp")]
+fn percent(fraction: f32) -> u32 {
+  (fraction.clamp(0.0, 1.0) * 100.0).round() as u32
 }
 
 /// How far a robot is by the estimates of the CI: the running check that ends last (its estimate minus its running time),

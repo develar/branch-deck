@@ -126,6 +126,8 @@ pub struct RobotSource<'a> {
   pub space: &'a SpaceRepository,
   pub prefix: &'a str,
   pub cache: &'a ObjectCache,
+  /// `RepoContext::patronus_new_api`: the list names the merge profiles
+  pub new_api: bool,
 }
 
 /// The user's robots of the repository for `bd status`, newest first: the kept ones while they hold, else what Patronus
@@ -140,7 +142,9 @@ pub fn read_robots_at(source: &RobotSource<'_>, now: u32) -> Vec<PatronusRobot> 
     NextRequest::Kept => return kept.and_then(|kept| kept.listed).map_or_default(|listed| listed.robots),
     NextRequest::Ask { since, poll } => (since, poll),
   };
-  let answer = source.runtime.block_on(source.service.robots(&source.space.name, source.prefix, since, true));
+  let answer = source
+    .runtime
+    .block_on(source.service.robots(&source.space.name, source.prefix, since, true, source.new_api));
   let base = kept.as_ref().and_then(|kept| kept.listed.as_ref());
   let next = match answer.availability {
     PatronusAvailability::Available => {
@@ -213,6 +217,7 @@ pub fn read_robots(context: &RepoContext, environment: &Environment) -> Vec<Patr
       space: &space,
       prefix: &context.prefix,
       cache: &cache,
+      new_api: context.patronus_new_api,
     };
     Ok(read_robots_at(&source, unix_now()))
   };
@@ -225,7 +230,7 @@ pub fn read_robots(context: &RepoContext, environment: &Environment) -> Vec<Patr
 /// The user's robots of the last 7 days, asked now (a command that decides on them), and kept for `bd status`
 pub fn list_robots(context: &RepoContext, service: &PatronusService, space: &SpaceRepository) -> Result<Vec<PatronusRobot>, CliError> {
   let now = unix_now();
-  let listed = robots(context.runtime()?, service, space, &context.prefix)?;
+  let listed = robots(context.runtime()?, service, space, &context.prefix, context.patronus_new_api)?;
   if let Some(identity) = service.identity() {
     let kept = KeptRobots {
       listed: Some(ListedRobots { at: now, robots: listed.clone() }),

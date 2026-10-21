@@ -105,7 +105,10 @@ pub async fn get_patronus_robots(
   let Some(repository) = patronus.space_repository(&git_executor, &params.repository_path).await? else {
     return Ok(PatronusRobotsResult::from(PatronusAvailability::NotPatronus));
   };
-  let mut result = patronus.service.robots(&repository.name, &params.branch_prefix, params.since, params.background).await;
+  let mut result = patronus
+    .service
+    .robots(&repository.name, &params.branch_prefix, params.since, params.background, params.new_api)
+    .await;
   result.github_repository = github_repository(&git_executor, &repository_state, &params.repository_path, None)
     .await?
     .map(|github| github.full_name());
@@ -123,7 +126,11 @@ pub async fn poll_patronus_robots(patronus: State<'_, PatronusState>, params: Po
 #[tauri::command]
 #[specta::specta]
 pub async fn get_patronus_robot_details(patronus: State<'_, PatronusState>, params: PatronusRobotParams) -> Result<PatronusRobotDetails, CommandError> {
-  patronus.service.robot_details(&params.branch_prefix, &params.robot_id).await.map_err(CommandError::new)
+  patronus
+    .service
+    .robot_details(&params.branch_prefix, &params.robot_id, params.new_api)
+    .await
+    .map_err(CommandError::new)
 }
 
 /// Why the robot failed, with the commit map of its branch, for the prompt for an agent: fast from the details, or full
@@ -194,7 +201,13 @@ pub async fn get_patronus_start_options(
   let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
   patronus
     .service
-    .start_options(&repository.project_key, &repository.name, &target, params.last_robot_id.as_deref())
+    .start_options(
+      &repository.project_key,
+      &repository.name,
+      &target,
+      params.last_robot_id.as_deref(),
+      params.last_robot_profile,
+    )
     .await
     .map_err(CommandError::new)
 }

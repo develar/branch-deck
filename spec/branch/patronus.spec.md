@@ -214,6 +214,18 @@ reports in it and closes it once merged.
   "read the build progress" with its duration).
   [@test] ../../crates/patronus/src/actions_test.rs (`details_of_a_running_robot_have_the_estimate_of_its_running_checks`, `the_progress_of_a_build_is_asked_once_a_minute_and_never_for_a_finished_robot`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should read the estimate of the CI only while the details of a running robot are open`)
+- With Settings → Patronus, "New Patronus API" (`appSettings.patronusNewApi`, off by default, passed to the
+  commands as `newApi`), the same estimate comes from one request, `GET /robots/progress?robotId=…`, which Patronus
+  folds from the same cache of a minute: the latest estimated finish over the running checks (`estimatedFinishAt`,
+  the time left or the overtime against now), the check that ends last and its fraction done, the queued checks (also
+  a running check whose build waits for an agent or for its next attempt), whether one probably hangs; a robot
+  without a running or waiting check has no progress, as before its checks run. The answer is kept for 60 s per
+  robot, as a build's is. The endpoint is behind the `robot.progress.enabled` flag of Patronus: a 404 means it is off
+  for the user, then the builds are asked as above and the endpoint rests for 10 minutes. `bd robot` reads the setting
+  from the app's settings file ([Agent CLI](../../docs/guidelines/agent-cli.md)).
+  [@test] ../../crates/patronus/src/actions_test.rs (`with_the_new_api_the_progress_of_a_running_robot_is_one_request_kept_for_a_minute`, `while_patronus_has_no_progress_of_robots_the_builds_are_asked_and_the_endpoint_rests`, `the_progress_patronus_folded_reads_as_the_one_from_the_builds`)
+  [@test] ../../src/stores/patronus.test.ts (`asks the list with the New Patronus API when the setting is on`)
+  [@test] ../../crates/bd-core/src/context_test.rs (`the_new_patronus_api_setting_of_the_app_is_read_from_its_settings_file`)
 - One HTTP client with a kept-alive connection (connect timeout 5 s, list, poll and details 15 s, the review pre-check
   20 s, actions and merge requests 30 s) and the user agent
   `Branch Deck/<version> (<os>; <arch>)`, so Patronus can tell its load apart. `SAFEPUSH_PATRONUS_URL` (as for the
@@ -510,7 +522,12 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   otherwise), null for the rest, which Patronus doesn't describe; a robot's profile carries it from its options
   (`robot_profile`), null while Patronus hasn't written them. A profile known to skip the review lets the start run
   without the approvals: the review line says "Starts without the approvals of IJPL Code Platform: Large Scale Change
-  skips the code-owner review.".
+  skips the code-owner review.". With the New Patronus API (the setting above) a list names the profile of a robot
+  where Patronus put it (`mergeProfile`: id, name, `skipsReview`; behind its `robot.list.merge.profile.enabled`
+  flag), so the default profile and whether it skips the review come with the list, and the last robot is not read
+  for them (`lastRobotProfile`); a null `mergeProfile` leaves the profile unknown, as a list without it, never "none".
+  [@test] ../../crates/patronus/src/service_test.rs (`with_the_new_api_a_list_names_the_merge_profile_patronus_put_on_a_robot`)
+  [@test] ../../crates/patronus/src/actions_test.rs (`start_options_take_the_profile_the_list_named_without_reading_the_last_robot`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push with the profile chosen in the popover of S and of Safe Push With Profile…`, `should open the popover of a click for the profile of the last Safe Push, and start with the one chosen`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not check the review of a dry run`)
   [@test] ../../crates/patronus/src/actions_test.rs (`start_options_keep_the_emergency_profiles_apart_and_default_to_the_profile_of_the_last_robot`)

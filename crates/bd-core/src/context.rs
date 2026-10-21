@@ -55,6 +55,9 @@ pub struct Environment {
   /// The Patronus instance `bd safe-push` starts robots on: `SAFEPUSH_PATRONUS_URL` (as for the Safe Push CLI), else
   /// the production one
   pub patronus_url: String,
+  /// Settings → Patronus of the app (`appSettings.patronusNewApi`): the progress of a running robot in one
+  /// request and the merge profile from the list, as the app reads them; off without the setting
+  pub patronus_new_api: bool,
   /// `SPACE_TOKEN`, the Space token when the Safe Push CLI has not logged in (`home` has its token file)
   pub space_token: Option<String>,
   /// The GitHub API the pull requests are read and written through: github.com, a fake one in the tests
@@ -72,9 +75,11 @@ pub struct Environment {
 
 impl Environment {
   pub fn from_process() -> Self {
+    let settings_file = app_data_dir().map(|dir| dir.join(SETTINGS_FILE_NAME));
     Self {
       cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-      settings_file: app_data_dir().map(|dir| dir.join(SETTINGS_FILE_NAME)),
+      patronus_new_api: settings_file.as_deref().is_some_and(read_app_patronus_new_api),
+      settings_file,
       git: std::env::var("BD_GIT").ok().filter(|git| !git.is_empty()),
       lock_timeout: DEFAULT_LOCK_TIMEOUT,
       server_stop_timeout: Duration::from_secs(30),
@@ -120,6 +125,8 @@ pub struct RepoContext {
   pub lock_timeout: Duration,
   /// This bd in this repository, quoted for the shell (`bd -C <repository>`), for the next commands an output names
   pub bd: String,
+  /// `Environment::patronus_new_api`: the progress of a robot in one request, the merge profile from the list
+  pub patronus_new_api: bool,
   /// The object cache, opened by the first that asks: opening reads the database names of every environment
   cache: OnceLock<ObjectCache>,
   /// The blocks and the blobs of the scans of this command (`file_diffs`)
@@ -189,6 +196,7 @@ impl RepoContext {
       git_common_dir,
       use_cache: !options.no_cache,
       lock_timeout: environment.lock_timeout,
+      patronus_new_api: environment.patronus_new_api,
       bd: bd_command(environment).map_or_else(|_| "bd".to_string(), |command| command.for_shell_in(&repository)),
       repository,
       cache: OnceLock::new(),
@@ -281,9 +289,8 @@ impl RepoContext {
   }
 }
 
-/// `appSettings.globalUserBranchPrefix` of the app settings file; `None` if the file, the key or a non-blank value is
-/// missing
-fn read_app_branch_prefix(settings_file: &Path) -> Option<String> {
+/// `appSettings` of the app settings file; `None` if the file or the key is missing, or the file does not parse
+fn read_app_settings(settings_file: &Path) -> Option<serde_json::Value> {
   let text = std::fs::read_to_string(settings_file).ok()?;
   let settings: serde_json::Value = match serde_json::from_str(&text) {
     Ok(settings) => settings,
@@ -292,6 +299,20 @@ fn read_app_branch_prefix(settings_file: &Path) -> Option<String> {
       return None;
     }
   };
-  let prefix = settings.get("appSettings")?.get("globalUserBranchPrefix")?.as_str()?.trim();
+  settings.get("appSettings").cloned()
+}
+
+/// `appSettings.globalUserBranchPrefix` of the app settings file; `None` if the file, the key or a non-blank value is
+/// missing
+fn read_app_branch_prefix(settings_file: &Path) -> Option<String> {
+  let settings = read_app_settings(settings_file)?;
+  let prefix = settings.get("globalUserBranchPrefix")?.as_str()?.trim();
   (!prefix.is_empty()).then(|| prefix.to_string())
+}
+
+/// `appSettings.patronusNewApi` of the app settings file: off without the file, the key or a boolean
+pub(crate) fn read_app_patronus_new_api(settings_file: &Path) -> bool {
+  read_app_settings(settings_file)
+    .and_then(|settings| settings.get("patronusNewApi")?.as_bool())
+    .unwrap_or(false)
 }

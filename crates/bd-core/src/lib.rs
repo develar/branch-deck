@@ -24,4 +24,6 @@ pub mod text_input;
 pub mod version;
 
 #[cfg(test)]
+mod context_test;
+#[cfg(test)]
 mod text_input_test;
