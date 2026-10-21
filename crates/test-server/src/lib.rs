@@ -75,6 +75,7 @@ pub async fn create_test_app_with_state() -> (Router, Arc<AppState>) {
     git_executor: git_executor::git_command_executor::GitCommandExecutor::new(),
     test_root_dir,
     templates_dir,
+    repository_views: repository_view::views::RepositoryViews::default(),
   });
 
   let app = create_app(Arc::clone(&state));
@@ -151,6 +152,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_robot_commit_map", post(tauri_command_bridge::get_robot_commit_map))
     .route("/invoke/get_robot_landings", post(tauri_command_bridge::get_robot_landings))
     .route("/invoke/get_robot_spans", post(tauri_command_bridge::get_robot_spans))
+    .route("/invoke/get_repository_view", post(tauri_command_bridge::get_repository_view))
     .route("/invoke/get_patronus_failing_robots", post(tauri_command_bridge::get_patronus_failing_robots))
     .route("/invoke/get_branch_review_readiness", post(tauri_command_bridge::get_branch_review_readiness))
     .route("/invoke/get_patronus_start_options", post(tauri_command_bridge::get_patronus_start_options))

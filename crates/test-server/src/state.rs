@@ -15,6 +15,8 @@ pub struct AppState {
   pub git_executor: GitCommandExecutor,
   pub test_root_dir: tempfile::TempDir,
   pub templates_dir: PathBuf,
+  /// The table each repository's last sync finished, which `get_repository_view` answers from, as the app keeps it
+  pub repository_views: repository_view::views::RepositoryViews,
 }
 
 impl AppState {

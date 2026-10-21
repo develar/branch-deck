@@ -3,6 +3,8 @@ use crate::command_error::CommandError;
 use crate::progress::TauriProgressReporter;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
+use repository_view::branch_table::BranchTable;
+use repository_view::views::RepositoryViews;
 use serde::Deserialize;
 use sync_core::sync::{IssueConfigSource, SyncOptions};
 use sync_types::SyncEvent;
@@ -20,11 +22,12 @@ pub struct SyncBranchesParams {
 /// Synchronizes branches by grouping commits by prefix and creating/updating branches
 // `instrument` must come before `specta::specta`: specta parses the remaining attributes and rejects `%` in `fields`
 #[tauri::command]
-#[instrument(skip(git_executor, cache, progress), fields(repository_path = %params.repository_path, branch_prefix = %params.branch_prefix))]
+#[instrument(skip(git_executor, cache, views, progress), fields(repository_path = %params.repository_path, branch_prefix = %params.branch_prefix))]
 #[specta::specta]
 pub async fn sync_branches(
   git_executor: State<'_, GitCommandExecutor>,
   cache: State<'_, RepositoryStateCache>,
+  views: State<'_, RepositoryViews>,
   params: SyncBranchesParams,
   progress: Channel<SyncEvent>,
 ) -> Result<(), CommandError> {
@@ -55,10 +58,10 @@ pub async fn sync_branches(
     object_cache,
     ..Default::default()
   };
-  // the page takes the events; the report is for `bd`
+  // the page takes the events; the table the sync left answers its repository views
   sync_core::sync::sync_branches(&git_executor, repository_path, branch_prefix, progress_adapter, options)
     .await
-    .map(|_report| ())
+    .map(|report| views.keep(repository_path, branch_prefix, BranchTable::from_report(branch_prefix, &report)))
     .map_err(|e| {
       error!(error = ?e, "Branch synchronization failed");
       CommandError::from(e)

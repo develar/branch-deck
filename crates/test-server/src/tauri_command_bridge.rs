@@ -298,7 +298,12 @@ pub async fn sync_branches(
     issue_config: IssueConfigSource::Load,
     ..Default::default()
   };
-  if let Err(e) = sync_core::sync::sync_branches(git_executor, repository_path, branch_prefix, progress, options).await {
+  let synced = sync_core::sync::sync_branches(git_executor, repository_path, branch_prefix, progress, options).await;
+  if let Ok(report) = &synced {
+    let table = repository_view::branch_table::BranchTable::from_report(branch_prefix, report);
+    state.repository_views.keep(repository_path, branch_prefix, table);
+  }
+  if let Err(e) = synced {
     // a deferred sync, as the app's `CommandError` names it
     let kind = e.downcast_ref::<sync_core::sync::SyncDeferred>().map(|deferred| match deferred {
       sync_core::sync::SyncDeferred::OperationInProgress(_) => "operationInProgress",
@@ -422,6 +427,17 @@ pub async fn get_robot_spans(
     sync_core::robot_landing::robot_spans(&git_executor, &params.repository_path, &params.branch_prefix, &params.baseline_branch, &params.robots)
   })
   .await
+}
+
+/// The view of the table the last sync of the repository finished, by the real core, as the app answers it
+pub async fn get_repository_view(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_types::repository_view::GetRepositoryViewParams>,
+) -> CommandResult<sync_types::repository_view::RepositoryView> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  let views = state.repository_views.clone();
+  run_command("read the repository view", move || Ok::<_, anyhow::Error>(views.view(&git_executor, &params))).await
 }
 
 /// Without the object cache, as every command of the mock server; nothing cancels it

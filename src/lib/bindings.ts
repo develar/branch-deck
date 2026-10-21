@@ -202,6 +202,12 @@ export const commands = {
 	 *  (`robot_spans`)
 	 */
 	getRobotSpans: (params: GetRobotLandingsParams) => typedError<RobotSpan[], CommandError>(__TAURI_INVOKE("get_robot_spans", { params })),
+	/**
+	 *  The view of the table the last sync of the repository finished: what the robots land, landed and hold
+	 *  (`patronus_view`), with the page's robots, their matches and what the page knows of the remote branches. Git only
+	 *  for robots the hashes and the memo don't answer
+	 */
+	getRepositoryView: (params: GetRepositoryViewParams) => typedError<RepositoryView, CommandError>(__TAURI_INVOKE("get_repository_view", { params })),
 	/**  Of the running robots, the ones a failed required check dooms (Patronus' warning), asked after each poll until known */
 	getPatronusFailingRobots: (params: PatronusFailingRobotsParams) => typedError<string[], CommandError>(__TAURI_INVOKE("get_patronus_failing_robots", { params })),
 	/**
@@ -645,6 +651,24 @@ export type BranchOrigin =
  */
 "IssueGroup";
 
+/**  The Patronus facts of one branch; a branch with none is not listed */
+export type BranchPatronus = {
+	landedBy: LandedByView | null,
+	span: SpanView | null,
+	/**
+	 *  The nearest ancestor whose robot runs, or that a running robot of a side branch lands: a Safe Push of the branch
+	 *  would land its commits a second time
+	 */
+	landingAncestor: RobotOf | null,
+	hold: HoldView | null,
+	/**  The robot of the branch runs on the commit it is at, or on its up-to-date remote branch */
+	startBlocked: boolean,
+	/**  Why a Safe Push can't start (the robot part) */
+	start: StartRefusal | null,
+	/**  Why a Dry Run can't start: only a robot on the last commit */
+	dryRun: StartRefusal | null,
+};
+
 export type BranchReview = {
 	/**  In the order of the chain: the root first */
 	segments: BranchReviewSegment[],
@@ -734,6 +758,15 @@ export type BuildProblem = {
 	kind: string | null,
 	/**  Cut to the limit */
 	details: string,
+};
+
+/**
+ *  The commits of a branch a running robot's commit has (`BranchSpan`): ids of the checked-out branch, newest first,
+ *  and those of them it has in an earlier version
+ */
+export type Carried = {
+	commits: string[],
+	amended: string[],
 };
 
 export type ChecksState = "passing" | "failing" | "pending";
@@ -1458,6 +1491,18 @@ export type GetRepositoryConfigParams = {
 	repositoryPath: string,
 };
 
+/**  What the page asks of the branch table it shows */
+export type GetRepositoryViewParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	/**  The asker's counter of its inputs, echoed: an answer to an older one is dropped */
+	revision: number,
+	/**  The robots that land or landed: active and merged, no dry runs */
+	robots: PatronusRobot[],
+	matched: RobotMatch,
+	remote: RemoteFacts,
+};
+
 export type GetReviewRequestsParams = {
 	repositoryPath: string,
 	/**  `owner/name` when the pull requests already resolved it: skips resolving the repository again */
@@ -1606,6 +1651,23 @@ export type GroupedBranchInfo = {
 	stack?: BranchStack | null,
 };
 
+/**  Why a push of a branch won't land */
+export type HoldKind = 
+/**  A merged Safe Push landed all of it: nothing a push sends lands */
+"landed" | 
+/**  Its own Safe Push runs: a push moves the branch the robot took its commit from */
+"own" | 
+/**  A running Safe Push of a branch built on it, or of its whole stack, lands its commits */
+"span";
+
+/**  The hold of a branch: what refuses its push */
+export type HoldView = {
+	kind: HoldKind,
+	by: RobotOf,
+	/**  `span`: the commits the robot lands, as its content told */
+	carried: Carried | null,
+};
+
 /**  Confidence level for integration detection */
 export type IntegrationConfidence = "Exact" | "High";
 
@@ -1634,6 +1696,17 @@ export type LandedBranch = {
 	remaining: number,
 	/**  When Branch Deck found the commits in the baseline, Unix seconds */
 	landedAt: number,
+};
+
+/**  What a merged robot landed of a branch: the robot that left the fewest commits after it, of equals the first merge */
+export type LandedByView = {
+	by: RobotOf,
+	/**  The robot ran on this branch itself */
+	own: boolean,
+	/**  The commits of the branch it landed, original ids, newest first */
+	landed: string[],
+	/**  The commits added after them, original ids, newest first: the work left; empty when all of it landed */
+	after: string[],
 };
 
 /**  A local commit whose change is in the baseline */
@@ -2239,6 +2312,14 @@ export type PatronusStartOptions = {
 	defaultProfileId: string | null,
 };
 
+/**  What the robots land, landed and hold of the branches as they are now */
+export type PatronusView = {
+	branches: { [key in string]: BranchPatronus },
+	stacks: { [key in string]: StackPatronus },
+	/**  By merged robot id, every branch it landed, root first */
+	landedByRobot: { [key in string]: RobotLandedBranch[] },
+};
+
 /**
  *  A person of a review: a group member Patronus names (the full name, a GitHub login when it knows one) or a reviewer
  *  of the pull request outside every group (the login only)
@@ -2464,6 +2545,26 @@ export type RegroupPlan = {
 	unstack?: string[],
 };
 
+/**
+ *  What a remote branch is now, as the asker knows it: the page from its rows (a push moves it without a sync), `bd`
+ *  from its sync
+ */
+export type RemoteFact = {
+	/**  The tip of the remote branch; null without one */
+	remoteTip: string | null,
+	/**
+	 *  The remote branch has what the branch has by content: nothing to push (a remote rebuilt on an older baseline
+	 *  included)
+	 */
+	upToDate: boolean,
+};
+
+/**  The remote facts of the branches and of the stack branches (by root) */
+export type RemoteFacts = {
+	branches: { [key in string]: RemoteFact },
+	stacks: { [key in string]: RemoteFact },
+};
+
 /**  Remote branch status information, by content: the baseline and patch-equivalent (rebased) commits don't count */
 export type RemoteStatusUpdate = {
 	branchName: string,
@@ -2560,6 +2661,14 @@ export type RepositoryConfig = {
 
 /**  A write of one key to the local config; `None` unsets it there (the global value or the default applies again) */
 export type RepositoryConfigChange = { key: "stacks"; value: boolean | null } | { key: "symbols"; value: SymbolMode | null } | { key: "githubRepository"; value: string | null } | { key: "branchPrefix"; value: string | null } | { key: "resolveByWords"; value: boolean | null } | { key: "agentLease"; value: boolean | null } | { key: "agentSubjectBranch"; value: boolean | null };
+
+/**  The view of the branch table of the last sync */
+export type RepositoryView = {
+	revision: number,
+	/**  Counts the syncs whose table the view is of; 0 before the first */
+	tableGeneration: number,
+	patronus: PatronusView,
+};
 
 export type RequestPullRequestReviewersParams = {
 	repositoryPath: string,
@@ -2943,6 +3052,13 @@ export type RobotFailureReport = {
 	headBranch: string | null,
 };
 
+/**  A branch a merged robot landed, whichever robot the branch's `landedBy` names (`closeLandedPullRequests`) */
+export type RobotLandedBranch = {
+	branch: string,
+	own: boolean,
+	after: string[],
+};
+
 /**
  *  What a merged robot landed: the branches of its request whose commits it tested, each with the commits added after
  *  them; a branch it didn't land (a commit of it changed since, none of it tested) is not listed
@@ -2979,6 +3095,24 @@ export type RobotLandingRequest = {
 	 *  Null: the core reads it
 	 */
 	tip: string | null,
+};
+
+/**
+ *  Which robot belongs to each branch and to each whole stack (by root), as the asker matched them
+ *  (`find_branch_robot`, `findBranchRobot`): by robot id
+ */
+export type RobotMatch = {
+	branches: { [key in string]: string },
+	stacks: { [key in string]: string },
+};
+
+/**  A robot of another branch, or of the whole stack of a root, and what it does to a branch */
+export type RobotOf = {
+	/**  The branch the robot ran on; the root for the robot of the whole stack */
+	branch: string,
+	robotId: string,
+	/**  The robot of the whole stack of the root `branch` */
+	wholeStack: boolean,
 };
 
 /**
@@ -3025,6 +3159,19 @@ export type Sides<T> = {
 	left: T,
 	base: T,
 	right: T,
+};
+
+/**
+ *  A running robot of a branch built on this one, or of its whole stack, whose commit has commits of it: it lands them
+ *  with it
+ */
+export type SpanView = {
+	by: RobotOf,
+	/**
+	 *  The commits of this branch the robot's commit has, as its content told; null when only the stack as it is now
+	 *  tells (its commit is not in the repository)
+	 */
+	carried: Carried | null,
 };
 
 export type SquashCommitsParams = {
@@ -3202,6 +3349,17 @@ export type StackMemberSubjects = {
 	subjects: string[],
 };
 
+/**  The Patronus facts of the whole stack of a root; a stack with none is not listed */
+export type StackPatronus = {
+	/**  The first branch of the stack whose robot runs and pushes: it lands a part of the stack */
+	landingMember: RobotOf | null,
+	/**  The robot of the whole stack runs on its stack branch and pushes: a push of the stack branch fails it */
+	holdRobotId: string | null,
+	startBlocked: boolean,
+	start: StartRefusal | null,
+	dryRun: StartRefusal | null,
+};
+
 /**  Why a branch of a stack can't be placed; it never fails the other branches */
 export type StackProblem = 
 /**  Commits declare different parents, in first-declared order */
@@ -3265,6 +3423,21 @@ export type StartPatronusRobotParams = {
 	/**  The merge request whose approvals the review check of the robot counts; null without one */
 	mergeRequest: PatronusMergeRequest | null,
 };
+
+/**
+ *  Why a start is not possible, for the robot part of the decision; the caller says the rest first (a blocked branch,
+ *  one a merged robot landed)
+ */
+export type StartRefusal = 
+/**  A robot runs on the commit the branch is at, or on its remote branch that has the same commits */
+{ kind: "lastCommit"; robotId: string } | 
+/**  A robot of a branch built on it, or of the whole stack, lands it with more */
+{ kind: "descendant"; span: SpanView } | 
+/**
+ *  A robot lands a part of what the start would land: an ancestor, a side branch built on one; for the whole stack a
+ *  branch of it
+ */
+{ kind: "ancestor"; landing: RobotOf };
 
 /**  An open of a sub-window, as its page gets it (`window.__SUB_WINDOW_OPEN__`) */
 export type SubWindowOpen = {

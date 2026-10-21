@@ -6,6 +6,8 @@
 //!   stack branches, the parked branches, `stack_ancestors`
 //! - `patronus_view`: what the robots land, landed and hold of the table, by the hashes and else by content
 //!   (`sync_core::robot_landing`), once per state (`ContentMemo`)
+//! - `views`: what the app keeps to answer `get_repository_view`: the table of the last sync and the memo, by repository
 
 pub mod branch_table;
 pub mod patronus_view;
+pub mod views;

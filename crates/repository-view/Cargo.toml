@@ -11,6 +11,7 @@ sync-core = { path = "../sync-core" }
 sync-types = { path = "../sync-types" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
+moka = { workspace = true, features = ["sync"] }
 tracing.workspace = true
 
 [dev-dependencies]

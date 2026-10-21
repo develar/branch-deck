@@ -724,6 +724,7 @@ dependencies = [
  "objc2-foundation",
  "object-cache",
  "patronus",
+ "repository-view",
  "serde",
  "serde_json",
  "specta",
@@ -4802,6 +4803,7 @@ version = "0.1.0"
 dependencies = [
  "git-executor",
  "git-ops",
+ "moka",
  "pretty_assertions",
  "serde",
  "serde_json",
@@ -6415,6 +6417,7 @@ dependencies = [
  "object-cache",
  "patronus",
  "pretty_assertions",
+ "repository-view",
  "reqwest",
  "serde",
  "serde_json",

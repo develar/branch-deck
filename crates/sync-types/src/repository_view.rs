@@ -114,7 +114,7 @@ pub struct HoldView {
 /// one a merged robot landed)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(rename_all = "camelCase", tag = "kind")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "kind")]
 pub enum StartRefusal {
   /// A robot runs on the commit the branch is at, or on its remote branch that has the same commits
   LastCommit { robot_id: String },

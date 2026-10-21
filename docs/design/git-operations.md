@@ -2602,7 +2602,11 @@ Read-only. What Rust derives of the branch table for the page and for `bd`, so b
 `repository-view`. `BranchTable` (`branch_table.rs`) is the table a sync left: the grouped branches in the order of the
 table, their virtual tips, the copies the sync wrote (`SyncReport::copies`, recorded from its `CommitSynced` events: a
 mapping note read at the sync's start names the copy of before), the stack branches and the parked branches; `bd`
-builds it from the report of its sync (`bd status` from a grouping), the app keeps the one of its last sync.
+builds it from the report of its sync (`bd status` from a grouping). The app keeps the table of the last sync of each
+repository and branch prefix (`RepositoryViews` in `views.rs`, written by `sync_branches` from the report it no longer
+drops; a failed sync keeps the one before) and answers `get_repository_view` from it, with the robots, their matches
+and the remote facts the page sends: a push moves a remote branch without a sync, the page knows it, the table doesn't.
+The E2E server keeps it the same way from its own sync.
 
 The Patronus section (`patronus_view.rs`): what the robots land, landed and hold, and why a start waits (the rule in
 [Patronus](../../spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)). Its inputs besides the table
