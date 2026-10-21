@@ -2398,8 +2398,9 @@ fn resolve_rust(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referen
       let qualifier = qualifier?;
       (!qualifier.is_empty() && is_item(qualifier)).then_some(Evidence::Qualified)
     }
-    MemberKind::Static => {
-      // `Type::new()`: the type resolves to the receiver of the impl
+    // `Type::new()`, `Type { field }` and `Type::method(&x)`: the type resolves to the owner, the struct or the receiver
+    // of the impl; an instance member on a value (`x.field`, `self.method()`) or through `Self` has no type to resolve
+    MemberKind::Static | MemberKind::Instance => {
       let owner = site.containers.last()?;
       let (last, path) = qualifier?.split_last()?;
       if last != owner {
@@ -2416,7 +2417,6 @@ fn resolve_rust(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referen
         .is_some_and(|(root, module)| root == site.ctx.crate_root && module == item_module)
         .then_some(Evidence::Qualified)
     }
-    MemberKind::Instance => None,
   }
 }
 

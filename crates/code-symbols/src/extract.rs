@@ -40,7 +40,7 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 16;
+pub const RULES_VERSION: u32 = 17;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -460,6 +460,16 @@ pub(crate) struct Traits {
   pub(crate) receiver: Option<u32>,
   /// What the declaration is to its own members
   pub(crate) holder: Holder,
+}
+
+/// An item that language code found among the tokens of a macro (`Walk::add_token_declaration`)
+pub(crate) struct TokenItem<'t> {
+  /// Its first token, or the first doc comment or attribute above it
+  pub(crate) first: Node<'t>,
+  pub(crate) name: Node<'t>,
+  pub(crate) last: Node<'t>,
+  /// The header of a function, a value or a constant (`Walk::tokens_header`)
+  pub(crate) header: String,
 }
 
 /// What a container is to the declarations in it, for their member kind and reach
@@ -1577,7 +1587,7 @@ impl<'t> Walk<'t> {
     }
   }
 
-  fn is_doc_comment(&self, node: Node<'t>) -> bool {
+  pub(crate) fn is_doc_comment(&self, node: Node<'t>) -> bool {
     self
       .text(node)
       .is_some_and(|it| (it.starts_with("/**") && !it.starts_with("/**/")) || (it.starts_with("///") && !it.starts_with("////")))
@@ -2039,6 +2049,36 @@ impl<'t> Walk<'t> {
     let name = self.text(name_node)?;
     self.claim(name_node);
     Some(self.declare(node, name_node, name, traits, None, fields))
+  }
+
+  /// Declares an item that language code found among the tokens of a macro (an item in the token tree of a Rust item
+  /// macro): from the line of its first token to the end of its last, in `container`, else in the container of the
+  /// current node
+  pub(crate) fn add_token_declaration(&mut self, container: Option<u32>, item: TokenItem<'t>, traits: &Traits) -> Option<u32> {
+    let name = self.text(item.name)?;
+    self.claim(item.name);
+    let id = self.declare(item.name, item.name, name, traits, Some(line_of(item.first)), JvmFields::default());
+    let declaration = self.declarations.get_mut(id as usize)?;
+    declaration.end_line = declaration.end_line.max(end_line_of(item.last));
+    if container.is_some() {
+      declaration.container = container;
+    }
+    if declaration.header.is_some() {
+      declaration.header = Some(item.header);
+    }
+    Some(id)
+  }
+
+  /// The header (`Declaration::header`) of an item among the tokens of a macro: the header tokens of `nodes` in order,
+  /// until one ends it (the `=` of an initializer)
+  pub(crate) fn tokens_header(&self, nodes: &[Node<'t>]) -> String {
+    let mut tokens: Vec<&'t str> = Vec::new();
+    for node in nodes {
+      if self.header_tokens(*node, false, false, &mut tokens).is_break() {
+        break;
+      }
+    }
+    tokens.join(" ")
   }
 
   /// Adds a constructor that the body of the class around the current node declares (a Kotlin secondary constructor, a

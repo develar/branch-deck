@@ -34,16 +34,33 @@ TypeAlias Unit in Circle Public Static 68-68 @68 receiver Circle
 Constant SIDES in Circle Public Static 69-69 @69 receiver Circle `const SIDES : u32`
 Function area in Circle Public Instance 71-73 @71 receiver Circle `fn area ( & self ) -> f64`
 Function fmt in Kind Public Instance 77-79 @77 receiver Kind `fn fmt ( & self , f : & mut fmt :: Formatter < ' _ > ) -> fmt :: Result`
+Type StillEncoding in - Public TopLevel 83-89 @84
+EnumEntry Lossless in StillEncoding Public Static 85-85 @85
+EnumEntry Lossy in StillEncoding Public Static 86-88 @88
+Type Stills in - Module TopLevel 91-93 @91
+Function helper in - Public TopLevel 95-97 @95 `const fn helper ( x : u8 ) -> u8`
+Value CACHE in - Public TopLevel 101-101 @101 `static ref CACHE : Map < u32 , String >`
+Function local_macros in - File TopLevel 105-109 @105 `fn local_macros ( )`
 @3 ^std.fmt
 @6 :Clone :Debug
 @9 :String
 @26 :fmt.Debug fmt
 @35 :Box :Shape :Unit :Vec
 @55 :Circle
-@57 String Self.label String.new() Self.scale
+@57 String Self.label String.new() Self.radius Self.scale
 @61 self.radius
 @67 :Circle :Shape
 @72 std.f64.consts.PI std.f64.consts std.f64 self.radius square! std
 @76 :fmt.Display :Kind fmt
 @77 :fmt.Formatter :fmt.Result fmt
 @78 write!
+@82 vocabulary!
+@87 rename serde
+@92 StillEncoding encoding
+@95 x
+@96 x
+@100 lazy_static!
+@101 Map String Map.new ref
+@102 PRIVATE ref
+@106 vocabulary!
+@107 A LocalOnly

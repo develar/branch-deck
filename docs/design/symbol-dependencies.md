@@ -529,6 +529,35 @@ flowchart TD
     `extern crate … as …` are not followed; without the symbols, or for a path of no known crate (Bazel without a
     `Cargo.toml`, the baseline after the base), every file of the language is searched, the dot rule kept.
 
+17. **Decision**: the body of a Rust macro in item position (in a file, a module or an impl, never in a function)
+    declares the `pub` items at its top level by their tokens: `pub`, its `(…)`, the modifiers and the keyword
+    (`enum`, `struct`, `union`, `trait`, `type`, `fn`, `const`, `static`, `mod`; `static ref` of `lazy_static!`), the
+    name, up to the `;` or the `{…}` body, with the doc comments and attributes above, and the variants of an enum by
+    the names at the start of its body and after each `,`. The header of a function, a value or a constant is its
+    tokens up to the body or the `=`, as decision 15 compares it.
+    **Rationale**: the IntelliJ checkout's `avl-trace` declares its vocabularies by `vocabulary! { pub enum
+    StillEncoding { Lossless = "lossless", … } }`, and tree-sitter reads a macro's body as a token tree, so the enum was
+    no declaration: a commit of `avl-guest` that imports `StillEncoding` linked only by `Stills`, the struct outside the
+    macro (2026-10-21). A macro may expand to anything, but one that takes a `pub enum E` declares `E` in the common
+    macros of that shape (`bitflags!`, `lazy_static!`, `thread_local!`, the vocabularies), and only a `pub` item is used
+    from another file, which an edge needs; a private item of a macro would only stand for a name its own file uses. A
+    macro in a function body declares locals, which decision 2 leaves out. Limits: the fields of a struct and an item
+    nested in another token tree stay tokens; a macro that renames what it takes (`paste!`) or expands a `pub` item into
+    something else misleads; the variants of an enum whose body the macro's own syntax shapes (`A => "a"`) are found
+    only where a name starts the body or follows a `,`.
+
+18. **Decision**: a Rust instance member, a field or a method with `self`, is a use of it in another file through its
+    owner type, as a static member is (`Type::new()`): a field of a struct expression or a struct pattern
+    (`Manifest { stills }`, `let Manifest { stills, .. } = …`, the shorthand qualified by the struct too) and
+    `Type::method(&x)`, the path of the type resolved through the imports and the crates. A member on a value
+    (`manifest.stills`, `self.stills`) and one through `Self` resolve nowhere.
+    **Rationale**: the same commit of `avl-guest` builds `Manifest { …, stills: Stills { encoding }, … }`, and the
+    summary had `Manifest.stills` since fields are declared, but `resolve_rust` resolved no instance member: the field
+    another commit added to `Manifest` was no edge. A struct expression, a struct pattern and a path call name the type
+    in the syntax; a value's type needs a compiler, and the Rust summary keeps none (no `value_type`, decision 13 is of
+    Kotlin and Java), and `Self` means the type only in its own impl, the same file. The checks of decision 15 resolve
+    the same way, so a removed field or method used by its type in another file is found there too.
+
 ### Implementation Notes
 
 - `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules and the grammars' node types);
@@ -541,13 +570,16 @@ flowchart TD
   of a call, for the `Shape::Call` on the reference of its callee, `enclosed` by the depth of the stack of supertypes
   (`Walk::enclosed`), of `this(…)` and `super(…)` on the type they call (`Walk::emit_constructor_call`), and of a `new`
   and a Kotlin constructor invocation of a supertype on the type (`Walk::give_call`, before an object expression or an
-  anonymous class pushes its supertypes).
+  anonymous class pushes its supertypes). Rust (`rust_lang.rs`): the items of the body of a macro in item position
+  (`macro_items`, `macro_item`, `enum_variants`; `Walk::add_token_declaration` with a `TokenItem`, `Walk::tokens_header`,
+  decision 17), and a field of a struct expression or pattern as a reference qualified by the struct (`field`, the
+  shorthand by `emit_text` beside its local).
 - `crates/sync-core/src/symbol_scan.rs`: the mode (`branchdeck.symbols`), the summaries through the cache, the crate
   names and the TypeScript aliases.
 - `crates/sync-core/src/module_roots.rs`: the nearest directory with a build file (Kotlin `internal`, Rust crates,
   TypeScript packages).
 - `crates/sync-core/src/symbol_dependencies.rs`: the `Order` edges with their evidence, what a use needs
-  (`resolve_use`), the entries of a member key and their origins (`member_entries` by `same_entry` and `same_form`,
+  (`resolve_use`; a Rust member, static or instance, through its owner type in `resolve_rust`, decision 18), the entries of a member key and their origins (`member_entries` by `same_entry` and `same_form`,
   `steps_of` and `lineage`, the older forms judged by `older_form` with `Site.older`, those of a function only for a use
   that tells its overloads apart), the keys only present or absent (`KeyState::present`, which follow their files by
   `kept_entries` and `follow_entries`, with `Entry::file` where the parser can't read them), the constructors of a type

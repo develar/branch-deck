@@ -71,10 +71,33 @@ fn declarations() {
   assert_eq!(declaration(&summary, "name").member, MemberKind::Static);
   // macro bodies and token trees
   assert_eq!(refs(&summary, "square"), ["72 square!"]);
-  assert_eq!(refs(&summary, "radius"), ["61 self.radius", "72 self.radius"]);
+  assert_eq!(refs(&summary, "radius"), ["57 Self.radius", "61 self.radius", "72 self.radius"]);
   assert_eq!(refs(&summary, "write"), ["78 write!"]);
   assert_eq!(refs(&summary, "label"), ["57 Self.label"]);
   assert_eq!(refs(&summary, "Debug"), ["6 :Debug", "26 :fmt.Debug"]);
+  // the `pub` items at the top of the body of a macro in item position
+  let encoding = declaration(&summary, "StillEncoding");
+  assert_eq!(declarations_of(&summary, "StillEncoding"), ["Type StillEncoding in -"]);
+  assert_eq!(
+    (encoding.reach, encoding.start_line, encoding.end_line, encoding.name_line),
+    (Reach::Public, 83, 89, 84),
+    "from its doc comment to its body"
+  );
+  assert_eq!(declarations_of(&summary, "Lossless"), ["EnumEntry Lossless in StillEncoding"]);
+  assert_eq!(declaration(&summary, "Lossy").start_line, 86, "with its doc comment and attribute");
+  assert_eq!(declaration(&summary, "Stills").reach, Reach::Module);
+  assert_eq!(declarations_of(&summary, "encoding"), NONE, "the fields of a struct in a macro are tokens");
+  assert_eq!(refs(&summary, "StillEncoding"), ["92 StillEncoding"]);
+  assert_eq!(declaration(&summary, "helper").header.as_deref(), Some("const fn helper ( x : u8 ) -> u8"));
+  let cache = declaration(&summary, "CACHE");
+  assert_eq!(
+    (cache.kind, cache.reach, cache.member),
+    (DeclKind::Value, Reach::Public, MemberKind::TopLevel),
+    "`lazy_static!`"
+  );
+  assert_eq!(declarations_of(&summary, "PRIVATE"), NONE, "only `pub` items");
+  assert_eq!(declarations_of(&summary, "LocalOnly"), NONE, "a macro in a function body declares nothing");
+  assert_eq!(refs(&summary, "LocalOnly"), ["107 LocalOnly"]);
 }
 
 #[test]
@@ -108,6 +131,9 @@ fn references() {
   assert_eq!(refs(&summary, "MAX"), ["16 MAX"]);
   // a field of a struct pattern is a member of the struct even where a local has its name
   assert_eq!(refs(&summary, "scale"), ["19 Circle.scale"]);
+  // a shorthand names the field and the local
+  assert_eq!(refs(&summary, "radius"), ["19 Circle.radius"]);
+  assert_eq!(refs(&summary, "encoding"), ["34 Stills.encoding"]);
   assert_eq!(refs(&summary, "draw"), ["8 canvas.draw()"]);
   assert_eq!(refs(&summary, "THRESHOLD"), ["10 THRESHOLD"]);
   assert_eq!(refs(&summary, "info"), ["12 log.info!"]);

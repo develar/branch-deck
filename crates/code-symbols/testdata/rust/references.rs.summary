@@ -1,5 +1,6 @@
 Function render in - Public TopLevel 1-29 @2 `fn render ( shapes : & [ Shape ] , scale : u32 ) -> Result < ( ) , Error >`
 Constant THRESHOLD in - File TopLevel 31-31 @31 `const THRESHOLD : f64`
+Function build in - File TopLevel 33-35 @33 `fn build ( encoding : Encoding ) -> Stills`
 @2 :Error :Result :Shape
 @5 format! ?.len
 @6 ?.len()
@@ -11,9 +12,11 @@ Constant THRESHOLD in - File TopLevel 31-31 @31 `const THRESHOLD : f64`
 @14 ?.len()
 @15 println!
 @16 Err() Error MAX Error.TooMany()
-@19 Circle :Circle Circle.default() Circle.scale
+@19 Circle :Circle Circle.default() Circle.radius Circle.scale
 @20 Ok() Some ?.last()
 @21 Some queue.pop() queue
 @22 ?.render()
 @27 crate.NAME ?.as_str matches!
 @28 Ok()
+@33 :Encoding :Stills
+@34 :Stills Stills.encoding

@@ -423,6 +423,84 @@ fn a_rust_use_of_a_crate_path_and_a_path_of_another_crate_are_edges() {
   assert!(found[1].2.contains(&link("ControlOwner", Evidence::Qualified)), "{found:?}");
 }
 
+const MANIFEST_BEFORE: &str = "pub struct Manifest {\n  pub name: String,\n}\n";
+
+/// The links of the one edge from a commit that writes `source` in `avl_guest` to a commit of `avl_trace` that adds an
+/// enum in the body of an item macro, a struct, and a field of that type to `Manifest`
+fn links_to_stills(source: &str) -> Vec<(String, Evidence)> {
+  let mut range = Range::default();
+  range
+    .baseline(&[("crates/trace/src/bundle.rs", MANIFEST_BEFORE)])
+    .commit(&[(
+      "crates/trace/src/bundle.rs",
+      Some(concat!(
+        "vocabulary! {\n",
+        "  /// How the recorder encodes the pictures\n",
+        "  pub enum StillEncoding {\n",
+        "    Lossless = \"lossless\",\n",
+        "    Lossy = \"lossy\",\n",
+        "  }\n",
+        "}\n",
+        "\n",
+        "pub struct Stills {\n",
+        "  pub encoding: StillEncoding,\n",
+        "}\n",
+        "\n",
+        "pub struct Manifest {\n",
+        "  pub name: String,\n",
+        "  pub stills: Stills,\n",
+        "}\n",
+      )),
+    )])
+    .commit(&[("crates/guest/src/lane/build_log/tests.rs", Some(source))]);
+  let cargo = [file("Cargo.toml")];
+  let graph = range.graph(
+    &[("crates/trace", &cargo), ("crates/guest", &cargo)],
+    &[("crates/trace", "avl_trace"), ("crates/guest", "avl_guest")],
+    &[],
+  );
+  let found = edges(&graph);
+  assert_eq!(found.iter().map(|(from, to, _)| (*from, *to)).collect::<Vec<_>>(), [(1, 0)], "{found:?}");
+  found.into_iter().next().map_or_default(|(_, _, links)| links)
+}
+
+/// An item that a macro in item position declares, and a field of a struct expression by its struct, from another
+/// crate
+#[test]
+fn a_rust_item_of_an_item_macro_and_a_field_by_its_struct_are_edges() {
+  let links = links_to_stills(concat!(
+    "use avl_trace::bundle::{Manifest, StillEncoding, Stills};\n",
+    "\n",
+    "fn manifest() -> Manifest {\n",
+    "  let encoding = StillEncoding::Lossless;\n",
+    "  Manifest { name: String::new(), stills: Stills { encoding } }\n",
+    "}\n",
+  ));
+  for expected in [
+    link("StillEncoding", Evidence::Import),
+    link("Stills", Evidence::Import),
+    link("stills", Evidence::Qualified),
+    link("encoding", Evidence::Qualified),
+    link("Lossless", Evidence::Qualified),
+  ] {
+    assert!(links.contains(&expected), "{expected:?}: {links:?}");
+  }
+}
+
+/// A field on a value has no type the summary knows: no link by it, beside the link by its struct
+#[test]
+fn a_rust_field_on_a_value_is_no_edge() {
+  let links = links_to_stills(concat!(
+    "use avl_trace::bundle::{Manifest, Stills};\n",
+    "\n",
+    "fn stills(manifest: &Manifest) -> &Stills {\n",
+    "  &manifest.stills\n",
+    "}\n",
+  ));
+  assert!(links.contains(&link("Stills", Evidence::Import)), "{links:?}");
+  assert!(!links.iter().any(|(name, _)| name == "stills"), "{links:?}");
+}
+
 #[test]
 fn a_typescript_import_by_a_relative_path_or_an_alias_is_an_edge() {
   let mut range = Range::default();

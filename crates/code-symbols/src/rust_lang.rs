@@ -5,15 +5,19 @@
 //! - **`impl` blocks declare nothing themselves**: their members carry the impl's type as `receiver`, and belong to the
 //!   declaration of that type when this file has it.
 //! - **Macros**: the identifiers in a token tree are `Value` references (`a::b::c` qualified), because the arguments of
-//!   `format!`, `vec!` and the like are expressions; locals stay dropped. An attribute's path is a `Macro` reference
-//!   unless it is built in, and the names in `derive(…)` are `Type` references; the other attribute arguments are
-//!   configuration, not names.
+//!   `format!`, `vec!` and the like are expressions; locals stay dropped. The body of a macro in item position (in a
+//!   file, a module or an impl, never in a function) declares each `pub` item at its top level by its tokens
+//!   (`vocabulary! { pub enum E { A } }`, `lazy_static! { pub static ref X: T = … }`), with the variants of an enum;
+//!   the items of `macro_rules!` patterns are skipped. An attribute's path is a `Macro` reference unless it is built in,
+//!   and the names in `derive(…)` are `Type` references; the other attribute arguments are configuration, not names.
+//! - **Fields**: a field of a struct expression or a struct pattern, shorthand too (`Stills { encoding }`), is a `Value`
+//!   reference qualified by the struct.
 //! - **Patterns**: a capitalized identifier in a pattern is a variant or a constant (`None`, `MAX`), not a binding.
 
 // jscpd:ignore-start: every language module implements one `Spec` with the same vocabulary
 use crate::extract::{
-  BLOCK_COMMENT, Binder, Child, DeclRule, Header, Holder, IDENTIFIER, LINE_COMMENT, Opens, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, Walk, binder, decl, function_decl, line_of,
-  type_decl,
+  BLOCK_COMMENT, Binder, Child, DeclRule, Header, Holder, IDENTIFIER, LINE_COMMENT, Opens, Rule, SCOPE, Spec, TYPE_IDENTIFIER, TokenItem, Traits, Walk, binder, decl,
+  function_decl, line_of, type_decl,
 };
 use crate::language::Language;
 use crate::summary::{DeclKind, MemberKind, Reach, Role};
@@ -116,6 +120,7 @@ const RULES: &[(&str, Rule)] = &[
   ("impl_item", Rule::Special(impl_item)),
   ("field_initializer", Rule::Special(field)),
   ("field_pattern", Rule::Special(field)),
+  ("shorthand_field_initializer", Rule::Special(field)),
   ("mod_item", Rule::Decl(decl(DeclKind::Module, Child::Field("name")))),
   ("struct_item", TYPE),
   ("enum_item", TYPE),
@@ -204,8 +209,13 @@ pub(crate) static SPEC: Spec = Spec {
     "attribute",
     "parameters",
     "struct_expression",
+    "source_file",
+    "declaration_list",
+    "mutable_specifier",
   ],
-  tokens: &["::"],
+  tokens: &[
+    "::", "#", "(", "{", ";", ",", "pub", "enum", "struct", "union", "trait", "type", "fn", "const", "static", "mod", "unsafe", "async", "extern",
+  ],
   fields: &["argument", "path", "list", "alias", "name", "arguments", "type", "trait", "field", "parameters"],
   traits,
   binds: |name| !name.starts_with(|it: char| it.is_ascii_uppercase()),
@@ -231,10 +241,220 @@ fn extern_crate<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   false
 }
 
-/// Identifiers in a token tree are qualified by the `a::b::` tokens before them
-fn token_tree<'t>(w: &mut Walk<'t>, _: Node<'t>) -> bool {
+/// Identifiers in a token tree are qualified by the `a::b::` tokens before them; the body of a macro in item position
+/// declares its `pub` items
+fn token_tree<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   w.start_tokens();
+  let in_item_position = w.ancestor(1).is_some_and(|it| w.is(it, "macro_invocation")) && w.ancestor(2).is_some_and(|it| w.is(it, "source_file") || w.is(it, "declaration_list"));
+  if in_item_position && !w.is_local() {
+    macro_items(w, node);
+  }
   true
+}
+
+/// The keyword of an item among the tokens of a macro: what it declares, and what it is to its members
+const ITEM_KEYWORDS: &[(&str, DeclKind, Holder)] = &[
+  ("enum", DeclKind::Type, Holder::Enum),
+  ("struct", DeclKind::Type, Holder::Class),
+  ("union", DeclKind::Type, Holder::Class),
+  ("trait", DeclKind::Type, Holder::Trait),
+  ("type", DeclKind::TypeAlias, Holder::Leaf),
+  ("fn", DeclKind::Function, Holder::Leaf),
+  ("const", DeclKind::Constant, Holder::Leaf),
+  ("static", DeclKind::Value, Holder::Leaf),
+  ("mod", DeclKind::Module, Holder::Module),
+];
+
+/// The tokens between the keywords of an item: `unsafe fn`, `async fn`, `extern "C" fn`
+const ITEM_MODIFIERS: &[&str] = &["unsafe", "async", "extern"];
+
+/// The children of a token tree without its delimiters
+fn token_children<'t>(tree: Node<'t>) -> Vec<Node<'t>> {
+  let mut cursor = tree.walk();
+  let mut children: Vec<Node<'t>> = tree.children(&mut cursor).collect();
+  children.pop();
+  if !children.is_empty() {
+    children.remove(0);
+  }
+  children
+}
+
+/// Whether the token tree is delimited by this token: `(`, `{`
+fn delimited_by<'t>(w: &Walk<'t>, node: Node<'t>, delimiter: &str) -> bool {
+  w.is(node, "token_tree") && node.child(0).is_some_and(|it| w.is_token(it, delimiter))
+}
+
+/// The `pub` items at the top level of the token tree of a macro, each from its doc comments and attributes on; a
+/// token that starts no item starts the search again
+fn macro_items<'t>(w: &mut Walk<'t>, tree: Node<'t>) {
+  let children = token_children(tree);
+  let mut leading: Option<Node<'t>> = None;
+  let mut index = 0;
+  while let Some(&child) = children.get(index) {
+    index += 1;
+    if w.is_comment(child) {
+      if w.is_doc_comment(child) {
+        leading.get_or_insert(child);
+      }
+      continue;
+    }
+    if w.is_token(child, "#") && children.get(index).is_some_and(|it| w.is(*it, "token_tree")) {
+      leading.get_or_insert(child);
+      index += 1;
+      continue;
+    }
+    if w.is_token(child, "pub")
+      && let Some(end) = macro_item(w, &children, index - 1, leading)
+    {
+      index = end;
+    }
+    leading = None;
+  }
+}
+
+/// The item that starts with the `pub` at `children[start]`: `pub(crate)`, the keywords and modifiers, the name, up to
+/// its `;` or its `{…}` body (a value's initializer may hold braces); the index after it
+fn macro_item<'t>(w: &mut Walk<'t>, children: &[Node<'t>], start: usize, leading: Option<Node<'t>>) -> Option<usize> {
+  let mut index = start + 1;
+  let reach = match children.get(index).filter(|it| delimited_by(w, **it, "(")) {
+    Some(visibility) => {
+      index += 1;
+      visibility_reach(w, w.text(*visibility).unwrap_or_default())
+    }
+    None => Reach::Public,
+  };
+  let header_start = index;
+  let mut item: Option<(DeclKind, Holder)> = None;
+  let name = loop {
+    let child = *children.get(index)?;
+    index += 1;
+    if let Some((_, kind, holder)) = ITEM_KEYWORDS.iter().find(|(keyword, ..)| w.is_token(child, keyword)) {
+      item = Some((*kind, *holder));
+      continue;
+    }
+    // `static ref` of `lazy_static!`
+    let by_reference = w.is(child, "identifier") && w.text(child) == Some("ref") && item.is_some_and(|(kind, _)| kind == DeclKind::Value);
+    if w.is(child, "identifier") && !by_reference {
+      break child;
+    }
+    let modifier = ITEM_MODIFIERS.iter().any(|it| w.is_token(child, it)) || w.is(child, "string_literal") || w.is(child, "mutable_specifier");
+    if !by_reference && !modifier {
+      return None;
+    }
+  };
+  let (kind, holder) = item?;
+  let braced = !matches!(kind, DeclKind::Value | DeclKind::Constant | DeclKind::TypeAlias);
+  let mut last = name;
+  let mut body = None;
+  while let Some(&child) = children.get(index) {
+    if w.is_token(child, "pub") {
+      break;
+    }
+    index += 1;
+    last = child;
+    if w.is_token(child, ";") {
+      break;
+    }
+    if braced && delimited_by(w, child, "{") {
+      body = Some(child);
+      break;
+    }
+  }
+  let header_end = if body.is_some() { index - 1 } else { index };
+  let parameters = children[header_start..header_end].iter().find(|it| delimited_by(w, **it, "("));
+  let has_self = parameters.is_some_and(|it| {
+    let mut cursor = it.walk();
+    it.named_children(&mut cursor).any(|child| w.is(child, "self"))
+  });
+  let (member, receiver) = match w.holder() {
+    None | Some(Holder::Module) => (MemberKind::TopLevel, None),
+    Some(container) => (
+      if kind == DeclKind::Function && has_self {
+        MemberKind::Instance
+      } else {
+        MemberKind::Static
+      },
+      matches!(container, Holder::Impl | Holder::TraitImpl).then(|| w.container_receiver()).flatten(),
+    ),
+  };
+  let traits = Traits {
+    kind,
+    reach,
+    member,
+    receiver,
+    holder,
+  };
+  let header = w.tokens_header(&children[header_start..header_end]);
+  let declared = w.add_token_declaration(
+    None,
+    TokenItem {
+      first: leading.unwrap_or(children[start]),
+      name,
+      last,
+      header,
+    },
+    &traits,
+  );
+  if let (Some(declared), Some(body), Holder::Enum) = (declared, body, holder) {
+    enum_variants(w, declared, body);
+  }
+  Some(index)
+}
+
+/// The variants of an enum among the tokens of a macro: the name at the start of the body and after each `,`, with the
+/// doc comments and attributes above it
+fn enum_variants<'t>(w: &mut Walk<'t>, declared: u32, body: Node<'t>) {
+  let mut leading: Option<Node<'t>> = None;
+  let mut expects = true;
+  // (first, name, last)
+  let mut variant: Option<(Node<'t>, Node<'t>, Node<'t>)> = None;
+  let children = token_children(body);
+  let mut index = 0;
+  while let Some(&child) = children.get(index) {
+    index += 1;
+    if w.is_comment(child) {
+      if expects && w.is_doc_comment(child) {
+        leading.get_or_insert(child);
+      }
+      continue;
+    }
+    if w.is_token(child, ",") {
+      if let Some(found) = variant.take() {
+        add_variant(w, declared, found);
+      }
+      (expects, leading) = (true, None);
+    } else if expects && w.is_token(child, "#") && children.get(index).is_some_and(|it| w.is(*it, "token_tree")) {
+      leading.get_or_insert(child);
+      index += 1;
+    } else if expects && w.is(child, "identifier") {
+      variant = Some((leading.unwrap_or(child), child, child));
+      expects = false;
+    } else if let Some((_, _, last)) = variant.as_mut() {
+      *last = child;
+    } else {
+      expects = false;
+    }
+  }
+  if let Some(found) = variant {
+    add_variant(w, declared, found);
+  }
+}
+
+fn add_variant<'t>(w: &mut Walk<'t>, declared: u32, (first, name, last): (Node<'t>, Node<'t>, Node<'t>)) {
+  let traits = Traits {
+    kind: DeclKind::EnumEntry,
+    reach: Reach::Public,
+    member: MemberKind::Static,
+    receiver: None,
+    holder: Holder::Class,
+  };
+  let item = TokenItem {
+    first,
+    name,
+    last,
+    header: String::new(),
+  };
+  w.add_token_declaration(Some(declared), item, &traits);
 }
 
 /// An `impl` declares nothing; its members name its type as their receiver
@@ -248,17 +468,29 @@ fn impl_item<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   true
 }
 
-/// `S { field: value }` and `let S { field: pattern } = …`: the field is a member of the struct, never a local
+/// `S { field: value }`, `S { field }` and `let S { field: pattern } = …`: the field is a member of the struct, never a
+/// local; a shorthand names a local too, which the walk of its name reads
 fn field<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
-  let name = if w.is(node, "field_pattern") { w.field(node, "name") } else { w.field(node, "field") };
-  let Some(name) = name.filter(|it| w.is(*it, "field_identifier")) else { return true };
-  let structure = if w.is(node, "field_pattern") {
+  let pattern = w.is(node, "field_pattern");
+  let name = if pattern {
+    w.field(node, "name")
+  } else if w.is(node, "shorthand_field_initializer") {
+    w.child(node, Child::Kind(&["identifier"]))
+  } else {
+    w.field(node, "field")
+  };
+  let Some(name) = name else { return true };
+  let structure = if pattern {
     w.ancestor(1).filter(|it| w.is(*it, "struct_pattern")).and_then(|it| w.field(it, "type"))
   } else {
     w.ancestor(2).filter(|it| w.is(*it, "struct_expression")).and_then(|it| w.field(it, "name"))
   };
   let qualifier = structure.map_or_else(Vec::new, |it| w.qualifier_of(it));
-  w.emit(name, Role::Value, Some(qualifier));
+  if w.is(name, "field_identifier") {
+    w.emit(name, Role::Value, Some(qualifier));
+  } else if let Some(text) = w.text(name) {
+    w.emit_text(text, line_of(name), Role::Value, Some(qualifier));
+  }
   true
 }
 
@@ -375,19 +607,27 @@ fn type_name<'t>(w: &Walk<'t>, node: Node<'t>) -> Option<&'t str> {
 }
 
 fn reach<'t>(w: &Walk<'t>, node: Node<'t>) -> Reach {
-  let Some(visibility) = w.child(node, Child::Kind(&["visibility_modifier"])) else {
-    return if w.has_holder(Holder::Module) { Reach::Container } else { Reach::File };
-  };
-  let text = w.text(visibility).unwrap_or("pub");
+  match w.child(node, Child::Kind(&["visibility_modifier"])) {
+    Some(visibility) => visibility_reach(w, w.text(visibility).unwrap_or("pub")),
+    None => private_reach(w),
+  }
+}
+
+/// The reach of `pub`, `pub(crate)`, `pub(super)`, `pub(self)` and `pub(in …)`, or of the `(…)` after a `pub` token
+fn visibility_reach(w: &Walk<'_>, text: &str) -> Reach {
   if text == "pub" {
     Reach::Public
   } else if text.contains("super") {
     Reach::Parent
   } else if text.contains("self") {
-    if w.has_holder(Holder::Module) { Reach::Container } else { Reach::File }
+    private_reach(w)
   } else {
     Reach::Module
   }
+}
+
+fn private_reach(w: &Walk<'_>) -> Reach {
+  if w.has_holder(Holder::Module) { Reach::Container } else { Reach::File }
 }
 
 #[expect(clippy::unnecessary_wraps, reason = "the signature of `Spec::traits`, whose TypeScript one declines declarations")]

@@ -8,6 +8,7 @@ targets:
   - ../../crates/code-symbols/src/language.rs
   - ../../crates/code-symbols/src/kotlin.rs
   - ../../crates/code-symbols/src/java.rs
+  - ../../crates/code-symbols/src/rust_lang.rs
   - ../../crates/sync-core/src/symbol_scan.rs
   - ../../crates/sync-core/src/symbol_dependencies.rs
   - ../../crates/sync-core/src/module_roots.rs
@@ -157,6 +158,13 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   store once. A summary cut by the parse budget must not be cached.
   [@test] ../../crates/sync-core/src/symbol_scan_test.rs (`reads_the_summaries_through_the_cache`)
   [@test] ../../crates/object-cache/src/cache_test.rs (`blob_summaries_are_read_by_the_extractor_version_that_wrote_them`)
+- The summary of a Rust file must declare the `pub` items at the top level of the body of a macro in item position (in
+  a file, a module or an impl) by their tokens: an enum with its variants, a struct, a union, a trait, a type alias, a
+  function, a constant, a static (`lazy_static!`'s `pub static ref` too) and a module, with the reach of their
+  visibility (`pub(crate)`), from their doc comments and attributes to their `;` or their body; the other names of the
+  body stay references. A macro in a function body must declare nothing.
+  [@test] ../../crates/code-symbols/src/rust_test.rs (`declarations`)
+  [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 - The module roots (the nearest directory with an `*.iml`, a Bazel, Gradle or Maven build file, a `Cargo.toml` or a
   `package.json`), the crate names and the TypeScript path aliases must come from HEAD's tree, the directories with
   one `cat-file --batch`, never a command line that lists them.
@@ -172,6 +180,14 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   package or module for a type, a type of the same JVM package in the same module, an override, a call inherited
   from the supertype, or a use on a receiver of its type (below).
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_kotlin_import_of_a_function_another_commit_adds_is_an_edge`, `a_java_member_by_its_class_and_a_static_import_are_edges`, `a_rust_use_of_a_crate_path_and_a_path_of_another_crate_are_edges`, `a_typescript_import_by_a_relative_path_or_an_alias_is_an_edge`)
+- A Rust item that the body of a macro in item position declares must be an edge like any other
+  (`use avl_trace::bundle::StillEncoding` of a `vocabulary! { pub enum StillEncoding { … } }`, `StillEncoding::Lossless`
+  by its enum), and so must a Rust field or method used by its owner type in another file: a field of a struct
+  expression or a struct pattern, shorthand too (`Manifest { stills: Stills { encoding } }`), and `Type::method(&x)`,
+  the type's path resolved as for a static member. A member on a value (`manifest.stills`, `self.stills`) or through
+  `Self` must be no edge: the summary knows no type of a Rust value.
+  [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`a_rust_item_of_an_item_macro_and_a_field_by_its_struct_are_edges`, `a_rust_field_on_a_value_is_no_edge`)
+  [@test] ../../crates/code-symbols/src/rust_test.rs (`references`)
 - A call of a function of the same package without an import must be no edge, nor a type of the same package in
   another module.
   [@test] ../../crates/sync-core/src/symbol_dependencies_test.rs (`the_same_package_is_evidence_for_a_type_in_the_same_module_only`)

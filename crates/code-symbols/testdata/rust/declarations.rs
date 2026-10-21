@@ -78,3 +78,32 @@ impl fmt::Display for Kind {
     write!(f, "kind")
   }
 }
+
+vocabulary! {
+  /// How the recorder encodes the pictures
+  pub enum StillEncoding {
+    Lossless = "lossless",
+    /// Smaller
+    #[serde(rename = "lossy")]
+    Lossy,
+  }
+
+  pub(crate) struct Stills {
+    pub encoding: StillEncoding,
+  }
+
+  pub const fn helper(x: u8) -> u8 {
+    x
+  }
+}
+
+lazy_static! {
+  pub static ref CACHE: Map<u32, String> = Map::new();
+  static ref PRIVATE: u32 = 0;
+}
+
+fn local_macros() {
+  vocabulary! {
+    pub enum LocalOnly { A }
+  }
+}

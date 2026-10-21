@@ -29,3 +29,7 @@ pub fn render(shapes: &[Shape], scale: u32) -> Result<(), Error> {
 }
 
 const THRESHOLD: f64 = 0.5;
+
+fn build(encoding: Encoding) -> Stills {
+  Stills { encoding }
+}
