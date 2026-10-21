@@ -31,7 +31,7 @@ schemars = { workspace = true, optional = true }
 gix-validate = "0.13.0"
 bstr = { version = "1", default-features = false, features = ["std"] }
 # blob ids without `hash-object` (`commit_utils::blob_id`)
-sha1 = "0.10.7"
+sha1 = "0.11.0"
 sha2 = "0.10.9"
 
 [dev-dependencies]
