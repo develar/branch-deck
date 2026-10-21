@@ -92,6 +92,12 @@ Renaming and ungrouping a branch are moves of all its commits.
   group; a whole issue moved to the branch of its own key leaves its issue group. A part of an issue and a commit
   without a key must get the prefix `(X)`, in the same history rewrite and ref transaction.
   [@test] ../../crates/sync-core/src/move_commits_test.rs (`a_part_of_an_issue_and_a_commit_without_a_key_get_the_prefix_in_the_same_transaction`, `moving_an_issue_group_reassigns_its_keys_and_moving_it_back_ungroups_them`)
+- A commit without a key moved into the branch of an issue (its prefix is the key) must be pushed with the key, where
+  the issue key of a subject is read (after a `[category]` and a `type(scope):`); a subject with a key of its own is
+  pushed as is. Its Move Back item must move it to the unassigned commits.
+  [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`a_prefix_that_is_an_issue_key_stays_in_the_virtual_subject_as_the_key`, `a_key_prefix_adds_no_key_to_a_subject_with_a_key_of_its_own`, `the_leaf_of_a_stack_prefix_that_is_an_issue_key_stays_as_the_key`)
+  [@test] ../../crates/sync-core/src/branch_processor_test.rs (`a_commit_moved_into_the_branch_of_an_issue_is_copied_with_the_key`)
+  [@test] ../../src/hooks/useCommitMoveList.test.ts (`moves a commit of an issue prefix without a key of its own to the unassigned commits`)
 - A commit that its key puts into X without a prefix (an issue branch named X, an issue group X) must lose its prefix,
   not get `(X)`.
   [@test] ../../crates/sync-core/src/move_commits_test.rs (`a_prefixed_commit_that_its_key_puts_into_the_target_loses_the_prefix`)

@@ -88,7 +88,11 @@ groups:
 
 1. A leading autosquash marker (`fixup!`, `squash!`, `amend!`) is skipped, so a fixup stays in the branch of its target.
 2. An explicit `(name)` prefix at the very start wins. The name is sanitized into a Git ref name (`mockito 5.19` →
-   `mockito-5.19`); the virtual branch commit drops the prefix.
+   `mockito-5.19`); the virtual branch commit drops the prefix. A prefix that is an issue key (its leaf with stacked
+   branches) keeps the key in the virtual branch commit, where rule 3 reads one, unless the subject has a key of its
+   own: `(IJPL-1) docs plugins: audit` is pushed as `IJPL-1 docs plugins: audit`, `(IJPL-1) [plugins] audit` as
+   `[plugins] IJPL-1 audit` (`stripped_subject` in `crates/history-rewrite/src/commit_grouper.rs`). A move of a commit
+   without a key into the branch of an issue writes that prefix, and the commit that lands still names its issue.
 3. Otherwise the issue key at the start (after an optional `[category]` and `type(scope):`) decides. Its issue group
    (below) names the branch; without one the key itself does, e.g. `ABC-123: Fix` → `ABC-123`. The commit message is
    kept as is.

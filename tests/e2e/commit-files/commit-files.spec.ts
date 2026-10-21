@@ -82,7 +82,7 @@ testWithIssueLinks.describe("Commit files", () => {
     // the next commit shows its own files, collapsed
     await preview.getByTestId("commit-preview-body").focus()
     await page.keyboard.press("ArrowDown")
-    await expect(preview.getByRole("heading", { level: 2 })).toHaveText("Fix database connection pool timeout")
+    await expect(preview.getByRole("heading", { level: 2 })).toHaveText("JIRA-456 Fix database connection pool timeout")
     await expect(files.getByTestId("file-line-counts")).toHaveText("+2 −0")
     await expect(files).not.toContainText("size: 50")
   })
@@ -159,7 +159,7 @@ testWithIssueLinks.describe("Commit files", () => {
 
     // Alt with an arrow is the dialog's: the next commit
     await page.keyboard.press("Alt+ArrowDown")
-    await expect(heading).toHaveText("Fix database connection pool timeout")
+    await expect(heading).toHaveText("JIRA-456 Fix database connection pool timeout")
   })
 
   testWithIssueLinks("should copy the changed paths of the commits from the context menu", async ({ page }) => {

@@ -381,6 +381,31 @@ async fn a_reworded_body_recopies_the_commit() {
 }
 
 #[tokio::test]
+async fn a_commit_moved_into_the_branch_of_an_issue_is_copied_with_the_key() {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial commit", "README.md", "# Test");
+  test_repo.create_commit("(IJPL-1) docs plugins: audit the attributes\n\nThe rules of the audit.", "audit.md", "# Audit");
+  test_repo.create_commit("[plugins] IJPL-1 Lift the attribute", "plugin.rs", "// plugin");
+
+  sync(&test_repo).await;
+
+  // the copies are what lands: the one of the commit without a key of its own names the issue of its branch
+  assert_eq!(
+    test_repo
+      .log(&["--reverse", "--format=%B%x00", "master..test/virtual/IJPL-1"])
+      .unwrap()
+      .split('\0')
+      .map(str::trim)
+      .filter(|it| !it.is_empty())
+      .collect::<Vec<_>>(),
+    [
+      "IJPL-1 docs plugins: audit the attributes\n\nThe rules of the audit.",
+      "[plugins] IJPL-1 Lift the attribute"
+    ]
+  );
+}
+
+#[tokio::test]
 async fn a_copy_keeps_the_timezones_of_the_original() {
   let test_repo = TestRepo::new();
   // older than the original, so the copy's committer date is the original's

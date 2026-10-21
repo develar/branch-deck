@@ -1,4 +1,4 @@
-use crate::commit_grouper::{CommitGrouper, GroupedCommits, branch_name_of, stack_branch_name_of};
+use crate::commit_grouper::{CommitGrouper, GroupedCommits, branch_name_of, stack_branch_name_of, stripped_subject};
 use crate::stack::{STACKS_CONFIG_KEY, StackForest, leaf_of, stack_of, stack_path, stacks_enabled};
 use git_ops::commit_list::Commit;
 use indexmap::IndexMap;
@@ -502,6 +502,40 @@ fn test_autosquash_commits_preserve_original_subject() {
 
   // The stripped_subject should only contain the message without prefix
   assert_eq!(commits[0].stripped_subject, "Add login");
+}
+
+#[test]
+fn a_prefix_that_is_an_issue_key_stays_in_the_virtual_subject_as_the_key() {
+  // the copy is what lands: a commit moved into the branch of an issue names the issue there
+  for (subject, virtual_subject) in [
+    ("(IJPL-1) docs plugins: audit the attributes", "IJPL-1 docs plugins: audit the attributes"),
+    ("(IJPL-1) [plugins] audit the attributes", "[plugins] IJPL-1 audit the attributes"),
+    ("(IJPL-1) fix(plugins): audit the attributes", "fix(plugins): IJPL-1 audit the attributes"),
+    ("fixup! (IJPL-1) Audit", "IJPL-1 Audit"),
+    ("(IJPL-1)", "IJPL-1"),
+  ] {
+    assert_eq!(stripped_subject(subject), virtual_subject, "{subject}");
+    let mut grouper = CommitGrouper::new();
+    grouper.add_commit(create_test_commit("c0", subject));
+    let grouped = grouper.finish();
+    assert_eq!(grouped.branches["IJPL-1"][0].stripped_subject, virtual_subject, "{subject}");
+  }
+}
+
+#[test]
+fn a_key_prefix_adds_no_key_to_a_subject_with_a_key_of_its_own() {
+  assert_eq!(stripped_subject("(IJPL-1) IJPL-2 Fix"), "IJPL-2 Fix");
+  assert_eq!(stripped_subject("(IJPL-1) [plugins] IJPL-1 Fix"), "[plugins] IJPL-1 Fix");
+  // a prefix that only starts like a key is a branch name
+  assert_eq!(stripped_subject("(IJPL-1-docs) Fix"), "Fix");
+  assert_eq!(stripped_subject("(auth) Fix"), "Fix");
+}
+
+#[test]
+fn the_leaf_of_a_stack_prefix_that_is_an_issue_key_stays_as_the_key() {
+  let (grouped, _) = group_stacked(&["(auth) Add form", "(auth/IJPL-7) Validate the form"]);
+  assert_eq!(grouped.branches["IJPL-7"][0].stripped_subject, "IJPL-7 Validate the form");
+  assert_eq!(grouped.branches["auth"][0].stripped_subject, "Add form");
 }
 
 // Stacked branches

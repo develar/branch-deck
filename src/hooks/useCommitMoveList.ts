@@ -58,10 +58,6 @@ export function hasSelectionActions<T extends Commit>({ selection, isTargetOpen 
   return selection.selectedCount > 0 && !isTargetOpen
 }
 
-function hasExplicitPrefix(commit: Commit): boolean {
-  return parseSubject(getSubjectLine(commit.message)).prefix !== null
-}
-
 /**
  * What moving the commits back does: a commit with an explicit prefix goes to the issue group of its key
  * (`issueGroups`, issue key -> branch name), to its issue branch (`strippedSubject` starts with the key) or to the
@@ -72,8 +68,10 @@ export function getRemovePrefixLabel(commits: readonly Commit[], issueGroups: Re
   const branches = new Set<string | null>()
   let isGrouped = false
   for (const commit of commits) {
-    const key = findIssueKey(commit.strippedSubject)
-    if (hasExplicitPrefix(commit)) {
+    // the key of the subject itself: a stripped `(ABC-1) X` names the key of its prefix, which goes with the prefix
+    const { prefix, rest } = parseSubject(getSubjectLine(commit.message))
+    const key = findIssueKey(rest)
+    if (prefix !== null) {
       branches.add(key === null ? null : (issueGroups[key] ?? key))
     } else if (key !== null && issueGroups[key] !== undefined) {
       branches.add(key)

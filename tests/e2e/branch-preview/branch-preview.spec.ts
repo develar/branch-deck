@@ -122,7 +122,7 @@ test.describe("Branch preview", () => {
     await commitRow.hover()
     await page.keyboard.press("Space")
     const commitPreview = page.getByTestId("commit-preview")
-    await expect(commitPreview.getByRole("heading", { level: 2 })).toHaveText("perf db: increase pool size to 50")
+    await expect(commitPreview.getByRole("heading", { level: 2 })).toHaveText("JIRA-456 perf db: increase pool size to 50")
     await expect(getPreview(page)).toHaveCount(0)
     await page.keyboard.press("Escape")
     await expect(commitPreview).toHaveCount(0)
@@ -131,7 +131,7 @@ test.describe("Branch preview", () => {
     await commitRow.getByText("increase pool size to 50").click()
     await page.mouse.move(0, 0)
     await page.keyboard.press("Space")
-    await expect(commitPreview.getByRole("heading", { level: 2 })).toHaveText("perf db: increase pool size to 50")
+    await expect(commitPreview.getByRole("heading", { level: 2 })).toHaveText("JIRA-456 perf db: increase pool size to 50")
     await expect(getPreview(page)).toHaveCount(0)
   })
 

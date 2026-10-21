@@ -447,7 +447,7 @@ testWithIssueLinks("should give the focus to the list after the preview, its key
   await page.keyboard.press("Space")
   await expect(preview.getByTestId("commit-preview-body")).toBeFocused()
   await page.keyboard.press("ArrowDown")
-  await expect(preview.getByRole("heading", { level: 2 })).toHaveText("Fix database connection pool timeout")
+  await expect(preview.getByRole("heading", { level: 2 })).toHaveText("JIRA-456 Fix database connection pool timeout")
 
   // D: the window of the commit shown; the list has the focus again
   await page.keyboard.press("d")
@@ -458,7 +458,7 @@ testWithIssueLinks("should give the focus to the list after the preview, its key
   await page.keyboard.press("d")
   expect(focusedCommit(await openedReview(page, 2))).toBe(shown)
   await page.keyboard.press("Space")
-  await expect(preview.getByRole("heading", { level: 2 })).toHaveText("Fix database connection pool timeout")
+  await expect(preview.getByRole("heading", { level: 2 })).toHaveText("JIRA-456 Fix database connection pool timeout")
 
   // a click of a row is the anchor again
   await page.keyboard.press("Escape")

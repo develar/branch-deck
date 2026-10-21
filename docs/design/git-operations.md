@@ -1382,7 +1382,8 @@ branches and the tips from the report (`SyncOutput::report`), so a command that 
    to one `merge-tree --write-tree --stdin -z --no-messages`, a line `<base tree> -- <target tree> <commit tree>` per
    commit, each answered before the next is sent. The created commits go to one `fast-import --date-format=raw`, which
    answers each id at once (`get-mark`), so the reuse checks and the next commit have it. The grouping prefix is
-   stripped from the subject and `branch-deck` is the committer. The commit object has the bytes `commit-tree -m`
+   stripped from the subject (a prefix that is an issue key stays as the key: `(IJPL-1) docs: x` is copied as
+   `docs: IJPL-1 x`, see [Virtual Branches](virtual-branches.md#grouping-rules)) and `branch-deck` is the committer. The commit object has the bytes `commit-tree -m`
    wrote before: the message completed with a newline, name and email without git's crud, a date without a timezone
    in UTC, no `encoding` header and no signature (with `commit.gpgSign`, `commit-tree` signed the copies, and a
    signature carries its time, so a copy made again got another id). A commit copied again therefore has the id it had, and the virtual commits of a repository stay as

@@ -20,6 +20,7 @@ use git_ops::commit_writer::{StoreUpdate, write_store_updates};
 use git_ops::revs::{checked_out_branch, short_id};
 use git_ops::reword_commits::{RewordCommitParams, reword_commits_batch_at};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use tracing::{info, instrument};
 
@@ -263,7 +264,7 @@ pub(crate) fn reword_read_commits_at<'a>(
 /// Whether the virtual branch commit of a commit stays the same when its message changes from `old` to `new`: the
 /// subject without its grouping prefix and the body are the same, so a move to another branch keeps it
 pub fn keeps_virtual_commit(old: &str, new: &str) -> bool {
-  fn virtual_message(message: &str) -> (&str, &str) {
+  fn virtual_message(message: &str) -> (Cow<'_, str>, &str) {
     let message = message.trim();
     let (subject, body) = message.split_once('\n').unwrap_or((message, ""));
     (stripped_subject(subject), body)

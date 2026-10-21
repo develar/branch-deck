@@ -6,8 +6,9 @@ use crate::store_lines::StoreLines;
 use git_ops::branch_names::sanitize_branch_name;
 use git_ops::commit_list::Commit;
 use indexmap::IndexMap;
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use sync_utils::issue_pattern::find_issue_number;
+use sync_utils::issue_pattern::{find_issue_number, has_issue_reference, issue_key_position};
 use tracing::info;
 
 /// Branch data combining commits and author frequency tracking
@@ -148,10 +149,35 @@ pub fn branch_name_of(subject: &str) -> Option<String> {
 }
 
 /// The subject of the commit's virtual branch commit: an explicit prefix (and the autosquash marker before it) is
-/// stripped, an issue-based or unassigned subject stays as is
-pub fn stripped_subject(subject: &str) -> &str {
+/// stripped (`subject_after_prefix`), an issue-based or unassigned subject stays as is
+pub fn stripped_subject(subject: &str) -> Cow<'_, str> {
   let parsed = parse_subject(subject);
-  if parsed.prefix.is_some() { parsed.rest } else { subject }
+  match parsed.prefix {
+    Some(prefix) => subject_after_prefix(prefix, parsed.rest),
+    None => Cow::Borrowed(subject),
+  }
+}
+
+/// The subject after the prefix `prefix`. A prefix whose branch is an issue key names the issue of a commit that has no
+/// key of its own, so the key stays where `find_issue_number` reads one: `(IJPL-1) docs: x` becomes `docs: IJPL-1 x`,
+/// and the commit that lands still names its issue. A rest with a key of its own stays as is
+fn subject_after_prefix<'a>(prefix: &str, rest: &'a str) -> Cow<'a, str> {
+  let leaf = prefix.rsplit('/').next().unwrap_or(prefix).trim();
+  if find_issue_number(leaf) != Some(leaf) || has_issue_reference(rest) {
+    return Cow::Borrowed(rest);
+  }
+  let (before, after) = rest.split_at(issue_key_position(rest).unwrap_or(0));
+  let mut subject = String::with_capacity(rest.len() + leaf.len() + 2);
+  subject.push_str(before);
+  if !before.is_empty() && !before.ends_with(char::is_whitespace) {
+    subject.push(' ');
+  }
+  subject.push_str(leaf);
+  if !after.is_empty() {
+    subject.push(' ');
+    subject.push_str(after);
+  }
+  Cow::Owned(subject)
 }
 
 /// `branch_name_of` with stacked branches on: the leaf of a stack prefix, so `(auth/login) X` is in `login`
@@ -258,8 +284,8 @@ impl CommitGrouper {
       declarations.note_branch(&branch_name);
     }
     // an explicit prefix is stripped (`stripped_subject`); an issue-based subject stays as is
-    if parsed.prefix.is_some() {
-      commit.stripped_subject = parsed.rest.to_string();
+    if let Some(prefix) = parsed.prefix {
+      commit.stripped_subject = subject_after_prefix(prefix, parsed.rest).into_owned();
     }
     self.branch_data.entry(branch_name).or_insert_with(|| BranchData::new(position)).add_commit(commit);
   }

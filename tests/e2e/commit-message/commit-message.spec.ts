@@ -40,7 +40,7 @@ test.describe("Commit message", () => {
     await toggle.click()
     const preview = getPreview(page)
     await expect(preview).toBeVisible()
-    await expect(preview.getByRole("heading", { level: 2 })).toHaveText(SUBJECT)
+    await expect(preview.getByRole("heading", { level: 2 })).toHaveText(`${BRANCH} ${SUBJECT}`)
     const body = preview.getByTestId("commit-message-body")
     await expect(body).toBeVisible()
     await expectPreviewFocused(preview)
@@ -87,19 +87,19 @@ test.describe("Commit message", () => {
     const preview = getPreview(page)
     const title = preview.getByRole("heading", { level: 2 })
     const position = preview.getByTestId("commit-preview-position")
-    await expect(title).toHaveText(SUBJECT)
+    await expect(title).toHaveText(`${BRANCH} ${SUBJECT}`)
     await expect(position).toHaveText("1 / 3")
     await expectPreviewFocused(preview)
 
     // the pointer now rests on the backdrop; the arrows page through the commits of the branch
     await page.keyboard.press("ArrowDown")
-    await expect(title).toHaveText("perf db: increase pool size to 50")
+    await expect(title).toHaveText(`${BRANCH} perf db: increase pool size to 50`)
     await expect(position).toHaveText("2 / 3")
     // a commit without a body still shows its whole subject
     await expect(preview.getByText("No description")).toBeVisible()
     await page.keyboard.press("ArrowUp")
     await page.keyboard.press("ArrowUp")
-    await expect(title).toHaveText(SUBJECT)
+    await expect(title).toHaveText(`${BRANCH} ${SUBJECT}`)
     await expect(position).toHaveText("1 / 3")
 
     await page.keyboard.press("Space")
@@ -169,7 +169,7 @@ test.describe("Commit message", () => {
     // a sync replaces the commit objects while the preview is open
     await syncFromMenu(page)
 
-    await expect(preview.getByRole("heading", { level: 2 })).toHaveText("perf db: increase pool size to 50")
+    await expect(preview.getByRole("heading", { level: 2 })).toHaveText(`${BRANCH} perf db: increase pool size to 50`)
     await expect(preview.getByTestId("commit-preview-position")).toHaveText("2 / 3")
     await page.keyboard.press("ArrowDown")
     await expect(preview.getByTestId("commit-preview-position")).toHaveText("3 / 3")
@@ -226,7 +226,7 @@ test.describe("Commit message", () => {
       await runAndWaitForSync(page, () => page.keyboard.press("ControlOrMeta+Enter"))
 
       await expect(editor).toHaveCount(0)
-      await expect(preview.getByRole("heading", { level: 2 })).toHaveText("perf db: increase pool size to 64")
+      await expect(preview.getByRole("heading", { level: 2 })).toHaveText(`${BRANCH} perf db: increase pool size to 64`)
       await expect(preview.getByTestId("commit-message-body")).toHaveText("The load test saturated 50 connections.")
       await expect(preview.getByTestId("commit-preview-position")).toHaveText("2 / 3")
       await expectPreviewFocused(preview)
@@ -264,7 +264,7 @@ test.describe("Commit message", () => {
 
       await page.keyboard.press("Escape")
       await expect(editor).toHaveCount(0)
-      await expect(preview.getByRole("heading", { level: 2 })).toHaveText(PERF_SUBJECT)
+      await expect(preview.getByRole("heading", { level: 2 })).toHaveText(`${BRANCH} ${PERF_SUBJECT}`)
       await expectPreviewFocused(preview)
 
       await page.keyboard.press("Escape")
@@ -300,7 +300,7 @@ test.describe("Commit message", () => {
       const hash = (await perfRow(page).getAttribute("data-row-id"))!
       await editor.fill(`(${BRANCH}) ${REWORDED}`)
       await runAndWaitForSync(page, () => page.keyboard.press("ControlOrMeta+Enter"))
-      await expect(preview.getByRole("heading", { level: 2 })).toHaveText(REWORDED)
+      await expect(preview.getByRole("heading", { level: 2 })).toHaveText(`${BRANCH} ${REWORDED}`)
       return { preview, hash }
     }
 
@@ -316,7 +316,7 @@ test.describe("Commit message", () => {
 
       // a click on the toast keeps the preview, which follows the commit back
       await runAndWaitForSync(page, () => toast.getByRole("button", { name: "Undo" }).click())
-      await expect(preview.getByRole("heading", { level: 2 })).toHaveText(PERF_SUBJECT)
+      await expect(preview.getByRole("heading", { level: 2 })).toHaveText(`${BRANCH} ${PERF_SUBJECT}`)
       await expect(preview.getByTestId("commit-preview-position")).toHaveText("2 / 3")
       await expect(perfRow(page)).toHaveAttribute("data-row-id", hash)
       await expect(perfRow(page, REWORDED)).toHaveCount(0)
@@ -338,7 +338,7 @@ test.describe("Commit message", () => {
       await runAndWaitForSync(page, () => entry.getByTestId("activity-undo").click())
       await expect(entry.getByTestId("activity-undone")).toHaveText("undone")
       await expect(entry.getByTestId("activity-undo")).toHaveCount(0)
-      await expect(preview.getByRole("heading", { level: 2 })).toHaveText(PERF_SUBJECT)
+      await expect(preview.getByRole("heading", { level: 2 })).toHaveText(`${BRANCH} ${PERF_SUBJECT}`)
       await expect(perfRow(page)).toHaveAttribute("data-row-id", hash)
       // the Undo of the toast went with it
       await expect(rewordToast(page, hash)).toHaveCount(0)
@@ -377,7 +377,7 @@ test.describe("Commit message", () => {
       // the save is over (its toast would come before the edit ends); the message reached the backend unchanged
       await expect(editor).toHaveCount(0)
       expect(calls[0]).toMatchObject({ rewords: [{ text: { message: `(${BRANCH}) ${PERF_SUBJECT}` } }] })
-      await expect(preview.getByRole("heading", { level: 2 })).toHaveText(PERF_SUBJECT)
+      await expect(preview.getByRole("heading", { level: 2 })).toHaveText(`${BRANCH} ${PERF_SUBJECT}`)
       await expect(page.locator("[data-slot=toast]")).toHaveCount(0)
       expect(await finishedSyncCount(page)).toBe(syncs)
     })

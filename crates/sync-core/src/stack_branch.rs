@@ -44,7 +44,7 @@ use tracing::{debug, info, instrument, warn};
 
 /// The version of a remembered build: bump it when the copies change (their message, ident or dates), so no build of
 /// the old copies is read
-const STACK_BUILD_VERSION: u32 = 1;
+const STACK_BUILD_VERSION: u32 = 2;
 
 /// A stack that forks and what its stack branch is built from
 #[derive(Debug, Clone)]

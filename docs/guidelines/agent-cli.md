@@ -150,7 +150,8 @@ what they listed.
 ```
 
 - Branches are listed newest first, the same order as the UI. The commits of a branch are newest first too, and
-  their subjects have the `(prefix)` stripped. `resolved_by_words` (`{"conflicts","file_count"}`, from the mapping
+  their subjects have the `(prefix)` stripped, as the virtual branch commits do (a prefix that is an issue key stays as
+  the key). `resolved_by_words` (`{"conflicts","file_count"}`, from the mapping
   note) marks a commit whose virtual copy resolved a conflict of git by words (see `bd sync`).
 - `tip` is the tip of the existing virtual branch, or `null` if the branch was never synced.
 - `origin` says what groups the commits: `prefix` (a commit has the `(prefix)`), `issue_group` (the issue groups put

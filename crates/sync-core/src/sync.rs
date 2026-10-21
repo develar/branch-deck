@@ -97,38 +97,38 @@ fn compute_branch_summary(commits: &[Commit]) -> String {
 }
 
 /// The summary of a branch, of its subjects oldest first: the first that is no cleanup, refactoring or formatting,
-/// without its issue key; else the first that is not empty
+/// without its issue key (a `[category]` or `type:` before the key stays); else the first that is not empty
 pub(crate) fn branch_summary<'a>(subjects: impl IntoIterator<Item = &'a str>) -> String {
-  let mut fallback_summary: Option<&str> = None;
+  let mut fallback_summary: Option<String> = None;
   for subject in subjects {
-    // Strip issue number if present
-    let summary = if let Some((_, end)) = find_issue_range(subject) {
-      subject[end..].trim_start_matches([' ', ':']).trim()
-    } else {
-      subject
+    // the issue key goes, with the separator after it; what comes before it stays
+    let (lead, text) = match find_issue_range(subject) {
+      Some((start, end)) => (&subject[..start], subject[end..].trim_start_matches([' ', ':']).trim()),
+      None => ("", subject),
     };
 
     // Skip empty summaries
-    if summary.is_empty() {
+    if text.is_empty() {
       continue;
     }
 
     // Check if it's a cleanup/refactor/format commit AFTER stripping issue prefix
     // Use ASCII case-insensitive comparison for efficiency
     // `get` instead of slicing: the byte length of the keyword may fall inside a multi-byte character
-    let starts_with_keyword = |keyword: &str| summary.get(..keyword.len()).is_some_and(|start| start.eq_ignore_ascii_case(keyword));
+    let starts_with_keyword = |keyword: &str| text.get(..keyword.len()).is_some_and(|start| start.eq_ignore_ascii_case(keyword));
+    let summary = || format!("{lead}{text}");
     if starts_with_keyword("cleanup") || starts_with_keyword("refactor") || starts_with_keyword("format") {
       // Save the first non-empty summary as fallback (even if it's cleanup)
-      fallback_summary.get_or_insert(summary);
+      fallback_summary.get_or_insert_with(summary);
       continue;
     }
 
     // Found a non-cleanup summary, return it
-    return summary.to_string();
+    return summary();
   }
 
   // If all commits are cleanup/refactor/format, use the fallback (first non-empty)
-  fallback_summary.unwrap_or_default().to_string()
+  fallback_summary.unwrap_or_default()
 }
 
 /// A branch is an issue branch only while no commit names it with an explicit prefix and every commit carries its

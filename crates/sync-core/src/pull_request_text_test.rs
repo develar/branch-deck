@@ -77,6 +77,16 @@ fn an_issue_branch_keeps_its_key_and_takes_the_issue_summary() {
 }
 
 #[test]
+fn the_branch_summary_keeps_what_comes_before_the_key() {
+  // `(IJPL-1) test: add the UI test` is pushed as `test: IJPL-1 add the UI test`: the summary keeps its type
+  let branch = input("IJPL-1", &["[plugins] IJPL-1 refactor the descriptor", "test: IJPL-1 add the UI test"]);
+  assert_eq!(text_of(&branch, &[]).0, "IJPL-1 test: add the UI test");
+  // a refactoring after a category is still a refactoring
+  assert_eq!(text_of(&input("IJPL-1", &["[plugins] IJPL-1 refactor the descriptor"]), &[]).0, "[plugins] IJPL-1 refactor the descriptor");
+  assert_eq!(text_of(&input("IJPL-1", &["[plugins] IJPL-1 refactor the descriptor", "[plugins] IJPL-1 format"]), &[]).0, "IJPL-1 [plugins] refactor the descriptor");
+}
+
+#[test]
 fn without_an_issue_summary_the_title_is_the_key_and_the_branch_summary() {
   let cleanup_first = "IJAI-4390 cleanup the terminal options";
   let branch = input("IJAI-4390", &[cleanup_first, TERMINAL]);

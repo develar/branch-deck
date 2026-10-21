@@ -19,6 +19,12 @@ describe("getRemovePrefixLabel", () => {
     expect(getRemovePrefixLabel([prefixed("ABC-3 Add grammar")], issueGroups)).toBeNull()
   })
 
+  it("moves a commit of an issue prefix without a key of its own to the unassigned commits", () => {
+    // the backend copies `(ABC-1) Add tokens` as `ABC-1 Add tokens`; without the prefix the commit has no key
+    const commit = { ...prefixed("(ABC-1) Add tokens"), strippedSubject: "ABC-1 Add tokens" }
+    expect(getRemovePrefixLabel([commit])).toBe("Move to Unassigned")
+  })
+
   it("moves the commits that the issue groups put into a branch back to the issue branch of their key", () => {
     const issueGroups = { "ABC-1": "parser", "ABC-2": "parser" }
     expect(getRemovePrefixLabel([prefixed("ABC-1 Add grammar")], issueGroups)).toBe("Move Back to ABC-1")

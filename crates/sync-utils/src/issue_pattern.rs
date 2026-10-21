@@ -140,16 +140,16 @@ pub fn find_issue_range(text: &str) -> Option<(usize, usize)> {
     return None; // Minimum: "A-1"
   }
 
-  let mut i = 0;
-
-  // Skip [category] prefix if present
-  i = skip_bracket_prefix(bytes, i)?;
-
-  // Skip semantic commit prefix if present
-  i = skip_semantic_prefix(bytes, i)?;
-
   // Try to extract issue pattern at current position
-  extract_issue_at(bytes, i)
+  extract_issue_at(bytes, issue_key_position(text)?)
+}
+
+/// Where `find_issue_range` reads the issue key of a subject: after an optional `[category]` and an optional semantic
+/// prefix (`fix:`, `feat(scope):`), with the whitespace after them; None when the line ends inside one of them
+pub fn issue_key_position(text: &str) -> Option<usize> {
+  let bytes = text.as_bytes();
+  let i = skip_bracket_prefix(bytes, 0)?;
+  skip_semantic_prefix(bytes, i)
 }
 
 /// Manually find issue number pattern (e.g., JIRA-123) without regex
@@ -283,6 +283,16 @@ mod tests {
     // Test with newlines (should not find in body)
     assert_eq!(find_issue_range("No issue here\nBUT-123 in the body"), None);
     assert_eq!(find_issue_range("ABC-123 in subject\nDEF-456 in body"), Some((0, 7)));
+  }
+
+  #[test]
+  fn the_key_position_is_after_the_category_and_the_semantic_prefix() {
+    assert_eq!(issue_key_position("Fix the bug"), Some(0));
+    assert_eq!(issue_key_position("docs plugins: audit"), Some(0));
+    assert_eq!(issue_key_position("[plugins] audit"), Some(10));
+    assert_eq!(issue_key_position("fix: audit"), Some(5));
+    assert_eq!(issue_key_position("[plugins] feat(auth): add login"), Some(22));
+    assert_eq!(issue_key_position("[plugins\n] audit"), None);
   }
 
   #[test]
