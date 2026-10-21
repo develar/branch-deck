@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.28.1](https://github.com/develar/branch-deck/compare/v0.28.0...v0.28.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* **bd:** a lease names its shared checkout in the form of its top level, with backslashes on Windows ([531c178](https://github.com/develar/branch-deck/commit/531c17844e3c85583a2f0f6566ad948e260bf651))
+* **stacks:** a stack problem names itself and offers its fix, one rule in Rust for the row, the menu and bd ([c29eff7](https://github.com/develar/branch-deck/commit/c29eff77dceac501497b21a21847350a73fd777b))
+
 ## [0.28.0](https://github.com/develar/branch-deck/compare/v0.27.0...v0.28.0) (2026-10-21)
 
 
