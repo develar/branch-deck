@@ -96,7 +96,8 @@ pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&
         lease_id: lease.id.clone(),
         holder: lease.holder.clone(),
         path: status.slot.path.clone(),
-        source: lease.source.clone(),
+        // git writes the source with `/`; the same form as `top_level`, backslashes on Windows
+        source: canonical_path(Path::new(&lease.source)),
       })
     })
     .collect();

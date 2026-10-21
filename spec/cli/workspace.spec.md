@@ -52,9 +52,9 @@ in the session wins over both.
 - In the main worktree (`kind: main`) with the lease on, `next` must be `bd lease get --holder <your name> -C
   <top level>`; `subdir` names where bd runs below the top level, and `local_changes` counts the local changes of the
   checkout, which a lease does not have. Inside a leased slot (`kind: lease`) `shared_checkout` must be the source the
-  slot was leased from, `lease_id` and `holder` its lease, and `next` the pick of its commits into the shared checkout
-  and the return of this lease. `active_leases` must list every ready lease of the pool, so a session that lost its path
-  finds its own by `holder`.
+  slot was leased from, in the form of `top_level` (backslashes on Windows), `lease_id` and `holder` its lease, and
+  `next` the pick of its commits into the shared checkout and the return of this lease. `active_leases` must list every
+  ready lease of the pool, so a session that lost its path finds its own by `holder`.
   [@test] ../../crates/bd-lease/src/workspace_test.rs (`by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it`)
 - A value of the global config must set a rule for every repository, a value of the repository's own config must win
   over it, and a value git does not read as a boolean must leave the default with `invalid`.
