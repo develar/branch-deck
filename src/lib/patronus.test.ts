@@ -46,6 +46,7 @@ import {
 import { testLanding } from "@/lib/test-robot"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
+import robotMatchCases from "@/test-support/robot-match-cases.json"
 
 function robot(patch: Partial<PatronusRobot>): PatronusRobot {
   return {
@@ -788,5 +789,19 @@ describe("findLandedBy", () => {
     expect(landedBy([robot({ id: "older", branchName: "oauth", sourceRevision: "oauth-older", ...merged })])).toEqual({})
     expect(landedBy([robot({ id: "stale", branchName: null, stackRoot: "auth", sourceRevision: "stack-older", ...merged })])).toEqual({})
     expect(landedBy([robot({ id: "ref", branchName: null, sourceRevision: "oauth-tip", ...merged })])).toEqual({})
+  })
+})
+
+describe("the robot of a branch or of a whole stack", () => {
+  it("matches the robots as the Rust side does: the cases of robot-match-cases.json", () => {
+    // the cases `find_branch_robot` passes too (`the_robots_match_their_branches_as_the_page_matches_them`)
+    for (const it of robotMatchCases) {
+      const robots = byId(...(it.robots as PatronusRobot[]))
+      const found =
+        "branch" in it && typeof it.branch === "string"
+          ? findBranchRobot(robots, it.branch, it.localTip, it.remoteTip)
+          : findStackRobot(robots, (it as { stack: string }).stack, it.localTip, it.remoteTip)
+      expect(found?.id ?? null, it.name).toBe(it.expected)
+    }
   })
 })

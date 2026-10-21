@@ -11,6 +11,7 @@ pub mod issue_navigation;
 pub mod landed;
 pub mod patronus;
 pub mod pull_request;
+pub mod repository_view;
 pub mod review_request;
 pub mod robot_failure;
 pub mod robot_landing;

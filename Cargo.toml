@@ -7,6 +7,7 @@ members = [
   "crates/test-utils",
   "crates/test-server",
   "crates/sync-core",
+  "crates/repository-view",
   "crates/history-rewrite",
   "crates/sync-types",
   "crates/sync-utils",

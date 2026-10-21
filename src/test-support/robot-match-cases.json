@@ -1,0 +1,289 @@
+[
+  {
+    "name": "the running robot of the branch wins over a finished one",
+    "robots": [
+      {
+        "id": "old",
+        "name": "IJPL-1 fix",
+        "status": "failure",
+        "pushMode": "rebaseAutosquash",
+        "branchName": "auth",
+        "sourceRevision": "tip",
+        "targetBranch": "master",
+        "startTime": 50,
+        "finishTime": 110,
+        "cancellationReason": null,
+        "url": "https://patronus/robot/old"
+      },
+      {
+        "id": "run",
+        "name": "IJPL-1 fix",
+        "status": "running",
+        "pushMode": "rebaseAutosquash",
+        "branchName": "auth",
+        "sourceRevision": "tip",
+        "targetBranch": "master",
+        "startTime": 40,
+        "finishTime": null,
+        "cancellationReason": null,
+        "url": "https://patronus/robot/run"
+      }
+    ],
+    "branch": "auth",
+    "localTip": "t1",
+    "remoteTip": null,
+    "expected": "run"
+  },
+  {
+    "name": "a running robot wins over a canceling one",
+    "robots": [
+      {
+        "id": "cancel",
+        "name": "IJPL-1 fix",
+        "status": "canceling",
+        "pushMode": "rebaseAutosquash",
+        "branchName": "auth",
+        "sourceRevision": "tip",
+        "targetBranch": "master",
+        "startTime": 90,
+        "finishTime": null,
+        "cancellationReason": null,
+        "url": "https://patronus/robot/cancel"
+      },
+      {
+        "id": "run",
+        "name": "IJPL-1 fix",
+        "status": "running",
+        "pushMode": "rebaseAutosquash",
+        "branchName": "auth",
+        "sourceRevision": "tip",
+        "targetBranch": "master",
+        "startTime": 80,
+        "finishTime": null,
+        "cancellationReason": null,
+        "url": "https://patronus/robot/run"
+      }
+    ],
+    "branch": "auth",
+    "localTip": "t1",
+    "remoteTip": null,
+    "expected": "run"
+  },
+  {
+    "name": "of finished robots the newest",
+    "robots": [
+      {
+        "id": "first",
+        "name": "IJPL-1 fix",
+        "status": "failure",
+        "pushMode": "rebaseAutosquash",
+        "branchName": "auth",
+        "sourceRevision": "tip",
+        "targetBranch": "master",
+        "startTime": 10,
+        "finishTime": 70,
+        "cancellationReason": null,
+        "url": "https://patronus/robot/first"
+      },
+      {
+        "id": "second",
+        "name": "IJPL-1 fix",
+        "status": "success",
+        "pushMode": "rebaseAutosquash",
+        "branchName": "auth",
+        "sourceRevision": "tip",
+        "targetBranch": "master",
+        "startTime": 20,
+        "finishTime": 80,
+        "cancellationReason": null,
+        "url": "https://patronus/robot/second"
+      }
+    ],
+    "branch": "auth",
+    "localTip": "t1",
+    "remoteTip": null,
+    "expected": "second"
+  },
+  {
+    "name": "of equals the first of the list",
+    "robots": [
+      {
+        "id": "first",
+        "name": "IJPL-1 fix",
+        "status": "failure",
+        "pushMode": "rebaseAutosquash",
+        "branchName": "auth",
+        "sourceRevision": "tip",
+        "targetBranch": "master",
+        "startTime": 10,
+        "finishTime": 70,
+        "cancellationReason": null,
+        "url": "https://patronus/robot/first"
+      },
+      {
+        "id": "second",
+        "name": "IJPL-1 fix",
+        "status": "failure",
+        "pushMode": "rebaseAutosquash",
+        "branchName": "auth",
+        "sourceRevision": "tip",
+        "targetBranch": "master",
+        "startTime": 10,
+        "finishTime": 70,
+        "cancellationReason": null,
+        "url": "https://patronus/robot/second"
+      }
+    ],
+    "branch": "auth",
+    "localTip": "t1",
+    "remoteTip": null,
+    "expected": "first"
+  },
+  {
+    "name": "a robot of a temporary ref at the local tip",
+    "robots": [
+      {
+        "id": "ide",
+        "name": "IJPL-1 fix",
+        "status": "running",
+        "pushMode": "rebaseAutosquash",
+        "branchName": null,
+        "sourceRevision": "t1",
+        "targetBranch": "master",
+        "startTime": 100,
+        "finishTime": null,
+        "cancellationReason": null,
+        "url": "https://patronus/robot/ide"
+      }
+    ],
+    "branch": "auth",
+    "localTip": "t1",
+    "remoteTip": "r1",
+    "expected": "ide"
+  },
+  {
+    "name": "a robot of a temporary ref at the remote tip",
+    "robots": [
+      {
+        "id": "ide",
+        "name": "IJPL-1 fix",
+        "status": "running",
+        "pushMode": "rebaseAutosquash",
+        "branchName": null,
+        "sourceRevision": "r1",
+        "targetBranch": "master",
+        "startTime": 100,
+        "finishTime": null,
+        "cancellationReason": null,
+        "url": "https://patronus/robot/ide"
+      }
+    ],
+    "branch": "auth",
+    "localTip": "t1",
+    "remoteTip": "r1",
+    "expected": "ide"
+  },
+  {
+    "name": "a robot of another branch is none of this one's",
+    "robots": [
+      {
+        "id": "other",
+        "name": "IJPL-1 fix",
+        "status": "running",
+        "pushMode": "rebaseAutosquash",
+        "branchName": "login",
+        "sourceRevision": "t1",
+        "targetBranch": "master",
+        "startTime": 100,
+        "finishTime": null,
+        "cancellationReason": null,
+        "url": "https://patronus/robot/other"
+      }
+    ],
+    "branch": "auth",
+    "localTip": "t1",
+    "remoteTip": null,
+    "expected": null
+  },
+  {
+    "name": "the robot of the whole stack is no branch's, not even at the branch's tip",
+    "robots": [
+      {
+        "id": "whole",
+        "name": "IJPL-1 fix",
+        "status": "running",
+        "pushMode": "rebaseAutosquash",
+        "branchName": null,
+        "sourceRevision": "t1",
+        "targetBranch": "master",
+        "startTime": 100,
+        "finishTime": null,
+        "cancellationReason": null,
+        "url": "https://patronus/robot/whole",
+        "stackRoot": "auth"
+      }
+    ],
+    "branch": "auth",
+    "localTip": "t1",
+    "remoteTip": null,
+    "expected": null
+  },
+  {
+    "name": "the robot of the whole stack is its root's stack's",
+    "robots": [
+      {
+        "id": "whole",
+        "name": "IJPL-1 fix",
+        "status": "running",
+        "pushMode": "rebaseAutosquash",
+        "branchName": null,
+        "sourceRevision": "s1",
+        "targetBranch": "master",
+        "startTime": 100,
+        "finishTime": null,
+        "cancellationReason": null,
+        "url": "https://patronus/robot/whole",
+        "stackRoot": "auth"
+      },
+      {
+        "id": "piece",
+        "name": "IJPL-1 fix",
+        "status": "running",
+        "pushMode": "rebaseAutosquash",
+        "branchName": "auth",
+        "sourceRevision": "t1",
+        "targetBranch": "master",
+        "startTime": 100,
+        "finishTime": null,
+        "cancellationReason": null,
+        "url": "https://patronus/robot/piece"
+      }
+    ],
+    "stack": "auth",
+    "localTip": "s1",
+    "remoteTip": null,
+    "expected": "whole"
+  },
+  {
+    "name": "a robot of a temporary ref at the stack branch's tip is the stack's",
+    "robots": [
+      {
+        "id": "ide",
+        "name": "IJPL-1 fix",
+        "status": "running",
+        "pushMode": "rebaseAutosquash",
+        "branchName": null,
+        "sourceRevision": "s1",
+        "targetBranch": "master",
+        "startTime": 100,
+        "finishTime": null,
+        "cancellationReason": null,
+        "url": "https://patronus/robot/ide"
+      }
+    ],
+    "stack": "auth",
+    "localTip": "s1",
+    "remoteTip": null,
+    "expected": "ide"
+  }
+]

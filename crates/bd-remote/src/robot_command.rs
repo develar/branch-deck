@@ -6,7 +6,7 @@
 
 use crate::robot_list::list_robots;
 use crate::safe_push_command::{RobotSummary, patronus_error, patronus_service, robot_summary};
-use bd_core::branch_view::{read_grouping, stack_ancestors};
+use bd_core::branch_view::read_grouping;
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorCode};
 use bd_core::output::{SchemaVersion, ShortIds};
@@ -14,6 +14,7 @@ use bd_core::stack_summary::{WholeStack, whole_stack_of};
 use git_ops::branch_names::to_final_branch_name;
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::{PROCESS_TIMEOUT, TeamCityCli};
+use repository_view::branch_table::stack_ancestors;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;

@@ -1,25 +1,17 @@
-//! The branches merged Safe Pushes landed, as the rows of the app say it (`findLandedBy`, `src/lib/patronus.ts`): the
-//! branch a robot ran on, the branches a piece is built on, every branch of the whole stack; decided by content
-//! (`sync_core::robot_landing`): the commits the robot tested against each branch as the sync placed it, the commits
-//! added after them the only work left. Until the update archives them, `bd status` names them (`landed_by`), `bd
+//! The branches merged Safe Pushes landed, as the repository view decides it for the app too
+//! (`repository_view::patronus_view`): the branch a robot ran on, the branches a piece is built on, every branch of the
+//! whole stack; by the hashes, else by content, the commits added after the landed ones the only work left. Until the update archives them, `bd status` names them (`landed_by`), `bd
 //! push` leaves out one that landed whole (`skipped`, refused as `landed` when nothing else is left) and `bd
 //! safe-push` refuses it (`landed`): a push or a robot would land nothing.
 
+use crate::patronus_facts::PatronusFacts;
 use crate::safe_push_command::{RobotSummary, join_names, robot_summary};
-use bd_core::branch_view::stack_ancestors;
 use bd_core::context::RepoContext;
-use bd_core::error::CliError;
 use bd_core::output::ShortIds;
-use git_ops::branch_names::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
-use sync_core::patronus_start::RobotSource;
-use sync_core::robot_landing::robot_landings_of_grouped;
-use sync_types::GroupedBranchInfo;
-use sync_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
-use sync_types::robot_landing::RobotLandingRequest;
-use sync_types::stack::StackBranchUpdate;
+use sync_types::patronus::PatronusRobot;
 
 /// A branch a merged Safe Push landed
 #[derive(Debug, Clone)]
@@ -58,17 +50,19 @@ impl LandedBranch {
 }
 
 /// "every branch of the whole auth stack landed in master with the Safe Pushes of login and session": what merged Safe
-/// Pushes landed of a whole stack every branch of which they landed whole (`landed`, one per branch, in the order of
-/// the stack), each subject named once; the target of the first
+/// Pushes landed of a whole stack every branch of which they landed whole (`landed`, one per branch), each subject
+/// named once in the order they merged, as the app names them (`formatLandedWholeReason`); the target of the first
 pub fn every_branch_landed(what: &str, landed: &[&LandedBranch]) -> String {
+  let mut merged: Vec<&LandedBranch> = landed.to_vec();
+  merged.sort_by_key(|landed| landed.robot.finish_time.unwrap_or(0));
   let mut by: Vec<String> = Vec::new();
-  for subject in landed.iter().map(|landed| landed.subject()) {
+  for subject in merged.iter().map(|landed| landed.subject()) {
     if !by.contains(&subject) {
       by.push(subject);
     }
   }
   let pushes = if by.len() == 1 { "Safe Push" } else { "Safe Pushes" };
-  let target = landed.first().map_or("the target", |landed| landed.robot.target_branch.as_str());
+  let target = merged.first().map_or("the target", |landed| landed.robot.target_branch.as_str());
   format!("every branch of {what} landed in {target} with the {pushes} of {}", join_names(&by))
 }
 
@@ -102,94 +96,26 @@ impl LandedBySummary {
   }
 }
 
-/// A robot that merged into the target: a dry run lands nothing
-fn is_merged(robot: &PatronusRobot) -> bool {
-  robot.status == PatronusRobotStatus::Success && robot.push_mode != PatronusPushMode::DryRun && robot.source_revision.is_some()
-}
-
-/// What the table the robots landed of is: the grouped branches as a sync placed them, the stack branches, and the local
-/// tips the sync left (full name -> tip), so a robot at its tip needs no git
-pub struct LandingTable<'a> {
-  pub branches: &'a [GroupedBranchInfo],
-  pub stacks: &'a [StackBranchUpdate],
-  pub tips: &'a HashMap<String, String>,
-  pub baseline: &'a str,
-}
-
-/// The branches the merged `robots` landed, by name: of several robots that landed a branch the one that left the
-/// fewest commits after it, of equals the first merge. The robots of branches the table lacks land nothing
-/// (`robot_landings_of_grouped`: no process for a robot at its tip, else its walks)
-pub fn find_landed(context: &RepoContext, robots: &[PatronusRobot], table: &LandingTable<'_>) -> Result<HashMap<String, LandedBranch>, CliError> {
-  let mut merged: Vec<&PatronusRobot> = robots.iter().filter(|robot| is_merged(robot)).collect();
-  merged.sort_by_key(|robot| robot.finish_time.unwrap_or(0));
-  let requests: Vec<RobotLandingRequest> = merged.iter().filter_map(|robot| landing_request(context, robot, table)).collect();
-  if requests.is_empty() {
-    return Ok(HashMap::new());
-  }
-  let landings = robot_landings_of_grouped(&context.git, &context.repository, &context.prefix, table.baseline, &requests, table.branches)?;
-  let mut landed: HashMap<String, LandedBranch> = HashMap::new();
-  for robot in merged {
-    let Some(landing) = landings.iter().find(|landing| landing.robot_id == robot.id) else {
-      continue;
-    };
-    let (by, whole_stack) = match (&robot.branch_name, &robot.stack_root) {
-      (Some(branch), _) => (branch.clone(), false),
-      (None, Some(root)) => (root.clone(), true),
-      (None, None) => continue,
-    };
-    for branch in &landing.branches {
-      if landed.get(&branch.branch).is_some_and(|known| known.after.len() <= branch.after.len()) {
-        continue;
-      }
-      landed.insert(
-        branch.branch.clone(),
+/// The branches merged Safe Pushes landed, by name, as the repository view decided it: of several robots that landed a
+/// branch the one that left the fewest commits after it, of equals the first merge
+pub fn landed_branches(facts: &PatronusFacts) -> HashMap<String, LandedBranch> {
+  facts
+    .view
+    .branches
+    .iter()
+    .filter_map(|(name, branch)| {
+      let landed = branch.landed_by.as_ref()?;
+      let robot: &PatronusRobot = facts.robot(&landed.by.robot_id)?;
+      Some((
+        name.clone(),
         LandedBranch {
           robot: robot.clone(),
-          by: by.clone(),
-          whole_stack,
-          landed: branch.landed.clone(),
-          after: branch.after.clone(),
+          by: landed.by.branch.clone(),
+          whole_stack: landed.by.whole_stack,
+          landed: landed.landed.clone(),
+          after: landed.after.clone(),
         },
-      );
-    }
-  }
-  Ok(landed)
-}
-
-/// The question of a merged robot of a branch of the table, or of the whole stack of a stack the table has
-fn landing_request(context: &RepoContext, robot: &PatronusRobot, table: &LandingTable<'_>) -> Option<RobotLandingRequest> {
-  let source = match (&robot.branch_name, &robot.stack_root) {
-    (Some(name), _) => RobotSource::Branch(name),
-    (None, Some(root)) => RobotSource::WholeStack(root),
-    (None, None) => return None,
-  };
-  robot_request(context, robot, source, table)
-}
-
-/// The question of the robot of `source` (the branch or the whole stack it ran on, or a temporary ref matched to it by
-/// its tip), about the branches the table has: the branches the branch is built on and the branch, or the branches of
-/// the stack, with the tip the sync left
-pub(crate) fn robot_request(context: &RepoContext, robot: &PatronusRobot, source: RobotSource<'_>, table: &LandingTable<'_>) -> Option<RobotLandingRequest> {
-  let source_revision = robot.source_revision.clone()?;
-  let (branch_name, stack_root, branches, tip) = match source {
-    RobotSource::Branch(name) => {
-      table.branches.iter().find(|branch| branch.name == name)?;
-      let mut branches = stack_ancestors(table.branches, name);
-      branches.push(name.to_string());
-      let tip = to_final_branch_name(&context.prefix, name).ok().and_then(|full_name| table.tips.get(&full_name).cloned());
-      (Some(name.to_string()), None, branches, tip)
-    }
-    RobotSource::WholeStack(root) => {
-      let stack = table.stacks.iter().find(|stack| stack.root == root && !stack.members.is_empty())?;
-      (None, Some(root.to_string()), stack.members.clone(), stack.tip.clone())
-    }
-  };
-  Some(RobotLandingRequest {
-    robot_id: robot.id.clone(),
-    branch_name,
-    stack_root,
-    source_revision,
-    branches,
-    tip,
-  })
+      ))
+    })
+    .collect()
 }

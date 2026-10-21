@@ -2,7 +2,8 @@
 //! Patronus and the review on GitHub. bd-cli parses the arguments and prints the outputs; the tests run bd through the
 //! whole Cli, with the fixtures and the fakes of bd-cli
 //! - `status`, `branch_stats`, `numstat`: `bd status`, its statistics and line counts
-//! - `landed`: the branches whose commits landed in the baseline, and the landing table
+//! - `landed`: the branches whose commits merged Safe Pushes landed
+//! - `patronus_facts`: the Patronus section of the repository view, the rule the app reads too
 //! - `push_command`, `push_hold`: `bd push`, and what holds a push back (a running robot)
 //! - `safe_push_command`: `bd safe-push`, a Safe Push or a Dry Run through Patronus
 //! - `request_review_command`, `pull_request_retarget`: `bd request-review`, and the retarget of pull requests
@@ -11,6 +12,7 @@
 pub mod branch_stats;
 pub mod landed;
 pub mod numstat;
+pub mod patronus_facts;
 pub mod pull_request_retarget;
 pub mod push_command;
 pub mod push_hold;

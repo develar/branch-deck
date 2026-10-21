@@ -1,0 +1,25 @@
+[package]
+name = "repository-view"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# What Rust derives of the branch table for the page and for `bd` (docs/design/git-operations.md, "Repository view"):
+# the table of a sync and the Patronus section, one rule over the content walks of sync-core
+[dependencies]
+sync-core = { path = "../sync-core" }
+sync-types = { path = "../sync-types" }
+git-ops = { path = "../git-ops" }
+git-executor = { path = "../git-executor" }
+tracing.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+sync-test-utils = { path = "../sync-test-utils" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+serde.workspace = true
+serde_json.workspace = true
+test-utils = { path = "../test-utils" }
+
+[lints]
+workspace = true

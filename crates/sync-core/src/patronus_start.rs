@@ -1,8 +1,9 @@
 //! Which robot belongs to a virtual branch, or to the whole stack of a root (its stack branch `{prefix}/stack/<root>`),
-//! and whether a Safe Push or a Dry Run of it can start, as the app decides it (`src/lib/patronus.ts`), for
-//! `bd safe-push`. Pure functions over the robots of the user.
+//! as the app matches them (`src/lib/patronus.ts`), the words of a mode and of what a robot lands. Pure functions over
+//! the robots of the user; what they land, landed and hold is the repository view (`repository_view::patronus_view`).
 
 use sync_types::patronus::{PatronusProfile, PatronusPushMode, PatronusRobot, PatronusRobotStatus};
+use sync_types::repository_view::Carried;
 
 /// Still running, a cancel included
 pub const fn is_robot_active(robot: &PatronusRobot) -> bool {
@@ -43,7 +44,9 @@ impl RobotSource<'_> {
 
 /// The robot of a virtual branch: one started on the branch, or a Safe Push of a temporary ref (the IDE, the CLI) on
 /// the local or the pushed tip of the branch. A robot of the whole stack (`stack_root`) is no branch's, whatever its
-/// revision. A running robot wins over a canceling one (a restart replaces it) over a finished one, then the newest.
+/// revision. A running robot wins over a canceling one (a restart replaces it) over a finished one, then the newest,
+/// then the first of the list. The page matches them the same way (`findBranchRobot`): both pass
+/// `robot_match_cases.json`.
 pub fn find_branch_robot<'a>(robots: &'a [PatronusRobot], branch_name: &str, local_tip: Option<&str>, remote_tip: Option<&str>) -> Option<&'a PatronusRobot> {
   find_robot(robots, RobotSource::Branch(branch_name), local_tip, remote_tip)
 }
@@ -60,7 +63,8 @@ fn find_robot<'a>(robots: &'a [PatronusRobot], source: RobotSource<'_>, local_ti
     (None, None, Some(revision)) => Some(revision.as_str()) == local_tip || Some(revision.as_str()) == remote_tip,
     (None, None, None) => false,
   };
-  robots.iter().filter(|robot| on_source(robot)).max_by_key(|robot| (activity(robot), robot.start_time))
+  // of equals the first of the list, as the page's index keeps it (`max_by_key` keeps the last, so the list reversed)
+  robots.iter().filter(|robot| on_source(robot)).rev().max_by_key(|robot| (activity(robot), robot.start_time))
 }
 
 /// Running, then canceling (it goes away; its restart runs), then finished
@@ -89,32 +93,11 @@ pub fn is_start_blocked(robot: &PatronusRobot, local_tip: Option<&str>, pushed_t
       .is_some_and(|revision| Some(revision) == local_tip || Some(revision) == pushed_tip)
 }
 
-/// A robot of another branch that lands this one: of an ancestor of a stacked branch, of a branch built on it, or of
-/// the whole stack (`whole_stack`, `branch` its root); or, for the whole stack, of a branch of it
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LandingRobot<'a> {
-  pub branch: String,
-  pub robot: &'a PatronusRobot,
-  /// The robot of the whole stack of the root `branch`, which lands every branch of it
-  pub whole_stack: bool,
-  /// The commits of the landed branch the robot's commit has, as its content told (`robot_spans`); None when only the
-  /// stack as it is now tells
-  pub carried: Option<CarriedCommits>,
-}
-
-/// The commits of a branch a running robot lands with it (`BranchSpan`): by id, newest first, and those of them it has
-/// in an earlier version (amended since it started)
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CarriedCommits {
-  pub commits: Vec<String>,
-  pub amended: Vec<String>,
-}
-
 /// How many commit ids a refusal lists
 const LISTED_COMMITS: usize = 3;
 
 /// What a robot lands of `subject`, as a refusal says it: "login" when only the stack tells, else "2 commits of login"
-pub fn carried_words(subject: &str, carried: Option<&CarriedCommits>) -> String {
+pub fn carried_words(subject: &str, carried: Option<&Carried>) -> String {
   match carried {
     None => subject.to_string(),
     Some(carried) if carried.commits.len() == 1 => format!("1 commit of {subject}"),
@@ -124,7 +107,7 @@ pub fn carried_words(subject: &str, carried: Option<&CarriedCommits>) -> String 
 
 /// The ids of the carried commits for `bd`, after the sentence: " (1a2b3c4d, 5e6f7a8b amended since)", the first three;
 /// empty when only the stack tells
-pub fn carried_ids(carried: Option<&CarriedCommits>) -> String {
+pub fn carried_ids(carried: Option<&Carried>) -> String {
   let Some(carried) = carried else {
     return String::new();
   };
@@ -147,85 +130,6 @@ pub fn carried_ids(carried: Option<&CarriedCommits>) -> String {
   format!(" ({})", listed.join(", "))
 }
 
-impl LandingRobot<'_> {
-  /// "auth", or "the whole auth stack"
-  pub fn subject(&self) -> String {
-    if self.whole_stack {
-      RobotSource::WholeStack(&self.branch).subject()
-    } else {
-      self.branch.clone()
-    }
-  }
-}
-
-/// The active robot, pushing into the target, of the whole stack the branch is a member of (`stack_root`, the root of
-/// a stack that forks): it lands the branch with every other branch of the stack
-pub fn find_landing_stack<'a>(stack_root: Option<&str>, stack_robot_of: impl Fn(&str) -> Option<&'a PatronusRobot>) -> Option<LandingRobot<'a>> {
-  let root = stack_root?;
-  let robot = stack_robot_of(root).filter(|robot| is_robot_active(robot) && is_pushing_robot(robot))?;
-  Some(LandingRobot {
-    branch: root.to_string(),
-    robot,
-    whole_stack: true,
-    carried: None,
-  })
-}
-
-/// For the whole stack: the first of its `members` (stack order) whose own robot is active and pushes into the target.
-/// It lands a part of the stack, which the stack branch carries too: two robots would land those commits
-pub fn find_landing_member<'a, 'n>(members: impl IntoIterator<Item = &'n str>, robot_of: impl Fn(&str) -> Option<&'a PatronusRobot>) -> Option<LandingRobot<'a>> {
-  members.into_iter().find_map(|name| {
-    let robot = robot_of(name).filter(|robot| is_robot_active(robot) && is_pushing_robot(robot))?;
-    Some(LandingRobot {
-      branch: name.to_string(),
-      robot,
-      whole_stack: false,
-      carried: None,
-    })
-  })
-}
-
-/// The nearest of `ancestors` (root first) whose robot is active and pushes into the target, or that such a robot of a
-/// side branch built on it lands (`span_of`, `find_landing_descendant`): the branch carries the ancestor's commits, two
-/// robots would land them
-pub fn find_landing_ancestor<'a>(
-  ancestors: &[String],
-  robot_of: impl Fn(&str) -> Option<&'a PatronusRobot>,
-  span_of: impl Fn(&str) -> Option<LandingRobot<'a>>,
-) -> Option<LandingRobot<'a>> {
-  ancestors.iter().rev().find_map(|name| {
-    if let Some(robot) = robot_of(name).filter(|robot| is_robot_active(robot) && is_pushing_robot(robot)) {
-      return Some(LandingRobot {
-        branch: name.clone(),
-        robot,
-        whole_stack: false,
-        carried: None,
-      });
-    }
-    span_of(name)
-  })
-}
-
-/// The first branch of `order` (parents first) built on `branch_name` whose robot is active and pushes into the
-/// target: it lands `branch_name` with it. `ancestors_of` the robot's branch are the branches its commit lands: by
-/// content after a restack (`robot_spans`), else the stack as it is now
-pub fn find_landing_descendant<'a, 'n>(
-  branch_name: &str,
-  order: impl IntoIterator<Item = &'n str>,
-  ancestors_of: impl Fn(&str) -> Vec<String>,
-  robot_of: impl Fn(&str) -> Option<&'a PatronusRobot>,
-) -> Option<LandingRobot<'a>> {
-  order.into_iter().find_map(|name| {
-    let robot = robot_of(name).filter(|robot| is_robot_active(robot) && is_pushing_robot(robot))?;
-    ancestors_of(name).iter().any(|ancestor| ancestor == branch_name).then(|| LandingRobot {
-      branch: name.to_string(),
-      robot,
-      whole_stack: false,
-      carried: None,
-    })
-  })
-}
-
 /// The profile allows the mode; no modes listed = any
 pub fn allows_push_mode(profile: &PatronusProfile, mode: PatronusPushMode) -> bool {
   profile.allowed_push_modes.is_empty() || profile.allowed_push_modes.contains(&mode)
@@ -241,40 +145,4 @@ pub const fn push_mode_name(mode: PatronusPushMode) -> &'static str {
     PatronusPushMode::Merge => "Safe Merge",
     PatronusPushMode::Unknown => "Robot",
   }
-}
-
-/// Why a start is not possible, in the words of the app; None when it is. `landing_ancestor` is a robot that lands a part
-/// of what the start would land (an ancestor; for the whole stack, a branch of it), `landing_descendant` one that lands
-/// all of it with more (a branch built on it, or the whole stack); `subject` names what the start lands ("auth", "the
-/// whole auth stack"); the commits of it a descendant lands are counted and named by their ids (`carried_words`, `carried_ids`)
-pub fn start_refusal(
-  robot: Option<&PatronusRobot>,
-  local_tip: Option<&str>,
-  pushed_tip: Option<&str>,
-  landing_ancestor: Option<&LandingRobot<'_>>,
-  landing_descendant: Option<&LandingRobot<'_>>,
-  subject: &str,
-) -> Option<String> {
-  if let Some(robot) = robot
-    && is_start_blocked(robot, local_tip, pushed_tip)
-  {
-    return Some(format!("A {} of the last commit is running", push_mode_name(robot.push_mode)));
-  }
-  if let Some(landing) = landing_ancestor {
-    return Some(format!(
-      "A {} of {} is running: wait until it merges",
-      push_mode_name(landing.robot.push_mode),
-      landing.subject()
-    ));
-  }
-  if let Some(landing) = landing_descendant {
-    return Some(format!(
-      "A {} of {} is running: it lands {} with it{}",
-      push_mode_name(landing.robot.push_mode),
-      landing.subject(),
-      carried_words(subject, landing.carried.as_ref()),
-      carried_ids(landing.carried.as_ref())
-    ));
-  }
-  None
 }

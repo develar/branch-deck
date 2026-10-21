@@ -2588,26 +2588,38 @@ nor the stack branch as it is), once per state of the branches (`landingKey`), n
 
 Read-only. What a running robot lands of the branches as they are now, so that a push is held only for the commits
 the robot's commit has ([Patronus](../../spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)):
-`robot_spans` and `robot_spans_of_grouped` (`crates/sync-core/src/robot_landing.rs`), for the app (`get_robot_spans`)
-and for the holds of `bd push` and `bd safe-push` (`read_robot_spans` in `crates/bd-remote/src/push_hold.rs`). The same
-requests and phases 1 to 3 as the robot landing, one call for every active robot that pushes into the target: the robot
-of each branch with ancestors, matched as the rows match it (also a robot of a temporary ref, by the tip, asked for that
-branch), and of each whole stack. Phase 4 reduces otherwise: a branch is in the span while one of its commits is
-`tested`, `rebased` or `changed` (the robot has an earlier version: an amend below its commit), with those commits and
-the amended ones among them. A parent a restack placed below the robot's branch after the start has only `added`
-commits: it is not in the span, and its push goes on. A request the repository can't answer (a missing source, a gone
-ref) has no span (`branches: null`): the stack as it is now holds.
+`robot_spans_of_grouped` (`crates/sync-core/src/robot_landing.rs`), asked by the repository view (below). The same
+requests and phases 1 to 3 as the robot landing. Phase 4 reduces otherwise: a branch is in the span while one of its
+commits is `tested`, `rebased` or `changed` (the robot has an earlier version: an amend below its commit), with those
+commits and the amended ones among them. A parent a restack placed below the robot's branch after the start has only
+`added` commits: it is not in the span, and its push goes on. A request the repository can't answer (a missing source,
+a gone ref) has no span (`branches: null`): the stack as it is now holds. Not looked for: a commit moved out of the
+robot's branch into a branch that is no ancestor of it, as the robot landing doesn't look for it either.
 
-A robot at the tip the sync left needs no process (`AtSource`): every HEAD commit with a mapping note is the robot's.
-That holds only for the branches the sync built into that ref, which the callers pass (the ancestors as the same sync
-placed them). After a restack `bd push` adds one `cat-file --batch-check` and the two walks per such robot, and a
-`same_changes` only for a copy that is no patch-equivalent of the robot's (`process_budget_test.rs`:
-`the_span_of_a_running_robot_after_a_restack`; `a_push_beside_a_robot_started_before_a_restack` in bd-cli). A git
-error leaves the spans empty: the stack as it is now holds. The app asks as for the landings (`spanRequestsIn`, by
-`landingKey`, never while a sync runs), and a push waits for the answer first (`whenRobotSpansKnown`).
+### Repository view
 
-Not looked for: a commit moved out of the robot's branch into a branch that is no ancestor of it, as the robot landing
-doesn't look for it either.
+Read-only. What Rust derives of the branch table for the page and for `bd`, so both read one rule: the crate
+`repository-view`. `BranchTable` (`branch_table.rs`) is the table a sync left: the grouped branches in the order of the
+table, their virtual tips, the copies the sync wrote (`SyncReport::copies`, recorded from its `CommitSynced` events: a
+mapping note read at the sync's start names the copy of before), the stack branches and the parked branches; `bd`
+builds it from the report of its sync (`bd status` from a grouping), the app keeps the one of its last sync.
+
+The Patronus section (`patronus_view.rs`): what the robots land, landed and hold, and why a start waits (the rule in
+[Patronus](../../spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)). Its inputs besides the table
+are the robots, the robot of each branch and whole stack (`match_robots`, which the page does itself) and what the asker
+knows of the remote branches (`RemoteFacts`: the remote tip, and whether the remote has the branch by content). No
+process when the hashes tell:
+- the robot took its subject as it is: its tip, or its remote branch while that is up to date by content (a remote
+  rebuilt on an older baseline included);
+- a merged or running robot of a branch took a commit of it the branch built new ones on: its copy is a copy of a commit
+  of the branch now (`BranchTable::copy_of`), and every commit below it has one;
+
+else the robot landing and the robot span ask the content, one call each for every robot the memo lacks
+(`ContentMemo`, by the robot's commit, the tip of its subject and the commits of the candidate branches with their
+copies): a view of the same state asks no git again. A git error is an answer of nothing by content: a merged robot
+landed nothing, a running one lands what the stack as it is now says. `patronus_view_content_test.rs` pins the
+processes: none for a robot at its tip or under new commits, one `cat-file --batch-check` and two `rev-list` after a
+restack, none for the same state again.
 
 ### Index policy
 

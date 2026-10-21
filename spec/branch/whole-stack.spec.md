@@ -182,7 +182,8 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   must belong to no branch, not even by its revision, in `bd` (`find_branch_robot`) as in the app
   (`findBranchRobot`); `find_stack_robot` finds the robot of the whole stack.
   [@test] ../../crates/patronus/src/service_test.rs (`a_robot_of_the_stack_branch_names_the_root_of_its_stack_and_no_branch`)
-  [@test] ../../crates/sync-core/src/patronus_start_test.rs (`the_robot_of_the_whole_stack_belongs_to_its_root_and_to_no_branch`, `the_whole_stack_and_its_branches_wait_for_each_other`)
+  [@test] ../../crates/sync-core/src/patronus_start_test.rs (`the_robot_of_the_whole_stack_belongs_to_its_root_and_to_no_branch`)
+  [@test] ../../crates/repository-view/src/patronus_view_test.rs (`the_robot_of_the_whole_stack_lands_every_branch_of_it`)
   [@test] ../../src/lib/patronus.test.ts (`never takes the robot of the whole stack, which runs on its stack branch, for a branch's`)
 - The pull request of a stack branch must be the stack's, by its root (`PullRequestsResult::stack_pull_requests`),
   never a branch's; one that GitHub says exists must be found by its head.

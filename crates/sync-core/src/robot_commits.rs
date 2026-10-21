@@ -49,7 +49,7 @@ pub(crate) fn head_commits(git_executor: &GitCommandExecutor, repository_path: &
 
 /// The virtual commit a HEAD commit's mapping note names, unless the note is stale: one copied onto a commit with
 /// another tree (`notes.rewriteRef` on an amend) records the source it was copied from
-pub(crate) fn mapped_virtual(commit: &Commit) -> Option<&str> {
+pub fn mapped_virtual(commit: &Commit) -> Option<&str> {
   let mapped = commit.mapped_commit_id.as_deref()?;
   match &commit.mapped_source {
     Some(source) if source.tree != commit.tree_id => None,

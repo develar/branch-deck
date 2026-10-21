@@ -42,7 +42,7 @@ use indexmap::IndexMap;
 use object_cache::cache::ObjectCache;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use sync_types::issue_navigation::IssueNavigationConfig;
 use sync_types::stack::{BlockReason, BranchStack, StackBlock, StackBranchUpdate};
 use sync_types::{BranchOrigin, GroupedBranchInfo, ProgressReporter, SyncEvent};
@@ -256,6 +256,9 @@ pub struct SyncReport {
   pub tips: HashMap<String, String>,
   /// Full name -> tip of its remote branch on `origin`, as the sync read them at its start
   pub remote_tips: HashMap<String, String>,
+  /// Original id -> the virtual copy the sync wrote of it (`CommitSynced`); a commit not here kept the copy its mapping
+  /// note names
+  pub copies: HashMap<String, String>,
   /// The `branchdeck.*` settings and the branch descriptions (`bd describe`), as the sync read them
   pub config: ConfigSnapshot,
   /// The stack branches as the `StackBranchUpdate` events sent them: of each stack that forks, then those kept for
@@ -474,6 +477,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     branches: grouped.clone(),
     forest,
     tips: HashMap::new(),
+    copies: HashMap::new(),
     remote_tips: facts.remote_tips.clone(),
     config,
     stack_branches: Vec::new(),
@@ -843,6 +847,24 @@ async fn build_stack_branches(
   results
 }
 
+/// The progress of a sync that keeps the copies it reports (`CommitSynced`) for `SyncReport::copies`
+#[derive(Clone)]
+struct CopyRecorder<P> {
+  inner: P,
+  copies: Arc<Mutex<HashMap<String, String>>>,
+}
+
+impl<P: ProgressReporter> ProgressReporter for CopyRecorder<P> {
+  fn send(&self, event: SyncEvent) -> Result<()> {
+    if let SyncEvent::CommitSynced { commit_hash, new_hash, .. } = &event
+      && let Ok(mut copies) = self.copies.lock()
+    {
+      copies.insert(commit_hash.clone(), new_hash.clone());
+    }
+    self.inner.send(event)
+  }
+}
+
 /// Sync virtual branches: group the commits ahead of the baseline by prefix, rebuild one virtual branch per group,
 /// and detect integration of archived branches concurrently. All git work runs on the blocking pool. Returns what the
 /// sync read and the tips it left (`SyncReport`); the events say the rest.
@@ -864,6 +886,11 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   } = options;
   // every git process of the sync, its tasks included, is counted; the summary is logged at its end
   let git_executor = &git_executor.with_process_stats("sync");
+  let copies = Arc::new(Mutex::new(HashMap::new()));
+  let progress = CopyRecorder {
+    inner: progress,
+    copies: Arc::clone(&copies),
+  };
   // the builds and the detection run beside each other, within one limit
   let permits = ProcessPermits::for_operation();
   let task = SyncTask {
@@ -1055,6 +1082,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     };
   }
   report.stack_branches = stack_updates;
+  report.copies = copies.lock().map_or_default(|copies| copies.clone());
   update_check_result.map_err(|e| anyhow!("Update check task failed: {e}"))??;
   detection_result.map_err(|e| anyhow!("Integration detection task failed: {e}"))??;
   Ok(report)

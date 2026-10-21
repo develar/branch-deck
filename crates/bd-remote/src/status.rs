@@ -1,5 +1,6 @@
 use crate::branch_stats::{BranchInput, BranchStats, branch_stats};
-use crate::landed::{LandedBySummary, LandingTable, find_landed};
+use crate::landed::{LandedBySummary, landed_branches};
+use crate::patronus_facts::PatronusFacts;
 use crate::robot_list::read_robots;
 use bd_core::branch_view::{ParentSourceName, StackBlockSummary, StackIssue, read_grouping, stack_issues};
 use bd_core::context::{Environment, RepoContext};
@@ -8,12 +9,14 @@ use bd_core::output::{ResolvedByWords, SchemaVersion};
 use bd_core::stack_summary::StackSummary;
 use git_ops::branch_names::to_final_branch_name;
 use history_rewrite::store_lines::StoreLineProblem;
+use repository_view::branch_table::BranchTable;
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use sync_core::grouping::BranchGrouping;
 use sync_core::parked::parked_state;
 use sync_core::stack_branch::read_stack_branches;
+use sync_types::repository_view::{RemoteFact, RemoteFacts};
 use sync_types::stack::ParentState;
 use sync_types::{BranchOrigin, GroupedBranchInfo};
 
@@ -336,14 +339,31 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
   let landed = if args.unassigned || grouping.branches.is_empty() {
     HashMap::new()
   } else {
-    let listed_tips: HashMap<String, String> = grouping.listed.iter().map(|branch| (branch.name.clone(), branch.tip.clone())).collect();
-    let table = LandingTable {
-      branches: &grouping.branches,
-      stacks: &all_stacks,
-      tips: &listed_tips,
-      baseline: &grouping.baseline_branch,
+    let table = BranchTable {
+      prefix: context.prefix.clone(),
+      baseline: grouping.baseline_branch.clone(),
+      branches: grouping.branches.clone(),
+      tips: grouping.listed.iter().map(|branch| (branch.name.clone(), branch.tip.clone())).collect(),
+      copies: HashMap::new(),
+      stack_branches: all_stacks.clone(),
+      parked: grouping.grouping.parked.entries.keys().cloned().collect(),
     };
-    find_landed(context, &read_robots(context, environment), &table)?
+    let remote = RemoteFacts {
+      branches: grouping
+        .branches
+        .iter()
+        .map(|branch| {
+          let full_name = to_final_branch_name(&context.prefix, &branch.name).unwrap_or_default();
+          let fact = RemoteFact {
+            remote_tip: grouping.remote_tips.get(&full_name).cloned(),
+            up_to_date: false,
+          };
+          (branch.name.clone(), fact)
+        })
+        .collect(),
+      stacks: BTreeMap::new(),
+    };
+    landed_branches(&PatronusFacts::read(context, &table, &remote, read_robots(context, environment)))
   };
   let stacks = if args.branch.is_some() || args.unassigned { Vec::new() } else { all_stacks };
   let descriptions = if args.brief { HashMap::new() } else { context.config()?.descriptions().clone() };

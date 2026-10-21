@@ -21,13 +21,14 @@
 //! The sync, the checks before the push and the push run under the repository lock; the start, which can wait up to a
 //! minute for the answer to a pull request comment, after it.
 
-use crate::landed::{LandedBranch, LandingTable, every_branch_landed, find_landed};
+use crate::landed::{LandedBranch, every_branch_landed, landed_branches};
+use crate::patronus_facts::{PatronusFacts, remote_of, table_of};
 use crate::pull_request_retarget::{RetargetedPullRequest, is_virtual_branch_base, refusal_warning, retarget_one, virtual_base_retargets};
 use crate::push_command::{
   PullRequestDraft, PushArgs, PushedBranch, github_repository, has_work_for_remote, not_synced_reason, push_locked, pushed_branch, stack_pull_request_draft,
   unpushed_pull_request_draft,
 };
-use crate::push_hold::{PushHolds, StackRobots};
+use crate::push_hold::PushHolds;
 use crate::robot_list::list_robots;
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorBranch, ErrorCode};
@@ -44,6 +45,7 @@ use patronus::client::PatronusClient;
 use patronus::review_readiness::evaluates_pull_request;
 use patronus::service::PatronusService;
 use patronus::token::{TokenLookup, find_token};
+use repository_view::branch_table::BranchTable;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -52,9 +54,7 @@ use sync_core::check::{CheckSession, StackIndependence};
 use sync_core::parked::parked_state;
 use sync_core::patronus::{SpaceRepository, target_branch_of};
 use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
-use sync_core::patronus_start::{
-  RobotSource, allows_push_mode, find_landing_ancestor, find_landing_descendant, find_landing_member, is_push_into_robot_risky, is_start_blocked, push_mode_name, start_refusal,
-};
+use sync_core::patronus_start::{RobotSource, allows_push_mode, is_push_into_robot_risky, push_mode_name};
 use sync_core::pull_request_create::{CreatePullRequestParams, create_pull_request as core_create_pull_request};
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests};
 use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
@@ -602,10 +602,10 @@ struct Landing<'r> {
   /// The branch Patronus starts from, without `refs/heads/`
   full_name: String,
   local_tip: Option<String>,
-  /// The remote branch while it has the commits by content: a robot on it runs on the commits as they are
-  pushed_tip: Option<String>,
   /// The robot of the branch, or of the whole stack
   robot: Option<&'r PatronusRobot>,
+  /// The robot runs on the commit the start would take (`start_blocked` of the repository view)
+  start_blocked: bool,
   /// A push into it fails this robot of an older commit
   is_risky: bool,
   lands: Vec<String>,
@@ -620,49 +620,22 @@ struct Landing<'r> {
 
 /// The start of a branch: it lands the branches it is built on with it; a robot that lands it or a part of it refuses
 /// the start, and so does the Safe Push of the whole stack it is a branch of
-fn branch_landing<'r>(context: &RepoContext, synced: &SyncOutput, stack: &'r StackRobots<'_>, name: &str, pushes: bool) -> Result<Landing<'r>, CliError> {
+fn branch_landing<'r>(context: &RepoContext, synced: &SyncOutput, table: &BranchTable, facts: &'r PatronusFacts, name: &str, pushes: bool) -> Result<Landing<'r>, CliError> {
   let full_name = to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
-  let ancestors = stack.ancestors_of(name);
-  let order = &stack.order;
-  // what the robot of a branch lands with it: by its commit's content (a restack after its start adds none)
-  let ancestors_of = |name: &str| stack.landed_ancestors_of(name);
-  let robot_of = |name: &str| stack.robot_of(name);
+  let ancestors = table.ancestors_of(name);
   let synced_by_name: HashMap<&str, &SyncedBranch> = synced.branches.iter().map(|branch| (branch.name.as_str(), branch)).collect();
-  let local_tip = stack.tip_of(name);
-  let robot = robot_of(name);
-  let pushed_tip = synced_by_name
-    .get(name)
-    .and_then(|branch| branch.remote.as_ref())
-    .filter(|remote| !needs_push(Some(remote)))
-    .and_then(|remote| remote.head_id.clone());
+  let local_tip = table.tip_of(name).map(str::to_string);
+  let robot = facts.branch_robot(name);
 
   let mut refusals = Vec::new();
-  // a dry run lands nothing: it waits for no robot of the stack
-  // a robot of a side branch that lands an ancestor counts too; the branch's own robot is the one a start replaces
-  let span_of = |ancestor: &str| find_landing_descendant(ancestor, order.iter().map(String::as_str), ancestors_of, robot_of).filter(|landing| landing.branch != name);
-  // a robot of a branch built on it, or of the whole stack it is a branch of, lands it with more
-  let landing_descendant = if pushes {
-    stack.find_landing(name, ancestors_of, robot_of, |root| stack.stack_robot_of(root))
-  } else {
-    None
-  };
-  // a robot that lands the branch itself says so: it lands its ancestors too
-  let landing_ancestor = if pushes {
-    find_landing_ancestor(&ancestors, robot_of, span_of).filter(|landing| landing_descendant.as_ref().is_none_or(|it| it.robot.id != landing.robot.id))
-  } else {
-    None
-  };
-  if let Some(message) = start_refusal(
-    robot,
-    local_tip.as_deref(),
-    pushed_tip.as_deref(),
-    landing_ancestor.as_ref(),
-    landing_descendant.as_ref(),
-    name,
-  ) {
+  // the robot part of the decision, as the repository view tells it: a robot on the last commit, a robot of a branch
+  // built on it or of its whole stack that lands it, a robot that lands an ancestor; a dry run waits for no robot of
+  // the stack
+  let facts_of = facts.branch(name);
+  if let Some(refusal) = facts_of.and_then(|branch| if pushes { branch.start.as_ref() } else { branch.dry_run.as_ref() }) {
     refusals.push(Refusal {
       code: ErrorCode::RobotRunning,
-      message,
+      message: facts.start_refusal_text(refusal, name),
     });
   }
 
@@ -704,8 +677,8 @@ fn branch_landing<'r>(context: &RepoContext, synced: &SyncOutput, stack: &'r Sta
     full_name,
     is_risky: robot.is_some_and(|robot| is_push_into_robot_risky(robot, RobotSource::Branch(name))),
     local_tip,
-    pushed_tip,
     robot,
+    start_blocked: facts_of.is_some_and(|branch| branch.start_blocked),
     lands,
     push_needed,
     pushed_along,
@@ -717,7 +690,7 @@ fn branch_landing<'r>(context: &RepoContext, synced: &SyncOutput, stack: &'r Sta
 
 /// The start of the whole stack, from its stack branch: only a `built` one has the stack's commits as they are; a robot
 /// of a branch of it lands a part of it and refuses the start, as the robot of the whole stack refuses theirs
-fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, stack: &'r StackRobots<'_>, update: &StackBranchUpdate, pushes: bool) -> Result<Landing<'r>, CliError> {
+fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, facts: &'r PatronusFacts, update: &StackBranchUpdate, pushes: bool) -> Result<Landing<'r>, CliError> {
   let root = update.root.as_str();
   let subject = RobotSource::WholeStack(root).subject();
   let mut refusals = Vec::new();
@@ -753,18 +726,13 @@ fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, stack: &'r Stac
     });
   }
   let local_tip = update.tip.clone();
-  let pushed_tip = remote.filter(|_| !has_work).and_then(|remote| remote.remote_tip.clone());
-  let robot = stack.stack_robot_of(root);
-  // a robot of a branch of the stack lands a part of it: the stack branch carries those commits too
-  let landing_member = if pushes {
-    find_landing_member(update.members.iter().map(String::as_str), |name| stack.robot_of(name))
-  } else {
-    None
-  };
-  if let Some(message) = start_refusal(robot, local_tip.as_deref(), pushed_tip.as_deref(), landing_member.as_ref(), None, &subject) {
+  let robot = facts.stack_robot(root);
+  // a robot on the commits of the stack branch, or of a branch of the stack, which lands a part of it
+  let facts_of = facts.stack(root);
+  if let Some(refusal) = facts_of.and_then(|stack| if pushes { stack.start.as_ref() } else { stack.dry_run.as_ref() }) {
     refusals.push(Refusal {
       code: ErrorCode::RobotRunning,
-      message,
+      message: facts.start_refusal_text(refusal, &subject),
     });
   }
   let base = target_branch_of(synced.report.upstream.as_ref()).unwrap_or_default();
@@ -774,8 +742,8 @@ fn stack_landing<'r>(context: &RepoContext, synced: &SyncOutput, stack: &'r Stac
     full_name: update.branch_name.clone(),
     is_risky: robot.is_some_and(|robot| is_push_into_robot_risky(robot, RobotSource::WholeStack(root))),
     local_tip,
-    pushed_tip,
     robot,
+    start_blocked: facts_of.is_some_and(|stack| stack.start_blocked),
     lands: update.members.clone(),
     push_needed: has_work,
     pushed_along: Vec::new(),
@@ -892,26 +860,21 @@ fn plan(
   // the stack, root first, and the robots of the user, each matched to its branch (or the whole stack) as the app does;
   // what the merged ones landed of it, by content
   let user_robots = list_robots(context, service, &space)?;
-  let table = LandingTable {
-    branches: &synced.report.branches,
-    stacks: &synced.report.stack_branches,
-    tips: &synced.report.tips,
-    baseline: &synced.baseline,
-  };
-  let landed = find_landed(context, &user_robots, &table)?;
-  let stack = StackRobots::read(context, synced, user_robots, &table);
+  let table = table_of(context, synced);
+  let facts = PatronusFacts::read(context, &table, &remote_of(context, synced), user_robots);
+  let landed = landed_branches(&facts);
   let pushes = mode != PatronusPushMode::DryRun;
   let landing = match subject {
-    Subject::Branch(name) => branch_landing(context, synced, &stack, name, pushes)?,
-    Subject::Stack(update) => stack_landing(context, synced, &stack, update, pushes)?,
+    Subject::Branch(name) => branch_landing(context, synced, &table, &facts, name, pushes)?,
+    Subject::Stack(update) => stack_landing(context, synced, &facts, update, pushes)?,
   };
   let Landing {
     name,
     subject: what,
     full_name,
     local_tip,
-    pushed_tip,
     robot,
+    start_blocked,
     is_risky,
     lands,
     push_needed,
@@ -938,10 +901,7 @@ fn plan(
   // a Safe Push of an older commit (a robot on the commits as they are refuses the start above): the push fails it at
   // the end; without a push a Safe Push replaces it, as the app's form does, and a dry run or a pull request leaves it
   let starts_safe_push = pushes && !args.create_pull_request;
-  let risky_robot = robot
-    .filter(|robot| is_risky && !is_start_blocked(robot, local_tip.as_deref(), pushed_tip.as_deref()))
-    .filter(|_| push_needed || starts_safe_push)
-    .cloned();
+  let risky_robot = robot.filter(|_| is_risky && !start_blocked).filter(|_| push_needed || starts_safe_push).cloned();
   if let Some(robot) = &risky_robot
     && !args.cancel_running
   {

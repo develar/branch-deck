@@ -97,20 +97,3 @@ pub fn read_grouping(context: &RepoContext, branch: Option<&str>) -> Result<Bran
 pub fn placement<'a>(branches: &'a [GroupedBranchInfo], name: &str) -> Option<&'a BranchStack> {
   branches.iter().find(|branch| branch.name == name)?.stack.as_ref()
 }
-
-/// The branches `name` is built on, root first: the chain of `effective_base` as a sync places them (the grouped
-/// branches of a `BranchGrouping` or a `SyncReport`); empty with stacked branches off or for a root branch
-pub fn stack_ancestors(branches: &[GroupedBranchInfo], name: &str) -> Vec<String> {
-  let parent_of = |name: &str| placement(branches, name).and_then(|placement| placement.effective_base.clone());
-  let mut ancestors = Vec::new();
-  let mut parent = parent_of(name);
-  while let Some(ancestor) = parent {
-    if ancestors.contains(&ancestor) || ancestor == name {
-      break;
-    }
-    parent = parent_of(&ancestor);
-    ancestors.push(ancestor);
-  }
-  ancestors.reverse();
-  ancestors
-}

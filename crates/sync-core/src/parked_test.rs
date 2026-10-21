@@ -8,8 +8,8 @@ use history_rewrite::store_lines::StoreLines;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
 use std::time::Duration;
-use sync_types::stack::BranchStack;
-use sync_types::{BranchOrigin, GroupedBranchInfo};
+use sync_test_utils::placed_branch;
+use sync_types::GroupedBranchInfo;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -229,22 +229,7 @@ fn a_sync_keeps_every_line_it_can_not_prove_dead() {
 }
 
 fn branch(name: &str, effective_base: Option<&str>, declared_parent: Option<&str>) -> GroupedBranchInfo {
-  GroupedBranchInfo {
-    name: name.to_string(),
-    commits: Vec::new(),
-    latest_commit_time: 0,
-    summary: String::new(),
-    description_title: None,
-    all_commits_have_issue_references: false,
-    my_email: None,
-    origin: BranchOrigin::Prefix,
-    issue_key: None,
-    stack: Some(BranchStack {
-      declared_parent: declared_parent.map(str::to_string),
-      effective_base: effective_base.map(str::to_string),
-      ..BranchStack::default()
-    }),
-  }
+  placed_branch(name, effective_base, declared_parent)
 }
 
 #[test]

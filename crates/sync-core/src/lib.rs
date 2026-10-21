@@ -80,6 +80,7 @@
 //! - `patronus_command`: the `/patronus` comment of a pull request
 //! - `patronus_review`: the commits of the code-owner pre-check of a Safe Push
 //! - `patronus_start`: the robot of a branch or of the whole stack, and whether a Safe Push or a Dry Run can start
+//! - (the crate `repository-view` derives what the robots land, landed and hold of the branch table from these)
 //! - `review_readiness`: the review readiness of branches, shared by the app and `bd safe-push`
 //! - `robot_commits`: the commits a robot checked, by the hashes of the checked out branch
 //! - `robot_landing`: what a merged robot landed of the branches, by content: the commits it tested, and those after

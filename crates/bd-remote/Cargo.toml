@@ -7,6 +7,7 @@ description = "The bd commands of the remote: status, push, safe-push, request-r
 publish = false
 
 [dependencies]
+repository-view = { path = "../repository-view" }
 bd-clustering = { path = "../bd-clustering" }
 bd-core = { path = "../bd-core" }
 bd-rewrite = { path = "../bd-rewrite" }
