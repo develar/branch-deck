@@ -246,7 +246,7 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
   do. Their toast names a count only when commits moved: "Stacked ABC-2 on ABC-1".
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack an issue branch without a rewrite and undo it`)
 - A dragged branch must stack the same way when dropped on the "Stack on ‹name›" chip of a row, and unstack when
-  dropped on the unstack zone ([Move Commits](move-commits.spec.md#drag-and-drop)); the chip refuses the branch's
+  dropped on the unstack zone of the drag bar ([Move Commits](move-commits.spec.md#drag-and-drop)); the chip refuses the branch's
   parent and a branch stacked on it, as the menu does not offer them.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack a dragged branch dropped on the Stack on chip of a row, refuse a cycle there, and unstack it on the unstack zone`)
 - `groupFor` and `src/lib/stack.ts` must read the map from the `branchesGrouped` event. The commit editor must warn

@@ -5,10 +5,11 @@ import { SquashFixupsButton } from "@/components/commit/SquashFixupsButton"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
 import { UnassignedCommitsHelpPopover } from "@/components/unassigned/UnassignedCommitsHelpPopover"
-import { useCommitDropTarget } from "@/hooks/useCommitDrag"
+import { acceptanceOf, dropTargetState, getBranchDropFacts, useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { getRemovePrefixLabel, useCommitMoveList } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import type { Commit } from "@/lib/bindings"
+import { moveDrop } from "@/lib/branch-drop"
 import { getIssueGroups, useBranchSync } from "@/stores/branch-sync"
 import { UNASSIGNED_SOURCE } from "@/stores/commit-move"
 
@@ -22,18 +23,18 @@ export function UnassignedCommitListCard({ commits }: UnassignedCommitListCardPr
   // with no branch yet, the grouping convention is new: said in the card, not only in its help popover
   const hasNoBranches = useBranchSync(state => state.branchOrder.length === 0)
   // dropping branch commits or branches moves them back: the prefix goes (a commit with an issue key goes back to its
-  // issue branch), and an issue that the issue groups put into a branch goes back to its own
+  // issue branch), and an issue that the issue groups put into a branch goes back to its own; it waits as Move to… does
   const dropTarget = useCommitDropTarget(
     UNASSIGNED_SOURCE,
     drag => void moveCommits(drag.commits, null),
-    drag => getRemovePrefixLabel(drag.commits, getIssueGroups()) !== null,
+    drag => getRemovePrefixLabel(drag.commits, getIssueGroups()) !== null && acceptanceOf(moveDrop(drag.branches, null, getBranchDropFacts())),
   )
 
   return (
     <Card
-      className={cn("gap-0 overflow-hidden py-0", dropTarget.canDrop && "ring-1 ring-primary/40", dropTarget.isOver && "bg-primary/5 ring-2 ring-primary")}
+      className={cn("gap-0 overflow-hidden py-0", dropTarget.canDrop && "ring-1 ring-primary/40", dropTarget.canDrop && dropTarget.isOver && "bg-primary/5 ring-2 ring-primary")}
       data-testid="unassigned-commits-section"
-      data-drop-target={dropTarget.canDrop ? (dropTarget.isOver ? "over" : "ready") : undefined}
+      data-drop-target={dropTargetState(dropTarget)}
       {...dropTarget.dropProps}
     >
       <div className="border-b border-border px-4 py-2.5 sm:px-6">

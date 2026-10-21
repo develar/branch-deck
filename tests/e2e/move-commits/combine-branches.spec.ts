@@ -3,6 +3,8 @@ import { test, testWithUnassigned, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { inlineBranchCreator, submitInlineForm } from "../helpers/inline-form-helpers"
 import { dropOn, selectCommit, startDrag } from "../helpers/selection-helpers"
+import { finishedSyncCount, runAndWaitForSync, waitForSyncComplete } from "../helpers/sync-helpers"
+import { holdCommand } from "../helpers/wait-helpers"
 
 test.describe("Combine branches", () => {
   test.beforeEach(async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -30,6 +32,30 @@ test.describe("Combine branches", () => {
     await page.getByRole("button", { name: "Undo" }).click()
     await verifyCommitCount(findBranchRow(page, "IJPL-2"), "1 commit")
     await verifyCommitCount(docs, "1 commit")
+  })
+
+  test("should drag a branch while a sync runs, say why the targets wait for it, and take the drop once it ended", async ({ page }) => {
+    const releaseSync = await holdCommand(page, "sync_branches")
+    const previousCount = await finishedSyncCount(page)
+    const syncButton = page.getByTestId("sync-button")
+    await syncButton.click()
+    await expect(syncButton).toHaveAttribute("aria-busy", "true")
+
+    // the row drags during the sync; a target waits for it with the reason of Move to… in its menu
+    await startDrag(page, findBranchRow(page, "IJPL-2"))
+    const docs = findBranchRow(page, "docs")
+    await expect(docs).toHaveAttribute("data-drop-target", "refused")
+    await docs.hover()
+    await expect(page.getByTestId("drag-target-status")).toHaveText("Cannot move IJPL-2 to docs: Wait for the sync to finish")
+
+    // the end of the sync changes the answer under the pointer, the drag goes on
+    releaseSync()
+    await waitForSyncComplete(page, previousCount)
+    await expect(docs).toHaveAttribute("data-drop-target", "over")
+    await expect(page.getByTestId("drag-target-status")).toHaveCount(0)
+    await runAndWaitForSync(page, () => dropOn(page, docs))
+    await verifyCommitCount(docs, "2 commits")
+    await expect(findBranchRow(page, "IJPL-2")).toHaveCount(0)
   })
 
   test("should move the selected branches to a new branch with Move to…", async ({ page }) => {
@@ -84,21 +110,26 @@ test.describe("Combine branches", () => {
     await expect(findBranchRow(page, "IJPL-2")).toHaveCount(0)
   })
 
-  test("should drop a commit on the expanded commits of a branch, and drag an unselected row instead of the selection", async ({ page }) => {
+  test("should drop a commit on the expanded commits of a branch, and drag an unselected row alone, the selection as it was", async ({ page }) => {
     await expandBranch(page, findBranchRow(page, "IJPL-1"))
     await expandBranch(page, findBranchRow(page, "docs"))
-    await selectCommit(getBranchCommitRow(page, "IJPL-1", "Parse lists"))
+    const lists = getBranchCommitRow(page, "IJPL-1", "Parse lists")
+    await selectCommit(lists)
 
     const maps = getBranchCommitRow(page, "IJPL-1", "Parse maps")
+    const before = (await maps.boundingBox())!
     await startDrag(page, maps)
-    // what moves is what is selected
-    await expect(maps).toHaveAttribute("data-selected", "true")
-    await expect(getBranchCommitRow(page, "IJPL-1", "Parse lists")).toHaveAttribute("data-selected", "false")
+    // the row goes alone: the selection and its actions stay, so the row stays under the pointer
+    await expect(page.getByTestId("drag-target-bar")).toBeVisible()
+    await expect(maps).toHaveAttribute("data-selected", "false")
+    await expect(lists).toHaveAttribute("data-selected", "true")
+    expect((await maps.boundingBox())!.y).toBeCloseTo(before.y, 0)
     await dropOn(page, getBranchDetailsRow(page, "docs"))
 
     // a part of an issue gets the prefix
     await verifyCommitCount(findBranchRow(page, "docs"), "2 commits")
     await verifyCommitCount(findBranchRow(page, "IJPL-1"), "1 commit")
+    await expect(getBranchCommitRow(page, "IJPL-1", "Parse lists")).toBeVisible()
   })
 })
 

@@ -751,6 +751,11 @@ export function useFoundCommits(ids: readonly string[]): Commit[] | null {
   )
 }
 
+/** The commits of `ids` as the last sync left them, in their order; null when one of them is gone */
+export function findCommits(ids: readonly string[]): Commit[] | null {
+  return findCommitsIn(branchSyncStore.getState(), ids)
+}
+
 function findCommitsIn({ branches, unassignedCommits }: BranchSyncState, ids: readonly string[]): Commit[] | null {
   const byId = new Map<string, Commit>()
   for (const branch of Object.values(branches)) {

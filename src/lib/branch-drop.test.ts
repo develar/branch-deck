@@ -1,7 +1,7 @@
 // @spec spec/branch/move-commits.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { BranchDropFacts } from "@/lib/branch-drop"
-import { parkBlocker, parkDrop, showsParkDrop, showsUnparkDrop, stackOnDrop, unparkDrop, unstackDrop } from "@/lib/branch-drop"
+import { moveDrop, parkBlocker, parkDrop, showsParkDrop, showsUnparkDrop, stackOnDrop, unparkDrop, unstackDrop } from "@/lib/branch-drop"
 import type { ParkedState } from "@/lib/parked"
 import type { PushHold } from "@/lib/patronus"
 import { testRobot } from "@/lib/test-robot"
@@ -36,19 +36,23 @@ function facts(patch: Partial<BranchDropFacts> = {}): BranchDropFacts {
     descendants: name => descendants[name] ?? [],
     stacksEnabled: true,
     isSyncing: false,
+    rewrite: null,
     ...patch,
   }
 }
 
 describe("branch drop", () => {
-  it("parks dragged branches that land, refuses one parked already or one a robot lands, and waits for the sync", () => {
+  it("parks the dragged branches that land and leaves the parked ones, refuses one a robot lands, and waits for the sync and a rewrite", () => {
     expect(showsParkDrop(["docs"], facts())).toBe(true)
     // the Parked card is where they come from
     expect(showsParkDrop(["auth", "login"], facts())).toBe(false)
     expect(parkDrop(["docs"], facts())).toEqual({ names: ["docs"] })
-    expect(parkDrop(["docs", "auth"], facts())).toEqual({ refusal: "Cannot park auth: It is parked already" })
-    expect(parkDrop(["docs", "login"], facts())).toEqual({ refusal: "Cannot park login: It is parked with auth" })
+    // a selection of both kinds: the parked ones stay as they are
+    expect(parkDrop(["docs", "auth", "login"], facts())).toEqual({ names: ["docs"] })
+    expect(parkDrop(["auth"], facts())).toEqual({ refusal: "Cannot park auth: It is parked already" })
+    expect(parkDrop(["auth", "login"], facts())).toEqual({ refusal: "Cannot park: They are parked already" })
     expect(parkDrop(["docs"], facts({ isSyncing: true }))).toEqual({ refusal: "Cannot park docs: Wait for the sync to finish" })
+    expect(parkDrop(["docs"], facts({ rewrite: "Moving 1 commit to auth…" }))).toEqual({ refusal: "Cannot park docs: Moving 1 commit to auth…" })
 
     const own: PushHold = { kind: "own", branch: "docs", robot: testRobot("r1", "docs") }
     const refusal = parkDrop(["docs"], facts({ hold: name => (name === "docs" ? own : null) }))
@@ -58,15 +62,16 @@ describe("branch drop", () => {
     expect(parkBlocker(testBranch("empty", null, { commitCount: 0 }), null, false)).toBe("The branch has no commits")
   })
 
-  it("unparks the dragged branches with a line of their own, the ones parked with them along, never one alone", () => {
+  it("unparks the dragged branches with a line of their own, the ones parked with them along, never one alone, and leaves those that land", () => {
     expect(showsUnparkDrop(["docs"], facts())).toBe(false)
     expect(showsUnparkDrop(["docs", "auth"], facts())).toBe(true)
     expect(unparkDrop(["auth"], facts())).toEqual({ names: ["auth"] })
     // the selection of the stack: only the root has a line
     expect(unparkDrop(["auth", "login", "oauth"], facts())).toEqual({ names: ["auth"] })
     expect(unparkDrop(["login"], facts())).toEqual({ refusal: "Cannot unpark login: It carries the commits of parked auth, drag auth here" })
-    expect(unparkDrop(["auth", "docs"], facts())).toEqual({ refusal: "Cannot unpark docs: It is not parked" })
+    expect(unparkDrop(["auth", "docs"], facts())).toEqual({ names: ["auth"] })
     expect(unparkDrop(["auth"], facts({ isSyncing: true }))).toEqual({ refusal: "Cannot unpark: Wait for the sync to finish" })
+    expect(unparkDrop(["auth"], facts({ rewrite: "Parking docs…" }))).toEqual({ refusal: "Cannot unpark: Parking docs…" })
   })
 
   it("stacks one dragged branch on another, never on itself, its parent or a branch stacked on it", () => {
@@ -74,6 +79,7 @@ describe("branch drop", () => {
     expect(stackOnDrop(["login"], "auth", facts())).toEqual({ refusal: "Cannot stack login on auth: It is stacked on auth already" })
     expect(stackOnDrop(["auth"], "oauth", facts())).toEqual({ refusal: "Cannot stack auth on oauth: oauth is stacked on it" })
     expect(stackOnDrop(["docs"], "auth", facts({ isSyncing: true }))).toEqual({ refusal: "Cannot stack docs on auth: Wait for the sync to finish" })
+    expect(stackOnDrop(["docs"], "auth", facts({ rewrite: "Parking api…" }))).toEqual({ refusal: "Cannot stack docs on auth: Parking api…" })
     // no chip: its own row, two branches, stacked branches off
     expect(stackOnDrop(["docs"], "docs", facts())).toBeNull()
     expect(stackOnDrop(["docs", "auth"], "oauth", facts())).toBeNull()
@@ -86,5 +92,20 @@ describe("branch drop", () => {
     expect(unstackDrop(["login", "oauth"], facts())).toBeNull()
     expect(unstackDrop(["login"], facts({ stacksEnabled: false }))).toBeNull()
     expect(unstackDrop(["login"], facts({ isSyncing: true }))).toEqual({ refusal: "Cannot unstack login from auth: Wait for the sync to finish" })
+  })
+
+  it("moves dragged commits onto a branch, leaves a drag of branches that land to the Parked card from its rows, and waits as Move to… does", () => {
+    // commit rows: during a sync too, as Move to… of a commit
+    expect(moveDrop([], "docs", facts({ isSyncing: true }))).toEqual({ names: [] })
+    expect(moveDrop([], "docs", facts({ rewrite: "Parking api…" }))).toEqual({ refusal: "Cannot move to docs: Parking api…" })
+    expect(moveDrop([], null, facts({ rewrite: "Parking api…" }))).toEqual({ refusal: "Cannot move the commits back: Parking api…" })
+    // whole branches: as Move to… of their menu
+    expect(moveDrop(["docs"], "oauth", facts())).toBeNull()
+    expect(moveDrop(["docs"], "login", facts({ parked: () => null }))).toEqual({ names: ["docs"] })
+    expect(moveDrop(["docs"], "login", facts({ parked: () => null, isSyncing: true }))).toEqual({ refusal: "Cannot move docs to login: Wait for the sync to finish" })
+    expect(moveDrop(["docs"], null, facts({ isSyncing: true }))).toEqual({ refusal: "Cannot move docs back: Wait for the sync to finish" })
+    // a row of the Parked card takes a drag of parked branches and of commits
+    expect(moveDrop(["login"], "oauth", facts())).toEqual({ names: ["login"] })
+    expect(moveDrop([], "oauth", facts())).toEqual({ names: [] })
   })
 })

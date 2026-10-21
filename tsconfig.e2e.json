@@ -21,6 +21,14 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["tests/**/*.ts", "playwright.config.ts", "playwright.perf.config.ts", "playwright.screenshots.config.ts", "src/vite-env.d.ts", "src/types/*.d.ts"],
+  "include": [
+    "tests/**/*.ts",
+    "playwright.config.ts",
+    "playwright.perf.config.ts",
+    "playwright.screenshots.config.ts",
+    "playwright.webkit.config.ts",
+    "src/vite-env.d.ts",
+    "src/types/*.d.ts"
+  ],
   "exclude": ["tests/results", "tests/test-repos"]
 }

@@ -29,6 +29,9 @@ targets:
   - ../../src/hooks/useParkBranch.ts
   - ../../src/components/branch/ParkedBranchesCard.tsx
   - ../../src/components/branch/BranchDropZones.tsx
+  - ../../src/components/branch/DragTargetBar.tsx
+  - ../../src/components/branch/BranchSelectionBar.tsx
+  - ../../src/hooks/useBranchDropTarget.ts
   - ../../src/lib/branch-drop.ts
   - ../../src/components/branch/InlineParkBranchInput.tsx
   - ../../src/components/branch/BranchRowStatus.tsx
@@ -165,13 +168,17 @@ branch built on it carries its commits, so it is parked with it.
   A park or an unpark is a write of the repository (it waits for a rewrite), followed by a sync, then a toast "Parked
   auth" or "Unparked auth" whose Undo puts the line back as it was.
   [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`, `should park a stack root with the branches built on it, edit its note and unpark it from the menus`)
-- Branches dragged from the table onto the park zone (at the top of the Parked card, or a card of its own while none
-  is parked) must be parked at once, without a note, in one write of the store and one toast "Parked core and docs",
-  whose Undo takes back every line; parked branches dragged onto the unpark zone above the table must be unparked the
-  same way. A branch parked with its parent is unparked only with it: dragged alone, the zone refuses it and says why.
-  A target refuses with the reason of the menu ([Move Commits](move-commits.spec.md#drag-and-drop)).
-  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch dragged onto the park zone, unpark it dragged onto the unpark zone, take both back with Undo, and drag the commits of a parked row onto a branch`, `should park the selected branches dropped on the Parked card at once with one Undo, and unpark a stack by its root, never by a branch parked with it`)
-  [@test] ../../src/lib/branch-drop.test.ts (`parks dragged branches that land, refuses one parked already or one a robot lands, and waits for the sync`, `unparks the dragged branches with a line of their own, the ones parked with them along, never one alone`)
+- Branches dragged from the table onto the park zone of the drag bar, or onto the Parked card, also collapsed (its
+  header, its rows), must be parked at once, without a note, in one write of the store and one toast "Parked core and
+  docs", whose Undo takes back every line; parked branches dragged onto the unpark zone of the drag bar must be
+  unparked the same way. A branch parked with its parent is unparked only with it: dragged alone, the zone refuses it
+  and says why. A drag of both kinds parks the ones that land and unparks the parked ones, each on its own zone. A
+  target refuses with the reason of the menu ([Move Commits](move-commits.spec.md#drag-and-drop)).
+  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch dragged onto the park zone of the drag bar, unpark it dragged onto the unpark zone, take both back with Undo, and drag the commits of a parked row onto a branch`, `should park the selected branches dropped on a row or the header of the Parked card at once with one Undo, and unpark a stack by its root, never by a branch parked with it`)
+  [@test] ../../src/lib/branch-drop.test.ts (`parks the dragged branches that land and leaves the parked ones, refuses one a robot lands, and waits for the sync and a rewrite`, `unparks the dragged branches with a line of their own, the ones parked with them along, never one alone, and leaves those that land`)
+- The branch selection bar must offer Park and Unpark of the selected branches, by the same rules as the zones: Park
+  while some of them land, Unpark while some are parked, disabled with the reason while they can't now.
+  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park an unselected branch dropped on the collapsed Parked card and keep the selection, and park and unpark the selection with its buttons, of both kinds by the part each takes`)
 
 ## User Experience
 
@@ -179,8 +186,9 @@ branch built on it carries its commits, so it is parked with it.
   (optional)"), Enter parks → the row moves into the Parked card → toast "Parked docs" · Undo.
 - The Parked card: "Parked · 2 branches", a help popover, the rows; the node hollow and grey, Status "Parked", the
   note beside the name.
-- Drag a branch row → "Drop here to park" under the header of the Parked card (or where it would be) → drop → toast
-  "Parked docs" · Undo; drag a parked row → "Drop here to unpark" above the table.
+- Drag a branch row → "Park docs" in the drag bar at the bottom of the window, the Parked card ringed → drop on either
+  → toast "Parked docs" · Undo, the row scrolled into view in the card; drag a parked row → "Unpark docs" in the bar.
+- Select branches → Park or Unpark in the selection bar.
 - `bd park docs --note '…'`, `bd unpark docs`; an agent never parks or unparks on its own.
 
 ## Open Questions / Risks

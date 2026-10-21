@@ -1,10 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties, KeyboardEvent, ReactNode, RefObject } from "react"
 import { cn } from "cn"
-import { GitBranchPlusIcon } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { BranchColumnsRoot, ColumnLabel, ColumnTrack } from "@/components/branch/BranchColumns"
-import { DropZone, ParkDropCard, UnparkDropZone, UnstackDropZone } from "@/components/branch/BranchDropZones"
 import { BranchFilterBar, BranchFilterEmptyRow } from "@/components/branch/BranchFilterBar"
 import { BranchGraphHelpPopover } from "@/components/branch/BranchGraphHelpPopover"
 import { BranchRow } from "@/components/branch/BranchRow"
@@ -18,7 +16,6 @@ import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
 import { TableHeader } from "@/components/shared/TableHeader"
 import { useFilteredBranches, useRevealClearsFilter } from "@/hooks/useBranchFilter"
 import { prefetchBranchRowReview, reviewBranchRow, useBranchRowKeys } from "@/hooks/useBranchRowKeys"
-import { useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { usePreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import type { PreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
@@ -40,9 +37,6 @@ import { expandStackOf, useShownBranchTables } from "@/stores/stack-collapse"
 import { setStackPathRows } from "@/stores/stack-view"
 
 const BranchPreviewDialog = lazy(() => import("@/components/branch/BranchPreviewDialog").then(it => ({ default: it.BranchPreviewDialog })))
-
-/** Drop target key that no list has, so commits from every list can be dropped on the "new branch" zone */
-const NEW_BRANCH_TARGET = "\u0000new-branch"
 
 /**
  * Table of active virtual branches, the branches of an issue nested under it and stacks as a graph (`StackLanes`), root
@@ -149,22 +143,16 @@ export function BranchTableCard() {
       setSelectedBranches(pruned)
     }
   }, [branchKey, selectedBranches])
-  const hasDrop = useCommitMove(state => state.drag !== null || state.newBranchDrop !== null)
+  const hasNewBranchDrop = useCommitMove(state => state.newBranchDrop !== null)
   // the lane column of the stack graph, as wide in every row of a table (`bd-lanes` in index.css)
   // of the rows before a collapse, so the names don't move when a stack that forks collapses
   const laneCount = laneCountOf(tableAll.map(row => (row.kind === "branch" ? row.lanes : null)))
 
   if (branchCount === 0) {
-    // with no branch yet, the zone is where dragged commits go
-    return hasDrop ? (
+    // with no branch yet, the form of commits dropped on the new branch zone of the drag bar is the card
+    return hasNewBranchDrop ? (
       <Card className="gap-0 py-0">
         <NewBranchForm />
-        {/* the targets of a drag: the zones a drag shows, side by side, so the rows below shift once */}
-        <div className="flex gap-3 p-3 empty:hidden">
-          <NewBranchDropZone />
-          <UnparkDropZone />
-          <UnstackDropZone />
-        </div>
       </Card>
     ) : null
   }
@@ -243,12 +231,6 @@ export function BranchTableCard() {
         <BranchFilterBar onFocusRows={focusFirstRow} onLeave={() => tableRef.current?.focus()} />
         <BranchSelectionBar />
         <NewBranchForm />
-        {/* the targets of a drag: the zones a drag shows, side by side, so the rows below shift once */}
-        <div className="flex gap-3 p-3 empty:hidden">
-          <NewBranchDropZone />
-          <UnparkDropZone />
-          <UnstackDropZone />
-        </div>
         {showsTable && (
           <div className="overflow-x-auto">
             {/* focusable, so a click on a row gives it the focus that Space falls back on */}
@@ -310,7 +292,6 @@ export function BranchTableCard() {
           </IslandTable>
         </StackIslandCard>
       ))}
-      {parkedRows.length === 0 && <ParkDropCard />}
       {parkedRows.length > 0 && (
         <ParkedBranchesCard count={parkedRows.filter(row => row.kind === "branch").length}>
           <IslandTable rows={parkedRows} lastFocusedRef={lastToggledRef} hotkeys={previewHotkeys} onKeyDown={onTableKeyDown} pathPointer={pathPointer}>
@@ -378,8 +359,8 @@ function useMoveKey(focusMoveRow: (step: 1 | -1) => void): void {
 }
 
 /**
- * The "Move to…" form of the commits dropped on the "new branch" zone: it keeps their ids and closes when a rewrite gave
- * one of them another id
+ * The "Move to…" form of the commits dropped on the "new branch" zone of the drag bar: it scrolls into view, keeps their
+ * ids and closes when a rewrite gave one of them another id. The selection stays: a branch moved away leaves it.
  */
 function NewBranchForm() {
   const dropped = useCommitMove(state => state.newBranchDrop)
@@ -390,32 +371,27 @@ function NewBranchForm() {
       setNewBranchDrop(null)
     }
   }, [isGone])
+  const formRef = useRef<HTMLDivElement>(null)
+  const isShown = dropped !== null && commits !== null
+  // the drop was in the drag bar, anywhere down the page: the form comes into view with the focus
+  useEffect(() => {
+    if (isShown) {
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    }
+  }, [isShown])
 
   if (dropped === null || commits === null) {
     return null
   }
   return (
-    <div className="border-b border-border">
+    <div ref={formRef} className="border-b border-border">
       <InlineBranchTarget
         commits={commits}
         sourceBranches={dropped.sourceKeys.filter(key => key !== UNASSIGNED_SOURCE)}
         isActive
         onCancel={() => setNewBranchDrop(null)}
-        onSuccess={() => {
-          setNewBranchDrop(null)
-          clearBranchSelection()
-        }}
+        onSuccess={() => setNewBranchDrop(null)}
       />
     </div>
   )
-}
-
-/** Shown while commits or branches are dragged, and no form of a drop waits: dropping them opens `NewBranchForm` */
-function NewBranchDropZone() {
-  const hasForm = useCommitMove(state => state.newBranchDrop !== null)
-  const dropTarget = useCommitDropTarget(NEW_BRANCH_TARGET, drag => setNewBranchDrop({ sourceKeys: drag.sourceKeys, commitIds: drag.commits.map(commit => commit.originalHash) }))
-  if (hasForm) {
-    return null
-  }
-  return <DropZone target={dropTarget} icon={GitBranchPlusIcon} label="Drop here to move the commits to a new branch" data-testid="new-branch-drop-zone" />
 }

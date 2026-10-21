@@ -20,8 +20,11 @@ targets:
   - ../../src/lib/branch-selection.ts
   - ../../src/hooks/useCommitMoveList.ts
   - ../../src/hooks/useCommitDrag.ts
+  - ../../src/hooks/useBranchDropTarget.ts
   - ../../src/lib/branch-drop.ts
   - ../../src/components/branch/BranchDropZones.tsx
+  - ../../src/components/branch/DragTargetBar.tsx
+  - ../../src/pages/IndexPage.tsx
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useBranchRowKeys.ts
   - ../../src/components/commit/MovableCommitList.tsx
@@ -188,41 +191,64 @@ Renaming and ungrouping a branch are moves of all its commits.
 
 ### Drag and drop
 
-- A commit row must be draggable. Dragging a selected row must drag the selection; dragging another row must make it
-  the selection, so what moves is what is selected.
-- A branch row must be draggable: it drags the branch, or every selected branch, with all their commits; a row of the
-  Parked card too.
+- A commit row must be draggable. Dragging a selected row must drag the selection; dragging another row must drag it
+  alone and leave the selection and its form as they are.
+- A branch row must be draggable, also while a sync runs: it drags the selected branches when it is one of them, else
+  itself alone, with all their commits; a row of the Parked card too. The dragged rows fade (`data-dragging`).
   [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should drag an issue branch onto a branch: the issue joins it without a rewrite, and Undo moves it back`)
-  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch dragged onto the park zone, unpark it dragged onto the unpark zone, take both back with Undo, and drag the commits of a parked row onto a branch`)
+  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch dragged onto the park zone of the drag bar, unpark it dragged onto the unpark zone, take both back with Undo, and drag the commits of a parked row onto a branch`)
+  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park an unselected branch dropped on the collapsed Parked card and keep the selection, and park and unpark the selection with its buttons, of both kinds by the part each takes`)
+- A drag must start without a change of the layout: nothing shows or goes above the dragged row, so it stays under the
+  pointer.
+  [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should drop a commit on the expanded commits of a branch, and drag an unselected row alone, the selection as it was`)
+  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should keep the rows in place when a drag starts, show the drag bar in view at the bottom of a long list, and take no drop on the bar from a drag that started under it`)
 - Another branch must accept the drop on its row and on its rows below (the inline form, the expanded commits) and
   move the commits there. The source branch must not accept a drag that comes from it alone.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should drag the selection onto a branch, but not onto its own branch`)
-  [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should drop a commit on the expanded commits of a branch, and drag an unselected row instead of the selection`)
   [@test] ../../src/stores/commit-move.test.ts (`drops anywhere but on the one list a drag comes from`)
 - The unassigned commits card must accept the commits and branches that have a way back, and move them back.
-- While commits are dragged, a "new branch" zone must appear above the branch table, also when there is no branch yet.
-  A drop there must open the "Move to…" form for the dragged commits; the form keeps their ids and closes when a rewrite
-  gave one of them another id.
+- A target must wait as the menu of the same action does, and say why while the pointer is over it: every target
+  while a rewrite of the repository runs ("Cannot move to docs: Parking auth…"); a drag of whole branches also while a
+  sync runs or one of them failed to sync, as Move to… of a branch; a drag of commit rows moves during a sync, as Move
+  to… of a commit. Its answer follows the sync and the rewrites while the drag goes on, and a drop asks it once more
+  and takes the commits as the last sync left them: gone ones refuse the drop with an info toast.
+  [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should drag a branch while a sync runs, say why the targets wait for it, and take the drop once it ended`)
+  [@test] ../../src/lib/branch-drop.test.ts (`moves dragged commits onto a branch, leaves a drag of branches that land to the Parked card from its rows, and waits as Move to… does`)
+- While commits or branches are dragged, the drag bar must show over the bottom of the window, in view wherever the
+  page is scrolled and out of the flow of the content, which gets room at its end so that every row scrolls out from
+  under it; it leaves the column of the toasts free. It holds the targets that change the shape of what is dragged,
+  each while the drag is for it, and above them why the target under the pointer refuses the drag. A drag that starts
+  under the bar takes no drop on it until the pointer left it (`data-armed`). The drag ends with the `dragend` of its
+  row also when a sync remounted the row, else with the next mouse move, press or key.
+  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should keep the rows in place when a drag starts, show the drag bar in view at the bottom of a long list, and take no drop on the bar from a drag that started under it`)
+- Move to New Branch in the drag bar shows also when there is no branch yet. A drop there must open the "Move to…" form
+  for the dragged commits above the branch table, in view and focused; the form keeps their ids and closes when a
+  rewrite gave one of them another id. It waits for nothing: the form's move does.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should drag an unassigned commit onto the new branch zone`)
   [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should offer the new branch zone when there is no branch yet`)
 - A drag of whole branches must also change their shape, where the target says so, at once, with a toast and Undo
-  (`branch-drop.ts`); a drag of commit rows passes these targets by:
-  - The park zone (at the top of the Parked card, also collapsed, or a card of its own where the card would be) parks
-    the dragged branches that are not parked, without a note, in one write ([Parked Branches](parked-branches.spec.md)).
-  - The unpark zone, beside the new branch zone, unparks the dragged parked branches; a branch parked with its parent
-    goes along with the parent.
+  (`branch-drop.ts`); the label of a zone names what its drop takes ("Park docs and api"); a drag of commit rows passes
+  these targets by:
+  - The park zone of the drag bar and the whole Parked card, also collapsed (its header, its rows), park the dragged
+    branches that are not parked, without a note, in one write ([Parked Branches](parked-branches.spec.md)); those
+    parked already stay as they are. A row of the Parked card leaves such a drag to the card; it takes a drag of
+    commit rows and of parked branches as any row.
+  - The unpark zone of the drag bar unparks the dragged parked branches; a branch parked with its parent goes along
+    with the parent; those that land stay as they are.
   - With stacked branches on, a "Stack on ‹name›" chip over the Actions cell of the row under one dragged branch
-    stacks it there instead of moving its commits; the unstack zone, beside the new branch zone, makes a stacked
-    branch a root ([Stack Parents](stack-parents.spec.md#app)).
-  [@test] ../../src/lib/branch-drop.test.ts (`parks dragged branches that land, refuses one parked already or one a robot lands, and waits for the sync`)
-  [@test] ../../src/lib/branch-drop.test.ts (`unparks the dragged branches with a line of their own, the ones parked with them along, never one alone`)
+    stacks it there instead of moving its commits; the unstack zone of the drag bar makes a stacked branch a root
+    ([Stack Parents](stack-parents.spec.md#app)).
+  - After the drop the row is scrolled into view where it went (the Parked card, the table).
+  [@test] ../../src/lib/branch-drop.test.ts (`parks the dragged branches that land and leaves the parked ones, refuses one a robot lands, and waits for the sync and a rewrite`)
+  [@test] ../../src/lib/branch-drop.test.ts (`unparks the dragged branches with a line of their own, the ones parked with them along, never one alone, and leaves those that land`)
   [@test] ../../src/lib/branch-drop.test.ts (`stacks one dragged branch on another, never on itself, its parent or a branch stacked on it`)
   [@test] ../../src/lib/branch-drop.test.ts (`unstacks one dragged branch that is stacked, and shows no zone for a root`)
 - A target that can't take the drag now must show and say why instead of its label, with the reason of the menu
   ("Cannot park docs: A Safe Push of docs is running…", "Cannot stack auth on oauth: oauth is stacked on it"); the
-  pointer shows no drop there (`data-drop-target="refused"`).
-  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park the selected branches dropped on the Parked card at once with one Undo, and unpark a stack by its root, never by a branch parked with it`)
+  pointer shows no drop there (`data-drop-target="refused"`), and a row or a card that refuses is not highlighted.
+  [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park the selected branches dropped on a row or the header of the Parked card at once with one Undo, and unpark a stack by its root, never by a branch parked with it`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack a dragged branch dropped on the Stack on chip of a row, refuse a cycle there, and unstack it on the unstack zone`)
+- An issue row, the archived table and the header of a collapsed stack island are no targets.
 
 ### After a move
 
@@ -261,18 +287,21 @@ Renaming and ungrouping a branch are moves of all its commits.
 - "Move to…" is an outline `xs` button in the primary colour. The way back is a ghost `xs` button.
 - The branch selection bar sits right-aligned above the branch table header, with a ghost `icon-xs` clear button; a
   selected branch row is `bg-primary/15`, like a selected commit row.
-- A droppable branch row has a dashed `outline-primary/30`. The row under the pointer gets `bg-primary/10` and a solid
-  primary outline, its rows below `bg-primary/5`. The unassigned card gets a primary ring.
+- Of the droppable branch rows only the one under the pointer shows: `bg-primary/10` and a solid primary outline, its
+  rows below `bg-primary/5`; a dragged row is at half opacity. The unassigned card and the Parked card get a primary
+  ring.
 - The warning of the form is `text-warning`; the note about stacked children is muted.
 - The chips of the form are `xs` buttons (`ChoiceChip`) in one style for the existing branches and the AI suggestions:
   the chip whose name the input holds is soft primary (`bg-primary/10 text-primary`, `aria-pressed`), the others
   `secondary`. A suggestion still being generated is a disabled `secondary` chip with a spinner and "Generating…".
-- The new branch zone is a dashed `border-primary/50` nested panel (`rounded-lg`) with a `GitBranchPlus` icon; the
-  unpark (`CirclePlay`) and unstack (`Layers2`) zones stand beside it in one row, so the rows below shift once; the
-  park zone (`CirclePause`) is the same panel. A refused zone is `border-border` and `text-muted-foreground`.
+- The drag bar is a popover surface (`bg-popover`, `shadow-lg`, `rounded-xl`) centred over the bottom of the window,
+  24 px above its edge. Its zones are dashed `border-primary/50` panels (`rounded-lg`) in one row: Move to New Branch
+  (`GitBranchPlus`), Park ‹names› (`CirclePause`), Unpark ‹names› (`CirclePlay`), Unstack ‹name› (`Layers2`). A refused
+  zone is `border-border` and `text-muted-foreground`; the reason of the target under the pointer is a muted `xs` line
+  above the zones.
 - The "Stack on ‹name›" chip is a dashed `border-primary` `xs` chip with a `Layers` icon over the Actions cell, solid
   `bg-primary` under the pointer, muted with the reason when refused.
-- The drag image is a primary badge "N commits", or "2 branches · 5 commits".
+- The drag image is a primary badge at the pointer: "N commits", "docs · 3 commits", or "2 branches · 5 commits".
 - A nested branch row is indented under the issue's icon, behind a `border-l border-border` rule.
 - The issue chip is an `outline` badge with the key as an issue link.
 

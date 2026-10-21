@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState } from "react"
 import pDebounce from "p-debounce"
 import { BranchCreator } from "@/components/branch/BranchCreator"
+import { DragTargetBar } from "@/components/branch/DragTargetBar"
 import { Container } from "@/components/layout/Container"
 import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
 import { DockStatus } from "@/components/repository/DockStatus"
@@ -82,6 +83,8 @@ export function IndexPage() {
         <Container className="pb-2">
           <BranchCreator />
         </Container>
+        {/* after the content, out of its gaps: its room at the end moves no row */}
+        <DragTargetBar />
       </main>
       <Suspense fallback={null}>{isCreatePullRequestLoaded && <CreatePullRequestDialog />}</Suspense>
     </div>

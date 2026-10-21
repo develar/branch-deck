@@ -23,8 +23,10 @@ interface BranchContextMenuRowProps {
   dimmed?: boolean
   /** Where the divider above the row starts (`data-divider`, `bd-branch-rows`): full width without */
   divider?: RowDivider
-  /** Commits from another list are dragged ("ready") or over the row ("over") */
-  dropTarget?: "ready" | "over"
+  /** Commits from another list are dragged ("ready"), over the row ("over"), or the row refuses them ("refused") */
+  dropTarget?: "ready" | "over" | "refused"
+  /** The row is dragged (`data-dragging`) */
+  dragging?: boolean
   dropProps?: {
     onDragEnter?: (event: DragEvent) => void
     onDragOver?: (event: DragEvent) => void
@@ -61,6 +63,7 @@ export function BranchContextMenuRow({
   dimmed = false,
   divider,
   dropTarget,
+  dragging = false,
   dropProps,
   selected,
   onDragStart,
@@ -83,6 +86,7 @@ export function BranchContextMenuRow({
             {...dividerAttributes(divider)}
             data-state={expanded ? "open" : "closed"}
             data-drop-target={dropTarget}
+            data-dragging={dragging || undefined}
             data-selected={selected === undefined ? undefined : String(selected)}
             tabIndex={-1}
             draggable={onDragStart === undefined ? undefined : true}

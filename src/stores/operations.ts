@@ -102,6 +102,16 @@ export function formatOperationBlocker(operation: Operation): string {
   return `${operation.label}…`
 }
 
+/**
+ * The busy state of a rewrite of the selected repository that runs ("Parking docs…"), null when none runs: a drop waits
+ * for it, since what was dragged may have other ids once it ends
+ */
+export function getRunningRewrite(): string | null {
+  const repositoryPath = getSelectedProject()?.path ?? ""
+  const rewrite = operationsStore.getState().running.find(operation => operation.kind === "rewrite" && operation.repositoryPath === repositoryPath)
+  return rewrite === undefined ? null : formatOperationBlocker(rewrite)
+}
+
 /** The running operations; a component reads them with `useOperations` */
 export function getOperations(): Operations {
   return operationsStore.getState().running

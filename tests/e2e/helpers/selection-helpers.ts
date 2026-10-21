@@ -114,3 +114,13 @@ export async function dropOn(page: Page, target: Locator): Promise<void> {
   await target.hover()
   await page.mouse.up()
 }
+
+/**
+ * Drops on the center of `target` where it is on screen, as the user aims at it: no scroll into view and no check that
+ * nothing covers it (`dropOn` hovers), for the zones of the drag bar over the content
+ */
+export async function dropAt(page: Page, target: Locator): Promise<void> {
+  const box = (await target.boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 })
+  await page.mouse.up()
+}

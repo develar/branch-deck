@@ -295,13 +295,9 @@ export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = fal
     }
   }
 
-  const onDragCommits = (dragged: readonly T[]) => {
-    startCommitDrag({ sourceKeys: [sourceKey], branches: [], commits: dragged })
-    // what moves is what is selected: an unselected row dragged becomes the selection
-    selectIds(dragged.map(getCommitHash))
-    claimSelection(sourceKey)
-    setIsTargetOpen(false)
-  }
+  // the selection when the row is in it, else the row alone (`getActionCommits`): the selection and its form stay, so
+  // nothing above the row shows or goes and it doesn't move from under the pointer
+  const onDragCommits = (dragged: readonly T[]) => startCommitDrag({ sourceKeys: [sourceKey], branches: [], commits: dragged })
 
   return {
     sourceBranch,

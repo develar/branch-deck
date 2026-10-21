@@ -1,5 +1,5 @@
 import { useState } from "react"
-import type { KeyboardEvent, ReactNode } from "react"
+import type { DragEvent, KeyboardEvent, ReactNode } from "react"
 import { cn } from "cn"
 import { ChevronRightIcon } from "lucide-react"
 import { Card } from "@/components/ui/card"
@@ -12,8 +12,15 @@ export interface CollapsibleCardProps {
   help?: ReactNode
   /** Controls at the end of the header row, outside the toggle button */
   actions?: ReactNode
-  /** Under the header, also while collapsed (a drop zone of what the card holds); it draws its own divider */
-  banner?: ReactNode
+  /** The card is a drop target (the Parked card parks the branches dropped on it), also while collapsed */
+  dropProps?: {
+    onDragEnter?: (event: DragEvent) => void
+    onDragOver?: (event: DragEvent) => void
+    onDragLeave?: (event: DragEvent) => void
+    onDrop?: (event: DragEvent) => void
+  }
+  /** `data-drop-target` of the card: a drag is for it ("ready", "over"), or it refuses one ("refused") */
+  dropTarget?: "ready" | "over" | "refused"
   /** A key on the focused header (its toggle button): the keys of what the header stands for (S of a stack island) */
   onHeaderKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void
   children: ReactNode
@@ -21,7 +28,7 @@ export interface CollapsibleCardProps {
   /** Controlled: the open state, kept by the caller (e.g. per repository); `defaultOpen` is ignored then */
   open?: boolean
   onOpenChange?: (open: boolean) => void
-  /** Of the card: its entrance animation */
+  /** Of the card: its entrance animation, the ring of a drop target */
   className?: string
   "data-testid"?: string
   /** The root of the stack of a stack island (`StackIslandCard`), which the keys find its header by */
@@ -39,7 +46,8 @@ export function CollapsibleCard({
   header,
   help,
   actions,
-  banner,
+  dropProps,
+  dropTarget,
   onHeaderKeyDown,
   children,
   defaultOpen = false,
@@ -60,6 +68,8 @@ export function CollapsibleCard({
       data-state={state}
       data-testid={testId}
       data-stack-root={stackRoot}
+      data-drop-target={dropTarget}
+      {...dropProps}
       // a divider between the header and the body; collapsed, the header is alone
       render={<Card className={cn("gap-0 py-0", open && "divide-y divide-border", className)} />}
     >
@@ -77,7 +87,6 @@ export function CollapsibleCard({
         {help}
         {actions !== undefined && <div className="ml-auto flex shrink-0 items-center gap-3">{actions}</div>}
       </div>
-      {banner}
 
       {open && (
         <CollapsibleContent data-state={state} className="animate-in overflow-x-auto duration-150 fade-in-0">

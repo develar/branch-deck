@@ -42,7 +42,7 @@ import {
   safePushPopover,
   slotSafePush,
 } from "../helpers/safe-push-helpers"
-import { clickContextMenuItem, clickGroupIntoBranchButton, closeMenus, dropOn, openContextMenu, openSubmenu, selectCommit, startDrag } from "../helpers/selection-helpers"
+import { clickContextMenuItem, clickGroupIntoBranchButton, closeMenus, dropAt, dropOn, openContextMenu, openSubmenu, selectCommit, startDrag } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, rewriteNextRemoteStatus, rewriteNextSyncEvents, runAndWaitForSync, syncBranches } from "../helpers/sync-helpers"
 import { holdCommand, holdCommandCalls, routeCommand, routeCommandError, waitForStorePersistence } from "../helpers/wait-helpers"
@@ -238,6 +238,8 @@ test.describe("Stacked branches", () => {
     // their push is the user's step
     await expect(chip.getByTestId("stack-chip-attention")).toHaveText("· 3 your step")
     await expect(chip.getByTestId("stack-chip-attention")).toHaveClass(/text-primary/)
+    // the click closed its tooltip, the next hover opens it
+    await page.mouse.move(0, 0)
     await chip.hover()
     await expect(page.getByRole("tooltip")).toContainText("Stack of auth · 4 branches · 4 commits · 3 your step")
     await expect(findBranchRow(page, "auth").getByTestId("lane-collapsed")).toBeVisible()
@@ -369,20 +371,22 @@ test.describe("Stacked branches", () => {
     await expect(page.getByText("Stacked docs on oauth")).toBeVisible()
     await expect.poll(() => tree(page)).toEqual(["auth@0", "session@1", "login@1", "oauth@2", "docs@3"])
 
-    // a branch stacked on the dragged one is refused, with the reason in the chip
+    // a branch stacked on the dragged one is refused, with the reason in the chip and in the drag bar
     await startDrag(page, findBranchRow(page, "auth"))
     await findBranchRow(page, "oauth").hover()
     const refused = findBranchRow(page, "oauth").getByTestId("stack-on-drop-chip")
     await expect(refused).toHaveAttribute("data-drop-target", "refused")
     await expect(refused).toHaveText("Cannot stack auth on oauth: oauth is stacked on it")
+    await refused.hover()
+    await expect(page.getByTestId("drag-target-status")).toHaveText("Cannot stack auth on oauth: oauth is stacked on it")
     await dropOn(page, refused)
     expect(await tree(page)).toEqual(["auth@0", "session@1", "login@1", "oauth@2", "docs@3"])
 
-    // the unstack zone makes it a root again
+    // the unstack zone of the drag bar makes it a root again
     await startDrag(page, findBranchRow(page, "docs"))
-    const unstack = page.getByTestId("unstack-drop-zone")
-    await expect(unstack).toHaveText("Drop here to unstack")
-    await runAndWaitForSync(page, () => dropOn(page, unstack))
+    const unstack = page.getByTestId("drag-target-bar").getByTestId("unstack-drop-zone")
+    await expect(unstack).toHaveText("Unstack docs")
+    await runAndWaitForSync(page, () => dropAt(page, unstack))
     await expect(page.getByText("Unstacked docs")).toBeVisible()
     await expect.poll(() => tree(page)).toEqual(["docs@0", "auth@0", "session@1", "login@1", "oauth@2"])
   })

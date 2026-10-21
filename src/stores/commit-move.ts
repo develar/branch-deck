@@ -53,6 +53,10 @@ export interface CommitMoveState {
   /** The "Move to…" form of the selected branches is open */
   isBranchTargetOpen: boolean
   drag: CommitDrag | null
+  /** Where the pointer started the drag (client coordinates): the drag bar over it takes no drop until it left */
+  dragOrigin: { readonly x: number; readonly y: number } | null
+  /** Why the target under the pointer refuses the drag ("Cannot move to auth: …"), shown by the drag bar */
+  hoverRefusal: string | null
   newBranchDrop: NewBranchDrop | null
   reveal: RevealRequest | null
   form: CommitFormRequest | null
@@ -64,6 +68,8 @@ export const commitMoveStore = createStore<CommitMoveState>(() => ({
   branchAnchor: null,
   isBranchTargetOpen: false,
   drag: null,
+  dragOrigin: null,
+  hoverRefusal: null,
   newBranchDrop: null,
   reveal: null,
   form: null,
@@ -71,6 +77,11 @@ export const commitMoveStore = createStore<CommitMoveState>(() => ({
 
 export function useCommitMove<T>(selector: (state: CommitMoveState) => T): T {
   return useStore(commitMoveStore, selector)
+}
+
+/** The drag that goes on, null otherwise */
+export function getCommitDrag(): CommitDrag | null {
+  return commitMoveStore.getState().drag
 }
 
 /** Whether a drag may drop on `targetKey`: not on the one list it comes from */
@@ -157,12 +168,30 @@ export function setBranchTargetOpen(isOpen: boolean): void {
   commitMoveStore.setState({ isBranchTargetOpen: isOpen && commitMoveStore.getState().selectedBranches.length > 0 })
 }
 
+/** A drag starts at `origin` (`beginCommitDrag`), its commits follow (`startCommitDrag`) */
+export function setDragOrigin(origin: { x: number; y: number }): void {
+  commitMoveStore.setState({ dragOrigin: origin })
+}
+
 export function startCommitDrag(drag: CommitDrag): void {
-  commitMoveStore.setState({ drag })
+  commitMoveStore.setState({ drag, hoverRefusal: null })
 }
 
 export function endCommitDrag(): void {
-  commitMoveStore.setState({ drag: null })
+  if (commitMoveStore.getState().drag !== null) {
+    commitMoveStore.setState({ drag: null, dragOrigin: null, hoverRefusal: null })
+  }
+}
+
+/** The refusal of the target under the pointer, or none (`clearHoverRefusal` clears only its own) */
+export function setHoverRefusal(refusal: string): void {
+  commitMoveStore.setState({ hoverRefusal: refusal })
+}
+
+export function clearHoverRefusal(refusal: string): void {
+  if (commitMoveStore.getState().hoverRefusal === refusal) {
+    commitMoveStore.setState({ hoverRefusal: null })
+  }
 }
 
 export function setNewBranchDrop(drop: NewBranchDrop | null): void {
