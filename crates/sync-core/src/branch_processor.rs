@@ -404,6 +404,8 @@ pub(crate) struct BranchNotes {
   /// The full name of the branch and its tip: the head the sync built, or where another process moved it (`None`:
   /// deleted it)
   pub tip: (String, Option<String>),
+  /// Another process moved the branch while the sync built it: its tip is not this sync's build
+  pub moved_elsewhere: bool,
 }
 
 /// Moves the branch to its new head if it changed, reports its final status and its remote status, and returns the
@@ -447,6 +449,7 @@ pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, bui
       mappings: Vec::new(),
       stack_note: None,
       tip: (full_branch_name, moved),
+      moved_elsewhere: true,
     });
   }
 
@@ -488,6 +491,7 @@ pub(crate) fn finish_branch<P: ProgressReporter>(ctx: &BranchSyncContext<P>, bui
     mappings: notes,
     stack_note,
     tip: (full_branch_name, Some(head)),
+    moved_elsewhere: false,
   })
 }
 

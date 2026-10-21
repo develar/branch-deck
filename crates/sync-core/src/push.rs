@@ -13,6 +13,7 @@ use git_ops::branch_names::{BranchKind, qualified_branch_name, to_final_branch_n
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use sync_types::RemoteStatusUpdate;
+use sync_types::stack::BlockReason;
 use tracing::{info, instrument};
 
 #[derive(Debug, Deserialize)]
@@ -54,11 +55,46 @@ pub enum PushOutcome {
   RemoteMoved { remote_status: RemoteStatusUpdate },
 }
 
+/// Why the last sync did not build a branch (`SyncReport::not_built`), in words
+pub const fn not_built_reason(reason: BlockReason) -> &'static str {
+  match reason {
+    BlockReason::Conflict => "a merge conflict",
+    BlockReason::Error => "a sync error",
+    BlockReason::Blocked => "its parent is not built",
+  }
+}
+
+/// The refusal of the push of a branch the last sync did not build: `{name} is not synced (…)`, as `bd push` says it
+pub fn not_synced_refusal(name: &str, reason: BlockReason) -> String {
+  format!("{name} is not synced ({})", not_built_reason(reason))
+}
+
+/// The refusal of a push before the sync whose branch table says which branches it built (`not_built_refusal`): the
+/// page shows no branch to push before it
+pub const NOT_SYNCED_YET: &str = "Nothing was pushed: the branches are not synced yet; sync first";
+
+/// The refusal of a push of `branches` while one of their virtual branches is not the build of its commits: the last
+/// sync did not build it (`not_built`, `SyncReport::not_built`), so its ref is a build of commits it may no longer have.
+/// The stack branch of a whole stack and an unapplied branch are no build of that sync; `None` when nothing refuses
+pub fn not_built_refusal(not_built: &HashMap<String, BlockReason>, branches: &[StackPushBranch]) -> Option<String> {
+  let refusals: Vec<String> = branches
+    .iter()
+    .filter(|branch| !branch.whole_stack && !branch.unapplied)
+    .filter_map(|branch| not_built.get(&branch.branch_name).map(|reason| not_synced_refusal(&branch.branch_name, *reason)))
+    .collect();
+  (!refusals.is_empty()).then(|| format!("Nothing was pushed: {}", refusals.join(", ")))
+}
+
 /// Force-pushes the virtual branch to `origin`, leased on the remote head the user saw (`push_lease`): the stack push of
 /// one branch (`push_branches`). A remote that moved meanwhile is fetched, not overwritten: the outcome then carries the
 /// new remote status, which a push can replace once the user saw it. `on_progress` gets how far the push is.
-#[instrument(skip(git_executor, on_progress), fields(repository_path = %params.repository_path, branch_name = %params.branch_name))]
-pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<PushOutcome> {
+#[instrument(skip(git_executor, not_built, on_progress), fields(repository_path = %params.repository_path, branch_name = %params.branch_name))]
+pub fn push_branch(
+  git_executor: &GitCommandExecutor,
+  params: &PushBranchParams,
+  not_built: &HashMap<String, BlockReason>,
+  on_progress: &mut dyn FnMut(TransferProgress),
+) -> Result<PushOutcome> {
   let stack = PushBranchesParams {
     repository_path: params.repository_path.clone(),
     branch_prefix: params.branch_prefix.clone(),
@@ -73,7 +109,7 @@ pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams,
       unapplied: false,
     }],
   };
-  let (remote_statuses, moved) = match push_branches(git_executor, &stack, on_progress)? {
+  let (remote_statuses, moved) = match push_branches(git_executor, &stack, not_built, on_progress)? {
     PushBranchesOutcome::Pushed { remote_statuses } => (remote_statuses, false),
     PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => (remote_statuses, true),
   };
@@ -151,9 +187,18 @@ pub enum PushBranchesOutcome {
 /// Force-pushes the virtual branches to `origin` in one atomic `git push`, each leased on the remote head the user saw
 /// (`push_lease`): the stack goes whole or not at all. The tips are read once (`prepare_push_expecting`), a branch pushed
 /// up to a commit is checked (`check_push_tip`), and a remote branch that moved meanwhile is fetched, not overwritten:
-/// the outcome names it, with the remote statuses after the fetch. `on_progress` gets how far the push is.
-#[instrument(skip(git_executor, on_progress), fields(repository_path = %params.repository_path, branches = params.branches.len()))]
-pub fn push_branches(git_executor: &GitCommandExecutor, params: &PushBranchesParams, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<PushBranchesOutcome> {
+/// the outcome names it, with the remote statuses after the fetch. A branch the last sync did not build (`not_built`)
+/// refuses the whole push (`not_built_refusal`). `on_progress` gets how far the push is.
+#[instrument(skip(git_executor, not_built, on_progress), fields(repository_path = %params.repository_path, branches = params.branches.len()))]
+pub fn push_branches(
+  git_executor: &GitCommandExecutor,
+  params: &PushBranchesParams,
+  not_built: &HashMap<String, BlockReason>,
+  on_progress: &mut dyn FnMut(TransferProgress),
+) -> Result<PushBranchesOutcome> {
+  if let Some(refusal) = not_built_refusal(not_built, &params.branches) {
+    bail!(refusal);
+  }
   let repository_path = &params.repository_path;
   let names = params
     .branches

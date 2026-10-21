@@ -589,12 +589,31 @@ pub async fn check_target_conflict(
   .await
 }
 
+/// The app's push of one branch, on the same core, refused as the app's command refuses a branch the last sync did not
+/// build. A test of a push answers it in the page (`routePush`) unless it tests that refusal
+pub async fn push_branch(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::push::PushBranchParams>) -> CommandResult<sync_core::push::PushOutcome> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  let not_built = state.repository_views.not_built(&params.repository_path, &params.branch_prefix);
+  run_command("push the branch", move || {
+    let not_built = not_built.ok_or_else(|| anyhow::anyhow!(sync_core::push::NOT_SYNCED_YET))?;
+    sync_core::push::push_branch(&git_executor, &params, &not_built, &mut |_| {})
+  })
+  .await
+}
+
 /// The app's stack push, on the same core. Most templates name the repository itself as `origin` (`.`), so a test of a
 /// push answers it in the page (`routePushBranches`); the progress stays there too
 pub async fn push_branches(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::push::PushBranchesParams>) -> CommandResult<sync_core::push::PushBranchesOutcome> {
   ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_command("push the branches", move || sync_core::push::push_branches(&git_executor, &params, &mut |_| {})).await
+  // the refusal of a branch the last sync did not build, as the app's command does
+  let not_built = state.repository_views.not_built(&params.repository_path, &params.branch_prefix);
+  run_command("push the branches", move || {
+    let not_built = not_built.ok_or_else(|| anyhow::anyhow!(sync_core::push::NOT_SYNCED_YET))?;
+    sync_core::push::push_branches(&git_executor, &params, &not_built, &mut |_| {})
+  })
+  .await
 }
 
 /// The fixture set by `POST /repositories/{id}/pull-requests`; GitHub is never asked in E2E

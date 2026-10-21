@@ -1066,7 +1066,7 @@ fn an_atomic_push_of_a_stack() {
   };
 
   let git = counting();
-  let outcome = push_branches(&git, &params, &mut |_| {}).unwrap();
+  let outcome = push_branches(&git, &params, &HashMap::new(), &mut |_| {}).unwrap();
   assert!(
     matches!(outcome, PushBranchesOutcome::Pushed { ref remote_statuses } if remote_statuses.len() == 2),
     "{outcome:?}"

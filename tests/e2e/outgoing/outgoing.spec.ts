@@ -188,6 +188,30 @@ test.describe("Push button", () => {
     expect(pushes.map(it => it.branchName)).toEqual(["JIRA-456"])
   })
 
+  test("should refuse a push pressed during a sync that could not build the branch, its virtual branch an older build", async ({ page, issueLinksRepo }) => {
+    // behind the app's back: a commit of JIRA-456 and one of ABC-123 that need a commit of another branch, so the next sync
+    // builds neither, and their virtual branches stay builds of the commits before
+    await issueLinksRepo.commit("(pool) Add the pool config", { "pool.cfg": "size=10\n", "auth.cfg": "ttl=1\n" }, 1704182400)
+    await issueLinksRepo.commit("(JIRA-456) Raise the pool size", { "pool.cfg": "size=50\n" }, 1704182460)
+    await issueLinksRepo.commit("(ABC-123) Raise the session ttl", { "auth.cfg": "ttl=2\n" }, 1704182520)
+    const releaseSync = await holdCommand(page, "sync_branches")
+    await page.getByTestId("sync-button").click()
+    await expect(page.getByTestId("sync-button")).toHaveAttribute("aria-busy", "true")
+    // the rows as they were: both pushes wait for the sync, the button and P
+    const button = getPushButton(findBranchRow(page, "JIRA-456"))
+    await button.click()
+    await expect(button).toHaveAttribute("aria-busy", "true")
+    const abc = findBranchRow(page, "ABC-123")
+    await abc.focus()
+    await page.keyboard.press("p")
+    await expect(getPushButton(abc)).toHaveAttribute("aria-busy", "true")
+
+    releaseSync()
+    // the backend refuses both: what they would push is not what the rows show
+    await expect(page.getByText("Nothing was pushed: JIRA-456 is not synced (a merge conflict)")).toBeVisible()
+    await expect(page.getByText("Nothing was pushed: ABC-123 is not synced (a merge conflict)")).toBeVisible()
+  })
+
   test("should describe a disabled push on hover", async ({ page }) => {
     await routePush(page, {})
     const row = findBranchRow(page, "JIRA-456")

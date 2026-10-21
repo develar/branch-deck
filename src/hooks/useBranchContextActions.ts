@@ -405,6 +405,10 @@ function getPushBlocker(branch: Branch, { isPushing, stackPushing, processing }:
   if (branch.status === "Blocked") {
     return formatBlockedReason(branch)
   }
+  // the last sync did not build it: its virtual branch is an older build, which no push takes
+  if (branch.hasError) {
+    return branch.statusText === "" ? "The branch failed to sync" : `The branch failed to sync: ${branch.statusText}`
+  }
   const hold = getPushHold(branch.name)
   if (hold !== null && !isPushing) {
     return formatPushHoldReason(branch.name, hold)

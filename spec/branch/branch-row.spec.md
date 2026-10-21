@@ -322,6 +322,16 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   it; a rewrite (the menu, a drag, M) still waits for the sync to finish.
   [@test] ../../src/stores/branch-sync.test.ts (`keeps what the row of an unchanged branch shows while the sync rebuilds it, and resets a changed or failed one`)
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch pressed during a sync once the sync finished, the row as it was meanwhile`)
+- A push of a branch the last sync did not build (a merge conflict, an error, a blocked parent) must push nothing and
+  say why ("Nothing was pushed: JIRA-456 is not synced (a merge conflict)"): its virtual branch is the build of a sync
+  before, of commits it may no longer have. The backend refuses it by the table of the last sync (`not_built`), as
+  `bd push` does, so a push pressed during that sync (the button, P) is refused too; an action that pushes first
+  (Create Pull Request, Request Review, a Safe Push start) stops with that reason instead of going on with the remote
+  branch as it is.
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should refuse a push pressed during a sync that could not build the branch, its virtual branch an older build`)
+  [@test] ../../crates/sync-core/src/push_test.rs (`a_push_of_a_branch_the_last_sync_did_not_build_is_refused`)
+  [@test] ../../crates/sync-core/src/sync_test.rs (`the_report_says_what_the_sync_read_and_the_tips_it_left`)
+  [@test] ../../src/lib/git/push.test.ts (`refuses the action of a branch the last sync did not build, or built on one, instead of going on with its remote`)
 - Only an error or a conflict must be a badge (`destructive`; `warning` while the conflict is analysed). Every other
   status is muted text after a dot of its colour; the dot of a remote status has the push colour of the branch
   ([Push colours](../repository/outgoing.spec.md#push-colours)), in every table: the node of the row says where it is on
@@ -558,11 +568,12 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   button for a first push: its name ("Push (2)", "Force Push (1)", "Push Stack (3 branches)" with "Pushes auth, login and oauth, parents first" on
   hover), what it pushes (`pushOrConfirm`: the stack only where the button pushes it, the question in the button's
   description before a push that drops remote commits), enabled as that button (`canPushNow`), else disabled with the
-  reason ("The remote branch is up to date", the blocked parent, the running Safe Push that holds it, "The stack is
-  being pushed" while its stack push runs, "Wait for the sync to finish"). It is the one push of the branch in the
+  reason ("The remote branch is up to date", the blocked parent, "The branch failed to sync: merge conflict" for a
+  branch the last sync did not build, the running Safe Push that holds it, "The stack is being pushed" while its stack
+  push runs, "Wait for the sync to finish"). It is the one push of the branch in the
   menu: no second "Push Stack" pushes an ancestor past the question its own push button asks. The branch preview and
   the review list the same item.
-  [@test] ../../src/hooks/useBranchContextActions.test.ts (`is one item named as the push button, pushing the stack as far as the button does`, `pushes the branch alone above an ancestor whose push drops remote commits: that one asks first in its own row`, `is disabled with the reason while the stack push runs`)
+  [@test] ../../src/hooks/useBranchContextActions.test.ts (`is one item named as the push button, pushing the stack as far as the button does`, `pushes the branch alone above an ancestor whose push drops remote commits: that one asks first in its own row`, `is disabled with the reason while the stack push runs`, `is disabled with the reason for a branch the last sync did not build, not as up to date`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should push from the branch menu as P does, and say why a pushed branch can't be pushed`)
 - An item shows its key only where the key works: the push `P`, "Safe Push" `S`, "Review Changes" `D`, "Open Pull
   Request" `O` and "Move to…" `M`, the keys of the row ([Keyboard](#keyboard)). "Review Changes" reviews the branch in

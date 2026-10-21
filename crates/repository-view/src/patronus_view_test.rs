@@ -6,7 +6,7 @@ use git_ops::commit_list::Commit;
 use pretty_assertions::assert_eq;
 use sync_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
 use sync_types::repository_view::{Carried, HoldKind, PatronusView, RemoteFact, RemoteFacts, RobotOf, StartRefusal};
-use sync_types::stack::{StackBranchState, StackBranchUpdate};
+use sync_types::stack::{BlockReason, StackBranchState, StackBranchUpdate};
 
 /// A commit of the checked-out branch whose mapping note names its virtual copy `copy`
 fn commit(id: &str, copy: &str) -> Commit {
@@ -176,6 +176,18 @@ fn a_running_robot_at_its_tip_lands_the_branches_it_is_built_on() {
   assert_eq!(oauth.dry_run, oauth.start);
   // its own robot lands login and auth: the start replaces it, so it is no landing ancestor of oauth
   assert_eq!(oauth.landing_ancestor, None);
+}
+
+/// A branch the sync did not build keeps the ref of an older build: a robot at that ref took commits the branch may no
+/// longer have, so it is no robot of the branch's last commit, and a start does not wait for it as for one
+#[test]
+fn the_tip_of_a_branch_the_sync_did_not_build_is_no_build_of_its_commits() {
+  let mut table = chain();
+  table.not_built.insert("oauth".to_string(), BlockReason::Conflict);
+  assert_eq!(table.tip_of("oauth"), None);
+  assert_eq!(table.tip_of("login"), Some("vl1"));
+  let view = view_of(&table, &[running("r", "oauth", "vo1")]);
+  assert_ne!(view.branches["oauth"].start, Some(StartRefusal::LastCommit { robot_id: "r".to_string() }));
 }
 
 /// New commits on top of the commit the robot took: the copies below it are the ones it took, so the hashes tell; the

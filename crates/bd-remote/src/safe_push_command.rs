@@ -826,7 +826,7 @@ fn plan(
       .iter()
       .find(|branch| branch.name == *name)
       .ok_or_else(|| unknown_or_unapplied(context, name, UNAPPLIED_SAFE_PUSH))?;
-    if let Some(reason) = not_synced_reason(branch) {
+    if let Some(reason) = not_synced_reason(&synced.report, branch) {
       return Err(CliError::new(
         ErrorCode::PushRefused,
         format!("Nothing was pushed or started: {name} is not synced ({reason})"),

@@ -6,9 +6,11 @@ use crate::branch_table::BranchTable;
 use crate::patronus_view::{ContentMemo, patronus_view};
 use git_executor::git_command_executor::GitCommandExecutor;
 use moka::sync::Cache;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use sync_types::repository_view::{GetRepositoryViewParams, PatronusView, RepositoryView};
+use sync_types::stack::BlockReason;
 use tracing::instrument;
 
 /// How many repositories and branch prefixes the app keeps the views of
@@ -51,6 +53,15 @@ impl RepositoryViews {
     self
       .tables
       .insert((repository_path.to_string(), branch_prefix.to_string()), Arc::new(SyncedTable { generation, table }));
+  }
+
+  /// The branches the last sync of `repository_path` under `branch_prefix` did not build (`BranchTable::not_built`), which
+  /// no push takes; `None` before the first sync
+  pub fn not_built(&self, repository_path: &str, branch_prefix: &str) -> Option<HashMap<String, BlockReason>> {
+    self
+      .tables
+      .get(&(repository_path.to_string(), branch_prefix.to_string()))
+      .map(|synced| synced.table.not_built.clone())
   }
 
   /// The view of the kept table with the asker's robots, matches and remote facts; empty before the first sync. Runs

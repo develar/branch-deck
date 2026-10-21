@@ -158,6 +158,11 @@ describe("the push of the branch menu", () => {
     branchSyncStore.setState({ stackPushes: { login: ["auth", "login"] } })
     expect(pushItems("login")).toEqual([expect.objectContaining({ id: "push", disabled: true, description: "The stack is being pushed" })])
   })
+
+  it("is disabled with the reason for a branch the last sync did not build, not as up to date", () => {
+    setBranches({ ...synced("auth", null, unpushed), status: "MergeConflict", hasError: true, statusText: "merge conflict" })
+    expect(pushItems("auth")).toEqual([expect.objectContaining({ id: "push", disabled: true, description: "The branch failed to sync: merge conflict" })])
+  })
 })
 
 describe("Push with Children in the branch menu", () => {

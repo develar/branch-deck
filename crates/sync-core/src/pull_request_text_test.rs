@@ -82,8 +82,14 @@ fn the_branch_summary_keeps_what_comes_before_the_key() {
   let branch = input("IJPL-1", &["[plugins] IJPL-1 refactor the descriptor", "test: IJPL-1 add the UI test"]);
   assert_eq!(text_of(&branch, &[]).0, "IJPL-1 test: add the UI test");
   // a refactoring after a category is still a refactoring
-  assert_eq!(text_of(&input("IJPL-1", &["[plugins] IJPL-1 refactor the descriptor"]), &[]).0, "[plugins] IJPL-1 refactor the descriptor");
-  assert_eq!(text_of(&input("IJPL-1", &["[plugins] IJPL-1 refactor the descriptor", "[plugins] IJPL-1 format"]), &[]).0, "IJPL-1 [plugins] refactor the descriptor");
+  assert_eq!(
+    text_of(&input("IJPL-1", &["[plugins] IJPL-1 refactor the descriptor"]), &[]).0,
+    "[plugins] IJPL-1 refactor the descriptor"
+  );
+  assert_eq!(
+    text_of(&input("IJPL-1", &["[plugins] IJPL-1 refactor the descriptor", "[plugins] IJPL-1 format"]), &[]).0,
+    "IJPL-1 [plugins] refactor the descriptor"
+  );
 }
 
 #[test]

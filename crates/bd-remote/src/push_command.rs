@@ -31,7 +31,7 @@ use sync_core::issue_navigation::load_issue_navigation_config;
 use sync_core::parked::parked_state;
 use sync_core::pull_request_text::{AncestorText, CommitText, IssueText, PullRequestTextInput, issue_texts, pull_request_text};
 use sync_core::pull_requests::{GitHubRepository, list_pull_requests, parse_github_repository, resolve_github_repository_with};
-use sync_core::push::{LeasedBranch, LeasedPush, PushBranchesOutcome, PushBranchesParams, PushTarget, StackPushBranch, push_branches, push_leased};
+use sync_core::push::{LeasedBranch, LeasedPush, PushBranchesOutcome, PushBranchesParams, PushTarget, StackPushBranch, not_built_reason, push_branches, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, leased_push_refs};
 use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent};
 use sync_core::stack_pull_request::{StackMemberText, stack_pull_request_text};
@@ -408,7 +408,7 @@ pub fn push_locked(
       }
       continue;
     }
-    if let Some(reason) = not_synced_reason(branch) {
+    if let Some(reason) = not_synced_reason(report, branch) {
       refusals.push(format!("{name} is not synced ({reason})"));
       continue;
     }
@@ -766,7 +766,8 @@ fn push_unapplied(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, 
     }],
   };
   let short = context.short_ids(std::iter::once(tip.as_str()).chain(expected.as_deref()));
-  match push_branches(&context.git, &params, &mut |_| {})? {
+  // an unapplied branch is no group of HEAD: no sync built it
+  match push_branches(&context.git, &params, &HashMap::new(), &mut |_| {})? {
     PushBranchesOutcome::Pushed { .. } => Ok(PushOutput {
       schema: SchemaVersion,
       repository: context.repository.clone(),
@@ -967,16 +968,15 @@ pub(crate) fn unpushed_pull_request_draft(context: &RepoContext, synced: &SyncOu
   ))
 }
 
-/// Why the sync didn't build the branch (its error, its conflict, or blocked); None when it did
-pub fn not_synced_reason(branch: &SyncedBranch) -> Option<String> {
-  if branch.state.is_built() {
-    return None;
-  }
-  let reason = branch
+/// Why the sync didn't build the branch (`SyncReport::not_built`, the rule of the app's push too): its error or its
+/// conflict as the sync reported them, else the reason; None when it built it
+pub fn not_synced_reason(report: &SyncReport, branch: &SyncedBranch) -> Option<String> {
+  let reason = report.not_built.get(&branch.name)?;
+  let detail = branch
     .error
     .clone()
     .or_else(|| branch.conflict.as_ref().map(|conflict| format!("conflict in {}", conflict.files.join(", "))));
-  Some(reason.unwrap_or_else(|| format!("{:?}", branch.state).to_lowercase()))
+  Some(detail.unwrap_or_else(|| not_built_reason(*reason).to_string()))
 }
 
 /// `<prefix>/virtual/<name>`

@@ -4,6 +4,7 @@ use bd_cli::remote_fixture_test::{LANDED_SUBJECTS, land_auth_by_content, push_fr
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use sync_core::push::{PushBranchParams, PushOutcome, push_branch};
 use tempfile::TempDir;
 use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, refuse_every_push};
@@ -498,7 +499,10 @@ fn app_push(repo: &TestRepo, branch: &str) {
     expected_remote: (exit_code == 0).then_some(remote_tip),
     tip: None,
   };
-  assert!(matches!(push_branch(repo.git_executor(), &params, &mut |_| {}).unwrap(), PushOutcome::Pushed { .. }));
+  assert!(matches!(
+    push_branch(repo.git_executor(), &params, &HashMap::new(), &mut |_| {}).unwrap(),
+    PushOutcome::Pushed { .. }
+  ));
 }
 
 #[test_log::test]

@@ -899,6 +899,21 @@ describe("pushForAction", () => {
   it("says a branch gone from the list in place", async () => {
     expect(await pushForAction("gone")).toEqual({ pushed: false, reason: "gone is no longer in the branch list" })
   })
+
+  it("refuses the action of a branch the last sync did not build, or built on one, instead of going on with its remote", async () => {
+    // the remote has an older build: "nothing to push" would let the action go on with it
+    stores.branches.auth = {
+      ...stores.branches.auth!,
+      status: "MergeConflict",
+      hasError: true,
+      statusText: "merge conflict",
+      remoteStatus: testRemoteStatus({ exists: true, remoteTip: "tip" }),
+    }
+    expect(await pushForAction("auth")).toEqual({ pushed: false, reason: "auth can't be pushed: merge conflict" })
+    addBranch("login", "auth", false)
+    expect(await pushForAction("login")).toEqual({ pushed: false, reason: "auth can't be pushed: merge conflict" })
+    expect(calls).toEqual([])
+  })
 })
 
 describe("formatNewPullRequestBlocker", () => {

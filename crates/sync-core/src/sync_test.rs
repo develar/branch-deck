@@ -11,6 +11,7 @@ use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap};
 use sync_test_utils::TestReporter;
 use sync_types::SyncEvent;
+use sync_types::stack::BlockReason;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -831,7 +832,8 @@ async fn the_remote_status_of_unchanged_commits_runs_no_git() -> anyhow::Result<
 }
 
 /// The report of a sync: what it read at its start (the baseline and its upstream, the remotes, HEAD, the grouped
-/// branches, the remote tips, the descriptions) and the tips of the virtual branches after it, also of a branch it could not rebuild
+/// branches, the remote tips, the descriptions) and the tips of the virtual branches after it, also of a branch it could
+/// not rebuild, which it names with the reason
 #[test(tokio::test)]
 async fn the_report_says_what_the_sync_read_and_the_tips_it_left() -> anyhow::Result<()> {
   let test_repo = repo_with_initial_commit();
@@ -872,6 +874,8 @@ async fn the_report_says_what_the_sync_read_and_the_tips_it_left() -> anyhow::Re
     ])
   );
   assert_eq!(report.remote_tips, HashMap::from([("test/virtual/a".to_string(), old_b)]));
+  // the tip of b is the build of its commits before the conflict: nothing pushes it
+  assert_eq!(report.not_built, HashMap::from([("b".to_string(), BlockReason::Conflict)]));
   assert_eq!(report.config.descriptions()["refs/heads/test/virtual/a"].title, "The title");
   Ok(())
 }

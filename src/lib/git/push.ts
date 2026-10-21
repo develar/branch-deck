@@ -400,14 +400,19 @@ export async function pushForAction(branchName: string, options: ActionPushOptio
 }
 
 /**
- * Why the push an action needs can't be made for the user: the push of the branch, or of an ancestor it is built on,
- * drops commits of its remote branch (someone else's work; its row asks first); null when it can
+ * Why the push an action needs can't be made for the user: the last sync did not build the branch or an ancestor it is
+ * built on (its virtual branch is an older build, which the backend refuses to push), or the push drops commits of its
+ * remote branch (someone else's work; its row asks first); null when it can
  */
 export function actionPushBlocker(branch: Branch, branchOf: (name: string) => Branch | undefined, isHeld: (name: string) => boolean): string | null {
   for (const it of [branch, ...stackAncestors(branch.name, branchOf).reverse()]) {
     // the robot of a held ancestor lands it: the branches above it are pushed, as the push button pushes them
     if (it !== branch && isHeld(it.name)) {
       break
+    }
+    // not "nothing to push": the action would go on with a remote branch of commits the branch may no longer have
+    if (it.hasError || it.status === "Blocked") {
+      return `${it.name} can't be pushed: ${it.statusText === "" ? "it failed to sync" : it.statusText}`
     }
     if (it.remoteStatus != null && needsPush(it) && dropsRemoteCommits(it.remoteStatus)) {
       const count = it.remoteStatus.commitsBehind

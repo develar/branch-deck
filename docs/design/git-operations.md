@@ -1395,7 +1395,8 @@ branches and the tips from the report (`SyncOutput::report`), so a command that 
    error still ends `fast-import` with `done`, which would otherwise leave a crash report in the git directory.
 
    **A conflicting branch keeps its copies before the conflict** (`crates/sync-core/src/conflict_chain.rs`). When
-   commit k of a branch conflicts, the branch keeps its last good tip, and the copies of commits 1..k-1 are on no
+   commit k of a branch conflicts, the branch keeps its last good tip (an older build: the report names the branch in
+   `not_built`, nothing pushes it, and the repository view takes no tip of it, `BranchTable::tip_of`), and the copies of commits 1..k-1 are on no
    branch, yet the conflict's merge, and its view, are onto the copy of commit k-1. The sync keeps that copy, and with
    it the copies below it, on `refs/branch-deck/conflict/<sha256 of the branch's full name>` (a hash, so the refs of
    a branch `a` and a branch `a/b` never clash and a rename is a delete and a create): `git gc` doesn't prune them,
@@ -2185,7 +2186,8 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
 `branchdeck.githubRepository` nor that URL names the GitHub repository (one `cat-file`, once per command,
 `RepoContext::github_repository`):
 
-1. It refuses (`push_refused`) before talking to the remote: a branch that didn't sync (error, conflict, blocked), and a
+1. It refuses (`push_refused`) before talking to the remote: a branch that didn't sync (error, conflict, blocked; the
+   `not_built` of its report, the rule of the app's push too), and a
    branch whose remote branch has commits it lacks unless `--force`. Branches go parents first. A stacked branch takes
    the branches it is built on (the effective base chain) along when the sync counted commits of theirs the remote
    lacks; `--alone` and `--expect-remote` don't, and the branch carries their commits, as its pull request into the
@@ -2491,7 +2493,11 @@ lacks, and its pull request showing the parent's commits.
    on the branches as they are (`stackPushOrder`, `stackChildrenPushOrder`, the steps of Push Up to Here). The holds
    are checked per branch (`checkPushHold`; a held one refuses the whole push, the robot a Safe Push start replaces is
    canceled once), and an open pull request that needs a retarget is retargeted, as before a push of one branch.
-2. `push_branches` reads the tips of all branches with one `for-each-ref` (`prepare_push_expecting`), each leased on
+2. `push_branches` first refuses a branch the last sync did not build (`not_built_refusal`, by `SyncReport::not_built`,
+   which the Tauri commands take from the table of `RepositoryViews` and `bd` from its own sync): a conflict, an error
+   or a ref another process moved leaves the virtual branch at an older build, of commits the branch may no longer
+   have, and a push pressed while that sync ran would push it. Then it reads the tips of all branches with one
+   `for-each-ref` (`prepare_push_expecting`), each leased on
    the remote head its row showed, checks a branch pushed up to a commit (`check_push_tip`, one `rev-list`), and
    pushes them with one `git push --porcelain --atomic --progress` (`push_leased`). The progress of the one push is
    the progress of each of its branches: every row shows it, the row it started from names it ("Pushing 7 branches

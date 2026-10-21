@@ -8,13 +8,15 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 export const commands = {
 	/**
 	 *  Pushes a branch to the remote, replacing the remote branch only as the user saw it, and returns its new remote
-	 *  status; a remote that moved is fetched and returned instead. `progress` receives how far the push is.
+	 *  status; a remote that moved is fetched and returned instead. A branch the last sync did not build is refused.
+	 *  `progress` receives how far the push is.
 	 */
 	pushBranch: (params: PushBranchParams, progress: Channel<TransferProgress>) => typedError<PushOutcome, CommandError>(__TAURI_INVOKE("push_branch", { params, progress })),
 	/**
 	 *  Pushes the branches of a stack to the remote in one atomic push, all of them or none, each replacing its remote
 	 *  branch only as the user saw it, and returns their new remote statuses; a remote branch that moved is named, with the
-	 *  statuses fetched after it. `progress` receives how far the push is.
+	 *  statuses fetched after it. A branch the last sync did not build refuses the push. `progress` receives how far the push
+	 *  is.
 	 */
 	pushBranches: (params: PushBranchesParams, progress: Channel<TransferProgress>) => typedError<PushBranchesOutcome, CommandError>(__TAURI_INVOKE("push_branches", { params, progress })),
 	/**

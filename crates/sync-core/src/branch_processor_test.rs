@@ -199,9 +199,9 @@ fn a_branch_moved_since_the_listing_is_not_overwritten() {
   // another process: alpha moved elsewhere, beta to the head this sync built
   git(&test_repo, &["update-ref", "refs/heads/test/virtual/alpha", &initial]);
   git(&test_repo, &["update-ref", "refs/heads/test/virtual/beta", &beta_head]);
-  for built in [alpha, beta, gamma] {
-    finish_branch(&context, built).unwrap();
-  }
+  let moved = [alpha, beta, gamma].map(|built| finish_branch(&context, built).unwrap().moved_elsewhere);
+  // the tip of alpha is no build of this sync: the report says it did not build alpha
+  assert_eq!(moved, [true, false, false]);
 
   assert_eq!(test_repo.rev_parse("test/virtual/alpha").unwrap(), initial, "the other process's tip stays");
   let (status, error) = final_status(&progress, "alpha");

@@ -252,8 +252,13 @@ pub struct SyncReport {
   pub forest: Option<StackForest>,
   /// Full name (`<prefix>/virtual/<branch>`) -> tip of the virtual branch of each grouped branch after the sync: the
   /// head it wrote or kept, the tip another process moved it to, or for a branch not rebuilt (a conflict, a block) the
-  /// tip it had; a branch without a virtual branch is absent
+  /// tip it had; a branch without a virtual branch is absent. The tip of a branch of `not_built` is no build of its
+  /// commits
   pub tips: HashMap<String, String>,
+  /// Branch -> why this sync did not build it: a merge conflict, an error (a stack problem, a failed build, a ref another
+  /// process moved meanwhile) or a parent that is not built. Its virtual branch is a build of commits it may no longer
+  /// have, so nothing pushes it (`push::not_synced_refusal`)
+  pub not_built: HashMap<String, BlockReason>,
   /// Full name -> tip of its remote branch on `origin`, as the sync read them at its start
   pub remote_tips: HashMap<String, String>,
   /// Original id -> the virtual copy the sync wrote of it (`CommitSynced`); a commit not here kept the copy its mapping
@@ -487,6 +492,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     branches: grouped.clone(),
     forest,
     tips: HashMap::new(),
+    not_built: HashMap::new(),
     copies: HashMap::new(),
     remote_tips: facts.remote_tips.clone(),
     config,
@@ -641,6 +647,8 @@ struct ProcessedBranches {
   tips: HashMap<String, Option<String>>,
   /// Branch -> why it was not built: a stack problem or a failure (`Error`), a merge conflict, a block by its parent
   failed: HashMap<String, BlockReason>,
+  /// The finished branches whose ref another process moved while the sync built them (`BranchNotes::moved_elsewhere`)
+  moved_elsewhere: Vec<String>,
 }
 
 /// Rebuild every virtual branch on the blocking pool, each task in a slot of `permits` (shared with the integration
@@ -658,6 +666,7 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
 ) -> Result<ProcessedBranches> {
   let context = Arc::new(context);
   let mut failed: HashMap<String, BlockReason> = HashMap::new();
+  let mut moved_elsewhere = Vec::new();
   let max_running = permits.capacity();
   let grouped_refs: HashSet<String> = branches
     .keys()
@@ -780,7 +789,10 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
         first_error.get_or_insert_with(|| e.context(format!("Failed to sync branch {branch_name}")));
         Some((branch_name, BlockReason::Error))
       }
-      Ok(TaskOutput::Finished(_, Ok(branch_notes))) => {
+      Ok(TaskOutput::Finished(branch_name, Ok(branch_notes))) => {
+        if branch_notes.moved_elsewhere {
+          moved_elsewhere.push(branch_name);
+        }
         notes.extend(branch_notes.mappings);
         stack_notes.extend(branch_notes.stack_note);
         // a branch that builds keeps no copies
@@ -820,7 +832,7 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
   match first_error {
     Some(e) => Err(e),
     None => notes_result
-      .map(|()| ProcessedBranches { tips, failed })
+      .map(|()| ProcessedBranches { tips, failed, moved_elsewhere })
       .map_err(|e| e.context("Failed to write commit notes")),
   }
 }
@@ -1060,6 +1072,8 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   let processing = async {
     let (processed, stack_results) = tokio::join!(branch_processing, stack_building);
     let processed = processed?;
+    let mut not_built = processed.failed.clone();
+    not_built.extend(processed.moved_elsewhere.into_iter().map(|name| (name, BlockReason::Error)));
     // the stack branches once their members are built: the refs, the deletes and the events; then the unapplied
     // branches with their remote statuses
     let stack_updates = task
@@ -1085,12 +1099,13 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       })
       .await
       .map_err(|e| anyhow!("Stack branch task failed: {e}"))?;
-    anyhow::Ok((processed.tips, stack_updates))
+    anyhow::Ok((processed.tips, not_built, stack_updates))
   };
 
   // join (not try_join) so a failure on one side doesn't orphan the other
   let (processing_result, detection_result, update_check_result) = tokio::join!(processing, detection, update_check);
-  let (tips, stack_updates) = processing_result?;
+  let (tips, not_built, stack_updates) = processing_result?;
+  report.not_built = not_built;
   for (full_name, tip) in tips {
     match tip {
       Some(tip) => report.tips.insert(full_name, tip),

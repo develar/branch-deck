@@ -400,6 +400,8 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
       baseline: grouping.baseline_branch.clone(),
       branches: grouping.branches.clone(),
       tips: grouping.listed.iter().map(|branch| (branch.name.clone(), branch.tip.clone())).collect(),
+      // a grouping without a sync: the tips are what the refs hold
+      not_built: HashMap::new(),
       copies: HashMap::new(),
       stack_branches: all_stacks.clone(),
       parked: grouping.grouping.parked.entries.keys().cloned().collect(),

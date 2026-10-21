@@ -9,7 +9,7 @@ use std::collections::{BTreeSet, HashMap};
 use sync_core::robot_commits::mapped_virtual;
 use sync_core::sync::SyncReport;
 use sync_types::GroupedBranchInfo;
-use sync_types::stack::StackBranchUpdate;
+use sync_types::stack::{BlockReason, StackBranchUpdate};
 
 #[derive(Debug, Clone, Default)]
 pub struct BranchTable {
@@ -21,6 +21,8 @@ pub struct BranchTable {
   pub branches: Vec<GroupedBranchInfo>,
   /// Full name (`<prefix>/virtual/<branch>`) -> tip of the virtual branch
   pub tips: HashMap<String, String>,
+  /// Branch -> why the sync did not build it (`SyncReport::not_built`): its tip is no build of its commits
+  pub not_built: HashMap<String, BlockReason>,
   /// Original id -> the virtual copy this sync wrote of it; a commit not here has the copy its mapping note names
   pub copies: HashMap<String, String>,
   pub stack_branches: Vec<StackBranchUpdate>,
@@ -35,6 +37,7 @@ impl BranchTable {
       baseline: report.baseline.clone(),
       branches: report.branches.clone(),
       tips: report.tips.clone(),
+      not_built: report.not_built.clone(),
       copies: report.copies.clone(),
       stack_branches: report.stack_branches.clone(),
       parked: report.grouping.parked.entries.keys().cloned().collect(),
@@ -45,8 +48,12 @@ impl BranchTable {
     self.branches.iter().find(|branch| branch.name == name)
   }
 
-  /// The tip of the virtual branch of `name`
+  /// The tip of the virtual branch of `name`, the build of its commits: `None` for a branch the sync did not build,
+  /// whose ref is a build of commits it may no longer have
   pub fn tip_of(&self, name: &str) -> Option<&str> {
+    if self.not_built.contains_key(name) {
+      return None;
+    }
     to_final_branch_name(&self.prefix, name)
       .ok()
       .and_then(|full_name| self.tips.get(&full_name))
