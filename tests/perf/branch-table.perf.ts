@@ -13,12 +13,18 @@
 // - widerTextMs: one layout after the status text of a row changed its width (a push's percent, "4%" to "45%"); when it
 //   changes the widest item of a track, the frame adds one relayout of the view, as the columns follow it;
 // - sameWidthTextMs: one layout after a text changed inside an element of a fixed width (a robot's time that ticks).
+//
+// The main thread of a sync (Chromium only, the CDP metrics of the page; docs/design/rendering-performance.md): what the
+// page spends on the events of a sync and what they derive, the hold and landing rule of the robots included:
+// - firstSyncScriptMs / firstSyncTaskMs: the script time and the task time of the first sync, until its rows and chips;
+// - resyncScriptMs / resyncTaskMs: the same of a sync that changes nothing;
+// - robotIpc: the requests of the robots' content (`get_robot_*`, `get_repository_view`) during both syncs.
 import { mkdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
-import type { Page } from "@playwright/test"
+import type { CDPSession, Page } from "@playwright/test"
 import { test, expect } from "../e2e/fixtures/test-fixtures"
 import { availableRobots, robot } from "../e2e/helpers/patronus-helpers"
-import { syncBranches, waitForBranchesLoaded } from "../e2e/helpers/sync-helpers"
+import { runAndWaitForSync, syncBranches, waitForBranchesLoaded } from "../e2e/helpers/sync-helpers"
 
 const RUNS = Number(process.env.PERF_RUNS ?? 3)
 /** The branch rows of the template: 120 lone branches and three stacks of seven */
@@ -73,7 +79,33 @@ function median(values: number[]): number {
   return Math.round(sorted[Math.floor(sorted.length / 2)]! * 100) / 100
 }
 
-const results: Record<string, Metrics> = {}
+const results: Record<string, Metrics | SyncMetrics> = {}
+
+interface SyncMetrics {
+  firstSyncScriptMs: number
+  firstSyncTaskMs: number
+  resyncScriptMs: number
+  resyncTaskMs: number
+  robotIpc: number
+}
+
+/** The script and task time of the page so far, ms (`Performance.getMetrics`: seconds) */
+async function mainThreadMs(cdp: CDPSession): Promise<{ script: number; task: number }> {
+  const { metrics } = await cdp.send("Performance.getMetrics")
+  const valueOf = (name: string) => (metrics.find(metric => metric.name === name)?.value ?? 0) * 1000
+  return { script: valueOf("ScriptDuration"), task: valueOf("TaskDuration") }
+}
+
+/** The script and task time `action` costs the page, ms */
+async function timeMainThread(cdp: CDPSession, action: () => Promise<unknown>): Promise<{ script: number; task: number }> {
+  const before = await mainThreadMs(cdp)
+  await action()
+  const after = await mainThreadMs(cdp)
+  return { script: after.script - before.script, task: after.task - before.task }
+}
+
+/** The robots of the template: running on ten of its lone branches */
+const ROBOTS = Array.from({ length: 10 }, (_, index) => robot(`feature-${String(index * 12).padStart(3, "0")}`, `robot-${index}`))
 
 test.describe.configure({ mode: "serial" })
 
@@ -88,7 +120,7 @@ test.describe("Branch table performance", () => {
   test("141 branch rows in a table and three islands, robots running on ten of them", async ({ page, setupRepo }) => {
     test.setTimeout(10 * 60_000)
     await page.setViewportSize({ width: 1516, height: 900 })
-    const robots = Array.from({ length: 10 }, (_, index) => robot(`feature-${String(index * 12).padStart(3, "0")}`, `robot-${index}`))
+    const robots = ROBOTS
     const runs: Metrics[] = []
     for (let run = 0; run < RUNS; run++) {
       await setupRepo("branch_table_large", { patronus: availableRobots(...robots) })
@@ -110,6 +142,39 @@ test.describe("Branch table performance", () => {
       relayoutMs: median(runs.map(run => run.relayoutMs)),
       widerTextMs: median(runs.map(run => run.widerTextMs)),
       sameWidthTextMs: median(runs.map(run => run.sameWidthTextMs)),
+    }
+  })
+
+  test("the main thread of a sync of 141 rows with robots running on ten of them", async ({ page, setupRepo, browserName }) => {
+    test.skip(browserName !== "chromium", "the CDP metrics are Chromium's")
+    test.setTimeout(10 * 60_000)
+    await page.setViewportSize({ width: 1516, height: 900 })
+    const cdp = await page.context().newCDPSession(page)
+    await cdp.send("Performance.enable")
+    let robotIpc = 0
+    page.on("request", request => {
+      if (/\/invoke\/(get_robot_landings|get_robot_spans|get_repository_view)$/.test(request.url())) {
+        robotIpc++
+      }
+    })
+    const runs: SyncMetrics[] = []
+    for (let run = 0; run < RUNS; run++) {
+      await setupRepo("branch_table_large", { patronus: availableRobots(...ROBOTS) })
+      robotIpc = 0
+      const first = await timeMainThread(cdp, async () => {
+        await syncBranches(page)
+        await expect(page.getByTestId("branch-row")).toHaveCount(ROWS)
+        await expect(page.getByTestId("patronus-chip")).toHaveCount(ROBOTS.length)
+      })
+      const resync = await timeMainThread(cdp, () => runAndWaitForSync(page, () => page.getByTestId("sync-button").click()))
+      runs.push({ firstSyncScriptMs: first.script, firstSyncTaskMs: first.task, resyncScriptMs: resync.script, resyncTaskMs: resync.task, robotIpc })
+    }
+    results["sync main thread"] = {
+      firstSyncScriptMs: median(runs.map(run => run.firstSyncScriptMs)),
+      firstSyncTaskMs: median(runs.map(run => run.firstSyncTaskMs)),
+      resyncScriptMs: median(runs.map(run => run.resyncScriptMs)),
+      resyncTaskMs: median(runs.map(run => run.resyncTaskMs)),
+      robotIpc: median(runs.map(run => run.robotIpc)),
     }
   })
 })

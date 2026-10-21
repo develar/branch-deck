@@ -1,7 +1,7 @@
 # Rendering Performance
 
 **Status:** Implemented  
-**Updated:** 2026-10-18  
+**Updated:** 2026-10-21  
 **Tags:** [frontend, react, zustand, performance]
 
 ## Problem
@@ -123,6 +123,24 @@ flowchart LR
    sync sends each conflict twice (the error of the commit and the status of the branch) at every run. Rust serialized
    them, the IPC carried them, the page parsed them and the stores kept them, for conflicts nobody opened. A conflict
    in a 5.6 MiB file was 2 × 28 MiB of JSON per sync, now 2 × 1.3 KiB.
+
+### The main thread of a sync
+
+`pnpm perf:table` (`tests/perf/branch-table.perf.ts`, Chromium) measures what a sync costs the page: the script and
+task time of its events and of everything they derive (`Performance.getMetrics` of the page, before and after), on the
+`branch_table_large` template, 141 rows with robots running on ten, the median of 5 runs, on an M-series Mac with
+other work beside it:
+
+| 2026-10-21 | first sync, script / task | sync that changes nothing, script / task | robots' content requests |
+|---|---|---|---|
+| the hold and landing rule in the page | 142–146 / 267 ms | 50–53 / 98–101 ms | 0 |
+| its three maps stubbed out (upper bound of moving them) | 119 / 221 ms | 44 / 83 ms | — |
+
+The rule's maps (`landingSpansIn`, `landedByIn`, `pushHoldsIn` in `src/stores/patronus.ts`) are memoized in one slot
+on the identity of the branches, which every 16 ms batch copies: each batch recomputes them once, and the rows'
+selectors only hit the memo. They are about a fifth of the script time of a sync. The stub also skips the UI that
+depends on them, so moving the rule out of the page saves less than the bound. The rest of the per-row work
+(`getNextStepFacts` of each row on every change of a store) is not part of it.
 
 ### Loading
 
