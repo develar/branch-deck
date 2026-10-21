@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/branch-helpers"
-import { openSettingsWindow } from "../helpers/settings-helpers"
+import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import { emitTauriEvent, finishedSyncCount, syncBranches, syncOnWindowFocus } from "../helpers/sync-helpers"
 import { windowCalls } from "../helpers/title-bar-helpers"
 
@@ -196,6 +196,28 @@ test.describe("Onboarding", () => {
     await expect(page.getByTestId("unassigned-commits-hint")).toHaveText(
       "Start a commit subject with (name) or an issue key like ABC-123 to group it into a branch, or select commits and move them to one.",
     )
+  })
+
+  test("says how agents work once the Agent CLI is installed, and opens their settings", async ({ page, setupRepo }) => {
+    await setupRepo("simple", { prepopulateStore: true })
+    // Help → Install Agent CLI… of the native menu
+    await emitTauriEvent(page, "install_agent_cli")
+    const toast = page.locator("[data-slot=toast]", { hasText: "Agent CLI installed" })
+    await expect(toast.locator("[data-slot=toast-description]")).toHaveText(
+      "Coding agents find bd through the skills in /Users/test/.claude/skills/branch-deck/SKILL.md, /Users/test/.agents/skills/branch-deck/SKILL.md. In a terminal, run bd. Agents work in their own worktree and land each commit on your branch; commit subjects stay as written.",
+    )
+    await toast.getByRole("button", { name: "Open Agent Settings" }).click()
+    await expectSettingsOpened(page, { page: "agents" })
+  })
+
+  test("says in the help of the unassigned commits whether agents write the prefix here, and opens their settings", async ({ page, setupRepo }) => {
+    await setupRepo("unassigned", { prepopulateStore: true })
+    await syncBranches(page)
+    await page.getByTestId("unassigned-commits-help-icon").hover()
+    const line = page.getByTestId("unassigned-commits-agent-subjects")
+    await expect(line).toContainText("Coding agents write (name) when they commit once Name the branch in each commit subject is on for this repository.")
+    await line.getByRole("button", { name: "Open Agent Settings" }).click()
+    await expectSettingsOpened(page, { page: "agents" })
   })
 
   test("refuses a bare repository with the reason", async ({ page, setupRepo }) => {

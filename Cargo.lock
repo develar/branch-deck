@@ -705,6 +705,7 @@ dependencies = [
  "anyhow",
  "bd-cli",
  "bd-core",
+ "bd-lease",
  "branch-integration",
  "file-diffs",
  "git-executor",

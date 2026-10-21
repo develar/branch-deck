@@ -3,7 +3,7 @@ macro_rules! read_only {
   () => {
     "Read only: `bd status`, `bd commits`, `bd suggest`, `bd check`, `bd robot`, `bd schema`, `bd version`,
 `bd describe <branch>` without a setter, `bd request-review --check`, `bd update --status` without --materialize,
-`bd lease status`, and
+`bd lease status`, `bd workspace`, and
 `bd group --dry-run`, `bd rename --dry-run`, `bd restack --dry-run`, `bd unstack --dry-run`, `bd update --dry-run`
 (also with --continue), `bd pick --dry-run`, `bd fold --dry-run`, `bd move-hunk --dry-run` and `bd reword --dry-run`
 write no ref, config, index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the
@@ -221,6 +221,9 @@ Workflow: the commits into pull requests
    restarts it.
 
 Other tasks
+- Before the first edit of a session: `bd workspace` says whether to work in a lease of your own
+  (`branchdeck.agentLease`, on by default) and whether to start each subject with `(branch)`
+  (`branchdeck.agentSubjectBranch`, off by default), and `next` what to run; the user's words win over it.
 - Update the branch onto its baseline: `bd update` (--no-fetch, --dry-run), the app's Update Project; a conflict opens
   a resolve session (exit 1), which `bd help update` explains.
 - Several sessions or worktrees on one branch: `bd lease get` leases a worktree of your own, `bd lease return` gives
@@ -324,14 +327,17 @@ checkout. One owner rewrites that branch: `bd update`, `bd fold`, `bd group`, `b
 session only adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a reset in the shared
 checkout; the one rewrite it may run is a `bd reword` of its own landed commit (step 4).
 
-0. Lease your worktree: `bd lease get --holder <your name>` in the shared checkout (or -C <shared checkout>). It
+0. Lease your worktree when `bd workspace` says `lease.on` (`branchdeck.agentLease`, on by default; its `next` is the
+   command): `bd lease get --holder <your name>` in the shared checkout (or -C <shared checkout>). It
    prints `path`, a worktree of the pool at the HEAD of the shared checkout, detached, and `lease_id`; work and commit
    only there, never `git worktree add`. A free slot is moved to that HEAD (`reused`: only the diff is written); with
    none free the pool adds one (`created_by`: `clone`, an APFS clone on macOS, or `checkout`). --branch <name> (-b) creates a branch there. `skipped` names free slots with
    local changes (`dirty`) or processes in them (`busy`). `seeded`: ignored local files that `.worktreeinclude` names,
    copied from the shared checkout.
 
-1. Write the prefix when you commit, never later. A subject is `(branch) <one sentence>`. With stacked branches
+1. When `bd workspace` says `subject_branch.on` (`branchdeck.agentSubjectBranch`, off by default), write the prefix
+   when you commit, never later; off, write the subject as the repository does, and the owner groups the commits
+   (`bd suggest`, issue keys). A subject is `(branch) <one sentence>`. With stacked branches
    (`branchdeck.stacks`) a new stack is declared once, `(parent/leaf) <one sentence>`; once the stack parents know the
    leaf, `(leaf) <one sentence>` is enough, as a plan of `bd suggest` writes it. `(parent/leaf)` on a commit of a
    branch that is a root stacks the whole branch on `parent` (`reparented` in the pick); two parents for one branch
@@ -410,14 +416,13 @@ pub fn skill_text(command: &str) -> String {
     "\
 ---
 name: branch-deck
-description: Group the commits of a Git branch into virtual branches and pull requests, stacked when they build on \
-each other, with the `bd` command line of Branch Deck; update a branch onto its baseline and resolve the conflicts; \
-land the commits of a worktree onto a shared branch. Use when the user asks to split, group, cluster or reorganize \
-commits into branches or pull requests, to stack branches, to sync or push virtual branches, to fold fixup commits, to \
-change the message or subject of a commit, to move a change or a hunk into another commit, to update or rebase a branch onto master or main or resolve its update \
-conflicts, to land or pick the commits of a worktree or lease onto a shared branch, to lease a worktree for a session \
-or return it, to start a Patronus Safe Push or Dry Run or find out why one failed, to ask code owners to review a \
-pull request, or mentions Branch Deck.
+description: Use before the first edit or commit in a Git repository: `bd workspace` of Branch Deck says whether to \
+work in a leased worktree of your own and how to write the commit subject. Also use to group, split or stack the \
+commits of a branch into virtual branches and pull requests, to sync or push them, to fold fixup commits, to change \
+the message of a commit or move a hunk into another commit, to update or rebase a branch onto master or main and \
+resolve its conflicts, to land the commits of a worktree onto a shared branch, to lease or return a worktree, to start \
+a Patronus Safe Push or Dry Run or find out why one failed, to ask code owners to review a pull request, or when the \
+user mentions Branch Deck.
 allowed-tools: {allowed_tools}
 ---
 
@@ -431,12 +436,28 @@ virtual branches, pushes them and starts their Patronus Safe Push. Only `bd upda
 `bd pick` (the commits of another worktree onto the branch) and their undo write the working tree, through the
 guarded update.
 
-Before anything else, run `bd help agent` and follow the workflow it prints: it is the contract of the installed
-version. To update a branch or resolve its update conflicts, run `bd help update` instead. When several sessions or
-worktrees work on one branch, run `bd help worktrees` first.
+Before the first edit or commit in a repository, run `bd workspace` and follow it; what the user says in the session
+wins over it:
+- `lease.on`: work in a worktree of your own. Run the first command of `next` (`bd lease get --holder <your name>`, a
+  name of this session) and edit, build and commit only in its `path` (and `subdir` there); in Claude Code,
+  `EnterWorktree` with that `path` moves the session there. `bd workspace` inside it names the rest: land each commit
+  that builds and passes its tests at once, with the `bd pick --from <lease> --follow -C <shared_checkout>` of `next`;
+  once the task is done and every commit landed, `bd lease return --lease-id <lease_id>`. Return only your own lease,
+  never one of `active_leases` that another session holds. A lease lacks the `local_changes` of the shared checkout:
+  when the task needs them, ask the user.
+- `lease.on` false (`reason` says why, when it is set): work where you are; stage only the paths you changed, never
+  `git add -A` or `git add .`.
+- `subject_branch.on`: start each commit subject with `(branch) `, a readable name of a few words, never an issue id as
+  the name; reuse a branch of `bd status --brief` that fits; with `stacks`, a new stack is `(parent/leaf)`. Off: write
+  the subject as the repository does, without a prefix.
+- Both are the user's settings (Settings → Agents of the app, `branchdeck.agentLease`, `branchdeck.agentSubjectBranch`):
+  never change them.
+
+To group or push commits or to start a Safe Push, run `bd help agent` first and follow the workflow it prints: it is the
+contract of the installed version. To update a branch or resolve its update conflicts, run `bd help update` instead.
+When several sessions or worktrees work on one branch, run `bd help worktrees` first.
 
 - Run bd in the repository, or pass `-C <repo>`.
-- Write the `(branch)` prefix of a commit's subject when you commit, a readable name, never an issue id as the name.
 - Land the commits of another worktree with `bd pick`, never with `git cherry-pick`, which leaves `CHERRY_PICK_HEAD`.
 - Every command prints one JSON object on stdout. Branch on `error.code` and the exit code, never on the message;
   `bd schema` prints the JSON Schema of every output, `bd version` the version of bd and git.

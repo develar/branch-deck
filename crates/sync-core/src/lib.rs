@@ -35,7 +35,7 @@
 //!
 //! Stores and config:
 //! - `config_snapshot`: `ConfigSnapshot`, the `branchdeck.*` keys and the branch descriptions from one `git config`
-//! - `repository_config`: the `branchdeck.*` config that Settings → Repository shows and writes
+//! - `repository_config`: the `branchdeck.*` config that Settings shows and writes
 //! - `branch_prefix`: the branch prefix by git config and the app setting
 //!
 //! The check, trial syncs that write objects only:
@@ -86,6 +86,7 @@
 //!
 //! The lease pool:
 //! - `lease`: the slots agent sessions lease (`bd lease`), their state and lock in `$GIT_COMMON_DIR/branch-deck/`
+//! - `agent_workspace`: where a coding agent works and how it writes a subject (`bd workspace`), before its first edit
 //! - `lease_clean`: the clean rules of `.branchdeck.toml` that a return and `bd lease clean` apply to a slot
 //! - `clone_dir`: a directory tree by one APFS clone, the new slot of a get on macOS
 //!
@@ -97,6 +98,9 @@
 //! - `uncommitted_changes`: the uncommitted files and the diff of one of them
 
 pub mod add_issue_reference;
+pub mod agent_workspace;
+#[cfg(test)]
+mod agent_workspace_test;
 pub mod amend_to_branch;
 pub mod baseline_fetch;
 pub mod branch_name_suggestion;

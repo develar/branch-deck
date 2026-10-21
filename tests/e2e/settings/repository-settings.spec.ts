@@ -2,7 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
-import { expectSettingsOpened, openSettingsWindow, settingsTab } from "../helpers/settings-helpers"
+import { expectSettingsOpened, openSettingsWindow, recordWrites, settingsTab } from "../helpers/settings-helpers"
 import { emitTauriEvent, finishedSyncCount, waitForSyncComplete } from "../helpers/sync-helpers"
 import { TEST_SERVER_URL } from "../helpers/test-server-url"
 import { windowCalls } from "../helpers/title-bar-helpers"
@@ -29,17 +29,6 @@ async function openRepositorySettings(page: Page, focus?: string): Promise<Page>
   const window = await openSettingsWindow(page, focus === undefined ? { page: "repository" } : { page: "repository", focus })
   await expect(window.getByTestId("repository-setting-stacks")).toBeVisible()
   return window
-}
-
-/** The writes the window sends (`set_repository_config`), in their order */
-function recordWrites(window: Page): Array<Record<string, unknown>> {
-  const writes: Array<Record<string, unknown>> = []
-  window.on("request", request => {
-    if (request.url().endsWith("/invoke/set_repository_config")) {
-      writes.push(request.postDataJSON() as Record<string, unknown>)
-    }
-  })
-  return writes
 }
 
 /**

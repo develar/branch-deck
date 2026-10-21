@@ -2301,13 +2301,17 @@ The tests never call `enable_keychain`: a test that needs the keychain runs a fa
 
 #### Repository settings
 
-Settings → Repository shows and writes four keys of the repository's git config, and Settings → Diffs & Merge the
-fifth, `branchdeck.resolveByWords` (`crates/sync-core/src/repository_config.rs`):
-`branchdeck.stacks`, `branchdeck.symbols`, `branchdeck.githubRepository`, `branchdeck.branchPrefix` and
+Settings → Repository shows and writes four keys of the repository's git config, Settings → Diffs & Merge the
+fifth, `branchdeck.resolveByWords`, and Settings → Agents the two rules of coding agents
+(`crates/sync-core/src/repository_config.rs`):
+`branchdeck.stacks`, `branchdeck.symbols`, `branchdeck.githubRepository`, `branchdeck.branchPrefix`,
 `branchdeck.resolveByWords` (a git boolean, on when unset: whether a sync resolves a conflict of git by words, see
-"Resolve by words"). `bd` reads the same keys, so the app keeps nothing of them in its own settings.
+"Resolve by words"), `branchdeck.agentLease` (a git boolean, on when unset: an agent works in a lease of the pool and
+lands each commit with `bd pick`) and `branchdeck.agentSubjectBranch` (a git boolean, off when unset: an agent starts
+each subject with its `(branch)`). `bd` reads the same keys, so the app keeps nothing of them in its own settings; the
+two agent keys only `bd workspace` reads ([bd workspace](../../spec/cli/workspace.spec.md)): no sync, no operation.
 
-- **Read**: one `git config -z --show-scope --get-regexp '^branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords)$'`
+- **Read**: one `git config -z --show-scope --get-regexp '^branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords|agentlease|agentsubjectbranch)$'`
   (exit 1: none is set), `--global` in `.` without a repository. `-z` separates the entries with NUL, and the key from
   its value with a newline; a key without `=` (an implicit `true`) has no newline. Git prints the scopes in its order
   (system, global, local, worktree, command), so the last entry of a key is the effective one; `local_set` says whether
@@ -2327,7 +2331,7 @@ fifth, `branchdeck.resolveByWords` (`crates/sync-core/src/repository_config.rs`)
   (`turning_stacks_off_fails_the_sync_on_the_flat_child`); the page refuses the switch with those names
   (`stacks_off_clashes`). A failed grouping (no baseline yet) is no clash: the sync then says what fails.
 - **One read per operation** (`ConfigSnapshot`, `crates/sync-core/src/config_snapshot.rs`): one
-  `git config -z --show-scope --get-regexp` of the five keys and every `branch.<name>.description` (the branch name
+  `git config -z --show-scope --get-regexp` of the five keys an operation reads (not the agent keys) and every `branch.<name>.description` (the branch name
   keeps its case, which `--get-regexp` keeps for a subsection), with the accessors `stacks`, `symbol_mode`,
   `resolve_mode`, `branch_prefix`, `github_repository` and `descriptions`. A sync reads it once for the stack setting and the
   description titles, or takes the one its caller read (`SyncOptions::config`): `bd` reads it once per command
@@ -2345,7 +2349,7 @@ fifth, `branchdeck.resolveByWords` (`crates/sync-core/src/repository_config.rs`)
   `.git/config`, so the write would change nothing. A branch prefix is normalized and validated as the app's field does
   (`git_ops::branch_names::is_valid_branch_prefix`), a GitHub repository is `owner/name` without whitespace; an empty
   text unsets. The answer is the settings read again, and the main window gets `repository_config_changed`
-  (`{repositoryPath, key}`) to sync.
+  (`{repositoryPath, key}`) to sync; the agent keys sync nothing.
 - **Global write**: `set_repository_config` with `scope: "global"` (`WriteScope`, local when omitted) writes the same
   key to the user's global config instead: `git config --global --replace-all`, or `--unset-all`, with the same
   validation. No scope refuses it, because it is the value of every repository; a repository whose local, worktree or
@@ -2358,6 +2362,8 @@ fifth, `branchdeck.resolveByWords` (`crates/sync-core/src/repository_config.rs`)
   `get_branch_prefix_from_git_config_sync` reads the value with its scope in one `git config -z --show-scope --get`.
 
 No other git config is written by the app, except the branch descriptions of `bd describe` and the global write above.
+`bd install` reads the agent keys of the global config alone (one `git config --global`), for the `agents` of its
+output and the app's toast.
 
 #### Push lease
 

@@ -171,6 +171,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     // the native menu: a test counts the requests of the page
     .route("/invoke/set_auto_sync_menu_checked", post(tauri_command_bridge::set_auto_sync_menu_checked))
     .route("/invoke/agent_cli_command", post(tauri_command_bridge::agent_cli_command))
+    .route("/invoke/install_agent_cli", post(tauri_command_bridge::install_agent_cli))
+    .route("/invoke/agent_cli_status", post(tauri_command_bridge::agent_cli_status))
     // Health check
     .route("/health", get(health_check))
     // Serve static files from dist with SPA fallback
@@ -547,6 +549,7 @@ fn insert_repository(state: &AppState, id: &str, path: &str, store: DashMap<Stri
     review_readiness_calls: std::sync::Mutex::default(),
     branch_name_suggestions: std::sync::RwLock::new(state::BranchNameSuggestionFixture::default()),
     branch_name_suggestion_calls: std::sync::atomic::AtomicU32::new(0),
+    agent_cli_installed: std::sync::atomic::AtomicBool::new(false),
   };
   state.repositories.insert(id.to_string(), repo);
 }

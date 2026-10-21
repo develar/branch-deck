@@ -40,7 +40,8 @@ fn schema_lists_every_output() {
       "update",
       "update_abort",
       "update_status",
-      "version"
+      "version",
+      "workspace"
     ]
   );
   for (name, schema) in outputs {
@@ -96,6 +97,8 @@ fn outputs_match_schema() {
   assert_covered(&schema["outputs"]["suggest"], &schema["outputs"]["suggest"], &suggest, "suggest");
   let (_, version) = run_in(&repo, &["version"]);
   assert_covered(&schema["outputs"]["version"], &schema["outputs"]["version"], &version, "version");
+  let (_, workspace) = run_in(&repo, &["workspace"]);
+  assert_covered(&schema["outputs"]["workspace"], &schema["outputs"]["workspace"], &workspace, "workspace");
   // a dry run prints every optional part of a rewrite; then a real one and its undo
   repo.set_config("branchdeck.stacks", "true").unwrap();
   let (_, rewrite) = run_in(&repo, &["rename", "feature", "renamed", "--dry-run", "--map"]);

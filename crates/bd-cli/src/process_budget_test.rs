@@ -8,6 +8,7 @@ use bd_core::context::{RepoContext, RepoOptions};
 use bd_core::sync_command::sync;
 // jscpd:ignore-start: the budgets run the commands that lib.rs dispatches, so they import the same ones
 use bd_lease::lease_command::{LeaseContext, LeaseGetArgs, LeaseReturnArgs, lease_get, lease_return};
+use bd_lease::workspace_command::workspace_with;
 use bd_remote::push_command::{PushArgs, push};
 use bd_remote::request_review_command::{RequestReviewArgs, request_review};
 use bd_remote::robot_command::{RobotArgs, robot};
@@ -438,6 +439,25 @@ fn a_lease_get_and_return() {
   let context = LeaseContext::resolve(&environment, Some(&slot)).unwrap();
   lease_return(&context, &LeaseReturnArgs::default()).unwrap();
   assert_git_processes(&context.git, &[("config", 1), ("log", 1), ("rev-parse", 2), ("status", 1)]);
+}
+
+/// `bd workspace` in the shared checkout: the repository, the `branchdeck.*` config, the pool config and one `status` of
+/// the checkout; in a lease the same without the pool config, the `status` of the shared checkout
+#[test]
+fn a_workspace() {
+  let repo = repo_with_branches();
+  let (_home, environment) = lease_environment(&repo);
+  let git = GitCommandExecutor::new().with_process_stats("bd");
+  let output = workspace_with(&git, &environment, None).unwrap();
+  assert_eq!(output.next.len(), 1, "{output:?}");
+  assert_git_processes(&git, &[("config", 2), ("rev-parse", 1), ("status", 1)]);
+
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  let got = lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap();
+  let git = GitCommandExecutor::new().with_process_stats("bd");
+  let output = workspace_with(&git, &environment, Some(std::path::Path::new(&got.path))).unwrap();
+  assert_eq!(output.lease_id.as_deref(), Some(got.lease_id.as_str()));
+  assert_git_processes(&git, &[("config", 1), ("rev-parse", 1), ("status", 1)]);
 }
 
 /// `bd lease get` of a new slot by an APFS clone of the source (macOS): the repository, the source HEAD and the pool

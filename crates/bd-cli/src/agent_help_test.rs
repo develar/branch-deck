@@ -169,10 +169,16 @@ fn every_help_topic_prints_its_text() {
 /// `bd help worktrees` puts the prefix at commit time first, lands commits only with `bd pick`, and checks by content
 #[test]
 fn the_worktrees_help_writes_the_prefix_first_and_checks_by_content() {
-  let prefix = WORKTREES_HELP.find("Write the prefix when you commit").unwrap();
+  let prefix = WORKTREES_HELP.find("write the prefix\n   when you commit, never later").unwrap();
   let pick = WORKTREES_HELP.find("`bd pick --from <your worktree> --follow`").unwrap();
   assert!(prefix < pick, "{WORKTREES_HELP}");
-  for needed in ["never with `git cherry-pick`", "--dry-run", "Never compare by date", "branch-deck: pick"] {
+  for needed in [
+    "never with `git cherry-pick`",
+    "--dry-run",
+    "Never compare by date",
+    "branch-deck: pick",
+    "`bd workspace` says `lease.on`",
+  ] {
     assert!(WORKTREES_HELP.contains(needed), "{needed}");
   }
 }
@@ -219,6 +225,7 @@ fn read_only_commands_write_no_ref_config_index_or_working_tree() {
     &["move-hunk", &change, &first, "shared.txt", "--dry-run"],
     &["reword", &change, "--subject", "ABC-1 Change the shared file", "--dry-run"],
     &["lease", "status"],
+    &["workspace"],
   ];
   // with --no-cache first: no cache appears either
   for no_cache in [true, false] {
@@ -239,4 +246,17 @@ fn the_skill_allows_every_bd_command_as_named() {
   assert!(skill_text("bd").contains("\nallowed-tools: \"Bash(bd:*)\"\n---\n"));
   assert!(skill_text("'/Apps/Branch #Deck.app/bd' cli").contains("\nallowed-tools: \"Bash('/Apps/Branch #Deck.app/bd' cli:*)\"\n"));
   assert!(skill_text(r#"& 'C:\Apps\a\"b\bd.exe'"#).contains(r#"allowed-tools: "Bash(& 'C:\\Apps\\a\\\"b\\bd.exe':*)""#));
+}
+
+/// The description says when to load the skill, first of all before the first edit, within the 1024 characters of the
+/// Agent Skills format, where an agent truncates or refuses a longer one
+#[test]
+fn the_skill_description_starts_with_the_first_edit_and_fits_the_limit() {
+  let skill = skill_text("bd");
+  let description = skill.lines().find_map(|line| line.strip_prefix("description: ")).unwrap();
+  assert!(
+    description.starts_with("Use before the first edit or commit in a Git repository: `bd workspace`"),
+    "{description}"
+  );
+  assert!(description.chars().count() <= 1024, "{} characters", description.chars().count());
 }

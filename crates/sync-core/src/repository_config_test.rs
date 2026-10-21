@@ -49,6 +49,9 @@ fn nothing_set_is_the_defaults() {
   assert_eq!(config.symbols, unset(SymbolMode::On));
   assert_eq!(config.github_repository, unset(None));
   assert_eq!(config.branch_prefix, unset(None));
+  // an agent works in a lease of its own, and writes the subject as the repository does
+  assert_eq!(config.agent_lease, unset(true));
+  assert_eq!(config.agent_subject_branch, unset(false));
   assert_eq!(config.detected_github_repository, None);
 }
 
@@ -382,12 +385,17 @@ fn with_stacks_off_the_read_groups_nothing() {
   assert_eq!(config.stacks_off_clashes, []);
 }
 
+/// The git of `test_repo` with a global config of the test alone, never the developer's
+fn with_own_global_config(test_repo: &TestRepo) -> (tempfile::NamedTempFile, git_executor::git_command_executor::GitCommandExecutor) {
+  let global = tempfile::NamedTempFile::new().unwrap();
+  let git = test_repo.git_executor().with_env("GIT_CONFIG_GLOBAL", global.path().to_str().unwrap());
+  (global, git)
+}
+
 #[test]
 fn a_global_write_goes_to_the_global_config_and_a_local_value_still_wins() {
   let test_repo = TestRepo::new();
-  let global = tempfile::NamedTempFile::new().unwrap();
-  // the global config of this test alone, never the developer's
-  let git = test_repo.git_executor().with_env("GIT_CONFIG_GLOBAL", global.path().to_str().unwrap());
+  let (global, git) = with_own_global_config(&test_repo);
   let path = test_repo.path_str();
 
   let config = set_config(&git, path, &RepositoryConfigChange::ResolveByWords(Some(false)), WriteScope::Global).unwrap();
@@ -413,4 +421,29 @@ fn a_global_write_goes_to_the_global_config_and_a_local_value_still_wins() {
   let config = set_config(&git, path, &RepositoryConfigChange::ResolveByWords(None), WriteScope::Global).unwrap();
   assert_eq!(config.resolve_by_words.fallback_scope, None);
   assert_eq!(std::fs::read_to_string(global.path()).unwrap(), "");
+}
+
+#[test]
+fn the_agent_keys_are_written_globally_and_a_repository_keeps_its_own() {
+  let test_repo = TestRepo::new();
+  let (global, git) = with_own_global_config(&test_repo);
+  let path = test_repo.path_str();
+
+  set_config(&git, path, &RepositoryConfigChange::AgentLease(Some(false)), WriteScope::Global).unwrap();
+  let config = set_config(&git, path, &RepositoryConfigChange::AgentSubjectBranch(Some(true)), WriteScope::Local).unwrap();
+  assert_eq!(std::fs::read_to_string(global.path()).unwrap(), "[branchdeck]\n\tagentLease = false\n");
+  assert_eq!((config.agent_lease.value, config.agent_lease.scope), (false, Some(ConfigScope::Global)));
+  assert_eq!(
+    (
+      config.agent_subject_branch.value,
+      config.agent_subject_branch.scope,
+      config.agent_subject_branch.fallback_value
+    ),
+    (true, Some(ConfigScope::Local), false)
+  );
+  assert_eq!(local_entries(&test_repo), [entry(ConfigScope::Local, "branchdeck.agentsubjectbranch", Some("true"))]);
+
+  // "Like Global": the local value goes, the default applies again
+  let config = set_config(&git, path, &RepositoryConfigChange::AgentSubjectBranch(None), WriteScope::Local).unwrap();
+  assert_eq!(config.agent_subject_branch, unset(false));
 }

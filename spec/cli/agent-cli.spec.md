@@ -1106,20 +1106,25 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   symlink in `~/.local/bin` to the app binary, replacing a symlink there and refusing anything else
   (`install_refused`); on Windows `bd.exe` next to the app.
 - It must write the skill `branch-deck` into `~/.claude/skills/` and `~/.agents/skills/`: a description of when to use
-  bd (grouping into branches and pull requests, stacked when they build on each other, and updating onto the baseline
-  with its conflicts, landing a worktree's commits, fixups, a change in the wrong commit, a review request, why a robot
-  failed), its full path, `bd help agent` as the workflow, `bd help update` for an update, and
-  `bd safe-push <branch> --check` before a Safe Push, which lands a stacked branch with its parents, and
+  bd (first of all before the first edit or commit in a Git repository, for `bd workspace`
+  ([bd workspace](workspace.spec.md)); then grouping into branches and pull requests, stacked when they build on each
+  other, and updating onto the baseline with its conflicts, landing a worktree's commits, fixups, a change in the wrong
+  commit, a review request, why a robot failed), its full path, `bd workspace` before the first edit with what each of
+  its rules asks, `bd help agent` as the workflow of grouping, pushing and Safe Push, `bd help update` for an update,
+  and `bd safe-push <branch> --check` before a Safe Push, which lands a stacked branch with its parents, and
   `--whole-stack`, which lands the whole stack, the landing of a worktree's commits onto a shared branch among its
-  triggers, `bd help worktrees` when several sessions or worktrees work on one branch, and the `(branch)` prefix
-  written when a commit is made; `bd help skill` must print the same text. Its `allowed-tools` must be
+  triggers, and `bd help worktrees` when several sessions or worktrees work on one branch; `bd help skill` must print
+  the same text. Its `allowed-tools` must be
   `Bash(<bd>:*)`, `<bd>` as the body names it, so that Claude Code runs every bd command without a permission prompt.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_allows_every_bd_command_as_named`)
   [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`)
-- It must say whether `bd` on `PATH` is the installed one; `--uninstall` must remove the skills and only its own
-  symlink. In the app the toast "Agent CLI installed" says where agents find bd and how to run it, paths under the
-  home directory as `~`, with "Copy Path" (the full path of `bd`); a failure is the error toast "Cannot install the
-  Agent CLI".
+- It must say whether `bd` on `PATH` is the installed one, and print `agents` `{lease, subject_branch}`, the rules of
+  `bd workspace` that the global git config gives every repository; `--uninstall` must remove the skills and only its
+  own symlink. In the app the toast "Agent CLI installed" says where agents find bd, how to run it and how agents work
+  from now on, paths under the home directory as `~`, with "Open Agent Settings" from the main window
+  ([Onboarding](../repository/onboarding.spec.md#agents)); a failure is the error toast "Cannot install the Agent
+  CLI". `agent_cli_status` must name the skill files that exist and the command they name, `null` without one, writing
+  nothing (Settings → Agents).
   [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`, `a_file_in_the_way_is_refused`)
 - The symlink must outlive the running app: on Linux, with `APPIMAGE` set, it must point at the AppImage file, not at
   the binary in its temporary mount; on macOS an app run translocated (its path under `AppTranslocation/`) must be
@@ -1134,7 +1139,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   `cli`. `bd update` names its next command (`session.next`) the same way. A path of the binary shorter than 260
   characters has no `\\?\` prefix.
   [@test] ../../crates/bd-cli/src/install_test.rs (`the_bd_command_is_the_link_to_this_app_or_the_app_with_cli`)
-  [@test] ../../src/hooks/useInstallAgentCli.test.ts (`names the skills, and bd as a command when it is on PATH`, `names the full path and the directory to add to PATH when bd is not on it`)
+  [@test] ../../src/hooks/useInstallAgentCli.test.ts (`names the skills, and bd as a command when it is on PATH`, `names the full path and the directory to add to PATH when bd is not on it`, `says how agents work by the rules of every repository`)
 ### `bd help agent`
 
 - It must print the rules first: what needs the user's approval (every push, Safe Push and Patronus Dry Run, review

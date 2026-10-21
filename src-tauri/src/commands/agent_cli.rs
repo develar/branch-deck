@@ -1,7 +1,8 @@
 use crate::command_error::CommandError;
-use bd_cli::install::{InstallArgs, install};
+use bd_cli::install::{InstallArgs, install, install_status};
 use bd_core::bd_command::bd_command;
 use bd_core::context::Environment;
+use bd_lease::workspace_command::agent_defaults;
 use sync_utils::child_process::login_shell_path;
 use tracing::instrument;
 
@@ -14,6 +15,17 @@ pub struct AgentCliInstall {
   pub on_path: bool,
   /// The skill files written
   pub skills: Vec<String>,
+  /// How agents work where a repository has no value of its own (the global git config)
+  pub agents: AgentRules,
+}
+
+/// The two rules of `bd workspace` (Settings → Agents)
+#[derive(Debug, Clone, Copy, serde::Serialize, specta::Type)]
+pub struct AgentRules {
+  /// `branchdeck.agentLease`: in a worktree of their own, each commit landed on the user's branch
+  pub lease: bool,
+  /// `branchdeck.agentSubjectBranch`: `(branch)` at the start of each subject
+  pub subject_branch: bool,
 }
 
 #[tauri::command]
@@ -27,10 +39,15 @@ pub async fn install_agent_cli() -> Result<AgentCliInstall, CommandError> {
       environment.path = Some(path);
     }
     let output = install(&environment, &InstallArgs::default()).map_err(|e| CommandError::new(e.message))?;
+    let agents = output.agents.unwrap_or_else(|| agent_defaults(&environment));
     Ok(AgentCliInstall {
       bd: output.bd,
       on_path: output.on_path,
       skills: output.skills,
+      agents: AgentRules {
+        lease: agents.lease,
+        subject_branch: agents.subject_branch,
+      },
     })
   })
   .await
@@ -59,4 +76,25 @@ pub fn agent_cli_command(repository_path: String) -> Result<AgentCliCommand, Com
     command: command.for_shell_in(&repository_path),
     powershell: cfg!(windows),
   })
+}
+
+/// Whether the agent skill is installed (Settings → Agents)
+#[derive(Debug, serde::Serialize, specta::Type)]
+pub struct AgentCliStatus {
+  /// The command the skills name; `null` while no skill is installed
+  pub bd: Option<String>,
+  /// The skill files that exist
+  pub skills: Vec<String>,
+}
+
+/// The skill files of `bd install` that exist, without writing anything
+#[tauri::command]
+#[specta::specta]
+#[instrument]
+pub fn agent_cli_status() -> AgentCliStatus {
+  let status = install_status(&Environment::from_process());
+  AgentCliStatus {
+    bd: status.bd,
+    skills: status.skills,
+  }
 }

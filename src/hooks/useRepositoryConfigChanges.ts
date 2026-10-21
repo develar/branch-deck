@@ -6,7 +6,7 @@ import { refreshPullRequests } from "@/stores/pull-requests"
 import { getSelectedProject, triggerBranchPrefixLoad } from "@/stores/repository"
 
 /**
- * The main window after a write of Settings → Repository or → Diffs & Merge (`repository_config_changed`, sent by the
+ * The main window after a write of Settings → Repository, → Diffs & Merge or → Agents (`repository_config_changed`, sent by the
  * backend): what the key changes for the selected repository, nothing for another one. A repository synced before
  * syncs again, as the branches are grouped, named, reviewed or merged by the key; one never synced waits for the
  * user's first sync.
@@ -43,6 +43,10 @@ export function useRepositoryConfigChanges(): void {
       case "resolveByWords":
         // a conflict of git that its words resolve is a commit of the sync, or a conflict again
         resync()
+        break
+      case "agentLease":
+      case "agentSubjectBranch":
+        // only coding agents read them (`bd workspace`): the branches stay as they are
         break
     }
   })

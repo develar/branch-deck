@@ -1239,6 +1239,51 @@ pub async fn agent_cli_command(Json(request): Json<AgentCliCommandRequest>) -> J
   Json(serde_json::json!({ "command": format!("{AGENT_CLI} -C {}", request.repository_path), "powershell": false }))
 }
 
+/// The skill files the fake install names
+const AGENT_SKILLS: [&str; 2] = ["/Users/test/.claude/skills/branch-deck/SKILL.md", "/Users/test/.agents/skills/branch-deck/SKILL.md"];
+
+/// The repository of the page that sends a command (`X-Repository-Id`)
+fn requesting_repository<'a>(state: &'a AppState, headers: &axum::http::HeaderMap) -> Result<dashmap::mapref::one::Ref<'a, String, TestRepository>, CommandFailure> {
+  headers
+    .get(crate::REPOSITORY_ID_HEADER)
+    .and_then(|value| value.to_str().ok())
+    .and_then(|id| state.repositories.get(id))
+    .ok_or_else(|| CommandFailure::error("find the test repository", "no test repository named by the request"))
+}
+
+/// `bd install` without its files: the installed state of the test repository, and the agent rules of its own global
+/// config, as the app reads the developer's
+pub async fn install_agent_cli(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<serde_json::Value> {
+  let path = {
+    let repository = requesting_repository(&state, &headers)?;
+    repository.agent_cli_installed.store(true, std::sync::atomic::Ordering::SeqCst);
+    repository.path.clone()
+  };
+  let git_executor = config_git(&state, &path)?;
+  run_command("install the Agent CLI", move || {
+    // the global config alone, as `bd install` reads it
+    read_test_repository_config(&git_executor, &path).map(|config| {
+      serde_json::json!({
+        "bd": AGENT_CLI,
+        "on_path": true,
+        "skills": AGENT_SKILLS,
+        "agents": { "lease": config.agent_lease.fallback_value, "subject_branch": config.agent_subject_branch.fallback_value },
+      })
+    })
+  })
+  .await
+}
+
+/// The skills once `install_agent_cli` ran for the test repository, else none
+pub async fn agent_cli_status(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> CommandResult<serde_json::Value> {
+  let installed = requesting_repository(&state, &headers)?.agent_cli_installed.load(std::sync::atomic::Ordering::SeqCst);
+  Ok(Json(if installed {
+    serde_json::json!({ "bd": AGENT_CLI, "skills": AGENT_SKILLS })
+  } else {
+    serde_json::json!({ "bd": null, "skills": [] })
+  }))
+}
+
 /// The page has no native menu: the check is the request, which a test reads (`checked` of its body)
 pub async fn set_auto_sync_menu_checked(Json(request): Json<SetAutoSyncMenuCheckedRequest>) -> Json<serde_json::Value> {
   tracing::debug!(checked = request.checked, "Auto-sync on Focus checked");

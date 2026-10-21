@@ -1,7 +1,7 @@
 # Agent CLI (`bd`)
 
 **Status:** Active  
-**Updated:** 2026-10-19  
+**Updated:** 2026-10-21  
 **Tags:** [cli, agents, json]
 
 ## Summary
@@ -14,8 +14,9 @@ writing refs with `check`, pushes with `push`, asks the code owners to review a 
 starts a Patronus Safe Push with `safe-push` and reads its robot, and why it failed, with `robot`. `group --sync`
 applies a plan, its pull request texts and a sync in one call. `update` brings the checked out branch onto its
 baseline as the app's Update Project does, and resolves a conflict in a resolve session outside the working tree;
-`pick` lands the commits of another worktree on the checked out branch, and `lease` keeps the pool of worktrees that
-agent sessions work in; `fold` folds the fixup commits, and
+`pick` lands the commits of another worktree on the checked out branch, `lease` keeps the pool of worktrees that
+agent sessions work in, and `workspace` tells an agent before its first edit whether to lease one and how to write a
+commit subject; `fold` folds the fixup commits, and
 `move-hunk` moves the change of a file from one commit into another. `install` puts `bd` and its skill where agents
 find them; `help agent`, `help update` and `help worktrees` print the texts an agent follows.
 
@@ -67,7 +68,7 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
 - `bd schema` prints the JSON Schema of each output (see `bd schema` below). The schemas are generated from the Rust
   types with `schemars`, and `schema_test.rs` checks the real outputs against them.
 - Read only: `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `update --dry-run`, `update --status`,
-  `lease status`, `pick --dry-run`, `fold --dry-run`, `move-hunk --dry-run` and `reword --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
+  `lease status`, `workspace`, `pick --dry-run`, `fold --dry-run`, `move-hunk --dry-run` and `reword --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
   `suggest`, the replay of `update --dry-run` and `pick --dry-run`, the merged trees of `move-hunk --dry-run`) and the object cache (none with `--no-cache`). `bd --help` and
   `bd help agent` print the same line (`READ_ONLY` in `agent_help.rs`), and `agent_help_test.rs` checks the refs, the
   config, the index and the working tree around each of them.
@@ -1500,6 +1501,35 @@ Prints `{"schema":2,"outputs":{"<name>":<JSON Schema>,…}}`, one schema per out
 outputs of `--brief`, `update_status` and `update_abort` those of `bd update --status` and `--abort`, and `lease_get`,
 `lease_return`, `lease_status` and `lease_adopt` those of `bd lease`.
 
+### `bd workspace`
+
+Run by an agent before its first edit or commit (the skill says so; the contract
+[bd workspace](../../spec/cli/workspace.spec.md)). Read only: `sync_core::agent_workspace`, one `rev-parse`, one
+`git config` of the `branchdeck.*` keys, in the main worktree one more of the pool config and in the main worktree or a
+lease one `status` of the shared checkout. Two rules of the git config, each `{on, source, invalid, reason}`:
+
+- `lease`: `branchdeck.agentLease`, on by default. Work in a lease of the pool, land each commit that builds and passes
+  its tests at once with `bd pick`, return the lease when done. Off with a `reason` in a linked worktree outside the
+  pool (a checkout of its own already), outside a working tree, and when the pool directory can't be written (a
+  sandbox; a probe file in its first existing parent, removed at once).
+- `subject_branch`: `branchdeck.agentSubjectBranch`, off by default. Start each commit subject with `(branch) `. Off
+  by default because a prefix reaches the remote as it is wherever Branch Deck does not build the branches.
+
+`source` is the scope that sets the rule (`local`, `worktree`, `command`, `global`, `system`) or `default`; the user
+sets the global value and the repository's own in Settings → Agents, or with `git config [--global]`. `kind` is
+`main`, `linked`, `lease` or `none`; `subdir` where bd runs below the top level; `shared_checkout` the checkout the
+commits land on (the main worktree, or the source of this lease); `lease_id` and `holder` this slot's lease;
+`local_changes` the number of local changes of the shared checkout, which a lease lacks; `active_leases` every ready
+lease of the pool (`lease_id`, `holder`, `path`); `next` the commands to run, in order:
+
+```json
+{"schema":2,"kind":"main","lease":{"on":true,"source":"default"},"subject_branch":{"on":false,"source":"default"},
+ "stacks":false,"top_level":"/work/app","subdir":"crates/x","shared_checkout":"/work/app","local_changes":1,
+ "active_leases":[],"next":["bd lease get --holder <your name> -C /work/app"]}
+```
+
+Inside the lease `next` is `bd pick --from <slot> --follow -C <shared checkout>` and `bd lease return --lease-id <id>`.
+
 ### `bd version`, `bd --version`
 
 Both print `{"schema":2,"version":"0.11.0","git":"2.56.0"}` and need no repository. `version` is the version of
@@ -1522,18 +1552,24 @@ How an agent learns that bd exists. `bd install`, or Help → Install Agent CLI�
   developer mode;
 - the skill `branch-deck` (`SKILL.md`, the Agent Skills format) into `~/.claude/skills/branch-deck/` (Claude Code) and
   `~/.agents/skills/branch-deck/` (Codex and others). Its description tells an agent when to use bd (`bd help skill`
-  prints it): grouping or splitting commits into branches or pull requests, stacked branches, fixups, a change in the
-  wrong commit, an update or rebase onto the baseline and its conflicts, landing the commits of a worktree onto a
-  shared branch, the lease of a worktree for a session, a Safe Push or Dry Run and why it failed, a review request, Branch Deck. Its body names bd by its full
-  path, so it works without `PATH`, and sends the agent to `bd help agent` first, to `bd help update` for an update,
-  and to `bd help worktrees` when several sessions or worktrees work on one branch; it asks for the `(branch)` prefix
-  when a commit is made, and for `bd safe-push <branch> --check` before a Safe Push, as the Safe Push of a stacked
-  branch lands its parents too. The workflow stays in the binary, so the
+  prints it), first of all before the first edit or commit in a Git repository, for `bd workspace`; then grouping or
+  splitting commits into branches or pull requests, stacked branches, fixups, a change in the wrong commit, an update
+  or rebase onto the baseline and its conflicts, landing the commits of a worktree onto a shared branch, the lease of a
+  worktree, a Safe Push or Dry Run and why it failed, a review request, Branch Deck. The description stays within the
+  1024 characters of the Agent Skills format. Its body names bd by its full path, so it works without `PATH`; it starts
+  with `bd workspace` and what each of its rules asks (the lease: work only in its `path`, in Claude Code
+  `EnterWorktree` with that path, land each commit at once, return only its own lease; the subject branch: `(branch) `
+  first, else the subject as the repository writes it), then sends the agent to `bd help agent` for grouping, pushing
+  and Safe Push, to `bd help update` for an update, and to `bd help worktrees` when several sessions or worktrees work
+  on one branch; it asks for `bd safe-push <branch> --check` before a Safe Push, as the Safe Push of a stacked branch
+  lands its parents too. The workflow stays in the binary, so the
   skill can't fall out of date with it. Its `allowed-tools` is `Bash(<bd>:*)`: while the skill is active, Claude Code
   runs every bd command without a permission prompt, also `bd group`, which rewrites the checked out branch, and
   `bd push`. The approval of a push or a Safe Push is the rule of the skill's body, not a prompt.
 
-It prints `{"schema":2,"bd":"/Users/me/.local/bin/bd","on_path":true,"skills":[…],"uninstalled":false}`. `on_path`
+It prints `{"schema":2,"bd":"/Users/me/.local/bin/bd","on_path":true,"skills":[…],"uninstalled":false,
+"agents":{"lease":true,"subject_branch":false}}`. `agents` is what `bd workspace` answers in a repository without its
+own value (one `git config --global`), which the app's toast tells the user. `on_path`
 says whether `bd` on `PATH` is this one; the app asks the user's login shell for `PATH`, since an app started from the
 Finder has a minimal one. `--uninstall` removes the skills and the symlink if it points at this app (or at a removed
 `branch-deck`). `bd help skill` prints the skill as text, for an agent that reads skills from elsewhere. Without the
@@ -1560,7 +1596,9 @@ command named last before it, and it must exist for that command.
 ### `bd help worktrees`
 
 Prints how agent sessions that share a checkout work beside each other, each committing in a worktree of its own
-(`WORKTREES_HELP`, about 55 lines): the lease of that worktree with `bd lease get` and its return, the `(branch)` prefix is written when a commit is made, never guessed later; one
+(`WORKTREES_HELP`, about 55 lines): the lease of that worktree with `bd lease get` when `bd workspace` says
+`lease.on`, and its return; the `(branch)` prefix, when `bd workspace` says `subject_branch.on`, is written when a
+commit is made, never guessed later; one
 owner rewrites the shared branch (`bd update`, `bd fold`, `bd group`, `bd rename`) and every other session only adds
 commits with `bd pick --from <worktree> --follow`, never a cherry-pick in the shared checkout; the outcomes of a pick
 and what to do with each; `bd pick --dry-run` as the check after a rewrite, never a comparison by date; the protocol

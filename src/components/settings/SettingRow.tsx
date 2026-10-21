@@ -1,5 +1,7 @@
 import { useId } from "react"
 import type { ReactNode } from "react"
+import { RotateCwIcon } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import type { AppSettingsSwitch } from "@/stores/settings/appSettings"
 import { setAppSettingsSwitch, useAppSettings } from "@/stores/settings/appSettings"
@@ -51,4 +53,17 @@ export function SettingRow({
 export function SettingSwitch({ name, label, description }: { name: AppSettingsSwitch; label: string; description?: string }) {
   const checked = useAppSettings(state => state[name])
   return <SettingRow testId={`setting-${name}`} label={label} description={description} checked={checked} onCheckedChange={value => setAppSettingsSwitch(name, value)} />
+}
+
+/** A failed read of the git config under a setting, with Retry */
+export function ConfigReadError({ testId, message, onRetry }: { testId: string; message: string; onRetry: () => void }) {
+  return (
+    <p className="flex items-center gap-2 text-destructive" data-testid={testId}>
+      {`Cannot read the git config: ${message}`}
+      <Button size="xs" variant="outline" onClick={onRetry}>
+        <RotateCwIcon data-icon="inline-start" />
+        Retry
+      </Button>
+    </p>
+  )
 }

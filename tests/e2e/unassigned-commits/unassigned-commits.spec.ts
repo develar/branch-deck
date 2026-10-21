@@ -127,6 +127,8 @@ baseTest.describe("Unassigned Commits Feature", () => {
       const popover = page.locator("[data-slot=popover-content]")
       await expect(popover.locator("[data-slot=popover-title]")).toHaveText("Unassigned Commits")
       await expect(popover).toContainText("Shortcuts")
+      // the line of the agents shows once the settings of the repository answered
+      await expect(popover.getByTestId("unassigned-commits-agent-subjects")).toBeVisible()
 
       // Capture help popover content
       await captureFloatingElementSnapshot(popover, "unassigned-commits-help-popover")

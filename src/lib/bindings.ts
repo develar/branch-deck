@@ -413,6 +413,8 @@ export const commands = {
 	 *  the version of the app that wrote it; an error when the app can't tell its binary (no `bd.exe` next to it)
 	 */
 	agentCliCommand: (repositoryPath: string) => typedError<AgentCliCommand, CommandError>(__TAURI_INVOKE("agent_cli_command", { repositoryPath })),
+	/**  The skill files of `bd install` that exist, without writing anything */
+	agentCliStatus: () => __TAURI_INVOKE<AgentCliStatus>("agent_cli_status"),
 };
 
 /* Types */
@@ -448,6 +450,24 @@ export type AgentCliInstall = {
 	on_path: boolean,
 	/**  The skill files written */
 	skills: string[],
+	/**  How agents work where a repository has no value of its own (the global git config) */
+	agents: AgentRules,
+};
+
+/**  Whether the agent skill is installed (Settings → Agents) */
+export type AgentCliStatus = {
+	/**  The command the skills name; `null` while no skill is installed */
+	bd: string | null,
+	/**  The skill files that exist */
+	skills: string[],
+};
+
+/**  The two rules of `bd workspace` (Settings → Agents) */
+export type AgentRules = {
+	/**  `branchdeck.agentLease`: in a worktree of their own, each commit landed on the user's branch */
+	lease: boolean,
+	/**  `branchdeck.agentSubjectBranch`: `(branch)` at the start of each subject */
+	subject_branch: boolean,
 };
 
 /**  Result type for amend command that can be properly serialized by Tauri */
@@ -2482,6 +2502,10 @@ export type RepositoryConfig = {
 	branchPrefix: ConfigSetting<string | null>,
 	/**  `branchdeck.resolveByWords`, on by default */
 	resolveByWords: ConfigSetting<boolean>,
+	/**  `branchdeck.agentLease`, on by default */
+	agentLease: ConfigSetting<boolean>,
+	/**  `branchdeck.agentSubjectBranch`, off by default */
+	agentSubjectBranch: ConfigSetting<boolean>,
 	/**  The repository of `origin` or of the Space mirror, which applies when `github_repository` is not set */
 	detectedGithubRepository: DetectedGitHubRepository | null,
 	/**
@@ -2492,7 +2516,7 @@ export type RepositoryConfig = {
 };
 
 /**  A write of one key to the local config; `None` unsets it there (the global value or the default applies again) */
-export type RepositoryConfigChange = { key: "stacks"; value: boolean | null } | { key: "symbols"; value: SymbolMode | null } | { key: "githubRepository"; value: string | null } | { key: "branchPrefix"; value: string | null } | { key: "resolveByWords"; value: boolean | null };
+export type RepositoryConfigChange = { key: "stacks"; value: boolean | null } | { key: "symbols"; value: SymbolMode | null } | { key: "githubRepository"; value: string | null } | { key: "branchPrefix"; value: string | null } | { key: "resolveByWords"; value: boolean | null } | { key: "agentLease"; value: boolean | null } | { key: "agentSubjectBranch"; value: boolean | null };
 
 export type RequestPullRequestReviewersParams = {
 	repositoryPath: string,

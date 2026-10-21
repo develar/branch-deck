@@ -35,3 +35,14 @@ export async function openSettingsWindow(page: Page, target: SettingsTarget = {}
 export function settingsTab(window: Page, name: string): Locator {
   return window.getByRole("tablist", { name: "Settings pages" }).getByRole("tab", { name, exact: true })
 }
+
+/** The writes the window sends (`set_repository_config`), in their order */
+export function recordWrites(window: Page): Array<Record<string, unknown>> {
+  const writes: Array<Record<string, unknown>> = []
+  window.on("request", request => {
+    if (request.url().endsWith("/invoke/set_repository_config")) {
+      writes.push(request.postDataJSON() as Record<string, unknown>)
+    }
+  })
+  return writes
+}

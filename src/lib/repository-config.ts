@@ -22,6 +22,8 @@ export const CONFIG_KEYS: Record<RepositoryConfigKey, string> = {
   githubRepository: "branchdeck.githubRepository",
   branchPrefix: "branchdeck.branchPrefix",
   resolveByWords: "branchdeck.resolveByWords",
+  agentLease: "branchdeck.agentLease",
+  agentSubjectBranch: "branchdeck.agentSubjectBranch",
 }
 
 /** The last part of the path: the name the user knows the repository by */
@@ -92,6 +94,21 @@ export function overriddenReason(setting: ConfigSetting<unknown>): string | null
       return `${scopeText("command")}, which overrides .git/config`
     default:
       return null
+  }
+}
+
+/**
+ * Where the value of a setting with one value for every repository comes from (`scope` of the global or system entry,
+ * null for the default), and where a change goes: the global git config, which bd reads too
+ */
+export function describeGlobalSource(scope: ConfigScope | null, defaultValue: boolean): string {
+  switch (scope) {
+    case "global":
+      return "Set in your global Git config, which bd reads too"
+    case "system":
+      return "Set in the system Git config. A change goes to your global Git config, which wins over it"
+    default:
+      return `${defaultValue ? "On" : "Off"} by default. A change goes to your global Git config, which bd reads too`
   }
 }
 
@@ -196,5 +213,9 @@ export function writeErrorTitle(change: RepositoryConfigChange, fallbackStacks: 
       return `Cannot change the branch prefix of ${name}`
     case "resolveByWords":
       return `Cannot change how ${name} resolves conflicts by words`
+    case "agentLease":
+      return `Cannot change where agents work in ${name}`
+    case "agentSubjectBranch":
+      return `Cannot change how agents write commit subjects in ${name}`
   }
 }

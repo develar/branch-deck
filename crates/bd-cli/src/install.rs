@@ -3,12 +3,13 @@
 //! when to use bd and to start with `bd help agent`. The app's Help menu runs the same install.
 
 use crate::agent_help::skill_text;
-use bd_core::bd_command::{BdCommand, app_binary, display, io_error};
+use bd_core::bd_command::{BdCommand, app_binary, bd_command, display, io_error};
 #[cfg(unix)]
 use bd_core::bd_command::{LINK_DIR, links_to};
 use bd_core::context::Environment;
 use bd_core::error::{CliError, ErrorCode};
 use bd_core::output::SchemaVersion;
+use bd_lease::workspace_command::{AgentDefaults, agent_defaults};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -37,6 +38,10 @@ pub struct InstallOutput {
   /// The skill files written, or removed with --uninstall
   pub skills: Vec<String>,
   pub uninstalled: bool,
+  /// How agents work in a repository without its own value, by the global git config (`bd workspace`, Settings →
+  /// Agents); omitted with --uninstall
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub agents: Option<AgentDefaults>,
 }
 
 pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallOutput, CliError> {
@@ -64,6 +69,7 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
       bd: display(&bd),
       skills: removed,
       uninstalled: true,
+      agents: None,
     });
   }
 
@@ -87,7 +93,34 @@ pub fn install(environment: &Environment, args: &InstallArgs) -> Result<InstallO
     bd: display(&bd),
     skills: skill_files.iter().map(|file| display(file)).collect(),
     uninstalled: false,
+    agents: Some(agent_defaults(environment)),
   })
+}
+
+/// Whether the skill is installed, without writing anything (Settings → Agents)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallStatus {
+  /// The command the skills name, as `bd install` would write it; `None` while no skill is installed
+  pub bd: Option<String>,
+  /// The skill files that exist
+  pub skills: Vec<String>,
+}
+
+pub fn install_status(environment: &Environment) -> InstallStatus {
+  let skills: Vec<String> = environment.home.as_deref().map_or_default(|home| {
+    SKILL_DIRS
+      .iter()
+      .map(|dir| home.join(dir).join(SKILL_NAME).join(SKILL_FILE_NAME))
+      .filter(|file| file.is_file())
+      .map(|file| display(&file))
+      .collect()
+  });
+  let bd = if skills.is_empty() {
+    None
+  } else {
+    bd_command(environment).ok().map(|command| command.display())
+  };
+  InstallStatus { bd, skills }
 }
 
 /// Refuse a symlink to an app that macOS runs translocated, from a read-only copy under `AppTranslocation/` (an app

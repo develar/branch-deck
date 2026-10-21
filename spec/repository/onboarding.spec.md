@@ -16,6 +16,8 @@ targets:
   - ../../src/components/shared/CommandLine.tsx
   - ../../src/components/shared/InlineBranchTarget.tsx
   - ../../src/components/ai/BranchNameSuggestions.tsx
+  - ../../src/hooks/useInstallAgentCli.ts
+  - ../../src/components/settings/AgentsPage.tsx
   - ../../src/lib/branch-prefix.ts
   - ../../src/stores/repository.ts
   - ../../src-tauri/src/commands/branch_prefix.rs
@@ -177,6 +179,21 @@ alert with the reason and the next step, never a raw Git error.
   bug`, `[threading] ABC-123 Fix login bug`.
 - Move to… says that it rewrites the commits: "Creates the branch auth with 2 commits: rewrites them to start with
   (auth)".
+
+### Agents
+
+- Help → Install Agent CLI… ([Agent CLI](../cli/agent-cli.spec.md#bd-install)) says in its toast how coding agents work
+  from now on, by the rules of every repository ([bd workspace](../cli/workspace.spec.md)): "Agents work in their own
+  worktree and land each commit on your branch; commit subjects stay as written." (by default), with "Open Agent
+  Settings", which opens Settings → Agents.
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says how agents work once the Agent CLI is installed, and opens their settings`)
+  [@test] ../../src/hooks/useInstallAgentCli.test.ts (`says how agents work by the rules of every repository`)
+- The help of the unassigned commits, where the `(name)` prefix first shows, says whether agents write it here
+  (`branchdeck.agentSubjectBranch` of the repository): "Coding agents write (name) when they commit here.", else "Coding
+  agents write (name) when they commit once Name the branch in each commit subject is on for this repository.", with
+  "Open Agent Settings".
+  [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says in the help of the unassigned commits whether agents write the prefix here, and opens their settings`)
+- Settings → Agents without the skill installed offers "Install Agent CLI" ([Settings](settings.spec.md#agents)).
 
 ### AI and help
 

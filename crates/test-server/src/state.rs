@@ -62,6 +62,8 @@ pub struct TestRepository {
   pub branch_name_suggestions: RwLock<BranchNameSuggestionFixture>,
   /// How often the app asked for branch names: nothing may leave before the user enabled AI
   pub branch_name_suggestion_calls: AtomicU32,
+  /// The Agent CLI was installed (`install_agent_cli`): `agent_cli_status` names the skills then
+  pub agent_cli_installed: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Clone, Debug, Deserialize)]

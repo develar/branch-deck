@@ -345,7 +345,7 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
 - **Network commands** (push, fetch) run through `execute_remote_command` (`crates/sync-core/src/remote_command.rs`):
   the user's credential helpers stay, prompts are off, stalled HTTP transfers abort, the locale is C (untranslated
   `--progress` lines). Never pass `-c credential.helper=`.
-- **Git config writes**: only the `branchdeck.*` keys of Settings → Repository and Settings → Diffs & Merge
+- **Git config writes**: only the `branchdeck.*` keys of Settings → Repository, Settings → Diffs & Merge and Settings → Agents
   (`repository_config.rs`: one `--get-regexp --show-scope` read, `--replace-all` or `--unset-all`, refused when the
   worktree config or `git -c` sets the key), `--local` (`.git/config`), or `--global` only where the request names the
   global scope (`set_repository_config` with `scope: "global"`); and the branch descriptions of `bd describe`
@@ -477,6 +477,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Message of a commit (`bd reword`; the app's edit of a message) | `cli/agent-cli`, `commit/commit-row` | `crates/history-rewrite/src/reword.rs`, `crates/history-rewrite/src/fixup_targets.rs`, `crates/bd-rewrite/src/reword_command.rs`, `src-tauri/src/commands/reword.rs`, `src/hooks/useRewordCommit.ts` |
 | Update Project (`bd update`, resolve sessions, `bd undo update:`) | `repository/update-project`, `cli/update` | `crates/git-ops/src/update_branch.rs`, `crates/git-ops/src/update_resolve.rs`, `update-progress.ts` |
 | Pick between worktrees (`bd pick --from <worktree> --follow`) | `cli/pick` | `crates/sync-core/src/pick.rs`, `crates/git-ops/src/pick.rs` |
+| Agent workspace (`bd workspace`): a lease and the `(branch)` subject by `branchdeck.agentLease` and `branchdeck.agentSubjectBranch`, Settings → Agents | `cli/workspace`, `repository/settings`, `repository/onboarding` | `crates/sync-core/src/agent_workspace.rs`, `crates/bd-lease/src/workspace_command.rs`, `src/components/settings/AgentsPage.tsx` |
 | Lease pool (`bd lease`), its clean rules (`.branchdeck.toml`) | `cli/lease` | `crates/sync-core/src/lease.rs`, `crates/sync-core/src/lease_clean.rs`, `crates/bd-lease/src/lease_command.rs`, `crates/git-ops/src/lease_slot.rs` (state in `$GIT_COMMON_DIR/branch-deck/leases.json`) |
 | Landed commits | `repository/landed-commits` | `crates/sync-core/src/landed.rs` (report in `branch-deck/landed.json`) |
 | Landing overview, PR status, Create Pull Request, Request Review | `repository/landing-overview`, `repository/outgoing`, `branch/pull-requests` | `crates/github/`, `sync_core::pull_requests`, `sync_core::pull_request_create` |

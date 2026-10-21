@@ -30,7 +30,8 @@ is added only when no slot is free. `bd lease return` frees the slot once its co
 `$GIT_COMMON_DIR/branch-deck/leases.json` is the authority. A free slot is pool property, and the next get replaces
 its content, so no ancestry check decides whether a slot is free. How it works: "Lease" in
 [Git Operations](../../docs/design/git-operations.md). Working beside other sessions: `bd help worktrees`
-([Agent CLI](agent-cli.spec.md)).
+([Agent CLI](agent-cli.spec.md)). Whether an agent leases at all, `branchdeck.agentLease`, says
+[bd workspace](workspace.spec.md), which it runs before its first edit.
 
 ## Goals
 

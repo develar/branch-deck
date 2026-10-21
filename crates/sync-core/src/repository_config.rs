@@ -1,7 +1,8 @@
-//! The `branchdeck.*` git config of a repository that Settings → Repository shows and writes: stacked branches, the
-//! symbol mode, the GitHub repository, the branch prefix and the resolve by words. One `git config --get-regexp` reads
-//! all five with their scopes; a write goes to the local config (`.git/config`, shared by the linked worktrees) only, and `bd` reads the same
-//! keys.
+//! The `branchdeck.*` git config of a repository that Settings shows and writes: stacked branches, the symbol mode, the
+//! GitHub repository, the branch prefix and the resolve by words (Settings → Repository and Diffs & Merge), and how
+//! coding agents work (Settings → Agents, read by `bd workspace`). One `git config --get-regexp` reads all seven with
+//! their scopes; a write goes to the local config (`.git/config`, shared by the linked worktrees), or to the global one
+//! where the request names it (`WriteScope`), and `bd` reads the same keys.
 
 use crate::branch_prefix::BRANCH_PREFIX_CONFIG_KEY;
 use crate::pull_requests::{GITHUB_REPOSITORY_CONFIG, GitHubRepositorySource, detect_github_repository_source};
@@ -20,11 +21,19 @@ use std::collections::BTreeSet;
 use sync_utils::git_bool::parse_git_bool;
 use tracing::{instrument, warn};
 
-/// The five keys, lowercase as `--get-regexp` prints them; the regexp matches the canonical (lowercase) names
-const CONFIG_KEYS_REGEXP: &str = r"^branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords)$";
+/// The seven keys, lowercase as `--get-regexp` prints them; the regexp matches the canonical (lowercase) names
+const CONFIG_KEYS_REGEXP: &str = r"^branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords|agentlease|agentsubjectbranch)$";
 
 /// Whether a sync resolves the conflicts of git by words (`git_ops::word_resolve`), a git boolean, on when unset
 pub const RESOLVE_BY_WORDS_CONFIG_KEY: &str = "branchdeck.resolveByWords";
+
+/// Whether a coding agent works in a worktree of its own, leased from the pool (`bd lease`), and lands each commit with
+/// `bd pick`; a git boolean, on when unset (`bd workspace`)
+pub const AGENT_LEASE_CONFIG_KEY: &str = "branchdeck.agentLease";
+
+/// Whether a coding agent starts each commit subject with the `(branch)` it belongs to; a git boolean, off when unset:
+/// a prefix reaches the remote as it is wherever Branch Deck does not build the branches (`bd workspace`)
+pub const AGENT_SUBJECT_BRANCH_CONFIG_KEY: &str = "branchdeck.agentSubjectBranch";
 
 /// The config file an entry comes from, in git's order: a later scope wins over an earlier one
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -119,6 +128,10 @@ pub struct RepositoryConfig {
   pub branch_prefix: ConfigSetting<Option<String>>,
   /// `branchdeck.resolveByWords`, on by default
   pub resolve_by_words: ConfigSetting<bool>,
+  /// `branchdeck.agentLease`, on by default
+  pub agent_lease: ConfigSetting<bool>,
+  /// `branchdeck.agentSubjectBranch`, off by default
+  pub agent_subject_branch: ConfigSetting<bool>,
   /// The repository of `origin` or of the Space mirror, which applies when `github_repository` is not set
   pub detected_github_repository: Option<DetectedGitHubRepository>,
   /// With stacked branches on, the flat branches that turning them off would name beside a branch git cannot keep them
@@ -148,6 +161,8 @@ pub enum RepositoryConfigKey {
   GithubRepository,
   BranchPrefix,
   ResolveByWords,
+  AgentLease,
+  AgentSubjectBranch,
 }
 
 impl RepositoryConfigKey {
@@ -159,13 +174,23 @@ impl RepositoryConfigKey {
       Self::GithubRepository => GITHUB_REPOSITORY_CONFIG,
       Self::BranchPrefix => BRANCH_PREFIX_CONFIG_KEY,
       Self::ResolveByWords => RESOLVE_BY_WORDS_CONFIG_KEY,
+      Self::AgentLease => AGENT_LEASE_CONFIG_KEY,
+      Self::AgentSubjectBranch => AGENT_SUBJECT_BRANCH_CONFIG_KEY,
     }
   }
 
   fn of_entry_key(key: &str) -> Option<Self> {
-    [Self::Stacks, Self::Symbols, Self::GithubRepository, Self::BranchPrefix, Self::ResolveByWords]
-      .into_iter()
-      .find(|candidate| candidate.config_key().eq_ignore_ascii_case(key))
+    [
+      Self::Stacks,
+      Self::Symbols,
+      Self::GithubRepository,
+      Self::BranchPrefix,
+      Self::ResolveByWords,
+      Self::AgentLease,
+      Self::AgentSubjectBranch,
+    ]
+    .into_iter()
+    .find(|candidate| candidate.config_key().eq_ignore_ascii_case(key))
   }
 }
 
@@ -191,6 +216,8 @@ pub enum RepositoryConfigChange {
   GithubRepository(Option<String>),
   BranchPrefix(Option<String>),
   ResolveByWords(Option<bool>),
+  AgentLease(Option<bool>),
+  AgentSubjectBranch(Option<bool>),
 }
 
 impl RepositoryConfigChange {
@@ -201,13 +228,15 @@ impl RepositoryConfigChange {
       Self::GithubRepository(_) => RepositoryConfigKey::GithubRepository,
       Self::BranchPrefix(_) => RepositoryConfigKey::BranchPrefix,
       Self::ResolveByWords(_) => RepositoryConfigKey::ResolveByWords,
+      Self::AgentLease(_) => RepositoryConfigKey::AgentLease,
+      Self::AgentSubjectBranch(_) => RepositoryConfigKey::AgentSubjectBranch,
     }
   }
 
   /// The value to write, validated as the reader takes it; None to unset. An empty text unsets too
   fn config_value(&self) -> Result<Option<String>> {
     Ok(match self {
-      Self::Stacks(value) | Self::ResolveByWords(value) => value.map(|value| value.to_string()),
+      Self::Stacks(value) | Self::ResolveByWords(value) | Self::AgentLease(value) | Self::AgentSubjectBranch(value) => value.map(|value| value.to_string()),
       Self::Symbols(value) => value.map(|mode| symbol_mode_name(mode).to_string()),
       Self::GithubRepository(value) => match value.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
         None => None,
@@ -245,7 +274,7 @@ fn validate_branch_prefix(value: &str) -> Result<&str, String> {
   Ok(value)
 }
 
-/// The five keys with their scopes, in git's order, from one `git config -z --show-scope --get-regexp`; the global
+/// The seven keys with their scopes, in git's order, from one `git config -z --show-scope --get-regexp`; the global
 /// config alone for an empty `repository_path`
 #[instrument(skip(git))]
 pub fn read_config_entries(git: &GitCommandExecutor, repository_path: &str) -> Result<Vec<ConfigEntry>> {
@@ -297,6 +326,8 @@ pub fn repository_config_from_entries(entries: &[ConfigEntry], detected_github_r
       text_setting(value.map(normalize_branch_prefix), validate_branch_prefix)
     }),
     resolve_by_words: resolve_setting(entries, RepositoryConfigKey::ResolveByWords, true, |value| bool_setting(value, true)),
+    agent_lease: resolve_setting(entries, RepositoryConfigKey::AgentLease, true, |value| bool_setting(value, true)),
+    agent_subject_branch: resolve_setting(entries, RepositoryConfigKey::AgentSubjectBranch, false, |value| bool_setting(value, false)),
     detected_github_repository,
     stacks_off_clashes: Vec::new(),
   }

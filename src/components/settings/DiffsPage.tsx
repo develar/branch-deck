@@ -1,16 +1,14 @@
-import { useId, useState } from "react"
+import { useId } from "react"
 import type { ReactNode } from "react"
-import { RotateCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { SettingRow, SettingsSection } from "@/components/settings/SettingRow"
+import { ConfigReadError, SettingRow, SettingsSection } from "@/components/settings/SettingRow"
 import { DiffLayoutButtons, WhitespaceMenu } from "@/components/shared/DiffViewToggle"
 import { InlineCode } from "@/components/shared/InlineCode"
+import { useConfigWrite } from "@/hooks/useConfigWrite"
 import { useRepositoryConfig } from "@/hooks/useRepositoryConfig"
 import type { ConfigSetting, RepositoryConfigChange, WriteScope } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
-import { notifyError } from "@/lib/errors"
-import { CONFIG_KEYS, describeFallback, overriddenReason, repositoryName, resetLabel, writeErrorTitle } from "@/lib/repository-config"
+import { CONFIG_KEYS, describeFallback, describeGlobalSource, overriddenReason, repositoryName, resetLabel, writeErrorTitle } from "@/lib/repository-config"
 import { useSelectedProjectPath } from "@/stores/repository"
 import { setDiffLigatures, setDiffSoftWraps, useDiffLigatures, useDiffSoftWraps } from "@/stores/settings/diff-view-settings"
 
@@ -90,11 +88,9 @@ function onOff(value: boolean): string {
 function resolveByWordsSource(setting: ConfigSetting<boolean>, name: string): string {
   switch (setting.scope) {
     case null:
-      return "On by default. A change goes to your global Git config, which bd reads too"
     case "global":
-      return "Set in your global Git config, which bd reads too"
     case "system":
-      return "Set in the system Git config. A change goes to your global Git config, which wins over it"
+      return describeGlobalSource(setting.scope, true)
     case "local":
       return setting.fallbackScope === null ? `Set in .git/config of ${name}, for this repository only` : `Set in .git/config of ${name}, which overrides your global Git config`
     default:
@@ -110,22 +106,15 @@ function resolveByWordsSource(setting: ConfigSetting<boolean>, name: string): st
  */
 function ResolveByWordsSetting({ path }: { path: string }) {
   const { state, retry, setConfig } = useRepositoryConfig(path)
-  const [writing, setWriting] = useState(false)
+  const config = useConfigWrite(path, setConfig)
+  const writing = config.writing
   const setting = state.status === "loaded" ? state.config.resolveByWords : null
   const name = repositoryName(path)
   const overridden = setting === null ? null : overriddenReason(setting)
 
   const write = (value: boolean | null, scope: WriteScope) => {
     const change: RepositoryConfigChange = { key: "resolveByWords", value }
-    const title = scope === "global" ? "Cannot change how every repository resolves conflicts by words" : writeErrorTitle(change, false, path)
-    setWriting(true)
-    commands
-      .setRepositoryConfig({ repositoryPath: path, change, scope })
-      .then(
-        result => (result.status === "error" ? notifyError(title, result.error) : setConfig(result.data)),
-        (error: unknown) => notifyError(title, error),
-      )
-      .finally(() => setWriting(false))
+    config.write(change, scope, scope === "global" ? "Cannot change how every repository resolves conflicts by words" : writeErrorTitle(change, false, path))
   }
 
   return (
@@ -144,15 +133,7 @@ function ResolveByWordsSetting({ path }: { path: string }) {
         onCheckedChange={checked => write(checked, setting?.localSet === true ? "local" : "global")}
       />
       <div className="flex min-h-6 flex-col justify-center gap-0.5 pl-9 text-xs text-muted-foreground">
-        {state.status === "error" && (
-          <p className="flex items-center gap-2 text-destructive" data-testid="setting-resolveByWords-error">
-            {`Cannot read the git config: ${state.message}`}
-            <Button size="xs" variant="outline" onClick={retry}>
-              <RotateCwIcon data-icon="inline-start" />
-              Retry
-            </Button>
-          </p>
-        )}
+        {state.status === "error" && <ConfigReadError testId="setting-resolveByWords-error" message={state.message} onRetry={retry} />}
         {setting !== null && overridden === null && (
           <p className="flex items-center gap-2" data-testid="setting-resolveByWords-source">
             {resolveByWordsSource(setting, name)}

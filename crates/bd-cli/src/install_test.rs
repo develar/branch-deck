@@ -4,7 +4,7 @@ use crate::fixture_test::assert_covered;
 use crate::fixture_test::{environment, run_json};
 use crate::install::refuse_temporary_location;
 #[cfg(unix)]
-use crate::install::{SKILL_DIRS, SKILL_NAME};
+use crate::install::{InstallStatus, SKILL_DIRS, SKILL_NAME, install_status};
 use bd_core::bd_command::app_binary_path;
 #[cfg(unix)]
 use bd_core::bd_command::{BdCommand, bd_command};
@@ -52,14 +52,35 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
   let (home, app) = home_with_app();
   let home = std::fs::canonicalize(home.path()).unwrap();
   let link = home.join(".local/bin/bd");
+  // the agent rules of the global config of this test alone: the defaults
+  let global = tempfile::NamedTempFile::new().unwrap();
+  let _env = test_utils::env_vars::EnvVars::set(&[("GIT_CONFIG_GLOBAL", global.path())]);
+  let mut status_environment = environment(&home);
+  status_environment.home = Some(home.clone());
+  status_environment.executable = Some(app.clone());
+  assert_eq!(install_status(&status_environment), InstallStatus { bd: None, skills: Vec::new() });
 
   let (exit_code, output) = run_install(&home, &app, &["install"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     output,
-    json!({ "schema": 2, "bd": link.to_str().unwrap(), "on_path": true, "skills": skill_files(&home), "uninstalled": false })
+    json!({
+      "schema": 2,
+      "bd": link.to_str().unwrap(),
+      "on_path": true,
+      "skills": skill_files(&home),
+      "uninstalled": false,
+      "agents": { "lease": true, "subject_branch": false }
+    })
   );
   assert_eq!(std::fs::read_link(&link).unwrap(), app);
+  assert_eq!(
+    install_status(&status_environment),
+    InstallStatus {
+      bd: Some(link.to_str().unwrap().to_string()),
+      skills: skill_files(&home),
+    }
+  );
   let (_, schema) = run_install(&home, &app, &["schema"]);
   assert_covered(&schema["outputs"]["install"], &schema["outputs"]["install"], &output, "install");
   let skill = std::fs::read_to_string(&skill_files(&home)[0]).unwrap();
@@ -68,7 +89,7 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
   assert!(skill.contains(&format!("\nallowed-tools: \"Bash({}:*)\"\n---\n", link.display())), "{skill}");
   assert!(skill.contains("run `bd help agent`"), "{skill}");
   assert!(skill.contains("run `bd help worktrees` first"), "{skill}");
-  assert!(skill.contains("Write the `(branch)` prefix of a commit's subject when you commit"), "{skill}");
+  assert!(skill.contains("Before the first edit or commit in a repository, run `bd workspace`"), "{skill}");
   assert_eq!(std::fs::read_to_string(&skill_files(&home)[1]).unwrap(), skill);
   // `bd help skill` prints the same skill
   let mut out = Vec::new();
@@ -92,6 +113,7 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
   assert_eq!((&output["skills"], &output["uninstalled"]), (&json!(skill_files(&home)), &json!(true)));
   assert!(std::fs::symlink_metadata(&link).is_err(), "the symlink is removed");
   assert!(!home.join(".claude/skills/branch-deck").exists());
+  assert_eq!(install_status(&status_environment).skills, Vec::<String>::new());
   assert!(home.join(".claude/skills").exists(), "only the skill's own directory goes");
 }
 

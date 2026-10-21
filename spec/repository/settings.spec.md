@@ -24,6 +24,8 @@ targets:
   - ../../src/components/settings/GeneralPage.tsx
   - ../../src/components/settings/AppearancePage.tsx
   - ../../src/components/settings/DiffsPage.tsx
+  - ../../src/components/settings/AgentsPage.tsx
+  - ../../src/hooks/useConfigWrite.ts
   - ../../src/components/shared/DiffViewToggle.tsx
   - ../../src/components/settings/NotificationsPage.tsx
   - ../../src/components/settings/GitHubPage.tsx
@@ -143,7 +145,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 ### Pages
 
 - The sidebar is a vertical Base UI `Tabs` list on the canvas (`TabsList variant="list"`): General, Appearance,
-  Diffs & Merge, Notifications, GitHub, YouTrack, a separator, then Repository with the name of the selected repository muted beside it (the
+  Diffs & Merge, Notifications, GitHub, YouTrack, Agents, a separator, then Repository with the name of the selected repository muted beside it (the
   name of the tab stays "Repository"), the selected one in the selected row of the tables (`bg-primary/15`). ↑ and ↓
   switch the page (`activateOnFocus`). The page is one island (`Card`), which scrolls only where a large zoom leaves it
   no room; the page left is hidden at once (`data-ending-style`), so two never stack.
@@ -194,10 +196,11 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 - YouTrack: the sign-in to the YouTrack of the issue links ([YouTrack](youtrack.spec.md)), asked again on each open of
   the window and when any window signs in or out (`youtrack-auth-changed`).
   [@test] ../../tests/e2e/youtrack/youtrack-sign-in.spec.ts (`should sign in in the browser to the YouTrack the issue links name, and sign out`, `should ask to sign in again once the sign-in expired`)
+- Agents: how coding agents work ([Agents](#agents)).
 - Repository: the settings of the selected repository ([Repository](#repository)).
 - Every page fits 720 × 540 without scrolling in its tallest state: the code of the GitHub sign-in, the warning that the
   OS refused the notifications (one line with Open System Settings), the Dock group on macOS and Linux, every line a row
-  of Repository can show.
+  of Repository can show, on Agents the installed skill, a value of the worktree config and an invalid one.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`, `should fit every page at 720 × 540 without scrolling, the Dock badge too`)
 
 ### The page an open shows
@@ -308,6 +311,35 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`with_stacks_on_the_read_names_the_flat_branches_that_would_clash`, `with_stacks_off_the_read_groups_nothing`)
   [@test] ../../src/lib/repository-config.test.ts (`says why stacked branches can't be turned off, and what to do`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should not offer to turn stacked branches off while their flat names would clash, and say what to do`)
+
+### Agents
+
+- One section, "Coding agents", "Agents such as Claude Code and Codex ask bd workspace before their first edit; what
+  you tell an agent wins" ([bd workspace](../cli/workspace.spec.md)). Its first line says whether the skill is
+  installed (`agent_cli_status`, asked on each open of the window and when it gets the focus): "Installed: agents find
+  bd (<bd>) through <the skill files>" with a copy button of the path of bd, paths under the home directory as `~`; or
+  "The agent skill is not installed" with "Install Agent CLI", the install of Help → Install Agent CLI…, whose toast
+  has no action here.
+  [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should install the agent skill from the page, and then name it`)
+- Two rules, each a switch with what it does and its git key: "Work in their own worktree" ("Each agent leases a
+  worktree and lands each commit on your branch", `branchdeck.agentLease`, on by default) and "Name the branch in each
+  commit subject" ("(auth) Add login form: the commit goes into the branch auth", `branchdeck.agentSubjectBranch`, off
+  by default). The switch is the value of every repository: it writes the global git config (`set_repository_config`
+  with `scope: "global"`), and shows the global or system value, else the default, with the line of Diffs & Merge ("On
+  by default. A change goes to your global Git config, which bd reads too", "Off by default. …", "Set in your global Git
+  config, which bd reads too", "Set in the system Git config. …"). With a repository selected, "In <repository>" has
+  Like Global · On · Off (`aria-pressed`): On and Off write `.git/config`, Like Global removes the value there; the
+  repository's value is read again when the window gets the focus.
+  [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should change a rule for every repository in the global config, and give the repository its own value`)
+  [@test] ../../src/lib/repository-config.test.ts (`says where the value of every repository comes from, and that a change goes to the global config`)
+- A value of the worktree config or of `git -c` disables the buttons of the repository with the reason of Repository
+  ("Set in config.worktree, which overrides .git/config: change it there"); the switch of every repository stays. An
+  invalid value says why. A failed write is a toast: "Cannot change where agents work in every repository", "Cannot
+  change how agents write commit subjects in every repository", or for the repository "Cannot change where agents work
+  in <repository>", "Cannot change how agents write commit subjects in <repository>". No write syncs: only agents read
+  the rules.
+  [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should disable the buttons of the repository while its worktree config sets the rule, and say so`)
+  [@test] ../../src/lib/repository-config.test.ts (`titles a failed write by what it changes`)
 
 ### Branch prefix order
 

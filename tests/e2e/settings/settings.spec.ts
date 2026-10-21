@@ -15,7 +15,8 @@ const SIGNED_OUT: GitHubAuthStatus = { signInAvailable: true, signedInAs: null, 
 /**
  * Every line a row of Settings → Repository can show at once: a source, Use Default or Use Global, the reason that
  * stacked branches can't be turned off, a value of the worktree config, an invalid value; on Diffs & Merge a value of
- * the repository with Use Global and an invalid one
+ * the repository with Use Global and an invalid one; on Agents a value of the worktree config and an invalid one of the
+ * repository
  */
 const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
   stacks: { value: true, scope: "local", localSet: true, invalid: null, fallbackValue: false, fallbackScope: "global" },
@@ -30,6 +31,8 @@ const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
     fallbackScope: null,
   },
   resolveByWords: { value: true, scope: "local", localSet: true, invalid: "maybe is not a boolean (true or false)", fallbackValue: false, fallbackScope: "global" },
+  agentLease: { value: false, scope: "worktree", localSet: true, invalid: null, fallbackValue: true, fallbackScope: "system" },
+  agentSubjectBranch: { value: false, scope: "local", localSet: true, invalid: "maybe is not a boolean (true or false)", fallbackValue: true, fallbackScope: "global" },
   detectedGithubRepository: { fullName: "acme/app", source: "spaceMirror" },
   stacksOffClashes: [
     { branch: "auth/login", beside: "auth" },
@@ -64,6 +67,10 @@ async function openTallestSettings(page: Page): Promise<Page> {
         })
         await routeCommand(window, "get_github_auth_status", () => ({ status: "ok", data: SIGNED_OUT }))
         await routeCommand(window, "get_repository_config", () => ({ status: "ok", data: TALLEST_REPOSITORY_CONFIG }))
+        await routeCommand(window, "agent_cli_status", () => ({
+          bd: "/Users/test/.local/bin/bd",
+          skills: ["/Users/test/.claude/skills/branch-deck/SKILL.md", "/Users/test/.agents/skills/branch-deck/SKILL.md"],
+        }))
         await routeCommand(window, "start_github_sign_in", () => ({
           status: "ok",
           data: { userCode: "WDJB-MJHT", verificationUri: "https://github.com/login/device", expiresIn: 900 },
@@ -92,6 +99,10 @@ async function expectEveryPageFits(window: Page, pages: string[]): Promise<void>
       await expect(window.getByTestId("setting-resolveByWords-source").getByRole("button", { name: "Use Global" })).toBeVisible()
       await expect(window.getByText("maybe is not a boolean (true or false)")).toBeVisible()
     }
+    if (name === "Agents") {
+      await expect(window.getByTestId("setting-agentLease-reason")).toBeVisible()
+      await expect(window.getByTestId("agent-skill")).toContainText("Installed")
+    }
     if (name === "Repository") {
       // the reason that stacked branches can't be turned off, a value from the global config with its button
       await expect(window.getByTestId("repository-setting-reason")).toHaveCount(2)
@@ -112,7 +123,7 @@ test.describe("Settings window", () => {
     const tabs = window.getByRole("tablist", { name: "Settings pages" })
     await expect(tabs).toHaveAttribute("aria-orientation", "vertical")
     // the page of the selected repository last, its name beside it
-    await expect(tabs.getByRole("tab")).toHaveText(["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", /^Repositoryrepo-\d+$/])
+    await expect(tabs.getByRole("tab")).toHaveText(["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Agents", /^Repositoryrepo-\d+$/])
     await expect(settingsTab(window, "General")).toBeFocused()
     await expect(window.getByTestId("settings-page-general")).toBeVisible()
 
@@ -239,8 +250,8 @@ test.describe("Settings window", () => {
   test("should fit every page at 720 × 540 without scrolling", async ({ page }) => {
     const window = await openTallestSettings(page)
     // Windows: the title bar on Appearance, no Dock badge
-    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Repository"])
-    for (const id of ["general", "appearance", "diffs", "notifications", "youtrack", "repository"]) {
+    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Agents", "Repository"])
+    for (const id of ["general", "appearance", "diffs", "notifications", "youtrack", "agents", "repository"]) {
       await window.getByTestId(`settings-tab-${id}`).click()
       await captureHtmlSnapshot(window.getByTestId("settings-window"), `settings-${id}`)
     }
@@ -256,7 +267,7 @@ test.describe("Settings window on macOS", () => {
     await expect(window.getByTestId("settings-page-github")).toBeVisible()
     await settingsTab(window, "Notifications").click()
     await expect(window.getByTestId("setting-reviewBadge")).toBeVisible()
-    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Repository"])
+    await expectEveryPageFits(window, ["General", "Appearance", "Diffs & Merge", "Notifications", "GitHub", "YouTrack", "Agents", "Repository"])
     // no title bar setting on macOS
     await settingsTab(window, "Appearance").click()
     await expect(window.getByTestId("setting-zoom")).toBeVisible()

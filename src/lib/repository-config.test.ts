@@ -14,6 +14,7 @@ import {
   stacksOffReason,
   withAppPrefix,
   writeErrorTitle,
+  describeGlobalSource,
 } from "@/lib/repository-config"
 
 const setting = (overrides: Partial<ConfigSetting<boolean>>): ConfigSetting<boolean> => ({
@@ -116,5 +117,16 @@ describe("the rows of Settings → Repository", () => {
     // an unset turns them as the global value or the default says
     expect(writeErrorTitle({ key: "stacks", value: null }, true, "/repo/app")).toBe("Cannot turn on stacked branches in app")
     expect(writeErrorTitle({ key: "githubRepository", value: "acme/app" }, false, "C:\\repo\\app")).toBe("Cannot change the GitHub repository of app")
+    expect(writeErrorTitle({ key: "agentLease", value: null }, false, "/repo/app")).toBe("Cannot change where agents work in app")
+    expect(writeErrorTitle({ key: "agentSubjectBranch", value: true }, false, "/repo/app")).toBe("Cannot change how agents write commit subjects in app")
+  })
+})
+
+describe("describeGlobalSource", () => {
+  it("says where the value of every repository comes from, and that a change goes to the global config", () => {
+    expect(describeGlobalSource(null, true)).toBe("On by default. A change goes to your global Git config, which bd reads too")
+    expect(describeGlobalSource(null, false)).toBe("Off by default. A change goes to your global Git config, which bd reads too")
+    expect(describeGlobalSource("global", false)).toBe("Set in your global Git config, which bd reads too")
+    expect(describeGlobalSource("system", true)).toBe("Set in the system Git config. A change goes to your global Git config, which wins over it")
   })
 })

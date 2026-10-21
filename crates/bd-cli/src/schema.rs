@@ -4,6 +4,7 @@ use bd_core::output::SchemaVersion;
 use bd_core::sync_command::SyncOutput;
 use bd_core::version::VersionOutput;
 use bd_lease::lease_command::{LeaseAdoptOutput, LeaseCleanOutput, LeaseGetOutput, LeaseReturnOutput, LeaseStatusOutput};
+use bd_lease::workspace_command::WorkspaceOutput;
 use bd_remote::push_command::PushOutput;
 use bd_remote::request_review_command::RequestReviewOutput;
 use bd_remote::robot_command::RobotOutput;
@@ -67,6 +68,7 @@ pub fn schema_output() -> SchemaOutput {
       ("update_abort".to_string(), schema_for!(UpdateAbortOutput)),
       ("update_status".to_string(), schema_for!(UpdateStatusOutput)),
       ("version".to_string(), schema_for!(VersionOutput)),
+      ("workspace".to_string(), schema_for!(WorkspaceOutput)),
     ]),
   }
 }

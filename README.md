@@ -167,7 +167,9 @@ bd lease get --holder lane-1                            # a worktree of its own 
 ```
 
 Help → Install Agent CLI… (or `bd install`) puts `bd` on `PATH` and a skill into `~/.claude/skills` and
-`~/.agents/skills`, so agents know when to use it; `bd help agent` prints the workflow. On macOS and Linux `bd` is
+`~/.agents/skills`, so agents know when to use it; `bd help agent` prints the workflow. Agents then work in a worktree
+of their own and land each commit on your branch, and can name its branch in the subject: both are yours to switch in
+Settings → Agents ([bd workspace](spec/cli/workspace.spec.md)). On macOS and Linux `bd` is
 the app binary (`branch-deck cli`), on Windows `bd.exe` next to it. See the [Agent CLI](docs/guidelines/agent-cli.md).
 
 ## Compared To

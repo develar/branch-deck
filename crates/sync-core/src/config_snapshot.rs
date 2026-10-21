@@ -15,8 +15,9 @@ use history_rewrite::stack::STACKS_CONFIG_KEY;
 use std::collections::HashMap;
 use tracing::instrument;
 
-/// The five `branchdeck.*` keys of `repository_config` and every `branch.<name>.description`, as `--get-regexp`
-/// matches them: the section and the key lowercase, the branch name as it is
+/// The five `branchdeck.*` keys of `repository_config` that an operation reads (the agent keys only `bd workspace` and
+/// Settings read) and every `branch.<name>.description`, as `--get-regexp` matches them: the section and the key
+/// lowercase, the branch name as it is
 const SNAPSHOT_REGEXP: &str = r"^(branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords)|branch\..+\.description)$";
 
 /// The keys of one `git config -z --show-scope --get-regexp`, in git's order (a later entry wins)

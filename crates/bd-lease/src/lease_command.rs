@@ -145,8 +145,7 @@ impl LeaseContext {
   /// git (as `RepoContext::resolve` finds it, counting its processes for `bd -v`) and the worktree of `directory`,
   /// relative to the current directory
   pub fn resolve(environment: &Environment, directory: Option<&Path>) -> Result<Self, CliError> {
-    let info = GitInfo::discover_for_cli(environment.git.as_deref()).map_err(|e| CliError::new(ErrorCode::GitNotFound, e))?;
-    let git = GitCommandExecutor::with_info(info).with_process_stats("bd");
+    let git = counted_git(environment)?;
     let directory = directory.map_or_else(|| environment.cwd.clone(), |directory| environment.cwd.join(directory));
     if !directory.is_dir() {
       return Err(CliError::new(ErrorCode::NotARepository, format!("No such directory: {}", directory.display())));
@@ -161,6 +160,12 @@ impl LeaseContext {
       maintenance_timeout: environment.maintenance_timeout,
     })
   }
+}
+
+/// The git of bd (`BD_GIT`, `PATH`, Homebrew's), counting its processes; `git_not_found` without one
+pub fn counted_git(environment: &Environment) -> Result<GitCommandExecutor, CliError> {
+  let info = GitInfo::discover_for_cli(environment.git.as_deref()).map_err(|e| CliError::new(ErrorCode::GitNotFound, e))?;
+  Ok(GitCommandExecutor::with_info(info).with_process_stats("bd"))
 }
 
 /// `bd lease get`

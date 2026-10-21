@@ -66,6 +66,7 @@ patronus = { path = "../crates/patronus" }
 github = { path = "../crates/github" }
 youtrack = { path = "../crates/youtrack" }
 bd-cli = { path = "../crates/bd-cli" }
+bd-lease = { path = "../crates/bd-lease" }
 bd-core = { path = "../crates/bd-core" }
 tokio.workspace = true
 

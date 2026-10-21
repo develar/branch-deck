@@ -15,6 +15,7 @@ use bd_core::output::write_json;
 use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
 use bd_lease::lease_command::{LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, lease_adopt, lease_clean, lease_get, lease_return, lease_status};
+use bd_lease::workspace_command::workspace;
 use bd_remote::push_command::{PushArgs, push};
 use bd_remote::request_review_command::{RequestReviewArgs, request_review};
 use bd_remote::robot_command::{RobotArgs, robot};
@@ -115,6 +116,11 @@ enum Command {
   /// while it has unlanded commits, local changes or a process in it. The state is in
   /// `$GIT_COMMON_DIR/branch-deck/leases.json`
   Lease(LeaseArgs),
+  /// Where a coding agent works and how it writes a commit subject: run it before the first edit. Read only
+  ///
+  /// `branchdeck.agentLease` (on by default): work in a lease of your own and land each commit with `bd pick`;
+  /// `branchdeck.agentSubjectBranch` (off by default): start each subject with `(branch)`. `next` names what to run
+  Workspace,
   /// Fold the `fixup!`, `squash!` and `amend!` commits into their targets, keeping HEAD's tree
   Fold(FoldArgs),
   /// Move the changes of one file from one commit into another, keeping HEAD's tree
@@ -294,6 +300,7 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| print(out, &output)),
     Command::Park(args) => context().and_then(|context| park(&context, args)).and_then(|output| print(out, &output)),
     Command::Unpark(args) => context().and_then(|context| unpark(&context, args)).and_then(|output| print(out, &output)),
+    Command::Workspace => workspace(environment, options.repo).and_then(|output| print(out, &output)),
     Command::Schema => print(out, &schema_output()),
     Command::Version => print(out, &version(environment)),
     Command::Install(args) => install(environment, args).and_then(|output| print(out, &output)),
