@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.27.0](https://github.com/develar/branch-deck/compare/v0.26.0...v0.27.0) (2026-10-21)
+
+
+### Features
+
+* **bd:** bd workspace and Settings → Agents: agents work in a lease, the branch in the subject on request ([ea7d408](https://github.com/develar/branch-deck/commit/ea7d40864679ac653f7a9a9b153acaf5febee18d))
+* **branch:** drag a branch to park, unpark, stack on or unstack it ([5309a0c](https://github.com/develar/branch-deck/commit/5309a0c74b5dee02350f617138a3d751325e127e))
+* **patronus:** the new Patronus API behind Settings → Patronus: the progress of a robot in one request, the merge profile in the list ([eb7c4a0](https://github.com/develar/branch-deck/commit/eb7c4a01f1fbb2d9f7e79a626683ab03481403ed))
+* **pull-requests:** the text of a new pull request keeps the issue key and the bodies of its commits ([37477ab](https://github.com/develar/branch-deck/commit/37477ab54fa350d26a7829798fb0effe43bb06d4))
+
+
+### Bug Fixes
+
+* **branch:** the targets of a drag in one bar in view, no row moves when it starts ([03c52b6](https://github.com/develar/branch-deck/commit/03c52b6f370a0cebb5e43ad85a4faa6e95e8a1ac))
+
 ## [0.26.0](https://github.com/develar/branch-deck/compare/v0.25.0...v0.26.0) (2026-10-20)
 
 
