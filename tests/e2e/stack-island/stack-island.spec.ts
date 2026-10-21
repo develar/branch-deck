@@ -168,7 +168,7 @@ test.describe("Stack island", () => {
     await expect(push).toBeDisabled()
     await expect(push).toHaveAccessibleName("Push with Children")
     await push.hover()
-    await expect(page.getByTestId("stack-island-push-description")).toContainText("A Safe Push of runtime is running: it lands air with it")
+    await expect(page.getByTestId("stack-island-push-description")).toContainText("A Safe Push of runtime is running: it lands 2 commits of air with it")
     await page.mouse.move(0, 0)
     await expect(page.getByTestId("stack-island-push-description")).toBeHidden()
     await expect(air.getByTestId("stack-island-actions").getByTestId("next-step-slot")).toHaveCount(0)
@@ -289,7 +289,7 @@ test.describe("Stack island", () => {
     const description = page.getByTestId("stack-island-push-description")
     await expect(push).toHaveAttribute("aria-disabled", "true")
     await push.hover()
-    await expect(description).toContainText("A Safe Push of side-test is running: it lands air with it")
+    await expect(description).toContainText("A Safe Push of side-test is running: it lands 2 commits of air with it")
     await page.mouse.move(0, 0)
 
     // both merged: nothing of the stack is left to push, its stack branch neither, though its remote lacks commits of it

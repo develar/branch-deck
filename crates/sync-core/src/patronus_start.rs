@@ -97,6 +97,54 @@ pub struct LandingRobot<'a> {
   pub robot: &'a PatronusRobot,
   /// The robot of the whole stack of the root `branch`, which lands every branch of it
   pub whole_stack: bool,
+  /// The commits of the landed branch the robot's commit has, as its content told (`robot_spans`); None when only the
+  /// stack as it is now tells
+  pub carried: Option<CarriedCommits>,
+}
+
+/// The commits of a branch a running robot lands with it (`BranchSpan`): by id, newest first, and those of them it has
+/// in an earlier version (amended since it started)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CarriedCommits {
+  pub commits: Vec<String>,
+  pub amended: Vec<String>,
+}
+
+/// How many commit ids a refusal lists
+const LISTED_COMMITS: usize = 3;
+
+/// What a robot lands of `subject`, as a refusal says it: "login" when only the stack tells, else "2 commits of login"
+pub fn carried_words(subject: &str, carried: Option<&CarriedCommits>) -> String {
+  match carried {
+    None => subject.to_string(),
+    Some(carried) if carried.commits.len() == 1 => format!("1 commit of {subject}"),
+    Some(carried) => format!("{} commits of {subject}", carried.commits.len()),
+  }
+}
+
+/// The ids of the carried commits for `bd`, after the sentence: " (1a2b3c4d, 5e6f7a8b amended since)", the first three;
+/// empty when only the stack tells
+pub fn carried_ids(carried: Option<&CarriedCommits>) -> String {
+  let Some(carried) = carried else {
+    return String::new();
+  };
+  let mut listed: Vec<String> = carried
+    .commits
+    .iter()
+    .take(LISTED_COMMITS)
+    .map(|id| {
+      let short = &id[..id.len().min(8)];
+      if carried.amended.contains(id) {
+        format!("{short} amended since")
+      } else {
+        short.to_string()
+      }
+    })
+    .collect();
+  if carried.commits.len() > LISTED_COMMITS {
+    listed.push("…".to_string());
+  }
+  format!(" ({})", listed.join(", "))
 }
 
 impl LandingRobot<'_> {
@@ -119,6 +167,7 @@ pub fn find_landing_stack<'a>(stack_root: Option<&str>, stack_robot_of: impl Fn(
     branch: root.to_string(),
     robot,
     whole_stack: true,
+    carried: None,
   })
 }
 
@@ -131,6 +180,7 @@ pub fn find_landing_member<'a, 'n>(members: impl IntoIterator<Item = &'n str>, r
       branch: name.to_string(),
       robot,
       whole_stack: false,
+      carried: None,
     })
   })
 }
@@ -149,6 +199,7 @@ pub fn find_landing_ancestor<'a>(
         branch: name.clone(),
         robot,
         whole_stack: false,
+        carried: None,
       });
     }
     span_of(name)
@@ -156,7 +207,8 @@ pub fn find_landing_ancestor<'a>(
 }
 
 /// The first branch of `order` (parents first) built on `branch_name` whose robot is active and pushes into the
-/// target: it lands `branch_name` with it
+/// target: it lands `branch_name` with it. `ancestors_of` the robot's branch are the branches its commit lands: by
+/// content after a restack (`robot_spans`), else the stack as it is now
 pub fn find_landing_descendant<'a, 'n>(
   branch_name: &str,
   order: impl IntoIterator<Item = &'n str>,
@@ -169,6 +221,7 @@ pub fn find_landing_descendant<'a, 'n>(
       branch: name.to_string(),
       robot,
       whole_stack: false,
+      carried: None,
     })
   })
 }
@@ -193,7 +246,7 @@ pub const fn push_mode_name(mode: PatronusPushMode) -> &'static str {
 /// Why a start is not possible, in the words of the app; None when it is. `landing_ancestor` is a robot that lands a part
 /// of what the start would land (an ancestor; for the whole stack, a branch of it), `landing_descendant` one that lands
 /// all of it with more (a branch built on it, or the whole stack); `subject` names what the start lands ("auth", "the
-/// whole auth stack")
+/// whole auth stack"); the commits of it a descendant lands are counted and named by their ids (`carried_words`, `carried_ids`)
 pub fn start_refusal(
   robot: Option<&PatronusRobot>,
   local_tip: Option<&str>,
@@ -216,9 +269,11 @@ pub fn start_refusal(
   }
   if let Some(landing) = landing_descendant {
     return Some(format!(
-      "A {} of {} is running: it lands {subject} with it",
+      "A {} of {} is running: it lands {} with it{}",
       push_mode_name(landing.robot.push_mode),
-      landing.subject()
+      landing.subject(),
+      carried_words(subject, landing.carried.as_ref()),
+      carried_ids(landing.carried.as_ref())
     ));
   }
   None

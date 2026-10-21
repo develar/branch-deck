@@ -107,6 +107,15 @@ describe("landingSegments", () => {
     ).toBe(lanes.get("auth"))
   })
 
+  it("starts below a root the robot's commit doesn't have: a restack placed it there after the start", () => {
+    const rows = stackRows(STACK)
+    // the span of oauth holds login only: the line runs from login down to oauth, auth is left alone
+    expect(Object.fromEntries(landingSegments(rows, new Map([["login", "oauth"]])))).toEqual({
+      oauth: { up: true, fork: false, down: false, through: [] },
+      login: { up: false, fork: false, down: true, through: [] },
+    })
+  })
+
   it("curves into a side branch whose robot lands its parent, and leaves the main line alone", () => {
     const rows = stackRows(STACK)
     expect(Object.fromEntries(landingSegments(rows, new Map([["auth", "session"]])))).toEqual({

@@ -411,6 +411,19 @@ pub async fn get_robot_landings(
   .await
 }
 
+/// What the running robots of the request land of the branches as they are now, by the real core on the test repository
+pub async fn get_robot_spans(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_types::robot_landing::GetRobotLandingsParams>,
+) -> CommandResult<Vec<sync_types::robot_landing::RobotSpan>> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("read what the running robots land", move || {
+    sync_core::robot_landing::robot_spans(&git_executor, &params.repository_path, &params.branch_prefix, &params.baseline_branch, &params.robots)
+  })
+  .await
+}
+
 /// Without the object cache, as every command of the mock server; nothing cancels it
 pub async fn find_conflict_fix(
   State(state): State<Arc<AppState>>,

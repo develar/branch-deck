@@ -459,9 +459,11 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   an ancestor (`findLandingAncestor`): the branch carries the ancestor's commits, two robots would land them ("A Safe
   Push of login is running: wait until it merges"), also on a side branch built on an ancestor, which lands that
   ancestor (side-fix built on bazel waits for the Safe Push of runtime, built on bazel too); and while a robot that
-  pushes runs on a branch built on it (`findLandingDescendants`), which lands the branch ("A Safe Push of oauth is
-  running: it lands login with it", the reason before the ancestor's); a dry run waits for neither. `bd safe-push` asks
+  pushes runs on a branch built on it (`findLandingDescendants`) whose commit has commits of the branch, which lands
+  them ("A Safe Push of oauth is running: it lands 1 commit of login with it", the reason before the ancestor's; what
+  a robot lands, [below](#pushing-into-a-branch-whose-safe-push-runs)); a dry run waits for neither. `bd safe-push` asks
   the same (`find_landing_ancestor`, `is_start_blocked` with the remote head of an up-to-date remote status).
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_push_of_a_parent_restacked_below_a_running_safe_push_goes_on`)
   Then the button and the menu items are disabled, and their hover says the reason. The row button is disabled while
   the row runs an inline action or a start of the branch runs. After that the next step disables a Safe Push that
   Patronus would fail (the approvals that count missing, a draft, a pull request into another base, landed or merged),
@@ -1065,11 +1067,12 @@ explicit choice of the user, offered only where the approvals count in a pull re
 ### Pushing into a branch whose Safe Push runs
 
 - A branch is held (`PushHold`) while a Safe Push that pushes into the target runs on it (started on the branch, not of
-  a temporary ref) or on a branch built on it, which lands it ("lands with oauth"). A push of a held branch won't land:
-  Patronus merges the commit it took at the start, and a push into its own branch fails it at the end ("branch was
-  modified"). A dry run and a canceling robot hold nothing. Every Safe Push in a stack holds its root. The Safe Push of
-  the whole stack (on its stack branch) holds every branch of the stack: "A Safe Push of the whole air stack is running:
-  it lands auth with it" ([Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)). A branch a merged Safe Push
+  a temporary ref) or on a branch built on it whose commit has commits of it, which lands them ("lands with oauth"). A
+  push of a held branch won't land: Patronus merges the commit it took at the start, and a push into its own branch
+  fails it at the end ("branch was modified"). A dry run and a canceling robot hold nothing. The Safe Push of the whole
+  stack (on its stack branch) holds every branch of the stack its commit has: "A Safe Push of the whole air stack is
+  running: it lands 1 commit of auth with it" ([Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)). The
+  reason counts the commits of the branch the robot lands once that is told, as `bd` does. A branch a merged Safe Push
   landed whole ([Merged](#merged)), the branch it ran on included, is held too, before any other hold, until the update
   archives it: "Landed in master with oauth: nothing of it is left to push", "Merged by Patronus: nothing of it is left
   to push"; one with commits added after the landed ones is not: they are work for the remote. A landed branch is only
@@ -1082,6 +1085,25 @@ explicit choice of the user, offered only where the approvals count in a pull re
   master with deploy and side-test: nothing of it is left to push", "Merged by Patronus: …" of its own robot alone,
   `formatLandedWholeReason`). Push with Children leaves it then, and its push alone (`pushWholeStack`: the restart of its
   robot, Request Review… and the creation of its pull request) is refused with that reason.
+- What a running robot lands is what its commit has, not the stack as it is now: while it took the branches as they
+  are (it runs on the tip of its branch, or on a commit of it with new ones on top) every branch it is built on, with
+  all their commits; after a restack or an amend below its commit, which gives the branches new copies, the content
+  tells (`get_robot_spans`, the walks of [Robot landing](../../docs/design/git-operations.md#robot-landing)): a branch
+  is held while the robot's commit has a commit of it, the same, a copy on a newer base or an earlier version (amended
+  since). A parent a restack placed below the robot's branch after its start has none: its push, its Create Pull
+  Request…, its Safe Push and its Dry Run go on, its row says no "lands with", and the span of the graph and the count
+  of the island start below it. A robot of a temporary ref is asked for the branch it was matched to by the tip. Until
+  the answer comes, and when the repository can't tell (it lacks the robot's commit: started on another machine,
+  pruned), the stack as it is now holds, the number of commits not named. A push decides on its holds after the answer
+  for the branches as the sync leaves them (`whenRobotSpansKnown`). Not looked for: a commit moved out of the robot's
+  branch into a branch that is no ancestor of it, as the landing of a merged robot doesn't.
+  [@test] ../../src/lib/patronus.test.ts (`asks what a running robot lands by content once a restack below its branch gave the branches new copies, and holds only what its commit has`)
+  [@test] ../../src/stores/patronus.test.ts (`holds only the ancestors the commit of a running Safe Push has, once its content tells`)
+  [@test] ../../src/lib/git/push.test.ts (`pushes a parent a restack placed below a running Safe Push once the content of its commit tells it has none of it`)
+  [@test] ../../src/lib/stack-lanes.test.ts (`starts below a root the robot's commit doesn't have: a restack placed it there after the start`)
+  [@test] ../../crates/sync-core/src/robot_landing_test.rs (`a_running_robot_at_the_tip_lands_the_branch_and_what_it_is_built_on`, `a_parent_restacked_below_a_running_robot_is_not_in_its_span`, `a_parent_split_out_of_the_commits_of_a_running_robot_is_in_its_span`, `an_amended_commit_below_a_running_robot_is_in_its_span_as_an_earlier_version`, `a_commit_moved_into_a_branch_that_is_no_ancestor_is_not_in_the_span`, `a_missing_source_leaves_the_span_unknown`)
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`the_span_of_a_running_robot_after_a_restack`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a branch a restack placed below a running Safe Push after it started, and hold what its commit has`)
   [@test] ../../src/lib/patronus.test.ts (`holds the push of a branch whose Safe Push runs, or that a running Safe Push of a branch built on it lands; not for a dry run or a cancel`, `holds the push of a branch a merged Safe Push landed, before a robot of its own`, `says why a group of branches has nothing left once every one of them landed whole: who landed them, in the order they merged`)
   [@test] ../../src/stores/patronus.test.ts (`holds a branch whose Safe Push runs and the ancestors it lands; not for a dry run or a cancel`, `holds every branch the whole-stack Safe Push lands`, `holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`, `holds the stack branch once merged Safe Pushes landed every branch of the whole stack, and says who landed them`)
   [@test] ../../src/lib/git/push.test.ts (`is held once merged Safe Pushes landed every branch of the stack: Push with Children leaves it, its push alone says why`)
@@ -1090,7 +1112,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
 - A held branch offers no push: the place of the row's push button stays empty, as its Safe Push slot does; its Status
   cell says why (the robot chip, "lands with oauth", "Landed with oauth"). P does nothing; Push in the menu, the preview footer, the outgoing
   overview and the review window is disabled with the reason: "A Safe Push of auth is running: wait until it merges, or
-  restart it on the current branch", "A Safe Push of oauth is running: it lands auth with it". The description of the
+  restart it on the current branch", "A Safe Push of oauth is running: it lands 1 commit of auth with it". The description of the
   preview's push offers what it names, from the robot's actions (`getGatedRobotActions`): "Restart Safe Push" of its own
   robot and "Open in Patronus" of the robot that holds it (`push-hold-actions`). The "to push" counts leave it out (the
   header, the stack chip, the island, the filter chip).
@@ -1117,7 +1139,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
   Push of auth running on 1a2b3c4." Its push cancels the robot at the first branch that robot holds (the branch, or an
   ancestor the stack push takes along), never restarts it; the start then starts the one robot of the branch. Without
   a push (the remote branch has the commits by content) the start cancels it itself. The push of "Create Pull
-  Request…" replaces nothing: it is refused as any push. A Dry Run of a held branch that needs a push is refused with
+  Request…" replaces nothing: it is refused as any push, and goes on as any push for a branch the robot's commit
+  doesn't have. A Dry Run of a held branch that needs a push is refused with
   why: a dry run doesn't replace the Safe Push.
   [@test] ../../src/lib/git/push.test.ts (`cancels the running Safe Push for the start that replaces it, and never restarts it`, `cancels the robot the start replaces at the first branch it holds, and pushes its ancestors with it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should cancel the robot for a new Safe Push from the popover, and not restart it`, `should cancel the robot it replaces without a push when the remote branch has the commits`)

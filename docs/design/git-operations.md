@@ -2134,9 +2134,11 @@ GitHub repository and the `--repo` of `gh pr create`), and the committed Space s
    stack branch the remote lacks costs one GitHub search under the lock (`list_pull_requests`), whose listing the
    retargets after the push reuse: the search moves, none is added.
    On Space it then reads the user's robots once (best effort: off Space, without a token or
-   an answer, nothing is held) and refuses (`robot_running`) a named branch whose Safe Push runs on it or on a branch
-   built on it, which lands it, or on the stack branch of its stack; an ancestor such a robot lands stays out of the
-   push. A branch a merged Safe Push landed whole is refused as `landed`; with `--with-children` it is only left out,
+   an answer, nothing is held) and refuses (`robot_running`) a named branch whose Safe Push runs on it, or one of a
+   branch built on it or of the stack branch of its stack whose commit has commits of it ("Robot span": no process for
+   a robot at the tip the sync left), naming the branch the push moves or the commits the robot lands; an ancestor such
+   a robot lands stays out of the push, and so does the stack branch of `--with-children` while the Safe Push of the
+   whole stack runs on it. A branch a merged Safe Push landed whole is refused as `landed`; with `--with-children` it is only left out,
    and so is the stack branch of a stack every branch of which landed, the push refused only when nothing else is
    left. A parked branch, or one built on a parked branch (`sync_core::parked::parked_state` on the report's grouping),
    is refused as `parked` when named; with `--all` or `--with-children` it is only left out (`skipped`, `code:
@@ -2581,6 +2583,31 @@ commit map for many robots at once.
 
 The app asks only for a robot whose hashes don't tell (its commit is not a commit of its branch as the table has it,
 nor the stack branch as it is), once per state of the branches (`landingKey`), never while a sync runs.
+
+#### Robot span
+
+Read-only. What a running robot lands of the branches as they are now, so that a push is held only for the commits
+the robot's commit has ([Patronus](../../spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)):
+`robot_spans` and `robot_spans_of_grouped` (`crates/sync-core/src/robot_landing.rs`), for the app (`get_robot_spans`)
+and for the holds of `bd push` and `bd safe-push` (`read_robot_spans` in `crates/bd-remote/src/push_hold.rs`). The same
+requests and phases 1 to 3 as the robot landing, one call for every active robot that pushes into the target: the robot
+of each branch with ancestors, matched as the rows match it (also a robot of a temporary ref, by the tip, asked for that
+branch), and of each whole stack. Phase 4 reduces otherwise: a branch is in the span while one of its commits is
+`tested`, `rebased` or `changed` (the robot has an earlier version: an amend below its commit), with those commits and
+the amended ones among them. A parent a restack placed below the robot's branch after the start has only `added`
+commits: it is not in the span, and its push goes on. A request the repository can't answer (a missing source, a gone
+ref) has no span (`branches: null`): the stack as it is now holds.
+
+A robot at the tip the sync left needs no process (`AtSource`): every HEAD commit with a mapping note is the robot's.
+That holds only for the branches the sync built into that ref, which the callers pass (the ancestors as the same sync
+placed them). After a restack `bd push` adds one `cat-file --batch-check` and the two walks per such robot, and a
+`same_changes` only for a copy that is no patch-equivalent of the robot's (`process_budget_test.rs`:
+`the_span_of_a_running_robot_after_a_restack`; `a_push_beside_a_robot_started_before_a_restack` in bd-cli). A git
+error leaves the spans empty: the stack as it is now holds. The app asks as for the landings (`spanRequestsIn`, by
+`landingKey`, never while a sync runs), and a push waits for the answer first (`whenRobotSpansKnown`).
+
+Not looked for: a commit moved out of the robot's branch into a branch that is no ancestor of it, as the robot landing
+doesn't look for it either.
 
 ### Index policy
 

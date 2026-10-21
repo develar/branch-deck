@@ -248,8 +248,10 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   landing span, from the root of the stack down to the branch whose running Safe Push lands the branches it is built
   on, must be drawn in the colour of the robot: the line down from each branch of the span, the lanes passing the side
   branches between them, and the line up or the fork curve into the next one, also beside the expanded commits and the
-  inline forms (`landingSegments`, [Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)).
-  [@test] ../../src/lib/stack-lanes.test.ts (`draws the span from the root down to the branch whose robot lands it, past the side branches between`, `curves into a side branch whose robot lands its parent, and leaves the main line alone`, `stops where the graph doesn't connect the branches of a span`)
+  inline forms (`landingSegments`, [Patronus](patronus.spec.md#starting-a-safe-push-or-a-dry-run)). The span holds the
+  branches the robot's commit has: a root a restack placed below the branch after the start is left out, the line
+  starts below it ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)).
+  [@test] ../../src/lib/stack-lanes.test.ts (`draws the span from the root down to the branch whose robot lands it, past the side branches between`, `curves into a side branch whose robot lands its parent, and leaves the main line alone`, `stops where the graph doesn't connect the branches of a span`, `starts below a root the robot's commit doesn't have: a restack placed it there after the start`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
 - The graph must answer "what is this branch built on" where the question comes up: the path from the root of the
   stack down to a branch (`ancestorSegments`: the line down from each ancestor, the lanes passing the side branches

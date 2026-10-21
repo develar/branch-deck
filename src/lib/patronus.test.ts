@@ -40,6 +40,8 @@ import {
   landingKey,
   landingRequestOf,
   needsRobotAttention,
+  robotSpanOf,
+  spanRequestOf,
 } from "@/lib/patronus"
 import { testLanding } from "@/lib/test-robot"
 import type { Branch, RemoteStatus, StackBranch } from "@/stores/branch-sync"
@@ -387,6 +389,11 @@ describe("actions", () => {
     const span = findPushHold("auth", undefined, { branch: "oauth", robot: oauth })
     expect(span).toEqual({ kind: "span", branch: "oauth", robot: oauth })
     expect(formatPushHoldReason("auth", span!)).toBe("A Safe Push of oauth is running: it lands auth with it")
+    // once the number of its commits the robot lands is told, the reason names it, as `bd` does
+    const counted = findPushHold("auth", undefined, { branch: "oauth", robot: oauth, commits: 2 })
+    expect(counted).toEqual({ kind: "span", branch: "oauth", robot: oauth, commits: 2 })
+    expect(formatPushHoldReason("auth", counted!)).toBe("A Safe Push of oauth is running: it lands 2 commits of auth with it")
+    expect(formatLandingReason("auth", { branch: "oauth", robot: oauth, commits: 1 })).toBe("A Safe Push of oauth is running: it lands 1 commit of auth with it")
     expect(findPushHold("auth", undefined, { branch: "oauth", robot: { ...oauth, status: "canceling" } })).toBeNull()
     // its own robot first
     expect(findPushHold("IJPL-1", running, { branch: "oauth", robot: oauth })?.kind).toBe("own")
@@ -674,6 +681,53 @@ describe("findLandedBy", () => {
     expect(findLandedBy(byId(piece), { ...answered, branchOf: name => amended[name] }).size).toBe(0)
     // the hashes tell: nothing is asked
     expect(landingRequestOf({ ...piece, sourceRevision: "oauth-tip" }, source)).toBeNull()
+  })
+
+  it("asks what a running robot lands by content once a restack below its branch gave the branches new copies, and holds only what its commit has", () => {
+    // env was placed below auth after the Safe Push of oauth started: auth, login and oauth are new copies
+    const env = branch("env", null)
+    const restacked = [env, branch("auth", "env", { commits: [{ hash: "auth-copy", originalHash: "auth-original" } as Branch["commits"][number]] }), login, oauth]
+    const byName = Object.fromEntries(restacked.map(it => [it.name, it]))
+    const source = { branchOf: (name: string) => byName[name], stackOf: () => undefined }
+    const running = robot({ id: "oauth", branchName: "oauth", sourceRevision: "oauth-old" })
+    const candidates = ["env", "auth", "login"]
+    const request = spanRequestOf(running, "oauth", source)
+    expect(request).toEqual({ robotId: "oauth", branchName: "oauth", stackRoot: null, sourceRevision: "oauth-old", branches: ["env", "auth", "login", "oauth"], tip: null })
+    // until the content tells: the stack as it is now, the numbers not known
+    expect(robotSpanOf(running, "oauth", candidates, source)).toEqual({ names: candidates, counts: null })
+    const told = {
+      ...source,
+      spans: {
+        [landingKey(request!, source)]: {
+          robotId: "oauth",
+          branches: [
+            { branch: "auth", commits: ["auth-original"], amended: [] },
+            { branch: "login", commits: ["login-tip"], amended: [] },
+            { branch: "oauth", commits: ["oauth-tip"], amended: [] },
+          ],
+        },
+      },
+    }
+    expect(robotSpanOf(running, "oauth", candidates, told)).toEqual({
+      names: ["auth", "login"],
+      counts: new Map([
+        ["auth", 1],
+        ["login", 1],
+        ["oauth", 1],
+      ]),
+    })
+    // the repository can't tell (the robot's commit is missing): the stack as it is now
+    expect(robotSpanOf(running, "oauth", candidates, { ...source, spans: { [landingKey(request!, source)]: { robotId: "oauth", branches: null } } }).names).toEqual(candidates)
+    // the hashes tell: nothing is asked, every candidate with all its commits
+    const atTip = { ...running, sourceRevision: "oauth-tip" }
+    expect(spanRequestOf(atTip, "oauth", source)).toBeNull()
+    expect(robotSpanOf(atTip, "oauth", candidates, source).counts?.get("auth")).toBe(1)
+    // a robot of a temporary ref at the pushed tip of the branch it was matched to is asked for that branch
+    expect(spanRequestOf({ ...running, branchName: null }, "oauth", source)?.branchName).toBe("oauth")
+    // a dry run lands nothing, a root lands only itself, a merged robot is no running one
+    expect(spanRequestOf({ ...running, pushMode: "dryRun" }, "oauth", source)).toBeNull()
+    expect(spanRequestOf({ ...running, branchName: "env" }, "env", source)).toBeNull()
+    expect(spanRequestOf({ ...running, status: "success", finishTime: 200 }, "oauth", source)).toBeNull()
   })
 
   it("takes the landing that left the fewest commits after a branch, of equals the first merge", () => {

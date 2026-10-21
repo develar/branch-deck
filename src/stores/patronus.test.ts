@@ -9,6 +9,7 @@ import type {
   PollPatronusRobotsParams,
   PostPatronusCommandParams,
   RobotLanding,
+  RobotSpan,
 } from "@/lib/bindings"
 import { formatPushHoldReason } from "@/lib/patronus"
 import { FAILURE_PROBLEMS_WAIT_MS, formatFailedRobotToast, resetFailingAnnouncements, watchFailingRobots } from "@/lib/patronus-failing"
@@ -27,6 +28,7 @@ import {
   getLandedBy,
   getLandedWithChildrenReason,
   getLandingBranchCount,
+  getLandingSpan,
   getPushHold,
   getStackBranchHoldReason,
   getStackLandedReason,
@@ -65,6 +67,8 @@ const { patronus, branches } = vi.hoisted(() => ({
     replyCalls: 0,
     landingCalls: [] as GetRobotLandingsParams[],
     landings: [] as RobotLanding[],
+    spanCalls: [] as GetRobotLandingsParams[],
+    spans: [] as RobotSpan[],
     commitMapCalls: [] as GetRobotCommitMapParams[],
   },
   branches: { current: {} as Record<string, unknown>, stacks: {} as Record<string, unknown> },
@@ -104,6 +108,10 @@ vi.mock("@/lib/bindings", () => ({
     getRobotLandings: async (params: GetRobotLandingsParams) => {
       patronus.landingCalls.push(params)
       return { status: "ok", data: patronus.landings }
+    },
+    getRobotSpans: async (params: GetRobotLandingsParams) => {
+      patronus.spanCalls.push(params)
+      return { status: "ok", data: patronus.spans }
     },
     getPatronusRobotProblems: async (params: { robotId: string }) => {
       patronus.problemCalls.push(params.robotId)
@@ -272,6 +280,8 @@ beforeEach(() => {
   patronus.replyCalls = 0
   patronus.landingCalls = []
   patronus.landings = []
+  patronus.spanCalls = []
+  patronus.spans = []
   patronus.commitMapCalls = []
   robotCoverageStore.setState({ maps: {} })
   notices.pullRequestRefreshes = []
@@ -309,7 +319,7 @@ describe("holds", () => {
       ["span", "air", true],
       null,
     ])
-    expect(formatPushHoldReason("bazel", holds[1]!)).toBe("A Safe Push of the whole air stack is running: it lands bazel with it")
+    expect(formatPushHoldReason("bazel", holds[1]!)).toBe("A Safe Push of the whole air stack is running: it lands 1 commit of bazel with it")
     // and its stack branch: a push into it would fail the robot at the end
     expect(getStackBranchHoldReason("air")).toBe("A Safe Push of the whole air stack is running: wait until it merges, or restart it on the current stack")
     // the robot of the whole stack is no branch's, not even the root's
@@ -937,6 +947,55 @@ describe("push holds", () => {
     await refreshPatronus("sync")
     expect(getPushHold("login")).toBeNull()
     expect(getPushHold("auth")).toBeNull()
+  })
+
+  it("holds only the ancestors the commit of a running Safe Push has, once its content tells", async () => {
+    const stacked = (name: string, parent: string | null, hash: string) => ({
+      name,
+      commits: [{ hash, originalHash: `${hash}-original` }],
+      remoteStatus: null,
+      stack: { effectiveBase: parent },
+    })
+    // a restack placed env below auth after the Safe Push of login started: login and auth are new copies
+    branches.current = {
+      env: stacked("env", null, "env-tip"),
+      auth: stacked("auth", "env", "auth-copy"),
+      login: stacked("login", "auth", "login-copy"),
+    } as unknown as typeof branches.current
+    patronus.spans = [
+      {
+        robotId: "login-run",
+        branches: [
+          { branch: "auth", commits: ["auth-copy-original"], amended: [] },
+          { branch: "login", commits: ["login-copy-original"], amended: [] },
+        ],
+      },
+    ]
+    patronus.list = available(robot({ id: "login-run", branchName: "login", sourceRevision: "login-old" }))
+    await refreshPatronus("sync")
+    // until the content tells, the stack as it is now holds, the number of commits not known
+    expect(getPushHold("env")).toMatchObject({ kind: "span", branch: "login" })
+    expect(formatPushHoldReason("env", getPushHold("env")!)).toBe("A Safe Push of login is running: it lands env with it")
+
+    const stop = watchRobotLandings()
+    await vi.waitFor(() => expect(getPushHold("env")).toBeNull())
+    expect(patronus.spanCalls).toEqual([
+      {
+        repositoryPath: "/repo",
+        branchPrefix: "user",
+        baselineBranch: "origin/master",
+        robots: [{ robotId: "login-run", branchName: "login", stackRoot: null, sourceRevision: "login-old", branches: ["env", "auth", "login"], tip: null }],
+      },
+    ])
+    expect(formatPushHoldReason("auth", getPushHold("auth")!)).toBe("A Safe Push of login is running: it lands 1 commit of auth with it")
+    // the span starts below the root it left out
+    expect([getLandingSpan("env"), getLandingSpan("auth")?.branch]).toEqual([null, "login"])
+    // the same state of the branches is not asked again
+    vi.advanceTimersByTime(SYNC_REFRESH_GAP_MS)
+    await refreshPatronus("sync")
+    await Promise.resolve()
+    expect(patronus.spanCalls).toHaveLength(1)
+    stop()
   })
 })
 

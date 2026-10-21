@@ -10,6 +10,7 @@ import { patronusStore } from "@/stores/patronus"
 import { pullRequestsStore } from "@/stores/pull-requests"
 import { reviewReadinessStore } from "@/stores/review-readiness"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { testPatronusRepository } from "@/test-support/patronus-repository"
 
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
 
@@ -56,18 +57,7 @@ function setStack(stack: StackBranch | null, list: readonly Branch[] = branches)
 function setRobots(...robots: PatronusRobot[]): void {
   patronusStore.setState({
     repositories: {
-      [KEY]: {
-        availability: { status: "available" },
-        robots: robotsById(...robots),
-        listedFrom: 0,
-        fetchedAt: 0,
-        isRefreshing: false,
-        needsReview: {},
-        githubRepository: "acme/air",
-        watched: {},
-        failing: {},
-        landings: {},
-      },
+      [KEY]: testPatronusRepository(robotsById(...robots)),
     },
   })
 }

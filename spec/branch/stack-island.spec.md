@@ -103,7 +103,7 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   [@test] ../../tests/e2e/patronus/dock.spec.ts (`should count the failed robot of the whole stack only while the sync built its stack branch`)
 - Below the name, muted, " · " between its items as between the parts of each: the open pull requests of the stack
   ("2 pull requests open · 1 approved · 1 changes requested") and what each running robot lands, with its time left ("Safe Push of runtime lands 4 branches · ~23m
-  left", the branch and the ones it lands with it, `useLandingSpans`; "Safe Push of the whole stack lands 7 branches"
+  left", the branch and the ones its commit has of those it is built on, `useLandingSpans`; "Safe Push of the whole stack lands 7 branches"
   for the robot of the whole stack, [Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)), without a ring: the
   ring of the robot is on the count of the branches it lands ("4 landing"). The pull request of the whole stack is counted apart, first, as where the
   approvals of its Safe Push count: "Approvals count in #12, the pull request of the whole stack" (" · approved", " ·
@@ -144,7 +144,7 @@ stack reads as its history. The rest of the table stays as it is ([Stacked Branc
   request or the Safe Push of the whole stack"; "Only air has commits to push: its own push sends them", the branches
   that ask first; once merged Safe Pushes landed every branch of the stack, its stack branch held too: "Landed in master
   with deploy and side-test: nothing of air and its children is left to push") and while a Safe Push runs in the stack
-  (the reason of the hold, "A Safe Push of runtime is running: it lands air with it"). A root a merged Safe Push landed
+  (the reason of the hold, "A Safe Push of runtime is running: it lands 2 commits of air with it"). A root a merged Safe Push landed
   holds nothing: the header pushes what is left of the stack without the landed branches, and its slot shows what is
   left to land.
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should push the whole stack from the header in one push, parents first`, `should take the whole stack branch along in the header's push once it is on the remote, and push it alone from the menu`, `should say what the stack holds in the header, each state a way to its first branch`, `should hold the push of the whole stack branch once every branch of the stack landed, and push what is left without the landed ones`)

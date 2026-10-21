@@ -864,14 +864,25 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`push_retargets_a_pull_request_into_a_virtual_branch_to_the_baseline`)
 - On Space, with the Safe Push CLI logged in, it must hold the branches the app holds
   ([Patronus](../branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)): a named branch whose Safe Push
-  runs on it, or on a branch built on it that lands it, is `robot_running` (exit 4, nothing pushed), with the robot's
-  page; an ancestor taken along that a Safe Push lands stays as the robot took it, and its child is pushed alone,
+  runs on it, or on a branch built on it whose commit has commits of it, is `robot_running` (exit 4, nothing pushed),
+  also with `--alone`, with the robot's page. The refusal names why: for its own robot the branch the push moves ("A
+  Safe Push of auth is running on test-user/virtual/auth: a push moves the branch it took its commit from, so it won't
+  land and fails the Safe Push at the end"), for another robot the commits of the branch it lands, counted, the first
+  three by id, an amended one marked ("A Safe Push of login is running: it lands 2 commits of auth with it (1a2b3c4d,
+  5e6f7a8b amended since), a push won't land"). What a robot lands is decided from its commit (`robot_spans`, by
+  content after a restack or an amend below it, no process for a robot at the tip the sync left; the stack as it is
+  now when the repository lacks its commit): a parent a restack placed below the robot's branch after its start is
+  pushed. An ancestor taken along that a Safe Push lands stays as the robot took it, and its child is pushed alone,
   carrying its commits. A canceling robot and a dry run hold nothing. `--restart-running` cancels the Safe Push of
   a named branch, pushes it with the ancestors that robot lands, and restarts it on the pushed commit (`restarted`).
   One robots request after the sync; off Space, without a token or an answer of Patronus nothing is held. `bd
   safe-push` pushes without the check: it cancels the robot it replaces itself. A running Safe Push of the whole stack
-  must hold every branch of the stack ("A Safe Push of the whole auth stack is running: it lands login with it").
+  must hold every branch of the stack its commit has ("A Safe Push of the whole auth stack is running: it lands 1
+  commit of login with it (1a2b3c4d)"), and `--with-children` of its root leaves its stack branch as it is, a
+  `stack_warnings` line: a push into it fails the robot at the end.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told`, `the_whole_stack_lands_in_one_robot_from_its_stack_branch`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_push_of_a_parent_restacked_below_a_running_safe_push_goes_on`, `a_push_of_a_parent_whose_commits_a_running_safe_push_lands_is_refused`, `a_robot_of_a_temporary_ref_holds_only_what_its_commit_lands`, `push_with_children_leaves_the_stack_branch_of_a_running_whole_stack_safe_push`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_push_beside_a_robot_started_before_a_restack`)
 - A named branch a merged Safe Push landed whole (`landed_by` of `bd status` without `after`), and with
   `--with-children` one built on a named one, must be left out of the push, as the app's Push with Children leaves it,
   and the others pushed: `skipped` names each with `code` `landed`, the `message` ("login merged into master with its
@@ -953,11 +964,12 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   landed in master with the Safe Pushes of login and session"). `lands` must leave out the branches merged Safe
   Pushes landed whole, the branch itself always named: the robot lands the rest.
   [@test] ../../crates/bd-remote/src/landed_test.rs (`push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole`, `the_whole_stack_lands_what_is_left_of_it_and_refuses_once_every_branch_of_it_landed`)
-- A robot on the last commit of the branch, or a Safe Push that lands it with a branch of its stack, must refuse the
-  start with `robot_running`, in the words of the app; a running Safe Push of an older commit, which the push fails,
-  too, unless `--cancel-running` cancels it first.
+- A robot on the last commit of the branch, or a Safe Push whose commit has commits of it, of a branch of its stack
+  (decided as `bd push` decides it), must refuse the start with `robot_running`, in the words of the app, the commits
+  named by id; a running Safe Push of an older commit, which the push fails, too, unless `--cancel-running` cancels it
+  first. A parent a restack placed below a running Safe Push after its start starts.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told`)
-  [@test] ../../crates/sync-core/src/patronus_start_test.rs (`the_robot_of_a_branch_is_the_running_one_then_the_newest_and_a_temporary_ref_by_its_revision`, `a_start_waits_for_a_robot_on_the_last_commit_and_a_push_guards_a_running_safe_push`, `a_safe_push_waits_for_a_robot_that_lands_an_ancestor_or_the_branch_itself`, `a_profile_allows_the_modes_it_lists_and_any_when_it_lists_none`)
+  [@test] ../../crates/sync-core/src/patronus_start_test.rs (`the_robot_of_a_branch_is_the_running_one_then_the_newest_and_a_temporary_ref_by_its_revision`, `a_start_waits_for_a_robot_on_the_last_commit_and_a_push_guards_a_running_safe_push`, `a_safe_push_waits_for_a_robot_that_lands_an_ancestor_or_the_branch_itself`, `a_profile_allows_the_modes_it_lists_and_any_when_it_lists_none`, `the_commits_a_robot_lands_are_named_by_their_number_and_ids`)
 - A proven dangling reference (as `bd check` reports it) of the branch or a branch it is built on must refuse the start
   with `dangling_reference` (exit 4), nothing pushed; the trial build that finds it builds only what lands (every
   branch for a whole stack that forks), naming the use, `fixed_by` and the fix (of two references both,
@@ -1011,7 +1023,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
 - The guards must go both ways: a running Safe Push of a branch of the stack lands a part of it and refuses the start
   of the whole stack ("A Safe Push of login is running: wait until it merges"); the running Safe Push of the whole
   stack lands every branch of it and refuses the start of a branch ("A Safe Push of the whole auth stack is running:
-  it lands login with it") and of the whole stack on the same commits; a dry run lands nothing. A robot of the stack
+  it lands 1 commit of login with it (1a2b3c4d)") and of the whole stack on the same commits; a dry run lands nothing. A robot of the stack
   branch is never a branch's, not even by its revision.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`)
   [@test] ../../crates/sync-core/src/patronus_start_test.rs (`the_robot_of_the_whole_stack_belongs_to_its_root_and_to_no_branch`, `the_whole_stack_and_its_branches_wait_for_each_other`)

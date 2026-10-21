@@ -9,6 +9,7 @@ import type {
   PullRequest,
   RobotLanding,
   RobotLandingRequest,
+  RobotSpan,
 } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { notifyError } from "@/lib/errors"
@@ -504,6 +505,8 @@ export interface PushHold {
   robot: PatronusRobot
   /** The robot of the whole stack of the root `branch` holds every branch of the stack (`LandingDescendant.wholeStack`) */
   wholeStack?: boolean
+  /** For `span`: how many commits of the branch the robot lands (`LandingDescendant.commits`) */
+  commits?: number
 }
 
 /**
@@ -526,7 +529,13 @@ export function findPushHold(
     return { kind: "own", branch: branchName, robot: ownRobot }
   }
   if (span != null && isHoldingRobot(span.robot)) {
-    return { kind: "span", branch: span.branch, robot: span.robot, ...(span.wholeStack === true && { wholeStack: true }) }
+    return {
+      kind: "span",
+      branch: span.branch,
+      robot: span.robot,
+      ...(span.wholeStack === true && { wholeStack: true }),
+      ...(span.commits !== undefined && { commits: span.commits }),
+    }
   }
   return null
 }
@@ -702,6 +711,11 @@ export interface LandingDescendant {
   robot: PatronusRobot
   /** The robot of the whole stack of the root `branch` (its stack branch `{prefix}/stack/<root>`) */
   wholeStack?: boolean
+  /**
+   * How many commits of the landed branch the robot's commit has (`robotSpanOf`): all of them while it took the branches
+   * as they are, else as the content told; undefined until it is told
+   */
+  commits?: number
 }
 
 /**
@@ -730,11 +744,13 @@ export function findLandingDescendants(
 }
 
 /**
- * Why a branch can't start while a robot of a branch built on it runs: "A Safe Push of oauth is running: it lands auth
- * with it", "A Safe Push of the whole air stack is running: it lands auth with it"
+ * Why a branch can't start while a robot of a branch built on it runs: "A Safe Push of oauth is running: it lands 2
+ * commits of auth with it", "A Safe Push of the whole air stack is running: it lands 1 commit of auth with it"; the
+ * branch alone while the number is not told yet, as `bd` says it
  */
 export function formatLandingReason(branchName: string, landing: LandingDescendant): string {
-  return `A ${formatPushMode(landing.robot.pushMode)} of ${formatLandingSubject(landing)} is running: it lands ${branchName} with it`
+  const what = landing.commits === undefined ? branchName : `${formatCommitCount(landing.commits)} of ${branchName}`
+  return `A ${formatPushMode(landing.robot.pushMode)} of ${formatLandingSubject(landing)} is running: it lands ${what} with it`
 }
 
 /**
@@ -840,6 +856,8 @@ export interface LandedSource {
   readonly stackOf: (root: string) => StackBranch | undefined
   /** By `landingKey`, what a robot landed by content; null: nothing it could tell */
   readonly landings?: Readonly<Record<string, RobotLanding | null>>
+  /** By `landingKey`, what a running robot lands by content (`spanRequestOf`); null: nothing it could tell */
+  readonly spans?: Readonly<Record<string, RobotSpan | null>>
 }
 
 /**
@@ -922,6 +940,55 @@ export function landingRequestOf(robot: PatronusRobot, source: LandedSource): Ro
     return null
   }
   return { robotId: robot.id, branchName: robot.branchName, stackRoot: robot.stackRoot ?? null, sourceRevision: robot.sourceRevision, branches: [...branches], tip: null }
+}
+
+/**
+ * The question for `get_robot_spans` of a running robot that pushes into the target, when the hashes don't tell what it
+ * lands (`hashesTell`): a restack or an amend below its commit after its start gave the branches new copies, so the
+ * stack as it is now may hold a parent its commit never had. `branchName` is the branch the robot was matched to
+ * (`findBranchRobot`, also by the tip for a robot of a temporary ref), null for the robot of the whole stack. Null for a
+ * robot the hashes answer, a dry run, a root (it lands only itself) and a robot of no branch of the table.
+ */
+export function spanRequestOf(robot: PatronusRobot, branchName: string | null, source: LandedSource): RobotLandingRequest | null {
+  if (!isRobotActive(robot) || robot.pushMode === "dryRun" || robot.sourceRevision === null) {
+    return null
+  }
+  const subject = branchName === null ? robot : { ...robot, branchName, stackRoot: null }
+  if ((subject.branchName === null && subject.stackRoot == null) || hashesTell(subject, robot.sourceRevision, source)) {
+    return null
+  }
+  const branches = landingCandidates(subject, source)
+  if (branches === null || (subject.branchName !== null && branches.length < 2)) {
+    return null
+  }
+  return { robotId: robot.id, branchName: subject.branchName, stackRoot: subject.stackRoot ?? null, sourceRevision: robot.sourceRevision, branches: [...branches], tip: null }
+}
+
+/** What a running robot lands of `candidates` (`robotSpanOf`) */
+export interface RobotSpanView {
+  /** The candidates its commit has commits of, in their order */
+  readonly names: readonly string[]
+  /** By branch, how many of its commits the robot's commit has; null until the content tells */
+  readonly counts: ReadonlyMap<string, number> | null
+}
+
+/**
+ * What a running robot lands of `candidates` (root first): every candidate with all its commits while the hashes tell
+ * (`spanRequestOf` is null: it took the branches as they are); else the answer of `get_robot_spans` (`source.spans`): a
+ * parent a restack placed below after its start is not one. Until the content tells, or when it can't (the robot's
+ * commit is not in the repository), every candidate, the number not known.
+ */
+export function robotSpanOf(robot: PatronusRobot, branchName: string | null, candidates: readonly string[], source: LandedSource): RobotSpanView {
+  const request = spanRequestOf(robot, branchName, source)
+  if (request === null) {
+    return { names: candidates, counts: new Map(candidates.map(name => [name, source.branchOf(name)?.commits.length ?? 0])) }
+  }
+  const branches = source.spans?.[landingKey(request, source)]?.branches
+  if (branches == null) {
+    return { names: candidates, counts: null }
+  }
+  const counts = new Map(branches.map(span => [span.branch, span.commits.length]))
+  return { names: candidates.filter(name => counts.has(name)), counts }
 }
 
 /**

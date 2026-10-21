@@ -14,6 +14,7 @@ use git_ops::branch_names::to_final_branch_name;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
+use sync_core::patronus_start::RobotSource;
 use sync_core::robot_landing::robot_landings_of_grouped;
 use sync_types::GroupedBranchInfo;
 use sync_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotStatus};
@@ -157,25 +158,36 @@ pub fn find_landed(context: &RepoContext, robots: &[PatronusRobot], table: &Land
 
 /// The question of a merged robot of a branch of the table, or of the whole stack of a stack the table has
 fn landing_request(context: &RepoContext, robot: &PatronusRobot, table: &LandingTable<'_>) -> Option<RobotLandingRequest> {
-  let source_revision = robot.source_revision.clone()?;
-  let (branches, tip) = match (&robot.branch_name, &robot.stack_root) {
-    (Some(name), _) => {
-      table.branches.iter().find(|branch| &branch.name == name)?;
-      let mut branches = stack_ancestors(table.branches, name);
-      branches.push(name.clone());
-      let tip = to_final_branch_name(&context.prefix, name).ok().and_then(|full_name| table.tips.get(&full_name).cloned());
-      (branches, tip)
-    }
-    (None, Some(root)) => {
-      let stack = table.stacks.iter().find(|stack| &stack.root == root && !stack.members.is_empty())?;
-      (stack.members.clone(), stack.tip.clone())
-    }
+  let source = match (&robot.branch_name, &robot.stack_root) {
+    (Some(name), _) => RobotSource::Branch(name),
+    (None, Some(root)) => RobotSource::WholeStack(root),
     (None, None) => return None,
+  };
+  robot_request(context, robot, source, table)
+}
+
+/// The question of the robot of `source` (the branch or the whole stack it ran on, or a temporary ref matched to it by
+/// its tip), about the branches the table has: the branches the branch is built on and the branch, or the branches of
+/// the stack, with the tip the sync left
+pub(crate) fn robot_request(context: &RepoContext, robot: &PatronusRobot, source: RobotSource<'_>, table: &LandingTable<'_>) -> Option<RobotLandingRequest> {
+  let source_revision = robot.source_revision.clone()?;
+  let (branch_name, stack_root, branches, tip) = match source {
+    RobotSource::Branch(name) => {
+      table.branches.iter().find(|branch| branch.name == name)?;
+      let mut branches = stack_ancestors(table.branches, name);
+      branches.push(name.to_string());
+      let tip = to_final_branch_name(&context.prefix, name).ok().and_then(|full_name| table.tips.get(&full_name).cloned());
+      (Some(name.to_string()), None, branches, tip)
+    }
+    RobotSource::WholeStack(root) => {
+      let stack = table.stacks.iter().find(|stack| stack.root == root && !stack.members.is_empty())?;
+      (None, Some(root.to_string()), stack.members.clone(), stack.tip.clone())
+    }
   };
   Some(RobotLandingRequest {
     robot_id: robot.id.clone(),
-    branch_name: robot.branch_name.clone(),
-    stack_root: robot.stack_root.clone(),
+    branch_name,
+    stack_root,
     source_revision,
     branches,
     tip,

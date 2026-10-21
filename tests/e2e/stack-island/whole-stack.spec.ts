@@ -781,7 +781,7 @@ test.describe("Whole stack", () => {
     const push = page.getByRole("menuitem", { name: /^Push/ }).first()
     await expect(push).toHaveAttribute("aria-disabled", "true")
     await push.hover()
-    await expect(page.getByRole("tooltip")).toHaveText("A Safe Push of the whole auth stack is running: it lands login with it")
+    await expect(page.getByRole("tooltip")).toHaveText("A Safe Push of the whole auth stack is running: it lands 1 commit of login with it")
     await page.keyboard.press("Escape")
 
     // the robots indicator names it as the whole stack

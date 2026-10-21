@@ -27,7 +27,7 @@ import {
   whenBranchPushed,
   whenSynced,
 } from "@/stores/branch-sync"
-import { cancelPatronusRobot, fetchPatronusRobotStatus, getPushHold, restartPatronusRobot } from "@/stores/patronus"
+import { cancelPatronusRobot, fetchPatronusRobotStatus, getPushHold, restartPatronusRobot, whenRobotSpansKnown } from "@/stores/patronus"
 import { refreshPullRequestsAfterPush } from "@/stores/pull-requests"
 import type { PushConfirmTarget } from "@/stores/push-confirm"
 import { requestPushConfirm } from "@/stores/push-confirm"
@@ -242,10 +242,13 @@ export async function restartAfterPush(robot: PatronusRobot): Promise<PatronusRo
  * push then; this refuses one that raced with a start (the IDE, `bd`) or came from a toast. The status is read fresh
  * first (one row on the server), so a robot that finished meanwhile holds nothing. The robot the push restarts or
  * replaces (`restartRobot`, `replacesRobot`) is canceled instead, and the push goes on. A branch a merged Safe Push
- * landed (`landed`) is refused without a read: its commits are in the target. Resolves to whether to push.
+ * landed (`landed`) is refused without a read: its commits are in the target. A robot of a branch built on it holds it
+ * only while its commit has commits of it: after a restack below its branch the content tells first
+ * (`whenRobotSpansKnown`). Resolves to whether to push.
  */
 export async function checkPushHold(branchName: string, options: PushOptions, report: PushReport): Promise<boolean> {
-  const hold = getPushHold(branchName)
+  const told = getPushHold(branchName)
+  const hold = told?.kind === "span" ? await whenRobotSpansKnown().then(() => getPushHold(branchName)) : told
   if (hold === null) {
     return true
   }
@@ -364,6 +367,8 @@ export interface ActionPushOptions {
 export async function pushForAction(branchName: string, options: ActionPushOptions = {}): Promise<ActionPush> {
   await whenSynced()
   await whenBranchPushed(branchName)
+  // the holds decide where the push starts: a parent a running robot's commit doesn't have is pushed too
+  await whenRobotSpansKnown()
   const branch = getBranch(branchName)
   if (branch === undefined) {
     return { pushed: false, reason: `${branchName} is no longer in the branch list` }

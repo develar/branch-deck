@@ -1,6 +1,6 @@
 use crate::patronus_start::{
-  LandingRobot, RobotSource, allows_push_mode, find_branch_robot, find_landing_ancestor, find_landing_descendant, find_landing_member, find_landing_stack, find_stack_robot,
-  is_push_into_robot_risky, is_start_blocked, start_refusal,
+  CarriedCommits, LandingRobot, RobotSource, allows_push_mode, carried_ids, carried_words, find_branch_robot, find_landing_ancestor, find_landing_descendant, find_landing_member,
+  find_landing_stack, find_stack_robot, is_push_into_robot_risky, is_start_blocked, start_refusal,
 };
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
@@ -124,6 +124,7 @@ fn the_whole_stack_and_its_branches_wait_for_each_other() {
       branch: "auth".to_string(),
       robot: &stacks["auth"],
       whole_stack: true,
+      carried: None,
     }
   );
   assert_eq!(
@@ -167,6 +168,7 @@ fn a_safe_push_waits_for_a_robot_that_lands_an_ancestor_or_the_branch_itself() {
       branch: "login".to_string(),
       robot: &robots["login"],
       whole_stack: false,
+      carried: None,
     }
   );
   assert_eq!(find_landing_ancestor(&ancestors[..1], robot_of, |_| None), None);
@@ -189,6 +191,18 @@ fn a_safe_push_waits_for_a_robot_that_lands_an_ancestor_or_the_branch_itself() {
     Some("A Safe Push of oauth is running: it lands login with it")
   );
   assert_eq!(find_landing_descendant("oauth", ["auth", "login", "oauth"], ancestors_of, robot_of), None);
+  // as its content told: the commits of login the robot's commit has
+  let carried = LandingRobot {
+    carried: Some(CarriedCommits {
+      commits: vec!["1a2b3c4d5e6f".to_string()],
+      amended: Vec::new(),
+    }),
+    ..landing.clone()
+  };
+  assert_eq!(
+    start_refusal(None, Some("tip"), None, None, Some(&carried), "login").as_deref(),
+    Some("A Safe Push of oauth is running: it lands 1 commit of login with it (1a2b3c4d)")
+  );
 
   // a side branch built on login waits for the robot of oauth, which lands login: it would land login a second time
   let span_of = |ancestor: &str| find_landing_descendant(ancestor, ["auth", "login", "oauth"], ancestors_of, robot_of);
@@ -211,4 +225,19 @@ fn a_profile_allows_the_modes_it_lists_and_any_when_it_lists_none() {
   };
   assert!(allows_push_mode(&profile(Vec::new()), PatronusPushMode::DryRun));
   assert!(!allows_push_mode(&profile(vec![PatronusPushMode::DryRun]), PatronusPushMode::RebaseAutosquash));
+}
+
+/// A refusal names the commits a running robot lands as its content told: their number, and for `bd` the first three
+/// ids, an amended one marked
+#[test]
+fn the_commits_a_robot_lands_are_named_by_their_number_and_ids() {
+  let ids: Vec<String> = ["aaaaaaaa1", "bbbbbbbb2", "cccccccc3", "dddddddd4"].iter().map(|id| (*id).to_string()).collect();
+  let carried = CarriedCommits {
+    commits: ids.clone(),
+    amended: vec![ids[1].clone()],
+  };
+  assert_eq!(carried_words("login", None), "login");
+  assert_eq!(carried_ids(None), "");
+  assert_eq!(carried_words("login", Some(&carried)), "4 commits of login");
+  assert_eq!(carried_ids(Some(&carried)), " (aaaaaaaa, bbbbbbbb amended since, cccccccc, …)");
 }

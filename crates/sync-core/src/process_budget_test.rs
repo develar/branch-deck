@@ -8,7 +8,7 @@ use crate::check::{CheckSession, check_plan};
 use crate::pull_request_create::read_new_pull_request;
 use crate::push::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
 use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch, forget_statuses};
-use crate::robot_landing::robot_landings;
+use crate::robot_landing::{robot_landings, robot_spans};
 use crate::stack_branch::forget_builds;
 use crate::stack_pull_request::{GetNewStackPullRequestParams, StackMemberSubjects, read_new_stack_pull_request};
 use crate::sync::{SyncOptions, sync_branches};
@@ -979,6 +979,18 @@ fn an_atomic_push_of_a_stack() {
   assert_processes(&git, &[("for-each-ref", 2), ("push", 1), ("reflog", 1)]);
 }
 
+/// The question about the robot of `beta`, which ran on `source` and may land `alpha` and `beta`
+fn beta_robot(source: String) -> RobotLandingRequest {
+  RobotLandingRequest {
+    robot_id: "beta-robot".to_string(),
+    branch_name: Some("beta".to_string()),
+    stack_root: None,
+    source_revision: source,
+    branches: vec!["alpha".to_string(), "beta".to_string()],
+    tip: None,
+  }
+}
+
 /// What a merged robot of `beta` (built on `alpha`) landed after a new commit of `alpha` rebuilt `beta`: the commits of
 /// both branches from HEAD as the sync groups them (the stack setting, one `cat-file --batch` of the stores, one
 /// `log`), one `cat-file --batch-check` of the robot's commit and the ref, the two walks against the robot's commit,
@@ -1006,18 +1018,35 @@ async fn the_landing_of_a_merged_robot_after_a_change_below_its_commit() {
   sync(&GitCommandExecutor::new(), &repo).await;
 
   let git = counting();
-  let request = RobotLandingRequest {
-    robot_id: "beta-robot".to_string(),
-    branch_name: Some("beta".to_string()),
-    stack_root: None,
-    source_revision: source,
-    branches: vec!["alpha".to_string(), "beta".to_string()],
-    tip: None,
-  };
+  let request = beta_robot(source);
   let landings = robot_landings(&git, &path(&repo), PREFIX, "origin/master", &[request]).unwrap();
   let after: Vec<usize> = landings[0].branches.iter().map(|branch| branch.after.len()).collect();
   assert_eq!(after, [1, 0]);
   assert_processes(&git, &[("cat-file", 2), ("config", 1), ("diff-tree", 1), ("log", 1), ("patch-id", 1), ("rev-list", 2)]);
+}
+
+/// What a running robot of `beta` lands after a restack placed a new root `alpha` below it: as the landing of a merged
+/// robot, the commits of both branches from HEAD (the stack setting, one `cat-file --batch` of the stores, one `log`),
+/// one `cat-file --batch-check` of the robot's commit and the ref and the two walks against it; the copy of beta on
+/// alpha is patch-equivalent (`--cherry-mark`), so no `same_changes` runs
+#[tokio::test]
+async fn the_span_of_a_running_robot_after_a_restack() {
+  let repo = repo_on_origin();
+  repo.git(&["config", "branchdeck.stacks", "true"]);
+  repo.create_commit_with_timestamp("(beta) Beta", "beta.txt", "beta", Some(1_700_000_100));
+  sync(&GitCommandExecutor::new(), &repo).await;
+  let source = repo.git(&["rev-parse", "refs/heads/test/virtual/beta"]);
+  repo.git(&["reset", "--hard", "origin/master"]);
+  repo.create_commit_with_timestamp("(alpha) Alpha", "alpha.txt", "alpha", Some(1_700_000_200));
+  repo.create_commit_with_timestamp("(alpha/beta) Beta", "beta.txt", "beta", Some(1_700_000_100));
+  sync(&GitCommandExecutor::new(), &repo).await;
+
+  let git = counting();
+  let request = beta_robot(source);
+  let spans = robot_spans(&git, &path(&repo), PREFIX, "origin/master", &[request]).unwrap();
+  let branches: Vec<&str> = spans[0].branches.iter().flatten().map(|branch| branch.branch.as_str()).collect();
+  assert_eq!(branches, ["beta"]);
+  assert_processes(&git, &[("cat-file", 2), ("config", 1), ("log", 1), ("rev-list", 2)]);
 }
 
 /// The target conflict check of a Safe Push start without its fetch: the tips of the baseline and the branch

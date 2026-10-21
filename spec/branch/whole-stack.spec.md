@@ -219,9 +219,11 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../src/stores/patronus.test.ts (`closes the pull requests of the branches the whole stack landed`)
   [@test] ../../src/lib/robot-overview.test.ts (`lists the robot of the whole stack as the whole stack after the branches, on its stack branch as it is, a click showing the root, its failure on one not built as finished`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should show the robot of the whole stack on the rows of a small stack, hold their pushes and cancel it from the root's menu`)
-- While it runs and pushes into the target, it must hold every branch of the stack (`PushHold.wholeStack`, by the
-  source ref: its stack branch, not by a branch's revision) and land them: their rows say "lands with the whole air
-  stack", their push and their Safe Push wait ("A Safe Push of the whole air stack is running: it lands auth with it");
+- While it runs and pushes into the target, it must hold every branch of the stack its commit has (`PushHold.wholeStack`,
+  by the source ref: its stack branch, not by a branch's revision; after a change of the stack the content tells,
+  [Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)) and land them: their rows say "lands with the
+  whole air stack", their push and their Safe Push wait ("A Safe Push of the whole air stack is running: it lands 1
+  commit of auth with it");
   the robot of a branch of the stack holds the whole stack's restart and start in turn ("A Safe Push of auth is
   running: wait until it merges", `findLandingMember`). A dry run holds nothing.
   [@test] ../../src/stores/patronus.test.ts (`holds every branch the whole-stack Safe Push lands`, `holds nothing for a dry run of the whole stack`)

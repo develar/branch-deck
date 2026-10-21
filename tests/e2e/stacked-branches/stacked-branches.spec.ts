@@ -25,6 +25,7 @@ import {
   robot,
   routeReviewRequirement,
   setupRunningRobot,
+  setupTakenRobot,
 } from "../helpers/patronus-helpers"
 import { availablePullRequests, createdPullRequest, createPullRequestDialog, getOpenedUrls, pullRequest, reviewer, routeNewPullRequest } from "../helpers/pull-request-helpers"
 import { confirmForcePush, expectPushedToast, PUSH_TIME, pushedToast, pushOutcome, routeHeldPush, routePush, routePushBranches, wholeStackResultKey } from "../helpers/push-helpers"
@@ -1302,7 +1303,7 @@ test.describe("Stacked branches", () => {
 
       // a branch the Safe Push lands offers no push and no Safe Push of its own: the Status cell says why, the menu too
       const loginRow = findBranchRow(page, "login")
-      const reason = "A Safe Push of oauth is running: it lands login with it"
+      const reason = "A Safe Push of oauth is running: it lands 1 commit of login with it"
       await expect(loginRow.getByTestId("next-step-slot")).toHaveAttribute("data-step", "none")
       await expect(getPushButton(loginRow)).toHaveCount(0)
       await openContextMenu(page, loginRow)
@@ -1324,6 +1325,51 @@ test.describe("Stacked branches", () => {
       await expect(page.getByRole("menuitem", { name: /^Safe Push S/ })).toHaveAttribute("aria-disabled", "true")
       await openSubmenu(page, "Patronus")
       await expect(page.getByRole("menuitem", { name: "Dry Run" })).not.toHaveAttribute("aria-disabled", "true")
+    })
+
+    test("should push a branch a restack placed below a running Safe Push after it started, and hold what its commit has", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // on GitHub, no pull request yet
+      await setupTakenRobot(page, setupRepo, syncAndWaitForBranches, "stacked_branches", robot("oauth", "oauth-robot"), "auth", { pullRequests: availablePullRequests() })
+      await expect(findBranchRow(page, "docs").getByTestId("landing-span")).toHaveCount(0)
+
+      // docs below auth, after the Safe Push of oauth took its commit: the robot lands none of docs
+      await openContextMenu(page, findBranchRow(page, "auth"))
+      await page.getByRole("menuitem", { name: "Stack On…" }).hover()
+      await runAndWaitForSync(page, () => clickContextMenuItem(page, "docs"))
+      await expect.poll(() => tree(page)).toEqual(["docs@0", "auth@1", "session@2", "login@2", "oauth@3"])
+      // auth and login stay held: the robot's commit has their commits, the reason counts them
+      await expect(findBranchRow(page, "auth").getByTestId("landing-span")).toHaveText("lands with oauth")
+      const authRow = findBranchRow(page, "auth")
+      await openContextMenu(page, authRow)
+      const push = page.getByRole("menuitem", { name: /^Push P$/ })
+      await expect(push).toHaveAttribute("aria-disabled", "true")
+      await push.hover()
+      await expect(page.getByRole("tooltip").filter({ hasText: "is running" }).last()).toHaveText("A Safe Push of oauth is running: it lands 1 commit of auth with it")
+      await page.keyboard.press("Escape")
+      const docsRow = findBranchRow(page, "docs")
+      await expect(docsRow.getByTestId("landing-span")).toHaveCount(0)
+      // its next step is its own Safe Push, as of any root
+      await expect(docsRow.getByTestId("next-step-slot")).toHaveAttribute("data-step", "safePush")
+
+      // its push from the menu and by the key pushes it, and so does the push of Create Pull Request
+      const pushes = await routePush(page, { docs: { remoteExists: false, unpushedCommits: ["docs-1"] } })
+      await openContextMenu(page, docsRow)
+      await page.getByRole("menuitem", { name: /^Push \(1\)/ }).click()
+      await expectPushedToast(page, "docs")
+      await expect.poll(() => pushes.map(it => it.branchName)).toEqual(["docs"])
+      await docsRow.focus()
+      await page.keyboard.press("p")
+      await expect.poll(() => pushes.map(it => it.branchName)).toEqual(["docs", "docs"])
+      await routeNewPullRequest(page)
+      const creates = await routeCommand(page, "create_pull_request", () => createdPullRequest(pullRequest("docs", 901)))
+      await openContextMenu(page, docsRow)
+      await clickContextMenuItem(page, "Create Pull Request…")
+      const dialog = createPullRequestDialog(page)
+      await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("docs → master")
+      await dialog.getByTestId("create-pull-request-submit").click()
+      await expect(page.locator("[data-slot=toast]", { hasText: "Created pull request #901" })).toBeVisible()
+      expect(pushes.map(it => it.branchName)).toEqual(["docs", "docs", "docs"])
+      expect(creates).toEqual([expect.objectContaining({ branchName: "docs", base: "master" })])
     })
 
     test("should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -1495,7 +1541,7 @@ test.describe("Stacked branches", () => {
       await expect(authRow.getByTestId("landing-span")).toHaveText("lands with oauth")
       // while it runs, the restart of auth waits for it
       await authRow.click({ button: "right" })
-      await expectDisabledItems(page, [["Restart Safe Push", "A Safe Push of oauth is running: it lands auth with it"]])
+      await expectDisabledItems(page, [["Restart Safe Push", "A Safe Push of oauth is running: it lands 1 commit of auth with it"]])
       await page.keyboard.press("Escape")
       await expect(page.getByRole("menu")).toHaveCount(0)
 

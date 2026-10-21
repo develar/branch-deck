@@ -150,6 +150,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_robot_failure", post(tauri_command_bridge::get_robot_failure))
     .route("/invoke/get_robot_commit_map", post(tauri_command_bridge::get_robot_commit_map))
     .route("/invoke/get_robot_landings", post(tauri_command_bridge::get_robot_landings))
+    .route("/invoke/get_robot_spans", post(tauri_command_bridge::get_robot_spans))
     .route("/invoke/get_patronus_failing_robots", post(tauri_command_bridge::get_patronus_failing_robots))
     .route("/invoke/get_branch_review_readiness", post(tauri_command_bridge::get_branch_review_readiness))
     .route("/invoke/get_patronus_start_options", post(tauri_command_bridge::get_patronus_start_options))

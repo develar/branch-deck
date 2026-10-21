@@ -99,6 +99,28 @@ export async function setupRunningRobot(
   return repo
 }
 
+/**
+ * `setupRunningRobot` with `options`, the robot then kept on the commit it took: the tip its branch had when Patronus was
+ * first asked, in every later answer, whatever the branch becomes (a restack after the start). Returns the repository
+ * and the robot as it was answered
+ */
+export async function setupTakenRobot(
+  page: Page,
+  setupRepo: (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<unknown>,
+  template: string,
+  running: PatronusRobot,
+  landed: string,
+  options: SetupRepoOptions = {},
+): Promise<{ repo: TestRepositoryBuilder; robot: PatronusRobot }> {
+  const listed = page.waitForResponse(response => response.url().endsWith("/invoke/get_patronus_robots"))
+  const repo = await setupRunningRobot(page, (name, setup) => setupRepo(name, { ...options, ...setup }), syncAndWaitForBranches, template, running, landed)
+  const taken = ((await (await listed).json()) as PatronusRobotsResult).robots.find(it => it.id === running.id)!
+  expect(taken.sourceRevision).toMatch(/^[0-9a-f]{40}$/)
+  await repo.setPatronus(availableRobots(taken))
+  return { repo, robot: taken }
+}
+
 /** The issue_links repository with these robots */
 export async function setupRobots(
   page: Page,

@@ -53,8 +53,7 @@ use sync_core::parked::parked_state;
 use sync_core::patronus::{SpaceRepository, target_branch_of};
 use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
 use sync_core::patronus_start::{
-  RobotSource, allows_push_mode, find_landing_ancestor, find_landing_descendant, find_landing_member, find_landing_stack, is_push_into_robot_risky, is_start_blocked,
-  push_mode_name, start_refusal,
+  RobotSource, allows_push_mode, find_landing_ancestor, find_landing_descendant, find_landing_member, is_push_into_robot_risky, is_start_blocked, push_mode_name, start_refusal,
 };
 use sync_core::pull_request_create::{CreatePullRequestParams, create_pull_request as core_create_pull_request};
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests};
@@ -625,7 +624,8 @@ fn branch_landing<'r>(context: &RepoContext, synced: &SyncOutput, stack: &'r Sta
   let full_name = to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
   let ancestors = stack.ancestors_of(name);
   let order = &stack.order;
-  let ancestors_of = |name: &str| stack.ancestors_of(name);
+  // what the robot of a branch lands with it: by its commit's content (a restack after its start adds none)
+  let ancestors_of = |name: &str| stack.landed_ancestors_of(name);
   let robot_of = |name: &str| stack.robot_of(name);
   let synced_by_name: HashMap<&str, &SyncedBranch> = synced.branches.iter().map(|branch| (branch.name.as_str(), branch)).collect();
   let local_tip = stack.tip_of(name);
@@ -642,8 +642,7 @@ fn branch_landing<'r>(context: &RepoContext, synced: &SyncOutput, stack: &'r Sta
   let span_of = |ancestor: &str| find_landing_descendant(ancestor, order.iter().map(String::as_str), ancestors_of, robot_of).filter(|landing| landing.branch != name);
   // a robot of a branch built on it, or of the whole stack it is a branch of, lands it with more
   let landing_descendant = if pushes {
-    find_landing_descendant(name, order.iter().map(String::as_str), ancestors_of, robot_of)
-      .or_else(|| find_landing_stack(stack.stack_root_of(name), |root| stack.stack_robot_of(root)))
+    stack.find_landing(name, ancestors_of, robot_of, |root| stack.stack_robot_of(root))
   } else {
     None
   };
@@ -900,7 +899,7 @@ fn plan(
     baseline: &synced.baseline,
   };
   let landed = find_landed(context, &user_robots, &table)?;
-  let stack = StackRobots::new(context, synced, user_robots);
+  let stack = StackRobots::read(context, synced, user_robots, &table);
   let pushes = mode != PatronusPushMode::DryRun;
   let landing = match subject {
     Subject::Branch(name) => branch_landing(context, synced, &stack, name, pushes)?,

@@ -1158,11 +1158,15 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
   replaced in `replaced_landed` (`{"commit","subject","baseline_commit"}`, with `--dry-run` the ones it replaces): tell
   the user they are in the baseline, nothing of them is lost. `--all` needs `--yes`. A
   branch refused as behind is in `error.branches` with its remote status, as below.
-- Refused with `robot_running` (exit 4), nothing pushed: on Space, a named branch whose Safe Push runs, on it or on a
-  branch built on it that lands it ("A Safe Push of oauth is running: it lands auth with it"): a push won't land, and
-  a push into the robot's branch fails it at the end. An ancestor taken along that a Safe Push lands stays as the robot
-  took it, and its child goes alone, with its commits. The Safe Push of the whole stack holds every branch of it ("A
-  Safe Push of the whole auth stack is running: it lands login with it"). Tell the user; only after the user approves, `bd push auth --restart-running` cancels the Safe Push of
+- Refused with `robot_running` (exit 4), nothing pushed: on Space, a named branch whose Safe Push runs on it ("A Safe
+  Push of auth is running on develar/virtual/auth: a push moves the branch it took its commit from, …"), or on a branch
+  built on it whose commit has commits of it, also with `--alone` ("A Safe Push of oauth is running: it lands 2 commits
+  of auth with it (1a2b3c4d, 5e6f7a8b), a push won't land"): a push won't land, and a push into the robot's branch fails
+  it at the end. What a robot lands is what its commit has: a parent a restack placed below its branch after it started
+  is pushed. An ancestor taken along that a Safe Push lands stays as the robot took it, and its child goes alone, with
+  its commits. The Safe Push of the whole stack holds every branch of it its commit has ("A Safe Push of the whole auth
+  stack is running: it lands 1 commit of login with it (1a2b3c4d)"), and `--with-children` of the root leaves the stack
+  branch it runs on out (a `stack_warnings` line). Tell the user; only after the user approves, `bd push auth --restart-running` cancels the Safe Push of
   `auth`, pushes and restarts it on the pushed commit (`"restarted":[{"branch":"auth","url":…}]`). One robots request
   after the sync; off Space or without the Safe Push CLI's token nothing is held. A dry run or a canceling robot holds
   nothing.
@@ -1279,7 +1283,7 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
   lacks is `push_refused` (`bd push <root> --with-children --force` replaces them, after the user approves).
   `robot_running` both ways: a Safe Push of a branch of the stack lands a part of it ("A Safe Push of login is
   running: wait until it merges"), and the Safe Push of the whole stack lands every branch of it, so a branch's start
-  waits for it ("A Safe Push of the whole auth stack is running: it lands login with it").
+  waits for it ("A Safe Push of the whole auth stack is running: it lands 1 commit of login with it (1a2b3c4d)").
 
   ```json
   {"schema":2,…,"branch":"login","mode":"safe_push","target":"master","lands":["auth","login","session"],

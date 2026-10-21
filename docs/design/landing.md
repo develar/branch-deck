@@ -268,7 +268,9 @@ The whole stack is an object of its own in the app, beside its branches, named "
   are the only work left of it ("Landed with oauth · 1 commit after it"): its push and its Safe Push send those. An
   amend of a landed commit, or a commit inserted below one, leaves the branch not landed: what landed is not what it
   is, and only the fetch tells ("Landed in origin/master"). The app asks once per state of the branches and never
-  during a sync, so an unchanged table costs nothing.
+  during a sync, so an unchanged table costs nothing. The same content decides what a running robot holds
+  (`robot_spans`): only the branches whose commits its commit has, so a parent a restack placed below its branch after
+  the start pushes and lands on its own, and the pieces stay as small as the stacks cut them.
 - **What is left of the whole stack.** Its stack branch carries every commit of the stack, the landed ones too, and
   Patronus finds those in the target. So after a piece landed its main line, the Safe Push of the whole stack lands the
   rest and says only the rest ("Lands 1 branch · 1 commit into master in one Safe Push: session; auth, login and oauth

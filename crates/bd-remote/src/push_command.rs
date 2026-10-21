@@ -657,7 +657,8 @@ pub fn push_locked(
 /// compares), and a warning per one of them left out. One neither on the remote nor with an open pull request is no
 /// branch to publish by itself: `bd safe-push --whole-stack` and its pull request put it there. A stack branch in
 /// another state is not the stack's commits, and its remote status is of `origin` only. One whose every branch merged
-/// Safe Pushes landed whole (`holds`) carries only commits that are in the target: a push of it lands nothing
+/// Safe Pushes landed whole (`holds`) carries only commits that are in the target: a push of it lands nothing. One the
+/// Safe Push of the whole stack runs on stays as it is: a push into it fails the robot at the end
 fn stack_branches_to_push<'a>(
   report: &'a SyncReport,
   named: &[String],
@@ -683,6 +684,8 @@ fn stack_branches_to_push<'a>(
         stack.branch_name,
         every_branch_landed(&format!("the whole {} stack", stack.root), &landed)
       ));
+    } else if let Some(reason) = holds.stack_hold_reason(&stack.root) {
+      warnings.push(format!("{} was not pushed: {reason}", stack.branch_name));
     } else if stack.state != StackBranchState::Built || stack.tip.is_none() {
       warnings.push(format!(
         "{} was not pushed: this sync didn't build it ({}; `stacks` of `bd sync` says why)",

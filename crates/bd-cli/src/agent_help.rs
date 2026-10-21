@@ -147,8 +147,9 @@ Workflow: the commits into pull requests
    - `lease_rejected` (exit 4): the remote changed; bd fetched it. For a branch behind or rejected,
      `error.branches[].remote.dropped_commits` lists what a push drops: show it; once approved, --force
      --expect-remote <remote.head> for that one branch.
-   - `robot_running` (exit 4): a Safe Push runs on the branch, or on a branch built on it that lands it; a push
-     would fail it at the end. Wait until it merges, or, once approved, --restart-running cancels it, pushes and
+   - `robot_running` (exit 4): a Safe Push runs on the branch (the push would fail it at the end), or on a branch
+     built on it whose commit has commits of it (the message names them; a parent restacked below it after its start
+     is pushed). Wait until it merges, or, once approved, --restart-running cancels the branch's own robot, pushes and
      restarts it on the pushed commit (`restarted`).
    - `parked` (exit 4): a named branch is parked, or built on a parked one; with --all or --with-children a parked
      branch is only left out, named in `skipped` with `code: parked`. Tell the user, never unpark it.

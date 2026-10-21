@@ -2,8 +2,8 @@
 //! `sync_core::process_budget_test` counts the cores: a change that runs fewer processes lowers the numbers here.
 //! A command runs on the counting executor of its `RepoContext`, so its own reads count with those of the core.
 
-use crate::fixture_test::{PREFIX, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline};
-use crate::remote_fixture_test::{Space, needs_code_owner, repo_with_remote};
+use crate::fixture_test::{PREFIX, commit_all, commit_subjects, context_with_the_config_prefix, environment, repo_with_baseline, run_in, write};
+use crate::remote_fixture_test::{AUTH, Space, needs_code_owner, repo_with_remote, robot as robot_json};
 use bd_core::context::{RepoContext, RepoOptions};
 use bd_core::sync_command::sync;
 // jscpd:ignore-start: the budgets run the commands that lib.rs dispatches, so they import the same ones
@@ -255,6 +255,55 @@ fn a_push() {
       ("symbolic-ref", 1),
       ("update-ref", 2),
       ("var", 1),
+    ],
+  );
+}
+
+/// `bd push --dry-run env --alone` on Space while the Safe Push of auth runs, started before a restack placed the new
+/// root env below auth: the sync of branches it built already (no build), the push, and what the robot's commit lands of
+/// the branches as they are now, one `cat-file --batch-check` of its commit and the virtual branch and the two walks
+/// against it (`robot_spans`); a robot at the tip the sync left needs none of them
+#[test]
+fn a_push_beside_a_robot_started_before_a_restack() {
+  let space = Space::new(&["(auth) Add auth"]);
+  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  run_in(&space.repo, &["sync"]);
+  space.set_robots(vec![robot_json("auth-robot", "RUNNING", "auth", &space.local_tip(AUTH))]);
+  write(&space.repo, "env.txt", "env\n");
+  commit_all(&space.repo, "(env) Add env", 1_700_000_900);
+  for args in [&["restack", "auth", "env"][..], &["sync"]] {
+    let (exit_code, output) = run_in(&space.repo, args);
+    assert_eq!(exit_code, 0, "{output}");
+  }
+
+  let environment = space.environment();
+  let context = space_context(&environment);
+  let args = PushArgs {
+    branches: vec!["env".to_string()],
+    all: false,
+    yes: false,
+    with_children: false,
+    alone: true,
+    force: false,
+    expect_remote: None,
+    remote: None,
+    dry_run: true,
+    restart_running: false,
+  };
+  push(&context, &args, &environment).unwrap();
+  assert_processes(
+    &context,
+    &[
+      ("cat-file", 3),
+      ("config", 1),
+      ("for-each-ref", 1),
+      ("log", 4),
+      ("merge-base", 1),
+      ("push", 1),
+      ("remote", 2),
+      ("rev-list", 2),
+      ("rev-parse", 3),
+      ("symbolic-ref", 1),
     ],
   );
 }

@@ -22,6 +22,8 @@ const { calls, records, robots, toasts, stores } = vi.hoisted(() => ({
     status: "running" as string,
     /** The branches a running Safe Push of a branch built on them lands: branch -> its robot */
     spans: {} as Record<string, PatronusRobot>,
+    /** The spans the content of the robots' commits releases once told (`whenRobotSpansKnown`): a restack placed them below */
+    released: [] as string[],
     /** The branches a merged Safe Push of a branch built on them landed: branch -> its robot */
     landed: {} as Record<string, PatronusRobot>,
     /** The running Safe Push of the whole stack of `auth`, which holds the push of its stack branch */
@@ -204,6 +206,9 @@ vi.mock("@/stores/patronus", () => ({
     return root === "auth" && robots.stack !== undefined && robots.stack.status === "running" ? `A Safe Push of the whole ${root} stack is running` : null
   },
   fetchPatronusRobotStatus: async () => robots.status,
+  whenRobotSpansKnown: async () => {
+    robots.spans = Object.fromEntries(Object.entries(robots.spans).filter(([name]) => !robots.released.includes(name)))
+  },
   cancelPatronusRobot: async (robot: PatronusRobot) => {
     calls.push(`cancel ${robot.id}`)
     // the store has it canceling: it holds nothing
@@ -287,6 +292,7 @@ beforeEach(() => {
   robots.running = { ...RUNNING }
   robots.status = "running"
   robots.spans = {}
+  robots.released = []
   robots.landed = {}
   robots.stack = undefined
   robots.stackLanded = {}
@@ -448,6 +454,16 @@ describe("pushBranch into a branch whose Safe Push runs", () => {
     robots.spans.auth = { ...RUNNING, id: "login-run", branchName: "login" }
     expect(await pushBranch("auth")).toBe(false)
     expect(text(toasts[0]!.description)).toContain("A Safe Push of login is running: it lands auth with it")
+  })
+
+  it("pushes a parent a restack placed below a running Safe Push once the content of its commit tells it has none of it", async () => {
+    robots.running = undefined
+    addBranch("login", "auth")
+    robots.spans.auth = { ...RUNNING, id: "login-run", branchName: "login" }
+    robots.released = ["auth"]
+    expect(await pushBranch("auth")).toBe(true)
+    expect(calls).toContain("push auth")
+    expect(toasts.filter(toast => toast.type === "error")).toEqual([])
   })
 
   it("refuses a branch a merged Safe Push of a branch built on it landed, without reading its status", async () => {

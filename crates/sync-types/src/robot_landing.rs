@@ -1,6 +1,7 @@
 //! What a merged Patronus robot landed of the branches as the table has them, decided by content: the robot's tested
 //! commits against the commits of each branch (docs/design/landing.md, "Landed by content"; "Robot landing" in
-//! docs/design/git-operations.md). The app and `bd` decide it with the same code.
+//! docs/design/git-operations.md), and what a running robot lands of them ("Robot span"). The app and `bd` decide it
+//! with the same code.
 
 use serde::{Deserialize, Serialize};
 
@@ -61,4 +62,29 @@ pub struct BranchLanding {
   /// The commits of the branch added after them, newest first: what is left of the branch to land; empty when all of it
   /// landed
   pub after: Vec<String>,
+}
+
+/// What a running robot lands of the branches of its request as they are now: the branches whose commits its commit has
+/// (the same, a copy on a newer base, or an earlier version), so a push of them won't land while it runs
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RobotSpan {
+  pub robot_id: String,
+  /// In the order of the request, root first; a branch with none of its commits in the robot's commit (a parent a restack
+  /// placed below the robot's branch after its start) is not listed. Null when the repository can't tell: it lacks the
+  /// robot's commit (started on another machine, pruned) or the ref the robot ran on
+  pub branches: Option<Vec<BranchSpan>>,
+}
+
+/// A branch a running robot lands with it
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct BranchSpan {
+  pub branch: String,
+  /// The commits of the branch the robot's commit has, by the ids of the checked-out branch, newest first
+  pub commits: Vec<String>,
+  /// Those of `commits` the robot has in an earlier version: amended since it started, newest first
+  pub amended: Vec<String>,
 }

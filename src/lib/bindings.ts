@@ -195,6 +195,13 @@ export const commands = {
 	 *  longer tell (`robot_landings`)
 	 */
 	getRobotLandings: (params: GetRobotLandingsParams) => typedError<RobotLanding[], CommandError>(__TAURI_INVOKE("get_robot_landings", { params })),
+	/**
+	 *  What running robots land of the branches as they are now, by content: the branches whose commits each robot's
+	 *  commit has (the same, a copy on a newer base, an earlier version). The app asks it when the hashes no longer tell (a
+	 *  restack or an amend below the robot's commit after its start), so a parent the robot never had is not held
+	 *  (`robot_spans`)
+	 */
+	getRobotSpans: (params: GetRobotLandingsParams) => typedError<RobotSpan[], CommandError>(__TAURI_INVOKE("get_robot_spans", { params })),
 	/**  Of the running robots, the ones a failed required check dooms (Patronus' warning), asked after each poll until known */
 	getPatronusFailingRobots: (params: PatronusFailingRobotsParams) => typedError<string[], CommandError>(__TAURI_INVOKE("get_patronus_failing_robots", { params })),
 	/**
@@ -673,6 +680,15 @@ export type BranchReviewSegment = {
 export type BranchRules = {
 	/**  A push of new commits dismisses the approvals of a pull request into the branch */
 	dismissStaleReviewsOnPush: boolean,
+};
+
+/**  A branch a running robot lands with it */
+export type BranchSpan = {
+	branch: string,
+	/**  The commits of the branch the robot's commit has, by the ids of the checked-out branch, newest first */
+	commits: string[],
+	/**  Those of `commits` the robot has in an earlier version: amended since it started, newest first */
+	amended: string[],
 };
 
 /**  Where a virtual branch sits in its stack; sent only with stacked branches on */
@@ -2963,6 +2979,20 @@ export type RobotLandingRequest = {
 	 *  Null: the core reads it
 	 */
 	tip: string | null,
+};
+
+/**
+ *  What a running robot lands of the branches of its request as they are now: the branches whose commits its commit has
+ *  (the same, a copy on a newer base, or an earlier version), so a push of them won't land while it runs
+ */
+export type RobotSpan = {
+	robotId: string,
+	/**
+	 *  In the order of the request, root first; a branch with none of its commits in the robot's commit (a parent a restack
+	 *  placed below the robot's branch after its start) is not listed. Null when the repository can't tell: it lacks the
+	 *  robot's commit (started on another machine, pruned) or the ref the robot ran on
+	 */
+	branches: BranchSpan[] | null,
 };
 
 /**  A declaration of a text: its lines and its label, `Outer › inner` */

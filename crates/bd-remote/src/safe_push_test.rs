@@ -1,12 +1,13 @@
 use bd_cli::fixture_test::assert_covered;
 use bd_cli::fixture_test::{ACP_HOST, PREFIX, assert_error, commit_all, commit_dangling_reference, environment, git, run_in, run_json, write};
 use bd_cli::remote_fixture_test::{
-  AUTH, LANDED_SUBJECTS, STACK, Space, evaluated_review, fake_github, forking_stack, land_auth_by_content, list_pull_requests, pull_request_json, push_from_elsewhere_to,
-  reviewed_on_github, robot, safe_push, search_answer, stack_robot,
+  AUTH, LANDED_SUBJECTS, STACK, Space, evaluated_review, fake_github, forking_stack, land_auth_by_content, list_pull_requests, minutes_ago, pull_request_json,
+  push_from_elsewhere_to, reviewed_on_github, robot, safe_push, search_answer, stack_robot,
 };
 use bd_core::context::Environment;
 use github::fake_github::{FakeAnswer, FakeGitHub};
 use github::token::TokenSources;
+use patronus::fake_patronus::robot_json;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -644,7 +645,13 @@ fn push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told() {
   space.set_robots(vec![robot("running", "RUNNING", "auth", "0000")]);
   let (exit_code, output) = push(&["auth"]);
   assert_error(&output, exit_code, (4, "robot_running"));
-  assert!(output["error"]["message"].as_str().unwrap().contains("--restart-running"), "{output}");
+  // the push would move the branch the robot took its commit from
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(
+    message.contains(&format!("A Safe Push of auth is running on {AUTH}: a push moves the branch it took its commit from")),
+    "{output}"
+  );
+  assert!(message.contains("--restart-running"), "{output}");
   assert_eq!(space.remote_tip(AUTH), "");
 
   // login is built on auth: its push starts above it, auth stays as the robot took it, and login carries its commits
@@ -665,6 +672,147 @@ fn push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told() {
   space.set_robots(vec![robot("canceling", "CANCELING", "login", "0000")]);
   let (exit_code, output) = push(&["login"]);
   assert_eq!(exit_code, 0, "{output}");
+}
+
+/// The refusals of `bd safe-push --check` by their codes
+fn refusal_codes(output: &Value) -> Vec<Value> {
+  output["refusals"]
+    .as_array()
+    .map_or_default(|refusals| refusals.iter().map(|refusal| refusal["code"].clone()).collect())
+}
+
+/// A new branch `env`, made after the robot started, restacked below `below` and synced
+fn restack_env_below(space: &Space, below: &str) {
+  write(&space.repo, "env.txt", "env\n");
+  commit_all(&space.repo, "(env) Add env", 1_700_000_900);
+  for args in [&["restack", below, "env"][..], &["sync"]] {
+    let (exit_code, output) = run_in(&space.repo, args);
+    assert_eq!(exit_code, 0, "{output}");
+  }
+}
+
+/// The id of the commit of the checked-out branch with `subject`
+fn commit_of(space: &Space, subject: &str) -> String {
+  git(&space.repo, &["log", "-1", "--format=%H", "--fixed-strings", &format!("--grep={subject}")])
+}
+
+/// A restack after the start of a Safe Push placed a new root below its branch: the robot's commit has none of its
+/// commits, so its push and its Safe Push go on; the robot's own branch stays held, the refusal names the branch the push
+/// would move
+#[test_log::test]
+fn a_push_of_a_parent_restacked_below_a_running_safe_push_goes_on() {
+  let space = Space::new(&["(auth) Add auth"]);
+  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  let (exit_code, output) = run_in(&space.repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  space.set_robots(vec![robot("auth-robot", "RUNNING", "auth", &space.local_tip(AUTH))]);
+  restack_env_below(&space, "auth");
+  let env = "test-user/virtual/env";
+
+  let (exit_code, output) = space.run(&["env", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert!(!refusal_codes(&output).contains(&json!("robot_running")), "{output}");
+  let (exit_code, output) = bd_push(&space.environment(), &["env", "--alone"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(space.remote_tip(env), space.local_tip(env));
+
+  let (exit_code, output) = bd_push(&space.environment(), &["auth"]);
+  assert_error(&output, exit_code, (4, "robot_running"));
+  assert!(
+    output["error"]["message"]
+      .as_str()
+      .unwrap()
+      .contains(&format!("running on {AUTH}: a push moves the branch")),
+    "{output}"
+  );
+  assert_eq!(space.remote_tip(AUTH), "");
+}
+
+/// A parent whose commits a running Safe Push of a branch built on it lands stays held, also with `--alone` and after a
+/// restack placed a new root below it; the refusal names the commits. The new root goes on
+#[test_log::test]
+fn a_push_of_a_parent_whose_commits_a_running_safe_push_lands_is_refused() {
+  let space = login_on_auth();
+  let (exit_code, output) = run_in(&space.repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  space.set_robots(vec![robot("login-robot", "RUNNING", "login", &space.local_tip("test-user/virtual/login"))]);
+  restack_env_below(&space, "auth");
+
+  let auth = commit_of(&space, "Add auth");
+  for args in [&["auth"][..], &["auth", "--alone"]] {
+    let (exit_code, output) = bd_push(&space.environment(), args);
+    assert_error(&output, exit_code, (4, "robot_running"));
+    let message = output["error"]["message"].as_str().unwrap();
+    assert!(
+      message.contains(&format!(
+        "A Safe Push of login is running: it lands 1 commit of auth with it ({}), a push won't land",
+        &auth[..8]
+      )),
+      "{output}"
+    );
+  }
+  assert_eq!(space.remote_tip(AUTH), "");
+  let (exit_code, output) = space.run(&["auth", "--check"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert!(refusal_codes(&output).contains(&json!("robot_running")), "{output}");
+
+  let (exit_code, output) = bd_push(&space.environment(), &["env", "--alone"]);
+  assert_eq!(exit_code, 0, "{output}");
+}
+
+/// A Safe Push of a temporary ref (the IDE, the CLI) at the pushed tip of a branch holds only what its commit lands: a
+/// root a restack placed below after it started goes on
+#[test_log::test]
+fn a_robot_of_a_temporary_ref_holds_only_what_its_commit_lands() {
+  let space = login_on_auth();
+  let login = "test-user/virtual/login";
+  let (exit_code, output) = bd_push(&space.environment(), &["login"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let mut temporary = robot_json("ide-robot", "RUNNING", "refs/heads/tmp/patronus-1", &minutes_ago(60));
+  temporary["sourceRevision"] = json!(space.remote_tip(login));
+  space.set_robots(vec![temporary]);
+  restack_env_below(&space, "auth");
+  assert_ne!(space.local_tip(login), space.remote_tip(login), "login was rebuilt on env");
+
+  let (exit_code, output) = bd_push(&space.environment(), &["env", "--alone"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let (exit_code, output) = bd_push(&space.environment(), &["auth", "--alone"]);
+  assert_error(&output, exit_code, (4, "robot_running"));
+  assert!(output["error"]["message"].as_str().unwrap().contains("it lands 1 commit of auth with it"), "{output}");
+}
+
+/// The Safe Push of the whole stack runs on its stack branch: once the branches are no longer what it took (rewritten
+/// after the start), their push goes on, and Push with Children leaves the stack branch as it is: a push into it fails
+/// the robot at the end
+#[test_log::test]
+fn push_with_children_leaves_the_stack_branch_of_a_running_whole_stack_safe_push() {
+  let space = forking_stack();
+  let (exit_code, output) = space.run(&["session", "--whole-stack"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let stack_tip = space.local_tip(STACK);
+  space.set_robots(vec![stack_robot("whole", "RUNNING", &stack_tip)]);
+  // every branch again with other changes: the robot's commit has none of their commits
+  git(&space.repo, &["reset", "--hard", "origin/master"]);
+  for (index, subject) in ["(auth) Add the auth module", "(auth/login) Add the login form", "(auth/session) Add the session store"]
+    .iter()
+    .enumerate()
+  {
+    write(&space.repo, &format!("f{index}.txt"), format!("{subject} v2"));
+    commit_all(&space.repo, subject, 1_700_000_000 + i64::try_from(index).unwrap() * 100);
+  }
+
+  let (exit_code, output) = bd_push(&space.environment(), &["auth", "--with-children"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let names: Vec<&Value> = output["branches"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
+  assert_eq!(names, [&json!("auth"), &json!("login"), &json!("session")]);
+  let warning = output["stack_warnings"][0].as_str().unwrap();
+  assert!(
+    warning.starts_with(&format!(
+      "{STACK} was not pushed: a Safe Push of the whole auth stack is running on it: a push moves the branch"
+    )),
+    "{output}"
+  );
+  assert_eq!(space.remote_tip(STACK), stack_tip);
 }
 
 /// The open pull request #`number` of `name` into `base`, approved by `approvers`
@@ -887,14 +1035,21 @@ fn the_whole_stack_lands_in_one_robot_from_its_stack_branch() {
   space.set_robots(vec![stack_robot("whole", "RUNNING", &stack_tip)]);
   let (exit_code, output) = space.run(&["login"]);
   assert_error(&output, exit_code, (4, "robot_running"));
-  assert_eq!(output["error"]["message"], json!("A Safe Push of the whole auth stack is running: it lands login with it"));
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(
+    message.starts_with("A Safe Push of the whole auth stack is running: it lands 1 commit of login with it ("),
+    "{output}"
+  );
   let (exit_code, output) = space.run(&["auth", "--whole-stack"]);
   assert_error(&output, exit_code, (4, "robot_running"));
   assert_eq!(output["error"]["message"], json!("A Safe Push of the last commit is running"));
   let (exit_code, output) = run_json(&space.environment(), &["--prefix", PREFIX, "push", "session"]);
   assert_error(&output, exit_code, (4, "robot_running"));
   let message = output["error"]["message"].as_str().unwrap();
-  assert!(message.contains("A Safe Push of the whole auth stack is running: it lands session with it"), "{output}");
+  assert!(
+    message.contains("A Safe Push of the whole auth stack is running: it lands 1 commit of session with it ("),
+    "{output}"
+  );
 
   // the Safe Push of a branch lands a part of the stack: the whole stack waits for it; a dry run lands nothing
   space.set_robots(vec![robot("piece", "RUNNING", "login", "0000")]);

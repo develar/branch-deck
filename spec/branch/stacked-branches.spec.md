@@ -386,8 +386,11 @@ menu stacks, unstacks and renames branches.
   While it runs, the branches it lands say "lands with oauth" in their Status cell and offer no push and no Safe Push of their
   own; the lines of the graph from the root down to it are in the colour of the robot, its node has the ring of the
   robot. Before the start, the same path is highlighted while the pointer is on the Safe Push slot and while the
-  popover is open ([Branch Row](branch-row.spec.md#tree)).
+  popover is open ([Branch Row](branch-row.spec.md#tree)). The branches it lands are those its commit has: a branch a
+  restack placed below it after the start says no "lands with", pushes and starts its own Safe Push, and the colour of
+  the robot starts below it ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a branch a restack placed below a running Safe Push after it started, and hold what its commit has`)
   When a robot of a stacked branch merged, the open pull requests of the ancestors it landed are closed with a comment
   ([Patronus](patronus.spec.md#merged)), and until the update archives them their rows say "Landed with oauth" and
   offer no Safe Push, no Dry Run and no push, nor does the branch it ran on ("Merged"); a branch built on a landed

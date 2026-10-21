@@ -10,6 +10,7 @@ import { branchSyncStore } from "@/stores/branch-sync"
 import { operationsStore } from "@/stores/operations"
 import { patronusStore } from "@/stores/patronus"
 import { testBranch, testRemoteStatus } from "@/stores/test-branch"
+import { testPatronusRepository } from "@/test-support/patronus-repository"
 
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
 
@@ -247,18 +248,7 @@ describe("the order of the branch menu", () => {
   function setPatronus(): void {
     patronusStore.setState({
       repositories: {
-        [KEY]: {
-          availability: { status: "available" },
-          robots: {},
-          listedFrom: 0,
-          fetchedAt: 0,
-          isRefreshing: false,
-          needsReview: {},
-          githubRepository: "acme/air",
-          watched: {},
-          failing: {},
-          landings: {},
-        },
+        [KEY]: testPatronusRepository(),
       },
     })
   }
