@@ -1,7 +1,7 @@
 # Symbol Dependencies
 
 **Status:** Implemented (`branchdeck.symbols on` by default)
-**Updated:** 2026-10-18
+**Updated:** 2026-10-21
 **Tags:** [dependencies, tree-sitter, bd, check, suggest, conflict-fix]
 
 ## Problem
@@ -879,6 +879,14 @@ adds the conflict fix by the edges, `missing_declarations` of `bd check`, the `s
 stacking of `bd suggest`, and the uses the Safe Push popover warns of before the unstack of a stacked branch.
 `git config branchdeck.symbols report` keeps only what decides nothing (`bd commits` names the edges, the
 dangling-reference check subtracts by the trees); `off` reads no summary.
+
+A missing declaration first only reported (`bd check`, outside `ok`: names, not a compiler). Two robots failed on one
+anyway: an override of another branch's overload (2026-10-17), and `lane-run`, which used `StillEncoding`, `Stills` and
+`Manifest.stills` of `stills-codec` while `bd check` named `Stills` and said `ok` (2026-10-21). The precision of the
+edges (141 of 141) is the precision of a refusal, so since 2026-10-21 a missing declaration fails `bd check` (result
+`missing_declaration`) and refuses the start of a Safe Push, in `bd` and in the app (the landing gate,
+[Git Operations](git-operations.md#landing-gate)), and the user overrides it for a false alarm (`--allow-missing`, Start
+Anyway).
 
 ## References
 

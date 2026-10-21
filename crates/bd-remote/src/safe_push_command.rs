@@ -31,7 +31,7 @@ use crate::push_command::{
 use crate::push_hold::PushHolds;
 use crate::robot_list::list_robots;
 use bd_core::context::{Environment, RepoContext};
-use bd_core::error::{CliError, ErrorBranch, ErrorCode};
+use bd_core::error::{CliError, ErrorBranch, ErrorCode, regroup_error};
 use bd_core::output::SchemaVersion;
 use bd_core::review_summary::{MergeRequestSummary, PersonSummary, ReviewGroupSummary, ReviewSummary, ReviewerSummary};
 use bd_core::stack_summary::{WholeStack, WholeStackSummary, whole_stack_of};
@@ -50,7 +50,8 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use sync_core::check::{CheckSession, StackIndependence};
+use sync_core::check::{CheckSession, StackCommit, StackIndependence};
+use sync_core::landing_gate::{LandingFix, LandingRefusal, LandingSubject, check_landing_gate};
 use sync_core::parked::parked_state;
 use sync_core::patronus::{SpaceRepository, target_branch_of};
 use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
@@ -120,6 +121,10 @@ pub struct SafePushArgs {
   /// (`dangling_reference`): the build fails unless the reference is a false alarm
   #[arg(long)]
   pub allow_dangling: bool,
+  /// Start although a commit of what lands uses a name that a commit of another branch adds (`missing_declaration`):
+  /// the build fails unless the name is a false alarm
+  #[arg(long)]
+  pub allow_missing: bool,
   /// Land the whole stack of the branch in one robot: from the stack branch `{prefix}/stack/<root>` of its top-level
   /// root, which the sync builds of every commit of the stack, and only it is pushed; its pull request is the stack's. A
   /// straight chain has none: its last branch carries the whole stack, and the robot starts from it
@@ -807,6 +812,48 @@ fn stack_not_built_message(update: &StackBranchUpdate) -> String {
   format!("Nothing was pushed or started: the stack branch of {root} is not the build of its commits: {why}. `bd sync` says what to fix")
 }
 
+/// What the build of what lands misses: the first missing declaration with its fix, and the count of the rest, which
+/// `bd check` lists (`missing_declarations`)
+fn missing_declaration_message(context: &RepoContext, missing: &[LandingRefusal]) -> String {
+  let short = context.short_ids(missing.iter().flat_map(|refusal| match refusal {
+    LandingRefusal::MissingDeclaration { used_by, declared_by, .. } => vec![used_by.id.as_str(), declared_by.id.as_str()],
+    LandingRefusal::DanglingReference { .. } => Vec::new(),
+  }));
+  let named = |commit: &StackCommit| format!("{} ({})", short.get(&commit.id), commit.subject);
+  let Some(LandingRefusal::MissingDeclaration {
+    branch,
+    identifier,
+    file,
+    line,
+    used_by,
+    declared_by,
+    fix,
+  }) = missing.first()
+  else {
+    return String::new();
+  };
+  let adds = if declared_by.branch.is_empty() {
+    format!("the unassigned commit {} adds", named(declared_by))
+  } else {
+    format!("{} of {} adds", named(declared_by), declared_by.branch)
+  };
+  let fix = match fix {
+    LandingFix::Restack { branch: root, onto } => format!(
+      "`{} restack {root} {onto}` lands {onto} with it, after the user approves, or move one of the two",
+      context.bd
+    ),
+    LandingFix::MoveCommit { commit, into } => format!("Move {} into {into}", short.get(&commit.id)),
+  };
+  let more = match missing.len() - 1 {
+    0 => String::new(),
+    rest => format!(" ({rest} more: bd check)"),
+  };
+  format!(
+    "Nothing was pushed or started: {} of {branch} uses {identifier} ({file}:{line}), which {adds}; git merges it, but the build fails. {fix}{more}; --allow-missing starts anyway",
+    named(used_by)
+  )
+}
+
 /// Everything the start is decided on, before anything is pushed: the repository on Space, the robots of the user,
 /// the stack, the profiles, the pull request and the review
 #[expect(clippy::too_many_arguments, reason = "the services and the sync of the command")]
@@ -922,15 +969,17 @@ fn plan(
     });
   }
 
-  // a removed declaration that another branch's commit still changes the use of: git merges it, the build fails
+  // what lands, in one trial: a removed declaration that another branch's commit still changes the use of, a name that
+  // a branch outside it adds; git merges either, the build fails
   let session = session_of_sync(context, &synced.report)?;
   let built: Vec<&str> = lands.iter().map(String::as_str).collect();
-  // what lands is one chain, but for a whole stack that forks
-  let chain = match subject {
-    Subject::Branch(name) => Some(name.as_str()),
-    Subject::Stack(_) => None,
+  let gate_subject = match subject {
+    Subject::Branch(name) => LandingSubject::Branch(name),
+    Subject::Stack(update) => LandingSubject::WholeStack(&update.root),
   };
-  let (dangling, warnings) = dangling_references_in(context, &session, &built, chain)?;
+  let landed_commits: HashSet<String> = landed.values().flat_map(|landed| landed.landed.iter().cloned()).collect();
+  let gate = check_landing_gate(&session, gate_subject, &landed_commits).map_err(regroup_error)?;
+  let (dangling, warnings) = dangling_references_in(context, &session, &gate.report, &built)?;
   if !dangling.is_empty() && !args.allow_dangling {
     // the whole stack is built on nothing: the branch that removes the declaration names it
     let of = match &stack_push {
@@ -940,6 +989,17 @@ fn plan(
     refusals.push(Refusal {
       code: ErrorCode::DanglingReference,
       message: dangling_reference_message(of, &dangling),
+    });
+  }
+  let missing: Vec<LandingRefusal> = gate
+    .refusals(&session)
+    .into_iter()
+    .filter(|refusal| matches!(refusal, LandingRefusal::MissingDeclaration { .. }))
+    .collect();
+  if !missing.is_empty() && !args.allow_missing {
+    refusals.push(Refusal {
+      code: ErrorCode::MissingDeclaration,
+      message: missing_declaration_message(context, &missing),
     });
   }
   // Patronus rebases what it lands onto the newest target before any check, and fails the robot on a conflict

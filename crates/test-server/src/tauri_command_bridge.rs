@@ -413,6 +413,19 @@ pub async fn undo_reapply_branch(
   .await
 }
 
+/// `check_landing_gate` of the app: the same core, without the object cache
+pub async fn check_landing_gate(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::landing_gate::LandingGateParams>,
+) -> CommandResult<sync_core::landing_gate::LandingCheck> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("check the landing gate", move || {
+    sync_core::landing_gate::landing_check(&git_executor, &ObjectCache::disabled(), &params)
+  })
+  .await
+}
+
 /// Without the object cache, as every command of the mock server
 pub async fn get_stack_independence(
   State(state): State<Arc<AppState>>,

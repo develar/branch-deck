@@ -1,6 +1,9 @@
 // @spec spec/branch/patronus.spec.md
 import type { Locator, Page } from "@playwright/test"
 import type {
+  LandingAllowances,
+  LandingCheck,
+  LandingRefusal,
   PatronusMergeRequest,
   PatronusReviewRequirement,
   PatronusRobot,
@@ -81,6 +84,15 @@ async function routeHeld(page: Page, command: string, answer: unknown): Promise<
 async function safePushFromMenu(page: Page, branchName: string) {
   await findBranchRow(page, branchName).click({ button: "right" })
   await page.getByRole("menuitem", { name: "Safe Push S", exact: true }).click()
+}
+
+/** The robots of the `issue_links` template, the pushes and the starts recorded, the default profiles: a start of a refusal test */
+async function setupStart(page: Page, setupRepo: Parameters<typeof setupRobots>[1], syncAndWaitForBranches: Parameters<typeof setupRobots>[2]) {
+  await setupRobots(page, setupRepo, syncAndWaitForBranches)
+  const pushes = await routePush(page, {})
+  await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
+  const starts = await routeCommand(page, "start_patronus_robot", () => STARTED)
+  return { pushes, starts }
 }
 
 /** The first push of JIRA-456 finds its remote branch moved (someone pushed a commit), the second one goes through */
@@ -233,10 +245,7 @@ test.describe("Patronus actions", () => {
   })
 
   test("should refuse a Safe Push that conflicts with the newest target, nothing pushed or started, with Update Project", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRobots(page, setupRepo, syncAndWaitForBranches)
-    const pushes = await routePush(page, {})
-    await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-    const starts = await routeCommand(page, "start_patronus_robot", () => STARTED)
+    const { pushes, starts } = await setupStart(page, setupRepo, syncAndWaitForBranches)
     // the target moved after the last sync with a change of the lines a commit of the branch changes
     const conflict: TargetCheck = {
       baseline: "origin/master",
@@ -266,6 +275,54 @@ test.describe("Patronus actions", () => {
     await refused.getByRole("button", { name: "Update Project" }).click()
     await expect(page.getByTestId("update-project-button")).toHaveAttribute("aria-busy", "true")
     update.release()
+  })
+
+  test("should refuse a Safe Push whose branch uses a name another branch adds, with the restack and Start Anyway", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const { pushes, starts } = await setupStart(page, setupRepo, syncAndWaitForBranches)
+    // the robot of 2026-10-21: a commit of the branch imports a name that a commit of ABC-123 adds, outside what lands
+    const refusal: LandingRefusal = {
+      kind: "missingDeclaration",
+      branch: "JIRA-456",
+      identifier: "Stills",
+      file: "src/lane/BuildLog.kt",
+      line: 7,
+      usedBy: { id: "a25430833a277000", subject: "Show each scenario", branch: "JIRA-456" },
+      declaredBy: { id: "ecebf00037b41000", subject: "Name lossy stills", branch: "ABC-123" },
+      fix: { kind: "restack", branch: "JIRA-456", onto: "ABC-123" },
+    }
+    const checks = await routeCommand(page, "check_landing_gate", params =>
+      (params.allow as LandingAllowances | undefined)?.allowMissing === true ? ({ refusals: [] } satisfies LandingCheck) : ({ refusals: [refusal] } satisfies LandingCheck),
+    )
+    const restacks: Record<string, unknown>[] = []
+    await page.route("**/invoke/restack_branch", async route => {
+      restacks.push(route.request().postDataJSON() as Record<string, unknown>)
+      await route.fulfill({ json: { status: "error", error: { message: "Stacked branches are off" } } })
+    })
+    const reason =
+      "“Show each scenario” of JIRA-456 uses Stills (src/lane/BuildLog.kt:7), which “Name lossy stills” of ABC-123 adds: git merges it, but the build of JIRA-456 fails. Stack JIRA-456 on ABC-123 to land it too."
+
+    // the restack the refusal offers reaches the backend; nothing was pushed or started
+    await safePushFromMenu(page, "JIRA-456")
+    let refused = toastWith(page, "Cannot start the Safe Push")
+    await expect(refused.locator("[data-slot=toast-description]")).toHaveText(reason)
+    expect(checks).toEqual([expect.objectContaining({ branchName: "JIRA-456", allow: {} })])
+    expect({ pushes, starts }).toEqual({ pushes: [], starts: [] })
+    await expect(slotSafePush(page, "JIRA-456")).toHaveText("Safe Push")
+    await refused.getByRole("button", { name: "Stack JIRA-456 on ABC-123" }).click()
+    await expect.poll(() => restacks).toEqual([expect.objectContaining({ branchName: "JIRA-456", parent: "ABC-123" })])
+    const restackFailed = toastWith(page, "Cannot stack JIRA-456 on ABC-123")
+    await expect(restackFailed).toBeVisible()
+    // the newest toast lies on top of the stack: closed, the refusal is on top again
+    await restackFailed.getByRole("button", { name: "Close toast" }).click()
+    await expect(restackFailed).toHaveCount(0)
+
+    // Start Anyway starts the same start with the override of what refused it, which the start command gets too
+    await safePushFromMenu(page, "JIRA-456")
+    refused = toastWith(page, "Cannot start the Safe Push")
+    await refused.getByRole("button", { name: "Start Anyway" }).click()
+    await expect(toastWith(page, "Safe Push started")).toBeVisible()
+    expect(checks.at(-1)).toMatchObject({ branchName: "JIRA-456", allow: { allowDangling: false, allowMissing: true } })
+    expect(starts).toEqual([expect.objectContaining({ branchName: "JIRA-456", allow: { allowDangling: false, allowMissing: true } })])
   })
 
   test("should start a Safe Push with the profile chosen in the popover of S and of Safe Push With Profile…", async ({ page, setupRepo, syncAndWaitForBranches }) => {

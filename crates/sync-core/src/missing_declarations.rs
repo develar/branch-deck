@@ -1,6 +1,7 @@
 //! The names a built branch uses that a commit outside its tree adds, by the edges by symbols (`symbol_dependencies`,
-//! `branchdeck.symbols on`): git merges the branch, its build would fail. `bd check` reports them; names, not a
-//! compiler, so they don't fail the check.
+//! `branchdeck.symbols on`): git merges the branch, its build would fail. `bd check` fails such a branch, and the
+//! landing gate (`landing_gate`) refuses the start of what lands with it; names, not a compiler, so the user can
+//! override both.
 
 use crate::check::{CheckOutcome, CheckReport, CheckSession};
 use crate::symbol_dependencies::Evidence;
@@ -24,8 +25,8 @@ pub struct MissingDeclaration {
   pub evidence: Evidence,
 }
 
-/// The names the built branches of `report`, a check in `session`, use and a commit outside their trees adds, the first
-/// link of each edge; empty unless `branchdeck.symbols` is `on`
+/// The names the built branches of `report`, a check in `session`, use and a commit outside their trees adds, every
+/// link of each edge by the place of its use; empty unless `branchdeck.symbols` is `on`
 pub fn missing_declarations(session: &CheckSession, report: &CheckReport) -> Result<Vec<MissingDeclaration>, RegroupError> {
   let Some(graph) = session.symbol_graph()? else { return Ok(Vec::new()) };
   let ids: Vec<&str> = session.snapshot().commits.iter().map(|commit| commit.id.as_str()).collect();
@@ -47,8 +48,10 @@ pub fn missing_declarations(session: &CheckSession, report: &CheckReport) -> Res
       if !own.contains(from) || tree.contains(to) {
         continue;
       }
-      let Some(link) = edge.links.first() else { continue };
-      found.push(MissingDeclaration {
+      // every name, in the order of the uses: the first is where the build fails first (an import before its uses)
+      let mut links: Vec<_> = edge.links.iter().collect();
+      links.sort_by(|a, b| (&a.used_in, a.line, &a.name).cmp(&(&b.used_in, b.line, &b.name)));
+      found.extend(links.into_iter().map(|link| MissingDeclaration {
         branch: branch.name.clone(),
         identifier: link.name.clone(),
         file: link.used_in.clone(),
@@ -57,7 +60,7 @@ pub fn missing_declarations(session: &CheckSession, report: &CheckReport) -> Res
         declared_by: (*to).to_string(),
         declared_in: group_of.get(to).copied().flatten().map(str::to_string),
         evidence: link.evidence,
-      });
+      }));
     }
   }
   Ok(found)

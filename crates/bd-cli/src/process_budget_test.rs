@@ -571,6 +571,35 @@ fn a_pick_into_a_branch_the_target_has() {
 /// the sync, one `replay` of the branch onto the target tip that the sync read
 const TARGET_CHECK: &[(&str, u32)] = &[("fetch", 1), ("for-each-ref", 2), ("remote", 2), ("replay", 1), ("rev-parse", 1), ("symbolic-ref", 1)];
 
+/// What `bd safe-push auth --check` runs besides the target conflict check (`a_safe_push_check`)
+const SAFE_PUSH_CHECK: &[(&str, u32)] = &[
+  ("cat-file", 3),
+  ("config", 1),
+  ("diff-tree", 1),
+  ("fast-import", 3),
+  ("for-each-ref", 2),
+  ("log", 8),
+  ("merge-base", 1),
+  ("merge-tree", 1),
+  ("notes", 1),
+  ("remote", 2),
+  ("rev-list", 2),
+  ("rev-parse", 4),
+  ("show-ref", 1),
+  ("symbolic-ref", 1),
+  ("update-ref", 2),
+  ("var", 1),
+];
+
+/// `base` with the counts of `more` added, by subcommand
+fn with_more(base: &[(&'static str, u32)], more: &[(&'static str, u32)]) -> Vec<(&'static str, u32)> {
+  let mut all: BTreeMap<&str, u32> = base.iter().copied().collect();
+  for (subcommand, count) in more {
+    *all.entry(subcommand).or_default() += count;
+  }
+  all.into_iter().collect()
+}
+
 /// `assert_processes` of a `bd safe-push` that runs `expected` and the target conflict check (`TARGET_CHECK`)
 #[track_caller]
 fn assert_safe_push_processes(context: &RepoContext, expected: &[(&str, u32)]) {
@@ -585,8 +614,10 @@ fn assert_safe_push_processes(context: &RepoContext, expected: &[(&str, u32)]) {
 /// `bd safe-push auth --check` on Space: the sync, then what the start is decided on, nothing pushed. The target, the
 /// stack and the tips come from the sync's report, the Space and the GitHub repository from one push URL of `origin`
 /// (`remote`) and the Space settings (`cat-file`); the dangling references take the grouping from the report too and
-/// read the commits with their new mapping notes (`log`) and the branch tips (`for-each-ref`) for the trial; the review
-/// (`log`, `diff-tree`) reads its own; and the target conflict check (`TARGET_CHECK`)
+/// read the commits with their new mapping notes (`log`) and the branch tips (`for-each-ref`) for the trial; the
+/// landing gate reads the names the commits use and add for the missing declarations, in the same trial session: the
+/// changes of the commits (`log`) and the summaries of their source blobs (`cat-file`); the review (`log`, `diff-tree`)
+/// reads its own; and the target conflict check (`TARGET_CHECK`)
 #[test]
 fn a_safe_push_check() {
   let space = Space::new(&["(auth) Add login", "(ui) Add form"]);
@@ -605,27 +636,7 @@ fn a_safe_push_check() {
   };
   let output = safe_push(&context, &args, &environment).unwrap();
   assert!(output.push_needed && output.robot.is_none(), "{output:?}");
-  assert_safe_push_processes(
-    &context,
-    &[
-      ("cat-file", 2),
-      ("config", 1),
-      ("diff-tree", 1),
-      ("fast-import", 3),
-      ("for-each-ref", 2),
-      ("log", 7),
-      ("merge-base", 1),
-      ("merge-tree", 1),
-      ("notes", 1),
-      ("remote", 2),
-      ("rev-list", 2),
-      ("rev-parse", 4),
-      ("show-ref", 1),
-      ("symbolic-ref", 1),
-      ("update-ref", 2),
-      ("var", 1),
-    ],
-  );
+  assert_safe_push_processes(&context, SAFE_PUSH_CHECK);
 }
 
 /// `bd safe-push form --check` of a branch stacked on auth: what `a_safe_push_check` runs, and the trial build of form
@@ -647,27 +658,8 @@ fn a_safe_push_check_of_a_stacked_branch() {
   let output = safe_push(&context, &args, &environment).unwrap();
   assert_eq!(output.lands, ["auth", "form"]);
   assert!(output.alone.as_ref().is_some_and(|alone| alone.result == "builds"), "{output:?}");
-  assert_safe_push_processes(
-    &context,
-    &[
-      ("cat-file", 3),
-      ("config", 1),
-      ("diff-tree", 1),
-      ("fast-import", 4),
-      ("for-each-ref", 2),
-      ("log", 8),
-      ("merge-base", 1),
-      ("merge-tree", 1),
-      ("notes", 1),
-      ("remote", 2),
-      ("rev-list", 2),
-      ("rev-parse", 4),
-      ("show-ref", 2),
-      ("symbolic-ref", 1),
-      ("update-ref", 2),
-      ("var", 1),
-    ],
-  );
+  // the alone trial reads the names the landing gate reads, in the same session
+  assert_safe_push_processes(&context, &with_more(SAFE_PUSH_CHECK, &[("fast-import", 1), ("show-ref", 1)]));
 }
 
 /// `bd safe-push auth --whole-stack --check` of a stack that forks into form and side: what `a_safe_push_check` runs,
@@ -675,7 +667,7 @@ fn a_safe_push_check_of_a_stacked_branch() {
 /// the second child and the stack branch, a remote status walk each, `rev-list`, and the notes of the stack,
 /// `show-ref`), and the review of the stack branch's commits; the stack, its stack branch and its remote status come
 /// from the sync's report, the text of its pull request from the descriptions the sync read: no trial build alone, no
-/// process of its own
+/// process of its own; the landing gate reads the names of the commits as `a_safe_push_check` does
 #[test]
 fn a_safe_push_check_of_the_whole_stack() {
   let space = Space::new(&["(auth) Add login", "(auth/form) Add form", "(auth/side) Add side"]);
@@ -694,12 +686,12 @@ fn a_safe_push_check_of_the_whole_stack() {
   assert_safe_push_processes(
     &context,
     &[
-      ("cat-file", 2),
+      ("cat-file", 3),
       ("config", 1),
       ("diff-tree", 1),
       ("fast-import", 5),
       ("for-each-ref", 2),
-      ("log", 7),
+      ("log", 8),
       ("merge-base", 1),
       ("merge-tree", 1),
       ("notes", 1),

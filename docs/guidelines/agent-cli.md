@@ -101,7 +101,7 @@ A refused resolution of `bd update --continue` has `paths` too, the conflicting 
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
 | 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool`, `not_parked` |
 | 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `round_moved`, `locked` |
-| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `landed`, `parked`, `dangling_reference`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume` |
+| 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `no_remote`, `install_refused`, `approvals_missing`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `review_refused`, `slot_busy`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error` |
 
 `no_baseline` is also a repository without commits (`git init`): every command that reads HEAD or the baseline says
@@ -863,7 +863,7 @@ HEAD's tree, so the index and the working tree stay as they are
 - `--dry-run` prints the blocks and checks the rewrite (the merges and the empty commits); it writes only git objects.
   `--sync` syncs under the same lock, as `bd group --sync` does. `bd undo <undo_token>` restores the previous head.
 
-### `bd check [--plan <file | ->] [--build COMMAND [--build-paths PATH…] [--rebuild]] [--fix [--max-trials N] [--time-budget SECONDS]] [--allow-dangling]`
+### `bd check [--plan <file | ->] [--build COMMAND [--build-paths PATH…] [--rebuild]] [--fix [--max-trials N] [--time-budget SECONDS]] [--allow-dangling] [--allow-missing]`
 
 A trial sync of a plan (`sync_core::check`), or of the current grouping without `--plan`: stdin is read only for
 `--plan -`, so the open stdin of an agent or a CI never holds it. The plan is applied in memory
@@ -880,7 +880,7 @@ repository lock.
  "unassigned_count":0}
 ```
 
-- `result` is `ok`, `conflict`, `dangling_reference`, `blocked` (with `blocked_by` `{parent, reason}`: the parent has a
+- `result` is `ok`, `conflict`, `dangling_reference`, `missing_declaration`, `blocked` (with `blocked_by` `{parent, reason}`: the parent has a
   problem, conflicts or is blocked; a parent without commits is passed), `problems`, `error` or, with `--build`,
   `build_failed`. `built_on` is the branch it would be built on,
   `null` for `base_commit`.
@@ -948,7 +948,9 @@ repository lock.
   overload, a constructor parameter, a wider reach), overrides it (`evidence: "override"`) or calls it as an inherited
   member (`evidence: "inherited"`), on a receiver of its type (`evidence: "receiver"`) or through the class of its
   Kotlin file (`evidence: "facade"`), by the edges by symbols. git merges it and the build would fail; stack the branch
-  on `declared_in` or move one of the two. It doesn't count for `ok` or the exit code: names, not a compiler.
+  on `declared_in` or move one of the two. The branch's `result` is `missing_declaration`, which fails `ok` and exits 1,
+  as it refuses `bd safe-push`; names, not a compiler, so `--allow-missing` counts it as building for a name the user
+  says is a false alarm.
 - `--fix` adds `fix`, the regroup after which the branches that conflict (or have a proven dangling reference) apply
   cleanly, found by trial builds on top of the plan (`sync_core::conflict_fix`, the search of the app's Fix): nothing is
   applied. `fix.components` are independent parts, each `{steps, plan, fixed, unblocked, emptied, orphaned_children,
@@ -1289,7 +1291,7 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
   what a push would retarget and GitHub is only asked. Without a GitHub repository of the branches or a token, GitHub
   is not asked.
 
-### `bd safe-push <branch> [--whole-stack] [--patronus-dry-run] [--profile P] [--check] [--without-approvals] [--create-pull-request [--reviewer LOGIN]… [--no-assign]] [--cancel-running] [--allow-dangling]`
+### `bd safe-push <branch> [--whole-stack] [--patronus-dry-run] [--profile P] [--check] [--without-approvals] [--create-pull-request [--reviewer LOGIN]… [--no-assign]] [--cancel-running] [--allow-dangling] [--allow-missing]`
 
 Starts a Patronus robot on the virtual branch, as the Safe Push of the app ([Patronus](../../spec/branch/patronus.spec.md)):
 a Safe Push (Patronus rebases the branch onto the target, runs the checks and pushes it into the target when they
@@ -1453,6 +1455,13 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
   names the use, the commits and the fix, of two references both, from three on of the first, with the count of the
   rest ("(2 more: bd check)", which lists them). `--check` lists it in `refusals`; `--allow-dangling` starts anyway, when
   the user says it is a false alarm. A possible one (`bd check` `warnings`) is in `warnings` and refuses nothing.
+- `missing_declaration` (exit 4, nothing pushed, `branchdeck.symbols on`): a commit of what lands uses a name that a
+  commit outside it adds, which no merged Safe Push landed (`missing_declarations` of `bd check`; a name of a branch of
+  the landing stack is none). The landing gate (`sync_core::landing_gate`, the same rule as the app's start) checks it
+  in the trial session of the dangling references. The message names the use, the commit that adds the name with its
+  branch, and the fix: `bd restack <root> <branch>` lands that branch too (after the user approves); with stacked
+  branches off, an unassigned commit or a restack that would close a cycle, the commit to move. `--check` lists it in
+  `refusals`; `--allow-missing` starts anyway, when the user says it is a false alarm.
 - `patronus_refused`: the target is not protected by Patronus, the pull request is a draft, or Patronus rejected the
   comment; `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.
 

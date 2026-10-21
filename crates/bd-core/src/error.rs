@@ -138,6 +138,10 @@ pub enum ErrorCode {
   /// commit of another branch changes the use (`bd check` names it); the build would fail. `--allow-dangling` starts
   /// anyway
   DanglingReference,
+  /// `bd safe-push`: a commit of what the robot lands uses a name that a commit of another branch adds, which no merged
+  /// Safe Push landed (`bd check` names it in `missing_declarations`); git merges it, the build would fail. Stack the root
+  /// of what lands on that branch, or move the commit; `--allow-missing` starts anyway
+  MissingDeclaration,
   /// `bd safe-push`: the repository is not on Space, or the baseline is not a branch of `origin`
   NotOnSpace,
   /// `bd safe-push`: no Space token for Patronus, it expired, or Patronus rejected it; the user runs `./safePush.cmd`
@@ -237,6 +241,7 @@ impl ErrorCode {
       | Self::ReapplyConflict
       | Self::NothingToReapply
       | Self::DanglingReference
+      | Self::MissingDeclaration
       | Self::NotOnSpace
       | Self::NotLoggedIn
       | Self::PatronusRefused

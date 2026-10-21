@@ -293,13 +293,17 @@ fn a_branch_that_removes_a_used_declaration_is_dangling_reference() {
 }
 
 /// `--allow-dangling` counts a dangling reference as building, as `bd safe-push --allow-dangling` starts anyway: the
-/// branch keeps its `result` and the reference, `ok` and the exit code take it; a conflict still fails
+/// branch keeps its `result` and the reference, `ok` and the exit code take it; a conflict still fails. The change of
+/// the use in `lane-document` imports the class `fake-agent` adds, a missing declaration, which `--allow-missing` takes
 #[test_log::test]
 fn allow_dangling_keeps_the_reference_and_exits_0() {
   let dangling = repo_with_baseline(&[("README.md", "readme\n")]);
   let (removed_by, _) = commit_dangling_reference(&dangling);
 
   let (exit_code, output) = run_in(&dangling, &["check", "--allow-dangling"]);
+  assert_eq!((exit_code, &output["ok"]), (1, &json!(false)), "{output}");
+  assert_eq!(branch(&output, "lane-document")["result"], json!("missing_declaration"), "{output}");
+  let (exit_code, output) = run_in(&dangling, &["check", "--allow-dangling", "--allow-missing"]);
   assert_eq!((exit_code, &output["ok"]), (0, &json!(true)), "{output}");
   let fake_agent = branch(&output, "fake-agent");
   assert_eq!(fake_agent["result"], json!("dangling_reference"), "{output}");
@@ -415,7 +419,8 @@ fn a_move_hunk_fix_that_breaks_another_branch_is_not_offered() {
   assert_eq!(fake_agent["result"], json!("dangling_reference"), "{output}");
   assert_eq!(fake_agent["dangling_references"][0]["mutual"], json!(true));
   assert_eq!(fake_agent["dangling_references"][0].get("fix"), None, "{output}");
-  assert_eq!(branch(&output, "lane-document")["result"], json!("ok"));
+  // its change of the use imports the class fake-agent adds
+  assert_eq!(branch(&output, "lane-document")["result"], json!("missing_declaration"));
   assert_eq!(state(&repo), before, "the trial moves no ref and writes no note");
 
   // what the trial saw: after the move, lane-document conflicts
@@ -712,8 +717,9 @@ fn a_mutual_dangling_reference_of_a_stack_is_an_inverted_stack_without_a_swap() 
   );
 }
 
-/// `flow` imports a function that `util` adds: git builds both, and the check names the name `flow` misses; the exit
-/// code stays, the names are no compiler. With the symbols on report only it says nothing
+/// `flow` imports a function that `util` adds: git builds both, and the check names the name `flow` misses, which fails
+/// `flow` and `ok` (`missing_declaration`, exit 1); `--allow-missing` keeps the result and exits 0. With the symbols on
+/// report only it says nothing
 #[test_log::test]
 fn a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -733,7 +739,9 @@ fn a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration() {
   );
 
   let (exit_code, output) = run_in(&repo, &["check"]);
-  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((exit_code, &output["ok"]), (1, &json!(false)), "{output}");
+  assert_eq!(branch(&output, "flow")["result"], json!("missing_declaration"));
+  assert_eq!(branch(&output, "util")["result"], json!("ok"));
   assert_eq!(
     output["missing_declarations"],
     json!([{
@@ -749,20 +757,24 @@ fn a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration() {
   );
   assert_check_schema(&repo, &output);
 
+  let (exit_code, output) = run_in(&repo, &["check", "--allow-missing"]);
+  assert_eq!((exit_code, &output["ok"]), (0, &json!(true)), "{output}");
+  assert_eq!(branch(&output, "flow")["result"], json!("missing_declaration"));
+
   git(&repo, &["config", "branchdeck.symbols", "report"]);
   let (exit_code, output) = run_in(&repo, &["check"]);
   assert_eq!((exit_code, output.get("missing_declarations")), (0, None), "{output}");
 }
 
 /// The Safe Push failure of 2026-10-17: `xyz` overrides an overload that `abc` adds, git builds both, and the check
-/// names the overload `xyz` misses, by the evidence of the override
+/// names the overload `xyz` misses, by the evidence of the override, which fails the check
 #[test_log::test]
 fn an_override_of_another_branchs_overload_is_a_missing_declaration() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
   let (declares, overrides) = commit_override_of_overload(&repo);
 
   let (exit_code, output) = run_in(&repo, &["check"]);
-  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((exit_code, &output["ok"]), (1, &json!(false)), "{output}");
   assert_eq!(
     output["missing_declarations"],
     json!([{

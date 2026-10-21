@@ -164,9 +164,15 @@ export const commands = {
 	getPatronusStartOptions: (params: GetPatronusStartOptionsParams) => typedError<PatronusStartOptions, CommandError>(__TAURI_INVOKE("get_patronus_start_options", { params })),
 	/**
 	 *  Starts a Safe Push or a Dry Run of the pushed virtual branch, or with `stack` of the pushed stack branch of the whole
-	 *  stack; the frontend pushes it first. The new robot.
+	 *  stack; the frontend pushes it first. First the landing gate (`sync_core::landing_gate`), as `bd safe-push` refuses
+	 *  it: a proven dangling reference or a missing declaration refuses the start unless `allow` lets it. The new robot.
 	 */
 	startPatronusRobot: (params: StartPatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("start_patronus_robot", { params })),
+	/**
+	 *  What refuses the start of a Safe Push or a Dry Run, as `bd safe-push` refuses it (`sync_core::landing_gate`): the
+	 *  refusals left after `allow`, each with its fix; asked before the push, through the object cache of the repository
+	 */
+	checkLandingGate: (params: LandingGateParams) => typedError<LandingCheck, CommandError>(__TAURI_INVOKE("check_landing_gate", { params })),
 	/**
 	 *  Whether Patronus can rebase the branch a start pushes onto the newest target, as `bd safe-push` checks it: the fetch
 	 *  of the target, then the replay of the branch onto its tip; a failed fetch or replay is in the result, never an error
@@ -1693,6 +1699,59 @@ export type LandedRemoteCommit = {
 	baselineCommit: string,
 };
 
+/**
+ *  The overrides of a refusal of `sync_core::landing_gate`, each by the user: `--allow-dangling` and `--allow-missing`
+ *  of `bd safe-push`, Start Anyway of the app
+ */
+export type LandingAllowances = {
+	/**  Start although a commit proves a dangling reference */
+	allowDangling?: boolean,
+	/**  Start although what lands uses a name a branch outside it adds */
+	allowMissing?: boolean,
+};
+
+/**  The refusals that hold a start back after the user's overrides; empty: it starts */
+export type LandingCheck = {
+	refusals: LandingRefusal[],
+};
+
+/**  How the user gets the missing declaration into what lands */
+export type LandingFix = 
+/**  Stack `branch`, the root of what lands, on `onto`, the branch that adds the name: the start lands it too */
+{ kind: "restack"; branch: string; onto: string } | 
+/**
+ *  Move the commit that adds the name into `into`, the branch that uses it: the commit is unassigned, stacked branches
+ *  are off, or its branch is built on what lands, so a restack would close a cycle
+ */
+{ kind: "moveCommit"; commit: StackCommit; into: string };
+
+/**  What the app asks before a start (`check_landing_gate`), and the start itself (`start_patronus_robot`) */
+export type LandingGateParams = {
+	repositoryPath: string,
+	branchPrefix: string,
+	/**  The branch that starts; with `stack` the root of the whole stack */
+	branchName: string,
+	stack?: boolean,
+	/**  The commits (original ids) merged Safe Pushes landed (`landedBy` of the repository view) */
+	landedCommits?: string[],
+	/**  What the user starts anyway */
+	allow?: LandingAllowances,
+};
+
+/**  Why a start is refused */
+export type LandingRefusal = 
+/**
+ *  A commit of `branch` removes or changes a declaration, or adds one again, that the tree it lands still uses; the
+ *  commit outside it that removes the use proves it
+ */
+{ kind: "danglingReference"; branch: string; reference: ReferenceKind; identifier: string; 
+/**  Where the use is */
+file: string; line: number; removedBy: StackCommit; fixedBy: StackCommit } | 
+/**  A commit of `branch` uses a name that a commit outside what lands adds */
+{ kind: "missingDeclaration"; branch: string; identifier: string; 
+/**  Where the use is */
+file: string; line: number; usedBy: StackCommit; declaredBy: StackCommit; fix: LandingFix };
+
 /**  The line ends of a whole file */
 export type LineEndKind = "lf" | "crlf" | "cr" | 
 /**  More than one kind */
@@ -2512,6 +2571,9 @@ export type ReapplyBranchResult = {
 	/**  `ReapplyUndoToken` as it prints; `None` for a dry run */
 	undoToken: string | null,
 };
+
+/**  What a branch does to the declaration of a dangling reference */
+export type ReferenceKind = "removed" | "changed" | "duplicate";
 
 /**  A login GitHub didn't ask to review: the author, a user without access to the repository */
 export type RefusedReviewer = {
@@ -3408,6 +3470,13 @@ export type StartPatronusRobotParams = {
 	profileId: string | null,
 	/**  The merge request whose approvals the review check of the robot counts; null without one */
 	mergeRequest: PatronusMergeRequest | null,
+	/**
+	 *  The commits (original ids) merged Safe Pushes landed, whose names the target has (`landedBy` of the repository
+	 *  view): a name one of them adds is no missing declaration
+	 */
+	landedCommits?: string[],
+	/**  What the user started anyway (Start Anyway); without it the refusals of `sync_core::landing_gate` fail the start */
+	allow?: LandingAllowances,
 };
 
 /**

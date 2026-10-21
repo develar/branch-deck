@@ -637,6 +637,71 @@ fn a_dangling_reference_refuses_the_safe_push_unless_allowed() {
   assert!(!codes(&output).contains(&json!("dangling_reference")), "{output}");
 }
 
+/// The Safe Push failure of 2026-10-21 is refused before anything is pushed: `flow` imports a function that `util`, a
+/// branch outside what lands, adds; git merges it, the build fails. Stacked on `util`, `flow` lands it too: no refusal
+#[test_log::test]
+fn a_name_another_branch_adds_refuses_the_safe_push_unless_allowed() {
+  let space = Space::new(&[]);
+  git(&space.repo, &["config", "branchdeck.stacks", "true"]);
+  write(&space.repo, "src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n");
+  let declares = commit_all(&space.repo, "(util) Add controlUrl", 1_700_000_100);
+  write(&space.repo, "src/b/Use.kt", "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n");
+  let uses = commit_all(&space.repo, "(flow) Start with controlUrl", 1_700_000_200);
+
+  let (exit_code, output) = space.run(&["flow"]);
+  assert_error(&output, exit_code, (4, "missing_declaration"));
+  assert_eq!(
+    output["error"]["message"],
+    json!(format!(
+      "Nothing was pushed or started: {used} (Start with controlUrl) of flow uses controlUrl (src/b/Use.kt:3), which {declared} (Add controlUrl) of util adds; git merges it, but the build fails. `bd restack flow util` lands util with it, after the user approves, or move one of the two; --allow-missing starts anyway",
+      used = &uses[..8],
+      declared = &declares[..8],
+    ))
+  );
+  assert_eq!(space.remote_tip("test-user/virtual/flow"), "", "nothing was pushed");
+
+  let (_, output) = space.run(&["flow", "--check"]);
+  assert!(refusal_codes(&output).contains(&json!("missing_declaration")), "{output}");
+  let (_, output) = space.run(&["flow", "--check", "--allow-missing"]);
+  assert!(!refusal_codes(&output).contains(&json!("missing_declaration")), "{output}");
+
+  for args in [&["restack", "flow", "util"][..], &["sync"]] {
+    let (exit_code, output) = run_in(&space.repo, args);
+    assert_eq!(exit_code, 0, "{output}");
+  }
+  let (_, output) = space.run(&["flow", "--check"]);
+  assert!(!refusal_codes(&output).contains(&json!("missing_declaration")), "{output}");
+  assert_eq!(output["lands"], json!(["util", "flow"]), "{output}");
+}
+
+/// `session` uses a name its sibling `login` adds: the robot of the whole stack lands both, so it refuses nothing; the
+/// Safe Push of `session` alone lands `auth` and `session` without it, and a restack of `auth` on `login` would close a
+/// cycle, so the fix is the move of the commit
+#[test_log::test]
+fn a_name_a_sibling_adds_refuses_the_branch_alone_but_not_the_whole_stack() {
+  let space = Space::new(&["(auth) Add auth"]);
+  git(&space.repo, &["config", "branchdeck.stacks", "true"]);
+  write(&space.repo, "src/a/Util.kt", "package a\n\nfun controlUrl(): String = \"\"\n");
+  let declares = commit_all(&space.repo, "(auth/login) Add controlUrl", 1_700_000_100);
+  write(&space.repo, "src/b/Use.kt", "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n");
+  commit_all(&space.repo, "(auth/session) Start with controlUrl", 1_700_000_200);
+
+  let (_, output) = space.run(&["session", "--whole-stack", "--check"]);
+  assert_eq!(output["lands"], json!(["auth", "login", "session"]), "{output}");
+  assert!(!refusal_codes(&output).contains(&json!("missing_declaration")), "{output}");
+
+  let (_, output) = space.run(&["session", "--check"]);
+  let refusal = output["refusals"]
+    .as_array()
+    .and_then(|refusals| refusals.iter().find(|refusal| refusal["code"] == json!("missing_declaration")))
+    .unwrap_or_else(|| panic!("{output}"));
+  let message = refusal["message"].as_str().unwrap();
+  assert!(
+    message.contains(&format!("Move {} into session; --allow-missing starts anyway", &declares[..8])),
+    "{output}"
+  );
+}
+
 #[test_log::test]
 fn push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told() {
   let space = login_on_auth();

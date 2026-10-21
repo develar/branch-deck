@@ -33,8 +33,8 @@ stacked branch is named by its leaf. `upstream` in the output of `bd update` is 
 
 Rules
 - Ask the user first, and run only what the user approved: a push (`bd push`, also --force and --restart-running), a
-  Safe Push or a Patronus Dry Run (`bd safe-push`, also --cancel-running, --without-approvals, --allow-dangling and
-  --create-pull-request), `bd request-review`, a `gh pr create` that bd prints, and any change of a commit that
+  Safe Push or a Patronus Dry Run (`bd safe-push`, also --cancel-running, --without-approvals, --allow-dangling,
+  --allow-missing and --create-pull-request), `bd request-review`, a `gh pr create` that bd prints, and any change of a commit that
   another session made, a reword (`bd reword`) of its message too, `bd park`, `bd unpark`, `bd unapply` and `bd reapply`. Show what bd printed
   (`lands`, `review`, `dropped_commits`, the plan, the `changes` of a `bd reword --dry-run`) when you ask.
 - A branch `parked` in `bd status` stays local: the user keeps its commits, waiting for a proper fix elsewhere. Never
@@ -121,9 +121,11 @@ Workflow: the commits into pull requests
    fixes, reason}: the branch needs a commit of a branch stacked on it; each fix (`move_to_child`, `swap`) is
    `branches`/`unstack` for the plan, checked by a trial build; `reason` when none builds. `warnings`: a
    `possible_dangling_reference` (or `possible_changed_declaration`, `possible_duplicate_declaration`) that no commit
-   proves: tell the user. `missing_declarations` {branch, identifier, file, used_by, declared_by, declared_in}, not
-   counted in `ok` (none when `git config branchdeck.symbols` is `report` or `off`): a use whose declaration is
-   outside the branch's tree: stack the branch on `declared_in`, or move one of the two. `bd check --build '<command>'`
+   proves: tell the user. `missing_declarations` {branch, identifier, file, used_by, declared_by, declared_in}, the
+   branch's `result` `missing_declaration` (none when `git config branchdeck.symbols` is `report` or `off`): a use
+   whose declaration is outside the branch's tree, git merges it and the build fails: stack the branch on
+   `declared_in`, or move one of the two; when the user says it is a false alarm, `bd check --allow-missing` keeps the
+   `result` and exits 0. `bd check --build '<command>'`
    (--build-paths <path>...) also builds a temporary copy of each tree (`build_failed`): slow on a large repository,
    but a build that passed on the same tree is not run again (`cached`; --rebuild runs it after a change outside the
    tree).
@@ -204,6 +206,10 @@ Workflow: the commits into pull requests
      whole stack, or lands a branch it is built on; --cancel-running cancels a Safe Push of an older commit.
    - `dangling_reference` (exit 4, also in `refusals`): what the check of step 2 reports for the branch or a branch it
      lands: fix it there, or, when the user says it is a false alarm, --allow-dangling.
+   - `missing_declaration` (exit 4, also in `refusals`): a commit of what lands uses a name that a commit of a branch
+     outside it adds (`missing_declarations` of `bd check`); the message names the restack that lands that branch too
+     (`bd restack <root> <branch>`, after the user approves) or the commit to move. When the user says it is a false
+     alarm, `bd safe-push --allow-missing`.
    - `target_conflict` (exit 4, `error.commits`, `error.paths`, also in `refusals`): Patronus can't rebase what lands
      onto the newest target; the message names the commits of the target that change the files. `bd update` resolves
      it locally (after the user approves), then run the Safe Push again.

@@ -33,6 +33,7 @@ use sync_types::stack::BranchStack;
 use sync_utils::list_cut::kept;
 
 #[derive(Debug, Default, clap::Args)]
+#[expect(clippy::struct_excessive_bools, reason = "independent command line flags")]
 pub struct CheckArgs {
   /// The plan of `bd group`, `-` for stdin; without it the current grouping, and stdin is never read
   #[arg(long, value_name = "FILE")]
@@ -64,6 +65,11 @@ pub struct CheckArgs {
   /// a false alarm
   #[arg(long)]
   pub allow_dangling: bool,
+  /// Count a branch whose only failure is a missing declaration as building: its `result` stays
+  /// `missing_declaration`, `ok` and the exit code take it, as `bd safe-push --allow-missing` starts anyway. For a name
+  /// the user says is a false alarm
+  #[arg(long)]
+  pub allow_missing: bool,
 }
 
 /// The trial builds of `bd check --fix` without --max-trials
@@ -83,7 +89,8 @@ pub struct CheckOutput {
   pub base_commit: Option<String>,
   /// The subjects the plan changes
   pub rewritten: usize,
-  /// Every branch builds; with --allow-dangling a `dangling_reference` counts as building
+  /// Every branch builds; with --allow-dangling a `dangling_reference`, with --allow-missing a `missing_declaration`
+  /// counts as building
   pub ok: bool,
   /// Parents before their children
   pub branches: Vec<CheckedBranch>,
@@ -94,7 +101,8 @@ pub struct CheckOutput {
   pub warnings: Vec<CheckWarning>,
   /// With `branchdeck.symbols on`: a commit of a branch uses a name that a commit outside the branch and the branches
   /// it is built on adds, by the syntax trees (`symbol_dependencies`). git merges it, the build would fail: stack the
-  /// branch on the one that adds the name, or move one of the two. Not counted in `ok`: names, not a compiler
+  /// branch on the one that adds the name, or move one of the two. The branch's `result` is `missing_declaration`,
+  /// which fails `ok` (names, not a compiler: `--allow-missing` for a false alarm), as it refuses `bd safe-push`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub missing_declarations: Vec<MissingDeclaration>,
   /// With --fix: the regroup after which the branches that conflict (or have a proven dangling reference) apply cleanly
@@ -304,7 +312,7 @@ pub struct CheckedBranch {
   /// The branch it would be built on; `null` for `base_commit`
   pub built_on: Option<String>,
   pub commit_count: usize,
-  /// `ok`, `conflict`, `dangling_reference`, `blocked`, `problems` or `error`
+  /// `ok`, `conflict`, `dangling_reference`, `missing_declaration`, `blocked`, `problems` or `error`
   pub result: String,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub conflict: Option<CheckConflict>,
@@ -450,6 +458,12 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
   let mut prover = FixProver::new(context, &session, &user_plan, &report, &files_of, &short);
   let mut branches = checked_branches(&report, &files_of, &short, &mut |branch, reference| prover.prove(branch, reference));
   let warnings = possible_dangling_references(&report, &short);
+  let missing = missing_declaration_outputs(&session, &report, &short).map_err(regroup_error)?;
+  for checked in branches.iter_mut().filter(|checked| checked.result == "ok") {
+    if missing.iter().any(|missing| missing.branch == checked.name) {
+      checked.result = "missing_declaration".to_string();
+    }
+  }
   for (checked, branch) in branches.iter_mut().zip(&report.branches) {
     checked.inverted_stack = inverted_stack(&session, &user_plan, &report, branch, &files_of).map(|found| inverted_stack_output(found, &short));
   }
@@ -529,13 +543,16 @@ pub fn check(context: &RepoContext, args: &CheckArgs) -> Result<CheckOutput, Cli
     baseline: report.baseline_branch.clone(),
     base_commit: report.base.as_deref().map(|base| short.get(base).to_string()),
     rewritten: report.regroup.changed_count(),
-    ok: branches
-      .iter()
-      .all(|branch| branch.result == "ok" || (args.allow_dangling && branch.result == "dangling_reference")),
+    ok: branches.iter().all(|branch| match branch.result.as_str() {
+      "ok" => true,
+      "dangling_reference" => args.allow_dangling,
+      "missing_declaration" => args.allow_missing,
+      _ => false,
+    }),
     branches,
     unassigned_count: report.unassigned,
     warnings,
-    missing_declarations: missing_declaration_outputs(&session, &report, &short).map_err(regroup_error)?,
+    missing_declarations: missing,
     fix,
   })
 }
@@ -748,36 +765,27 @@ pub fn session_of_sync(context: &RepoContext, report: &SyncReport) -> Result<Che
   )
 }
 
-/// The dangling references of `branches` (a branch and the branches it is built on) in a check of the grouping of
-/// `session` (`session_of_sync`): the ones a commit proves, by branch, and the possible ones as warnings. With `chain`,
-/// only that branch and the branches it is built on are built; else every branch (a whole stack that forks)
-pub fn dangling_references_in(context: &RepoContext, session: &CheckSession, branches: &[&str], chain: Option<&str>) -> Result<BranchDangling, CliError> {
-  let report = match chain {
-    Some(chain) => {
-      let of: Vec<String> = branches.iter().map(|name| (*name).to_string()).collect();
-      session.check_landing(chain, &of)
-    }
-    None => session.check(None),
-  }
-  .map_err(regroup_error)?;
+/// The dangling references of `branches` in `report`, a check of the grouping of `session` (`session_of_sync`) of what a
+/// start lands (`sync_core::landing_gate`): the ones a commit proves, by branch, and the possible ones as warnings
+pub fn dangling_references_in(context: &RepoContext, session: &CheckSession, report: &CheckReport, branches: &[&str]) -> Result<BranchDangling, CliError> {
   let short = context.short_ids(report.regroup.commits.iter().map(|commit| commit.id.as_str()));
-  let files_of = if has_mutual_reference(&report) {
+  let files_of = if has_mutual_reference(report) {
     changed_files(session.commit_diffs().map_err(regroup_error)?)
   } else {
     HashMap::new()
   };
   let no_plan = RegroupPlan::default();
-  let mut prover = FixProver::new(context, session, &no_plan, &report, &files_of, &short);
+  let mut prover = FixProver::new(context, session, &no_plan, report, &files_of, &short);
   let confirmed = branches
     .iter()
     .filter_map(|name| report.branches.iter().find(|branch| branch.name == *name))
     .flat_map(|branch| {
-      confirmed_dangling_references(&report, branch, &short, &mut |branch, reference| prover.prove(branch, reference))
+      confirmed_dangling_references(report, branch, &short, &mut |branch, reference| prover.prove(branch, reference))
         .into_iter()
         .map(|reference| (branch.name.clone(), reference))
     })
     .collect();
-  let warnings = possible_dangling_references(&report, &short)
+  let warnings = possible_dangling_references(report, &short)
     .into_iter()
     .filter(|warning| branches.contains(&warning.branch.as_str()))
     .collect();

@@ -91,6 +91,7 @@ targets:
   - ../../crates/sync-core/src/dangling_fix.rs
   - ../../crates/sync-core/src/inverted_stack.rs
   - ../../crates/sync-core/src/missing_declarations.rs
+  - ../../crates/sync-core/src/landing_gate.rs
   - ../../crates/git-ops/src/object_texts.rs
   - ../../crates/object-cache/src/commit_lines.rs
   - ../../crates/git-executor/src/git_info.rs
@@ -552,8 +553,10 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`fix_finds_the_regroup_after_which_the_plan_applies_and_writes_nothing`, `a_fix_out_of_time_says_budget_and_the_trial_limit_needs_fix`)
 - With `branchdeck.symbols on`, `missing_declarations` must name each use, by a commit of a built branch, of a name
   that a commit outside the branch and the branches it is built on adds or gives the form the use needs (an edge by
-  symbols), an override of it included, with the evidence; it must not change `ok` or the exit code.
-  [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration`, `an_override_of_another_branchs_overload_is_a_missing_declaration`)
+  symbols), an override of it included, with the evidence. git merges such a branch and its build fails, so a branch
+  that builds otherwise must be `missing_declaration` (exit 1); with `--allow-missing` it must keep that `result`, and
+  only `ok` and the exit code must count it as building, as `bd safe-push --allow-missing` starts anyway.
+  [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration`, `an_override_of_another_branchs_overload_is_a_missing_declaration`, `allow_dangling_keeps_the_reference_and_exits_0`)
 - A built branch that removes a declaration its virtual tree still uses where HEAD's tree doesn't must be
   `dangling_reference` (exit 1) with `{kind, identifier, file, line, removed_by, fixed_by, mutual, declared_in}`
   (`declared_in` the `{file, line}` of the declaration before `removed_by`), when a commit outside
@@ -984,6 +987,16 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   start anyway, and the possible ones are `warnings`.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_dangling_reference_refuses_the_safe_push_unless_allowed`)
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_dangling_reference_message_names_the_kind`, `a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
+- With `branchdeck.symbols on`, a use by a commit of what lands of a name that a commit outside it adds (a missing
+  declaration of `bd check`), which no merged Safe Push landed, must refuse the start with `missing_declaration`
+  (exit 4), nothing pushed, in the same trial session (`sync_core::landing_gate`, the rule of the app's start too). A
+  name a branch of the landing stack adds is none, a sibling's of a whole stack that forks too. The message must name
+  the use, the commit that adds the name with its branch, and the fix: `bd restack <root> <branch>`, which lands that
+  branch too, or, with stacked branches off, a commit unassigned or a restack that would close a cycle, the move of the
+  commit; "(N more: bd check)" for the others. `--check` must list it in `refusals`, and `--allow-missing` must start
+  anyway.
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_name_another_branch_adds_refuses_the_safe_push_unless_allowed`, `a_name_a_sibling_adds_refuses_the_branch_alone_but_not_the_whole_stack`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`, `a_safe_push_check_of_the_whole_stack`)
 - Patronus rebases what a robot lands onto the newest target before any check, and a conflict fails the robot at once.
   So before the lock, `bd safe-push` must fetch only the target's remote branch (as Update Project does). Then it must
   replay what the robot lands onto the tip that the sync read, as a plain `git rebase` replays it, with no resolution

@@ -12,6 +12,7 @@ use patronus::service::PatronusService;
 use patronus::teamcity_cli::TeamCityCli;
 use patronus::token::find_user_token;
 use std::time::Duration;
+use sync_core::landing_gate::{LandingCheck, LandingGateParams, ensure_landing_starts, landing_check};
 use sync_core::patronus::{SpaceRepository, find_space_repository, find_target_branch};
 use sync_core::review_readiness::{ReadinessRepository, branch_review_readiness};
 use sync_core::robot_commits::{RobotSubject, robot_failure_report, robot_subject_commit_map};
@@ -200,14 +201,30 @@ pub async fn get_patronus_start_options(
 }
 
 /// Starts a Safe Push or a Dry Run of the pushed virtual branch, or with `stack` of the pushed stack branch of the whole
-/// stack; the frontend pushes it first. The new robot.
+/// stack; the frontend pushes it first. First the landing gate (`sync_core::landing_gate`), as `bd safe-push` refuses
+/// it: a proven dangling reference or a missing declaration refuses the start unless `allow` lets it. The new robot.
 #[tauri::command]
 #[specta::specta]
 pub async fn start_patronus_robot(
   git_executor: State<'_, GitCommandExecutor>,
+  repository_state: State<'_, RepositoryStateCache>,
   patronus: State<'_, PatronusState>,
   params: StartPatronusRobotParams,
 ) -> Result<PatronusRobot, CommandError> {
+  let gate = LandingGateParams {
+    repository_path: params.repository_path.clone(),
+    branch_prefix: params.branch_prefix.clone(),
+    branch_name: params.branch_name.clone(),
+    stack: params.stack,
+    landed_commits: params.landed_commits.clone(),
+    allow: params.allow,
+  };
+  let (git, repository_state_cache) = ((*git_executor).clone(), (*repository_state).clone());
+  run_blocking(move || {
+    let cache = repository_state_cache.object_cache(&git, &gate.repository_path);
+    ensure_landing_starts(&git, &cache, &gate)
+  })
+  .await?;
   let repository = patronus.required_space_repository(&git_executor, &params.repository_path).await?;
   let target = target_branch(&git_executor, &params.repository_path, &params.baseline_branch).await?;
   let source = if params.stack {
@@ -229,6 +246,24 @@ pub async fn start_patronus_robot(
     )
     .await
     .map_err(CommandError::new)
+}
+
+/// What refuses the start of a Safe Push or a Dry Run, as `bd safe-push` refuses it (`sync_core::landing_gate`): the
+/// refusals left after `allow`, each with its fix; asked before the push, through the object cache of the repository
+#[tauri::command]
+#[specta::specta]
+#[instrument(skip(git_executor, repository_state))]
+pub async fn check_landing_gate(
+  git_executor: State<'_, GitCommandExecutor>,
+  repository_state: State<'_, RepositoryStateCache>,
+  params: LandingGateParams,
+) -> Result<LandingCheck, CommandError> {
+  let (git, repository_state) = ((*git_executor).clone(), (*repository_state).clone());
+  run_blocking(move || {
+    let cache = repository_state.object_cache(&git, &params.repository_path);
+    landing_check(&git, &cache, &params)
+  })
+  .await
 }
 
 /// Whether Patronus can rebase the branch a start pushes onto the newest target, as `bd safe-push` checks it: the fetch

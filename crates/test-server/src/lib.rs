@@ -161,6 +161,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/get_branch_review_readiness", post(tauri_command_bridge::get_branch_review_readiness))
     .route("/invoke/get_patronus_start_options", post(tauri_command_bridge::get_patronus_start_options))
     .route("/invoke/check_target_conflict", post(tauri_command_bridge::check_target_conflict))
+    .route("/invoke/check_landing_gate", post(tauri_command_bridge::check_landing_gate))
     .route("/invoke/delete_archived_branch", post(tauri_command_bridge::delete_archived_branch))
     .route("/invoke/get_archived_branch_commits", post(tauri_command_bridge::get_archived_branch_commits))
     .route("/invoke/get_unapplied_branch_commits", post(tauri_command_bridge::get_unapplied_branch_commits))

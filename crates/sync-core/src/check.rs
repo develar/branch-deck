@@ -865,6 +865,11 @@ impl CheckSession {
     }
   }
 
+  /// The commit `id` of the snapshot, as `StackIndependence` names it; `None` for a commit not ahead of the baseline
+  pub(crate) fn stack_commit_of(&self, id: &str) -> Option<StackCommit> {
+    self.snapshot.commits.iter().position(|commit| commit.id == id).map(|position| self.stack_commit(position))
+  }
+
   /// The uses, by commits of `branch`, of names that commits of its declared ancestors add, one per name
   fn ancestor_uses(&self, branch: &str, graph: &SymbolGraph) -> Vec<StackUse> {
     let commits = &self.snapshot.commits;

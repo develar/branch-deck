@@ -1,8 +1,11 @@
 import { toast } from "@/components/ui/toast"
-import type { PatronusMergeRequest, PatronusRobot } from "@/lib/bindings"
+import { restackBranch } from "@/hooks/useStackActions"
+import type { LandingAllowances, PatronusMergeRequest, PatronusRobot } from "@/lib/bindings"
 import { notifyError } from "@/lib/errors"
 import { cancelHoldingRobot, pushForAction } from "@/lib/git/push"
 import { pushWholeStack } from "@/lib/git/stack-push"
+import type { LandingDecision } from "@/lib/landing-gate"
+import { checkLandingBeforeStart, formatLandingFix } from "@/lib/landing-gate"
 import type { PullRequestStart } from "@/lib/patronus"
 import { canCancelRobot, describeRobot, formatPushMode, openRobot } from "@/lib/patronus"
 import { runRobotAction } from "@/lib/patronus-actions"
@@ -33,10 +36,14 @@ export interface SafePushStart {
    * branch (`stack`), the only branch pushed first; null for the start of a branch
    */
   readonly wholeStack: string | null
+  /** What the user starts anyway (Start Anyway of a refusal of the landing gate); absent: every refusal holds it back */
+  readonly allow?: LandingAllowances
 }
 
 /**
- * Starts a Safe Push or a Dry Run: first the target conflict check (`checkTargetBeforeStart`: the fetch of the target and
+ * Starts a Safe Push or a Dry Run: first the landing gate (`checkLandingBeforeStart`, the rule of `bd safe-push`: a name
+ * what lands uses and a branch outside it adds, a proven dangling reference), whose refusal starts nothing and offers the
+ * fix and Start Anyway (`refuseLanding`); then the target conflict check (`checkTargetBeforeStart`: the fetch of the target and
  * the replay of what lands onto its tip, as Patronus rebases it), whose conflict starts nothing and says "Cannot start the
  * Safe Push" with Update Project; then the push of what the remote lacks (`pushForAction`: the stack root first, a
  * running Safe Push of an older commit canceled for it; of the whole stack its stack branch alone), then the robot, from the pull request (a `/patronus` comment)
@@ -56,6 +63,12 @@ export async function startSafePush(start: SafePushStart): Promise<boolean> {
   const root = start.wholeStack
   try {
     setSafePushStarting(branchName, { mode, step: "target" })
+    const allow = start.allow ?? {}
+    const landing = await checkLandingBeforeStart(branchName, root, allow)
+    if (landing.kind === "refuse") {
+      refuseLanding(start, errorTitle, landing)
+      return false
+    }
     const target = await checkTargetBeforeStart(branchName, root)
     if (target.kind === "refuse") {
       notifyError(errorTitle, target.reason, { children: "Update Project", onClick: () => void runUpdateProject() })
@@ -72,15 +85,32 @@ export async function startSafePush(start: SafePushStart): Promise<boolean> {
     setSafePushStarting(branchName, { mode, step: "starting" })
     const robot =
       start.fromPullRequest === null
-        ? await startPatronusRobot(root ?? branchName, mode, start.profile?.id ?? null, start.mergeRequest, start.profile?.name ?? null, root !== null)
+        ? await startPatronusRobot(root ?? branchName, mode, start.profile?.id ?? null, start.mergeRequest, start.profile?.name ?? null, root !== null, allow)
         : await startPatronusFromPullRequest(start.fromPullRequest.number, mode)
-    announceStart(`${modeName} started`, robot, start.fromPullRequest === null ? (start.profile?.name ?? null) : null, target.note)
+    const note = [landing.note, target.note].filter(line => line !== null).join(" ")
+    announceStart(`${modeName} started`, robot, start.fromPullRequest === null ? (start.profile?.name ?? null) : null, note === "" ? null : note)
     return true
   } catch (error) {
     notifyError(errorTitle, error)
     return false
   } finally {
     setSafePushStarting(branchName, null)
+  }
+}
+
+/**
+ * A start the landing gate refused: "Cannot start the Safe Push" with why the build of what lands fails, the fix of the
+ * first refusal as the action ("Stack lane-run on stills-codec", a restack the start then lands too), and Start Anyway,
+ * the same start with the overrides of what refused it (a name the user knows is a false alarm)
+ */
+function refuseLanding(start: SafePushStart, errorTitle: string, landing: Extract<LandingDecision, { kind: "refuse" }>): void {
+  const anyway = { label: "Start Anyway", onClick: () => void startSafePush({ ...start, allow: landing.anyway }) }
+  const fix = landing.fix
+  const fixLabel = formatLandingFix(fix)
+  if (fix?.kind === "restack" && fixLabel !== null) {
+    notifyError(errorTitle, landing.reason, { children: fixLabel, onClick: () => void restackBranch(fix.branch, fix.onto) }, anyway)
+  } else {
+    notifyError(errorTitle, landing.reason, { children: anyway.label, onClick: anyway.onClick })
   }
 }
 

@@ -2260,7 +2260,8 @@ sync, before anything is asked of Patronus.
    (`session_of_sync`, `CheckSession::of_sync`): no guards, HEAD, config, stores or baseline are read again, only the
    commits ahead of the baseline with the mapping notes the sync wrote (one `log`, so the trial reuses the virtual
    commits) and the branch tips under the prefix (one `for-each-ref`). Only the branch and the branches it is built on
-   are built (`CheckSession::check_landing`), every branch only for a whole stack that forks. With `--check`, the
+   are built (`CheckSession::check_landing`), every branch only for a whole stack that forks; the landing gate (below,
+   "Landing gate") reads the missing declarations in the same session. With `--check`, the
    trial build of a stacked
    branch alone (`alone`, `stack_independence`) runs in the same session: its build and, for the names it uses, the
    changes of the commits; a start runs no trial.
@@ -2326,6 +2327,33 @@ removes the conflict (the fixup undoes the conflicting change); then the check r
 take. `bd fold` (Squash Fixups in the app) before the start removes the difference.
 
 Code: `crates/sync-core/src/target_conflict.rs`, `crates/git-ops/src/trial_rebase.rs`, `src/lib/target-conflict.ts`.
+
+#### Landing gate
+
+git merges a branch that uses a name only another branch adds, and the robot's build fails, as the robots of
+2026-10-17 (an override of an overload of another branch) and 2026-10-21 (`StillEncoding`, `Stills` and
+`Manifest.stills` of `stills-codec`, used by `lane-run`) failed. So every start of a Safe Push or a Dry Run, of
+`bd safe-push` and of the app, asks one core first (`sync_core::landing_gate`, `check_landing_gate`): a trial check of
+what lands, the branch and the branches it is built on (`CheckSession::check_landing`), every branch for a whole
+stack, then
+
+- the dangling references a commit proves (`dangling_references`), and
+- with `branchdeck.symbols on`, the missing declarations (`missing_declarations`): the edges by symbols from a commit
+  of what lands to a commit outside it, which no merged Safe Push landed (the commits `landedBy` names). An edge to a
+  branch of the landing stack is none, a sibling's of a whole stack that forks too: one robot lands both.
+
+The result is typed (`LandingRefusal`, with `LandingFix`: the restack of the root of what lands onto the branch that
+adds the name, else, with stacked branches off, an unassigned commit or a restack that would close a cycle, the move of
+the commit), and the overrides are the user's (`LandingAllowances`: `--allow-dangling`, `--allow-missing`, Start
+Anyway). It writes objects only, never a ref: the symbol graph costs one `log --raw` of the commit changes and one
+`cat-file --batch` of the source blobs whose summaries the cache lacks, once per session. `bd safe-push` runs it in the
+session of its dangling references (`session_of_sync`, no second `log` of the commits); the app opens a session of the
+current grouping (`CheckSession::open`) before the push (`checkLandingBeforeStart`), and the start command checks again
+before it asks Patronus (`start_patronus_robot`, `ensure_landing_starts`), so no surface starts past it. The E2E server
+runs the same core without the object cache.
+
+Code: `crates/sync-core/src/landing_gate.rs`, `crates/sync-core/src/missing_declarations.rs`,
+`crates/bd-remote/src/safe_push_command.rs`, `src-tauri/src/commands/patronus.rs`, `src/lib/landing-gate.ts`.
 
 #### Agent robot status (`bd robot`)
 

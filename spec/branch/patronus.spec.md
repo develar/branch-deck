@@ -22,6 +22,8 @@ targets:
   - ../../src/lib/git/new-pull-request.ts
   - ../../crates/sync-core/src/remote_status.rs
   - ../../src-tauri/src/commands/patronus.rs
+  - ../../crates/sync-core/src/landing_gate.rs
+  - ../../src/lib/landing-gate.ts
   - ../../crates/sync-core/src/patronus_review.rs
   - ../../src/stores/patronus.ts
   - ../../src/lib/patronus-failing.ts
@@ -576,6 +578,24 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should refuse the click with the push alone in its toast`, `should say in the popover why it can't start, and push alone from it`)
   [@test] ../../crates/sync-core/src/branch_rules_test.rs (`a_pull_request_rule_that_dismisses_stale_reviews_on_push_is_found_among_the_rules_of_the_branch`, `a_branch_without_such_a_rule_keeps_the_approvals`, `a_failed_answer_is_an_error_not_a_guess`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should warn before a push that dismisses the approvals of the pull request`)
+- git merges a branch that uses a name only another branch adds, and the robot's build fails (the robots of
+  2026-10-17 and 2026-10-21). So a start first asks the landing gate, the rule of `bd safe-push` in Rust
+  (`checkLandingBeforeStart`, `check_landing_gate`, `sync_core::landing_gate`): a trial check of what lands, with the
+  proven dangling references and, with `branchdeck.symbols on`, the missing declarations, the uses by a commit of what
+  lands of a name that a commit outside it adds, which no merged Safe Push landed (`landedBy`). Meanwhile the slot
+  button says "Checking…". A refusal starts nothing and pushes nothing: the error toast "Cannot start the Safe Push"
+  says "“Show each scenario” of JIRA-456 uses Stills (src/lane/BuildLog.kt:7), which “Name lossy stills” of ABC-123
+  adds: git merges it, but the build of JIRA-456 fails. Stack JIRA-456 on ABC-123 to land it too." (one more refusal:
+  "One more name breaks it too: bd check lists them."), with the fix as its action, "Stack JIRA-456 on ABC-123", a
+  restack of the root of what lands, so the next start lands that branch too, and "Start Anyway" below it, the same
+  start with the override of what refused it (a name the user knows is a false alarm). A commit unassigned, stacked
+  branches off or a restack that would close a cycle: the text names the move of the commit, and "Start Anyway" is the
+  only action. The start command checks again, with the override, before it asks Patronus, so no surface starts past
+  the gate; the start from a pull request asks the gate first too. A check that can't run holds nothing back, and the
+  start's toast says "Not checked whether JIRA-456 uses a name only another branch adds: …".
+  [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should refuse a Safe Push whose branch uses a name another branch adds, with the restack and Start Anyway`)
+  [@test] ../../src/lib/landing-gate.test.ts (`refuses the robot of 2026-10-21 with the name, both commits and the restack that lands the branch that adds it`, `counts the other refusals, names an unassigned commit by its hash, and offers no action for a move`, `starts when nothing refuses it`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_name_another_branch_adds_refuses_the_safe_push_unless_allowed`)
 - Patronus rebases what a robot lands onto the newest target before any check, and a conflict fails the robot at once
   ("Rebase … onto master is impossible"). A branch is built on the base of the checked out branch, not on the newest
   target, and the target moves every minute. So the start checks the rebase first, before the push
