@@ -18,6 +18,17 @@ targets:
   - ../../crates/bd-update/src/undo_command.rs
   - ../../crates/bd-core/src/error.rs
   - ../../crates/bd-cli/src/agent_help.rs
+  - ../../crates/sync-core/src/sync.rs
+  - ../../crates/sync-types/src/lib.rs
+  - ../../crates/sync-core/src/push.rs
+  - ../../crates/sync-core/src/delete_archived_branch.rs
+  - ../../crates/bd-remote/src/push_command.rs
+  - ../../crates/bd-remote/src/safe_push_command.rs
+  - ../../crates/bd-remote/src/status.rs
+  - ../../src/stores/unapplied-branches.ts
+  - ../../src/components/branch/UnappliedBranchTableCard.tsx
+  - ../../src/hooks/useUnappliedBranchMenu.ts
+  - ../../src/lib/git/unapplied-push.ts
 ---
 
 # Unapply Branch
@@ -38,6 +49,7 @@ branch is kept in the unapplied namespace (`{prefix}/unapplied/<name>`), which n
 - Keep the user's work on other paths as it is, staged or not.
 - All or nothing: HEAD, the files and the branch move together, or nothing does.
 - Take it back at once with Undo, and let an agent do the same with `bd unapply` and `bd undo`.
+- See what waits outside HEAD, keep a copy of it on the remote, and delete it once it is not needed.
 
 ## Non-goals
 
@@ -106,6 +118,29 @@ branch is kept in the unapplied namespace (`{prefix}/unapplied/<name>`), which n
 - A failed unapply must keep the branch in the table and say why in the error toast "Cannot unapply ‹branch›".
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should keep the branch and say why when the unapply fails, and close the confirmation with Escape`)
 
+### The Unapplied card
+
+- Every sync must report the unapplied branches once, also none, with the tip, its subject and the remote status of
+  each one whose remote branch exists; one without a remote branch costs no process.
+  [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`a_sync_reports_the_unapplied_branches_with_the_remote_status_of_a_pushed_one`)
+- The app must list them in the Unapplied card, after the branch table and the Parked card, before the archived
+  branches, open by default, its rows out of the branch table: the name, the subject, the Remote cell ("Not pushed",
+  "Pushed", "2 commits to push", "Remote differs"), and its commits below an expanded row; a help popover says what an
+  unapplied branch is.
+  [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should list an unapplied branch in its own card with its commits, out of the branch table`)
+- The menu of a row (right-click and "⋯") must offer Push (Force Push when the remote has another history, disabled
+  when it has it as it is), Safe Push disabled with "Not in master: an unapplied branch lands nothing", Copy, and
+  Delete Unapplied Branch….
+  [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should push an unapplied branch under its own name from both menus, and refuse its Safe Push with why`)
+- Push must push it under its own name (`{prefix}/unapplied/<name>`) with a lease on the remote head of its status, then
+  sync; the toast "Pushed ‹branch›" says the remote keeps it. A pull request of its virtual branch stays as it was.
+  [@test] ../../crates/sync-core/src/push_test.rs (`an_unapplied_branch_is_pushed_under_its_own_name`)
+  [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should push an unapplied branch under its own name from both menus, and refuse its Safe Push with why`)
+- Delete Unapplied Branch… must ask for its name typed, then delete it with compare-and-swap on its tip, refused while
+  a worktree has it; only its own command deletes it.
+  [@test] ../../crates/sync-core/src/delete_archived_branch_test.rs (`deletes_an_unapplied_branch_only_by_its_own_command`)
+  [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should delete an unapplied branch after its name is typed`)
+
 ### Undo
 
 - The toast "Unapplied ‹branch›" must offer Undo (and Activity the same), which brings the commits, their files and
@@ -131,6 +166,10 @@ branch is kept in the unapplied namespace (`{prefix}/unapplied/<name>`), which n
 - Its refusals must be codes: `unknown_branch` (exit 2), `uncommitted_overlap` with `paths`, `branch_not_built`,
   `branch_checked_out` and `drop_conflict` (exit 4).
   [@test] ../../crates/bd-update/src/unapply_test.rs (`unapply_refuses_an_unknown_branch_one_not_built_and_local_changes_in_the_way`)
+- `bd status` must list the unapplied branches (`unapplied`: name, branch, tip, subject, the remote head and whether it
+  is up to date), from the listing it read; `bd push` and `bd safe-push` must refuse the name of one as `unapplied`
+  (exit 4), and `bd push --unapplied <name>` must push it under its own name.
+  [@test] ../../crates/bd-update/src/unapply_test.rs (`status_lists_an_unapplied_branch_push_refuses_it_by_its_name_and_pushes_it_with_unapplied`)
 - `bd help agent` and the skill must tell an agent to unapply only when the user asks.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
 
@@ -145,7 +184,10 @@ branch is kept in the unapplied namespace (`{prefix}/unapplied/<name>`), which n
 - Unapply… → the confirmation below the row ("This removes 2 commits and their changes from HEAD"), Enter → the row
   leaves the table, the files with it → toast "Unapplied docs" · "Removed 1 commit from HEAD · kept in
   jane/unapplied/docs" · Undo.
-- `bd unapply docs` → `{"unapplied_branch":"jane/unapplied/docs",…,"undo_token":"unapply:…"}`; `bd undo unapply:…`.
+- The Unapplied card: "Unapplied · 1 branch", the row "docs · Document the API · Not pushed"; Push → toast "Pushed docs"
+  · "The remote keeps it as jane/unapplied/docs".
+- `bd unapply docs` → `{"unapplied_branch":"jane/unapplied/docs",…,"undo_token":"unapply:…"}`; `bd undo unapply:…`;
+  `bd status` → `"unapplied":[{"name":"jane/unapplied/docs","branch":"docs",…}]`; `bd push --unapplied docs`.
 
 ## Open Questions / Risks
 

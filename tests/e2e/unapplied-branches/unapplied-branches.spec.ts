@@ -2,6 +2,8 @@
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getMoreButton } from "../helpers/branch-helpers"
+import { inlineDeleteConfirmation, submitInlineForm } from "../helpers/inline-form-helpers"
+import { routePushBranches } from "../helpers/push-helpers"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
 import { routeCommandError } from "../helpers/wait-helpers"
 
@@ -20,6 +22,21 @@ async function openUnapply(page: Page, open: () => Promise<void>): Promise<Locat
   const confirm = page.getByRole("button", { name: "Unapply Branch" })
   await expect(confirm).toBeFocused()
   return confirm
+}
+
+function unappliedCard(page: Page): Locator {
+  return page.getByTestId("unapplied-branches-card")
+}
+
+function unappliedRow(page: Page, name: string): Locator {
+  return unappliedCard(page).locator(`tr[data-branch-name="user-name/unapplied/${name}"]`)
+}
+
+/** Unapplies `name` from its right-click menu, confirmed with Enter; resolves once the sync showed it */
+async function unapplyFromMenu(page: Page, name: string): Promise<void> {
+  await openUnapply(page, () => findBranchRow(page, name).click({ button: "right" }))
+  await runAndWaitForSync(page, () => page.keyboard.press("Enter"))
+  await expect(unappliedRow(page, name)).toBeVisible()
 }
 
 test.describe("Unapplied branches", () => {
@@ -73,5 +90,55 @@ test.describe("Unapplied branches", () => {
     await page.keyboard.press("Enter")
     await expect(toast(page, "Cannot unapply docs")).toContainText("docs.md")
     await expect(findBranchRow(page, "docs")).toHaveCount(1)
+  })
+
+  test("should list an unapplied branch in its own card with its commits, out of the branch table", async ({ page }) => {
+    await expect(unappliedCard(page)).toHaveCount(0)
+    await unapplyFromMenu(page, "docs")
+    await expect(unappliedCard(page)).toContainText("1 branch")
+    const row = unappliedRow(page, "docs")
+    await expect(row).toContainText("Document the API")
+    await expect(row.getByTestId("unapplied-branch-remote")).toHaveText("Not pushed")
+    await expect(findBranchRow(page, "docs")).toHaveCount(0)
+
+    // the row expands to its commits
+    await row.click()
+    await expect(unappliedCard(page).getByText("Document the API").nth(1)).toBeVisible()
+
+    await unappliedCard(page).getByTestId("unapplied-branches-help-icon").click()
+    await expect(page.locator("[data-slot=popover-title]")).toHaveText("Unapplied")
+  })
+
+  test("should push an unapplied branch under its own name from both menus, and refuse its Safe Push with why", async ({ page }) => {
+    const { stackPushes } = await routePushBranches(page)
+    await unapplyFromMenu(page, "docs")
+    const row = unappliedRow(page, "docs")
+
+    // the right-click menu
+    await row.click({ button: "right" })
+    const safePush = page.getByRole("menuitem", { name: "Safe Push" })
+    await expect(safePush).toHaveAttribute("aria-disabled", "true")
+    await safePush.hover()
+    await expect(page.getByRole("tooltip")).toHaveText("Not in master: an unapplied branch lands nothing")
+    await runAndWaitForSync(page, () => page.getByRole("menuitem", { name: "Push", exact: true }).click())
+    await expect(toast(page, "Pushed docs")).toContainText("The remote keeps it as user-name/unapplied/docs")
+    expect(stackPushes).toEqual([[{ branchName: "docs", expectedRemote: null, unapplied: true }]])
+
+    // the "⋯" menu
+    await row.hover()
+    await row.getByRole("button", { name: "More actions for docs" }).click()
+    await runAndWaitForSync(page, () => page.getByRole("menuitem", { name: "Push", exact: true }).click())
+    expect(stackPushes).toHaveLength(2)
+  })
+
+  test("should delete an unapplied branch after its name is typed", async ({ page }) => {
+    await unapplyFromMenu(page, "docs")
+    await unappliedRow(page, "docs").click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Delete Unapplied Branch…" }).click()
+    await inlineDeleteConfirmation.waitForVisible(page)
+    await expect(inlineDeleteConfirmation.getPortal(page)).toContainText("only a copy on the remote keeps them")
+    await runAndWaitForSync(page, () => submitInlineForm(inlineDeleteConfirmation.getInput(page), "docs"))
+    await expect(toast(page, "Deleted the unapplied branch docs")).toBeVisible()
+    await expect(unappliedCard(page)).toHaveCount(0)
   })
 })

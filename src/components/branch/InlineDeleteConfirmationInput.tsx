@@ -7,12 +7,21 @@ export interface InlineDeleteConfirmationInputProps {
   branchName: string
   title: string
   description?: string
+  /** What the delete loses; the one of an archived branch by default */
+  helpText?: string
   onSubmit: () => void
   onCancel: () => void
 }
 
-/** Confirms the deletion of an archived branch by typing its simple name. */
-export function InlineDeleteConfirmationInput({ branchName, title, description, onSubmit, onCancel }: InlineDeleteConfirmationInputProps) {
+/** Confirms the deletion of an archived or an unapplied branch by typing its simple name. */
+export function InlineDeleteConfirmationInput({
+  branchName,
+  title,
+  description,
+  helpText = "This action will permanently delete the archived branch. This cannot be undone.",
+  onSubmit,
+  onCancel,
+}: InlineDeleteConfirmationInputProps) {
   const [inputText, setInputText] = useState("")
   const simpleName = getSimpleBranchName(branchName)
   const isValid = inputText === simpleName
@@ -33,7 +42,7 @@ export function InlineDeleteConfirmationInput({ branchName, title, description, 
       submitVariant="destructive"
       dataTestId="inline-delete-input"
       leadingIcon={<Trash2Icon className="size-4 text-muted-foreground" />}
-      helpText="This action will permanently delete the archived branch. This cannot be undone."
+      helpText={helpText}
       onSubmit={onSubmit}
       onCancel={onCancel}
     />

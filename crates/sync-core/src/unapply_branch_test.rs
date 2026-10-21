@@ -1,4 +1,5 @@
 use crate::regroup_test::{commits, path, repo, sync};
+use crate::sync::{SyncOptions, sync_branches};
 use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyRefusal, UnapplyUndoToken, UndoneUnapply, unapply_branch_core, undo_unapply_core};
 use crate::update_project::UndoBlocked;
 use anyhow::Result;
@@ -6,6 +7,8 @@ use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::MoveBlocked;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions};
 use pretty_assertions::assert_eq;
+use sync_test_utils::TestReporter;
+use sync_types::{SyncEvent, UnappliedBranchInfo};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -270,4 +273,54 @@ fn an_unapply_token_names_full_ids_and_both_branches() {
   ] {
     assert_eq!(UnapplyUndoToken::parse(&bad), None, "{bad}");
   }
+}
+
+/// The unapplied branches of a sync's `UnappliedBranchesFound`
+fn unapplied_of_sync(repo: &TestRepo) -> Vec<UnappliedBranchInfo> {
+  let progress = TestReporter::new();
+  tokio::runtime::Runtime::new()
+    .unwrap()
+    .block_on(sync_branches(repo.git_executor(), path(repo), PREFIX, progress.clone(), SyncOptions::default()))
+    .unwrap();
+  let found: Vec<Vec<UnappliedBranchInfo>> = progress
+    .get_events()
+    .into_iter()
+    .filter_map(|event| match event {
+      SyncEvent::UnappliedBranchesFound { branches } => Some(branches),
+      _ => None,
+    })
+    .collect();
+  assert_eq!(found.len(), 1, "one event per sync");
+  found.into_iter().next().unwrap()
+}
+
+#[test]
+fn a_sync_reports_the_unapplied_branches_with_the_remote_status_of_a_pushed_one() -> Result<()> {
+  let (repo, _) = synced_repo();
+  assert_eq!(unapplied_of_sync(&repo), [], "the event comes empty too, so the list clears");
+  let result = unapply(&repo, "feature", None)?;
+  let tip = repo.rev_parse(&result.unapplied_branch_name).map_err(anyhow::Error::msg)?;
+
+  let found = unapplied_of_sync(&repo);
+  assert_eq!(found.len(), 1);
+  assert_eq!(
+    (
+      found[0].name.as_str(),
+      found[0].branch.as_str(),
+      found[0].tip.as_str(),
+      found[0].checked_out,
+      &found[0].remote
+    ),
+    ("test-prefix/unapplied/feature", "feature", tip.as_str(), false, &None)
+  );
+
+  // its remote branch, as a push leaves it
+  repo.git(&["update-ref", "refs/remotes/origin/test-prefix/unapplied/feature", &tip]);
+  let found = unapplied_of_sync(&repo);
+  let remote = found[0].remote.as_ref().expect("the remote status of the pushed branch");
+  assert_eq!(
+    (remote.remote_exists, remote.remote_tip.as_deref(), remote.unpushed_commits.len()),
+    (true, Some(tip.as_str()), 0)
+  );
+  Ok(())
 }

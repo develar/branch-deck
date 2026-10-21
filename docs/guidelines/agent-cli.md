@@ -542,6 +542,10 @@ local change on a path it writes is `uncommitted_overlap` (exit 4, `paths`) and 
 - `drop_conflict` (exit 4): a later commit depends on the changes of a commit of the branch, or the range holds a merge.
 - `bd undo <undo_token>` brings the commits, their files and the virtual branch back (`undo_stale` once the branch
   moved on); a repeated undo exits 0 with `already_undone: true`.
+- `unapplied` of `bd status` lists the unapplied branches (`name`, `branch`, `tip`, `subject`, `remote.head` and
+  `remote.up_to_date` once pushed). They land nothing: `bd push <name>` and `bd safe-push <name>` refuse one as
+  `unapplied` (exit 4); `bd push --unapplied <name>` pushes it to `origin` under its own name, leased on the remote head
+  of the last fetch or `--expect-remote`, with no pull request draft (`lease_rejected` when the remote moved).
 
 ### `bd reword <commit> (--subject <s> | --message <m> | --message-file <file>)`, `bd reword --plan <file>`
 
@@ -1155,7 +1159,7 @@ rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress
 - The exit code is 1 when any branch was not built (`conflict`, `error`, `blocked`); the summary is printed
   either way.
 
-### `bd push <branch>… [--with-children] [--alone] | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run] [--restart-running]`
+### `bd push <branch>… [--with-children] [--alone] | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run] [--restart-running]`, `bd push --unapplied <name>`
 
 Syncs, then pushes the branches in one atomic `git push --porcelain` with a lease per ref, parents first, under the
 repository lock (see "Agent push" in [Git Operations](../design/git-operations.md)). Every pull request of a virtual

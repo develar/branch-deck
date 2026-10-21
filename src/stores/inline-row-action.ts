@@ -12,6 +12,7 @@ export type InlineActionType =
   | "issue-reference"
   | "rename"
   | "delete-archived"
+  | "delete-unapplied"
   | "amend-changes"
   | "amend-conflict"
   | "unapply"

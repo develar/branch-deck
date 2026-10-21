@@ -160,6 +160,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/check_target_conflict", post(tauri_command_bridge::check_target_conflict))
     .route("/invoke/delete_archived_branch", post(tauri_command_bridge::delete_archived_branch))
     .route("/invoke/get_archived_branch_commits", post(tauri_command_bridge::get_archived_branch_commits))
+    .route("/invoke/get_unapplied_branch_commits", post(tauri_command_bridge::get_unapplied_branch_commits))
+    .route("/invoke/delete_unapplied_branch", post(tauri_command_bridge::delete_unapplied_branch))
     .route("/invoke/amend_uncommitted_to_branch", post(tauri_command_bridge::amend_uncommitted_to_branch))
     .route("/invoke/get_uncommitted_changes", post(tauri_command_bridge::get_uncommitted_changes))
     .route("/invoke/get_commit_files", post(tauri_command_bridge::get_commit_files))

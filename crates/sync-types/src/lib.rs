@@ -19,6 +19,24 @@ pub mod stack;
 pub mod upstream_commit;
 pub mod youtrack;
 
+/// A branch an unapply kept: its commits are not in HEAD, it lands nothing until it is reapplied
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct UnappliedBranchInfo {
+  /// The full name, `{prefix}/unapplied/<name>`
+  pub name: String,
+  /// `<name>`: the branch it was, a `-N` suffix when that name was taken
+  pub branch: String,
+  pub tip: String,
+  /// The subject of its tip
+  pub subject: String,
+  /// A worktree has it checked out
+  pub checked_out: bool,
+  /// Its remote status, when its remote branch exists (a plain push of it); `None` when it is not on the remote
+  pub remote: Option<RemoteStatusUpdate>,
+}
+
 /// Remote branch status information, by content: the baseline and patch-equivalent (rebased) commits don't count
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -158,6 +176,10 @@ pub enum SyncEvent {
     /// The branches this sync archived, a subset of `branch_names`
     newly_archived: Vec<String>,
   },
+  /// The unapplied branches (`{prefix}/unapplied/<name>`), newest first, with the remote status of those on the remote;
+  /// sent once per sync, also empty, so the list clears
+  #[serde(rename_all = "camelCase")]
+  UnappliedBranchesFound { branches: Vec<UnappliedBranchInfo> },
   /// Sent when remote branch status is checked
   #[serde(rename_all = "camelCase")]
   RemoteStatusUpdate(RemoteStatusUpdate),

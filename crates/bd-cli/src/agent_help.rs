@@ -45,7 +45,9 @@ Rules
 - `bd unapply <branch>` (`--expect-head <id>`) takes the commits of a branch and their files out of the checked out
   branch and keeps them in `unapplied_branch` (`{prefix}/unapplied/{name}`, which no sync archives); only when the user
   asks. `bd undo <undo_token>` brings them back. `uncommitted_overlap`, `branch_not_built` (sync first, a conflict
-  fixed), `branch_checked_out` and `drop_conflict` (a later commit needs its changes) change nothing.
+  fixed), `branch_checked_out` and `drop_conflict` (a later commit needs its changes) change nothing. `unapplied` of
+  `bd status` lists the unapplied branches; they land nothing, so `bd push` and `bd safe-push` refuse their names
+  (`unapplied`), and `bd push --unapplied <name>` keeps a copy on the remote when the user asks.
 - Never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; move a
   change between commits only with `bd move-hunk`, never with plumbing. Never stash, reset, check out or commit the
   user's files: on `uncommitted_overlap` (exit 4) show `paths` to the user and ask.

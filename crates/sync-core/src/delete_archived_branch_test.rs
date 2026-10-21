@@ -1,4 +1,4 @@
-use crate::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core};
+use crate::delete_archived_branch::{DeleteArchivedBranchParams, delete_archived_branch_core, delete_unapplied_branch_core};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -75,4 +75,26 @@ fn refuses_a_missing_branch_and_one_outside_the_archive() {
   let outside = delete(&git, &repo, "master").expect_err("not an archived branch");
   assert_eq!(outside.to_string(), "Can only delete archived branches under the configured branch prefix");
   assert!(repo.branch_exists("master"));
+}
+
+/// An unapplied branch is deleted the same way, and only through its own command: neither deletes the branches of the
+/// other's namespace
+#[test]
+fn deletes_an_unapplied_branch_only_by_its_own_command() {
+  let repo = repo_with_archived_branches();
+  let unapplied = "test-user/unapplied/feature";
+  repo.create_branch_at(unapplied, &repo.head()).unwrap();
+  let params = |branch_name: &str| DeleteArchivedBranchParams {
+    repository_path: repo.path().to_str().unwrap().to_string(),
+    branch_name: branch_name.to_string(),
+    branch_prefix: "test-user".to_string(),
+  };
+  let git = repo.git_executor();
+  assert!(delete(git, &repo, unapplied).is_err());
+  assert!(delete_unapplied_branch_core(git, params(ARCHIVED)).is_err());
+  assert!(delete_unapplied_branch_core(git, params("test-user/unapplied/")).is_err());
+
+  delete_unapplied_branch_core(git, params(unapplied)).unwrap();
+  assert!(!repo.branch_exists(unapplied));
+  assert!(repo.branch_exists(ARCHIVED));
 }

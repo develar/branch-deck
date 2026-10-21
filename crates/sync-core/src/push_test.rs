@@ -372,6 +372,7 @@ fn push_stack(local: &TestRepo, expected: [Option<&str>; 2], tips: [Option<&str>
     expected_remote: expected.map(str::to_string),
     tip: tip.map(str::to_string),
     whole_stack: false,
+    unapplied: false,
   };
   let params = PushBranchesParams {
     repository_path: path(local).to_string(),
@@ -417,6 +418,7 @@ fn the_whole_stack_pushes_its_stack_branch() {
       expected_remote: expected,
       tip: None,
       whole_stack: true,
+      unapplied: false,
     }],
   };
 
@@ -453,6 +455,7 @@ fn the_stack_branch_goes_with_the_branches_and_a_moved_one_is_named_as_the_stack
     expected_remote: expected.map(str::to_string),
     tip: None,
     whole_stack,
+    unapplied: false,
   };
   let params = |stack_lease: Option<&str>| PushBranchesParams {
     repository_path: path(&local).to_string(),
@@ -565,4 +568,45 @@ fn a_stack_push_up_to_a_commit_pushes_the_branches_below_whole() {
   let statuses = stack_pushed(push_stack(&local, [None, None], [None, Some(&first_login)]));
   assert_eq!((remote_tip_of(&remote, AUTH), remote_tip_of(&remote, LOGIN)), (Some(auth), Some(first_login)));
   assert_eq!(statuses[1].unpushed_commits, [second_login]);
+}
+
+/// An unapplied branch is pushed under its own name, `{prefix}/unapplied/<name>`, leased as any other: the remote keeps a
+/// copy, the remote branch of its virtual branch stays as it was
+#[test]
+fn an_unapplied_branch_is_pushed_under_its_own_name() {
+  let (remote, local) = local_with_bare_remote();
+  let tip = local.create_commit("Add docs", "docs.md", "docs");
+  set_branch_of(&local, "prefix/unapplied/docs", &tip);
+  let params = |expected: Option<&str>| PushBranchesParams {
+    repository_path: path(&local).to_string(),
+    branch_prefix: "prefix".to_string(),
+    my_email: None,
+    baseline_branch: "origin/master".to_string(),
+    branches: vec![StackPushBranch {
+      branch_name: "docs".to_string(),
+      parent_branch: None,
+      expected_remote: expected.map(str::to_string),
+      tip: None,
+      whole_stack: false,
+      unapplied: true,
+    }],
+  };
+
+  let statuses = stack_pushed(push_branches(local.git_executor(), &params(None), &mut |_| {}).unwrap());
+  assert_eq!(remote_tip_of(&remote, "prefix/unapplied/docs"), Some(tip.clone()));
+  assert_eq!(remote_tip_of(&remote, "prefix/virtual/docs"), None);
+  assert_eq!(
+    (statuses[0].branch_name.as_str(), statuses[0].remote_tip.as_deref(), statuses[0].unpushed_commits.len()),
+    ("docs", Some(tip.as_str()), 0)
+  );
+
+  // a second push without the lease of the remote branch is refused: someone may have pushed it since
+  let more = local.create_commit("More docs", "more.md", "more");
+  set_branch_of(&local, "prefix/unapplied/docs", &more);
+  assert!(matches!(
+    push_branches(local.git_executor(), &params(None), &mut |_| {}).unwrap(),
+    PushBranchesOutcome::RemoteMoved { .. }
+  ));
+  stack_pushed(push_branches(local.git_executor(), &params(Some(&tip)), &mut |_| {}).unwrap());
+  assert_eq!(remote_tip_of(&remote, "prefix/unapplied/docs"), Some(more));
 }

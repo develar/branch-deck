@@ -27,7 +27,7 @@ use auto_update::{SharedUpdateState, UpdateState, check_for_updates, get_update_
 use commands::add_issue_reference::add_issue_reference_to_commits;
 use commands::agent_cli::{agent_cli_command, agent_cli_status, install_agent_cli};
 use commands::amend_to_branch::amend_uncommitted_to_branch;
-use commands::archived_branches::{delete_archived_branch, get_archived_branch_commits};
+use commands::archived_branches::{delete_archived_branch, delete_unapplied_branch, get_archived_branch_commits, get_unapplied_branch_commits};
 use commands::branch_prefix::{check_git_setup, get_branch_prefix_from_git_config};
 use commands::branch_review::{get_branch_review, get_file_owners, prefetch_branch_review};
 use commands::commit_files::{get_commit_files, get_commits_files};
@@ -178,6 +178,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
     amend_uncommitted_to_branch,
     suggest_branch_names,
     get_archived_branch_commits,
+    get_unapplied_branch_commits,
+    delete_unapplied_branch,
     delete_archived_branch,
     unapply_branch,
     undo_unapply_branch,

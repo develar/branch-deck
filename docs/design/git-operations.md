@@ -567,6 +567,13 @@ after the mark of an interrupted move is finished (`finish_pending_update`):
 A failed unapply therefore never leaves a renamed branch behind, and a crash between the move and the files leaves the
 mark that the next move of the files finishes.
 
+The app lists them in the Unapplied card; a push of one (`StackPushBranch::unapplied`, `bd push --unapplied <name>`)
+goes to `origin` under its own name, leased as any push: the remote keeps a copy, and the remote branch of its virtual
+branch, a pull request's head, stays as it was last pushed. `bd push` and `bd safe-push` refuse its name as
+`unapplied`: it lands nothing. Its delete is the one of an archived branch (`delete_unapplied_branch_core`: one
+`for-each-ref`, one CAS transaction, refused while a worktree has it). `bd status` lists them from the listing it read
+(`unapplied`, no process).
+
 The undo (`unapply:<previous head>..<new head>:<tip>:<virtual branch>:<unapplied branch>`, the toast's Undo and
 `bd undo`) is the check of an undo of "Update project" with the trees swapped (`check_unapply_undo`: the last entry of
 the branch's reflog must be `branch-deck: unapply` from the previous head, else `NotAnUpdate`; HEAD elsewhere is
@@ -1324,6 +1331,11 @@ guards and its `rev-parse`), the archive step (`archive_and_clean_up_listed`: on
 placement of stacked branches (`empty_parent_states_listed`: only the notes) and the integration detection take these:
 one baseline commit for the whole sync, also when a fetch moves the baseline meanwhile, so the remote statuses, the
 detection and the update check compare with the same commit.
+
+**The unapplied branches** (`{prefix}/unapplied/<name>`, "Drop and unapply") are in the same listing. A sync never
+writes them; after the stack branches it sends them once, also an empty list, in `UnappliedBranchesFound`: the name,
+the tip, its subject, the worktree that has it, and the remote status of one whose remote branch exists, from the same
+`RemoteStatusMemo` (the push times include them); one without a remote branch costs no process.
 
 **What a sync returns** (`SyncReport`): the baseline, its commit, HEAD and the checked out branch as it read them, the
 grouping inputs (the stack setting, the issue groups, the stack parents), the grouped branches as `BranchesGrouped`

@@ -25,8 +25,8 @@ use crate::landed::{LandedBranch, every_branch_landed, landed_branches};
 use crate::patronus_facts::{PatronusFacts, remote_of, table_of};
 use crate::pull_request_retarget::{RetargetedPullRequest, is_virtual_branch_base, refusal_warning, retarget_one, virtual_base_retargets};
 use crate::push_command::{
-  PullRequestDraft, PushArgs, PushedBranch, github_repository, has_work_for_remote, not_synced_reason, push_locked, pushed_branch, stack_pull_request_draft,
-  unpushed_pull_request_draft,
+  PullRequestDraft, PushArgs, PushedBranch, github_repository, has_work_for_remote, not_synced_reason, push_locked, pushed_branch, refuse_an_unapplied_name,
+  stack_pull_request_draft, unknown_or_unapplied, unpushed_pull_request_draft,
 };
 use crate::push_hold::PushHolds;
 use crate::robot_list::list_robots;
@@ -404,13 +404,18 @@ enum Subject<'a> {
   Stack(&'a StackBranchUpdate),
 }
 
+/// What to do with an unapplied branch instead of its Safe Push
+const UNAPPLIED_SAFE_PUSH: &str = "nothing was pushed or started: reapply it to land it";
+
 pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Environment) -> Result<SafePushOutput, CliError> {
   let mode = if args.patronus_dry_run {
     PatronusPushMode::DryRun
   } else {
     PatronusPushMode::RebaseAutosquash
   };
-  let service = patronus_service(environment)?;
+  // an unapplied branch is refused as one also without a token, which a Safe Push of it never needs; a branch of HEAD
+  // costs no process for it
+  let service = patronus_service(environment).map_err(|error| refuse_an_unapplied_name(context, &args.branch, UNAPPLIED_SAFE_PUSH).err().unwrap_or(error))?;
   let github = github_service(context, environment);
   let youtrack = youtrack_service(environment);
   let runtime = context.runtime()?;
@@ -548,7 +553,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
         .pushed
         .iter()
         .find(|pushed| pushed.name == plan.name)
-        .map(|pushed| pushed.pull_request.clone())
+        .and_then(|pushed| pushed.pull_request.clone())
         .ok_or_else(|| CliError::new(ErrorCode::GitError, format!("{} was not pushed", plan.name)))?
     }
     (None, false) => unpushed_pull_request_draft(context, &synced, &plan.name, Some(&youtrack))?,
@@ -820,7 +825,7 @@ fn plan(
       .branches
       .iter()
       .find(|branch| branch.name == *name)
-      .ok_or_else(|| CliError::new(ErrorCode::UnknownBranch, format!("No branch named {name:?}")))?;
+      .ok_or_else(|| unknown_or_unapplied(context, name, UNAPPLIED_SAFE_PUSH))?;
     if let Some(reason) = not_synced_reason(branch) {
       return Err(CliError::new(
         ErrorCode::PushRefused,

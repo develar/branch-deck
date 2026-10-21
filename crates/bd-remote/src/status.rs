@@ -7,7 +7,7 @@ use bd_core::context::{Environment, RepoContext};
 use bd_core::error::CliError;
 use bd_core::output::{ResolvedByWords, SchemaVersion};
 use bd_core::stack_summary::StackSummary;
-use git_ops::branch_names::to_final_branch_name;
+use git_ops::branch_names::{BranchKind, strip_branch_namespace, to_final_branch_name};
 use history_rewrite::store_lines::StoreLineProblem;
 use repository_view::branch_table::BranchTable;
 use schemars::JsonSchema;
@@ -94,6 +94,60 @@ pub struct StatusOutput {
   /// once it is integrated, `bd unpark` drops any
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub idle_parked: Vec<String>,
+  /// The branches `bd unapply` kept (`{prefix}/unapplied/<name>`), newest first: their commits are not in HEAD, they land
+  /// nothing; `bd push --unapplied <name>` keeps a copy on the remote
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub unapplied: Vec<UnappliedSummary>,
+}
+
+/// A branch an unapply kept, as the listing of the branches under the prefix has it
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct UnappliedSummary {
+  /// `{prefix}/unapplied/<name>`
+  pub name: String,
+  /// `<name>`, the branch it was (a `-N` suffix when that name was taken); `bd push --unapplied` takes it
+  pub branch: String,
+  pub tip: String,
+  /// The subject of its tip
+  pub subject: String,
+  /// Its remote branch, when it was pushed
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub remote: Option<UnappliedRemote>,
+}
+
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct UnappliedRemote {
+  /// The tip of the remote branch
+  pub head: String,
+  /// The remote branch is at the tip
+  pub up_to_date: bool,
+}
+
+/// The unapplied branches of the listing, with the tips of their remote branches: no process
+fn unapplied_summaries(context: &RepoContext, grouping: &BranchGrouping) -> Vec<UnappliedSummary> {
+  let listed: Vec<_> = grouping
+    .listed
+    .iter()
+    .filter_map(|listed| Some((listed, strip_branch_namespace(&listed.name, &context.prefix, BranchKind::Unapplied)?)))
+    .collect();
+  let short = context.short_ids(
+    listed
+      .iter()
+      .flat_map(|(listed, _)| std::iter::once(listed.tip.as_str()).chain(grouping.remote_tips.get(&listed.name).map(String::as_str))),
+  );
+  listed
+    .into_iter()
+    .map(|(listed, branch)| UnappliedSummary {
+      name: listed.name.clone(),
+      branch: branch.to_string(),
+      tip: short.get(&listed.tip).to_string(),
+      subject: listed.subject.clone(),
+      remote: grouping.remote_tips.get(&listed.name).map(|head| UnappliedRemote {
+        head: short.get(head).to_string(),
+        up_to_date: *head == listed.tip,
+      }),
+    })
+    .collect()
 }
 
 /// Why a branch is parked: kept local, `bd push` and `bd safe-push` refuse it until the user unparks it
@@ -144,6 +198,8 @@ pub struct StatusBrief {
   pub stack_parent_problems: Vec<StoreLine>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub idle_parked: Vec<String>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub unapplied: Vec<UnappliedSummary>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -494,6 +550,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
       .filter(|name| !grouping.branches.iter().any(|branch| &branch.name == *name))
       .cloned()
       .collect(),
+    unapplied: unapplied_summaries(context, &grouping),
   })
 }
 
@@ -561,5 +618,6 @@ pub fn status_brief(context: &RepoContext, args: &StatusArgs, environment: &Envi
     idle_stack_parents: full.idle_stack_parents,
     stack_parent_problems: full.stack_parent_problems,
     idle_parked: full.idle_parked,
+    unapplied: full.unapplied,
   })
 }

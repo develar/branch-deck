@@ -45,7 +45,7 @@ use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use sync_types::issue_navigation::IssueNavigationConfig;
 use sync_types::stack::{BlockReason, BranchStack, StackBlock, StackBranchUpdate};
-use sync_types::{BranchOrigin, GroupedBranchInfo, ProgressReporter, SyncEvent};
+use sync_types::{BranchOrigin, GroupedBranchInfo, ProgressReporter, SyncEvent, UnappliedBranchInfo};
 use sync_utils::issue_pattern::{find_issue_number, find_issue_range, has_issue_reference};
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, instrument, warn};
@@ -292,14 +292,17 @@ struct PreparedSync {
   idle_parked: Vec<String>,
   /// The stack branches: the stacks that fork, and the listed stack branches the sync keeps or deletes
   stack_branches: StackBranchSync,
+  /// The unapplied branches the sync listed, newest first
+  unapplied: Vec<ListedBranch>,
   /// The update check, started once the baseline is known; sends `BaselineStatus` whenever it is done
   update_check: tokio::task::JoinHandle<Result<()>>,
 }
 
-/// The remote tips of the grouped virtual branches and the baseline commit, read once per sync for the remote statuses
+/// The remote tips of the grouped virtual branches, the stack branches and the unapplied branches, and the baseline
+/// commit, read once per sync for the remote statuses
 struct RemoteTips {
   baseline: String,
-  /// Full name of the virtual branch or the stack branch -> tip of its remote branch on `origin`
+  /// Full name of the virtual branch, the stack branch or the unapplied branch -> tip of its remote branch on `origin`
   remote: HashMap<String, String>,
 }
 
@@ -447,15 +450,22 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     _ => Vec::new(),
   };
   let stack_branches = StackBranchSync::new(plans, &facts.branches, branch_prefix, &facts.remote_tips);
-  let remote_tips = if branches.is_empty() && stack_branches.kept.is_empty() {
+  let unapplied: Vec<ListedBranch> = facts
+    .branches
+    .iter()
+    .filter(|branch| strip_branch_namespace(&branch.name, branch_prefix, BranchKind::Unapplied).is_some())
+    .cloned()
+    .collect();
+  let remote_tips = if branches.is_empty() && stack_branches.kept.is_empty() && unapplied.is_empty() {
     None
   } else {
-    // the remote branches of the grouped branches and the reported stack branches: the push times are read for them,
-    // not for remote branches whose group is gone
+    // the remote branches of the grouped branches, the reported stack branches and the unapplied branches: the push
+    // times are read for them, not for remote branches whose group is gone
     let remote = branches
       .keys()
       .filter_map(|name| to_final_branch_name(branch_prefix, name).ok())
       .chain(stack_branches.full_names().map(str::to_string))
+      .chain(unapplied.iter().map(|branch| branch.name.clone()))
       .filter_map(|full_name| Some((full_name.clone(), facts.remote_tips.get(&full_name)?.clone())))
       .collect();
     Some(RemoteTips {
@@ -513,6 +523,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
     idle_stack_parents,
     idle_parked,
     stack_branches,
+    unapplied,
     update_check,
   })
 }
@@ -914,6 +925,7 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
     idle_stack_parents,
     idle_parked,
     stack_branches,
+    unapplied,
     update_check,
   } = task
     .spawn({
@@ -1048,9 +1060,10 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
   let processing = async {
     let (processed, stack_results) = tokio::join!(branch_processing, stack_building);
     let processed = processed?;
-    // the stack branches once their members are built: the refs, the deletes and the events
+    // the stack branches once their members are built: the refs, the deletes and the events; then the unapplied
+    // branches with their remote statuses
     let stack_updates = task
-      .spawn(move |git_executor, repository_path, _, progress| {
+      .spawn(move |git_executor, repository_path, branch_prefix, progress| {
         let failed = processed.failed;
         let finish = StackFinish {
           git_executor,
@@ -1062,6 +1075,9 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
         for update in &updates {
           let _ = progress.send(SyncEvent::StackBranchUpdate(Box::new(update.clone())));
         }
+        let _ = progress.send(SyncEvent::UnappliedBranchesFound {
+          branches: unapplied_branches(&unapplied, branch_prefix, remote_statuses.as_deref()),
+        });
         // their writes to the object cache, here on the blocking pool
         drop(remote_statuses);
         drop(stack_builds);
@@ -1122,6 +1138,31 @@ pub(crate) fn seeded_tree_cache<'a>(cache: TreeIdCache, commits: impl Iterator<I
 }
 
 /// Full name -> tip of the virtual branches among `branches`
+/// The unapplied branches as the sync reports them: the remote status, on the commits read once, of each one whose
+/// remote branch exists (a plain push of it); `None` for the others, which cost no process
+fn unapplied_branches(unapplied: &[ListedBranch], branch_prefix: &str, statuses: Option<&RemoteStatusMemo>) -> Vec<UnappliedBranchInfo> {
+  unapplied
+    .iter()
+    .filter_map(|listed| {
+      let branch = strip_branch_namespace(&listed.name, branch_prefix, BranchKind::Unapplied)?;
+      let remote = statuses.filter(|statuses| statuses.has_remote(&listed.name)).and_then(|statuses| {
+        statuses
+          .status(&listed.name, &listed.name, &listed.tip, None, None)
+          .inspect_err(|e| warn!(branch = %listed.name, error = %format!("{e:#}"), "cannot compute the remote status of the unapplied branch"))
+          .ok()
+      });
+      Some(UnappliedBranchInfo {
+        name: listed.name.clone(),
+        branch: branch.to_string(),
+        tip: listed.tip.clone(),
+        subject: listed.subject.clone(),
+        checked_out: listed.checked_out,
+        remote,
+      })
+    })
+    .collect()
+}
+
 fn virtual_tips(branches: &[ListedBranch], branch_prefix: &str) -> HashMap<String, String> {
   branches
     .iter()

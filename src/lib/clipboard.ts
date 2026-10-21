@@ -41,3 +41,12 @@ export function isCopyKey(event: KeyboardEvent | ReactKeyboardEvent): boolean {
     (selection === null || selection.isCollapsed)
   )
 }
+
+/** ⌘C on the focused row of a table of branches (`tr[data-branch-name]`) copies its full name, as Copy Full Branch Name of its menu */
+export function copyFocusedBranchRow(event: ReactKeyboardEvent<HTMLElement>): void {
+  const name = (event.target as HTMLElement).closest<HTMLElement>("tr[data-branch-name]")?.dataset.branchName
+  if (name !== undefined && isCopyKey(event)) {
+    event.preventDefault()
+    void copyText(name)
+  }
+}

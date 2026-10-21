@@ -80,3 +80,38 @@ fn unapply_outputs_match_the_schema() {
   let (_, undo) = run_in(&repo, &["undo", output["undo_token"].as_str().unwrap()]);
   assert_covered(&schema["outputs"]["undo"], &schema["outputs"]["undo"], &undo, "undo of an unapply");
 }
+
+#[test_log::test]
+fn status_lists_an_unapplied_branch_push_refuses_it_by_its_name_and_pushes_it_with_unapplied() {
+  let (repo, _) = synced_repo();
+  run_in(&repo, &["unapply", "docs"]);
+  let tip = git(&repo, &["rev-parse", "--short=8", "test-user/unapplied/docs"]);
+
+  let (_, status) = run_in(&repo, &["status"]);
+  // the subject of the copy, without the grouping prefix
+  assert_eq!(
+    status["unapplied"],
+    json!([{"name": "test-user/unapplied/docs", "branch": "docs", "tip": tip, "subject": "Add f2"}]),
+    "{status}"
+  );
+  let (exit_code, output) = run_in(&repo, &["push", "docs"]);
+  assert_error(&output, exit_code, (4, "unapplied"));
+  let (exit_code, output) = run_in(&repo, &["safe-push", "docs", "--check"]);
+  assert_error(&output, exit_code, (4, "unapplied"));
+
+  let (exit_code, pushed) = run_in(&repo, &["push", "--unapplied", "docs"]);
+  assert_eq!(exit_code, 0, "{pushed}");
+  assert_eq!(
+    (
+      &pushed["branches"][0]["remote_branch"],
+      &pushed["branches"][0]["state"],
+      &pushed["branches"][0]["pull_request"]
+    ),
+    (&json!("test-user/unapplied/docs"), &json!("new"), &serde_json::Value::Null)
+  );
+  let (_, status) = run_in(&repo, &["status"]);
+  assert_eq!(status["unapplied"][0]["remote"], json!({"head": tip, "up_to_date": true}), "{status}");
+  let (_, schema) = run_json(&environment(repo.path()), &["schema"]);
+  assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &pushed, "push --unapplied");
+  assert_covered(&schema["outputs"]["status"], &schema["outputs"]["status"], &status, "status with an unapplied branch");
+}

@@ -63,6 +63,9 @@ pub enum ErrorCode {
   /// `bd unapply`: a later commit depends on the changes of a commit of the branch, or the range holds a merge; nothing
   /// was changed. Move that commit into the branch first (`bd group`), or leave the branch applied
   DropConflict,
+  /// `bd push` and `bd safe-push` of a branch that is unapplied (`unapplied` of `bd status`): its commits are not in
+  /// HEAD, it lands nothing; `bd push --unapplied <name>` keeps a copy on the remote. Nothing was pushed or started
+  Unapplied,
   /// `bd push` and `bd safe-push`: the branch is parked, or built on a parked branch, or the whole stack holds one: its
   /// commits stay local until the user unparks it (`bd unpark`, never on an agent's own). Nothing was pushed or started
   Parked,
@@ -224,6 +227,7 @@ impl ErrorCode {
       | Self::BranchNotBuilt
       | Self::BranchCheckedOut
       | Self::DropConflict
+      | Self::Unapplied
       | Self::DanglingReference
       | Self::NotOnSpace
       | Self::NotLoggedIn

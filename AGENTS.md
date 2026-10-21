@@ -290,6 +290,9 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
     a rename in its regroup transaction; a sync only drops the line of a branch whose archived branch is integrated
     (`drop_integrated_parked`). It decides no group: only the pushes leave a parked branch out
     ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
+  - `{prefix}/unapplied/<name>` (`unapply.rs`): only the unapply and its undo, in the transaction that moves HEAD, and
+    its delete (`delete_unapplied_branch_core`, CAS); a sync only lists it, and a push of it goes under its own name
+    ([Drop and unapply](docs/design/git-operations.md#drop-and-unapply)).
   - `refs/branch-deck/conflict/<sha256 of the branch's full name>` (`conflict_chain.rs`): only a sync, in one CAS
     transaction after the branches, only when one changes; a failed move fails no sync
     ([Virtual branch sync](docs/design/git-operations.md#virtual-branch-sync)).

@@ -170,8 +170,29 @@ pub fn get_archived_branch_commits(git_executor: &GitCommandExecutor, repository
   if strip_branch_namespace(branch_name, branch_prefix, BranchKind::Archived).is_none() {
     anyhow::bail!("Not an archived branch under the configured branch prefix: {branch_name}");
   }
+  own_commits(git_executor, repository_path, branch_name, baseline_branch)
+}
+
+/// The commits of an unapplied branch (`{prefix}/unapplied/<name>`), as those of an archived one: its own commits, oldest
+/// first
+#[instrument(skip(git_executor))]
+pub fn get_unapplied_branch_commits(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  branch_prefix: &str,
+  branch_name: &str,
+  baseline_branch: &str,
+) -> Result<Vec<Commit>> {
+  if strip_branch_namespace(branch_name, branch_prefix, BranchKind::Unapplied).is_none() {
+    anyhow::bail!("Not an unapplied branch under the configured branch prefix: {branch_name}");
+  }
+  own_commits(git_executor, repository_path, branch_name, baseline_branch)
+}
+
+/// The commits of the branch `branch_name` (a full name) from `own_commits_start`, oldest first
+fn own_commits(git_executor: &GitCommandExecutor, repository_path: &str, branch_name: &str, baseline_branch: &str) -> Result<Vec<Commit>> {
   let branch_ref = format!("refs/heads/{branch_name}");
-  let tip = resolve_commit(git_executor, repository_path, &branch_ref)?.ok_or_else(|| anyhow::anyhow!("Archived branch {branch_name} does not exist"))?;
+  let tip = resolve_commit(git_executor, repository_path, &branch_ref)?.ok_or_else(|| anyhow::anyhow!("Branch {branch_name} does not exist"))?;
   let tip = tip.as_str();
 
   let start = own_commits_start(git_executor, repository_path, baseline_branch, tip)?;

@@ -20,8 +20,9 @@ use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorBranch, ErrorCode};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
-use git_ops::branch_names::to_final_branch_name;
-use git_ops::revs::{ref_tips, resolve_commit, tips_under};
+use git_ops::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name};
+use git_ops::revs::{ref_exists, ref_tips, resolve_commit, tips_under};
+use history_rewrite::baseline::detect_baseline_branch;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::borrow::Cow;
@@ -30,7 +31,7 @@ use sync_core::issue_navigation::load_issue_navigation_config;
 use sync_core::parked::parked_state;
 use sync_core::pull_request_text::{AncestorText, CommitText, IssueText, PullRequestTextInput, issue_texts, pull_request_text};
 use sync_core::pull_requests::{GitHubRepository, list_pull_requests, parse_github_repository, resolve_github_repository_with};
-use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
+use sync_core::push::{LeasedBranch, LeasedPush, PushBranchesOutcome, PushBranchesParams, PushTarget, StackPushBranch, push_branches, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, leased_push_refs};
 use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent};
 use sync_core::stack_pull_request::{StackMemberText, stack_pull_request_text};
@@ -77,6 +78,11 @@ pub struct PushArgs {
   /// such a branch is refused (`robot_running`): a push won't land, and it fails the Safe Push at the end
   #[arg(long)]
   pub restart_running: bool,
+  /// Push the unapplied branch `{prefix}/unapplied/<name>` (one name, as `unapplied` of `bd status` names it) to
+  /// `origin` under its own name, leased on the remote head the last fetch saw or --expect-remote: the remote keeps a
+  /// copy. It lands nothing, and no pull request is drafted
+  #[arg(long, requires = "branches", conflicts_with_all = ["all", "with_children", "alone", "force", "remote", "dry_run", "restart_running"])]
+  pub unapplied: bool,
 }
 
 /// `bd push`
@@ -162,7 +168,9 @@ pub struct PushedBranch {
   /// `bd sync`), each with the baseline commit that has it: no --force was needed, nothing of them is lost
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub replaced_landed: Vec<LandedRemoteCommitSummary>,
-  pub pull_request: PullRequestDraft,
+  /// Omitted for an unapplied branch (`--unapplied`), which lands nothing
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub pull_request: Option<PullRequestDraft>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -201,6 +209,10 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
       ErrorCode::InvalidArguments,
       "--expect-remote is the remote head of one branch: name exactly one",
     ));
+  }
+
+  if args.unapplied {
+    return push_unapplied(context, args);
   }
 
   let repository_lock = lock(context)?;
@@ -306,7 +318,7 @@ pub fn push_locked(
   } else {
     for name in &args.branches {
       if !synced.branches.iter().any(|branch| &branch.name == name) {
-        return Err(CliError::new(ErrorCode::UnknownBranch, format!("No branch named {name:?}")));
+        return Err(unknown_or_unapplied(context, name, "push it with `bd push --unapplied`"));
       }
     }
     // the branches the named ones are built on go along, unless --alone; --expect-remote is the lease of one branch
@@ -723,6 +735,81 @@ pub(crate) const fn has_work_for_remote(remote: &RemoteStatusUpdate) -> bool {
     || remote.ancestor_commits_ahead > 0
 }
 
+/// `bd push --unapplied <name>`: the unapplied branch to `origin` under its own name, under the repository lock, leased
+/// on the remote head of the last fetch (or `--expect-remote`); no sync, since it is no group of HEAD
+fn push_unapplied(context: &RepoContext, args: &PushArgs) -> Result<PushOutput, CliError> {
+  let [name] = args.branches.as_slice() else {
+    return Err(CliError::new(ErrorCode::InvalidArguments, "--unapplied pushes one unapplied branch: name exactly one"));
+  };
+  let full_name = qualified_branch_name(&context.prefix, BranchKind::Unapplied, name).map_err(|e| CliError::new(ErrorCode::InvalidArguments, format!("{e:#}")))?;
+  let _lock = lock(context)?;
+  let tip = resolve_commit(&context.git, &context.repository, &format!("refs/heads/{full_name}"))?
+    .ok_or_else(|| CliError::new(ErrorCode::UnknownBranch, format!("No unapplied branch {full_name}: `unapplied` of `bd status` lists them")))?;
+  let expected = match &args.expect_remote {
+    Some(expected) => {
+      Some(resolve_commit(&context.git, &context.repository, expected)?.ok_or_else(|| CliError::new(ErrorCode::InvalidArguments, format!("{expected:?} names no commit")))?)
+    }
+    None => resolve_commit(&context.git, &context.repository, &format!("refs/remotes/{REMOTE}/{full_name}"))?,
+  };
+  let params = PushBranchesParams {
+    repository_path: context.repository.clone(),
+    branch_prefix: context.prefix.clone(),
+    my_email: None,
+    baseline_branch: detect_baseline_branch(&context.git, &context.repository)?,
+    branches: vec![StackPushBranch {
+      branch_name: name.clone(),
+      parent_branch: None,
+      expected_remote: expected.clone(),
+      tip: None,
+      whole_stack: false,
+      unapplied: true,
+    }],
+  };
+  let short = context.short_ids(std::iter::once(tip.as_str()).chain(expected.as_deref()));
+  match push_branches(&context.git, &params, &mut |_| {})? {
+    PushBranchesOutcome::Pushed { .. } => Ok(PushOutput {
+      schema: SchemaVersion,
+      repository: context.repository.clone(),
+      prefix: context.prefix.clone(),
+      remote: REMOTE.to_string(),
+      dry_run: false,
+      branches: vec![PushedBranch {
+        name: name.clone(),
+        remote_branch: full_name,
+        commit: short.get(&tip).to_string(),
+        state: match &expected {
+          None => PushState::New,
+          Some(expected) if *expected == tip => PushState::UpToDate,
+          Some(_) => PushState::Updated,
+        },
+        lease: expected.as_deref().map(|lease| short.get(lease).to_string()),
+        lease_source: if expected.is_some() { "expected" } else { "absent" }.to_string(),
+        replaced_landed: Vec::new(),
+        pull_request: None,
+      }],
+      restarted: Vec::new(),
+      retargeted: Vec::new(),
+      retarget_warnings: Vec::new(),
+      stacks: Vec::new(),
+      stack_warnings: Vec::new(),
+      skipped: Vec::new(),
+    }),
+    PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => {
+      let head = remote_statuses.first().and_then(|status| status.remote_tip.clone());
+      Err(CliError::new(
+        ErrorCode::LeaseRejected,
+        format!(
+          "The remote branch {full_name} is at {}, not where the lease expected it; nothing was pushed. Show it to the user, then            `--expect-remote` it to replace it",
+          head.as_deref().map_or("nothing", |head| head)
+        ),
+      ))
+    }
+  }
+}
+
+/// The remote an unapplied branch goes to, the one the sync compares with
+const REMOTE: &str = "origin";
+
 /// The output of a pushed ref named `name`: its commit, what the remote did with it (`statuses` of the push, by remote
 /// ref), its lease, the landed remote commits it replaced and its pull request
 pub(crate) fn pushed_branch(
@@ -747,7 +834,7 @@ pub(crate) fn pushed_branch(
     lease: pushed.lease.as_deref().map(|lease| short.get(lease).to_string()),
     lease_source: pushed.source.as_str().to_string(),
     replaced_landed,
-    pull_request,
+    pull_request: Some(pull_request),
   }
 }
 
@@ -1003,5 +1090,33 @@ fn shell_quote(word: &str) -> String {
     word.to_string()
   } else {
     format!("'{}'", word.replace('\'', r"'\''"))
+  }
+}
+
+/// `unknown_branch` for a name no group of HEAD has; `unapplied` when it names an unapplied branch, whose commits are not
+/// in HEAD: `what` says what to do instead
+pub(crate) fn unknown_or_unapplied(context: &RepoContext, name: &str, what: &str) -> CliError {
+  let unapplied = qualified_branch_name(&context.prefix, BranchKind::Unapplied, name).ok();
+  if let Some(unapplied) = unapplied
+    && ref_exists(&context.git, &context.repository, &format!("refs/heads/{unapplied}"))
+  {
+    return CliError::new(
+      ErrorCode::Unapplied,
+      format!("{name} is unapplied ({unapplied}): its commits are not in HEAD and land nothing; {what}"),
+    );
+  }
+  CliError::new(ErrorCode::UnknownBranch, format!("No branch named {name:?}"))
+}
+
+/// `unapplied` when `name` has no virtual branch but an unapplied one: before a command asks anything of the network
+/// (`bd safe-push` asks Patronus for its token first)
+pub(crate) fn refuse_an_unapplied_name(context: &RepoContext, name: &str, what: &str) -> Result<(), CliError> {
+  let virtual_exists = to_final_branch_name(&context.prefix, name).is_ok_and(|full| ref_exists(&context.git, &context.repository, &format!("refs/heads/{full}")));
+  if virtual_exists {
+    return Ok(());
+  }
+  match unknown_or_unapplied(context, name, what) {
+    error if error.code == ErrorCode::Unapplied => Err(error),
+    _ => Ok(()),
   }
 }

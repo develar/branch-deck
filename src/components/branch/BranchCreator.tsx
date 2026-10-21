@@ -3,6 +3,7 @@ import { CircleXIcon, GitBranchIcon } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ArchivedBranchTableCard } from "@/components/branch/ArchivedBranchTableCard"
 import { BranchTableCard } from "@/components/branch/BranchTableCard"
+import { UnappliedBranchTableCard } from "@/components/branch/UnappliedBranchTableCard"
 import { GitSetupAlert } from "@/components/repository/GitSetupAlert"
 import { LandedCard } from "@/components/repository/LandedCard"
 import { ReadyToSyncCard } from "@/components/repository/ReadyToSyncCard"
@@ -108,6 +109,8 @@ export function BranchCreator() {
       )}
 
       <BranchTableCard />
+
+      <UnappliedBranchTableCard />
 
       <ArchivedBranchTableCard />
     </div>

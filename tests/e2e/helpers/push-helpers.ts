@@ -47,6 +47,8 @@ export interface PushRequest {
   tip?: string | null
   /** The stack branch of the whole stack whose root `branchName` is (`push_branches` only) */
   wholeStack?: boolean
+  /** The unapplied branch `{prefix}/unapplied/<branchName>` (`push_branches` only) */
+  unapplied?: boolean
 }
 
 /** The time of the newest commit of the templates: the page runs on a fixed clock */

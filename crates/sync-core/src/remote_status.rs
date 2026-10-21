@@ -646,6 +646,11 @@ impl RemoteStatusMemo {
     }
   }
 
+  /// Whether `local_ref` has a remote branch, as the sync read the remote tips
+  pub fn has_remote(&self, local_ref: &str) -> bool {
+    self.remote_tips.contains_key(local_ref)
+  }
+
   /// `compute_remote_status_for_branch` of the branch `local_ref` (`{prefix}/virtual/{name}`) at the commit `local`:
   /// the walks run on the commits, not on the refs, and the status of the same commits runs none
   #[instrument(skip(self, parent), fields(branch_name = %branch_name, local = %local))]

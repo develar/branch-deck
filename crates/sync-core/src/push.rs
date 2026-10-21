@@ -9,7 +9,7 @@ use crate::remote_status::{AncestorCommits, StackParent, StatusBranch, compute_r
 use crate::transfer_progress::TransferProgress;
 use anyhow::{Context, Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_names::{to_final_branch_name, to_stack_branch_name};
+use git_ops::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name, to_stack_branch_name};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use sync_types::RemoteStatusUpdate;
@@ -70,6 +70,7 @@ pub fn push_branch(git_executor: &GitCommandExecutor, params: &PushBranchParams,
       expected_remote: params.expected_remote.clone(),
       tip: params.tip.clone(),
       whole_stack: false,
+      unapplied: false,
     }],
   };
   let (remote_statuses, moved) = match push_branches(git_executor, &stack, on_progress)? {
@@ -107,6 +108,11 @@ pub struct StackPushBranch {
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub whole_stack: bool,
+  /// The unapplied branch `{prefix}/unapplied/<branch_name>`, pushed under its own name so the remote keeps a copy: no
+  /// parent, no tip; a pull request of its virtual branch stays as it was
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub unapplied: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -155,6 +161,9 @@ pub fn push_branches(git_executor: &GitCommandExecutor, params: &PushBranchesPar
     .map(|branch| {
       if branch.whole_stack {
         return Ok((to_stack_branch_name(&params.branch_prefix, &branch.branch_name)?, None));
+      }
+      if branch.unapplied {
+        return Ok((qualified_branch_name(&params.branch_prefix, BranchKind::Unapplied, &branch.branch_name)?, None));
       }
       let final_name = to_final_branch_name(&params.branch_prefix, &branch.branch_name)?;
       let parent_ref = branch

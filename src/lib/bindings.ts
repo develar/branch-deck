@@ -362,6 +362,8 @@ export const commands = {
 	 */
 	suggestBranchNames: (params: SuggestBranchNamesParams) => typedError<BranchNameSuggestionOutcome, CommandError>(__TAURI_INVOKE("suggest_branch_names", { params })),
 	getArchivedBranchCommits: (repositoryPath: string, branchPrefix: string, branchName: string) => typedError<Commit[], CommandError>(__TAURI_INVOKE("get_archived_branch_commits", { repositoryPath, branchPrefix, branchName })),
+	getUnappliedBranchCommits: (repositoryPath: string, branchPrefix: string, branchName: string) => typedError<Commit[], CommandError>(__TAURI_INVOKE("get_unapplied_branch_commits", { repositoryPath, branchPrefix, branchName })),
+	deleteUnappliedBranch: (params: DeleteArchivedBranchParams) => typedError<null, CommandError>(__TAURI_INVOKE("delete_unapplied_branch", { params })),
 	deleteArchivedBranch: (params: DeleteArchivedBranchParams) => typedError<null, CommandError>(__TAURI_INVOKE("delete_archived_branch", { params })),
 	unapplyBranch: (params: UnapplyBranchParams) => typedError<UnapplyBranchResult, CommandError>(__TAURI_INVOKE("unapply_branch", { params })),
 	undoUnapplyBranch: (params: UndoUnapplyParams) => typedError<UndoneUnapply, CommandError>(__TAURI_INVOKE("undo_unapply_branch", { params })),
@@ -3296,6 +3298,11 @@ export type StackPushBranch = {
 	 *  the caller pushes it only while the sync built it (`StackBranchState::Built`); no parent, no tip
 	 */
 	wholeStack?: boolean,
+	/**
+	 *  The unapplied branch `{prefix}/unapplied/<branch_name>`, pushed under its own name so the remote keeps a copy: no
+	 *  parent, no tip; a pull request of its virtual branch stays as it was
+	 */
+	unapplied?: boolean,
 };
 
 /**  A use of a name that a commit of an ancestor adds, by a commit of the branch */
@@ -3465,6 +3472,13 @@ export type SyncEvent =
 	/**  The branches this sync archived, a subset of `branch_names` */
 	newlyArchived: string[],
 } } | 
+/**
+ *  The unapplied branches (`{prefix}/unapplied/<name>`), newest first, with the remote status of those on the remote;
+ *  sent once per sync, also empty, so the list clears
+ */
+{ type: "unappliedBranchesFound"; data: {
+	branches: UnappliedBranchInfo[],
+} } | 
 /**  Sent when remote branch status is checked */
 { type: "remoteStatusUpdate"; data: RemoteStatusUpdate } | 
 /**
@@ -3633,6 +3647,21 @@ export type TransferProgress = {
 	speed: string | null,
 	/**  The last progress line of git, without the `remote: ` prefix, e.g. "Receiving objects:  45% (136/302)" */
 	line: string,
+};
+
+/**  A branch an unapply kept: its commits are not in HEAD, it lands nothing until it is reapplied */
+export type UnappliedBranchInfo = {
+	/**  The full name, `{prefix}/unapplied/<name>` */
+	name: string,
+	/**  `<name>`: the branch it was, a `-N` suffix when that name was taken */
+	branch: string,
+	tip: string,
+	/**  The subject of its tip */
+	subject: string,
+	/**  A worktree has it checked out */
+	checkedOut: boolean,
+	/**  Its remote status, when its remote branch exists (a plain push of it); `None` when it is not on the remote */
+	remote: RemoteStatusUpdate | null,
 };
 
 export type UnapplyBranchParams = {

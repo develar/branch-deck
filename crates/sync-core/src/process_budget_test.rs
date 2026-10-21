@@ -998,6 +998,7 @@ fn an_atomic_push_of_a_stack() {
     expected_remote: None,
     tip: None,
     whole_stack: false,
+    unapplied: false,
   };
   let params = PushBranchesParams {
     repository_path: path(&repo),

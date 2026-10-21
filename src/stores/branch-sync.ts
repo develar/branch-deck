@@ -41,6 +41,7 @@ import { resetArchivedBranches, settleArchivedPlaceholders, updateFromArchivedNa
 import { hideAfterSync, setLandedStatus } from "@/stores/landed"
 import { getLoadingPromise, useSelectedProjectPath, vcsRequestFactory } from "@/stores/repository"
 import { updateProject } from "@/stores/settings/repositorySettings"
+import { resetUnappliedBranches, setUnappliedBranches } from "@/stores/unapplied-branches"
 
 export interface SyncOptions {
   autoScroll?: boolean
@@ -1441,6 +1442,7 @@ export function resetBranchSync(): void {
     stackBranches: {},
   })
   resetArchivedBranches()
+  resetUnappliedBranches()
 }
 
 // ---- sync events ----
@@ -1561,6 +1563,9 @@ function applySyncEvent(draft: SyncDraft, event: SyncEvent, repositoryPath: stri
       // the names reconcile what the infos before them added
       applyIntegrationInfos(draft)
       updateFromArchivedNames(event.data.branchNames, event.data.newlyArchived)
+      break
+    case "unappliedBranchesFound":
+      setUnappliedBranches(event.data.branches.map(({ remote, ...info }) => ({ ...info, remoteStatus: remote === null ? null : toRemoteStatus(remote) })))
       break
     case "branchIntegrationDetected":
       draft.integrationInfos.push(event.data.info)

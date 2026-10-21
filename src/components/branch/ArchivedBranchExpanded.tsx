@@ -1,8 +1,7 @@
 import { useEffect } from "react"
 import { GitCommitHorizontalIcon } from "lucide-react"
-import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { CommitList } from "@/components/commit/CommitList"
+import { KeptBranchCommits } from "@/components/branch/KeptBranchCommits"
 import { CopyButton } from "@/components/shared/CopyButton"
 import { InlineCode } from "@/components/shared/InlineCode"
 import type { UpstreamCommit } from "@/lib/bindings"
@@ -23,18 +22,7 @@ export function ArchivedBranchExpanded({ branch }: { branch: ArchivedBranch }) {
     // neutral rule under the folder icon; the subjects start at the branch name x
     <div className="ml-8 flex animate-in flex-col gap-2 border-l border-border pr-6 duration-150 fade-in-0">
       {branch.integrationCommit !== undefined && <IntegrationCommitLine commit={branch.integrationCommit} />}
-      {branch.isLoadingCommits ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner className="size-4" />
-          Loading commits…
-        </div>
-      ) : branch.loadError ? (
-        <p className="text-sm text-destructive">{`Cannot load the commits: ${branch.loadError}`}</p>
-      ) : branch.commits && branch.commits.length > 0 ? (
-        <CommitList commits={branch.commits} variant="compact" showFileCount={false} />
-      ) : (
-        <div className="text-sm text-muted-foreground">No commits found</div>
-      )}
+      <KeptBranchCommits isLoading={branch.isLoadingCommits} loadError={branch.loadError} commits={branch.commits} />
     </div>
   )
 }

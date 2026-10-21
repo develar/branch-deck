@@ -1119,11 +1119,50 @@ pub async fn get_archived_branch_commits(
   State(state): State<Arc<AppState>>,
   Json(request): Json<GetArchivedBranchCommitsRequest>,
 ) -> CommandResult<Vec<git_ops::commit_list::Commit>> {
-  ensure_repository_exists(&state, &request.repository_path)?;
+  own_commits(
+    &state,
+    request,
+    "read the commits of the archived branch",
+    branch_integration::archive::get_archived_branch_commits,
+  )
+  .await
+}
+
+pub async fn delete_unapplied_branch(State(state): State<Arc<AppState>>, Json(params): Json<DeleteArchivedBranchParams>) -> CommandResult<()> {
+  ensure_repository_exists(&state, &params.repository_path)?;
   let git_executor = state.git_executor.clone();
-  run_command("read the commits of the archived branch", move || {
+  run_command("delete the unapplied branch", move || {
+    sync_core::delete_archived_branch::delete_unapplied_branch_core(&git_executor, params)
+  })
+  .await
+}
+
+/// The commits of an unapplied branch, as the app reads them
+pub async fn get_unapplied_branch_commits(
+  State(state): State<Arc<AppState>>,
+  Json(request): Json<GetArchivedBranchCommitsRequest>,
+) -> CommandResult<Vec<git_ops::commit_list::Commit>> {
+  own_commits(
+    &state,
+    request,
+    "read the commits of the unapplied branch",
+    branch_integration::archive::get_unapplied_branch_commits,
+  )
+  .await
+}
+
+/// The own commits of the kept branch of `request` by `read`, from the baseline of the repository
+async fn own_commits(
+  state: &AppState,
+  request: GetArchivedBranchCommitsRequest,
+  what: &'static str,
+  read: fn(&git_executor::git_command_executor::GitCommandExecutor, &str, &str, &str, &str) -> anyhow::Result<Vec<git_ops::commit_list::Commit>>,
+) -> CommandResult<Vec<git_ops::commit_list::Commit>> {
+  ensure_repository_exists(state, &request.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command(what, move || {
     let baseline_branch = history_rewrite::baseline::detect_baseline_branch(&git_executor, &request.repository_path)?;
-    branch_integration::archive::get_archived_branch_commits(&git_executor, &request.repository_path, &request.branch_prefix, &request.branch_name, &baseline_branch)
+    read(&git_executor, &request.repository_path, &request.branch_prefix, &request.branch_name, &baseline_branch)
   })
   .await
 }

@@ -234,6 +234,7 @@ fn a_push() {
     remote: None,
     dry_run: true,
     restart_running: false,
+    unapplied: false,
   };
   push(&context, &args, &environment(repo.path())).unwrap();
   assert_processes(
@@ -289,6 +290,7 @@ fn a_push_beside_a_robot_started_before_a_restack() {
     remote: None,
     dry_run: true,
     restart_running: false,
+    unapplied: false,
   };
   push(&context, &args, &environment).unwrap();
   assert_processes(

@@ -502,7 +502,9 @@ fn summarize(context: &RepoContext, report: SyncReport, events: Vec<SyncEvent>) 
       | SyncEvent::CommitSynced { .. }
       | SyncEvent::IssueNavigationConfig { .. }
       | SyncEvent::CommitError { .. }
-      | SyncEvent::ArchivedBranchesFound { .. } => {}
+      | SyncEvent::ArchivedBranchesFound { .. }
+      // `bd status` lists them
+      | SyncEvent::UnappliedBranchesFound { .. } => {}
     }
   }
 

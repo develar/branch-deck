@@ -1,8 +1,10 @@
-//! The delete of an archived branch (`<prefix>/archived/…`): one `for-each-ref` for its tip and its worktree, then one
-//! ref transaction with compare-and-swap on that tip; a branch checked out in any worktree is refused.
+//! The delete of an archived branch (`<prefix>/archived/…`) or of an unapplied one (`<prefix>/unapplied/…`): one
+//! `for-each-ref` for its tip and its worktree, then one ref transaction with compare-and-swap on that tip; a branch
+//! checked out in any worktree is refused.
 
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::branch_names::{BranchKind, strip_branch_namespace};
 use git_ops::ref_transaction::RefTransaction;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
@@ -21,16 +23,30 @@ pub struct DeleteArchivedBranchParams {
 /// checked out in any worktree is refused, as `git branch -D` does: `update-ref` would delete it under the worktree
 #[instrument(skip(git_executor), fields(repo = %params.repository_path, branch = %params.branch_name))]
 pub fn delete_archived_branch_core(git_executor: &GitCommandExecutor, params: DeleteArchivedBranchParams) -> Result<()> {
+  delete_kept_branch(git_executor, params, BranchKind::Archived)
+}
+
+/// `delete_archived_branch_core` of an unapplied branch (`<prefix>/unapplied/…`): its commits are gone for good unless
+/// a remote branch or another ref keeps them
+#[instrument(skip(git_executor), fields(repo = %params.repository_path, branch = %params.branch_name))]
+pub fn delete_unapplied_branch_core(git_executor: &GitCommandExecutor, params: DeleteArchivedBranchParams) -> Result<()> {
+  delete_kept_branch(git_executor, params, BranchKind::Unapplied)
+}
+
+/// The delete of a branch under `<prefix>/<kind>/`
+fn delete_kept_branch(git_executor: &GitCommandExecutor, params: DeleteArchivedBranchParams, kind: BranchKind) -> Result<()> {
   let DeleteArchivedBranchParams {
     repository_path,
     branch_name,
     branch_prefix,
   } = params;
 
-  // Safety checks: only allow deleting refs under <prefix>/archived/
-  let required_prefix = format!("{branch_prefix}/archived/");
-  if !branch_name.starts_with(&required_prefix) {
-    bail!("Can only delete archived branches under the configured branch prefix");
+  // Safety checks: only allow deleting refs under <prefix>/<kind>/
+  if strip_branch_namespace(&branch_name, &branch_prefix, kind).is_none_or(str::is_empty) {
+    bail!(
+      "Can only delete {} branches under the configured branch prefix",
+      if kind == BranchKind::Archived { "archived" } else { "unapplied" }
+    );
   }
 
   if branch_name.starts_with('-') || branch_name.contains("..") || branch_name.contains('\n') || branch_name.contains('\r') {
