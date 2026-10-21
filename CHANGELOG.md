@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.28.0](https://github.com/develar/branch-deck/compare/v0.27.0...v0.28.0) (2026-10-21)
+
+
+### Features
+
+* **app:** get_repository_view answers from the branch table of the last sync ([e2272ed](https://github.com/develar/branch-deck/commit/e2272ed474bae6fe11ee75cfe326eb6c231517f3))
+* **app:** the Unapplied card, the push of an unapplied branch, and bd status, bd push --unapplied ([8b5fe07](https://github.com/develar/branch-deck/commit/8b5fe072734c272bbbb9821a690248489e7653f2))
+* **unapply:** Reapply an unapplied branch, its prefix restored, with Undo, in the app and as bd reapply ([4a625ac](https://github.com/develar/branch-deck/commit/4a625ac88aca78aa880aec693d2a34d1f3211cf7))
+* **unapply:** Undo of an unapply, in the toast and as bd unapply with bd undo unapply: ([7c5880d](https://github.com/develar/branch-deck/commit/7c5880de23ffd332948f80ef3570d29281783f7e))
+
+
+### Bug Fixes
+
+* **bd:** the robots of the remote fixtures start relative to now, not on 2026-10-14 ([ee6f698](https://github.com/develar/branch-deck/commit/ee6f69801f23911ed5424e32ff05a3e5d6b5b3cf))
+* **landing:** a robot of a piece below suspends the failure of the earlier piece, and a parent's new commit outdates it ([48f5dc4](https://github.com/develar/branch-deck/commit/48f5dc454f30c62e630144d6eda38e39eae3f964))
+* **patronus:** a running Safe Push holds only the branches its commit lands, not the stack as it is now ([33c0724](https://github.com/develar/branch-deck/commit/33c0724207e5c2bb27555d7f9dc322f17cfcee69))
+* **perf:** the rows benchmark runs each first sync in a page of its own, as the sync benchmark does ([de4372f](https://github.com/develar/branch-deck/commit/de4372fc9a9d19c98ce3e696fa0901aeeb53a7a6))
+* **push:** a branch the last sync did not build is never pushed: the report names it, the core push refuses it ([6f7fcc1](https://github.com/develar/branch-deck/commit/6f7fcc1e01dc830e2c3d6a3594d673c731ef94fb))
+* **sync:** a commit in the branch of an issue lands with its key: a (KEY) prefix stays as the key in the copy ([f0e95af](https://github.com/develar/branch-deck/commit/f0e95af47d53df79fc0dd309546a1ec2346dc79a))
+* **unapply:** the files follow the drop, and the app's unapply takes the branch by its group name ([676c824](https://github.com/develar/branch-deck/commit/676c824ad673b198481efb8f36930d959c7f6255))
+
 ## [0.27.0](https://github.com/develar/branch-deck/compare/v0.26.0...v0.27.0) (2026-10-21)
 
 
