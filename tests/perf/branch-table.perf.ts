@@ -7,7 +7,9 @@
 //   PERF_RUNS=5 pnpm perf:table          more runs
 //   pnpm perf:table --project=webkit     in WebKit, the engine of the app on macOS
 //
-// The table goes to tests/results/perf/branch-table-<project>.json too. Each metric is the median of its runs:
+// The table goes to tests/results/perf/branch-table-<project>.json too. Each run is a test of its own, in a page of its
+// own: the setup of a repository keeps the page and the rows of the run before, and a sync onto them is no first sync.
+// Each metric is the median of its runs:
 // - firstRowsMs: from the sync's start until every branch row is in the page;
 // - relayoutMs: one layout of the view after its width changed (a resize of the window);
 // - widerTextMs: one layout after the status text of a row changed its width (a push's percent, "4%" to "45%"); when it
@@ -24,6 +26,7 @@ import path from "node:path"
 import type { CDPSession, Page } from "@playwright/test"
 import { test, expect } from "../e2e/fixtures/test-fixtures"
 import { availableRobots, robot } from "../e2e/helpers/patronus-helpers"
+import type { SetupRepoOptions } from "../e2e/helpers/setup-options"
 import { runAndWaitForSync, syncBranches, waitForBranchesLoaded } from "../e2e/helpers/sync-helpers"
 
 const RUNS = Number(process.env.PERF_RUNS ?? 3)
@@ -89,8 +92,16 @@ interface SyncMetrics {
   robotIpc: number
 }
 
-/** The runs of the main thread of a sync, a test each */
+/** The runs of each benchmark, a test each */
+const rowRuns: Metrics[] = []
 const syncRuns: SyncMetrics[] = []
+
+/** The template in the fresh page of a test, its robots listed, not synced yet: no row of a run before */
+async function setupTable(page: Page, setupRepo: (template: string, options?: SetupRepoOptions) => Promise<unknown>): Promise<void> {
+  await page.setViewportSize({ width: 1516, height: 900 })
+  await setupRepo("branch_table_large", { patronus: availableRobots(...ROBOTS) })
+  await expect(page.getByTestId("branch-row")).toHaveCount(0)
+}
 
 /** The script and task time of the page so far, ms (`Performance.getMetrics`: seconds) */
 async function mainThreadMs(cdp: CDPSession): Promise<{ script: number; task: number }> {
@@ -114,6 +125,14 @@ test.describe.configure({ mode: "serial" })
 
 test.describe("Branch table performance", () => {
   test.afterAll(() => {
+    if (rowRuns.length > 0) {
+      results["141 rows"] = {
+        firstRowsMs: median(rowRuns.map(run => run.firstRowsMs)),
+        relayoutMs: median(rowRuns.map(run => run.relayoutMs)),
+        widerTextMs: median(rowRuns.map(run => run.widerTextMs)),
+        sameWidthTextMs: median(rowRuns.map(run => run.sameWidthTextMs)),
+      }
+    }
     if (syncRuns.length > 0) {
       results["sync main thread"] = {
         firstSyncScriptMs: median(syncRuns.map(run => run.firstSyncScriptMs)),
@@ -129,40 +148,28 @@ test.describe("Branch table performance", () => {
     writeFileSync(path.join(directory, `branch-table-${test.info().project.name}.json`), `${JSON.stringify(results, null, 2)}\n`)
   })
 
-  test("141 branch rows in a table and three islands, robots running on ten of them", async ({ page, setupRepo }) => {
-    test.setTimeout(10 * 60_000)
-    await page.setViewportSize({ width: 1516, height: 900 })
-    const robots = ROBOTS
-    const runs: Metrics[] = []
-    for (let run = 0; run < RUNS; run++) {
-      await setupRepo("branch_table_large", { patronus: availableRobots(...robots) })
+  for (let run = 1; run <= RUNS; run++) {
+    test(`141 branch rows in a table and three islands, robots running on ten of them, run ${run}`, async ({ page, setupRepo }) => {
+      await setupTable(page, setupRepo)
       const start = Date.now()
       await syncBranches(page)
       await waitForBranchesLoaded(page)
       await expect(page.getByTestId("branch-row")).toHaveCount(ROWS)
       const firstRowsMs = Date.now() - start
-      await expect(page.getByTestId("patronus-chip")).toHaveCount(robots.length)
-      runs.push({
+      await expect(page.getByTestId("patronus-chip")).toHaveCount(ROBOTS.length)
+      rowRuns.push({
         firstRowsMs,
         relayoutMs: await timeIn(page, "relayout"),
         widerTextMs: await timeIn(page, "widerText"),
         sameWidthTextMs: await timeIn(page, "sameWidthText"),
       })
-    }
-    results["141 rows"] = {
-      firstRowsMs: median(runs.map(run => run.firstRowsMs)),
-      relayoutMs: median(runs.map(run => run.relayoutMs)),
-      widerTextMs: median(runs.map(run => run.widerTextMs)),
-      sameWidthTextMs: median(runs.map(run => run.sameWidthTextMs)),
-    }
-  })
+    })
+  }
 
-  // a page per run: the setup of a repository keeps the page and the rows of the run before, and a sync onto them is no
-  // first sync
   for (let run = 1; run <= RUNS; run++) {
     test(`the main thread of a sync of 141 rows with robots running on ten of them, run ${run}`, async ({ page, setupRepo, browserName }) => {
       test.skip(browserName !== "chromium", "the CDP metrics are Chromium's")
-      await page.setViewportSize({ width: 1516, height: 900 })
+      await setupTable(page, setupRepo)
       const cdp = await page.context().newCDPSession(page)
       await cdp.send("Performance.enable")
       let robotIpc = 0
@@ -171,9 +178,6 @@ test.describe("Branch table performance", () => {
           robotIpc++
         }
       })
-      await setupRepo("branch_table_large", { patronus: availableRobots(...ROBOTS) })
-      await expect(page.getByTestId("branch-row")).toHaveCount(0)
-      robotIpc = 0
       const first = await timeMainThread(cdp, async () => {
         await syncBranches(page)
         await expect(page.getByTestId("branch-row")).toHaveCount(ROWS)
