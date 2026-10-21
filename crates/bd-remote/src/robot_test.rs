@@ -1,6 +1,6 @@
 use bd_cli::fixture_test::writable_state;
 use bd_cli::fixture_test::{PREFIX, assert_error, commit_all, git, run_json, write};
-use bd_cli::remote_fixture_test::{AUTH, STACK, Space, assert_schema, forking_stack, stack_robot};
+use bd_cli::remote_fixture_test::{AUTH, STACK, Space, assert_schema, forking_stack, minutes_ago, stack_robot};
 use git_ops::revs::short_id;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -35,9 +35,11 @@ fn a_failed_robot_says_why_and_which_local_commits_it_tested() {
     json!({
       "id": "finished", "name": "IJPL-1 fix the cache", "state": "failure", "mode": "safe_push", "commit": short_id(&tested),
       "url": output["robot"]["url"], "running": false, "profile": {"id": "lsc", "name": "Large Scale Change"}, "target": "master",
-      "started_at": 1_791_970_200, "finished_at": 1_791_973_800,
+      "started_at": output["robot"]["started_at"], "finished_at": output["robot"]["finished_at"],
     })
   );
+  // the fixtures start a robot three hours ago and finish it an hour later
+  assert_eq!(output["robot"]["finished_at"].as_u64().unwrap() - output["robot"]["started_at"].as_u64().unwrap(), 3600);
   let failure = &output["failure"];
   assert_eq!(failure["kind"], json!("checks"));
   assert_eq!((failure["test_revision"].clone(), failure["target_revision"].clone()), (json!("ccc111"), json!("bbb222")));
@@ -208,9 +210,9 @@ fn a_newer_robot_of_a_stacked_branch_tells_the_parent_with_the_commits_of_the_wh
   // the Safe Push of the child built the parent too, an hour later
   space.add_robot("finished-child", "FAILURE", "login", &space.local_tip("test-user/virtual/login"));
   for robot in space.fake.robots.lock().unwrap().iter_mut().flatten().filter(|robot| robot["id"] == "finished-child") {
-    robot["startDateTime"] = json!("2026-10-14T10:30:00Z");
+    robot["startDateTime"] = json!(minutes_ago(120));
   }
-  space.fake.details.lock().unwrap().get_mut("finished-child").unwrap()["startDateTime"] = json!("2026-10-14T10:30:00Z");
+  space.fake.details.lock().unwrap().get_mut("finished-child").unwrap()["startDateTime"] = json!(minutes_ago(120));
 
   let output = space.robot_ok(&["auth"]);
   assert_eq!((output["robot"]["id"].clone(), output["robot_branch"].clone()), (json!("finished-child"), json!("login")));
@@ -234,7 +236,7 @@ fn the_robot_of_the_whole_stack_is_found_from_any_branch_of_it() {
   space.add_robot("own", "FAILURE", "login", &space.local_tip("test-user/virtual/login"));
   let mut whole = stack_robot("whole", "FAILURE", &space.local_tip(STACK));
   // an hour after the branch's own
-  whole["startDateTime"] = json!("2026-10-14T10:30:00Z");
+  whole["startDateTime"] = json!(minutes_ago(120));
   space.add_listed_robot("whole", whole);
 
   let output = space.robot_ok(&["login"]);

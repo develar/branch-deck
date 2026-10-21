@@ -10,6 +10,7 @@ use patronus::fake_patronus::{FakePatronus, robot_json, start_fake};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use sync_utils::timestamp::{format_utc_timestamp, unix_now};
 use tempfile::TempDir;
 use test_utils::fake_executable::{fake_executable, shell_path};
 use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, git_command};
@@ -115,9 +116,15 @@ impl Space {
   }
 }
 
-/// A robot of the user on the virtual branch `name`, at `revision`
+/// `2026-10-14T09:30:00Z` of `minutes` before now: the robots of the fixtures start within the 7 days `bd` lists, so a
+/// fixed day would drop out of the list a week later
+pub fn minutes_ago(minutes: u32) -> String {
+  format_utc_timestamp(unix_now().saturating_sub(minutes * 60))
+}
+
+/// A robot of the user on the virtual branch `name`, at `revision`, started three hours ago
 pub fn robot(id: &str, status: &str, name: &str, revision: &str) -> Value {
-  let mut robot = robot_json(id, status, &format!("refs/heads/test-user/virtual/{name}"), "2026-10-14T09:30:00Z");
+  let mut robot = robot_json(id, status, &format!("refs/heads/test-user/virtual/{name}"), &minutes_ago(180));
   robot["sourceRevision"] = json!(revision);
   robot
 }
@@ -202,9 +209,9 @@ pub fn forking_stack() -> Space {
   space
 }
 
-/// A robot of the whole stack of auth, on its stack branch at `revision`
+/// A robot of the whole stack of auth, on its stack branch at `revision`, started three hours ago
 pub fn stack_robot(id: &str, status: &str, revision: &str) -> Value {
-  let mut robot = robot_json(id, status, &format!("refs/heads/{STACK}"), "2026-10-14T09:30:00Z");
+  let mut robot = robot_json(id, status, &format!("refs/heads/{STACK}"), &minutes_ago(180));
   robot["sourceRevision"] = json!(revision);
   robot
 }
@@ -336,7 +343,7 @@ impl Space {
     details["testReferenceRevision"] = json!("ccc111");
     details["targetRevision"] = json!("bbb222");
     if status != "RUNNING" {
-      details["finishDateTime"] = json!("2026-10-14T10:30:00Z");
+      details["finishDateTime"] = json!(minutes_ago(120));
     }
     self.fake.details.lock().unwrap().insert(id.to_string(), details);
     let mut robots = self.fake.robots.lock().unwrap().take().unwrap_or_default();

@@ -1,6 +1,6 @@
 use bd_cli::fixture_test::assert_covered;
 use bd_cli::fixture_test::{PREFIX, assert_error, commit_all, git, run_json, write};
-use bd_cli::remote_fixture_test::{STACK, Space, forking_stack, robot};
+use bd_cli::remote_fixture_test::{STACK, Space, forking_stack, minutes_ago, robot};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
@@ -9,7 +9,7 @@ fn merged_login() -> Space {
   let space = Space::new(&["(auth) Add auth", "(auth/login) Add login"]);
   space.repo.set_config("branchdeck.stacks", "true").unwrap();
   sync(&space);
-  space.set_robots(vec![merged(&space, "merged", "login", "2026-10-14T11:00:00Z")]);
+  space.set_robots(vec![merged(&space, "merged", "login", &minutes_ago(90))]);
   space
 }
 
@@ -127,7 +127,7 @@ fn push_leaves_out_a_named_branch_a_merged_safe_push_landed_whole_and_pushes_the
   let space = Space::new(&["(auth) Add auth", "(auth/login) Add login", "(docs) Add docs"]);
   space.repo.set_config("branchdeck.stacks", "true").unwrap();
   sync(&space);
-  space.set_robots(vec![merged(&space, "merged", "login", "2026-10-14T11:00:00Z")]);
+  space.set_robots(vec![merged(&space, "merged", "login", &minutes_ago(90))]);
   let (_, status) = bd(&space, &["status"]);
   let url = landed_by(&status, "login")["robot"]["url"].as_str().unwrap().to_string();
 
@@ -187,14 +187,14 @@ fn the_whole_stack_lands_what_is_left_of_it_and_refuses_once_every_branch_of_it_
   let space = forking_stack();
   sync(&space);
   // the Safe Push of login landed auth and login: session is left
-  space.set_robots(vec![merged(&space, "login-robot", "login", "2026-10-14T11:00:00Z")]);
+  space.set_robots(vec![merged(&space, "login-robot", "login", &minutes_ago(90))]);
   let (exit_code, output) = bd(&space, &["safe-push", "auth", "--whole-stack", "--check"]);
   assert_eq!((exit_code, output["lands"].clone(), output.get("refusals")), (0, json!(["session"]), None), "{output}");
 
   // session landed with its own Safe Push too: nothing of the whole stack is left
   space.set_robots(vec![
-    merged(&space, "login-robot", "login", "2026-10-14T11:00:00Z"),
-    merged(&space, "session-robot", "session", "2026-10-14T12:00:00Z"),
+    merged(&space, "login-robot", "login", &minutes_ago(90)),
+    merged(&space, "session-robot", "session", &minutes_ago(30)),
   ]);
   let (exit_code, output) = bd(&space, &["safe-push", "auth", "--whole-stack"]);
   assert_error(&output, exit_code, (4, "landed"));
@@ -220,8 +220,8 @@ fn push_with_children_leaves_out_what_merged_safe_pushes_landed_and_refuses_once
 
   // the Safe Pushes of login and session merged: every branch of the stack landed, nothing of it is left to push
   space.set_robots(vec![
-    merged(&space, "login-robot", "login", "2026-10-14T11:00:00Z"),
-    merged(&space, "session-robot", "session", "2026-10-14T12:00:00Z"),
+    merged(&space, "login-robot", "login", &minutes_ago(90)),
+    merged(&space, "session-robot", "session", &minutes_ago(30)),
   ]);
   let (_, status) = bd(&space, &["status"]);
   let url = landed_by(&status, "auth")["robot"]["url"].as_str().unwrap().to_string();
