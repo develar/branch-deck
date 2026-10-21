@@ -208,7 +208,7 @@ impl PullRequestsResult {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct NewPullRequest {
-  /// The `bd describe` title, else as `gh pr create --fill` takes it from the commits the pull request will show
+  /// The `bd describe` title, else the title of the commits the pull request will show (`pull_request_text`)
   pub title: String,
   pub body: String,
   /// The user of the token the pull request is created with; null when GitHub didn't answer

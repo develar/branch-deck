@@ -69,6 +69,7 @@
 //! GitHub:
 //! - `pull_requests`: the pull request status of the virtual branches, from one GraphQL search
 //! - `pull_request_create`: a new pull request of a virtual branch
+//! - `pull_request_text`: the title and the body of a new pull request of a virtual branch, from its commits
 //! - `stack_pull_request`: the title and the body of the pull request of the whole stack, from what the sync read
 //! - `pull_request_writes`: the base of a stacked pull request, reviews, reviewers and the closing of landed ones
 //! - `review_requests`: the pull requests of others that wait for the user's review
@@ -139,6 +140,7 @@ pub mod patronus_review;
 pub mod patronus_start;
 pub mod pick;
 pub mod pull_request_create;
+pub mod pull_request_text;
 pub mod pull_request_writes;
 pub mod pull_requests;
 pub mod push;

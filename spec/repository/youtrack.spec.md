@@ -121,6 +121,11 @@ client takes a pasted token.
   `scope`), once for the lookups that need it at the same time; a new refresh token the Hub hands out replaces the old
   one in the file. A 401 renews once and asks again.
   [@test] ../../crates/youtrack/src/service_test.rs (`an_expiring_access_token_is_renewed_once_for_parallel_lookups_and_kept`)
+- `bd` (the issue summaries of the pull request texts it writes) only reads the token: it sends a token that doesn't
+  expire within a minute and never renews it (`YouTrackService::without_renewal`). A renewal rotates the refresh token,
+  and the app, which keeps the old one in memory, would be signed out by its next renewal; an expiring token gives `bd`
+  no summary until the app renews it.
+  [@test] ../../crates/youtrack/src/service_test.rs (`a_service_without_renewal_sends_a_valid_token_and_leaves_an_expiring_one_to_the_app`)
 - `invalid_grant` is an expired sign-in; a 401 to a token that can't be renewed is a rejected one. Either is not sent
   again until the next sign-in (`forget`): Settings says "Your YouTrack sign-in expired: sign in again" or "YouTrack
   rejected the token: sign in again" above the sign-in, with the URL of the token.

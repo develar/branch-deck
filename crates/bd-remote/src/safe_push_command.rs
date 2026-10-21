@@ -56,7 +56,7 @@ use sync_core::patronus_start::{
   RobotSource, allows_push_mode, find_landing_ancestor, find_landing_descendant, find_landing_member, find_landing_stack, is_push_into_robot_risky, is_start_blocked,
   push_mode_name, start_refusal,
 };
-use sync_core::pull_request_create::{CreatePullRequestParams, create_pull_request as core_create_pull_request, fill_pull_request};
+use sync_core::pull_request_create::{CreatePullRequestParams, create_pull_request as core_create_pull_request};
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests};
 use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef};
@@ -70,6 +70,8 @@ use sync_types::patronus::{
 use sync_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState, PullRequestsResult, ReviewerState};
 use sync_types::stack::{BlockReason, StackBranchState, StackBranchUpdate};
 use tokio::runtime::Runtime;
+use youtrack::client::YouTrackClient;
+use youtrack::service::YouTrackService;
 
 /// How often the answer of Patronus to a pull request comment is read, and for how long, as the app does
 const COMMENT_REPLY_INTERVAL: Duration = Duration::from_secs(3);
@@ -411,6 +413,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   };
   let service = patronus_service(environment)?;
   let github = github_service(context, environment);
+  let youtrack = youtrack_service(environment);
   let runtime = context.runtime()?;
 
   // the target moves every minute: its remote branch is fetched for the target conflict check, before the lock, which
@@ -521,13 +524,13 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   }
   // by content: a branch whose remote branch has its commits, only rebuilt on an older baseline, is not pushed; the
   // robot takes the remote branch and Patronus rebases it, and a push would move the head of its pull request for nothing
-  let (remote, draft) = match (&plan.stack, plan.push_needed) {
+  let draft = match (&plan.stack, plan.push_needed) {
     // the whole stack: only its stack branch, leased; its members stay as they are on the remote
     (Some(stack), true) => {
       output.pushed = vec![push_stack_branch(context, &synced, &plan.name, stack)?];
-      (STACK_REMOTE.to_string(), stack.draft.clone())
+      stack.draft.clone()
     }
-    (Some(stack), false) => (STACK_REMOTE.to_string(), stack.draft.clone()),
+    (Some(stack), false) => stack.draft.clone(),
     (None, true) => {
       // the robot of the branch is canceled above; the start lands the ancestors its push takes along
       let pushed = push_locked(
@@ -539,17 +542,17 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
         &synced,
         &PushHolds::default(),
         &HashSet::new(),
+        Some(&youtrack),
       )?;
       output.pushed = pushed.branches;
-      let draft = output
+      output
         .pushed
         .iter()
         .find(|pushed| pushed.name == plan.name)
         .map(|pushed| pushed.pull_request.clone())
-        .ok_or_else(|| CliError::new(ErrorCode::GitError, format!("{} was not pushed", plan.name)))?;
-      (pushed.remote, draft)
+        .ok_or_else(|| CliError::new(ErrorCode::GitError, format!("{} was not pushed", plan.name)))?
     }
-    (None, false) => unpushed_pull_request_draft(context, &synced, &plan.name)?,
+    (None, false) => unpushed_pull_request_draft(context, &synced, &plan.name, Some(&youtrack))?,
   };
   drop(lock);
 
@@ -558,7 +561,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
       // one open pull request per branch: the one into another base is the branch's, GitHub would open a second one
       output.pull_request = Some(match &plan.other_base_pull_request {
         Some(existing) => other_base_pull_request_start(existing, &plan.target),
-        None => create_pull_request(context, args, &github, runtime, &plan, &remote, &draft)?,
+        None => create_pull_request(context, args, &github, runtime, &plan, &draft)?,
       });
     }
     return Ok(output);
@@ -1301,7 +1304,7 @@ pub(crate) fn patronus_service(environment: &Environment) -> Result<PatronusServ
       "No Space token for Patronus, or it expired: run ./safePush.cmd once to log in, or set SPACE_TOKEN",
     ));
   }
-  let user_agent = format!("Branch Deck CLI/{} ({}; {})", bd_core::version::VERSION, std::env::consts::OS, std::env::consts::ARCH);
+  let user_agent = cli_user_agent();
   Ok(PatronusService::new(PatronusClient::new(environment.patronus_url.clone(), &user_agent), move |now| {
     find_token(home.as_deref(), space_token.clone(), now)
   }))
@@ -1374,9 +1377,24 @@ fn other_base_pull_request_start(existing: &PullRequest, target: &str) -> PullRe
   }
 }
 
+/// How `bd` names itself to Patronus, GitHub and YouTrack
+pub(crate) fn cli_user_agent() -> String {
+  format!("Branch Deck CLI/{} ({}; {})", bd_core::version::VERSION, std::env::consts::OS, std::env::consts::ARCH)
+}
+
+/// The YouTrack of `bd`: `YOUTRACK_BASE_URL` and `YOUTRACK_TOKEN`, else the app's sign-in, only read: a renewal is the
+/// app's (`YouTrackService::without_renewal`)
+pub(crate) fn youtrack_service(environment: &Environment) -> YouTrackService {
+  YouTrackService::without_renewal(
+    YouTrackClient::new(&cli_user_agent()),
+    environment.youtrack_environment.clone(),
+    environment.youtrack_token_file.clone(),
+  )
+}
+
 /// The GitHub service of `bd`: the token of `GH_TOKEN`/`GITHUB_TOKEN`, `gh auth token` or the git credentials
 pub(crate) fn github_service(context: &RepoContext, environment: &Environment) -> GitHubService {
-  let user_agent = format!("Branch Deck CLI/{} ({}; {})", bd_core::version::VERSION, std::env::consts::OS, std::env::consts::ARCH);
+  let user_agent = cli_user_agent();
   GitHubService::new(
     GitHubClient::with_urls(environment.github_api_url.clone(), GITHUB_URL, &user_agent),
     TokenChain::new(environment.github_tokens.clone(), context.git.clone()),
@@ -1505,26 +1523,21 @@ fn github_approvers(requirement: &PatronusReviewRequirement, pull_request: &Pull
 }
 
 /// Opens the pull request of the pushed branch, as the `gh pr create` that `bd push` prints: into the target, a stacked
-/// branch's with the commits of the branches it is built on, with the `bd describe` text, else filled from the commits
-/// as `--fill` does (one commit: its subject and body; several: the branch name and their subjects), assigned to the
-/// user and with the `--reviewer` logins asked. A pull request that already exists is found instead and left as it is.
+/// branch's with the commits of the branches it is built on, with the text of its draft (`pull_request_text`: the
+/// `bd describe` text, else the text of its commits), assigned to the user and with the `--reviewer` logins asked. A
+/// pull request that already exists is found instead and left as it is.
 fn create_pull_request(
   context: &RepoContext,
   args: &SafePushArgs,
   github: &GitHubService,
   runtime: &Runtime,
   plan: &Plan,
-  remote: &str,
   draft: &PullRequestDraft,
 ) -> Result<PullRequestStart, CliError> {
   let Some(repository) = &plan.github else {
     return Err(CliError::new(ErrorCode::InvalidArguments, UNKNOWN_GITHUB_REPOSITORY));
   };
-  let (title, body) = match &draft.title {
-    Some(title) => (title.clone(), draft.body.clone().unwrap_or_default()),
-    None => fill_pull_request(&context.git, &context.repository, remote, &draft.head, &draft.base)?
-      .ok_or_else(|| CliError::new(ErrorCode::PushRefused, format!("No commits between {remote}/{} and {}", draft.base, draft.head)))?,
-  };
+  let (title, body) = (draft.title.clone(), draft.body.clone().unwrap_or_default());
   let params = CreatePullRequestParams {
     repository_path: context.repository.clone(),
     branch_prefix: context.prefix.clone(),

@@ -2206,11 +2206,16 @@ sync, before anything is asked of Patronus.
    (`stack_pull_request.rs`). The push is one `push_leased` of the stack branch alone, leased on the remote head of
    its remote status; the branches of the stack are not pushed. The pre-check reads the stack branch's commits as a
    branch's (`log`, `diff-tree`), and the dangling references take the members as the branches built.
-4. `--create-pull-request` without a `bd describe` text fills the pull request as `gh pr create --fill`: one
-   `git log --reverse --format=%s%x1f%b%x1e refs/remotes/<remote>/<base>..refs/remotes/<remote>/<branch>` after the
-   push (`sync_core::pull_request_create`). The app's "Create pull request" dialog fills it before its push, from the
-   local branch the push sends: `refs/remotes/origin/<base>..refs/heads/<branch>` (`read_new_pull_request`, one
-   `config` and one `log`). GitHub is asked over HTTP, never by git: `GET /user`, `POST pulls`, then the assignee and
+4. `--create-pull-request` opens the pull request with the text of the draft `bd push` prints
+   (`sync_core::pull_request_text`): the `bd describe` text, else the text of the branch's commits and of the branches
+   it is built on, from the sync's report, no git. The app's "Create pull request" dialog writes it before its push,
+   from the local branch the push sends: one `config`, and without a description one
+   `git log --reverse --format=%D%x1f%s%x1f%b%x1e --decorate-refs=refs/heads/<ancestor>… refs/remotes/origin/<base>..refs/heads/<branch>`,
+   whose decorations, the tips of the branches it is built on, split their commits from the branch's own
+   (`read_new_pull_request`). The summaries of the issues come from YouTrack over HTTP, only for a key whose link of
+   `.idea/vcs.xml` is an issue page of the YouTrack signed in to, within 3 s for all keys: the app renews its token as
+   for the popovers, `bd` only reads it (`YouTrackService::without_renewal`), because a renewal rotates the refresh
+   token the app keeps. GitHub is asked over HTTP, never by git: `GET /user`, `POST pulls`, then the assignee and
    the reviewers; right after a push (`wait_for_mirror`) a `POST pulls` refused for a head or a base GitHub doesn't
    have yet (a Space mirror copies a pushed branch a moment later) is asked again every 2 s for 30 s. The app's dialog
    of the whole stack ("Create Pull Request of the Stack…") takes its text from `read_new_stack_pull_request`: one

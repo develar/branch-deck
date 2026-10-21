@@ -1217,9 +1217,11 @@ requests of the pushed branches whose base is a virtual branch to the baseline (
   approves, `bd push auth --force --expect-remote 7c8d9e0f`.
 - A push the remote refuses while every lease holds (a hook, a protected branch) is `push_refused` with what git
   said; nothing was pushed. Tell the user: a retry doesn't help.
-- `pull_request.base` is the baseline without the remote (`master`), for every branch. With a `bd describe` text,
-  `command` takes the title and reads the body from stdin (`--body-file -`); without one it uses `--fill`, which for a
-  stacked branch lists the commits of the branches it is built on too.
+- `pull_request.base` is the baseline without the remote (`master`), for every branch. `title` and `body` are the
+  `bd describe` text, else the text of the commits: the issue key and its YouTrack summary as the title (the summary
+  only when the link of `.idea/vcs.xml` is an issue page of the YouTrack you are signed in to), the issues linked, an
+  item per commit with its body as paragraphs, and for a stacked branch the branches it is built on, whose commits it
+  holds too. `command` takes the title and reads the body from stdin (`--body-file -`).
 - `retargeted`: after the push, with the lock released, the open pull requests of the pushed branches whose base is a
   virtual branch of the user (`<prefix>/virtual/…`: a parent's branch, opened when pull requests went there) go into
   the baseline (one search of the pull requests, one `PATCH pulls/<n>` each), as the app's push retargets them. Each
@@ -1340,7 +1342,7 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
 - The approvals count in the GitHub pull request of the branch (Space merge requests are deprecated; one found open,
   `review.merge_request`, still counts for a start through the API). `--create-pull-request` pushes the branch and
   opens its pull request through the GitHub API, as the `gh pr create` that `bd push` prints would (into the target,
-  with the `bd describe` text, else filled as `--fill`), assigned to the user (`--no-assign`
+  with the text of `pull_request` of `bd push`), assigned to the user (`--no-assign`
   leaves it unassigned), with `--reviewer <login>` (repeatable) asked to review it: the `github_login` of the
   suggested `review.groups[].reviewers`, once the user chose them. `pull_request` has `created: true`, `reviewers`
   and `assignees` as GitHub took them and `warnings` for what it refused; or the open one of the branch, whatever its

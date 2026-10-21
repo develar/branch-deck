@@ -31,6 +31,9 @@ pub fn environment(cwd: &Path) -> Environment {
     // nothing to answer and no token: a test of a GitHub pull request starts its own GitHub
     github_api_url: "http://127.0.0.1:9".to_string(),
     github_tokens: github::token::TokenSources::default(),
+    // no YouTrack: the text of a pull request names its issues without their summaries
+    youtrack_environment: None,
+    youtrack_token_file: None,
     // no `teamcity` CLI: a test of `bd robot --full` writes a fake one
     teamcity: Some(cwd.join("no-teamcity")),
   }

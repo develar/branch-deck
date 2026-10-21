@@ -204,7 +204,7 @@ test.describe("Pull request chip", () => {
     await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("feature-auth → master")
     await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("Add auth")
     await expect(dialog.getByTestId("create-pull-request-body")).toHaveValue("- **Add login**")
-    expect(texts.at(-1)).toEqual({ repositoryPath: expect.any(String), head: "user-name/virtual/feature-auth", base: "master" })
+    expect(texts.at(-1)).toEqual({ repositoryPath: expect.any(String), head: "user-name/virtual/feature-auth", base: "master", stackAncestors: [] })
     await page.keyboard.press("Escape")
     await expect(dialog).toHaveCount(0)
 

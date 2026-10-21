@@ -526,6 +526,7 @@ dependencies = [
  "sync-types",
  "tokio",
  "tracing",
+ "youtrack",
 ]
 
 [[package]]
@@ -577,6 +578,7 @@ dependencies = [
  "test-utils",
  "tokio",
  "tracing",
+ "youtrack",
 ]
 
 [[package]]
@@ -5664,6 +5666,7 @@ dependencies = [
  "toml 1.1.8+spec-1.1.0",
  "tracing",
  "uuid",
+ "youtrack",
 ]
 
 [[package]]

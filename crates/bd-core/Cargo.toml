@@ -17,6 +17,7 @@ github = { path = "../github" }
 sync-core = { path = "../sync-core" }
 history-rewrite = { path = "../history-rewrite" }
 sync-types = { path = "../sync-types" }
+youtrack = { path = "../youtrack" }
 anyhow.workspace = true
 dirs = "7"
 schemars.workspace = true

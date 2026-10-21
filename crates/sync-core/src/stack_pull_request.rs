@@ -58,27 +58,34 @@ pub fn stack_pull_request_text(own: Option<&Description>, members: &[StackMember
     count_of(commits, "commit", "commits")
   );
   let mut body = intro;
+  let sections = members.iter().map(|member| (member.name, format!("\n\n{}", member_section(member))));
+  push_fitting_sections(&mut body, sections, ("branch", "branches"));
+  (cut_title(&title), body)
+}
+
+/// Appends each section (its text starts with its separator) while the body fits into `MAX_BODY_CHARS`; from the first
+/// that doesn't, the sections are named in a last line instead ("the text of 2 branches is left out (auth, login)").
+/// `kind` names a section: one and many.
+pub(crate) fn push_fitting_sections<'a>(body: &mut String, sections: impl IntoIterator<Item = (&'a str, String)>, kind: (&str, &str)) {
   let mut used = body.chars().count();
   let mut omitted: Vec<&str> = Vec::new();
-  for member in members {
-    let section = format!("\n\n{}", member_section(member));
+  for (name, section) in sections {
     let length = section.chars().count();
     if omitted.is_empty() && used + length <= MAX_BODY_CHARS - OMITTED_LINE_CHARS {
       body.push_str(&section);
       used += length;
     } else {
-      omitted.push(member.name);
+      omitted.push(name);
     }
   }
   if !omitted.is_empty() {
     let line = format!(
       "\n\n_Too long for a pull request: the text of {} is left out ({})._",
-      count_of(omitted.len(), "branch", "branches"),
+      count_of(omitted.len(), kind.0, kind.1),
       omitted.join(", ")
     );
     body.push_str(&cut_chars(&line, OMITTED_LINE_CHARS));
   }
-  (cut_title(&title), body)
 }
 
 /// The description title, else the subject of its one commit, else the branch name, as `gh pr create --fill` names it
@@ -116,7 +123,7 @@ fn member_section(member: &StackMemberText<'_>) -> String {
 }
 
 /// "1 branch", "7 branches"
-fn count_of(count: usize, one: &str, many: &str) -> String {
+pub(crate) fn count_of(count: usize, one: &str, many: &str) -> String {
   format!("{count} {}", if count == 1 { one } else { many })
 }
 
@@ -169,13 +176,13 @@ pub fn read_new_stack_pull_request(git: &GitCommandExecutor, params: &GetNewStac
 }
 
 /// One line of at most `MAX_TITLE_CHARS`
-fn cut_title(title: &str) -> String {
+pub(crate) fn cut_title(title: &str) -> String {
   let line = title.lines().next().unwrap_or_default().trim();
   cut_chars(line, MAX_TITLE_CHARS)
 }
 
 /// `text`, or its first characters and "…" to `max` characters
-fn cut_chars(text: &str, max: usize) -> String {
+pub(crate) fn cut_chars(text: &str, max: usize) -> String {
   if text.chars().count() <= max {
     return text.to_string();
   }

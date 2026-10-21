@@ -848,8 +848,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-remote/src/push_test.rs (`a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`, `force_drops_only_what_the_sync_saw_and_expect_remote_pins_the_lease`, `a_moved_lease_refuses_the_whole_stack_and_names_the_branch_that_moved`, `a_push_the_remote_refuses_with_its_leases_holding_is_push_refused`)
   [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`)
 - Per branch it must print the pull request base, the baseline without the remote (`master`) for every branch, stacked
-  or not ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)), the head, the `bd describe` title and
-  body, and a ready `gh pr create` command, with `--repo` for a GitHub repository `origin` doesn't push to (a mirror).
+  or not ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)), the head, the title and the body as the
+  app's dialog writes them ([Pull Requests](../branch/pull-requests.spec.md#creating-a-pull-request): the `bd describe`
+  text, else the text of the commits, from the sync's report), and a ready `gh pr create --title … --body-file -`
+  command, with `--repo` for a GitHub repository `origin` doesn't push to (a mirror). The summaries of the issues come
+  from YouTrack as in the app, read with the token of `YOUTRACK_TOKEN` or of the app's sign-in and never renewed.
   [@test] ../../crates/bd-remote/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `parents_go_first_and_a_child_alone_carries_its_parents_commits`, `with_children_pushes_the_branches_stacked_on_the_named_ones`, `the_pull_request_command_names_a_github_mirror`)
 - After the push, with the lock released, it must retarget the open pull request of each pushed branch whose base is a
   virtual branch of the user (`{prefix}/virtual/…`) to the baseline, as the app's push does (one search of the pull
@@ -925,8 +928,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/guidelines/agent-cli
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_dry_run_takes_a_profile_by_name_and_checks_no_review`)
 - The approvals must be collected in the GitHub pull request of the branch, not in a Space merge request (deprecated):
   `--create-pull-request` must push the branch and open it through the GitHub API as the `gh pr create` that `bd push`
-  prints would (the `bd describe` text, else filled as `--fill` does: one commit's subject and body, or the branch
-  name and the subjects of several), assigned to the user (`--no-assign` leaves it unassigned) and with the
+  prints would (with its `title` and `body`), assigned to the user (`--no-assign` leaves it unassigned) and with the
   `--reviewer <login>` logins asked (the author left out; a reviewer GitHub refuses is in `pull_request.warnings`), as
   the app's dialog creates it ([Pull Requests](../branch/pull-requests.spec.md#creating-a-pull-request)), without a
   start, and must be `invalid_arguments` without a GitHub repository of the branches; a pull request that already

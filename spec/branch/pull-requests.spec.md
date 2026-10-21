@@ -39,6 +39,8 @@ targets:
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../src/components/branch/BranchPreviewActions.tsx
   - ../../crates/sync-core/src/pull_request_create.rs
+  - ../../crates/sync-core/src/pull_request_text.rs
+  - ../../crates/sync-core/src/issue_navigation.rs
   - ../../crates/sync-core/src/pull_request_writes.rs
   - ../../crates/bd-remote/src/push_command.rs
   - ../../crates/bd-remote/src/request_review_command.rs
@@ -309,11 +311,46 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   `safe-push --create-pull-request` waits the same way after its push.
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should create the pull request of a branch not on the remote yet: Create pushes it, Cancel pushes nothing, the move made from the click`, `should open GitHub's form of a branch not on the remote yet from its preview, after the push`, `should keep the dialog, with the reason, when the push would drop commits of the remote branch`)
   [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`right_after_a_push_the_creation_waits_for_the_mirror_to_copy_the_branch`, `the_wait_for_the_mirror_ends_with_the_reason`, `waits_until_github_has_the_branch`)
-- The text starts as `bd push` and `bd safe-push --create-pull-request` fill it (`get_new_pull_request`,
-  `read_new_pull_request`): the `bd describe` description of the branch, else the commits the pull request will show,
-  those of the local branch the creation pushes (`<remote>/<base>..<head>`): one commit gives its subject and body,
-  several the branch name and their subjects. A field the user typed in is not replaced by the text that arrives later.
+- The text starts as `bd push` and `bd safe-push --create-pull-request` write it (`get_new_pull_request`,
+  `pull_request_text`): the `bd describe` description of the branch, else the text of the commits the pull request
+  will show, those of the local branch the creation pushes (`<remote>/<base>..<head>`). A field the user typed in is
+  not replaced by the text that arrives later.
   [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`the_text_is_the_description_else_the_commits_the_pull_request_will_show`)
+  [@test] ../../crates/sync-core/src/pull_request_text_test.rs (`the_description_wins`)
+- The title of one commit is its subject. With several, a branch of one issue (its name is the key, or every subject
+  carries the same key) is titled by the key and the issue's summary, `IJAI-4390 Agent CLIs render without colors`,
+  never by a key cut into words; without the summary, by the key and the summary of the branch the row shows (the
+  first subject, oldest first, that is no cleanup, without its key). A branch of several keys or of none is titled by
+  the summary of the branch, else by its name as `gh pr create --fill` names it (`feature auth`). The summary comes
+  from YouTrack only when the link of the key in `.idea/vcs.xml` is an issue page of the YouTrack signed in to, as the
+  issue popover asks it, within 3 s for all the keys; so the title depends on the sign-in.
+  [@test] ../../crates/sync-core/src/pull_request_text_test.rs (`an_issue_branch_keeps_its_key_and_takes_the_issue_summary`, `without_an_issue_summary_the_title_is_the_key_and_the_branch_summary`, `a_branch_of_several_keys_names_each_key_and_is_titled_by_its_summary`)
+  [@test] ../../crates/sync-core/src/pull_request_text_test.rs (`an_issue_is_asked_from_youtrack_only_when_the_repository_links_it_there`)
+  [@test] ../../crates/sync-core/src/issue_navigation.rs (`a_key_links_as_the_first_pattern_that_matches_all_of_it_names_it`)
+- The body starts with each issue of the branch once, `[IJAI-4390](<its page>)` joined by ` · ` (the bare key without
+  a link). One commit then gives its body; several a numbered item each, oldest first: the subject in bold, without
+  the key the title carries when the subject starts with it, the body under it indented by the width of the marker
+  (`10.` by 4). `fixup!`, `squash!` and `amend!` commits have no item.
+  [@test] ../../crates/sync-core/src/pull_request_text_test.rs (`an_issue_branch_keeps_its_key_and_takes_the_issue_summary`, `trailers_and_autosquash_commits_are_left_out`)
+- A commit body reads on GitHub as in the commit, where a newline is a line break: the lines of a paragraph are
+  joined; a list item (`-`, `*`, `+`, `1.`, `1)`), a heading, a quote, a table row and a rule start a line of their
+  own, the lines indented under a list item join it, a line after a hard break (two spaces, `\`) stays its own, fenced
+  and indented code stay as they are. The trailers (a last paragraph of `Token-Name: value` lines, `(cherry picked
+  from commit …)`) are left out, a one-word `Note:` is prose. Outside code spans, a word GitHub would read as a mention
+  (`@Nullable`) or as an HTML tag (`<T>`, `List<String>`) goes into a code span.
+  [@test] ../../crates/sync-core/src/pull_request_text_test.rs (`each_commit_is_an_item_with_its_body_reflowed`, `trailers_and_autosquash_commits_are_left_out`, `mentions_and_angle_brackets_stay_literal`)
+- A stacked branch's pull request holds the commits of the branches it is built on: its title and items come from its
+  own commits, and a last section says "Built on auth, then login: their commits are in this pull request too." with
+  the subjects of each ("Built on auth: its commits …" for one). The app sends the chain of the row
+  (`stack_ancestors`), and one `log` splits the commits by the tips of those branches; `bd` takes them from the sync.
+  [@test] ../../crates/sync-core/src/pull_request_text_test.rs (`a_stacked_branch_is_titled_by_its_own_commits_and_names_its_ancestors`)
+  [@test] ../../crates/sync-core/src/pull_request_create_test.rs (`the_commits_up_to_the_tip_of_each_ancestor_are_the_ancestor_s`)
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`the_text_of_a_new_pull_request`)
+  [@test] ../../crates/bd-remote/src/push_test.rs (`parents_go_first_and_a_child_alone_carries_its_parents_commits`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a stack parents first and create each pull request into master`)
+- GitHub takes a body of 65,536 characters: the items that don't fit are named in a last line, "_Too long for a pull
+  request: the text of 2 commits is left out (…)._", as in the pull request of the whole stack.
+  [@test] ../../crates/sync-core/src/pull_request_text_test.rs (`a_body_too_long_for_github_is_cut_and_names_the_commits_left_out`)
 - Reviewers: chips of GitHub logins with a search of the users of the repository a review can be asked from (GitHub's
   `assignableUsers`, from 2 characters, after a pause in the typing; an older answer never replaces a newer one); the
   user is never offered, GitHub refuses a review request of the author. Where Patronus is, "Suggested by code owners:"

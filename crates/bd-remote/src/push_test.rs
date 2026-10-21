@@ -72,7 +72,9 @@ fn the_pull_request_command_names_a_github_mirror() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     branch(&output, "auth")["pull_request"]["command"],
-    json!(format!("gh pr create --repo acme/widgets --base master --head {AUTH} --assignee @me --fill"))
+    json!(format!(
+      "gh pr create --repo acme/widgets --base master --head {AUTH} --assignee @me --title 'Add login' --body-file -"
+    ))
   );
 }
 
@@ -93,9 +95,15 @@ fn parents_go_first_and_a_child_alone_carries_its_parents_commits() {
   // the remote branch of login has the commit of auth under its own
   let login = remote_tip(&remote, "test-user/virtual/login");
   assert_eq!(git(&repo, &["log", "--format=%s", &format!("origin/master..{login}")]), "Add login\nAdd auth");
+  // titled by its own commit, the text names the branch it is built on
+  let pull_request = &branch(&output, "login")["pull_request"];
   assert_eq!(
-    branch(&output, "login")["pull_request"]["command"],
-    json!("gh pr create --base master --head test-user/virtual/login --assignee @me --fill")
+    pull_request["command"],
+    json!("gh pr create --base master --head test-user/virtual/login --assignee @me --title 'Add login' --body-file -")
+  );
+  assert_eq!(
+    (&pull_request["title"], &pull_request["body"]),
+    (&json!("Add login"), &json!("Built on auth: its commits are in this pull request too.\n\n- Add auth"))
   );
 
   // the branch it is built on goes along, first, and its pull request goes into the baseline too

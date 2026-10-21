@@ -15,29 +15,31 @@
 use crate::landed::{LandedBranch, LandedBySummary, every_branch_landed};
 use crate::pull_request_retarget::{RetargetedPullRequest, retarget_listed, retarget_pull_requests_of};
 use crate::push_hold::{PushHolds, read_push_holds};
-use crate::safe_push_command::github_service;
+use crate::safe_push_command::{github_service, youtrack_service};
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CliError, ErrorBranch, ErrorCode};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
-use git_ops::branch_description::Description;
 use git_ops::branch_names::to_final_branch_name;
 use git_ops::revs::{ref_tips, resolve_commit, tips_under};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use sync_core::issue_navigation::load_issue_navigation_config;
 use sync_core::parked::parked_state;
+use sync_core::pull_request_text::{AncestorText, CommitText, IssueText, PullRequestTextInput, issue_texts, pull_request_text};
 use sync_core::pull_requests::{GitHubRepository, list_pull_requests, parse_github_repository, resolve_github_repository_with};
 use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
 use sync_core::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, leased_push_refs};
 use sync_core::remote_status::{AncestorCommits, RemoteStatusMemo, StackParent};
 use sync_core::stack_pull_request::{StackMemberText, stack_pull_request_text};
 use sync_core::sync::SyncReport;
-use sync_types::RemoteStatusUpdate;
 use sync_types::patronus::PatronusRobot;
 use sync_types::pull_request::{PullRequestState, PullRequestsResult};
 use sync_types::stack::{StackBranchState, StackBranchUpdate};
+use sync_types::{GroupedBranchInfo, RemoteStatusUpdate};
+use youtrack::service::YouTrackService;
 
 #[derive(Debug, Default, clap::Args)]
 #[expect(clippy::struct_excessive_bools, reason = "command-line flags")]
@@ -169,8 +171,8 @@ pub struct PullRequestDraft {
   /// stacked branch's includes the commits of the branches it is built on
   pub base: String,
   pub head: String,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub title: Option<String>,
+  /// The `bd describe` title, else the title of its commits (`pull_request_text`)
+  pub title: String,
   /// Pipe it into the command (`--body-file -`)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub body: Option<String>,
@@ -214,7 +216,8 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
     _ => None,
   };
   let open_stack_pull_requests = listed.as_ref().map_or_default(open_stack_pull_requests);
-  let mut output = push_locked(context, args, &synced, &holds, &open_stack_pull_requests)?;
+  let youtrack = youtrack_service(environment);
+  let mut output = push_locked(context, args, &synced, &holds, &open_stack_pull_requests, Some(&youtrack))?;
   drop(repository_lock);
 
   // GitHub after the lock: the pull requests of the pushed branches go into the baseline
@@ -265,8 +268,16 @@ fn base_on_remote<'a>(baseline: &'a str, remote: &str) -> &'a str {
 /// which landed included). An ancestor taken along that landed stays as it is. A branch a running Safe Push holds (`holds`) is refused, or, with
 /// `--restart-running` and the robot on the branch itself, its robot is canceled before the push and restarted after it;
 /// an ancestor taken along that a robot holds stays as it is, unless that robot is the one restarted.
-/// `open_stack_pull_requests`: the roots whose pull request of the whole stack is open, for `--with-children`.
-pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, holds: &PushHolds, open_stack_pull_requests: &HashSet<String>) -> Result<PushOutput, CliError> {
+/// `open_stack_pull_requests`: the roots whose pull request of the whole stack is open, for `--with-children`;
+/// `youtrack`: where the texts of the pull requests take the summaries of their issues from.
+pub fn push_locked(
+  context: &RepoContext,
+  args: &PushArgs,
+  synced: &SyncOutput,
+  holds: &PushHolds,
+  open_stack_pull_requests: &HashSet<String>,
+  youtrack: Option<&YouTrackService>,
+) -> Result<PushOutput, CliError> {
   let report = &synced.report;
   let remote = match &args.remote {
     Some(remote) => remote.clone(),
@@ -565,14 +576,21 @@ pub fn push_locked(context: &RepoContext, args: &PushArgs, synced: &SyncOutput, 
   };
   let refs: Vec<&PushRef> = leased.iter().map(|branch| &branch.push).collect();
 
-  let descriptions = report.config.descriptions();
   let repository_option = github_repository_option(context, report)?;
   let short = context.short_ids(refs.iter().flat_map(|pushed| std::iter::once(pushed.tip.as_str()).chain(pushed.lease.as_deref())));
+  let names: Vec<&str> = candidates.iter().map(|candidate| candidate.synced.name.as_str()).collect();
+  let issues = pull_request_issues(context, report, youtrack, &names)?;
   let branches = candidates
     .iter()
     .zip(&refs)
     .map(|(candidate, &pushed)| {
-      let draft = pull_request_draft(descriptions, &repository_option, base_branch.clone(), &candidate.full_name);
+      let draft = pull_request_draft(
+        context,
+        report,
+        (&repository_option, base_branch.clone()),
+        (&candidate.synced.name, &candidate.full_name),
+        &issues,
+      );
       let replaced_landed = candidate.remote.as_ref().map_or_default(|remote| remote.landed_commits.clone());
       pushed_branch(&candidate.synced.name, pushed, &statuses, draft, &short, replaced_landed)
     })
@@ -751,64 +769,111 @@ pub(crate) fn stack_pull_request_draft(context: &RepoContext, report: &SyncRepor
     })
     .collect();
   let (title, body) = stack_pull_request_text(described(&stack.branch_name), &members, &base);
-  let repository_option = github_repository_option(context, report)?;
+  Ok(draft_of(&github_repository_option(context, report)?, base, &stack.branch_name, title, body))
+}
+
+/// The draft of the pull request of `head` into `base` with its text, and the `gh pr create` that opens it
+fn draft_of(repository_option: &str, base: String, head: &str, title: String, body: String) -> PullRequestDraft {
   let command = format!(
     "gh pr create{repository_option} --base {} --head {} --assignee @me --title {} --body-file -",
     shell_quote(&base),
-    shell_quote(&stack.branch_name),
+    shell_quote(head),
     shell_quote(&title)
   );
-  Ok(PullRequestDraft {
-    base,
-    head: stack.branch_name.clone(),
-    title: Some(title),
-    body: Some(body).filter(|body| !body.is_empty()),
-    command,
-  })
-}
-
-/// The pull request of the remote branch `head` into `base` (the baseline without the remote), as the printed
-/// `gh pr create` opens it: with the `bd describe` text, else filled from the commits (a stacked branch's with the
-/// commits of the branches it is built on)
-fn pull_request_draft(descriptions: &HashMap<String, Description>, repository_option: &str, base: String, head: &str) -> PullRequestDraft {
-  let description = descriptions.get(&format!("refs/heads/{head}"));
-  let command = match description {
-    Some(description) => format!(
-      "gh pr create{repository_option} --base {} --head {} --assignee @me --title {} --body-file -",
-      shell_quote(&base),
-      shell_quote(head),
-      shell_quote(&description.title)
-    ),
-    None => format!(
-      "gh pr create{repository_option} --base {} --head {} --assignee @me --fill",
-      shell_quote(&base),
-      shell_quote(head)
-    ),
-  };
   PullRequestDraft {
     base,
     head: head.to_string(),
-    title: description.map(|description| description.title.clone()),
-    body: description.map(|description| description.body.clone()).filter(|body| !body.is_empty()),
+    title,
+    body: Some(body).filter(|body| !body.is_empty()),
     command,
   }
 }
 
-/// The remote and the pull request draft of a branch whose remote branch is up to date by content, which `bd safe-push`
-/// doesn't push: what `push_locked` returns for a pushed one
-pub(crate) fn unpushed_pull_request_draft(context: &RepoContext, synced: &SyncOutput, name: &str) -> Result<(String, PullRequestDraft), CliError> {
-  let (remote, base_branch) = synced
+/// The pull request of the grouped branch `name`, the remote branch `head`, into `base` (the baseline without the
+/// remote), as the printed `gh pr create` opens it, with the text of `pull_request_text`: the `bd describe` text, else
+/// the text of its commits, with the branches it is built on, whose commits it holds too. `issues` are the texts of
+/// their issues (`pull_request_issues`). From what the sync read: no git process.
+fn pull_request_draft(context: &RepoContext, report: &SyncReport, (repository_option, base): (&str, String), (name, head): (&str, &str), issues: &[IssueText]) -> PullRequestDraft {
+  let (title, body) = pull_request_text(&pull_request_input(context, report, name), issues);
+  draft_of(repository_option, base, head, title, body)
+}
+
+/// What the text of the pull request of the grouped branch `name` is written from: its description, its commits and
+/// those of the branches it is built on, as the sync grouped them
+fn pull_request_input<'a>(context: &RepoContext, report: &'a SyncReport, name: &'a str) -> PullRequestTextInput<'a> {
+  let branch_of = |name: &str| report.branches.iter().find(|branch| branch.name == name);
+  let built_on = |branch: &'a GroupedBranchInfo| branch.stack.as_ref().and_then(|stack| stack.effective_base.as_deref());
+  // newest first in the grouping
+  let subjects = |branch: Option<&GroupedBranchInfo>| branch.map_or_default(|branch| branch.commits.iter().rev().map(|commit| commit.stripped_subject.clone()).collect());
+  let branch = branch_of(name);
+  let mut ancestors: Vec<AncestorText> = Vec::new();
+  let mut parent = branch.and_then(built_on);
+  while let Some(parent_name) = parent
+    && ancestors.len() < report.branches.len()
+  {
+    let ancestor = branch_of(parent_name);
+    ancestors.push(AncestorText {
+      name: parent_name.to_string(),
+      subjects: subjects(ancestor),
+    });
+    parent = ancestor.and_then(built_on);
+  }
+  ancestors.reverse();
+  PullRequestTextInput {
+    branch_name: name,
+    description: final_name(context, name)
+      .ok()
+      .and_then(|full_name| report.config.descriptions().get(&format!("refs/heads/{full_name}"))),
+    commits: branch.map_or_default(|branch| {
+      branch
+        .commits
+        .iter()
+        .rev()
+        .map(|commit| CommitText::of_message(&commit.stripped_subject, &commit.message))
+        .collect()
+    }),
+    ancestors,
+  }
+}
+
+/// The texts of the issues of the pull requests of the grouped branches `names`, asked once for all of them
+/// (`issue_texts`: the links of `.idea/vcs.xml`, the summaries `youtrack` answers)
+pub(crate) fn pull_request_issues(context: &RepoContext, report: &SyncReport, youtrack: Option<&YouTrackService>, names: &[&str]) -> Result<Vec<IssueText>, CliError> {
+  let mut keys: Vec<String> = Vec::new();
+  for name in names {
+    let input = pull_request_input(context, report, name);
+    if input.description.is_none() {
+      for key in input.issue_keys() {
+        if !keys.contains(&key) {
+          keys.push(key);
+        }
+      }
+    }
+  }
+  if keys.is_empty() {
+    return Ok(Vec::new());
+  }
+  let links = load_issue_navigation_config(&context.repository);
+  Ok(context.runtime()?.block_on(issue_texts(&keys, links.as_ref(), youtrack)))
+}
+
+/// The pull request draft of a branch whose remote branch is up to date by content, which `bd safe-push` doesn't push:
+/// what `push_locked` returns for a pushed one
+pub(crate) fn unpushed_pull_request_draft(context: &RepoContext, synced: &SyncOutput, name: &str, youtrack: Option<&YouTrackService>) -> Result<PullRequestDraft, CliError> {
+  let (_, base_branch) = synced
     .baseline
     .split_once('/')
     .ok_or_else(|| CliError::new(ErrorCode::NoRemote, format!("The baseline {} is local: pass --remote", synced.baseline)))?;
   let report = &synced.report;
-  let draft = pull_request_draft(
-    report.config.descriptions(),
-    &github_repository_option(context, report)?,
-    base_branch.to_string(),
-    &final_name(context, name)?,
-  );
-  Ok((remote.to_string(), draft))
+  let head = final_name(context, name)?;
+  let issues = pull_request_issues(context, report, youtrack, &[name])?;
+  Ok(pull_request_draft(
+    context,
+    report,
+    (&github_repository_option(context, report)?, base_branch.to_string()),
+    (name, &head),
+    &issues,
+  ))
 }
 
 /// Why the sync didn't build the branch (its error, its conflict, or blocked); None when it did

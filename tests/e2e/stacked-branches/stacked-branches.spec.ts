@@ -580,7 +580,8 @@ test.describe("Stacked branches", () => {
     const dialog = createPullRequestDialog(page)
     await expect(dialog.getByTestId("create-pull-request-base")).toHaveText("oauth → master")
     await expect(dialog.getByTestId("create-pull-request-includes")).toHaveText("Includes the commits of auth and login, which oauth is built on: 3 branches · 3 commits")
-    expect(texts).toEqual([expect.objectContaining({ head: "user-name/virtual/oauth", base: "master" })])
+    // its text leaves the commits of the branches it is built on out of its own, and names them
+    expect(texts).toEqual([expect.objectContaining({ head: "user-name/virtual/oauth", base: "master", stackAncestors: ["user-name/virtual/auth", "user-name/virtual/login"] })])
     // GitHub's form, as "Continue on GitHub" opens it, takes the same base
     await dialog.getByTestId("create-pull-request-on-github").click()
     await expect.poll(() => getOpenedUrls(page)).toEqual([`${GITHUB_COMPARE}/master...user-name/virtual/oauth?expand=1&title=Add+auth&body=-+**Add+login**&assignees=user-name`])
@@ -595,6 +596,7 @@ test.describe("Stacked branches", () => {
     await dialog.getByTestId("create-pull-request-submit").click()
     await expect(page.locator("[data-slot=toast]", { hasText: "Created pull request #900" }).locator("[data-slot=toast-description]")).toHaveText("auth → master · assigned to you")
     expect(creates).toEqual([expect.objectContaining({ branchName: "auth", head: "user-name/virtual/auth", base: "master" })])
+    expect(texts[1]).toEqual(expect.objectContaining({ head: "user-name/virtual/auth", stackAncestors: [] }))
   })
 
   test("should push a stack in one push, refused whole when a remote branch of it moved", async ({ page, setupRepo, syncAndWaitForBranches }) => {

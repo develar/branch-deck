@@ -220,12 +220,14 @@ export function CreatePullRequestForm({
   const [edited, setEdited] = useState({ title: false, body: false })
   // the whole stack's text names its branches: the members as their rows show them
   const stackText = wholeStack === null ? null : JSON.stringify(wholeStack)
+  // a stacked branch's text leaves the commits of the branches it is built on out of its own
+  const ancestorsText = JSON.stringify(context.stackAncestors)
   useEffect(() => {
     let current = true
     const stack = stackText === null ? null : (JSON.parse(stackText) as NonNullable<CreatePullRequestContext["wholeStack"]>)
     const read =
       stack === null
-        ? commands.getNewPullRequest({ repositoryPath, head, base })
+        ? commands.getNewPullRequest({ repositoryPath, head, base, stackAncestors: JSON.parse(ancestorsText) as string[] })
         : commands.getNewStackPullRequest({ repositoryPath, branchPrefix: stack.branchPrefix, root: branchName, members: [...stack.members], target: base })
     read.then(
       result => {
@@ -243,7 +245,7 @@ export function CreatePullRequestForm({
     return () => {
       current = false
     }
-  }, [repositoryPath, branchName, head, base, stackText])
+  }, [repositoryPath, branchName, head, base, stackText, ancestorsText])
   const [filled, setFilled] = useState(false)
   if (!filled && text.status === "loaded") {
     setFilled(true)

@@ -28,8 +28,8 @@ export const commands = {
 	 */
 	retargetPullRequest: (params: RetargetPullRequestParams) => typedError<null, CommandError>(__TAURI_INVOKE("retarget_pull_request", { params })),
 	/**
-	 *  The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show), and the
-	 *  user of the token it is created with
+	 *  The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show, with the
+	 *  summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with
 	 */
 	getNewPullRequest: (params: GetNewPullRequestParams) => typedError<NewPullRequest, CommandError>(__TAURI_INVOKE("get_new_pull_request", { params })),
 	/**
@@ -1367,8 +1367,13 @@ export type GetNewPullRequestParams = {
 	repositoryPath: string,
 	/**  The full branch name on the remote, e.g. `user/virtual/feature-auth` */
 	head: string,
-	/**  The branch it merges into, as the remote names it: `master`, or the parent's `user/virtual/auth` */
+	/**  The branch it merges into, as the remote names it: the baseline, `master` */
 	base: string,
+	/**
+	 *  The branches it is built on, as the remote names them, the root first (`user/virtual/auth`): their commits are in
+	 *  the pull request too, and its text names them
+	 */
+	stackAncestors?: string[],
 };
 
 export type GetNewStackPullRequestParams = {
@@ -1826,7 +1831,7 @@ export type MovedCommit = {
 
 /**  The text a new pull request of a virtual branch starts with, and what the form says about it */
 export type NewPullRequest = {
-	/**  The `bd describe` title, else as `gh pr create --fill` takes it from the commits the pull request will show */
+	/**  The `bd describe` title, else the title of the commits the pull request will show (`pull_request_text`) */
 	title: string,
 	body: string,
 	/**  The user of the token the pull request is created with; null when GitHub didn't answer */

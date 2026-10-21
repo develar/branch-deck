@@ -467,7 +467,7 @@ fn the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_fro
   );
   assert_eq!((output["robot"].clone(), space.fake.start_calls.load(Ordering::SeqCst)), (Value::Null, 0));
   assert_eq!(space.remote_tip(AUTH), space.local_tip(AUTH));
-  // filled as `gh pr create --fill`: the one commit's subject
+  // the text of its one commit: its subject
   assert_eq!(
     github.requests_to("POST", "/repos/acme/monorepo/pulls")[0].json(),
     json!({"title": "Add auth", "body": "", "head": AUTH, "base": "master"})
@@ -567,10 +567,10 @@ fn a_pull_request_that_already_exists_is_found_instead() {
       "warnings": ["pull request #7 already existed: it was left as it is, without the assignee and the reviewers"]})
   );
   assert!(github.requests_to("POST", "/repos/acme/monorepo/issues/7/assignees").is_empty());
-  // filled as `gh pr create --fill` from two commits: the branch name and their subjects
+  // the text of its two commits: titled by the first, an item for each
   assert_eq!(
     github.requests_to("POST", "/repos/acme/monorepo/pulls")[0].json(),
-    json!({"title": "auth", "body": "- **Add auth**\n- **Test auth**", "head": AUTH, "base": "master"})
+    json!({"title": "Add auth", "body": "1. **Add auth**\n\n2. **Test auth**", "head": AUTH, "base": "master"})
   );
 }
 

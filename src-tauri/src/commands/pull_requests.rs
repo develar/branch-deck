@@ -1,12 +1,13 @@
 use crate::blocking::run_blocking;
 use crate::command_error::CommandError;
 use crate::commands::github::GitHubState;
+use crate::commands::youtrack::YouTrackState;
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_core::branch_rules::{BranchRules, GetBranchRulesParams, read_branch_rules};
 use sync_core::pull_request_create::{
   CreatePullRequestParams, GetNewPullRequestParams, MIRROR_WAIT, SearchGitHubUsersParams, WaitForGitHubBranchParams, create_pull_request as core_create_pull_request,
-  read_new_pull_request, read_viewer_login, search_github_users as core_search_github_users, wait_for_branch,
+  new_pull_request, read_viewer_login, search_github_users as core_search_github_users, wait_for_branch,
 };
 use sync_core::pull_request_writes::{
   ClosePullRequestParams, GetPullRequestHeadParams, RequestPullRequestReviewersParams, RetargetPullRequestParams, SubmitPullRequestReviewParams,
@@ -120,19 +121,20 @@ pub async fn get_pull_request_head(
     .map_err(|e| CommandError::new(e.to_string()))
 }
 
-/// The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show), and the
-/// user of the token it is created with
+/// The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show, with the
+/// summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with
 #[tauri::command]
 #[specta::specta]
 pub async fn get_new_pull_request(
   git_executor: State<'_, GitCommandExecutor>,
   repository_state: State<'_, RepositoryStateCache>,
   github: State<'_, GitHubState>,
+  youtrack: State<'_, YouTrackState>,
   params: GetNewPullRequestParams,
 ) -> Result<NewPullRequest, CommandError> {
-  let git = git_executor.inner().clone();
-  let (path, head, base) = (params.repository_path.clone(), params.head.clone(), params.base.clone());
-  let pull_request = run_blocking(move || read_new_pull_request(&git, &path, "origin", &head, &base).map_err(|e| CommandError::new(e.to_string()))).await?;
+  let pull_request = new_pull_request(&git_executor, Some(&youtrack.service), "origin", &params)
+    .await
+    .map_err(|e| CommandError::new(e.to_string()))?;
   with_viewer(&git_executor, &repository_state, &github, &params.repository_path, pull_request).await
 }
 

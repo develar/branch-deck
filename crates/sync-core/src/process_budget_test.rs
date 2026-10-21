@@ -856,14 +856,16 @@ fn an_update() {
   );
 }
 
-/// The text of the "Create pull request" dialog of a branch without a description: its commits against the baseline
+/// The text of the "Create pull request" dialog of a branch without a description: its commits against the baseline,
+/// a stacked branch's split from those of the branches it is built on by the decorations of the same `log`
 #[test]
 fn the_text_of_a_new_pull_request() {
   let (repo, _) = repo();
   repo.git(&["branch", "test/virtual/alpha"]);
+  repo.git(&["branch", "test/virtual/root", "HEAD~1"]);
   let git = counting();
-  let text = read_new_pull_request(&git, &path(&repo), "origin", "test/virtual/alpha", "master").unwrap();
-  assert_eq!(text.title, "alpha");
+  let read = read_new_pull_request(&git, &path(&repo), "origin", "test/virtual/alpha", "master", &["test/virtual/root".to_string()]).unwrap();
+  assert_eq!((read.description, read.commits.len(), read.ancestors[0].subjects.len()), (None, 1, 5));
   assert_processes(&git, &[("config", 1), ("log", 1)]);
 }
 

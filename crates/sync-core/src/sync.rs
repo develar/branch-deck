@@ -92,15 +92,20 @@ impl Default for SyncOptions {
 /// The summary of a branch that belongs to an issue: the commit message after the issue reference.
 /// Searches in reverse order to skip cleanup commits and find meaningful ones
 fn compute_branch_summary(commits: &[Commit]) -> String {
-  let mut fallback_summary: Option<String> = None;
+  // newest first in the grouping
+  branch_summary(commits.iter().rev().map(|commit| commit.stripped_subject.as_str()))
+}
 
-  // Search commits in reverse order (oldest first) to find a suitable summary
-  for commit in commits.iter().rev() {
+/// The summary of a branch, of its subjects oldest first: the first that is no cleanup, refactoring or formatting,
+/// without its issue key; else the first that is not empty
+pub(crate) fn branch_summary<'a>(subjects: impl IntoIterator<Item = &'a str>) -> String {
+  let mut fallback_summary: Option<&str> = None;
+  for subject in subjects {
     // Strip issue number if present
-    let summary = if let Some((_, end)) = find_issue_range(&commit.stripped_subject) {
-      commit.stripped_subject[end..].trim_start_matches([' ', ':']).trim()
+    let summary = if let Some((_, end)) = find_issue_range(subject) {
+      subject[end..].trim_start_matches([' ', ':']).trim()
     } else {
-      commit.stripped_subject.as_str()
+      subject
     };
 
     // Skip empty summaries
@@ -114,9 +119,7 @@ fn compute_branch_summary(commits: &[Commit]) -> String {
     let starts_with_keyword = |keyword: &str| summary.get(..keyword.len()).is_some_and(|start| start.eq_ignore_ascii_case(keyword));
     if starts_with_keyword("cleanup") || starts_with_keyword("refactor") || starts_with_keyword("format") {
       // Save the first non-empty summary as fallback (even if it's cleanup)
-      if fallback_summary.is_none() {
-        fallback_summary = Some(summary.to_string());
-      }
+      fallback_summary.get_or_insert(summary);
       continue;
     }
 
@@ -125,7 +128,7 @@ fn compute_branch_summary(commits: &[Commit]) -> String {
   }
 
   // If all commits are cleanup/refactor/format, use the fallback (first non-empty)
-  fallback_summary.unwrap_or_default()
+  fallback_summary.unwrap_or_default().to_string()
 }
 
 /// A branch is an issue branch only while no commit names it with an explicit prefix and every commit carries its

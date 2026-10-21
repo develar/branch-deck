@@ -1,17 +1,19 @@
 //! A new pull request of a virtual branch, opened through the GitHub REST API by the app's form and by
-//! `bd safe-push --create-pull-request`: its text (the `bd describe` description, else what `gh pr create --fill` takes
-//! from the pushed commits), the pull request with the user as its assignee and the reviewers asked, and the users of
-//! the repository a review can be asked from (one GraphQL query per search).
+//! `bd safe-push --create-pull-request`: the text of the app's form (`pull_request_text`, of the commits of the local
+//! branch), the pull request with the user as its assignee and the reviewers asked, and the users of the repository a
+//! review can be asked from (one GraphQL query per search).
 //!
 //! The creation is one `ask` of the token chain, which runs it again with the next token after a 401: `GET /user`
 //! comes first, so a rejected token is replaced before anything is written, and after the `POST pulls` nothing fails
 //! the request: the assignee and the reviewers that GitHub refuses are warnings of the pull request it created.
 
+use crate::issue_navigation::load_issue_navigation_config;
+use crate::pull_request_text::{AncestorText, CommitText, PullRequestTextInput, issue_texts, pull_request_text};
 use crate::pull_request_writes::{request_reviews, unique_logins};
 use crate::pull_requests::{GitHubRepository, GitHubWriteError, list_pull_requests, visible_data};
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
-use git_ops::branch_description::read_descriptions;
+use git_ops::branch_description::{Description, read_descriptions};
 use github::client::{GitHubClient, GitHubError};
 use github::service::{GitHubFailure, GitHubService, RequestKind};
 use serde::Deserialize;
@@ -19,6 +21,7 @@ use std::time::Duration;
 use sync_types::pull_request::{CreatedPullRequest, GitHubUser, NewPullRequest, PullRequest, PullRequestState, Reviewer, ReviewerState};
 use sync_utils::timestamp::parse_rfc3339_timestamp;
 use tracing::instrument;
+use youtrack::service::YouTrackService;
 
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -27,8 +30,12 @@ pub struct GetNewPullRequestParams {
   pub repository_path: String,
   /// The full branch name on the remote, e.g. `user/virtual/feature-auth`
   pub head: String,
-  /// The branch it merges into, as the remote names it: `master`, or the parent's `user/virtual/auth`
+  /// The branch it merges into, as the remote names it: the baseline, `master`
   pub base: String,
+  /// The branches it is built on, as the remote names them, the root first (`user/virtual/auth`): their commits are in
+  /// the pull request too, and its text names them
+  #[serde(default)]
+  pub stack_ancestors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -75,52 +82,122 @@ const SEARCH_LIMIT: u32 = 10;
 /// A shorter query matches too many users to be of use
 pub const MIN_SEARCH_LENGTH: usize = 2;
 
-/// The text of the pull request of `head` into `base` on `remote`: the description of the branch (`bd describe`), else
-/// the commits the pull request will show as `gh pr create --fill` takes them: those of the local branch, which the
-/// creation pushes first, against `<remote>/<base>`. The viewer is left to the caller, who asks GitHub. Two git
-/// processes: `config` and, without a description, `log`.
-#[instrument(skip(git))]
-pub fn read_new_pull_request(git: &GitCommandExecutor, repository_path: &str, remote: &str, head: &str, base: &str) -> Result<NewPullRequest> {
-  let local = format!("refs/heads/{head}");
-  let description = read_descriptions(git, repository_path)?.remove(&local);
-  let (title, body) = match description {
-    Some(description) => (description.title, description.body),
-    None => fill_from_range(git, repository_path, &format!("refs/remotes/{remote}/{base}..{local}"), head)?.unwrap_or_else(|| (title_of_branch(head), String::new())),
+/// The text of the pull request of `params.head` into `params.base` on `remote` (`pull_request_text`): the description of
+/// the branch (`bd describe`), else the commits the pull request will show, those of the local branch, which the
+/// creation pushes first, against `<remote>/<base>`, with the summaries of their issues that `youtrack` answers. The
+/// viewer is left to the caller, who asks GitHub. Two git processes (`read_new_pull_request`).
+#[instrument(skip_all, fields(head = %params.head))]
+pub async fn new_pull_request(git: &GitCommandExecutor, youtrack: Option<&YouTrackService>, remote: &str, params: &GetNewPullRequestParams) -> Result<NewPullRequest> {
+  let read = {
+    let (git, remote, path, head, base, ancestors) = (
+      git.clone(),
+      remote.to_string(),
+      params.repository_path.clone(),
+      params.head.clone(),
+      params.base.clone(),
+      params.stack_ancestors.clone(),
+    );
+    tokio::task::spawn_blocking(move || {
+      let commits = read_new_pull_request(&git, &path, &remote, &head, &base, &ancestors)?;
+      Ok::<_, anyhow::Error>((commits, load_issue_navigation_config(&path)))
+    })
+    .await
+    .map_err(|e| anyhow!("The pull request text task failed: {e}"))??
   };
+  let (commits, links) = read;
+  let input = commits.input(&params.head);
+  let issues = if input.description.is_some() {
+    Vec::new()
+  } else {
+    issue_texts(&input.issue_keys(), links.as_ref(), youtrack).await
+  };
+  let (title, body) = pull_request_text(&input, &issues);
   Ok(NewPullRequest { title, body, viewer_login: None })
 }
 
-/// The title and the body `gh pr create --fill` takes from the commits `<remote>/<base>..<remote>/<head>`: one commit
-/// gives its subject and body, several the branch name and their subjects; None without commits. One `git log`.
-pub fn fill_pull_request(git: &GitCommandExecutor, repository_path: &str, remote: &str, head: &str, base: &str) -> Result<Option<(String, String)>> {
-  fill_from_range(git, repository_path, &format!("refs/remotes/{remote}/{base}..refs/remotes/{remote}/{head}"), head)
+/// What the pull request of a branch will show, as `read_new_pull_request` reads it
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewPullRequestCommits {
+  pub description: Option<Description>,
+  /// Its own commits, oldest first
+  pub commits: Vec<CommitText>,
+  /// The branches it is built on, the root first, each with the commits of it the pull request shows
+  pub ancestors: Vec<AncestorText>,
 }
 
-/// The title and the body of the commits of `range` (`fill_pull_request`); `head` names a pull request of several
-fn fill_from_range(git: &GitCommandExecutor, repository_path: &str, range: &str, head: &str) -> Result<Option<(String, String)>> {
-  let (log, exit_code) = git.execute_command_with_status(&["log", "--reverse", "--format=%s%x1f%b%x1e", range, "--"], repository_path)?;
+impl NewPullRequestCommits {
+  /// The input of the text of the pull request of `head`
+  pub fn input<'a>(&'a self, head: &'a str) -> PullRequestTextInput<'a> {
+    PullRequestTextInput {
+      branch_name: virtual_name(head),
+      description: self.description.as_ref(),
+      commits: self.commits.clone(),
+      ancestors: self.ancestors.clone(),
+    }
+  }
+}
+
+/// `auth` of `user/virtual/auth`
+fn virtual_name(full_name: &str) -> &str {
+  full_name.rsplit("/virtual/").next().unwrap_or(full_name)
+}
+
+/// The description of `head`, and without one the commits of the local branch against `<remote>/<base>`: the commits
+/// up to the tip of each of `ancestors` (the root first) are the ancestor's, the rest the branch's own. Two git
+/// processes: `config`, and without a description one `log` whose decorations are the tips of the ancestors.
+#[instrument(skip(git))]
+pub fn read_new_pull_request(git: &GitCommandExecutor, repository_path: &str, remote: &str, head: &str, base: &str, ancestors: &[String]) -> Result<NewPullRequestCommits> {
+  let description = read_descriptions(git, repository_path)?.remove(&format!("refs/heads/{head}"));
+  if description.is_some() {
+    return Ok(NewPullRequestCommits {
+      description,
+      commits: Vec::new(),
+      ancestors: Vec::new(),
+    });
+  }
+  let range = format!("refs/remotes/{remote}/{base}..refs/heads/{head}");
+  // the ancestors decorate their tips; the branch itself when there are none, so that no other ref is read
+  let decorated: Vec<String> = if ancestors.is_empty() {
+    vec![format!("--decorate-refs=refs/heads/{head}")]
+  } else {
+    ancestors.iter().map(|ancestor| format!("--decorate-refs=refs/heads/{ancestor}")).collect()
+  };
+  let mut args: Vec<&str> = vec!["log", "--reverse", "--format=%D%x1f%s%x1f%b%x1e"];
+  args.extend(decorated.iter().map(String::as_str));
+  args.extend([range.as_str(), "--"]);
+  let (log, exit_code) = git.execute_command_with_status(&args, repository_path)?;
   if exit_code != 0 {
     bail!("Cannot read the commits of {range}: {log}");
   }
-  let commits: Vec<(&str, &str)> = log
-    .split('\x1e')
-    .map(|record| record.trim_start_matches('\n'))
-    .filter(|record| !record.is_empty())
-    .map(|record| record.split_once('\x1f').unwrap_or((record, "")))
+  let mut groups: Vec<AncestorText> = ancestors
+    .iter()
+    .map(|ancestor| AncestorText {
+      name: virtual_name(ancestor).to_string(),
+      subjects: Vec::new(),
+    })
     .collect();
-  Ok(match commits.as_slice() {
-    [] => None,
-    [(subject, body)] => Some(((*subject).to_string(), body.trim().to_string())),
-    commits => {
-      let body = commits.iter().map(|(subject, _)| format!("- **{subject}**")).collect::<Vec<_>>().join("\n");
-      Some((title_of_branch(head), body))
+  let mut pending: Vec<CommitText> = Vec::new();
+  for record in log.split('\x1e').map(|record| record.trim_start_matches('\n')).filter(|record| !record.is_empty()) {
+    let mut fields = record.splitn(3, '\x1f');
+    let (decorations, subject, body) = (fields.next().unwrap_or_default(), fields.next().unwrap_or_default(), fields.next().unwrap_or_default());
+    pending.push(CommitText {
+      subject: subject.trim().to_string(),
+      body: body.trim().to_string(),
+    });
+    // `HEAD -> user/virtual/auth, user/virtual/login`: the commits so far belong to the ancestor whose tip this is
+    let tip_of = decorations
+      .split(", ")
+      .map(|decoration| decoration.trim_start_matches("HEAD -> "))
+      .find_map(|name| ancestors.iter().position(|ancestor| ancestor == name));
+    if let Some(index) = tip_of {
+      groups[index].subjects.extend(std::mem::take(&mut pending).into_iter().map(|commit| commit.subject));
     }
+  }
+  Ok(NewPullRequestCommits {
+    description: None,
+    commits: pending,
+    ancestors: groups,
   })
-}
-
-/// `user/virtual/feature-auth` -> `feature auth`, as `gh pr create --fill` names a pull request of several commits
-fn title_of_branch(head: &str) -> String {
-  head.rsplit("/virtual/").next().unwrap_or(head).replace(['-', '_'], " ")
 }
 
 /// The login of the user of the token the pull requests are asked with

@@ -22,6 +22,8 @@ use sync_core::pull_requests::GitHubRepository;
 use sync_core::remote_url::origin_push_url;
 use tokio::runtime::Runtime;
 use tracing::debug;
+use youtrack::service::EnvironmentToken;
+use youtrack::token_store::token_file;
 
 /// The tauri-plugin-store file of the app (`LazyStore("settings.json")` in `src/stores/settings/app-store.ts`), in the
 /// app data directory of the bundle identifier (`tauri.conf.json`)
@@ -60,6 +62,10 @@ pub struct Environment {
   /// Where the GitHub token comes from: `GH_TOKEN`/`GITHUB_TOKEN`, `gh auth token`, the app's sign-in, the git
   /// credentials of github.com
   pub github_tokens: TokenSources,
+  /// The YouTrack a new pull request's text takes the summaries of its issues from: `YOUTRACK_BASE_URL` and
+  /// `YOUTRACK_TOKEN`, else the token of the app's sign-in (`youtrack_token_file`); only read, never renewed
+  pub youtrack_environment: Option<EnvironmentToken>,
+  pub youtrack_token_file: Option<PathBuf>,
   /// The `teamcity` CLI of `bd robot --full`; `None` looks it up as the app does (`find_teamcity`), and only then
   pub teamcity: Option<PathBuf>,
 }
@@ -81,6 +87,8 @@ impl Environment {
       space_token: std::env::var(TOKEN_ENV).ok(),
       github_api_url: GITHUB_API_URL.to_string(),
       github_tokens: TokenSources::from_process(app_data_dir().as_deref()),
+      youtrack_environment: EnvironmentToken::from_process(),
+      youtrack_token_file: app_data_dir().as_deref().map(token_file),
       teamcity: None,
     }
   }

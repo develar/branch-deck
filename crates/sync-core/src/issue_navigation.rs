@@ -1,8 +1,9 @@
-//! Parse IntelliJ IDEA issue navigation configuration from .idea/vcs.xml
+//! Parse IntelliJ IDEA issue navigation configuration from .idea/vcs.xml, and the link it gives an issue key
 
 use quick_xml::Reader;
 use quick_xml::XmlVersion;
 use quick_xml::events::Event;
+use std::fmt::Write as _;
 use std::path::Path;
 use sync_types::issue_navigation::{IssueNavigationConfig, IssueNavigationLink};
 use tracing::{debug, warn};
@@ -132,9 +133,62 @@ fn parse_issue_navigation_xml(xml: &str) -> Option<IssueNavigationConfig> {
   }
 }
 
+/// The link of the issue `key`: of the first link of `config` whose pattern matches the whole key, with `$0` the key and
+/// `$1`, `$2`… its groups, percent-encoded, as the app links a key (`src/lib/issue-links.ts`); None when no pattern does
+pub fn issue_link(config: &IssueNavigationConfig, key: &str) -> Option<String> {
+  config.links.iter().find_map(|link| {
+    // IntelliJ's patterns are Java regexes; one that this engine refuses links nothing, as in the app
+    let regex = regex::Regex::new(&link.issue_regexp).ok()?;
+    let captures = regex.captures_iter(key).find(|captures| captures.get(0).is_some_and(|whole| whole.as_str() == key))?;
+    let mut href = link.link_regexp.replace("$0", &encode_uri_component(key));
+    for group in 1..captures.len() {
+      href = href.replace(&format!("${group}"), &encode_uri_component(captures.get(group).map_or("", |value| value.as_str())));
+    }
+    Some(href)
+  })
+}
+
+/// JavaScript's `encodeURIComponent`
+fn encode_uri_component(text: &str) -> String {
+  let mut encoded = String::with_capacity(text.len());
+  for byte in text.bytes() {
+    if byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&byte) {
+      encoded.push(char::from(byte));
+    } else {
+      let _ = write!(encoded, "%{byte:02X}");
+    }
+  }
+  encoded
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn a_key_links_as_the_first_pattern_that_matches_all_of_it_names_it() {
+    let link = |issue_regexp: &str, link_regexp: &str| IssueNavigationLink {
+      issue_regexp: issue_regexp.to_string(),
+      link_regexp: link_regexp.to_string(),
+    };
+    let config = IssueNavigationConfig {
+      links: vec![
+        link(r"EA\-(\d+)", "https://ea.example.com/#/issue/$1"),
+        link(r"\b[A-Z]+\-\d+\b", "https://youtrack.example.com/issue/$0"),
+      ],
+    };
+    assert_eq!(issue_link(&config, "IJAI-4390").as_deref(), Some("https://youtrack.example.com/issue/IJAI-4390"));
+    assert_eq!(issue_link(&config, "EA-12").as_deref(), Some("https://ea.example.com/#/issue/12"));
+    // a pattern that matches only a part of the key links nothing
+    let partial = IssueNavigationConfig {
+      links: vec![link(r"\d+", "https://example.com/$0")],
+    };
+    assert_eq!(issue_link(&partial, "IJAI-4390"), None);
+    let spaced = IssueNavigationConfig {
+      links: vec![link(r"[A-Z]+ \d+", "https://example.com/?q=$0")],
+    };
+    assert_eq!(issue_link(&spaced, "AB 1").as_deref(), Some("https://example.com/?q=AB%201"));
+  }
 
   #[test]
   fn test_parse_issue_navigation_xml() {

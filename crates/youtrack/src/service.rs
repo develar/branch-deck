@@ -80,6 +80,8 @@ pub struct YouTrackService {
   /// Held across a renewal, so that parallel lookups renew once
   auth: Mutex<Auth>,
   issues: Cache<String, YouTrackIssue>,
+  /// A token that expires is renewed (the app); `false` for `bd`, which only reads
+  renews: bool,
 }
 
 impl YouTrackService {
@@ -90,6 +92,17 @@ impl YouTrackService {
       token_file,
       auth: Mutex::new(Auth::default()),
       issues: Cache::builder().max_capacity(ISSUE_CACHE_CAPACITY).time_to_live(ISSUE_TTL).build(),
+      renews: true,
+    }
+  }
+
+  /// The service of a process beside the app (`bd`): it sends the stored token as it is and never renews it. A renewal
+  /// writes the rotated refresh token, and the app, which keeps the old one in memory, would be signed out by its next
+  /// renewal; a token that expires is left to the app.
+  pub fn without_renewal(client: YouTrackClient, environment: Option<EnvironmentToken>, token_file: Option<PathBuf>) -> Self {
+    Self {
+      renews: false,
+      ..Self::new(client, environment, token_file)
     }
   }
 
@@ -164,6 +177,9 @@ impl YouTrackService {
     let expires_soon = stored.access_expires_at.is_some_and(|at| at <= unix_now() + RENEW_BEFORE);
     if !force_renewal && !expires_soon {
       return Ok((credential.url, credential.access_token));
+    }
+    if !self.renews {
+      return Err(Denied::Failed("The YouTrack token needs a renewal: the app renews it".to_string()));
     }
     let Some(grant) = stored.refresh.clone() else {
       return Ok((credential.url, credential.access_token));

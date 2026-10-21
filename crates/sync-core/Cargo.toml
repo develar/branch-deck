@@ -17,6 +17,7 @@ object-cache = { path = "../object-cache" }
 code-symbols = { path = "../code-symbols" }
 patronus = { path = "../patronus" }
 github = { path = "../github" }
+youtrack = { path = "../youtrack" }
 anyhow.workspace = true
 indexmap.workspace = true
 moka.workspace = true

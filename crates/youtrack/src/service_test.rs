@@ -69,6 +69,31 @@ async fn an_expiring_access_token_is_renewed_once_for_parallel_lookups_and_kept(
 }
 
 #[tokio::test]
+async fn a_service_without_renewal_sends_a_valid_token_and_leaves_an_expiring_one_to_the_app() {
+  let (fake, url) = start_fake_server().await;
+  fake.answer("GET", "/api/issues/ABC-1", FakeAnswer::ok(json!({"idReadable": "ABC-1", "summary": "S"})));
+  fake.answer(
+    "POST",
+    "/hub/api/rest/oauth2/token",
+    FakeAnswer::ok(json!({"access_token": "access-new", "expires_in": 3600, "refresh_token": "refresh-2"})),
+  );
+  let dir = tempfile::tempdir().unwrap();
+  let file = token_file(dir.path());
+  let without_renewal = || YouTrackService::without_renewal(YouTrackClient::new("Branch Deck test"), None, Some(file.clone()));
+
+  write_secret_json(&file, &stored(&url, Some(unix_now() + 3600), true)).unwrap();
+  assert!(is_found(&without_renewal().issue("ABC-1").await));
+  assert_eq!(fake.requests_to("GET", "/api/issues/ABC-1")[0].authorization.as_deref(), Some("Bearer access-old"));
+
+  let expiring = stored(&url, Some(unix_now() + 10), true);
+  write_secret_json(&file, &expiring).unwrap();
+  assert!(matches!(without_renewal().issue("ABC-1").await, YouTrackIssueAnswer::Error { .. }));
+  // no renewal: the refresh token the app keeps stays valid, the token file is as it was
+  assert!(fake.requests_to("POST", "/hub/api/rest/oauth2/token").is_empty());
+  assert_eq!(read_token(&file), Some(expiring));
+}
+
+#[tokio::test]
 async fn a_refused_refresh_token_is_an_expired_sign_in() {
   let (fake, service, _dir) = service_with(|url| stored(url, Some(unix_now()), true)).await;
   fake.answer(

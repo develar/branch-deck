@@ -45,6 +45,11 @@ export interface CreatePullRequestContext {
   readonly head: string
   /** The base: the baseline as the remote names it (`master`), for every branch, stacked or not */
   readonly base: string
+  /**
+   * The remote branches of the branches it is built on, root first (`user/virtual/auth`): the text of the pull request
+   * names them and leaves their commits out of its own; empty for a branch built on the baseline and the whole stack
+   */
+  readonly stackAncestors: readonly string[]
   /** The branch, or an ancestor, has commits the remote lacks: Create and "Continue on GitHub" push them first */
   readonly pushNeeded: boolean
   /**
@@ -92,6 +97,7 @@ export function toCreatePullRequestContext(branch: Branch, facts: CreatePullRequ
     wholeStack: null,
     head,
     base: getPullRequestBase(),
+    stackAncestors: ancestors.map(it => getFullBranchName(it.name)),
     pushNeeded,
     includes,
     includesText: includes === null ? null : formatPullRequestIncludes(branch.name, includes),
@@ -149,6 +155,7 @@ export function toStackPullRequestContext(root: string, stack: StackBranch | und
     },
     head: getFullStackBranchName(root),
     base: getPullRequestBase(),
+    stackAncestors: [],
     pushNeeded: remote === null || !remote.exists || remote.remoteTip !== stack?.tip,
     includes: null,
     includesText: names.length === 0 ? null : `Holds the commits of every branch of the stack: ${joinNames(names)}: ${formatBranchesAndCommits(names.length, commitCount)}`,

@@ -1,7 +1,9 @@
 use crate::patronus_command_test::repository;
 use crate::pull_request_create::{
-  CreatePullRequestParams, MirrorWait, create_pull_request, create_pull_request_waiting, fill_pull_request, read_new_pull_request, search_github_users, wait_for_branch,
+  CreatePullRequestParams, GetNewPullRequestParams, MirrorWait, create_pull_request, create_pull_request_waiting, new_pull_request, read_new_pull_request, search_github_users,
+  wait_for_branch,
 };
+use crate::pull_request_text::{AncestorText, CommitText};
 use github::fake_github::{FakeAnswer, FakeGitHub, start_fake_service};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -246,30 +248,71 @@ async fn searches_the_users_a_review_can_be_asked_from() {
   assert_eq!(fake.requests().len(), 1);
 }
 
-#[test]
-fn the_text_is_the_description_else_the_commits_the_pull_request_will_show() {
+#[test(tokio::test)]
+async fn the_text_is_the_description_else_the_commits_the_pull_request_will_show() {
   let (_upstream, clone) = TestRepo::upstream_and_clone(&[("README.md", "x")]);
   clone.git(&["checkout", "-q", "-b", "me/virtual/auth"]);
   clone.create_commit("Add login\n\nThe form and the session.", "login.txt", "1");
   let git = clone.git_executor();
-  let path = clone.path_str();
+  let params = GetNewPullRequestParams {
+    repository_path: clone.path_str().to_string(),
+    head: "me/virtual/auth".to_string(),
+    base: "master".to_string(),
+    stack_ancestors: Vec::new(),
+  };
 
   let text = |pull_request: NewPullRequest| (pull_request.title, pull_request.body);
   // not on the remote yet: the creation pushes it first, the text is of the local commits
-  let one = read_new_pull_request(git, path, "origin", "me/virtual/auth", "master").unwrap();
+  let one = new_pull_request(git, None, "origin", &params).await.unwrap();
   assert_eq!(text(one), ("Add login".to_string(), "The form and the session.".to_string()));
 
   clone.git(&["push", "-q", "origin", "me/virtual/auth"]);
   clone.create_commit("Add logout", "logout.txt", "1");
   // a commit the remote lacks is in the pull request too: the creation pushes it
-  let several = read_new_pull_request(git, path, "origin", "me/virtual/auth", "master").unwrap();
-  assert_eq!(text(several), ("auth".to_string(), "- **Add login**\n- **Add logout**".to_string()));
+  let several = new_pull_request(git, None, "origin", &params).await.unwrap();
+  assert_eq!(
+    text(several),
+    ("Add login".to_string(), "1. **Add login**\n   The form and the session.\n\n2. **Add logout**".to_string())
+  );
 
   clone.git(&["config", "branch.me/virtual/auth.description", "Auth\n\nLogin and logout."]);
-  let described = read_new_pull_request(git, path, "origin", "me/virtual/auth", "master").unwrap();
+  let described = new_pull_request(git, None, "origin", &params).await.unwrap();
   assert_eq!(text(described), ("Auth".to_string(), "Login and logout.".to_string()));
+}
 
-  assert_eq!(fill_pull_request(git, path, "origin", "master", "master").unwrap(), None);
+#[test]
+fn the_commits_up_to_the_tip_of_each_ancestor_are_the_ancestor_s() {
+  let (_upstream, clone) = TestRepo::upstream_and_clone(&[("README.md", "x")]);
+  clone.git(&["checkout", "-q", "-b", "me/virtual/auth"]);
+  clone.create_commit("Add auth", "auth.txt", "1");
+  clone.git(&["checkout", "-q", "-b", "me/virtual/login"]);
+  clone.create_commit("Add login", "login.txt", "1");
+  clone.create_commit("Add the login form", "form.txt", "1");
+  clone.git(&["checkout", "-q", "-b", "me/virtual/oauth"]);
+  clone.create_commit("Add OAuth\n\nThe provider.", "oauth.txt", "1");
+  let ancestors = ["me/virtual/auth".to_string(), "me/virtual/login".to_string()];
+  let read = read_new_pull_request(clone.git_executor(), clone.path_str(), "origin", "me/virtual/oauth", "master", &ancestors).unwrap();
+  assert_eq!(read.description, None);
+  assert_eq!(
+    read.commits,
+    [CommitText {
+      subject: "Add OAuth".to_string(),
+      body: "The provider.".to_string(),
+    }]
+  );
+  assert_eq!(
+    read.ancestors,
+    [
+      AncestorText {
+        name: "auth".to_string(),
+        subjects: vec!["Add auth".to_string()],
+      },
+      AncestorText {
+        name: "login".to_string(),
+        subjects: vec!["Add login".to_string(), "Add the login form".to_string()],
+      },
+    ]
+  );
 }
 
 /// Waits of milliseconds: a test of the mirror wait doesn't sleep 30 s
