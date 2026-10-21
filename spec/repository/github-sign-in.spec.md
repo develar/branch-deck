@@ -49,8 +49,8 @@ redirect and without a client secret.
   tokens expire after 8 hours, so the app and `bd` would race to refresh one token.
 - Revoking the token: that needs the client secret. Sign Out removes it here; GitHub revokes it on its settings page.
 - GitHub Enterprise, several accounts.
-- A keychain item of the app itself: the release is not signed by Apple, so macOS would ask again for the item after
-  every update, and `bd` in the background could not answer. The item is written by `/usr/bin/security` instead
+- A keychain item of the app itself: unsigned local builds would make macOS ask again for the item after every
+  update, and `bd` in the background could not answer. The item is written by `/usr/bin/security` instead
   ([The token file](#the-token-file)).
 
 ## Requirements

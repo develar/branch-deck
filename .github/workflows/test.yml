@@ -86,6 +86,10 @@ jobs:
       - name: Check formatting, lint and types
         run: vp check
 
+      - name: Check macOS release credential handling
+        if: runner.os == 'macOS'
+        run: pnpm exec node --test scripts/release-signing.test.mjs
+
       - name: Type-check, find copies and check the test links of the specs
         run: pnpm lint:typecheck && pnpm lint:cpd && pnpm lint:specs
 

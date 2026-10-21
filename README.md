@@ -6,7 +6,7 @@ Your working tree and your checked-out branch stay as they are, so the IDE, your
 checkout don't notice.
 
 Every operation runs through the Git CLI, so it stays fast on very large repositories. macOS (Apple silicon), Windows
-and Linux (x86_64). Early: version 0.x, the builds are not signed yet.
+and Linux (x86_64). Early: version 0.x.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/branch-deck-dark.png">
@@ -67,7 +67,7 @@ and a Git identity (`user.name`, `user.email`). Optional: a GitHub token for pul
 <summary>Why a script, the options, and installing by hand</summary>
 
 A browser marks a download as quarantined (macOS) or as coming from the internet (Windows), and Gatekeeper or
-SmartScreen then blocks the unsigned app. A download by `curl` or PowerShell has no such mark, the same as the app's
+SmartScreen can block unsigned builds. A download by `curl` or PowerShell has no such mark, the same as the app's
 own updates. Read [install.sh](install.sh) and [install.ps1](install.ps1) before you pipe them into a shell. They
 install:
 

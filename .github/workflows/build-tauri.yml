@@ -24,6 +24,18 @@ on:
         required: true
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
         required: true
+      APPLE_CERTIFICATE:
+        required: true
+      APPLE_CERTIFICATE_PASSWORD:
+        required: true
+      APPLE_SIGNING_IDENTITY:
+        required: true
+      APPLE_API_ISSUER:
+        required: true
+      APPLE_API_KEY:
+        required: true
+      APPLE_API_PRIVATE_KEY:
+        required: true
 
 permissions: {}
 
@@ -92,6 +104,36 @@ jobs:
           ref: ${{ inputs.tag_name }}
           persist-credentials: false
 
+      - name: Prepare macOS signing and notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          missing=false
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+            APPLE_API_ISSUER APPLE_API_KEY APPLE_API_PRIVATE_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing repository secret $name; see docs/guidelines/releases.md"
+              missing=true
+            fi
+          done
+          if [ "$missing" = true ]; then
+            exit 1
+          fi
+          case "$APPLE_SIGNING_IDENTITY" in
+            "Developer ID Application: "*) ;;
+            *) echo "::error::APPLE_SIGNING_IDENTITY must name a Developer ID Application certificate"; exit 1 ;;
+          esac
+          umask 077
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$RUNNER_TEMP/branch-deck-notarization.p8"
+          openssl pkey -in "$RUNNER_TEMP/branch-deck-notarization.p8" -noout
+
       - name: Install Rust nightly
         uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
@@ -117,6 +159,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Tauri imports the .p12 into a temporary keychain, signs, notarizes and staples the app.
+          # Apple credentials are passed only to the macOS build.
+          APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_API_ISSUER: ${{ runner.os == 'macOS' && secrets.APPLE_API_ISSUER || '' }}
+          APPLE_API_KEY: ${{ runner.os == 'macOS' && secrets.APPLE_API_KEY || '' }}
+          APPLE_API_KEY_PATH: ${{ runner.os == 'macOS' && format('{0}/branch-deck-notarization.p8', runner.temp) || '' }}
           # the Branch Deck OAuth app of the GitHub sign-in (spec/repository/github-sign-in.spec.md); public, the device
           # flow has no client secret
           BRANCH_DECK_GITHUB_CLIENT_ID: Ov23liKt3gDvjXz8peJ6
@@ -127,6 +177,23 @@ jobs:
           # a failed build or upload
           retryAttempts: 2
           args: ${{ matrix.args }}
+
+      - name: Verify macOS signing and notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app=target/aarch64-apple-darwin/release/bundle/macos/BranchDeck.app
+          codesign --verify --deep --strict --verbose=2 "$app"
+          xcrun stapler validate "$app"
+          # Tauri puts the stapled app in a signed DMG; the DMG has no separate notarization ticket.
+          for dmg in target/aarch64-apple-darwin/release/bundle/dmg/*.dmg; do
+            codesign --verify --strict --verbose=2 "$dmg"
+          done
+
+      - name: Remove notarization key
+        if: ${{ always() && runner.os == 'macOS' }}
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/branch-deck-notarization.p8"
 
   publish-release:
     needs: [resolve-release, build-tauri]
