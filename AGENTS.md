@@ -319,7 +319,8 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   `lock_timeout`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd sync`, `bd push`,
   `bd safe-push` (the sync, the checks and the push; the robot start after it), `bd move-hunk`, `bd undo`,
   Update Project (the app and `bd update`, after the fetch, also when it starts a resolve session), `bd pick` (both
-  worktrees under one hold), and `bd update --continue` and `--abort` hold `$GIT_COMMON_DIR/branch-deck.lock`
+  worktrees under one hold), `bd unapply` and the undo of an unapply, and `bd update --continue` and `--abort` hold
+  `$GIT_COMMON_DIR/branch-deck.lock`
   (bounded wait, then `locked`), because the app and `bd` processes rewrite the same branch. The app's sync never
   takes it. A fetch never runs under it ([Regroup](docs/design/git-operations.md#regroup-rename-restack)).
 - **Guards** (`History::check_rewrite`, `check_rewrite_range`) before rewriting the checked-out branch: no
@@ -491,6 +492,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Stacked branches, the stack island, the whole stack | `branch/stacked-branches`, `branch/stack-island`, `branch/whole-stack`, `branch/branch-row` | `src/stores/stack-view.ts`, `src/lib/git/stack-push.ts`, `crates/sync-core/src/stack_branch.rs` |
 | Stack parents (`bd restack`, `bd unstack`) | `branch/stack-parents` | `crates/history-rewrite/src/stack_parents.rs` |
 | Parked branches: kept local, never pushed, not Your Move (`bd park`, `bd unpark`) | `branch/parked-branches` | `crates/history-rewrite/src/parked.rs`, `crates/sync-core/src/parked.rs` |
+| Unapply: a branch and its files out of HEAD, kept as `{prefix}/unapplied/<name>` (`bd unapply`, `bd undo unapply:`) | `branch/unapply` | `crates/sync-core/src/unapply_branch.rs`, `crates/git-ops/src/unapply.rs`, `src/hooks/useUnapplyBranch.ts` |
 | Activity log, its window | `repository/activity` | `src/stores/activity.ts`, `src/pages/ActivityPage.tsx`, `src/lib/activity-window-link.ts` |
 | Commit files, diffs, the commit review (`D`), the tree-sitter highlighting | `commit/commit-files`, `commit/commit-review` ([Diff View](docs/design/diff-view.md)) | `crates/file-diffs/`, `crates/code-symbols/src/highlight/`, `src/components/diff/` |
 | Go to Declaration and Find Usages in a review (⌘-click, ⌘B, ⌥F7, Back), outside it through accio | `commit/symbol-navigation` | `crates/code-symbols/src/navigate.rs`, `crates/file-diffs/src/declarations.rs`, `crates/file-diffs/src/usages.rs`, `crates/file-diffs/src/accio.rs`, `src/hooks/useSymbolNavigation.ts`, `src/components/diff/DeclarationFileView.tsx` |

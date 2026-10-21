@@ -1,0 +1,82 @@
+use bd_cli::fixture_test::{assert_covered, assert_error, commit_subjects, environment, git, repo_with_baseline, run_in, run_json};
+use pretty_assertions::assert_eq;
+use serde_json::json;
+use test_utils::git_test_utils::TestRepo;
+
+/// `(docs) Add f0`, `(other) Add f1`, `(docs) Add f2` ahead of `origin/master`, synced by `bd sync`
+fn synced_repo() -> (TestRepo, Vec<String>) {
+  let repo = repo_with_baseline(&[("README.md", "readme\n")]);
+  let commits = commit_subjects(&repo, &["(docs) Add f0", "(other) Add f1", "(docs) Add f2"]);
+  let (exit_code, output) = run_in(&repo, &["sync"]);
+  assert_eq!(exit_code, 0, "{output}");
+  (repo, commits)
+}
+
+#[test_log::test]
+fn unapply_takes_the_branch_and_its_files_out_of_head_and_the_undo_brings_them_back() {
+  let (repo, commits) = synced_repo();
+  let head = repo.head();
+  let tip = git(&repo, &["rev-parse", "test-user/virtual/docs"]);
+
+  let (exit_code, output) = run_in(&repo, &["--full-ids", "unapply", "docs"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (&output["branch"], &output["unapplied_branch"], &output["commits"], &output["previous_head"]),
+    (&json!("docs"), &json!("test-user/unapplied/docs"), &json!([commits[0], commits[2]]), &json!(head))
+  );
+  let new_head = repo.head();
+  assert_eq!(output["new_head"], json!(new_head));
+  assert_eq!(
+    output["undo_token"],
+    json!(format!("unapply:{head}..{new_head}:{tip}:test-user/virtual/docs:test-user/unapplied/docs"))
+  );
+  assert!(!repo.path().join("f0.txt").exists());
+  assert_eq!(git(&repo, &["status", "--porcelain"]), "");
+  assert_eq!(git(&repo, &["rev-parse", "test-user/unapplied/docs"]), tip);
+
+  let token = output["undo_token"].as_str().unwrap();
+  let undo = run_in(&repo, &["--full-ids", "undo", token]).1;
+  let undone = [&undo["new_head"], &undo["previous_head"], &undo["restored_branch"], &undo["already_undone"]];
+  assert_eq!(undone, [&json!(head), &json!(new_head), &json!("test-user/virtual/docs"), &json!(false)], "{undo}");
+  assert_eq!(repo.head(), head);
+  assert!(repo.path().join("f0.txt").exists());
+  assert_eq!(git(&repo, &["rev-parse", "test-user/virtual/docs"]), tip);
+  let (exit_code, again) = run_in(&repo, &["undo", token]);
+  assert_eq!((exit_code, &again["already_undone"]), (0, &json!(true)), "{again}");
+}
+
+#[test_log::test]
+fn unapply_refuses_an_unknown_branch_one_not_built_and_local_changes_in_the_way() {
+  let (repo, _) = synced_repo();
+  let (exit_code, output) = run_in(&repo, &["unapply", "ghost"]);
+  assert_error(&output, exit_code, (2, "unknown_branch"));
+
+  std::fs::write(repo.path().join("f2.txt"), "in the way").unwrap();
+  let (exit_code, output) = run_in(&repo, &["unapply", "docs"]);
+  assert_error(&output, exit_code, (4, "uncommitted_overlap"));
+  assert_eq!(output["error"]["paths"], json!(["f2.txt"]));
+  std::fs::remove_file(repo.path().join("f2.txt")).unwrap();
+  git(&repo, &["checkout", "-q", "--", "f2.txt"]);
+
+  commit_subjects(&repo, &["(docs) Add f3"]);
+  let (exit_code, output) = run_in(&repo, &["unapply", "docs"]);
+  assert_error(&output, exit_code, (4, "branch_not_built"));
+
+  // a later commit depends on a commit of the branch
+  run_in(&repo, &["sync"]);
+  std::fs::write(repo.path().join("f0.txt"), "edited").unwrap();
+  git(&repo, &["commit", "-q", "-am", "(other) Edit f0"]);
+  run_in(&repo, &["sync"]);
+  let (exit_code, output) = run_in(&repo, &["unapply", "docs"]);
+  assert_error(&output, exit_code, (4, "drop_conflict"));
+}
+
+#[test_log::test]
+fn unapply_outputs_match_the_schema() {
+  let (repo, _) = synced_repo();
+  let (_, schema) = run_json(&environment(repo.path()), &["schema"]);
+  let (_, output) = run_in(&repo, &["unapply", "docs"]);
+  assert_covered(&schema["outputs"]["unapply"], &schema["outputs"]["unapply"], &output, "unapply");
+  let (_, undo) = run_in(&repo, &["undo", output["undo_token"].as_str().unwrap()]);
+  assert_covered(&schema["outputs"]["undo"], &schema["outputs"]["undo"], &undo, "undo of an unapply");
+}

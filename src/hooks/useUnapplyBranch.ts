@@ -1,43 +1,58 @@
 import { toast } from "@/components/ui/toast"
 import { commands } from "@/lib/bindings"
+import { showUndoToast } from "@/lib/command"
 import { formatCommitCount } from "@/lib/commit"
+import { runRewrite } from "@/lib/rewrite"
 import type { Branch } from "@/stores/branch-sync"
-import { syncBranches } from "@/stores/branch-sync"
-import { withRowProcessing } from "@/stores/inline-row-action"
+import { branchSubject } from "@/stores/operations"
 import { vcsRequestFactory } from "@/stores/repository"
 
-/** Removes the branch commits from HEAD and moves the branch to the unapplied state, then re-syncs: one operation. */
-export async function unapplyBranch(branch: Branch): Promise<void> {
+export interface UnapplyOptions {
+  /** The surface that started it and shows its spinner (`inlineSurface` of the confirmation) */
+  surface?: string | null
+}
+
+/**
+ * Takes the commits of the branch and their files out of HEAD and keeps the branch as an unapplied one, as one rewrite
+ * (`runRewrite`): the unapply, the sync, then the toast with Undo, which brings the commits, the files and the virtual
+ * branch back. Resolves to false, after an error toast, if nothing changed.
+ */
+export async function unapplyBranch(branch: Branch, options: UnapplyOptions = {}): Promise<boolean> {
   if (branch.commits.length === 0) {
     // nothing to do: not an error
     toast.add({ type: "info", title: "No commits to unapply" })
-    return
+    return false
   }
-
-  const originalCommitIds = branch.commits.map(commit => commit.originalHash)
-  await withRowProcessing(
-    branch.name,
-    { id: "unapply", kind: "rewrite", label: `Unapplying ${branch.name}` },
-    async () => {
-      const vcsRequest = vcsRequestFactory.createRequest()
-      const result = await commands.unapplyBranch({
-        repositoryPath: vcsRequest.repositoryPath,
+  const { repositoryPath, branchPrefix } = vcsRequestFactory.createRequest()
+  const result = await runRewrite(
+    { id: "unapply", subject: branchSubject(branch.name), objects: [branch.name], label: `Unapplying ${branch.name}`, surface: options.surface ?? null },
+    `Cannot unapply ${branch.name}`,
+    () =>
+      commands.unapplyBranch({
+        repositoryPath,
         branchName: branch.name,
-        branchPrefix: vcsRequest.branchPrefix,
-        originalCommitIds,
-      })
-      if (result.status !== "ok") {
-        throw new Error(result.error.message)
-      }
-      await syncBranches({ autoScroll: false, autoExpand: false })
-      return result.data
-    },
-    {
-      success: data => ({
-        title: `Unapplied ${branch.name}`,
-        description: `Removed ${formatCommitCount(data.commitsRemoved.length)} from HEAD · kept in ${data.unappliedBranchName}`,
+        branchPrefix,
+        originalCommitIds: branch.commits.map(commit => commit.originalHash),
       }),
-      errorTitle: () => `Cannot unapply ${branch.name}`,
-    },
+    data => ({
+      sync: true,
+      after: () =>
+        showUndoToast(
+          `Unapplied ${branch.name}`,
+          () => undoUnapply(repositoryPath, branch.name, data.undoToken),
+          `Removed ${formatCommitCount(data.commitsRemoved.length)} from HEAD · kept in ${data.unappliedBranchName}`,
+        ),
+    }),
+  )
+  return result !== null
+}
+
+/** The undo of an unapply: HEAD, the files and the virtual branch back as they were; a rewrite of its own, then the sync */
+async function undoUnapply(repositoryPath: string, branchName: string, undoToken: string): Promise<void> {
+  await runRewrite(
+    { id: "undo", subject: `undo:${undoToken}`, objects: [branchName], label: `Undoing the unapply of ${branchName}`, repositoryPath },
+    `Cannot undo the unapply of ${branchName}`,
+    () => commands.undoUnapplyBranch({ repositoryPath, undoToken }),
+    () => ({ sync: true }),
   )
 }

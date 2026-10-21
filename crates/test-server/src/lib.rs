@@ -119,6 +119,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/invoke/park_branches", post(tauri_command_bridge::park_branches))
     .route("/invoke/unpark_branches", post(tauri_command_bridge::unpark_branches))
     .route("/invoke/unapply_branch", post(tauri_command_bridge::unapply_branch))
+    .route("/invoke/undo_unapply_branch", post(tauri_command_bridge::undo_unapply_branch))
     .route("/invoke/get_stack_independence", post(tauri_command_bridge::get_stack_independence))
     .route("/invoke/find_conflict_fix", post(tauri_command_bridge::find_conflict_fix))
     .route("/invoke/cancel_conflict_fix", post(tauri_command_bridge::cancel_conflict_fix))

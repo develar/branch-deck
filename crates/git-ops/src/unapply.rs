@@ -12,7 +12,7 @@ use crate::rewrite_plan::{PreparedRewrite, prepare_drop_commits};
 use crate::update_branch::{
   FileMove, HeadRef, MAX_BLOCKED_PATHS, UNAPPLY, UndoCheck, UpdateUndo, apply_move_undo_with, blocking_paths, check_move_undo, check_update_guards, move_branch_and_files_carrying,
 };
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use sync_utils::list_cut::kept;
 use tracing::{debug, instrument};
@@ -41,6 +41,12 @@ impl MoveBlocked {
     Self { operation, paths, path_count }
   }
 }
+
+/// The drop of the commits is refused: a later commit depends on the changes of one of them (a conflict), or the range
+/// holds a merge; nothing was changed
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct DropRefused(pub String);
 
 /// A checked unapply: the drop is written (objects on temporary refs) and the files can follow. `apply_unapply`
 /// applies it, `discard` abandons it
@@ -82,7 +88,7 @@ pub fn check_unapply(git_executor: &GitCommandExecutor, repo_path: &str, commit_
   let branch = check_update_guards(git_executor, repo_path)?;
   let prepared = prepare_drop_commits(git_executor, repo_path, commit_ids).map_err(|e| match e {
     CopyCommitError::Other(e) => e,
-    e @ CopyCommitError::BranchError(_) => anyhow!("{e}"),
+    e @ CopyCommitError::BranchError(_) => anyhow::Error::new(DropRefused(e.to_string())),
   })?;
   let checked = || -> Result<bool> {
     let changed = changed_paths(git_executor, repo_path, prepared.old_head(), prepared.new_head())?;

@@ -50,6 +50,19 @@ test.describe("Unapplied branches", () => {
     await expect(page.getByTestId("uncommitted-changes-card")).toHaveCount(0)
   })
 
+  test("should take the unapply back with the Undo of its toast: the commits, their files and the branch return", async ({ page }) => {
+    await openUnapply(page, () => findBranchRow(page, "docs").click({ button: "right" }))
+    await runAndWaitForSync(page, () => page.keyboard.press("Enter"))
+    const unapplied = toast(page, "Unapplied docs")
+    await expect(findBranchRow(page, "docs")).toHaveCount(0)
+
+    await runAndWaitForSync(page, () => unapplied.getByRole("button", { name: "Undo" }).click())
+    await expect(findBranchRow(page, "docs")).toHaveCount(1)
+    await expect(page.getByTestId("branch-row")).toHaveCount(BRANCH_COUNT)
+    await expect(page.getByTestId("uncommitted-changes-card")).toHaveCount(0)
+    await expect(findBranchRow(page, "docs")).toContainText("1 commit")
+  })
+
   test("should keep the branch and say why when the unapply fails, and close the confirmation with Escape", async ({ page }) => {
     await openUnapply(page, () => findBranchRow(page, "docs").click({ button: "right" }))
     await page.keyboard.press("Escape")

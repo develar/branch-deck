@@ -55,6 +55,14 @@ pub enum ErrorCode {
   ParkedMoved,
   /// `bd unpark`: the branch is not parked
   NotParked,
+  /// `bd unapply`: the virtual branch is not the copies of its commits now (a conflict, no sync since a new commit):
+  /// a commit would leave HEAD without a copy. `bd sync` says why; fix the conflict, then unapply. Nothing was changed
+  BranchNotBuilt,
+  /// `bd unapply`: a worktree has the virtual branch checked out (the message names it); nothing was changed
+  BranchCheckedOut,
+  /// `bd unapply`: a later commit depends on the changes of a commit of the branch, or the range holds a merge; nothing
+  /// was changed. Move that commit into the branch first (`bd group`), or leave the branch applied
+  DropConflict,
   /// `bd push` and `bd safe-push`: the branch is parked, or built on a parked branch, or the whole stack holds one: its
   /// commits stay local until the user unparks it (`bd unpark`, never on an agent's own). Nothing was pushed or started
   Parked,
@@ -213,6 +221,9 @@ impl ErrorCode {
       | Self::RobotRunning
       | Self::Landed
       | Self::Parked
+      | Self::BranchNotBuilt
+      | Self::BranchCheckedOut
+      | Self::DropConflict
       | Self::DanglingReference
       | Self::NotOnSpace
       | Self::NotLoggedIn

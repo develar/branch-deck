@@ -35,17 +35,21 @@ Rules
 - Ask the user first, and run only what the user approved: a push (`bd push`, also --force and --restart-running), a
   Safe Push or a Patronus Dry Run (`bd safe-push`, also --cancel-running, --without-approvals, --allow-dangling and
   --create-pull-request), `bd request-review`, a `gh pr create` that bd prints, and any change of a commit that
-  another session made, a reword (`bd reword`) of its message too, and `bd park` or `bd unpark`. Show what bd printed
+  another session made, a reword (`bd reword`) of its message too, `bd park`, `bd unpark` and `bd unapply`. Show what bd printed
   (`lands`, `review`, `dropped_commits`, the plan, the `changes` of a `bd reword --dry-run`) when you ask.
 - A branch `parked` in `bd status` stays local: the user keeps its commits, waiting for a proper fix elsewhere. Never
   push it, start a Safe Push of it or unpark it on your own; a branch built on it is `parked` too (`with` names the
   parked one), and so is the whole stack that holds it. `bd park <branch> --note '<why>'` and `bd unpark <branch>`
   only when the user asks: no rewrite, the store `refs/branch-deck/parked`; `idle_parked` lists the lines of branches
   without commits here.
+- `bd unapply <branch>` (`--expect-head <id>`) takes the commits of a branch and their files out of the checked out
+  branch and keeps them in `unapplied_branch` (`{prefix}/unapplied/{name}`, which no sync archives); only when the user
+  asks. `bd undo <undo_token>` brings them back. `uncommitted_overlap`, `branch_not_built` (sync first, a conflict
+  fixed), `branch_checked_out` and `drop_conflict` (a later commit needs its changes) change nothing.
 - Never reorder, squash or drop commits, except folding fixup!, squash! and amend! commits with `bd fold`; move a
   change between commits only with `bd move-hunk`, never with plumbing. Never stash, reset, check out or commit the
   user's files: on `uncommitted_overlap` (exit 4) show `paths` to the user and ask.
-- Only `bd update`, `bd pick` and their undo write the working tree, through the guarded update.
+- Only `bd update`, `bd pick`, `bd unapply` and their undo write the working tree, through the guarded update.
 - Branch on `error.code` and the exit code, never on the message. 0 ok. 1 a conflict, never an error object: the
   output says what conflicts (`state: \"conflict\"`, a branch not built, `ok: false`). 2 invalid input: fix the
   arguments or the plan. 3 stale: read again and retry. 4 refused: do what this help says for the code, else stop and
@@ -435,7 +439,7 @@ bd is `{command}`; run it as written, it is quoted for the shell. Below, `bd` st
 Branch Deck groups the commits ahead of the baseline (e.g. origin/master) into virtual branches by the `(name)` prefix
 of their subjects. bd reads those groups and the commits, regroups the commits by rewriting the prefixes, rebuilds the
 virtual branches, pushes them and starts their Patronus Safe Push. Only `bd update` (the branch onto its baseline),
-`bd pick` (the commits of another worktree onto the branch) and their undo write the working tree, through the
+`bd pick` (the commits of another worktree onto the branch), `bd unapply` (a branch out of it) and their undo write the working tree, through the
 guarded update.
 
 Before the first edit or commit in a repository, run `bd workspace` and follow it; what the user says in the session
@@ -473,6 +477,8 @@ When several sessions or worktrees work on one branch, run `bd help worktrees` f
   are left to push or land, and with none `bd push` leaves it out (`skipped`) and `bd safe-push` refuses it (`landed`).
 - A branch `parked` in `bd status` stays local until the user unparks it: `bd push` and `bd safe-push` refuse it
   (`parked`). Never push or unpark it on your own.
+- `bd unapply <branch>` takes a branch and its files out of the checked out branch, kept as an unapplied one; only when
+  the user asks, and `bd undo <undo_token>` brings it back.
 - `bd check --fix` prints a line per trial on stderr and stops at `--max-trials` (12) or `--time-budget` (180 s): a
   `search: budget` answer is the best plan so far. A commit prefixed `(parent/leaf)` stacks the existing group `leaf`
   on `parent` (`reparented` in `bd pick`); two parents of one group name the `bd restack` that keeps one.

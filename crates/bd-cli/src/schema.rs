@@ -19,6 +19,7 @@ use bd_rewrite::park_command::ParkOutput;
 use bd_rewrite::rewrite::RewriteOutput;
 use bd_rewrite::suggest::SuggestOutput;
 use bd_update::pick_command::PickOutput;
+use bd_update::unapply_command::UnapplyOutput;
 use bd_update::undo_command::UndoOutput;
 use bd_update::update_command::{UpdateAbortOutput, UpdateOutput, UpdateStatusOutput};
 use schemars::{Schema, schema_for};
@@ -63,6 +64,7 @@ pub fn schema_output() -> SchemaOutput {
       ("status_brief".to_string(), schema_for!(StatusBrief)),
       ("suggest".to_string(), schema_for!(SuggestOutput)),
       ("sync".to_string(), schema_for!(SyncOutput)),
+      ("unapply".to_string(), schema_for!(UnapplyOutput)),
       ("undo".to_string(), schema_for!(UndoOutput)),
       ("update".to_string(), schema_for!(UpdateOutput)),
       ("update_abort".to_string(), schema_for!(UpdateAbortOutput)),

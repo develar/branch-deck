@@ -111,9 +111,10 @@ an Undo clicked at once never meets its own running operation. An Undo is a rewr
 "Unstacking tool-events…").
 
 Through it: Stack On and Unstack, rename, move (and ungroup, remove prefix), squash, squash fixups and squash into,
-reword, the conflict fix, and their undos. The inline forms run theirs through `withRowProcessing` (amend, unapply,
-add issue reference; delete archived as a remote action), whose function includes the sync, or `withRowProgress` around
-an action that is an operation itself (rename, ungroup, squash fixups, close the stack's pull request).
+reword, the conflict fix, park and unpark, unapply, and their undos. The inline forms run theirs through
+`withRowProcessing` (amend, add issue reference; delete archived as a remote action), whose function includes the sync,
+or `withRowProgress` around an action that is an operation itself (rename, ungroup, park, unapply, squash fixups, close
+the stack's pull request).
 
 ### Remote actions
 

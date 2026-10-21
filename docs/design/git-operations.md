@@ -567,8 +567,15 @@ after the mark of an interrupted move is finished (`finish_pending_update`):
 A failed unapply therefore never leaves a renamed branch behind, and a crash between the move and the files leaves the
 mark that the next move of the files finishes.
 
+The undo (`unapply:<previous head>..<new head>:<tip>:<virtual branch>:<unapplied branch>`, the toast's Undo and
+`bd undo`) is the check of an undo of "Update project" with the trees swapped (`check_unapply_undo`: the last entry of
+the branch's reflog must be `branch-deck: unapply` from the previous head, else `NotAnUpdate`; HEAD elsewhere is
+`HeadMoved`), then the same guarded move back (`branch-deck: undo unapply`), whose transaction deletes the unapplied
+branch (checked against the tip) and creates the virtual branch at the tip again. The originals come back with their
+ids and their mapping notes, so the next sync reuses the copies.
+
 Code: `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/unapply.rs`, `crates/sync-core/src/unapply_branch.rs`,
-`crates/branch-integration/src/archive.rs`.
+`crates/branch-integration/src/archive.rs`, `crates/bd-update/src/unapply_command.rs`.
 
 #### Squash
 
@@ -2797,6 +2804,7 @@ the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and
 | The checks of a session after its open: the first, each next one | `the_second_check_of_a_session` * | 4, 0 | 4, 0 |
 | Amend into an older commit | `an_amend` | 19 | 17 |
 | Unapply a branch, its files following (the build checked, the dry run of the files; 2026-10-21) | `a_drop` | 19 | 35 |
+| Undo an unapply (2026-10-21) | `an_undo_of_an_unapply` | 20 | 20 |
 | Squash two commits | `a_squash` | 18 | 14 |
 | Squash fixups | `a_squash_of_fixups` | 31 | 24 |
 | Update check, Update Project | `an_update_check`, `an_update` | 20, 38 | 20, 38 |

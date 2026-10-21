@@ -32,6 +32,7 @@ use bd_rewrite::rewrite::{GroupArgs, RenameArgs, RestackArgs, RewriteOutput, Uns
 use bd_rewrite::suggest::{SuggestArgs, suggest, suggest_input_dump};
 use bd_rewrite::symbol_stats::symbol_stats;
 use bd_update::pick_command::{PickArgs, PickOutput, pick};
+use bd_update::unapply_command::{UnapplyArgs, unapply};
 use bd_update::undo_command::{UndoArgs, undo};
 use bd_update::update_command::{UpdateArgs, UpdateCommandOutput, update};
 use clap::error::ErrorKind;
@@ -96,7 +97,7 @@ enum Command {
   /// --plan; the commits after it are recreated, the index and the files stay. A new `(prefix)` moves the commit to
   /// that branch as `bd group` does
   Reword(RewordArgs),
-  /// Undo a rewrite, an update or a pick with the `undo_token` it printed
+  /// Undo a rewrite, an update, a pick or an unapply with the `undo_token` it printed
   Undo(UndoArgs),
   /// Bring the checked out branch onto its baseline (`bd help update`)
   ///
@@ -163,6 +164,11 @@ enum Command {
   Park(ParkArgs),
   /// Let a parked branch be pushed again; only when the user asks
   Unpark(UnparkArgs),
+  /// Take the commits of a branch and their files out of the checked out branch; only when the user asks
+  ///
+  /// The branch is kept as `{prefix}/unapplied/<name>`, which no sync archives; `uncommitted_overlap` (exit 4) when local
+  /// changes sit on files it writes. `bd undo` of its `undo_token` brings it back
+  Unapply(UnapplyArgs),
   /// The JSON Schema of every output
   Schema,
   /// The version of Branch Deck and of the git it runs, as JSON; also `bd --version`
@@ -300,6 +306,7 @@ fn execute(cli: &Cli, environment: &Environment, out: &mut dyn Write) -> i32 {
     Command::Describe(args) => context().and_then(|context| describe(&context, args)).and_then(|output| print(out, &output)),
     Command::Park(args) => context().and_then(|context| park(&context, args)).and_then(|output| print(out, &output)),
     Command::Unpark(args) => context().and_then(|context| unpark(&context, args)).and_then(|output| print(out, &output)),
+    Command::Unapply(args) => context().and_then(|context| unapply(&context, args)).and_then(|output| print(out, &output)),
     Command::Workspace => workspace(environment, options.repo).and_then(|output| print(out, &output)),
     Command::Schema => print(out, &schema_output()),
     Command::Version => print(out, &version(environment)),

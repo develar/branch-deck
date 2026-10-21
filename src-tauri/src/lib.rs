@@ -58,7 +58,7 @@ use commands::stack_operations::{get_stack_independence, rename_branch, restack_
 use commands::suggest_branch_names::{BranchNameSuggestionState, suggest_branch_names};
 use commands::sync_branches::sync_branches;
 use commands::sync_inputs::get_sync_inputs_fingerprint;
-use commands::unapply_branch::unapply_branch;
+use commands::unapply_branch::{unapply_branch, undo_unapply_branch};
 use commands::uncommitted_changes::get_uncommitted_changes;
 use commands::update_project::{dismiss_landed, update_project};
 use commands::window_management::{SubWindowState, open_sub_window, sub_window_loaded, sub_window_ready};
@@ -182,6 +182,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
     get_archived_branch_commits,
     delete_archived_branch,
     unapply_branch,
+    undo_unapply_branch,
     get_uncommitted_changes,
     get_commit_files,
     get_commits_files,

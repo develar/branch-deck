@@ -1,8 +1,9 @@
-//! `bd undo`: the undo of a token a rewrite, `bd update` or `bd pick` printed. A rewrite token goes to
-//! `history_rewrite::regroup::undo_regroup_core`; `update:` and `pick:` tokens to the undo of their command, which moves
-//! the files back too
+//! `bd undo`: the undo of a token a rewrite, `bd update`, `bd pick` or `bd unapply` printed. A rewrite token goes to
+//! `history_rewrite::regroup::undo_regroup_core`; `update:`, `pick:` and `unapply:` tokens to the undo of their command,
+//! which moves the files back too
 
 use crate::pick_command::undo_pick;
+use crate::unapply_command::undo_unapply;
 use crate::update_command::undo_update;
 use bd_core::context::RepoContext;
 use bd_core::error::{CliError, ErrorCode, regroup_error};
@@ -16,8 +17,8 @@ use serde::Serialize;
 #[derive(Debug, clap::Args)]
 pub struct UndoArgs {
   /// The `undo_token` a rewrite printed: `<previous head>..<new head>`, `groups:<previous>..<new>`,
-  /// `stacks:<previous>..<new>`, or several of them joined by `+` in this order; or the `update:…` of `bd update` or
-  /// the `pick:…[+follow:…]` of `bd pick`, which move the files back too
+  /// `stacks:<previous>..<new>`, or several of them joined by `+` in this order; or the `update:…` of `bd update`, the
+  /// `pick:…[+follow:…]` of `bd pick` or the `unapply:…` of `bd unapply`, which move the files back too
   pub token: String,
 }
 
@@ -41,13 +42,17 @@ pub struct UndoOutput {
   /// For an `update:` token: whether the report of the landed commits is the one from before the update again
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub landed_restored: Option<bool>,
-  /// For an `update:` or `pick:` token: it was undone before, and nothing changed now; a repeated undo is no error
+  /// For an `update:`, `pick:` or `unapply:` token: it was undone before, and nothing changed now; a repeated undo is
+  /// no error
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub already_undone: Option<bool>,
   /// For a `pick:` token with `+follow:`: whether the worktree that followed the pick moved back (`false`: it was
   /// back already)
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub follow_undone: Option<bool>,
+  /// For an `unapply:` token: the virtual branch that is back
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub restored_branch: Option<String>,
 }
 
 /// HEAD after an undo: the previous head of the token's move, or HEAD as it is for a token without one
@@ -59,6 +64,23 @@ fn head_after_undo(context: &RepoContext, moved: Option<&(String, String)>) -> R
 }
 
 pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliError> {
+  if let Some(result) = undo_unapply(context, &args.token) {
+    let (token, undone) = result?;
+    let short = context.short_ids([token.previous_head.as_str(), token.new_head.as_str()]);
+    return Ok(UndoOutput {
+      schema: SchemaVersion,
+      repository: context.repository.clone(),
+      prefix: context.prefix.clone(),
+      previous_head: Some(short.get(&token.new_head).to_string()),
+      new_head: short.get(&token.previous_head).to_string(),
+      undone_issue_groups: None,
+      undone_stack_parents: None,
+      landed_restored: None,
+      already_undone: Some(undone.already_undone),
+      follow_undone: None,
+      restored_branch: Some(token.virtual_branch),
+    });
+  }
   if let Some(result) = undo_pick(context, &args.token) {
     let (token, undone) = result?;
     let head = head_after_undo(context, token.head.as_ref())?;
@@ -75,6 +97,7 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
       landed_restored: None,
       already_undone: Some(undone.already_undone),
       follow_undone: token.follow.is_some().then_some(undone.follow_undone),
+      restored_branch: None,
     });
   }
   if let Some(result) = undo_update(context, &args.token) {
@@ -91,6 +114,7 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
       landed_restored: Some(undone.landed_restored),
       already_undone: Some(undone.already_undone),
       follow_undone: None,
+      restored_branch: None,
     });
   }
   let Some(token) = UndoToken::parse(&args.token) else {
@@ -98,7 +122,7 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
       ErrorCode::InvalidArguments,
       format!(
         "{:?} is not an undo token (<previous head>..<new head>, groups:<previous>..<new>, stacks:<previous>..<new>, parked:<previous>..<new>, or several joined by + in this \
-         order; update:… and pick:… as bd update and bd pick printed them)",
+         order; update:…, pick:… and unapply:… as bd update, bd pick and bd unapply printed them)",
         args.token
       ),
     ));
@@ -130,5 +154,6 @@ pub fn undo(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliErr
     landed_restored: None,
     already_undone: None,
     follow_undone: None,
+    restored_branch: None,
   })
 }

@@ -1,20 +1,23 @@
 //! Unapply a virtual branch: its original commits leave HEAD with their files (`git_ops::unapply`) and the virtual
 //! branch moves to the unapplied namespace in the transaction that moves HEAD, under the repository lock
-//! (spec/branch/unapply.spec.md).
+//! (spec/branch/unapply.spec.md); and its undo (`UnapplyUndoToken`), which moves both back.
 
+use crate::update_project::UndoBlocked;
 use anyhow::Result;
 use branch_integration::archive::{REF_RENAME_MUTEX, own_commits_start, unique_branch_name};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::branch_names::{BranchKind, normalize_branch_prefix, qualified_branch_name};
 use git_ops::commit_list::Commit;
-use git_ops::unapply::{UnappliedMove, apply_unapply, check_unapply};
-use git_ops::update_branch::finish_pending_update;
-use history_rewrite::repository_lock::RewriteOptions;
+use git_ops::revs::is_object_id;
+use git_ops::unapply::{UnappliedMove, apply_unapply, apply_unapply_undo, check_unapply, check_unapply_undo};
+use git_ops::update_branch::{UndoCheck, finish_pending_update};
+use history_rewrite::repository_lock::{RewriteOptions, lock_repository};
 use history_rewrite::snapshot::{CommitsAhead, group_commits, read_grouping_inputs};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::sync::PoisonError;
-use tracing::{debug, instrument};
+use std::time::Duration;
+use tracing::{debug, info, instrument};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -38,6 +41,12 @@ pub struct UnapplyBranchResult {
   pub unapplied_branch_name: String,
   /// The original commits that left HEAD, oldest first
   pub commits_removed: Vec<String>,
+  /// HEAD before the unapply
+  pub previous_head: String,
+  /// HEAD after it
+  pub new_head: String,
+  /// The undo: `UnapplyUndoToken` as it prints
+  pub undo_token: String,
 }
 
 /// An unapply refused before anything was written but git objects
@@ -110,6 +119,7 @@ pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBra
     return Err(moved.into());
   }
 
+  let (previous_head, new_head) = (plan.head().to_string(), plan.new_head().to_string());
   let unapplied_branch_name = {
     let _guard = REF_RENAME_MUTEX.lock().unwrap_or_else(PoisonError::into_inner);
     let unapplied_branch_name = qualified_branch_name(prefix, BranchKind::Unapplied, &branch_name)
@@ -130,9 +140,20 @@ pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBra
   };
   debug!(unapplied_branch = %unapplied_branch_name, commits_dropped = ids.len(), "Unapplied branch");
 
+  let undo_token = UnapplyUndoToken {
+    previous_head: previous_head.clone(),
+    new_head: new_head.clone(),
+    tip,
+    virtual_branch: virtual_name,
+    unapplied_branch: unapplied_branch_name.clone(),
+  }
+  .to_string();
   Ok(UnapplyBranchResult {
     unapplied_branch_name,
     commits_removed: ids,
+    previous_head,
+    new_head,
+    undo_token,
   })
 }
 
@@ -177,4 +198,105 @@ fn built_tip(git_executor: &GitCommandExecutor, repo: &str, virtual_name: &str, 
     }));
   }
   Ok(tip.to_string())
+}
+
+/// The undo token of an unapply: `unapply:<previous head>..<new head>:<tip>:<virtual branch>:<unapplied branch>`, full
+/// ids and the full names of both branches (a ref name has no `:`)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnapplyUndoToken {
+  pub previous_head: String,
+  pub new_head: String,
+  /// The tip the virtual branch had, which the unapplied branch got
+  pub tip: String,
+  /// `{prefix}/virtual/<name>`
+  pub virtual_branch: String,
+  /// `{prefix}/unapplied/<name>`
+  pub unapplied_branch: String,
+}
+
+const UNAPPLY_TOKEN: &str = "unapply:";
+
+impl UnapplyUndoToken {
+  /// A token as `Display` prints it; anything else, abbreviated ids included, is `None`
+  pub fn parse(text: &str) -> Option<Self> {
+    let mut parts = text.strip_prefix(UNAPPLY_TOKEN)?.split(':');
+    let (Some(range), Some(tip), Some(virtual_branch), Some(unapplied_branch), None) = (parts.next(), parts.next(), parts.next(), parts.next(), parts.next()) else {
+      return None;
+    };
+    let (previous_head, new_head) = range.split_once("..")?;
+    let ids = [previous_head, new_head, tip];
+    if !ids.iter().all(|id| is_object_id(id) && id.len() == tip.len()) || previous_head == new_head {
+      return None;
+    }
+    let branch = |name: &str| (!name.is_empty() && !name.starts_with('-') && !name.contains("..")).then(|| name.to_string());
+    Some(Self {
+      previous_head: previous_head.to_string(),
+      new_head: new_head.to_string(),
+      tip: tip.to_string(),
+      virtual_branch: branch(virtual_branch)?,
+      unapplied_branch: branch(unapplied_branch)?,
+    })
+  }
+
+  /// Whether `text` claims to be an unapply token, valid or not
+  pub fn is_unapply_token(text: &str) -> bool {
+    text.starts_with(UNAPPLY_TOKEN)
+  }
+}
+
+impl std::fmt::Display for UnapplyUndoToken {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(
+      f,
+      "{UNAPPLY_TOKEN}{}..{}:{}:{}:{}",
+      self.previous_head, self.new_head, self.tip, self.virtual_branch, self.unapplied_branch
+    )
+  }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct UndoUnapplyParams {
+  pub repository_path: String,
+  /// The `undo_token` of the unapply
+  pub undo_token: String,
+}
+
+/// What the undo of an unapply did
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct UndoneUnapply {
+  /// It was undone before: nothing changed now
+  pub already_undone: bool,
+}
+
+/// Undo an unapply, under the repository lock: HEAD moves back from the token's new head to its previous head with the
+/// files, and the unapplied branch back to the virtual one, in one transaction (`check_unapply_undo`, the trees swapped).
+/// `HeadMoved` when HEAD moved on, `NotAnUpdate` when the last move of the branch is not this unapply, `UndoBlocked`
+/// when local changes sit on a path the undo writes; a moved unapplied branch, or a virtual branch of the name that
+/// exists again, fails the transaction and changes nothing. Undoing again is no error: `already_undone`
+#[instrument(skip(git_executor))]
+pub fn undo_unapply_core(git_executor: &GitCommandExecutor, repo_path: &str, token: &UnapplyUndoToken, lock_timeout: Duration) -> Result<UndoneUnapply> {
+  let _lock = lock_repository(git_executor, repo_path, lock_timeout)?;
+  finish_pending_update(git_executor, repo_path)?;
+  let undo = match check_unapply_undo(git_executor, repo_path, &token.previous_head, &token.new_head)? {
+    UndoCheck::Ready(undo) if !undo.blocked().is_empty() => return Err(anyhow::Error::new(UndoBlocked { paths: undo.blocked().to_vec() })),
+    UndoCheck::Ready(undo) => undo,
+    UndoCheck::AlreadyUndone { .. } => return Ok(UndoneUnapply { already_undone: true }),
+  };
+  let (virtual_ref, unapplied_ref) = (format!("refs/heads/{}", token.virtual_branch), format!("refs/heads/{}", token.unapplied_branch));
+  apply_unapply_undo(
+    git_executor,
+    repo_path,
+    &undo,
+    &UnappliedMove {
+      virtual_ref: &virtual_ref,
+      unapplied_ref: &unapplied_ref,
+      tip: &token.tip,
+    },
+  )?;
+  info!(branch = %token.virtual_branch, "undid the unapply");
+  Ok(UndoneUnapply { already_undone: false })
 }

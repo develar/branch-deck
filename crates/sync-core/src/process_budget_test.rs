@@ -13,14 +13,14 @@ use crate::stack_branch::forget_builds;
 use crate::stack_pull_request::{GetNewStackPullRequestParams, StackMemberSubjects, read_new_stack_pull_request};
 use crate::sync::{SyncOptions, sync_branches};
 use crate::target_conflict::{TargetConflictParams, TargetOutcome, check_branch_target};
-use crate::unapply_branch::{UnapplyBranchParams, unapply_branch_core};
+use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyUndoToken, unapply_branch_core, undo_unapply_core};
 use crate::update_project::{UpdateProjectParams, check_baseline_update, update_project_core};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::model::BranchError;
 use history_rewrite::autosquash::{AutosquashScope, SquashFixupsParams, squash_fixup_commits_core};
 use history_rewrite::parked::{ParkLine, park_core, unpark_core};
 use history_rewrite::regroup::RegroupOptions;
-use history_rewrite::repository_lock::RewriteOptions;
+use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions};
 use history_rewrite::reword::{CommitReword, RewordRequest, RewordText, reword_request_core};
 use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
 use object_cache::cache::{CacheConfig, ObjectCache};
@@ -661,6 +661,21 @@ fn an_amend() {
   );
 }
 
+/// The unapply of beta, whose commits are the second, fourth and sixth of `commits`
+fn unapply_beta(git: &GitCommandExecutor, repo: &TestRepo, commits: &[String]) -> UnapplyBranchResult {
+  unapply_branch_core(
+    git,
+    UnapplyBranchParams {
+      repository_path: path(repo),
+      branch_name: "beta".to_string(),
+      branch_prefix: PREFIX.to_string(),
+      original_commit_ids: Some(vec![commits[1].clone(), commits[3].clone(), commits[5].clone()]),
+    },
+    &RewriteOptions::default(),
+  )
+  .unwrap()
+}
+
 /// The commits of beta dropped from the checked out branch with their files, its virtual branch kept as an unapplied one:
 /// the lock and the mark of pending files, the grouping inputs and the commits ahead, the build of the virtual branch
 /// (its tip, its stack note, its own commits), the drop (`git replay` per kept run), the dry run of the files, the free
@@ -670,17 +685,7 @@ async fn a_drop() {
   let (repo, commits) = repo();
   sync(&GitCommandExecutor::new(), &repo).await;
   let git = counting();
-  unapply_branch_core(
-    &git,
-    UnapplyBranchParams {
-      repository_path: path(&repo),
-      branch_name: "beta".to_string(),
-      branch_prefix: PREFIX.to_string(),
-      original_commit_ids: Some(vec![commits[1].clone(), commits[3].clone(), commits[5].clone()]),
-    },
-    &RewriteOptions::default(),
-  )
-  .unwrap();
+  unapply_beta(&git, &repo, &commits);
   assert_processes(
     &git,
     &[
@@ -696,6 +701,30 @@ async fn a_drop() {
       ("rev-list", 1),
       ("rev-parse", 10), // the repository lock: 1
       ("symbolic-ref", 4),
+      ("update-index", 3),
+      ("update-ref", 2),
+    ],
+  );
+}
+
+/// The undo of an unapply: the lock and the mark of pending files, the guards and the last two moves of the branch in
+/// its reflog, the dry run of the files, and the move back with its mark, the virtual branch created again in it
+#[tokio::test]
+async fn an_undo_of_an_unapply() {
+  let (repo, commits) = repo();
+  sync(&GitCommandExecutor::new(), &repo).await;
+  let unapplied = unapply_beta(&GitCommandExecutor::new(), &repo, &commits);
+  let git = counting();
+  let token = UnapplyUndoToken::parse(&unapplied.undo_token).unwrap();
+  undo_unapply_core(&git, &path(&repo), &token, DEFAULT_LOCK_TIMEOUT).unwrap();
+  assert_processes(
+    &git,
+    &[
+      ("diff-tree", 1),
+      ("log", 1),
+      ("read-tree", 2),
+      ("rev-parse", 8), // the repository lock: 1
+      ("symbolic-ref", 3),
       ("update-index", 3),
       ("update-ref", 2),
     ],

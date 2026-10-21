@@ -161,7 +161,7 @@ fn the_undo_brings_the_commits_their_files_and_the_virtual_branch_back() {
 
 #[test]
 fn the_undo_of_an_unapply_that_is_not_the_last_move_is_refused() {
-  let (repo, head, new_head, tip) = unapplied();
+  let (repo, head, new_head, _tip) = unapplied();
   repo.create_commit("(other) more", "d.txt", "d\n");
   let error = check_unapply_undo(repo.git_executor(), repo.path_str(), &head, &new_head).unwrap_err();
   assert!(error.downcast_ref::<HeadMoved>().is_some(), "{error:#}");

@@ -1,8 +1,10 @@
 use crate::regroup_test::{commits, path, repo, sync};
-use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyRefusal, unapply_branch_core};
+use crate::unapply_branch::{UnapplyBranchParams, UnapplyBranchResult, UnapplyRefusal, UnapplyUndoToken, UndoneUnapply, unapply_branch_core, undo_unapply_core};
+use crate::update_project::UndoBlocked;
 use anyhow::Result;
+use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::MoveBlocked;
-use history_rewrite::repository_lock::RewriteOptions;
+use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RewriteOptions};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -194,4 +196,78 @@ fn test_unapply_drops_the_commits_from_the_current_branch_of_a_clone() -> Result
   assert!(head_commits.contains(&kept), "the other commits must stay");
   assert!(!repo.branch_exists("origin/master"), "no local branch named like the baseline");
   Ok(())
+}
+
+fn undo(repo: &TestRepo, token: &str) -> Result<UndoneUnapply> {
+  undo_unapply_core(
+    repo.git_executor(),
+    path(repo),
+    &UnapplyUndoToken::parse(token).expect("an unapply token"),
+    DEFAULT_LOCK_TIMEOUT,
+  )
+}
+
+#[test]
+fn the_undo_of_an_unapply_brings_the_commits_their_files_and_the_virtual_branch_back() -> Result<()> {
+  let (repo, _) = synced_repo();
+  let (head, tip) = (repo.head(), repo.rev_parse(VIRTUAL).map_err(anyhow::Error::msg)?);
+  let result = unapply(&repo, "feature", None)?;
+  assert_eq!((result.previous_head.as_str(), result.new_head.as_str()), (head.as_str(), repo.head().as_str()));
+  assert_eq!(
+    UnapplyUndoToken::parse(&result.undo_token).map(|token| token.to_string()).as_deref(),
+    Some(result.undo_token.as_str())
+  );
+
+  assert_eq!(undo(&repo, &result.undo_token)?, UndoneUnapply { already_undone: false });
+  assert_eq!(repo.head(), head);
+  assert_eq!(std::fs::read_to_string(repo.path().join("file2.txt"))?, "(feature) Add file2");
+  assert_eq!(status(&repo), "");
+  assert_eq!(repo.rev_parse(VIRTUAL).map_err(anyhow::Error::msg)?, tip);
+  assert!(!repo.branch_exists(&result.unapplied_branch_name));
+  // the next sync reuses the copies: the virtual branch stays where it was
+  sync(&repo);
+  assert_eq!(repo.rev_parse(VIRTUAL).map_err(anyhow::Error::msg)?, tip);
+
+  // again: nothing to do, no error
+  assert_eq!(undo(&repo, &result.undo_token)?, UndoneUnapply { already_undone: true });
+  Ok(())
+}
+
+#[test]
+fn the_undo_of_an_unapply_is_refused_after_a_new_commit_and_by_a_local_change_on_its_paths() -> Result<()> {
+  let (repo, _) = synced_repo();
+  let result = unapply(&repo, "feature", None)?;
+  std::fs::write(repo.path().join("file0.txt"), "in the way")?;
+  let error = undo(&repo, &result.undo_token).expect_err("blocked");
+  assert_eq!(
+    error.downcast_ref::<UndoBlocked>().map(|blocked| blocked.paths.clone()),
+    Some(vec!["file0.txt".to_string()])
+  );
+  std::fs::remove_file(repo.path().join("file0.txt"))?;
+
+  repo.create_commit("(other) More", "more.txt", "more");
+  let error = undo(&repo, &result.undo_token).expect_err("stale");
+  assert!(error.downcast_ref::<HeadMoved>().is_some(), "{error:#}");
+  assert!(repo.branch_exists(&result.unapplied_branch_name));
+  Ok(())
+}
+
+#[test]
+fn an_unapply_token_names_full_ids_and_both_branches() {
+  let id = |c: char| c.to_string().repeat(40);
+  let text = format!("unapply:{}..{}:{}:jane/virtual/a/b:jane/unapplied/a-1/b", id('1'), id('2'), id('3'));
+  let token = UnapplyUndoToken::parse(&text).unwrap();
+  assert_eq!(
+    (token.virtual_branch.as_str(), token.unapplied_branch.as_str()),
+    ("jane/virtual/a/b", "jane/unapplied/a-1/b")
+  );
+  assert_eq!(token.to_string(), text);
+  for bad in [
+    format!("unapply:{}..{}:{}:jane/virtual/a", id('1'), id('2'), id('3')),
+    format!("unapply:{}..{}:{}:jane/virtual/a:jane/unapplied/a", &id('1')[..12], id('2'), id('3')),
+    format!("unapply:{}..{}:{}:jane/virtual/a:jane/unapplied/a", id('1'), id('1'), id('3')),
+    format!("pick:{}..{}", id('1'), id('2')),
+  ] {
+    assert_eq!(UnapplyUndoToken::parse(&bad), None, "{bad}");
+  }
 }

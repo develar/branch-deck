@@ -5,7 +5,7 @@ import { InlineForm } from "@/components/shared/InlineForm"
 import { unapplyBranch } from "@/hooks/useUnapplyBranch"
 import { formatCommitCount } from "@/lib/commit"
 import { getStackChildren, useBranch } from "@/stores/branch-sync"
-import { closeInline, useInlineProcessing } from "@/stores/inline-row-action"
+import { closeInline, inlineSurface, useInlineProcessing, withRowProgress } from "@/stores/inline-row-action"
 
 export function InlineUnapplyConfirm({ branchName }: { branchName: string }) {
   const branch = useBranch(branchName)
@@ -25,7 +25,7 @@ export function InlineUnapplyConfirm({ branchName }: { branchName: string }) {
       onCancel={closeInline}
       onSubmit={() => {
         if (branch !== undefined) {
-          void unapplyBranch(branch)
+          void withRowProgress(branchName, () => unapplyBranch(branch, { surface: inlineSurface(branchName) }))
         }
       }}
     >

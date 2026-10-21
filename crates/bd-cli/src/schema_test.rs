@@ -36,6 +36,7 @@ fn schema_lists_every_output() {
       "status_brief",
       "suggest",
       "sync",
+      "unapply",
       "undo",
       "update",
       "update_abort",

@@ -375,6 +375,19 @@ pub async fn unapply_branch(
   .await
 }
 
+pub async fn undo_unapply_branch(
+  State(state): State<Arc<AppState>>,
+  Json(params): Json<sync_core::unapply_branch::UndoUnapplyParams>,
+) -> CommandResult<sync_core::unapply_branch::UndoneUnapply> {
+  ensure_repository_exists(&state, &params.repository_path)?;
+  let git_executor = state.git_executor.clone();
+  run_command("undo the unapply", move || {
+    let token = sync_core::unapply_branch::UnapplyUndoToken::parse(&params.undo_token).ok_or_else(|| anyhow::anyhow!("Not an undo token of an unapply: {}", params.undo_token))?;
+    sync_core::unapply_branch::undo_unapply_core(&git_executor, &params.repository_path, &token, history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT)
+  })
+  .await
+}
+
 /// Without the object cache, as every command of the mock server
 pub async fn get_stack_independence(
   State(state): State<Arc<AppState>>,

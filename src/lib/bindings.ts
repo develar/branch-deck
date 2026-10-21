@@ -378,6 +378,7 @@ export const commands = {
 	getArchivedBranchCommits: (repositoryPath: string, branchPrefix: string, branchName: string) => typedError<Commit[], CommandError>(__TAURI_INVOKE("get_archived_branch_commits", { repositoryPath, branchPrefix, branchName })),
 	deleteArchivedBranch: (params: DeleteArchivedBranchParams) => typedError<null, CommandError>(__TAURI_INVOKE("delete_archived_branch", { params })),
 	unapplyBranch: (params: UnapplyBranchParams) => typedError<UnapplyBranchResult, CommandError>(__TAURI_INVOKE("unapply_branch", { params })),
+	undoUnapplyBranch: (params: UndoUnapplyParams) => typedError<UndoneUnapply, CommandError>(__TAURI_INVOKE("undo_unapply_branch", { params })),
 	/**  Get uncommitted changes with only file metadata (no content or diffs) */
 	getUncommittedChanges: (params: GetUncommittedChangesParams) => typedError<UncommittedChangesResult, CommandError>(__TAURI_INVOKE("get_uncommitted_changes", { params })),
 	/**  The changed files of a commit with their line counts, from the object cache or one `diff-tree` */
@@ -3749,6 +3750,12 @@ export type UnapplyBranchResult = {
 	unappliedBranchName: string,
 	/**  The original commits that left HEAD, oldest first */
 	commitsRemoved: string[],
+	/**  HEAD before the unapply */
+	previousHead: string,
+	/**  HEAD after it */
+	newHead: string,
+	/**  The undo: `UnapplyUndoToken` as it prints */
+	undoToken: string,
 };
 
 /**  Why Patronus didn't answer */
@@ -3774,6 +3781,18 @@ export type UndoRegroupParams = {
 	repositoryPath: string,
 	/**  What the operation reported in `MoveCommitsResult.undo_token` */
 	token: string,
+};
+
+export type UndoUnapplyParams = {
+	repositoryPath: string,
+	/**  The `undo_token` of the unapply */
+	undoToken: string,
+};
+
+/**  What the undo of an unapply did */
+export type UndoneUnapply = {
+	/**  It was undone before: nothing changed now */
+	alreadyUndone: boolean,
 };
 
 /**  Why Patronus can't tell */

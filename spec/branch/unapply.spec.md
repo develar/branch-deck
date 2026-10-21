@@ -14,6 +14,10 @@ targets:
   - ../../src-tauri/src/commands/unapply_branch.rs
   - ../../src/hooks/useUnapplyBranch.ts
   - ../../src/components/branch/InlineUnapplyConfirm.tsx
+  - ../../crates/bd-update/src/unapply_command.rs
+  - ../../crates/bd-update/src/undo_command.rs
+  - ../../crates/bd-core/src/error.rs
+  - ../../crates/bd-cli/src/agent_help.rs
 ---
 
 # Unapply Branch
@@ -33,6 +37,7 @@ branch is kept in the unapplied namespace (`{prefix}/unapplied/<name>`), which n
 - Take a branch out of the current branch, its files too, without losing its work.
 - Keep the user's work on other paths as it is, staged or not.
 - All or nothing: HEAD, the files and the branch move together, or nothing does.
+- Take it back at once with Undo, and let an agent do the same with `bd unapply` and `bd undo`.
 
 ## Non-goals
 
@@ -101,17 +106,46 @@ branch is kept in the unapplied namespace (`{prefix}/unapplied/<name>`), which n
 - A failed unapply must keep the branch in the table and say why in the error toast "Cannot unapply ‹branch›".
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should keep the branch and say why when the unapply fails, and close the confirmation with Escape`)
 
+### Undo
+
+- The toast "Unapplied ‹branch›" must offer Undo (and Activity the same), which brings the commits, their files and
+  the virtual branch back as they were: HEAD at its previous commit, the virtual branch at its tip, the unapplied branch
+  gone, in one transaction, the files following; the next sync reuses the copies.
+  [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`the_undo_of_an_unapply_brings_the_commits_their_files_and_the_virtual_branch_back`)
+  [@test] ../../crates/git-ops/src/unapply_test.rs (`the_undo_brings_the_commits_their_files_and_the_virtual_branch_back`)
+  [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should take the unapply back with the Undo of its toast: the commits, their files and the branch return`)
+- The undo token must be `unapply:<previous head>..<new head>:<tip>:<virtual branch>:<unapplied branch>`, full ids and
+  full branch names; any other text is no token of an unapply.
+  [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`an_unapply_token_names_full_ids_and_both_branches`)
+- The undo must be refused, and change nothing, when the unapply is not the last move of the branch (a commit since)
+  or a local change sits on a path it writes; undoing again is no error, nothing changes.
+  [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`the_undo_of_an_unapply_is_refused_after_a_new_commit_and_by_a_local_change_on_its_paths`)
+  [@test] ../../crates/git-ops/src/unapply_test.rs (`the_undo_of_an_unapply_that_is_not_the_last_move_is_refused`)
+
+### `bd`
+
+- `bd unapply <branch> [--expect-head <id>]` must unapply as the app does and print one object (`unapply` in
+  `bd schema`) with the unapplied branch, the commits, both heads and the `undo_token`; `bd undo` of it must undo it
+  (`restored_branch`, `already_undone`).
+  [@test] ../../crates/bd-update/src/unapply_test.rs (`unapply_takes_the_branch_and_its_files_out_of_head_and_the_undo_brings_them_back`, `unapply_outputs_match_the_schema`)
+- Its refusals must be codes: `unknown_branch` (exit 2), `uncommitted_overlap` with `paths`, `branch_not_built`,
+  `branch_checked_out` and `drop_conflict` (exit 4).
+  [@test] ../../crates/bd-update/src/unapply_test.rs (`unapply_refuses_an_unknown_branch_one_not_built_and_local_changes_in_the_way`)
+- `bd help agent` and the skill must tell an agent to unapply only when the user asks.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
+
 ### Process budget
 
 - An unapply must cost the processes `a_drop` pins: the grouping read once, one `replay` per kept run, one dry run of
-  the files and one move.
-  [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_drop`)
+  the files and one move; its undo those of `an_undo_of_an_unapply`.
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_drop`, `an_undo_of_an_unapply`)
 
 ## User Experience
 
 - Unapply… → the confirmation below the row ("This removes 2 commits and their changes from HEAD"), Enter → the row
   leaves the table, the files with it → toast "Unapplied docs" · "Removed 1 commit from HEAD · kept in
-  jane/unapplied/docs".
+  jane/unapplied/docs" · Undo.
+- `bd unapply docs` → `{"unapplied_branch":"jane/unapplied/docs",…,"undo_token":"unapply:…"}`; `bd undo unapply:…`.
 
 ## Open Questions / Risks
 
