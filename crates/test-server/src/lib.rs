@@ -49,6 +49,9 @@ mod test_support;
 #[cfg(test)]
 mod sse_test;
 
+#[cfg(test)]
+mod sync_event_bytes_test;
+
 use state::{AppState, TestRepository};
 use static_files::{serve_static_files, workspace_root};
 use test_utils::repo_template::templates;

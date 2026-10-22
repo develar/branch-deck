@@ -153,6 +153,26 @@ indexes the answer (`factsOf` in `src/stores/patronus.ts`):
 A sync that changes nothing cost little before and costs the same now. The rest of the per-row work
 (`getNextStepFacts` of each row on every change of a store) is not part of it.
 
+### The IPC of the branch view
+
+`pnpm perf:table` counts the IPC of the page on the same template too, in every engine, from the counters of the Tauri
+mock (`window.__ipcStats`, [E2E Testing](e2e-testing.md)), each read once the page shows its state and no command is
+pending: the channel messages of the first sync and the commands invoked until its rows and chips
+(`firstSyncEvents`, `firstSyncInvokes`), the bytes of a sync that changes nothing (`resyncIpcBytes`: parameters,
+answers and channel messages), and the commands of a rest of the pointer on a row (`hoverIpc`, past the dwell of the
+intent, `page.clock.fastForward`), of its "⋯" menu opened by a right click (`menuIpc`) and of its robot's popover
+(`popoverIpc`). The counts are exact, the same in every run. What a sync sends, by event type and without the page,
+prints an ignored test of the mock server (`sync_event_bytes_test.rs`):
+`cargo nextest run -p test-server --run-ignored only -E 'test(/sync_event_bytes/)' --no-capture`.
+
+| 2026-10-22 | first sync: events / invokes | sync that changes nothing: bytes | hover / menu / popover |
+|---|---|---|---|
+| 141 rows, robots on ten | 432 / 8 | 201670 | 1 / 0 / 0 |
+
+A sync sends every branch again, changed or not: one `commitSynced`, `branchStatusUpdate` and `remoteStatusUpdate`
+per branch, and the `branchesGrouped` of the whole table (about 100 KB of the 200 KB). The rest of a row (its menu,
+its robot's popover) reads the stores; its hover reads ahead the review of the branch (`prefetch_branch_review`).
+
 ### Loading
 
 Every window loads the same `index.html`. A sub-window (`/branch-review`, `/conflicting-files`, `/missing-commits`)

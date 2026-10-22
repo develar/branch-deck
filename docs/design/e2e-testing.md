@@ -130,6 +130,13 @@ Mock implementation:
   bindings return it as `{ status: "error", error }` (an `Error` instance they would throw). A test fails a command
   with `routeCommandError`. Any other answer is a bug of the mock, thrown and logged: 405 a command the server does
   not implement, 500 a command that panicked, 410 a page that outlived its repository
+- **IPC counters**: the mock counts the backend commands of the page in `window.__ipcStats`: `invokes` by command,
+  `requestBytes` and `responseBytes` (UTF-8 bytes of the parameters and the answers), `channelMessages` by command and
+  `channelBytes` (the SSE events of `sync_branches`, `get_file_diffs`, `get_file_merges`), and `pending`, the commands
+  whose answer has not been read; `reset()` zeroes the counts, not `pending`. It counts at the fetch of `/invoke/<cmd>`,
+  so an answer of a `routeCommand` counts too; the commands the page answers itself (the store, event, window and log
+  plugins, the sub-window and updater handlers) do not. `pnpm perf:table` reads it
+  ([Rendering Performance](rendering-performance.md#the-ipc-of-the-branch-view))
 - **Commands**: the server runs each command's git work on the blocking pool (`run_command`), with the app's core
   functions; an answer that Patronus, GitHub or claude would give comes from a fixture of the repository, or from a route
   of the test

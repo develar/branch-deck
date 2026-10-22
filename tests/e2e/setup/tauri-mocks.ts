@@ -50,12 +50,69 @@ export const tauriMockScript = () => {
     return fetch(`${serverUrl}${path}`, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), "X-Repository-Id": repoId! } })
   }
 
+  /**
+   * The IPC of the page's backend commands, for the perf tests (`tests/perf/branch-table.perf.ts`): the commands that
+   * reached the mock server or a test's route of `/invoke/<cmd>` (`routeCommand` answers count too), counted at the
+   * fetch; the plugin commands the page answers itself (store, event, window, log) are not. `requestBytes` and
+   * `responseBytes` are the UTF-8 bytes of the parameters and of the answers, `channelMessages` and `channelBytes` the
+   * messages of a command's channel (the SSE events of `sync_branches`, `get_file_diffs`, `get_file_merges`); `pending`
+   * the commands whose answer has not been read yet. `reset()` zeroes the counts, not `pending`
+   */
+  const encoder = new TextEncoder()
+  const decoder = new TextDecoder()
+  const ipcStats = {
+    invokes: {} as Record<string, number>,
+    requestBytes: 0,
+    responseBytes: 0,
+    channelMessages: {} as Record<string, number>,
+    channelBytes: 0,
+    pending: 0,
+    reset() {
+      ipcStats.invokes = {}
+      ipcStats.requestBytes = 0
+      ipcStats.responseBytes = 0
+      ipcStats.channelMessages = {}
+      ipcStats.channelBytes = 0
+    },
+  }
+  ;(window as any).__ipcStats = ipcStats
+
+  /** A backend command to the mock server, counted in `__ipcStats`: pending until `read` has its answer */
+  async function invokeServer<T>(cmd: string, path: string, init: RequestInit, read: (response: Response) => Promise<T>): Promise<T> {
+    ipcStats.invokes[cmd] = (ipcStats.invokes[cmd] ?? 0) + 1
+    ipcStats.requestBytes += typeof init.body === "string" ? encoder.encode(init.body).byteLength : 0
+    ipcStats.pending++
+    try {
+      return await read(await serverFetch(path, init))
+    } finally {
+      ipcStats.pending--
+    }
+  }
+
+  /** The body of a command's answer, its bytes counted in `__ipcStats` */
+  async function readAnswer(response: Response): Promise<ArrayBuffer> {
+    const body = await response.arrayBuffer()
+    ipcStats.responseBytes += body.byteLength
+    return body
+  }
+
+  /** A command's answer as JSON, its bytes counted in `__ipcStats` */
+  async function readJsonAnswer(response: Response): Promise<any> {
+    return JSON.parse(decoder.decode(await readAnswer(response)))
+  }
+
+  /** A message of a command's channel, counted in `__ipcStats` */
+  function countChannelMessage(cmd: string, data: string) {
+    ipcStats.channelMessages[cmd] = (ipcStats.channelMessages[cmd] ?? 0) + 1
+    ipcStats.channelBytes += encoder.encode(data).byteLength
+  }
+
   // === Helper Functions ===
 
   /**
    * Parse SSE (Server-Sent Events) stream
    */
-  async function parseSSEStream(reader: ReadableStreamDefaultReader<Uint8Array>, onMessage: (event: any) => void) {
+  async function parseSSEStream(cmd: string, reader: ReadableStreamDefaultReader<Uint8Array>, onMessage: (event: any) => void) {
     const decoder = new TextDecoder()
     let buffer = ""
 
@@ -78,6 +135,7 @@ export const tauriMockScript = () => {
         if (line.startsWith("data: ")) {
           const data = line.slice(6).trim()
           if (data) {
+            countChannelMessage(cmd, data)
             const event = JSON.parse(data)
             debug("[SSE] Received event:", JSON.stringify(event))
             onMessage(event)
@@ -113,19 +171,22 @@ export const tauriMockScript = () => {
     // (`window.__progressChannels`, see `routePush`)
     const channelId = registerProgressChannel(payload?.progress)
 
-    const response = await serverFetch(`/invoke/${cmd}`, {
+    const init = {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(channelId === null ? {} : { "X-Progress-Channel": String(channelId) }) },
       body: JSON.stringify(actualPayload),
+    }
+    const { contentType, body } = await invokeServer(cmd, `/invoke/${cmd}`, init, async response => {
+      await checkServerResponse(cmd, response)
+      return { contentType: response.headers.get("content-type"), body: await readAnswer(response) }
     })
-    await checkServerResponse(cmd, response)
 
-    const contentType = response.headers.get("content-type")
     // raw bytes, as the app answers `get_blob_syntax` (`tauri::ipc::Response`): an ArrayBuffer
     if (contentType?.includes("application/octet-stream")) {
-      return await response.arrayBuffer()
+      return body
     }
-    const data = contentType?.includes("application/json") ? await response.json() : await response.text()
+    const text = decoder.decode(body)
+    const data = contentType?.includes("application/json") ? JSON.parse(text) : text
 
     // a Result of the server ({ status: "ok", data } or { status: "error", error }); a value with a status of its own
     // (a Patronus robot) is not one
@@ -184,37 +245,30 @@ export const tauriMockScript = () => {
 
       debug(`[Test Mock] Fetching SSE stream of ${cmd}`)
 
-      // Call the test server's endpoint with SSE
-      const response = await serverFetch(`/invoke/${cmd}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "text/event-stream",
-        },
-        body: JSON.stringify(requestPayload),
-      })
+      // Call the test server's endpoint with SSE; the command is pending until its stream ends
+      const init = { method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" }, body: JSON.stringify(requestPayload) }
+      return await invokeServer(cmd, `/invoke/${cmd}`, init, async response => {
+        debug(`[Test Mock] SSE response status: ${response.status}`)
 
-      debug(`[Test Mock] SSE response status: ${response.status}`)
-
-      await checkServerResponse(cmd, response)
-      // a failed command answers with its error ({ status: "error", error }) instead of the event stream
-      if (response.headers.get("content-type")?.includes("application/json")) {
-        throw commandError((await response.json()).error)
-      }
-
-      // Read the SSE stream
-      const reader = response.body?.getReader()
-      if (!reader) {
-        throw new Error("No response body")
-      }
-
-      await parseSSEStream(reader, event => {
-        if (progress.onmessage) {
-          progress.onmessage(event)
+        await checkServerResponse(cmd, response)
+        // a failed command answers with its error ({ status: "error", error }) instead of the event stream
+        if (response.headers.get("content-type")?.includes("application/json")) {
+          throw commandError((await readJsonAnswer(response)).error)
         }
-      })
 
-      return null
+        // Read the SSE stream
+        const reader = response.body?.getReader()
+        if (!reader) {
+          throw new Error("No response body")
+        }
+
+        await parseSSEStream(cmd, reader, event => {
+          if (progress.onmessage) {
+            progress.onmessage(event)
+          }
+        })
+        return null
+      })
     } catch (error: any) {
       // the error of the command is its answer; anything else is a failure of the mock
       if (error?.name !== "CommandError") {
@@ -427,17 +481,14 @@ export const tauriMockScript = () => {
    * Helper to proxy simple commands to test server with repoId in URL
    */
   async function proxyCommandWithRepoId(command: string): Promise<any> {
-    const response = await serverFetch(`/invoke/${command}/${repoId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}), // Empty body since repo_id is in URL
+    // Empty body since repo_id is in URL
+    const init = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }
+    return await invokeServer(command, `/invoke/${command}/${repoId}`, init, async response => {
+      if (!response.ok) {
+        throw new Error(`${command} failed: ${response.status} ${response.statusText}`)
+      }
+      return await readJsonAnswer(response)
     })
-
-    if (!response.ok) {
-      throw new Error(`${command} failed: ${response.status} ${response.statusText}`)
-    }
-
-    return await response.json()
   }
 
   // Returned by handleAppCommand for commands it does not handle (handled commands may legitimately return null)
