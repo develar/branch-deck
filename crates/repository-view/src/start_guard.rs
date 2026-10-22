@@ -10,22 +10,21 @@
 //! A restart is a start of the robot's subject that the robot itself does not refuse; a robot of a temporary ref (the
 //! IDE, the CLI) is not restarted: it would test its old commit. A cancel needs a running robot of the user.
 //!
-//! `start_robot`, `restart_robot` and `cancel_robot` are the whole sequence of both hosts: one list of the robots (a
-//! failed list fails the action), the checks, then the landing gate and the target (`prepare_robot_start`) and the call
-//! of Patronus. The words of the robot refusals are `bd`'s too (`start_refusal_text`).
+//! `RemoteActions::start_robot`, `restart_robot` and `cancel_robot` (`actions`) are the whole sequence of both hosts: one
+//! list of the robots asked now (a failed list fails the action), the checks, then the landing gate and the target
+//! (`prepare_robot_start`) and the call of Patronus; `check_landing` is the landing check of the popover on the same
+//! robots. The words of the robot refusals are `bd`'s too (`start_refusal_text`).
 
+use crate::actions::RemoteActions;
 use crate::patronus_view::{branch_start_refusal, landed_commits, stack_start_refusal};
-use crate::push_guard::{GuardFacts, PushActions, row_refusal};
-use crate::views::RepositoryViews;
+use crate::push_guard::{GuardFacts, row_refusal};
 use anyhow::{Result, anyhow, bail};
 use domain_types::GroupedBranchInfo;
 use domain_types::landing::Subject;
 use domain_types::patronus::{PatronusPushMode, PatronusRobot, PatronusRobotParams, StartPatronusRobotParams};
 use domain_types::repository_view::StartRefusal;
 use domain_types::stack::{BlockReason, StackBranchState, StackBranchUpdate};
-use git_executor::git_command_executor::GitCommandExecutor;
 use object_cache::cache::ObjectCache;
-use patronus::service::PatronusService;
 use std::collections::HashSet;
 use sync_core::landing_gate::{LandingCheck, LandingGateParams, landing_check};
 use sync_core::parked::parked_state;
@@ -219,16 +218,7 @@ pub fn stack_not_built_words(update: &StackBranchUpdate) -> String {
   format!("the stack branch of {} is not the build of its commits: {why}", update.root)
 }
 
-/// What an action on a robot runs on, the same for the app's commands and the E2E server's routes
-pub struct RobotActions<'a> {
-  pub service: &'a PatronusService,
-  /// The Space repository Patronus names the repository by (`ultimate`)
-  pub repository: &'a str,
-  pub git_executor: &'a GitCommandExecutor,
-  pub views: &'a RepositoryViews,
-}
-
-impl RobotActions<'_> {
+impl RemoteActions<'_> {
   /// The facts of the checks: one full list of the user's robots (a list Patronus doesn't give fails the action), then,
   /// in a blocking step, the view of the kept table with them (`guard_facts`) and `then` over it; a repository not
   /// synced yet is refused with `nothing` ("Nothing was started")
@@ -239,7 +229,7 @@ impl RobotActions<'_> {
     nothing: &'static str,
     then: impl FnOnce(&GuardFacts) -> Result<T> + Send + 'static,
   ) -> Result<T> {
-    let robots = self.service.robots_for_action(self.repository, branch_prefix).await.map_err(|e| anyhow!(e))?;
+    let robots = self.robots_for_action(branch_prefix).await?;
     let (git, views, path, prefix) = (self.git_executor.clone(), self.views.clone(), repository_path.to_string(), branch_prefix.to_string());
     tokio::task::spawn_blocking(in_current_span(move || {
       let facts = views
@@ -249,80 +239,83 @@ impl RobotActions<'_> {
     }))
     .await?
   }
-}
 
-/// Starts a Safe Push or a Dry Run of `params` as the app does: the checks (`check_start`), then the landing gate with the
-/// commits merged Safe Pushes landed as the view names them (`landed_commits`) and the target
-/// (`prepare_robot_start`), then the start. `cache` opens the object cache of the gate, in the blocking step
-#[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack, mode = ?params.mode))]
-pub async fn start_robot(actions: &RobotActions<'_>, cache: impl FnOnce() -> ObjectCache + Send + 'static, params: &StartPatronusRobotParams) -> Result<PatronusRobot> {
-  let (git, start) = (actions.git_executor.clone(), params.clone());
-  let branches = actions
-    .with_facts(&params.repository_path, &params.branch_prefix, "Nothing was started", move |facts| {
-      let subject = if start.stack {
-        Subject::whole_stack(&start.branch_name)
-      } else {
-        Subject::branch(&start.branch_name)
-      };
-      if let Err(refusal) = check_start(facts, &subject, start.mode) {
-        bail!(refusal);
-      }
-      let mut landed: Vec<String> = landed_commits(&facts.view).into_iter().collect();
-      landed.sort_unstable();
-      prepare_robot_start(&git, &cache(), &start, landed)
-    })
-    .await?;
-  actions
-    .service
-    .start(
-      actions.repository,
-      &params.branch_prefix,
-      &branches.source_branch,
-      &branches.target_branch,
-      params.mode,
-      params.profile_id.clone(),
-      params.merge_request.clone(),
-    )
-    .await
-    .map_err(|e| anyhow!(e))
-}
+  /// Starts a Safe Push or a Dry Run of `params` as the app does: the checks (`check_start`), then the landing gate with
+  /// the commits merged Safe Pushes landed as the view names them (`landed_commits`) and the target
+  /// (`prepare_robot_start`), then the start. `cache` opens the object cache of the gate, in the blocking step
+  #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack, mode = ?params.mode))]
+  pub async fn start_robot(&self, cache: impl FnOnce() -> ObjectCache + Send + 'static, params: &StartPatronusRobotParams) -> Result<PatronusRobot> {
+    let (service, repository) = self.patronus()?;
+    let (git, start) = (self.git_executor.clone(), params.clone());
+    let branches = self
+      .with_facts(&params.repository_path, &params.branch_prefix, "Nothing was started", move |facts| {
+        let subject = if start.stack {
+          Subject::whole_stack(&start.branch_name)
+        } else {
+          Subject::branch(&start.branch_name)
+        };
+        if let Err(refusal) = check_start(facts, &subject, start.mode) {
+          bail!(refusal);
+        }
+        let mut landed: Vec<String> = landed_commits(&facts.view).into_iter().collect();
+        landed.sort_unstable();
+        prepare_robot_start(&git, &cache(), &start, landed)
+      })
+      .await?;
+    service
+      .start(
+        repository,
+        &params.branch_prefix,
+        &branches.source_branch,
+        &branches.target_branch,
+        params.mode,
+        params.profile_id.clone(),
+        params.merge_request.clone(),
+      )
+      .await
+      .map_err(|e| anyhow!(e))
+  }
 
-/// The landing gate as the popover asks it before a start (`check_landing_gate`), with the commits merged Safe Pushes
-/// landed as the view names them (`landed_commits`) on the robots Rust reads, the same input the start gives its own gate
-/// (`start_robot`): the page's robots never decide it. Best effort, as the start checks again: off Space, before the
-/// first sync or without an answer of Patronus nothing landed; `cache` opens the object cache, in the blocking step
-#[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack))]
-pub async fn check_landing(actions: &PushActions<'_>, cache: impl FnOnce() -> ObjectCache + Send + 'static, params: &LandingGateParams) -> Result<LandingCheck> {
-  let robots = actions.robots(&params.branch_prefix).await;
-  let (git, views, params) = (actions.git_executor.clone(), actions.views.clone(), params.clone());
-  tokio::task::spawn_blocking(in_current_span(move || {
-    let landed: HashSet<String> = views
-      .guard_facts(&git, &params.repository_path, &params.branch_prefix, robots)
-      .map_or_default(|facts| landed_commits(&facts.view));
-    landing_check(&git, &cache(), &params, &landed)
-  }))
-  .await?
-}
+  /// The landing gate as the popover asks it before a start (`check_landing_gate`), with the commits merged Safe Pushes
+  /// landed as the view names them (`landed_commits`) on the robots Rust reads now (`robots_for_checks`), the same input
+  /// the start gives its own gate (`start_robot`): the page's robots never decide it. Best effort, as the start checks
+  /// again: off Space, before the first sync or without an answer of Patronus nothing landed; `cache` opens the object
+  /// cache, in the blocking step
+  #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack))]
+  pub async fn check_landing(&self, cache: impl FnOnce() -> ObjectCache + Send + 'static, params: &LandingGateParams) -> Result<LandingCheck> {
+    let robots = self.robots_for_checks(&params.branch_prefix).await;
+    let (git, views, params) = (self.git_executor.clone(), self.views.clone(), params.clone());
+    tokio::task::spawn_blocking(in_current_span(move || {
+      let landed: HashSet<String> = views
+        .guard_facts(&git, &params.repository_path, &params.branch_prefix, robots)
+        .map_or_default(|facts| landed_commits(&facts.view));
+      landing_check(&git, &cache(), &params, &landed)
+    }))
+    .await?
+  }
 
-/// Restarts the robot of `params` as the app does: the checks (`check_restart`), then the restart
-#[instrument(skip_all, fields(repository_path = %params.repository_path, robot_id = %params.robot_id))]
-pub async fn restart_robot(actions: &RobotActions<'_>, params: &PatronusRobotParams) -> Result<PatronusRobot> {
-  let robot_id = params.robot_id.clone();
-  actions
-    .with_facts(&params.repository_path, &params.branch_prefix, "Nothing was restarted", move |facts| {
-      check_restart(facts, &robot_id).map_err(|refusal| anyhow!(refusal))
-    })
-    .await?;
-  actions.service.restart(&params.branch_prefix, &params.robot_id).await.map_err(|e| anyhow!(e))
-}
+  /// Restarts the robot of `params` as the app does: the checks (`check_restart`), then the restart
+  #[instrument(skip_all, fields(repository_path = %params.repository_path, robot_id = %params.robot_id))]
+  pub async fn restart_robot(&self, params: &PatronusRobotParams) -> Result<PatronusRobot> {
+    let (service, _) = self.patronus()?;
+    let robot_id = params.robot_id.clone();
+    self
+      .with_facts(&params.repository_path, &params.branch_prefix, "Nothing was restarted", move |facts| {
+        check_restart(facts, &robot_id).map_err(|refusal| anyhow!(refusal))
+      })
+      .await?;
+    service.restart(&params.branch_prefix, &params.robot_id).await.map_err(|e| anyhow!(e))
+  }
 
-/// Cancels the robot of `params` as the app does: one list of the user's robots (`check_cancel`), then the cancel; no
-/// table: a cancel changes no branch
-#[instrument(skip_all, fields(repository_path = %params.repository_path, robot_id = %params.robot_id))]
-pub async fn cancel_robot(actions: &RobotActions<'_>, params: &PatronusRobotParams) -> Result<PatronusRobot> {
-  let robots = actions.service.robots_for_action(actions.repository, &params.branch_prefix).await.map_err(|e| anyhow!(e))?;
-  check_cancel(&robots, &params.robot_id).map_err(|refusal| anyhow!(refusal))?;
-  actions.service.cancel(&params.branch_prefix, &params.robot_id).await.map_err(|e| anyhow!(e))
+  /// Cancels the robot of `params` as the app does: one list of the user's robots (`check_cancel`), then the cancel; no
+  /// table: a cancel changes no branch
+  #[instrument(skip_all, fields(repository_path = %params.repository_path, robot_id = %params.robot_id))]
+  pub async fn cancel_robot(&self, params: &PatronusRobotParams) -> Result<PatronusRobot> {
+    let (service, _) = self.patronus()?;
+    let robots = self.robots_for_action(&params.branch_prefix).await?;
+    check_cancel(&robots, &params.robot_id).map_err(|refusal| anyhow!(refusal))?;
+    service.cancel(&params.branch_prefix, &params.robot_id).await.map_err(|e| anyhow!(e))
+  }
 }
 
 #[cfg(test)]

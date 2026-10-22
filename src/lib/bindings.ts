@@ -173,7 +173,7 @@ export const commands = {
 	getPatronusStartOptions: (params: GetPatronusStartOptionsParams) => typedError<PatronusStartOptions, CommandError>(__TAURI_INVOKE("get_patronus_start_options", { params })),
 	/**
 	 *  Starts a Safe Push or a Dry Run of the pushed virtual branch, or with `stack` of the pushed stack branch of the whole
-	 *  stack; the frontend pushes it first. The whole sequence is `repository_view::start_guard::start_robot`, which the test
+	 *  stack; the frontend pushes it first. The whole sequence is `RemoteActions::start_robot` (`start_guard`), which the test
 	 *  server runs too: the user's robots (one list; a failed list fails the start), the checks of the kept table (parked,
 	 *  landed whole, not built, a robot on its last commit or one that lands a part of it), the landing gate with the
 	 *  commits the view names landed and the target, as `bd safe-push` refuses them; then Patronus. The new robot.
@@ -183,7 +183,7 @@ export const commands = {
 	 *  What refuses the start of a Safe Push or a Dry Run, as `bd safe-push` refuses it (`sync_core::landing_gate`): the
 	 *  refusals left after `allow`, each with its fix; asked before the push, through the object cache of the repository, with
 	 *  the commits merged Safe Pushes landed as the repository view names them on the robots Rust reads
-	 *  (`start_guard::check_landing`; none off Space, or when the Space repository can't be read)
+	 *  (`RemoteActions::check_landing`; none off Space, or when the Space repository can't be read)
 	 */
 	checkLandingGate: (params: LandingGateParams) => typedError<LandingCheck, CommandError>(__TAURI_INVOKE("check_landing_gate", { params })),
 	/**
@@ -193,10 +193,10 @@ export const commands = {
 	checkTargetConflict: (params: TargetConflictParams) => typedError<TargetCheck, CommandError>(__TAURI_INVOKE("check_target_conflict", { params })),
 	/**
 	 *  Starts the robot again on the newest commit of its branch, unless the checks of its subject refuse it as they refuse
-	 *  a start (`start_guard::restart_robot`: a robot not in the user's list or of a temporary ref is refused); the new robot
+	 *  a start (`RemoteActions::restart_robot`: a robot not in the user's list or of a temporary ref is refused); the new robot
 	 */
 	restartPatronusRobot: (params: PatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("restart_patronus_robot", { params })),
-	/**  Asks Patronus to cancel a running robot of the user's list (`start_guard::cancel_robot`); it answers it canceling */
+	/**  Asks Patronus to cancel a running robot of the user's list (`RemoteActions::cancel_robot`); it answers it canceling */
 	cancelPatronusRobot: (params: PatronusRobotParams) => typedError<PatronusRobot, CommandError>(__TAURI_INVOKE("cancel_patronus_robot", { params })),
 	/**  The current status of one robot, read right before a push into its branch */
 	getPatronusRobotStatus: (params: PatronusRobotParams) => typedError<PatronusRobotStatus, CommandError>(__TAURI_INVOKE("get_patronus_robot_status", { params })),

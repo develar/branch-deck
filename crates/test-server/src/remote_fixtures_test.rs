@@ -1,5 +1,5 @@
 use crate::remote_fixtures::{HistoryRobotFixture, fixture_history_robot, fixture_progress, fixture_robot};
-use crate::test_support::{create_repository, post, start_test_server, sync};
+use crate::test_support::{create_repository, create_repository_from, post, start_test_server, sync};
 use domain_types::patronus::{
   PatronusProfile, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotProgress, PatronusRobotStatus, PatronusStartOptions,
 };
@@ -326,4 +326,38 @@ async fn a_push_into_a_branch_whose_safe_push_runs_is_refused_before_git_pushes(
   assert_eq!(String::from_utf8(remote.stdout).unwrap(), "", "nothing reached the remote");
   let log: serde_json::Value = client.get(format!("http://{addr}/repositories/{id}/patronus")).send().await.unwrap().json().await.unwrap();
   assert_eq!(log["requests"]["list"], 1, "one full list of the user's robots");
+}
+
+/// The landing check of the popover (`check_landing_gate`) counts as landed what the merged Safe Pushes of the robots
+/// Rust reads landed, never the page's robots: `lane-run` of the `landing_needs` template uses a name only
+/// `stills-codec` adds, so its start is refused with the restack while no robot landed `stills-codec`; a merged Safe
+/// Push of `stills-codec` the fake lists (its commit in the target) leaves nothing to refuse, and nothing of the page
+/// said so
+#[tokio::test]
+async fn the_landing_check_counts_what_the_robots_rust_reads_landed() {
+  let addr = start_test_server().await;
+  let client = reqwest::Client::new();
+  let (id, repository_path) = create_repository_from(&client, addr, "landing_needs").await;
+  let fixture = format!("/repositories/{id}/patronus");
+  post(&client, addr, &fixture, json!({"availability": {"status": "available"}, "robots": []})).await;
+  sync(&client, addr, &repository_path).await;
+
+  let check = json!({"repositoryPath": repository_path, "branchPrefix": "user-name", "branchName": "lane-run"});
+  let refused = post(&client, addr, "/invoke/check_landing_gate", check.clone()).await;
+  assert_eq!(refused["refusals"].as_array().map(Vec::len), Some(1), "{refused}");
+  assert_eq!(refused["refusals"][0]["kind"], "missingDeclaration");
+  assert_eq!(refused["refusals"][0]["identifier"], "Stills");
+  assert_eq!(refused["refusals"][0]["fix"], json!({"kind": "restack", "branch": "lane-run", "onto": "stills-codec"}));
+
+  // the Safe Push of stills-codec merged: its commit is in the target, so lane-run's start has what it needs
+  let merged = json!({"availability": {"status": "available"}, "robots": [{
+    "id": "landed", "name": "Safe Push of stills-codec", "status": "success", "pushMode": "rebaseAutosquash", "branchName": "stills-codec",
+    "sourceRevision": "", "targetBranch": "master", "startTime": 1_704_139_200, "finishTime": 1_704_142_800, "cancellationReason": null,
+    "url": "ignored",
+  }]});
+  post(&client, addr, &fixture, merged).await;
+  let landed = post(&client, addr, "/invoke/check_landing_gate", check).await;
+  assert_eq!(landed, json!({"refusals": []}));
+  let log: serde_json::Value = client.get(format!("http://{addr}{fixture}")).send().await.unwrap().json().await.unwrap();
+  assert_eq!(log["requests"]["list"], 2, "each check asked the fake for the user's robots");
 }

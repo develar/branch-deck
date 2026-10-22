@@ -2390,12 +2390,14 @@ Code: `crates/sync-core/src/landing_gate.rs`, `crates/domain-types/src/landing.r
 The page decides a start, a restart and a cancel of a robot before it asks, but the IPC of each is a command anyone can
 call (another window, a start raced by the IDE or `bd`). So each command checks in Rust before it asks Patronus, by the
 rules of `bd safe-push`, on the table of the last sync the app keeps ([Repository view](#repository-view)) and the
-user's robots it lists itself, never the page's (`repository_view::start_guard`; the E2E server runs the same sequence,
-`start_robot`, `restart_robot`, `cancel_robot`):
+user's robots it lists itself, never the page's (`repository_view::start_guard`; both hosts run the same sequence, the
+methods of `repository_view::actions::RemoteActions`: `start_robot`, `restart_robot`, `cancel_robot`, and the landing
+check of the popover, `check_landing`):
 
-1. One full list of the user's robots (`PatronusService::robots_for_action`, the cached list of the last 10 s or one
-   request): a list Patronus doesn't give fails the action, in the words of a failed action ("Run ./safePush.cmd once
-   to log in to Patronus"), where the [app's push](#app-stack-push) sees no robots and pushes.
+1. One full list of the user's robots (`PatronusService::robots_for_action`: one request now, never the list kept for
+   the page, which a robot the IDE or `bd` started since would be missing from): a list Patronus doesn't give fails the
+   action, in the words of a failed action ("Run ./safePush.cmd once to log in to Patronus"), where the
+   [app's push](#app-stack-push) sees no robots and pushes.
 2. The Patronus view of the kept table with them (`RepositoryViews::guard_facts`): no git where the hashes tell, else
    the content walks of the memo. A repository not synced yet is refused.
 3. The checks (`check_start`): a parked subject (the branch, one it is built on, any member of the whole stack), one
@@ -2583,13 +2585,14 @@ lacks, and its pull request showing the parent's commits.
    are checked per branch (`checkPushHold`; a held one refuses the whole push, the robot a Safe Push start replaces is
    canceled once), and an open pull request that needs a retarget is retargeted, as before a push of one branch.
 2. The Tauri commands (`push_branch`, `push_branches`) and the E2E server's routes of them go through one sequence,
-   `repository_view::push_guard::PushActions` (`push_branches`, `push_branch`): first the user's robots (one full list
-   of Patronus, `robots_for_checks`, a background request: none off Space, without a token, without an answer or while
-   the requests back off after a failure, logged: best effort, as `bd push` reads its holds, and a Patronus that is
-   down holds no push up), read before the lock, as no network request runs under it; a start, a restart or a cancel
-   makes the next list ask Patronus and drops a list in flight (`forget_full_lists`, a generation), so a robot the page
-   canceled before its restart is canceling and holds nothing, and a poll that sees a robot finish brings the kept list
-   up to date (`update_full_lists`). Then, in a blocking step (`push_guarded`), the repository lock
+   `repository_view::actions::RemoteActions` (`push_branches`, `push_branch`, the flow in `push_guard`): first the
+   user's robots (one full list of Patronus asked now, `robots_for_checks`, never the list kept for the page's windows
+   (`FULL_LIST_REUSE`): a robot the IDE or `bd` started since that list holds too; a background request: none off
+   Space, without a token, without an answer or while the requests back off after a failure, logged: best effort, as
+   `bd push` reads its holds, and a Patronus that is down holds no push up), read before the lock, as no network
+   request runs under it. The kept list serves only the page: a start, a restart, a cancel or a poll that saw a change
+   makes the page's next list ask Patronus and drops a list in flight (`forget_full_lists`, a generation). Then, in a
+   blocking step (`push_guarded`), the repository lock
    (`lock_repository_in` on the `$GIT_COMMON_DIR` the host knows, the app per repository from `RepositoryStateCache`:
    no git process), bounded by `DEFAULT_LOCK_TIMEOUT` ("Nothing was pushed: `bd sync` (…) holds the repository; try
    again when it is done"), and under it the checks of `bd push` on the table of `RepositoryViews` and the Patronus

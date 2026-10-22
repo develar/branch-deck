@@ -878,24 +878,24 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `sync_branches` приложения и маршрута test-server, у `bd` — `SyncOutput::remote_statuses`; `PatronusFacts::read`
     берёт `table.remote`, отдельного параметра нет.
   - D10, push: `push_branch(es)` приложения и маршруты test-server идут через одну последовательность `repository-view`
-    (`PushActions`): список роботов (один запрос в фоновом режиме, best effort как `bd push`: не на Space, без токена,
+    (`RemoteActions::push_branches`): список роботов (один запрос в фоновом режиме, best effort как `bd push`: не на Space, без токена,
     без ответа или пока запросы в backoff — без hold'ов; до lock'а: сетевой запрос под lock'ом не выполняется), затем в
     блокирующем шаге lock (`lock_repository_in` на `git_common_dir`, который знает хост: в приложении из
     `RepositoryStateCache`, ни одного git-процесса), затем отказы в словах `bd push`: нет строки в таблице, parked (сама
     или built on), landed whole (`HoldKind::Landed`), hold своего или span-робота, hold stack branch, stack branch не
     `built`; unapplied ветка — только lock. Робот, которого страница отменила перед Push and Restart, — `Canceling` и
     не держит.
-    Сделано (s1-5): `repository_view::push_guard` — `PushActions::push_branches` / `push_branch` (роботы, затем
+    Сделано (s1-5): `repository_view::push_guard` — `RemoteActions::push_branches` / `push_branch` (роботы, затем
     `push_guarded`: lock, `guard_facts`, `check_push`, затем `push_branches` ядра; `sync_core::push::push_branch` удалён:
     одна ветка — stack из неё одной, `as_stack`/`of_stack`); `RepositoryViews::guard_facts` строит представление через memo видов;
     `BranchTable::parked` несёт заметки (для `Parked::reason`). Слова hold'ов (`landed_words`, `every_branch_landed`,
     `own_hold_words`, `span_hold_words`, `stack_hold_words`) переехали из `bd-remote` в `push_guard`, `bd` их вызывает;
     свой hold приложение называет своим средством («restart it on the current branch»), `bd` — `--restart-running`.
-    Роботов приложение читает `PatronusService::robots_for_checks` (полный список, фоновый запрос: backoff и отклонённый
-    токен — без запроса); start, restart и cancel забывают кешированный полный список и список в полёте (поколение
-    `forget_full_lists`: `FULL_LIST_REUSE` 10 с показал бы только что отменённого робота running и отказал бы Push and
-    Restart), а poll, увидевший завершение робота, обновляет кешированный список (`update_full_lists`): завершённый робот
-    не держит. Занятый lock: «Nothing was pushed: <держатель | another Branch Deck operation> holds the repository; try
+    Роботов приложение читает `PatronusService::robots_for_checks` (полный список, запрошенный сейчас, никогда не из
+    кеша страницы: робот, которого IDE или `bd` запустили после списка страницы, должен держать; фоновый запрос: backoff и
+    отклонённый токен — без запроса). Кешированный полный список (`FULL_LIST_REUSE` 10 с) служит только спискам страницы;
+    start, restart, cancel и poll, увидевший изменение, сбрасывают его и список в полёте (поколение `forget_full_lists`).
+    Занятый lock: «Nothing was pushed: <держатель | another Branch Deck operation> holds the repository; try
     again when it is done». Проверка landing gate поповера (`check_landing_gate`) берёт landed-коммиты из того же
     представления на роботах Rust (`start_guard::check_landing`), а не от страницы (`getLandedCommits` удалён,
     `LandingGateParams.landed_commits` удалён). Запись D10 реестра: push обеих сторон закрыт, старт/restart/cancel — нет.
@@ -908,8 +908,9 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `cancel_` отказывает роботу не из списка и не активному. Слова отказов — `start_refusal_text`, который переезжает
     из `bd-remote/patronus_facts.rs` в `repository-view`.
     Сделано (s1-6): `repository_view::start_guard` — `check_start`, `check_restart`, `check_cancel` и вся
-    последовательность обеих сторон (`start_robot`, `restart_robot`, `cancel_robot`: `RobotActions` с сервисом,
-    Space-репозиторием, git и видами); роботов читает `PatronusService::robots_for_action` (полный список; ответ не
+    последовательность обеих сторон (`start_robot`, `restart_robot`, `cancel_robot` и `check_landing` поповера — методы
+    одного `repository_view::actions::RemoteActions` с сервисом, Space-репозиторием, git и видами, которого каждый хост
+    строит одним `RemoteActions::new`; не на Space — отказ действия словами `NOT_ON_SPACE`); роботов читает `PatronusService::robots_for_action` (полный список; ответ не
     `available` — ошибка действия словами неудачного действия). Отказы: parked (сама, built on, член whole stack),
     landed whole (`HoldKind::Landed`, у whole stack — каждый член), not built (`not_built`, stack branch не `built`:
     слова `stack_not_built_words` и `stack_conflict_words`, которые зовёт и `bd`), затем `start`/`dry_run` вида
@@ -932,7 +933,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
     (`forgetUnknownRules` перед каждым стартом); `getSafePushDecision` подтверждает `rulesUnknown`.
   - Таблица: `BranchTable.remote` (`remote_facts` в `crates/repository-view/src/branch_table.rs`) из статусов, которые
     собирает `RemoteStatusCollector` (`crates/sync-core/src/remote_status.rs`), — одни remote-факты обеих сторон.
-  - Guard'ы приложения в Rust: `crates/repository-view/src/push_guard.rs` (`PushActions`: роботы, lock, затем нет строки,
+  - Guard'ы приложения в Rust: `crates/repository-view/src/actions.rs` (`RemoteActions`: на чём работают push, landing
+    check и действия с роботом обеих сторон), `crates/repository-view/src/push_guard.rs` (роботы, lock, затем нет строки,
     parked, landed whole, hold и stack branch не built — `push_branch(es)` и маршруты test-server) и
     `crates/repository-view/src/start_guard.rs` (`check_start`,
     `check_restart`, `check_cancel` и последовательности `start_robot`, `restart_robot`, `cancel_robot` по таблице

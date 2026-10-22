@@ -8,10 +8,12 @@
 //! that raced with a start (the IDE, `bd`) or came by IPC. The robots are the ones Rust read itself, never the page's: a
 //! robot the page canceled before Push and Restart is canceling and holds nothing.
 //!
-//! `PushActions` is the whole sequence of both hosts: the user's robots (one full list, best effort), then, in a blocking
-//! step, the lock, the checks and the core push. The words of the holds are `bd`'s too (`bd push`, `bd safe-push`):
+//! `RemoteActions::push_branches` (`actions`) is the whole sequence of both hosts: the user's robots (one full list asked
+//! now, best effort), then, in a blocking step, the lock, the checks and the core push. The words of the holds are
+//! `bd`'s too (`bd push`, `bd safe-push`):
 //! `landed_words`, `every_branch_landed`, `own_hold_words`, `span_hold_words`, `stack_hold_words`.
 
+use crate::actions::RemoteActions;
 use crate::branch_table::BranchTable;
 use crate::start_guard::{stack_conflict_words, stack_not_built_words};
 use crate::views::{RepositoryViews, SyncedTable};
@@ -23,7 +25,6 @@ use domain_types::repository_view::{Carried, HoldKind, PatronusView};
 use domain_types::stack::StackBranchState;
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, RepositoryLocked, lock_repository_in};
-use patronus::service::PatronusService;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -259,28 +260,10 @@ fn push_guarded_within(
   push_branches(git_executor, params, &facts.table().not_built, on_progress)
 }
 
-/// What the app's push runs on, the same for the app's commands and the E2E server's routes; the landing check of the
-/// popover (`start_guard::check_landing`) runs on the same, as a check that holds nothing up
-pub struct PushActions<'a> {
-  /// The Patronus service and the Space repository Patronus names the repository by (`ultimate`); `None` off Space: no
-  /// robot holds anything
-  pub patronus: Option<(&'a PatronusService, &'a str)>,
-  pub git_executor: &'a GitCommandExecutor,
-  pub views: &'a RepositoryViews,
-}
-
-impl PushActions<'_> {
-  /// The user's robots for the checks: one full list (`robots_for_checks`), read before the lock, as no network request
-  /// runs under it; none off Space
-  pub(crate) async fn robots(&self, branch_prefix: &str) -> Vec<PatronusRobot> {
-    match self.patronus {
-      Some((service, repository)) => service.robots_for_checks(repository, branch_prefix).await,
-      None => Vec::new(),
-    }
-  }
-
-  /// The app's push of a stack: the robots, then, in a blocking step, `push_guarded` under the repository lock of
-  /// `git_common_dir` (`$GIT_COMMON_DIR` of the repository, which the host knows), its progress sent to `on_progress`
+impl RemoteActions<'_> {
+  /// The app's push of a stack: the user's robots (`robots_for_checks`), then, in a blocking step, `push_guarded` under
+  /// the repository lock of `git_common_dir` (`$GIT_COMMON_DIR` of the repository, which the host knows), its progress
+  /// sent to `on_progress`
   #[instrument(skip_all, fields(repository_path = %params.repository_path, branches = params.branches.len()))]
   pub async fn push_branches(
     &self,
@@ -288,7 +271,7 @@ impl PushActions<'_> {
     params: PushBranchesParams,
     mut on_progress: impl FnMut(TransferProgress) + Send + 'static,
   ) -> Result<PushBranchesOutcome> {
-    let robots = self.robots(&params.branch_prefix).await;
+    let robots = self.robots_for_checks(&params.branch_prefix).await;
     let (git, views) = (self.git_executor.clone(), self.views.clone());
     tokio::task::spawn_blocking(in_current_span(move || push_guarded(&git, &git_common_dir, &views, robots, &params, &mut on_progress))).await?
   }

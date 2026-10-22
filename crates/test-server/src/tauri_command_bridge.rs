@@ -32,8 +32,7 @@ use history_rewrite::repository_lock::RewriteOptions;
 use history_rewrite::reword::{RewordRequest, RewordResult, reword_request_core};
 use object_cache::cache::ObjectCache;
 use patronus::service::PatronusService;
-use repository_view::push_guard::PushActions;
-use repository_view::start_guard::{RobotActions, cancel_robot, check_landing, restart_robot, start_robot};
+use repository_view::actions::{NOT_ON_SPACE, RemoteActions};
 use serde::Deserialize;
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -453,7 +452,7 @@ pub async fn undo_reapply_branch(
   .await
 }
 
-/// `check_landing_gate` of the app: the same check (`start_guard::check_landing`, on the robots of the fake Patronus),
+/// `check_landing_gate` of the app: the same check (`RemoteActions::check_landing`, on the robots of the fake Patronus),
 /// without the object cache
 pub async fn check_landing_gate(
   State(state): State<Arc<AppState>>,
@@ -462,8 +461,8 @@ pub async fn check_landing_gate(
   ensure_repository_exists(&state, &params.repository_path)?;
   let space = space_of(&state, &params.repository_path)?;
   let service = space.as_ref().map(|(host, _)| host.patronus_service());
-  let actions = push_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
-  let check = check_landing(&actions, ObjectCache::disabled, &params).await;
+  let actions = remote_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
+  let check = actions.check_landing(ObjectCache::disabled, &params).await;
   check.map(Json).map_err(|e| CommandFailure::error("check the landing gate", e))
 }
 
@@ -660,7 +659,7 @@ pub async fn push_branch(State(state): State<Arc<AppState>>, Json(params): Json<
   let operation = "push the branch";
   let (common_dir, space) = push_inputs(&state, &params.repository_path, operation).await?;
   let service = space.as_ref().map(|(host, _)| host.patronus_service());
-  let actions = push_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
+  let actions = remote_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
   let pushed = actions.push_branch(common_dir, &params, |_| {}).await;
   pushed.map(Json).map_err(|e| CommandFailure::error(operation, e))
 }
@@ -671,7 +670,7 @@ pub async fn push_branches(State(state): State<Arc<AppState>>, Json(params): Jso
   let operation = "push the branches";
   let (common_dir, space) = push_inputs(&state, &params.repository_path, operation).await?;
   let service = space.as_ref().map(|(host, _)| host.patronus_service());
-  let actions = push_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
+  let actions = remote_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
   let pushed = actions.push_branches(common_dir, params, |_| {}).await;
   pushed.map(Json).map_err(|e| CommandFailure::error(operation, e))
 }
@@ -686,13 +685,10 @@ async fn push_inputs(state: &AppState, path: &str, operation: &'static str) -> R
   Ok((common_dir, space_of(state, path)?))
 }
 
-/// What the app's push runs on (`push_guard`): the fake's service, the views of the server
-fn push_actions<'a>(state: &'a AppState, service: Option<&'a PatronusService>, space: Option<&'a SpaceRepository>) -> PushActions<'a> {
-  PushActions {
-    patronus: service.zip(space.map(|space| space.name.as_str())),
-    git_executor: &state.git_executor,
-    views: &state.repository_views,
-  }
+/// What the app's actions on the remote run on (`repository_view::actions`), as the app's commands have it: the fake's
+/// service with the Space repository (none while no Patronus fixture put the repository on Space), the views of the server
+fn remote_actions<'a>(state: &'a AppState, service: Option<&'a PatronusService>, space: Option<&'a SpaceRepository>) -> RemoteActions<'a> {
+  RemoteActions::new(service.zip(space), &state.git_executor, &state.repository_views)
 }
 
 /// `$GIT_COMMON_DIR` of the repository at `path`, where the repository lock lives
@@ -1258,7 +1254,7 @@ async fn commented_github_of(state: &AppState, path: &str, known: Option<&str>, 
 
 /// The Space repository of the repository at `path` for an action: not on Space is the app's error
 fn required_space_of(state: &AppState, path: &str, operation: &str) -> Result<(Arc<RemoteHost>, SpaceRepository), CommandFailure> {
-  space_of(state, path)?.ok_or_else(|| CommandFailure::error(operation, "The repository is not on Space: Patronus can't push it"))
+  space_of(state, path)?.ok_or_else(|| CommandFailure::error(operation, NOT_ON_SPACE))
 }
 
 /// The branch a start pushes to and the merge profiles Patronus answers for it, as the app reads them
@@ -1285,46 +1281,51 @@ pub async fn get_patronus_target_branch(State(state): State<Arc<AppState>>, Json
   .await
 }
 
-/// Starts a robot as the app does (`start_guard::start_robot`: the robots, the checks of the kept table, the landing gate
-/// without the object cache and the target, then the real service): the fake Patronus of the repository lists it and
-/// logs the request (`GET …/patronus`)
+/// Starts a robot as the app does (`RemoteActions::start_robot`: the robots, the checks of the kept table, the landing
+/// gate without the object cache and the target, then the real service): the fake Patronus of the repository lists it
+/// and logs the request (`GET …/patronus`)
 pub async fn start_patronus_robot(State(state): State<Arc<AppState>>, Json(params): Json<StartPatronusRobotParams>) -> CommandResult<PatronusRobot> {
   let operation = "start the Patronus robot";
   ensure_repository_exists(&state, &params.repository_path)?;
-  let (host, space) = required_space_of(&state, &params.repository_path, operation)?;
-  let service = host.patronus_service();
-  let actions = robot_actions(&state, &service, &space);
-  let robot = start_robot(&actions, ObjectCache::disabled, &params).await;
+  let space = space_of(&state, &params.repository_path)?;
+  let service = space.as_ref().map(|(host, _)| host.patronus_service());
+  let actions = remote_actions(&state, service.as_deref(), space.as_ref().map(|(_, space)| space));
+  let robot = actions.start_robot(ObjectCache::disabled, &params).await;
   robot.map(Json).map_err(|e| CommandFailure::error(operation, e))
 }
 
-/// Restarts a robot as the app does (`start_guard::restart_robot`): the fake lists a new one on the newest commit of the
-/// branch
+/// Restarts a robot as the app does (`RemoteActions::restart_robot`): the fake lists a new one on the newest commit of
+/// the branch
 pub async fn restart_patronus_robot(State(state): State<Arc<AppState>>, Json(params): Json<PatronusRobotParams>) -> CommandResult<PatronusRobot> {
-  let operation = "restart the Patronus robot";
-  let (host, space) = required_space_of(&state, &params.repository_path, operation)?;
-  let service = host.patronus_service();
-  let robot = restart_robot(&robot_actions(&state, &service, &space), &params).await;
-  robot.map(Json).map_err(|e| CommandFailure::error(operation, e))
+  act_on_robot(&state, &params, RobotAction::Restart).await
 }
 
-/// Cancels a robot as the app does (`start_guard::cancel_robot`): the fake answers it canceling
+/// Cancels a robot as the app does (`RemoteActions::cancel_robot`): the fake answers it canceling
 pub async fn cancel_patronus_robot(State(state): State<Arc<AppState>>, Json(params): Json<PatronusRobotParams>) -> CommandResult<PatronusRobot> {
-  let operation = "cancel the Patronus robot";
-  let (host, space) = required_space_of(&state, &params.repository_path, operation)?;
-  let service = host.patronus_service();
-  let robot = cancel_robot(&robot_actions(&state, &service, &space), &params).await;
-  robot.map(Json).map_err(|e| CommandFailure::error(operation, e))
+  act_on_robot(&state, &params, RobotAction::Cancel).await
 }
 
-/// What an action on a robot runs on, as the app's command has it: the fake's service, the views of the server
-fn robot_actions<'a>(state: &'a AppState, service: &'a PatronusService, space: &'a SpaceRepository) -> RobotActions<'a> {
-  RobotActions {
-    service,
-    repository: &space.name,
-    git_executor: &state.git_executor,
-    views: &state.repository_views,
-  }
+/// What the user does with a robot of the list
+enum RobotAction {
+  Restart,
+  Cancel,
+}
+
+/// The restart or the cancel of the robot of `params` with the actions of the repository, as the app's commands do
+async fn act_on_robot(state: &AppState, params: &PatronusRobotParams, action: RobotAction) -> CommandResult<PatronusRobot> {
+  let operation = match action {
+    RobotAction::Restart => "restart the Patronus robot",
+    RobotAction::Cancel => "cancel the Patronus robot",
+  };
+  ensure_repository_exists(state, &params.repository_path)?;
+  let space = space_of(state, &params.repository_path)?;
+  let service = space.as_ref().map(|(host, _)| host.patronus_service());
+  let actions = remote_actions(state, service.as_deref(), space.as_ref().map(|(_, space)| space));
+  let robot = match action {
+    RobotAction::Restart => actions.restart_robot(params).await,
+    RobotAction::Cancel => actions.cancel_robot(params).await,
+  };
+  robot.map(Json).map_err(|e| CommandFailure::error(operation, e))
 }
 
 /// The status of one robot as the app reads it before a push into its branch

@@ -1,6 +1,8 @@
 //! Asks Patronus on behalf of the app with the least load on it: a rejected token is not sent again until the Safe
 //! Push CLI renews it, background requests stop while Patronus fails (exponential backoff), and a full list asked by
-//! two windows of one repository within a few seconds is fetched once.
+//! two windows of one repository within a few seconds is fetched once. The list of a check before an action of the app
+//! (a push, a start, the landing check) is never answered from a kept one: a robot started elsewhere (the IDE, `bd`)
+//! since that list would hold nothing.
 
 use crate::actions::{ActionError, availability_message};
 use crate::client::{MERGE_PROFILE_ID_OPTION, MERGE_PROFILE_NAME_OPTION, PatronusClient, PatronusError, REVIEW_APPROVAL_CHECK_SKIP_OPTION, RobotDto, RobotUpdateRequest};
@@ -47,8 +49,9 @@ pub(crate) struct ServiceState {
 /// The answers of Patronus, each with when it was fetched: the readers decide how long an answer holds. Bounded, so a
 /// long session does not grow them with every push (the least used entries go first)
 pub(crate) struct Caches {
-  /// By repository: the last full list, brought up to date by every poll; written only under the service lock
-  /// (`keep_full_list`, `update_full_lists`, `forget_full_lists`)
+  /// By repository: the last full list, for the page's lists only (`FULL_LIST_REUSE`); dropped when the robots changed
+  /// (an action of the app, a poll that saw a change). Written only under the service lock (`keep_full_list`,
+  /// `forget_full_lists`)
   full_lists: Cache<String, (Instant, Vec<RobotDto>)>,
   /// By robot id; a finished robot does not change any more
   pub(crate) details: Cache<String, (Instant, crate::actions::CachedDetails)>,
@@ -102,14 +105,21 @@ impl PatronusService {
   }
 
   /// The user's robots in the Space repository `repository` (e.g. `ultimate`) started since `since`, or in the last
-  /// `FULL_LIST_DAYS` days. With `new_api` the list names the merge profile of a robot where Patronus put it (`mergeProfile`)
+  /// `FULL_LIST_DAYS` days, for the page: a full list fetched within `FULL_LIST_REUSE` (another window) answers again.
+  /// With `new_api` the list names the merge profile of a robot where Patronus put it (`mergeProfile`)
   #[instrument(skip(self))]
   pub async fn robots(&self, repository: &str, branch_prefix: &str, since: Option<u32>, background: bool, new_api: bool) -> PatronusRobotsResult {
+    self.list(repository, branch_prefix, since, background, new_api, true).await
+  }
+
+  /// `robots`, answered from a kept full list only with `reuse`; a full list fetched is kept for the page
+  async fn list(&self, repository: &str, branch_prefix: &str, since: Option<u32>, background: bool, new_api: bool, reuse: bool) -> PatronusRobotsResult {
     let token = match self.token(background) {
       Ok(token) => token,
       Err(result) => return result,
     };
-    if since.is_none()
+    if reuse
+      && since.is_none()
       && let Some(robots) = self.fresh_full_list(repository)
     {
       return self.to_result(&robots, branch_prefix, new_api);
@@ -128,12 +138,13 @@ impl PatronusService {
     }
   }
 
-  /// The user's robots in `repository` for a check before an action of the app (its push, `repository_view::push_guard`):
-  /// one full list, as `bd push` reads its holds; none when Patronus can't be asked (no token, a rejected token, no
-  /// answer, or while the requests back off after a failure: a background request, so a Patronus that is down holds no
-  /// push up), logged: best effort, the page checked the robots it knows before
+  /// The user's robots in `repository` for a check before an action of the app (its push, `repository_view::push_guard`;
+  /// the landing check of the popover): one full list asked now, never a kept one (a robot the IDE or `bd` started since
+  /// the page's list holds too), as `bd push` reads its holds; none when Patronus can't be asked (no token, a rejected
+  /// token, no answer, or while the requests back off after a failure: a background request, so a Patronus that is
+  /// down holds no push up), logged: best effort, the page checked the robots it knows before
   pub async fn robots_for_checks(&self, repository: &str, branch_prefix: &str) -> Vec<PatronusRobot> {
-    let result = self.robots(repository, branch_prefix, None, true, false).await;
+    let result = self.list(repository, branch_prefix, None, true, false, false).await;
     if !matches!(result.availability, PatronusAvailability::Available) {
       info!(availability = ?result.availability, "no robots for the checks: nothing holds");
     }
@@ -141,10 +152,10 @@ impl PatronusService {
   }
 
   /// The user's robots in `repository` for the check of an action that asks Patronus anyway (a start, a restart, a
-  /// cancel: `repository_view::start_guard`): one full list, as `bd safe-push` reads it; a list Patronus doesn't give
-  /// fails the action, in the words of a failed action
+  /// cancel: `repository_view::start_guard`): one full list asked now, never a kept one, as `bd safe-push` reads it; a
+  /// list Patronus doesn't give fails the action, in the words of a failed action
   pub async fn robots_for_action(&self, repository: &str, branch_prefix: &str) -> Result<Vec<PatronusRobot>, ActionError> {
-    let result = self.robots(repository, branch_prefix, None, false, false).await;
+    let result = self.list(repository, branch_prefix, None, false, false, false).await;
     match result.availability {
       PatronusAvailability::Available => Ok(result.robots),
       availability => Err(availability_message(availability)),
@@ -178,7 +189,10 @@ impl PatronusService {
     match self.settle(response, &token.stamp) {
       // a poll answers the options, where the profile has always been
       Ok(robots) => {
-        self.update_full_lists(&robots);
+        if !robots.is_empty() {
+          // the robots changed: a kept full list, or one in flight, would show a robot that finished running
+          self.forget_full_lists();
+        }
         self.to_result(&robots, branch_prefix, false)
       }
       Err(availability) => PatronusRobotsResult::from(availability),
@@ -240,8 +254,8 @@ impl PatronusService {
   }
 
   /// Keeps the full list `robots` of `repository` fetched at generation `generation` of `forget_full_lists`, unless the
-  /// robots changed while it was in flight (a cancel from another window): that list would show the canceled robot
-  /// running until the next one
+  /// robots changed while it was in flight (a cancel from another window, a poll that saw a robot finish): that list
+  /// would show the canceled robot running until the next one
   fn keep_full_list(&self, repository: &str, robots: &[RobotDto], generation: u64) {
     let state = self.lock();
     if state.full_list_generation == generation {
@@ -249,27 +263,9 @@ impl PatronusService {
     }
   }
 
-  /// A poll answered `changed`, the robots whose status changed: every kept full list names them as they are now, so a
-  /// check between two lists (`robots_for_checks`) sees a robot that finished as finished, and holds nothing for it
-  fn update_full_lists(&self, changed: &[RobotDto]) {
-    let _state = self.lock();
-    for (repository, (fetched_at, mut robots)) in &self.caches.full_lists {
-      let mut updated = false;
-      for robot in &mut robots {
-        if let Some(now) = changed.iter().find(|now| now.id == robot.id) {
-          *robot = now.clone();
-          updated = true;
-        }
-      }
-      if updated {
-        self.caches.full_lists.insert(repository.to_string(), (fetched_at, robots));
-      }
-    }
-  }
-
-  /// A start, a restart or a cancel changed the robots: the next full list asks Patronus, and a list in flight is not
-  /// kept. A list reused within `FULL_LIST_REUSE` would show a robot the page just canceled running, and the app's push
-  /// into its branch would be refused (`repository_view::push_guard`)
+  /// A start, a restart, a cancel or a poll changed the robots: the next full list of the page asks Patronus, and a list
+  /// in flight is not kept. A list reused within `FULL_LIST_REUSE` would show a robot the page just canceled, or one a
+  /// poll saw finish, running
   pub(crate) fn forget_full_lists(&self) {
     let mut state = self.lock();
     state.full_list_generation += 1;

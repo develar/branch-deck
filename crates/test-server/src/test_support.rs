@@ -20,9 +20,14 @@ pub(crate) async fn start_test_server_with_state() -> (SocketAddr, std::sync::Ar
 
 /// A repository from the `simple` template: its id and path
 pub(crate) async fn create_repository(client: &reqwest::Client, addr: SocketAddr) -> (String, String) {
+  create_repository_from(client, addr, "simple").await
+}
+
+/// A repository from the template `template` (`RepositoryTemplate`): its id and path
+pub(crate) async fn create_repository_from(client: &reqwest::Client, addr: SocketAddr, template: &str) -> (String, String) {
   let created: Value = client
     .post(format!("http://{addr}/repositories"))
-    .json(&json!({ "template": "simple" }))
+    .json(&json!({ "template": template }))
     .send()
     .await
     .unwrap()

@@ -1,9 +1,8 @@
 use crate::command_error::CommandError;
-use crate::commands::patronus::PatronusState;
+use crate::commands::patronus::{PatronusState, remote_actions};
 use crate::operation::{operation, run_blocking};
 use crate::repository_state::RepositoryStateCache;
 use git_executor::git_command_executor::GitCommandExecutor;
-use repository_view::push_guard::PushActions;
 use repository_view::views::RepositoryViews;
 use std::path::PathBuf;
 use sync_core::patronus::SpaceRepository;
@@ -31,7 +30,7 @@ pub async fn push_branch(
 ) -> Result<PushOutcome, CommandError> {
   operation(async {
     let (common_dir, space) = push_inputs(&git_executor, &repository_state, &patronus, &params.repository_path).await?;
-    let actions = push_actions(&git_executor, &patronus, &views, space.as_ref());
+    let actions = remote_actions(&patronus, space.as_ref(), &git_executor, &views);
     let pushed = actions.push_branch(common_dir, &params, move |push_progress| send_progress(&progress, push_progress)).await;
     pushed.map_err(CommandError::from)
   })
@@ -56,7 +55,7 @@ pub async fn push_branches(
 ) -> Result<PushBranchesOutcome, CommandError> {
   operation(async {
     let (common_dir, space) = push_inputs(&git_executor, &repository_state, &patronus, &params.repository_path).await?;
-    let actions = push_actions(&git_executor, &patronus, &views, space.as_ref());
+    let actions = remote_actions(&patronus, space.as_ref(), &git_executor, &views);
     let pushed = actions
       .push_branches(common_dir, params, move |push_progress| send_progress(&progress, push_progress))
       .await;
@@ -67,7 +66,7 @@ pub async fn push_branches(
 
 /// What the push of the repository at `repository_path` needs of the app: the `$GIT_COMMON_DIR` the app keeps per
 /// repository (where the lock lives; one `rev-parse` on the first call, in a blocking step), and its Space repository
-/// (none off Space, or when it can't be read: no robot holds, logged)
+/// (none off Space, or when it can't be read: no robot holds, logged), for `RemoteActions`
 async fn push_inputs(
   git_executor: &GitCommandExecutor,
   repository_state: &RepositoryStateCache,
@@ -81,15 +80,6 @@ async fn push_inputs(
     None
   });
   Ok((common_dir, space))
-}
-
-/// What the app's push runs on (`push_guard`)
-fn push_actions<'a>(git_executor: &'a GitCommandExecutor, patronus: &'a PatronusState, views: &'a RepositoryViews, space: Option<&'a SpaceRepository>) -> PushActions<'a> {
-  PushActions {
-    patronus: space.map(|space| (patronus.service(), space.name.as_str())),
-    git_executor,
-    views,
-  }
 }
 
 fn send_progress(progress: &Channel<TransferProgress>, push_progress: TransferProgress) {

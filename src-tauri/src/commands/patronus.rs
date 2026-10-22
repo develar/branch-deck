@@ -17,8 +17,7 @@ use patronus::client::{PATRONUS_URL, PatronusClient};
 use patronus::service::PatronusService;
 use patronus::teamcity_cli::TeamCityCli;
 use patronus::token::find_user_token;
-use repository_view::push_guard::PushActions;
-use repository_view::start_guard::{RobotActions, cancel_robot, check_landing, restart_robot, start_robot};
+use repository_view::actions::{NOT_ON_SPACE, RemoteActions};
 use repository_view::views::RepositoryViews;
 use std::sync::Arc;
 use std::time::Duration;
@@ -81,11 +80,6 @@ impl PatronusState {
     Ok(space)
   }
 
-  /// The service, for the actions of `repository_view` (`push_guard`)
-  pub(crate) const fn service(&self) -> &PatronusService {
-    &self.service
-  }
-
   /// The Space repository, for an action: not on Space is an error
   async fn required_space_repository(&self, git_executor: &GitCommandExecutor, repository_path: &str) -> Result<SpaceRepository, CommandError> {
     self.space_repository(git_executor, repository_path).await?.ok_or_else(not_on_space)
@@ -93,7 +87,7 @@ impl PatronusState {
 }
 
 fn not_on_space() -> CommandError {
-  CommandError::new("The repository is not on Space: Patronus can't push it")
+  CommandError::new(NOT_ON_SPACE)
 }
 
 /// The branch a robot pushes to, from the baseline: the branch of `origin` it tracks
@@ -276,7 +270,7 @@ pub async fn get_patronus_start_options(
 }
 
 /// Starts a Safe Push or a Dry Run of the pushed virtual branch, or with `stack` of the pushed stack branch of the whole
-/// stack; the frontend pushes it first. The whole sequence is `repository_view::start_guard::start_robot`, which the test
+/// stack; the frontend pushes it first. The whole sequence is `RemoteActions::start_robot` (`start_guard`), which the test
 /// server runs too: the user's robots (one list; a failed list fails the start), the checks of the kept table (parked,
 /// landed whole, not built, a robot on its last commit or one that lands a part of it), the landing gate with the
 /// commits the view names landed and the target, as `bd safe-push` refuses them; then Patronus. The new robot.
@@ -291,30 +285,32 @@ pub async fn start_patronus_robot(
   params: StartPatronusRobotParams,
 ) -> Result<PatronusRobot, CommandError> {
   operation(async move {
-    let repository = patronus.required_space_repository(&git_executor, &params.repository_path).await?;
+    let space = patronus.space_repository(&git_executor, &params.repository_path).await?;
     let (git, repository_state, path) = ((*git_executor).clone(), (*repository_state).clone(), params.repository_path.clone());
-    let actions = robot_actions(&patronus, &repository, &git_executor, &views);
-    start_robot(&actions, move || repository_state.object_cache(&git, &path), &params)
+    let actions = remote_actions(&patronus, space.as_ref(), &git_executor, &views);
+    actions
+      .start_robot(move || repository_state.object_cache(&git, &path), &params)
       .await
       .map_err(CommandError::from)
   })
   .await
 }
 
-/// What an action on a robot runs on (`start_guard`)
-fn robot_actions<'a>(patronus: &'a PatronusState, repository: &'a SpaceRepository, git_executor: &'a GitCommandExecutor, views: &'a RepositoryViews) -> RobotActions<'a> {
-  RobotActions {
-    service: &patronus.service,
-    repository: &repository.name,
-    git_executor,
-    views,
-  }
+/// What the app's actions on the remote run on (`repository_view::actions`): the one service of the app and the Space
+/// repository of the repository (none off Space: a robot action is refused, a push holds nothing)
+pub(crate) fn remote_actions<'a>(
+  patronus: &'a PatronusState,
+  space: Option<&'a SpaceRepository>,
+  git_executor: &'a GitCommandExecutor,
+  views: &'a RepositoryViews,
+) -> RemoteActions<'a> {
+  RemoteActions::new(space.map(|space| (&patronus.service, space)), git_executor, views)
 }
 
 /// What refuses the start of a Safe Push or a Dry Run, as `bd safe-push` refuses it (`sync_core::landing_gate`): the
 /// refusals left after `allow`, each with its fix; asked before the push, through the object cache of the repository, with
 /// the commits merged Safe Pushes landed as the repository view names them on the robots Rust reads
-/// (`start_guard::check_landing`; none off Space, or when the Space repository can't be read)
+/// (`RemoteActions::check_landing`; none off Space, or when the Space repository can't be read)
 #[tauri::command]
 #[instrument(skip_all, fields(repository_path = %params.repository_path, branch_name = %params.branch_name, stack = params.stack))]
 #[specta::specta]
@@ -330,13 +326,10 @@ pub async fn check_landing_gate(
       warn!(error = ?error, "no robots for the landing check: the Space repository is unknown");
       None
     });
-    let actions = PushActions {
-      patronus: space.as_ref().map(|space| (&patronus.service, space.name.as_str())),
-      git_executor: &git_executor,
-      views: &views,
-    };
+    let actions = remote_actions(&patronus, space.as_ref(), &git_executor, &views);
     let (git, repository_state, path) = ((*git_executor).clone(), (*repository_state).clone(), params.repository_path.clone());
-    check_landing(&actions, move || repository_state.object_cache(&git, &path), &params)
+    actions
+      .check_landing(move || repository_state.object_cache(&git, &path), &params)
       .await
       .map_err(CommandError::from)
   })
@@ -354,7 +347,7 @@ pub async fn check_target_conflict(git_executor: State<'_, GitCommandExecutor>, 
 }
 
 /// Starts the robot again on the newest commit of its branch, unless the checks of its subject refuse it as they refuse
-/// a start (`start_guard::restart_robot`: a robot not in the user's list or of a temporary ref is refused); the new robot
+/// a start (`RemoteActions::restart_robot`: a robot not in the user's list or of a temporary ref is refused); the new robot
 #[tauri::command]
 #[instrument(skip(git_executor, patronus, views))]
 #[specta::specta]
@@ -367,7 +360,7 @@ pub async fn restart_patronus_robot(
   operation(act_on_robot(&git_executor, &patronus, &views, &params, RobotAction::Restart)).await
 }
 
-/// Asks Patronus to cancel a running robot of the user's list (`start_guard::cancel_robot`); it answers it canceling
+/// Asks Patronus to cancel a running robot of the user's list (`RemoteActions::cancel_robot`); it answers it canceling
 #[tauri::command]
 #[instrument(skip(git_executor, patronus, views))]
 #[specta::specta]
@@ -394,11 +387,11 @@ async fn act_on_robot(
   params: &PatronusRobotParams,
   action: RobotAction,
 ) -> Result<PatronusRobot, CommandError> {
-  let repository = patronus.required_space_repository(git_executor, &params.repository_path).await?;
-  let actions = robot_actions(patronus, &repository, git_executor, views);
+  let space = patronus.space_repository(git_executor, &params.repository_path).await?;
+  let actions = remote_actions(patronus, space.as_ref(), git_executor, views);
   match action {
-    RobotAction::Restart => restart_robot(&actions, params).await,
-    RobotAction::Cancel => cancel_robot(&actions, params).await,
+    RobotAction::Restart => actions.restart_robot(params).await,
+    RobotAction::Cancel => actions.cancel_robot(params).await,
   }
   .map_err(CommandError::from)
 }

@@ -1,5 +1,5 @@
 use crate::client::{PatronusClient, RobotDto};
-use crate::fake_patronus::start_fake;
+use crate::fake_patronus::{robot_json, start_fake};
 use crate::service::{PatronusService, robot_profile, to_robot};
 use crate::token::{Token, TokenLookup, TokenStamp};
 use domain_types::patronus::{KnownRobotStatus, PatronusAvailability, PatronusPullRequestLink, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus};
@@ -284,26 +284,67 @@ async fn polls_only_running_robots_with_their_known_status() {
   );
 }
 
-/// A poll that sees a robot finish brings the kept full list up to date: the checks of the app's push, which reuse the
-/// list (`robots_for_checks`), see it finished and hold nothing for it, without a second list
+/// The robots of a check before an action of the app (`robots_for_checks`, `robots_for_action`) are asked now, never
+/// answered from the kept list of the page: a robot the IDE or `bd` started since the page's list is seen, and holds.
+/// The list a check fetched answers the page's next list
 #[tokio::test]
-async fn a_poll_updates_the_full_list_the_checks_reuse() {
+async fn the_checks_ask_patronus_every_time_and_see_a_robot_started_elsewhere() {
   let (fake, client) = start_fake().await;
   let (service, _) = service(client, token("t"));
-  let status_of = |robots: &[PatronusRobot], id: &str| robots.iter().find(|robot| robot.id == id).unwrap().status;
+  let ids = |robots: &[PatronusRobot]| robots.iter().map(|robot| robot.id.clone()).collect::<Vec<_>>();
 
-  let listed = service.robots_for_checks("ultimate", "me").await;
+  // the page loads: no robot
+  *fake.robots.lock().unwrap() = Some(Vec::new());
+  assert_eq!(service.robots("ultimate", "me", None, false, false).await.robots, Vec::new());
+  assert_eq!(fake.list_calls.load(Ordering::SeqCst), 1);
+
+  // `bd safe-push` starts a robot, which no poll of the page knows yet
+  let started = robot_json("started", "RUNNING", "refs/heads/me/virtual/IJPL-1", "2026-10-14T09:30:00Z");
+  *fake.robots.lock().unwrap() = Some(vec![started]);
+  assert_eq!(ids(&service.robots_for_checks("ultimate", "me").await), ["started"]);
+  assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2, "the check asked, within the reuse window of the page's list");
+  assert_eq!(ids(&service.robots_for_action("ultimate", "me").await.unwrap()), ["started"]);
+  assert_eq!(fake.list_calls.load(Ordering::SeqCst), 3, "so does the check of an action");
+
+  // the page's list right after is the one the check fetched
+  assert_eq!(ids(&service.robots("ultimate", "other", None, true, false).await.robots), ["started"]);
+  assert_eq!(fake.list_calls.load(Ordering::SeqCst), 3);
+}
+
+/// A poll that sees a robot change drops the kept full list: the next list of the page asks Patronus instead of
+/// showing the robot as it was, and a full list in flight across the poll is not kept (the generation, as after a
+/// cancel: `a_full_list_in_flight_when_the_robots_changed_is_not_kept`)
+#[tokio::test]
+async fn a_poll_that_sees_a_change_drops_the_kept_full_list() {
+  let (fake, client) = start_fake().await;
+  fake.state_only.store(true, Ordering::SeqCst);
+  let (service, _) = service(client, token("t"));
+  let status_of = |robots: &[PatronusRobot], id: &str| robots.iter().find(|robot| robot.id == id).unwrap().status;
+  let newer = |status: &str| robot_json("newer", status, "refs/heads/me/virtual/IJPL-1", "2026-10-14T09:30:00Z");
+
+  *fake.robots.lock().unwrap() = Some(vec![newer("RUNNING")]);
+  let listed = service.robots("ultimate", "me", None, false, false).await.robots;
   assert_eq!(status_of(&listed, "newer"), PatronusRobotStatus::Running);
+  // the robot finishes; the page's poll sees it
+  *fake.robots.lock().unwrap() = Some(vec![newer("SUCCESS")]);
   let known = [KnownRobotStatus {
     id: "newer".to_string(),
     status: PatronusRobotStatus::Running,
   }];
   assert_eq!(status_of(&service.poll("me", &known).await.robots, "newer"), PatronusRobotStatus::Success);
 
-  let checked = service.robots_for_checks("ultimate", "me").await;
-  assert_eq!(status_of(&checked, "newer"), PatronusRobotStatus::Success);
-  assert_eq!(status_of(&checked, "older"), PatronusRobotStatus::Failure, "the rest of the list stays");
-  assert_eq!(fake.list_calls.load(Ordering::SeqCst), 1, "the list was not asked again");
+  let listed = service.robots("ultimate", "me", None, false, false).await.robots;
+  assert_eq!(status_of(&listed, "newer"), PatronusRobotStatus::Success);
+  assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2, "the list of before the poll is not reused");
+
+  // a poll that sees nothing change keeps the list
+  let known = [KnownRobotStatus {
+    id: "newer".to_string(),
+    status: PatronusRobotStatus::Success,
+  }];
+  assert_eq!(service.poll("me", &known).await.robots, Vec::new());
+  service.robots("ultimate", "me", None, false, false).await;
+  assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2);
 }
 
 /// The robots of a check are a background request: while the requests back off after a failure of Patronus, the check
@@ -321,8 +362,8 @@ async fn the_checks_send_nothing_while_the_requests_back_off() {
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), sent, "no request while backing off");
 }
 
-/// A full list in flight when the robots changed (a cancel in another window) is not kept: it would show the canceled
-/// robot running, and the checks would refuse the push into its branch
+/// A full list in flight when the robots changed (a cancel in another window) is not kept: the page's next list would
+/// show the canceled robot running
 #[tokio::test]
 async fn a_full_list_in_flight_when_the_robots_changed_is_not_kept() {
   let (fake, client) = start_fake().await;
@@ -334,8 +375,8 @@ async fn a_full_list_in_flight_when_the_robots_changed_is_not_kept() {
   service.robots("ultimate", "me", None, false, false).await;
   *fake.robots_hook.lock().unwrap() = None;
 
-  service.robots_for_checks("ultimate", "me").await;
+  service.robots("ultimate", "me", None, false, false).await;
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2, "the list of before the change is not reused");
-  service.robots_for_checks("ultimate", "me").await;
+  service.robots("ultimate", "me", None, false, false).await;
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 2, "the list of after it is");
 }
