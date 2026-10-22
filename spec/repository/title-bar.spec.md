@@ -163,8 +163,9 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   back to ☰ (IntelliJ's `ExpandableMenu`). Sub-windows have none.
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should expand the menu bar in place of ☰, go through the menus, and collapse on Escape`)
 - The items are those of the native menu (`src/lib/main-menu.ts`): File: Sync Branches (Ctrl+R, disabled with the
-  reason of the Sync button), Update Project (Ctrl+T), Auto-sync on Focus (checked), Settings… (Ctrl+,); View: Actual
-  Size (Ctrl+0), Zoom In (Ctrl+=), Zoom Out (Ctrl+-), Activity ([Activity](activity.spec.md)); Help: Getting Started, Install Agent CLI…, Check for
+  reason of the Sync button), Update Project (Ctrl+T), Auto-sync on Focus (checked), Settings… (Ctrl+,); View: Command
+  Palette… (Ctrl+K, [Command Palette](command-palette.spec.md)), Actual Size (Ctrl+0), Zoom In (Ctrl+=), Zoom Out
+  (Ctrl+-), Activity ([Activity](activity.spec.md)); Help: Getting Started, Install Agent CLI…, Check for
   Updates… (a build with the `auto-update` feature, as the native menu: `checkForUpdates` of the title bar), GitHub
   Repository. No Edit menu: the webview's Ctrl+C/V/X/A stay. Each item runs the
   command the native item runs (`runAppCommand`, registered by the window that runs it with `useAppCommand`). The
@@ -182,9 +183,10 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
 - The page handles the keys of the native menu where it is gone, in every window with a custom title bar
   (`useMainMenuKeys`, the physical key, as the native accelerators go by the virtual key: a Cyrillic layout's Ctrl+R
   syncs too): Ctrl+R and Ctrl+T run in the main window
-  (a sub-window sends them there), Ctrl+, opens Settings, also through the main window, the zoom keys zoom all windows
-  one step. They are `preventDefault`ed (WebView2 would reload on Ctrl+R). A window with a native menu leaves them to it.
+  (a sub-window sends them there), Ctrl+, opens Settings and Ctrl+K the command palette, also through the main window,
+  the zoom keys zoom all windows one step. They are `preventDefault`ed (WebView2 would reload on Ctrl+R). A window with a native menu leaves them to it.
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should take the keys of the native menu: Ctrl+R syncs, Ctrl+, opens the settings`, `should leave the keys to the native menu where the window has one`, `should send Sync and Settings from a sub-window to the main window`)
+  [@test] ../../tests/e2e/command-palette/command-palette.spec.ts (`should open from Ctrl+K and from View → Command Palette… of ☰, and run Update Project and Check for Updates…`)
   [@test] ../../tests/e2e/repository/zoom.spec.ts (`should step once per press with the keys the page handles in a custom title bar`)
 
 ### Setting

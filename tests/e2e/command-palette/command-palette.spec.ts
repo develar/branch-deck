@@ -1,0 +1,119 @@
+// @spec spec/repository/command-palette.spec.md
+import type { Page } from "@playwright/test"
+import { expect, test, testWithIssueLinks } from "../fixtures/test-fixtures"
+import { activityPanel, expectActivityOpened } from "../helpers/activity-helpers"
+import { collapseBranch, findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
+import { expectSettingsOpened } from "../helpers/settings-helpers"
+import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
+import { emitTauriEvent, runAndWaitForSync, waitForTauriListener } from "../helpers/sync-helpers"
+import { openMainMenuView, TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
+
+// `issue_links`: 7 branches, ABC-123 and JIRA-456 among them; `behind_upstream`: master is behind origin/master
+
+function palette(page: Page) {
+  return page.getByTestId("command-palette")
+}
+
+function search(page: Page) {
+  return palette(page).getByRole("combobox", { name: "Command or branch" })
+}
+
+/** ⌘K of the native menu (View → Command Palette…), which sends its command to the main window */
+async function openPalette(page: Page): Promise<void> {
+  await waitForTauriListener(page, "open_command_palette")
+  await emitTauriEvent(page, "open_command_palette")
+  await expect(search(page)).toBeFocused()
+}
+
+/** Types `text` and presses Enter on the first option it keeps, whose label must be `label` (its key hint after it) */
+async function runByKeyboard(page: Page, text: string, label: string): Promise<void> {
+  await search(page).fill(text)
+  await expect(palette(page).getByRole("option").first()).toHaveText(new RegExp(`^${label.replace(/[.*+?^$()[\]{}|\\]/g, "\\$&")}`))
+  await page.keyboard.press("Enter")
+  await expect(palette(page)).toHaveCount(0)
+}
+
+testWithIssueLinks.describe("Command palette", () => {
+  testWithIssueLinks("should open from ⌘K of the native menu, list every source and give the focus back on Escape", async ({ page }) => {
+    const row = findBranchRow(page, "ABC-123")
+    await row.focus()
+    await expect(row).toBeFocused()
+    await openPalette(page)
+    // the window comes to the front: ⌘K of a sub-window opens the palette of the main window
+    await expect.poll(() => windowCalls(page)).toContain("set_focus")
+    await expect(palette(page).getByRole("listbox").getByRole("group")).toHaveText([/^Views/, /^Activity/, /^Commands/, /^Branches/])
+    // the key of a command of the window, none for the others
+    await expect(
+      palette(page)
+        .getByRole("option", { name: /Sync Branches/ })
+        .locator("[data-slot=kbd]"),
+    ).toHaveText(["Ctrl", "R"])
+    await expect(palette(page).getByRole("option", { name: "Go to ABC-123" }).locator("[data-slot=kbd]")).toHaveCount(0)
+    await expect(palette(page).getByRole("option", { name: "Go to ABC-123" })).toBeVisible()
+
+    await page.keyboard.press("Escape")
+    await expect(palette(page)).toHaveCount(0)
+    await expect(row).toBeFocused()
+  })
+
+  testWithIssueLinks("should go to a branch: the row expanded, selected and focused", async ({ page }) => {
+    const row = findBranchRow(page, "JIRA-456")
+    await collapseBranch(page, row)
+    await openPalette(page)
+    await runByKeyboard(page, "jira-4", "Go to JIRA-456")
+    await verifyBranchState(row, "open")
+    await expect(row).toHaveAttribute("data-selected", "true")
+    await expect(row).toBeFocused()
+  })
+
+  testWithIssueLinks("should show the branches view", async ({ page }) => {
+    await openPalette(page)
+    await runByKeyboard(page, "branches", "Branches")
+    await expect(findBranchRow(page, "ABC-123")).toBeVisible()
+  })
+
+  testWithIssueLinks("should open the Activity panel with the focus in it from the keyboard, and the Activity window by a click", async ({ page }) => {
+    await openPalette(page)
+    await runByKeyboard(page, "activity panel", "Activity Panel")
+    await expect(activityPanel(page).getByTestId("activity-list")).toBeFocused()
+
+    await openPalette(page)
+    const count = (await getOpenedSubWindows(page)).length
+    await palette(page).getByRole("option", { name: "Activity Window" }).click()
+    expect((await expectActivityOpened(page, count)).data.kind).toBeNull()
+    // the log shows in one place
+    await expect(activityPanel(page)).toHaveCount(0)
+  })
+
+  testWithIssueLinks("should run the commands of the app: Sync Branches, Settings… and Install Agent CLI…", async ({ page }) => {
+    await openPalette(page)
+    await runAndWaitForSync(page, () => runByKeyboard(page, "sync", "Sync Branches"))
+
+    await openPalette(page)
+    await runByKeyboard(page, "settings", "Settings…")
+    await expectSettingsOpened(page, {})
+
+    await openPalette(page)
+    await palette(page).getByRole("option", { name: "Install Agent CLI…" }).click()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Agent CLI installed" })).toBeVisible()
+  })
+})
+
+test.describe("Command palette of a custom title bar", () => {
+  test("should open from Ctrl+K and from View → Command Palette… of ☰, and run Update Project and Check for Updates…", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await useTitleBar(page, { ...TITLE_BARS.gnome, checkForUpdates: true })
+    await setupRepo("behind_upstream")
+    await syncAndWaitForBranches()
+
+    await page.keyboard.press("Control+KeyK")
+    await expect(search(page)).toBeFocused()
+    await runByKeyboard(page, "update", "Update Project")
+    await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
+
+    await openMainMenuView(page)
+    await page.getByRole("menuitem", { name: /Command Palette…/ }).click()
+    await expect(search(page)).toBeFocused()
+    await runByKeyboard(page, "updates", "Check for Updates…")
+    await expect(page.locator("[data-slot=toast]", { hasText: "is up to date" })).toBeVisible()
+  })
+})

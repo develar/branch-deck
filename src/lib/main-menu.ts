@@ -1,5 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener"
-import { BookOpenIcon, CircleArrowUpIcon, GitBranchIcon, HistoryIcon, RefreshCwIcon, SettingsIcon, TerminalIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react"
+import { BookOpenIcon, CircleArrowUpIcon, CommandIcon, GitBranchIcon, HistoryIcon, RefreshCwIcon, SettingsIcon, TerminalIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react"
 import { openActivity } from "@/lib/activity-window"
 import { runAppCommand } from "@/lib/app-commands"
 import type { AppCommand } from "@/lib/app-commands"
@@ -66,7 +66,11 @@ export function mainMenus(state: MainMenuState): MainMenu[] {
       id: "view",
       label: "View",
       mnemonic: "V",
-      groups: [zoomMenuItems(), [{ id: "open_activity", label: "Activity", icon: HistoryIcon, onSelect: () => openActivity() }]],
+      groups: [
+        [{ id: "open_command_palette", label: "Command Palette…", icon: CommandIcon, kbds: ["mod", "k"], onSelect: () => runAppCommand("open_command_palette") }],
+        zoomMenuItems(),
+        [{ id: "open_activity", label: "Activity", icon: HistoryIcon, onSelect: () => openActivity() }],
+      ],
     },
     {
       id: "help",
@@ -97,8 +101,8 @@ export function zoomMenuItems(): MenuItem[] {
 }
 
 /**
- * The command of a key the native menu's accelerator had: Ctrl+R, Ctrl+T, Ctrl+, and the zoom keys (Ctrl+0, Ctrl+=,
- * Ctrl+-). The physical key, as the native accelerators go by the virtual key: a Cyrillic layout's Ctrl+R still syncs
+ * The command of a key the native menu's accelerator had: Ctrl+R, Ctrl+T, Ctrl+,, Ctrl+K and the zoom keys (Ctrl+0,
+ * Ctrl+=, Ctrl+-). The physical key, as the native accelerators go by the virtual key: a Cyrillic layout's Ctrl+R still syncs
  * (and WebView2 doesn't reload). Ctrl+Shift+= is `useZoom`'s other Zoom In key.
  */
 export function matchMainMenuKey(event: Pick<KeyboardEvent, "code" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">): { command: AppCommand; payload?: string } | null {
@@ -112,6 +116,8 @@ export function matchMainMenuKey(event: Pick<KeyboardEvent, "code" | "ctrlKey" |
       return { command: "update_project" }
     case "Comma":
       return { command: "open_settings" }
+    case "KeyK":
+      return { command: "open_command_palette" }
     case "Digit0":
     case "Numpad0":
       return { command: "zoom", payload: "reset" }

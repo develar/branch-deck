@@ -48,8 +48,8 @@ menu items are ours and call `Webview::set_zoom` (WKWebView `pageZoom`, WebView2
 
 ### Menu
 
-- The View menu starts with Actual Size (⌘0, Ctrl+0), Zoom In (⌘+, Ctrl+=) and Zoom Out (⌘−, Ctrl+-), in Safari's
-  order, followed on macOS by Enter Full Screen. The items emit `zoom` with `reset`, `in` or `out` to the main window
+- The View menu has, after Command Palette… ([Command Palette](command-palette.spec.md)), Actual Size (⌘0, Ctrl+0),
+  Zoom In (⌘+, Ctrl+=) and Zoom Out (⌘−, Ctrl+-), in Safari's order, followed on macOS by Enter Full Screen. The items emit `zoom` with `reset`, `in` or `out` to the main window
   only, so one press is one step for all windows.
   [@test] ../../tests/e2e/repository/zoom.spec.ts (`should step through the levels with Zoom In, Zoom Out and Actual Size`)
 - Zoom In shows ⌘+ on macOS, as in Safari and Slack. Tauri builds accelerators from key codes only (`CmdOrCtrl+=`),

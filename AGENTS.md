@@ -512,6 +512,7 @@ Each feature's contract is its spec (paths under `spec/`, without `.spec.md`); r
 | Activity log, its side panel and its window | `repository/activity` | `src/stores/activity.ts`, `src/components/repository/ActivityPanel.tsx`, `src/pages/ActivityPage.tsx`, `src/lib/activity-window-link.ts` |
 | Commit files, diffs, the commit review (`D`), the tree-sitter highlighting | `commit/commit-files`, `commit/commit-review` ([Diff View](docs/design/diff-view.md)) | `crates/file-diffs/`, `crates/code-symbols/src/highlight/`, `src/components/diff/` |
 | Go to Declaration and Find Usages in a review (⌘-click, ⌘B, ⌥F7, Back), outside it through accio | `commit/symbol-navigation` | `crates/code-symbols/src/navigate.rs`, `crates/file-diffs/src/declarations.rs`, `crates/file-diffs/src/usages.rs`, `crates/file-diffs/src/accio.rs`, `src/hooks/useSymbolNavigation.ts`, `src/components/diff/DeclarationFileView.tsx` |
+| Command palette (⌘K: the views, Activity, the commands of the app, Go to a branch) | `repository/command-palette` | `src/components/command-palette/CommandPalette.tsx`, `src/lib/command-palette.ts` |
 | Title bar and main menu | `repository/title-bar` | `src-tauri/src/title_bar.rs`, `src/components/shared/WindowTitleBar.tsx` |
 | Your Turn (review requests, the pull request review) | `repository/review-requests`, `repository/robots-indicator` | `src/components/review/` |
 | Settings window | `repository/settings` | `src/components/settings/`, `crates/sync-core/src/repository_config.rs` |
@@ -566,6 +567,7 @@ src/
 │   ├── files/       # The directory tree of changed files
 │   ├── review/      # Branch, range and pull request reviews
 │   ├── ai/          # AI branch name suggestions (Claude Code)
+│   ├── command-palette/ # The command palette of the main window (⌘K)
 │   └── settings/    # The pages of the Settings window and their rows
 ├── hooks/           # React hooks (useX.ts)
 ├── stores/          # zustand stores; settings/ holds persisted, cross-window settings

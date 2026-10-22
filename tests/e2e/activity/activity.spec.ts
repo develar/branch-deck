@@ -18,7 +18,7 @@ import { confirmForcePush, routePush } from "../helpers/push-helpers"
 import { multiSelectCommit, selectCommit } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, waitForTauriListener } from "../helpers/sync-helpers"
-import { TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
+import { openMainMenuView, TITLE_BARS, useTitleBar, windowCalls } from "../helpers/title-bar-helpers"
 import { waitForStorePersistence } from "../helpers/wait-helpers"
 
 // `issue_links`: 7 branches, none pushed, ABC-123 has 4 commits. `behind_upstream` / `update_conflict`: master is behind
@@ -272,11 +272,7 @@ test.describe("Activity of updates", () => {
     await page.getByTestId("update-project-button").click()
     await expect(page.getByText("Updated master: rebased 1 commit onto origin/master")).toBeVisible()
 
-    await page.getByTestId("main-menu-button").click()
-    // File opens first; the open menu has the focus, → goes to View
-    await expect(page.getByRole("menuitem", { name: /Sync Branches/ })).toBeVisible()
-    await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[role=menu]") !== null)).toBe(true)
-    await page.keyboard.press("ArrowRight")
+    await openMainMenuView(page)
     await page.getByRole("menuitem", { name: "Activity" }).click()
     await expect(page.getByTestId("main-menu")).toHaveCount(0)
     const panel = activityPanel(page)

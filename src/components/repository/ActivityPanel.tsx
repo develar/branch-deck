@@ -6,8 +6,9 @@ import { Card } from "@/components/ui/card"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { ActivityLogActions } from "@/components/repository/ActivityLog"
 import { ActivityPanelContent } from "@/components/repository/ActivityPanelContent"
+import { openActivityInWindow } from "@/hooks/useActivityPanel"
 import type { ActivityWindowState } from "@/lib/activity-window"
-import { buildActivityState, openActivityWindow, subscribeActivityState } from "@/lib/activity-window-link"
+import { buildActivityState, subscribeActivityState } from "@/lib/activity-window-link"
 import { notifyError } from "@/lib/errors"
 import { canUndoActivity, undoActivity } from "@/stores/activity"
 import { closeActivityPanel, useActivityPanelOpen } from "@/stores/activity-panel"
@@ -111,15 +112,7 @@ export function ActivityPanel() {
     <Card ref={root} role="complementary" aria-label="Activity" className="h-full min-h-0 gap-0 py-0" data-testid="activity-panel" onFocus={onFocus} onKeyDown={onKeyDown}>
       <div className="flex h-10 shrink-0 items-center gap-1 pr-2 pl-4">
         <h2 className="min-w-0 flex-1 truncate text-sm font-medium">Activity</h2>
-        <Button
-          size="xs"
-          variant="ghost"
-          data-testid="activity-panel-window"
-          onClick={() => {
-            closeActivityPanel()
-            openActivityWindow(kind)
-          }}
-        >
+        <Button size="xs" variant="ghost" data-testid="activity-panel-window" onClick={() => openActivityInWindow(kind)}>
           <AppWindowIcon data-icon="inline-start" />
           Open in Window
         </Button>

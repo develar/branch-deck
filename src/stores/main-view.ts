@@ -1,8 +1,22 @@
+import type { LucideIcon } from "lucide-react"
+import { ListTreeIcon } from "lucide-react"
 import { useStore } from "zustand"
 import { createStore } from "zustand/vanilla"
 
 /** The views of the main window: the branch tables, the statistics of the landing into master */
 export type MainView = "branches" | "landing"
+
+/** A view as the surfaces that switch to it name it (the command palette) */
+export interface MainViewEntry {
+  readonly view: MainView
+  readonly label: string
+  readonly icon: LucideIcon
+  /** Its key in the main window (the accelerator of its menu item) */
+  readonly kbds?: readonly string[]
+}
+
+/** The views the window has, in their order: a view joins the surfaces that switch to it by its entry here */
+export const MAIN_VIEWS: readonly MainViewEntry[] = [{ view: "branches", label: "Branches", icon: ListTreeIcon }]
 
 interface MainViewState {
   view: MainView

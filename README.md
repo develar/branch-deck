@@ -147,7 +147,8 @@ publisher: choose More info → Run anyway.
   [unapply](spec/branch/unapply.spec.md), [activity](spec/repository/activity.spec.md)).
 - **At home next to IntelliJ**: the Islands colours and density, light and dark, the toolbar in the title bar, issue
   links from the IDE's issue navigation (`.idea/vcs.xml`), zoom from 67% to 150%, and a Settings window with a page
-  per subject ([settings](spec/repository/settings.spec.md)). Signed in to YouTrack, an issue key shows the issue on
+  per subject ([settings](spec/repository/settings.spec.md)); ⌘K finds a branch, a view or a command
+  ([command palette](spec/repository/command-palette.spec.md)). Signed in to YouTrack, an issue key shows the issue on
   hover and marks it fixed once its work landed ([YouTrack](spec/repository/youtrack.spec.md)).
 
 ## Agent CLI

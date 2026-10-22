@@ -1,0 +1,92 @@
+import type { LucideIcon } from "lucide-react"
+import { AppWindowIcon, GitBranchIcon, HistoryIcon } from "lucide-react"
+import { mainMenus } from "@/lib/main-menu"
+import type { MainMenuState } from "@/lib/main-menu"
+import { findMenuItem, FROM_MENU } from "@/lib/menu"
+import type { MainViewEntry } from "@/stores/main-view"
+
+/*
+ * The command palette of the main window (⌘K, spec/repository/command-palette.spec.md): a way to where the user wants
+ * to be and to the commands of the app, not to the actions of a branch. Its sources, in their order: the views of the
+ * window (`MAIN_VIEWS`, which a view joins by its entry), Activity, the commands of the app's menu (the items of
+ * `mainMenus`, so the palette offers them as the menu does) and "Go to <branch>" for every branch of the table.
+ */
+
+export type PaletteGroup = "Views" | "Activity" | "Commands" | "Branches"
+
+export const PALETTE_GROUPS: readonly PaletteGroup[] = ["Views", "Activity", "Commands", "Branches"]
+
+export interface PaletteCommand {
+  /** Namespaced by its source (`view:branches`, `activity:panel`, `app:sync_branches`, `branch:auth`): one entry per id */
+  readonly id: string
+  readonly label: string
+  readonly group: PaletteGroup
+  readonly icon?: LucideIcon
+  /** The key of the command anywhere in the window; a command without a global key has none */
+  readonly kbds?: readonly string[]
+  readonly disabled?: boolean
+  /** Why it is disabled */
+  readonly description?: string
+  /** Runs once the palette closed and gave the focus back */
+  readonly run: () => void
+}
+
+/** What the commands of the palette are built from, and what they run */
+export interface PaletteSources {
+  readonly views: readonly MainViewEntry[]
+  readonly showView: (entry: MainViewEntry) => void
+  /** The state of the main menu (Sync and its reason, whether the build updates itself) */
+  readonly menu: MainMenuState
+  /** The branches of the table, in its order */
+  readonly branches: readonly string[]
+  readonly toggleActivityPanel: () => void
+  readonly openActivityWindow: () => void
+  readonly goToBranch: (name: string) => void
+}
+
+/** The commands of the app's menu the palette offers: what the user does with the app, never a view setting */
+const MENU_COMMANDS = ["sync_branches", "update_project", "open_settings", "install_agent_cli", "check_for_updates"] as const
+
+/** The commands of the palette, in the order of their groups; an id a source gave before is left out */
+export function paletteCommands(sources: PaletteSources): PaletteCommand[] {
+  const menus = mainMenus(sources.menu).map(menu => menu.groups)
+  const commands: PaletteCommand[] = [
+    ...sources.views.map(entry => ({
+      id: `view:${entry.view}`,
+      label: entry.label,
+      group: "Views" as const,
+      icon: entry.icon,
+      ...(entry.kbds !== undefined && { kbds: entry.kbds }),
+      run: () => sources.showView(entry),
+    })),
+    { id: "activity:panel", label: "Activity Panel", group: "Activity", icon: HistoryIcon, run: sources.toggleActivityPanel },
+    { id: "activity:window", label: "Activity Window", group: "Activity", icon: AppWindowIcon, run: sources.openActivityWindow },
+    ...MENU_COMMANDS.flatMap(id => {
+      const item = menus.map(groups => findMenuItem(groups, id)).find(found => found !== undefined)
+      if (item === undefined) {
+        return []
+      }
+      return [
+        {
+          id: `app:${id}`,
+          label: item.label,
+          group: "Commands" as const,
+          ...(item.icon !== undefined && { icon: item.icon }),
+          ...(item.kbds !== undefined && { kbds: item.kbds }),
+          ...(item.disabled === true && { disabled: true }),
+          ...(item.description !== undefined && { description: item.description }),
+          run: () => item.onSelect(FROM_MENU),
+        },
+      ]
+    }),
+    ...sources.branches.map(name => ({ id: `branch:${name}`, label: `Go to ${name}`, group: "Branches" as const, icon: GitBranchIcon, run: () => sources.goToBranch(name) })),
+  ]
+  const seen = new Set<string>()
+  return commands.filter(command => {
+    if (seen.has(command.id)) {
+      return false
+    }
+    seen.add(command.id)
+    return true
+  })
+}

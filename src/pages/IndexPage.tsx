@@ -4,6 +4,7 @@ import { useDefaultLayout } from "react-resizable-panels"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { BranchCreator } from "@/components/branch/BranchCreator"
 import { DragTargetBar } from "@/components/branch/DragTargetBar"
+import { CommandPalette } from "@/components/command-palette/CommandPalette"
 import { Container } from "@/components/layout/Container"
 import { ActivityPanel } from "@/components/repository/ActivityPanel"
 import { ConfigurationHeader } from "@/components/repository/ConfigurationHeader"
@@ -124,6 +125,7 @@ export function IndexPage() {
           )}
         </ResizablePanelGroup>
       </div>
+      <CommandPalette />
       <Suspense fallback={null}>{isCreatePullRequestLoaded && <CreatePullRequestDialog />}</Suspense>
     </div>
   )

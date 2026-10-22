@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test"
+import { expect } from "@playwright/test"
 import type { TitleBar } from "../../../src/lib/title-bar"
 
 /** What the backend decides on each platform (`title_bar_script` in src-tauri/src/title_bar.rs) */
@@ -42,4 +43,12 @@ export async function useTitleBar(page: Page, titleBar: TitleBar): Promise<void>
 /** The window actions the page asked for (minimize, toggle_maximize, show_window_menu…), in order */
 export function windowCalls(page: Page): Promise<string[]> {
   return page.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls ?? [])
+}
+
+/** Opens View of ☰ (a custom title bar): File opens first, the open menu has the focus, → goes to View */
+export async function openMainMenuView(page: Page): Promise<void> {
+  await page.getByTestId("main-menu-button").click()
+  await expect(page.getByRole("menuitem", { name: /Sync Branches/ })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[role=menu]") !== null)).toBe(true)
+  await page.keyboard.press("ArrowRight")
 }

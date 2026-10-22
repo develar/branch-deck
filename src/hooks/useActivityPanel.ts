@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import type { RefObject } from "react"
 import { useAppCommand } from "@/hooks/useAppCommand"
-import type { ActivityTarget } from "@/lib/activity-window"
+import type { ActivityFilter, ActivityTarget } from "@/lib/activity-window"
 import { openActivityWindow } from "@/lib/activity-window-link"
 import { isKeyboardInput, watchInputModality } from "@/lib/input-modality"
 import { MIN_ISLANDS_WIDTH } from "@/lib/zoom"
@@ -11,6 +11,12 @@ import { useAppSettings } from "@/stores/settings/appSettings"
 
 /** The narrowest Activity side panel: its search and a line of an entry */
 export const ACTIVITY_PANEL_MIN_WIDTH = 320
+
+/** Opens Activity in its window at the chip of `kind`, the side panel closed: the log shows in one place */
+export function openActivityInWindow(kind: ActivityFilter | null): void {
+  closeActivityPanel()
+  openActivityWindow(kind)
+}
 
 /** The panel fits beside the islands, which keep their minimum width (`MIN_ISLANDS_WIDTH`) */
 function fits(width: number): boolean {
@@ -49,8 +55,7 @@ export function useActivityPanel(area: RefObject<HTMLElement | null>): boolean {
     } else if (hasRoom) {
       openActivityPanel(kind, target !== null && isKeyboardInput())
     } else {
-      closeActivityPanel()
-      openActivityWindow(kind)
+      openActivityInWindow(kind)
     }
   })
   return isOpen && hasRepository && width !== null && fits(width)
