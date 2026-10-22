@@ -29,16 +29,7 @@ pub async fn push_branch(
   params: PushBranchParams,
   progress: Channel<TransferProgress>,
 ) -> Result<PushOutcome, CommandError> {
-  let target = (params.repository_path.clone(), params.branch_prefix.clone());
-  operation(guarded(
-    &git_executor,
-    &repository_state,
-    &patronus,
-    &views,
-    target,
-    move |git, common_dir, views, robots| push_branch_guarded(git, common_dir, views, robots, &params, &mut |push_progress| send_progress(&progress, push_progress)),
-  ))
-  .await
+  operation(guarded(&git_executor, &repository_state, &patronus, &views, params, progress, push_branch_guarded)).await
 }
 
 /// Pushes the branches of a stack to the remote in one atomic push, all of them or none, each replacing its remote
@@ -57,33 +48,55 @@ pub async fn push_branches(
   params: PushBranchesParams,
   progress: Channel<TransferProgress>,
 ) -> Result<PushBranchesOutcome, CommandError> {
-  let target = (params.repository_path.clone(), params.branch_prefix.clone());
-  operation(guarded(
-    &git_executor,
-    &repository_state,
-    &patronus,
-    &views,
-    target,
-    move |git, common_dir, views, robots| push_guarded(git, common_dir, views, robots, &params, &mut |push_progress| send_progress(&progress, push_progress)),
-  ))
-  .await
+  operation(guarded(&git_executor, &repository_state, &patronus, &views, params, progress, push_guarded)).await
 }
 
-/// A guarded push of the repository and branch prefix of `target`: the user's robots as Rust reads them
-/// (`robots_for_checks`), then, in a blocking step, its `$GIT_COMMON_DIR` (where the lock lives) and `push`
-async fn guarded<T: Send + 'static>(
+/// The parameters of a push name the repository and the branch prefix whose robots and views the guard reads
+trait PushTarget: Send + 'static {
+  fn repository_path(&self) -> &str;
+  fn branch_prefix(&self) -> &str;
+}
+
+impl PushTarget for PushBranchParams {
+  fn repository_path(&self) -> &str {
+    &self.repository_path
+  }
+
+  fn branch_prefix(&self) -> &str {
+    &self.branch_prefix
+  }
+}
+
+impl PushTarget for PushBranchesParams {
+  fn repository_path(&self) -> &str {
+    &self.repository_path
+  }
+
+  fn branch_prefix(&self) -> &str {
+    &self.branch_prefix
+  }
+}
+
+/// A guard of `push_guard`: the lock, the checks and the push of the parameters, reporting its progress
+type Guard<P, T> = fn(&GitCommandExecutor, &Path, &RepositoryViews, Vec<PatronusRobot>, &P, &mut dyn FnMut(TransferProgress)) -> anyhow::Result<T>;
+
+/// The whole body of a push command, so the command is one operation: the user's robots as Rust reads them
+/// (`robots_for_checks`), then, in a blocking step, the `$GIT_COMMON_DIR` of the repository (where the lock lives) and
+/// `push`, its progress sent to `progress`
+async fn guarded<P: PushTarget, T: Send + 'static>(
   git_executor: &GitCommandExecutor,
   repository_state: &RepositoryStateCache,
   patronus: &PatronusState,
   views: &RepositoryViews,
-  (repository_path, branch_prefix): (String, String),
-  push: impl FnOnce(&GitCommandExecutor, &Path, &RepositoryViews, Vec<PatronusRobot>) -> anyhow::Result<T> + Send + 'static,
+  params: P,
+  progress: Channel<TransferProgress>,
+  push: Guard<P, T>,
 ) -> Result<T, CommandError> {
-  let robots = patronus.robots_for_checks(git_executor, &repository_path, &branch_prefix).await;
+  let robots = patronus.robots_for_checks(git_executor, params.repository_path(), params.branch_prefix()).await;
   let (git, state, views) = (git_executor.clone(), repository_state.clone(), views.clone());
   run_blocking(move || {
-    let common_dir = state.git_common_dir(&git, &repository_path)?;
-    push(&git, &common_dir, &views, robots)
+    let common_dir = state.git_common_dir(&git, params.repository_path())?;
+    push(&git, &common_dir, &views, robots, &params, &mut |push_progress| send_progress(&progress, push_progress))
   })
   .await
 }
