@@ -82,7 +82,8 @@ use zoom::{MIN_WINDOW_HEIGHT, apply_zoom, min_window_width, stored_zoom};
 #[cfg(feature = "devtools")]
 use tauri_plugin_log as _;
 
-/// The commands of the app, for the invoke handler and the TypeScript bindings
+/// The commands of the app, for the invoke handler and the TypeScript bindings (`src/lib/bindings.ts`, which
+/// `bindings_test` exports, `UPDATE_BINDINGS=1` writes)
 fn specta_builder() -> Builder<tauri::Wry> {
   // Unified serde mode: our IPC types are one-directional, so separate `_Serialize`/`_Deserialize`
   // aliases only add noise (and type `Channel<T>` arguments with the wrong phase)
@@ -201,13 +202,6 @@ fn specta_builder() -> Builder<tauri::Wry> {
   ])
 }
 
-/// Write the TypeScript bindings of `builder` (`src/lib/bindings.ts`); a debug run and `bindings_test` call it, a release
-/// build has no caller
-#[cfg(any(debug_assertions, test))]
-fn export_bindings(builder: &Builder<tauri::Wry>, path: &std::path::Path) -> Result<(), specta_typescript::Error> {
-  builder.export(specta_typescript::Typescript::default().header("// @ts-nocheck\n"), path)
-}
-
 /// What the window-state plugin restores: the size, the position, maximized and fullscreen; not the decorations (the page
 /// draws the title bar) and not the visibility (`finish_title_bar` shows a window)
 fn window_state_flags() -> StateFlags {
@@ -220,10 +214,6 @@ pub fn run() {
   // the tokens of the sign-ins in the login keychain on macOS (`sync_utils::secret_store`)
   sync_utils::secret_store::enable_keychain();
   let ts_builder = specta_builder();
-
-  // only export on non-release builds
-  #[cfg(debug_assertions)]
-  export_bindings(&ts_builder, std::path::Path::new("../src/lib/bindings.ts")).expect("Failed to export TypeScript bindings");
 
   #[cfg(feature = "devtools")]
   let builder = tauri::Builder::default().plugin(tauri_plugin_devtools::init());

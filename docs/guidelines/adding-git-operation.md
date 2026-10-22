@@ -37,8 +37,8 @@ modules by area; the layers are the
   as `held_lock` only when bd writes more under it. No git of its own.
 - **The app** (`src-tauri/src/commands/<op>.rs`): `#[tauri::command]` `#[specta::specta]` that calls
   `run_blocking(move || <op>_core(..))`, registered in `src-tauri/src/lib.rs`, `src/lib/bindings.ts` regenerated
-  (`bindings_test.rs`); the E2E server routes the command to the same core (`crates/test-server/src/lib.rs`,
-  `tauri_command_bridge.rs`).
+  (`UPDATE_BINDINGS=1` on `the_bindings_are_what_the_export_writes`, `bindings_test.rs`); the E2E server routes the
+  command to the same core (`crates/test-server/src/lib.rs`, `tauri_command_bridge.rs`).
 - **Same commit**: the spec, the flow's section in [Git Operations](../design/git-operations.md), and a test of the
   operation in `process_budget_test.rs` (`crates/sync-core/src/` for a core, of `history-rewrite` too;
   `crates/bd-cli/src/` for a `bd` command)

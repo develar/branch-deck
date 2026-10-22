@@ -101,7 +101,7 @@ the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the w
 |---|---|
 | Rust | `pnpm lint:backend`, then `cargo nextest run --workspace` (`-p <crate>` or `-E 'test(/…/)'` while iterating) |
 | a git operation | also its test in `process_budget_test.rs` and the scan tests (`worktree_safety_test.rs`, `git_usage_scan_test.rs`) |
-| a Tauri command or a type it passes | `src/lib/bindings.ts`: a debug run of the app writes it (`pnpm tauri dev`, or `target/debug/branch-deck` started in `src-tauri/` for a few seconds); `the_bindings_are_what_the_export_writes` fails on a stale one |
+| a Tauri command or a type it passes | `src/lib/bindings.ts`: `UPDATE_BINDINGS=1 cargo nextest run -p branch-deck -E 'test(/the_bindings_are_what_the_export_writes/)'` writes it, headless; without the variable the test fails on a stale one |
 | frontend | `pnpm lint:frontend`, `pnpm test:unit`, `pnpm e2e`; `pnpm e2e-up` when the HTML changes, its snapshot diff reviewed like code |
 | code anywhere | `pnpm lint:cpd`: fix a clone with a helper, constant or fixture; `// jscpd:ignore-start` / `// jscpd:ignore-end` only for an intentional duplication, with the reason in the comment |
 | a spec, a doc or a test title | `pnpm lint:specs`: every `[@test]` link a line of its own, naming tests that exist |
@@ -113,7 +113,8 @@ See `package.json` for the full list of scripts.
 
 ```bash
 pnpm install              # Install dependencies
-pnpm run tauri dev        # The full app (frontend + backend); a debug run writes src/lib/bindings.ts
+pnpm run tauri dev        # The full app (frontend + backend)
+UPDATE_BINDINGS=1 cargo nextest run -p branch-deck -E 'test(/the_bindings_are_what_the_export_writes/)'  # Write src/lib/bindings.ts
 pnpm dev                  # Only the Vite frontend (port 1420)
 pnpm build                # The frontend into dist/ (E2E global setup runs it)
 pnpm install-app          # Unsigned release build of the .app, copied to /Applications (macOS)
@@ -567,7 +568,7 @@ src/
 └── main.tsx         # App entry (store handlers, router)
 src-tauri/src/
 ├── commands/        # Tauri commands
-├── lib.rs           # Command registration, the bindings export of a debug run
+├── lib.rs           # Command registration (`specta_builder`, exported to bindings.ts by bindings_test.rs)
 └── …                # title_bar.rs, menu.rs, zoom.rs, …
 crates/
 ├── git-executor/    # GitCommandExecutor: the one place git starts; the scan tests
