@@ -160,7 +160,7 @@ testWithIssueLinks.describe("Activity", () => {
 
 testWithIssueLinks.describe("Activity side panel", () => {
   testWithIssueLinks("should toggle the side panel from the header button, show a branch from it, and remember it open", async ({ page }) => {
-    await routePush(page, {})
+    // a real push, to the template's own origin
     const row = findBranchRow(page, "ABC-123")
     await getPushButton(row).click()
     await expectNothingToPush(row)
@@ -191,8 +191,10 @@ testWithIssueLinks.describe("Activity side panel", () => {
   })
 
   testWithIssueLinks("should take the focus into the panel only when the keyboard opened it, and give it back on Escape", async ({ page }) => {
-    await routePush(page, {})
-    await getPushButton(findBranchRow(page, "feature-auth")).click()
+    // a real push, to the template's own origin
+    const row = findBranchRow(page, "feature-auth")
+    await getPushButton(row).click()
+    await expectNothingToPush(row)
     const panel = activityPanel(page)
 
     // a click: the focus stays on the button, so Escape is not the panel's
