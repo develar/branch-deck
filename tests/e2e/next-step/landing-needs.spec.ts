@@ -1,16 +1,15 @@
 // @spec spec/branch/next-step.spec.md
 import type { Page } from "@playwright/test"
-import type { PatronusStartOptions } from "../../../src/lib/bindings"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
-import { availableRobots, robot } from "../helpers/patronus-helpers"
+import { availableRobots, expectPatronusStarts, startRequest } from "../helpers/patronus-helpers"
 import { routePush } from "../helpers/push-helpers"
 import { openSafePushWithKey, popoverStart, slotSafePush } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
+import type { SetupRepoOptions } from "../helpers/setup-options"
 import { runAndWaitForSync } from "../helpers/sync-helpers"
-import { routeCommand } from "../helpers/wait-helpers"
-
-const START_OPTIONS: PatronusStartOptions = { targetBranch: "master", supported: true, profiles: [], emergencyProfiles: [], defaultProfileId: null }
+import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { recordCommand } from "../helpers/wait-helpers"
 
 /** The step of the row's slot */
 function step(page: Page, branchName: string) {
@@ -28,8 +27,12 @@ async function depths(page: Page): Promise<string[]> {
  * on; ui-perf-nightly is built on lane-run. Synced, the landing needs computed in the background: both say what their
  * Safe Push needs before any press, stills-codec needs nothing
  */
-async function setupNeeds(page: Page, setupRepo: (template: string, options: { patronus: unknown }) => Promise<unknown>, syncAndWaitForBranches: () => Promise<unknown>) {
-  await setupRepo("landing_needs", { patronus: availableRobots() })
+async function setupNeeds(
+  page: Page,
+  setupRepo: (template: string, options: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<unknown>,
+): Promise<TestRepositoryBuilder> {
+  const repo = await setupRepo("landing_needs", { patronus: availableRobots() })
   await syncAndWaitForBranches()
   for (const name of ["lane-run", "ui-perf-nightly"]) {
     await expect(step(page, name)).toHaveAttribute("data-step", "needsBranch")
@@ -37,6 +40,7 @@ async function setupNeeds(page: Page, setupRepo: (template: string, options: { p
   }
   await expect(slotSafePush(page, "stills-codec")).toHaveText("Safe Push")
   expect(await depths(page)).toEqual(["stills-codec@0", "lane-run@0", "ui-perf-nightly@1"])
+  return repo
 }
 
 /** lane-run stands on stills-codec, and its Safe Push lands both: nothing is needed any more */
@@ -72,7 +76,6 @@ test.describe("Landing needs", () => {
 
   test("should say in the Safe Push popover why the build fails before the start, and stack the branch from it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupNeeds(page, setupRepo, syncAndWaitForBranches)
-    await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
 
     const popover = await openSafePushWithKey(page, "ui-perf-nightly")
     const needs = popover.getByTestId("safe-push-landing-needs")
@@ -88,9 +91,8 @@ test.describe("Landing needs", () => {
   })
 
   test("should start anyway from the Safe Push popover with the override of what refuses it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupNeeds(page, setupRepo, syncAndWaitForBranches)
-    await routeCommand(page, "get_patronus_start_options", () => START_OPTIONS)
-    const starts = await routeCommand(page, "start_patronus_robot", () => robot("lane-run", "started-robot", { sourceRevision: null }))
+    const repo = await setupNeeds(page, setupRepo, syncAndWaitForBranches)
+    const starts = await recordCommand(page, "start_patronus_robot")
     const pushes = await routePush(page, {})
 
     await openSafePushWithKey(page, "lane-run")
@@ -99,6 +101,8 @@ test.describe("Landing needs", () => {
     // the gate of the start and the start command get the override; nothing else refused it
     await expect(page.locator("[data-slot=toast]", { hasText: "Safe Push started" })).toBeVisible()
     expect(starts).toEqual([expect.objectContaining({ branchName: "lane-run", allow: { allowDangling: false, allowMissing: true } })])
+    // Patronus got the start of lane-run, past the gate that refused it
+    await expectPatronusStarts(repo, [startRequest("lane-run")])
     expect(pushes.map(push => push.branchName)).toEqual(["lane-run"])
   })
 })
