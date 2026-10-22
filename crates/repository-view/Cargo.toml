@@ -8,6 +8,7 @@ license.workspace = true
 # the table of a sync and the Patronus section, one rule over the content walks of sync-core
 [dependencies]
 sync-core = { path = "../sync-core" }
+history-rewrite = { path = "../history-rewrite" }
 domain-types = { path = "../domain-types" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
@@ -15,6 +16,7 @@ object-cache = { path = "../object-cache" }
 sync-utils = { path = "../sync-utils" }
 moka = { workspace = true, features = ["sync"] }
 tracing.workspace = true
+anyhow.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true

@@ -4818,9 +4818,11 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "repository-view"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "domain-types",
  "git-executor",
  "git-ops",
+ "history-rewrite",
  "moka",
  "object-cache",
  "pretty_assertions",

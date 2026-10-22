@@ -96,30 +96,39 @@ pub fn push_branch(
   not_built: &HashMap<String, BlockReason>,
   on_progress: &mut dyn FnMut(TransferProgress),
 ) -> Result<PushOutcome> {
-  let stack = PushBranchesParams {
-    repository_path: params.repository_path.clone(),
-    branch_prefix: params.branch_prefix.clone(),
-    my_email: params.my_email.clone(),
-    baseline_branch: params.baseline_branch.clone(),
-    branches: vec![StackPushBranch {
-      branch_name: params.branch_name.clone(),
-      parent_branch: params.parent_branch.clone(),
-      expected_remote: params.expected_remote.clone(),
-      tip: params.tip.clone(),
-      whole_stack: false,
-      unapplied: false,
-    }],
-  };
-  let (remote_statuses, moved) = match push_branches(git_executor, &stack, not_built, on_progress)? {
-    PushBranchesOutcome::Pushed { remote_statuses } => (remote_statuses, false),
-    PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => (remote_statuses, true),
-  };
-  let remote_status = remote_statuses.into_iter().next().context("No remote status of the pushed branch")?;
-  Ok(if moved {
-    PushOutcome::RemoteMoved { remote_status }
-  } else {
-    PushOutcome::Pushed { remote_status }
-  })
+  PushOutcome::of_stack(push_branches(git_executor, &params.as_stack(), not_built, on_progress)?)
+}
+
+impl PushBranchParams {
+  /// The stack push of this one branch (`push_branches`)
+  pub fn as_stack(&self) -> PushBranchesParams {
+    PushBranchesParams {
+      repository_path: self.repository_path.clone(),
+      branch_prefix: self.branch_prefix.clone(),
+      my_email: self.my_email.clone(),
+      baseline_branch: self.baseline_branch.clone(),
+      branches: vec![StackPushBranch {
+        branch_name: self.branch_name.clone(),
+        parent_branch: self.parent_branch.clone(),
+        expected_remote: self.expected_remote.clone(),
+        tip: self.tip.clone(),
+        whole_stack: false,
+        unapplied: false,
+      }],
+    }
+  }
+}
+
+impl PushOutcome {
+  /// What the stack push of one branch (`PushBranchParams::as_stack`) did to it
+  pub fn of_stack(outcome: PushBranchesOutcome) -> Result<Self> {
+    let (remote_statuses, moved) = match outcome {
+      PushBranchesOutcome::Pushed { remote_statuses } => (remote_statuses, false),
+      PushBranchesOutcome::RemoteMoved { remote_statuses, .. } => (remote_statuses, true),
+    };
+    let remote_status = remote_statuses.into_iter().next().context("No remote status of the pushed branch")?;
+    Ok(if moved { Self::RemoteMoved { remote_status } } else { Self::Pushed { remote_status } })
+  }
 }
 
 /// One branch of a stack push (`PushBranchesParams`)

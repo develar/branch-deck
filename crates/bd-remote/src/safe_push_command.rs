@@ -65,7 +65,7 @@ use sync_core::landing_gate::check_landing_gate;
 use sync_core::parked::parked_state;
 use sync_core::patronus::{SpaceRepository, target_branch_of};
 use sync_core::patronus_command::{post_patronus_command, read_patronus_command_reply};
-use sync_core::patronus_start::{allows_push_mode, is_push_into_robot_risky, push_mode_name};
+use sync_core::patronus_start::{allows_push_mode, is_push_into_robot_risky, join_names, push_mode_name};
 use sync_core::pull_request_create::{CreatePullRequestParams, create_pull_request as core_create_pull_request};
 use sync_core::pull_requests::{GitHubRepository, GitHubWriteError, failure_message, list_pull_requests};
 use sync_core::push::{LeasedBranch, LeasedPush, PushTarget, push_leased};
@@ -2102,14 +2102,5 @@ fn alone_build(context: &RepoContext, session: &CheckSession, name: &str, parent
         message,
       }
     }
-  }
-}
-
-/// "auth", "auth and login", "auth, login and oauth"
-pub(crate) fn join_names(names: &[String]) -> String {
-  match names {
-    [] => String::new(),
-    [only] => only.clone(),
-    [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
   }
 }

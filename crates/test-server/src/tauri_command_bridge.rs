@@ -26,10 +26,13 @@ use file_diffs::model::{
 };
 use file_diffs::service::FileDiffs;
 use git_ops::commit_files::{CommitFiles, DiffSubject, GetCommitFilesParams, GetCommitsFilesParams, read_commit_files_cached, read_diff_files};
+use git_ops::revs::repository_dirs;
 use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::RewriteOptions;
 use history_rewrite::reword::{RewordRequest, RewordResult, reword_request_core};
 use object_cache::cache::ObjectCache;
+use repository_view::push_guard::{push_branch_guarded, push_guarded};
+use repository_view::views::RepositoryViews;
 use serde::Deserialize;
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -648,31 +651,48 @@ pub async fn check_target_conflict(
   .await
 }
 
-/// The app's push of one branch, on the same core, refused as the app's command refuses a branch the last sync did not
-/// build. A test of a push answers it in the page (`routePush`) unless it tests that refusal
+/// The app's push of one branch, through the same guarded push (`push_guard`: the repository lock, the refusals of
+/// parked, landed and held branches on the robots of the fake Patronus, then the core). A test of a push answers it in
+/// the page (`routePush`) unless it tests the push itself
 pub async fn push_branch(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::push::PushBranchParams>) -> CommandResult<sync_core::push::PushOutcome> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  let not_built = state.repository_views.not_built(&params.repository_path, &params.branch_prefix);
+  let (git_executor, views, robots) = push_inputs(&state, &params.repository_path, &params.branch_prefix).await?;
   run_command("push the branch", move || {
-    let not_built = not_built.ok_or_else(|| anyhow::anyhow!(sync_core::push::NOT_SYNCED_YET))?;
-    sync_core::push::push_branch(&git_executor, &params, &not_built, &mut |_| {})
+    let common_dir = git_common_dir(&git_executor, &params.repository_path)?;
+    push_branch_guarded(&git_executor, &common_dir, &views, robots, &params, &mut |_| {})
   })
   .await
 }
 
-/// The app's stack push, on the same core. Most templates name the repository itself as `origin` (`.`), so a test of a
-/// push answers it in the page (`routePushBranches`); the progress stays there too
+/// The app's stack push, through the same guarded push. Most templates name the repository itself as `origin` (`.`), so
+/// a test of a push answers it in the page (`routePushBranches`); the progress stays there too
 pub async fn push_branches(State(state): State<Arc<AppState>>, Json(params): Json<sync_core::push::PushBranchesParams>) -> CommandResult<sync_core::push::PushBranchesOutcome> {
-  ensure_repository_exists(&state, &params.repository_path)?;
-  let git_executor = state.git_executor.clone();
-  // the refusal of a branch the last sync did not build, as the app's command does
-  let not_built = state.repository_views.not_built(&params.repository_path, &params.branch_prefix);
+  let (git_executor, views, robots) = push_inputs(&state, &params.repository_path, &params.branch_prefix).await?;
   run_command("push the branches", move || {
-    let not_built = not_built.ok_or_else(|| anyhow::anyhow!(sync_core::push::NOT_SYNCED_YET))?;
-    sync_core::push::push_branches(&git_executor, &params, &not_built, &mut |_| {})
+    let common_dir = git_common_dir(&git_executor, &params.repository_path)?;
+    push_guarded(&git_executor, &common_dir, &views, robots, &params, &mut |_| {})
   })
   .await
+}
+
+/// What the guarded push of the repository at `path` reads, as the app's command reads it: the git, the views and the
+/// user's robots of the fake Patronus (`robots_for_checks`; none off Space)
+async fn push_inputs(
+  state: &AppState,
+  path: &str,
+  branch_prefix: &str,
+) -> Result<(git_executor::git_command_executor::GitCommandExecutor, RepositoryViews, Vec<PatronusRobot>), CommandFailure> {
+  ensure_repository_exists(state, path)?;
+  let robots = match space_of(state, path)? {
+    Some((host, space)) => host.patronus_service().robots_for_checks(&space.name, branch_prefix).await,
+    None => Vec::new(),
+  };
+  Ok((state.git_executor.clone(), state.repository_views.clone(), robots))
+}
+
+/// `$GIT_COMMON_DIR` of the repository at `path`, where the repository lock lives
+fn git_common_dir(git_executor: &git_executor::git_command_executor::GitCommandExecutor, path: &str) -> anyhow::Result<std::path::PathBuf> {
+  let dirs = repository_dirs(git_executor, path)?.ok_or_else(|| anyhow::anyhow!("Cannot find the git directory of {path}"))?;
+  Ok(std::path::PathBuf::from(dirs.git_common_dir))
 }
 
 /// The GitHub repository of the repository at `path` as the app resolves it (`commands/pull_requests.rs`): a known

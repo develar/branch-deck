@@ -208,14 +208,14 @@
     "id": "direct-ipc-skips-the-checks",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "the IPC of a start, a restart, a cancel and a push runs without the checks of the decision and without the repository lock; bd checks and locks in its commands",
+    "title": "the IPC of a start, a restart and a cancel runs without the checks of the decision; bd checks in its commands. The push of both sides holds the repository lock and refuses parked, landed and held branches in Rust (s1-holes)",
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/patronus.spec.md#restart-and-cancel", "spec/cli/agent-cli.spec.md#bd-push"],
     "discrepancy": "D10",
     "today": {
       "app": [
         "src-tauri/src/commands/patronus.rs#pub async fn start_patronus_robot",
         "src-tauri/src/commands/patronus.rs#pub async fn cancel_patronus_robot",
-        "src-tauri/src/commands/push.rs#pub async fn push_branch("
+        "crates/repository-view/src/push_guard.rs#pub fn push_guarded("
       ],
       "bd": ["crates/bd-remote/src/push_command.rs#let repository_lock = lock(context)?;"]
     }

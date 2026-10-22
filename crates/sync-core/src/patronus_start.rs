@@ -76,6 +76,15 @@ pub fn is_start_blocked(robot: &PatronusRobot, local_tip: Option<&str>, pushed_t
       .is_some_and(|revision| Some(revision) == local_tip || Some(revision) == pushed_tip)
 }
 
+/// "auth", "auth and login", "auth, login and oauth"
+pub fn join_names(names: &[String]) -> String {
+  match names {
+    [] => String::new(),
+    [only] => only.clone(),
+    [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+  }
+}
+
 /// How many commit ids a refusal lists
 const LISTED_COMMITS: usize = 3;
 

@@ -5,11 +5,12 @@
 //! safe-push` refuses it (`landed`): a push or a robot would land nothing.
 
 use crate::patronus_facts::PatronusFacts;
-use crate::safe_push_command::{RobotSummary, join_names, robot_summary};
+use crate::safe_push_command::{RobotSummary, robot_summary};
 use bd_core::context::RepoContext;
 use bd_core::output::ShortIds;
 use domain_types::landing::Subject;
 use domain_types::patronus::PatronusRobot;
+use repository_view::push_guard::{self, landed_words};
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -32,37 +33,19 @@ impl LandedBranch {
     self.after.is_empty()
   }
 
-  /// The robot of the landed branch itself
-  fn is_own(&self, name: &str) -> bool {
-    self.by.is_branch(name)
-  }
-
-  /// "auth landed in master with the Safe Push of oauth (<url>)", of its own robot "oauth merged into master (<url>)"
+  /// "auth landed in master with the Safe Push of oauth (<url>)", of its own robot "auth merged into master with its
+  /// Safe Push (<url>)" (`push_guard::landed_words`, the app's push says it too)
   pub fn reason(&self, name: &str) -> String {
-    let target = &self.robot.target_branch;
-    if self.is_own(name) {
-      format!("{name} merged into {target} with its Safe Push ({})", self.robot.url)
-    } else {
-      format!("{name} landed in {target} with the Safe Push of {} ({})", self.by.words(), self.robot.url)
-    }
+    landed_words(name, &self.by, &self.robot)
   }
 }
 
-/// "every branch of the whole auth stack landed in master with the Safe Pushes of login and session": what merged Safe
-/// Pushes landed of a whole stack every branch of which they landed whole (`landed`, one per branch), each subject
-/// named once in the order they merged, as the app names them (`formatLandedWholeReason`); the target of the first
+/// "every branch of the whole auth stack landed in master with the Safe Pushes of login and session"
+/// (`push_guard::every_branch_landed`): what merged Safe Pushes landed of a whole stack every branch of which they landed
+/// whole (`landed`, one per branch)
 pub fn every_branch_landed(what: &str, landed: &[&LandedBranch]) -> String {
-  let mut merged: Vec<&LandedBranch> = landed.to_vec();
-  merged.sort_by_key(|landed| landed.robot.finish_time.unwrap_or(0));
-  let mut by: Vec<String> = Vec::new();
-  for subject in merged.iter().map(|landed| landed.by.words()) {
-    if !by.contains(&subject) {
-      by.push(subject);
-    }
-  }
-  let pushes = if by.len() == 1 { "Safe Push" } else { "Safe Pushes" };
-  let target = merged.first().map_or("the target", |landed| landed.robot.target_branch.as_str());
-  format!("every branch of {what} landed in {target} with the {pushes} of {}", join_names(&by))
+  let landed: Vec<(Subject, &PatronusRobot)> = landed.iter().map(|landed| (landed.by.clone(), &landed.robot)).collect();
+  push_guard::every_branch_landed(what, &landed)
 }
 
 /// `landed_by` of `bd status`: the merged Safe Push that landed the branch, and what of it

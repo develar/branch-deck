@@ -1,6 +1,7 @@
 //! What the app keeps to answer `get_repository_view` (and the E2E server, with the same code): the branch table of the
 //! last sync of each repository and branch prefix, the memo of what its views asked by content, and the landing needs
 //! of its branches. A sync that fails keeps the table of the one before: a view is of the last table a sync finished.
+//! The checks of the app's push read the same table and memo with the robots Rust read itself (`guard_facts`).
 //!
 //! The landing needs (`sync_core::landing_gate::landing_needs`) are a fact with its inputs: the baseline, the tips of
 //! the table and the commits merged Safe Pushes landed. A view whose inputs have no answer yet says `unknown` and starts
@@ -8,8 +9,10 @@
 //! again. `wait_landing_needs` resolves once it finished, and the page asks the view again.
 
 use crate::branch_table::BranchTable;
-use crate::patronus_view::{ContentMemo, landed_commits, patronus_view, with_landing_needs};
+use crate::patronus_view::{ContentMemo, landed_commits, match_robots, patronus_view, with_landing_needs};
+use crate::push_guard::GuardFacts;
 use domain_types::landing::LandingRefusal;
+use domain_types::patronus::PatronusRobot;
 use domain_types::repository_view::{GetRepositoryViewParams, PatronusView, RepositoryView, WaitLandingNeedsParams};
 use domain_types::stack::BlockReason;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -29,9 +32,9 @@ use tracing::{debug, instrument};
 const KEPT: u64 = 32;
 
 /// The table a sync finished, numbered
-struct SyncedTable {
+pub(crate) struct SyncedTable {
   generation: u32,
-  table: BranchTable,
+  pub(crate) table: BranchTable,
 }
 
 /// The landing needs of every branch, by branch; a branch not listed needs nothing
@@ -125,22 +128,9 @@ impl RepositoryViews {
         patronus: PatronusView::default(),
       };
     };
-    let memo = self.memos.get_with(key.clone(), || Arc::new(Mutex::new(ContentMemo::default())));
-    // a poisoned memo (a panic in an earlier view) starts again
-    let mut memo = memo.lock().unwrap_or_else(|poisoned| {
-      memo.clear_poison();
-      poisoned.into_inner()
+    let mut patronus = self.with_memo(&key, |memo| {
+      patronus_view(git_executor, &params.repository_path, &synced.table, &params.remote, &params.robots, &params.matched, memo)
     });
-    let mut patronus = patronus_view(
-      git_executor,
-      &params.repository_path,
-      &synced.table,
-      &params.remote,
-      &params.robots,
-      &params.matched,
-      &mut memo,
-    );
-    drop(memo);
     let (needs, landing_generation) = self.landing_needs(git_executor, cache, &key, &synced.table, landed_commits(&patronus));
     if let Some(needs) = needs {
       with_landing_needs(&mut patronus, &synced.table, &needs);
@@ -151,6 +141,30 @@ impl RepositoryViews {
       landing_generation,
       patronus,
     }
+  }
+
+  /// The facts the checks of the app's push read (`push_guard`): the kept table, `robots` as Rust read them, matched as
+  /// the rows match them, and the Patronus view of both on the table's remote facts, through the memo of the views;
+  /// `None` before the first sync. Runs git for the robots the hashes and the memo don't answer: call from a blocking
+  /// context
+  #[instrument(skip_all, fields(repository_path = %repository_path, robots = robots.len()))]
+  pub fn guard_facts(&self, git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str, robots: Vec<PatronusRobot>) -> Option<GuardFacts> {
+    let key = (repository_path.to_string(), branch_prefix.to_string());
+    let synced = self.tables.get(&key)?;
+    let table = &synced.table;
+    let matched = match_robots(table, &table.remote, &robots);
+    let view = self.with_memo(&key, |memo| patronus_view(git_executor, repository_path, table, &table.remote, &robots, &matched, memo));
+    Some(GuardFacts::new(synced, robots, view))
+  }
+
+  /// Runs `ask` with the memo of `key`; a poisoned memo (a panic in an earlier view) starts again
+  fn with_memo<T>(&self, key: &(String, String), ask: impl FnOnce(&mut ContentMemo) -> T) -> T {
+    let memo = self.memos.get_with(key.clone(), || Arc::new(Mutex::new(ContentMemo::default())));
+    let mut memo = memo.lock().unwrap_or_else(|poisoned| {
+      memo.clear_poison();
+      poisoned.into_inner()
+    });
+    ask(&mut memo)
   }
 
   /// The landing needs of `table` with `landed`, when the last computation was of these inputs; else `None`, and the

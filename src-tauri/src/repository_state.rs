@@ -3,7 +3,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{RepositoryDirs, repository_dirs};
 use moka::sync::Cache;
 use object_cache::cache::ObjectCache;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use sync_core::issue_navigation::load_issue_navigation_config;
@@ -94,6 +94,15 @@ impl RepositoryStateCache {
         None
       }
     }
+  }
+
+  /// `$GIT_COMMON_DIR` of the repository, where the repository lock lives (`dirs`: one `rev-parse` on the first call for a
+  /// path, then none): call from a blocking context
+  pub fn git_common_dir(&self, git: &GitCommandExecutor, repository_path: &str) -> anyhow::Result<PathBuf> {
+    let dirs = self
+      .dirs(git, repository_path)
+      .ok_or_else(|| anyhow::anyhow!("Cannot find the git directory of {repository_path}"))?;
+    Ok(PathBuf::from(&dirs.git_common_dir))
   }
 
   /// The object cache of the repository (`$GIT_COMMON_DIR/branch-deck/cache`), shared with `bd`. The first call for a

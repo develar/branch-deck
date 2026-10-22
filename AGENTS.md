@@ -328,7 +328,9 @@ Hard rules of the git the app and `bd` run; the flows and the reasons are in
   options, and the app's squash and its undo, squash fixups (also `bd fold`), amend, unapply and add issue reference
   through `RewriteOptions` (`held_lock`,
   `lock_timeout`, `expect_head` checked by `ensure_expected_head`, `repository_lock.rs`); then `bd sync`, `bd push`,
-  `bd safe-push` (the sync, the checks and the push; the robot start after it), `bd move-hunk`, `bd undo`,
+  `bd safe-push` (the sync, the checks and the push; the robot start after it), the app's `push_branch` and
+  `push_branches` (`repository_view::push_guard`: the lock, then the refusals of parked, landed and held branches in
+  Rust, then the push), `bd move-hunk`, `bd undo`,
   Update Project (the app and `bd update`, after the fetch, also when it starts a resolve session), `bd pick` (both
   worktrees under one hold), `bd unapply`, `bd reapply` and their undo, and `bd update --continue` and `--abort` hold
   `$GIT_COMMON_DIR/branch-deck.lock`

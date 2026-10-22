@@ -30,7 +30,7 @@ use history_rewrite::squash::{SquashCommitsParams, squash_commits_core};
 use object_cache::cache::{CacheConfig, ObjectCache};
 use pretty_assertions::assert_eq;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use test_utils::git_test_utils::{TestRepo, disable_background_maintenance};
+use test_utils::git_test_utils::{TestRepo, stack_ahead_of_bare_origin};
 use test_utils::sync_fixtures::TestReporter;
 
 const PREFIX: &str = "test";
@@ -1057,20 +1057,7 @@ fn the_text_of_a_new_pull_request_of_the_whole_stack() {
 /// remote branch is at its tip
 #[test]
 fn an_atomic_push_of_a_stack() {
-  let remote = tempfile::tempdir().unwrap();
-  let remote_path = remote.path().to_str().unwrap();
-  GitCommandExecutor::new()
-    .execute_command(&["init", "--bare", "-q", "--initial-branch=master", remote_path], remote_path)
-    .unwrap();
-  disable_background_maintenance(remote.path());
-  let repo = TestRepo::new();
-  repo.create_commit("Initial commit", "README.md", "# Test Project\n");
-  repo.git(&["remote", "add", "origin", remote_path]);
-  repo.git(&["push", "-q", "origin", "master"]);
-  let alpha = repo.create_commit("(alpha) Alpha", "alpha.txt", "alpha\n");
-  let beta = repo.create_commit("(alpha/beta) Beta", "beta.txt", "beta\n");
-  repo.git(&["update-ref", "refs/heads/test/virtual/alpha", &alpha]);
-  repo.git(&["update-ref", "refs/heads/test/virtual/beta", &beta]);
+  let repo = stack_ahead_of_bare_origin();
   let branch = |name: &str, parent: Option<&str>| StackPushBranch {
     branch_name: name.to_string(),
     parent_branch: parent.map(str::to_string),

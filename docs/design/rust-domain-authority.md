@@ -157,8 +157,10 @@ D — одинаковый ввод даёт разный результат в 
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_review_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the discrepancy cases name every id as the register does`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the safe push review cases answer as the app answers today`)
-- **D10.** Сегодняшнее поведение закреплено:
+- **D10.** Сегодняшнее поведение закреплено; push приложения закрыт в s1-holes (lock и отказы parked, landed, hold в
+  Rust, `push_guard`), старт, restart и cancel — ещё нет:
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`)
+  [@test] ../../crates/repository-view/src/push_guard_test.rs (`a_parked_branch_and_a_branch_built_on_parked_are_refused`, `a_branch_a_merged_safe_push_landed_whole_is_refused`, `a_branch_whose_own_safe_push_runs_is_refused_until_it_is_canceled`, `a_push_while_another_operation_holds_the_lock_is_refused`, `a_guarded_push_runs_the_processes_of_the_core_push`)
 - **D11.** Сегодняшнее поведение закреплено (три случая строки 5):
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_as_bd_answers_today`)
   [@test] ../../src/lib/scenario-cases.test.ts (`the next step row cases answer as the app answers today`)
@@ -875,6 +877,15 @@ rewrites между процессами через файл `s10`; `s12` ждё
     `bd push`: parked (сама или built on), landed whole (`HoldKind::Landed`), hold своего или span-робота, hold stack
     branch; unapplied ветка — только lock. Робот, которого страница отменила перед Push and Restart, — `Canceling` и не
     держит.
+    Сделано (s1-5): `repository_view::push_guard` — `push_guarded` / `push_branch_guarded` (lock, `guard_facts`,
+    `check_push`, затем `push_branches` ядра); `RepositoryViews::guard_facts` строит представление через memo видов;
+    `BranchTable::parked` несёт заметки (для `Parked::reason`). Слова hold'ов (`landed_words`, `every_branch_landed`,
+    `own_hold_words`, `span_hold_words`, `stack_hold_words`) переехали из `bd-remote` в `push_guard`, `bd` их вызывает;
+    свой hold приложение называет своим средством («restart it on the current branch»), `bd` — `--restart-running`.
+    Роботов приложение читает `PatronusService::robots_for_checks` (полный список); start, restart и cancel забывают
+    кешированный полный список (`FULL_LIST_REUSE` 10 с показал бы только что отменённого робота running и отказал бы
+    Push and Restart). Занятый lock: «Nothing was pushed: <держатель | another Branch Deck operation> holds the
+    repository; try again when it is done». Запись D10 реестра: push обеих сторон закрыт, старт/restart/cancel — нет.
   - D10, роботы: `start_patronus_robot` читает роботов сам (ошибка списка — ошибка старта, как в `bd safe-push`),
     строит факты и отказывает в parked, landed whole, not built (stack branch не `built`), `start`/`dry_run` refusal
     представления (overlap, last commit, ancestor), затем gate и target (`prepare_robot_start`). `landed_commits`

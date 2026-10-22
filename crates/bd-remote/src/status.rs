@@ -460,7 +460,7 @@ pub fn status(context: &RepoContext, args: &StatusArgs, environment: &Environmen
       not_built: HashMap::new(),
       copies: HashMap::new(),
       stack_branches: all_stacks.clone(),
-      parked: grouping.grouping.parked.entries.keys().cloned().collect(),
+      parked: grouping.grouping.parked.entries.clone(),
       // no sync: the remote tips the grouping read, no remote status
       remote: RemoteFacts {
         branches: grouping

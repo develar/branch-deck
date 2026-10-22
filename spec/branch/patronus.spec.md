@@ -55,6 +55,7 @@ targets:
   - ../../crates/sync-core/src/target_conflict.rs
   - ../../crates/git-ops/src/trial_rebase.rs
   - ../../src/stores/safe-push.ts
+  - ../../crates/repository-view/src/push_guard.rs
   - ../../src/components/branch/CreatePullRequestDialog.tsx
   - ../../src/hooks/useDismissesStaleReviews.ts
   - ../../crates/sync-core/src/branch_rules.rs
@@ -1222,6 +1223,17 @@ explicit choice of the user, offered only where the approvals count in a pull re
   it pushes. A branch a merged Safe Push landed is refused without a read: the robot finished, its commits are in the
   target. Nothing asks: no dialog.
   [@test] ../../src/lib/git/push.test.ts (`refuses the push: it won't land, and the Safe Push would fail at the end`, `pushes when the Safe Push finished meanwhile: the status is read fresh`, `refuses a branch a Safe Push of a branch built on it lands`, `refuses a branch a merged Safe Push of a branch built on it landed, without reading its status`)
+- The app's push itself (`push_branch`, `push_branches`, the E2E server's routes of them) checks the same in Rust
+  before it pushes, by the rules of `bd push` (`repository_view::push_guard`): under the repository lock it reads the
+  user's robots (one full list; none off Space, without a token or an answer, as `bd push` reads its holds) and refuses
+  a branch a merged Safe Push landed whole ("… merged into master with its Safe Push (…): nothing of it is left to
+  push"), a branch whose own Safe Push runs, one a Safe Push of a branch built on it or of its whole stack lands, and the
+  stack branch of a whole stack while its robot runs on it or every branch of it landed whole: "Nothing was pushed: …",
+  shown in the error toast of the push. A robot the page canceled before its restart is canceling and holds nothing (a
+  start, a restart and a cancel make the next list ask Patronus). A push raced with a start, or one that came by IPC
+  without the page's checks, pushes nothing then.
+  [@test] ../../crates/repository-view/src/push_guard_test.rs (`a_branch_a_merged_safe_push_landed_whole_is_refused`, `a_branch_whose_own_safe_push_runs_is_refused_until_it_is_canceled`, `a_branch_a_running_safe_push_lands_and_a_stack_branch_its_robot_runs_on_are_refused`)
+  [@test] ../../crates/patronus/src/actions_test.rs (`a_start_a_restart_and_a_cancel_forget_the_full_list`)
 - The one push into a held branch is a robot action: "Restart Safe Push" of a running robot whose branch
   changed since (the menu, the robot details, the landing overview; "Cancels the run on 1a2b3c4, pushes auth and starts
   it again on the pushed commit") cancels it, pushes and restarts it on the pushed commit. The restart is the action: its

@@ -487,6 +487,7 @@ impl PatronusService {
     let token = self.action_token()?;
     let response = self.client().start_robot(&token.value, &request).await;
     let robot_id = self.settle(response, &token.stamp).map_err(availability_message)?;
+    self.forget_full_lists();
     let mut robot = self.fetch_robot(branch_prefix, &robot_id).await?;
     // the robot knows the profile it was started with, also before Patronus has written it into its options
     if robot.profile.as_ref().is_none_or(|profile| profile.id.is_none()) && profile_id.is_some() {
@@ -505,6 +506,7 @@ impl PatronusService {
     let token = self.action_token()?;
     let response = self.client().restart_robot(&token.value, robot_id).await;
     let robot_id = self.settle(response, &token.stamp).map_err(availability_message)?;
+    self.forget_full_lists();
     self.fetch_robot(branch_prefix, &robot_id).await
   }
 
@@ -515,6 +517,7 @@ impl PatronusService {
     let response = self.client().cancel_robot(&token.value, robot_id).await;
     self.settle(response, &token.stamp).map_err(availability_message)?;
     self.caches.details.invalidate(robot_id);
+    self.forget_full_lists();
     self.fetch_robot(branch_prefix, robot_id).await
   }
 

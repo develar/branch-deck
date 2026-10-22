@@ -6,8 +6,11 @@
 //!   stack branches, the parked branches, the remote facts of the sync (`remote_facts`), `stack_ancestors`
 //! - `patronus_view`: what the robots land, landed and hold of the table, by the hashes and else by content
 //!   (`sync_core::robot_landing`), once per state (`ContentMemo`)
+//! - `push_guard`: the checks of the app's push under the repository lock, by the rules of `bd push`: parked, landed
+//!   whole, held by a running Safe Push; the words of the holds for both sides
 //! - `views`: what the app keeps to answer `get_repository_view`: the table of the last sync and the memo, by repository
 
 pub mod branch_table;
 pub mod patronus_view;
+pub mod push_guard;
 pub mod views;

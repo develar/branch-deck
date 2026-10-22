@@ -28,7 +28,7 @@ use sync_core::target_conflict::{TargetCheck, TargetConflictParams, target_confl
 use sync_utils::timestamp::unix_now;
 use tauri::State;
 use tauri::ipc::Channel;
-use tracing::instrument;
+use tracing::{instrument, warn};
 
 /// The Patronus client of the app: one HTTP client (kept-alive connection), the token and backoff state, and the
 /// Space repository of each repository, so a poll starts no git process
@@ -76,6 +76,19 @@ impl PatronusState {
     let space = run_blocking(move || find_space_repository(&git, &path)).await?;
     self.repositories.insert(repository_path.to_string(), space.clone());
     Ok(space)
+  }
+
+  /// The user's robots for the checks of an action (the app's push, `PatronusService::robots_for_checks`): none off Space,
+  /// or when the Space repository can't be read
+  pub(crate) async fn robots_for_checks(&self, git_executor: &GitCommandExecutor, repository_path: &str, branch_prefix: &str) -> Vec<PatronusRobot> {
+    match self.space_repository(git_executor, repository_path).await {
+      Ok(Some(space)) => self.service.robots_for_checks(&space.name, branch_prefix).await,
+      Ok(None) => Vec::new(),
+      Err(error) => {
+        warn!(error = ?error, "no robots for the checks: the Space repository is unknown");
+        Vec::new()
+      }
+    }
   }
 
   /// The Space repository, for an action: not on Space is an error

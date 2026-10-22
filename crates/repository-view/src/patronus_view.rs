@@ -629,7 +629,7 @@ pub fn with_landing_needs(view: &mut PatronusView, table: &BranchTable, needs: &
 
 #[cfg(test)]
 #[path = "patronus_view_test.rs"]
-mod patronus_view_test;
+pub(crate) mod patronus_view_test;
 
 #[cfg(test)]
 #[path = "patronus_view_content_test.rs"]

@@ -31,10 +31,10 @@ fn commit(id: &str, copy: &str) -> Commit {
 }
 
 /// A branch of a test table: its name, its base, its commits newest first as `(id, copy)`
-type BranchSpec<'a> = (&'a str, Option<&'a str>, &'a [(&'a str, &'a str)]);
+pub(crate) type BranchSpec<'a> = (&'a str, Option<&'a str>, &'a [(&'a str, &'a str)]);
 
 /// A table of `branches`, in this order, each virtual branch at the copy of its newest commit
-fn table(branches: &[BranchSpec<'_>]) -> BranchTable {
+pub(crate) fn table(branches: &[BranchSpec<'_>]) -> BranchTable {
   let mut table = BranchTable {
     prefix: "test".to_string(),
     baseline: "origin/master".to_string(),
@@ -52,7 +52,7 @@ fn table(branches: &[BranchSpec<'_>]) -> BranchTable {
 }
 
 /// auth with login built on it and oauth on login, oauth first in the table as the newest
-fn chain() -> BranchTable {
+pub(crate) fn chain() -> BranchTable {
   table(&[
     ("oauth", Some("login"), &[("o1", "vo1")]),
     ("login", Some("auth"), &[("l1", "vl1")]),
@@ -69,7 +69,7 @@ fn grown_chain() -> BranchTable {
   ])
 }
 
-fn robot(id: &str, branch: &str, status: PatronusRobotStatus, source: &str) -> PatronusRobot {
+pub(crate) fn robot(id: &str, branch: &str, status: PatronusRobotStatus, source: &str) -> PatronusRobot {
   PatronusRobot {
     id: id.to_string(),
     name: "IJPL-1 fix".to_string(),
@@ -88,18 +88,18 @@ fn robot(id: &str, branch: &str, status: PatronusRobotStatus, source: &str) -> P
   }
 }
 
-fn running(id: &str, branch: &str, source: &str) -> PatronusRobot {
+pub(crate) fn running(id: &str, branch: &str, source: &str) -> PatronusRobot {
   robot(id, branch, PatronusRobotStatus::Running, source)
 }
 
-fn merged(id: &str, branch: &str, source: &str, finish_time: u32) -> PatronusRobot {
+pub(crate) fn merged(id: &str, branch: &str, source: &str, finish_time: u32) -> PatronusRobot {
   PatronusRobot {
     finish_time: Some(finish_time),
     ..robot(id, branch, PatronusRobotStatus::Success, source)
   }
 }
 
-fn stack_robot(id: &str, root: &str, source: &str) -> PatronusRobot {
+pub(crate) fn stack_robot(id: &str, root: &str, source: &str) -> PatronusRobot {
   PatronusRobot {
     branch_name: None,
     stack_root: Some(root.to_string()),

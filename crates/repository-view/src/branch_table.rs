@@ -9,7 +9,7 @@ use domain_types::branch_names::to_final_branch_name;
 use domain_types::commit::Commit;
 use domain_types::repository_view::{RemoteFact, RemoteFacts};
 use domain_types::stack::{BlockReason, StackBranchUpdate};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use sync_core::remote_status::has_work_for_remote;
 use sync_core::robot_commits::mapped_virtual;
 use sync_core::sync::SyncReport;
@@ -29,7 +29,8 @@ pub struct BranchTable {
   /// Original id -> the virtual copy this sync wrote of it; a commit not here has the copy its mapping note names
   pub copies: HashMap<String, String>,
   pub stack_branches: Vec<StackBranchUpdate>,
-  pub parked: BTreeSet<String>,
+  /// The parked branches, each with the note the user parked it with
+  pub parked: BTreeMap<String, String>,
   /// What the sync knows of the remote branches of the table and of its stack branches (`remote_facts`); a table read
   /// without a sync (`bd status`) has the remote tips only
   pub remote: RemoteFacts,
@@ -46,7 +47,7 @@ impl BranchTable {
       not_built: report.not_built.clone(),
       copies: report.copies.clone(),
       stack_branches: report.stack_branches.clone(),
-      parked: report.grouping.parked.entries.keys().cloned().collect(),
+      parked: report.grouping.parked.entries.clone(),
       remote: remote_facts(prefix, report, statuses),
     }
   }

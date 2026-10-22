@@ -762,3 +762,33 @@ esac"#
   assert_eq!(without[0].log_tail, None);
   assert_eq!(fake.attempt_detail_calls.lock().unwrap().len(), 2);
 }
+
+/// A start, a restart and a cancel change the robots, so the next full list asks Patronus instead of reusing the one
+/// just fetched: the app's push reads the list right after the page canceled the robot it restarts, and a reused list
+/// would show it running and refuse the push (`repository_view::push_guard`)
+#[tokio::test]
+async fn a_start_a_restart_and_a_cancel_forget_the_full_list() {
+  let (fake, client) = start_fake().await;
+  fake.state_only.store(true, Ordering::SeqCst);
+  let (service, _) = service(client, token("t"));
+  let statuses =
+    |result: domain_types::patronus::PatronusRobotsResult| -> Vec<(String, PatronusRobotStatus)> { result.robots.into_iter().map(|robot| (robot.id, robot.status)).collect() };
+  assert_eq!(statuses(service.robots("ultimate", "me", None, false, false).await), []);
+  let source = "refs/heads/me/virtual/IJPL-1";
+  service
+    .start("ultimate", "me", source, "master", PatronusPushMode::RebaseAutosquash, None, None)
+    .await
+    .unwrap();
+  assert_eq!(
+    statuses(service.robots("ultimate", "me", None, false, false).await),
+    [("started-1".to_string(), PatronusRobotStatus::Running)]
+  );
+  service.cancel("me", "started-1").await.unwrap();
+  assert_eq!(
+    statuses(service.robots("ultimate", "me", None, false, false).await),
+    [("started-1".to_string(), PatronusRobotStatus::Canceling)]
+  );
+  service.restart("me", "started-1").await.unwrap();
+  assert_eq!(service.robots("ultimate", "me", None, false, false).await.robots.len(), 2);
+  assert_eq!(fake.list_calls.load(Ordering::SeqCst), 4);
+}

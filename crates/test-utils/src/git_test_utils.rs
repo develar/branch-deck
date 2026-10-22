@@ -57,6 +57,25 @@ pub fn disable_background_maintenance(repo_path: &Path) {
   }
 }
 
+/// A repository on a bare `origin` (`.git/origin.git`, no background maintenance) that has only its `master`, with
+/// `alpha` and `beta` built on it committed ahead and their virtual branches (`test/virtual/…`) at their commits: what
+/// the tests of the app's stack push push
+pub fn stack_ahead_of_bare_origin() -> TestRepo {
+  let repo = TestRepo::new();
+  repo.create_commit("Initial commit", "README.md", "# Test Project\n");
+  let origin = repo.path().join(".git/origin.git");
+  let origin = origin.to_str().expect("a UTF-8 path");
+  repo.git(&["init", "--bare", "-q", "--initial-branch=master", origin]);
+  disable_background_maintenance(Path::new(origin));
+  repo.git(&["remote", "add", "origin", origin]);
+  repo.git(&["push", "-q", "origin", "master"]);
+  let alpha = repo.create_commit("(alpha) Alpha", "alpha.txt", "alpha\n");
+  let beta = repo.create_commit("(alpha/beta) Beta", "beta.txt", "beta\n");
+  repo.git(&["update-ref", "refs/heads/test/virtual/alpha", &alpha]);
+  repo.git(&["update-ref", "refs/heads/test/virtual/beta", &beta]);
+  repo
+}
+
 /// A `pre-receive` hook in the bare repository at `bare_path` that refuses every push, as a protected branch does
 pub fn refuse_every_push(bare_path: &Path) {
   let hook = bare_path.join("hooks/pre-receive");

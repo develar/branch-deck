@@ -209,6 +209,11 @@ written, except by Update Project and the finish of its resolve session (their o
    only the ones that differ are written.
 7. **Git 2.54 or newer**, checked when the executor discovers git, on every platform, so that every command fails
    early with an install or upgrade hint.
+8. **Every push of virtual branches holds the repository lock and decides in Rust what may go**: `bd push` and `bd
+   safe-push` after their sync, the app's `push_branch` and `push_branches` through `repository_view::push_guard`. A
+   parked branch, one built on parked, one a merged Safe Push landed whole and one a running Safe Push holds are
+   refused by the same view of the robots (`patronus_view`) on both sides, whatever the page checked before ("App
+   stack push").
 
 ### Minimum Git version
 
@@ -477,7 +482,9 @@ was made for, abbreviated ids allowed, else `HeadMoved` (`ensure_expected_head`,
 shows a lock held for the whole wait as the error toast of the action, "Cannot squash the fixups" with "Another
 Branch Deck operation holds … ; retry when it is done". `bd sync`, `bd push`, `bd safe-push` (until its push; with
 `--check` only its sync),
-`bd move-hunk`, `bd pick` (the moves of both worktrees under one hold) and `bd undo` take it, and so does Update Project (the app's and `bd update`, which also starts a
+`bd move-hunk`, `bd pick` (the moves of both worktrees under one hold) and `bd undo` take it, so does the app's push
+(`push_branch`, `push_branches`: `push_guard`, on the `$GIT_COMMON_DIR` the app keeps, so the push and its checks see
+the branches no other writer moves meanwhile; "App stack push"), and so does Update Project (the app's and `bd update`, which also starts a
 resolve session under it) after its fetch, and `bd update --continue` and `--abort`; `bd update --status` takes
 none. A holder writes who it is next to the lock (`branch-deck.lock.holder`: the command line, the pid, the start of
 the process and the time, through a temporary file and a rename) once it has the lock, and deletes it before it
@@ -2542,7 +2549,19 @@ lacks, and its pull request showing the parent's commits.
    on the branches as they are (`stackPushOrder`, `stackChildrenPushOrder`, the steps of Push Up to Here). The holds
    are checked per branch (`checkPushHold`; a held one refuses the whole push, the robot a Safe Push start replaces is
    canceled once), and an open pull request that needs a retarget is retargeted, as before a push of one branch.
-2. `push_branches` first refuses a branch the last sync did not build (`not_built_refusal`, by `SyncReport::not_built`,
+2. The Tauri commands (`push_branch`, `push_branches`) and the E2E server's routes of them go through one function,
+   `repository_view::push_guard::push_guarded`. Before it, the user's robots are read (one full list of Patronus,
+   `robots_for_checks`; none off Space, without a token or an answer, logged: best effort, as `bd push` reads its
+   holds); a start, a restart or a cancel makes the next list ask Patronus, so a robot the page canceled before its
+   restart is canceling and holds nothing. Then the repository lock (`lock_repository_in` on the `$GIT_COMMON_DIR` the
+   app keeps per repository, `RepositoryStateCache`: no git process), bounded by `DEFAULT_LOCK_TIMEOUT` ("Nothing was
+   pushed: `bd sync` (…) holds the repository; try again when it is done"), and under it the checks of `bd push` on the
+   table of `RepositoryViews` and the Patronus view of the robots (`guard_facts`, through the memo of the views): a
+   parked branch or one built on parked, one a merged Safe Push landed whole, one a running Safe Push holds (its own,
+   of a branch built on it, of its whole stack), the stack branch of a whole stack with a parked member, landed whole
+   or whose robot runs on it; an unapplied branch only takes the lock. The page checks the same before (step 1) and
+   says it in its words; these refuse what raced with a start or came by IPC.
+3. `push_branches` first refuses a branch the last sync did not build (`not_built_refusal`, by `SyncReport::not_built`,
    which the Tauri commands take from the table of `RepositoryViews` and `bd` from its own sync): a conflict, an error
    or a ref another process moved leaves the virtual branch at an older build, of commits the branch may no longer
    have, and a push pressed while that sync ran would push it. Then it reads the tips of all branches with one
@@ -2551,15 +2570,15 @@ lacks, and its pull request showing the parent's commits.
    pushes them with one `git push --porcelain --atomic --progress` (`push_leased`). The progress of the one push is
    the progress of each of its branches: every row shows it, the row it started from names it ("Pushing 7 branches
    45%").
-3. Pushed: one `for-each-ref` reads the local and the remote tips of every branch, one `reflog` their push times
+4. Pushed: one `for-each-ref` reads the local and the remote tips of every branch, one `reflog` their push times
    (`compute_remote_statuses`); no walk, each remote branch is at its tip. The page updates every row, records an
    Activity entry per branch, refreshes the pull requests once and shows one toast.
-4. Refused: nothing was pushed. Every branch is fetched, their statuses computed the same way, and the first branch
+5. Refused: nothing was pushed. Every branch is fetched, their statuses computed the same way, and the first branch
    (parents first) whose fetched head is not its lease is named (`PushBranchesOutcome::RemoteMoved`): every row shows
    what its remote has now. When that remote has no commits its branch lacks (`pushesOverMovedRemote`), the page pushes
    the stack again at once, leased on the fetched heads, once; else the toast of that branch offers its push over it.
    When every lease held, the remote refused for another reason: an error, as for one branch.
-5. The stack branch of the whole stack (`{prefix}/stack/<root>`) goes the same way, as a branch of `push_branches`
+6. The stack branch of the whole stack (`{prefix}/stack/<root>`) goes the same way, as a branch of `push_branches`
    with `wholeStack` (no parent, no tip), leased on the remote head of its remote status, only while the sync built it:
    alone by the start of the Safe Push of the whole stack and the restart of its robot, the creation of its pull
    request and Request Review on it (`pushWholeStack`), the branches of the stack left as they are; and after the
@@ -2569,7 +2588,8 @@ lacks, and its pull request showing the parent's commits.
    of it runs at a time: a second request while one runs joins it (`runningStackBranchPushes`) and then pushes only
    what the remote still lacks, so no `push_branches` goes for a stack branch its remote already has.
 
-Code: `crates/sync-core/src/push.rs`, `src-tauri/src/commands/push.rs`, `src/lib/git/stack-push.ts`.
+Code: `crates/sync-core/src/push.rs`, `crates/repository-view/src/push_guard.rs`, `src-tauri/src/commands/push.rs`,
+`src/lib/git/stack-push.ts`.
 
 #### Patronus review pre-check
 

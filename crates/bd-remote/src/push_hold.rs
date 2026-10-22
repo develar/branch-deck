@@ -18,8 +18,8 @@ use domain_types::landing::Subject;
 use domain_types::patronus::PatronusRobot;
 use domain_types::repository_view::{Carried, HoldKind};
 use patronus::service::PatronusService;
+use repository_view::push_guard::{own_hold_words, span_hold_words, stack_hold_words};
 use std::collections::HashMap;
-use sync_core::patronus_start::{carried_ids, carried_words, push_mode_name};
 
 /// The robot that holds the push of a branch
 #[derive(Debug, Clone)]
@@ -48,22 +48,10 @@ impl PushHold {
     if let Some(landed) = &self.landed {
       return format!("{}: nothing of it is left to push", landed.reason(name));
     }
-    let mode = push_mode_name(self.robot.push_mode);
     if self.is_own(name) {
-      let source = self.source_branch.as_deref().map_or_else(String::new, |branch| format!(" on {branch}"));
-      format!(
-        "A {mode} of {name} is running{source}: a push moves the branch it took its commit from, so it won't land and fails the {mode} at the end. Wait until it merges, or pass --restart-running to cancel it, push and restart it ({})",
-        self.robot.url
-      )
+      own_hold_words(name, &self.robot, self.source_branch.as_deref(), "pass --restart-running to cancel it, push and restart it")
     } else {
-      let carried = self.carried.as_ref();
-      format!(
-        "A {mode} of {} is running: it lands {} with it{}, a push won't land ({})",
-        self.by.words(),
-        carried_words(name, carried),
-        carried_ids(carried),
-        self.robot.url
-      )
+      span_hold_words(name, &self.by, &self.robot, self.carried.as_ref())
     }
   }
 }
@@ -87,13 +75,7 @@ impl PushHolds {
   /// Why the stack branch of `root` is not pushed while the Safe Push of the whole stack runs on it, as the app says it
   /// (`formatStackPushHoldReason`): a push moves the branch the robot took its commit from
   pub fn stack_hold_reason(&self, root: &str) -> Option<String> {
-    let robot = self.stack_robots.get(root)?;
-    let mode = push_mode_name(robot.push_mode);
-    Some(format!(
-      "a {mode} of {} is running on it: a push moves the branch it took its commit from and fails the {mode} at the end; wait until it merges ({})",
-      Subject::WholeStack { root: root.to_string() }.words(),
-      robot.url
-    ))
+    Some(stack_hold_words(root, self.stack_robots.get(root)?))
   }
 
   /// Cancels the robot before the push that restarts it

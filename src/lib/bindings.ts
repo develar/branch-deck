@@ -8,15 +8,18 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 export const commands = {
 	/**
 	 *  Pushes a branch to the remote, replacing the remote branch only as the user saw it, and returns its new remote
-	 *  status; a remote that moved is fetched and returned instead. A branch the last sync did not build is refused.
-	 *  `progress` receives how far the push is.
+	 *  status; a remote that moved is fetched and returned instead. Under the repository lock, and refused in Rust as `bd
+	 *  push` refuses it (`push_guard`): a branch the last sync did not build, a parked branch or one built on parked, one a
+	 *  merged Safe Push landed whole, one a running Safe Push holds (the robots as Rust reads them). `progress` receives how
+	 *  far the push is.
 	 */
 	pushBranch: (params: PushBranchParams, progress: Channel<TransferProgress>) => typedError<PushOutcome, CommandError>(__TAURI_INVOKE("push_branch", { params, progress })),
 	/**
 	 *  Pushes the branches of a stack to the remote in one atomic push, all of them or none, each replacing its remote
 	 *  branch only as the user saw it, and returns their new remote statuses; a remote branch that moved is named, with the
-	 *  statuses fetched after it. A branch the last sync did not build refuses the push. `progress` receives how far the push
-	 *  is.
+	 *  statuses fetched after it. Under the repository lock, refused in Rust as `push_branch` is for any of its branches; the
+	 *  stack branch of a whole stack also while a member is parked, every member landed whole or its robot runs on it; an
+	 *  unapplied branch takes only the lock. `progress` receives how far the push is.
 	 */
 	pushBranches: (params: PushBranchesParams, progress: Channel<TransferProgress>) => typedError<PushBranchesOutcome, CommandError>(__TAURI_INVOKE("push_branches", { params, progress })),
 	/**

@@ -123,6 +123,17 @@ impl PatronusService {
     }
   }
 
+  /// The user's robots in `repository` for a check before an action of the app (its push, `repository_view::push_guard`):
+  /// one full list, as `bd push` reads its holds; none when Patronus can't be asked (no token, no answer), logged: best
+  /// effort, the page checked the robots it knows before
+  pub async fn robots_for_checks(&self, repository: &str, branch_prefix: &str) -> Vec<PatronusRobot> {
+    let result = self.robots(repository, branch_prefix, None, false, false).await;
+    if !matches!(result.availability, PatronusAvailability::Available) {
+      info!(availability = ?result.availability, "no robots for the checks: nothing holds");
+    }
+    result.robots
+  }
+
   /// The robots of `known` whose status changed; the others are not in the result. Always a background request.
   #[instrument(skip(self, known), fields(count = known.len()))]
   pub async fn poll(&self, branch_prefix: &str, known: &[KnownRobotStatus]) -> PatronusRobotsResult {
@@ -206,6 +217,13 @@ impl PatronusService {
   fn fresh_full_list(&self, repository: &str) -> Option<Vec<RobotDto>> {
     let (fetched_at, robots) = self.caches.full_lists.get(repository)?;
     (fetched_at.elapsed() < FULL_LIST_REUSE).then_some(robots)
+  }
+
+  /// A start, a restart or a cancel changed the robots: the next full list asks Patronus. A list reused within
+  /// `FULL_LIST_REUSE` would show a robot the page just canceled running, and the app's push into its branch would be
+  /// refused (`repository_view::push_guard`)
+  pub(crate) fn forget_full_lists(&self) {
+    self.caches.full_lists.invalidate_all();
   }
 
   pub(crate) const fn client(&self) -> &PatronusClient {
