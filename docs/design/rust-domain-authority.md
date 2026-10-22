@@ -583,19 +583,30 @@ read-only `target/debug/branch-deck cli status|check -C <fixture>` в сравн
   - `UPDATE_BINDINGS=1 cargo nextest run -p branch-deck -E 'test(/the_bindings_are_what_the_export_writes/)'` пишет
     `src/lib/bindings.ts` (`src-tauri/src/bindings_test.rs`); сообщение теста называет эту команду; экспорт в `run()`
     (`src-tauri/src/lib.rs`) удаляется; строка Verification в AGENTS.md меняется.
-  - Тест-реестр: каждое из 111 имён `collect_commands!` либо маршрутизируется test-server (сегодня 75 имён из 77
-    маршрутов), либо стоит в `PAGE_MOCKED` с причиной и точным числом (сегодня 35, обработчики `tauri-mocks.ts:482-570`
-    плюс команды без маршрута); число никогда не растёт. Прокси неизвестных команд на сервер и отказ на 405 уже есть
+  - Тест-реестр (`crates/test-server/src/command_registry_test.rs`, скан трёх источников как scan-тесты git): каждое
+    из 111 имён `collect_commands!` либо маршрутизируется test-server (сегодня 76 имён из 77 маршрутов; 77-й —
+    `get_blob_syntax`, команда сырых байт вне `collect_commands!`), либо стоит в `PAGE_MOCKED` с причиной и точным
+    числом (сегодня 35: 6 обработчиков `COMMAND_HANDLERS` в `tauri-mocks.ts` — окна, меню, обновления — и 29 команд,
+    которые достигают сервера только через `routeCommand` теста, иначе 405); число никогда не растёт. Четыре обёртки
+    `COMMAND_HANDLERS` над маршрутом (`get_file_diffs`, `get_file_merges`, `sync_branches`, `set_repository_config`)
+    считаются маршрутизированными. Прокси неизвестных команд на сервер и отказ на 405 уже есть
     (`tauri-mocks.ts:106,153-157,595`) и не пишутся заново.
   - `architecture_test.rs` над `cargo metadata` с правилами [Crates](#crates-и-направление-зависимостей) и allowlist
     сегодняшних нарушений: `sync-types → git-ops`, `patronus → git-ops`, `sync-core → github/patronus/youtrack/
     file-diffs/code-symbols`, `bd-remote → bd-rewrite`, `src-tauri → bd-lease`. `bd-clustering` до переименования
     тест считает библиотекой, не семейством; dev-dependency на `bd-cli` с `fixtures` правила разрешают.
-  - Span на каждую команду Tauri и `bd` с `operation_id`, id в записях Activity.
-  - Baseline'ы, записанные в этот документ: `pnpm perf:table` (с новыми счётчиками: патчи или события на sync, байты
-    IPC, перерисованные строки, IPC на hover), `pnpm perf:monorepo pin`/`measure`, `pnpm perf:bd-rebuild measure`,
-    длительность nextest и e2e, размер eager JS, байты `SyncEvent` полного sync на `branch_table_large`.
-  - Комментарий `patronus_start.rs:49` исправлен.
+  - Span на каждую команду Tauri и `bd` с `operation_id`: тип `OperationId` (ULID, `sync-utils`) пока создаётся на
+    каждый вызов (корневой span `operation{op, operation_id}` в `bd_cli::run`, child span в `run_blocking`, который
+    переносит `Span::current()` в `spawn_blocking`); с `s10` его создаёт допуск. `CommandError` несёт `operation_id`
+    (аддитивно), запись Activity об ошибке — `operationId`; JSON `bd` до `s10` не меняется.
+  - Baseline'ы, записанные в этот документ: `pnpm perf:table` (с новыми счётчиками `tauri-mocks.ts`: события sync и
+    вызовы на sync, байты IPC, IPC на hover строки, открытие меню и поповера), `pnpm perf:monorepo pin`/`measure`,
+    `pnpm perf:bd-rebuild measure`, длительность nextest и e2e, размер eager JS, байты `SyncEvent` полного sync на
+    `branch_table_large` (измерительный `#[ignore]`-тест test-server). Перерисованные строки (B3) в production-сборке
+    не считаются (`Profiler` там пуст): `s0a` записывает аналитическое значение, счётчик на профилирующей сборке
+    `perf:table` приходит в `s8` вместе с его целью.
+  - Комментарий `patronus_start.rs:49` исправлен: файл — `src/test-support/robot-match-cases.json`, его читают и
+    `patronus_start_test.rs`, и `src/lib/patronus.test.ts`.
 - **Удаляется:** экспорт bindings в `run()`.
 - **Проверки:** suite зелёный; `bindings.ts` байт в байт; реестр-тест; baseline'ы закоммичены.
 - **Критерий выхода:** bindings регенерируются headless; `PAGE_MOCKED` = 35 зафиксирован; таблица baseline'ов в
@@ -946,7 +957,7 @@ Baseline'ы измеряются в `s0a-safety-net` на одной машин�
 | --- | --- | --- | --- | --- | --- |
 | B1 | IPC-сообщений странице на sync 141 строки | O(коммиты + 3 × ветки) `SyncEvent` + 2 `get_repository_view` | ≤ ⌈мс sync / 16⌉ + 2 патча, 0 дополнительных вызовов | тест сессии, счётчик `perf:table` | s6 |
 | B2 | IPC-байты на sync без изменений | события каждой ветки заново | ≤ 1 KiB (два переключения `sync`) | тест сессии | s6 |
-| B3 | Перерисованных строк на sync, изменивший одну ветку | ≥ 1 на строку (7 селекторов на строку) | 1 строка (+ таблица при смене порядка) | React Profiler в `perf:table` | s8 |
+| B3 | Перерисованных строк на sync, изменивший одну ветку | ≥ 1 на строку (7 селекторов на строку; аналитически, счётчика в production-сборке нет) | 1 строка (+ таблица при смене порядка) | React Profiler в профилирующей сборке `perf:table` (с s8) | s8 |
 | B4 | Script главного потока, первый sync 141 строки | 234–271 мс | ≤ base в s6; ≤ 170 мс (−30 %) в s8 | `perf:table` (отчёт) | s6, s8 |
 | B5 | Script, sync без изменений | 45–55 мс | ≤ 10 мс | `perf:table` | s6 |
 | B6 | IPC на hover, открытие меню, открытие поповера строки | интервал на поповер, работа на строку | 0 на hover и меню; 1 `set_demand` на поповер | счётчик IPC в e2e, точное утверждение | s7, s8 |
@@ -971,7 +982,7 @@ Baseline'ы измеряются в `s0a-safety-net` на одной машин�
 | `rendering-performance.md` | s6: поток патчей вместо `SyncEvent`; s8: части строки и презентеры, числа B3–B5 |
 | `distributed-settings.md` | s5: переписан — один писатель в Rust, версии, `origin` |
 | `e2e-testing.md` | s0b: fakes за реальными сервисами, счётчики, lint `routeCommand`; s4: `ApiError`; s6/s7: сессии, `data-view-version`, `advanceBackendClock`; s12: реестр |
-| `async-patterns.md` | s10: span через `run_blocking`; s6: actor сессии |
+| `async-patterns.md` | s0a: span `operation{operation_id}` через `run_blocking`; s10: id из допуска; s6: actor сессии |
 | `symbol-dependencies.md` «The gate» | s9: gate как `Reason::LandingRefused` в плане |
 | `agent-cli.md`, `spec/cli/agent-cli.spec.md` | s1: код D1; s9: retarget до push, `pushed_over`, `needs_push`/`--push`, `pull_request_other_base`, HTTP вне lock, `operation_id`, `plan_changed`; s10: `busy`, `bd operation forget` |
 | `spec/branch/{next-step, patronus, whole-stack, stacked-branches, safe-push-failure-prompt}.spec.md` | s8: `targets:` и test-ссылки на Rust-таблицы и презентеры; s1: неизвестные правила |
